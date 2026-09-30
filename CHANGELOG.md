@@ -4,6 +4,26 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.244 — 2026-09-30
+
+- **"Free up space" now has a one-click "Archive episode", and nothing it removes is ever deleted.** For an
+  uploaded episode it shrinks the scene images (re-saved as JPEG under their same names, about 12% of the
+  size) and moves the motion clips, the chapter narration and the uploaded final video to a `_trash` folder
+  beside your media (same drive: in the project folder, or under your media folder when heavy media lives on
+  another drive). The preview shows the before and after ("412 images 490 MB → ~57 MB; 3.1 GB moved to
+  _trash — space is freed when you empty _trash"). Thumbnails, merged narration, subtitles, scripts, prompts
+  and metadata are never touched. It runs one episode at a time, one image at a time, and refuses while any
+  video is being assembled on this Mac. "Select all uploaded and not yet archived" picks the episodes still to do.
+- **Removal is a move, not a delete.** The old "Remove local files" and the Storage page's "Verify & clear
+  local video" now move the files into `_trash` (kept under episode / category folders, a timestamp added if a
+  name is already there, existing `_trash` contents never touched). If a file cannot be moved it is left where
+  it was. You empty `_trash` yourself; space is freed then.
+- **Generated music is stored as AAC.** A WAV track from the music model (about 43 MB) is saved as a .m4a at
+  256 kbps; an MP3 is kept as delivered, and if encoding ever fails the original WAV is kept (the track is
+  already paid for). New narration is encoded at 96 kbps instead of 192 kbps (24 kHz speech, no audible change).
+
+---
+
 ## v1.4.243 — 2026-09-30
 
 - **Model pickers now show what a model really costs, and say so when nobody has published a price.** The

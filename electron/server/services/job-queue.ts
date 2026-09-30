@@ -4990,6 +4990,11 @@ export async function getJobs(projectSlug: string): Promise<Job[]> {
   return projectJobs
 }
 
+/** Every queued, running or paused job of one type on this server, across all projects. */
+export function activeJobsOfType(type: Job['type']): Array<Pick<Job, 'project_slug' | 'episode_id' | 'type' | 'status'>> {
+  return [...jobs.values()].filter(j => j.type === type && ['queued', 'running', 'paused'].includes(j.status))
+}
+
 export function getJob(jobId: string): Job | null {
   const job = jobs.get(jobId)
   return job ? safeJob(job) : null

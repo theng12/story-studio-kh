@@ -5394,7 +5394,9 @@ export async function listVideoModels(apiKey: string): Promise<GenStudioVideoMod
   return (await listVideoModelsSnapshot(apiKey)).value
 }
 
-function videoSourceMediaType(filename: string): string {
+function videoSourceMediaType(filename: string, bytes?: Uint8Array): string {
+  // The bytes win over the name: "Archive episode" re-saves scene images as JPEG under their .png names.
+  if (bytes && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
   switch (path.extname(filename).toLowerCase()) {
     case '.png': return 'image/png'
     case '.webp': return 'image/webp'
@@ -5588,7 +5590,7 @@ async function generateVideoWithGenStudioAdmitted(
   const uploadBody = new FormData()
   uploadBody.set(
     'upload',
-    new Blob([new Uint8Array(source)], { type: videoSourceMediaType(request.sourceImagePath) }),
+    new Blob([new Uint8Array(source)], { type: videoSourceMediaType(request.sourceImagePath, source) }),
     path.basename(request.sourceImagePath),
   )
   const sourceAsset = await requestJsonWithRetry(
@@ -7721,7 +7723,7 @@ export async function uploadImageSourceWithGenStudio(
 ): Promise<GenStudioImageSourceAsset> {
   const bytes = await fs.readFile(sourceImagePath)
   if (!bytes.length) throw new Error('Thumbnail reference image is empty.')
-  const type = videoSourceMediaType(sourceImagePath)
+  const type = videoSourceMediaType(sourceImagePath, bytes)
   if (!type.startsWith('image/')) throw new Error('Thumbnail reference must be a PNG, JPEG, WebP, or GIF image.')
   const body = new FormData()
   body.set('upload', new Blob([new Uint8Array(bytes)], { type }), path.basename(sourceImagePath))
@@ -9000,7 +9002,7 @@ async function completeTtsJobToFile(
     }
     if (!downloaded) throw downloadError instanceof Error ? downloadError : new Error('GenStudio KH audio download failed')
     await fs.mkdir(path.dirname(outPath), { recursive: true })
-    await runFfmpeg(['-y', '-i', tempPath, '-c:a', 'libmp3lame', '-b:a', '192k', outPath])
+    await runFfmpeg(['-y', '-i', tempPath, '-c:a', 'libmp3lame', '-b:a', '96k', outPath])
   } finally {
     await fs.rm(tempPath, { force: true }).catch(() => {})
   }

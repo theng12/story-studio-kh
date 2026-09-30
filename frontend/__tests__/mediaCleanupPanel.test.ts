@@ -128,3 +128,27 @@ test('interrupted removals identify pending outcomes separately from skipped fil
     assert.match(ui.host.textContent || '', /1 need review after interruption/)
   } finally { ui.close() }
 })
+
+test('Archive episode previews with the preset, shows the before/after estimate, runs as compress and never offers permanent removal', async () => {
+  const calls: any[] = []
+  const presetPreview = { ...preview, preset: 'archive_episode', estimate: { compress_files: 412, compress_bytes_before: 490 * 1024 ** 2, compress_bytes_after: 57 * 1024 ** 2, already_jpeg_files: 0, trash_files: 3, trash_bytes: 2.6 * 1024 ** 3 } }
+  const episodes = { episodes: [
+    { episode_code: 'EP0001', title: 'Done', video_id: 'a', local_media_status: { state: 'partially_removed', preset_archived_at: '2026-09-30T00:00:00Z' } },
+    { episode_code: 'EP0002', title: 'Fresh', video_id: 'b', local_media_status: { state: 'available', preset_archived_at: null } },
+  ], blocked_reasons: [] }
+  const ui = await mount({
+    get: async (url: string) => url.endsWith('/episodes') ? episodes : { id: 'preview-op', project_slug: 'first', kind: 'preview', status: 'completed', done: 1, total: 1, current: '', stage: null, preview: presetPreview },
+    post: async (url: string, body: any) => { calls.push({ url, body }); return { operation_id: url.endsWith('/preview') ? 'preview-op' : 'run-op' } },
+  })
+  try {
+    button(ui.host, 'Find uploaded episodes').click(); await flush()
+    button(ui.host, 'Select all uploaded and not yet archived').click(); await flush()
+    button(ui.host, 'Preview “Archive episode” for 1 selected').click(); await flush(); await flush()
+    assert.deepEqual(calls[0], { url: '/projects/first/media-cleanup/preview', body: { episode_codes: ['EP0002'], preset: 'archive_episode' } })
+    assert.match(ui.host.textContent || '', /412 images 490\.0 MB → ~57\.0 MB/)
+    assert.match(ui.host.textContent || '', /space is freed when you empty _trash/)
+    assert.doesNotMatch(ui.host.textContent || '', /permanent/i)
+    button(ui.host, 'Archive episode').click(); await flush()
+    assert.deepEqual(calls[1].body, { preview_id: 'review-1', mode: 'compress' })
+  } finally { ui.close() }
+})

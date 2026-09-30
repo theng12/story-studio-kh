@@ -26,6 +26,8 @@
 import fs from 'fs/promises'
 import path from 'path'
 
+import { runFfmpeg } from '../lib/ffmpeg-utils.js'
+
 import * as jq from '../services/job-queue.js'
 import { callAi } from '../lib/ai-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
@@ -176,9 +178,44 @@ export async function planMusicTracks(
 }
 
 /** Filesystem-safe track filename that keeps the human title readable. */
-export function musicTrackFilename(title: string, jobId: string, takeIndex: number): string {
+export function musicTrackFilename(title: string, jobId: string, takeIndex: number, ext: 'm4a' | 'mp3' = 'm4a'): string {
   const stem = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
-  return `${stem || 'track'}-${jobId.slice(-8)}-take${takeIndex}.mp3`
+  return `${stem || 'track'}-${jobId.slice(-8)}-take${takeIndex}.${ext}`
+}
+
+const isWav = (b: Buffer) => b.length > 12 && b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WAVE'
+
+/**
+ * Store one paid track. A WAV body (Hub Stable Audio 3 sends ~43 MB of PCM per
+ * track) is encoded to AAC (.m4a, native `aac` — `aac_at` measured +0.125 s
+ * drift on concat); any other body (an MP3) is stored as delivered. The track
+ * is already paid for, so an encode failure keeps the raw bytes under the old
+ * `.mp3` name and warns rather than failing the save.
+ */
+export async function saveMusicTrack(
+  dir: string, title: string, jobId: string, takeIndex: number, body: Buffer,
+): Promise<{ filename: string; warning?: string }> {
+  const rawName = musicTrackFilename(title, jobId, takeIndex, 'mp3')
+  if (!isWav(body)) {
+    await fs.writeFile(path.join(dir, rawName), body)
+    return { filename: rawName }
+  }
+  const filename = musicTrackFilename(title, jobId, takeIndex)
+  const wav = path.join(dir, `.${filename}.partial-${process.pid}.wav`)
+  const out = path.join(dir, `.${filename}.partial-${process.pid}`)
+  try {
+    await fs.writeFile(wav, body)
+    await runFfmpeg(['-y', '-i', wav, '-vn', '-map_metadata', '-1', '-c:a', 'aac', '-b:a', '256k',
+      '-movflags', '+faststart', '-f', 'ipod', out])
+    await fs.rename(out, path.join(dir, filename))
+    return { filename }
+  } catch (error) {
+    await fs.rename(wav, path.join(dir, rawName)) // keep the paid bytes
+    return { filename: rawName, warning: `could not compress to AAC (${error instanceof Error ? error.message : String(error)}); kept the original WAV` }
+  } finally {
+    await fs.rm(wav, { force: true }).catch(() => {})
+    await fs.rm(out, { force: true }).catch(() => {})
+  }
 }
 
 /**
@@ -267,11 +304,12 @@ export async function generateMusicLibraryTracks(job: Job): Promise<void> {
         // EVERY track, not result.tracks[0]. Both are paid for.
         const group = siblingGroupForJob(result.jobId)
         for (const [take, track] of result.tracks.entries()) {
-          const filename = musicTrackFilename(plan.title, result.jobId, take + 1)
           const response = await fetch(track.url, { headers: result.downloadHeaders })
           if (!response.ok) throw new Error(`Could not download track ${take + 1}: HTTP ${response.status}`)
+          const { filename, warning } = await saveMusicTrack(
+            dir, plan.title, result.jobId, take + 1, Buffer.from(await response.arrayBuffer()))
+          if (warning) job.output_lines.push(`⚠ ${filename}: ${warning}`)
           const trackPath = path.join(dir, filename)
-          await fs.writeFile(trackPath, Buffer.from(await response.arrayBuffer()))
           // MEASURED HERE, at save time, and this is not optional.
           //
           // The mix builder treats a track with no measured duration as

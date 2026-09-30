@@ -43,6 +43,7 @@ import {
   resolveYouTubeSourceRevisionFromHandle,
 } from './youtube-source-video.js'
 import { withFinalVideoPathLock } from './final-video-lock.js'
+import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import {
   getExternalFinalVideoRoot,
   resolveExternalFinalVideoDir,
@@ -420,8 +421,8 @@ async function verifyFinalCleanupCandidates(
 }
 
 /**
- * Delete the final video files for a single episode at both the
- * project-tree location and the external root (if configured + present).
+ * Move the final video files for a single episode (never a hard delete: they
+ * go to `_trash`) at both the project-tree location and the external root (if configured + present).
  *
  * Per-scene clips are never touched by this function — those are a
  * separate concern (cost-to-regenerate via Veo/fal API). The Storage UI
@@ -449,11 +450,18 @@ export async function cleanupFinalVideoForEpisode(
 
   // Collect candidate paths from the project tree video_dir.
   const candidates: string[] = []
+  // Nothing is hard-deleted: each verified final moves to `_trash` on its own volume.
+  const trashTargets = new Map<string, string>()
+  const projectDir = pm.getProjectDir(slug)!
   if (existsSync(paths.video_dir)) {
     let entries: string[] = []
     try { entries = await fs.readdir(paths.video_dir) } catch { /* ignore */ }
     for (const name of entries) {
-      if (isFinalVideoName(code, name)) candidates.push(path.join(paths.video_dir, name))
+      if (isFinalVideoName(code, name)) {
+        const full = path.join(paths.video_dir, name)
+        candidates.push(full)
+        trashTargets.set(full, path.join(trashRootFor(projectDir, projectDir, slug), code, 'final_video', name))
+      }
     }
   }
   // Also collect from the external root, if the user has finals there.
@@ -463,7 +471,12 @@ export async function cleanupFinalVideoForEpisode(
       let entries: string[] = []
       try { entries = await fs.readdir(extDir) } catch { /* ignore */ }
       for (const name of entries) {
-        if (isFinalVideoName(code, name)) candidates.push(path.join(extDir, name))
+        if (isFinalVideoName(code, name)) {
+          const full = path.join(extDir, name)
+          candidates.push(full)
+          const extRoot = await getExternalFinalVideoRoot().catch(() => '')
+          trashTargets.set(full, path.join(trashRootFor(extRoot || path.dirname(extDir), projectDir, slug), code, 'final_video', name))
+        }
       }
     }
   } catch { /* external root unset → noop */ }
@@ -522,7 +535,8 @@ export async function cleanupFinalVideoForEpisode(
         }
       }
       try {
-        await fs.rm(file)
+        // status stays 'deleted' for API compatibility: the file left its place; it now waits in _trash.
+        moveToTrashSync(file, trashTargets.get(file)!)
         return { episode_code: code, file, status: 'deleted', bytes_freed: size }
       } catch (error: any) {
         return {
@@ -530,7 +544,7 @@ export async function cleanupFinalVideoForEpisode(
           file,
           status: 'failed',
           bytes_freed: 0,
-          reason: error?.message || 'rm failed',
+          reason: error?.message || 'move to _trash failed',
         }
       }
     })

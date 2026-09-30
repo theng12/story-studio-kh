@@ -13,7 +13,9 @@
  */
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, stat, writeFile, readdir } from 'node:fs/promises'
+import { spawnSync } from 'node:child_process'
+import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -22,6 +24,7 @@ import {
   MUSIC_GENSTUDIO_MODALITY,
   musicFleetBusyRetryPlan,
   musicTrackFilename,
+  saveMusicTrack,
   resolveMusicModel,
 } from '../generators/music-generate.js'
 import { FLEET_BUSY_RETRY_DELAYS_MS } from '../lib/genstudio-fleet-busy.js'
@@ -116,7 +119,8 @@ describe('both paid tracks are kept', () => {
     const b = musicTrackFilename('Adagio for a Still Morning', 'job_music_abcdef12', 2)
     assert.notEqual(a, b, 'two takes must not overwrite each other on disk')
     assert.match(a, /^adagio-for-a-still-morning-/)
-    assert.match(a, /take1\.mp3$/)
+    assert.match(a, /take1\.m4a$/)
+    assert.match(musicTrackFilename('x', 'job_music_abcdef12', 1, 'mp3'), /take1\.mp3$/)
   })
 
   test('a title of pure punctuation still yields a usable filename', () => {
@@ -230,5 +234,61 @@ describe('a retired model fails before anything is charged', () => {
   test('an empty catalogue refuses rather than returning nothing', () => {
     assert.throws(() => resolveMusicModel([], ''), /no music model/)
     assert.throws(() => resolveMusicModel([], 'suno-v5'), /no longer offered/)
+  })
+})
+
+describe('a WAV track is stored as AAC (v1.4.244)', () => {
+  const tone = async (dir: string, seconds: number) => {
+    const wav = path.join(dir, `tone-${seconds}.wav`)
+    const r = spawnSync('ffmpeg', ['-y', '-f', 'lavfi', '-i', `sine=frequency=440:duration=${seconds}`, '-ar', '44100', '-ac', '2', wav])
+    assert.equal(r.status, 0)
+    return { wav, bytes: await readFile(wav) }
+  }
+  const probe = (f: string) => Number(spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', f]).stdout.toString())
+
+  test('WAV -> .m4a, same duration, much smaller, no scratch left behind', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'music-aac-'))
+    const { bytes } = await tone(dir, 20)
+    const lib = await mkdtemp(path.join(os.tmpdir(), 'music-lib-'))
+    const saved = await saveMusicTrack(lib, 'Rain', 'job_music_abcdef12', 1, bytes)
+    assert.match(saved.filename, /take1\.m4a$/)
+    assert.equal(saved.warning, undefined)
+    assert.ok(Math.abs(probe(path.join(lib, saved.filename)) - 20) < 0.03, 'duration within 30 ms')
+    const size = (await stat(path.join(lib, saved.filename))).size
+    console.log(`music: 20 s WAV ${bytes.length} B -> m4a ${size} B (${(100 * size / bytes.length).toFixed(1)}%)`)
+    assert.ok(size < bytes.length / 4)
+    assert.deepEqual(await readdir(lib), [saved.filename])
+  })
+
+  test('an MP3 body passes through unchanged under the old name', async () => {
+    const lib = await mkdtemp(path.join(os.tmpdir(), 'music-lib-'))
+    const mp3 = Buffer.concat([Buffer.from('ID3'), Buffer.alloc(200, 7)])
+    const saved = await saveMusicTrack(lib, 'Rain', 'job_music_abcdef12', 2, mp3)
+    assert.match(saved.filename, /take2\.mp3$/)
+    assert.deepEqual(await readFile(path.join(lib, saved.filename)), mp3)
+  })
+
+  test('an encode failure keeps the paid WAV bytes and warns instead of failing', async () => {
+    const lib = await mkdtemp(path.join(os.tmpdir(), 'music-lib-'))
+    // RIFF/WAVE header with no audio: ffmpeg cannot encode it.
+    const broken = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WAVE'), Buffer.alloc(40, 1)])
+    const saved = await saveMusicTrack(lib, 'Rain', 'job_music_abcdef12', 1, broken)
+    assert.match(saved.filename, /take1\.mp3$/)
+    assert.match(saved.warning ?? '', /kept the original WAV/)
+    assert.deepEqual(await readFile(path.join(lib, saved.filename)), broken)
+    assert.deepEqual(await readdir(lib), [saved.filename])
+  })
+
+  test('two m4a tracks still stitch to the sum of their lengths', async () => {
+    const { buildStitchArgs, buildConcatList } = await import('../services/music-render.js')
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'music-stitch-'))
+    const lib = path.join(dir, 'lib'); await import('node:fs/promises').then(f => f.mkdir(lib))
+    const a = await saveMusicTrack(lib, 'A', 'job_music_aaaaaaaa', 1, (await tone(dir, 12)).bytes)
+    const b = await saveMusicTrack(lib, 'B', 'job_music_bbbbbbbb', 1, (await tone(dir, 17)).bytes)
+    const list = path.join(dir, 'list.txt')
+    await writeFile(list, buildConcatList([path.join(lib, a.filename), path.join(lib, b.filename)]))
+    const out = path.join(dir, 'mix.mp3')
+    assert.equal(spawnSync('ffmpeg', buildStitchArgs(list, out, 0)).status, 0)
+    assert.ok(Math.abs(probe(out) - 29) < 0.06, `stitched ${probe(out)}`)
   })
 })

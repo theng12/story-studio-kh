@@ -24,6 +24,7 @@ router.post('/projects/:slug/media-cleanup/preview', async (req, res) => {
     const started = await startMediaCleanupPreview(req.params.slug, {
       episode_codes: req.body?.episode_codes,
       categories: req.body?.categories,
+      preset: req.body?.preset,
     })
     res.status(202).json(started)
   } catch (error) {

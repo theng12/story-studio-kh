@@ -1,11 +1,14 @@
 import { isFinalVideoFilename } from '../lib/final-video-name.js'
 import { randomUUID } from 'node:crypto'
 import { episodeDirNameMatchesCode } from './asset-status.js'
-import { constants as fsConstants, existsSync, lstatSync, realpathSync, unlinkSync } from 'node:fs'
+import { closeSync, constants as fsConstants, existsSync, lstatSync, openSync, readSync, realpathSync, renameSync, unlinkSync, utimesSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import sharp from 'sharp'
 
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
+import { assertDecodableImage } from '../lib/image-validation.js'
+import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import type { Job } from '../models/types.js'
 import * as im from './idea-manager.js'
 import * as jq from './job-queue.js'
@@ -28,7 +31,18 @@ import { resolveYouTubeSourceRevision } from './youtube-source-video.js'
 
 export const MEDIA_CLEANUP_SIDECAR = 'local_media_cleanup.json'
 export type MediaCleanupCategory = 'images' | 'chapter_audio' | 'merged_audio' | 'motion_clips' | 'final_video'
-export type MediaCleanupMode = 'archive' | 'remove'
+/**
+ * `remove` moves to `_trash` (never a hard delete); `compress` re-encodes scene
+ * images as JPEG in place (originals to `_trash`) and moves every other
+ * selected category to `_trash`.
+ */
+export type MediaCleanupMode = 'archive' | 'remove' | 'compress'
+/** The one-click preset: shrink scene images, trash clips, chapter narration and the uploaded final. */
+export const ARCHIVE_EPISODE_CATEGORIES: MediaCleanupCategory[] = ['images', 'chapter_audio', 'motion_clips', 'final_video']
+/** Measured 2026-09-30: mozjpeg q90 of a generated scene PNG is 11.7% of its size. */
+const JPEG_SIZE_RATIO = 0.117
+const MIN_COMPRESSION_GAIN = 0.8
+const ALREADY_JPEG = 'Already a JPEG.'
 
 export interface MediaCleanupUploadProof {
   platform: 'youtube'
@@ -48,6 +62,10 @@ export interface MediaCleanupFile {
   sha256: string
   mtime_ms: number
   upload_proof: MediaCleanupUploadProof
+  /** Where a trash move lands (before any collision suffix). Same volume as the file. */
+  trash_path: string
+  /** Scene images only: already JPEG bytes, so compressing skips it. */
+  already_jpeg?: boolean
 }
 
 export interface MediaCleanupEpisodePreview {
@@ -68,6 +86,16 @@ export interface MediaCleanupPreview {
   files: MediaCleanupFile[]
   total_bytes: number
   blocked_reasons: string[]
+  preset?: 'archive_episode'
+  /** What `compress` mode would do; the JPEG figure is an estimate from the measured ratio. */
+  estimate: {
+    compress_files: number
+    compress_bytes_before: number
+    compress_bytes_after: number
+    already_jpeg_files: number
+    trash_files: number
+    trash_bytes: number
+  }
 }
 
 export interface MediaCleanupRunResult {
@@ -76,19 +104,27 @@ export interface MediaCleanupRunResult {
   items: Array<{
     path: string
     category: MediaCleanupCategory
-    outcome: 'archived' | 'removed' | 'skipped' | 'failed' | 'pending'
+    outcome: 'archived' | 'removed' | 'compressed' | 'skipped' | 'failed' | 'pending'
     bytes_reclaimed: number
     bytes_moved: number
+    bytes_after?: number
     destination_path?: string
     reason?: string
   }>
   archived_count: number
   removed_count: number
+  compressed_count: number
   skipped_count: number
   failed_count: number
   pending_count: number
+  /** Bytes freed on the source drive. A trash move frees nothing until the owner empties `_trash`. */
   bytes_reclaimed: number
+  /** Bytes archived to another folder. */
   bytes_moved: number
+  /** Bytes now waiting in `_trash` (removed files and compressed originals). */
+  bytes_trashed: number
+  /** Bytes of the JPEGs that replaced the compressed originals. */
+  bytes_after: number
 }
 
 export interface MediaCleanupOperation {
@@ -96,7 +132,7 @@ export interface MediaCleanupOperation {
   project_slug: string
   kind: 'preview' | 'run'
   status: 'queued' | 'running' | 'completed' | 'failed' | 'stopping' | 'stopped'
-  stage: 'checking' | 'archiving' | 'removing' | null
+  stage: 'checking' | 'archiving' | 'removing' | 'compressing' | null
   done: number
   total: number
   current: string
@@ -114,17 +150,21 @@ export interface LocalMediaCleanupCategoryStatus {
   archived_files: number
   pending_files: number
   bytes_reclaimed: number
+  /** Removed files that sit in `_trash` (not yet freed). */
+  bytes_trashed: number
 }
 
 export interface LocalMediaCleanupStatus {
   state: 'available' | 'archived' | 'partially_removed' | 'removed'
   updated_at: string | null
   has_retired_media: boolean
+  /** Set when the "Archive episode" preset finished cleanly for this episode. */
+  preset_archived_at: string | null
   categories: LocalMediaCleanupCategoryStatus[]
   blocked_reason?: string
 }
 
-type SidecarOutcome = 'pending_archive' | 'pending_remove' | 'archived' | 'removed' | 'skipped' | 'failed'
+type SidecarOutcome = 'pending_archive' | 'pending_remove' | 'archived' | 'removed' | 'compressed' | 'skipped' | 'failed'
 
 interface MediaCleanupSidecarEntry {
   entry_id: string
@@ -151,6 +191,7 @@ interface MediaCleanupSidecar {
   project_slug: string
   episode_code: string
   updated_at: string
+  archived_at?: string
   entries: MediaCleanupSidecarEntry[]
 }
 
@@ -166,6 +207,8 @@ interface RootSpec {
   anchor: string
   source_kind: string
   category: MediaCleanupCategory
+  /** `<trash root>/<code>/<category>/<source_kind>`: files land here under their relative path. */
+  trash_dir: string
   accepts(name: string): boolean
 }
 
@@ -221,6 +264,12 @@ function validateCategories(value: unknown): MediaCleanupCategory[] {
     throw fail('Media cleanup categories contain an unsupported value.')
   }
   return categories as MediaCleanupCategory[]
+}
+
+function resolveCategories(input: { categories: unknown; preset?: unknown }): MediaCleanupCategory[] {
+  if (input.preset === undefined || input.preset === null || input.preset === '') return validateCategories(input.categories)
+  if (input.preset !== 'archive_episode') throw fail('Unknown media cleanup preset.')
+  return [...ARCHIVE_EPISODE_CATEGORIES]
 }
 
 function validateEpisodeCodes(value: unknown): string[] {
@@ -292,8 +341,11 @@ async function relevantActiveJobs(slug: string, code: string, categories: MediaC
   void categories
   const getJobs = hooks.getJobs ?? jq.getJobs
   const jobs = await getJobs(slug)
-  return jobs.filter(job => String(job.episode_id || '').toUpperCase() === code.toUpperCase()
+  const own = jobs.filter(job => String(job.episode_id || '').toUpperCase() === code.toUpperCase()
     && ACTIVE_STATUSES.has(job.status))
+  // The Mac mini has 16 GB: re-encoding images must not overlap a video render
+  // for ANY project, so an active Video Assembly anywhere refuses the work.
+  return [...own, ...jq.activeJobsOfType('video_assembly').filter(job => !own.includes(job as any))]
 }
 
 async function assertScopesIdle(slug: string, codes: string[], categories: MediaCleanupCategory[]): Promise<void> {
@@ -320,22 +372,31 @@ async function rootsFor(slug: string, code: string, title: string, categories: M
   }
   const selected = new Set(categories)
   const roots: RootSpec[] = []
-  if (selected.has('images')) {
-    roots.push({ root: paths.bg_dir, anchor: heavyAnchor, source_kind: 'scene_images', category: 'images', accepts: name => IMAGE_EXT.test(name) })
-    roots.push({ root: paths.thumb_dir, anchor: heavyAnchor, source_kind: 'thumbnail_images', category: 'images', accepts: name => IMAGE_EXT.test(name) })
-  }
-  if (selected.has('chapter_audio')) roots.push({ root: paths.audio_dir, anchor: heavyAnchor, source_kind: 'chapter_audio', category: 'chapter_audio', accepts: name => AUDIO_EXT.test(name) })
-  if (selected.has('merged_audio')) roots.push({ root: paths.merged_audio_dir, anchor: heavyAnchor, source_kind: 'merged_audio', category: 'merged_audio', accepts: name => AUDIO_EXT.test(name) })
-  if (selected.has('motion_clips')) roots.push({ root: paths.video_assets_dir, anchor: heavyAnchor, source_kind: 'motion_clips', category: 'motion_clips', accepts: name => VIDEO_EXT.test(name) })
+  const add = (root: string, anchor: string, source_kind: string, category: MediaCleanupCategory, accepts: (name: string) => boolean) =>
+    roots.push({ root, anchor, source_kind, category, accepts, trash_dir: path.join(trashRootFor(anchor, projectDir, slug), code, category, source_kind) })
+  // Thumbnails (`thumb_dir`) are never cleanup candidates: the originals stay.
+  if (selected.has('images')) add(paths.bg_dir, heavyAnchor, 'scene_images', 'images', name => IMAGE_EXT.test(name))
+  if (selected.has('chapter_audio')) add(paths.audio_dir, heavyAnchor, 'chapter_audio', 'chapter_audio', name => AUDIO_EXT.test(name))
+  if (selected.has('merged_audio')) add(paths.merged_audio_dir, heavyAnchor, 'merged_audio', 'merged_audio', name => AUDIO_EXT.test(name))
+  if (selected.has('motion_clips')) add(paths.video_assets_dir, heavyAnchor, 'motion_clips', 'motion_clips', name => VIDEO_EXT.test(name))
   if (selected.has('final_video')) {
-    roots.push({ root: paths.video_dir, anchor: heavyAnchor, source_kind: 'final_video', category: 'final_video', accepts: name => isFinalName(code, name) })
+    add(paths.video_dir, heavyAnchor, 'final_video', 'final_video', name => isFinalName(code, name))
     const external = await resolveExternalFinalVideoDir(slug, code, title).catch(() => null)
     if (external && path.resolve(external) !== path.resolve(paths.video_dir)) {
       const externalAnchor = await getExternalFinalVideoRoot().catch(() => '')
-      roots.push({ root: external, anchor: externalAnchor || path.dirname(external), source_kind: 'external_final_video', category: 'final_video', accepts: name => isFinalName(code, name) })
+      add(external, externalAnchor || path.dirname(external), 'external_final_video', 'final_video', name => isFinalName(code, name))
     }
   }
   return roots
+}
+
+function isJpegFile(file: string): boolean {
+  let fd: number | undefined
+  try {
+    fd = openSync(file, 'r')
+    const head = Buffer.alloc(3)
+    return readSync(fd, head, 0, 3, 0) === 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff
+  } catch { return false } finally { if (fd !== undefined) closeSync(fd) }
 }
 
 async function sha256(file: string): Promise<string> {
@@ -420,6 +481,8 @@ async function discoverRoot(
         sha256: await sha256(full),
         mtime_ms: stat.mtimeMs,
         upload_proof: proof,
+        trash_path: path.join(spec.trash_dir, path.relative(spec.root, full)),
+        ...(spec.source_kind === 'scene_images' ? { already_jpeg: isJpegFile(full) } : {}),
       })
     }
   }
@@ -452,10 +515,10 @@ async function verifyFinalProof(slug: string, code: string, title: string, file:
 
 async function buildPreview(
   slug: string,
-  input: { episode_codes: unknown; categories: unknown },
+  input: { episode_codes: unknown; categories: unknown; preset?: unknown },
   operation: MediaCleanupOperation,
 ): Promise<MediaCleanupPreview> {
-  const categories = validateCategories(input.categories)
+  const categories = resolveCategories(input)
   const codes = validateEpisodeCodes(input.episode_codes)
   if (!await pm.getProject(slug)) throw fail('Project not found', 404)
   const accepted = await im.getIdeas(slug, 'accepted')
@@ -498,6 +561,9 @@ async function buildPreview(
     operation.done += 1
   }
   const files = episodeResults.flatMap(episode => episode.files)
+  const shrinkable = files.filter(file => file.category === 'images' && !file.already_jpeg)
+  const trashed = files.filter(file => file.category !== 'images')
+  const sum = (list: MediaCleanupFile[]) => list.reduce((total, file) => total + file.bytes, 0)
   const createdAt = isoNow()
   return {
     preview_id: randomUUID(),
@@ -509,6 +575,15 @@ async function buildPreview(
     files,
     total_bytes: files.reduce((sum, file) => sum + file.bytes, 0),
     blocked_reasons: [...new Set(episodeResults.flatMap(episode => episode.blocked_reasons))],
+    ...(input.preset === 'archive_episode' ? { preset: 'archive_episode' as const } : {}),
+    estimate: {
+      compress_files: shrinkable.length,
+      compress_bytes_before: sum(shrinkable),
+      compress_bytes_after: Math.round(sum(shrinkable) * JPEG_SIZE_RATIO),
+      already_jpeg_files: files.filter(file => file.already_jpeg).length,
+      trash_files: trashed.length,
+      trash_bytes: sum(trashed),
+    },
   }
 }
 
@@ -523,9 +598,9 @@ function beginOperation(slug: string, kind: MediaCleanupOperation['kind'], stage
   return operation
 }
 
-function hasActiveOperation(slug: string): boolean {
-  return [...operations.values()].some(operation => operation.project_slug === slug
-    && ['queued', 'running', 'stopping'].includes(operation.status))
+// Server-wide, not per project: one cleanup (hashing, re-encoding) at a time on the Mac mini.
+function hasActiveOperation(): boolean {
+  return [...operations.values()].some(operation => ['queued', 'running', 'stopping'].includes(operation.status))
 }
 
 function finishOperation(operation: MediaCleanupOperation, status: 'completed' | 'failed' | 'stopped', error?: unknown): void {
@@ -536,12 +611,12 @@ function finishOperation(operation: MediaCleanupOperation, status: 'completed' |
 
 export async function startMediaCleanupPreview(
   slug: string,
-  input: { episode_codes: unknown; categories: unknown },
+  input: { episode_codes: unknown; categories: unknown; preset?: unknown },
 ): Promise<{ operation_id: string }> {
-  validateCategories(input.categories)
+  resolveCategories(input)
   validateEpisodeCodes(input.episode_codes)
   if (!await pm.getProject(slug)) throw fail('Project not found', 404)
-  if (hasActiveOperation(slug)) throw fail('A media cleanup check or operation is already running for this project.', 409)
+  if (hasActiveOperation()) throw fail('A media cleanup check or operation is already running on this Mac. Wait for it to finish.', 409)
   const operation = beginOperation(slug, 'preview', 'checking')
   setImmediate(() => void (async () => {
     operation.status = 'running'
@@ -576,6 +651,7 @@ async function readSidecar(
       || typeof value.episode_code !== 'string' || !value.episode_code
       || !!expected && (value.project_slug !== expected.slug || value.episode_code.toUpperCase() !== expected.code.toUpperCase())
       || typeof value.updated_at !== 'string' || !Number.isFinite(Date.parse(value.updated_at))
+      || value.archived_at !== undefined && (typeof value.archived_at !== 'string' || !Number.isFinite(Date.parse(value.archived_at)))
       || !Array.isArray(value.entries)
       || value.entries.some(entry => !entry
         || typeof entry.entry_id !== 'string' || !entry.entry_id
@@ -584,13 +660,13 @@ async function readSidecar(
         || entry.source_kind !== undefined && (typeof entry.source_kind !== 'string' || !entry.source_kind)
         || typeof entry.preview_id !== 'string' || !entry.preview_id
         || typeof entry.operation_id !== 'string' || !entry.operation_id
-        || (entry.mode !== 'archive' && entry.mode !== 'remove')
+        || (entry.mode !== 'archive' && entry.mode !== 'remove' && entry.mode !== 'compress')
         || typeof entry.recorded_at !== 'string' || !Number.isFinite(Date.parse(entry.recorded_at))
         || !CATEGORIES.has(entry.category)
         || !Number.isSafeInteger(entry.bytes) || entry.bytes < 0
         || !Number.isSafeInteger(entry.bytes_reclaimed) || entry.bytes_reclaimed < 0
         || !/^[a-f0-9]{64}$/.test(entry.sha256)
-        || !['pending_archive', 'pending_remove', 'archived', 'removed', 'skipped', 'failed'].includes(entry.outcome)
+        || !['pending_archive', 'pending_remove', 'archived', 'removed', 'compressed', 'skipped', 'failed'].includes(entry.outcome)
         || typeof entry.updated_at !== 'string' || !Number.isFinite(Date.parse(entry.updated_at))
         || !entry.upload_proof || entry.upload_proof.platform !== 'youtube'
         || typeof entry.upload_proof.video_id !== 'string' || !entry.upload_proof.video_id
@@ -626,10 +702,23 @@ async function putSidecarEntry(
     if (index >= 0) entries[index] = entry
     else entries.push(entry)
     const next: MediaCleanupSidecar = {
+      ...(current?.archived_at ? { archived_at: current.archived_at } : {}),
       version: 1, project_slug: slug, episode_code: code,
       updated_at: entry.updated_at, entries,
     }
     await writeJsonAtomic(file, next)
+  })
+}
+
+async function markEpisodeArchived(slug: string, code: string): Promise<void> {
+  const file = await sidecarPath(slug, code)
+  await withLock(file, async () => {
+    const current = await readSidecar(file, true, { slug, code })
+    const now = isoNow()
+    await writeJsonAtomic(file, {
+      version: 1, project_slug: slug, episode_code: code, entries: [],
+      ...current, updated_at: now, archived_at: now,
+    } satisfies MediaCleanupSidecar)
   })
 }
 
@@ -700,7 +789,7 @@ export async function readLocalMediaCleanupStatus(
   if (!sidecar) {
     const unreadable = existsSync(file)
     return {
-      state: 'available', updated_at: null, has_retired_media: false, categories: [],
+      state: 'available', updated_at: null, has_retired_media: false, preset_archived_at: null, categories: [],
       ...(unreadable ? { blocked_reason: 'The local media cleanup record is unreadable.' } : {}),
     }
   }
@@ -717,12 +806,13 @@ export async function readLocalMediaCleanupStatus(
     const effective = await statusForEntry(slug, episodeCode, entry, cache)
     if (!effective) continue
     const row = grouped.get(entry.category) || {
-      category: entry.category, removed_files: 0, archived_files: 0, pending_files: 0, bytes_reclaimed: 0,
+      category: entry.category, removed_files: 0, archived_files: 0, pending_files: 0, bytes_reclaimed: 0, bytes_trashed: 0,
     }
     if (effective === 'removed') row.removed_files += 1
     if (effective === 'archived') row.archived_files += 1
     if (effective === 'pending') row.pending_files += 1
     if (effective !== 'pending') row.bytes_reclaimed += entry.bytes_reclaimed
+    if (effective === 'removed' && entry.destination_path) row.bytes_trashed += entry.bytes
     grouped.set(entry.category, row)
   }
   const categories = [...grouped.values()]
@@ -733,7 +823,7 @@ export async function readLocalMediaCleanupStatus(
   const state: LocalMediaCleanupStatus['state'] = !hasRetired ? 'available'
     : archived > 0 && removed === 0 && pending === 0 ? 'archived'
       : 'partially_removed'
-  return { state, updated_at: sidecar.updated_at, has_retired_media: hasRetired, categories }
+  return { state, updated_at: sidecar.updated_at, has_retired_media: hasRetired, preset_archived_at: sidecar.archived_at ?? null, categories }
 }
 
 export function archiveDestinationFor(destination: string, projectSlug: string, episodeCode: string, file: MediaCleanupFile): string {
@@ -796,14 +886,25 @@ async function exactFileStillReviewed(file: MediaCleanupFile): Promise<string | 
 // Keep the final identity check and unlink in one event-loop turn. Episode
 // admission is held by the caller; another in-app folder move cannot interleave
 // an awaited operation between checking the parent path and removing the file.
-function unlinkReviewedFile(file: MediaCleanupFile): void {
+function assertReviewedIdentitySync(file: MediaCleanupFile): void {
   const stat = lstatSync(file.path)
   if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1
     || stat.size !== file.bytes || stat.mtimeMs !== file.mtime_ms
     || realpathSync(file.path) !== file.real_path) {
     throw fail('The reviewed file changed immediately before removal.', 409)
   }
+}
+
+// Only the verified-archive path may unlink: its bytes already sit, hash-checked, in the archive folder.
+function unlinkReviewedFile(file: MediaCleanupFile): void {
+  assertReviewedIdentitySync(file)
   unlinkSync(file.path)
+}
+
+// "Remove" is a move to `_trash`; the owner empties it. A failed move throws and the file stays.
+function trashReviewedFile(file: MediaCleanupFile): string {
+  assertReviewedIdentitySync(file)
+  return moveToTrashSync(file.path, file.trash_path)
 }
 
 async function uploadProofStillCurrent(slug: string, code: string, file: MediaCleanupFile): Promise<string | null> {
@@ -844,10 +945,12 @@ async function mutateReviewedFile(
   const entryBase: Omit<MediaCleanupSidecarEntry, 'outcome' | 'updated_at'> = {
     entry_id: randomUUID(), source_path: file.path, relative_path: file.relative_path,
     source_kind: file.source_kind,
-    category: file.category, bytes: file.bytes, bytes_reclaimed: mode === 'remove' ? file.bytes : 0, sha256: file.sha256,
+    category: file.category, bytes: file.bytes, bytes_reclaimed: 0, sha256: file.sha256,
     preview_id: preview.preview_id, operation_id: operation.id, mode,
     recorded_at: isoNow(), upload_proof: file.upload_proof,
   }
+
+  if (mode === 'compress' && file.category === 'images') return compressReviewedImage(slug, code, file, entryBase)
 
   if (mode === 'archive') {
     const target = archiveDestinationFor(destination!, slug, code, file)
@@ -928,15 +1031,80 @@ async function mutateReviewedFile(
       return { path: file.path, category: file.category, outcome: 'failed', bytes_reclaimed: 0, bytes_moved: 0, reason }
     }
     await hooks.beforeDestructiveMutation?.()
-    unlinkReviewedFile(file)
+    const trashed = trashReviewedFile(file)
     try {
-      await putSidecarEntry(slug, code, { ...pending, outcome: 'removed', updated_at: isoNow() })
-      return { path: file.path, category: file.category, outcome: 'removed', bytes_reclaimed: file.bytes, bytes_moved: 0 }
+      await putSidecarEntry(slug, code, { ...pending, outcome: 'removed', destination_path: trashed, updated_at: isoNow() })
+      return { path: file.path, category: file.category, outcome: 'removed', bytes_reclaimed: 0, bytes_moved: file.bytes, destination_path: trashed }
     } catch (error: any) {
-      return { path: file.path, category: file.category, outcome: 'pending', bytes_reclaimed: file.bytes, bytes_moved: 0, reason: error?.message || String(error) }
+      return { path: file.path, category: file.category, outcome: 'pending', bytes_reclaimed: 0, bytes_moved: file.bytes, destination_path: trashed, reason: error?.message || String(error) }
     }
   } catch (error: any) {
+    // A failed move (or any earlier check) skips this file: it stays exactly where it was.
+    await putSidecarEntry(slug, code, { ...pending, outcome: 'failed', reason: error?.message || String(error), updated_at: isoNow() }).catch(() => {})
     return { path: file.path, category: file.category, outcome: 'failed', bytes_reclaimed: 0, bytes_moved: 0, reason: error?.message || String(error) }
+  }
+}
+
+/**
+ * Re-encode one scene image as a JPEG under its ORIGINAL filename (the app
+ * sniffs real bytes; renaming would break the `.png` name checks). The original
+ * goes to `_trash`, the new file takes its place and its mtime. Idempotent:
+ * JPEGs are skipped. Anything that does not decode, keeps its size, or saves
+ * under 20% leaves the original untouched.
+ */
+async function compressReviewedImage(
+  slug: string,
+  code: string,
+  file: MediaCleanupFile,
+  entryBase: Omit<MediaCleanupSidecarEntry, 'outcome' | 'updated_at'>,
+): Promise<MediaCleanupRunResult['items'][number]> {
+  const item = (over: Partial<MediaCleanupRunResult['items'][number]> & { outcome: MediaCleanupRunResult['items'][number]['outcome'] }) =>
+    ({ path: file.path, category: file.category, bytes_reclaimed: 0, bytes_moved: 0, ...over })
+  if (isJpegFile(file.path)) return item({ outcome: 'skipped', reason: ALREADY_JPEG })
+  const partial = `${file.path}.partial-${process.pid}`
+  let pending: MediaCleanupSidecarEntry | null = null
+  try {
+    const before = await assertDecodableImage(file.path, 'Scene image')
+    const meta = await sharp(file.path).metadata()
+    // JPEG has no alpha: a genuinely transparent image would flatten to black.
+    if (meta.hasAlpha && !(await sharp(file.path).stats()).isOpaque) {
+      return item({ outcome: 'skipped', reason: 'The image has transparency, which JPEG cannot keep.' })
+    }
+    await sharp(file.path).jpeg({ quality: 90, mozjpeg: true }).toFile(partial)
+    const after = await assertDecodableImage(partial, 'Compressed image')
+    if (after.width !== before.width || after.height !== before.height) throw new Error('The compressed image changed size.')
+    const bytesAfter = (await fs.stat(partial)).size
+    if (bytesAfter >= file.bytes * MIN_COMPRESSION_GAIN) {
+      await fs.rm(partial, { force: true })
+      return item({ outcome: 'skipped', reason: 'Compression would save less than 20%.' })
+    }
+    pending = { ...entryBase, outcome: 'pending_remove', updated_at: isoNow() }
+    await putSidecarEntry(slug, code, pending)
+    const stillIdle = await relevantActiveJobs(slug, code, [file.category])
+    const stillCurrent = await uploadProofStillCurrent(slug, code, file)
+    if (stillIdle.length || stillCurrent) throw new Error(stillCurrent || `Active ${stillIdle.map(job => job.type).join(', ')} work started before compression.`)
+    const changed = await exactFileStillReviewed(file)
+    if (changed) throw new Error(changed)
+    await hooks.beforeDestructiveMutation?.()
+    // No await from here to the swap: identity check, trash move, replace, mtime.
+    const trashed = trashReviewedFile(file)
+    try {
+      renameSync(partial, file.path)
+      utimesSync(file.path, file.mtime_ms / 1000, file.mtime_ms / 1000)
+    } catch (error) {
+      try { renameSync(trashed, file.path) } catch { /* the original is still in _trash */ }
+      throw error
+    }
+    try {
+      await putSidecarEntry(slug, code, { ...pending, outcome: 'compressed', destination_path: trashed, updated_at: isoNow() })
+    } catch (error: any) {
+      return item({ outcome: 'pending', bytes_moved: file.bytes, bytes_after: bytesAfter, destination_path: trashed, reason: error?.message || String(error) })
+    }
+    return item({ outcome: 'compressed', bytes_moved: file.bytes, bytes_after: bytesAfter, destination_path: trashed })
+  } catch (error: any) {
+    await fs.rm(partial, { force: true }).catch(() => {})
+    if (pending) await putSidecarEntry(slug, code, { ...pending, outcome: 'failed', reason: error?.message || String(error), updated_at: isoNow() }).catch(() => {})
+    return item({ outcome: 'failed', reason: error?.message || String(error) })
   }
 }
 
@@ -950,28 +1118,47 @@ async function runPreview(
   await assertScopesIdle(slug, preview.episodes.map(episode => episode.episode_code), preview.categories)
   const result: MediaCleanupRunResult = {
     mode, ...(destination ? { destination } : {}), items: [],
-    archived_count: 0, removed_count: 0, skipped_count: 0, failed_count: 0, pending_count: 0, bytes_reclaimed: 0, bytes_moved: 0,
+    archived_count: 0, removed_count: 0, compressed_count: 0, skipped_count: 0, failed_count: 0, pending_count: 0,
+    bytes_reclaimed: 0, bytes_moved: 0, bytes_trashed: 0, bytes_after: 0,
   }
   operation.result = result
   operation.total = preview.files.length
-  for (const file of preview.files) {
-    if (operation.stop_requested) break
-    operation.current = file.path
-    operation.updated_at = isoNow()
-    const code = preview.episodes.find(episode => episode.files.some(candidate => candidate.path === file.path))!.episode_code
-    const apply = () => jq.withEpisodeMediaCleanupLock(slug, code,
-      () => mutateReviewedFile(slug, preview, operation, file, mode, destination))
-    const item = file.category === 'final_video' ? await withFinalVideoPathLock(file.path, apply) : await apply()
-    result.items.push(item)
-    if (item.outcome === 'archived') result.archived_count += 1
-    else if (item.outcome === 'removed') result.removed_count += 1
-    else if (item.outcome === 'skipped') result.skipped_count += 1
-    else if (item.outcome === 'failed') result.failed_count += 1
-    else result.pending_count += 1
-    result.bytes_reclaimed += item.bytes_reclaimed
-    result.bytes_moved += item.bytes_moved
-    operation.done += 1
-    await hooks.afterFile?.()
+  // Mac mini (16 GB): one image at a time, no libvips cache; put the app-wide settings back afterwards.
+  const priorConcurrency = sharp.concurrency()
+  if (mode === 'compress') { sharp.concurrency(1); sharp.cache(false) }
+  try {
+    for (const file of preview.files) {
+      if (operation.stop_requested) break
+      operation.current = file.path
+      operation.updated_at = isoNow()
+      const code = preview.episodes.find(episode => episode.files.some(candidate => candidate.path === file.path))!.episode_code
+      const apply = () => jq.withEpisodeMediaCleanupLock(slug, code,
+        () => mutateReviewedFile(slug, preview, operation, file, mode, destination))
+      const item = file.category === 'final_video' ? await withFinalVideoPathLock(file.path, apply) : await apply()
+      result.items.push(item)
+      if (item.outcome === 'archived') result.archived_count += 1
+      else if (item.outcome === 'removed') result.removed_count += 1
+      else if (item.outcome === 'compressed') result.compressed_count += 1
+      else if (item.outcome === 'skipped') result.skipped_count += 1
+      else if (item.outcome === 'failed') result.failed_count += 1
+      else result.pending_count += 1
+      result.bytes_reclaimed += item.bytes_reclaimed
+      if (mode === 'archive') result.bytes_moved += item.bytes_moved
+      else result.bytes_trashed += item.bytes_moved
+      result.bytes_after += item.bytes_after ?? 0
+      operation.done += 1
+      await hooks.afterFile?.()
+    }
+  } finally {
+    if (mode === 'compress') { sharp.concurrency(priorConcurrency); sharp.cache(true) }
+  }
+  if (preview.preset && !operation.stop_requested) {
+    for (const episode of preview.episodes) {
+      const mine = result.items.filter(item => episode.files.some(file => file.path === item.path))
+      const clean = episode.files.length === mine.length && mine.every(item =>
+        item.outcome === 'removed' || item.outcome === 'compressed' || item.reason === ALREADY_JPEG)
+      if (clean && episode.upload_proof) await markEpisodeArchived(slug, episode.episode_code).catch(() => {})
+    }
   }
   return result
 }
@@ -987,14 +1174,15 @@ export async function startMediaCleanupRun(
     throw fail('That media cleanup preview is missing or expired. Check the files again.', 409)
   }
   if (consumedPreviews.has(previewId)) throw fail('That media cleanup preview was already used. Check the files again.', 409)
-  if (input.mode !== 'archive' && input.mode !== 'remove') throw fail('Choose archive or remove.')
+  if (input.mode !== 'archive' && input.mode !== 'remove' && input.mode !== 'compress') throw fail('Choose archive, remove or compress.')
+  if (preview.preset && input.mode !== 'compress') throw fail('The Archive episode preset only runs as shrink-and-trash.')
   let destination: string | undefined
   if (input.mode === 'archive') {
     if (typeof input.destination !== 'string' || !input.destination.trim()) throw fail('Choose an archive destination.')
     destination = await safeArchiveDestination(input.destination.trim(), preview)
   }
-  if (hasActiveOperation(slug)) throw fail('A media cleanup check or operation is already running for this project.', 409)
-  const operation = beginOperation(slug, 'run', input.mode === 'archive' ? 'archiving' : 'removing')
+  if (hasActiveOperation()) throw fail('A media cleanup check or operation is already running on this Mac. Wait for it to finish.', 409)
+  const operation = beginOperation(slug, 'run', input.mode === 'archive' ? 'archiving' : input.mode === 'compress' ? 'compressing' : 'removing')
   consumedPreviews.add(previewId)
   setImmediate(() => void (async () => {
     operation.status = 'running'

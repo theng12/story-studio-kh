@@ -1214,13 +1214,13 @@
 
       <div v-if="activeTab === 'files' && lastBulkCleanup" class="storage-result mt-2">
         <strong>Cleanup:</strong>
-        {{ lastBulkCleanup.deleted_count }} file(s) cleared after verification, freed {{ formatBytes(lastBulkCleanup.bytes_freed) }}.
+        {{ lastBulkCleanup.deleted_count }} file(s) moved to _trash after verification ({{ formatBytes(lastBulkCleanup.bytes_freed) }}); the space is freed when you empty _trash.
         <span v-if="lastBulkCleanup.skipped_count">{{ lastBulkCleanup.skipped_count }} kept locally (could not verify).</span>
         <span v-if="lastBulkCleanup.failed_count" class="error-text">{{ lastBulkCleanup.failed_count }} failed.</span>
         <ul v-if="lastBulkCleanup.items.length" class="cleanup-item-results">
           <li v-for="item in lastBulkCleanup.items" :key="`${item.episode_code}:${item.file}`">
             <strong>{{ item.episode_code }}:</strong>
-            {{ item.status === 'deleted' ? 'cleared after verification' : (item.reason || item.status) }}
+            {{ item.status === 'deleted' ? 'moved to _trash after verification' : (item.reason || item.status) }}
           </li>
         </ul>
       </div>

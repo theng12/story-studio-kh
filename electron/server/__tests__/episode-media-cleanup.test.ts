@@ -4,6 +4,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import express from 'express'
+import sharp from 'sharp'
 import request from 'supertest'
 
 import { useTempDataDir } from './_helpers.js'
@@ -164,7 +165,7 @@ async function preview(
 
 async function run(
   previewId: string,
-  mode: 'archive' | 'remove',
+  mode: 'archive' | 'remove' | 'compress',
   destination?: string,
 ) {
   const started = await cleanup.startMediaCleanupRun(SLUG, {
@@ -379,7 +380,8 @@ describe('episode media cleanup execution', () => {
     assert.equal((await run(repeated.preview_id, 'remove')).result?.removed_count, 1)
     const cleanedAgain = await cleanup.readLocalMediaCleanupStatus(SLUG, episode.code)
     assert.equal(cleanedAgain.categories[0]?.removed_files, 1, 'renamed history counts the current logical file only once')
-    assert.equal(cleanedAgain.categories[0]?.bytes_reclaimed, Buffer.byteLength('regenerated scene'))
+    assert.equal(cleanedAgain.categories[0]?.bytes_trashed, Buffer.byteLength('regenerated scene'))
+    assert.equal(cleanedAgain.categories[0]?.bytes_reclaimed, 0, 'a trash move frees nothing until the owner empties _trash')
   })
 
   test('waits for episode job admission before removing a reviewed non-final file', async () => {
@@ -617,4 +619,274 @@ test('media cleanup routes acknowledge long work and expose project-scoped opera
   await request(app)
     .get(`/api/projects/another-project/media-cleanup/operations/${started.body.operation_id}`)
     .expect(404)
+})
+
+
+// ── v1.4.244: trash instead of delete, JPEG compression, Archive episode ─────
+
+async function scenePng(file: string, width = 640, height = 360): Promise<void> {
+  // Soft-noise "photo": compresses well as JPEG, badly as PNG, like a generated scene.
+  await sharp({ create: { width, height, channels: 3, background: '#203040', noise: { type: 'gaussian', mean: 128, sigma: 24 } } })
+    .blur(1.5).png().toFile(file)
+}
+const isJpegBytes = async (file: string) => { const head = await fs.readFile(file); return head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff }
+const trashDir = (code = 'EP0001') => path.join(pm.getProjectDir(SLUG)!, '_trash', code)
+
+describe('removal moves to _trash and never deletes', () => {
+  test('remove keeps the exact bytes under _trash/<code>/<category>/<source_kind>/<relative> and leaves existing trash alone', async () => {
+    const episode = await seedEpisode('EP0001')
+    const image = path.join(episode.paths.bg_dir, 'scene-01.png')
+    await fs.writeFile(image, 'scene-bytes')
+    await makeOlder(image)
+    await markUploaded(episode)
+    const bystander = path.join(pm.getProjectDir(SLUG)!, '_trash', 'old', 'keep.txt')
+    await fs.mkdir(path.dirname(bystander), { recursive: true })
+    await fs.writeFile(bystander, 'owner file')
+
+    const bill = await preview(['EP0001'], ['images'])
+    const operation = await run(bill.preview_id, 'remove')
+
+    const moved = path.join(trashDir(), 'images', 'scene_images', 'scene-01.png')
+    assert.equal(operation.result?.removed_count, 1)
+    assert.equal(operation.result?.items[0]?.destination_path, moved)
+    assert.equal(existsSync(image), false)
+    assert.equal(await fs.readFile(moved, 'utf8'), 'scene-bytes', 'the original bytes survive in _trash')
+    assert.equal(await fs.readFile(bystander, 'utf8'), 'owner file')
+    assert.equal(operation.result?.bytes_reclaimed, 0, 'nothing is freed until _trash is emptied')
+    assert.equal(operation.result?.bytes_trashed, 11)
+  })
+
+  test('a name already in _trash gets a stamped suffix instead of being replaced', async () => {
+    const episode = await seedEpisode('EP0001')
+    const audio = path.join(episode.paths.audio_dir, 'chapter-01.mp3')
+    await fs.writeFile(audio, 'new bytes')
+    await makeOlder(audio)
+    await markUploaded(episode)
+    const occupied = path.join(trashDir(), 'chapter_audio', 'chapter_audio', 'chapter-01.mp3')
+    await fs.mkdir(path.dirname(occupied), { recursive: true })
+    await fs.writeFile(occupied, 'earlier trash')
+
+    const operation = await run((await preview(['EP0001'], ['chapter_audio'])).preview_id, 'remove')
+
+    assert.equal(await fs.readFile(occupied, 'utf8'), 'earlier trash')
+    const landed = operation.result!.items[0]!.destination_path!
+    assert.notEqual(landed, occupied)
+    assert.equal(await fs.readFile(landed, 'utf8'), 'new bytes')
+  })
+
+  test('a move that cannot happen skips the file: it is never deleted as a fallback', async () => {
+    const episode = await seedEpisode('EP0001')
+    const image = path.join(episode.paths.bg_dir, 'scene-01.png')
+    await fs.writeFile(image, 'scene-bytes')
+    await makeOlder(image)
+    await markUploaded(episode)
+    await fs.writeFile(path.join(pm.getProjectDir(SLUG)!, '_trash'), 'a file where the folder should be')
+
+    const operation = await run((await preview(['EP0001'], ['images'])).preview_id, 'remove')
+
+    assert.equal(operation.result?.removed_count, 0)
+    assert.equal(operation.result?.failed_count, 1)
+    assert.equal(await fs.readFile(image, 'utf8'), 'scene-bytes')
+  })
+})
+
+describe('removal moves to _trash and never deletes (rename failure)', () => {
+  test('when the rename itself is refused the source stays: no copy-then-delete fallback', async () => {
+    const episode = await seedEpisode('EP0001')
+    const image = path.join(episode.paths.bg_dir, 'scene-01.png')
+    await fs.writeFile(image, 'scene-bytes')
+    await makeOlder(image)
+    await markUploaded(episode)
+    const landing = path.join(trashDir(), 'images', 'scene_images')
+    await fs.mkdir(landing, { recursive: true })
+    await fs.chmod(landing, 0o555)
+    try {
+      const operation = await run((await preview(['EP0001'], ['images'])).preview_id, 'remove')
+      assert.equal(operation.result?.removed_count, 0)
+      assert.equal(operation.result?.failed_count, 1)
+      assert.equal(await fs.readFile(image, 'utf8'), 'scene-bytes')
+    } finally {
+      await fs.chmod(landing, 0o755)
+    }
+  })
+})
+
+describe('compress scene images (Archive episode)', () => {
+  test('re-encodes in place under the original name, keeps thumbnails, mtime and the original in _trash', async () => {
+    const episode = await seedEpisode('EP0001')
+    const scenes = ['scene-01.png', 'scene-02.png'].map(name => path.join(episode.paths.bg_dir, name))
+    const thumb = path.join(episode.paths.thumb_dir, 'thumbnail.png')
+    await Promise.all(scenes.map(file => scenePng(file)))
+    await scenePng(thumb)
+    const originals = await Promise.all(scenes.map(file => fs.readFile(file)))
+    const thumbBytes = await fs.readFile(thumb)
+    await Promise.all([...scenes, thumb].map(makeOlder))
+    const mtimes = await Promise.all(scenes.map(async file => Math.floor((await fs.stat(file)).mtimeMs)))
+    await markUploaded(episode)
+
+    const bill = await preview(['EP0001'], ['images'])
+    assert.deepEqual(bill.files.map(file => file.path).sort(), scenes.sort(), 'thumb_dir is never a candidate')
+    assert.equal(bill.files.every(file => file.already_jpeg === false), true)
+    const operation = await run(bill.preview_id, 'compress')
+
+    assert.equal(operation.status, 'completed', operation.error)
+    assert.equal(operation.result?.compressed_count, 2, JSON.stringify(operation.result?.items))
+    for (const [index, file] of scenes.entries()) {
+      assert.equal(await isJpegBytes(file), true, 'JPEG bytes under the .png name')
+      const info = await (await import('../lib/image-validation.js')).assertDecodableImage(file)
+      assert.deepEqual([info.width, info.height, info.format], [640, 360, 'jpeg'])
+      assert.equal(Math.floor((await fs.stat(file)).mtimeMs), mtimes[index], 'mtime restored so it is not "newer than the upload"')
+      const trashed = path.join(trashDir(), 'images', 'scene_images', path.basename(file))
+      assert.deepEqual(await fs.readFile(trashed), originals[index], 'the original PNG survives byte-for-byte in _trash')
+    }
+    assert.deepEqual(await fs.readFile(thumb), thumbBytes, 'thumbnails stay original')
+    const before = originals.reduce((n, b) => n + b.length, 0)
+    const after = (await Promise.all(scenes.map(file => fs.stat(file)))).reduce((n, st) => n + st.size, 0)
+    console.log(`compress: ${before} B PNG -> ${after} B JPEG (${(100 * after / before).toFixed(1)}%)`)
+    assert.equal(operation.result?.bytes_after, after)
+    assert.ok(after < before * 0.8)
+    assert.equal(bill.estimate.compress_bytes_before, before)
+    // Everything that reads scene images keys on the name or sniffs real bytes; both still hold.
+    assert.match(path.basename(scenes[0]!), /\.png$/)
+  })
+
+  test('running it again is a no-op: JPEGs are skipped and nothing new lands in _trash', async () => {
+    const episode = await seedEpisode('EP0001')
+    const scene = path.join(episode.paths.bg_dir, 'scene-01.png')
+    await scenePng(scene)
+    await makeOlder(scene)
+    await markUploaded(episode)
+    await run((await preview(['EP0001'], ['images'])).preview_id, 'compress')
+    const compressed = await fs.readFile(scene)
+    const trashListing = await fs.readdir(path.join(trashDir(), 'images', 'scene_images'))
+
+    const again = await preview(['EP0001'], ['images'])
+    assert.equal(again.files[0]?.already_jpeg, true)
+    assert.equal(again.estimate.compress_files, 0)
+    const operation = await run(again.preview_id, 'compress')
+
+    assert.equal(operation.result?.compressed_count, 0)
+    assert.equal(operation.result?.items[0]?.outcome, 'skipped')
+    assert.match(operation.result?.items[0]?.reason || '', /already a JPEG/i)
+    assert.deepEqual(await fs.readFile(scene), compressed)
+    assert.deepEqual(await fs.readdir(path.join(trashDir(), 'images', 'scene_images')), trashListing)
+  })
+
+  test('an image that would not shrink below 80% is left as it was', async () => {
+    const episode = await seedEpisode('EP0001')
+    const tiny = path.join(episode.paths.bg_dir, 'flat.png')
+    await sharp({ create: { width: 64, height: 64, channels: 3, background: '#808080' } }).png().toFile(tiny)
+    const bytes = await fs.readFile(tiny)
+    await makeOlder(tiny)
+    await markUploaded(episode)
+
+    const operation = await run((await preview(['EP0001'], ['images'])).preview_id, 'compress')
+
+    assert.equal(operation.result?.items[0]?.outcome, 'skipped')
+    assert.match(operation.result?.items[0]?.reason || '', /less than 20%/)
+    assert.deepEqual(await fs.readFile(tiny), bytes)
+    assert.equal(existsSync(trashDir()), false)
+    assert.deepEqual((await fs.readdir(episode.paths.bg_dir)), ['flat.png'], 'no partial file left behind')
+  })
+
+  test('a file that is not a decodable image is refused and stays', async () => {
+    const episode = await seedEpisode('EP0001')
+    const bad = path.join(episode.paths.bg_dir, 'broken.png')
+    await fs.writeFile(bad, 'not an image')
+    await makeOlder(bad)
+    await markUploaded(episode)
+
+    const operation = await run((await preview(['EP0001'], ['images'])).preview_id, 'compress')
+
+    assert.equal(operation.result?.failed_count, 1)
+    assert.equal(await fs.readFile(bad, 'utf8'), 'not an image')
+  })
+
+  test('the Archive episode preset shrinks images and trashes clips, chapter narration and the final; keeps the rest', async () => {
+    const episode = await seedEpisode('EP0001')
+    const scene = path.join(episode.paths.bg_dir, 'scene-01.png')
+    const thumb = path.join(episode.paths.thumb_dir, 'thumb.png')
+    const clip = path.join(episode.paths.video_assets_dir, 'clip-01.mp4')
+    const chapter = path.join(episode.paths.audio_dir, 'chapter-01.mp3')
+    const merged = path.join(episode.paths.merged_audio_dir, 'merged.mp3')
+    const script = path.join(episode.paths.script_dir, 'script.md')
+    const subtitle = path.join(episode.paths.subtitles_dir, 'captions.srt')
+    await scenePng(scene)
+    await Promise.all([[thumb, 'thumb'], [clip, 'clip'], [chapter, 'chapter'], [merged, 'merged'], [script, 'script'], [subtitle, 'subtitle']]
+      .map(([file, text]) => fs.writeFile(file!, text!)))
+    await Promise.all([scene, thumb, clip, chapter, merged].map(makeOlder))
+    await markUploaded(episode)
+    __setYouTubeTransportForTests((async () => new Response(JSON.stringify({
+      items: [{ id: 'video-EP0001', status: { uploadStatus: 'processed', privacyStatus: 'private' },
+        snippet: { channelId: CHANNEL, title: episode.title, description: '', tags: [] } }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch)
+
+    const started = await cleanup.startMediaCleanupPreview(SLUG, { episode_codes: ['EP0001'], categories: [], preset: 'archive_episode' })
+    const bill = (await waitForOperation(started.operation_id)).preview!
+    assert.deepEqual([...bill.categories].sort(), ['chapter_audio', 'final_video', 'images', 'motion_clips'])
+    assert.deepEqual(bill.files.map(file => file.path).sort(), [chapter, clip, episode.final, scene].sort())
+    assert.equal(bill.estimate.compress_files, 1)
+    assert.equal(bill.estimate.trash_files, 3)
+    assert.equal(bill.estimate.trash_bytes, 'clip'.length + 'chapter'.length + `final-EP0001`.length)
+    await assert.rejects(cleanup.startMediaCleanupRun(SLUG, { preview_id: bill.preview_id, mode: 'remove' }), /Archive episode preset/)
+
+    const operation = await run(bill.preview_id, 'compress')
+
+    assert.equal(operation.status, 'completed', operation.error)
+    assert.equal(operation.result?.compressed_count, 1)
+    assert.equal(operation.result?.removed_count, 3)
+    assert.equal(await isJpegBytes(scene), true)
+    for (const gone of [clip, chapter, episode.final]) assert.equal(existsSync(gone), false)
+    for (const kept of [thumb, merged, script, subtitle]) assert.equal(existsSync(kept), true)
+    assert.equal(await fs.readFile(path.join(trashDir(), 'final_video', 'final_video', 'EP0001_final_video.mp4'), 'utf8'), 'final-EP0001')
+    const status = await cleanup.readLocalMediaCleanupStatus(SLUG, 'EP0001')
+    assert.ok(status.preset_archived_at, 'the episode is marked archived')
+    assert.equal((await cleanup.listMediaCleanupEpisodes(SLUG)).episodes[0]!.local_media_status.preset_archived_at, status.preset_archived_at)
+    // Trashed originals are not "already archived files that came back": a later manual review lists nothing to redo.
+    assert.equal((await preview(['EP0001'], ['chapter_audio'])).files.length, 0)
+  })
+
+  test('is refused for an episode with no verified upload, and while any video render runs on this Mac', async () => {
+    const episode = await seedEpisode('EP0001')
+    const scene = path.join(episode.paths.bg_dir, 'scene-01.png')
+    await scenePng(scene)
+    await makeOlder(scene)
+    const noUpload = await preview(['EP0001'], ['images'])
+    assert.equal(noUpload.files.length, 0)
+    assert.match(noUpload.blocked_reasons.join(' '), /ready canonical upload/i)
+
+    await markUploaded(episode)
+    let release!: () => void
+    const held = new Promise<void>(resolve => { release = resolve })
+    jq.registerExecutor('video_assembly', async () => { await held })
+    const other = jq.enqueuePreparedForTest({
+      project_slug: 'some-other-project', type: 'video_assembly', episode_id: 'ZZ0001', title: 'render elsewhere', params: {},
+    })
+    try {
+      await waitFor(() => jq.getJob(other.job_id)?.status === 'running', { timeoutMs: 2_000 })
+      const started = await cleanup.startMediaCleanupPreview(SLUG, { episode_codes: ['EP0001'], categories: ['images'] })
+      const blocked = await waitForOperation(started.operation_id)
+      assert.equal(blocked.status, 'failed')
+      assert.match(blocked.error || '', /active video_assembly/i)
+    } finally {
+      release()
+      await waitForTerminalJob(other.job_id)
+    }
+    assert.equal(await isJpegBytes(scene), false)
+  })
+
+  test('one cleanup at a time across the whole server', async () => {
+    const episode = await seedEpisode('EP0001')
+    await markUploaded(episode)
+    const otherDir = path.join(pm.projectsRoot(), 'other-project')
+    await fs.mkdir(otherDir, { recursive: true })
+    await fs.writeFile(path.join(otherDir, 'project.json'), JSON.stringify({ slug: 'other-project', name: 'Other', created_at: new Date().toISOString() }))
+
+    const first = await cleanup.startMediaCleanupPreview(SLUG, { episode_codes: ['EP0001'], categories: ['images'] })
+    await assert.rejects(
+      cleanup.startMediaCleanupPreview('other-project', { episode_codes: ['EP0001'], categories: ['images'] }),
+      (error: any) => error?.statusCode === 409 && /already running on this Mac/.test(error.message),
+    )
+    await waitForOperation(first.operation_id)
+  })
 })

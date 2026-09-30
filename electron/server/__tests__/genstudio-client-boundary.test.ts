@@ -895,7 +895,7 @@ test('GenStudio authentication failures are immediate and actionable', async () 
 test('GenStudio result handling converts format without applying speed twice', () => {
   const source = readFileSync(new URL('../lib/genstudio-client.ts', import.meta.url), 'utf8')
   assert.doesNotMatch(source, /atempo|rubberband|setpts/)
-  assert.match(source, /runFfmpeg\(\['-y', '-i', tempPath, '-c:a', 'libmp3lame', '-b:a', '192k', outPath\]\)/)
+  assert.match(source, /runFfmpeg\(\['-y', '-i', tempPath, '-c:a', 'libmp3lame', '-b:a', '96k', outPath\]\)/)
 })
 
 test('Story TTS generation has no direct VoiceStudio or Studio Hub execution route', () => {
@@ -2000,4 +2000,11 @@ test('all six GenStudio operations derive status, cancellation, and idempotency 
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test('a source image is labelled by its real bytes: Archive episode leaves JPEG bytes under .png names', () => {
+  const source = readFileSync(new URL('../lib/genstudio-client.ts', import.meta.url), 'utf8')
+  assert.match(source, /bytes\[0\] === 0xff && bytes\[1\] === 0xd8 && bytes\[2\] === 0xff\) return 'image\/jpeg'/)
+  assert.match(source, /videoSourceMediaType\(request\.sourceImagePath, source\)/)
+  assert.match(source, /videoSourceMediaType\(sourceImagePath, bytes\)/)
 })

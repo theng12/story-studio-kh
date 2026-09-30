@@ -1,7 +1,7 @@
 <template>
   <section id="free-up-space" class="media-cleanup" aria-labelledby="media-cleanup-heading">
     <div class="cleanup-heading">
-      <div><h3 id="media-cleanup-heading">Free up space</h3><p>Archive or remove selected media from uploaded episodes in this project. Upload records, scripts, prompts and subtitles stay here.</p></div>
+      <div><h3 id="media-cleanup-heading">Free up space</h3><p>Archive an uploaded episode (shrink scene images, move clips, chapter narration and the final video to _trash), or archive/remove selected media. Nothing is deleted: removed files move to a _trash folder that you empty yourself. Upload records, scripts, prompts, subtitles, merged narration and thumbnails stay here.</p></div>
       <button class="btn btn-secondary" :disabled="busy || loading" @click="loadEpisodes">{{ loading ? 'Checking uploads…' : episodes === null ? 'Find uploaded episodes' : 'Refresh uploads' }}</button>
     </div>
     <p v-if="error" class="cleanup-error" role="alert">{{ error }} <button v-if="operation" class="btn btn-sm" :disabled="polling" @click="pollOperation">Check progress again</button></p>
@@ -9,7 +9,7 @@
     <template v-if="episodes !== null">
       <p v-if="!episodes.length">No episodes have a verified ready upload for this project’s current YouTube channel. Upload or reconcile the episode first.</p>
       <template v-else>
-        <div class="cleanup-selection"><strong>{{ selected.length }} {{ selected.length === 1 ? 'episode' : 'episodes' }} selected</strong><button class="btn btn-sm" :disabled="busy" @click="selected = episodes.map(ep => ep.episode_code)">Select all uploaded</button><button class="btn btn-sm" :disabled="busy || !selected.length" @click="selected = []">Clear selection</button></div>
+        <div class="cleanup-selection"><strong>{{ selected.length }} {{ selected.length === 1 ? 'episode' : 'episodes' }} selected</strong><button class="btn btn-sm" :disabled="busy" @click="selected = episodes.map(ep => ep.episode_code)">Select all uploaded</button><button class="btn btn-sm" :disabled="busy || !notArchived.length" @click="selected = notArchived">Select all uploaded and not yet archived</button><button class="btn btn-sm" :disabled="busy || !selected.length" @click="selected = []">Clear selection</button></div>
         <div class="cleanup-episodes">
           <label v-for="ep in episodes" :key="ep.episode_code" class="cleanup-episode">
             <input v-model="selected" type="checkbox" :value="ep.episode_code" :disabled="busy" />
@@ -19,7 +19,8 @@
         </div>
         <fieldset :disabled="busy" class="cleanup-categories"><legend>Media to review</legend><label v-for="item in categoryOptions" :key="item.id"><input v-model="categories" type="checkbox" :value="item.id" />{{ item.label }}</label></fieldset>
         <p class="cleanup-hint">Active jobs and shared assets are excluded. You will review exact files before anything changes. Restoring removed media may require paid generation.</p>
-        <button class="btn btn-primary" :disabled="busy || !selected.length || !categories.length" @click="startPreview">Review selected files</button>
+        <button class="btn btn-primary" :disabled="busy || !selected.length || !categories.length" @click="startPreview()">Review selected files</button>
+        <div class="cleanup-preset"><p class="cleanup-hint"><strong>Archive episode</strong> — one episode at a time on a small Mac: scene images become smaller JPEGs (same filenames, about 12% of the size); motion clips, chapter narration and the uploaded final video move to _trash. Thumbnails, merged narration, subtitles, scripts and prompts are kept.</p><button class="btn btn-primary" :disabled="busy || !selected.length" @click="startPreview(true)">Preview “Archive episode” for {{ selected.length }} selected</button></div>
       </template>
     </template>
     <div v-if="operation" class="cleanup-progress" role="status" aria-live="polite">
@@ -44,11 +45,13 @@
         <ul v-if="ep.excluded?.length" class="cleanup-warnings"><li v-for="item in ep.excluded" :key="item.path"><span class="cleanup-path">{{ item.path }}</span> — {{ item.reason }}</li></ul>
         <ul class="cleanup-files"><li v-for="file in ep.files" :key="file.path"><span class="cleanup-path">{{ file.relative_path }}</span><span>{{ formatBytes(file.bytes) }}</span></li></ul>
       </details>
+      <p v-if="preview.estimate && preview.preset" class="cleanup-estimate">{{ estimateText }}</p>
       <div class="cleanup-actions">
-        <fieldset :disabled="busy"><legend>What should happen to these files?</legend><label><input v-model="mode" type="radio" value="archive" /> Archive to another folder</label><label><input v-model="mode" type="radio" value="remove" /> Remove local files</label></fieldset>
-        <div v-if="mode === 'archive'" class="cleanup-destination"><label for="cleanup-destination">Archive folder</label><input id="cleanup-destination" v-model="destination" class="input" :disabled="busy || picking" placeholder="Choose a folder on your external drive" /><button class="btn btn-secondary" :disabled="busy || picking" @click="browse">{{ picking ? 'Opening…' : 'Browse' }}</button></div>
-        <p>{{ mode === 'archive' ? 'Each copy is verified before its original is removed. Choose another drive to free space on this drive.' : 'Removal is permanent. Keep an external backup if you may want to edit or render again.' }}</p>
-        <div class="cleanup-action-buttons"><button class="btn btn-secondary" :disabled="busy" @click="dismissReview">Dismiss review</button><button class="btn btn-primary" :disabled="busy || picking || !preview.files.length || (mode === 'archive' && !destination.trim())" @click="runCleanup">{{ submitting ? 'Starting…' : mode === 'archive' ? 'Archive reviewed files' : 'Remove reviewed files' }}</button></div>
+        <p v-if="preview.preset"><strong>Archive episode:</strong> images are shrunk in place, everything else listed moves to _trash.</p>
+        <fieldset v-else :disabled="busy"><legend>What should happen to these files?</legend><label><input v-model="mode" type="radio" value="archive" /> Archive to another folder</label><label><input v-model="mode" type="radio" value="remove" /> Move local files to _trash</label></fieldset>
+        <div v-if="!preview.preset && mode === 'archive'" class="cleanup-destination"><label for="cleanup-destination">Archive folder</label><input id="cleanup-destination" v-model="destination" class="input" :disabled="busy || picking" placeholder="Choose a folder on your external drive" /><button class="btn btn-secondary" :disabled="busy || picking" @click="browse">{{ picking ? 'Opening…' : 'Browse' }}</button></div>
+        <p>{{ preview.preset ? 'Originals go to the _trash folder next to the media (same drive). Space is freed when you empty _trash; until then you can put anything back.' : mode === 'archive' ? 'Each copy is verified before its original is removed. Choose another drive to free space on this drive.' : 'Removed files move to a _trash folder on the same drive. Nothing is deleted; space is freed when you empty _trash.' }}</p>
+        <div class="cleanup-action-buttons"><button class="btn btn-secondary" :disabled="busy" @click="dismissReview">Dismiss review</button><button class="btn btn-primary" :disabled="busy || picking || !preview.files.length || (!preview.preset && mode === 'archive' && !destination.trim())" @click="runCleanup">{{ submitting ? 'Starting…' : preview.preset ? 'Archive episode' : mode === 'archive' ? 'Archive reviewed files' : 'Remove reviewed files' }}</button></div>
       </div>
     </div>
   </section>
@@ -61,10 +64,11 @@ import { useConfirm } from '~/composables/useConfirm'
 import { pickFolder } from '~/composables/usePathPicker'
 
 type Category = 'images' | 'chapter_audio' | 'merged_audio' | 'motion_clips' | 'final_video'
-interface CleanupEpisode { episode_code: string; title: string; video_id: string; local_media_status?: { state: string } }
+interface CleanupEpisode { episode_code: string; title: string; video_id: string; local_media_status?: { state: string; preset_archived_at?: string | null } }
 interface ReviewedFile { path: string; relative_path: string; bytes: number; category: Category }
-interface Preview { preview_id: string; project_slug: string; total_bytes: number; files: ReviewedFile[]; blocked_reasons: string[]; episodes: { episode_code: string; files: ReviewedFile[]; excluded?: { path: string; reason: string }[]; blocked_reasons: string[] }[] }
-interface Operation { id: string; project_slug: string; kind: 'preview' | 'run'; status: string; stage: string | null; done: number; total: number; current: string; error?: string; preview?: Preview; result?: { items?: Array<{ path?: string; source_path?: string; file?: string; status?: string; outcome?: string; reason?: string }>; bytes_reclaimed?: number; bytes_freed?: number; bytes_moved?: number } }
+interface Estimate { compress_files: number; compress_bytes_before: number; compress_bytes_after: number; already_jpeg_files: number; trash_files: number; trash_bytes: number }
+interface Preview { preview_id: string; project_slug: string; total_bytes: number; preset?: 'archive_episode'; estimate?: Estimate; files: ReviewedFile[]; blocked_reasons: string[]; episodes: { episode_code: string; files: ReviewedFile[]; excluded?: { path: string; reason: string }[]; blocked_reasons: string[] }[] }
+interface Operation { id: string; project_slug: string; kind: 'preview' | 'run'; status: string; stage: string | null; done: number; total: number; current: string; error?: string; preview?: Preview; result?: { items?: Array<{ path?: string; source_path?: string; file?: string; status?: string; outcome?: string; reason?: string }>; bytes_reclaimed?: number; bytes_freed?: number; bytes_moved?: number; bytes_trashed?: number; bytes_after?: number } }
 const props = defineProps<{ slug: string }>()
 const { get, post } = useApi()
 const { ask } = useConfirm()
@@ -86,9 +90,16 @@ let generation = 0
 let disposed = false
 let timer: ReturnType<typeof setTimeout> | undefined
 const categoryOptions: { id: Category; label: string }[] = [
-  { id: 'images', label: 'Generated images' }, { id: 'chapter_audio', label: 'Chapter audio' },
+  { id: 'images', label: 'Scene images (thumbnails are never touched)' }, { id: 'chapter_audio', label: 'Chapter audio' },
   { id: 'merged_audio', label: 'Merged audio' }, { id: 'motion_clips', label: 'Motion clips' }, { id: 'final_video', label: 'Final video' },
 ]
+const notArchived = computed(() => (episodes.value || []).filter(ep => !ep.local_media_status?.preset_archived_at).map(ep => ep.episode_code))
+const estimateText = computed(() => {
+  const e = preview.value?.estimate
+  if (!e) return ''
+  const moved = e.trash_bytes
+  return `${e.compress_files} ${e.compress_files === 1 ? 'image' : 'images'} ${formatBytes(e.compress_bytes_before)} → ~${formatBytes(e.compress_bytes_after)}${e.already_jpeg_files ? ` (${e.already_jpeg_files} already JPEG)` : ''}; ${formatBytes(moved + e.compress_bytes_before)} moved to _trash — space is freed when you empty _trash.`
+})
 const busy = computed(() => submitting.value || !!operation.value && ['queued', 'running', 'stopping'].includes(operation.value.status))
 const previewWarnings = computed(() => [...new Set([...(preview.value?.blocked_reasons || []), ...(preview.value?.episodes.flatMap(ep => ep.blocked_reasons.map(reason => `${ep.episode_code}: ${reason}`)) || [])])])
 const operationLabel = computed(() => {
@@ -98,14 +109,15 @@ const operationLabel = computed(() => {
   if (op.status === 'stopped') return op.kind === 'preview' ? 'Scan stopped — no files changed. Start a new review when ready.' : 'Stopped — review the file outcomes below'
   if (op.status === 'failed') return 'Storage operation could not finish'
   if (op.status === 'stopping') return 'Stopping after the current file…'
-  return op.stage === 'archiving' ? 'Archiving verified files…' : op.stage === 'removing' ? 'Removing reviewed files…' : 'Checking files and upload evidence…'
+  return op.stage === 'compressing' ? 'Shrinking images and moving media to _trash…' : op.stage === 'archiving' ? 'Archiving verified files…' : op.stage === 'removing' ? 'Removing reviewed files…' : 'Checking files and upload evidence…'
 })
 const resultSummary = computed(() => {
   const result = operation.value?.result
   const items = result?.items || []
   const pending = items.filter(item => (item.outcome || item.status) === 'pending').length
-  const changed = items.filter(item => ['removed', 'archived'].includes(item.outcome || item.status || '')).length
-  return `${changed} files changed; ${items.length - changed - pending} skipped or could not finish.${pending ? ` ${pending} need review after interruption.` : ''} ${formatBytes(result?.bytes_reclaimed ?? result?.bytes_freed ?? 0)} reclaimed on the source drive.${result?.bytes_moved ? ` ${formatBytes(result.bytes_moved)} archived.` : ''}`
+  const changed = items.filter(item => ['removed', 'archived', 'compressed'].includes(item.outcome || item.status || '')).length
+  const trashed = result?.bytes_trashed ? ` ${formatBytes(result.bytes_trashed)} moved to _trash${result.bytes_after ? ` (${formatBytes(result.bytes_after)} of it replaced by smaller JPEGs)` : ''} — space is freed when you empty _trash.` : ''
+  return `${changed} files changed; ${items.length - changed - pending} skipped or could not finish.${pending ? ` ${pending} need review after interruption.` : ''} ${formatBytes(result?.bytes_reclaimed ?? result?.bytes_freed ?? 0)} reclaimed on the source drive.${result?.bytes_moved ? ` ${formatBytes(result.bytes_moved)} archived.` : ''}${trashed}`
 })
 function formatBytes(bytes: number) { return bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(2)} GB` : bytes >= 1024 ** 2 ? `${(bytes / 1024 ** 2).toFixed(1)} MB` : `${Math.ceil(bytes / 1024)} KB` }
 function localStatus(state?: string) { return state === 'archived' ? 'Uploaded · sources archived' : state === 'removed' ? 'Uploaded · local sources removed' : state === 'partially_removed' ? 'Uploaded · some local media removed' : 'Uploaded' }
@@ -146,12 +158,12 @@ async function pollOperation() {
     }
   } finally { if (current(version)) polling.value = false }
 }
-async function startPreview() {
-  if (busy.value || !selected.value.length || !categories.value.length) return
+async function startPreview(preset = false) {
+  if (busy.value || !selected.value.length || (!preset && !categories.value.length)) return
   const version = generation, slug = props.slug
   submitting.value = true; error.value = ''; preview.value = null
   try {
-    const result = await post<{ operation_id: string }>(`/projects/${slug}/media-cleanup/preview`, { episode_codes: [...selected.value], categories: [...categories.value] })
+    const result = await post<{ operation_id: string }>(`/projects/${slug}/media-cleanup/preview`, preset ? { episode_codes: [...selected.value], preset: 'archive_episode' } : { episode_codes: [...selected.value], categories: [...categories.value] })
     remember(slug, result.operation_id)
     if (!current(version)) return
     operation.value = { id: result.operation_id, project_slug: slug, kind: 'preview', status: 'queued', stage: 'checking', done: 0, total: 0, current: '' }
@@ -160,11 +172,13 @@ async function startPreview() {
   finally { if (current(version)) submitting.value = false }
 }
 async function runCleanup() {
-  if (busy.value || picking.value || !preview.value?.files.length || (mode.value === 'archive' && !destination.value.trim())) return
-  const version = generation, slug = props.slug, reviewed = preview.value, chosenMode = mode.value, folder = destination.value.trim()
+  const reviewed0 = preview.value
+  const chosen0 = reviewed0?.preset ? 'compress' : mode.value
+  if (busy.value || picking.value || !reviewed0?.files.length || (chosen0 === 'archive' && !destination.value.trim())) return
+  const version = generation, slug = props.slug, reviewed = reviewed0, chosenMode = chosen0, folder = destination.value.trim()
   submitting.value = true; error.value = ''
   try {
-    const approved = await ask({ title: chosenMode === 'archive' ? 'Archive reviewed media?' : 'Permanently remove reviewed media?', message: `${reviewed.files.length} reviewed files (${formatBytes(reviewed.total_bytes)}) from ${reviewed.episodes.filter(ep => ep.files.length).length} episodes in ${slug}. ${chosenMode === 'archive' ? `Copy to ${folder}, verify, then remove the originals.` : 'These local files will be permanently removed.'} Upload records, scripts, prompts and subtitles stay. Removed media may need paid generation to recreate.`, confirmLabel: chosenMode === 'archive' ? 'Archive files' : 'Remove files', danger: chosenMode === 'remove' })
+    const approved = await ask({ title: chosenMode === 'archive' ? 'Archive reviewed media?' : chosenMode === 'compress' ? 'Archive these episodes?' : 'Move reviewed media to _trash?', message: `${reviewed.files.length} reviewed files (${formatBytes(reviewed.total_bytes)}) from ${reviewed.episodes.filter(ep => ep.files.length).length} episodes in ${slug}. ${chosenMode === 'archive' ? `Copy to ${folder}, verify, then remove the originals.` : chosenMode === 'compress' ? 'Scene images are re-saved as smaller JPEGs under the same names; the originals, clips, chapter narration and final video move to _trash.' : 'These files move to a _trash folder on the same drive; nothing is deleted.'} Upload records, scripts, prompts, subtitles and thumbnails stay. Restore from _trash if you need anything back; space is freed when you empty it.`, confirmLabel: chosenMode === 'archive' ? 'Archive files' : chosenMode === 'compress' ? 'Archive episode' : 'Move to _trash', danger: false })
     if (!approved || !current(version)) return
     const result = await post<{ operation_id: string }>(`/projects/${slug}/media-cleanup/run`, { preview_id: reviewed.preview_id, mode: chosenMode, ...(chosenMode === 'archive' ? { destination: folder } : {}) })
     remember(slug, result.operation_id)
