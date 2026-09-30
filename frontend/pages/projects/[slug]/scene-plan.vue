@@ -1456,6 +1456,7 @@ const statusLoading = ref(false)
 const statusLoadError = ref('')
 const plan = ref<ScenePlan | null>(null)
 const dirty = ref(false)
+useUnsavedGuard(dirty, 'Scene Plan edits', { episodeSwitch: true })
 const SCENE_RENDER_BATCH = 60
 const renderedSceneLimit = ref(SCENE_RENDER_BATCH)
 const sceneLoadSentinel = ref<HTMLElement | null>(null)

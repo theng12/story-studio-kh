@@ -207,16 +207,16 @@ export function humanizeBackendError(e: unknown, fallback?: string): HumanizedEr
 
   // ── Network errors (provider calls, fetch) ───────────────────────────
   if (code === 'ECONNREFUSED') {
-    return { detail: 'Connection refused by the remote service.', hint: 'Check your internet connection or try again shortly.' }
+    return { detail: 'Connection refused by the remote service.', hint: 'Cannot reach the GenStudio gateway — is the gateway app running?' }
   }
   if (code === 'ECONNRESET') {
     return { detail: 'The connection to the remote service was reset.', hint: 'Try again — this is usually transient.' }
   }
   if (code === 'ETIMEDOUT' || code === 'EHOSTUNREACH' || code === 'ENETUNREACH') {
-    return { detail: 'Could not reach the remote service.', hint: 'Check your internet connection and try again.' }
+    return { detail: 'Could not reach the remote service.', hint: 'Cannot reach the GenStudio gateway — is the gateway app running?' }
   }
   if (code === 'ENOTFOUND') {
-    return { detail: 'The remote service host could not be resolved.', hint: 'Check your internet connection or DNS settings.' }
+    return { detail: 'The remote service host could not be resolved.', hint: 'Check the GenStudio gateway address in Settings → This Mac, or your DNS settings.' }
   }
 
   // ── Provider / FFmpeg patterns surfaced by message text ──────────────

@@ -57,7 +57,6 @@
         v-model:episode-id="episodeId"
         filter-field="introduction"
         generate-label="Write this episode's opening"
-        loading-label="Writing…"
         :generate-loading="generating"
         :generate-disabled="!canGenerateIntroduction"
         :generate-status="actionStatus"
@@ -373,6 +372,7 @@ const saving = ref(false)
 const generating = ref(false)
 const previewSaving = ref(false)
 const dirty = ref(false)
+useUnsavedGuard(dirty, 'Introduction edits')
 const loading = ref(true)
 const newBeatLabel = ref('')
 const expanded = ref<Set<string>>(new Set())

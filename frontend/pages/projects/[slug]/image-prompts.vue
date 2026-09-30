@@ -20,7 +20,6 @@
       v-model:episode-id="form.episode_id"
       :filter-field="promptFilterField"
       :generate-label="generateLabel"
-      loading-label="Generating…"
       :generate-loading="generating || promptsJobActiveForEpisode"
       :generate-disabled="!form.episode_id || (scriptGateApplies && !scriptReady)"
       :generate-status="(generating || promptsJobActiveForEpisode) ? `Generating prompts for ${form.episode_id}…` : scriptGateReason"

@@ -188,7 +188,6 @@
                       <VoicePicker
                         :model-value="profileFor(slug).voiceId || null"
                         :project-slug="slug"
-                        audio-model-provider="genstudio"
                         :scope-to-model="false"
                         default-label="Use channel default"
                         @update:model-value="profileFor(slug).voiceId = $event || undefined"

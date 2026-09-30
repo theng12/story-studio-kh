@@ -21,7 +21,6 @@
         filter-field="scene_review"
         :presets="motionPresets"
         generate-label="Generate missing clips"
-        loading-label="Queuing clips..."
         :generate-loading="queuing || clipJobsActive"
         :generate-disabled="!canGenerate"
         :generate-status="generateStatus"

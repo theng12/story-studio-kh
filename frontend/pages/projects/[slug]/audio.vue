@@ -133,7 +133,6 @@
           <VoicePicker
             v-model="form.voice"
             :project-slug="slug"
-            :audio-model-provider="currentAudioProvider"
             :tts-model-id="selectedTtsModelEligible ? form.model : ''"
             :tts-model-name="selectedTtsModel?.display_name || ''"
             :tts-model-provider-id="selectedTtsModel?.provider_id || ''"
@@ -767,17 +766,6 @@ const selectedTtsModelEligible = computed(() => !ttsModelsStale.value
   && selectedTtsModel.value?.generation_enabled === true
   && selectedTtsModel.value.locked !== true)
 
-// v1.0.157 — `currentAudioProvider` computed + the cross-source voice
-// reset watcher moved BELOW the `form = reactive({...})` declaration
-// further down. v1.0.150 placed them here and v1.0.151-156 piled
-// further changes on top, but neither version actually touched the
-// audio page — the TDZ error stayed latent. `watch(currentAudioProvider, …)`
-// triggers Vue's dependency tracker, which calls the computed getter
-// once at setup() to register the source — and the getter reads
-// `form.model`, which throws ReferenceError because `form` (a `const`)
-// isn't initialized yet at this point in the script-setup body. Entire
-// setup() unwinds → blank Audio Generator page.
-
 const { success, info: showInfo, error: showError } = useToast()
 const { audioGenerating } = useGenerating()
 const { confirmGeneration } = useConfirmation()
@@ -855,7 +843,6 @@ watch([ttsModels, () => form.model], () => {
   }
 })
 
-const currentAudioProvider = computed<string>(() => 'genstudio')
 const discoveredProviderVoices = ref<GenStudioVoice[]>([])
 function onVoiceCatalogUpdated(voices: GenStudioVoice[]) {
   discoveredProviderVoices.value = voices

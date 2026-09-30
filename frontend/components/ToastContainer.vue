@@ -3,6 +3,7 @@
     <div
       v-for="toast in toasts"
       :key="toast.id"
+      :title="toast.raw"
       :class="['toast', `toast-${toast.type}`, { 'has-undo': !!toast.onUndo, 'has-action': !!toast.action }]"
     >
       <span class="toast-message">{{ toast.message }}</span>

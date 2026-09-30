@@ -197,3 +197,43 @@ test('toast presentation preserves unrelated UUID-like customer content', () => 
   success(source)
   assert.ok(toasts.value.find(toast => toast.message === source))
 })
+
+describe('useToast.humanizeError', () => {
+  const { humanizeError } = useToast()
+
+  test('bare numbers in unrelated messages are passed through untouched', () => {
+    for (const msg of [
+      'Unsupported output size 1536x1024 for this model',
+      'Scene 12 image missing in EP0401',
+      'Could not save file (4096 bytes)',
+      'Subtitle cue 3 starts at 01:20:503',
+      'Job 3fa9-4291 not found',
+      'Episode EP0429 has 509 scenes',
+    ]) {
+      assert.equal(humanizeError(msg), msg)
+    }
+  })
+
+  test('real HTTP statuses are still translated', () => {
+    assert.match(humanizeError('GenStudio KH request failed (HTTP 401)'), /API key is invalid/)
+    assert.match(humanizeError('Request failed with status code 429'), /rate limit/)
+    assert.match(humanizeError('returned HTTP 503'), /overloaded/)
+    assert.match(humanizeError('voice save returned HTTP 502'), /Server error/)
+    assert.match(humanizeError('status: 409 conflict'), /already running/)
+    assert.match(humanizeError('401 Unauthorized'), /API key is invalid/)
+  })
+
+  test('an unreachable gateway blames the gateway, not the internet', () => {
+    const out = humanizeError('connect ECONNREFUSED 127.0.0.1:8787')
+    assert.match(out, /GenStudio gateway/)
+    assert.doesNotMatch(out, /internet/)
+  })
+
+  test('a rewritten error keeps the raw message reachable for the tooltip', () => {
+    const { error, toasts } = useToast()
+    error('GenStudio request failed (HTTP 500) zzz-unique')
+    const t = toasts.value.find(x => x.raw?.includes('zzz-unique'))
+    assert.ok(t, 'rewritten toast carries raw')
+    assert.match(t!.message, /Server error/)
+  })
+})

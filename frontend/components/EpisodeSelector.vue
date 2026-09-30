@@ -136,6 +136,7 @@
 </template>
 
 <script setup lang="ts">
+import { isNavigationFailure, NavigationFailureType } from 'vue-router'
 import { STEP_STATUS_FIELD } from '~/composables/useProjectFlow'
 import { localMediaStatusLabel } from '~/composables/useEpisodes'
 import { jobTypeLabel } from '~/utils/job-presentation'
@@ -603,9 +604,15 @@ async function onSelect(code: string) {
   // The next/previous ribbon reads the current route. Synchronize the picker
   // before a later navigation can reuse an old deep-link selection, while
   // retaining page-local query state such as the active Script tab.
+  const hadAutoSelect = didAutoSelect
   didAutoSelect = true
   if (String(route.params.slug || '') === props.projectSlug) {
-    void router.replace({ query: { ...route.query, episode_id: code } })
+    // A page guard (unsaved edits) can refuse the navigation; then the episode must not change.
+    if (isNavigationFailure(await router.replace({ query: { ...route.query, episode_id: code } }), NavigationFailureType.aborted)) {
+      didAutoSelect = hadAutoSelect
+      emit('update:modelValue', oldCode)
+      return
+    }
   }
   emit('update:modelValue', code)
   const ep = episodes.value.find(e => e.episode_code === code)

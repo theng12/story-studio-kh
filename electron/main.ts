@@ -281,6 +281,19 @@ async function createWindow(port: number) {
   mainWindow.webContents.on('will-navigate', guardNavigation)
   mainWindow.webContents.on('will-redirect', guardNavigation)
   mainWindow.webContents.on('will-attach-webview', (event) => event.preventDefault())
+  // A page with unsaved edits asks to confirm unload (beforeunload). Without this handler
+  // Electron cancels a reload or window close silently, which looks like a frozen app.
+  mainWindow.webContents.on('will-prevent-unload', (event) => {
+    const choice = dialog.showMessageBoxSync(mainWindow!, {
+      type: 'warning',
+      buttons: ['Stay', 'Discard and leave'],
+      defaultId: 0,
+      cancelId: 0,
+      message: 'You have unsaved edits on this page.',
+      detail: 'Leaving now discards them.',
+    })
+    if (choice === 1) event.preventDefault()
+  })
 
   // Deny every permission request by default (camera, mic, geolocation,
   // notifications, etc.) — this is a content-creation app that doesn't need

@@ -182,3 +182,22 @@ test('sidebar and All Jobs page share one live stream until both leave', () => {
     assert.equal(stream.closed, true)
   }
 })
+
+test('a job that fails in a project that is not open raises a failure toast with an Open job action', async () => {
+  ;(globalThis as any).EventSource = Stream
+  const { useToast } = await import('../composables/useToast.js')
+  const queue = useAllJobs()
+  queue.start()
+  try {
+    Stream.last.fire('snapshot', snapshot('far-away'))
+    Stream.last.fire('update', { ...snapshot('far-away').jobs[0], status: 'error', type: 'scene_images', episode_id: 'EP0007' })
+    const toast = useToast().toasts.value.find(t => t.message.includes('EP0007'))
+    assert.ok(toast, 'failure surfaced')
+    assert.equal(toast!.type, 'error')
+    assert.equal(toast!.action?.label, 'Open job')
+    // A job that was already failed is not announced again.
+    const before = useToast().toasts.value.length
+    Stream.last.fire('update', { ...snapshot('far-away').jobs[0], status: 'error', type: 'scene_images', episode_id: 'EP0007' })
+    assert.equal(useToast().toasts.value.length, before)
+  } finally { queue.stop() }
+})

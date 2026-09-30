@@ -18,13 +18,13 @@
       :visible="expanded"
       :title="scopeTitle"
       :description="scopeDescription"
-      :tone="scopeFamily === 'cloud' ? 'accent' : 'success'"
+      tone="accent"
       :count="voiceCountLabel"
       close-label="Close voice picker"
       size="xl"
       @close="close"
     >
-      <template v-if="isGenStudioScope && compatibleLibrary" #actions>
+      <template v-if="compatibleLibrary" #actions>
         <button
           type="button"
           class="btn btn-sm btn-secondary"
@@ -32,7 +32,7 @@
         >{{ libraryOpen ? 'Close library' : `Browse ${compatibleLibrary.label} library` }}</button>
       </template>
 
-      <div v-if="isGenStudioScope && libraryOpen && compatibleLibrary" class="vp-add-panel">
+      <div v-if="libraryOpen && compatibleLibrary" class="vp-add-panel">
         <VoiceLibraryBrowser :key="compatibleLibrary.id" :library="compatibleLibrary" @added="onLibraryVoiceAdded" />
       </div>
 
@@ -41,7 +41,7 @@
 
         <div class="vp-toolbar">
         <input ref="searchEl" v-model="search" type="search" class="input input-sm vp-search" :placeholder="searchPlaceholder" :aria-label="searchPlaceholder" @keydown="onListKeydown" />
-        <div v-if="isGenStudioScope" class="vp-filter" role="group" aria-label="Filter voices">
+        <div class="vp-filter" role="group" aria-label="Filter voices">
           <button
             v-for="option in VOICE_FILTERS"
             :key="option.id"
@@ -56,9 +56,9 @@
         <button
           type="button"
           class="btn btn-sm btn-secondary"
-          :disabled="voiceListLoading"
-          @click="refreshVoices"
-        >{{ voiceListLoading ? 'Loading…' : 'Refresh' }}</button>
+          :disabled="voicesLoading"
+          @click="loadGenStudioVoices"
+        >{{ voicesLoading ? 'Loading…' : 'Refresh' }}</button>
         </div>
 
         <!-- Stated here as well as in a toast: the dialog sits above the toast
@@ -77,7 +77,6 @@
           <span>Use the model's default voice</span>
         </button>
 
-        <template v-if="isGenStudioScope">
           <div v-if="scopeToModel && !ttsModelId" class="vp-empty">
             <strong>Choose a voice model first.</strong>
             <span>Voices are listed for the model that serves them.</span>
@@ -116,35 +115,6 @@
             <strong>{{ emptyStateTitle }}</strong>
             <span>{{ emptyStateHint }}</span>
           </div>
-        </template>
-
-        <section v-if="scopeFamily === 'local'" class="vp-section vp-section-local">
-          <div class="vp-section-heading">
-            <h4>{{ localSectionTitle }}</h4>
-            <a v-if="!isMacosScope" href="#" @click.prevent="openVoiceStudioWeb">Open Voice Studio ↗</a>
-          </div>
-          <div v-if="localError" class="vp-warning">
-            {{ localError }}
-            <a href="#" @click.prevent="goToLocalModelsSettings">Check local model settings</a>
-          </div>
-          <div v-else-if="localLoading" class="vp-empty">Loading voices…</div>
-          <div v-else-if="!filteredLocalVoices.length" class="vp-empty">No compatible local voices were reported.</div>
-          <div
-            v-for="voice in filteredLocalVoices"
-            :key="voice.id"
-            class="vp-row"
-            :class="{ selected: isSelectedLocal(voice) }"
-          >
-            <button type="button" class="vp-select" @click="selectLocal(voice)">
-              <strong>{{ voice.name }}</strong>
-              <span>
-                {{ isMacosScope ? 'macOS' : scope === 'voicestudio-voicepack' ? 'built-in' : 'local clone' }}
-                <template v-if="voice.endpoint_count"> · {{ voice.available_everywhere ? `all ${voice.endpoint_count} machines` : `${voice.available_on?.length || 0}/${voice.endpoint_count} machines` }}</template>
-              </span>
-            </button>
-            <button type="button" class="vp-preview" title="Preview voice" @click="$emit('preview', encodedLocalVoice(voice))">▶</button>
-          </div>
-        </section>
         </div>
       </template>
     </PickerDialog>
@@ -170,26 +140,10 @@ import type { GenStudioVoice } from '~/composables/useGenStudioVoices'
 import { voiceIsGenerable } from '~/composables/useGenStudioVoices'
 import { unverifiedSelectionLabel } from '~/utils/picker-trigger-label'
 
-interface VoiceStudioVoice {
-  id: string
-  name: string
-  language?: string
-  gender?: string
-  duration_seconds?: number
-  available_on?: string[]
-  available_everywhere?: boolean
-  endpoint_count?: number
-  voice_kind?: 'voicestudio-pooled'
-}
-
 const props = withDefaults(defineProps<{
   modelValue: string | null
   projectSlug: string
   defaultLabel?: string
-  /** '' or 'genstudio' for the GenStudio catalogue; a local engine id otherwise. */
-  audioModelProvider?: string
-  /** Local (Voice Studio / macOS) engine id. Not used for GenStudio. */
-  audioModelId?: string
   /** The selected GenStudio TTS model. Voices are listed for this model only. */
   ttsModelId?: string
   ttsModelName?: string
@@ -205,8 +159,6 @@ const props = withDefaults(defineProps<{
   requireSelection?: boolean
 }>(), {
   defaultLabel: 'Default (let model pick)',
-  audioModelProvider: '',
-  audioModelId: '',
   ttsModelId: '',
   ttsModelName: '',
   ttsModelProviderId: '',
@@ -222,7 +174,6 @@ const emit = defineEmits<{
   'catalog-updated': [voices: GenStudioVoice[]]
 }>()
 
-const { get } = useApi()
 const { error: showError, info } = useToast()
 const router = useRouter()
 const {
@@ -235,21 +186,6 @@ const {
   libraries,
   loadLibraries,
 } = useGenStudioVoices()
-
-type Scope = 'genstudio' | 'voicestudio-voicepack' | 'voicestudio-cloning' | 'macos-builtin'
-
-const VOICEPACK_MODEL_IDS = new Set(['voicestudio-kokoro', 'voicestudio-qwen3-tts', 'voicestudio-bark'])
-
-const scope = computed<Scope>(() => {
-  if (props.audioModelProvider === 'voicestudio') {
-    return VOICEPACK_MODEL_IDS.has(props.audioModelId) ? 'voicestudio-voicepack' : 'voicestudio-cloning'
-  }
-  if (props.audioModelProvider === 'macos') return 'macos-builtin'
-  return 'genstudio'
-})
-const scopeFamily = computed<'cloud' | 'local'>(() => scope.value === 'genstudio' ? 'cloud' : 'local')
-const isGenStudioScope = computed(() => scope.value === 'genstudio')
-const isMacosScope = computed(() => scope.value === 'macos-builtin')
 
 const expanded = ref(false)
 const searchEl = ref<HTMLInputElement | null>(null)
@@ -282,10 +218,6 @@ const voiceFilter = ref<VoiceFilter>('all')
 const libraryOpen = ref(false)
 const savingVoiceId = ref('')
 const saveError = ref('')
-const localVoices = ref<VoiceStudioVoice[]>([])
-const localLoading = ref(false)
-const localError = ref('')
-const voiceStudioBaseUrl = ref('')
 const voicesAttempted = ref(false)
 /**
  * Voice names this browser has seen, persisted across launches. Hydrated with no
@@ -297,13 +229,12 @@ rememberedVoiceNames.hydrate()
 /** No `model_id` filter: every voice on the account, each naming its model. */
 const ALL_VOICES = ''
 const voicesReady = computed(() => !props.scopeToModel || !!props.ttsModelId)
-const voiceListLoading = computed(() => localLoading.value || voicesLoading.value)
-const searchPlaceholder = computed(() => isGenStudioScope.value ? 'Search voices…' : 'Search local voices…')
+const searchPlaceholder = 'Search voices…'
 const compatibleLibrary = computed(() => libraries.value.find(
   library => library.provider_id === props.ttsModelProviderId,
 ) || null)
 const cloneHint = computed(() => {
-  if (!isGenStudioScope.value || !props.ttsModelSupportsVoiceCloning || !props.ttsModelName) return ''
+  if (!props.ttsModelSupportsVoiceCloning || !props.ttsModelName) return ''
   return `Clone a voice in GenStudio KH; once its compatible copy is ready, it appears here for ${props.ttsModelName}.`
 })
 
@@ -379,21 +310,13 @@ function rowProps(voice: GenStudioVoice) {
 }
 
 const currentGenStudioVoice = computed(() => voices.value.find(voice => voice.id === props.modelValue) || null)
-const currentLocalVoice = computed(() => {
-  if (!props.modelValue) return null
-  if (props.modelValue.startsWith('vsname:')) {
-    const name = props.modelValue.slice('vsname:'.length)
-    return localVoices.value.find(voice => voice.name === name) || null
-  }
-  return localVoices.value.find(voice => voice.id === props.modelValue) || null
-})
 /**
  * The name on the closed trigger.
  *
  * The last term used to be `props.modelValue`, which is a raw GenStudio voice id
- * (or a `vsname:` transport prefix for a pooled local voice). Whenever the voice
- * catalogue failed to load — GenStudio unreachable, the local voice service
- * down, an expired key — the picker fell straight through to it and showed the
+ * (or a `vsname:` transport prefix left by a retired local voice). Whenever the voice
+ * catalogue failed to load — GenStudio unreachable,
+ * an expired key — the picker fell straight through to it and showed the
  * customer an internal handle in the place where the name of their voice goes.
  * Unlike the model picker, this one had no fallback machinery at all.
  *
@@ -404,15 +327,15 @@ const currentLocalVoice = computed(() => {
  * server at generation time exactly as before.
  */
 const currentVoiceName = computed(() => {
-  const live = currentGenStudioVoice.value?.display_name || currentLocalVoice.value?.name
+  const live = currentGenStudioVoice.value?.display_name
   if (live) return live
   // `reconcileSelection` already clears a selection the loaded list does not
   // serve, so a value still sitting here against a non-empty list is the
   // picker's own business, not a failure.
   return unverifiedSelectionLabel({
     savedId: props.modelValue || '',
-    catalogueSize: isGenStudioScope.value ? voices.value.length : localVoices.value.length,
-    loading: voiceListLoading.value,
+    catalogueSize: voices.value.length,
+    loading: voicesLoading.value,
     rememberedName: rememberedVoiceNames.knownName(props.modelValue),
     unknownNoun: 'Saved voice',
   })
@@ -420,63 +343,17 @@ const currentVoiceName = computed(() => {
 const currentVoiceProviderLabel = computed(() =>
   currentGenStudioVoice.value ? voiceProviderText(currentGenStudioVoice.value) : '')
 const currentVoiceSaved = computed(() => currentGenStudioVoice.value?.is_saved === true)
-const scopeTitle = computed(() => isGenStudioScope.value
-  ? props.ttsModelName ? `${props.ttsModelName} voices` : 'GenStudio KH voices'
-  : localSectionTitle.value)
-const scopeDescription = computed(() => isGenStudioScope.value
-  ? props.ttsModelDescription || 'Read live from your GenStudio KH account for the selected voice model.'
-  : 'This list comes from the selected local voice engine.')
-const localSectionTitle = computed(() => {
-  if (isMacosScope.value) return 'macOS built-in voices'
-  if (scope.value === 'voicestudio-voicepack') return 'Built-in model voices'
-  return 'Voice Studio cloned voices'
-})
-const filteredLocalVoices = computed(() => {
-  const q = search.value.trim().toLowerCase()
-  return q ? localVoices.value.filter(voice => `${voice.name} ${voice.language || ''}`.toLowerCase().includes(q)) : localVoices.value
-})
+const scopeTitle = computed(() => props.ttsModelName ? `${props.ttsModelName} voices` : 'GenStudio KH voices')
+const scopeDescription = computed(() =>
+  props.ttsModelDescription || 'Read live from your GenStudio KH account for the selected voice model.')
 const voiceCountLabel = computed(() => {
-  const count = isGenStudioScope.value ? visibleVoices.value.length : filteredLocalVoices.value.length
+  const count = visibleVoices.value.length
   return count === 1 ? '1 voice' : `${count} voices`
 })
 
-async function loadLocalVoices() {
-  if (scopeFamily.value !== 'local') {
-    localVoices.value = []
-    localError.value = ''
-    return
-  }
-  localLoading.value = true
-  localError.value = ''
-  try {
-    if (isMacosScope.value) {
-      const data = await get<{ voices: VoiceStudioVoice[]; available?: boolean }>('/macos/voices')
-      localVoices.value = Array.isArray(data.voices) ? data.voices : []
-      if (data.available === false) localError.value = 'macOS voices are not available on this machine.'
-    } else {
-      const query = props.audioModelId ? `?model=${encodeURIComponent(props.audioModelId)}` : ''
-      const data = await get<{ voices: VoiceStudioVoice[]; baseUrl?: string }>(`/voicestudio/voices${query}`)
-      localVoices.value = Array.isArray(data.voices) ? data.voices : []
-      voiceStudioBaseUrl.value = data.baseUrl || ''
-    }
-    // Keyed by the ENCODED id — the same string that lands in `modelValue` — so
-    // a pooled voice saved as `vsname:…` reads back as its name and never as its
-    // transport prefix.
-    rememberedVoiceNames.remember(
-      localVoices.value.map(voice => ({ id: encodedLocalVoice(voice), name: voice.name })),
-    )
-  } catch (error: any) {
-    localVoices.value = []
-    localError.value = error?.data?.detail || error?.message || 'The local voice service is unavailable.'
-  } finally {
-    localLoading.value = false
-    reconcileSelection()
-  }
-}
-
 /** Re-read the whole voice list whenever the model selection changes. */
 async function loadGenStudioVoices() {
-  if (!isGenStudioScope.value || (props.scopeToModel && !props.ttsModelId)) {
+  if (props.scopeToModel && !props.ttsModelId) {
     voicesAttempted.value = false
     clearVoices()
     emit('catalog-updated', [])
@@ -506,14 +383,8 @@ async function loadGenStudioVoices() {
  */
 watch(voiceFilter, (next, previous) => {
   if ((next === 'cloned') === (previous === 'cloned')) return
-  if (!isGenStudioScope.value) return
   void loadGenStudioVoices()
 })
-
-function refreshVoices() {
-  if (scopeFamily.value === 'local') void loadLocalVoices()
-  else void loadGenStudioVoices()
-}
 
 async function toggleSaved(voice: GenStudioVoice) {
   if (savingVoiceId.value) return
@@ -536,18 +407,9 @@ async function onLibraryVoiceAdded(voiceId: string) {
   if (voices.value.some(voice => voice.id === voiceId)) select(voiceId)
 }
 
-function encodedLocalVoice(voice: VoiceStudioVoice) {
-  return voice.voice_kind === 'voicestudio-pooled' ? `vsname:${voice.name}` : voice.id
-}
-function isSelectedLocal(voice: VoiceStudioVoice) {
-  return props.modelValue === encodedLocalVoice(voice)
-}
 function select(voiceId: string | null) {
   emit('update:modelValue', voiceId)
   close()
-}
-function selectLocal(voice: VoiceStudioVoice) {
-  select(encodedLocalVoice(voice))
 }
 
 /**
@@ -556,20 +418,12 @@ function selectLocal(voice: VoiceStudioVoice) {
  */
 function reconcileSelection() {
   if (!props.modelValue) return
-  if (isGenStudioScope.value) {
-    if (!voicesReady.value || !voicesAttempted.value || voicesLoading.value || voicesError.value) return
-    if (voices.value.some(voice => voice.id === props.modelValue)) return
-    emit('update:modelValue', null)
-    info(props.scopeToModel
-      ? 'Voice cleared: the selected voice model does not serve it.'
-      : 'Voice cleared: it is no longer in your GenStudio catalogue.')
-    return
-  }
-  if (localLoading.value || localError.value || !localVoices.value.length) return
-  if (!currentLocalVoice.value) {
-    emit('update:modelValue', null)
-    info('Voice cleared because it is not available for the selected local model.')
-  }
+  if (!voicesReady.value || !voicesAttempted.value || voicesLoading.value || voicesError.value) return
+  if (voices.value.some(voice => voice.id === props.modelValue)) return
+  emit('update:modelValue', null)
+  info(props.scopeToModel
+    ? 'Voice cleared: the selected voice model does not serve it.'
+    : 'Voice cleared: it is no longer in your GenStudio catalogue.')
 }
 
 async function toggle() {
@@ -579,8 +433,7 @@ async function toggle() {
   }
   saveError.value = ''
   expanded.value = true
-  if (scopeFamily.value === 'local' && !localVoices.value.length) void loadLocalVoices()
-  if (isGenStudioScope.value) void loadGenStudioVoices()
+  void loadGenStudioVoices()
   // Two ticks: the shared focus trap claims the dialog's first control on the
   // first tick, so the search field takes focus on the one after.
   await nextTick()
@@ -626,17 +479,6 @@ function onListKeydown(event: KeyboardEvent) {
   else if (event.key === 'Home' && !typing) { event.preventDefault(); selectableButtons()[0]?.focus() }
   else if (event.key === 'End' && !typing) { event.preventDefault(); selectableButtons().at(-1)?.focus() }
 }
-function openVoiceStudioWeb() {
-  if (!voiceStudioBaseUrl.value) {
-    showError('Voice Studio URL is not set. Check Settings → This Mac → Local Models.')
-    return
-  }
-  window.open(voiceStudioBaseUrl.value, '_blank', 'noopener,noreferrer')
-}
-function goToLocalModelsSettings() {
-  close()
-  void router.push(`/projects/${props.projectSlug}/settings#local-tts`)
-}
 function goToGenStudioSettings() {
   close()
   void router.push(`/projects/${props.projectSlug}/settings#genstudio-settings`)
@@ -645,15 +487,13 @@ function goToGenStudioSettings() {
 // Escape, backdrop dismissal and focus restoration all come from Modal via
 // PickerDialog, so this component owns no global key or click listeners.
 onMounted(() => {
-  if (isGenStudioScope.value) void loadLibraries()
-  void loadLocalVoices()
+  void loadLibraries()
   void loadGenStudioVoices()
 })
 // The first rule: a model change invalidates the voice list, so re-read it.
-watch(() => [props.audioModelId, props.audioModelProvider, props.ttsModelId], () => {
+watch(() => props.ttsModelId, () => {
   libraryOpen.value = false
   search.value = ''
-  void loadLocalVoices()
   void loadGenStudioVoices()
 })
 </script>

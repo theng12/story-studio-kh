@@ -326,6 +326,7 @@ async function onFilePicked(ev: Event): Promise<void> {
 }
 
 async function removeThumbnail(): Promise<void> {
+  if (!await useConfirm().ask({ title: 'Remove reference thumbnail?', message: 'The uploaded reference image is deleted.', confirmLabel: 'Remove', danger: true })) return
   thumbnailUploading.value = true
   try {
     const titleParam = props.title ? `?title=${encodeURIComponent(props.title)}` : ''
@@ -338,7 +339,7 @@ async function removeThumbnail(): Promise<void> {
 }
 
 async function removeMaster(): Promise<void> {
-  if (!confirm('Remove master reference image?')) return
+  if (!await useConfirm().ask({ title: 'Remove master reference image?', message: 'The uploaded reference image is deleted.', confirmLabel: 'Remove', danger: true })) return
   masterUploading.value = true
   try {
     const titleParam = props.title ? `?title=${encodeURIComponent(props.title)}` : ''
@@ -351,6 +352,7 @@ async function removeMaster(): Promise<void> {
 }
 
 async function removeScene(n: number): Promise<void> {
+  if (!await useConfirm().ask({ title: `Remove scene ${n} reference?`, message: 'The uploaded reference image is deleted.', confirmLabel: 'Remove', danger: true })) return
   sceneUploading.value = new Set([...sceneUploading.value, n])
   try {
     const titleParam = props.title ? `?title=${encodeURIComponent(props.title)}` : ''

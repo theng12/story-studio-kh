@@ -287,7 +287,7 @@ test('normal Jobs surfaces use attention language while internal status keys sta
   assert.match(jobs, /Show details/)
   assert.match(jobs, /Repair all \(\$\{repairableFailedJobs\.length\}\)/)
   assert.match(jobs, /No jobs need another try/)
-  assert.match(useJobsSource, /\$\{label\} needs attention: \$\{job\.episode_id\}/)
+  assert.match(useJobsSource, /\$\{jobDisplayLabel\(job\)\} needs attention: \$\{job\.episode_id\}/)
   assert.match(batchSignals, /need.*attention/)
 
   for (const legacy of [

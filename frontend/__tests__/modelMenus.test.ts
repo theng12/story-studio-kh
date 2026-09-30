@@ -234,7 +234,7 @@ describe('shared model menus', () => {
     // were dead code naming a retired routing surface.
     assert.doesNotMatch(voicePicker, /studiohub-shared/)
     assert.doesNotMatch(voicePicker, /hubvoice:/)
-    assert.match(voicePicker, /voice_kind === 'voicestudio-pooled'/)
+    assert.doesNotMatch(voicePicker, /voice_kind === 'voicestudio-pooled'|encodedLocalVoice/)
   })
 
   test('the voice dialog keeps the scope statement, library browser and saved toggle', () => {
@@ -242,8 +242,8 @@ describe('shared model menus', () => {
     // says where it was read from, and still reads cloud vs local at a glance.
     assert.match(voicePicker, /:title="scopeTitle"/)
     assert.match(voicePicker, /:description="scopeDescription"/)
-    assert.match(voicePicker, /scopeFamily === 'cloud' \? 'accent' : 'success'/)
-    assert.match(voicePicker, /v-if="isGenStudioScope && compatibleLibrary" #actions/)
+    assert.doesNotMatch(voicePicker, /\/macos\/voices|\/voicestudio\/voices/, 'the retired local-voice branch stays gone')
+    assert.match(voicePicker, /v-if="compatibleLibrary" #actions/)
     assert.match(voicePicker, /:library="compatibleLibrary"/)
     assert.match(voicePicker, /library\.provider_id === props\.ttsModelProviderId/)
     assert.match(voicePicker, /Clone a voice in GenStudio KH/)

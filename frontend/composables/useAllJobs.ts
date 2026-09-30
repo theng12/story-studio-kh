@@ -1,5 +1,6 @@
 import { computed, readonly, ref } from 'vue'
 import { useApi } from './useApi.js'
+import { announceJobFailure, isWatchingProject } from './useJobs.js'
 import type { Job, JobStats } from './useJobs.js'
 import type { JobListResponse } from '@shared/contracts'
 
@@ -92,6 +93,9 @@ function applyUpdate(job: Job) {
   if (!hasInitialSnapshot) pendingUpdates.set(job.job_id, job)
   const next = [...jobs.value]
   const index = next.findIndex(item => item.job_id === job.job_id)
+  // A failure in a project that is not on screen has no other way to reach the owner.
+  const before = index >= 0 ? next[index]!.status : ''
+  if ((before === 'running' || before === 'queued') && job.status === 'error' && !isWatchingProject(job.project_slug)) announceJobFailure(job)
   if (index >= 0) next[index] = job
   else next.unshift(job)
   jobs.value = next
@@ -149,7 +153,9 @@ function stopTransport() {
 function startFallback() {
   stopTransport()
   void refresh()
-  pollTimer = setInterval(() => void refresh(), 15_000)
+  let ticks = 0
+  // Every 4th tick (~1 min) tries the live stream again.
+  pollTimer = setInterval(() => { if (++ticks % 4 === 0) startTransport(); else void refresh() }, 15_000)
 }
 
 function startTransport() {

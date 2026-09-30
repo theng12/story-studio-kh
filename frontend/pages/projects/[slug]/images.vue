@@ -26,7 +26,6 @@
       v-model:episode-id="form.episode_id"
       :filter-field="form.mode === 'thumbs' ? 'thumbnails' : 'images'"
       :generate-label="generateButtonLabel"
-      loading-label="Queuing…"
       :generate-loading="submitting || imageJobActiveForEpisode"
       :generate-disabled="!form.episode_id"
       :generate-status="(generating || imageJobActiveForEpisode) ? `${generatingLabel} for ${form.episode_id}…` : ''"
@@ -149,29 +148,10 @@
           <input v-model.number="activeForm.seed" class="input" type="number" min="0" max="2147483647" placeholder="Random" />
           <p class="text-muted text-xs mt-1">Reuse a seed for repeatable composition; leave blank for a fresh variation.</p>
         </div>
-        <!-- v1.0.478 — Quality tier resolved against the model's own size menu
-             (Image Studio /imagestudio/models). Works for local AND cloud models
-             that advertise `sizes`, so cloud can use its full higher-res range. -->
-        <div v-if="activeModelHasSizes" class="form-group">
-          <label>
-            Quality
-            <span
-              class="text-muted text-xs"
-              title="Output resolution from this model's own size menu. Highest = the largest size offered for the aspect (ultra → high → max). Balanced = a sensible mid size. Fast = the smallest. Resolves per model, so a preset stays usable across models."
-            >ⓘ</span>
-          </label>
-          <select v-model="activeForm.render_tier" class="select">
-            <option v-for="t in QUALITY_TIERS" :key="t.value" :value="t.value">{{ t.label }}</option>
-          </select>
-          <p class="text-muted text-xs mt-1">
-            <template v-if="activeTierDimsLabel">Sending {{ activeTierDimsLabel }} px.</template>
-            <template v-else>Resolved from the model's size menu.</template>
-          </p>
-        </div>
         <!-- v1.0.308 — legacy render-size scale, only for local models on older
              Image Studio builds that don't advertise a size menu. Hidden for
              cloud models (they use the aspect string, not pixels). -->
-        <div v-else-if="activeIsLocalModel" class="form-group">
+        <div v-if="activeIsLocalModel" class="form-group">
           <label>
             Render Size
             <span
@@ -709,10 +689,6 @@ const modelTierLabel = computed(() => {
   return 'Tier'
 })
 
-// v1.0.478 — Image Studio per-model size catalog (id → {sizes, default AR}).
-// Declared here (above the model watcher, which fires immediately during setup)
-// so it's initialized before modelArs() reads it. Populated onMounted.
-const isCatalog = ref<Map<string, IsModel>>(new Map())
 const activeGenStudioModel = computed(() =>
   genStudioImageModels.value.find(model => model.id === activeForm.value.model) || null,
 )
@@ -735,9 +711,7 @@ function normalizeImageAspectRatio(target: ImagesSubForm): boolean {
   const ratios = modelArs(target.model) || []
   if (!ratios.includes(target.aspect_ratio)) {
     const model = genStudioImageModels.value.find(row => row.id === target.model)
-    const defaultRatio = model
-      ? model.default_aspect_ratio
-      : isCatalog.value.get(target.model)?.default_aspect_ratio
+    const defaultRatio = model?.default_aspect_ratio
     target.aspect_ratio = defaultRatio && ratios.includes(defaultRatio) ? defaultRatio : ratios[0] || ''
   }
   return !!target.aspect_ratio && ratios.includes(target.aspect_ratio)
@@ -750,7 +724,7 @@ for (const kind of ['thumbnail', 'scene'] as const) {
     const target = form[kind]
     const model = genStudioImageModels.value.find(row => row.id === target.model)
     return [target.model, target.aspect_ratio, modelArs(target.model),
-      model?.default_aspect_ratio, isCatalog.value.get(target.model)?.default_aspect_ratio]
+      model?.default_aspect_ratio]
   }, () => normalizeImageAspectRatio(form[kind]), { immediate: true })
 }
 
@@ -835,7 +809,6 @@ onMounted(async () => {
   // immediately pick a saved preset without requiring a tab-switch first.
   await Promise.all([
     thumbnailGeneratorPresets.load(),
-    loadImageStudioCatalog(),
     refreshGenStudioImageModels(),
   ])
 })
@@ -1053,11 +1026,6 @@ const renderSizes = [
   { value: 75, label: 'Balanced' },
   { value: 50, label: 'Light' },
 ]
-const QUALITY_TIERS = [
-  { value: 'highest', label: 'Highest' },
-  { value: 'balanced', label: 'Balanced' },
-  { value: 'fast', label: 'Fast' },
-] as const
 const AR_LABELS: Record<string, string> = {
   '16:9': 'Landscape', '1:1': 'Square', '9:16': 'Portrait', '4:3': 'Standard',
   '3:4': 'Tall', '21:9': 'Ultrawide', '3:2': 'Photo', '2:3': 'Photo tall',
@@ -1066,75 +1034,27 @@ function isLocalModelId(model: string | undefined): boolean {
   return typeof model === 'string' && model.startsWith('imagestudio:')
 }
 
-// v1.0.478 — Image Studio's per-model size menu (GET /imagestudio/models). When a
-// model reports `sizes`, the AR list + resolution come from it. Lazy-fetched;
-// an empty response falls back to the compatibility table above.
-interface IsSize { aspect_ratio: string; label?: string; width: number; height: number; tier?: string; default?: boolean; fixed?: boolean }
-interface IsModel { id: string; sizes?: IsSize[]; default_aspect_ratio?: string; supports_custom_dimensions?: boolean }
-async function loadImageStudioCatalog() {
-  try {
-    const data = await get<{ models: IsModel[] }>(`/imagestudio/models`)
-    const m = new Map<string, IsModel>()
-    for (const x of (data.models || [])) if (x?.id) m.set(x.id, x)
-    isCatalog.value = m
-  } catch { /* leave empty → compatibility presets */ }
-}
-function modelSizes(modelId: string | undefined): IsSize[] | null {
-  const info = modelId ? isCatalog.value.get(modelId) : undefined
-  return info?.sizes?.length ? info.sizes : null
-}
 /** Distinct aspect ratios the model supports (menu order), or null when no menu. */
 function modelArs(modelId: string | undefined): string[] | null {
   const genStudio = genStudioImageModels.value.find(model => model.id === modelId)
   if (genStudio) return [...(genStudio.aspect_ratios || [])]
-  const sizes = modelSizes(modelId)
-  if (!sizes) return null
-  const out: string[] = []
-  for (const s of sizes) if (!out.includes(s.aspect_ratio)) out.push(s.aspect_ratio)
-  return out
-}
-/** Resolve a model's size for (AR, quality tier) → {width,height}, or null. */
-function modelDims(modelId: string | undefined, ar: string, tier: string): { width: number; height: number } | null {
-  const sizes = modelSizes(modelId)
-  if (!sizes || !modelId) return null
-  const info = isCatalog.value.get(modelId)
-  let forAr = sizes.filter(s => s.aspect_ratio === ar)
-  if (!forAr.length) {
-    const defAr = info?.default_aspect_ratio || sizes[0]!.aspect_ratio
-    forAr = sizes.filter(s => s.aspect_ratio === defAr)
-  }
-  if (!forAr.length) return null
-  const byTier = (t: string) => forAr.find(s => s.tier === t)
-  const ends = (dir: 1 | -1) => [...forAr].sort((a, b) => (a.width - b.width) * dir)[0]!
-  let pick: IsSize | undefined
-  if (tier === 'fast') pick = byTier('fast') || ends(1)
-  else if (tier === 'highest') pick = byTier('ultra') || byTier('high') || ends(-1)
-  else pick = byTier('balanced') || forAr.find(s => s.default) || forAr[Math.floor(forAr.length / 2)]
-  return pick ? { width: pick.width, height: pick.height } : null
+  return null
 }
 function legacyDimsFor(aspectRatio: string, scale: number): { width: number; height: number } {
   const base = LOCAL_ASPECT_PRESETS[aspectRatio] || LOCAL_ASPECT_PRESETS['1:1']!
   const s = (scale || 100) / 100
   return { width: round16(base[0] * s), height: round16(base[1] * s) }
 }
-// {width,height} for a subform: model menu first (incl cloud → full res), then the
-// legacy local table, then null for menu-less cloud models (aspect string).
+// {width,height} for a subform: the legacy local table, or null for cloud models (aspect string).
 function sizeBodyFor(sf: ImagesSubForm): { width: number; height: number } | null {
-  const d = modelDims(sf.model, sf.aspect_ratio, sf.render_tier)
-  if (d) return d
   return isLocalModelId(sf.model) ? legacyDimsFor(sf.aspect_ratio, sf.render_scale) : null
 }
 // Active-tab helpers drive the resolution control shown in the form.
-const activeModelHasSizes = computed(() => !!modelSizes(activeForm.value.model))
 const activeIsLocalModel = computed(() => isLocalModelId(activeForm.value.model))
 function activeLegacyDimsLabel(scale: number): string {
   const d = legacyDimsFor(activeForm.value.aspect_ratio, scale)
   return `${d.width}×${d.height}`
 }
-const activeTierDimsLabel = computed(() => {
-  const d = modelDims(activeForm.value.model, activeForm.value.aspect_ratio, activeForm.value.render_tier)
-  return d ? `${d.width}×${d.height}` : ''
-})
 // Per-kind sizes passed down to each ImageGeneratorPanel so its bulk + per-row
 // renders carry the same pixels the form shows.
 const sceneRenderSize = computed(() => sizeBodyFor(form.scene))
@@ -1659,7 +1579,10 @@ async function queueGeneration(forceOverride?: boolean, queuedMessage = 'Image g
     showError('This model has no published aspect ratios. Refresh the catalogue or choose another model before generating.')
     return
   }
-  if (!await confirmGeneration(slug.value, getConfirmationType(), params)) return
+  const confirmed = await confirmGeneration(slug.value, getConfirmationType(), params, params.force
+    ? { action: 'Re-render ALL thumbnails? This replaces the existing ones and charges again.', always: true }
+    : undefined)
+  if (!confirmed) return
   // Never replace a confirmed choice with a new model/ratio behind the dialog.
   if (activeForm.value.model !== params.model || form.mode !== params.mode
     || activeForm.value.aspect_ratio !== params.aspect_ratio

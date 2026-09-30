@@ -20,7 +20,6 @@
       v-model:episode-id="form.episode_id"
       filter-field="script"
       generate-label="Create outline"
-      loading-label="Creating…"
       :generate-loading="submitting || scriptJobActiveForEpisode"
       :generate-disabled="!canSubmit"
       :generate-status="scriptJobActiveForEpisode ? `Building outline for ${form.episode_id}…` : ''"

@@ -4,6 +4,37 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.240 — 2026-09-30
+
+- **Error toasts no longer misdiagnose unrelated numbers.** The friendly-message rewrite matched bare
+  digits, so "Scene 12 image missing in EP0401" read as *API key is invalid*, "Could not save file
+  (4096 bytes)" as *already running*, and an image size like `1536x1024` as *Server error*. A status
+  number now only counts after `HTTP` / `status` / `error`. When a message is rewritten, hovering the
+  toast shows the original text.
+- **"Cannot reach the GenStudio gateway" replaces "check your internet connection".** Story Studio only
+  talks to the gateway, so a refused or timed-out connection means the gateway app is not running or
+  its address is wrong, not that the internet is down. Both the toast and the job-error hints say so.
+- **Unsaved Scene Plan, Introduction and Sound Design edits are protected.** Leaving the page, switching
+  project, switching Scene Plan episode, or closing/reloading the window now asks *Discard unsaved
+  changes?* instead of throwing the edits away (the window prompt is Stay / Discard and leave). Declining
+  keeps the previous episode selected.
+- **Jobs no longer promises an "Estimated provider wait".** The number is when the gateway will check
+  again, not a prediction of the provider finishing, so it now reads *Checking again in about 2 minutes*.
+- **More destructive clicks ask first.** Music library *Remove* (the file cost credits), *Clear failed*
+  jobs (it removes the only place Retry and the error detail live), and removing a reference thumbnail,
+  scene reference, master image, composition template or episode visual anchor. Re-rendering *all*
+  thumbnails now says it replaces and re-charges, and always asks even if "skip confirmation" was ticked
+  for thumbnails.
+- **A failed job now has an *Open job* button, and failures in other channels reach you.** The toast opens
+  that project's Jobs page; a job that fails in a channel you are not looking at raises the same toast.
+- **Live job updates come back on their own.** After the live stream dropped, progress refreshed every
+  10 s until you changed channel; it now retries the stream about once a minute. A second confirmation
+  opened while one is showing no longer leaves the first one hanging, and the Pipeline remembers the
+  episodes you ticked when you leave for Jobs and come back.
+- **Removed dead code:** eleven `loading-label` attributes that never rendered, the Thumbnail Generator's
+  call to a `/imagestudio/models` route that no longer exists (it 404ed on every open), and the local
+  voice branch of the voice picker.
+
 ## v1.4.239 — 2026-09-29
 
 - **A thumbnail whose submit never landed now retries instead of failing forever.** When the gateway

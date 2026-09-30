@@ -31,7 +31,6 @@
         :project-slug="slug"
         episode-mode="multi"
         :generate-label="runButtonLabel"
-        :loading-label="preflighting ? 'Checking…' : 'Queuing…'"
         :generate-loading="submitting || preflighting"
         :generate-disabled="!canRun"
         :generate-status="pipelineGenerateStatus"
@@ -1520,6 +1519,20 @@ const selectedEpisodes = reactive(new Set<string>())
 watch(slug, () => {
   clearSelectedSteps()
   selectedEpisodes.clear()
+  restoreEpisodeSelection()
+})
+
+// The episode selection (not the stage list, which resets on purpose) survives a trip to
+// Jobs and back: sessionStorage, per channel. Codes that no longer exist are dropped once
+// the episode list is known.
+const episodeSelectionKey = () => `pipeline-episodes:${slug.value}`
+function restoreEpisodeSelection() {
+  try { for (const code of JSON.parse(sessionStorage.getItem(episodeSelectionKey()) || '[]')) selectedEpisodes.add(String(code)) }
+  catch { /* no sessionStorage or a corrupt entry: start empty */ }
+}
+restoreEpisodeSelection()
+watch(() => [...selectedEpisodes].sort().join(','), () => {
+  try { sessionStorage.setItem(episodeSelectionKey(), JSON.stringify([...selectedEpisodes])) } catch { /* selection just won't persist */ }
 })
 
 // Shared SWR cache so navigating away and back to /pipeline is instant.
@@ -1534,6 +1547,11 @@ const {
   updateEpisode,
   error: epError,
 } = useEpisodes(slug)
+watch(episodes, (list) => {
+  if (!list.length) return
+  const known = new Set(list.map(ep => ep.episode_code))
+  for (const code of [...selectedEpisodes]) if (!known.has(code)) selectedEpisodes.delete(code)
+})
 
 // Surface the underlying load error in a toast (composable stores it but
 // doesn't toast — page decides whether to show).

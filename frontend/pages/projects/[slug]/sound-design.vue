@@ -113,7 +113,7 @@ type Config = { enabled: boolean }
 type Candidate = { pool_id: string; filename: string; tags: string[] }
 
 const route = useRoute(); const slug = computed(() => String(route.params.slug)); const { get, put } = useApi(); const { success, error } = useToast()
-const episodeId = ref(''); const config = ref<Config>({ enabled: false }); const timeline = ref<Timeline | null>(null); const timelineProjectSlug = ref(''); const timelineEpisodeId = ref(''); const candidates = ref<Candidate[]>([]); const validation = ref<Array<{ cue_id?: string; detail: string }>>([]); const duration = ref(0); const loadError = ref(''); const saving = ref(false); const savingConfig = ref(false); const dirty = ref(false); const loadingTimeline = ref(false)
+const episodeId = ref(''); const config = ref<Config>({ enabled: false }); const timeline = ref<Timeline | null>(null); const timelineProjectSlug = ref(''); const timelineEpisodeId = ref(''); const candidates = ref<Candidate[]>([]); const validation = ref<Array<{ cue_id?: string; detail: string }>>([]); const duration = ref(0); const loadError = ref(''); const saving = ref(false); const savingConfig = ref(false); const dirty = ref(false); useUnsavedGuard(dirty, 'Sound Design cues'); const loadingTimeline = ref(false)
 let soundScopeEpoch = 0; let soundProjectEpoch = 0; let soundLoadSequence = 0; let soundEditSeq = 0
 const settings = ref<Settings>({ density: 'minimal', max_spots_per_minute: 3, default_bed_gain_db: -20, default_spot_gain_db: -12, ducking_profile: 'gentle' })
 useRememberedForm('sound-design', slug, settings, { include: ['density', 'max_spots_per_minute', 'default_bed_gain_db', 'default_spot_gain_db', 'ducking_profile'], version: 1 })

@@ -1427,7 +1427,8 @@ function genStudioQueueDetail(job: RJob): string {
     facts.push(`GenStudio provider queue position ${remote.queue_position}.`)
   }
   if (typeof remote.queue_eta_seconds === 'number' && remote.queue_eta_seconds > 0) {
-    facts.push(`Estimated provider wait ${formatGenStudioQueueEta(remote.queue_eta_seconds)}.`)
+    // queue_eta_seconds is when the gateway retries, not a prediction of the provider finishing.
+    facts.push(`Checking again in ${formatGenStudioQueueEta(remote.queue_eta_seconds)}.`)
   }
   if (remote.queue_reason === 'provider_pace') facts.push('GenStudio is pacing new requests.')
   return [activeRequestCount > 1 ? `Latest request: ${phase}` : phase, ...facts].filter(Boolean).join(' ')
@@ -3511,6 +3512,8 @@ async function clearHistory(status: 'finished' | 'failed') {
   if (bulkActionBusy.value) return
   const promised = status === 'finished' ? finishedCount.value : failedCount.value
   if (!promised) return
+  // Failed rows are the only place Retry/Recover and the error detail live.
+  if (status === 'failed' && !await useConfirm().ask({ title: 'Clear failed jobs?', message: `Remove ${promised} failed job row(s)? Their error details and Retry/Recover actions go with them. Files and billing records are unchanged.`, confirmLabel: 'Clear failed', danger: true })) return
   const project = isUniversal.value ? projectFilter.value : slug.value
   const endpoint = isUniversal.value && project === 'all' ? '/jobs/all'
     : project === '_app_' ? '/jobs/app' : `/projects/${project}/jobs`

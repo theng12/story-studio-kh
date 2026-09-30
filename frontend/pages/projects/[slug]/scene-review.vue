@@ -44,7 +44,6 @@
         filter-field="scene_review"
         :presets="srPresets"
         :generate-label="finishMissingLabel"
-        loading-label="Finishing…"
         :generate-loading="(bulkQueuing && !isRenderPaused) || isRendering"
         :generate-disabled="usesImagePool || !canBulkGenerate || reviewJobActive"
         :generate-status="usesImagePool ? 'Scene Review is not used for Image Pool episodes' : bulkStatus"

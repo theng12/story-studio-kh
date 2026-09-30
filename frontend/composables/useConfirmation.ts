@@ -4,12 +4,15 @@ interface ConfirmationState {
   typeLabel: string
   action: string
   details: Array<{ label: string; value: string }>
+  /** Destructive/expensive: the "skip in the future" preference is neither honoured nor offered. */
+  always: boolean
   resolve: ((value: boolean) => void) | null
 }
 
 interface GenerationConfirmationContext {
   action: string
   details?: Array<{ label: string; value: string }>
+  always?: boolean
 }
 
 const state = reactive<ConfirmationState>({
@@ -18,6 +21,7 @@ const state = reactive<ConfirmationState>({
   typeLabel: '',
   action: '',
   details: [],
+  always: false,
   resolve: null,
 })
 
@@ -54,7 +58,10 @@ export function useConfirmation() {
     _params: Record<string, any>,
     context?: GenerationConfirmationContext,
   ): Promise<boolean> {
-    if (!shouldConfirm(type)) return true
+    if (!context?.always && !shouldConfirm(type)) return true
+
+    // A second call while one dialog is open must not orphan the first caller's promise.
+    state.resolve?.(false)
 
     // Confirmation is intentionally local and action-only. GenStudio owns
     // credit admission, reservation, and settlement at job submission.
@@ -63,6 +70,7 @@ export function useConfirmation() {
     state.typeLabel = TYPE_LABELS[type] || type
     state.action = context?.action || ''
     state.details = context?.details || []
+    state.always = !!context?.always
 
     // Wait for user to confirm or cancel
     return new Promise<boolean>((resolve) => {
@@ -71,7 +79,7 @@ export function useConfirmation() {
   }
 
   function confirm(skipFuture: boolean) {
-    if (skipFuture && state.type) {
+    if (skipFuture && state.type && !state.always) {
       // Save preference to skip this generator's confirmation
       saveSkipPreference(state.type)
     }

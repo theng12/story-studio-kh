@@ -21,7 +21,6 @@
       v-model:episode-id="episodeId"
       filter-field="metadata"
       generate-label="Finalize YouTube Package"
-      loading-label="Finalizing…"
       :generate-loading="metadataBusy"
       :generate-disabled="!episodeId || !scriptReady || !finalizationStatus?.audio_assembly_ready"
       :generate-status="metadataBusy ? `Finalizing the YouTube package for ${episodeId}…` : finalizerGateReason"

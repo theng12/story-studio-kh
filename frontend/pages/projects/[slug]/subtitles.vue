@@ -32,7 +32,6 @@
       v-model:episode-id="episodeId"
       filter-field="subtitles"
       :generate-label="transcribeLabel"
-      loading-label="Queuing…"
       :generate-loading="transcribing || transcribeJobActive"
       :generate-disabled="!canTranscribe"
       :generate-status="transcribeJobActive ? `Transcribing ${episodeId}…` : (canTranscribe ? '' : transcribeDisabledReason)"

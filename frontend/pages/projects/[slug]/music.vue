@@ -315,6 +315,7 @@ async function setEnabled(track: LibraryTrack, enabled: boolean) {
 }
 
 async function remove(track: LibraryTrack) {
+  if (!await useConfirm().ask({ title: 'Remove music track?', message: `Remove "${track.title}" from the library? This deletes the file from disk; making it again costs credits.`, confirmLabel: 'Remove', danger: true })) return
   try {
     library.value = await del(`/projects/${slug.value}/music-library/tracks/${encodeURIComponent(track.filename)}`)
     success(`Removed ${track.title}`)

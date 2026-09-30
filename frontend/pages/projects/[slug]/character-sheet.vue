@@ -22,7 +22,6 @@
       filter-field="character_sheet"
       :presets="pagePresets"
       generate-label="Save visual setup"
-      loading-label="Saving…"
       :generate-loading="saving"
       :generate-disabled="!episodeId"
       :generate-status="saving ? 'Saving visual setup…' : (episodeId ? '' : 'Pick an episode first')"
@@ -470,6 +469,7 @@ async function onCompositionFiles(files: File[]): Promise<void> {
 
 async function removeComposition(): Promise<void> {
   if (!episodeId.value) return
+  if (!await useConfirm().ask({ title: 'Remove composition template?', message: 'The template (uploaded or generated) is deleted; a generated one costs credits to make again.', confirmLabel: 'Remove', danger: true })) return
   try {
     await del(`/projects/${slug.value}/episodes/${episodeId.value}/img2img-references/composition`)
     compositionExists.value = false
@@ -499,6 +499,7 @@ async function generateComposition(): Promise<void> {
 
 async function removeSheet(): Promise<void> {
   if (!episodeId.value) return
+  if (!await useConfirm().ask({ title: 'Remove episode visual anchor?', message: 'The anchor image (uploaded or generated) is deleted; a generated one costs credits to make again.', confirmLabel: 'Remove', danger: true })) return
   try {
     await del(`/projects/${slug.value}/episodes/${episodeId.value}/img2img-references/master`)
     masterExists.value = false

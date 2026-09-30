@@ -62,6 +62,9 @@ const pendingRemovals = new Set<string>()
 
 const MAX_STREAM_FAILURES = 3
 const FALLBACK_POLL_MS = 10_000
+// Every Nth poll tick tries the live stream again, so a sleep/wake or backend restart
+// does not leave progress lagging by a poll interval for the rest of the session.
+const SSE_RETRY_EVERY_TICKS = 6
 
 // Track previous statuses to detect completion transitions for toasts.
 const previousStatuses = new Map<string, string>()
@@ -105,7 +108,7 @@ function announceTransitions(next: Job[]) {
     for (const job of next) previousStatuses.set(job.job_id, job.status)
     return
   }
-  const { success, info, error: showError } = useToast()
+  const { success, info } = useToast()
   for (const job of next) {
     const prev = previousStatuses.get(job.job_id)
     if (prev && (prev === 'running' || prev === 'queued')) {
@@ -115,11 +118,27 @@ function announceTransitions(next: Job[]) {
         if (notice.kind === 'success') success(notice.message)
         else info(notice.message)
       }
-      else if (job.status === 'error') showError(`${label} needs attention: ${job.episode_id}`)
+      else if (job.status === 'error') announceJobFailure(job)
     }
   }
   previousStatuses.clear()
   for (const job of next) previousStatuses.set(job.job_id, job.status)
+}
+
+/** A failure toast that says which job and takes the customer straight to it. */
+export function announceJobFailure(job: Job) {
+  const { showAction } = useToast()
+  showAction(
+    `${jobDisplayLabel(job)} needs attention: ${job.episode_id}`,
+    'Open job',
+    async () => { await navigateTo(`/projects/${job.project_slug}/jobs`) },
+    'error',
+  )
+}
+
+/** True while the per-project stream is live for `slug` (so its own toasts already cover it). */
+export function isWatchingProject(slug: string): boolean {
+  return !!(source || pollInterval) && currentSlug === slug
 }
 
 export function jobCompletionNotice(
@@ -358,7 +377,11 @@ function startFallbackPolling(slug: string) {
   }
   if (pollInterval) clearInterval(pollInterval)
   refreshFull(slug)
-  pollInterval = setInterval(() => refreshFull(slug), FALLBACK_POLL_MS)
+  let ticks = 0
+  pollInterval = setInterval(() => {
+    if (++ticks % SSE_RETRY_EVERY_TICKS === 0) startStream(slug)
+    else void refreshFull(slug)
+  }, FALLBACK_POLL_MS)
 }
 
 function stopTransport() {

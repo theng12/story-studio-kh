@@ -75,6 +75,7 @@ async function loadScenePlan(): Promise<Component> {
     const useFreshGenerationAction = () => ({ begin: () => 'operation', complete: () => undefined })
     const useToast = () => ({ success: () => undefined, error: message => globalThis.__scenePlanErrors.push(message) })
     const useConfirm = () => ({ ask: async () => false })
+    const useUnsavedGuard = () => undefined
     const useEpisodes = () => ({ episodes: globalThis.__scenePlanEpisodes, revalidate: async () => undefined })
     const useProject = () => ({ config: ref({}) })
     const useRememberedForm = () => undefined

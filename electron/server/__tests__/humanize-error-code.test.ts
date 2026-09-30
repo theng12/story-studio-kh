@@ -81,3 +81,13 @@ describe('humanizeBackendError — domain code passthrough', () => {
     }])
   })
 })
+
+describe('humanizeBackendError — unreachable gateway', () => {
+  test('connection errors point at the gateway, never at the internet', () => {
+    for (const code of ['ECONNREFUSED', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH', 'ENOTFOUND']) {
+      const out = humanizeBackendError(Object.assign(new Error('x'), { code }))
+      assert.match(out.hint ?? '', /gateway/i, code)
+      assert.doesNotMatch(out.hint ?? '', /internet/i, code)
+    }
+  })
+})

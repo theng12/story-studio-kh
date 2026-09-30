@@ -26,7 +26,7 @@
  * through a full lifecycle so it ends clean for the next one.
  */
 
-import { test, describe, before, after, beforeEach } from 'node:test'
+import { test, describe, before, after, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 
 // ── Stubs (installed BEFORE importing useJobs so it captures them) ─────────
@@ -394,5 +394,26 @@ describe('useJobs — closed transport isolation', () => {
     assert.deepEqual(queue.jobs.value.map(job => job.job_id), ['keep-me'])
     assert.equal(queue.stats.value.total, 1)
     queue.stopPolling()
+  })
+})
+
+describe('useJobs — SSE recovery', () => {
+  test('after falling back to polling it retries the live stream about once a minute', () => {
+    mock.timers.enable({ apis: ['setInterval'] })
+    const queue = useJobs()
+    try {
+      queue.startPolling('sse-retry-project')
+      const first = FakeEventSource.last!
+      for (let i = 0; i < 3; i++) first.onerror?.()
+      assert.equal(first.closed, true, 'three failures drop to polling')
+      mock.timers.tick(50_000)
+      assert.equal(FakeEventSource.last, first, 'no retry before a minute has passed')
+      mock.timers.tick(10_000)
+      assert.notEqual(FakeEventSource.last, first, 'the poll timer opened a fresh stream')
+      assert.equal(FakeEventSource.last!.url, '/api/projects/sse-retry-project/jobs/stream')
+    } finally {
+      queue.stopPolling()
+      mock.timers.reset()
+    }
   })
 })

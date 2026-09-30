@@ -22,7 +22,7 @@
         </div>
       </dl>
 
-      <label class="skip-checkbox">
+      <label v-if="!state.always" class="skip-checkbox">
         <input v-model="skipFuture" type="checkbox" />
         <span>Skip confirmation for {{ state.typeLabel }} in the future</span>
       </label>

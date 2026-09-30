@@ -30,6 +30,8 @@ export interface Toast {
    * they stay clearly labelled in the toast itself.
    */
   action?: { label: string; onClick: () => void | Promise<void> }
+  /** The original message when `message` is a friendlier rewrite; shown as the toast tooltip. */
+  raw?: string
 }
 
 const toasts = ref<Toast[]>([])
@@ -66,6 +68,16 @@ export interface UndoableOptions {
   duration?: number
 }
 
+// A bare `401` / `5\d\d` also matches EP0401, 1536x1024 and "4096 bytes", so a status
+// only counts when it follows HTTP / "status" / "error".
+const httpStatus = (codes: string) =>
+  new RegExp(`(?:\\bHTTP[ /]?(?:\\d\\.\\d )?|\\bstatus(?: code)?[ :=]*|\\berror[ :=]+)(?:${codes})\\b`, 'i')
+const HTTP_401 = httpStatus('401')
+const HTTP_429 = httpStatus('429')
+const HTTP_503 = httpStatus('503')
+const HTTP_5XX = httpStatus('5\\d\\d')
+const HTTP_409 = httpStatus('409')
+
 /**
  * Map raw backend/API errors to user-friendly versions.
  * Returns the input unchanged if no translation applies.
@@ -76,7 +88,7 @@ function humanizeError(raw: string): string {
 
   // Network / connectivity
   if (/network|fetch failed|ECONNREFUSED|ENOTFOUND|ETIMEDOUT/i.test(s)) {
-    return "Can't reach the server. Check your internet connection and try again."
+    return 'Cannot reach the GenStudio gateway — is the gateway app running?'
   }
 
   // Missing API key (backend's standard message format).
@@ -93,20 +105,20 @@ function humanizeError(raw: string): string {
   }
 
   // Auth errors
-  if (/401|invalid.*api[ _]?key|unauthori[sz]ed|invalid x-api-key|Incorrect API key/i.test(s)) {
+  if (HTTP_401.test(s) || /invalid.*api[ _]?key|unauthori[sz]ed|invalid x-api-key|Incorrect API key/i.test(s)) {
     return 'API key is invalid or expired. Check it in Settings → This Mac.'
   }
 
   // Rate limits
-  if (/429|rate[ _]?limit|quota|too many requests/i.test(s)) {
+  if (HTTP_429.test(s) || /rate[ _]?limit|quota|too many requests/i.test(s)) {
     return 'API rate limit hit. Wait a minute and try again, or upgrade your plan.'
   }
 
   // Overloaded / server errors
-  if (/overloaded|503|service unavailable/i.test(s)) {
+  if (HTTP_503.test(s) || /overloaded|service unavailable/i.test(s)) {
     return 'The AI service is overloaded. Try again in a few minutes.'
   }
-  if (/5\d\d|server_error|internal server/i.test(s) && !/4\d\d/.test(s)) {
+  if (HTTP_5XX.test(s) || /server_error|internal server/i.test(s)) {
     return 'Server error. Try again shortly. If it persists, check the Jobs tab for details.'
   }
 
@@ -116,7 +128,7 @@ function humanizeError(raw: string): string {
   }
 
   // Duplicate / already queued
-  if (/already queued|already running|409/i.test(s)) {
+  if (HTTP_409.test(s) || /already queued|already running/i.test(s)) {
     return 'This job is already running or queued. Check the Jobs tab.'
   }
 
@@ -135,9 +147,9 @@ function humanizeError(raw: string): string {
 }
 
 export function useToast() {
-  function show(message: string, type: Toast['type'] = 'info', duration = 5000) {
+  function show(message: string, type: Toast['type'] = 'info', duration = 5000, raw?: string) {
     const id = nextId++
-    toasts.value.push({ id, message: customerSafeJobText(message), type })
+    toasts.value.push({ id, message: customerSafeJobText(message), type, raw })
     setTimeout(() => {
       toasts.value = toasts.value.filter(t => t.id !== id)
     }, duration)
@@ -178,7 +190,7 @@ export function useToast() {
     }
     // eslint-disable-next-line no-console
     console.warn('[useToast.error]', final, '\n', new Error('toast trace').stack)
-    show(final, 'error', 7000)
+    show(final, 'error', 7000, final !== message ? message : undefined)
   }
   function info(message: string) { show(message, 'info') }
 
@@ -236,7 +248,8 @@ export function useToast() {
         // would complete, but the backend rejected. Restore UI via onUndo
         // and tell the user what happened.
         try { await opts.onUndo() } catch { /* already broken; best-effort */ }
-        show(humanizeError(e?.data?.detail || e?.message || 'Action failed'), 'error', 7000)
+        const raw = e?.data?.detail || e?.message || 'Action failed'
+        show(humanizeError(raw), 'error', 7000, raw)
       }
     }, duration)
 
