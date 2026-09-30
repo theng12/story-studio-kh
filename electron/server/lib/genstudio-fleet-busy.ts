@@ -58,6 +58,9 @@ export function isFleetBusyFailure(error: unknown, modality?: string): boolean {
   if (modality !== undefined && error.modality !== modality) return false
   // Cancellation is the owner's instruction; retrying it would overrule him.
   if (error.cancelled) return false
+  // The gateway files an ambiguous read-timeout submit under the same code. It may have started
+  // real work, so it is not "never reached a machine" and must not be resubmitted.
+  if (error.unknownOutcome) return false
   if (!FLEET_BUSY_FAILURE_CODES.has(String(error.failureCode || ''))) return false
   return hasFullyReleasedZeroSettlement(error)
 }

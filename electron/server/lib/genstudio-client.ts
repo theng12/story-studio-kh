@@ -213,6 +213,37 @@ export interface GenStudioJob {
   cancelled?: boolean | null
   cancellation_requested?: boolean | null
   cancellation_note?: string | null
+  /** The gateway is holding a `failed` job whose outcome it could not confirm; a result may still be adopted. */
+  recovery_required?: boolean | null
+  recovery_state?: string | null
+  /** Running at the gateway, but the machine has not started it yet. Null once a Mac is rendering. */
+  waiting?: GenStudioWaiting | null
+}
+
+/** `waiting` on a job envelope: the job is queued or deferred at a Mac, not rendering. */
+export interface GenStudioWaiting {
+  reason: string | null
+  next_try_at: string | null
+  since: string | null
+}
+
+/**
+ * A `failed` job the gateway still holds for adoption (a gateway restart or an ambiguous read).
+ * Its result may yet arrive as `succeeded`, so it is not final inside the grace window.
+ */
+export function holdsUnknownOutcome(job: { recovery_required?: unknown; recovery_state?: unknown }): boolean {
+  return job.recovery_required === true || job.recovery_state === 'unknown_outcome'
+}
+
+/** ~5 minutes: the gateway's hold sweep runs every 60 s. */
+export const UNKNOWN_OUTCOME_GRACE_MS = 5 * 60_000
+
+/** Reads `waiting` off an envelope, tolerating a gateway that predates it. */
+export function normalizeGenStudioWaiting(value: unknown): GenStudioWaiting | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const w = value as Record<string, unknown>
+  const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v : null)
+  return { reason: text(w.reason), next_try_at: text(w.next_try_at), since: text(w.since) }
 }
 
 /** The cancellation fields GenStudio 0.97.1 actually publishes. */
@@ -287,6 +318,9 @@ function parseGenStudioCancellationResponse(value: unknown): GenStudioJob & GenS
     ...(optionalBoolean('cancelled') !== undefined ? { cancelled: optionalBoolean('cancelled') } : {}),
     ...(optionalBoolean('cancellation_requested') !== undefined ? { cancellation_requested: optionalBoolean('cancellation_requested') } : {}),
     ...(optionalText('cancellation_note') !== undefined ? { cancellation_note: optionalText('cancellation_note') } : {}),
+    ...(optionalBoolean('recovery_required') !== undefined ? { recovery_required: optionalBoolean('recovery_required') } : {}),
+    ...(optionalText('recovery_state') !== undefined ? { recovery_state: optionalText('recovery_state') } : {}),
+    ...(body.waiting !== undefined ? { waiting: normalizeGenStudioWaiting(body.waiting) } : {}),
     ...(optionalText('failure_code') !== undefined ? { failure_code: optionalText('failure_code') } : {}),
     ...(optionalText('failure_class') !== undefined ? { failure_class: optionalText('failure_class') } : {}),
     ...(optionalSettlement('reserved_credits') !== undefined ? { reserved_credits: optionalSettlement('reserved_credits') } : {}),
@@ -429,6 +463,9 @@ export interface GenStudioSettledJobShape {
    * as the field above; see `GenStudioFailureClass`.
    */
   failure_class?: string | null
+  /** The gateway could not confirm the outcome, so a resubmission might duplicate real work. */
+  recovery_required?: boolean | null
+  recovery_state?: string | null
 }
 
 function settledFailureCode(job: GenStudioSettledJobShape): string | null {
@@ -538,6 +575,8 @@ export class GenStudioTerminalFailureError extends Error {
   /** What kind of problem it was, as GenStudio classified it. */
   readonly failureClass: GenStudioFailureClass
   readonly cancelled: boolean
+  /** The gateway holds this failure as an unknown outcome: never resubmit it by machine. */
+  readonly unknownOutcome: boolean
   readonly reservedCredits: number | null
   readonly settledCredits: number | null
   readonly releasedCredits: number | null
@@ -566,6 +605,7 @@ export class GenStudioTerminalFailureError extends Error {
     this.failureReason = reason
     this.failureClass = failureClass
     this.cancelled = job.cancelled === true
+    this.unknownOutcome = holdsUnknownOutcome(job)
     this.reservedCredits = typeof job.reserved_credits === 'number' && Number.isFinite(job.reserved_credits) ? job.reserved_credits : null
     this.settledCredits = typeof job.settled_credits === 'number' && Number.isFinite(job.settled_credits) ? job.settled_credits : null
     this.releasedCredits = typeof job.released_credits === 'number' && Number.isFinite(job.released_credits) ? job.released_credits : null
@@ -1204,6 +1244,9 @@ interface GenStudioImageJob {
   queue_position?: number | null
   queue_eta_seconds?: number | null
   queue_reason?: 'provider_pace' | null
+  recovery_required?: boolean | null
+  recovery_state?: string | null
+  waiting?: GenStudioWaiting | null
   idempotent_replay?: boolean
   image_url?: string | null
 }
@@ -1272,6 +1315,9 @@ interface GenStudioTranscriptionJob {
   queue_position?: number | null
   queue_eta_seconds?: number | null
   queue_reason?: 'provider_pace' | null
+  recovery_required?: boolean | null
+  recovery_state?: string | null
+  waiting?: GenStudioWaiting | null
 }
 
 export interface GenStudioTranscriptionRequest extends GenStudioOperationContext {
@@ -2013,6 +2059,9 @@ interface GenStudioChatJob extends GenStudioResearchEnvelope {
   queue_position?: number | null
   queue_eta_seconds?: number | null
   queue_reason?: 'provider_pace' | null
+  recovery_required?: boolean | null
+  recovery_state?: string | null
+  waiting?: GenStudioWaiting | null
 }
 
 interface GenStudioVideoSourceAsset {
@@ -2702,7 +2751,8 @@ export async function getGenStudioAdmissionSnapshot(apiKey: string) {
 
 function queueStateForJob(job: GenStudioJob): GenStudioQueueState {
   if (job.state === 'succeeded') return 'succeeded'
-  if (job.state === 'failed') return 'failed'
+  // A held failure may still be adopted: keep it a working job, not a failed one, inside the grace window.
+  if (job.state === 'failed') return holdsUnknownOutcome(job) && job.cancelled !== true ? 'completing' : 'failed'
   if (job.routing_status_code === 'PAID_ACCOUNT_CONCURRENCY_QUEUED') {
     return 'waiting_account_capacity'
   }
@@ -2957,8 +3007,18 @@ async function recordGenStudioEvidence(
     id: job.id,
     ...(request ? { request } : {}),
     operation,
-    state: job.state,
+    // A held failure is still being reconciled at the gateway; recording it as `failed` would let
+    // the Story job settle before the gateway's adoption window closes.
+    state: job.state === 'failed' && job.cancelled !== true && holdsUnknownOutcome(job) ? 'reconciling' : job.state,
     ...(job.dispatch_state !== undefined ? { dispatch_state: job.dispatch_state } : {}),
+    ...(job.recovery_required !== undefined ? { recovery_required: job.recovery_required } : {}),
+    ...(job.recovery_state !== undefined ? { recovery_state: job.recovery_state } : {}),
+    // Explicit null when absent: an evidence entry is merged over its predecessor, so a job that
+    // stopped waiting must clear the old value instead of inheriting it.
+    waiting: (() => {
+      const w = normalizeGenStudioWaiting(job.waiting)
+      return w ? { ...w, reason: w.reason === null ? null : customerSafeRemoteDetail(w.reason) } : null
+    })(),
     model_id: job.model_id || job.model_revision_id,
     credit_cost: Number.isFinite(job.credit_cost) ? job.credit_cost : undefined,
     remaining_credits: Number.isFinite(job.remaining_credits) ? job.remaining_credits : undefined,
@@ -3250,6 +3310,29 @@ export const GENSTUDIO_LANGUAGE_FAILURE_CODES = {
 } as const
 
 /**
+ * Codes that say the provider may already have taken the request, so it must never be resubmitted
+ * by machine. GenStudio-cloud spells them LANGUAGE_/CLOUD_…; the gateway's own is
+ * PROVIDER_SUBMISSION_UNCERTAIN. One list, so no caller has to know which dialect it is reading.
+ */
+const SUBMISSION_UNCERTAIN_CODES: ReadonlySet<string> = new Set([
+  GENSTUDIO_LANGUAGE_FAILURE_CODES.SUBMISSION_UNCERTAIN,
+  'CLOUD_SUBMISSION_UNCERTAIN',
+  'PROVIDER_SUBMISSION_UNCERTAIN',
+])
+export function isSubmissionUncertainCode(code: unknown): boolean {
+  return typeof code === 'string' && SUBMISSION_UNCERTAIN_CODES.has(code.trim().toUpperCase())
+}
+
+/** A temporary provider quota stop, in either dialect (`PROVIDER_QUOTA_EXHAUSTED` is the gateway's). */
+const QUOTA_EXHAUSTED_CODES: ReadonlySet<string> = new Set([
+  GENSTUDIO_LANGUAGE_FAILURE_CODES.QUOTA_EXHAUSTED,
+  'PROVIDER_QUOTA_EXHAUSTED',
+])
+export function isQuotaExhaustedCode(code: unknown): boolean {
+  return typeof code === 'string' && QUOTA_EXHAUSTED_CODES.has(code.trim().toUpperCase())
+}
+
+/**
  * GenStudio's published capacity reason codes, carried on a language HTTP 429.
  *
  * They arrive in the response BODY as `capacity_reason` (with
@@ -3378,7 +3461,7 @@ export function isGenStudioRequestInProgress(error: unknown): boolean {
 export function describeGenStudioLanguageFailure(code: string | null | undefined): string | null {
   if (typeof code !== 'string' || !code.trim()) return null
   const normalized = code.trim().toUpperCase()
-  if (normalized === GENSTUDIO_LANGUAGE_FAILURE_CODES.SUBMISSION_UNCERTAIN) {
+  if (normalized === GENSTUDIO_LANGUAGE_FAILURE_CODES.SUBMISSION_UNCERTAIN || normalized === 'PROVIDER_SUBMISSION_UNCERTAIN') {
     return 'GenStudio KH could not confirm whether the language provider had already accepted this '
       + 'request, so it stopped rather than risk sending it — and being charged for it — twice. '
       + 'Story Studio did NOT retry it automatically for the same reason. Check the run in your '
@@ -3398,7 +3481,7 @@ export function describeGenStudioLanguageFailure(code: string | null | undefined
     return 'GenStudio KH could not admit this language request because its provider lane was under pressure. '
       + 'The durable job reports the exact credit settlement; Story Studio retries only when that record proves nothing was charged and the full reservation was released.'
   }
-  if (normalized === GENSTUDIO_LANGUAGE_FAILURE_CODES.QUOTA_EXHAUSTED) {
+  if (normalized === GENSTUDIO_LANGUAGE_FAILURE_CODES.QUOTA_EXHAUSTED || normalized === 'PROVIDER_QUOTA_EXHAUSTED') {
     return 'GenStudio KH reported that this language product\'s provider quota is temporarily exhausted. '
       + 'The durable job reports the exact credit settlement; Story Studio advances only when that record proves nothing was charged and the full reservation was released.'
   }
@@ -3416,10 +3499,10 @@ export function describeGenStudioLanguageFailure(code: string | null | undefined
  */
 export function isGenStudioSubmissionUncertain(error: unknown): boolean {
   if (error instanceof GenStudioTerminalFailureError) {
-    return error.failureCode === GENSTUDIO_LANGUAGE_FAILURE_CODES.SUBMISSION_UNCERTAIN
+    return isSubmissionUncertainCode(error.failureCode)
   }
   if (!(error instanceof GenStudioApiError)) return false
-  return error.languageFailureCode === GENSTUDIO_LANGUAGE_FAILURE_CODES.SUBMISSION_UNCERTAIN
+  return isSubmissionUncertainCode(error.languageFailureCode) || isSubmissionUncertainCode(error.code)
 }
 
 /**
@@ -3465,7 +3548,7 @@ export function isGenStudioRouteExhausted(error: unknown): error is GenStudioTer
 export function isGenStudioLanguageQuotaExhausted(error: unknown): error is GenStudioTerminalFailureError {
   return error instanceof GenStudioTerminalFailureError
     && !error.cancelled
-    && error.failureCode === GENSTUDIO_LANGUAGE_FAILURE_CODES.QUOTA_EXHAUSTED
+    && isQuotaExhaustedCode(error.failureCode)
     && hasFullyReleasedZeroSettlement(error)
 }
 
@@ -3706,20 +3789,29 @@ export function genStudioPollDelayMs(options: {
  * Cancel button feel dead — it returns early and lets the loop's own
  * cancellation branch do the cancelling, exactly as before.
  */
-export function createGenStudioJobPoller(random: () => number = Math.random): {
+export function createGenStudioJobPoller(random: () => number = Math.random, now: () => number = Date.now): {
   attempts: () => number
   wait: (deadline: number, ctx: GenStudioOperationContext, job?: unknown) => Promise<void>
+  /** The wait-loop exit test: settled, except a held `failed` job inside its grace window. */
+  settled: (job: { state?: unknown; cancelled?: boolean | null; recovery_required?: unknown; recovery_state?: unknown }) => boolean
 } {
   let attempt = 0
+  let heldSince: number | null = null
   return {
     attempts: () => attempt,
+    settled(job) {
+      if (!isSettledGenStudioJob(job)) return false
+      if (job.state !== 'failed' || job.cancelled === true || !holdsUnknownOutcome(job)) return true
+      heldSince ??= now()
+      return now() - heldSince >= UNKNOWN_OUTCOME_GRACE_MS
+    },
     async wait(deadline, ctx, job) {
-      const delay = genStudioPollDelayMs({
+      const delay = Math.max(genStudioPollDelayMs({
         attempt,
         remainingMs: deadline - Date.now(),
         hintMs: readGenStudioPollHintMs(job),
         random,
-      })
+      }), heldSince === null ? 0 : 5_000)
       attempt++
       const wakeAt = Date.now() + delay
       for (;;) {
@@ -3860,6 +3952,8 @@ async function requestJsonWithRetry(
       } else {
         if (apiKey) genStudioAdmission.noteSubmissionReachable()
         if (body && typeof body === 'object') {
+          // A gateway that still publishes `cancelled` as a state: Story's vocabulary is failed + cancelled:true.
+          if (body.state === 'cancelled') { body.state = 'failed'; body.cancelled = true }
           body.location ||= response.headers.get('location')
           body.http_status ||= response.status
           // Poll-cadence hint, if GenStudio ever sends one on a job GET. Folded
@@ -4241,7 +4335,7 @@ async function fetchRetryingJson(
  * Returns `null` when neither shape holds an array, so callers keep their
  * existing loud refusal rather than silently reading zero models.
  */
-function readCatalogRows(payload: unknown, key: 'models' | 'voices' = 'models'): unknown[] | null {
+export function readCatalogRows(payload: unknown, key: 'models' | 'voices' = 'models'): unknown[] | null {
   if (Array.isArray(payload)) return payload
   if (payload && typeof payload === 'object') {
     const rows = (payload as Record<string, unknown>)[key]
@@ -5282,7 +5376,7 @@ async function waitForVideoJob(
   }
   await reportState()
   const poller = createGenStudioJobPoller()
-  while (!isSettledGenStudioJob(current)) {
+  while (!poller.settled(current)) {
     await submitQueuedRemoteCancellation('video.generation', baseUrl, apiKey, current.id, deadline)
     if (request.isCancelled?.() || request.signal?.aborted) {
       throw new Error('Cancelled by user')
@@ -5338,7 +5432,7 @@ async function recoverVideoWithGenStudioAdmitted(
   // Classify BEFORE polling. A job that already failed (or was cancelled)
   // cannot become a clip, and a poll loop would only re-read the same terminal
   // record forever.
-  if (initial.state === 'failed' || initial.cancelled === true) {
+  if ((initial.state === 'failed' || initial.cancelled === true) && !holdsUnknownOutcome(initial)) {
     await recordGenStudioEvidence('video.generation', initial)
     await reportQueueState(request, initial)
     await request.onState?.(initial.state, initial.id)
@@ -5525,6 +5619,9 @@ export interface GenStudioMusicJob extends GenStudioSettledJobShape {
   queue_position?: number | null
   queue_eta_seconds?: number | null
   queue_reason?: 'provider_pace' | null
+  recovery_required?: boolean | null
+  recovery_state?: string | null
+  waiting?: GenStudioWaiting | null
 }
 
 export interface GenStudioMusicRequest extends GenStudioOperationContext {
@@ -5597,7 +5694,7 @@ async function waitForMusicJob(
   }
   await reportState()
   const poller = createGenStudioJobPoller()
-  while (!isSettledGenStudioJob(current)) {
+  while (!poller.settled(current)) {
     await submitQueuedRemoteCancellation('music.generation', baseUrl, apiKey, current.id, deadline)
     if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
     if (Date.now() >= deadline) throw new Error('GenStudio music job timed out while waiting for completion.')
@@ -5669,7 +5766,7 @@ async function recoverMusicWithGenStudioAdmitted(
   ) as GenStudioMusicJob
   // Classify BEFORE polling. A job that already failed cannot become a song,
   // and a poll loop would only re-read the same terminal record forever.
-  if (initial.state === 'failed' || initial.cancelled === true) {
+  if ((initial.state === 'failed' || initial.cancelled === true) && !holdsUnknownOutcome(initial)) {
     await recordGenStudioEvidence('music.generation', initial)
     await reportQueueState(request, initial)
     await request.onState?.(initial.state, initial.id)
@@ -6795,7 +6892,7 @@ async function recoverChatByIdempotencyKey(
   await reportQueueState(request, chatJobEvidence(initial))
   await request.onJobAccepted?.(initial.id, idempotencyKey)
   await request.onState?.(initial.state, initial.id)
-  if (initial.state === 'failed') {
+  if (initial.state === 'failed' && !holdsUnknownOutcome(initial)) {
     await genStudioAdmission.notifyTerminal(apiKey)
     const incomplete = durableIncompleteChatError(initial)
     if (incomplete) throw incomplete
@@ -6845,7 +6942,7 @@ async function waitForChatJob(
   }
   await reportState()
   const poller = createGenStudioJobPoller()
-  while (!isTerminalGenStudioJobState(current.state)) {
+  while (!poller.settled(current)) {
     if (request.isCancelled?.() || request.signal?.aborted) {
       await request.onQueueState?.('cancelled', current.id)
       throw new Error('Cancelled by user')
@@ -6895,7 +6992,7 @@ async function recoverChatJobAdmitted(
   ) as GenStudioChatJob
   // Classify BEFORE polling: a job that already failed cannot become output,
   // and a poll loop would only re-read the same terminal record.
-  if (initial.state === 'failed') {
+  if (initial.state === 'failed' && !holdsUnknownOutcome(initial)) {
     await recordGenStudioEvidence('chat.response', chatJobEvidence(initial))
     await reportQueueState(request, chatJobEvidence(initial))
     await request.onState?.(initial.state, initial.id)
@@ -6909,7 +7006,7 @@ async function recoverChatJobAdmitted(
 
 /** One confirmed failed request, one durable bounded replacement; never a whole-job replay. */
 function isUncertainGenerationCode(code: string | null | undefined): boolean {
-  return code === 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' || code === 'CLOUD_SUBMISSION_UNCERTAIN'
+  return isSubmissionUncertainCode(code)
 }
 
 function replacementConnectionFingerprint(baseUrl: string, apiKey: string): string {
@@ -7805,7 +7902,7 @@ async function waitForImageJob(
   await reportQueueState(request, current)
   request.onState?.(current.state)
   const poller = createGenStudioJobPoller()
-  while (!isSettledGenStudioJob(current)) {
+  while (!poller.settled(current)) {
     await submitQueuedRemoteCancellation('image.generation', baseUrl, apiKey, current.id, deadline)
     if (request.isCancelled?.() || request.signal?.aborted) {
       throw new Error('Cancelled by user')
@@ -7857,10 +7954,9 @@ async function downloadImageArtifact(
         lastError = error
       } else {
         const bytes = Buffer.from(await response.arrayBuffer())
-        if (bytes.length < 24 || bytes.subarray(1, 4).toString('ascii') !== 'PNG') {
-          throw new Error('GenStudio KH returned an invalid PNG artifact')
-        }
-        return `data:image/png;base64,${bytes.toString('base64')}`
+        const mediaType = bytes.length < 24 ? null : sniffImageMediaType(bytes)
+        if (!mediaType) throw new Error('GenStudio KH returned an invalid image artifact (not PNG, JPEG or WebP)')
+        return `data:${mediaType};base64,${bytes.toString('base64')}`
       }
     } catch (error) {
       if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
@@ -7872,6 +7968,14 @@ async function downloadImageArtifact(
     if (attempt < NETWORK_RETRY_ATTEMPTS) await retryDelay(attempt, request, deadline)
   }
   throw lastError instanceof Error ? lastError : new Error('GenStudio KH image download failed')
+}
+
+/** The gateway relays each provider's own format, so accept what the bytes say they are. */
+export function sniffImageMediaType(bytes: Buffer): 'image/png' | 'image/jpeg' | 'image/webp' | null {
+  if (bytes.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]))) return 'image/png'
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+  if (bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP') return 'image/webp'
+  return null
 }
 
 /** Reconnect to an already accepted image task. Never submits new work. */
@@ -7891,7 +7995,7 @@ async function recoverImageWithGenStudioAdmitted(
   // Classify BEFORE polling. A job that already failed (or was cancelled)
   // cannot become an artifact, and a poll loop would only re-read the same
   // terminal record; a job that already succeeded needs its bytes, not a poll.
-  if (initial.state === 'failed' || initial.cancelled === true) {
+  if ((initial.state === 'failed' || initial.cancelled === true) && !holdsUnknownOutcome(initial)) {
     await recordGenStudioEvidence('image.generation', initial)
     await reportQueueState(request, initial)
     request.onState?.(initial.state)
@@ -8443,7 +8547,7 @@ async function waitForTranscriptionJob(
   }
   await reportState()
   const poller = createGenStudioJobPoller()
-  while (!isSettledGenStudioJob(current)) {
+  while (!poller.settled(current)) {
     await submitQueuedRemoteCancellation('audio.transcription', baseUrl, apiKey, current.id, deadline)
     if (request.isCancelled?.() || request.signal?.aborted) {
       throw new Error('Cancelled by user')
@@ -8541,7 +8645,7 @@ async function recoverTranscriptionWithGenStudioAdmitted(
   // Classify BEFORE polling. A job that already failed (or was cancelled)
   // cannot become a transcript, and a poll loop would only re-read the same
   // terminal record — the "reopen a six-day-old failure forever" bug.
-  if (initial.state === 'failed' || initial.cancelled === true) {
+  if ((initial.state === 'failed' || initial.cancelled === true) && !holdsUnknownOutcome(initial)) {
     await recordGenStudioEvidence('audio.transcription', initial)
     await reportQueueState(request, initial)
     await request.onState?.(initial.state, initial.id)
@@ -8707,7 +8811,7 @@ async function waitForJob(
   }
   await reportState()
   const poller = createGenStudioJobPoller()
-  while (!isSettledGenStudioJob(current)) {
+  while (!poller.settled(current)) {
     await submitQueuedRemoteCancellation('voice.tts', baseUrl, apiKey, current.id, deadline)
     if (request.isCancelled?.() || request.signal?.aborted) {
       throw new Error('Cancelled by user')

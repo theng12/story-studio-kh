@@ -6,7 +6,7 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import path from 'node:path'
-import { GenStudioImageTerminalFailureError, listImageModelsForceLive, type GenStudioImageModel } from '../lib/genstudio-client.js'
+import { GenStudioImageTerminalFailureError, holdsUnknownOutcome, listImageModelsForceLive, type GenStudioImageModel } from '../lib/genstudio-client.js'
 import type { Job, PaidImageReplacementAttempt } from '../models/types.js'
 import type { GenStudioAdmissionSnapshot } from '../lib/genstudio-admission.js'
 import { hashInput, readManifest, recordPaidImageReplacementStrict, type Manifest, type PaidImageOutputSelector, type PaidImageReferenceInput, type TaskManifestEntry } from './task-manifest.js'
@@ -299,6 +299,8 @@ type PaidImageControl = {
   state: string
   failure_code?: string | null
   cancelled?: boolean | null
+  recovery_required?: boolean | null
+  recovery_state?: string | null
   reserved_credits?: number | null
   settled_credits?: number | null
   released_credits?: number | null
@@ -512,6 +514,7 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
   }
   if (control.id !== entry.task_id) return blocked('the terminal control task does not match the durable original task')
   if (control.cancelled === true) return blocked('the original task was cancelled', 'original_failure_not_eligible')
+  if (holdsUnknownOutcome(control)) return blocked('the gateway could not confirm the original outcome, so resubmitting could duplicate work', 'original_failure_not_eligible')
   if (EXPLICIT_BLOCKED_FAILURE.test(String(control.failure_code || ''))) return blocked('the original task has an explicit refusal or uncertain submission result', 'original_failure_not_eligible')
   if (control.state !== 'failed') return { action: 'recover-original' }
   const failureCode = String(control.failure_code || '')

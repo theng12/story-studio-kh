@@ -44,6 +44,7 @@ import {
   getGenStudioAccountOverviewSnapshot,
   getGenStudioAdmissionSnapshot,
   GenStudioApiError,
+  readCatalogRows,
 } from '../lib/genstudio-client.js'
 
 export const router = Router()
@@ -1077,8 +1078,10 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
         })
       }
       const ttsCatalog = await ttsCatalogResponse.json().catch(() => null)
-      const probeModelId = Array.isArray(ttsCatalog)
-        ? ttsCatalog.map((row: any) => (typeof row?.id === 'string' ? row.id.trim() : '')).find(Boolean) || ''
+      // `/v1/tts/models` answers `{models, freshness}`; a bare array is accepted too.
+      const ttsRows = readCatalogRows(ttsCatalog)
+      const probeModelId = ttsRows
+        ? ttsRows.map((row: any) => (typeof row?.id === 'string' ? row.id.trim() : '')).find(Boolean) || ''
         : ''
       if (probeModelId) {
         probes.push({

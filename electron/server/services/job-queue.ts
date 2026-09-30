@@ -35,6 +35,7 @@ import {
 } from '../lib/provider-task-state.js'
 import { reconciledGenStudioQueueState } from '../contracts/provider-task-state.js'
 import { FLEET_BUSY_FAILURE_CODES } from '../lib/genstudio-fleet-busy.js'
+import { holdsUnknownOutcome, isSubmissionUncertainCode } from '../lib/genstudio-client.js'
 import { isRetryableZeroSettlementImageFailureCode } from './image-paid-replacement.js'
 import { getApiKey } from './app-secrets-store.js'
 import type { JobControl } from '../models/types.js'
@@ -4060,6 +4061,7 @@ function isSafelyRetryableStallImageFailure(
     || entry.id.startsWith('pending:')
     || entry.state !== 'failed'
     || entry.cancelled === true
+    || holdsUnknownOutcome(entry)
     || !isRetryableZeroSettlementImageFailureCode(entry.failure_code)
   ) return false
   const reserved = entry.reserved_credits
@@ -5259,11 +5261,6 @@ export function hasUnresolvedTerminalChapterExpansion(projectSlug: string, episo
   )
 }
 
-const UNCERTAIN_MANUAL_REPLACEMENT_CODES = new Set([
-  'CLOUD_SUBMISSION_UNCERTAIN',
-  'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN',
-])
-
 function currentAudioTtsEvidence(job: Job): GenStudioEvidence[] | null {
   if (job.type !== 'audio') return null
   const assets = job.params?.genstudio_recovery?.assets
@@ -5293,7 +5290,7 @@ function hasRelatedUncertainAudioEvidence(job: Job): boolean {
   if (!assets || typeof assets !== 'object') return false
   const checkpoints = Object.values(assets as Record<string, any>).filter(entry => entry?.operation === 'tts')
   return checkpoints.some(entry => (job.genstudio_jobs || []).some(item => item.operation === 'voice.tts'
-    && UNCERTAIN_MANUAL_REPLACEMENT_CODES.has(item.failure_code || '')
+    && isSubmissionUncertainCode(item.failure_code || '')
     && ((entry.job_id && item.id === entry.job_id)
       || (entry.idempotency_key && providerRequestKey(item) === entry.idempotency_key))))
 }
@@ -5304,7 +5301,7 @@ export function canRetryManualFailedItemExactly(job: Job): boolean {
   if (job.type !== 'audio') return Boolean(job.manual_failed_item_replacement?.requests.length)
   const current = currentAudioTtsEvidence(job)
   return current !== null && current.every(entry => (
-    entry.state !== 'failed' || UNCERTAIN_MANUAL_REPLACEMENT_CODES.has(entry.failure_code || '')
+    entry.state !== 'failed' || isSubmissionUncertainCode(entry.failure_code || '')
   ))
 }
 
@@ -5346,7 +5343,7 @@ export function retryTerminalJob(
   const manualFailedItemReplacement = internal?.manualFailedItemReplacement
     || (exactManualRetry ? original.manual_failed_item_replacement : undefined)
   const exactUncertainAudioRetry = (currentAudioEvidence || []).some(entry => (
-    entry.state === 'failed' && UNCERTAIN_MANUAL_REPLACEMENT_CODES.has(entry.failure_code || '')
+    entry.state === 'failed' && isSubmissionUncertainCode(entry.failure_code || '')
   ))
   const reconciledGenStudioJobs = internal?.reconciledGenStudioJobs
     || (exactManualRetry || exactUncertainAudioRetry ? original.genstudio_jobs : undefined)

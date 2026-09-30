@@ -4,6 +4,31 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.241 — 2026-09-30
+
+- **A job waiting for a Mac now says so.** When the gateway is running a job but no Mac has started it,
+  the Jobs card reads *Waiting for a free Mac — next try 09:30 (reason)* instead of "GenStudio is
+  generating", and its "last progress" line is no longer coloured as if the job had hung. There is still
+  no timeout: waiting is waiting.
+- **Cancelling a gateway job now works end to end.** A job the gateway ends by cancel arrives as failed
+  with `cancelled: true` (older gateways sent a `cancelled` state; that is read the same way). It is
+  terminal in every wait loop (chat included, which used to poll it for hours) and in the reconciler, and
+  a job that is still waiting for a Mac offers *Request cancellation* when the gateway says a cancel will
+  be honoured.
+- **A result the gateway lost and then found is no longer thrown away.** A failed job the gateway is
+  still holding as an unknown outcome (a gateway restart, an ambiguous read) is not final for about five
+  minutes: Story keeps polling, shows it as still working, and takes the finished result if the gateway
+  adopts it. After the window the failure stands as before.
+- **The gateway's own failure codes are understood.** `PROVIDER_SUBMISSION_UNCERTAIN` and
+  `PROVIDER_QUOTA_EXHAUSTED` are recognised alongside the GenStudio-cloud spellings from one shared list
+  instead of by a regex that happened to match, and `LOCATION_NOT_READY` / `LOCATION_UNREACHABLE` can be
+  retried by hand (they add no automatic wait on top of the gateway's own). A capacity failure the
+  gateway holds as an unknown outcome is never auto-resubmitted, because it may have started real work.
+- **Image artifacts may be JPEG or WebP.** The gateway relays each provider's own format; Story used to
+  refuse anything that was not a PNG with "invalid PNG artifact".
+- **Settings → Test connection reads the voice catalogue properly.** `/v1/tts/models` answers
+  `{models, freshness}`, which the probe did not read, so the voice-catalogue check was silently skipped.
+
 ## v1.4.240 — 2026-09-30
 
 - **Error toasts no longer misdiagnose unrelated numbers.** The friendly-message rewrite matched bare

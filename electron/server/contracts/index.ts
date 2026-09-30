@@ -775,6 +775,11 @@ export interface JobEnqueuedResponse {
     cancellation_requested?: boolean | null
     cancellation_note?: string | null
     released_credits?: number | null
+    /** The gateway holds this failed job for adoption (`unknown_outcome`); a result may still arrive. */
+    recovery_required?: boolean | null
+    recovery_state?: string | null
+    /** Running at the gateway but queued or deferred at a Mac. Null once a Mac is rendering. */
+    waiting?: { reason: string | null; next_try_at: string | null; since: string | null } | null
     routing_status_code?: string | null
     retry_after_seconds?: number | null
     retry_at?: string | null

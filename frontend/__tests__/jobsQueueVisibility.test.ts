@@ -113,3 +113,20 @@ test('Jobs renders an unreadable queue status as unknown, never as running', () 
   assert.match(jobs, /queuePaused === true/, 'the paused banner must require a KNOWN paused state')
   assert.match(jobs, /Queue state could not be read/, 'the page must tell the user the state is unknown')
 })
+
+test('a job waiting for a free Mac says so with the next try time, and is never called stale for it', () => {
+  const detail = queueDetail({
+    genstudio_jobs: [{
+      state: 'running', updated_at: '2026-09-30T09:00:00.000Z',
+      waiting: { reason: 'No Mac is free', next_try_at: '2026-09-30T09:30:00.000Z', since: '2026-09-30T09:00:00.000Z' },
+    }],
+  })
+  assert.match(detail, /^Waiting for a free Mac — next try \d{1,2}:\d{2}.* \(No Mac is free\)\.$/)
+  assert.doesNotMatch(detail, /GenStudio is generating/)
+  // No next_try_at: the sentence still stands, with no invented time.
+  assert.match(queueDetail({ genstudio_jobs: [{ state: 'running', waiting: { reason: null, next_try_at: null, since: null }, updated_at: 'now' }] }),
+    /^Waiting for a free Mac\.$/)
+  // Older gateway: no `waiting`, nothing changes.
+  assert.equal(queueDetail({ genstudio_jobs: [{ state: 'running', updated_at: 'now' }] }), 'GenStudio is generating.')
+  assert.match(jobs, /latestActiveGenStudioRequest\(job\)\?\.waiting\) return false/, 'is-stale colouring is suppressed while waiting')
+})

@@ -2,6 +2,8 @@ import type { Job } from '../models/types.js'
 import {
   GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
   getGenStudioJobByIdempotencyKey,
+  holdsUnknownOutcome,
+  isSubmissionUncertainCode,
   type GenStudioJob,
 } from '../lib/genstudio-client.js'
 import { getApiKey } from './app-secrets-store.js'
@@ -17,6 +19,12 @@ export interface FailedItemReplacementPlan {
 
 const BLOCKED_FAILURE = /(?:UNCERTAIN|CANCEL|AUTH|CONFIG|CREDENTIAL|CREDIT|BILLING|PAYMENT|REFUS|REJECT|CONTENT|MODERATION|MALFORM|MODEL_MISMATCH)/i
 const KNOWN_REPLACEABLE_FAILURES = new Set([
+  // The gateway's own "no Mac is ready right now" endings. Zero-settlement and safe for the owner to
+  // retry by hand; deliberately NOT in the automatic fleet-busy wait, which would stack minutes on
+  // top of the gateway's own deferral.
+  'LOCATION_NOT_READY',
+  'LOCATION_UNREACHABLE',
+  'PROVIDER_QUOTA_EXHAUSTED',
   'SITE_PLACEMENT_EXHAUSTED',
   'SITE_CAPACITY_UNAVAILABLE',
   'SITE_FAILOVER_EXHAUSTED',
@@ -58,9 +66,10 @@ function originalFailureWasSuperseded(job: Job, entry: Evidence): boolean {
 
 function settledFailure(live: GenStudioJob): boolean {
   if (live.state !== 'failed' || live.cancelled === true || live.dispatch_state === 'pre_dispatch') return false
+  if (holdsUnknownOutcome(live)) return false
   const failureCode = typeof live.failure_code === 'string' ? live.failure_code.trim() : ''
   const failureClass = typeof live.failure_class === 'string' ? live.failure_class.trim() : ''
-  if (failureClass === 'content_refused' || BLOCKED_FAILURE.test(failureCode)) return false
+  if (failureClass === 'content_refused' || isSubmissionUncertainCode(failureCode) || BLOCKED_FAILURE.test(failureCode)) return false
   if (!['provider_transient', 'provider_error'].includes(failureClass)
     && !KNOWN_REPLACEABLE_FAILURES.has(failureCode)) return false
   const credits = [live.reserved_credits, live.settled_credits, live.released_credits]

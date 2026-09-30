@@ -12,6 +12,7 @@ import { inspectScenePromptIntegrity } from '../services/scene-prompt-integrity.
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { scenePromptPackOutputContract } from '../lib/story-output-contracts.js'
 import { stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
+import { isSubmissionUncertainCode } from '../lib/genstudio-client.js'
 
 export const router = Router()
 
@@ -737,7 +738,7 @@ router.post('/projects/:slug/jobs/:jobId/auto-repair-scene-prompts', async (req,
     }
     if ((refreshed.genstudio_jobs || []).some(entry => (
       entry.operation === 'chat.response'
-      && entry.failure_code === 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN'
+      && isSubmissionUncertainCode(entry.failure_code)
     ))) {
       throw Object.assign(new Error('GenStudio could not prove whether an earlier prompt request was accepted. Story Studio kept that evidence and did not submit fresh paid work. Check GenStudio before trying again.'), { status: 409, expose: true })
     }

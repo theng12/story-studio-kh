@@ -290,7 +290,9 @@ function classifyProviderJobControl(
       ambiguous.push(entry)
       continue
     }
-    if (entry.dispatch_state === 'pre_dispatch' && entry.cancellable === true) {
+    // `cancellable` is the gateway's promise that a cancel is honoured now. A dispatched job still
+    // waiting for a Mac (`waiting` set) has not started, so it is as cancellable as a pre-dispatch one.
+    if (entry.cancellable === true && (entry.dispatch_state === 'pre_dispatch' || !!entry.waiting)) {
       targets.push(target)
       continue
     }

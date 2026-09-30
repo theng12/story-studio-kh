@@ -2692,6 +2692,11 @@ export interface Job {
     cancellation_requested?: boolean | null
     cancellation_note?: string | null
     released_credits?: number | null
+    /** The gateway holds this failed job for adoption (`unknown_outcome`); a result may still arrive. */
+    recovery_required?: boolean | null
+    recovery_state?: string | null
+    /** Running at the gateway but queued or deferred at a Mac. Null once a Mac is rendering. */
+    waiting?: { reason: string | null; next_try_at: string | null; since: string | null } | null
     /**
      * A pending transcription placeholder was checked with its confirmation
      * key and, only after a 404, its legacy direct-submission key. This is

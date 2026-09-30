@@ -1413,7 +1413,15 @@ function genStudioQueueDetail(job: RJob): string {
 
   const state = effectiveGenStudioTaskState(remote)
   const hasProviderQueuePosition = typeof remote.queue_position === 'number' && remote.queue_position > 0
-  const phase = hasProviderQueuePosition ? 'Waiting in the GenStudio provider queue.' : ({
+  // The gateway is running this job but no Mac has started it: say so, and when it tries again.
+  const waiting = remote.waiting
+  const nextTry = waiting?.next_try_at && Number.isFinite(Date.parse(waiting.next_try_at))
+    ? new Date(waiting.next_try_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : ''
+  const waitingPhase = waiting
+    ? `Waiting for a free Mac${nextTry ? ` — next try ${nextTry}` : ''}${waiting.reason ? ` (${waiting.reason})` : ''}.`
+    : ''
+  const phase = waitingPhase || (hasProviderQueuePosition ? 'Waiting in the GenStudio provider queue.' : ({
     waiting_local: 'Waiting in Story Studio before provider submission.',
     submitting: 'Waiting for GenStudio admission.',
     accepted: 'GenStudio accepted the latest request; it is queued remotely.',
@@ -1421,7 +1429,7 @@ function genStudioQueueDetail(job: RJob): string {
     waiting_credits: 'Waiting for GenStudio credits.',
     running: 'GenStudio is generating.',
     completing: 'GenStudio is completing the result.',
-  } as Record<string, string>)[state] || ''
+  } as Record<string, string>)[state] || '')
   const facts: string[] = []
   if (hasProviderQueuePosition) {
     facts.push(`GenStudio provider queue position ${remote.queue_position}.`)
@@ -1613,6 +1621,8 @@ function jobFreshness(job: RJob): string | null {
  */
 function jobProgressStale(job: RJob): boolean {
   if (job.status !== 'running') return false
+  // A job waiting for a free Mac is quiet by design; that is not a hang.
+  if (latestActiveGenStudioRequest(job)?.waiting) return false
   return isProgressStale(jobLastProgressAt(job), now.value, jobCadenceSeconds(job))
 }
 
