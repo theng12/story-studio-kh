@@ -14,7 +14,6 @@ const referencesCard = source('../components/Img2ImgReferencesCard.vue')
 
 test('retired scene-generator handoffs lead to Scene Plan instead of a canonicalized thumbnail route', () => {
   assert.doesNotMatch(images, /image-prompts\?tab=scenes/)
-  assert.match(images, /projects\/\$\{slug\}\/scene-plan/)
   assert.doesNotMatch(referencesCard, /image-prompts\?tab=scenes/)
   assert.match(referencesCard, /projects\/\$\{projectSlug\}\/scene-plan/)
 })
@@ -45,7 +44,7 @@ test('Character Sheet ignores stale episode reads and keeps file uploads on thei
 
 test('image pages ignore stale selected-pool and episode responses', () => {
   assert.match(imagePool, /async function loadPoolCount[\s\S]*?const requestedPoolId = poolId\.value[\s\S]*?poolId\.value === requestedPoolId[\s\S]*?if \(!current\(\)\) return/)
-  for (const loader of ['loadPrompts', 'refreshImageStatus', 'loadEditScan', 'loadThumbnailPinState', 'loadOutlineChapterCount']) {
+  for (const loader of ['refreshImageStatus', 'loadEditScan', 'loadThumbnailPinState']) {
     assert.match(
       images,
       new RegExp(`async function ${loader}\\([\\s\\S]*?const ep = form\\.episode_id[\\s\\S]*?const project = slug\\.value[\\s\\S]*?const scope = imageScopeSequence[\\s\\S]*?const current = \\(\\) => scope === imageScopeSequence && project === slug\\.value && ep === form\\.episode_id[\\s\\S]*?if \\(!current\\(\\)\\) return`),
@@ -54,11 +53,9 @@ test('image pages ignore stale selected-pool and episode responses', () => {
   }
 })
 
-test('image prompt previews cannot populate a row after its episode changes', () => {
-  assert.match(
-    images,
-    /async function renderPromptPreview[\s\S]*?const scope = imageScopeSequence[\s\S]*?const project = slug\.value[\s\S]*?const episode = form\.episode_id[\s\S]*?const current = \(\) => scope === imageScopeSequence[\s\S]*?project === slug\.value && episode === form\.episode_id[\s\S]*?await post[\s\S]*?if \(!current\(\)\) return[\s\S]*?previewState\[key\] = \{[\s\S]*?catch \(e: any\) \{\s*if \(!current\(\)\) return/,
-  )
+test('the retired scene half of the Thumbnail Generator stays gone', () => {
+  assert.doesNotMatch(images, /renderPromptPreview|previewState|editScenes|form\.scene|form\.mode|modeTabs/)
+  assert.doesNotMatch(images, /imagestudio\/models|isCatalog/, 'GenStudio is the only source of image sizes')
 })
 
 test('Scene Review uploads retain the episode selected when the file was chosen', () => {

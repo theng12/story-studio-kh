@@ -37,30 +37,23 @@ async function setupWith(models: ReturnType<typeof ref<any[]>>) {
   ;(globalThis as any).__task13ImageModels = models
   ;(globalThis as any).__task13ImageConfig = ref({ image_models: {
     thumbnail: { prompt_char_cap: 17, label: 'Stale thumbnail config' },
-    scene: { prompt_char_cap: 19, label: 'Stale scene config' },
   } })
   const Component = (await import(`data:text/javascript;base64,${Buffer.from(out.code.replaceAll('"vue"', JSON.stringify(vueUrl))).toString('base64')}`)).default
   return Component.setup({}, { expose: () => undefined })
 }
 
-test('Images prompt caps follow each selected live image model, never stale project config', async () => {
+test('Images prompt caps follow the selected live image model, never stale project config', async () => {
   const models = ref([
     { id: 'thumbnail', display_name: 'Live thumbnail', max_prompt_characters: 1_200 },
-    { id: 'scene', display_name: 'Live scene', max_prompt_characters: 2_400 },
   ])
   const state: any = await setupWith(models)
 
   state.form.thumbnail.model = 'thumbnail'
-  state.form.scene.model = 'scene'
   assert.equal(state.thumbnailModelInfo.value.cap, 1_200)
   assert.equal(state.thumbnailModelInfo.value.label, 'Live thumbnail')
   assert.equal(state.activeModelCap.value, 1_200, 'the active thumbnail badge ignores the stale 17-character config cap')
 
-  state.form.mode = 'scenes'
-  assert.equal(state.activeModelCap.value, 2_400)
-  assert.equal(state.activeModelLabel.value, 'Live scene')
-
-  models.value[1].max_prompt_characters = 3_600
+  models.value[0].max_prompt_characters = 3_600
   await nextTick()
   assert.equal(state.activeModelCap.value, 3_600, 'a catalogue cap refresh updates the selected model badge')
 })

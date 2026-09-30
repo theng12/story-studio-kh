@@ -118,7 +118,6 @@ test('Images blanks its integrity card and Browse grid on an episode change', ()
     /Object\.assign\(imageStatus, emptyImageStatus\(\)\)/,
     'the integrity card is episode-scoped and must be blanked on the change, not only on a successful read',
   )
-  assert.match(watcher, /editScenes\.value = \[\]/, 'the Browse grid is episode-scoped')
   assert.match(watcher, /editThumbs\.value = \[\]/, 'the Browse grid is episode-scoped')
   // And the blanking must not sit behind `if (v)`.
   const blankAt = watcher.indexOf('emptyImageStatus()')

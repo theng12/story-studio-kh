@@ -2,15 +2,13 @@
   <div class="workspace-page creation-workspace thumbnail-generator-workspace">
     <WorkspaceHero
       eyebrow="Create · Render"
-      :title="form.mode === 'thumbs' ? 'Thumbnail Generator' : 'Scene Generator'"
-      :description="form.mode === 'thumbs'
-        ? 'Render finished YouTube thumbnail artwork from the approved thumbnail prompts.'
-        : 'Render story artwork from the active scene prompt source.'"
+      title="Thumbnail Generator"
+      description="Render finished YouTube thumbnail artwork from the approved thumbnail prompts."
     >
       <template #aside>
         <div class="workspace-metrics" aria-label="Image generator context">
           <span class="workspace-metric" :data-tone="form.episode_id ? 'success' : 'warning'"><strong>{{ form.episode_id || 'No episode' }}</strong> target</span>
-          <span class="workspace-metric" data-tone="info"><strong>{{ form.mode === 'thumbs' ? 'Thumbnail artwork' : 'Scene artwork' }}</strong> workflow</span>
+          <span class="workspace-metric" data-tone="info"><strong>Thumbnail artwork</strong> workflow</span>
           <span class="workspace-metric" :data-tone="activeMissingCount ? 'warning' : 'success'"><strong>{{ activeMissingCount }}</strong> missing</span>
         </div>
       </template>
@@ -24,7 +22,7 @@
       :project-slug="slug"
       :presets="imgPresets"
       v-model:episode-id="form.episode_id"
-      :filter-field="form.mode === 'thumbs' ? 'thumbnails' : 'images'"
+      filter-field="thumbnails"
       :generate-label="generateButtonLabel"
       :generate-loading="submitting || imageJobActiveForEpisode"
       :generate-disabled="!form.episode_id"
@@ -35,15 +33,13 @@
         <EpisodeImportButton
           :slug="slug"
           :episode-code="form.episode_id"
-          :default-tab="form.mode === 'thumbs' ? 'thumb' : 'scene'"
+          default-tab="thumb"
           @imported="() => { refreshImageStatus(); onPanelRefresh() }"
         />
       </template>
       </TopActionBar>
       <p class="workspace-command-copy">
-        {{ form.mode === 'thumbs'
-          ? 'Choose the episode and render model, then generate or repair only the thumbnail artwork still needed.'
-          : 'Choose the episode and render model, then generate or repair only the scene artwork still needed.' }}
+        Choose the episode and render model, then generate or repair only the thumbnail artwork still needed.
       </p>
     </div>
 
@@ -65,7 +61,7 @@
             :image-models="config?.image_models || {}"
             :image-mode="thumbnailReferenceActive ? 'img2img' : 'text2img'"
           />
-          <span v-if="form.mode === 'thumbs'" class="text-muted text-xs">
+          <span class="text-muted text-xs">
             <template v-if="thumbnailReferenceActive">Reference-guided generation · your image is used privately as a composition reference and is not sent as a public URL.</template>
             <template v-else>Tip: Use a higher-quality model for eye-catching thumbnails</template>
           </span>
@@ -180,7 +176,7 @@
             <input type="radio" value="skip" v-model="activeForm.generation_mode" />
             <div>
               <strong>Skip existing</strong>
-              <span class="text-muted">Don't regenerate {{ form.mode === 'thumbs' ? 'thumbnails' : 'scenes' }} that already exist.</span>
+              <span class="text-muted">Don't regenerate thumbnails that already exist.</span>
             </div>
           </label>
           <label class="generation-mode-option">
@@ -205,7 +201,7 @@
          v-show toggles based on the existing mode tabs so the panel
          matches whichever tab is active. -->
     <ImageGeneratorPanel
-      v-show="form.mode === 'thumbs' && form.episode_id"
+      v-show="form.episode_id"
       kind="thumbnail"
       :project-slug="slug"
       :episode-id="form.episode_id"
@@ -226,91 +222,12 @@
       @refresh="onPanelRefresh"
       @pin-toggle="toggleThumbnailPin"
     />
-    <ImageGeneratorPanel
-      v-show="form.mode === 'scenes' && form.episode_id"
-      kind="scene"
-      :project-slug="slug"
-      :episode-id="form.episode_id"
-      :title="selectedEpisode?.title || ''"
-      :model="form.scene.model"
-      :aspect-ratio="form.scene.aspect_ratio"
-      :generation-mode="form.scene.generation_mode"
-      :tier="form.scene.tier"
-      :seed="form.scene.seed"
-      :render-width="sceneRenderSize?.width"
-      :render-height="sceneRenderSize?.height"
-      :refresh-key="igPanelRefreshKey"
-      :prompt-char-cap="sceneModelInfo.cap"
-      :model-label="sceneModelInfo.label"
-      @open-preview="openLightboxAt"
-      @refresh="onPanelRefresh"
-    />
-
-    <!-- ── Preview what will be generated ─────────────────────────────────
-         Read-only list of the active prompt kind for this episode,
-         each with an inline "🖼️ Preview" button that renders a single
-         sample image of that exact prompt with the user's currently-
-         selected model + aspect + tier. Per-prompt cache keyed by
-         sha256(prompt+model+aspect+tier), so re-clicking the same combo
-         is free; switching any input invalidates the preview and submits a
-         fresh GenStudio job.
-
-         Hidden until prompts exist on disk and the user expands the
-         card — keeps the page calm by default; the user opts in.
-    -->
-    <div v-if="form.episode_id && form.mode === 'scenes'" class="card workspace-section" aria-labelledby="image-preview-heading">
-      <button
-        type="button"
-        class="preview-card-toggle"
-        :aria-expanded="previewOpen ? 'true' : 'false'"
-        @click="onPreviewToggle"
-      >
-        <span class="preview-card-icon" aria-hidden="true">{{ previewOpen ? '▾' : '▸' }}</span>
-        <h3 id="image-preview-heading" class="preview-card-title">
-          Preview what will be generated
-        </h3>
-        <span v-if="activePromptRows.length" class="text-muted text-xs">
-          {{ activePromptRows.length }} scene prompt(s) on disk
-        </span>
-      </button>
-      <p v-if="previewOpen" class="text-muted text-sm preview-card-blurb">
-        Inspect the scene prompts that will be sent to the image provider,
-        and render a single sample of any one to gut-check the visual style before kicking off the full batch.
-        <strong>Cached app-wide</strong> by prompt + model + aspect + tier — same
-        combo across episodes / projects re-uses the cached render and
-        costs nothing.
-      </p>
-
-      <div v-if="previewOpen && promptList.loading" class="text-muted text-md">
-        <LoadingSpinner size="sm" /> Loading prompts…
-      </div>
-      <div v-else-if="previewOpen && promptList.error" class="text-muted text-md">
-        {{ promptList.error }}
-      </div>
-      <template v-else-if="previewOpen">
-        <ul v-if="activePromptRows.length" class="preview-list" role="list">
-          <li class="preview-list-section">Scenes</li>
-          <li v-for="row in activePromptRows" :key="`${activePreviewKind}-${row.number}`" class="preview-row">
-            <PreviewPromptRow
-              :row="row"
-              prefix="Scene"
-              :state="previewState[previewKey(activePreviewKind, row.number)] || null"
-              @preview="renderPromptPreview(activePreviewKind, row)"
-            />
-          </li>
-        </ul>
-        <div v-if="!activePromptRows.length" class="text-muted text-md">
-          No planned scene prompts found yet. Build them in
-          <NuxtLink :to="`/projects/${slug}/scene-plan`">Scene Plan</NuxtLink> first.
-        </div>
-      </template>
-    </div>
 
     <!-- Recovery is scoped to the active artwork pool. It only reclaims an
          accepted GenStudio result; fresh work remains an explicit action. -->
     <div v-if="form.episode_id" class="card workspace-section" aria-labelledby="image-integrity-heading">
       <h3 id="image-integrity-heading" class="integrity-title">
-        {{ form.mode === 'thumbs' ? 'Recovery & completeness' : 'Image integrity' }}
+        Recovery & completeness
       </h3>
       <p class="text-muted text-sm integrity-blurb">
         Check the expected {{ activePoolLabel }} against files on disk. <strong>Recover prior result(s)</strong>
@@ -329,32 +246,10 @@
 
       <div v-else-if="!activePoolStatus" class="text-muted text-md">
         No {{ activePoolLabel }} prompts found for this episode yet. Generate them
-        first on the <NuxtLink :to="`/projects/${slug}/image-prompts?tab=${form.mode === 'thumbs' ? 'thumbnails' : 'scenes'}`">{{ promptPageLabel }}</NuxtLink> page.
+        first on the <NuxtLink :to="`/projects/${slug}/image-prompts?tab=thumbnails`">Thumbnail Prompts</NuxtLink> page.
       </div>
 
       <div v-else class="flex items-center gap-2 flex-wrap">
-        <!-- Tier 1: outline ↔ prompts. Surfaces when the user changed the
-             title's listicle [N] (e.g. 7 → 20) and rebuilt the outline
-             but didn't re-run Scene Prompts. Without this pill, Repair
-             would silently regenerate against the OLD prompt count,
-             leaving the user with images for 7 of 20 expected chapters
-             and burning credits to find out. -->
-        <span
-          v-if="form.mode === 'scenes' && promptsStaleVsOutline.stale"
-          class="integrity-pill warn"
-          :title="`The outline has ${promptsStaleVsOutline.chapterCount} chapters but only ${promptsStaleVsOutline.promptCount} scene prompts exist on disk. Regenerate Scene Prompts at the new chapter count first — otherwise images will only cover ${promptsStaleVsOutline.promptCount} of the ${promptsStaleVsOutline.chapterCount} chapters.`"
-        >
-          ⚠ Prompts stale: {{ promptsStaleVsOutline.promptCount }} / {{ promptsStaleVsOutline.chapterCount }} chapters
-        </span>
-        <NuxtLink
-          v-if="form.mode === 'scenes' && promptsStaleVsOutline.stale"
-          :to="`/projects/${slug}/image-prompts`"
-          class="btn btn-sm btn-secondary"
-          title="Regenerate Scene Prompts at the current chapter count before generating images."
-        >
-          Regenerate prompts →
-        </NuxtLink>
-
         <!-- Tier 2: prompts ↔ on-disk images. Scoped to the ACTIVE pool only. -->
         <span v-if="activePoolStatus" class="integrity-pill" :class="activeMissingCount ? 'warn' : 'ok'">
           <template v-if="activeMissingCount === 0">✓ {{ activePoolStatus.total }} {{ activePoolLabel }} present</template>
@@ -364,10 +259,8 @@
         <button
           v-if="activeRecoverableCount > 0"
           class="btn btn-sm btn-secondary"
-          :disabled="submitting || generating || (form.mode === 'scenes' && promptsStaleVsOutline.stale)"
-          :title="form.mode === 'scenes' && promptsStaleVsOutline.stale
-            ? 'Prompts are stale vs the outline — regenerate prompts first so the repair targets the right chapter count.'
-            : `Re-fetches missing ${activePoolLabel} from provider history — no credit cost. Existing files with content are skipped.`"
+                :disabled="submitting || generating"
+          :title="`Re-fetches missing ${activePoolLabel} from provider history — no credit cost. Existing files with content are skipped.`"
           @click="repairMissing"
         >
           Recover prior result{{ activeRecoverableCount === 1 ? '' : 's' }} ({{ activeRecoverableCount }})
@@ -376,7 +269,7 @@
         <button
           v-if="activeFreshCount > 0"
           class="btn btn-sm btn-primary"
-          :disabled="submitting || generating || (form.mode === 'scenes' && promptsStaleVsOutline.stale)"
+          :disabled="submitting || generating"
           :title="`Creates only the ${activeFreshCount} missing ${activePoolLabel}; existing files are skipped. This submits new provider work and may use credits.`"
           @click="generateMissingFresh"
         >
@@ -414,7 +307,7 @@
     </div>
 
     <div
-      v-if="form.mode === 'thumbs' && form.episode_id && activePoolStatus && activeMissingCount === 0"
+      v-if="form.episode_id && activePoolStatus && activeMissingCount === 0"
       class="card workspace-section thumbnail-handoff"
     >
       <div>
@@ -433,69 +326,13 @@
       </button>
     </div>
 
-    <!-- Browse the active image pool without exposing the retired direct
-         provider image-edit path. -->
-    <div v-if="form.episode_id && form.mode === 'scenes'" class="card workspace-section">
-      <div class="card-header">
-        <h3>Browse Existing Images</h3>
-        <button
-          class="btn btn-sm btn-ghost"
-          :disabled="editScanLoading"
-          :title="editScanLoading ? 'Refreshing…' : 'Re-scan the disk for newly-generated images'"
-          @click="loadEditScan"
-        >
-          <LoadingSpinner v-if="editScanLoading" size="sm" />
-          <span v-else aria-hidden="true">↻</span>
-          Refresh
-        </button>
-      </div>
-      <p class="text-muted text-sm mt-1">
-        Click any image to preview it. Image editing will return after GenStudio
-        exposes and qualifies a secure image-edit API.
-      </p>
-
-      <div v-if="editScanError" class="text-danger text-sm mt-2">{{ editScanError }}</div>
-
-      <!-- Scenes -->
-      <div v-if="form.mode === 'scenes' && editScenes.length" class="mt-2">
-        <h4 class="edit-grid-heading">Scenes ({{ editScenes.length }})</h4>
-        <div class="edit-image-grid">
-          <button
-            v-for="scn in editScenes"
-            :key="scn.path"
-            type="button"
-            class="edit-image-tile"
-            :title="`Preview ${scn.filename}`"
-            @click="openLightboxAt(scn.path)"
-          >
-            <ResilientImage
-              :src="getImagePreviewUrlImages(scn.path)"
-              :alt="scn.filename"
-              class="edit-image-thumb"
-              loading="lazy"
-              compact
-              :manual-retry="false"
-            />
-            <span class="edit-image-label">S{{ scn.scene_number ?? '?' }}</span>
-          </button>
-        </div>
-      </div>
-
-      <p
-        v-if="!activeEditImages.length && !editScanLoading && !editScanError"
-        class="text-muted text-sm mt-2"
-      >
-        No {{ activePoolLabel }} on disk yet for {{ form.episode_id }}. Generate some first using the form above.
-      </p>
-    </div>
-
     <!-- Contextual help -->
     <div class="help-note mt-2">
       <span class="help-icon" aria-hidden="true">💡</span>
       <div>
         <strong>Need prompts first?</strong>
-        Generate {{ form.mode === 'thumbs' ? 'thumbnail' : 'scene' }} prompts for this episode on the
-        <NuxtLink :to="`/projects/${slug}/image-prompts?tab=${form.mode === 'thumbs' ? 'thumbnails' : 'scenes'}`">{{ promptPageLabel }}</NuxtLink>
+        Generate thumbnail prompts for this episode on the
+        <NuxtLink :to="`/projects/${slug}/image-prompts?tab=thumbnails`">Thumbnail Prompts</NuxtLink>
         page before running image generation.
       </div>
     </div>
@@ -555,27 +392,14 @@ const {
 // unchanged because the bound value type didn't change.
 
 const { success, error: showError } = useToast()
-const { imageGenerating, thumbImageGenerating } = useGenerating()
+const { thumbImageGenerating } = useGenerating()
 const { confirmGeneration } = useConfirmation()
 const { isJobActiveFor, jobs } = useJobs()
 
 const submitting = ref(false)
 
-type Mode = 'scenes' | 'thumbs'
-
-// v1.0.88+: form is split into two completely independent per-kind
-// sub-objects (form.thumbnail + form.scene). Each carries its own model,
-// aspect ratio, quality, seed, and generation mode.
-// `mode` and `episode_id` stay at the top level — they're the tab
-// selector and the episode pick, both inherently page-level.
-//
-// `activeForm` below is a computed proxy returning the sub-object that
-// matches the active tab; template bindings on shared-field controls
-// (Model picker, Aspect Ratio dropdown, and Generation Mode radios) all flow
-// through this so editing the visible control
-// updates only the active kind's state. Switching tabs swaps the entire
-// surface — Thumbnail tab's Flux Kontext model and 1:1 aspect ratio
-// won't leak into the Scene tab's seedream + 16:9 setup.
+// The form holds the episode pick plus the thumbnail render settings (model, aspect
+// ratio, quality, seed, generation mode). This page renders thumbnails only.
 type ImagesSubForm = {
   model: string
   aspect_ratio: string
@@ -614,32 +438,17 @@ const defaultSubForm = (): ImagesSubForm => ({
 })
 const form = reactive({
   episode_id: '',
-  // v1.0.87+: default to 'thumbs' so the page lands on the Thumbnails tab.
-  // v1.0.88+: initial value picks up the route's ?tab= query so the
-  // sidebar's split "Thumbnail Generator" / "Scene Generator" entries
-  // land on the right tab. Query value 'scenes' → mode 'scenes'; any
-  // other value (including missing) → 'thumbs'.
-  mode: 'thumbs' as Mode,
   thumbnail: defaultSubForm(),
-  scene: defaultSubForm(),
 })
-const promptPageLabel = computed(() => form.mode === 'thumbs' ? 'Thumbnail Prompts' : 'Scene Prompts')
-const generatorPageTitle = computed(() => form.mode === 'thumbs' ? 'Thumbnail Generator' : 'Scene Generator')
-useAppTitle(generatorPageTitle)
+useAppTitle('Thumbnail Generator')
 
-// v1.0.259 — remember each tab's render settings (model / aspect / tier /
-// generation mode) across reloads. `mode` is deliberately NOT
-// remembered: it comes from the sidebar's ?tab= so the split Thumbnail/Scene
-// entries always land on the right tab.
-useRememberedForm('images', slug, form, { include: ['thumbnail', 'scene'] })
+// v1.0.259 — remember the render settings (model / aspect / tier / generation mode) across reloads.
+useRememberedForm('images', slug, form, { include: ['thumbnail'] })
 
-// Active sub-form. Switches between thumbnail/scene based on mode.
 // Template auto-unwraps computed refs — `activeForm.model` Just Works
 // there; script uses `activeForm.value.model`.
-const activeForm = computed<ImagesSubForm>(() =>
-  form.mode === 'thumbs' ? form.thumbnail : form.scene,
-)
-const thumbnailReferenceActive = computed(() => form.mode === 'thumbs' && !!(config.value as any)?.thumbnail_reference_asset?.id)
+const activeForm = computed<ImagesSubForm>(() => form.thumbnail)
+const thumbnailReferenceActive = computed(() => !!(config.value as any)?.thumbnail_reference_asset?.id)
 
 // Hydrate the selected episode so child components + computeds can read
 // the human-readable title (resolveEpisodePaths needs it on the prompt-
@@ -675,9 +484,8 @@ function modelInfoFor(modelId: string) {
   }
 }
 const thumbnailModelInfo = computed(() => modelInfoFor(form.thumbnail.model))
-const sceneModelInfo = computed(() => modelInfoFor(form.scene.model))
-const activeModelCap = computed(() => (form.mode === 'thumbs' ? thumbnailModelInfo : sceneModelInfo).value.cap)
-const activeModelLabel = computed(() => (form.mode === 'thumbs' ? thumbnailModelInfo : sceneModelInfo).value.label)
+const activeModelCap = computed(() => thumbnailModelInfo.value.cap)
+const activeModelLabel = computed(() => thumbnailModelInfo.value.label)
 
 const modelTierLabel = computed(() => {
   // Naming the picker by axis: "Resolution" if tier ids look like 1k/2k/4k,
@@ -717,16 +525,14 @@ function normalizeImageAspectRatio(target: ImagesSubForm): boolean {
   return !!target.aspect_ratio && ratios.includes(target.aspect_ratio)
 }
 
-// Both saved forms follow their actual catalogue lists, including same-count
+// The saved form follows its actual catalogue list, including same-count
 // refreshes and preset edits. Preserve any choice the model still publishes.
-for (const kind of ['thumbnail', 'scene'] as const) {
-  watch(() => {
-    const target = form[kind]
-    const model = genStudioImageModels.value.find(row => row.id === target.model)
-    return [target.model, target.aspect_ratio, modelArs(target.model),
-      model?.default_aspect_ratio]
-  }, () => normalizeImageAspectRatio(form[kind]), { immediate: true })
-}
+watch(() => {
+  const target = form.thumbnail
+  const model = genStudioImageModels.value.find(row => row.id === target.model)
+  return [target.model, target.aspect_ratio, modelArs(target.model),
+    model?.default_aspect_ratio]
+}, () => normalizeImageAspectRatio(form.thumbnail), { immediate: true })
 
 // ── Presets ─────────────────────────────────────────────────────────────
 // v1.0.88+: presets are SPLIT per kind (thumbnail_generator vs
@@ -771,13 +577,7 @@ const thumbnailGeneratorPresets = usePresets<any>({
   snapshot: () => ({ form: imageGeneratorPresetForm(form.thumbnail) }),
   apply: (data) => applyImageGeneratorPreset(form.thumbnail, data),
 })
-const sceneGeneratorPresets = usePresets<any>({
-  slug: slug.value,
-  configKey: 'scene_generator',
-  snapshot: () => ({ form: imageGeneratorPresetForm(form.scene) }),
-  apply: (data) => applyImageGeneratorPreset(form.scene, data),
-})
-// Bound to TopActionBar — swaps active preset surface on tab change.
+// Bound to TopActionBar.
 const imgPresets = computed(() => thumbnailGeneratorPresets)
 
 /**
@@ -792,11 +592,8 @@ async function applyImageFormatDefaultsIfNoPreset() {
     const f = await get<any>(`/projects/${slug.value}/effective-format`)
     const ip = f?.imagePrompts
     if (!ip) return
-    // v1.0.88+: seed BOTH sub-forms (each kind starts from the same
-    // format-recommended aspect; the user can then diverge per tab).
     if (typeof ip.recommendedAspect === 'string' && ip.recommendedAspect) {
       form.thumbnail.aspect_ratio = ip.recommendedAspect
-      form.scene.aspect_ratio = ip.recommendedAspect
     }
   } catch {
     // Format endpoint unavailable — use the selected model's published options.
@@ -805,183 +602,15 @@ async function applyImageFormatDefaultsIfNoPreset() {
 
 onMounted(async () => {
   await applyImageFormatDefaultsIfNoPreset()
-  // v1.0.88+: load both per-kind preset lists so either tab can
-  // immediately pick a saved preset without requiring a tab-switch first.
   await Promise.all([
     thumbnailGeneratorPresets.load(),
     refreshGenStudioImageModels(),
   ])
 })
 
-// ── Preview-what-will-be-generated card ─────────────────────────────────
-//
-// Lazy-loaded list of scene + thumbnail prompts (read-only) plus a
-// per-prompt preview state for the inline 🖼️ Preview buttons. The card
-// stays collapsed by default; opening it (or switching episodes while
-// open) triggers a single GET /image-prompts. Per-prompt preview state
-// is keyed by `${kind}-${number}` so scenes and thumbnails with the
-// same number don't collide.
-interface PromptRow { number: number; title?: string; prompt: string }
-// Preview card opens by default. Lazy-load is still single-fetch on first
-// expand (cheap docx parse), and starting open makes the prompts visible
-// before the user clicks Generate — main use case for the card. Click
-// the chevron to collapse if it gets in the way.
-const previewOpen = ref(true)
-const promptList = reactive<{
-  loading: boolean
-  error: string | null
-  scenes: PromptRow[]
-  thumbnails: PromptRow[]
-}>({ loading: false, error: null, scenes: [], thumbnails: [] })
-let promptListLoadSequence = 0
+// Bumped on every project/episode change so a slow read for the previous scope can tell it is stale.
 let imageScopeSequence = 0
-
-interface PreviewState {
-  loading: boolean
-  url: string | null
-  cached: boolean | null
-  hash: string | null
-  model_id: string | null
-  aspect_ratio: string | null
-  tier: string | null
-  error: string | null
-}
-const previewState = reactive<Record<string, PreviewState>>({})
-function previewKey(kind: 'scene' | 'thumbnail', number: number): string {
-  return `${kind}-${number}`
-}
-
-async function loadPrompts(): Promise<void> {
-  const ep = form.episode_id
-  const project = slug.value
-  const scope = imageScopeSequence
-  const requestSequence = ++promptListLoadSequence
-  const current = () => scope === imageScopeSequence && project === slug.value && ep === form.episode_id
-  if (!ep || !project) return
-  promptList.loading = true
-  promptList.error = null
-  promptList.scenes = []
-  promptList.thumbnails = []
-  try {
-    // Title param is required for resolveEpisodePaths to find the right
-    // folder — without it the backend builds a path with an empty {title}
-    // slot ("Season 001/EP0001 - /…") that doesn't match the actual
-    // on-disk folder name. Cause of the empty-card bug.
-    const titleParam = selectedEpisode.value?.title
-      ? `?title=${encodeURIComponent(selectedEpisode.value.title)}`
-      : ''
-    const data = await get<{ scenes: PromptRow[]; thumbnails: PromptRow[] }>(
-      `/projects/${project}/episodes/${ep}/image-prompts${titleParam}`,
-    )
-    if (requestSequence !== promptListLoadSequence || !current()) return
-    promptList.scenes = Array.isArray(data?.scenes) ? data.scenes : []
-    promptList.thumbnails = Array.isArray(data?.thumbnails) ? data.thumbnails : []
-  } catch (e: any) {
-    if (requestSequence !== promptListLoadSequence || !current()) return
-    if (e?.status === 404) {
-      promptList.error = e?.data?.detail
-        || `No prompts found yet. Generate them on the ${promptPageLabel.value} page first.`
-    } else {
-      promptList.error = e?.data?.detail || e?.message || 'Failed to load prompts'
-    }
-  } finally {
-    if (requestSequence === promptListLoadSequence && current()) promptList.loading = false
-  }
-}
-
-function onPreviewToggle(): void {
-  previewOpen.value = !previewOpen.value
-  // Lazy-load on first open. The list itself is cheap (single docx
-  // parse) but we still avoid the round-trip until the user shows
-  // intent by expanding the card.
-  if (previewOpen.value && promptList.scenes.length === 0
-      && promptList.thumbnails.length === 0 && !promptList.loading) {
-    void loadPrompts()
-  }
-}
-
-// Re-load prompts when the user switches episodes while the card is
-// open. Closed → no fetch (next open will lazy-load).
-// `immediate: true` so the initial episode (set from query params on
-// page mount, or pre-filled by EpisodeSelector) triggers the load
-// even though the card defaults to open — without immediate, the
-// open-by-default would render with an empty list until the user
-// re-selected the episode.
-watch([slug, () => form.episode_id], () => {
-  imageScopeSequence++
-  // Wipe per-prompt preview state too; the previous episode's renders
-  // don't apply here.
-  for (const k of Object.keys(previewState)) delete previewState[k]
-  promptList.scenes = []
-  promptList.thumbnails = []
-  promptList.error = null
-  if (previewOpen.value && form.episode_id) void loadPrompts()
-}, { immediate: true })
-
-async function renderPromptPreview(kind: 'scene' | 'thumbnail', row: PromptRow): Promise<void> {
-  const key = previewKey(kind, row.number)
-  const scope = imageScopeSequence
-  const project = slug.value
-  const episode = form.episode_id
-  const current = () => scope === imageScopeSequence
-    && project === slug.value && episode === form.episode_id
-  if (previewState[key]?.loading) return
-  if (!previewState[key]) {
-    previewState[key] = {
-      loading: true, url: null, cached: null, hash: null,
-      model_id: null, aspect_ratio: null, tier: null, error: null,
-    }
-  } else {
-    previewState[key]!.loading = true
-    previewState[key]!.error = null
-  }
-  try {
-    const data = await post<{
-      hash: string; url: string; cached: boolean
-      model_id: string; aspect_ratio: string; tier: string
-      created_at: string; size_bytes: number
-    }>(`/projects/${slug.value}/preview-image`, {
-      prompt: row.prompt,
-      model: activeForm.value.model,
-      aspect_ratio: activeForm.value.aspect_ratio,
-      tier: activeForm.value.tier || undefined,
-      ...(typeof activeForm.value.seed === 'number' ? { seed: activeForm.value.seed } : {}),
-    })
-    if (!current()) return
-    previewState[key] = {
-      loading: false,
-      url: data.url,
-      cached: !!data.cached,
-      hash: data.hash,
-      model_id: data.model_id,
-      aspect_ratio: data.aspect_ratio,
-      tier: data.tier || null,
-      error: null,
-    }
-  } catch (e: any) {
-    if (!current()) return
-    previewState[key] = {
-      ...(previewState[key] as PreviewState),
-      loading: false,
-      error: e?.data?.detail || e?.message || 'Preview failed',
-    }
-  }
-}
-
-// v1.0.87+: dropped the 'Both' tab and reordered (Thumbnails first).
-// The "generate everything in one go" mode encouraged users to fire
-// 250 scene jobs + 3 thumbnail jobs as a single batch, which made
-// retries painful when only the thumbnails came back wrong. Splitting
-// forces the user to tune each surface separately — same pattern as
-// the Prompts page where Thumbnail and Scene are now distinct
-// tabs. Thumbnails first because they're the CTR lever (you lock the
-// cover image direction before committing to N scene renders).
-// Backend still accepts 'all' for API parity / older clients; only the
-// frontend tab UI is restricted.
-const modeTabs: Array<{ id: Mode; label: string; icon: string; hint: string }> = [
-  { id: 'thumbs', label: 'Thumbnails',  icon: '📸', hint: 'YouTube thumbnails only' },
-  { id: 'scenes', label: 'Scenes',      icon: '🎬', hint: 'Story artwork only' },
-]
+watch([slug, () => form.episode_id], () => { imageScopeSequence++ }, { immediate: true })
 
 // Old presets could contain the retired "new version" mode. It has no safe
 // distinct behavior, so migrate it to missing-only generation on load.
@@ -1055,25 +684,13 @@ function activeLegacyDimsLabel(scale: number): string {
   const d = legacyDimsFor(activeForm.value.aspect_ratio, scale)
   return `${d.width}×${d.height}`
 }
-// Per-kind sizes passed down to each ImageGeneratorPanel so its bulk + per-row
-// renders carry the same pixels the form shows.
-const sceneRenderSize = computed(() => sizeBodyFor(form.scene))
+// Passed down to the ImageGeneratorPanel so its bulk + per-row renders carry the same
+// pixels the form shows.
 const thumbnailRenderSize = computed(() => sizeBodyFor(form.thumbnail))
 
-const generateButtonLabel = computed(() => {
-  if (form.mode === 'scenes') return 'Generate Scene Images'
-  return 'Generate Thumbnail Images'
-})
-
-const generatingLabel = computed(() => {
-  if (form.mode === 'scenes') return 'Generating scene images'
-  return 'Generating thumbnail images'
-})
-
-const generating = computed(() => {
-  if (form.mode === 'scenes') return imageGenerating.value
-  return thumbImageGenerating.value
-})
+const generateButtonLabel = 'Generate Thumbnail Images'
+const generatingLabel = 'Generating thumbnail images'
+const generating = computed(() => thumbImageGenerating.value)
 
 // v1.0.307 — keep the Generate button disabled for the WHOLE job, not just
 // the brief enqueue POST. `submitting` flips false the instant the job is
@@ -1085,82 +702,14 @@ const generating = computed(() => {
 const imageJobActiveForEpisode = computed(() =>
   isJobActiveFor(
     form.episode_id,
-    form.mode === 'thumbs' ? ['thumb_images'] : ['scene_images'],
+    ['thumb_images'],
   ),
 )
 
-// v1.0.88+: keep form.mode in sync with the route's ?tab= query so the
-// sidebar's split "Thumbnail Generator" / "Scene Generator" entries
-// drive the active tab, and browser back/forward navigation moves
-// between them. Mapping: query 'thumbnails'/'scenes' ↔ form.mode
-// 'thumbs'/'scenes'. The legacy unified "all" mode is not loaded by the
-// split generator pages.
-const _router = useRouter()
+// The scene half of this page is retired; an old ?tab=scenes link lands on Thumbnails.
 if (route.query.tab === 'scenes') {
-  void _router.replace({ query: { ...route.query, tab: 'thumbnails' } })
+  void useRouter().replace({ query: { ...route.query, tab: 'thumbnails' } })
 }
-watch(() => form.mode, (m) => {
-  if (m !== 'thumbs' && m !== 'scenes') return
-  const desired = m === 'scenes' ? 'scenes' : 'thumbnails'
-  const cur = String(route.query.tab || 'thumbnails')
-  if (cur === desired) return
-  _router.replace({ query: { ...route.query, tab: desired } })
-})
-
-function getConfirmationType(): 'scene_images' | 'thumb_images' {
-  if (form.mode === 'scenes') return 'scene_images'
-  return 'thumb_images'
-}
-
-// ── Image integrity pill ────────────────────────────────────────────────
-// Authoritative chapter count from the chunked-progress sidecar. Loaded
-// when the episode changes. Used by the integrity card to detect "stale
-// prompts" — i.e. the prompt docx has fewer entries than the outline
-// has chapters, which means the user regenerated the outline at a
-// different count (e.g. title's [N] flipped from 7 to 20) but didn't
-// re-run Scene Prompts. Without this signal the integrity card would
-// happily say "✓ 7 scenes present" even though the user expects 20.
-const outlineChapterCount = ref<number | null>(null)
-async function loadOutlineChapterCount() {
-  const ep = form.episode_id
-  const project = slug.value
-  const scope = imageScopeSequence
-  const current = () => scope === imageScopeSequence && project === slug.value && ep === form.episode_id
-  outlineChapterCount.value = null
-  if (!ep || !project) return
-  try {
-    const data = await get<{ total_chapters?: number }>(
-      `/projects/${project}/episodes/${ep}/outline`,
-    )
-    if (!current()) return
-    if (typeof data?.total_chapters === 'number' && data.total_chapters > 0) {
-      outlineChapterCount.value = data.total_chapters
-    }
-  } catch {
-    if (!current()) return
-    // No sidecar yet — leave null so the integrity card just shows the
-    // existing prompt-vs-image comparison without the new tier.
-  }
-}
-
-// "Prompts are stale relative to outline" detector. True when:
-//   - We have an outline chapter count (sidecar present), AND
-//   - The scene-prompts docx has fewer entries than the outline's
-//     total_chapters.
-// When true, the integrity card surfaces a warning pill + a direct
-// link back to Scene Prompts so the user regenerates prompts before
-// burning provider calls on a wrong-count batch. Triggered by, for
-// example, the user changing the title's listicle [N] from 7 → 20
-// and rebuilding the outline at 20 without rerunning prompts.
-const promptsStaleVsOutline = computed<{ stale: boolean; promptCount: number; chapterCount: number }>(() => {
-  // Thumbnail prompts are not expected to match chapter count. This warning is
-  // scene-only; showing it on the Thumbnail Generator leaks scene workflow state.
-  if (form.mode === 'thumbs') return { stale: false, promptCount: 0, chapterCount: 0 }
-  const chapterCount = outlineChapterCount.value
-  const promptCount = imageStatus.scenes?.total ?? 0
-  if (!chapterCount || promptCount <= 0) return { stale: false, promptCount: 0, chapterCount: 0 }
-  return { stale: promptCount < chapterCount, promptCount, chapterCount }
-})
 
 // Fetches on-disk status and provider-history recoverability together so the
 // page never presents a fresh-generation gap as a free repair candidate.
@@ -1168,11 +717,9 @@ interface ImageStatusState {
   loading: boolean
   error: string
   hasAny: boolean       // whether any prompts were found
-  scenes: { total: number; present: number; missing: number[] } | null
   thumbnails: { total: number; present: number; missing: number[] } | null
   hasMissing: boolean
   totalMissing: number
-  missingScenesList: string    // "3, 7, 12" for the UI
   missingThumbsList: string
 }
 // No `provider`: the repair status endpoint no longer returns one, and a
@@ -1194,27 +741,23 @@ interface RepairPoolStatus {
 function emptyImageStatus(): ImageStatusState {
   return {
     loading: false, error: '', hasAny: false,
-    scenes: null, thumbnails: null,
+    thumbnails: null,
     hasMissing: false, totalMissing: 0,
-    missingScenesList: '', missingThumbsList: '',
+    missingThumbsList: '',
   }
 }
 const imageStatus = reactive<ImageStatusState>(emptyImageStatus())
 let imageStatusLoadSequence = 0
 
-// v1.0.306 — the integrity card is scoped to the ACTIVE generator pool. The
-// Thumbnail Generator and Scene Generator are separate pages; each shows +
-// repairs only its own pool, not both. (Repair is the user's favourite
-// money-saver — keeping the pools separate avoids re-checking the wrong half.)
-const integrityPool = computed<'scenes' | 'thumbnails'>(() => form.mode === 'thumbs' ? 'thumbnails' : 'scenes')
-const activePoolStatus = computed(() => form.mode === 'thumbs' ? imageStatus.thumbnails : imageStatus.scenes)
+// The integrity card covers the thumbnail pool. (Repair is the user's favourite
+// money-saver.)
+const integrityPool = 'thumbnails'
+const activePoolStatus = computed(() => imageStatus.thumbnails)
 const activeMissingCount = computed(() => activePoolStatus.value?.missing.length ?? 0)
-const activeMissingList = computed(() => form.mode === 'thumbs' ? imageStatus.missingThumbsList : imageStatus.missingScenesList)
-const activePoolLabel = computed(() => form.mode === 'thumbs' ? 'thumbnails' : 'scenes')
-const activePreviewKind = computed<'scene' | 'thumbnail'>(() => form.mode === 'thumbs' ? 'thumbnail' : 'scene')
-const activePromptRows = computed(() => form.mode === 'thumbs' ? promptList.thumbnails : promptList.scenes)
-const repairStatus = reactive<{ scene: RepairPoolStatus | null; thumb: RepairPoolStatus | null }>({ scene: null, thumb: null })
-const activeRepairPool = computed(() => form.mode === 'thumbs' ? repairStatus.thumb : repairStatus.scene)
+const activeMissingList = computed(() => imageStatus.missingThumbsList)
+const activePoolLabel = 'thumbnails'
+const repairStatus = reactive<{ thumb: RepairPoolStatus | null }>({ thumb: null })
+const activeRepairPool = computed(() => repairStatus.thumb)
 const activeRepairItems = computed(() => activeRepairPool.value?.missing_items || [])
 const activeRecoverableCount = computed(() => activeRepairPool.value?.with_manifest || 0)
 const activeFreshCount = computed(() => activeRepairPool.value?.without_manifest || 0)
@@ -1266,16 +809,12 @@ async function refreshImageStatus() {
       ),
     ])
     if (requestSequence !== imageStatusLoadSequence || !current()) return
-    imageStatus.scenes = r.scenes ?? null
     imageStatus.thumbnails = r.thumbnails ?? null
-    imageStatus.hasAny = !!(r.scenes || r.thumbnails)
-    const missScene = imageStatus.scenes?.missing.length ?? 0
+    imageStatus.hasAny = !!r.thumbnails
     const missThumb = imageStatus.thumbnails?.missing.length ?? 0
-    imageStatus.hasMissing = missScene + missThumb > 0
-    imageStatus.totalMissing = missScene + missThumb
-    imageStatus.missingScenesList = missScene > 0 ? imageStatus.scenes!.missing.join(', ') : ''
+    imageStatus.hasMissing = missThumb > 0
+    imageStatus.totalMissing = missThumb
     imageStatus.missingThumbsList = missThumb > 0 ? imageStatus.thumbnails!.missing.join(', ') : ''
-    repairStatus.scene = repair.scene
     repairStatus.thumb = repair.thumb
   } catch (e: any) {
     if (requestSequence !== imageStatusLoadSequence || !current()) return
@@ -1296,14 +835,13 @@ async function repairMissing() {
   // log telling them to click Generate for those specific items.
   submitting.value = true
   try {
-    // v1.0.306 — scope the repair to this page's pool (thumbnails on the
-    // Thumbnail Generator, scenes on the Scene Generator).
+    // Scope the repair to this page's pool (thumbnails).
     const job = await post<{ job_id: string }>(`/projects/${slug.value}/generate/images-repair`, {
       episode_id: form.episode_id,
-      pool: integrityPool.value,
+      pool: integrityPool,
     })
     lastRepairJobId.value = job.job_id
-    success(`${activePoolLabel.value === 'thumbnails' ? 'Thumbnail' : 'Scene'} repair queued — watch progress in Jobs.`)
+    success('Thumbnail repair queued — watch progress in Jobs.')
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to queue repair')
   } finally {
@@ -1312,7 +850,7 @@ async function repairMissing() {
 }
 
 async function generateMissingFresh() {
-  await queueGeneration(false, `Fresh generation queued for ${activeFreshCount.value} missing ${activePoolLabel.value}.`)
+  await queueGeneration(false, `Fresh generation queued for ${activeFreshCount.value} missing ${activePoolLabel}.`)
 }
 
 // ── Edit-existing-images grid (audit pain-point #14) ─────────────────────
@@ -1324,15 +862,11 @@ async function generateMissingFresh() {
 // IMPORTANT: declared BEFORE the episode-id watcher below. Earlier this
 // block lived after the watch, but `{ immediate: true }` fires the watch
 // synchronously during setup — and the watch's else-branch touches
-// `editScenes.value`. With the refs declared after, that synchronous fire
+// `editThumbs.value`. With the refs declared after, that synchronous fire
 // hit a temporal dead zone and crashed the whole page on first load.
-interface ScannedImage { filename: string; path: string; scene_number?: number | null }
-const editScenes = ref<ScannedImage[]>([])
+interface ScannedImage { filename: string; path: string }
 const editThumbs = ref<ScannedImage[]>([])
-const editScanLoading = ref(false)
-const editScanError = ref('')
 let editScanLoadSequence = 0
-const activeEditImages = computed(() => form.mode === 'thumbs' ? editThumbs.value : editScenes.value)
 
 // v1.0.87+: cache-bust key for the new ImageGeneratorPanel components.
 // Bumped after a per-row or bulk render completes inside either panel
@@ -1361,16 +895,11 @@ async function loadEditScan() {
   const requestSequence = ++editScanLoadSequence
   const current = () => scope === imageScopeSequence && project === slug.value && ep === form.episode_id
   if (!ep || !project) return
-  editScanLoading.value = true
-  editScanError.value = ''
   try {
-    const r = await get<{ scenes?: ScannedImage[]; thumbnails?: ScannedImage[] }>(
+    const r = await get<{ thumbnails?: ScannedImage[] }>(
       `/projects/${project}/video-editor/scan/${ep}`,
     )
     if (requestSequence !== editScanLoadSequence || !current()) return
-    editScenes.value = (r.scenes || []).slice().sort(
-      (a, b) => (a.scene_number ?? 999) - (b.scene_number ?? 999),
-    )
     editThumbs.value = r.thumbnails || []
     // v1.2.9: re-reading the disk must also re-fetch the pixels. The scan
     // returns paths, and regeneration reuses the same paths, so a changed
@@ -1385,9 +914,6 @@ async function loadEditScan() {
   } catch (e: any) {
     if (requestSequence !== editScanLoadSequence || !current()) return
     console.error('[images/edit-scan] failed:', e)
-    editScanError.value = e?.data?.detail || e?.message || 'Could not list existing images'
-  } finally {
-    if (requestSequence === editScanLoadSequence && current()) editScanLoading.value = false
   }
 }
 
@@ -1399,29 +925,15 @@ const lightboxIndex = ref(0)
 
 /**
  * Flat list backing the lightbox carousel. Order matches the on-page grid
- * — scenes first (sorted by scene_number), then thumbnails — so left/right
- * arrow navigation feels predictable. Section + scene_number ride along
- * for the position-indicator label inside the lightbox.
+ * — the episode's thumbnails — so left/right arrow navigation feels predictable.
  */
 interface LightboxImage {
   filename: string
   path: string
-  section: 'scenes' | 'thumbnails'
-  scene_number?: number | null
+  section: 'thumbnails'
 }
-const allEditableImages = computed<LightboxImage[]>(() => {
-  const out: LightboxImage[] = []
-  if (form.mode === 'scenes') {
-    for (const s of editScenes.value) {
-      out.push({ filename: s.filename, path: s.path, section: 'scenes', scene_number: s.scene_number ?? null })
-    }
-  } else {
-    for (const t of editThumbs.value) {
-      out.push({ filename: t.filename, path: t.path, section: 'thumbnails' })
-    }
-  }
-  return out
-})
+const allEditableImages = computed<LightboxImage[]>(() =>
+  editThumbs.value.map(t => ({ filename: t.filename, path: t.path, section: 'thumbnails' as const })))
 
 // v1.0.41 — augment with `is_pinned` so the lightbox's Pin button
 // reflects current state without a per-render API hit. The pin metadata
@@ -1500,21 +1012,11 @@ async function toggleThumbnailPin(filename: string) {
 async function onLightboxPinToggle(payload: { filename: string; pin: boolean }) {
   await setThumbnailPin(payload.pin ? payload.filename : null)
 }
-// Cache-buster for refreshed disk previews. v1.2.9: this used to read a
-// private `_editKey` ref that nothing ever incremented — a cache-buster that
-// never busted, so the Browse grid kept showing pre-regeneration pixels for
-// as long as the page stayed mounted. It now shares `igPanelRefreshKey`, the
-// one signal this page has that the files on disk may have been rewritten.
-function getImagePreviewUrlImages(path: string): string {
-  return `/api/projects/${slug.value}/video-editor/preview-image?path=${encodeURIComponent(path)}&k=${igPanelRefreshKey.value}`
-}
-
-// Episode-id watcher MUST come after the editScenes/editThumbs
+// Episode-id watcher MUST come after the editThumbs
 // declarations above — `{ immediate: true }` fires this synchronously
 // during setup, and the else-branch reads those refs. See comment above.
 watch([slug, () => form.episode_id], ([, v]) => {
   lastRepairJobId.value = ''
-  repairStatus.scene = null
   repairStatus.thumb = null
   // v1.4.196 — blank on the CHANGE, not only when the episode becomes empty.
   // `refreshImageStatus` and `loadEditScan` replace their results only on a
@@ -1523,13 +1025,10 @@ watch([slug, () => form.episode_id], ([, v]) => {
   // and permanently if the read failed (AGENTS.md §4). The old code cleared
   // these ONLY in the else branch, i.e. when there was no episode at all.
   Object.assign(imageStatus, emptyImageStatus())
-  editScenes.value = []
   editThumbs.value = []
-  outlineChapterCount.value = null
   if (v) {
     refreshImageStatus()
     void loadEditScan()
-    void loadOutlineChapterCount()
   }
 }, { immediate: true })
 
@@ -1542,7 +1041,7 @@ function generationParams(forceOverride?: boolean) {
   const params: any = {
     episode_id: form.episode_id,
     model: activeForm.value.model,
-    mode: form.mode,
+    mode: 'thumbs',
     aspect_ratio: activeForm.value.aspect_ratio,
     image_mode: thumbnailReferenceActive.value ? 'img2img' : 'text2img',
     ...(thumbnailReferenceActive.value ? { thumbnail_reference_asset: (config.value as any).thumbnail_reference_asset } : {}),
@@ -1579,12 +1078,12 @@ async function queueGeneration(forceOverride?: boolean, queuedMessage = 'Image g
     showError('This model has no published aspect ratios. Refresh the catalogue or choose another model before generating.')
     return
   }
-  const confirmed = await confirmGeneration(slug.value, getConfirmationType(), params, params.force
+  const confirmed = await confirmGeneration(slug.value, 'thumb_images', params, params.force
     ? { action: 'Re-render ALL thumbnails? This replaces the existing ones and charges again.', always: true }
     : undefined)
   if (!confirmed) return
   // Never replace a confirmed choice with a new model/ratio behind the dialog.
-  if (activeForm.value.model !== params.model || form.mode !== params.mode
+  if (activeForm.value.model !== params.model
     || activeForm.value.aspect_ratio !== params.aspect_ratio
     || !modelArs(params.model)?.includes(params.aspect_ratio)) {
     showError('The image model or aspect ratio changed during confirmation. Review the current selection and generate again to confirm it.')
@@ -1594,8 +1093,7 @@ async function queueGeneration(forceOverride?: boolean, queuedMessage = 'Image g
   if (operationId) params.operation_id = operationId
 
   submitting.value = true
-  if (form.mode === 'thumbs') thumbImageGenerating.value = true
-  else imageGenerating.value = true
+  thumbImageGenerating.value = true
 
   try {
     await post(`/projects/${slug.value}/generate/images`, params)
@@ -1603,7 +1101,6 @@ async function queueGeneration(forceOverride?: boolean, queuedMessage = 'Image g
     success(queuedMessage)
   } catch (e: any) {
     showError(e.data?.detail || 'Failed to queue image generation')
-    imageGenerating.value = false
     thumbImageGenerating.value = false
   } finally {
     submitting.value = false
@@ -1618,128 +1115,7 @@ async function submit() {
 <style scoped>
 /* "Image integrity" card title and blurb beneath it. */
 .integrity-title { margin-bottom: 6px; }
-
-/* Preview-what-will-be-generated card header. Click target spans the
-   whole row (icon + title + on-disk count summary) so it's easy to
-   collapse / expand. */
-.preview-card-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  background: none;
-  border: none;
-  padding: 4px 0;
-  cursor: pointer;
-  text-align: left;
-}
-.preview-card-toggle:hover .preview-card-title { color: var(--accent); }
-.preview-card-icon { color: var(--text-muted); width: 14px; text-align: center; }
-.preview-card-title {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-  flex: 1 1 auto;
-  /* Explicit color so the title is readable in dark theme — without it
-     the h3 inherited near-black on near-black and only became visible
-     on hover (the existing :hover rule sets var(--accent)). */
-  color: var(--text-primary);
-}
-.preview-card-blurb { margin: 6px 0 12px; }
-.preview-list {
-  list-style: none;
-  margin: 8px 0 0;
-  padding: 0;
-}
-.preview-list-section {
-  margin-top: 12px;
-  font-size: var(--font-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-}
-.preview-list-section:first-child { margin-top: 0; }
-.preview-row { padding: 0; }
 .integrity-blurb { margin-bottom: 10px; }
-
-/* Edit-existing-images grid — section heading + tile grid. Tiles match
- * the size of the title-image picker in Video Assembly so the visual
- * vocabulary is consistent across pages. */
-.edit-grid-heading {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-  margin-bottom: 6px;
-  font-weight: 600;
-}
-.edit-image-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 10px;
-}
-.edit-image-tile {
-  position: relative;
-  aspect-ratio: 16 / 9;
-  border-radius: var(--radius-md);
-  border: 2px solid var(--border);
-  background: var(--bg-tertiary);
-  cursor: pointer;
-  overflow: hidden;
-  padding: 0;
-  transition: border-color 0.15s, transform 0.15s;
-}
-.edit-image-tile:hover {
-  border-color: var(--accent);
-  transform: scale(1.02);
-}
-.edit-image-thumb {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.edit-image-label {
-  position: absolute;
-  bottom: 4px;
-  left: 4px;
-  background: rgba(0, 0, 0, 0.6);
-  color: white;
-  font-size: var(--font-xs);
-  font-weight: 600;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-/* v1.0.41 — pinned-thumbnail visuals. Amber border + corner badge so a
-   single glance at the grid tells the user "this one will go to YouTube". */
-.edit-image-tile.is-pinned-thumb {
-  border-color: rgba(217, 119, 6, 0.85);
-  box-shadow: 0 0 0 1px rgba(217, 119, 6, 0.35);
-}
-.edit-image-tile .pinned-badge {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  background: rgba(217, 119, 6, 0.92);
-  color: white;
-  font-size: var(--font-xs);
-  padding: 2px 6px;
-  border-radius: 999px;
-  pointer-events: none;
-}
-.edit-grid-heading-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 6px;
-}
-.edit-grid-heading-row .edit-grid-heading {
-  margin-bottom: 0;
-}
 .link-btn {
   background: none;
   border: none;
@@ -1875,48 +1251,6 @@ async function submit() {
 @media (max-width: 720px) {
   .thumbnail-handoff { align-items: stretch; flex-direction: column; }
 }
-
-/* v1.0.201 — focused-view header (replaces the thumbnail/scene switcher). */
-.generator-mode-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.generator-mode-head strong { font-size: 15px; }
-.generator-mode-icon { font-size: 16px; }
-
-.mode-tabs {
-  display: flex;
-  gap: 6px;
-  background: var(--bg-tertiary);
-  padding: 4px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-}
-.mode-tab {
-  flex: 1;
-  background: none;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  padding: 10px 14px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  transition: all 0.15s;
-}
-.mode-tab:hover { color: var(--text-primary); background: var(--bg-hover); }
-.mode-tab:disabled { cursor: not-allowed; }
-.mode-tab.is-coming-soon { opacity: .62; }
-.mode-tab.is-coming-soon:hover { color: var(--text-secondary); background: transparent; }
-.mode-tab.active {
-  background: var(--accent-dim);
-  color: var(--accent);
-  border-color: rgba(240, 198, 116, 0.3);
-}
-.mode-tab-icon { font-size: 18px; }
-.mode-tab-label { font-weight: 600; font-size: 13px; }
-.mode-tab-label small { margin-left: 5px; color: var(--accent); font-size: var(--font-xs); font-weight: 700; }
-.mode-tab-hint { font-size: var(--font-xs); color: var(--text-muted); }
-.mode-tab.active .mode-tab-hint { color: var(--accent); opacity: 0.8; }
 
 .checkbox-label {
   display: flex;

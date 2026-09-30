@@ -34,7 +34,6 @@ const imagePrompts = read('../pages/projects/[slug]/image-prompts.vue')
 const CONSUMERS: Array<[name: string, source: string]> = [
   ['ImagePreviewLightbox.vue', lightbox],
   ['ImageGeneratorRow.vue', row],
-  ['images.vue', images],
   ['video-assembly.vue', videoAssembly],
   ['image-prompts.vue', imagePrompts],
 ]
@@ -73,14 +72,13 @@ describe('preview-image cache busting', () => {
     assert.match(lightbox, /function retryPreview\(\)[\s\S]*previewAttempt\.value\+\+/)
   })
 
-  test('images.vue drives its lightbox and grid from one bytes-changed signal', () => {
+  test('images.vue drives its lightbox from one bytes-changed signal', () => {
     assert.match(images, /:version="igPanelRefreshKey"/)
     // The Browse grid must not reintroduce a private key nothing increments —
     // that was the second instance of this bug, found alongside the first.
     // (The name still appears in a comment explaining the removal; this pins
     // the declaration, not the prose.)
     assert.doesNotMatch(images, /const _editKey\s*=/)
-    assert.match(images, /preview-image\?path=\$\{encodeURIComponent\(path\)\}&k=\$\{igPanelRefreshKey\.value\}/)
     // Re-reading the disk must also re-fetch the pixels, or "Refresh" lies.
     assert.match(images, /async function loadEditScan\(\)[\s\S]*igPanelRefreshKey\.value\+\+/)
     // A completed repair rewrites artwork at the same paths, so it is a

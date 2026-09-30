@@ -32,8 +32,9 @@ What's new in each release. Newest first.
   opened while one is showing no longer leaves the first one hanging, and the Pipeline remembers the
   episodes you ticked when you leave for Jobs and come back.
 - **Removed dead code:** eleven `loading-label` attributes that never rendered, the Thumbnail Generator's
-  call to a `/imagestudio/models` route that no longer exists (it 404ed on every open), and the local
-  voice branch of the voice picker.
+  call to a `/imagestudio/models` route that no longer exists (it 404ed on every open), the local
+  voice branch of the voice picker, and the unreachable Scene half of the Thumbnail Generator page (its
+  Scenes tab, prompt preview card, scene integrity checks and Browse grid).
 
 ## v1.4.239 — 2026-09-29
 
