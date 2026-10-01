@@ -5250,13 +5250,12 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     vLabel = dst
   }
 
-  // 3. Color grading — gateSuffix appended to each sub-filter (eq + colorbalance)
-  //    so both time-gate together.
+  // 3. Color grading — the gate goes on the eq and on the warmth/tint lookup so both time-gate together.
   if (colorGrading?.enabled) {
-    const cgFilters = buildColorGradingFilters(colorGrading, gateEnable)
-    if (cgFilters) {
-      const cg = vn()
-      filterParts.push(`${vLabel}${cgFilters}${cg}`)
+    const cg = vn()
+    const statements = buildColorGradingFilters(colorGrading, gateEnable, { input: vLabel, output: cg, allocLabel: vn })
+    if (statements.length) {
+      filterParts.push(...statements)
       vLabel = cg
     }
   }

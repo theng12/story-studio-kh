@@ -61,13 +61,16 @@ export interface MotionPlanOpts {
  * demuxer's default), and the output `-r` resamples AFTER the filters. So every filter that reads
  * the clock (`rotate`'s `t`, the blur gates, `fade`'s frame counter) sees 25 fps timestamps, not
  * the output's. `zoompan` is the exception: it builds its own frames from one input. Measured
- * against FFmpeg 8.1: at 24/25 fps output frame n is input frame n (no drops inside a short clip);
+ * against FFmpeg 8.1: at 25 fps output frame n is input frame n; at 24 fps the cfr resampler drops one
+ * 25 fps input frame every 24 frames once the first 28 have passed (frames 52, 76, 100... of a long clip);
  * at other rates it is the nearest input frame, ties going down.
  */
 export const STILL_INPUT_FPS = 25
 
 export function stillInputFrame(n: number, fps: number): number {
-  return fps === 24 || fps === 25 ? n : Math.floor(n * STILL_INPUT_FPS / fps + 0.5 - 1e-9)
+  if (fps === 25) return n
+  if (fps === 24) return n + Math.max(0, Math.floor((n - 28) / 24))
+  return Math.floor(n * STILL_INPUT_FPS / fps + 0.5 - 1e-9)
 }
 
 /** `zoompan` clamps its zoom to this band. */

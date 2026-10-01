@@ -15,7 +15,7 @@
 
 import type { VideoColorGrading } from '../models/types.js'
 import { anchorOverlayPosition, letterboxBarHeight, letterboxBars, vignetteAngle } from './scene-effect-compiler.js'
-import { buildColorbalanceCurves } from './grade-curves.js'
+import { buildColorbalanceStatements, type GraphIo } from './grade-balance.js'
 
 /** Build the `:enable` suffix supported by FFmpeg's visual filters. */
 export function buildGateEnable(start: number, end: number): string {
@@ -103,7 +103,7 @@ export function buildAgedArchiveFilmFilters(opts: {
 }
 
 /** Keep this preset table aligned with the Video Assembly live preview. */
-export function buildColorGradingFilters(cg: VideoColorGrading, gateSuffix = ''): string {
+export function buildColorGradingFilters(cg: VideoColorGrading, gateSuffix: string, io: GraphIo): string[] {
   const presets: Record<string, { brightness: number; contrast: number; saturation: number; warmth: number; tint: number }> = {
     none: { brightness: 0, contrast: 1, saturation: 1, warmth: 0, tint: 0 },
     'warm-night': { brightness: -0.05, contrast: 1.1, saturation: 0.9, warmth: 0.15, tint: 0 },
@@ -131,22 +131,24 @@ export function buildColorGradingFilters(cg: VideoColorGrading, gateSuffix = '')
   const saturation = base.saturation * (cg.saturation ?? 1)
   const warmth = base.warmth + (cg.warmth || 0)
   const tint = base.tint + (cg.tint || 0)
-  const parts: string[] = []
   const eqParts: string[] = []
   if (Math.abs(brightness) > 0.001) eqParts.push(`brightness=${brightness.toFixed(3)}`)
   if (Math.abs(contrast - 1) > 0.001) eqParts.push(`contrast=${contrast.toFixed(3)}`)
   if (Math.abs(saturation - 1) > 0.001) eqParts.push(`saturation=${saturation.toFixed(3)}`)
-  if (eqParts.length) parts.push(`eq=${eqParts.join(':')}${gateSuffix}`)
-  if (Math.abs(warmth) > 0.001 || Math.abs(tint) > 0.001) {
-    // Warmth and tint used to be one `colorbalance` — by far the most expensive filter in the final
-    // pass. `curves` reproduces it from the same six amounts at a fifth of the cost; see grade-curves.ts.
-    const curves = buildColorbalanceCurves({
-      rs: warmth * 0.3, gs: tint * -0.2, bs: warmth * -0.3,
-      rm: warmth * 0.15, gm: tint * -0.1, bm: warmth * -0.15,
-    }, gateSuffix)
-    if (curves) parts.push(curves)
-  }
-  return parts.join(',')
+
+  // Warmth and tint used to be one `colorbalance`, by far the most expensive filter in the final pass. A two-input
+  // `lut2` reproduces it from the same six amounts at under half the cost; see grade-balance.ts.
+  const afterEq = eqParts.length ? io.allocLabel() : null
+  const balance = (Math.abs(warmth) > 0.001 || Math.abs(tint) > 0.001)
+    ? buildColorbalanceStatements({
+        rs: warmth * 0.3, gs: tint * -0.2, bs: warmth * -0.3,
+        rm: warmth * 0.15, gm: tint * -0.1, bm: warmth * -0.15,
+      }, { input: afterEq ?? io.input, output: io.output, allocLabel: io.allocLabel }, gateSuffix)
+    : null
+  const eq = eqParts.length
+    ? [`${io.input}eq=${eqParts.join(':')}${gateSuffix}${balance ? afterEq : io.output}`]
+    : []
+  return [...eq, ...(balance ?? [])]
 }
 
 /**

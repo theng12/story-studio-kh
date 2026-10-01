@@ -137,13 +137,18 @@ test('rotation: magnified 1.1x, rate in rad/s, ccw is the opposite sign, on the 
   assert.equal(cw.kind, 'spin')
   assert.ok(cw.frames.every(frame => frame.z === 1.1 && frame.cx === 960 && frame.cy === 540))
   assert.equal(cw.frames[0]!.rot, 0)
-  // output frame n is input frame n of a 25 fps stream: t = n / 25
-  assert.ok(Math.abs(cw.frames[100]!.rot - 0.02 * 100 / 25) < 1e-12)
-  assert.ok(Math.abs(ccw.frames[100]!.rot + 0.02 * 100 / 25) < 1e-12)
+  // output frame 20 is input frame 20 of a 25 fps stream: t = n / 25 (no drop yet)
+  assert.ok(Math.abs(cw.frames[20]!.rot - 0.02 * 20 / 25) < 1e-12)
+  // by frame 100 the 24 fps resampler has dropped three input frames
+  assert.ok(Math.abs(cw.frames[100]!.rot - 0.02 * 103 / 25) < 1e-12)
+  assert.ok(Math.abs(ccw.frames[100]!.rot + 0.02 * 103 / 25) < 1e-12)
 })
 
-test('the still\'s clock: 24 and 25 fps read frame n, other rates the nearest 25 fps frame', () => {
+test('the still\'s clock: 25 fps reads frame n, 24 fps drops one input frame per 24 after the first 28, others take the nearest', () => {
   assert.equal(stillInputFrame(30, 24), 30)
+  assert.equal(stillInputFrame(51, 24), 51)
+  assert.equal(stillInputFrame(52, 24), 53)
+  assert.equal(stillInputFrame(76, 24), 78)
   assert.equal(stillInputFrame(30, 25), 30)
   assert.equal(stillInputFrame(30, 30), 25)
   assert.equal(stillInputFrame(11, 60), 5)
@@ -162,17 +167,17 @@ test('fades ramp over round(d x 25) frames of the still\'s clock', () => {
   const fout = plan('fade-out', { ...OPTS, duration: 3 })
   assert.equal(fout.frames[0]!.gain, 1)
   assert.equal(fout.frames[38]!.gain, 1)             // starts at round(1.5 x 25) = frame 38
-  assert.ok(Math.abs(fout.frames[57]!.gain - (1 - 19 / 38)) < 1e-12)
+  assert.ok(Math.abs(fout.frames[57]!.gain - (1 - (58 - 38) / 38)) < 1e-12)   // frame 57 is input frame 58
   assert.equal(fout.frames.at(-1)!.gain > 0, true)   // a 3 s clip never reaches full black
 })
 
 test('blur-focus: three time-gated sigmas, gates printed to 2 places like the filter string', () => {
   const p = plan('blur-focus')
   assert.equal(p.kind, 'static')
-  // gate 1: t < 0.3 x 7.44 = 2.23 -> frames 0..55 at 25 fps; sigma 8
+  // gate 1: t < 0.3 x 7.44 = 2.23 -> input frames 0..55 at 25 fps (output frame 54 is input frame 55); sigma 8
   assert.deepEqual(p.frames[0]!.blur, [8])
-  assert.deepEqual(p.frames[55]!.blur, [8])
-  assert.deepEqual(p.frames[56]!.blur, [4])
+  assert.deepEqual(p.frames[54]!.blur, [8])
+  assert.deepEqual(p.frames[55]!.blur, [4])
   assert.deepEqual(p.frames[100]!.blur, [4])
   assert.deepEqual(p.frames[120]!.blur, [1.5])
   // after the last gate (0.85 x 7.44 = 6.32 s) the picture is sharp

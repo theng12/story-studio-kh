@@ -16,7 +16,7 @@
 import path from 'node:path'
 import { runFfmpeg, stillDecoderArgs } from './ffmpeg-utils.js'
 import { compileSceneReveal, planRevealStages, revealDriftMotion, type CompiledReveal } from './reveal-compiler.js'
-import { renderNativeSceneClip, type NativeSceneClipResult } from './native-scene-clip.js'
+import { renderNativeSceneClip } from './native-scene-clip.js'
 import { planSceneHold, type RevealHoldPlan, type RevealPace, type RevealSnapCandidates } from './reveal-pacing.js'
 import { normalizeSceneReveal, type SceneRevealDocument } from '../contracts/scene-reveal.js'
 

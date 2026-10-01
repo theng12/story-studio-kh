@@ -45,7 +45,6 @@ struct Job: Decodable {
     var quality: Double?       // VideoToolbox quality 0...1
     var matrix: String?        // "bt601" | "bt709": the RGB->YCbCr matrix used for the pixel data
     var resample: String?      // how a frame is cut out of the prepared picture: "lanczos" (zoompan moves) | "bilinear" (rotation, static)
-    var debugFrame: Int?       // write this frame as a raw yuv420p-less PNG instead of encoding
 }
 
 func fail(_ code: Int32, _ message: String) -> Never {
@@ -121,6 +120,7 @@ struct Params {
     float gain;
     int   kernelType;       // 0 bicubic(B=0,C=0.6, swscale default) 1 catmull-rom 2 lanczos3 3 bilinear
     float matrixKr, matrixKb;
+    int   rowLo, nRows;     // separable path: the prepared rows the horizontal pass produces
 };
 
 float weight(float x, int kind) {
@@ -182,20 +182,74 @@ kernel void render_rgb(texture2d<float, access::read> pic [[texture(0)]],
     float2 rad = float2(taps) * ratio;
     int2 lo = int2(floor(prep - rad)), hi = int2(ceil(prep + rad));
     int2 lim = int2(p.prepW, p.prepH) - 1;
-    float3 acc = 0.0; float wsum = 0.0;
-    for (int j = lo.y; j <= hi.y; j++) {
-        float wy = weight((float(j) + 0.5 - prep.y) / ratio.y, kind);
-        if (wy == 0.0) continue;
-        for (int i = lo.x; i <= hi.x; i++) {
-            float w = wy * weight((float(i) + 0.5 - prep.x) / ratio.x, kind);
-            if (w == 0.0) continue;
+    int nx = min(hi.x - lo.x + 1, 24), ny = min(hi.y - lo.y + 1, 24);
+    // Separable weights, evaluated once per axis (a lanczos weight costs a pair of sines; per tap per pixel it dominated the frame).
+    float wxs[24], wys[24];
+    float sx = 0.0, sy = 0.0;
+    for (int k = 0; k < nx; k++) { wxs[k] = weight((float(lo.x + k) + 0.5 - prep.x) / ratio.x, kind); sx += wxs[k]; }
+    for (int k = 0; k < ny; k++) { wys[k] = weight((float(lo.y + k) + 0.5 - prep.y) / ratio.y, kind); sy += wys[k]; }
+    float3 acc = 0.0;
+    for (int j = 0; j < ny; j++) {
+        int yy = lo.y + j;
+        float3 row = 0.0;
+        for (int i = 0; i < nx; i++) {
+            int xx = lo.x + i;
             // outside the prepared canvas is black (what `rotate` shows past the edge)
-            float3 c = (i < 0 || j < 0 || i > lim.x || j > lim.y) ? float3(0.0) : pic.read(uint2(i, j)).rgb;
-            acc += w * c;
-            wsum += w;
+            float3 c = (xx < 0 || yy < 0 || xx > lim.x || yy > lim.y) ? float3(0.0) : pic.read(uint2(xx, yy)).rgb;
+            row += wxs[i] * c;
         }
+        acc += wys[j] * row;
     }
-    dst.write(float4(clamp(acc / wsum, 0.0, 1.0), 1.0), gid);
+    dst.write(float4(clamp(acc / (sx * sy), 0.0, 1.0), 1.0), gid);
+}
+
+// Camera moves without rotation are separable, so the lanczos cut-out is done as two 1-D passes (about 4x fewer texture
+// reads than one 2-D pass): first every prepared row the frame needs is filtered across, then each column filtered down.
+float axisPos(float outIndex, float outSize, float centre, float z, float prepOverOut) {
+    return (centre + (outIndex + 0.5 - outSize * 0.5) / z) * prepOverOut;
+}
+
+kernel void render_h(texture2d<float, access::read> pic [[texture(0)]],
+                     texture2d<float, access::write> tmp [[texture(1)]],
+                     constant Params &p [[buffer(0)]],
+                     uint2 gid [[thread_position_in_grid]]) {
+    if (gid.x >= (uint)p.outW || (int)gid.y >= p.nRows) return;
+    int row = p.rowLo + (int)gid.y;
+    if (row < 0 || row >= (int)p.prepH) { tmp.write(float4(0, 0, 0, 1), gid); return; }
+    float px = axisPos(float(gid.x), p.outW, p.cx, p.z, p.prepW / p.outW);
+    float ratio = max(p.prepW / p.outW / p.z, 1.0);
+    float rad = 3.0 * ratio;
+    int lo = int(floor(px - rad)), hi = int(ceil(px + rad));
+    int n = min(hi - lo + 1, 24);
+    float3 acc = 0.0; float sum = 0.0;
+    for (int k = 0; k < n; k++) {
+        int xx = lo + k;
+        float w = weight((float(xx) + 0.5 - px) / ratio, 2);
+        float3 c = (xx < 0 || xx >= (int)p.prepW) ? float3(0.0) : pic.read(uint2(xx, row)).rgb;
+        acc += w * c; sum += w;
+    }
+    tmp.write(float4(acc / sum, 1.0), gid);
+}
+
+kernel void render_v(texture2d<float, access::read> tmp [[texture(0)]],
+                     texture2d<float, access::write> dst [[texture(1)]],
+                     constant Params &p [[buffer(0)]],
+                     uint2 gid [[thread_position_in_grid]]) {
+    if (gid.x >= (uint)p.outW || gid.y >= (uint)p.outH) return;
+    float py = axisPos(float(gid.y), p.outH, p.cy, p.z, p.prepH / p.outH);
+    float ratio = max(p.prepH / p.outH / p.z, 1.0);
+    float rad = 3.0 * ratio;
+    int lo = int(floor(py - rad)), hi = int(ceil(py + rad));
+    int n = min(hi - lo + 1, 24);
+    float3 acc = 0.0; float sum = 0.0;
+    for (int k = 0; k < n; k++) {
+        int yy = lo + k;
+        float w = weight((float(yy) + 0.5 - py) / ratio, 2);
+        int r = yy - p.rowLo;
+        float3 c = (r < 0 || r >= p.nRows) ? float3(0.0) : tmp.read(uint2(gid.x, r)).rgb;
+        acc += w * c; sum += w;
+    }
+    dst.write(float4(clamp(acc / sum, 0.0, 1.0), 1.0), gid);
 }
 
 kernel void blur_pass(texture2d<float, access::read> src [[texture(0)]],
@@ -249,7 +303,7 @@ func pipeline(_ name: String) -> MTLComputePipelineState {
     guard let fn = library.makeFunction(name: name), let ps = try? device.makeComputePipelineState(function: fn) else { fail(4, "pipeline \(name)") }
     return ps
 }
-let psPrepare = pipeline("prepare_picture"), psRender = pipeline("render_rgb"), psBlur = pipeline("blur_pass"), psNV12 = pipeline("to_nv12")
+let psPrepare = pipeline("prepare_picture"), psRender = pipeline("render_rgb"), psRenderH = pipeline("render_h"), psRenderV = pipeline("render_v"), psBlur = pipeline("blur_pass"), psNV12 = pipeline("to_nv12")
 
 let srcDesc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: srcW, height: srcH, mipmapped: false)
 srcDesc.usage = .shaderRead
@@ -267,6 +321,11 @@ let pDesc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float, 
 pDesc.usage = [.shaderRead, .shaderWrite]
 pDesc.storageMode = .private
 guard let picTex = device.makeTexture(descriptor: pDesc) else { fail(4, "prepared texture") }
+let tmpRows = Int(prepH) + 64
+let tDesc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float, width: W, height: tmpRows, mipmapped: false)
+tDesc.usage = [.shaderRead, .shaderWrite]
+tDesc.storageMode = .private
+guard let tmpTex = device.makeTexture(descriptor: tDesc) else { fail(4, "intermediate texture") }
 
 struct Params {
     var outW: Float, outH: Float, srcW: Float, srcH: Float
@@ -276,6 +335,7 @@ struct Params {
     var gain: Float
     var kernelType: Int32
     var matrixKr: Float, matrixKb: Float
+    var rowLo: Int32, nRows: Int32
 }
 let kernelType: Int32 = (job.resample ?? "lanczos") == "bilinear" ? 3 : 2
 let useBT709 = (job.matrix ?? "bt601") == "bt709"
@@ -292,7 +352,7 @@ func baseParams(_ f: PlanFrame, gain: Float) -> Params {
            prepW: Float(prepW), prepH: Float(prepH), padX: Float(padXp), padY: Float(padYp),
            fitWp: Float(fitWp), fitHp: Float(fitHp),
            cx: Float(f.cx), cy: Float(f.cy), z: Float(f.z), rot: Float(f.rot), gain: gain,
-           kernelType: kernelType, matrixKr: Kr, matrixKb: Kb)
+           kernelType: kernelType, matrixKr: Kr, matrixKb: Kb, rowLo: 0, nRows: 0)
 }
 
 /// Pass 1, once per clip.
@@ -312,10 +372,28 @@ do {
 func encodeRGB(_ f: PlanFrame, _ cb: MTLCommandBuffer) -> MTLTexture {
     var p = baseParams(f, gain: 1)
     guard let enc = cb.makeComputeCommandEncoder() else { fail(4, "encoder") }
-    enc.setComputePipelineState(psRender)
-    enc.setTexture(picTex, index: 0); enc.setTexture(texA, index: 1)
-    enc.setBytes(&p, length: MemoryLayout<Params>.size, index: 0)
-    grid(enc, psRender, W, H)
+    if kernelType == 2 && f.rot == 0 {
+        // separable lanczos: rows [rowLo, rowLo + nRows) of the prepared picture cover every row this frame reads
+        let ratioY = max(Double(prepH) / Double(H) / f.z, 1)
+        let top = (f.cy + (0.5 - Double(H) / 2) / f.z) * (Double(prepH) / Double(H))
+        let bottom = (f.cy + (Double(H) - 0.5 - Double(H) / 2) / f.z) * (Double(prepH) / Double(H))
+        let lo = Int((top - 3 * ratioY).rounded(.down)) - 1
+        let hi = Int((bottom + 3 * ratioY).rounded(.up)) + 1
+        p.rowLo = Int32(lo); p.nRows = Int32(min(hi - lo + 1, tmpRows))
+        enc.setComputePipelineState(psRenderH)
+        enc.setTexture(picTex, index: 0); enc.setTexture(tmpTex, index: 1)
+        enc.setBytes(&p, length: MemoryLayout<Params>.size, index: 0)
+        grid(enc, psRenderH, W, Int(p.nRows))
+        enc.setComputePipelineState(psRenderV)
+        enc.setTexture(tmpTex, index: 0); enc.setTexture(texA, index: 1)
+        enc.setBytes(&p, length: MemoryLayout<Params>.size, index: 0)
+        grid(enc, psRenderV, W, H)
+    } else {
+        enc.setComputePipelineState(psRender)
+        enc.setTexture(picTex, index: 0); enc.setTexture(texA, index: 1)
+        enc.setBytes(&p, length: MemoryLayout<Params>.size, index: 0)
+        grid(enc, psRender, W, H)
+    }
     var cur = texA, other = texB
     for sigma in f.blur where sigma > 0 {
         for axis in [Float(1), Float(0)] {
@@ -379,8 +457,12 @@ func planeTexture(_ pb: CVPixelBuffer, plane: Int, format: MTLPixelFormat) -> (M
     return (t, r)
 }
 
+var gpuTotal = 0.0, waitTotal = 0.0, appendTotal = 0.0
+let profile = ProcessInfo.processInfo.environment["SCENE_CLIP_PROFILE"] != nil
 for (i, f) in job.frames.enumerated() {
+    let tw = DispatchTime.now().uptimeNanoseconds
     while !input.isReadyForMoreMediaData { usleep(300) }
+    waitTotal += Double(DispatchTime.now().uptimeNanoseconds - tw) / 1e9
     guard let pool = adaptor.pixelBufferPool else { fail(4, "no pixel buffer pool") }
     var pbOpt: CVPixelBuffer?
     CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pbOpt)
@@ -400,14 +482,18 @@ for (i, f) in job.frames.enumerated() {
     cb.commit()
     cb.waitUntilCompleted()
     if cb.status != .completed { fail(4, "GPU frame \(i): \(cb.error?.localizedDescription ?? "?")") }
+    gpuTotal += cb.gpuEndTime - cb.gpuStartTime
     withExtendedLifetime((yRef, cRef)) {}
     CVBufferSetAttachment(pb, kCVImageBufferYCbCrMatrixKey, kCVImageBufferYCbCrMatrix_ITU_R_709_2, .shouldPropagate)
     CVBufferSetAttachment(pb, kCVImageBufferColorPrimariesKey, kCVImageBufferColorPrimaries_ITU_R_709_2, .shouldPropagate)
     CVBufferSetAttachment(pb, kCVImageBufferTransferFunctionKey, kCVImageBufferTransferFunction_ITU_R_709_2, .shouldPropagate)
+    let ta = DispatchTime.now().uptimeNanoseconds
     if !adaptor.append(pb, withPresentationTime: CMTime(value: CMTimeValue(i) * 512, timescale: timescale)) {
         fail(4, "append frame \(i): \(writer.error?.localizedDescription ?? "?")")
     }
+    appendTotal += Double(DispatchTime.now().uptimeNanoseconds - ta) / 1e9
 }
+if profile { FileHandle.standardError.write(Data(String(format: "scene-clip profile: gpu %.2fs, waiting-for-encoder %.2fs, append %.2fs\n", gpuTotal, waitTotal, appendTotal).utf8)) }
 input.markAsFinished()
 let sem = DispatchSemaphore(value: 0)
 writer.endSession(atSourceTime: CMTime(value: CMTimeValue(job.frames.count) * 512, timescale: timescale))
