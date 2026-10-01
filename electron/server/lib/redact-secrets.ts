@@ -31,9 +31,26 @@ const SENSITIVE_FIELD = /^(?:authorization|proxy-authorization|cookie|set-cookie
  * sees `label` and `value` as the keys in that case.
  */
 export function isSensitiveFieldName(name: string): boolean {
-  const normalized = String(name ?? '').replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-  return SENSITIVE_FIELD.test(normalized) || /_api_key$/i.test(normalized)
+  const key = String(name ?? '')
+  const known = sensitiveNameCache.get(key)
+  if (known !== undefined) return known
+  const normalized = key.replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+  const result = SENSITIVE_FIELD.test(normalized) || /_api_key$/i.test(normalized)
+  // Job records repeat the same few dozen field names thousands of times; ids used as keys must
+  // not grow this without bound.
+  if (sensitiveNameCache.size >= 2_000) sensitiveNameCache.clear()
+  sensitiveNameCache.set(key, result)
+  return result
 }
+const sensitiveNameCache = new Map<string, boolean>()
+
+/**
+ * Every pattern pass below needs one of these substrings to match at all. A string without any of
+ * them (nearly every job log line: "Scene 12 saved ... in 4.2s") skips all eight regex scans. This
+ * is a superset test: it must contain a trigger for EVERY pattern, and the equivalence test pins it
+ * against the full scan on a corpus.
+ */
+const PATTERN_TRIGGERS = /bearer|key|sk-|gsk_|authorization|token|secret|password|passphrase|:\/\//i
 
 /**
  * Register a runtime secret once it crosses the trusted main-process boundary.
@@ -86,6 +103,7 @@ export function redactSecrets(text: string, ...secrets: Array<string | undefined
     }
     out = rebuilt
   }
+  if (!PATTERN_TRIGGERS.test(out)) return out
   // Defensive: a Bearer header value (Authorization: Bearer XXX) — the
   // token itself is the secret, the literal `Bearer` prefix is fine to keep.
   out = out.replace(/Bearer\s+[A-Za-z0-9._\-+/=]{8,}/g, `Bearer ${REDACTED}`)
