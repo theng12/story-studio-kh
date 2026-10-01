@@ -5,12 +5,26 @@
  * window included. Hidden, nobody reads either; on becoming visible it catches up at once (`onResume`
  * runs immediately) and the interval restarts. Call `start()` on mount and `stop()` on unmount.
  */
-export function createVisibleInterval(tick: () => void, ms: number, onResume: () => void = tick): { start: () => void; stop: () => void } {
-  let timer: ReturnType<typeof setInterval> | null = null
+export interface VisibleIntervalEnv {
+  document?: Pick<Document, 'visibilityState' | 'addEventListener' | 'removeEventListener'>
+  setInterval?: (fn: () => void, ms: number) => any
+  clearInterval?: (id: any) => void
+}
+
+export function createVisibleInterval(
+  tick: () => void,
+  ms: number,
+  onResume: () => void = tick,
+  env: VisibleIntervalEnv = {},
+): { start: () => void; stop: () => void } {
+  const doc = env.document ?? (typeof document !== 'undefined' ? document : undefined)
+  const setI = env.setInterval ?? ((fn, delay) => setInterval(fn, delay))
+  const clearI = env.clearInterval ?? ((id) => clearInterval(id))
+  let timer: any = null
   let started = false
-  const hidden = () => typeof document !== 'undefined' && document.visibilityState === 'hidden'
-  const arm = () => { if (!timer) timer = setInterval(tick, ms) }
-  const disarm = () => { if (timer) { clearInterval(timer); timer = null } }
+  const hidden = () => doc?.visibilityState === 'hidden'
+  const arm = () => { if (!timer) timer = setI(tick, ms) }
+  const disarm = () => { if (timer) { clearI(timer); timer = null } }
   const onVisibility = () => {
     if (!started) return
     if (hidden()) disarm()
@@ -20,13 +34,13 @@ export function createVisibleInterval(tick: () => void, ms: number, onResume: ()
     start() {
       if (started) return
       started = true
-      if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibility)
+      doc?.addEventListener('visibilitychange', onVisibility)
       if (!hidden()) arm()
     },
     stop() {
       started = false
       disarm()
-      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibility)
+      doc?.removeEventListener('visibilitychange', onVisibility)
     },
   }
 }

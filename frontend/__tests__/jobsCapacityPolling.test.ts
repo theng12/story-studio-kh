@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import ts from 'typescript'
 import { isVerifiedLiveCapacity } from '../utils/job-presentation.js'
+import { createVisibleInterval } from '../composables/useVisibleInterval.js'
 
 const page = readFileSync(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url), 'utf8')
 const source = page.slice(page.indexOf('const now = ref(Date.now())'), page.indexOf('// Post-bulk banner:'))
@@ -33,6 +34,9 @@ function runtime(getImpl?: (url: string) => Promise<unknown>) {
     post: async () => ({}), success: () => {}, showError: () => {},
     genStudioModels: { refresh: async () => {} }, isUniversal: { value: false }, universalQueue: { stop() {} },
     isVerifiedLiveCapacity, document,
+    createVisibleInterval: (tick: () => void, ms: number, resume?: () => void) => createVisibleInterval(tick, ms, resume, {
+      document, setInterval: (fn, delay) => deps.setInterval(fn, delay), clearInterval: (id) => deps.clearInterval(id),
+    }),
     onMounted: (fn: () => void) => { mounted = fn },
     onUnmounted: (fn: () => void) => { unmounted = fn },
     setInterval: (fn: () => void, ms: number) => { intervals.set(++nextId, { fn, ms }); return nextId },
