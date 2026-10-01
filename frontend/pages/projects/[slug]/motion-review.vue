@@ -316,7 +316,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { selectLiveImageToVideoModel } from '~/utils/genstudio-video-model-selection'
+import { isRetiredVideoModelId, selectLiveImageToVideoModel } from '~/utils/genstudio-video-model-selection'
 import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection'
 import { describeVideoModelRate, formatCredits } from '~/utils/genstudio-credit-cost'
 import { hasPriceTruth } from '~/utils/genstudio-price-usd'
@@ -436,7 +436,11 @@ const motionPresets = usePresets({
     ...(Object.keys(switchChoices.value).length ? { switches: { ...switchChoices.value } } : {}),
   }),
   apply: (data: any) => {
-    if (typeof data?.model === 'string') videoModel.value = data.model
+    // A retired model is never restored: the field is emptied and the picker offers a live model, if any.
+    if (typeof data?.model === 'string') {
+      videoModel.value = isRetiredVideoModelId(data.model) ? '' : data.model
+      selectLiveVideoModel()
+    }
     // Restored whole rather than merged: a preset that stored no switches must not inherit the
     // previous one's choices, and a key is only kept when it is a real boolean — a stored string
     // is a corrupt preset, not a value to coerce.
@@ -490,7 +494,7 @@ function cheapestVariant(variants: readonly VideoVariant[]) {
  *
  * **A lane can also publish the opposite choice** — writing the clip with no
  * track at all — and that IS offered, because it is a real thing the lane does
- * (Studio Hub's LTX lane publishes `audio`, default on). Two sentences, because
+ * (a local Studio Hub lane can publish `audio`, default on). Two sentences, because
  * the two situations are not the same: a lane that generates sound and offers no
  * switch is money spent on a track the episode discards, while a lane whose
  * switch is off still costs the same — the picture and the sound are denoised
@@ -586,7 +590,7 @@ const selectedVideoVariants = computed<VideoVariant[]>(() => (
  * The switches the SELECTED model publishes, in the lane's own order.
  *
  * Nothing is inferred from the model's name or family: a row that publishes no `controls`
- * list renders no control at all, which is why a cloud lane shows none and the local LTX
+ * list renders no control at all, which is why a cloud lane shows none and a local
  * lane shows its own. A malformed entry is dropped rather than repaired — a switch this
  * page cannot describe is one it must not offer.
  */
@@ -730,12 +734,15 @@ watch(selectedVideoVariants, (variants) => {
   syncPublishedSelection(variants)
 }, { immediate: true })
 watch(availableAspectRatios, normalizeSelectedAspectRatio, { immediate: true })
-watch(i2vModels, (models) => {
-  if (!models.length) return
+function selectLiveVideoModel(): void {
+  // A saved retired model is dropped even when the catalogue lists nothing, so it can never be requested.
+  if (isRetiredVideoModelId(videoModel.value)) videoModel.value = ''
+  if (!i2vModels.value.length) return
   const raw = videoModel.value.startsWith('genstudio-video:') ? videoModel.value.slice('genstudio-video:'.length) : videoModel.value
   const selected = selectLiveImageToVideoModel(raw, genStudioVideoModels.value)
   if (selected) videoModel.value = `genstudio-video:${selected.id}`
-}, { immediate: true })
+}
+watch(i2vModels, selectLiveVideoModel, { immediate: true })
 
 function chooseResolution(event: Event): void {
   const requested = manualDurationSeconds.value
@@ -862,7 +869,7 @@ const canGenerate = computed(() => !usesImagePool.value && !!episodeId.value && 
 const generateStatus = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
   if (usesImagePool.value) return 'Motion Review is not used for Image Pool episodes'
-  if (!i2vModels.value.length) return 'GenStudio has no image-to-video models available'
+  if (!i2vModels.value.length) return 'No image-to-video model is available right now. Scenes stay still.'
   if (!videoModel.value) return 'Pick an image-to-video model'
   if (!availableAspectRatios.value.includes(selectedAspectRatio.value)) return 'Choose a published aspect ratio'
   if (!selectedResolutionVariants.value.length) return 'Choose a published resolution'

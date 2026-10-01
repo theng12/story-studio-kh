@@ -55,6 +55,7 @@ import {
 } from './genstudio-request-preview.js'
 import type { JobRemoteOperation, ResearchEvidenceLevel } from '../models/types.js'
 import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
+import { isRetiredVideoModel } from '../contracts/retired-video-models.js'
 
 /**
  * Job-poll cadence — ONE schedule shared by all five wait loops.
@@ -2022,8 +2023,8 @@ export interface GenStudioVideoModel extends GenStudioCatalogLock, GenStudioPric
    * A switch is a choice, not a capability, and the distinction is the reason
    * this is a separate field from `generates_audio`. `generates_audio: true`
    * says the product makes a soundtrack; it says nothing about whether the
-   * caller may ask for a clip WITHOUT one. Measured on 2026-09-27: Studio Hub's
-   * LTX lane publishes `audio` (default `true`, note and all) and no cloud video
+   * caller may ask for a clip WITHOUT one. Measured on 2026-09-27: a local Studio Hub
+   * video lane published `audio` (default `true`, note and all) and no cloud video
    * lane publishes any switch, so the control must be rendered from this list
    * and never from a name Story Studio knows.
    *
@@ -5281,6 +5282,16 @@ export async function listChatModels(apiKey: string): Promise<GenStudioChatModel
 }
 
 export async function listVideoModelsSnapshot(
+  apiKey: string,
+  options: { displayFallback?: boolean } = {},
+): Promise<GenStudioCatalogSnapshot<GenStudioVideoModel[]>> {
+  const snapshot = await loadVideoModelsSnapshot(apiKey, options)
+  // Retired models (the local LTX lane) are dropped here, after the cache, so a
+  // stale or last-good copy written before the retirement cannot bring one back.
+  return { ...snapshot, value: snapshot.value.filter(model => !isRetiredVideoModel(model)) }
+}
+
+async function loadVideoModelsSnapshot(
   apiKey: string,
   options: { displayFallback?: boolean } = {},
 ): Promise<GenStudioCatalogSnapshot<GenStudioVideoModel[]>> {

@@ -454,7 +454,7 @@ test('the image model picker shows the reference dimension it will enforce', () 
 //
 // `generates_audio` above says the product makes a soundtrack. It says nothing
 // about whether a caller may ask for a clip WITHOUT one — that is a separate
-// published fact, measured 2026-09-27 when Studio Hub's LTX lane began
+// published fact, measured 2026-09-27 when a local Studio Hub video lane began
 // publishing `audio` (default true, with the lane's own note) and the gateway
 // relayed it on the video row. These tests pin the three statements apart:
 // a switch, a lane that publishes none, and an entry that cannot be read.
@@ -500,7 +500,7 @@ test('the audio switch changes the idempotency key, because it changes what is b
   const { buildGenStudioVideoIdempotencyKey } = await import('../lib/genstudio-client.js')
   const base = {
     prompt: 'a harbour at dawn',
-    modelId: 'baa-ai/LTX-2.3-22B-RAM-12GB-MLX',
+    modelId: 'local-video-lane',
     sourceSha256: 'a'.repeat(64),
     aspectRatio: '11:7',
     operation: 'image-to-video',

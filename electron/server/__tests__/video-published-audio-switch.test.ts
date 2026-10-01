@@ -1,7 +1,7 @@
 /**
  * The published `audio` switch, end to end through the motion lane.
  *
- * Measured 2026-09-27: Studio Hub 0.6.83 gave its LTX lane an `audio` switch
+ * Measured 2026-09-27: Studio Hub 0.6.83 gave a local video lane an `audio` switch
  * (default on) and gateway-kh 0.2.60 relayed it on the video row as `controls`.
  * Story Studio's job is the middle of that chain — read the switch from what the
  * lane publishes, show it, carry the operator's choice on the request, and keep
