@@ -25,7 +25,7 @@ import {
   MissingPackEffectError,
   type BuiltInMotion,
 } from '../contracts/scene-effect-presets.js'
-import { applyLegacyMotionParams } from '../contracts/scene-effects.js'
+import { applyLegacyMotionParams, type SceneMotionDocument } from '../contracts/scene-effects.js'
 import { isContentPackItemId } from '../contracts/content-origin.js'
 import type { VideoSceneAnimation } from '../models/types.js'
 
@@ -135,14 +135,17 @@ export function isZoompanAnimation(type: string, library?: readonly BuiltInMotio
  * Rendering the scene motionless would hand the customer a finished video whose
  * camera work quietly vanished, so it refuses instead and says how to repair it.
  */
-export function buildAnimationFilter(opts: AnimationFilterOpts): string[] {
+export function resolveSceneMotionDocument(opts: Pick<AnimationFilterOpts, 'type' | 'params' | 'library'>): SceneMotionDocument {
   const library = opts.library ?? BUILT_IN_SCENE_MOTIONS
   const entry = library.find(motion => motion.id === opts.type)
     ?? (isContentPackItemId(opts.type) ? missingPackMotion(opts.type) : undefined)
     ?? library.find(motion => motion.id === DEFAULT_SCENE_MOTION_ID)
     ?? BUILT_IN_SCENE_MOTIONS.find(motion => motion.id === DEFAULT_SCENE_MOTION_ID)!
-  const document = applyLegacyMotionParams(entry.document, entry.legacy_binding, opts.params)
-  return compileSceneMotion(document, {
+  return applyLegacyMotionParams(entry.document, entry.legacy_binding, opts.params)
+}
+
+export function buildAnimationFilter(opts: AnimationFilterOpts): string[] {
+  return compileSceneMotion(resolveSceneMotionDocument(opts), {
     w: opts.w, h: opts.h, fps: opts.fps, duration: opts.duration,
   })
 }

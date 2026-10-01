@@ -15,6 +15,7 @@
 
 import type { VideoColorGrading } from '../models/types.js'
 import { anchorOverlayPosition, letterboxBarHeight, letterboxBars, vignetteAngle } from './scene-effect-compiler.js'
+import { buildColorbalanceCurves } from './grade-curves.js'
 
 /** Build the `:enable` suffix supported by FFmpeg's visual filters. */
 export function buildGateEnable(start: number, end: number): string {
@@ -137,10 +138,13 @@ export function buildColorGradingFilters(cg: VideoColorGrading, gateSuffix = '')
   if (Math.abs(saturation - 1) > 0.001) eqParts.push(`saturation=${saturation.toFixed(3)}`)
   if (eqParts.length) parts.push(`eq=${eqParts.join(':')}${gateSuffix}`)
   if (Math.abs(warmth) > 0.001 || Math.abs(tint) > 0.001) {
-    parts.push(
-      `colorbalance=rs=${(warmth * 0.3).toFixed(3)}:gs=${(tint * -0.2).toFixed(3)}:bs=${(warmth * -0.3).toFixed(3)}:` +
-      `rm=${(warmth * 0.15).toFixed(3)}:gm=${(tint * -0.1).toFixed(3)}:bm=${(warmth * -0.15).toFixed(3)}${gateSuffix}`,
-    )
+    // Warmth and tint used to be one `colorbalance` — by far the most expensive filter in the final
+    // pass. `curves` reproduces it from the same six amounts at a fifth of the cost; see grade-curves.ts.
+    const curves = buildColorbalanceCurves({
+      rs: warmth * 0.3, gs: tint * -0.2, bs: warmth * -0.3,
+      rm: warmth * 0.15, gm: tint * -0.1, bm: warmth * -0.15,
+    }, gateSuffix)
+    if (curves) parts.push(curves)
   }
   return parts.join(',')
 }

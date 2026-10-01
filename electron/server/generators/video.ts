@@ -38,7 +38,9 @@ import { assertValidMedia, getMediaInfo, summarizeMedia, fileExistsNonEmpty } fr
 import { planTransitions, buildXfadeFilterComplex, buildVariableXfadeFilterComplex } from '../lib/transition-filters.js'
 import { getTransition } from '../models/transitions.js'
 import { inspectScenePlanCoverage, COVERAGE_FAIL_SEC } from '../services/scene-planner.js'
-import { buildAnimationFilter, supersampleMultiplier, normalizeFrame, isZoompanAnimation } from '../lib/animation-filters.js'
+import { buildAnimationFilter, resolveSceneMotionDocument, supersampleMultiplier, normalizeFrame, isZoompanAnimation } from '../lib/animation-filters.js'
+import { probeNativeSceneClip, renderNativeSceneClip, NATIVE_SCENE_CLIP_VERSION } from '../lib/native-scene-clip.js'
+import { probeVideoStream, sceneClipCompatibilityProblems } from '../lib/scene-clip-compat.js'
 import { getAnimation } from '../models/animations.js'
 import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
 import { checkAssetAvailability } from '../lib/sync-safe.js'
@@ -1667,6 +1669,8 @@ export async function generateVideo(job: Job): Promise<void> {
         target_duration_sec: targetDuration,
         can_drawtext: canDrawtext,
         ffmpeg_version: ffmpegCheck.version,
+        // A saved clip made by one scene renderer must not be mixed with clips from the other on resume.
+        scene_clip_renderer: (await probeNativeSceneClip()).available ? `native-v${NATIVE_SCENE_CLIP_VERSION}` : 'ffmpeg',
         app_version: await resolveStoryStudioVersion(),
         resolved_sound_design_cues: resolvedSoundDesignCues,
         resolved_scene_effect_library: sceneEffectLibrary,
@@ -2109,6 +2113,9 @@ export async function generateVideo(job: Job): Promise<void> {
           picks: resolvedSceneAnimation!.picks,
           ...(resolvedSceneReveals?.enabled ? { reveals: resolvedSceneReveals } : {}),
           crf: quality.crf,
+          // The xfade stage (planTransitionTail > 0) decodes and re-encodes every clip, which is what
+          // makes a VideoToolbox clip safe to use; with hard cuts the clips are stream-copied.
+          native: { enabled: planTransitionTail > 0 },
         },
         sceneClipDurations,
         exactSceneTiming ? planTransitionTail : 0,
@@ -2450,6 +2457,7 @@ export async function generateVideo(job: Job): Promise<void> {
           picks: resolvedSceneAnimation!.picks,
           ...(poolReveals ? { reveals: poolReveals } : {}),
           crf: quality.crf,
+          native: { enabled: planTransitionTail > 0 },
         },
         sceneClipDurations,
         planTransitionTail,
@@ -3273,6 +3281,20 @@ export async function prepareSceneClips(
     reveals?: ResolvedSceneReveals
     /** The pace's own size, because a reveal clip is rendered at the canvas, not cropped to it. */
     crf?: number
+    /**
+     * Render still scenes with the native Metal/VideoToolbox helper, falling back to FFmpeg per clip.
+     *
+     * The caller sets this ONLY when every scene clip is decoded and re-encoded downstream (the
+     * xfade stage). A native clip is VideoToolbox H.264, and a stream-copy concat of it next to
+     * x264 clips would mix two SPS/PPS sets under one header. Otherwise the clip is FFmpeg's, as ever.
+     */
+    native?: {
+      enabled: boolean
+      /** Test seams. */
+      render?: typeof renderNativeSceneClip
+      probe?: () => Promise<{ available: boolean; reason?: string }>
+      verify?: (clipPath: string, expected: { w: number; h: number; fps: number; duration: number }) => Promise<string[]>
+    }
   },
   /** v1.0.81+: sentence-aligned per-scene durations. Index-aligned with
    *  `scenes`. When provided, scene i renders for perSceneDurations[i]
@@ -3374,6 +3396,23 @@ export async function prepareSceneClips(
   let preparedCount = 0
   job.output_lines.push(`Preparing ${scenes.length} scene clip(s) — up to ${PREP_CONCURRENCY} in parallel…`)
 
+  // Native fast path (Metal + VideoToolbox). Decided once; every clip still falls back on its own.
+  let nativeOn = false
+  const nativeTally = { native: 0, fallback: 0, reasons: new Map<string, number>() }
+  if (animationOpts?.native?.enabled) {
+    const probe = await (animationOpts.native.probe ?? probeNativeSceneClip)()
+    nativeOn = probe.available
+    job.output_lines.push(nativeOn
+      ? `Scene clips: native renderer on (Metal + VideoToolbox, helper v${NATIVE_SCENE_CLIP_VERSION}); FFmpeg for anything it cannot do.`
+      : `Scene clips: native renderer unavailable (${probe.reason || 'unknown'}) — using FFmpeg.`)
+  }
+  const nativeFallback = (index: number, detail: string): void => {
+    nativeTally.fallback++
+    const key = detail.replace(/\s+/g, ' ').slice(0, 120)
+    nativeTally.reasons.set(key, (nativeTally.reasons.get(key) || 0) + 1)
+    job.output_lines.push(`Scene ${index + 1}: native renderer skipped (${key}) — rendering with FFmpeg.`)
+  }
+
   const prepOne = async (i: number): Promise<void> => {
     const scene = scenes[i]
     const clipPath = path.join(tempDir, `scene_${String(i).padStart(4, '0')}.mp4`)
@@ -3429,16 +3468,79 @@ export async function prepareSceneClips(
         height: h,
         fps: quality.fps,
         crf: animationOpts?.crf,
+        ...(nativeOn
+          ? {
+              native: {
+                driftPath: path.join(tempDir, `reveal_drift_${String(i).padStart(4, '0')}.mp4`),
+                onFallback: (detail: string) => nativeFallback(i, `reveal drift: ${detail}`),
+                ...(animationOpts?.native?.render ? { render: animationOpts.native.render } : {}),
+              },
+            }
+          : {}),
       })
+      if (rendered.renderer === 'native-drift') nativeTally.native++
+      await fs.unlink(path.join(tempDir, `reveal_drift_${String(i).padStart(4, '0')}.mp4`)).catch(() => {})
       clipPaths[i] = revealPath
       preparedCount++
       job.output_lines.push(
-        `Scene clips: ${preparedCount}/${scenes.length} done [reveal ${reveal.preset_id} `
+        `Scene clips: ${preparedCount}/${scenes.length} done [reveal ${reveal.preset_id}${rendered.renderer === 'native-drift' ? ' native drift' : ''} `
         + `${rendered.plan.reveal_seconds.toFixed(2)}s + hold ${rendered.plan.hold_seconds.toFixed(2)}s`
         + `${rendered.plan.micro_event_offsets.length
           ? ` + ${rendered.plan.micro_event_offsets.length} micro-event(s)` : ''}]`,
       )
       return
+    }
+
+    // The completion bookkeeping every plain clip shares, whichever renderer made it.
+    const completePlainClip = async (note: string): Promise<void> => {
+      const completed = expectedRecoveryClips[i]!
+      if (!(await validateVideoAssemblySceneClip(completed))) {
+        throw new Error(`prepared clip failed media or duration validation: ${clipPath}`)
+      }
+      clipPaths[i] = clipPath
+      if (recovery) {
+        recovery.checkpoint.completed_scene_clips = [
+          ...recovery.checkpoint.completed_scene_clips.filter(clip => clip.scene_index !== i),
+          completed,
+        ].sort((a, b) => a.scene_index - b.scene_index)
+        await persistRecovery()
+      }
+      preparedCount++
+      job.output_lines.push(`Scene clips: ${preparedCount}/${scenes.length} done${note}`)
+    }
+
+    // Native fast path: a still with a camera move, no chapter-title drawtext (that is an FFmpeg
+    // filter), not footage. Anything else, and any failure, falls through to the FFmpeg chain below.
+    const wantsChapterTitle = !!(canDrawtext && chapterTitles?.enabled && scene.title && scene.show_title)
+    if (nativeOn && !isVideoScene && !wantsChapterTitle) {
+      let detail = ''
+      try {
+        const outcome = await (animationOpts?.native?.render ?? renderNativeSceneClip)({
+          imagePath: scene.image_path,
+          outPath: clipPath,
+          document: resolveSceneMotionDocument({ type: pickedType, params: sceneAnimation, library: motionLibrary }),
+          w, h, fps: quality.fps,
+          duration: renderDuration,
+        })
+        if (outcome.rendered) {
+          const problems = await (animationOpts?.native?.verify
+            ?? (async (file: string, expected: { w: number; h: number; fps: number; duration: number }) =>
+              sceneClipCompatibilityProblems(await probeVideoStream(file), expected)))(
+            clipPath, { w, h, fps: quality.fps, duration: renderDuration })
+          if (problems.length === 0) {
+            await completePlainClip(`${tagLog} [native ${outcome.kind}]`)
+            nativeTally.native++
+            return
+          }
+          detail = `output not concat-compatible: ${problems.join('; ')}`
+        } else {
+          detail = `${outcome.reason}: ${outcome.detail}`
+        }
+      } catch (error: any) {
+        detail = `error: ${error?.message || error}`
+      }
+      await fs.unlink(clipPath).catch(() => {})
+      nativeFallback(i, detail)
     }
 
     const vfParts = isVideoScene
@@ -3574,20 +3676,7 @@ export async function prepareSceneClips(
     // wedge (bad input, dead disk) trips this — fail THAT scene loudly instead
     // of hanging the whole job silently.
     await (recovery?.encodeSceneClip || runFfmpeg)(args, { timeoutMs: 10 * 60_000 })
-    const completed = expectedRecoveryClips[i]!
-    if (!(await validateVideoAssemblySceneClip(completed))) {
-      throw new Error(`prepared clip failed media or duration validation: ${clipPath}`)
-    }
-    clipPaths[i] = clipPath
-    if (recovery) {
-      recovery.checkpoint.completed_scene_clips = [
-        ...recovery.checkpoint.completed_scene_clips.filter(clip => clip.scene_index !== i),
-        completed,
-      ].sort((a, b) => a.scene_index - b.scene_index)
-      await persistRecovery()
-    }
-    preparedCount++
-    job.output_lines.push(`Scene clips: ${preparedCount}/${scenes.length} done${tagLog}`)
+    await completePlainClip(tagLog)
   }
 
   // Worker pool over scene indices. An error in any scene aborts the pool and
@@ -3606,6 +3695,14 @@ export async function prepareSceneClips(
       }
     })
     await Promise.all(workers)
+  }
+
+  if (nativeOn) {
+    const reasons = [...nativeTally.reasons.entries()].map(([reason, count]) => `${count}x ${reason}`).join('; ')
+    job.output_lines.push(
+      `Scene clips: ${nativeTally.native} native, ${nativeTally.fallback} FFmpeg fallback`
+      + `${reasons ? ` (${reasons})` : ''}.`,
+    )
   }
 
   return clipPaths
