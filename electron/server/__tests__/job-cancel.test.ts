@@ -299,6 +299,30 @@ describe('remote cancellation checkpoints', () => {
     assert.equal(jq.getJob(job.job_id)?.status, 'running')
   })
 
+  test('a remote cancel of running narration tells the executor to stop launching more work', async () => {
+    const proj = await pm.createProject({ name: 'RemoteCancelStopsExecutor' })
+    let release!: () => void
+    const hold = new Promise<void>(resolve => { release = resolve })
+    jq.registerExecutor('audio', async () => await hold)
+    registerJobCancellationAuditor('audio', async () => 'complete')
+    const job = jq.enqueuePreparedForTest({
+      project_slug: proj.slug, type: 'audio', episode_id: 'REMOTE_STOPS', title: 'remote', params: {},
+    })
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'running') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    await jq.recordGenStudioJob(job.job_id, {
+      id: 'tts-running-1', operation: 'voice.tts', state: 'running', dispatch_state: 'dispatched', cancellable: true,
+      updated_at: new Date().toISOString(),
+    })
+    assert.equal(jq.isCancelled(job.job_id), false)
+    const requested = await jq.requestJobCancellation(proj.slug, job.job_id)
+    assert.equal(requested.status, 'running', 'the Story job waits for GenStudio to confirm')
+    assert.equal(jq.isCancelled(job.job_id), true, 'but its generator must not submit the next chunk')
+    release()
+  })
+
   test('claims each remote target once and read-only terminal evidence releases a crashed submitting record', async () => {
     const project = await pm.createProject({ name: 'ClaimOnceAndReconcile' })
     let release!: () => void

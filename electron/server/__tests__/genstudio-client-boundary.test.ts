@@ -854,7 +854,8 @@ test('GenStudio voice catalog preserves tiers and stored previews without genera
 })
 
 test('GenStudio long jobs are not constrained by a short client timeout', () => {
-  assert.equal(GENSTUDIO_LONG_JOB_TIMEOUT_MS, 4 * 60 * 60_000)
+  // The gateway decides when a job is over; Story follows it (a week is only the silent-gateway valve).
+  assert.equal(GENSTUDIO_LONG_JOB_TIMEOUT_MS, 7 * 24 * 60 * 60_000)
   assert.equal(GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, 30_000)
   assert.equal(GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS, 5 * 60_000)
 })

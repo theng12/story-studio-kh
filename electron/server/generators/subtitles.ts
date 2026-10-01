@@ -37,7 +37,7 @@ import { normalizeSrtOrVtt } from '../lib/subtitle-builder.js'
 import { fileExistsWithContent } from '../lib/http-retry.js'
 import { hashInput } from '../services/task-manifest.js'
 import { isFleetBusyFailure } from '../lib/genstudio-fleet-busy.js'
-import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
+import { resolveGenStudioModelId, unavailableLegacyModelMessage, unavailableTranscriptionModelMessage } from '../services/genstudio-model-migration.js'
 import type { Job } from '../models/types.js'
 import { requireAudioAssemblyReady } from '../services/audio-workflow-readiness.js'
 import { runSubtitleTranscription } from '../services/subtitle-recovery.js'
@@ -250,7 +250,7 @@ async function resolveGenStudioTranscription(
   const migratedModel = resolveGenStudioModelId('transcription', requestedModel)
   if (!migratedModel) throw new Error(unavailableLegacyModelMessage('transcription', requestedModel || '(none)'))
   const selected = models.find(model => model.id === migratedModel)
-  if (!selected) throw new Error('The selected transcription model is no longer available.')
+  if (!selected) throw new Error(unavailableTranscriptionModelMessage(migratedModel))
   if (!selected.available) {
     throw new Error('The selected transcription model is temporarily unavailable.')
   }

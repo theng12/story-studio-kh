@@ -9,6 +9,7 @@ import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import { createHash, randomUUID } from 'crypto'
+import { carriesCapacityFacts, humanGatewayText } from './gateway-failure-text.js'
 import { getAppSetting, getGenStudioUrl, getLanguageTimeoutMs, setAppSetting, getPaidAudioReplacementSetting, getPaidWritingReplacementSetting, withPaidAudioConfirmation, withPaidWritingConfirmation } from '../services/app-settings.js'
 import { balancedReplacementSettlement, generationReplacementKey, replacementAllowance, type ReplacementKind } from '../services/generation-paid-replacement.js'
 import type { GenerationReplacementAttempt, Job } from '../models/types.js'
@@ -102,7 +103,19 @@ const CATALOG_FRESH_MS = 5 * 60_000
 const CATALOG_STALE_MS = 30 * 60_000
 /** How long a last-known account overview stays showable, clearly marked stale. */
 const ACCOUNT_OVERVIEW_STALE_MS = 30 * 60_000
-export const GENSTUDIO_LONG_JOB_TIMEOUT_MS = 4 * 60 * 60_000
+/**
+ * How long Story Studio keeps following ONE accepted gateway job.
+ *
+ * **The Gateway decides when a job is over; Story follows it.** This used to be four hours (and a
+ * deliberate reconnect after it, so about eight), which made Story give up on its own clock while
+ * the gateway — which owns the queue wait, the per-lane run budget, the machine retries and the
+ * cancel to the Hub — still held the job alive: an orphaned render nobody would collect. Story now
+ * waits for as long as the gateway reports the job alive (the job card shows its state: queued,
+ * waiting for a Mac, running), and the gateway ends every job itself with a typed failure and a real
+ * cancel. A week is only the safety valve for a gateway that went silent for good — every poll
+ * already fails fast when it is unreachable.
+ */
+export const GENSTUDIO_LONG_JOB_TIMEOUT_MS = 7 * 24 * 60 * 60_000
 export const GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS = 30_000
 export const GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS = 5 * 60_000
 /**
@@ -381,7 +394,12 @@ function parseGenStudioCancellationResponse(value: unknown): GenStudioJob & GenS
 const INFRASTRUCTURE_SHAPE = /\b(machines?|workers?|sites?|fleet|nodes?|placement window)\b/i
 
 export function customerSafeRemoteDetail(raw: string): string {
-  if (!INFRASTRUCTURE_SHAPE.test(raw)) return raw
+  // Known Gateway/Hub shapes become sentences first (`gateway-failure-text.ts`).
+  const human = humanGatewayText(raw)
+  // A memory or disk figure is the one thing the owner needs when no Mac can take the job ("needs
+  // ~16 GB, this one has 8 GB"); it is kept, with "machine" spelled "Mac", never blanked.
+  if (carriesCapacityFacts(raw) || carriesCapacityFacts(human)) return human.replace(/\bmachines\b/gi, 'Macs').replace(/\bmachine\b/gi, 'Mac')
+  if (!INFRASTRUCTURE_SHAPE.test(human)) return human
   console.log(`[genstudio] remote detail withheld from the customer view: ${raw}`)
   return 'Queued — waiting for capacity. Nothing failed and nothing was charged.'
 }
@@ -478,7 +496,7 @@ function settledFailureCode(job: GenStudioSettledJobShape): string | null {
 /** Absent, null, and blank all mean the same thing: nothing to show. */
 function settledFailureReason(job: GenStudioSettledJobShape): string | null {
   return typeof job.failure_reason === 'string' && job.failure_reason.trim()
-    ? job.failure_reason.trim()
+    ? humanGatewayText(job.failure_reason)
     : null
 }
 
@@ -1589,6 +1607,10 @@ export interface GenStudioMusicModel extends GenStudioCatalogLock, GenStudioPric
   min_lyrics_characters: number | null
   max_title_characters: number
   outputs_per_request: number | null
+  /** The model's own track-length bounds and default, when the lane publishes them. Absent is unknown. */
+  min_duration_seconds?: number
+  max_duration_seconds?: number
+  default_duration_seconds?: number
 }
 
 /**
@@ -2867,9 +2889,18 @@ export function normalizeGenStudioProviderQueue(job: Pick<GenStudioJob, 'queue_p
   }
 }
 
-function providerQueueFingerprint(job: GenStudioJob): string {
+/** How coarsely the countdown in `queue_eta_seconds` counts as "changed" for the poll loops. */
+export const QUEUE_ETA_BUCKET_SECONDS = 30
+
+export function providerQueueFingerprint(job: GenStudioJob): string {
   const queue = normalizeGenStudioProviderQueue(job)
-  return `${queue.queue_reason || ''}:${queue.queue_position ?? ''}:${queue.queue_eta_seconds ?? ''}`
+  // **The ETA is a countdown, so its raw value changes on every poll.** Each change re-persisted the
+  // whole Story job (`recordGenStudioJob` → `persistJob`: measured ≈38 ms with 60 evidence entries,
+  // serialised on the project's jobs.json lock) — a deferred job polled every 1.5 s cost ~25 writes a
+  // minute for a number that only needs to be right to within half a minute. Bucketed, it is
+  // re-recorded when the position or reason changes, or the countdown crosses a bucket.
+  const eta = queue.queue_eta_seconds === null ? '' : Math.floor(queue.queue_eta_seconds / QUEUE_ETA_BUCKET_SECONDS)
+  return `${queue.queue_reason || ''}:${queue.queue_position ?? ''}:${eta}`
 }
 
 async function reportQueueState(
@@ -4829,6 +4860,9 @@ export async function listMusicModelsSnapshot(
         min_lyrics_characters: publishedOrNull(value.min_lyrics_characters),
         max_title_characters: value.max_title_characters,
         outputs_per_request: publishedOrNull(value.outputs_per_request),
+        ...(Number.isFinite(value?.min_duration_seconds) && value.min_duration_seconds > 0 ? { min_duration_seconds: value.min_duration_seconds } : {}),
+        ...(Number.isFinite(value?.max_duration_seconds) && value.max_duration_seconds > 0 ? { max_duration_seconds: value.max_duration_seconds } : {}),
+        ...(Number.isFinite(value?.default_duration_seconds) && value.default_duration_seconds > 0 ? { default_duration_seconds: value.default_duration_seconds } : {}),
       }]
     })
   }, { ...options, baseUrl, apiKey })
@@ -5752,6 +5786,8 @@ export interface GenStudioMusicRequest extends GenStudioOperationContext {
   prompt: string
   lyrics?: string
   instrumental: boolean
+  /** Track length in seconds. Sent only when the caller states one; the lane's own default applies otherwise. */
+  durationSeconds?: number
   modelId: string
   requestIdentity?: string
   idempotencyKey?: string
@@ -5774,6 +5810,7 @@ export function buildGenStudioMusicIdempotencyKey(input: {
   prompt: string
   lyrics?: string
   instrumental: boolean
+  durationSeconds?: number
   modelId: string
   requestIdentity?: string
 }): string {
@@ -5784,6 +5821,9 @@ export function buildGenStudioMusicIdempotencyKey(input: {
     instrumental: input.instrumental,
     model_id: input.modelId.trim(),
     request_identity: input.requestIdentity || null,
+    // Only when stated, so every key minted before a length existed is byte-identical and a retry
+    // that crosses this upgrade replays its job. A different length is different work.
+    ...(input.durationSeconds ? { duration_seconds: input.durationSeconds } : {}),
   })).digest('hex')
   return `story-music-${digest.slice(0, 44)}`
 }
@@ -5873,6 +5913,61 @@ function musicResult(
   }
 }
 
+/**
+ * Fetch one finished music track (a ~40 MB WAV) from the gateway, with a time limit and a retry.
+ *
+ * It used to be a bare `fetch`: no timeout, no retry, so a stalled socket hung the whole top-up and
+ * a dropped one failed a track that was already paid for. The job is finished and its artifact is
+ * on the gateway, so a retry only re-reads it; a 404/410 means the artifact was pruned, which a
+ * retry cannot fix. Re-running the track after a failure replays the same idempotency key and so
+ * reclaims this same job rather than buying another.
+ */
+export async function downloadGenStudioMusicTrack(
+  url: string,
+  headers: Record<string, string>,
+  request: { signal?: AbortSignal; isCancelled?: () => boolean } = {},
+  trackNumber = 1,
+): Promise<Buffer> {
+  const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
+  let lastError: unknown
+  for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS; attempt++) {
+    try {
+      const response = await fetch(url, {
+        headers,
+        signal: operationSignal(request.signal, deadline, GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS),
+      })
+      if (!response.ok) {
+        if (response.status === 404 || response.status === 410) {
+          throw new GenStudioMusicArtifactUnavailableError(trackNumber, response.status)
+        }
+        const error = new Error(`Could not download track ${trackNumber}: HTTP ${response.status}`)
+        if (!retryableStatus(response.status)) throw error
+        lastError = error
+      } else {
+        const bytes = Buffer.from(await response.arrayBuffer())
+        if (!bytes.length) throw new Error(`Track ${trackNumber} arrived empty.`)
+        return bytes
+      }
+    } catch (error) {
+      if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
+      if (error instanceof GenStudioMusicArtifactUnavailableError) throw error
+      lastError = error
+      const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+      if (!/timeout|timed out|fetch failed|network|socket|ECONN|HTTP (408|425|429|5\d\d)|terminated/i.test(message)
+        && !(error instanceof DOMException)) throw error
+    }
+    if (attempt < NETWORK_RETRY_ATTEMPTS) await retryDelay(attempt, request, deadline)
+  }
+  throw lastError instanceof Error ? lastError : new Error(`Could not download track ${trackNumber} after retries.`)
+}
+
+export class GenStudioMusicArtifactUnavailableError extends Error {
+  constructor(readonly trackNumber: number, readonly status: number) {
+    super(`Track ${trackNumber} is no longer on the gateway (HTTP ${status}); it was cleaned up before it was saved. Re-run the top-up to make it again.`)
+    this.name = 'GenStudioMusicArtifactUnavailableError'
+  }
+}
+
 /** Reconnect to an already accepted music task. Never submits new work. */
 async function recoverMusicWithGenStudioAdmitted(
   apiKey: string,
@@ -5932,6 +6027,7 @@ export async function generateMusicWithGenStudio(
     prompt,
     lyrics: request.lyrics,
     instrumental: request.instrumental,
+    durationSeconds: request.durationSeconds,
     modelId,
     requestIdentity: request.requestIdentity,
   })
@@ -5946,6 +6042,7 @@ export async function generateMusicWithGenStudio(
     fields: [
       ['title', title],
       ['instrumental', request.instrumental],
+      ...(request.durationSeconds ? [['duration_seconds', request.durationSeconds] as [string, number]] : []),
       ...(request.lyrics?.trim() ? [['lyrics_characters', request.lyrics.trim().length] as [string, number]] : []),
     ],
   })
@@ -5965,6 +6062,7 @@ export async function generateMusicWithGenStudio(
         prompt,
         instrumental: request.instrumental,
         ...(request.lyrics?.trim() ? { lyrics: request.lyrics.trim() } : {}),
+        ...(request.durationSeconds ? { duration_seconds: request.durationSeconds } : {}),
       }),
     },
     request,

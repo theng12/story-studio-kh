@@ -290,9 +290,11 @@ function classifyProviderJobControl(
       ambiguous.push(entry)
       continue
     }
-    // `cancellable` is the gateway's promise that a cancel is honoured now. A dispatched job still
-    // waiting for a Mac (`waiting` set) has not started, so it is as cancellable as a pre-dispatch one.
-    if (entry.cancellable === true && (entry.dispatch_state === 'pre_dispatch' || !!entry.waiting)) {
+    // `cancellable` is the gateway's promise that a cancel is honoured now, and the gateway decides
+    // when that is true: before dispatch, while a job waits for a Mac, and while a narration or
+    // music job runs (the Hub stops both workers and reports `cancelled`). Story follows it rather
+    // than guessing from `dispatch_state`; a render the gateway cannot stop says `false`.
+    if (entry.cancellable === true) {
       targets.push(target)
       continue
     }

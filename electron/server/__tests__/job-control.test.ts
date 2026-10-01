@@ -46,9 +46,10 @@ describe('server-owned job controls', () => {
       { name: 'pre-dispatch tts', input: { genstudio_jobs: [evidence('voice.tts', 'accepted', { dispatch_state: 'pre_dispatch', cancellable: true })] }, audited: true, action: 'request-remote-cancel', code: 'READY', reason: 'Story Studio will ask GenStudio to cancel the eligible provider task; GenStudio determines whether credits are released.' },
       { name: 'pre-dispatch image', input: { genstudio_jobs: [evidence('image.generation', 'reserved', { dispatch_state: 'pre_dispatch', cancellable: true })] }, audited: true, action: 'request-remote-cancel', code: 'READY', reason: 'Story Studio will ask GenStudio to cancel the eligible provider task; GenStudio determines whether credits are released.' },
       { name: 'pre-dispatch transcription', input: { genstudio_jobs: [evidence('audio.transcription', 'accepted', { dispatch_state: 'pre_dispatch', cancellable: true })] }, audited: true, action: 'request-remote-cancel', code: 'READY', reason: 'Story Studio will ask GenStudio to cancel the eligible provider task; GenStudio determines whether credits are released.' },
-      { name: 'dispatched video', input: { genstudio_jobs: [evidence('video.generation', 'running', { dispatch_state: 'dispatched', cancellable: true })] }, audited: true, action: 'pause-submissions', code: 'PROVIDER_WORK_ALREADY_STARTED', reason: 'The video request already started and will continue settling. New provider submissions can be paused, but this request cannot be cancelled.' },
+      { name: 'dispatched video the gateway cannot stop', input: { genstudio_jobs: [evidence('video.generation', 'running', { dispatch_state: 'dispatched', cancellable: false })] }, audited: true, action: 'pause-submissions', code: 'PROVIDER_WORK_ALREADY_STARTED', reason: 'The video request already started and will continue settling. New provider submissions can be paused, but this request cannot be cancelled.' },
       { name: 'pre-dispatch chat', input: { genstudio_jobs: [evidence('chat.response', 'accepted', { dispatch_state: 'pre_dispatch', cancellable: true })] }, audited: true, action: 'request-remote-cancel', code: 'READY', reason: 'Story Studio will ask GenStudio to cancel the eligible provider task; GenStudio determines whether credits are released.' },
       { name: 'pre-dispatch music', input: { genstudio_jobs: [evidence('music.generation', 'accepted', { dispatch_state: 'pre_dispatch', cancellable: true })] }, audited: true, action: 'request-remote-cancel', code: 'READY', reason: 'Story Studio will ask GenStudio to cancel the eligible provider task; GenStudio determines whether credits are released.' },
+      { name: 'dispatched narration the gateway can stop', input: { genstudio_jobs: [evidence('voice.tts', 'running', { dispatch_state: 'dispatched', cancellable: true })] }, audited: true, action: 'request-remote-cancel', code: 'READY', reason: 'Story Studio will ask GenStudio to cancel the eligible provider task; GenStudio determines whether credits are released.' },
       { name: 'started image', input: { genstudio_jobs: [evidence('image.generation', 'running', { dispatch_state: 'dispatched', cancellable: false })] }, audited: true, action: 'pause-submissions', code: 'PROVIDER_WORK_ALREADY_STARTED', reason: 'The image request already started and will continue settling. New provider submissions can be paused, but this request cannot be cancelled.' },
       { name: 'submitting image', input: { genstudio_jobs: [evidence('image.generation', 'submitting')] }, audited: true, action: 'return-later', code: 'CANCELLATION_STATUS_UNKNOWN', reason: 'Story Studio cannot yet prove whether every provider request was accepted. It will reconcile before any new submission.' },
       {
@@ -170,29 +171,40 @@ describe('server-owned job controls', () => {
     assert.equal(paidRepair.some(control => control.action === 'pause-submissions' && control.enabled), true)
   })
 
-  test('cancels only pre-dispatch siblings and never promises a refund', () => {
+  test('cancels every sibling the gateway says is cancellable and never promises a refund', () => {
     const control = classifyJobControl(job({
       genstudio_jobs: [
         evidence('chat.response', 'accepted', { dispatch_state: 'pre_dispatch', cancellable: true, id: 'chat-can-cancel' }),
-        evidence('music.generation', 'running', { dispatch_state: 'dispatched', cancellable: true, id: 'music-keeps-running' }),
+        evidence('music.generation', 'running', { dispatch_state: 'dispatched', cancellable: true, id: 'music-can-cancel' }),
+        evidence('image.generation', 'running', { dispatch_state: 'dispatched', cancellable: false, id: 'image-keeps-running' }),
       ],
     }), { remoteCancellationAudited: true })
 
     assert.equal(control.action, 'request-remote-cancel')
-    assert.deepEqual(control.targets, [{ operation: 'chat.response', provider_job_id: 'chat-can-cancel' }])
-    assert.match(control.reason, /music request already started and will continue settling/i)
-    assert.doesNotMatch(control.reason, /music-keeps-running|chat-can-cancel/)
+    assert.deepEqual(control.targets, [
+      { operation: 'chat.response', provider_job_id: 'chat-can-cancel' },
+      { operation: 'music.generation', provider_job_id: 'music-can-cancel' },
+    ])
+    assert.match(control.reason, /image request already started and will continue settling/i)
+    assert.doesNotMatch(control.reason, /image-keeps-running|chat-can-cancel|music-can-cancel/)
     assert.doesNotMatch(control.reason, /refund/i)
   })
 
-  test('never exposes post-dispatch TTS or image cancellation even when stale evidence claims cancellable', () => {
-    for (const entry of [
-      evidence('voice.tts', 'running', { dispatch_state: 'dispatched', cancellable: true }),
-      evidence('image.generation', 'dispatched', { dispatch_state: 'dispatched', cancellable: true }),
-    ]) {
-      const control = classifyJobControl(job({ genstudio_jobs: [entry] }), { remoteCancellationAudited: true })
-      assert.equal(control.action, 'pause-submissions', entry.operation)
-      assert.equal(control.code, 'PROVIDER_WORK_ALREADY_STARTED', entry.operation)
+  test('a running narration or music job is cancellable exactly when the gateway says so', () => {
+    for (const operation of ['voice.tts', 'music.generation'] as const) {
+      const offered = classifyJobControl(job({
+        genstudio_jobs: [evidence(operation, 'running', { dispatch_state: 'dispatched', cancellable: true })],
+      }), { remoteCancellationAudited: true })
+      assert.equal(offered.action, 'request-remote-cancel', operation)
+      assert.equal(offered.targets?.[0]?.operation, operation)
+      // The gateway withholds it for work it cannot stop (images, subtitles, chat): Story follows.
+      for (const cancellable of [false, undefined]) {
+        const withheld = classifyJobControl(job({
+          genstudio_jobs: [evidence(operation, 'running', { dispatch_state: 'dispatched', cancellable })],
+        }), { remoteCancellationAudited: true })
+        assert.equal(withheld.action, 'pause-submissions', `${operation} ${cancellable}`)
+        assert.equal(withheld.code, 'PROVIDER_WORK_ALREADY_STARTED', `${operation} ${cancellable}`)
+      }
     }
   })
 
