@@ -26,7 +26,7 @@ describe('Scene Review media freshness', () => {
 
   test('the thumbnail element is keyed on the image version, so an unchanged image keeps its element', () => {
     assert.match(source, /function imageKey\(scene: ReviewScene\): string \{\s*return `\$\{scene\.id\}:\$\{scene\.image_version \|\| ''\}`/)
-    assert.match(source, /:src="imageUrl\(scene\)"\s*:key="imageKey\(scene\)"/)
+    assert.match(source, /:src="thumbUrl\(scene\)"\s*:key="imageKey\(scene\)"/)
     assert.match(source, /audioVersion\.value = r\.audio_version \?\? null/)
   })
 

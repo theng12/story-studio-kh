@@ -27,6 +27,7 @@ async function loadJobs(): Promise<Component> {
     const useGenStudioModelDisplay = () => ({ displayName: () => '', refresh: async () => undefined })
     const useToast = () => globalThis.__jobsToast
     const useNetworkStatus = () => ({ online: ref(true) })
+    const createVisibleInterval = (tick, ms) => { let t = null; return { start() { t ||= setInterval(tick, ms) }, stop() { if (t) clearInterval(t); t = null } } }
     const publicProviderLabel = () => ''
     const buildLatestBatchSummary = () => null
     const formatElapsed = () => ''
