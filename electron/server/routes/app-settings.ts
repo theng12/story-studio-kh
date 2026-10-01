@@ -25,6 +25,7 @@ import {
   getPaidWritingReplacementSetting, setPaidWritingReplacementSetting,
   setAppSetting,
 } from '../services/app-settings.js'
+import { getGlobalCompression, setGlobalCompression, COMPRESSION_DEFAULTS } from '../services/generation-compression.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import {
   listModelCapabilitiesSnapshot as listGenStudioCapabilities,
@@ -49,6 +50,23 @@ import {
 
 export const router = Router()
 const CUSTOMER_SECRET_PROVIDERS = ['genstudio'] as const
+
+// "Smaller files": which generated assets are requested already compressed (AAC / JPEG).
+router.get('/app-settings/generation-compression', async (_req, res) => {
+  try {
+    res.json({ settings: await getGlobalCompression(), defaults: COMPRESSION_DEFAULTS })
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to load smaller-files settings'))
+  }
+})
+
+router.put('/app-settings/generation-compression', async (req, res) => {
+  try {
+    res.json({ settings: await setGlobalCompression(req.body), defaults: COMPRESSION_DEFAULTS })
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to save smaller-files settings'))
+  }
+})
 
 router.get('/app-settings/paid-image-replacement', async (_req, res) => {
   try {

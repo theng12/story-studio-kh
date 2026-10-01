@@ -7,6 +7,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { parseImagePromptsDocx, type ParsedPrompts } from '../lib/docx-parser.js'
 import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
+import { resolveOutputFormat } from '../services/generation-compression.js'
 import { isDecodableImage } from '../lib/image-validation.js'
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { registry } from '../providers/registry.js'
@@ -354,6 +355,10 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
   }
   const imageProvider = registry.getImageProvider('genstudio-image')
   if (!imageProvider) throw new Error('GenStudio KH image provider is unavailable.')
+  // The owner's "smaller files" choice per asset type (Settings, per-project override). Undefined =
+  // field omitted = today's PNG. Resolved once per run; the sharp fallback below covers old nodes.
+  const sceneOutputFormat = await resolveOutputFormat(project_slug, 'scene_images')
+  const thumbOutputFormat = await resolveOutputFormat(project_slug, 'thumbnails')
   // The keyed account burst is advisory local staging only. Exact image
   // admission permits remain mandatory at the provider boundary.
   const admission = await refreshGenStudioAdmission(apiKey)
@@ -1000,7 +1005,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
           if (current.recovery.kind === 'recovered') {
             const recovered = current.recovery
             for (let i = 0; i < recovered.urls.length; i++) {
-              await saveGenStudioImage(recovered.urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb())
+              await saveGenStudioImage(recovered.urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb(), { compress: !!sceneOutputFormat })
             }
             await recordImageState(bgDir, filename, current, 'succeeded', recovered.taskId, '')
             completedCount++
@@ -1018,6 +1023,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             ...(outputOption ? { resolution: outputOption.resolution } : { width: renderWidth, height: renderHeight }),
             seed: req.seed,
             ...(sceneReferences.length ? { referenceImagePaths: sceneReferences } : {}),
+            ...(sceneOutputFormat ? { outputFormat: sceneOutputFormat } : {}),
             idempotencyIdentity: `${project_slug}:${episode_id}:scene:${scene.number}:image:${current.scope}`,
             onQueueState: state => publishImageQueueState(key, label, state),
             isCancelled: () => jq.isCancelled(job.job_id),
@@ -1041,7 +1047,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             )))
           }
           for (let i = 0; i < urls.length; i++) {
-            await saveGenStudioImage(urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb())
+            await saveGenStudioImage(urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb(), { compress: !!sceneOutputFormat })
           }
           completedCount++
           job.output_lines.push(`Scene ${scene.number}/${totalToProcess}: ${scene.title} — saved ${urls.length} variant(s)`)
@@ -1346,7 +1352,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
           if (current.recovery.kind === 'recovered') {
             const recovered = current.recovery
             for (let i = 0; i < recovered.urls.length; i++) {
-              await saveGenStudioImage(recovered.urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb())
+              await saveGenStudioImage(recovered.urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb(), { compress: !!thumbOutputFormat })
             }
             if (current.paidRecovery) {
               await jq.checkpointPaidImageReplacementAttempt(job, filename, {
@@ -1383,6 +1389,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             requestIdentity: current.paidReplacement
               ? current.scope
               : `${project_slug}:${episode_id}:thumbnail:${thumb.number}:image:${current.scope}`,
+            ...(thumbOutputFormat ? { outputFormat: thumbOutputFormat } : {}),
           })
           if (!current.paidReplacement) {
             await recordImageState(thumbDir, filename, current, 'prepared', '', preparedKey, true)
@@ -1397,6 +1404,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             ...(requestSelector ? { resolution: requestSelector.resolution } : { width: renderWidth, height: renderHeight }),
             seed: req.seed,
             ...(requestReferences.length ? { referenceImagePaths: requestReferences } : {}),
+            ...(thumbOutputFormat ? { outputFormat: thumbOutputFormat } : {}),
             idempotencyIdentity: current.paidReplacement
               ? current.scope
               : `${project_slug}:${episode_id}:thumbnail:${thumb.number}:image:${current.scope}`,
@@ -1437,7 +1445,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             )))
           }
           for (let i = 0; i < urls.length; i++) {
-            await saveGenStudioImage(urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb())
+            await saveGenStudioImage(urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb(), { compress: !!thumbOutputFormat })
           }
           if (current.paidReplacement) {
             const actualSettledCredits = authoritativePaidImageSettledCredits(result.settledCredits)

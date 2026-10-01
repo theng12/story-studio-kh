@@ -730,6 +730,15 @@
          redundant with the Production Board, and Repair moved into the board's
          ↻ Repair… dialog — see frontend/components/RepairAssetsDialog.vue.) -->
 
+    <!-- "Smaller files": this Mac's default (Files & maintenance) and this project's override
+         (Project files & behavior). Which assets are requested already compressed (AAC / JPEG). -->
+    <div v-if="activeTab === 'maintenance'" class="card settings-panel mt-2">
+      <GenerationCompressionPanel />
+    </div>
+    <div v-if="activeTab === 'files'" class="card settings-panel mt-2">
+      <GenerationCompressionPanel :slug="slug" />
+    </div>
+
     <!-- Storage — per-episode disk usage + cleanup of uploaded final
          videos + external-root configuration. A final is cleared only
          after its exact local bytes and current YouTube state are verified. -->

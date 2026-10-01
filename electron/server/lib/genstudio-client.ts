@@ -951,6 +951,11 @@ export interface GenStudioTtsRequest extends GenStudioOperationContext {
    * in which case nothing is sent and the idempotency digest is unchanged.
    */
   controls?: TtsControlValues
+  /**
+   * `m4a` asks the lane to hand the narration back as AAC (transport only — Story still writes
+   * its MP3 chapter from whatever arrives). Absent = native WAV, today's behaviour.
+   */
+  outputFormat?: 'm4a'
   /** Stable Story asset identity, such as project + episode + output file. */
   requestIdentity?: string
   /** Reuse a key already checkpointed beside the Story asset. */
@@ -1361,6 +1366,8 @@ export interface GenStudioImageRequest extends GenStudioOperationContext {
   seed?: number
   /** One private GenStudio source asset for supported image-to-image models. */
   referenceAssetIds?: string[]
+  /** `jpeg` asks the lane for a JPEG instead of a PNG. Absent = native (today's behaviour). */
+  outputFormat?: 'jpeg'
   /** Stable for this Story Studio submission, distinct for a deliberate rerender. */
   requestIdentity?: string
   /** Reuse a key checkpointed before the charged image POST. */
@@ -1472,6 +1479,8 @@ export interface GenStudioSubmission {
     speed: number
     /** Present ONLY when the selected model published controls to send. */
     controls?: TtsControlValues
+    /** Present ONLY when the owner asked for compressed narration (`m4a`). */
+    output_format?: 'm4a'
   }
   idempotencyKey: string
 }
@@ -3345,6 +3354,9 @@ export function buildGenStudioSubmission(request: GenStudioTtsRequest): GenStudi
     text: request.text,
     speed,
     ...(controls ? { controls } : {}),
+    // Same conditional-spread rule as `controls`: absent for the native WAV so every existing
+    // key (and in-flight recovery) is unchanged, present so the two formats never share a replay.
+    ...(request.outputFormat ? { output_format: request.outputFormat } : {}),
   }
   const digest = createHash('sha256').update(JSON.stringify({
     ...body,
@@ -5730,6 +5742,8 @@ export interface GenStudioMusicRequest extends GenStudioOperationContext {
   instrumental: boolean
   modelId: string
   requestIdentity?: string
+  /** `m4a` asks the lane for AAC instead of WAV. Absent = native (today's behaviour). */
+  outputFormat?: 'm4a'
   idempotencyKey?: string
   isCancelled?: () => boolean
   onJobAccepted?: (jobId: string, idempotencyKey: string) => Promise<void> | void
@@ -5752,6 +5766,7 @@ export function buildGenStudioMusicIdempotencyKey(input: {
   instrumental: boolean
   modelId: string
   requestIdentity?: string
+  outputFormat?: 'm4a'
 }): string {
   const digest = createHash('sha256').update(JSON.stringify({
     title: input.title.trim(),
@@ -5760,6 +5775,9 @@ export function buildGenStudioMusicIdempotencyKey(input: {
     instrumental: input.instrumental,
     model_id: input.modelId.trim(),
     request_identity: input.requestIdentity || null,
+    // Only when set: a key built without it must stay byte-identical, so an in-flight
+    // job (and every old caller) still replays on the key it was submitted with.
+    ...(input.outputFormat ? { output_format: input.outputFormat } : {}),
   })).digest('hex')
   return `story-music-${digest.slice(0, 44)}`
 }
@@ -5910,6 +5928,7 @@ export async function generateMusicWithGenStudio(
     instrumental: request.instrumental,
     modelId,
     requestIdentity: request.requestIdentity,
+    outputFormat: request.outputFormat,
   })
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
@@ -5923,6 +5942,7 @@ export async function generateMusicWithGenStudio(
       ['title', title],
       ['instrumental', request.instrumental],
       ...(request.lyrics?.trim() ? [['lyrics_characters', request.lyrics.trim().length] as [string, number]] : []),
+      ...(request.outputFormat ? [['output_format', request.outputFormat] as [string, string]] : []),
     ],
   })
   const submitted = await submitJsonWithAdmission(
@@ -5941,6 +5961,7 @@ export async function generateMusicWithGenStudio(
         prompt,
         instrumental: request.instrumental,
         ...(request.lyrics?.trim() ? { lyrics: request.lyrics.trim() } : {}),
+        ...(request.outputFormat ? { output_format: request.outputFormat } : {}),
       }),
     },
     request,
@@ -7965,6 +7986,7 @@ export function buildGenStudioImageIdempotencyKey(input: {
   seed?: number
   requestIdentity?: string
   referenceAssetIds?: string[]
+  outputFormat?: 'jpeg'
 }): string {
   const hasDimensions = Number.isInteger(input.width) && input.width! > 0
     && Number.isInteger(input.height) && input.height! > 0
@@ -7988,6 +8010,9 @@ export function buildGenStudioImageIdempotencyKey(input: {
     request_identity: input.requestIdentity || null,
     reference_asset_ids: input.referenceAssetIds || [],
     ...(resolution ? { resolution } : {}),
+    // Emitted only when set, like `resolution`: a key built without it stays byte-identical,
+    // while asking for a different format is different work that must not replay the old job.
+    ...(input.outputFormat ? { output_format: input.outputFormat } : {}),
   })).digest('hex')
   return `story-image-${digest.slice(0, 44)}`
 }
@@ -8480,6 +8505,7 @@ async function generateImageWithGenStudioAdmitted(
       : {}),
     ...(request.seed === undefined ? {} : { seed: request.seed }),
     ...(request.referenceAssetIds?.length ? { reference_asset_ids: request.referenceAssetIds } : {}),
+    ...(request.outputFormat ? { output_format: request.outputFormat } : {}),
   }
   const idempotencyKey = request.idempotencyKey?.trim() || buildGenStudioImageIdempotencyKey({
     prompt,
@@ -8491,6 +8517,7 @@ async function generateImageWithGenStudioAdmitted(
     seed: request.seed,
     requestIdentity: request.requestIdentity,
     referenceAssetIds: request.referenceAssetIds,
+    outputFormat: request.outputFormat,
   })
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
@@ -8516,6 +8543,7 @@ async function generateImageWithGenStudioAdmitted(
       ['height', hasDimensions ? request.height : undefined],
       ['seed', request.seed],
       ['reference_asset_ids', request.referenceAssetIds?.length ? request.referenceAssetIds : undefined],
+      ['output_format', request.outputFormat],
     ],
   })
   let submitted: GenStudioImageJob
@@ -8950,7 +8978,9 @@ async function completeTtsJobToFile(
     throw new GenStudioTtsArtifactUnavailableError(completed.id, 0, 'the job completed without a download URL')
   }
 
-  const tempPath = path.join(os.tmpdir(), `genstudio-audio-${randomUUID()}.wav`)
+  // The download is whatever the lane returned: WAV, or AAC when `output_format: m4a` was honoured.
+  // ffmpeg identifies it by content, and Story's MP3 chapter below is written either way.
+  const tempPath = path.join(os.tmpdir(), `genstudio-audio-${randomUUID()}.${request.outputFormat === 'm4a' ? 'm4a' : 'wav'}`)
   try {
     let downloaded = false
     let downloadError: unknown
@@ -9100,6 +9130,7 @@ async function generateTtsToFileAdmitted(
       ['voice_id', submission.body.voice_id],
       ['speed', submission.body.speed],
       ['characters', Array.from(String(submission.body.text ?? '').normalize('NFC')).length],
+      ...(submission.body.output_format ? [['output_format', submission.body.output_format] as [string, unknown]] : []),
       // Recorded only when the model published controls, so the operator can
       // see which settings a job went out under. The names are GenStudio's.
       ...(submission.body.controls

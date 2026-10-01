@@ -772,6 +772,26 @@ describe('compress scene images (Archive episode)', () => {
     assert.deepEqual(await fs.readdir(path.join(trashDir(), 'images', 'scene_images')), trashListing)
   })
 
+  test('a scene image the Hub already compressed (JPEG bytes under .png) is not a candidate for a second pass', async () => {
+    const episode = await seedEpisode('EP0001')
+    const scene = path.join(episode.paths.bg_dir, 'scene-01.png')
+    await scenePng(scene)
+    await sharp(await fs.readFile(scene)).jpeg({ quality: 90 }).toFile(`${scene}.tmp`)
+    await fs.rename(`${scene}.tmp`, scene)
+    const delivered = await fs.readFile(scene)
+    await makeOlder(scene)
+    await markUploaded(episode)
+
+    const bill = await preview(['EP0001'], ['images'])
+    assert.equal(bill.files[0]?.already_jpeg, true)
+    assert.equal(bill.estimate.compress_files, 0)
+    const operation = await run(bill.preview_id, 'compress')
+    assert.equal(operation.result?.compressed_count, 0)
+    assert.match(operation.result?.items[0]?.reason || '', /already a JPEG/i)
+    assert.deepEqual(await fs.readFile(scene), delivered)
+    assert.equal(existsSync(trashDir()), false, 'nothing is moved when the image is already small')
+  })
+
   test('an image that would not shrink below 80% is left as it was', async () => {
     const episode = await seedEpisode('EP0001')
     const tiny = path.join(episode.paths.bg_dir, 'flat.png')

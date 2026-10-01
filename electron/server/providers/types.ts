@@ -71,6 +71,8 @@ export interface ImageGenerationRequest {
   /** Optional deterministic seed. Omit to let the provider randomize. */
   seed?: number
   idempotencyIdentity?: string
+  /** `jpeg` asks for a JPEG instead of a PNG; absent = the lane's native format. Must be part of any pre-computed `idempotencyKey`. */
+  outputFormat?: 'jpeg'
   /** Reuse an image key checkpointed by a durable queue executor. */
   idempotencyKey?: string
   /** Revalidate owner-controlled authority immediately before a provider POST. */

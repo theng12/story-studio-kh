@@ -260,6 +260,28 @@ describe('a WAV track is stored as AAC (v1.4.244)', () => {
     assert.deepEqual(await readdir(lib), [saved.filename])
   })
 
+  test('an m4a body (the Hub already encoded it) is stored as .m4a byte for byte, with no ffmpeg run', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'music-m4a-'))
+    const { wav } = await tone(dir, 10)
+    const m4a = path.join(dir, 'hub.m4a')
+    assert.equal(spawnSync('ffmpeg', ['-y', '-i', wav, '-c:a', 'aac', '-b:a', '256k', '-f', 'ipod', m4a]).status, 0)
+    const body = await readFile(m4a)
+    const lib = await mkdtemp(path.join(os.tmpdir(), 'music-lib-'))
+    // A PATH with no ffmpeg proves the bytes are not re-encoded: a second lossy generation would need it.
+    const realPath = process.env.PATH
+    process.env.PATH = '/nonexistent'
+    try {
+      const saved = await saveMusicTrack(lib, 'Rain', 'job_music_abcdef12', 1, body)
+      assert.match(saved.filename, /take1\.m4a$/)
+      assert.equal(saved.warning, undefined)
+      assert.deepEqual(await readFile(path.join(lib, saved.filename)), body)
+      assert.deepEqual(await readdir(lib), [saved.filename])
+    } finally {
+      process.env.PATH = realPath
+    }
+    assert.ok(Math.abs(probe(path.join(lib, 'rain-abcdef12-take1.m4a')) - 10) < 0.03)
+  })
+
   test('an MP3 body passes through unchanged under the old name', async () => {
     const lib = await mkdtemp(path.join(os.tmpdir(), 'music-lib-'))
     const mp3 = Buffer.concat([Buffer.from('ID3'), Buffer.alloc(200, 7)])
