@@ -17,7 +17,7 @@ import {
   GenStudioArtifactUnavailableError,
   isGenStudioInsufficientCredits,
   isGenStudioRouteExhausted,
-  isSubmissionUncertainCode,
+  evidenceHoldsUnknownOutcome,
   recoverTtsToFile as recoverTtsGenStudio,
   listTtsModels as listGenStudioTtsModels,
   listVoices as listGenStudioVoices,
@@ -1144,7 +1144,7 @@ export async function generateAudio(job: Job): Promise<void> {
       throw new Error(`Saved GenStudio task identity does not match ${chunkFilename}; no provider work was submitted.`)
     }
     const uncertainRecovery = exactEvidence
-      && isSubmissionUncertainCode(relatedEvidence[0]!.failure_code)
+      && evidenceHoldsUnknownOutcome(relatedEvidence[0])
     const terminalFailure = isTerminalGenStudioTaskFailure(reusableEntry) && !uncertainRecovery
     // Every forced request starts with a fresh identity. A quality candidate
     // therefore cannot replay the old active-base TTS task on its first run.

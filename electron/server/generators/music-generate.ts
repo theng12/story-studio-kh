@@ -49,6 +49,11 @@ import {
   upsertTrackMeta,
 } from '../services/music-library.js'
 import { measureTrackSeconds } from '../services/music-render.js'
+import {
+  pickDefaultMusicModel,
+  type MusicModelCapability,
+  type MusicRequestNeeds,
+} from '../contracts/music-model-choice.js'
 import type { Job } from '../models/types.js'
 
 /**
@@ -239,8 +244,9 @@ export async function saveMusicTrack(
  * A pure function so the rule is testable by calling it: the previous shape could only be pinned by
  * reading the source, and a source-level assertion cannot tell a live rule from a comment.
  */
-export function resolveMusicModel<T extends { id: string }>(
+export function resolveMusicModel<T extends { id: string } & MusicModelCapability>(
   models: readonly T[], requested: string | undefined | null,
+  needs: MusicRequestNeeds = { instrumental: true, hasLyrics: false },
 ): T {
   const wanted = (requested || '').trim()
   if (wanted) {
@@ -253,9 +259,19 @@ export function resolveMusicModel<T extends { id: string }>(
     }
     return named
   }
-  const first = models[0]
-  if (!first) throw new Error('GenStudio KH publishes no music model for this account.')
-  return first
+  if (!models.length) throw new Error('GenStudio KH publishes no music model for this account.')
+  // "The first published row" is only the right default when that row can make what is being
+  // asked for. A vocal-only model (YuE2: lyrics required, no instrumental switch) listed first
+  // would make every lyric-less top-up a certain refusal — see `contracts/music-model-choice.ts`,
+  // which the Music page uses too, so the model priced on screen is the one charged.
+  const usable = pickDefaultMusicModel(models, needs)
+  if (!usable) {
+    throw new Error(
+      'None of the music models GenStudio KH publishes can make this track: each one needs lyrics, '
+      + 'and this request has none. Nothing was charged. Pick a model or add lyrics.',
+    )
+  }
+  return usable
 }
 
 export async function generateMusicLibraryTracks(job: Job): Promise<void> {
@@ -270,7 +286,9 @@ export async function generateMusicLibraryTracks(job: Job): Promise<void> {
 
   // Resolve the model against the live catalogue rather than trusting a saved id.
   const models = await listMusicModels(apiKey)
-  const model = resolveMusicModel(models, params.model)
+  const model = resolveMusicModel(models, params.model, {
+    instrumental: params.instrumental !== false, hasLyrics: false,
+  })
 
   const apiKeys = { genstudio: apiKey }
   const planned = await planMusicTracks(

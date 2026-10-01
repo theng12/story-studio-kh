@@ -3416,6 +3416,20 @@ export function isSubmissionUncertainCode(code: unknown): boolean {
   return typeof code === 'string' && SUBMISSION_UNCERTAIN_CODES.has(code.trim().toUpperCase())
 }
 
+/**
+ * Does recorded evidence say the gateway still holds this job as an unknown outcome?
+ *
+ * The code alone is not enough (see `isGenStudioSubmissionUncertain`): the evidence entry also
+ * carries the envelope's `recovery_required` / `recovery_state`. A retry that reads such an entry
+ * as a settled failure mints a fresh identity and submits a second job while the first may still
+ * be adopted by the gateway.
+ */
+export function evidenceHoldsUnknownOutcome(
+  entry: { failure_code?: unknown; recovery_required?: unknown; recovery_state?: unknown } | null | undefined,
+): boolean {
+  return !!entry && (isSubmissionUncertainCode(entry.failure_code) || holdsUnknownOutcome(entry))
+}
+
 /** A temporary provider quota stop, in either dialect (`PROVIDER_QUOTA_EXHAUSTED` is the gateway's). */
 const QUOTA_EXHAUSTED_CODES: ReadonlySet<string> = new Set([
   GENSTUDIO_LANGUAGE_FAILURE_CODES.QUOTA_EXHAUSTED,
@@ -3592,7 +3606,11 @@ export function describeGenStudioLanguageFailure(code: string | null | undefined
  */
 export function isGenStudioSubmissionUncertain(error: unknown): boolean {
   if (error instanceof GenStudioTerminalFailureError) {
-    return isSubmissionUncertainCode(error.failureCode)
+    // A gateway hold (`recovery_required` / `unknown_outcome`) says the same thing whatever
+    // `failure_code` it carries: the gateway publishes `UNKNOWN_OUTCOME` for a restart or a Hub
+    // `uncertain` item and `SITE_CAPACITY_UNAVAILABLE` for an ambiguous read timeout, and neither
+    // is in the code list. Keyed on the code alone, a held chat job read as "proven uncharged".
+    return isSubmissionUncertainCode(error.failureCode) || error.unknownOutcome === true
   }
   if (!(error instanceof GenStudioApiError)) return false
   return isSubmissionUncertainCode(error.languageFailureCode) || isSubmissionUncertainCode(error.code)
@@ -3764,9 +3782,15 @@ export class GenStudioApiError extends Error {
 }
 
 /** A control request timed out before its HTTP outcome was known. */
-class GenStudioTransportTimeoutError extends Error {
+export class GenStudioTransportTimeoutError extends Error {
+  /** A transport signature (`isTransportFailure` reads `code`): a timeout is a dropped answer, not a user abort. */
+  readonly code = 'ETIMEDOUT'
   constructor(timeout: DOMException) {
-    super(timeout.message)
+    // NOT `timeout.message`. Node words it "The operation was aborted due to timeout", and every
+    // cancel check in Story matches /abort/ — so a 30 s gateway stall read as the owner pressing
+    // Cancel, and the audio generator logged "Cancelled." and skipped the chunk without counting
+    // a failure or retrying (audit 2026-10-01).
+    super(`GenStudio KH did not answer within the request time limit (${timeout.name})`)
     this.name = 'GenStudioTransportTimeoutError'
   }
 }

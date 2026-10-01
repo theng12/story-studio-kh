@@ -198,6 +198,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { CREDIT_BASIS_LABEL, describeMusicUnitCost, type PricedMusicModel } from '../../../utils/genstudio-credit-cost.js'
+import { pickDefaultMusicModel } from '../../../../electron/server/contracts/music-model-choice'
 
 const route = useRoute()
 const slug = computed(() => String(route.params.slug || ''))
@@ -263,7 +264,10 @@ const unmeasured = computed(() =>
  * discount tag on it, which is what `describeMusicUnitCost` renders.
  */
 const musicModels = ref<PricedMusicModel[]>([])
-const musicModel = computed(() => musicModels.value[0] || null)
+// The model the backend will charge for: the first published row that can make a lyric-less
+// track (a vocal-only model such as YuE2 cannot), chosen by the same function it uses.
+const musicModel = computed(() =>
+  pickDefaultMusicModel(musicModels.value, { instrumental: instrumental.value, hasLyrics: false }) || null)
 const musicCost = computed(() => describeMusicUnitCost(musicModel.value))
 
 async function loadMusicModels() {

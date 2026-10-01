@@ -1050,7 +1050,11 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
           if (isGenStudioInsufficientCredits(e)) throw e
           // Remember a settled provider failure so the next Retry mints a fresh
           // identity instead of replaying this dead job forever.
-          if (e instanceof GenStudioImageTerminalFailureError && attempt) {
+          //
+          // **Not for a job the gateway still holds as an unknown outcome**: it may yet be adopted
+          // as `succeeded`, and marking it dead here would mint a fresh identity on the next Retry
+          // and render the scene twice.
+          if (e instanceof GenStudioImageTerminalFailureError && attempt && !e.unknownOutcome) {
             await recordImageState(bgDir, filename, attempt, 'failed', e.jobId || acceptedTaskId, acceptedKey)
           }
           // The failures worth asking again about: a route that declined the
