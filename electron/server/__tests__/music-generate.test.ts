@@ -28,6 +28,7 @@ import {
   resolveMusicModel,
 } from '../generators/music-generate.js'
 import { FLEET_BUSY_RETRY_DELAYS_MS } from '../lib/genstudio-fleet-busy.js'
+import { pickDefaultMusicModel } from '../contracts/music-model-choice.js'
 
 const SRC = path.join(
   path.dirname(fileURLToPath(import.meta.url)), '..', 'generators', 'music-generate.ts')
@@ -234,6 +235,37 @@ describe('a retired model fails before anything is charged', () => {
   test('an empty catalogue refuses rather than returning nothing', () => {
     assert.throws(() => resolveMusicModel([], ''), /no music model/)
     assert.throws(() => resolveMusicModel([], 'suno-v5'), /no longer offered/)
+  })
+})
+
+/**
+ * Contract audit 2026-10-01 — the default model must be one that can make what is asked.
+ *
+ * The gateway lists the Hub's models in catalogue order and YuE2 comes first. YuE2's lane states
+ * `lyrics` required and "no instrumental switch", so `models[0]` for a lyric-less top-up is a
+ * certain Hub refusal. The gateway now publishes `requires_lyrics` / `supports_instrumental` from
+ * the lane contract; these pin that Story reads them.
+ */
+describe('the default music model can make a lyric-less track', () => {
+  const yue2 = { id: 'studio-hub::vanch007/mlx-Yue2-3B', requires_lyrics: true, supports_instrumental: false, supports_vocals: true }
+  const stable = { id: 'studio-hub::stabilityai/stable-audio-3-optimized' }
+  test('a vocal-only first row is skipped when there are no lyrics', () => {
+    assert.equal(resolveMusicModel([yue2, stable], '').id, stable.id)
+  })
+  test('the page and the generator choose the same row', () => {
+    assert.equal(pickDefaultMusicModel([yue2, stable], { instrumental: true, hasLyrics: false })?.id, stable.id)
+  })
+  test('with lyrics the vocal model is a fair first choice again', () => {
+    assert.equal(resolveMusicModel([yue2, stable], '', { instrumental: false, hasLyrics: true }).id, yue2.id)
+  })
+  test('unstated capabilities never rule a model out', () => {
+    assert.equal(resolveMusicModel([{ id: 'a', requires_lyrics: null }, { id: 'b' }], '').id, 'a')
+  })
+  test('if every model needs lyrics it refuses before anything is charged', () => {
+    assert.throws(() => resolveMusicModel([yue2], ''), /needs lyrics[\s\S]*Nothing was charged/)
+  })
+  test('a named model is never second-guessed', () => {
+    assert.equal(resolveMusicModel([yue2, stable], yue2.id).id, yue2.id)
   })
 })
 

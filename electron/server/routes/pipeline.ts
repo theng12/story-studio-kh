@@ -53,7 +53,7 @@ import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js
 import { listChatModels, listTranscriptionModels, publishedVideoControls } from '../lib/genstudio-client.js'
 import { resolveTranscriptionLanguage } from '../generators/subtitles.js'
 import { requireSceneClipGenStudioModel } from '../generators/scene-clip.js'
-import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
+import { resolveGenStudioModelId, unavailableLegacyModelMessage, unavailableTranscriptionModelMessage } from '../services/genstudio-model-migration.js'
 import { withLock } from '../lib/atomic-store.js'
 import { isDecodableImage } from '../lib/image-validation.js'
 import {
@@ -1266,7 +1266,7 @@ async function resolvePipelineTranscriptionParams(
   const modelId = resolveGenStudioModelId('transcription', requestedModel)
   if (!modelId) throw new Error(unavailableLegacyModelMessage('transcription', requestedModel || '(none)'))
   const selected = models.find(model => model.id === modelId)
-  if (!selected) throw new Error('The selected transcription model is no longer available.')
+  if (!selected) throw new Error(unavailableTranscriptionModelMessage(modelId))
   if (!selected.available) throw new Error('The selected transcription model is temporarily unavailable.')
   if (selected.locked) throw new Error('The selected transcription model is locked for this GenStudio account.')
   const language = resolveTranscriptionLanguage(selected, params.language)

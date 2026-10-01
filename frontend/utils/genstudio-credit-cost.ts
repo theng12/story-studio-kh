@@ -539,6 +539,9 @@ export interface PricedMusicModel extends PriceTruth {
   sale_ends_at?: string | null
   sale_disclaimer?: string | null
   outputs_per_request?: number | null
+  /** Published capability facts; null/absent means not stated. */
+  requires_lyrics?: boolean | null
+  supports_instrumental?: boolean | null
 }
 
 /**

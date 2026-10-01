@@ -84,8 +84,8 @@ describe('waiting for a Mac', () => {
     const base = { status: 'running', type: 'thumb_images', params: {} } as const
     const waiting = { reason: 'busy', next_try_at: null, since: '2026-09-30T09:00:00Z' }
     assert.equal(classifyJobControl({ ...base, genstudio_jobs: entry({ waiting }) }, { remoteCancellationAudited: true }).action, 'request-remote-cancel')
-    assert.notEqual(classifyJobControl({ ...base, genstudio_jobs: entry({}) }, { remoteCancellationAudited: true }).action, 'request-remote-cancel',
-      'rendering work is still never cancellable on `dispatched` alone')
+    assert.notEqual(classifyJobControl({ ...base, genstudio_jobs: entry({ cancellable: false }) }, { remoteCancellationAudited: true }).action, 'request-remote-cancel',
+      'rendering work the gateway says it cannot stop is not cancellable')
   })
 })
 

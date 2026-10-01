@@ -4629,7 +4629,14 @@ export async function joinActiveBulkSceneRender(opts: {
  *  safe points inside long-running loops so a user-cancelled job stops
  *  burning provider calls instead of running to completion. */
 export function isCancelled(jobId: string): boolean {
-  return cancelled.has(jobId)
+  if (cancelled.has(jobId)) return true
+  // **A remote cancellation of running work is the owner stopping the job.** The Story job stays
+  // `running` until GenStudio reports the terminal truth, but its executor must not go on to
+  // submit the next chunk or track: without this, cancelling one running narration chunk cancelled
+  // that chunk and the generator carried on with the rest. Read from the job, so it needs no
+  // second flag to clear; completion paths read `cancelled` directly and are unchanged.
+  const job = jobs.get(jobId)
+  return !!job && hasCancellationContext(job)
 }
 
 /** Thrown by `enqueue` when the same (project, episode, type) is already

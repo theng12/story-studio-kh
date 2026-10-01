@@ -33,6 +33,8 @@ function source(relative: string): string {
   return readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8')
 }
 
+const FOUR_HOURS_MS = 4 * 60 * 60_000
+
 /** No jitter: random() === 0.5 is the exact centre of the symmetric band. */
 const CENTRE = () => 0.5
 
@@ -44,7 +46,8 @@ function simulate(jobDurationMs: number, random: () => number = CENTRE): {
 } {
   let elapsed = 0
   let polls = 0
-  const deadline = GENSTUDIO_LONG_JOB_TIMEOUT_MS
+  // The cost model is per four hours of one stuck job; the client's own limit is now a week.
+  const deadline = FOUR_HOURS_MS
   while (elapsed < jobDurationMs && polls < 100_000) {
     elapsed += genStudioPollDelayMs({
       attempt: polls,
@@ -184,7 +187,7 @@ test('backoff can never overshoot the 4-hour deadline', () => {
 })
 
 test('a stuck job still gives up at the 4-hour ceiling, not later', () => {
-  const { observedAtMs } = simulate(GENSTUDIO_LONG_JOB_TIMEOUT_MS + 1)
+  const { observedAtMs } = simulate(FOUR_HOURS_MS + 1)
   assert.ok(
     observedAtMs <= GENSTUDIO_LONG_JOB_TIMEOUT_MS,
     `a widening interval pushed the deadline out to ${observedAtMs}ms`,
@@ -228,10 +231,10 @@ test('a 90-second job costs ~15 requests instead of 90', () => {
 })
 
 test('a stuck job costs under 1,000 requests instead of 14,400', () => {
-  const { polls } = simulate(GENSTUDIO_LONG_JOB_TIMEOUT_MS + 1)
+  const { polls } = simulate(FOUR_HOURS_MS + 1)
   assert.ok(polls < 1_000, `a stuck job still costs ${polls} polls`)
   // The flat 1s interval this replaced.
-  assert.equal(GENSTUDIO_LONG_JOB_TIMEOUT_MS / 1_000, 14_400)
+  assert.equal(FOUR_HOURS_MS / 1_000, 14_400)
 })
 
 test('real randomness keeps the stuck-job cost under 1,000 too', () => {
@@ -239,7 +242,7 @@ test('real randomness keeps the stuck-job cost under 1,000 too', () => {
   // spread does not push a real run over the target.
   let worst = 0
   for (let run = 0; run < 25; run++) {
-    worst = Math.max(worst, simulate(GENSTUDIO_LONG_JOB_TIMEOUT_MS + 1, Math.random).polls)
+    worst = Math.max(worst, simulate(FOUR_HOURS_MS + 1, Math.random).polls)
   }
   assert.ok(worst < 1_000, `worst simulated stuck-job cost was ${worst} polls`)
 })
