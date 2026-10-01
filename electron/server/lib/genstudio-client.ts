@@ -96,6 +96,17 @@ export const GENSTUDIO_POLL_JITTER_FRACTION = 0.2
 const POLL_CANCEL_CHECK_MS = 250
 
 const NETWORK_RETRY_ATTEMPTS = 4
+/**
+ * Attempts for a READ of an accepted job (every wait-loop poll and every reconnect read).
+ *
+ * Four attempts spanned ~3.5 s of backoff. The Gateway is restarted on this Mac to install new
+ * builds, and a restart takes longer than that, so an image/voice/video job already accepted and
+ * running fell out of its poll, got one automatic reconnect that hit the same gap, and surfaced as a
+ * failed item although the Gateway finished it a few seconds later. A job read is idempotent and
+ * the 4-hour deadline still bounds it; twelve attempts ride out ~35 s of backoff (0.5, 1, 2, then 4 s
+ * steps) and a Cancel still lands within a quarter second.
+ */
+export const GENSTUDIO_JOB_READ_ATTEMPTS = 12
 const CATALOG_RETRY_ATTEMPTS = 3
 const CATALOG_REQUEST_TIMEOUT_MS = 8_000
 const CATALOG_FRESH_MS = 5 * 60_000
@@ -5487,6 +5498,7 @@ async function waitForVideoJob(
       { headers: authorization(apiKey) },
       request,
       deadline,
+      undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
     ) as GenStudioVideoJob
     await reportState()
   }
@@ -5527,6 +5539,7 @@ async function recoverVideoWithGenStudioAdmitted(
     { headers: authorization(apiKey) },
     request,
     deadline,
+    undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
   ) as GenStudioVideoJob
   // Classify BEFORE polling. A job that already failed (or was cancelled)
   // cannot become a clip, and a poll loop would only re-read the same terminal
@@ -5803,6 +5816,7 @@ async function waitForMusicJob(
       { headers: authorization(apiKey) },
       request,
       deadline,
+      undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
     ) as GenStudioMusicJob
     await reportState()
   }
@@ -5862,6 +5876,7 @@ async function recoverMusicWithGenStudioAdmitted(
     { headers: authorization(apiKey) },
     request,
     deadline,
+    undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
   ) as GenStudioMusicJob
   // Classify BEFORE polling. A job that already failed cannot become a song,
   // and a poll loop would only re-read the same terminal record forever.
@@ -7059,6 +7074,7 @@ async function waitForChatJob(
       { headers: authorization(apiKey) },
       request,
       deadline,
+      undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
     ) as GenStudioChatJob
     await reportState()
   }
@@ -7089,6 +7105,7 @@ async function recoverChatJobAdmitted(
     { headers: authorization(apiKey) },
     request,
     deadline,
+    undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
   ) as GenStudioChatJob
   // Classify BEFORE polling: a job that already failed cannot become output,
   // and a poll loop would only re-read the same terminal record.
@@ -8016,6 +8033,7 @@ async function waitForImageJob(
       { headers: authorization(apiKey) },
       request,
       deadline,
+      undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
     ) as GenStudioImageJob
     await recordGenStudioEvidence('image.generation', current)
     await reportQueueState(request, current)
@@ -8093,6 +8111,7 @@ async function recoverImageWithGenStudioAdmitted(
     { headers: authorization(apiKey) },
     request,
     deadline,
+    undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
   ) as GenStudioImageJob
   // Classify BEFORE polling. A job that already failed (or was cancelled)
   // cannot become an artifact, and a poll loop would only re-read the same
@@ -8663,6 +8682,7 @@ async function waitForTranscriptionJob(
       { headers: authorization(apiKey) },
       request,
       deadline,
+      undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
     ) as GenStudioTranscriptionJob
     await reportState()
   }
@@ -8737,6 +8757,7 @@ async function recoverTranscriptionWithGenStudioAdmitted(
       { headers: authorization(apiKey) },
       request,
       deadline,
+      undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
     ) as GenStudioTranscriptionJob
   } catch (error) {
     if (error instanceof GenStudioApiError && error.status === 404) {
@@ -8927,6 +8948,7 @@ async function waitForJob(
       { headers: authorization(apiKey) },
       request,
       deadline,
+      undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
     ) as GenStudioJob
     await reportState()
   }
@@ -9022,6 +9044,7 @@ async function recoverTtsToFileAdmitted(
     { headers: authorization(apiKey) },
     request,
     deadline,
+    undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
   ) as GenStudioJob
   await completeTtsJobToFile(baseUrl, apiKey, outPath, current, request, deadline)
 }

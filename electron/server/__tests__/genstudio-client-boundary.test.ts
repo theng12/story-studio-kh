@@ -25,6 +25,7 @@ import {
   GenStudioApiError,
   GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS,
   GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
+  GENSTUDIO_JOB_READ_ATTEMPTS,
   GENSTUDIO_LONG_JOB_TIMEOUT_MS,
   listImageModels,
   listMusicModels,
@@ -1504,7 +1505,7 @@ test('image generation automatically reconnects an accepted task after polling i
       }
       if (url.endsWith('/v1/images/image_auto_reconnect')) {
         polls++
-        if (polls <= 4) {
+        if (polls <= GENSTUDIO_JOB_READ_ATTEMPTS) { // one whole read budget lost, so the poll gives up and reconnects
           return Response.json({ detail: 'temporary gateway loss' }, {
             status: 503,
             headers: { 'Retry-After': '0' },
@@ -1666,7 +1667,7 @@ test('transcription automatically reconnects an accepted task after polling inte
       }
       if (url.endsWith('/v1/transcriptions/stt_auto_reconnect')) {
         polls++
-        if (polls <= 4) {
+        if (polls <= GENSTUDIO_JOB_READ_ATTEMPTS) { // one whole read budget lost, so the poll gives up and reconnects
           return Response.json({ detail: 'temporary gateway loss' }, {
             status: 503,
             headers: { 'Retry-After': '0' },

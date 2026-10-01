@@ -54,6 +54,7 @@ import { readVideoVisualSource } from '../services/video-visual-source.js'
 import { parseSavedScenePlanPacing } from '../contracts/pacing.js'
 import type { JobType, SceneClipVariantSelection, ScenePlan, ScenePlanEntry } from '../models/types.js'
 import { RENDER_STATUS_FILENAME } from '../services/scene-render-status.js'
+import { streamTo } from '../lib/stream-file.js'
 
 export const router = Router()
 
@@ -242,7 +243,7 @@ function streamLocalMedia(
   }
   if (range.kind === 'full') {
     res.setHeader('Content-Length', String(size))
-    createReadStream(filePath).pipe(res)
+    streamTo(res, createReadStream(filePath))
     return
   }
 
@@ -250,7 +251,7 @@ function streamLocalMedia(
   res.status(206)
   res.setHeader('Content-Range', `bytes ${range.start}-${range.end}/${size}`)
   res.setHeader('Content-Length', String(contentLength))
-  createReadStream(filePath, { start: range.start, end: range.end }).pipe(res)
+  streamTo(res, createReadStream(filePath, { start: range.start, end: range.end }))
 }
 
 async function validateSceneRenderRequest(
@@ -1500,7 +1501,7 @@ router.get('/projects/:slug/scene-review/:episodeId/image/:sceneId', async (req,
     // Chunked on purpose: a render can replace this file between a stat and
     // the stream, and a declared length that no longer matches aborts the
     // response mid-image.
-    createReadStream(imagePath).pipe(res)
+    streamTo(res, createReadStream(imagePath))
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to serve scene image'))
   }

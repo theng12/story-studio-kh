@@ -65,6 +65,7 @@ import {
 } from '../services/audio-workflow-readiness.js'
 import { truncateChars } from '../lib/well-formed-text.js'
 import { readVideoVisualSource, setVideoVisualSource } from '../services/video-visual-source.js'
+import { streamTo } from '../lib/stream-file.js'
 
 export const router = Router()
 
@@ -527,10 +528,10 @@ router.get('/projects/:slug/video-editor/preview-audio', async (req, res) => {
       res.set('Content-Range', `bytes ${start}-${end}/${stat.size}`)
       res.set('Content-Length', (end - start + 1).toString())
       const { createReadStream } = await import('fs')
-      createReadStream(filePath, { start, end }).pipe(res)
+      streamTo(res, createReadStream(filePath, { start, end }))
     } else {
       const { createReadStream } = await import('fs')
-      createReadStream(filePath).pipe(res)
+      streamTo(res, createReadStream(filePath))
     }
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Audio preview failed'))
@@ -586,10 +587,10 @@ router.get('/projects/:slug/video-editor/preview-media', async (req, res) => {
       res.status(206)
       res.set('Content-Range', `bytes ${start}-${end}/${stat.size}`)
       res.set('Content-Length', String(end - start + 1))
-      createReadStream(filePath, { start, end }).pipe(res)
+      streamTo(res, createReadStream(filePath, { start, end }))
     } else {
       res.set('Content-Length', String(stat.size))
-      createReadStream(filePath).pipe(res)
+      streamTo(res, createReadStream(filePath))
     }
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Media preview failed'))
@@ -769,7 +770,7 @@ router.get('/projects/:slug/video-editor/preview-transition', async (req, res) =
     res.set('Content-Length', stat.size.toString())
     res.set('Cache-Control', 'public, max-age=86400')
     const stream = (await import('fs')).createReadStream(cached)
-    stream.pipe(res)
+    streamTo(res, stream)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Preview render failed'))
   }
@@ -986,7 +987,7 @@ router.get('/projects/:slug/video-editor/preview-animation', async (req, res) =>
     res.set('Content-Length', stat.size.toString())
     res.set('Cache-Control', 'public, max-age=86400')
     const stream = (await import('fs')).createReadStream(cached)
-    stream.pipe(res)
+    streamTo(res, stream)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Animation preview render failed'))
   }
@@ -1777,7 +1778,7 @@ function streamPreview(res: any, file: string): void {
   res.set('Content-Type', 'video/webm')
   res.set('Content-Length', stat.size.toString())
   res.set('Cache-Control', 'public, max-age=86400')
-  createReadStream(file).pipe(res)
+  streamTo(res, createReadStream(file))
 }
 
 /**
