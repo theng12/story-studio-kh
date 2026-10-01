@@ -61,3 +61,23 @@ test('compact writes one line of JSON that reads back identically; the default s
   assert.deepEqual(JSON.parse(compact), value)
   assert.deepEqual(JSON.parse(pretty), value)
 })
+
+test('writeAtomic (docx, manifests, archive records) cleans up the same way', async () => {
+  const { writeAtomic } = await import('../lib/sync-safe.js')
+  const dir = path.join(tempDir, 'sync-safe')
+  await fs.mkdir(dir, { recursive: true })
+  const realWriteFile = fs.writeFile.bind(fs)
+  ;(fs as any).writeFile = async (file: string, data: string | Buffer, ...rest: any[]) => {
+    if (String(file).includes('.tmp-')) {
+      await realWriteFile(file, String(data).slice(0, 8), ...rest)
+      throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' })
+    }
+    return realWriteFile(file, data, ...rest)
+  }
+  try {
+    await assert.rejects(() => writeAtomic(path.join(dir, 'out.docx'), 'x'.repeat(10_000)), { code: 'ENOSPC' })
+  } finally {
+    ;(fs as any).writeFile = realWriteFile
+  }
+  assert.deepEqual(await fs.readdir(dir), [])
+})
