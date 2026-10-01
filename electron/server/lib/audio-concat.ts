@@ -61,6 +61,13 @@ export async function homogenizeForConcat(
   workDir: string,
 ): Promise<{ files: string[]; reencoded: number }> {
   if (files.length < 2) return { files: [...files], reencoded: 0 }
+  // A path may repeat (the same silence clip between every chapter): handle each once.
+  const unique = [...new Set(files)]
+  if (unique.length < files.length) {
+    const result = await homogenizeForConcat(unique, workDir)
+    const byOriginal = new Map(unique.map((file, index) => [file, result.files[index]!]))
+    return { files: files.map(file => byOriginal.get(file)!), reencoded: result.reencoded }
+  }
   const signatures: Array<string | null> = []
   for (let i = 0; i < files.length; i += 4) {
     signatures.push(...await Promise.all(files.slice(i, i + 4).map(probeAudioSignature)))

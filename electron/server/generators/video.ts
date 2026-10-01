@@ -4106,7 +4106,7 @@ async function prepareMusicTrack(
 
 // ── Prepare Narration with Gaps Between Chapters ─────────────────────────
 
-async function prepareNarrationWithGaps(
+export async function prepareNarrationWithGaps(
   chapterPaths: string[],
   gapSeconds: number,
   tempDir: string,
@@ -4137,16 +4137,17 @@ async function prepareNarrationWithGaps(
 
   // Build concat list: chapter1 → silence → chapter2 → silence → chapter3 ...
   const listPath = path.join(tempDir, 'narration_list.txt')
-  const lines: string[] = []
-  const esc = formatConcatFileLine
-
+  const items: string[] = []
   for (let i = 0; i < validChapters.length; i++) {
-    lines.push(esc(validChapters[i]))
+    items.push(validChapters[i])
     // Insert silence between chapters (not after the last one)
-    if (i < validChapters.length - 1 && silenceFile) {
-      lines.push(esc(silenceFile))
-    }
+    if (i < validChapters.length - 1 && silenceFile) items.push(silenceFile)
   }
+  // Imported chapters can be WAV/M4A bytes under an .mp3 name; the concat demuxer would read them
+  // (and the MP3 silence) with the first file's codec and silently drop the rest.
+  const { files: concatItems, reencoded } = await homogenizeForConcat(items, path.join(tempDir, 'narration_norm'))
+  if (reencoded) job.output_lines.push(`Narration files differ in format; re-encoded ${reencoded} to one format so none are dropped`)
+  const lines = concatItems.map(formatConcatFileLine)
 
   await fs.writeFile(listPath, lines.join('\n') + '\n')
 

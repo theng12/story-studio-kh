@@ -71,3 +71,27 @@ describe('homogenizeForConcat', () => {
     assert.equal(await probeAudioSignature(junk), null)
   })
 })
+
+describe('narration with chapter gaps', () => {
+  test('a WAV chapter imported under an .mp3 name does not drop the rest of the narration', async () => {
+    const { prepareNarrationWithGaps } = await import('../generators/video.js')
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'narration-gap-'))
+    const wavAsMp3 = path.join(dir, 'ch1.mp3'); tone(wavAsMp3, 300, 44100, 'pcm_s16le', ['-f', 'wav'])
+    const real = path.join(dir, 'ch2.mp3'); tone(real, 500, 44100, 'libmp3lame')
+    const job: any = { output_lines: [] }
+    const out = await prepareNarrationWithGaps([wavAsMp3, real], 1, dir, job)
+    assert.ok(Math.abs(seconds(out) - 7) < 0.2, `assembled ${seconds(out)} s, expected ~7 (3 + 1 gap + 3)`)
+    assert.match(job.output_lines.join('\n'), /re-encoded/)
+  })
+
+  test('ordinary MP3 chapters keep the direct path (nothing re-encoded) and repeat the same gap clip', async () => {
+    const { prepareNarrationWithGaps } = await import('../generators/video.js')
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'narration-gap-'))
+    const chapters = ['a', 'b', 'c'].map(n => path.join(dir, `${n}.mp3`))
+    chapters.forEach((c, i) => tone(c, 300 + i * 100, 24000, 'libmp3lame'))
+    const job: any = { output_lines: [] }
+    const out = await prepareNarrationWithGaps(chapters, 1, dir, job)
+    assert.ok(Math.abs(seconds(out) - 11) < 0.25, `assembled ${seconds(out)} s, expected ~11`)
+    assert.doesNotMatch(job.output_lines.join('\n'), /re-encoded/)
+  })
+})
