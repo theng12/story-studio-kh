@@ -87,6 +87,8 @@ export interface MediaCleanupPreview {
   total_bytes: number
   blocked_reasons: string[]
   preset?: 'archive_episode'
+  /** The `_trash` folder(s) removed files land in, shown in the confirm text so the owner never has to choose a destination. */
+  trash_roots: string[]
   /** What `compress` mode would do; the JPEG figure is an estimate from the measured ratio. */
   estimate: {
     compress_files: number
@@ -576,6 +578,10 @@ async function buildPreview(
     total_bytes: files.reduce((sum, file) => sum + file.bytes, 0),
     blocked_reasons: [...new Set(episodeResults.flatMap(episode => episode.blocked_reasons))],
     ...(input.preset === 'archive_episode' ? { preset: 'archive_episode' as const } : {}),
+    trash_roots: [...new Set(files.map((file) => {
+      const at = file.trash_path.indexOf(`${path.sep}_trash${path.sep}`)
+      return at < 0 ? path.dirname(file.trash_path) : file.trash_path.slice(0, at + '/_trash'.length)
+    }))],
     estimate: {
       compress_files: shrinkable.length,
       compress_bytes_before: sum(shrinkable),

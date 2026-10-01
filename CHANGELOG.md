@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.245 — 2026-10-01
+
+- **"Free up space" is now easy to find and asks you for no folder.** It is the first thing on Settings →
+  Files & maintenance, has its own **Free up space** link in the project sidebar, and appears on every
+  uploaded episode in the Upload Center (Publish). The list of uploaded episodes loads by itself, with the
+  episodes not yet freed already ticked, and one button, "Free up space for N selected", shows how much it will
+  free and which `_trash` folder the files go to before you confirm. Nothing is deleted; you empty `_trash`
+  yourself, and episodes without a verified YouTube upload are never touched.
+- **The two folder pickers are out of the way.** The old "Archive uploaded videos" box (a "Look for videos in"
+  folder and a "Move them to" folder) is now a collapsed "Advanced: move uploaded videos to another drive"
+  section, and the "copy to another folder" choice in the media review is an advanced option. The default is
+  always the project's own `_trash`.
+
+---
+
 ## v1.4.244 — 2026-09-30
 
 - **"Free up space" now has a one-click "Archive episode", and nothing it removes is ever deleted.** For an

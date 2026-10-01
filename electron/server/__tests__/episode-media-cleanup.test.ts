@@ -827,6 +827,8 @@ describe('compress scene images (Archive episode)', () => {
     assert.deepEqual(bill.files.map(file => file.path).sort(), [chapter, clip, episode.final, scene].sort())
     assert.equal(bill.estimate.compress_files, 1)
     assert.equal(bill.estimate.trash_files, 3)
+    // No folder to choose: the confirm text names the project's own _trash.
+    assert.deepEqual(bill.trash_roots, [path.dirname(trashDir())])
     assert.equal(bill.estimate.trash_bytes, 'clip'.length + 'chapter'.length + `final-EP0001`.length)
     await assert.rejects(cleanup.startMediaCleanupRun(SLUG, { preview_id: bill.preview_id, mode: 'remove' }), /Archive episode preset/)
 

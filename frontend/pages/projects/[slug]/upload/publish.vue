@@ -199,6 +199,10 @@
                 v-if="renderState(ep) === 'ready' && !assignedChannel"
                 :to="`/projects/${slug}/settings#youtube`" class="btn btn-ghost btn-sm"
               >Assign channel</NuxtLink>
+              <NuxtLink
+                v-if="uploadState(ep) === 'succeeded'" :to="`/projects/${slug}/settings#free-up-space`"
+                class="btn btn-ghost btn-sm" title="Shrink images and move clips, chapter narration and the final video to this project's _trash"
+              >Free up space</NuxtLink>
               <button
                 v-if="associatedVideoId(ep) && assignedChannel" class="btn btn-ghost btn-sm forget-upload" type="button"
                 :disabled="busy !== ''" @click="forgetUpload(ep)"

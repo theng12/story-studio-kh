@@ -1,6 +1,6 @@
 <template>
   <div class="uc-overview">
-    <NuxtLink :to="`/projects/${slug}/settings#free-up-space`" class="btn btn-sm">Free up space from uploaded episodes</NuxtLink>
+    <NuxtLink :to="`/projects/${slug}/settings#free-up-space`" class="btn btn-sm btn-primary">Free up space</NuxtLink>
     <p v-if="loading" class="hint">Loading what needs your attention…</p>
     <p v-else-if="loadError" class="result err">{{ loadError }}</p>
 

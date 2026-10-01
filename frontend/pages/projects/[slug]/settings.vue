@@ -738,11 +738,15 @@
       <header class="settings-section-head">
         <div>
           <h3>{{ activeTab === 'maintenance' ? 'Library & exports' : 'Project storage' }}</h3>
-          <p v-if="activeTab === 'maintenance'">Choose the shared Library, see where exports land, and archive uploaded videos.</p>
+          <p v-if="activeTab === 'maintenance'">Free up space from uploaded episodes, choose the shared Library, and see where exports land.</p>
           <p v-else>Keep this project portable, inspect episode usage, and manage recovery data.</p>
         </div>
         <span v-if="activeTab === 'files'" class="settings-section-count">{{ storage ? formatBytes(storage.project_bytes_total) : 'Not scanned' }}</span>
       </header>
+
+      <!-- Free up space comes first on this tab: it is the most-wanted action here, and
+           it needs no folder choice (files go to the project's own _trash). -->
+      <MediaCleanupPanel v-if="activeTab === 'maintenance'" :slug="slug" />
 
       <!-- ── Cloud Sync Overview (top-of-tab indicator) ────────────────
            Surfaces all three storage subsystems with their current state
@@ -897,8 +901,8 @@
       <!-- v1.4.4 — Archive uploaded videos. Library-wide, unlike everything
            else on this tab: he wants one button that clears finished films out
            of the way across every channel at once. -->
-      <div v-if="activeTab === 'maintenance'" id="archive-section" class="storage-section storage-surface">
-        <h4><span class="storage-section-icon" aria-hidden="true">📦</span>Archive uploaded videos</h4>
+      <details v-if="activeTab === 'maintenance'" id="archive-section" class="storage-section storage-surface" :open="archiveBusy || !!archiveResult">
+        <summary><h4 class="archive-summary"><span class="storage-section-icon" aria-hidden="true">📦</span>Advanced: move uploaded videos to another drive</h4></summary>
         <p class="text-muted hint">
           Moves finished videos that are <strong>confirmed uploaded to YouTube</strong> into a folder
           you choose, so what is left is a folder of finished films you can back up, park on a slow
@@ -1003,9 +1007,7 @@
             <li v-for="w in archiveResult.warnings" :key="w">{{ w }}</li>
           </ul>
         </div>
-      </div>
-
-      <MediaCleanupPanel :slug="slug" />
+      </details>
 
       <!-- v1.4.5 — read-only. This panel used to Save and Clear a per-machine
            export root, but v1.4.3 made that folder derived (`<Library>/Exports`)
@@ -1020,7 +1022,7 @@
         <p class="text-muted hint">
           New renders are saved into the <code>Exports</code> folder inside your Library. This is not
           a setting — move your Library in the section above to change it, or use
-          <strong>Archive uploaded videos</strong> to move finished films somewhere else entirely.
+          <strong>Move uploaded videos to another drive</strong> to move finished films somewhere else entirely.
         </p>
         <div class="external-root-row">
           <code class="path-display">{{ externalRootSavedValue || '(loading)' }}</code>
@@ -5497,6 +5499,8 @@ async function deleteProject() {
 
 /* ── Storage tab ─────────────────────────────────────────────────────── */
 .storage-panel { overflow: hidden; }
+#archive-section > summary { cursor: pointer; }
+.archive-summary { display: inline; margin: 0; }
 .storage-section h4 {
   margin: 0 0 6px;
   font-size: 14px;
