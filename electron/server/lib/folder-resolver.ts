@@ -22,6 +22,7 @@
 import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
+import { findDirLevelOrder } from './dir-search.js'
 import { episodeDirNameMatchesCode } from '../services/asset-status.js'
 
 /** Strip the user-applied "✅ " done-marker prefix from a folder name. */
@@ -131,31 +132,19 @@ export async function findEpisodeDir(
   const exactName = opts.titleHint ? `${code} - ${opts.titleHint}` : null
   const codeUpper = code.toUpperCase()
 
-  async function searchRecursive(dir: string, depth: number): Promise<string | null> {
-    if (depth > maxDepth) return null
-    try {
-      const entries = await fs.readdir(dir, { withFileTypes: true })
-      if (exactName) {
-        for (const entry of entries) {
-          if (!entry.isDirectory()) continue
-          if (cleanName(entry.name) === exactName) return path.join(dir, entry.name)
-        }
-      }
+  return findDirLevelOrder(rootDir, maxDepth, (entries, dir) => {
+    if (exactName) {
       for (const entry of entries) {
         if (!entry.isDirectory()) continue
-        if (episodeDirNameMatchesCode(entry.name, codeUpper)) {
-          return path.join(dir, entry.name)
-        }
+        if (cleanName(entry.name) === exactName) return path.join(dir, entry.name)
       }
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue
-        const found = await searchRecursive(path.join(dir, entry.name), depth + 1)
-        if (found) return found
-      }
-    } catch { /* skip unreadable dirs */ }
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      if (episodeDirNameMatchesCode(entry.name, codeUpper)) return path.join(dir, entry.name)
+    }
     return null
-  }
-  return searchRecursive(rootDir, 0)
+  })
 }
 
 /**
