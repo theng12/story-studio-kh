@@ -13,6 +13,7 @@ import { getAppSetting, getGenStudioUrl, getLanguageTimeoutMs, setAppSetting, ge
 import { balancedReplacementSettlement, generationReplacementKey, replacementAllowance, type ReplacementKind } from '../services/generation-paid-replacement.js'
 import type { GenerationReplacementAttempt, Job } from '../models/types.js'
 import { runFfmpeg } from './ffmpeg-utils.js'
+import { probeAudioSignature } from './audio-concat.js'
 import {
   GenStudioAdmissionPool,
   type GenStudioAdmissionState,
@@ -9032,7 +9033,19 @@ async function completeTtsJobToFile(
     }
     if (!downloaded) throw downloadError instanceof Error ? downloadError : new Error('GenStudio KH audio download failed')
     await fs.mkdir(path.dirname(outPath), { recursive: true })
-    await runFfmpeg(['-y', '-i', tempPath, '-c:a', 'libmp3lame', '-b:a', '96k', outPath])
+    // Cloud providers already deliver MP3 (the Hub delivers WAV): re-encoding one to 96 kbps MP3 is a
+    // second lossy pass and a few seconds of CPU per chunk for nothing, so keep its bytes as they are.
+    if ((await probeAudioSignature(tempPath))?.startsWith('mp3,')) {
+      const staged = `${outPath}.partial-${process.pid}`
+      try {
+        await fs.copyFile(tempPath, staged)
+        await fs.rename(staged, outPath)
+      } finally {
+        await fs.rm(staged, { force: true }).catch(() => {})
+      }
+    } else {
+      await runFfmpeg(['-y', '-i', tempPath, '-c:a', 'libmp3lame', '-b:a', '96k', outPath])
+    }
   } finally {
     await fs.rm(tempPath, { force: true }).catch(() => {})
   }
