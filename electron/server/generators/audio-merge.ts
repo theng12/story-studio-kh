@@ -15,6 +15,7 @@ import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 import { findDirLevelOrder } from '../lib/dir-search.js'
+import { homogenizeForConcat } from '../lib/audio-concat.js'
 import { spawn } from 'child_process'
 import * as pm from '../services/project-manager.js'
 import { trackChild } from '../services/job-queue.js'
@@ -1245,7 +1246,9 @@ async function mixAudioLayers(opts: MixOptions): Promise<void> {
       // Concatenate multiple music files first
       job.output_lines.push(`  Concatenating ${cleanedFiles.length} music files...`)
       const musicListPath = path.join(tempDir, 'music_list.txt')
-      const musicLines = cleanedFiles.map(f => escPath(f))
+      const { files: concatInputs, reencoded } = await homogenizeForConcat(cleanedFiles, path.join(tempDir, 'music_norm'))
+      if (reencoded) job.output_lines.push(`  Music files differ in format; re-encoded ${reencoded} to one format so none are dropped`)
+      const musicLines = concatInputs.map(f => escPath(f))
       await fs.writeFile(musicListPath, musicLines.join('\n') + '\n')
 
       const musicConcatPath = path.join(tempDir, 'music_concat.mp3')

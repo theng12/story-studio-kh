@@ -23,6 +23,7 @@ import { resolveSubfolderNames, resolveScenePlanPath, resolveEpisodePathsByCodeW
 // and title-hint semantics moved there verbatim).
 import { findEpisodeDir, findSubfolder as resolveSubfolder } from '../lib/folder-resolver.js'
 import { findEpisodeSubfolderDir, resolveEpisodeSubfolderDir } from '../services/media-root.js'
+import { homogenizeForConcat } from '../lib/audio-concat.js'
 import { runFfmpeg, getAudioDuration, checkFfmpeg, hasDrawtextFilter, formatConcatFileLine, appendCappedTail, stillDecoderArgs, escapeFilterPath } from '../lib/ffmpeg-utils.js'
 import { renderRevealClip, revealClipPath } from '../lib/reveal-render.js'
 import {
@@ -4084,7 +4085,9 @@ async function prepareMusicTrack(
 
   // Multiple files — concatenate them into one track with normalized sample rate
   const musicListPath = path.join(tempDir, 'music_list.txt')
-  const lines = validFiles.map(f => formatConcatFileLine(f))
+  const { files: concatInputs, reencoded } = await homogenizeForConcat(validFiles, path.join(tempDir, 'music_norm'))
+  if (reencoded) job.output_lines.push(`Music files differ in format; re-encoded ${reencoded} to one format so none are dropped`)
+  const lines = concatInputs.map(f => formatConcatFileLine(f))
   await fs.writeFile(musicListPath, lines.join('\n') + '\n')
 
   const concatenatedPath = path.join(tempDir, 'music_concat.mp3')
