@@ -76,3 +76,23 @@ test('a secret in a held job is still redacted on disk after later writes', asyn
   assert.ok(!raw.includes('sk-abcdefghijklmnop'), 'the key never reaches disk')
   assert.ok(!raw.includes('abcdefghijklmnopqrstuv'), 'the bearer token never reaches disk')
 })
+
+test('a finished job keeps only its last 500 log lines on disk', async () => {
+  const project = await pm.createProject({ name: 'Log Cap' })
+  const lines = Array.from({ length: 1200 }, (_, i) => `line ${i}`)
+  const base = (id: string, status: Job['status']): Job => ({
+    job_id: id, project_slug: project.slug, type: 'script-only', episode_id: 'EP0001', title: id, status,
+    created_at: new Date().toISOString(), started_at: new Date().toISOString(),
+    finished_at: status === 'done' ? new Date().toISOString() : null, error: null, output_lines: [...lines], params: {},
+  })
+  await jq.checkpointJobState(base('log-done', 'done'))
+  await jq.checkpointJobState(base('log-error', 'error'))
+  await jq._waitForJobPersistenceForTesting()
+  const persisted = (JSON.parse(await fs.readFile(path.join(tempDir, 'projects', project.slug, 'jobs.json'), 'utf8')) as { jobs: Job[] }).jobs
+  for (const id of ['log-done', 'log-error']) {
+    const job = persisted.find(candidate => candidate.job_id === id)!
+    assert.equal(job.output_lines.length, jq.MAX_FINISHED_JOB_OUTPUT_LINES)
+    assert.equal(job.output_lines[0], 'line 700')
+    assert.equal(job.output_lines.at(-1), 'line 1199')
+  }
+})

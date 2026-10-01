@@ -1853,7 +1853,7 @@ async function drainProjectPersistence(projectSlug: string, state: ProjectPersis
       // on every write (up to 750 history jobs per project, structuredClone + a deep secret scan
       // each) cost 0.5-2.5 s of main-process CPU per write on a busy project.
       for (const [jobId, job] of baseline) {
-        if (!alreadySafeJobs.has(job)) baseline.set(jobId, markSafe(safeJob(job)))
+        if (!alreadySafeJobs.has(job)) baseline.set(jobId, markSafe(capFinishedLog(safeJob(job))))
       }
       const baselineEntries = new Map(baseline)
       const snapshot = retainJobsForPersistence(Array.from(baseline.values()))
@@ -1889,6 +1889,16 @@ async function drainProjectPersistence(projectSlug: string, state: ProjectPersis
   }
 }
 
+/** Finished jobs keep their last N log lines on disk and in the durable baseline. */
+export const MAX_FINISHED_JOB_OUTPUT_LINES = 500
+function capFinishedLog<T extends Pick<Job, 'status' | 'output_lines'>>(job: T): T {
+  if (TERMINAL_JOB_STATUSES.has(job.status) && Array.isArray(job.output_lines)
+    && job.output_lines.length > MAX_FINISHED_JOB_OUTPUT_LINES) {
+    job.output_lines = job.output_lines.slice(-MAX_FINISHED_JOB_OUTPUT_LINES)
+  }
+  return job
+}
+
 /** Baseline records that are already redacted copies, so a write does not redact them again. */
 const alreadySafeJobs = new WeakSet<object>()
 function markSafe<T extends object>(job: T): T {
@@ -1901,7 +1911,7 @@ function applyProjectMutation(state: ProjectPersistenceState, mutation: ProjectJ
   else {
     const previous = state.baseline!.get(mutation.jobId) || null
     const next = mutation.transform(previous ? structuredClone(previous) : null)
-    if (next) state.baseline!.set(mutation.jobId, markSafe(safeJob(next)))
+    if (next) state.baseline!.set(mutation.jobId, markSafe(capFinishedLog(safeJob(next))))
   }
   const revision = ++state.revision
   state.dirty = true
