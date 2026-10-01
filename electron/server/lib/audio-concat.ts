@@ -41,6 +41,17 @@ export async function probeAudioSignature(file: string): Promise<string | null> 
 }
 
 /**
+ * What must match for the demuxer to read two files as one stream. MP3 only needs the codec to match:
+ * its frames carry their own sample rate and channel layout and the join is clean (measured: 24 kHz
+ * mono + 44.1 kHz stereo MP3 = the exact sum), so an all-MP3 list is never re-encoded for that. AAC
+ * (and anything else) also needs the same rate and channel count.
+ */
+function concatKey(signature: string | null): string | null {
+  if (!signature) return null
+  return signature.startsWith('mp3,') ? 'mp3' : signature
+}
+
+/**
  * Returns the files to put in the concat list, in the same order. Anything that
  * had to be re-encoded is written into `workDir` (the caller owns that folder
  * and removes it); the originals are never touched.
@@ -54,7 +65,8 @@ export async function homogenizeForConcat(
   for (let i = 0; i < files.length; i += 4) {
     signatures.push(...await Promise.all(files.slice(i, i + 4).map(probeAudioSignature)))
   }
-  if (signatures.every(signature => signature !== null && signature === signatures[0])) {
+  const keys = signatures.map(concatKey)
+  if (keys.every(key => key !== null && key === keys[0])) {
     return { files: [...files], reencoded: 0 }
   }
   await fs.mkdir(workDir, { recursive: true })

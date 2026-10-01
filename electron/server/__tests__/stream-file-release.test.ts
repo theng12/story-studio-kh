@@ -14,6 +14,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { PassThrough, Readable } from 'node:stream'
 import { streamTo } from '../lib/stream-file.js'
+import { waitFor } from './_timing.js'
 
 test('the source is destroyed when the client aborts, with a real file and a real socket', async () => {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'stream-file-')), 'big.bin')
@@ -33,8 +34,7 @@ test('the source is destroyed when the client aborts, with a real file and a rea
         req.on('error', () => {})
       })
     }
-    const deadline = Date.now() + 5_000
-    while (sources.some(source => !source.destroyed) && Date.now() < deadline) await new Promise(r => setTimeout(r, 25))
+    await waitFor(() => sources.length === 5 && sources.every(source => source.destroyed), { label: 'aborted downloads to release their files' })
     assert.equal(sources.length, 5)
     assert.ok(sources.every(source => source.destroyed), 'every aborted download released its file')
   } finally {
@@ -53,7 +53,7 @@ test('a read error is contained: no uncaught exception, the response is torn dow
   console.warn = (...args: unknown[]) => { warnings.push(args.join(' ')) }
   try {
     streamTo(res as any, source)
-    await new Promise(resolve => setTimeout(resolve, 50))
+    await waitFor(() => res.destroyed && warnings.length > 0, { label: 'the response to be torn down and the failure logged' })
     assert.equal(uncaught, null)
     assert.equal(res.destroyed, true)
     assert.match(warnings.join('\n'), /file response failed: EIO/)

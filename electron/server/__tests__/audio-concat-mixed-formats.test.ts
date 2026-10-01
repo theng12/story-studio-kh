@@ -49,6 +49,15 @@ describe('homogenizeForConcat', () => {
     assert.deepEqual(result, { files: [a, b], reencoded: 0 })
   })
 
+  test('MP3s at different sample rates are left alone and still stitch to the sum', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'concat-mp3-'))
+    const a = path.join(dir, 'a.mp3'); tone(a, 440, 44100, 'libmp3lame')
+    const b = path.join(dir, 'b.mp3'); tone(b, 660, 24000, 'libmp3lame')
+    const result = await homogenizeForConcat([a, b], path.join(dir, 'norm'))
+    assert.deepEqual(result, { files: [a, b], reencoded: 0 })
+    assert.ok(Math.abs(await stitch(dir, [a, b]) - 6) < 0.1)
+  })
+
   test('one file and an empty list need no probing', async () => {
     assert.deepEqual(await homogenizeForConcat([], '/nonexistent'), { files: [], reencoded: 0 })
     assert.deepEqual(await homogenizeForConcat(['/nonexistent/x.mp3'], '/nonexistent'), { files: ['/nonexistent/x.mp3'], reencoded: 0 })
