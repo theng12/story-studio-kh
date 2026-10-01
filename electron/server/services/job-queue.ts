@@ -1862,7 +1862,7 @@ async function drainProjectPersistence(projectSlug: string, state: ProjectPersis
       assertWriteIsolatedInTests(p, 'job-queue')
       await withLock(p, async () => {
         if (jobFileLockProbeForTesting) await jobFileLockProbeForTesting('persist', p)
-        await writeJsonAtomic(p, { jobs: snapshot })
+        await writeJsonAtomic(p, { jobs: snapshot }, { compact: true })
         jobPersistenceCounters.atomic_writes++
         for (const [jobId, captured] of baselineEntries) {
           if (!retainedIds.has(jobId) && baseline.get(jobId) === captured) baseline.delete(jobId)
