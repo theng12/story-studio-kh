@@ -65,7 +65,7 @@ import {
 } from '../services/audio-workflow-readiness.js'
 import { truncateChars } from '../lib/well-formed-text.js'
 import { readVideoVisualSource, setVideoVisualSource } from '../services/video-visual-source.js'
-import { streamTo } from '../lib/stream-file.js'
+import { revalidatePreview, streamTo } from '../lib/stream-file.js'
 
 export const router = Router()
 
@@ -514,9 +514,9 @@ router.get('/projects/:slug/video-editor/preview-audio', async (req, res) => {
   try {
     const stat = await fs.stat(filePath)
     res.set('Content-Type', mime)
+    if (revalidatePreview(req, res, stat)) return
     res.set('Content-Length', stat.size.toString())
     res.set('Accept-Ranges', 'bytes')
-    res.set('Cache-Control', 'public, max-age=3600')
 
     // Support range requests for seeking
     const range = req.headers.range
@@ -578,7 +578,7 @@ router.get('/projects/:slug/video-editor/preview-media', async (req, res) => {
     const range = req.headers.range
     res.set('Content-Type', mime)
     res.set('Accept-Ranges', 'bytes')
-    res.set('Cache-Control', 'private, max-age=300')
+    if (revalidatePreview(req, res, stat)) return
     const { createReadStream } = await import('fs')
     if (range) {
       const [startRaw, endRaw] = range.replace(/bytes=/, '').split('-')

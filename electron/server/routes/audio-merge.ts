@@ -19,7 +19,7 @@ import {
   inspectChapterAudioReadiness,
   requireChapterAudioReady,
 } from '../services/audio-workflow-readiness.js'
-import { streamTo } from '../lib/stream-file.js'
+import { revalidatePreview, streamTo } from '../lib/stream-file.js'
 
 export const router = Router()
 
@@ -157,9 +157,9 @@ router.get('/projects/:slug/audio-editor/preview-audio', async (req, res) => {
   try {
     const stat = await fs.stat(filePath)
     res.set('Content-Type', mime)
+    if (revalidatePreview(req, res, stat)) return
     res.set('Content-Length', stat.size.toString())
     res.set('Accept-Ranges', 'bytes')
-    res.set('Cache-Control', 'public, max-age=3600')
 
     // Support range requests for seeking
     const range = req.headers.range

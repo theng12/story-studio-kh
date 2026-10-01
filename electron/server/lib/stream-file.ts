@@ -22,3 +22,30 @@ export function streamTo(res: ServerResponse, source: Readable): void {
     console.warn(`[stream] file response failed: ${error.message}`)
   })
 }
+
+/**
+ * Cache headers for a preview whose URL names a PATH, not a version.
+ *
+ * A re-merged or re-generated file lands at the same path, so `max-age=3600` let the in-app player
+ * replay the old bytes for up to an hour. The browser may keep a copy but must ask first, and the
+ * answer is a cheap 304 while size and mtime are unchanged. Returns true when a 304 was sent and
+ * the caller must stop.
+ */
+export function revalidatePreview(
+  req: { headers: Record<string, string | string[] | undefined> },
+  res: ServerResponse & { status(code: number): unknown; set(name: string, value: string): unknown },
+  stat: { size: number; mtimeMs: number; mtime: Date },
+): boolean {
+  const etag = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`
+  res.set('ETag', etag)
+  res.set('Last-Modified', stat.mtime.toUTCString())
+  res.set('Cache-Control', 'private, no-cache')
+  const sent = req.headers['if-none-match']
+  const wanted = Array.isArray(sent) ? sent.join(',') : sent
+  if (wanted && wanted.split(',').some(tag => tag.trim() === etag)) {
+    res.status(304)
+    res.end()
+    return true
+  }
+  return false
+}
