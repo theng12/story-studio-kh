@@ -438,6 +438,21 @@ export async function previewArchiveSweep(
   }
 }
 
+/** Suffix of the scratch file a copy is written to before it is verified and renamed. */
+export const ARCHIVE_PARTIAL_SUFFIX = '.partial'
+
+/** Free bytes on the volume holding `dir`, or null when the platform cannot say. */
+async function freeBytesAt(dir: string): Promise<number | null> {
+  try {
+    const stats = await fs.statfs(dir)
+    return Number(stats.bavail) * Number(stats.bsize)
+  } catch {
+    return null
+  }
+}
+
+const formatGb = (bytes: number): string => `${(bytes / 1e9).toFixed(1)} GB`
+
 async function sha256Of(file: string): Promise<string> {
   const hash = createHash('sha256')
   await new Promise<void>((resolve, reject) => {
@@ -589,29 +604,50 @@ export async function runArchiveSweep(opts: ArchiveRunOptions): Promise<ArchiveR
           }
         }
 
+        // Copy to a scratch name beside the target and rename only after the copy
+        // verifies. The target name therefore only ever holds a COMPLETE, verified
+        // file: a copy that dies half-way (full disk, unplugged drive, crash) used to
+        // leave a truncated file under the real name, and the next run refused to
+        // retry because "a file named X is already in the archive folder".
+        const partial = `${target}${ARCHIVE_PARTIAL_SUFFIX}`
+        const free = await freeBytesAt(targetDir)
+        // `free > 0`: a volume that reports zero free is either truly full (the copy then fails
+        // at its first block, which is cheap) or a mount that cannot say; neither deserves a refusal.
+        if (free !== null && free > 0 && free < candidate.bytes) {
+          throw Object.assign(new Error(
+            `the archive disk has ${formatGb(free)} free but this video needs ${formatGb(candidate.bytes)}`,
+          ), { code: 'ENOSPC' })
+        }
+        await fs.rm(partial, { force: true }) // a stale scratch file from an interrupted run
+        let sourceHash: string
         try {
-          await fs.copyFile(candidate.source_path, target, fsConstants.COPYFILE_EXCL)
-        } catch (error: any) {
-          if (error?.code === 'EEXIST') {
+          await fs.copyFile(candidate.source_path, partial, fsConstants.COPYFILE_EXCL)
+
+          // Verify BEFORE removing. Size catches a truncated copy; the hash catches
+          // silent corruption, which is the failure a big cross-volume copy actually
+          // has. Both, because size alone would pass a corrupted file of the right
+          // length.
+          const partialStat = await fs.stat(partial)
+          if (partialStat.size !== candidate.bytes) {
+            throw new Error(`copy is ${partialStat.size} bytes but the original is ${candidate.bytes}`)
+          }
+          let targetHash: string
+          ;[sourceHash, targetHash] = await Promise.all([
+            sha256Of(candidate.source_path),
+            sha256Of(partial),
+          ])
+          if (sourceHash !== targetHash) {
+            throw new Error('the copy does not match the original (checksum differs)')
+          }
+          if (existsSync(target)) {
             return { skipped: `a file named ${candidate.filename} is already in the archive folder` }
           }
-          throw error
-        }
-
-        // Verify BEFORE removing. Size catches a truncated copy; the hash catches
-        // silent corruption, which is the failure a big cross-volume copy actually
-        // has. Both, because size alone would pass a corrupted file of the right
-        // length.
-        const targetStat = await fs.stat(target)
-        if (targetStat.size !== candidate.bytes) {
-          throw new Error(`copy is ${targetStat.size} bytes but the original is ${candidate.bytes}`)
-        }
-        const [sourceHash, targetHash] = await Promise.all([
-          sha256Of(candidate.source_path),
-          sha256Of(target),
-        ])
-        if (sourceHash !== targetHash) {
-          throw new Error('the copy does not match the original (checksum differs)')
+          await fs.rename(partial, target)
+        } finally {
+          // Gone after a successful rename; after any failure this is our own scratch
+          // copy (never a finished file), and a multi-GB remnant on a full disk is exactly
+          // what the owner cannot afford to leave.
+          await fs.rm(partial, { force: true }).catch(() => {})
         }
 
         // Breadcrumb first, removal second. If the process dies between them the
@@ -648,8 +684,16 @@ export async function runArchiveSweep(opts: ArchiveRunOptions): Promise<ArchiveR
         code: candidate.code,
         error: e?.message || String(e),
       })
-      // Leave the unverified copy behind rather than deleting it — two copies is
-      // a tidying problem, one lost master is not recoverable.
+      // The only file that can be left behind is our own `.partial` scratch copy,
+      // removed above; a verified copy is never deleted, and the source is intact.
+      if (e?.code === 'ENOSPC') {
+        // Every later video would fail the same way, after copying gigabytes first.
+        result.warnings.push(
+          'The archive disk is full, so the run stopped. Free up space there and run it again; '
+          + 'the videos not yet moved are still where they were.',
+        )
+        break
+      }
     } finally {
       done += 1
       opts.onProgress?.(done, ready.length, candidate.filename)

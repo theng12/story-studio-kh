@@ -254,10 +254,16 @@ export async function youtubeArchiveProofForFile(
   evidence: YouTubeRetentionEvidence,
   filePath: string,
 ): Promise<{ usable: boolean; video_id?: string; reason?: string }> {
-  const revision = await resolveYouTubeSourceRevision(filePath)
-  const matching = evidence.ready_operations.find(record =>
-    isContentSha256Revision(record.source_revision) && record.source_revision === revision)
-  if (matching) return { usable: true, video_id: matching.video_id }
+  // Only a receipt that carries a content hash can match, so a file whose evidence is a
+  // legacy sidecar or reconcile link is not read at all. The unconditional hash re-read
+  // every such final end to end — three times per file in one archive run (preview,
+  // re-check, final check inside the lock).
+  if (evidence.ready_operations.some(record => isContentSha256Revision(record.source_revision))) {
+    const revision = await resolveYouTubeSourceRevision(filePath)
+    const matching = evidence.ready_operations.find(record =>
+      isContentSha256Revision(record.source_revision) && record.source_revision === revision)
+    if (matching) return { usable: true, video_id: matching.video_id }
+  }
 
   const info = await stat(filePath)
   const notNewerThan = (iso: string | undefined): boolean => {

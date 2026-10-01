@@ -538,6 +538,10 @@ describe('episode media cleanup execution', () => {
       assert.equal(await fs.readFile(audio, 'utf8'), 'source bytes')
       const status = await cleanup.readLocalMediaCleanupStatus(SLUG, 'EP0001')
       assert.equal(status.has_retired_media, false)
+      // The failed copy is cleaned up, not left under the real name to block the retry.
+      const leftovers = (await fs.readdir(path.join(tmp.dir, 'archive'), { recursive: true, withFileTypes: true }))
+        .filter(entry => entry.isFile())
+      assert.deepEqual(leftovers.map(entry => entry.name), [])
     } finally {
       restore()
     }
