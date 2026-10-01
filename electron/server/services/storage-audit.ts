@@ -27,6 +27,7 @@ import fs from 'fs/promises'
 import { constants, existsSync } from 'fs'
 import path from 'path'
 import * as pm from './project-manager.js'
+import { thumbCacheBytes } from '../lib/thumbnail-cache.js'
 import * as im from './idea-manager.js'
 import { resolveEpisodePaths } from './utils.js'
 import {
@@ -92,6 +93,8 @@ export interface StorageAuditResult {
   project_bytes_per_scene_clips: number
   /** Sum of bytes_external_final_video — what already lives outside the project tree. */
   project_bytes_external_final_video: number
+  /** Regenerable review-grid thumbnails under `<project>/.cache/thumbs`; not part of any episode. */
+  project_bytes_thumbnail_cache: number
   /** True when external_final_video_root is configured (drives UI hints). */
   external_root_configured: boolean
   /** The configured root path (resolved with ~ expansion). Empty if unset. */
@@ -340,6 +343,7 @@ export async function auditProjectStorage(slug: string): Promise<StorageAuditRes
     project_bytes_final_video: projectBytesFinal,
     project_bytes_per_scene_clips: projectBytesScenes,
     project_bytes_external_final_video: projectBytesExternalFinal,
+    project_bytes_thumbnail_cache: await thumbCacheBytes(pm.getProjectDir(slug) || ''),
     external_root_configured: !!externalRoot,
     external_root: externalRoot,
     episodes: results,

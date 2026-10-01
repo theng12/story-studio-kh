@@ -54,7 +54,8 @@ import { readVideoVisualSource } from '../services/video-visual-source.js'
 import { parseSavedScenePlanPacing } from '../contracts/pacing.js'
 import type { JobType, SceneClipVariantSelection, ScenePlan, ScenePlanEntry } from '../models/types.js'
 import { RENDER_STATUS_FILENAME } from '../services/scene-render-status.js'
-import { streamTo } from '../lib/stream-file.js'
+import { revalidatePreview, streamTo } from '../lib/stream-file.js'
+import { ensureThumbnail } from '../lib/thumbnail-cache.js'
 
 export const router = Router()
 
@@ -1494,6 +1495,22 @@ router.get('/projects/:slug/scene-review/:episodeId/image/:sceneId', async (req,
     // flat folder so both consolidated and not-yet-consolidated episodes work.
     const imagePath = await resolveSceneImageReadPath(slug, episodeId.toUpperCase(), paths.episode_dir, sceneId)
     if (!imagePath) return res.status(404).json({ detail: 'Image not found' })
+    // `?thumb=1`: the grids ask for a small cached JPEG instead of the full-resolution still. Any
+    // failure to make one (full disk, unreadable image) falls through to the original.
+    const projectDir = req.query.thumb ? pm.getProjectDir(slug) : null
+    if (projectDir) {
+      try {
+        const thumb = await ensureThumbnail({ projectDir, group: episodeId.toUpperCase(), id: sceneId, source: imagePath })
+        const stat = await fs.stat(thumb)
+        res.setHeader('Content-Type', 'image/jpeg')
+        if (revalidatePreview(req, res, stat)) return
+        res.setHeader('Content-Length', String(stat.size))
+        streamTo(res, createReadStream(thumb))
+        return
+      } catch (error: any) {
+        console.warn(`[scene-review] thumbnail for ${sceneId} unavailable, serving the original: ${error?.message || error}`)
+      }
+    }
     res.setHeader('Content-Type', 'image/png')
     // Versioned URLs (`?v=size-mtime`, from the review payload) are immutable;
     // an unversioned request stays uncached so a plain reload sees a regen.
