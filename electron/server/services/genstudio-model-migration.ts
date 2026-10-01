@@ -1,5 +1,7 @@
 /** GenStudio catalog identifiers are the only executable model identifiers. */
 
+import { isRetiredVideoModelId } from '../contracts/retired-video-models.js'
+
 export type GenStudioModality = 'chat' | 'image' | 'voice' | 'transcription' | 'video'
 
 const CHAT_PREFIX = 'genstudio-chat:'
@@ -19,6 +21,7 @@ export function stripGenStudioModelPrefix(modality: GenStudioModality, modelId: 
  */
 export function resolveGenStudioModelId(modality: GenStudioModality, modelId: string): string | null {
   const value = stripGenStudioModelPrefix(modality, modelId)
+  if (modality === 'video' && isRetiredVideoModelId(value)) return null
   return value && value.length <= 128 ? value : null
 }
 

@@ -54,6 +54,7 @@ import {
   isGenStudioInsufficientCredits,
 } from '../lib/genstudio-client.js'
 import { resolveGenStudioModelId } from '../services/genstudio-model-migration.js'
+import { isRetiredVideoModelId } from '../contracts/retired-video-models.js'
 import { FLEET_BUSY_RETRY_DELAYS_MS, isFleetBusyFailure } from '../lib/genstudio-fleet-busy.js'
 
 /**
@@ -236,7 +237,7 @@ export function resolveSceneClipCatalogModel(
   catalog: readonly GenStudioVideoModel[],
 ): string | null {
   const raw = selectedModel.trim().replace(/^genstudio-video:/, '')
-  if (!raw) return null
+  if (!raw || isRetiredVideoModelId(raw)) return null
   // The image-to-video restriction is applied HERE, at the selection call
   // site, rather than by discarding other published modes during the parse.
   const available = catalog.filter(model => model.available && model.locked !== true && supportsGenStudioVideoMode(model))
@@ -340,8 +341,11 @@ export async function requireSceneClipGenStudioCatalogModel(
   const modelId = resolveSceneClipCatalogModel(selectedModel, catalog)
   if (!modelId) {
     throw new Error(
-      `Saved video model "${selectedModel}" is not available through GenStudio. `
-      + 'Choose an available GenStudio image-to-video model; no other route was attempted.',
+      isRetiredVideoModelId(selectedModel)
+        ? `Saved video model "${selectedModel}" has been retired and was not requested. `
+          + 'Choose an available GenStudio image-to-video model, or leave the scene still.'
+        : `Saved video model "${selectedModel}" is not available through GenStudio. `
+          + 'Choose an available GenStudio image-to-video model; no other route was attempted.',
     )
   }
   return { apiKey, modelId, model: catalog.find(model => model.id === modelId)! }

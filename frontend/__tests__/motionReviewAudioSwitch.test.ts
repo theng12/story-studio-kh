@@ -1,7 +1,7 @@
 /**
  * The published `audio` switch on Motion Review — rendered, preset, and sent.
  *
- * Studio Hub's LTX lane publishes `audio` (default on, with the lane's own note);
+ * A local Studio Hub video lane can publish `audio` (default on, with the lane's own note);
  * every cloud video lane publishes nothing. This page must therefore render the
  * switch from the model's own published list — never from a family name, never
  * from `generates_audio` — and send the operator's choice only when they made
@@ -69,10 +69,13 @@ const ModelMenuStub = defineComponent({
   },
 })
 const TopActionBarStub = defineComponent({
-  props: { generateDisabled: Boolean },
+  props: { generateDisabled: Boolean, generateStatus: String },
   emits: ['generate'],
   setup(props, { emit }) {
-    return () => h('button', { disabled: props.generateDisabled, onClick: () => emit('generate') }, 'Generate missing clips')
+    return () => h('div', [
+      h('button', { disabled: props.generateDisabled, onClick: () => emit('generate') }, 'Generate missing clips'),
+      h('p', { class: 'generate-status' }, props.generateStatus),
+    ])
   },
 })
 const NuxtLinkStub = defineComponent({
@@ -170,7 +173,7 @@ function switchInput(el: HTMLElement, name: string): HTMLInputElement | null {
 
 describe('Motion Review audio switch', () => {
   test('a model publishing the switch shows it, with the lane\'s own note', async () => {
-    const mounted = await mount([model('local-ltx', [
+    const mounted = await mount([model('local-video', [
       { name: 'audio', type: 'boolean', default: true, note: AUDIO_NOTE },
     ])])
     const control = switchInput(mounted.el, 'Audio')
@@ -192,7 +195,7 @@ describe('Motion Review audio switch', () => {
   })
 
   test('turning sound off is what travels, and leaving it alone sends nothing', async () => {
-    const mounted = await mount([model('local-ltx', [
+    const mounted = await mount([model('local-video', [
       { name: 'audio', type: 'boolean', default: true, note: AUDIO_NOTE },
     ])])
     // The same route the duration suite drives: pick the published ratio, follow narration (which
@@ -224,7 +227,7 @@ describe('Motion Review audio switch', () => {
   })
 
   test('the choice is a preset setting, and a preset without switches clears it', async () => {
-    const mounted = await mount([model('local-ltx', [
+    const mounted = await mount([model('local-video', [
       { name: 'audio', type: 'boolean', default: true, note: AUDIO_NOTE },
     ])])
     const control = switchInput(mounted.el, 'Audio')!
@@ -238,13 +241,38 @@ describe('Motion Review audio switch', () => {
     // Applying a preset that stored no switches must clear the live choice rather than
     // inherit it — a value that survives the preset that did not ask for it is the
     // episode-leak defect wearing a preset key.
-    preset.apply({ model: 'genstudio-video:local-ltx', aspect_ratio: '16:9', switches: { audio: true } })
+    preset.apply({ model: 'genstudio-video:local-video', aspect_ratio: '16:9', switches: { audio: true } })
     await settle()
     assert.equal(switchInput(mounted.el, 'Audio')!.checked, true, 'a stored choice is restored')
-    preset.apply({ model: 'genstudio-video:local-ltx', aspect_ratio: '16:9' })
+    preset.apply({ model: 'genstudio-video:local-video', aspect_ratio: '16:9' })
     await settle()
     assert.equal(switchInput(mounted.el, 'Audio')!.checked, true,
       'with no stored choice the lane\'s published default is what shows')
+    mounted.destroy()
+  })
+})
+
+describe('Motion Review with the retired local video model', () => {
+  const RETIRED = 'genstudio-video:baa-ai/LTX-2.3-22B-RAM-12GB-MLX'
+
+  test('a saved retired model is dropped and a listed cloud model is offered instead', async () => {
+    const mounted = await mount([model('cloud-video')])
+    mounted.preset().apply({ model: RETIRED, aspect_ratio: '16:9' })
+    await settle()
+    const saved = mounted.preset().snapshot().model
+    assert.ok(!/ltx/i.test(saved), `the retired id is never kept (got ${saved})`)
+    assert.equal(saved, 'genstudio-video:cloud-video', 'the live cloud model is what the picker selects')
+    mounted.destroy()
+  })
+
+  test('with no video model listed the page stays calm, says so plainly, and cannot generate', async () => {
+    const mounted = await mount([])
+    mounted.preset().apply({ model: RETIRED, aspect_ratio: '16:9' })
+    await settle()
+    assert.equal(mounted.preset().snapshot().model, '', 'nothing retired is carried in the preset')
+    assert.match(mounted.text(), /No image-to-video model is available right now\. Scenes stay still\./)
+    assert.equal(mounted.el.querySelector<HTMLButtonElement>('button')!.disabled, true)
+    assert.equal(mounted.calls.length, 0, 'no request was made')
     mounted.destroy()
   })
 })

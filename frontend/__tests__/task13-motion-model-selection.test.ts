@@ -15,6 +15,7 @@ async function setupWith(models: ReturnType<typeof ref<any[]>>) {
   const support = `
     import { computed, defineComponent as _defineComponent, onBeforeUnmount, onMounted, ref, watch } from ${JSON.stringify(vueUrl)}
     const selectLiveImageToVideoModel = (id, rows) => rows.find(row => row.id === id) || rows[0] || null
+    const isRetiredVideoModelId = id => /ltx/i.test(String(id))
     const genStudioModelLockReason = () => ''
     const describeVideoModelRate = () => ''
     const formatCredits = value => String(value)
