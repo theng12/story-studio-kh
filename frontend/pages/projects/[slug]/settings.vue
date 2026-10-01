@@ -1152,6 +1152,10 @@
           <span><strong>Final videos:</strong> {{ formatBytes(storage.project_bytes_final_video) }}</span>
           <span class="dot">·</span>
           <span><strong>Per-scene clips:</strong> {{ formatBytes(storage.project_bytes_per_scene_clips) }}</span>
+          <span v-if="storage.project_bytes_thumbnail_cache" class="dot">·</span>
+          <span v-if="storage.project_bytes_thumbnail_cache" title="Small previews for the review grids. Safe to delete: they are rebuilt on demand.">
+            <strong>Preview cache:</strong> {{ formatBytes(storage.project_bytes_thumbnail_cache) }}
+          </span>
           <span v-if="storage.external_root_configured" class="dot">·</span>
           <span v-if="storage.external_root_configured">
             <strong>At external root:</strong> {{ formatBytes(storage.project_bytes_external_final_video) }}
@@ -2819,6 +2823,7 @@ interface StorageAudit {
   project_bytes_final_video: number
   project_bytes_per_scene_clips: number
   project_bytes_external_final_video: number
+  project_bytes_thumbnail_cache?: number
   external_root_configured: boolean
   external_root: string
   episodes: StorageEntry[]

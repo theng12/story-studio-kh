@@ -36,17 +36,23 @@ export async function writeAtomic(dest: string, data: string | Buffer): Promise<
   const dir = path.dirname(dest)
   await fs.mkdir(dir, { recursive: true })
   const tmp = `${dest}.tmp-${process.pid}-${Date.now()}`
-  await fs.writeFile(tmp, data)
-  // Flush tmp bytes to disk before the rename — otherwise a power-loss between
-  // writeFile resolving and the kernel flushing can reorder the rename ahead
-  // of the data write, leaving the target empty after reboot.
-  const tmpFd = await fs.open(tmp, 'r+')
   try {
-    await tmpFd.sync()
-  } finally {
-    await tmpFd.close()
+    await fs.writeFile(tmp, data)
+    // Flush tmp bytes to disk before the rename — otherwise a power-loss between
+    // writeFile resolving and the kernel flushing can reorder the rename ahead
+    // of the data write, leaving the target empty after reboot.
+    const tmpFd = await fs.open(tmp, 'r+')
+    try {
+      await tmpFd.sync()
+    } finally {
+      await tmpFd.close()
+    }
+    await fs.rename(tmp, dest)
+  } catch (error) {
+    // Never strand a half-written temp file (a full disk is how this fails).
+    await fs.unlink(tmp).catch(() => {})
+    throw error
   }
-  await fs.rename(tmp, dest)
   // POSIX: fsync the parent dir so the rename entry itself is durable.
   if (process.platform !== 'win32') {
     try {

@@ -5,6 +5,8 @@
 
 import { existsSync } from 'fs'
 import path from 'path'
+import { findDirsLevelOrder } from '../lib/dir-search.js'
+import { episodeDirNameMatchesCode } from '../services/asset-status.js'
 import { parseImagePromptsDocx, type ParsedPrompts } from '../lib/docx-parser.js'
 import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
 import { isDecodableImage } from '../lib/image-validation.js'
@@ -175,6 +177,33 @@ async function findFileRecursive(
   return ref.rank === Infinity ? null : ref.path
 }
 
+/**
+ * The best-ranked prompts file for one episode.
+ *
+ * Looks inside the episode's own folder(s) only. This used to walk the ENTIRE
+ * project on every call — every episode's scene-image folder included — and the
+ * status, audit and review routes make that call per episode, so a 160-episode
+ * project cost ~0.6 M `readdir` calls per audit (measured). A project with no
+ * folder for the episode keeps the old whole-tree search.
+ */
+async function findPromptsFile(
+  outputRoot: string,
+  code: string,
+  candidates: string[],
+  options: { strictIo?: boolean } = {},
+): Promise<string | null> {
+  const rethrow = options.strictIo ? (error: unknown) => (error as NodeJS.ErrnoException)?.code !== 'ENOENT' : undefined
+  const dirs = await findDirsLevelOrder(outputRoot, 4, name => episodeDirNameMatchesCode(name, code), rethrow)
+  if (!dirs.length) return findFileRecursive(outputRoot, candidates, options)
+  let best: { path: string; rank: number } | null = null
+  for (const dir of dirs) {
+    const found = await findFileRecursive(dir, candidates, options)
+    const rank = found ? candidates.indexOf(path.basename(found)) : -1
+    if (found && (!best || rank < best.rank)) best = { path: found, rank }
+  }
+  return best?.path ?? null
+}
+
 export class ImagePromptsMissingError extends Error {
   readonly code = 'IMAGE_PROMPTS_MISSING' as const
 
@@ -201,7 +230,7 @@ export async function findScenePromptsFile(
     `${code}_Image_Prompts.md`,
     `${code}_Image_Prompts.docx`,
   ]
-  const found = await findFileRecursive(outputRoot, candidates, options)
+  const found = await findPromptsFile(outputRoot, code, candidates, options)
   if (found) return found
   throw new ImagePromptsMissingError('scene', code)
 }
@@ -222,7 +251,7 @@ export async function findThumbPromptsFile(
     `${code}_Image_Prompts.md`,
     `${code}_Image_Prompts.docx`,
   ]
-  const found = await findFileRecursive(outputRoot, candidates, options)
+  const found = await findPromptsFile(outputRoot, code, candidates, options)
   if (found) return found
   throw new ImagePromptsMissingError('thumbnail', code)
 }

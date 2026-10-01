@@ -13,6 +13,7 @@ import { getAppSetting, getGenStudioUrl, getLanguageTimeoutMs, setAppSetting, ge
 import { balancedReplacementSettlement, generationReplacementKey, replacementAllowance, type ReplacementKind } from '../services/generation-paid-replacement.js'
 import type { GenerationReplacementAttempt, Job } from '../models/types.js'
 import { runFfmpeg } from './ffmpeg-utils.js'
+import { probeAudioSignature } from './audio-concat.js'
 import {
   GenStudioAdmissionPool,
   type GenStudioAdmissionState,
@@ -91,11 +92,24 @@ import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js
 const POLL_LADDER_MS = [1_000, 1_000, 1_000, 2_000, 2_000, 2_000, 5_000, 5_000, 10_000, 10_000]
 export const GENSTUDIO_POLL_MAX_INTERVAL_MS = 15_000
 export const GENSTUDIO_POLL_JITTER_FRACTION = 0.2
+/** A server poll hint below this is read as this: 0 must never mean "ask again immediately". */
+export const GENSTUDIO_POLL_MIN_HINT_MS = 1_000
 /** How often an in-progress wait re-checks cancellation. Keeps a 15-second
  *  sleep from making the Cancel button feel dead. */
 const POLL_CANCEL_CHECK_MS = 250
 
 const NETWORK_RETRY_ATTEMPTS = 4
+/**
+ * Attempts for a READ of an accepted job (every wait-loop poll and every reconnect read).
+ *
+ * Four attempts spanned ~3.5 s of backoff. The Gateway is restarted on this Mac to install new
+ * builds, and a restart takes longer than that, so an image/voice/video job already accepted and
+ * running fell out of its poll, got one automatic reconnect that hit the same gap, and surfaced as a
+ * failed item although the Gateway finished it a few seconds later. A job read is idempotent and
+ * the 4-hour deadline still bounds it; twelve attempts ride out ~35 s of backoff (0.5, 1, 2, then 4 s
+ * steps) and a Cancel still lands within a quarter second.
+ */
+export const GENSTUDIO_JOB_READ_ATTEMPTS = 12
 const CATALOG_RETRY_ATTEMPTS = 3
 const CATALOG_REQUEST_TIMEOUT_MS = 8_000
 const CATALOG_FRESH_MS = 5 * 60_000
@@ -3840,9 +3854,10 @@ export function readGenStudioPollHintMs(payload: unknown, now = Date.now()): num
  * Pure and injectable so the schedule can be simulated in a test without any
  * real waiting. Three rules, in order:
  *
- *   1. A server hint WINS over the local ladder, and is jittered upward only.
- *   2. Otherwise walk the ladder, capped at GENSTUDIO_POLL_MAX_INTERVAL_MS,
- *      with symmetric ±20% jitter.
+ *   1. Walk the ladder, capped at GENSTUDIO_POLL_MAX_INTERVAL_MS, with
+ *      symmetric ±20% jitter.
+ *   2. A server hint is a MINIMUM on top of that (floored at 1 s, jittered
+ *      upward only): the delay is whichever is longer.
  *   3. Whatever comes out is clamped to the time left before the deadline, so
  *      backoff can never overshoot the 4-hour ceiling. A widening interval
  *      must not be able to delay the timeout that protects the pipeline.
@@ -3857,17 +3872,18 @@ export function genStudioPollDelayMs(options: {
   const hint = typeof options.hintMs === 'number' && Number.isFinite(options.hintMs) && options.hintMs >= 0
     ? options.hintMs
     : null
-  let delay: number
+  const attempt = Math.max(0, Math.floor(options.attempt))
+  const base = attempt < POLL_LADDER_MS.length
+    ? POLL_LADDER_MS[attempt]!
+    : GENSTUDIO_POLL_MAX_INTERVAL_MS
+  const spread = 1 + GENSTUDIO_POLL_JITTER_FRACTION * (random() * 2 - 1)
+  let delay = Math.round(base * spread)
   if (hint != null) {
-    // Upward-only jitter: honouring the server means never asking sooner.
-    delay = Math.ceil(hint * (1 + GENSTUDIO_POLL_JITTER_FRACTION * random()))
-  } else {
-    const attempt = Math.max(0, Math.floor(options.attempt))
-    const base = attempt < POLL_LADDER_MS.length
-      ? POLL_LADDER_MS[attempt]!
-      : GENSTUDIO_POLL_MAX_INTERVAL_MS
-    const spread = 1 + GENSTUDIO_POLL_JITTER_FRACTION * (random() * 2 - 1)
-    delay = Math.round(base * spread)
+    // The server's hint is a MINIMUM on top of the ladder, never a replacement for it: a 5 s hint on a
+    // four-hour video job must not hold the poll at 5 s once the ladder has backed off to 15 s, and a
+    // hint of 0 (or a retry_at already in the past) must not become a hot loop. Jitter is upward only.
+    const floored = Math.max(hint, GENSTUDIO_POLL_MIN_HINT_MS)
+    delay = Math.max(delay, Math.ceil(floored * (1 + GENSTUDIO_POLL_JITTER_FRACTION * random())))
   }
   const remaining = Number.isFinite(options.remainingMs) ? options.remainingMs : 0
   return Math.max(0, Math.min(delay, Math.max(0, remaining)))
@@ -3893,7 +3909,11 @@ export function createGenStudioJobPoller(random: () => number = Math.random, now
   return {
     attempts: () => attempt,
     settled(job) {
-      if (!isSettledGenStudioJob(job)) return false
+      if (!isSettledGenStudioJob(job)) {
+        // The job went back to work (or never failed): a later hold starts its own grace window.
+        heldSince = null
+        return false
+      }
       if (job.state !== 'failed' || job.cancelled === true || !holdsUnknownOutcome(job)) return true
       heldSince ??= now()
       return now() - heldSince >= UNKNOWN_OUTCOME_GRACE_MS
@@ -5487,6 +5507,7 @@ async function waitForVideoJob(
       { headers: authorization(apiKey) },
       request,
       deadline,
+      undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
     ) as GenStudioVideoJob
     await reportState()
   }
@@ -5527,6 +5548,7 @@ async function recoverVideoWithGenStudioAdmitted(
     { headers: authorization(apiKey) },
     request,
     deadline,
+    undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
   ) as GenStudioVideoJob
   // Classify BEFORE polling. A job that already failed (or was cancelled)
   // cannot become a clip, and a poll loop would only re-read the same terminal
@@ -5803,6 +5825,7 @@ async function waitForMusicJob(
       { headers: authorization(apiKey) },
       request,
       deadline,
+      undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
     ) as GenStudioMusicJob
     await reportState()
   }
@@ -5862,6 +5885,7 @@ async function recoverMusicWithGenStudioAdmitted(
     { headers: authorization(apiKey) },
     request,
     deadline,
+    undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
   ) as GenStudioMusicJob
   // Classify BEFORE polling. A job that already failed cannot become a song,
   // and a poll loop would only re-read the same terminal record forever.
@@ -7059,6 +7083,7 @@ async function waitForChatJob(
       { headers: authorization(apiKey) },
       request,
       deadline,
+      undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
     ) as GenStudioChatJob
     await reportState()
   }
@@ -7089,6 +7114,7 @@ async function recoverChatJobAdmitted(
     { headers: authorization(apiKey) },
     request,
     deadline,
+    undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
   ) as GenStudioChatJob
   // Classify BEFORE polling: a job that already failed cannot become output,
   // and a poll loop would only re-read the same terminal record.
@@ -8016,6 +8042,7 @@ async function waitForImageJob(
       { headers: authorization(apiKey) },
       request,
       deadline,
+      undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
     ) as GenStudioImageJob
     await recordGenStudioEvidence('image.generation', current)
     await reportQueueState(request, current)
@@ -8093,6 +8120,7 @@ async function recoverImageWithGenStudioAdmitted(
     { headers: authorization(apiKey) },
     request,
     deadline,
+    undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
   ) as GenStudioImageJob
   // Classify BEFORE polling. A job that already failed (or was cancelled)
   // cannot become an artifact, and a poll loop would only re-read the same
@@ -8663,6 +8691,7 @@ async function waitForTranscriptionJob(
       { headers: authorization(apiKey) },
       request,
       deadline,
+      undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
     ) as GenStudioTranscriptionJob
     await reportState()
   }
@@ -8737,6 +8766,7 @@ async function recoverTranscriptionWithGenStudioAdmitted(
       { headers: authorization(apiKey) },
       request,
       deadline,
+      undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
     ) as GenStudioTranscriptionJob
   } catch (error) {
     if (error instanceof GenStudioApiError && error.status === 404) {
@@ -8927,6 +8957,7 @@ async function waitForJob(
       { headers: authorization(apiKey) },
       request,
       deadline,
+      undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
     ) as GenStudioJob
     await reportState()
   }
@@ -9002,7 +9033,19 @@ async function completeTtsJobToFile(
     }
     if (!downloaded) throw downloadError instanceof Error ? downloadError : new Error('GenStudio KH audio download failed')
     await fs.mkdir(path.dirname(outPath), { recursive: true })
-    await runFfmpeg(['-y', '-i', tempPath, '-c:a', 'libmp3lame', '-b:a', '96k', outPath])
+    // Cloud providers already deliver MP3 (the Hub delivers WAV): re-encoding one to 96 kbps MP3 is a
+    // second lossy pass and a few seconds of CPU per chunk for nothing, so keep its bytes as they are.
+    if ((await probeAudioSignature(tempPath))?.startsWith('mp3,')) {
+      const staged = `${outPath}.partial-${process.pid}`
+      try {
+        await fs.copyFile(tempPath, staged)
+        await fs.rename(staged, outPath)
+      } finally {
+        await fs.rm(staged, { force: true }).catch(() => {})
+      }
+    } else {
+      await runFfmpeg(['-y', '-i', tempPath, '-c:a', 'libmp3lame', '-b:a', '96k', outPath])
+    }
   } finally {
     await fs.rm(tempPath, { force: true }).catch(() => {})
   }
@@ -9022,6 +9065,7 @@ async function recoverTtsToFileAdmitted(
     { headers: authorization(apiKey) },
     request,
     deadline,
+    undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
   ) as GenStudioJob
   await completeTtsJobToFile(baseUrl, apiKey, outPath, current, request, deadline)
 }

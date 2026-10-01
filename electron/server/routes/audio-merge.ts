@@ -19,6 +19,7 @@ import {
   inspectChapterAudioReadiness,
   requireChapterAudioReady,
 } from '../services/audio-workflow-readiness.js'
+import { revalidatePreview, streamTo } from '../lib/stream-file.js'
 
 export const router = Router()
 
@@ -156,9 +157,9 @@ router.get('/projects/:slug/audio-editor/preview-audio', async (req, res) => {
   try {
     const stat = await fs.stat(filePath)
     res.set('Content-Type', mime)
+    if (revalidatePreview(req, res, stat)) return
     res.set('Content-Length', stat.size.toString())
     res.set('Accept-Ranges', 'bytes')
-    res.set('Cache-Control', 'public, max-age=3600')
 
     // Support range requests for seeking
     const range = req.headers.range
@@ -170,10 +171,10 @@ router.get('/projects/:slug/audio-editor/preview-audio', async (req, res) => {
       res.set('Content-Range', `bytes ${start}-${end}/${stat.size}`)
       res.set('Content-Length', (end - start + 1).toString())
       const { createReadStream } = await import('fs')
-      createReadStream(filePath, { start, end }).pipe(res)
+      streamTo(res, createReadStream(filePath, { start, end }))
     } else {
       const { createReadStream } = await import('fs')
-      createReadStream(filePath).pipe(res)
+      streamTo(res, createReadStream(filePath))
     }
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Audio preview failed'))

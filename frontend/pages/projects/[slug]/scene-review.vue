@@ -401,7 +401,7 @@
           >
             <template v-if="scene.image_filename">
               <img
-                :src="imageUrl(scene)"
+                :src="thumbUrl(scene)"
                 :key="imageKey(scene)"
                 :alt="`Scene ${scene.scene_index}`"
                 class="review-thumb"
@@ -1033,6 +1033,10 @@ const bulkStatus = computed(() => {
 
 function imageUrl(scene: ReviewScene): string {
   return `/api/projects/${slug.value}/scene-review/${episodeId.value}/image/${scene.id}?v=${mediaVersion(scene.image_version)}`
+}
+// The grid cards show a small cached JPEG; the lightbox keeps the full-resolution file (`imageUrl`).
+function thumbUrl(scene: ReviewScene): string {
+  return `${imageUrl(scene)}&thumb=1`
 }
 function imageKey(scene: ReviewScene): string {
   return `${scene.id}:${scene.image_version || ''}`

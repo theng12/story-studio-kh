@@ -960,14 +960,20 @@ async function mutateReviewedFile(
 
   if (mode === 'archive') {
     const target = archiveDestinationFor(destination!, slug, code, file)
+    // The copy is made under a scratch name and renamed once it has verified, so a copy that
+    // dies half-way (full disk, unplugged drive) never sits under the real name where the next
+    // run would read it as "a file already exists at the archive destination" and skip it.
+    const partial = `${target}.partial`
     try {
       const sourceDevice = (await fs.stat(file.path)).dev
       await fs.mkdir(path.dirname(target), { recursive: true })
       const sameDevice = (await fs.stat(path.dirname(target))).dev === sourceDevice
-      await fs.copyFile(file.path, target, fsConstants.COPYFILE_EXCL)
-      await hooks.afterArchiveCopy?.(file.path, target)
-      const [sourceHash, targetHash] = await Promise.all([sha256(file.path), sha256(target)])
-      const targetStat = await fs.stat(target)
+      if (existsSync(target)) throw Object.assign(new Error('A file already exists at the archive destination.'), { code: 'EEXIST' })
+      await fs.rm(partial, { force: true }) // a stale scratch file from an interrupted run
+      await fs.copyFile(file.path, partial, fsConstants.COPYFILE_EXCL)
+      await hooks.afterArchiveCopy?.(file.path, partial)
+      const [sourceHash, targetHash] = await Promise.all([sha256(file.path), sha256(partial)])
+      const targetStat = await fs.stat(partial)
       if (sourceHash !== file.sha256 || targetHash !== file.sha256 || targetStat.size !== file.bytes) {
         throw new Error('The archive copy does not match the reviewed source.')
       }
@@ -980,6 +986,7 @@ async function mutateReviewedFile(
         const reason = await verifyFinalProof(slug, code, idea?.title || '', file)
         if (reason) throw new Error(reason)
       }
+      await fs.rename(partial, target)
       const pending: MediaCleanupSidecarEntry = {
         ...entryBase, bytes_reclaimed: sameDevice ? 0 : file.bytes,
         destination_path: target, outcome: 'pending_archive', updated_at: isoNow(),
@@ -1005,6 +1012,7 @@ async function mutateReviewedFile(
         return { path: file.path, category: file.category, outcome: 'pending', bytes_reclaimed: sameDevice ? 0 : file.bytes, bytes_moved: file.bytes, destination_path: target, reason: error?.message || String(error) }
       }
     } catch (error: any) {
+      await fs.rm(partial, { force: true }).catch(() => {}) // our own scratch copy, never a verified archive
       const collision = error?.code === 'EEXIST'
       return {
         path: file.path, category: file.category, outcome: collision ? 'skipped' : 'failed',

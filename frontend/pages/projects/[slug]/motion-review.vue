@@ -237,7 +237,7 @@
         <div class="media-pair">
           <div class="media-box">
             <span class="media-label">Approved image</span>
-            <img v-if="scene.image_filename" :src="imageUrl(scene)" :alt="`Scene ${scene.scene_index}`" />
+            <img v-if="scene.image_filename" :src="imageUrl(scene)" :alt="`Scene ${scene.scene_index}`" loading="lazy" decoding="async" />
             <div v-else class="missing-media">Image missing</div>
           </div>
           <div class="media-box">
@@ -871,7 +871,7 @@ const generateStatus = computed(() => {
 })
 
 function imageUrl(scene: MotionScene) {
-  return `/api/projects/${slug.value}/scene-review/${episodeId.value}/image/${scene.id}?t=${cacheBuster.value}`
+  return `/api/projects/${slug.value}/scene-review/${episodeId.value}/image/${scene.id}?t=${cacheBuster.value}&thumb=1`
 }
 function clipUrl(scene: MotionScene) {
   return `/api/projects/${slug.value}/scene-review/${episodeId.value}/clip/${scene.id}?t=${cacheBuster.value}`

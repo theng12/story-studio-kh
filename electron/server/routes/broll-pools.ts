@@ -26,6 +26,7 @@ import * as jq from '../services/job-queue.js'
 import { scanPoolFolder } from '../lib/broll-indexer.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import type { JobType } from '../models/types.js'
+import { streamTo } from '../lib/stream-file.js'
 
 export const router = Router()
 
@@ -210,7 +211,7 @@ router.get('/broll-pools/:id/clips/:filename/thumbnail', async (req, res) => {
     res.setHeader('Content-Length', String(stat.size))
     const stream = fsMod.createReadStream(abs)
     stream.on('error', () => { if (!res.headersSent) res.status(500).json({ detail: 'Read failed' }) })
-    stream.pipe(res)
+    streamTo(res, stream)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to serve thumbnail'))
   }
@@ -238,7 +239,7 @@ router.get('/broll-pools/:id/clips/:filename/audio', async (req, res) => {
     res.setHeader('Accept-Ranges', 'none')
     const stream = fsMod.createReadStream(abs)
     stream.on('error', () => { if (!res.headersSent) res.status(500).json({ detail: 'Read failed' }) })
-    stream.pipe(res)
+    streamTo(res, stream)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to serve audio'))
   }
@@ -277,12 +278,12 @@ router.get('/broll-pools/:id/clips/:filename/video', async (req, res) => {
       res.setHeader('Content-Length', String(end - start + 1))
       const stream = fsMod.createReadStream(abs, { start, end })
       stream.on('error', () => { if (!res.headersSent) res.status(500).end() })
-      stream.pipe(res)
+      streamTo(res, stream)
     } else {
       res.setHeader('Content-Length', String(stat.size))
       const stream = fsMod.createReadStream(abs)
       stream.on('error', () => { if (!res.headersSent) res.status(500).end() })
-      stream.pipe(res)
+      streamTo(res, stream)
     }
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to serve video'))

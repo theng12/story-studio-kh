@@ -30,6 +30,7 @@ import {
 } from '../services/style-preview-cache.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { generateImageWithGenStudio, listImageModels } from '../lib/genstudio-client.js'
+import { streamTo } from '../lib/stream-file.js'
 
 export const router = Router()
 
@@ -209,7 +210,7 @@ router.get('/style-preview-cache/:hash', async (req, res) => {
     stream.on('error', () => {
       if (!res.headersSent) res.status(500).json({ detail: 'Failed to read cached preview' })
     })
-    stream.pipe(res)
+    streamTo(res, stream)
   } catch (e: any) {
     res.status(500).json({ detail: `Failed to serve cached preview: ${e?.message || e}` })
   }
@@ -572,7 +573,7 @@ router.get('/projects/:slug/style-presets/:id/preview', async (req, res) => {
     res.setHeader('Content-Length', String(stat.size))
     const stream = fsMod.createReadStream(abs)
     stream.on('error', () => { if (!res.headersSent) res.status(500).json({ detail: 'Read failed' }) })
-    stream.pipe(res)
+    streamTo(res, stream)
   } catch (e: any) {
     res.status(500).json({ detail: e?.message || 'Failed to serve preset preview' })
   }

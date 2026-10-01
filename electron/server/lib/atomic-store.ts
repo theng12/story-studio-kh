@@ -181,6 +181,8 @@ export function withCrossProcessLock<T>(key: string, fn: () => Promise<T>): Prom
 export interface WriteOpts {
   /** POSIX file mode, e.g. 0o600 for secret files. Ignored on Windows. */
   mode?: number
+  /** No indentation: a third smaller and twice as fast to serialise. For large machine-written files (jobs.json). */
+  compact?: boolean
 }
 
 /**
@@ -194,18 +196,26 @@ export async function writeJsonAtomic(filePath: string, data: unknown, opts: Wri
   const dir = path.dirname(filePath)
   await fs.mkdir(dir, { recursive: true })
   const tmp = `${filePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`
-  const body = JSON.stringify(data, null, 2) + '\n'
-  await fs.writeFile(tmp, body, opts.mode !== undefined ? { mode: opts.mode } : undefined)
-  // Flush the tmp file's bytes from OS page cache to disk before the rename.
-  // Without this, a power-loss between writeFile resolving and the kernel
-  // flushing can leave the rename reordered ahead of the data — the target
-  // file exists but readFile returns '' (and JSON.parse throws).
-  // Plain fsync on Darwin is the SQLite-default compromise — no F_FULLFSYNC.
-  const tmpFd = await fs.open(tmp, 'r+')
+  const body = (opts.compact ? JSON.stringify(data) : JSON.stringify(data, null, 2)) + '\n'
   try {
-    await tmpFd.sync()
-  } finally {
-    await tmpFd.close()
+    await fs.writeFile(tmp, body, opts.mode !== undefined ? { mode: opts.mode } : undefined)
+    // Flush the tmp file's bytes from OS page cache to disk before the rename.
+    // Without this, a power-loss between writeFile resolving and the kernel
+    // flushing can leave the rename reordered ahead of the data — the target
+    // file exists but readFile returns '' (and JSON.parse throws).
+    // Plain fsync on Darwin is the SQLite-default compromise — no F_FULLFSYNC.
+    const tmpFd = await fs.open(tmp, 'r+')
+    try {
+      await tmpFd.sync()
+    } finally {
+      await tmpFd.close()
+    }
+  } catch (e) {
+    // A write that dies half-way (a full disk is the likely cause) used to leave its partial temp
+    // file behind: on a nearly full volume every retry stranded another few megabytes and made the
+    // shortage worse. Only the rename step below cleaned up.
+    await fs.unlink(tmp).catch(() => {})
+    throw e
   }
   try {
     await fs.rename(tmp, filePath)
