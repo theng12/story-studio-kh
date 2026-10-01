@@ -6,6 +6,9 @@ import {
   UpdateConfigSchema, UpdateStandardsSchema,
 } from '../schemas/index.js'
 import { updateProjectContentConfigSelections } from '../content-packs/project-pins.js'
+import {
+  getGlobalCompression, getProjectCompressionOverride, setProjectCompressionOverride,
+} from '../services/generation-compression.js'
 
 export const router = Router()
 
@@ -39,6 +42,28 @@ router.put('/projects/:slug/settings/config', validateBody(UpdateConfigSchema), 
     return res.status(404).json({ detail: 'Project not found' })
   }
   res.json({ ok: true })
+})
+
+// "Smaller files" per project: the project's own on/off per asset type, or nothing = follow the
+// app default. `effective` is what generation will actually use.
+async function compressionPayload(slug: string, override: Record<string, boolean>) {
+  const global = await getGlobalCompression()
+  return { override, global, effective: { ...global, ...override } }
+}
+
+router.get('/projects/:slug/settings/generation-compression', async (req, res) => {
+  if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+  res.json(await compressionPayload(req.params.slug, await getProjectCompressionOverride(req.params.slug)))
+})
+
+router.put('/projects/:slug/settings/generation-compression', async (req, res) => {
+  try {
+    const override = await setProjectCompressionOverride(req.params.slug, req.body)
+    if (!override) return res.status(404).json({ detail: 'Project not found' })
+    res.json(await compressionPayload(req.params.slug, override))
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json({ detail: e?.message || 'Failed to save smaller-files settings' })
+  }
 })
 
 router.get('/projects/:slug/settings/standards', async (req, res) => {

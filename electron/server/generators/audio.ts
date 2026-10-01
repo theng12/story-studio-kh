@@ -53,6 +53,7 @@ import { hashSubtitleAudioSources } from '../services/subtitle-completion.js'
 import { formatConcatFileLine, runFfmpeg } from '../lib/ffmpeg-utils.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { correctChapterCues } from '../lib/srt-correction.js'
+import { resolveOutputFormat } from '../services/generation-compression.js'
 import { AudioQualityVerificationCreditCeilingError, verifyAudioQualityCandidateRawTranscript } from '../services/audio-quality-transcription.js'
 import { promoteAudioQualityCandidate, readAudioQualityProvenance, updateAudioQualityProvenance } from '../services/audio-quality-store.js'
 import { readAudioTtsModelRecord, writeAudioTtsModelRecord, type AudioTtsModelRecord } from '../services/audio-tts-model-record.js'
@@ -607,6 +608,9 @@ export async function generateAudio(job: Job): Promise<void> {
   // when the model publishes no controls — then nothing is sent, and the
   // idempotency key is exactly what it was before controls existed.
   const requestControls = resolveTtsControlValues(ttsModel.controls, req.controls)
+  // "Smaller files" for narration (Settings, per-project override): ask for AAC on the wire.
+  // Transport only — the chapter is still written as Story's 96 kbps MP3 either way.
+  const narrationOutputFormat = await resolveOutputFormat(project_slug, 'narration')
   if (Object.keys(requestControls).length) {
     job.output_lines.push(
       `Model controls: ${Object.entries(requestControls).map(([name, value]) => `${name}=${value}`).join(', ')}`
@@ -984,6 +988,7 @@ export async function generateAudio(job: Job): Promise<void> {
         // failed as. Every one of them is a pure function of what happened,
         // never of a clock — so replaying an attempt replays its job.
         requestIdentity: submissionIdentity,
+        ...(narrationOutputFormat ? { outputFormat: narrationOutputFormat } : {}),
       })
       const idempotencyKey = recoveryEntry?.idempotency_key || prepared.idempotencyKey
       const submittedAt = recoveryEntry?.submitted_at || new Date().toISOString()
@@ -1040,6 +1045,7 @@ export async function generateAudio(job: Job): Promise<void> {
         // that rebuilt under the base identity would derive the dead job's
         // key again the moment `idempotencyKey` was ever absent.
         requestIdentity: submissionIdentity,
+        ...(narrationOutputFormat ? { outputFormat: narrationOutputFormat } : {}),
         idempotencyKey,
         signal: controller.signal,
         isCancelled,
@@ -1161,14 +1167,16 @@ export async function generateAudio(job: Job): Promise<void> {
       ? `${requestIdentity}:manual-retry:${job.job_id}`
       : requestIdentity
     // Only the first attempt may reclaim work a previous run left accepted.
+    // Either format: the owner may have flipped "smaller files" since this request was made.
     const actionOwnedRecovery = !!qualityRepairActionId
-      && reusableEntry?.idempotency_key === buildGenStudioSubmission({
+      && [narrationOutputFormat, undefined].some(outputFormat => reusableEntry?.idempotency_key === buildGenStudioSubmission({
         text: task.chunkText, voiceId: effectiveVoice, modelId: genStudioModelId,
         speed: genStudioSpeed, supportsSpeed: genStudioSupportsSpeed,
         minimumSpeed: genStudioMinimumSpeed, maximumSpeed: genStudioMaximumSpeed,
         controls: requestControls, maxInputCharacters: genStudioMaxCharacters,
         requestIdentity: `${requestIdentity}:regenerate:${generationActionId || job.job_id}`,
-      }).idempotencyKey
+        ...(outputFormat ? { outputFormat } : {}),
+      }).idempotencyKey)
     let recoveryEntry = terminalFailure || (explicitRegeneration && !actionOwnedRecovery) ? null : reusableEntry
 
     activeTasks.set(chunkFilename, {

@@ -29,6 +29,7 @@ import path from 'path'
 import { runFfmpeg } from '../lib/ffmpeg-utils.js'
 
 import * as jq from '../services/job-queue.js'
+import { resolveOutputFormat } from '../services/generation-compression.js'
 import { callAi } from '../lib/ai-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { requireJobCompletion } from '../services/job-completion.js'
@@ -208,9 +209,13 @@ export function musicTrackFilename(title: string, jobId: string, takeIndex: numb
 }
 
 const isWav = (b: Buffer) => b.length > 12 && b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WAVE'
+/** ISO-BMFF audio (`ftyp` brand M4A/M4B/mp42/isom), i.e. what `output_format: m4a` returns. */
+const isMp4Audio = (b: Buffer) => b.length > 12 && b.toString('latin1', 4, 8) === 'ftyp'
 
 /**
- * Store one paid track. A WAV body (Hub Stable Audio 3 sends ~43 MB of PCM per
+ * Store one paid track. An MP4/M4A body (the Hub already encoded AAC because we asked
+ * for `output_format: m4a`) is stored as `.m4a` byte for byte — no second lossy
+ * generation. A WAV body (Hub Stable Audio 3 sends ~43 MB of PCM per
  * track) is encoded to AAC (.m4a, native `aac` — `aac_at` measured +0.125 s
  * drift on concat); any other body (an MP3) is stored as delivered. The track
  * is already paid for, so an encode failure keeps the raw bytes under the old
@@ -220,6 +225,11 @@ export async function saveMusicTrack(
   dir: string, title: string, jobId: string, takeIndex: number, body: Buffer,
 ): Promise<{ filename: string; warning?: string }> {
   const rawName = musicTrackFilename(title, jobId, takeIndex, 'mp3')
+  if (isMp4Audio(body)) {
+    const filename = musicTrackFilename(title, jobId, takeIndex)
+    await fs.writeFile(path.join(dir, filename), body)
+    return { filename }
+  }
   if (!isWav(body)) {
     await fs.writeFile(path.join(dir, rawName), body)
     return { filename: rawName }
@@ -311,6 +321,10 @@ export async function generateMusicLibraryTracks(job: Job): Promise<void> {
   const model = resolveMusicModel(models, params.model, { instrumental, hasLyrics: !instrumental })
   const sings = model.requires_lyrics === true
 
+  // "Smaller files" for music (Settings, per-project override). On = ask for AAC at the source;
+  // off = field omitted = WAV, which saveMusicTrack still encodes to AAC itself.
+  const outputFormat = await resolveOutputFormat(job.project_slug, 'music')
+
   const apiKeys = { genstudio: apiKey }
   const planned = await planMusicTracks(
     job, { ...params, brief, count: wanted }, apiKeys, (params.planner_model || '').trim(),
@@ -357,6 +371,7 @@ export async function generateMusicLibraryTracks(job: Job): Promise<void> {
           ...(plan.lyrics ? { lyrics: plan.lyrics } : {}),
           ...(length ? { durationSeconds: length.seconds } : {}),
           modelId: model.id,
+          ...(outputFormat ? { outputFormat } : {}),
           requestIdentity: `${job.project_slug}:music:${briefId}:${index}${retryScope ? `:${retryScope}` : ''}`,
           isCancelled: () => jq.isCancelled(job.job_id),
         })

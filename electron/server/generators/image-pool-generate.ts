@@ -18,6 +18,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { registry } from '../providers/registry.js'
 import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
+import { resolveOutputFormat } from '../services/generation-compression.js'
 import { isDecodableImage } from '../lib/image-validation.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -185,6 +186,8 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
   }
   const imageProvider = registry.getImageProvider('genstudio-image')
   if (!imageProvider) throw new Error('GenStudio KH image provider is unavailable.')
+  // "Smaller files" for the image pool (Settings, per-project override); undefined = native PNG.
+  const outputFormat = await resolveOutputFormat(job.project_slug, 'image_pool')
   const providerParams = (modelConfig as any).provider_params || {
     endpoint: modelConfig.endpoint,
     poll: modelConfig.poll,
@@ -273,7 +276,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
 
   const saveResult = async (item: typeof items[number], result: { url?: string }): Promise<void> => {
     if (!result.url) throw new Error('provider returned no image')
-    await saveGenStudioImage(result.url, path.join(pool.folder_path, item.filename))
+    await saveGenStudioImage(result.url, path.join(pool.folder_path, item.filename), undefined, { compress: !!outputFormat })
     if (!await isUsable(item.filename)) throw new Error('downloaded image is empty')
     successfulFiles.add(item.filename)
     failedFiles.delete(item.filename)
@@ -497,6 +500,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
           ...(outputOption ? { resolution: outputOption.resolution } : {}),
           seed: params.seed,
           requestIdentity: replacementScope || `${generationIdentity}:${item.filename}:${scope}`,
+          ...(outputFormat ? { outputFormat } : {}),
         })
         if (!replacementScope) {
           await recordState(item.filename, {
@@ -520,6 +524,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
           providerParams,
           ...(outputOption ? { resolution: outputOption.resolution } : {}),
           seed: params.seed,
+          ...(outputFormat ? { outputFormat } : {}),
           idempotencyIdentity: replacementScope || `${generationIdentity}:${item.filename}:${scope}`,
           idempotencyKey: preparedKey,
           ...(replacementScope && entry ? {

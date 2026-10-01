@@ -179,6 +179,7 @@ const genstudioImageProvider: ImageProvider = {
         ...(outputOption ? {} : { width: request.width, height: request.height }),
         seed,
         requestIdentity: request.idempotencyIdentity,
+        ...(request.outputFormat ? { outputFormat: request.outputFormat } : {}),
         idempotencyKey: request.idempotencyKey,
         requiresAdmissionPermit: model.requires_admission_permit,
         beforeSubmit: assertSubmitAllowed,
