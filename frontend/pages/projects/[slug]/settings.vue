@@ -1165,10 +1165,24 @@
           <span v-if="storage.project_bytes_thumbnail_cache" title="Small previews for the review grids. Safe to delete: they are rebuilt on demand.">
             <strong>Preview cache:</strong> {{ formatBytes(storage.project_bytes_thumbnail_cache) }}
           </span>
+          <button
+            v-if="storage.project_bytes_thumbnail_cache"
+            class="btn btn-secondary btn-sm"
+            :disabled="previewCacheClearing"
+            title="Moves the small review-grid previews to this project's _trash folder. They rebuild automatically as you open Scene Review and Motion Review."
+            @click="clearPreviewCache"
+          >
+            {{ previewCacheClearing ? 'Clearing…' : `Clear preview cache (${formatBytes(storage.project_bytes_thumbnail_cache)})` }}
+          </button>
           <span v-if="storage.external_root_configured" class="dot">·</span>
           <span v-if="storage.external_root_configured">
             <strong>At external root:</strong> {{ formatBytes(storage.project_bytes_external_final_video) }}
           </span>
+        </div>
+
+        <div v-if="lastPreviewCacheClear" class="storage-result mt-2">
+          Preview cache ({{ formatBytes(lastPreviewCacheClear.bytes) }}) moved to this project's <code>_trash</code> folder.
+          It rebuilds automatically as you use the review pages.
         </div>
 
         <div v-if="storage" class="storage-table mt-2">
@@ -2858,6 +2872,8 @@ interface CleanupResult {
 
 const storage = ref<StorageAudit | null>(null)
 const auditLoading = ref(false)
+const previewCacheClearing = ref(false)
+const lastPreviewCacheClear = ref<{ bytes: number; moved: boolean } | null>(null)
 const externalRootInput = ref('')
 // Mirror of the persisted value — drives the dirty-state for the "Save manual
 // path" button (only shown when the input differs from what's saved).
@@ -3036,6 +3052,22 @@ async function loadStorageAudit() {
     alert(e?.data?.detail || e?.message || 'Storage audit failed')
   } finally {
     auditLoading.value = false
+  }
+}
+
+async function clearPreviewCache() {
+  if (previewCacheClearing.value) return
+  previewCacheClearing.value = true
+  try {
+    lastPreviewCacheClear.value = await post<{ bytes: number; moved: boolean }>(
+      `/projects/${slug.value}/storage/clear-preview-cache`,
+      {},
+    )
+    await loadStorageAudit()
+  } catch (e: any) {
+    alert(e?.data?.detail || e?.message || 'Clearing the preview cache failed')
+  } finally {
+    previewCacheClearing.value = false
   }
 }
 

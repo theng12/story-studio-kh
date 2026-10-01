@@ -603,6 +603,20 @@ router.post('/projects/:slug/storage/bulk-cleanup-final', async (req, res) => {
   }
 })
 
+// Free up space → "Clear preview cache": moves `<project>/.cache/thumbs` to the project's `_trash`
+// (lib/trash-move.ts, never a delete). The review grids rebuild it automatically.
+router.post('/projects/:slug/storage/clear-preview-cache', async (req, res) => {
+  try {
+    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const projectDir = pm.getProjectDir(req.params.slug)
+    if (!projectDir) return res.status(404).json({ detail: 'Project not found' })
+    const { clearThumbCache } = await import('../lib/thumbnail-cache.js')
+    res.json(await clearThumbCache(projectDir, req.params.slug))
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Clearing the preview cache failed'))
+  }
+})
+
 // ── Chunked-progress sidecar cleanup (v1.0.71+) ────────────────────────────
 //
 // `chunked-narration.ts` writes a `{episode}_chunked-progress.json` next to

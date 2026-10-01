@@ -20,6 +20,7 @@ let resolveEpisodePathsByCode: typeof import('../services/utils.js')['resolveEpi
 let resolveEpisodePathsByCodeWithSidecar: typeof import('../services/utils.js')['resolveEpisodePathsByCodeWithSidecar']
 let resolveSceneImagesDir: typeof import('../generators/scene-image.js')['resolveSceneImagesDir']
 let app: express.Express
+let projectsApp: express.Express
 
 // A real, fully decodable PNG: the review only counts an image it can decode.
 let PNG: Buffer
@@ -37,6 +38,9 @@ before(async () => {
   const { router } = await import('../routes/scene-review.js')
   app = express()
   app.use('/api', router)
+  projectsApp = express()
+  projectsApp.use(express.json())
+  projectsApp.use('/api', (await import('../routes/projects.js')).router)
 })
 after(async () => { await cleanup() })
 
@@ -111,5 +115,46 @@ describe('scene image thumbnails', () => {
     await request(app).get(`/api/projects/${project.slug}/scene-review/${episodeId}/image/scene-001?thumb=1`).expect(200)
     const audit = await auditProjectStorage(project.slug)
     assert.ok(audit.project_bytes_thumbnail_cache > 1000, `counted ${audit.project_bytes_thumbnail_cache}`)
+  })
+  test('Clear preview cache moves the folder to the project _trash (never deletes), reports its size, and the grid rebuilds it', async () => {
+    const { project, episodeId, imagesDir } = await seed('Thumb clear')
+    await fs.writeFile(path.join(imagesDir, 'scene-001.png'), BIG)
+    const projectDir = pm.getProjectDir(project.slug)!
+    const url = `/api/projects/${project.slug}/scene-review/${episodeId}/image/scene-001?thumb=1`
+    const clear = `/api/projects/${project.slug}/storage/clear-preview-cache`
+
+    // Nothing cached yet: a harmless no-op.
+    const none = await request(projectsApp).post(clear).expect(200)
+    assert.deepEqual(none.body, { bytes: 0, moved: false, trash_path: null })
+
+    await request(app).get(url).expect(200)
+    const { thumbCacheBytes, thumbCacheRoot } = await import('../lib/thumbnail-cache.js')
+    const before = await thumbCacheBytes(projectDir)
+    assert.ok(before > 1000)
+
+    const res = await request(projectsApp).post(clear).expect(200)
+    assert.equal(res.body.moved, true)
+    assert.equal(res.body.bytes, before)
+    assert.equal(await thumbCacheBytes(projectDir), 0)
+    assert.equal(await fs.stat(thumbCacheRoot(projectDir)).catch(() => null), null)
+    // Moved, not removed: the same bytes are under <project>/_trash.
+    assert.ok(res.body.trash_path.startsWith(path.join(projectDir, '_trash')), res.body.trash_path)
+    const trashed: string[] = []
+    const walk = async (d: string) => { for (const e of await fs.readdir(d, { withFileTypes: true })) { e.isDirectory() ? await walk(path.join(d, e.name)) : trashed.push(path.join(d, e.name)) } }
+    await walk(res.body.trash_path)
+    assert.equal(trashed.length, 1)
+    assert.equal((await fs.stat(trashed[0]!)).size, before)
+    assert.equal((await fs.stat(path.join(imagesDir, 'scene-001.png'))).size, BIG.length, 'the original is untouched')
+
+    // Rebuilds on demand, and a second clear never overwrites the first trashed copy.
+    await request(app).get(url).expect(200)
+    assert.ok(await thumbCacheBytes(projectDir) > 1000)
+    const again = await request(projectsApp).post(clear).expect(200)
+    assert.notEqual(again.body.trash_path, res.body.trash_path)
+    assert.ok((await fs.stat(res.body.trash_path)).isDirectory())
+  })
+
+  test('Clear preview cache on an unknown project is a 404', async () => {
+    await request(projectsApp).post('/api/projects/no-such-project/storage/clear-preview-cache').expect(404)
   })
 })

@@ -93,3 +93,15 @@ test('archive preview names only ready uploaded files and links their recorded u
   assert.match(settings, /Open recorded YouTube upload/)
   assert.match(settings, /encodeURIComponent\(c\.youtube_video_id\)/)
 })
+
+test('Free up space can clear the preview cache: shows its size, moves it to _trash, says it rebuilds', () => {
+  assert.match(settings, /storage\.project_bytes_thumbnail_cache/)
+  assert.match(settings, /@click="clearPreviewCache"/)
+  assert.match(settings, /Clear preview cache \(\$\{formatBytes\(storage\.project_bytes_thumbnail_cache\)\}\)/)
+  const fn = settings.slice(settings.indexOf('async function clearPreviewCache('), settings.indexOf('async function runBulkCleanup('))
+  assert.match(fn, /storage\/clear-preview-cache/)
+  assert.match(fn, /if \(previewCacheClearing\.value\) return/)
+  assert.match(fn, /await loadStorageAudit\(\)/)
+  assert.match(settings, /moved to this project's <code>_trash<\/code> folder/)
+  assert.match(settings, /rebuilds automatically/)
+})
