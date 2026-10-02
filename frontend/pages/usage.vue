@@ -30,7 +30,7 @@
       <template #actions>
         <button type="button" class="btn btn-sm btn-secondary" :disabled="loading" @click="load">Try again</button>
         <button type="button" class="btn btn-sm btn-secondary" @click="appSettingsModal.open('connections')">
-          {{ usageErrorCode === 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE' ? 'Review GenStudio connection' : error === 'Add a GenStudio API key first.' ? 'Add GenStudio API key' : 'Open connection settings' }}
+          {{ usageErrorCode === 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE' ? 'Review the Gateway connection' : error === 'Add a GenStudio API key first.' ? 'Connect your Gateway' : 'Open connection settings' }}
         </button>
       </template>
     </WorkspaceNotice>

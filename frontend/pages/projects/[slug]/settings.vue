@@ -3738,7 +3738,7 @@ const tabZones = [
     title: 'This Mac',
     scope: 'Stays on this Mac',
     sections: [
-      { id: 'connections', label: 'Connections', description: 'GenStudio and YouTube accounts', keywords: 'api key oauth models catalog channel' },
+      { id: 'connections', label: 'Connections', description: 'Gateway and YouTube accounts', keywords: 'gateway genstudio api key oauth models catalog channel' },
       { id: 'performance', label: 'Performance & recovery', description: 'Local workload and retry choices', keywords: 'throughput concurrency failed image subtitles timeout' },
       { id: 'appearance', label: 'Appearance & notifications', description: 'Display, access, text and alerts', keywords: 'theme remote server emoji telegram digest' },
       { id: 'maintenance', label: 'Files & maintenance', description: 'Shared Library, exports and diagnostics', keywords: 'ffmpeg about version archive storage' },

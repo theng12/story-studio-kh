@@ -30,11 +30,11 @@
     type="button"
     class="genstudio-standing-strip"
     :class="`standing-strip-${variant}`"
-    aria-label="Set up GenStudio"
-    :title="usageError || 'Set up GenStudio'"
+    aria-label="Connect your Gateway"
     @click="appSettingsModal.open('connections')"
   >
-    <span>GenStudio</span>
+    <!-- No key yet: this is the Gateway connection, not the paid GenStudio cloud service. -->
+    <span>Gateway</span>
     <strong>{{ creditSummary }}</strong>
     <em v-if="stalenessNote" class="freshness-badge">{{ stalenessNote }}</em>
     <small v-if="standingSummary">{{ standingSummary }}</small>
@@ -78,7 +78,7 @@ const { connection, gatewayDown } = useConnectionStatus()
  * is how this strip used to mislead.
  */
 const creditSummary = computed(() => {
-  if (!genstudioConfigured.value) return 'Set up'
+  if (!genstudioConfigured.value) return 'Connect'
   if (genstudioCredits.value === null) return 'Unavailable'
   return `${genstudioCredits.value.toLocaleString()} credits`
 })

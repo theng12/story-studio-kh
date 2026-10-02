@@ -45,3 +45,10 @@ test('the Content Store has its own page guide', () => {
   assert.equal(featureGuideKeyForPath('/content-store'), 'content-store')
   assert.equal(featureGuideKeyForPath('/content-store/cprod_a'), 'content-store')
 })
+
+test('with no key the header says "Gateway · Connect", not the paid service\'s name', () => {
+  const strip = read('../components/GenStudioStandingStrip.vue')
+  assert.match(strip, /aria-label="Connect your Gateway"[\s\S]*?<span>Gateway<\/span>/)
+  assert.match(strip, /if \(!genstudioConfigured\.value\) return 'Connect'/)
+  assert.doesNotMatch(strip, /Set up GenStudio/)
+})

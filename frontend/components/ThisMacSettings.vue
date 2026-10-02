@@ -101,8 +101,8 @@
       <div>
         <h4>Automatically buy one replacement for a confirmed failed subtitle section</h4>
         <p>
-          Off by default. Story Studio always reconnects to accepted transcription tasks and retries safe download or stitch work for free.
-          Only after GenStudio confirms an eligible failed section may it buy one replacement, within this separate per-Story-job subtitle credit limit.
+          Off by default. Story Studio always re-checks a subtitle section that was accepted, and retries downloading or joining it for free.
+          Only when the section really failed may it buy one paid replacement, within the separate subtitle credit limit you set here.
         </p>
       </div>
       <label class="paid-subtitle-replacement-choice">
@@ -141,9 +141,8 @@
       <div>
         <h4>Automatically buy one replacement for a confirmed failed audio item</h4>
         <p>
-          Off by default and after upgrades. Story Studio reconnects to the original GenStudio task first.
-          When your connected provider supports replacement recovery and confirms an eligible failed item, it may buy one replacement.
-          Automatic replacement requires the hard per-Story-job credit limit you save here.
+          Off by default and after upgrades. Story Studio first checks the original request really failed.
+          Only then may it buy one paid replacement, and only within the credit limit you set here.
         </p>
       </div>
       <label class="paid-audio-replacement-choice">
@@ -172,9 +171,8 @@
       <div>
         <h4>Automatically buy one replacement for a confirmed failed writing item</h4>
         <p>
-          Off by default and after upgrades. Story Studio reconnects to the original GenStudio task first.
-          When your connected provider supports replacement recovery and confirms an eligible failed item, it may buy one replacement.
-          Automatic replacement requires the hard per-Story-job credit limit you save here.
+          Off by default and after upgrades. Story Studio first checks the original request really failed.
+          Only then may it buy one paid replacement, and only within the credit limit you set here.
         </p>
       </div>
       <label class="paid-writing-replacement-choice">
@@ -241,25 +239,15 @@
 
     <section v-if="section === 'all' || section === 'connections'" class="panel connection">
       <div class="connection-copy">
-        <span class="eyebrow">Gateway</span>
-        <h4>GenStudio KH Gateway</h4>
-        <p>Every AI job — writing, voice, images, music, video and subtitles — goes through this one address.</p>
+        <span class="eyebrow">Connection</span>
+        <h4>Gateway</h4>
+        <p>Your GatewayKH on this Mac or network — it runs your free local models, and every writing, voice, image, music, video and subtitle job goes through it.</p>
         <p class="gateway-live" :class="connection.tone" role="status">
           <span class="gateway-live-dot" aria-hidden="true" />
           <strong>{{ connection.label }}</strong>
           <button type="button" class="btn btn-ghost btn-sm" @click="refreshConnection">Check now</button>
         </p>
         <p v-if="connection.hint" class="gateway-live-hint">{{ connection.hint }}</p>
-        <details class="scope-list">
-          <summary>Permissions the key needs</summary>
-          <p>
-            <code>models:read</code>, <code>voices:read</code>, <code>voices:use</code>,
-            <code>tts:generate</code>, <code>audio:transcribe</code>, <code>images:generate</code>,
-            <code>chat:generate</code>, <code>videos:generate</code>, <code>music:generate</code>,
-            <code>usage:read</code>, <code>content:read</code>, and <code>content:purchase</code>.
-            An all-access key has all of them.
-          </p>
-        </details>
       </div>
 
       <div class="fields">
@@ -269,7 +257,8 @@
           <button class="btn btn-secondary btn-sm" :disabled="busy === 'url'" @click="saveUrl">{{ busy === 'url' ? 'Saving…' : 'Save URL' }}</button>
         </div>
 
-        <label for="genstudio-key">GenStudio API key</label>
+        <label for="genstudio-key">Gateway key</label>
+        <p class="masked">Copy it from GatewayKH → Settings and paste it here.</p>
         <div class="field-row">
           <input id="genstudio-key" v-model="keyDraft" class="input" type="password" placeholder="gsk_…" autocomplete="off" spellcheck="false" />
           <button class="btn btn-primary btn-sm" :disabled="busy !== '' || !keyDraft.trim()" @click="saveKey">{{ busy === 'save' ? 'Saving…' : 'Save key' }}</button>
@@ -279,20 +268,13 @@
         <p v-if="savedKey?.hasKey && !keyDraft" class="masked">Saved key: {{ savedKey.keyMasked || '••••' }}</p>
         <p v-else-if="!savedKey?.hasKey" class="masked">No key saved.</p>
         <p v-if="result" :class="['result', result.kind]">{{ result.message }}</p>
-        <dl v-if="result?.contentStore" class="scope-results" aria-label="Content Store scope test result">
-          <div>
-            <dt><code>content:read</code></dt>
-            <dd :data-state="result.contentStore.readScope">{{ result.contentStore.readScope === 'verified' ? 'Can browse the Content Store' : result.contentStore.readScope === 'not_connected' ? 'The Gateway has no Content Store connected' : 'Content Store browsing not confirmed' }}</dd>
-          </div>
-          <div>
-            <dt><code>content:purchase</code></dt>
-            <dd>Needed to buy packs · only a real purchase can prove it</dd>
-          </div>
-        </dl>
+        <p v-if="result?.contentStore" class="masked">
+          Content Store: {{ result.contentStore.readScope === 'verified' ? 'can browse and buy packs' : result.contentStore.readScope === 'not_connected' ? 'not connected on this Gateway (generation is unaffected)' : 'not confirmed' }}.
+        </p>
       </div>
     </section>
 
-    <p v-if="section === 'all' || section === 'connections'" class="security-note">The key remains masked after save and is stored only in this Mac’s restricted app-secrets file.</p>
+    <p v-if="section === 'all' || section === 'connections'" class="security-note">The key stays hidden after saving and is kept only on this Mac.</p>
   </div>
 </template>
 
@@ -303,7 +285,7 @@ const props = withDefaults(defineProps<{ section?: ThisMacSection }>(), { sectio
 const section = computed(() => props.section)
 const sectionTitle = computed(() => ({
   all: 'App settings',
-  connections: 'GenStudio connection',
+  connections: 'Gateway connection',
   performance: 'Performance & recovery',
   appearance: 'Appearance & notifications',
 }[section.value]))
@@ -616,7 +598,7 @@ async function saveKey(): Promise<void> {
   try {
     await put('/app-settings/api-keys/genstudio', { apiKey })
     keyDraft.value = ''
-    result.value = { kind: 'ok', message: 'GenStudio key saved and masked.' }
+    result.value = { kind: 'ok', message: 'Gateway key saved.' }
     // A failed re-read is not a failed save: it must not turn this into "Could not save the key."
     await load().catch(() => undefined)
     void refreshConnection()
@@ -648,18 +630,18 @@ async function testKey(): Promise<void> {
             },
           } : {}),
         }
-      : { kind: response.reachable ? 'warn' : 'err', message: response.message || 'GenStudio rejected the key.' }
+      : { kind: response.reachable ? 'warn' : 'err', message: response.message || 'The Gateway did not accept this key.' }
   } catch (error: any) {
     result.value = { kind: 'err', message: error?.data?.detail || error?.message || 'Scope test failed.' }
   } finally { busy.value = '' }
 }
 
 async function removeKey(): Promise<void> {
-  if (!await ask({ title: 'Remove GenStudio key?', message: 'All AI generation will remain unavailable until a GenStudio key is saved.', confirmLabel: 'Remove key', danger: true })) return
+  if (!await ask({ title: 'Remove the Gateway key?', message: 'Nothing can be generated until a Gateway key is saved again.', confirmLabel: 'Remove key', danger: true })) return
   busy.value = 'remove'; result.value = null
   try {
     await del('/app-settings/api-keys/genstudio')
-    result.value = { kind: 'ok', message: 'GenStudio key removed.' }
+    result.value = { kind: 'ok', message: 'Gateway key removed.' }
     await load().catch(() => undefined)
   } catch (error: any) {
     result.value = { kind: 'err', message: error?.data?.detail || error?.message || 'Could not remove the key.' }
@@ -747,7 +729,7 @@ const throughputFields: ThroughputField[] = [
     key: 'llmJobs',
     label: 'Writing jobs at once',
     help: 'Ideas, research, outlines, chapters, metadata, image prompts and scene plans share this. '
-      + 'This is a local staging preference; GenStudio still admits each request from your live account limits.',
+      + 'How many Story Studio sends at once; the Gateway still decides how many it runs.',
     choices: [
       { value: 4, label: '4 — cautious' },
       { value: 8, label: '8 — recommended' },
@@ -790,8 +772,8 @@ const throughputFields: ThroughputField[] = [
     key: 'imageFanout',
     label: 'Cloud requests per episode at once',
     help: 'Covers image fan-out inside ONE episode, including Scene Review and thumbnails. Auto '
-      + 'follows the keyed GenStudio burst publication, so it rises by itself as your capacity '
-      + 'grows. A number is a local staging preference; GenStudio still owns remote admission. '
+      + 'follows what your account allows, so it rises by itself as your capacity '
+      + 'grows. A number only limits what Story Studio sends; the Gateway still decides what runs. '
       + 'Other cloud generation types keep their own live capacity.',
     choices: [
       { value: 'auto', label: 'Auto — follows your account (recommended)' },
@@ -1033,19 +1015,12 @@ header p, .panel p { margin: 4px 0 0; color: var(--text-muted); font-size: 12px;
 .masked, .security-note { color: var(--text-muted); font-size: var(--font-xs); }
 .result { font-size: var(--font-xs); }
 .result.ok { color: var(--success); } .result.warn { color: var(--warning, #d97706); } .result.err { color: var(--danger); }
-.scope-results { display: grid; gap: 6px; margin-top: 5px; }
-.scope-results div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg-tertiary); }
-.scope-results dt, .scope-results dd { font-size: var(--font-xs); }
-.scope-results dd { color: var(--text-secondary); text-align: right; }
-.scope-results dd[data-state='verified'] { color: var(--success); }
 .gateway-live { display: flex; align-items: center; gap: 8px; margin-top: 10px !important; color: var(--text-primary) !important; }
 .gateway-live-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: var(--text-muted); }
 .gateway-live.online .gateway-live-dot { background: var(--success); }
 .gateway-live.offline .gateway-live-dot { background: var(--error); }
 .gateway-live.offline strong { color: var(--error); }
 .gateway-live-hint { color: var(--text-secondary) !important; }
-.scope-list { margin-top: 8px; color: var(--text-muted); font-size: var(--font-xs); }
-.scope-list summary { cursor: pointer; }
 .security-note { margin: 0; }
 @container this-mac-settings (max-width: 760px) {
   .connection { grid-template-columns: 1fr; }

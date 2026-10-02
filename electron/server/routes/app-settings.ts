@@ -1043,7 +1043,7 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
     apiKey = await getApiKey(providerId)
   }
   if (!apiKey) {
-    return res.status(400).json({ valid: false, reachable: false, message: 'No API key configured' })
+    return res.status(400).json({ valid: false, reachable: false, message: 'No Gateway key saved yet. Paste it from GatewayKH → Settings.' })
   }
   try {
     if (providerId === 'genstudio') {
@@ -1085,14 +1085,14 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
         return res.json({
           valid: false,
           reachable: true,
-          message: 'The GenStudio API key is invalid or is missing voices:read.',
+          message: 'The Gateway did not accept this key (it cannot read voices). Copy the key again from GatewayKH → Settings.',
         })
       }
       if (ttsCatalogResponse.status !== 200) {
         return res.json({
           valid: false,
           reachable: true,
-          message: `GenStudio voice model catalog returned HTTP ${ttsCatalogResponse.status}. Check the API URL and key.`,
+          message: `The Gateway answered with an error (HTTP ${ttsCatalogResponse.status}) when asked for its voice models. Check the Gateway address and key.`,
         })
       }
       const ttsCatalog = await ttsCatalogResponse.json().catch(() => null)
@@ -1133,7 +1133,7 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
           return res.json({
             valid: false,
             reachable: true,
-            message: `The GenStudio API key is invalid or is missing ${probe.scope}.`,
+            message: `The Gateway did not accept this key for ${probe.label}. Copy the key again from GatewayKH → Settings (an all-access key covers everything).`,
           })
         }
         if (probe.path === '/v1/content/account' && await isContentStoreNotConnected(response)) {
@@ -1144,7 +1144,7 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
           return res.json({
             valid: false,
             reachable: true,
-            message: `GenStudio ${probe.label} returned HTTP ${response.status}. Check the API URL and key.`,
+            message: `The Gateway answered with an error (HTTP ${response.status}) for its ${probe.label}. Check the Gateway address and key.`,
           })
         }
       }
@@ -1161,8 +1161,8 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
           read_scope: contentStoreConnected ? 'verified' : 'not_connected',
           purchase_scope: 'required_unverified',
         },
-        warning: usageAvailable ? null : 'Generation scopes work, but GenStudio did not accept this key for usage:read. Balance and exact settlement history remain unavailable; Story Studio will not calculate them locally.',
-        message: 'Key works for GenStudio catalogs and TTS, transcription, image, LLM, music, and video job access.',
+        warning: usageAvailable ? null : 'Generating works, but this key cannot read your credit balance, so the balance and charge history are not shown.',
+        message: 'Connected — the Gateway accepted this key for writing, voice, images, music, video and subtitles.',
       })
     }
   } catch (e: any) {

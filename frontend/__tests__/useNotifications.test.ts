@@ -31,3 +31,26 @@ test('Notification Center redacts known job identities without mutating durable 
   assert.equal(job.error, 'Request provider_1234567890 failed for project 123e4567-e89b-12d3-a456-426614174000')
   assert.equal(job.genstudio_jobs?.[0]?.id, 'provider_1234567890')
 })
+
+test('a new channel with no Gateway key gets a blocking "Connect your Gateway" action, not silence', async () => {
+  const calls: string[] = []
+  ;(globalThis as any).$fetch = async (url: string) => {
+    calls.push(url)
+    if (url.endsWith('/upload/accounts')) return { accounts: {} }
+    if (url.endsWith('/app-settings/api-keys')) return { providers: [{ providerId: 'genstudio', hasKey: false, keyMasked: '' }] }
+    if (url.includes('/models?')) { const e: any = new Error('400'); e.data = { detail: 'Add a GenStudio API key' }; throw e }
+    if (url.endsWith('/ffmpeg/status')) return { installed: true }
+    throw new Error(`unexpected ${url}`)
+  }
+  const { useNotifications } = await import('../composables/useNotifications.js')
+  const notifications = useNotifications()
+  await notifications.refreshReadiness('new-channel')
+  const items = notifications.actionItems('new-channel').value
+  const gateway = items.find(item => item.key === 'gateway-key')
+  assert.ok(gateway, 'missing Gateway key is an action item')
+  assert.equal(gateway!.severity, 'blocking')
+  assert.match(gateway!.title, /Connect your Gateway/)
+  assert.match(gateway!.detail, /GatewayKH → Settings/)
+  assert.equal(items[0]!.key, 'gateway-key', 'blocking first, above the upload warning')
+  assert.equal(calls.some(url => url.includes('/models?')), false, 'no doomed catalogue read without a key')
+})
