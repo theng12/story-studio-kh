@@ -138,6 +138,8 @@
           <button class="btn btn-sm btn-primary" type="button" :disabled="busy !== ''" @click="connectChannel()">
             {{ busy === 'connect' ? 'Waiting for Google…' : 'Connect a YouTube channel' }}
           </button>
+          <!-- Closing the Google tab used to leave every button here disabled for five minutes. -->
+          <button v-if="busy === 'connect'" class="btn btn-sm btn-ghost" type="button" @click="stopWaitingForGoogle = true">Stop waiting</button>
         </div>
         <p v-if="channelResult" :class="['result', channelResult.kind]">{{ channelResult.message }}</p>
       </section>
@@ -240,6 +242,7 @@ const loadErrorCode = ref('')
 const busy = ref('')
 /** Set on teardown so a pending connect poll stops instead of running on. */
 let unmounted = false
+const stopWaitingForGoogle = ref(false)
 
 const application = ref<ApplicationView | null>(null)
 const channels = ref<ChannelView[]>([])
@@ -371,6 +374,7 @@ async function saveApplication(): Promise<void> {
 
 async function connectChannel(expectedChannelId?: string): Promise<void> {
   busy.value = 'connect'
+  stopWaitingForGoogle.value = false
   channelResult.value = null
   let browserPopup: Window | null = null
   try {
@@ -397,6 +401,11 @@ async function connectChannel(expectedChannelId?: string): Promise<void> {
     else browserPopup!.location.replace(started.auth_url)
     const outcome = await pollConnect(started.flow_id)
     if (outcome.status === 'abandoned') return
+    if (outcome.status === 'stopped') {
+      channelResult.value = { kind: 'warn', message: 'Stopped waiting for Google. If you finished signing in, the channel appears here after a refresh; otherwise connect again.' }
+      await load()
+      return
+    }
     if (outcome.status === 'success') {
       channelResult.value = outcome.scope_upgrade_required
         ? { kind: 'warn', message: `${outcome.channel.channel_title} connected, but Google granted fewer permissions than Story Studio needs. Reconnect and accept all of them.` }
@@ -417,12 +426,20 @@ async function pollConnect(flowId: string): Promise<any> {
   // The flow itself times out server-side; this only stops asking. Leaving the
   // page stops it immediately rather than polling for five more minutes into a
   // component nobody is looking at.
-  for (let attempt = 0; attempt < 300 && !unmounted; attempt++) {
-    const status = await get<any>(`/youtube/connections/channels/connect/${flowId}`)
-    if (status.status !== 'pending') return status
+  let missedReads = 0
+  for (let attempt = 0; attempt < 300 && !unmounted && !stopWaitingForGoogle.value; attempt++) {
+    try {
+      const status = await get<any>(`/youtube/connections/channels/connect/${flowId}`)
+      missedReads = 0
+      if (status.status !== 'pending') return status
+    } catch (error) {
+      // One missed read is not a failed connection; only keep failing reads are.
+      if (++missedReads >= 5) throw error
+    }
     await new Promise(resolve => setTimeout(resolve, 1000))
   }
   if (unmounted) return { status: 'abandoned' }
+  if (stopWaitingForGoogle.value) return { status: 'stopped' }
   return { status: 'error', error: 'Story Studio stopped waiting for Google. Try connecting again.' }
 }
 

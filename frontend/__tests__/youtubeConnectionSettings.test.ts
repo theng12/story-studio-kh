@@ -467,3 +467,20 @@ describe('Settings → YouTube boundaries', () => {
     assert.match(source, /has_client_secret/)
   })
 })
+
+describe('Settings → YouTube while waiting for Google (shell audit 2026-10-03)', () => {
+  test('Stop waiting frees the page instead of locking every button for five minutes', async () => {
+    const mounted = await mount({ connectStatus: { status: 'pending' } })
+    try {
+      await clickConnect(mounted)
+      const stop = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Stop waiting')
+      assert.ok(stop, 'a visible way out while waiting')
+      stop!.click()
+      await new Promise(resolve => setTimeout(resolve, 1_200))
+      for (let i = 0; i < 8; i++) await nextTick()
+      const connect = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Connect a YouTube channel'))!
+      assert.equal(connect.disabled, false)
+      assert.match(mounted.el.textContent!, /Stopped waiting for Google/)
+    } finally { mounted.destroy() }
+  })
+})
