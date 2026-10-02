@@ -503,6 +503,9 @@
                   !isStepApplicableForEpisode(step.id, ep)
                     ? 'not-applicable'
                     : (isStepDoneForEpisode(step.id, ep.status) ? 'done' : 'missing'),
+                  isStepApplicableForEpisode(step.id, ep) && !isStepDoneForEpisode(step.id, ep.status)
+                    ? stepJobState(step.id, ep) || ''
+                    : '',
                   isStepManualForEpisode(step.id, ep) ? 'manual' : '',
                 ]"
                 :title="isStepApplicableForEpisode(step.id, ep) ? pillTitle(step, ep) : `${step.label} is not used for this episode’s visual source.`"
@@ -619,6 +622,14 @@
         @close="overrideEpisode = null"
         @saved="onOverridesSaved"
       />
+
+      <p v-if="episodes.length" class="pill-legend text-muted text-sm mt-2">
+        Step icons: <span class="ep-pill done legend-pill" aria-hidden="true">✓</span> done ·
+        <span class="ep-pill missing legend-pill" aria-hidden="true">○</span> not made yet ·
+        <span class="ep-pill missing active legend-pill" aria-hidden="true">○</span> being made now ·
+        <span class="ep-pill missing failed legend-pill" aria-hidden="true">○</span> last attempt failed — retry it from
+        <NuxtLink :to="`/projects/${slug}/jobs`">Jobs</NuxtLink> or run the batch again (finished steps are skipped).
+      </p>
 
       <div v-if="episodes.length" class="selection-summary mt-2 text-muted text-sm">
         <strong>{{ selectedEpisodes.size }}</strong> of {{ episodes.length }} episode(s) selected · estimated queued stages = {{ selectedApplicableStepCount }}
@@ -797,6 +808,7 @@ import {
   type VisualSource,
 } from '~/composables/useProjectFlow'
 import { localMediaStatusLabel, type LocalMediaCleanupStatus } from '~/composables/useEpisodes'
+import { episodeStepJobStates } from '~/utils/episode-step-jobs'
 import type { AudioQualityMode, AudioQualityPlan } from '~/types/audio-quality'
 import { ESTIMATE_STEPS, estimateBatchUsd, formatUsd, stepQuantity, type EstimateStep } from '~/utils/genstudio-price-usd'
 
@@ -2124,10 +2136,29 @@ function researchNote(status: Record<string, unknown> | undefined): string {
   return s.research_has_usable_claims ? ` — ${who}` : ` — ${who}, none kept`
 }
 
+// The latest job for an episode step, when it is running now or failed last
+// time — the pills otherwise drew a failed step exactly like one never started.
+const { jobs: queueJobs } = useJobs()
+const stepJobStates = computed(() => episodeStepJobStates(queueJobs.value || []))
+const STEP_STATUS_FIELD_BY_ID: Partial<Record<StepId, string>> = {
+  research: 'research', broll: 'video_assembly', 'script-only': 'script', 'introduction-only': 'introduction',
+  image_prompts: 'thumb_prompts', thumb_images: 'thumbnails', audio: 'audio', audio_merge: 'merged_audio',
+  metadata: 'metadata', subtitles: 'subtitles', scene_plan: 'scene_plan', scene_review: 'scene_review',
+  motion_review: 'motion_review', video_assembly: 'video_assembly',
+}
+function stepJobState(stepId: StepId, ep: Episode): 'active' | 'failed' | null {
+  const field = STEP_STATUS_FIELD_BY_ID[stepId]
+  return field ? stepJobStates.value.get(`${ep.episode_code}:${field}`)?.state || null : null
+}
+
 function pillTitle(step: StepMeta, ep: Episode): string {
   const done = isStepDoneForEpisode(step.id, ep.status)
   const manual = isStepManualForEpisode(step.id, ep)
-  const status = done ? '✓ done' : 'missing'
+  const jobState = done ? null : stepJobState(step.id, ep)
+  const status = done ? '✓ done'
+    : jobState === 'active' ? 'being made now'
+      : jobState === 'failed' ? 'last attempt failed — retry it from Jobs, or run the batch again'
+        : 'missing'
   const note = step.id === 'research' ? researchNote(ep.status) : ''
   if (ep.marked_done) return `${step.label} — ${status}${note} (whole episode marked done manually)`
   if (manual) return `${step.label} — ${status}${note} (manual override)`
@@ -2838,6 +2869,18 @@ async function submit() {
   border: 1px dashed var(--border);
   opacity: 0.4;
   filter: grayscale(1);
+}
+.pill-legend { line-height: 2; }
+.ep-pill.legend-pill { width: 18px; height: 18px; font-size: 10px; vertical-align: middle; cursor: default; }
+.ep-pill.failed {
+  opacity: 1;
+  filter: none;
+  box-shadow: inset 0 0 0 2px var(--error);
+}
+.ep-pill.active {
+  opacity: 1;
+  filter: none;
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 .ep-pill.not-applicable {
   background: transparent;

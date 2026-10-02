@@ -43,3 +43,14 @@ test('the Board shows failed and running steps, says why, and does not hide its 
   assert.match(board, /class="board-hint"/)
   assert.doesNotMatch(board, /\.ep-import \{[^}]*opacity: 0;/)
 })
+
+test('Pipeline episode pills show a failed or running step and explain the icons visibly', () => {
+  const pipeline = readFileSync(
+    fileURLToPath(new URL('../pages/projects/[slug]/pipeline.vue', import.meta.url)),
+    'utf8',
+  )
+  assert.match(pipeline, /episodeStepJobStates\(queueJobs\.value/)
+  assert.match(pipeline, /stepJobState\(step\.id, ep\)/)
+  assert.match(pipeline, /class="pill-legend/)
+  assert.match(pipeline, /only the later steps that need it wait/)
+})
