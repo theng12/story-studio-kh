@@ -290,9 +290,16 @@ router.put('/projects/:slug/research/:episodeId', async (req, res) => {
 
     await fs.writeFile(sidecarPath, JSON.stringify(normalized, null, 2), 'utf-8')
     // research.md carries the review state too; re-render it so it never keeps
-    // saying "review pending" after the decisions were saved.
-    const { renderResearchMarkdown, researchModelLabel } = await import('../generators/research.js')
-    await fs.writeFile(mdPath, renderResearchMarkdown(normalized, await researchModelLabel(normalized)), 'utf-8')
+    // saying "review pending" after the decisions were saved. Best-effort and
+    // offline: the model's display name is carried from the existing file (the
+    // research job wrote it from the catalogue), never fetched on a save, and
+    // a failed write never fails the save that already landed in research.json.
+    try {
+      const { renderResearchMarkdown } = await import('../generators/research.js')
+      await fs.writeFile(mdPath, renderResearchMarkdown(normalized, await savedModelLabel(mdPath)), 'utf-8')
+    } catch (e) {
+      console.warn(`[research] could not refresh research.md for ${slug}/${episodeId}:`, e)
+    }
     await invalidateEpisodeStatus(slug, episodeId)
     res.json({
       ok: true,
@@ -304,6 +311,13 @@ router.put('/projects/:slug/research/:episodeId', async (req, res) => {
     res.status(500).json(humanizeBackendError(e, 'Failed to save research sidecar'))
   }
 })
+
+/** The model display name research.md's header line already carries
+ *  ("*<mode> · research ran on <date> · <name>*"), or '' when absent. */
+async function savedModelLabel(mdPath: string): Promise<string> {
+  const md = await fs.readFile(mdPath, 'utf-8').catch(() => '')
+  return /^\*(?:Search the web|Model knowledge only) · research ran on [^·\n]*? · ([^\n]+)\*$/m.exec(md)?.[1]?.trim() || ''
+}
 
 /** Did this save actually change a Verified / Ignore decision? Claims added or
  *  removed count as a change too — the saved set is not the reviewed set. */

@@ -431,6 +431,8 @@ const totalChapters = ref(0)
 const chaptersDone = ref<number[]>([])
 const approvedAt = ref<string | null>(null)
 const editedAt = ref<string | null>(null)
+/** `outline_completed_at` of the outline on screen — which build it is. */
+const completedAt = ref('')
 const generationParams = ref<GenerationParams | null>(null)
 const loaded = ref(false)
 const saving = ref(false)
@@ -732,6 +734,7 @@ async function loadOutline() {
     chaptersDone.value = data.chapters_done || []
     approvedAt.value = data.outline_approved_at
     editedAt.value = data.outline_edited_at
+    completedAt.value = data.outline_completed_at || ''
     generationParams.value = data.generation_params
     loaded.value = true
     isDirty.value = false
@@ -785,12 +788,14 @@ async function loadOutline() {
 let autosaveTimer: ReturnType<typeof setTimeout> | null = null
 /** The episode an unsaved edit belongs to, captured when it was made, so a
  *  save that runs later can never land on a different episode. */
-let dirtyTarget: { projectSlug: string; episodeId: string; title?: string } | null = null
+/** `completedAt` names WHICH outline the edits were made on; the server
+ *  refuses them (409) once that outline has been rebuilt or re-imported. */
+let dirtyTarget: { projectSlug: string; episodeId: string; title?: string; completedAt: string } | null = null
 
 function markDirty() {
   // The first edit after a clean state names the episode the edits belong to.
   if (!isDirty.value || !dirtyTarget) {
-    dirtyTarget = { projectSlug: props.projectSlug, episodeId: props.episodeId, title: props.title }
+    dirtyTarget = { projectSlug: props.projectSlug, episodeId: props.episodeId, title: props.title, completedAt: completedAt.value }
   }
   isDirty.value = true
   justSaved.value = false
@@ -804,7 +809,10 @@ function markDirtyAndAutosave() {
 
 /** Save pending edits to the episode they were made on, right now. Runs
  *  before any reload or episode switch, and on leaving the page, so an edit
- *  is never dropped by a reload and never written to the next episode. */
+ *  is never dropped by a reload and never written to the next episode. If the
+ *  outline was rebuilt meanwhile (e.g. Create outline with Force), the server
+ *  refuses the old edits with a 409 instead of writing them over — or
+ *  approving — the new outline, and the reload then shows the new one. */
 async function flushPendingEdits(): Promise<void> {
   if (autosaveTimer) { clearTimeout(autosaveTimer); autosaveTimer = null }
   const target = dirtyTarget
@@ -815,7 +823,7 @@ async function flushPendingEdits(): Promise<void> {
   try {
     const titleParam = target.title ? `?title=${encodeURIComponent(target.title)}` : ''
     await put(`/projects/${target.projectSlug}/episodes/${target.episodeId}/outline${titleParam}`,
-      { outline: snapshot, approved: !!approvedAt.value })
+      { outline: snapshot, approved: !!approvedAt.value, outline_completed_at: target.completedAt || undefined })
   } catch (e: any) {
     showError(e?.data?.detail || `Could not save your outline edits for ${target.episodeId}`)
   }
@@ -939,7 +947,7 @@ function reorder(idx: number, delta: -1 | 1) {
 async function saveEdits(silent = false): Promise<void> {
   if (saving.value) return
   if (autosaveTimer) { clearTimeout(autosaveTimer); autosaveTimer = null }
-  const target = dirtyTarget || { projectSlug: props.projectSlug, episodeId: props.episodeId, title: props.title }
+  const target = dirtyTarget || { projectSlug: props.projectSlug, episodeId: props.episodeId, title: props.title, completedAt: completedAt.value }
   // Only the episode the edits were made on is ever written. The episode
   // watcher flushes before a switch, so a mismatch here means nothing to save.
   if (target.episodeId !== props.episodeId || target.projectSlug !== props.projectSlug) return
@@ -948,7 +956,7 @@ async function saveEdits(silent = false): Promise<void> {
     const titleParam = target.title ? `?title=${encodeURIComponent(target.title)}` : ''
     const resp = await put<{ outline_edited_at: string; outline_approved_at: string | null }>(
       `/projects/${target.projectSlug}/episodes/${target.episodeId}/outline${titleParam}`,
-      { outline: outline.value, approved: !!approvedAt.value },
+      { outline: outline.value, approved: !!approvedAt.value, outline_completed_at: target.completedAt || undefined },
     )
     if (target.episodeId !== props.episodeId) return
     dirtyTarget = null
@@ -959,9 +967,18 @@ async function saveEdits(silent = false): Promise<void> {
     if (!silent) success('Outline saved')
   } catch (e: any) {
     showError(e?.data?.detail || 'Could not save outline')
+    if (e?.status === 409) discardAndShowCurrentOutline()
   } finally {
     saving.value = false
   }
+}
+
+/** 409 = the outline was rebuilt since it loaded; the edits belong to the
+ *  old one. Drop them and show the outline that is actually on disk. */
+function discardAndShowCurrentOutline(): void {
+  dirtyTarget = null
+  isDirty.value = false
+  void loadOutline()
 }
 
 async function approveOutline() {
@@ -972,7 +989,7 @@ async function approveOutline() {
     const titleParam = props.title ? `?title=${encodeURIComponent(props.title)}` : ''
     const resp = await put<{ outline_edited_at: string; outline_approved_at: string | null }>(
       `/projects/${props.projectSlug}/episodes/${props.episodeId}/outline${titleParam}`,
-      { outline: outline.value, approved: true },
+      { outline: outline.value, approved: true, outline_completed_at: completedAt.value || undefined },
     )
     editedAt.value = resp.outline_edited_at
     approvedAt.value = resp.outline_approved_at
@@ -980,6 +997,7 @@ async function approveOutline() {
     success('Outline approved — ready to expand')
   } catch (e: any) {
     showError(e?.data?.detail || 'Could not approve outline')
+    if (e?.status === 409) discardAndShowCurrentOutline()
   } finally {
     saving.value = false
   }

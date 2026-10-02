@@ -162,3 +162,66 @@ describe('writer prompt wording (AGENTS.md §9)', () => {
     assert.doesNotMatch(block, /independently researched|confirmed/i)
   })
 })
+
+describe('stale outline edits never overwrite a rebuilt outline', () => {
+  test('PUT outline refuses edits made on an older build, accepts the current one, and stays back-compatible', async () => {
+    const { resolveEpisodePaths } = await import('../services/utils.js')
+    const scriptDir = (await resolveEpisodePaths(slug, 'EP002', TITLE)).script_dir
+    await fs.mkdir(scriptDir, { recursive: true })
+    const sidecarFile = path.join(scriptDir, 'EP002_chunked-progress.json')
+    const built = '2026-10-03T10:00:00.000Z'
+    const outline = [{ n: 1, title: 'New outline topic' }]
+    await fs.writeFile(sidecarFile, JSON.stringify({
+      schema_version: 3, episode_id: 'EP002', mode: 'narrative', total_chapters: 1, outline,
+      outline_completed_at: built, outline_approved_at: null, outline_edited_at: null,
+      generation_params: null, chapters_done: [], params_hash: 'x', last_updated: built,
+    }))
+    const url = `/api/projects/${slug}/episodes/EP002/outline?title=${encodeURIComponent(TITLE)}`
+
+    const stale = await request(app).put(url).send({
+      outline: [{ n: 1, title: 'Old edited topic' }], approved: true, outline_completed_at: '2026-10-01T00:00:00.000Z',
+    })
+    assert.equal(stale.status, 409)
+    assert.match(stale.body.detail, /rebuilt/)
+    const after = JSON.parse(await fs.readFile(sidecarFile, 'utf-8'))
+    assert.equal(after.outline[0].title, 'New outline topic', 'the rebuilt outline is untouched')
+    assert.equal(after.outline_approved_at, null, 'and not approved by the stale save')
+
+    const current = await request(app).put(url).send({
+      outline: [{ n: 1, title: 'Edited on the current build' }], approved: false, outline_completed_at: built,
+    })
+    assert.equal(current.status, 200)
+    const legacy = await request(app).put(url).send({ outline: [{ n: 1, title: 'Older client' }], approved: false })
+    assert.equal(legacy.status, 200, 'a client that does not send the build marker still saves')
+  })
+})
+
+describe('research save keeps research.md fresh without a catalogue call', () => {
+  test('the model name is carried from the existing research.md', async () => {
+    const { dir, jsonPath, mdPath } = await researchPaths()
+    await fs.mkdir(dir, { recursive: true })
+    await fs.writeFile(jsonPath, JSON.stringify(research('2026-10-04T10:00:00.000Z')))
+    await fs.writeFile(mdPath, '# Research — Volcanoes\n\n*Model knowledge only · research ran on 2026-10-04T10:00:00.000Z · Gemini Flash Lite*\n\n> **REVIEW PENDING.**\n')
+    const ok = await request(app).put(`/api/projects/${slug}/research/${EP}`)
+      .send(research('2026-10-04T10:00:00.000Z', 'verified'))
+    assert.equal(ok.status, 200)
+    const md = await fs.readFile(mdPath, 'utf-8')
+    assert.match(md, /research ran on 2026-10-04T10:00:00\.000Z · Gemini Flash Lite\*/)
+    assert.doesNotMatch(md, /REVIEW PENDING/)
+  })
+
+  test('a research.md that cannot be written never fails the saved decisions', async () => {
+    const { jsonPath, mdPath } = await researchPaths()
+    await fs.writeFile(jsonPath, JSON.stringify(research('2026-10-05T10:00:00.000Z')))
+    await fs.rm(mdPath, { force: true })
+    await fs.mkdir(mdPath)   // a directory where the file should be → write fails
+    try {
+      const ok = await request(app).put(`/api/projects/${slug}/research/${EP}`)
+        .send(research('2026-10-05T10:00:00.000Z', 'verified'))
+      assert.equal(ok.status, 200)
+      assert.equal(JSON.parse(await fs.readFile(jsonPath, 'utf-8')).claims[0].status, 'verified')
+    } finally {
+      await fs.rm(mdPath, { recursive: true, force: true })
+    }
+  })
+})

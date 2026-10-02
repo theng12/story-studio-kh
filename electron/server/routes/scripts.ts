@@ -389,6 +389,18 @@ router.put('/projects/:slug/episodes/:episodeId/outline', async (req, res) => {
     const existing = JSON.parse(raw)
     const totalChapters = existing.total_chapters
 
+    // The outline was rebuilt (or imported) after the page loaded it: these
+    // edits belong to the old one and must not overwrite — or approve — the
+    // new outline. Optional so older clients keep working.
+    const basedOn = req.body?.outline_completed_at
+    if (typeof basedOn === 'string' && typeof existing.outline_completed_at === 'string'
+        && basedOn !== existing.outline_completed_at) {
+      return res.status(409).json({
+        detail: `The outline for ${episodeId} was rebuilt after these edits were made, so they were not saved. `
+          + 'The new outline is shown now.',
+      })
+    }
+
     // Length must match total_chapters: the rest of the chunked machinery
     // (expandChapters' pending-set computation, the OutlineReviewPanel's row
     // ↔ chapter-on-disk pairing, chapters_done invariants) all assume

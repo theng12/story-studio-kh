@@ -128,7 +128,7 @@ test('outline edits are saved to the episode they were made on, never dropped or
   const reorder = source.slice(source.indexOf('function reorder('), source.indexOf('// ── Save / approve'))
   assert.match(reorder, /markDirtyAndAutosave\(\)/)
   // The target episode is captured at the first edit after a clean state.
-  assert.match(source, /if \(!isDirty\.value \|\| !dirtyTarget\) \{\s*dirtyTarget = \{ projectSlug: props\.projectSlug, episodeId: props\.episodeId, title: props\.title \}/)
+  assert.match(source, /if \(!isDirty\.value \|\| !dirtyTarget\) \{\s*dirtyTarget = \{ projectSlug: props\.projectSlug, episodeId: props\.episodeId, title: props\.title, completedAt: completedAt\.value \}/)
   // A late save never lands on another episode.
   assert.match(source, /if \(target\.episodeId !== props\.episodeId \|\| target\.projectSlug !== props\.projectSlug\) return/)
   // Pending edits are flushed (not cancelled) before any reload / switch and on leaving.
@@ -159,4 +159,14 @@ test('ChapterListPanel handles each finished job once and refreshes at most once
   // The refresh sits after the loop, not inside it.
   assert.ok(watcher.indexOf('void refresh()') > watcher.lastIndexOf('for (const job of jobs.value)'))
   assert.match(watcher, /if \(landed\) \{/)
+})
+
+test('every outline save names the build it was made on, and a 409 drops the stale edits', () => {
+  // Without this, unsaved edits flushed after "Create outline" + Force would
+  // overwrite (and with approved:true, approve) the freshly rebuilt outline.
+  assert.match(source, /completedAt\.value = data\.outline_completed_at \|\| ''/)
+  assert.match(source, /completedAt: completedAt\.value \}/, 'captured with the edit target')
+  assert.equal(source.match(/outline_completed_at: (target\.completedAt|completedAt\.value) \|\| undefined/g)?.length, 3,
+    'flush, save and approve all send it')
+  assert.match(source, /if \(e\?\.status === 409\) discardAndShowCurrentOutline\(\)/)
 })
