@@ -92,6 +92,8 @@ interface LlmModelRow {
   structured_output_mode?: 'json_object' | 'request_json_schema'
   legacy_ids?: string[]
   cost_tier?: GenStudioLlmCostTier
+  /** Gateway-published: this model may cost money. */
+  chargeable?: boolean
   locked?: boolean
   lock_reason?: string | null
   input_credits_per_million_tokens?: number | null
@@ -261,6 +263,9 @@ const menuOptions = computed(() => {
       // is rendered in full beneath the selector once the model is chosen — a
       // badge is a signpost, never the disclosure.
       badges: [
+        ...(model.chargeable === true
+          ? [{ label: 'Paid', tone: 'warning' as const, title: 'This writing model may cost money (the gateway marks it paid).' }]
+          : []),
         ...(model.discount === true
           ? [{ label: 'Data notice', tone: 'warning' as const, title: model.discount_disclaimer || 'This model carries a data notice from GenStudio.' }]
           : []),

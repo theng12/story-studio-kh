@@ -1815,6 +1815,8 @@ export function readPublishedLimitSource(value: unknown): GenStudioLimitSource |
 
 export interface GenStudioChatModel extends GenStudioCatalogLock, GenStudioPriceTruth, GenStudioProductAliases {
   id: string
+  /** Published by gateway 0.2.100+: may this model cost money? Absent = not published. */
+  chargeable?: boolean
   display_name: string
   /** Published model creator/provider label. Absent until GenStudio supplies it. */
   provider_name?: string
@@ -5286,6 +5288,8 @@ export async function listChatModelsSnapshot(
       : 0,
     price_version: typeof value?.price_version === 'string' ? value.price_version.trim() : '',
     ...(parseGenStudioLlmCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioLlmCostTier(value?.cost_tier) } : {}),
+    // Gateway 0.2.100+: true when the request may cost money (a pool is chargeable if any member is).
+    ...(publishedFlag(value?.chargeable) === undefined ? {} : { chargeable: publishedFlag(value?.chargeable) }),
     // Read, never authored. An older GenStudio that publishes neither field
     // simply carries no notice — which is the truth, not a default.
     discount: value?.discount === true,

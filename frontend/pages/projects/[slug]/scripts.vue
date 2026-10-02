@@ -318,13 +318,9 @@
         <div class="recency-head">
           <span class="recency-icon" aria-hidden="true">🔁</span>
           <div class="recency-text">
-            <strong>Avoiding repetition</strong> —
-            the next prompt will tell the LLM to skip
-            <strong>{{ recencyState.recent_items.length }}</strong>
-            <em>{{ recencyState.label }}</em>
-            used in the last
-            <strong>{{ recencyState.lookback }}</strong>
-            episode{{ recencyState.lookback === 1 ? '' : 's' }}.
+            <strong>Avoiding repetition</strong> — the next script avoids these
+            <strong>{{ recencyState.recent_items.length }}</strong>{{ ' ' }}<em>{{ recencyState.label }}</em>{{ ' ' }}used in the last
+            <strong>{{ recencyState.lookback }}</strong>{{ ' ' }}episode{{ recencyState.lookback === 1 ? '' : 's' }}.
           </div>
           <button
             v-if="recencyState.recent_items.length > 0"

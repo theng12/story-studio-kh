@@ -149,3 +149,8 @@ test('an empty writing-model picker says the owner has to choose, visibly', () =
   const source = readFileSync(new URL('../components/ModelSelector.vue', import.meta.url), 'utf8')
   assert.match(source, /v-else-if="!modelValue\.trim\(\) && allModels\.length && !loading"[\s\S]{0,120}Choose a writing model\. Story Studio does not pick one for you\./)
 })
+
+test('a writing model the gateway marks chargeable carries a visible Paid badge', () => {
+  const source = readFileSync(new URL('../components/ModelSelector.vue', import.meta.url), 'utf8')
+  assert.match(source, /model\.chargeable === true\s*\?\s*\[\{ label: 'Paid'/)
+})

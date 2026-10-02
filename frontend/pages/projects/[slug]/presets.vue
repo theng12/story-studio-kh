@@ -60,7 +60,7 @@
               <button v-else class="label-btn" :disabled="isGroupSaving(group.key)" @click="startRename(group.key, p)">{{ p.name }}</button>
             </td>
             <td>
-              <span class="type-chip">{{ p.type || 'legacy' }}</span>
+              <span v-if="p.type" class="type-chip">{{ p.type }}</span>
             </td>
             <td class="col-actions">
               <button class="btn btn-sm btn-ghost" :disabled="isGroupSaving(group.key)" @click="duplicate(group.key, p)" title="Create a copy of this preset">Duplicate</button>
