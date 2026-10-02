@@ -1085,7 +1085,7 @@ export async function generateAudio(job: Job): Promise<void> {
         },
       }
       if (recoveryEntry?.task_id) {
-        job.output_lines.push(`  Reclaiming accepted GenStudio task ${recoveryEntry.task_id.slice(0, 12)}… for ${chunkFilename}.`)
+        job.output_lines.push(`  ${chunkFilename}: collecting the result of the earlier request (nothing new is made or charged; ref ${recoveryEntry.task_id.slice(0, 12)}).`)
         await recoverTtsGenStudio(apiKey, task.outputPath, recoveryEntry.task_id, request)
       } else {
         await generateTtsGenStudio(apiKey, task.outputPath, request)

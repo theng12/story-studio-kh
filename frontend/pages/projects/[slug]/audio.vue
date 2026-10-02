@@ -1748,7 +1748,7 @@ async function onRescan() {
     rescanning.value = false
   }
 }
-const noScriptTooltip = 'Generate the script first to unlock this generator.'
+const noScriptTooltip = "Finish this episode's script in Script Generator first — narration needs every chapter written."
 
 // ── Presets ─────────────────────────────────────────────────────────────
 const audioPresets = usePresets<any>({

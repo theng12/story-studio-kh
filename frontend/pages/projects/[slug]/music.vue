@@ -219,6 +219,8 @@ import { CREDIT_BASIS_LABEL, describeMusicUnitCost, type PricedMusicModel } from
 import { pickDefaultMusicModel } from '../../../../electron/server/contracts/music-model-choice'
 import { UNCONFIRMED_SUBMISSION } from '../../../composables/useFreshGenerationAction'
 
+definePageMeta({ layout: 'dashboard' })
+useAppTitle('Music Library')
 const route = useRoute()
 const slug = computed(() => String(route.params.slug || ''))
 const { get, post, patch, del } = useApi()

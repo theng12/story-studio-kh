@@ -66,3 +66,7 @@ test('Music Library: removal is recoverable, the background is picked, and a fre
   assert.match(music, /<FilePicker\s+v-model="backgroundPath"/)
   assert.match(music, /musicCost\.basis === 'free'/)
 })
+
+test('Music Library keeps the app sidebar like every other project page', () => {
+  assert.match(music, /definePageMeta\(\{ layout: 'dashboard' \}\)/)
+})

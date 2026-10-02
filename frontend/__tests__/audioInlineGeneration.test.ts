@@ -16,7 +16,7 @@ describe('Audio one-chapter generation', () => {
   test('exposes an explicit inline action for every chapter row', () => {
     assert.match(chapterSelector, /'generate-section': \[request: SectionAction\]/)
     assert.match(chapterSelector, /emit\('generate-section', \{ slug: s\.slug, mode: inlineActionMode\(s\) \}\)/)
-    assert.match(chapterSelector, /Send only .* to the selected TTS provider/)
+    assert.match(chapterSelector, /Narrate only .* with the selected voice/)
     assert.doesNotMatch(chapterSelector, /Allow regenerating already-generated sections/)
     assert.doesNotMatch(chapterSelector, /:disabled="!allowDuplicates/)
   })
