@@ -12,8 +12,8 @@
         <span class="eyebrow">Throughput</span>
         <h4>How much runs at once</h4>
         <p class="hint">
-          Every number here was fixed in the program until it appeared on this screen. Raise them when
-          there is spare capacity; lower them if work starts getting refused.
+          How many jobs Story Studio sends at once. Raise them when your Macs have spare capacity;
+          lower them if work starts getting refused.
         </p>
       </div>
 
@@ -45,12 +45,13 @@
       <p v-if="concurrencySaved" class="saved-box">{{ concurrencySaved }}</p>
 
       <div class="concurrency-actions">
-        <button class="btn btn-sm btn-primary" type="button" :disabled="concurrencySaving" @click="saveConcurrency">
+        <button class="btn btn-sm btn-primary" type="button" :disabled="concurrencySaving || !concurrencyLoaded" @click="saveConcurrency">
           {{ concurrencySaving ? 'Saving…' : 'Save' }}
         </button>
-        <button class="btn btn-sm" type="button" :disabled="concurrencySaving" @click="restoreDefaults">
-          Use recommended
+        <button class="btn btn-sm" type="button" :disabled="concurrencySaving || !concurrencyLoaded" @click="restoreDefaults">
+          Reset to recommended
         </button>
+        <small class="hint">Reset only fills in the recommended numbers; press Save to keep them.</small>
       </div>
     </section>
 
@@ -58,10 +59,10 @@
       <div>
         <h4>Automatically finish failed images</h4>
         <p>
-          Off by default. Story Studio reconnects to the original GenStudio task first. After GenStudio confirms that task failed,
-          eligible fully refunded failures retry with a delay until the image finishes or you pause, cancel, or turn this off. For an eligible failure that already used
-          credits, Story Studio waits 30 minutes, checks the image is still missing, refreshes the exact current price, and may buy
-          one replacement within your per-Story-job credit limit. Time alone never proves a task stopped.
+          Off by default. When an image fails, Story Studio first checks the original request really failed — it never
+          guesses from time alone. A failure that cost nothing is retried, with a pause between tries, until the image
+          finishes or you pause, cancel, or turn this off. A failure that already used credits waits 30 minutes, checks
+          the image is still missing, re-checks the price, and may buy one replacement within the credit limit you set here.
         </p>
       </div>
       <label class="paid-image-replacement-choice">
@@ -231,7 +232,7 @@
           type="checkbox"
           :checked="allowEmoji"
           :disabled="emojiBusy"
-          @change="saveEmoji(($event.target as HTMLInputElement).checked)"
+          @change="saveEmoji($event.target as HTMLInputElement)"
         />
         <span>Let generated text use emoji</span>
       </label>
@@ -240,18 +241,29 @@
 
     <section v-if="section === 'all' || section === 'connections'" class="panel connection">
       <div class="connection-copy">
-        <span class="eyebrow">Sole AI boundary</span>
-        <h4>GenStudio KH</h4>
-        <p>
-          Required scopes: <code>models:read</code>, <code>voices:read</code>, <code>voices:use</code>,
-          <code>tts:generate</code>, <code>audio:transcribe</code>, <code>images:generate</code>,
-          <code>chat:generate</code>, <code>videos:generate</code>, <code>music:generate</code>,
-          <code>usage:read</code>, <code>content:read</code>, and <code>content:purchase</code>.
+        <span class="eyebrow">Gateway</span>
+        <h4>GenStudio KH Gateway</h4>
+        <p>Every AI job — writing, voice, images, music, video and subtitles — goes through this one address.</p>
+        <p class="gateway-live" :class="connection.tone" role="status">
+          <span class="gateway-live-dot" aria-hidden="true" />
+          <strong>{{ connection.label }}</strong>
+          <button type="button" class="btn btn-ghost btn-sm" @click="refreshConnection">Check now</button>
         </p>
+        <p v-if="connection.hint" class="gateway-live-hint">{{ connection.hint }}</p>
+        <details class="scope-list">
+          <summary>Permissions the key needs</summary>
+          <p>
+            <code>models:read</code>, <code>voices:read</code>, <code>voices:use</code>,
+            <code>tts:generate</code>, <code>audio:transcribe</code>, <code>images:generate</code>,
+            <code>chat:generate</code>, <code>videos:generate</code>, <code>music:generate</code>,
+            <code>usage:read</code>, <code>content:read</code>, and <code>content:purchase</code>.
+            An all-access key has all of them.
+          </p>
+        </details>
       </div>
 
       <div class="fields">
-        <label for="genstudio-url">Base URL</label>
+        <label for="genstudio-url">Gateway address</label>
         <div class="field-row">
           <input id="genstudio-url" v-model="url" class="input" type="url" autocomplete="url" spellcheck="false" />
           <button class="btn btn-secondary btn-sm" :disabled="busy === 'url'" @click="saveUrl">{{ busy === 'url' ? 'Saving…' : 'Save URL' }}</button>
@@ -261,7 +273,7 @@
         <div class="field-row">
           <input id="genstudio-key" v-model="keyDraft" class="input" type="password" placeholder="gsk_…" autocomplete="off" spellcheck="false" />
           <button class="btn btn-primary btn-sm" :disabled="busy !== '' || !keyDraft.trim()" @click="saveKey">{{ busy === 'save' ? 'Saving…' : 'Save key' }}</button>
-          <button class="btn btn-secondary btn-sm" :disabled="busy !== '' || (!keyDraft.trim() && !savedKey?.hasKey)" @click="testKey">{{ busy === 'test' ? 'Testing…' : 'Test scopes' }}</button>
+          <button class="btn btn-secondary btn-sm" :disabled="busy !== '' || (!keyDraft.trim() && !savedKey?.hasKey)" @click="testKey">{{ busy === 'test' ? 'Testing…' : 'Test connection' }}</button>
           <button v-if="savedKey?.hasKey" class="btn btn-ghost btn-sm" :disabled="busy !== ''" @click="removeKey">Remove</button>
         </div>
         <p v-if="savedKey?.hasKey && !keyDraft" class="masked">Saved key: {{ savedKey.keyMasked || '••••' }}</p>
@@ -270,17 +282,13 @@
         <dl v-if="result?.contentStore" class="scope-results" aria-label="Content Store scope test result">
           <div>
             <dt><code>content:read</code></dt>
-            <dd :data-state="result.contentStore.readScope">{{ result.contentStore.readScope === 'verified' ? 'Read scope verified' : result.contentStore.readScope === 'not_connected' ? 'Content Store not connected on this gateway' : 'Read scope not verified' }}</dd>
+            <dd :data-state="result.contentStore.readScope">{{ result.contentStore.readScope === 'verified' ? 'Can browse the Content Store' : result.contentStore.readScope === 'not_connected' ? 'The Gateway has no Content Store connected' : 'Content Store browsing not confirmed' }}</dd>
           </div>
           <div>
             <dt><code>content:purchase</code></dt>
-            <dd>Purchase scope required · not safely testable without buying</dd>
+            <dd>Needed to buy packs · only a real purchase can prove it</dd>
           </div>
         </dl>
-        <p v-else class="scope-guidance">
-          Content Store key tests can verify <code>content:read</code>. The required <code>content:purchase</code>
-          scope is not safely testable without an explicit real purchase.
-        </p>
       </div>
     </section>
 
@@ -297,11 +305,11 @@ const sectionTitle = computed(() => ({
   all: 'App settings',
   connections: 'GenStudio connection',
   performance: 'Performance & recovery',
-  appearance: 'Appearance & app behavior',
+  appearance: 'Appearance & notifications',
 }[section.value]))
 const sectionDescription = computed(() => ({
   all: 'Settings stored on this Mac and shared by every project.',
-  connections: 'One GenStudio URL and API key serve every AI catalog, job, and credit event on this Mac. The key may be all-access or scoped.',
+  connections: 'The Gateway address and key this Mac uses for every AI job.',
   performance: 'Control local staging and the explicit recovery choices used after confirmed failures.',
   appearance: 'Choose how Story Studio looks, listens on the network, and writes generated text.',
 }[section.value]))
@@ -312,6 +320,7 @@ interface EmojiSetting { allow_emoji_in_generated_text: boolean }
 interface PaidImageReplacementSetting { enabled: boolean; additional_credit_ceiling: number | null }
 
 const { get, put, del, post } = useApi()
+const { connection, refresh: refreshConnection } = useConnectionStatus()
 const { ask } = useConfirm()
 const { mode: themeMode, setMode: setTheme } = useTheme()
 const themeChoices: ThemeChoice[] = ['light', 'dark', 'system']
@@ -350,13 +359,19 @@ const result = ref<{
 } | null>(null)
 
 async function load(): Promise<void> {
-  const [settings, keys] = await Promise.all([
-    get<{ url: string; default_url: string }>('/app-settings/genstudio'),
-    get<{ providers: ProviderRow[] }>('/app-settings/api-keys'),
-  ])
-  url.value = settings.url
-  defaultUrl.value = settings.default_url
-  savedKey.value = keys.providers.find(row => row.providerId === 'genstudio') || null
+  // Each block loads on its own: one failed read used to stop every block below it, leaving the
+  // paid-replacement switches on "Loading saved setting…" for good.
+  try {
+    const [settings, keys] = await Promise.all([
+      get<{ url: string; default_url: string }>('/app-settings/genstudio'),
+      get<{ providers: ProviderRow[] }>('/app-settings/api-keys'),
+    ])
+    url.value = settings.url
+    defaultUrl.value = settings.default_url
+    savedKey.value = keys.providers.find(row => row.providerId === 'genstudio') || null
+  } catch {
+    result.value = { kind: 'err', message: 'Could not read the saved Gateway address and key. Close and reopen Settings to try again.' }
+  }
   try {
     const paidImageReplacement = await get<PaidImageReplacementSetting>('/app-settings/paid-image-replacement')
     if (!isPaidImageReplacementSetting(paidImageReplacement)) throw new Error('Saved setting was invalid.')
@@ -559,7 +574,8 @@ async function savePaidWritingReplacement(): Promise<void> {
   }
 }
 
-async function saveEmoji(checked: boolean): Promise<void> {
+async function saveEmoji(box: HTMLInputElement): Promise<void> {
+  const checked = box.checked
   emojiBusy.value = true; emojiResult.value = null
   try {
     const saved = await put<EmojiSetting>('/app-settings/emoji', { allow_emoji_in_generated_text: checked })
@@ -573,7 +589,9 @@ async function saveEmoji(checked: boolean): Promise<void> {
   } catch (error: any) {
     // Put the switch back where it really is, rather than leaving it showing a
     // setting that was never saved.
+    // `allowEmoji` never changed, so Vue would not touch the box: set it back by hand.
     allowEmoji.value = !checked
+    box.checked = !checked
     emojiResult.value = { kind: 'err', message: error?.data?.detail || error?.message || 'Could not save that.' }
   } finally { emojiBusy.value = false }
 }
@@ -584,7 +602,8 @@ async function saveUrl(): Promise<void> {
     const saved = await put<{ url: string; default_url: string }>('/app-settings/genstudio', { url: url.value.trim() })
     url.value = saved.url
     defaultUrl.value = saved.default_url
-    result.value = { kind: 'ok', message: 'GenStudio base URL saved.' }
+    result.value = { kind: 'ok', message: 'Gateway address saved.' }
+    void refreshConnection()
   } catch (error: any) {
     result.value = { kind: 'err', message: error?.data?.detail || error?.message || 'Could not save the URL.' }
   } finally { busy.value = '' }
@@ -597,8 +616,10 @@ async function saveKey(): Promise<void> {
   try {
     await put('/app-settings/api-keys/genstudio', { apiKey })
     keyDraft.value = ''
-    await load()
     result.value = { kind: 'ok', message: 'GenStudio key saved and masked.' }
+    // A failed re-read is not a failed save: it must not turn this into "Could not save the key."
+    await load().catch(() => undefined)
+    void refreshConnection()
   } catch (error: any) {
     result.value = { kind: 'err', message: error?.data?.detail || error?.message || 'Could not save the key.' }
   } finally { busy.value = '' }
@@ -638,8 +659,8 @@ async function removeKey(): Promise<void> {
   busy.value = 'remove'; result.value = null
   try {
     await del('/app-settings/api-keys/genstudio')
-    await load()
     result.value = { kind: 'ok', message: 'GenStudio key removed.' }
+    await load().catch(() => undefined)
   } catch (error: any) {
     result.value = { kind: 'err', message: error?.data?.detail || error?.message || 'Could not remove the key.' }
   } finally { busy.value = '' }
@@ -897,8 +918,13 @@ async function loadConcurrency() {
     for (const field of throughputFields) {
       customFields[field.key] = !field.choices.some(choice => String(choice.value) === String(models[field.key]))
     }
-  } catch { /* an unreachable setting must not break the whole page */ }
-  concurrencyLoaded.value = true
+    concurrencyError.value = ''
+    concurrencyLoaded.value = true
+  } catch {
+    // Showing the defaults here looked like his own numbers, and Save then wrote them over the
+    // real ones. Stay unloaded (Save off) and say so instead.
+    concurrencyError.value = 'Could not read your saved numbers, so they are not shown and Save is off. Close and reopen Settings to try again.'
+  }
 }
 
 async function saveConcurrency() {
@@ -1011,7 +1037,14 @@ header p, .panel p { margin: 4px 0 0; color: var(--text-muted); font-size: 12px;
 .scope-results dt, .scope-results dd { font-size: var(--font-xs); }
 .scope-results dd { color: var(--text-secondary); text-align: right; }
 .scope-results dd[data-state='verified'] { color: var(--success); }
-.scope-guidance { padding-top: 5px; }
+.gateway-live { display: flex; align-items: center; gap: 8px; margin-top: 10px !important; color: var(--text-primary) !important; }
+.gateway-live-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: var(--text-muted); }
+.gateway-live.online .gateway-live-dot { background: var(--success); }
+.gateway-live.offline .gateway-live-dot { background: var(--error); }
+.gateway-live.offline strong { color: var(--error); }
+.gateway-live-hint { color: var(--text-secondary) !important; }
+.scope-list { margin-top: 8px; color: var(--text-muted); font-size: var(--font-xs); }
+.scope-list summary { cursor: pointer; }
 .security-note { margin: 0; }
 @container this-mac-settings (max-width: 760px) {
   .connection { grid-template-columns: 1fr; }

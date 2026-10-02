@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { connectionStatus } from '../utils/connection-status.js'
+import { connectionStatus } from '../composables/useNetworkStatus.js'
 
 test('a stopped Gateway is named, with a visible next step and its address', () => {
   const status = connectionStatus(true, 'unreachable', 'http://127.0.0.1:8787')

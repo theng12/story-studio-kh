@@ -25,6 +25,7 @@ async function loadThisMacSettings(): Promise<Component> {
     const useApi = () => globalThis.__thisMacSettingsApi
     const useConfirm = () => ({ ask: async () => true })
     const useTheme = () => ({ mode: ref('system'), setMode: () => undefined })
+    const useConnectionStatus = () => ({ connection: { value: { tone: 'online', label: 'Gateway connected', hint: '' } }, gatewayDown: { value: false }, refresh: async () => undefined })
   `
   const code = `${support}\n${script.content.replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
   const transformed = await transform(code, { loader: 'ts', format: 'esm' })

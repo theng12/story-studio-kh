@@ -271,3 +271,40 @@ test('the FFmpeg installer and manual fallback stay closed while the status is u
   assert.match(source, /v-if="ffmpegStatusError"[\s\S]{0,700}@click="refreshFfmpegStatus"/,
     'a failed check must be stated with a retry')
 })
+
+// ── Shell audit 2026-10-03 — a backfill never runs on values that failed to save ──
+
+test('YouTube backfill stops when saving the Publishing form fails, so old saved values are never applied to every video', async () => {
+  const route = reactive({ params: reactive({ slug: 'project-a' }), hash: '', query: {} })
+  const posts: string[] = []
+  const fixture: any = {
+    route,
+    savePlan: projectSettingsSavePlan,
+    api: {
+      get: async () => ({}),
+      post: async (path: string) => { posts.push(path); return { updated: 3, skipped: 0, items: [] } },
+      put: async () => { throw Object.assign(new Error('save failed'), { data: { detail: 'Disk is read-only.' } }) },
+      patch: async () => ({}),
+      del: async () => ({}),
+    },
+    projectState: {
+      project: ref<any>({ name: 'A', episode_prefix: 'EP' }), config: ref<any>({ category_id: 27, mark_as_ai_generated: true }),
+      refreshConfig: async () => undefined, loadProject: async () => undefined,
+    },
+  }
+  ;(globalThis as any).__settingsFixture = fixture
+  const app = createApp(await loadPage())
+  const host = document.body.appendChild(document.createElement('div'))
+  app.mount(host)
+  await flush()
+  try {
+    assert.equal(await fixture.state.saveProject('publishing'), false, 'a failed save says so')
+    await fixture.state.runYoutubeBackfill(false)
+    await fixture.state.runYoutubeBackfill(true)
+    assert.deepEqual(posts.filter(path => path.includes('youtube-backfill')), [])
+  } finally {
+    app.unmount()
+    host.remove()
+    delete (globalThis as any).__settingsFixture
+  }
+})

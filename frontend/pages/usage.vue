@@ -105,7 +105,6 @@
 
 <script setup lang="ts">
 import { customerSafeJobText } from '~/utils/job-presentation'
-import { connectionStatus } from '~/utils/connection-status'
 
 useAppTitle('GenStudio Credits')
 
@@ -154,9 +153,7 @@ const usageErrorCode = ref('')
 const { get } = useApi()
 const appSettingsModal = useAppSettingsModal()
 const genStudioModels = useGenStudioModelDisplay()
-const { online, gateway, gatewayUrl } = useNetworkStatus()
-const connection = computed(() => connectionStatus(online.value, gateway.value, gatewayUrl.value))
-const gatewayDown = computed(() => online.value && gateway.value === 'unreachable')
+const { connection, gatewayDown } = useConnectionStatus()
 
 async function load(): Promise<void> {
   loading.value = true

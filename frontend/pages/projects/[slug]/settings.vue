@@ -2378,6 +2378,9 @@ async function saveGuideDensity(): Promise<void> {
     success(`Guide visibility saved — ${guideDensityLabel.value.toLowerCase()}`)
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to save guide visibility')
+    // Put the slider back on the saved value rather than leave it showing one that was never saved.
+    const saved = Number((config.value as any)?.character_density)
+    if (Number.isFinite(saved)) guideDensity.value = Math.max(0, Math.min(100, Math.round(saved)))
   } finally {
     savingGuideDensity.value = false
   }
@@ -3682,7 +3685,9 @@ async function runYoutubeBackfill(dryRun: boolean) {
     // If the user changed the AI toggle in the UI but hasn't hit Save yet,
     // the backfill would use the LAST-SAVED value — confusing. Force a
     // save first so the in-flight selection is what gets backfilled.
-    await saveProject('publishing')
+    // A failed save must stop here: otherwise every uploaded video is updated
+    // from the OLD saved values while the form shows the new ones.
+    if (!await saveProject('publishing')) return
     const r = await post<YtBackfillResp>(
       `/projects/${slug.value}/upload/youtube-backfill`,
       { dry_run: dryRun },
@@ -4968,11 +4973,12 @@ async function saveStandards() {
   }
 }
 
-async function saveProject(requestedSection?: ProjectSettingsSaveSection) {
+/** True only when the section was saved for the project still on screen. */
+async function saveProject(requestedSection?: ProjectSettingsSaveSection): Promise<boolean> {
   try {
     const targetSlug = slug.value
     const section = requestedSection || (activeTab.value as ProjectSettingsSaveSection)
-    if (!['identity', 'publishing', 'files'].includes(section)) return
+    if (!['identity', 'publishing', 'files'].includes(section)) return false
     const draftBeforeSave = { ...projectForm }
     const plan = projectSettingsSavePlan(section, draftBeforeSave, serverSeasonSize.value)
 
@@ -4986,7 +4992,7 @@ async function saveProject(requestedSection?: ProjectSettingsSaveSection) {
     if (plan.config) {
       await put(`/projects/${targetSlug}/settings/config`, plan.config)
     }
-    if (slug.value !== targetSlug) return
+    if (slug.value !== targetSlug) return false
     if (project.value) {
       for (const key of Object.keys(plan.project)) {
         (project.value as any)[key] = savedProject[key]
@@ -5004,8 +5010,10 @@ async function saveProject(requestedSection?: ProjectSettingsSaveSection) {
     // would hydrate every section and discard drafts hidden behind another link.
     stampSaved(`project_${section}`)
     success(`${section === 'identity' ? 'Project identity' : section === 'publishing' ? 'Publishing defaults' : 'Project files'} saved!`)
+    return true
   } catch (e: any) {
     showError(e.data?.detail || 'Failed to save')
+    return false
   }
 }
 

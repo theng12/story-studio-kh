@@ -159,7 +159,6 @@
 import { FLOW_PHASES, parseVisualSource, type FlowStep, type VisualSource } from '~/composables/useProjectFlow'
 import { useWhatsNewModal } from '~/composables/useWhatsNewModal'
 import { projectSlug } from '~/utils/project-slug'
-import { connectionStatus } from '~/utils/connection-status'
 
 const route = useRoute()
 const slug = computed(() => (
@@ -177,8 +176,7 @@ const { jobs, stats, startPolling: startJobPolling, stopPolling: stopJobPolling 
 const { stats: allJobStats, start: startAllJobs, stop: stopAllJobs } = useAllJobs()
 const { niches, isReady: nichesReady, error: nichesError } = useNiches()
 const { refreshReadiness } = useNotifications()
-const { online: networkOnline, gateway, gatewayUrl } = useNetworkStatus()
-const connection = computed(() => connectionStatus(networkOnline.value, gateway.value, gatewayUrl.value))
+const { connection } = useConnectionStatus()
 const { get: apiGet } = useApi()
 const { public: pubCfg } = useRuntimeConfig()
 const appVersion = computed(() => (pubCfg.appVersion as string | undefined) || '0.0.0')

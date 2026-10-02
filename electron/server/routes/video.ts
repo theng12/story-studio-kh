@@ -1454,7 +1454,7 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
   try {
     models = await listGenStudioTranscriptionModels(apiKey)
   } catch {
-    return res.status(502).json({ detail: 'Could not load transcription models. Check your connection and try again.' })
+    return res.status(502).json({ detail: 'Could not load transcription models. Check the Gateway app is running, then try again.' })
   }
   const requestedModel = typeof req.body?.model === 'string' ? req.body.model.trim() : ''
   const migratedModel = resolveGenStudioModelId('transcription', requestedModel)

@@ -89,8 +89,18 @@ function extractCode(e: any): string | null {
   const msg = typeof e.message === 'string' ? e.message : String(e || '')
   // Common forms: "spawn ENOENT", "ENOENT: no such file …", "EACCES:".
   const m = msg.match(/\b(ENOENT|EACCES|EPERM|EISDIR|ENOTDIR|EBUSY|ENOSPC|EMFILE|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EHOSTUNREACH|ENETUNREACH)\b/)
-  return m ? m[1] : null
+  if (m) return m[1]
+  // `AbortSignal.timeout()` rejects with a DOMException named TimeoutError, not an errno.
+  if (e.name === 'TimeoutError') return 'ETIMEDOUT'
+  // Node's fetch says only "fetch failed" and puts the real reason (ECONNREFUSED …) in `cause`;
+  // the client's own wrappers ("… could not be reached after automatic reconnect attempts") nest it
+  // once more. Follow the chain, but only for connection reasons — a file error found deep inside a
+  // cause must not relabel an unrelated failure.
+  const inner = e.cause ? extractCode(e.cause) : null
+  return inner && NETWORK_CODES.has(inner) ? inner : null
 }
+
+const NETWORK_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EHOSTUNREACH', 'ENETUNREACH'])
 
 /** Try to extract a path mentioned in the error message. */
 function extractPath(e: any): string | null {
@@ -206,17 +216,20 @@ export function humanizeBackendError(e: unknown, fallback?: string): HumanizedEr
   }
 
   // ── Network errors (provider calls, fetch) ───────────────────────────
+  // Story Studio talks to one service, the Gateway, so a connection failure is almost always the
+  // Gateway being stopped, restarting or busy. Most screens show only `detail`, so it carries the
+  // whole sentence and the next step; `hint` repeats where to look.
   if (code === 'ECONNREFUSED') {
-    return { detail: 'Connection refused by the remote service.', hint: 'Cannot reach the GenStudio gateway — is the gateway app running?' }
+    return { detail: 'Could not reach the Gateway — is the Gateway app running?', hint: 'Open the Gateway app (or check its address in Settings → Connections), then try again.' }
   }
   if (code === 'ECONNRESET') {
-    return { detail: 'The connection to the remote service was reset.', hint: 'Try again — this is usually transient.' }
+    return { detail: 'The connection to the Gateway dropped. Try again — this is usually a restart in progress.', hint: 'If it keeps happening, check the Gateway app is running.' }
   }
   if (code === 'ETIMEDOUT' || code === 'EHOSTUNREACH' || code === 'ENETUNREACH') {
-    return { detail: 'Could not reach the remote service.', hint: 'Cannot reach the GenStudio gateway — is the gateway app running?' }
+    return { detail: 'The Gateway did not answer in time — it may be restarting or busy. Try again in a minute.', hint: 'If it keeps happening, check the Gateway app is running and its address in Settings → Connections.' }
   }
   if (code === 'ENOTFOUND') {
-    return { detail: 'The remote service host could not be resolved.', hint: 'Check the GenStudio gateway address in Settings → This Mac, or your DNS settings.' }
+    return { detail: 'The Gateway address could not be found.', hint: 'Check the Gateway address in Settings → Connections.' }
   }
 
   // ── Provider / FFmpeg patterns surfaced by message text ──────────────

@@ -44,7 +44,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from 'vue'
 import { genstudioStaleNote } from '../utils/genstudio-freshness.js'
-import { connectionStatus } from '../utils/connection-status.js'
 
 /**
  * `stacked` is the sidebar/band shape: the tier and lane line wraps onto its
@@ -69,9 +68,7 @@ const {
   startPolling,
 } = useCredits()
 const appSettingsModal = useAppSettingsModal()
-const { online, gateway, gatewayUrl } = useNetworkStatus()
-const connection = computed(() => connectionStatus(online.value, gateway.value, gatewayUrl.value))
-const gatewayDown = computed(() => online.value && gateway.value === 'unreachable')
+const { connection, gatewayDown } = useConnectionStatus()
 
 /**
  * Three states, not two. A balance we hold is shown whether or not the last

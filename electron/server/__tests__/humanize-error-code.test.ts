@@ -91,3 +91,32 @@ describe('humanizeBackendError — unreachable gateway', () => {
     }
   })
 })
+
+describe('humanizeBackendError — what Node fetch actually throws (shell audit 2026-10-03)', () => {
+  test('"fetch failed" with ECONNREFUSED in its cause names the Gateway instead of printing "fetch failed"', () => {
+    const refused = Object.assign(new TypeError('fetch failed'), {
+      cause: Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:8787'), { code: 'ECONNREFUSED' }),
+    })
+    const out = humanizeBackendError(refused, 'Failed to test API key')
+    assert.doesNotMatch(out.detail, /fetch failed/)
+    assert.match(out.detail, /Gateway/)
+    assert.match(out.detail, /running/)
+  })
+
+  test('a client wrapper around that failure is translated the same way', () => {
+    const wrapped = new Error('GenStudio KH account data could not be reached after automatic reconnect attempts.', {
+      cause: Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error('x'), { code: 'ECONNREFUSED' }) }),
+    })
+    assert.match(humanizeBackendError(wrapped).detail, /Could not reach the Gateway/)
+  })
+
+  test('AbortSignal.timeout is "did not answer in time", not "The operation was aborted due to timeout"', () => {
+    const out = humanizeBackendError(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))
+    assert.match(out.detail, /did not answer in time/)
+  })
+
+  test('a file error nested in a cause does not relabel an unrelated failure', () => {
+    const e = new Error('Episode EP0012 has no script yet.', { cause: Object.assign(new Error('x'), { code: 'ENOENT' }) })
+    assert.equal(humanizeBackendError(e).detail, 'Episode EP0012 has no script yet.')
+  })
+})

@@ -41,6 +41,7 @@ async function loadThisMacSettings(): Promise<Component> {
     const useApi = () => globalThis.__paidImageRecoverySettingsApi
     const useConfirm = () => ({ ask: async () => true })
     const useTheme = () => ({ mode: ref('system'), setMode: () => undefined })
+    const useConnectionStatus = () => ({ connection: { value: { tone: 'online', label: 'Gateway connected', hint: '' } }, gatewayDown: { value: false }, refresh: async () => undefined })
   `
   const code = `${support}\n${script.content.replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
   const transformed = await transform(code, { loader: 'ts', format: 'esm' })
@@ -103,15 +104,16 @@ test('This Mac keeps paid image replacement off until a positive whole-number ce
     const section = rendered.host.querySelector<HTMLElement>('.paid-image-replacement')
     assert.ok(section, 'the dedicated paid image replacement setting is rendered')
     assert.match(section.textContent || '', /Automatically finish failed images/)
-    assert.match(section.textContent || '', /reconnects to the original GenStudio task first/i)
-    assert.match(section.textContent || '', /After GenStudio confirms that task failed/i)
-    assert.match(section.textContent || '', /eligible fully refunded failures retry with a delay until the image finishes or you pause, cancel, or turn this off/i)
-    assert.match(section.textContent || '', /eligible failure that already used credits/i)
+    // Same facts as before, in the owner's words (shell audit 2026-10-03): check first, never guess
+    // from time, free retries until done or stopped, paid replacement after 30 min within the limit.
+    assert.match(section.textContent || '', /first checks the original request really failed/i)
+    assert.match(section.textContent || '', /never guesses from time alone/i)
+    assert.match(section.textContent || '', /failure that cost nothing is retried, with a pause between tries, until the image finishes or you pause, cancel, or turn this off/i)
+    assert.match(section.textContent || '', /failure that already used credits/i)
     assert.match(section.textContent || '', /waits 30 minutes/i)
-    assert.match(section.textContent || '', /exact current price/i)
-    assert.match(section.textContent || '', /per-Story-job credit limit/i)
+    assert.match(section.textContent || '', /re-checks the price/i)
+    assert.match(section.textContent || '', /within the credit limit you set here/i)
     assert.match(section.textContent || '', /maximum 1 per image/i)
-    assert.match(section.textContent || '', /Time alone never proves a task stopped\./)
 
     const enabled = section.querySelector<HTMLSelectElement>('select[name="paid-image-replacement-enabled"]')
     assert.ok(enabled, 'the setting has a native labeled Off/On control')

@@ -25,7 +25,7 @@
 
 // Explicit Vue import so this module is usable from plain node:test (no Nuxt
 // auto-import context). Nuxt's auto-imports remain additive inside .vue files.
-import { ref, readonly } from 'vue'
+import { computed, ref, readonly } from 'vue'
 import { createVisibleInterval } from './useVisibleInterval.js'
 
 /** `unknown` until the first answer, and whenever the engine itself is down. */
@@ -83,6 +83,47 @@ export function useNetworkStatus() {
     gateway: readonly(gateway),
     gatewayUrl: readonly(gatewayUrl),
     lastChecked: readonly(lastChecked),
+    refresh,
+  }
+}
+
+export interface ConnectionStatus {
+  tone: 'online' | 'offline' | 'unknown'
+  label: string
+  /** A visible next step; empty when there is nothing to do. */
+  hint: string
+}
+
+/**
+ * The one wording for "can Story Studio do AI work right now", shared by the sidebar and the header
+ * strip so the two never disagree. The local engine comes first (if it is down nothing works), then
+ * the Gateway, which every generation goes through.
+ */
+export function connectionStatus(engineOnline: boolean, gateway: GatewayReachability, gatewayUrl = ''): ConnectionStatus {
+  if (!engineOnline) {
+    return {
+      tone: 'offline',
+      label: 'Story Studio engine not answering',
+      hint: 'Quit and reopen Story Studio. Your projects stay on disk.',
+    }
+  }
+  if (gateway === 'unreachable') {
+    return {
+      tone: 'offline',
+      label: 'Gateway not reachable',
+      hint: `Open the Gateway app${gatewayUrl ? ` (${gatewayUrl})` : ''}. AI work cannot start until it answers; this updates by itself.`,
+    }
+  }
+  if (gateway === 'reachable') return { tone: 'online', label: 'Gateway connected', hint: '' }
+  return { tone: 'unknown', label: 'Checking the Gateway…', hint: '' }
+}
+
+/** The shared status sentence plus "is the Gateway down?", for any component that shows it. */
+export function useConnectionStatus() {
+  const { online, gateway, gatewayUrl, refresh } = useNetworkStatus()
+  return {
+    connection: computed(() => connectionStatus(online.value, gateway.value, gatewayUrl.value)),
+    gatewayDown: computed(() => online.value && gateway.value === 'unreachable'),
     refresh,
   }
 }

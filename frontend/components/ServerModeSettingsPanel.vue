@@ -31,7 +31,7 @@
           @click="onDisableAndRestart"
           title="Persist enabled=false and restart the app. After restart the app runs as a normal desktop Electron app and is no longer reachable remotely."
         >
-          {{ saving === 'disable' ? 'Disabling…' : 'Disable Server Mode &amp; Switch to Desktop' }}
+          {{ saving === 'disable' ? 'Disabling…' : 'Disable Server Mode and Switch to Desktop' }}
         </button>
         <span class="ssm-quick-hint">
           You'll lose remote access on restart — that's the point. Walk to the mini (or SSH in)
@@ -51,7 +51,7 @@
             <input
               type="checkbox"
               :checked="state.enabled"
-              @change="onToggleEnabled(($event.target as HTMLInputElement).checked)"
+              @change="onToggleEnabled($event.target as HTMLInputElement)"
             >
             Enable on next launch
           </span>
@@ -392,7 +392,8 @@ async function saveNetworking() {
   }
 }
 
-async function onToggleEnabled(checked: boolean) {
+async function onToggleEnabled(box: HTMLInputElement) {
+  const checked = box.checked
   saving.value = 'networking'
   message.value = null
   try {
@@ -402,6 +403,8 @@ async function onToggleEnabled(checked: boolean) {
       : { kind: 'ok', text: 'Server mode disabled. Restart the app to apply — you\'ll lose remote access.' }
   } catch (e: any) {
     message.value = { kind: 'err', text: e?.data?.detail || 'Save failed' }
+    // The saved state did not change, so Vue will not re-render the box: put it back by hand.
+    box.checked = !checked
   } finally {
     saving.value = ''
   }
