@@ -655,7 +655,7 @@ describe('run-batch — v1.0.363 audio-paced wiring', () => {
     assert.equal(res.body.jobs[0].type, 'expand_chapters')
     const jq = await import('../services/job-queue.js')
     const repairJob = jq.getJob(res.body.jobs[0].job_id)
-    assert.match(repairJob?.title || '', /repair chapters/)
+    assert.match(repairJob?.title || '', /finish missing chapters/)
   })
 
   test('character_sheet applies the continuity_page preset inline (no job)', async () => {

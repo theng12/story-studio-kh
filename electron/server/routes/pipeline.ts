@@ -2174,10 +2174,10 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       if (step === 'character_sheet') continue
       if (step === 'broll') {
         const brollParams = resolveStepParams('broll', episodeId, idea.title || '', presetByStep.broll, effectiveFormat)
-        chain.push({ type: 'broll_select', title: `[batch] broll selection — ${episodeId}`, params: brollParams })
+        chain.push({ type: 'broll_select', title: `Pipeline: B-Roll selection — ${episodeId}`, params: brollParams })
         chain.push({
           type: 'broll_assemble',
-          title: `[batch] broll assembly — ${episodeId}`,
+          title: `Pipeline: B-Roll assembly — ${episodeId}`,
           params: { episode_id: episodeId, title: idea.title || '', broll_volume: brollParams.broll_volume || 0 },
         })
         continue
@@ -2198,15 +2198,14 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
           // An approved outline plus partial chapter files is recoverable.
           // Resume only missing work; rebuilding the outline could discard
           // reviewed creative decisions and spend unnecessary credits.
-          chain.push({ type: 'expand_chapters' as JobType, title: `[batch] repair chapters — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', model: outlineParams.model, auto_approve: true, ...(outlineParams.pipeline_model_policy ? { pipeline_model_policy: outlineParams.pipeline_model_policy } : {}) } })
+          chain.push({ type: 'expand_chapters' as JobType, title: `Pipeline: Script (finish missing chapters) — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', model: outlineParams.model, auto_approve: true, ...(outlineParams.pipeline_model_policy ? { pipeline_model_policy: outlineParams.pipeline_model_policy } : {}) } })
         } else {
-          chain.push({ type: 'outline_only' as JobType, title: `[batch] outline — ${episodeId}`, params: { ...outlineParams, auto_approve: true } })
-          chain.push({ type: 'expand_chapters' as JobType, title: `[batch] chapters — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', model: outlineParams.model, auto_approve: true, ...(outlineParams.pipeline_model_policy ? { pipeline_model_policy: outlineParams.pipeline_model_policy } : {}) } })
+          chain.push({ type: 'outline_only' as JobType, title: `Pipeline: Script outline — ${episodeId}`, params: { ...outlineParams, auto_approve: true } })
+          chain.push({ type: 'expand_chapters' as JobType, title: `Pipeline: Script chapters — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', model: outlineParams.model, auto_approve: true, ...(outlineParams.pipeline_model_policy ? { pipeline_model_policy: outlineParams.pipeline_model_policy } : {}) } })
         }
         continue
       }
       const jobType = jobTypeForStep(step)
-      const jobTitleStep = step === 'image_prompts' ? 'thumbnail_prompts' : step
       // A stored preset holding a value the resolvers cannot honour (today:
       // only a malformed `prompt_pack_size`) is SKIPPED and named, not quietly
       // repaired into some other number and not allowed to 500 the whole batch
@@ -2296,7 +2295,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       }
       chain.push({
         type: jobType,
-        title: `[batch] ${jobTitleStep} — ${episodeId}`,
+        title: `Pipeline: ${pipelineStepLabel(step)} — ${episodeId}`,
         params,
       })
       // Editorial review is a deliberate pipeline handoff, never an implicit
