@@ -764,6 +764,8 @@ onMounted(async () => {
 
 .recipe-heading { display: flex; justify-content: space-between; align-items: start; gap: 1.5rem; margin-bottom: 1.25rem; }
 .recipe-heading p { margin: .25rem 0 0; color: var(--text-muted); max-width: 48rem; }
+/* The Save button never wraps onto two lines (it did at 1280 px). */
+.recipe-heading > .btn { flex-shrink: 0; white-space: nowrap; }
 /* Where the recipe came from. Quiet, but always present — it is a fact about
    the settings below, not a notification. */
 .recipe-provenance {
