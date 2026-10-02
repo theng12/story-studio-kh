@@ -4,6 +4,46 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.248 — 2026-10-03
+
+- **"Gateway" means your Gateway.** Everywhere Story Studio talked about your own Gateway connection it said "GenStudio" —
+  pickers, job messages, errors and settings now say **Gateway**. "GenStudio" is kept only for the paid cloud service:
+  your GenStudio credits, buying credits, the GenStudio paid image service and the Content Store.
+- **Jobs page you can actually use.** Every pop-up message has a ✕, action messages disappear after 8 seconds, and at most
+  three show at once (the rest wait in the bell). Two main buttons: **Check on running jobs** (free — collects anything
+  that finished and never starts new work) and **Redo failed jobs**. Every other button stays visible with one plain line
+  saying what it does. The dashboard's "Repair N failed jobs" now opens Jobs already showing the failed ones, and the
+  filters use the page names (YouTube Finalizer, Audio Assembly).
+- **Retry really redoes a failed writing job.** Retry used to replay the same failed answer forever. A failure that cost
+  nothing is now redone with a fresh request, and on a free writing model (like your Gemini free pool) even a failure
+  the Gateway is still unsure about is redone fresh. Paid models keep the old safety lock, so nothing is paid twice.
+- **Thumbnails no longer fail in a second with "Automatic image replacement is unavailable".** The message is now plain
+  ("This image was not made, and nothing new was sent or charged…") and **Redo failed jobs** makes it again.
+- **An overnight Pipeline run keeps going when one step fails.** Only the steps that need the failed one wait; Retry on
+  the failed job continues exactly those, without repeating or paying for the others. The Production Board shows failed
+  steps as ✕ with a **Failed only** filter, and now shows **25 episodes per page**.
+- **Story Studio never picks a writing model for you.** If a page or preset has no writing model chosen it stops and says
+  where to choose one. Paid writing models show a **Paid** badge. Your LLM lineup no longer switches to a newer model on
+  its own: a retired choice shows "*model* was retired — choose a replacement".
+- **Writing pages keep your work.** Research, scripts, outlines, introductions, ideas and cue edits are no longer lost when
+  you switch episode or a job finishes; idea titles with "/" can be accepted; Un-accept moves files to `_trash`. Saving a
+  cue edit keeps a half-finished cue proposal, so the next "Propose cues" pays only for what is missing. Retry after
+  "your Topic Packs ran out of subjects" uses the packs the project has now. Ideas presets no longer change your
+  channel-wide title prefix/suffix.
+- **Images, scenes and B-roll.** Thumbnail board Generate/Regenerate works again; thumbnail settings are remembered; Scene
+  Plan and Scene Review never throw away unsaved edits or a render that just finished; Scene Review's **Pause** and
+  **Cancel** say in plain words what they do; B-Roll "avoid repeats" really counts episodes.
+- **Audio and subtitles.** Sound Design fits a 1280-px window; removing music or a subtitle file moves it to `_trash`
+  instead of deleting it; Music Library has its sidebar back; Subtitles has one less duplicate "Transcribe" button (use
+  the top bar or a chapter's own button).
+- **Finishing.** The YouTube Finalizer never writes one episode's title into another; "Update YouTube" asks before
+  changing a live video; a render with subtitles switched on but no subtitle file asks first instead of shipping without
+  captions.
+- **When the Gateway is off you are told.** The sidebar and header say "Gateway not reachable — open the Gateway app",
+  errors read "Could not reach the Gateway — is the Gateway app running?" and every error now shows its next step.
+
+---
+
 ## v1.4.247 — 2026-10-02
 
 - **Cancel reaches a narration or music job that is already running.** Cancelling a narration or music job while it is running on a Mac now
