@@ -8,31 +8,27 @@
     </div>
 
     <p class="text-muted rcy-intro">
-      Every item the niche's <code>recencyAvoidance</code> rules extracted from generated content
-      on this project. The cycler reads this log to tell the LLM what to avoid on the next
-      generation. Remove specific entries to re-enable them, or clear in bulk.
+      Things this channel's recent episodes already used — for example a Bible verse a prayer
+      episode quoted. When the next script is written, the writer is asked to pick something
+      different from these. Remove an entry to let it be used again, or clear several at once.
     </p>
 
     <!-- Active rule summary -->
     <div v-if="state" class="card rcy-summary">
       <div class="rcy-summary-row">
         <div>
-          <div class="rcy-summary-label">Active rule</div>
+          <div class="rcy-summary-label">What is being tracked</div>
           <div class="rcy-summary-value">
             <template v-if="state.enabled">
-              <strong>{{ state.label }}</strong>
-              · niche <code>{{ state.niche_id }}</code>
-              · lookback <strong>{{ state.lookback }}</strong>
-              <span class="text-muted">({{ state.lookback_source }})</span>
+              <strong>{{ capitalise(state.label || '') }}</strong>
+              from the last <strong>{{ state.lookback }}</strong> episodes
+              <span class="text-muted">({{ lookbackSourceText }})</span>
             </template>
             <template v-else>
               <span class="text-muted">
-                This project has no active recency rule. The niche
-                <template v-if="state.niche_id"><code>{{ state.niche_id }}</code></template>
-                <template v-else>(none set)</template>
-                does not declare a <code>recencyAvoidance</code> block, so new entries won't
-                be recorded. Historical entries below are preserved — they came from a
-                previous niche config or earlier app version.
+                Nothing is being tracked for this channel — its kind of story has nothing that
+                needs to be kept from repeating, so no new entries are added. Any entries below
+                are kept from earlier and still work as before.
               </span>
             </template>
           </div>
@@ -52,7 +48,7 @@
           <select v-model="filterKind" class="select select-sm">
             <option value="">All kinds ({{ state.log_size }})</option>
             <option v-for="(count, k) in state.kind_counts" :key="k" :value="k">
-              {{ k }} ({{ count }})
+              {{ kindLabel(String(k)) }} ({{ count }})
             </option>
           </select>
         </label>
@@ -72,7 +68,7 @@
           class="btn btn-sm btn-ghost rcy-danger"
           @click="clearByKind"
         >
-          Clear all "{{ filterKind }}" entries
+          Clear all "{{ kindLabel(filterKind) }}" entries
         </button>
         <button
           type="button"
@@ -88,14 +84,9 @@
     <div v-if="loading" class="text-muted rcy-loading">Loading log…</div>
     <div v-else-if="!state || state.log_size === 0" class="card rcy-empty">
       <p>
-        <strong>Log is empty.</strong>
-        New entries land here automatically after each script generation when the active niche
-        ships a <code>recencyAvoidance</code> rule.
-      </p>
-      <p class="text-muted" style="font-size: 12px;">
-        Prayer-niche projects start collecting scripture references on the first generation;
-        other niches accumulate their tracked items the moment you populate
-        <code>recencyAvoidance.extractPatterns</code> in the niche JSON.
+        <strong>Nothing recorded yet.</strong>
+        Entries are added by themselves each time a script is written, for channels whose kind
+        of story tracks something — prayer channels, for example, track the Bible verses used.
       </p>
     </div>
     <div v-else-if="filteredLog.length === 0" class="card rcy-empty">
@@ -115,7 +106,7 @@
         <tr v-for="(entry, i) in filteredLog" :key="`${entry.episode_code}|${entry.kind}|${entry.item}|${i}`">
           <td class="rcy-cell-item">{{ entry.item }}</td>
           <td>
-            <span class="rcy-kind-pill">{{ entry.kind }}</span>
+            <span class="rcy-kind-pill">{{ kindLabel(entry.kind) }}</span>
           </td>
           <td class="rcy-cell-episode"><code>{{ entry.episode_code }}</code></td>
           <td class="rcy-cell-used" :title="entry.used_at">{{ formatRelative(entry.used_at) }}</td>
@@ -185,6 +176,20 @@ const state = ref<RecencyView | null>(null)
 const filterKind = ref('')
 const filterText = ref('')
 
+function capitalise(text: string): string {
+  return text ? text[0]!.toUpperCase() + text.slice(1) : text
+}
+/** A plain name for a kind: the rule's own label when it is this one, else the key in words. */
+function kindLabel(kind: string): string {
+  if (kind && kind === state.value?.kind && state.value.label) return capitalise(state.value.label)
+  return capitalise(kind.replace(/[_-]+/g, ' ').trim())
+}
+const lookbackSourceText = computed(() => ({
+  project: 'set for this channel',
+  niche: 'the usual number for this kind of story',
+  default: 'the app\u2019s usual number',
+} as Record<string, string>)[state.value?.lookback_source || ''] || '')
+
 const filteredLog = computed(() => {
   const log = state.value?.full_log || []
   const q = filterText.value.trim().toLowerCase()
@@ -222,10 +227,10 @@ async function removeEntry(entry: LogEntry) {
 async function clearByKind() {
   if (!filterKind.value) return
   const count = state.value?.kind_counts?.[filterKind.value] || 0
-  if (!confirm(`Clear all ${count} "${filterKind.value}" entries? They all become available again for future generations.`)) return
+  if (!confirm(`Clear all ${count} "${kindLabel(filterKind.value)}" entries? They can all be used again.`)) return
   try {
     await del(`/projects/${slug.value}/recency?kind=${encodeURIComponent(filterKind.value)}`)
-    toastSuccess(`Cleared ${count} "${filterKind.value}" entries`)
+    toastSuccess(`Cleared ${count} "${kindLabel(filterKind.value)}" entries`)
     filterKind.value = ''
     await load()
   } catch (e: any) {
