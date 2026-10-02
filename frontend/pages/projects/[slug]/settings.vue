@@ -1154,6 +1154,9 @@
             </button>
           </div>
         </div>
+        <p v-if="storage && uploadedFinalsTotalBytes === 0 && !bulkRunning" class="text-muted hint mt-1">
+          Verify &amp; clear is off: no uploaded episode has a local final video left to clear.
+        </p>
 
         <div v-if="storage" class="storage-summary mt-2">
           <span><strong>Project total:</strong> {{ formatBytes(storage.project_bytes_total) }}</span>
@@ -1217,10 +1220,11 @@
               <span
                 v-else-if="row.uploaded_to_youtube"
                 class="upload-badge warn"
-                :title="`${row.cleanup_reason || 'This receipt cannot authorize cleanup'} — video ${row.youtube_video_id}`"
+                :title="`YouTube video ${row.youtube_video_id}`"
               >
                 ⚠ remains local
               </span>
+              <small v-if="!row.cleanup_eligible && row.uploaded_to_youtube" class="row-reason">{{ row.cleanup_reason || 'The upload record cannot confirm the YouTube copy, so the local video is kept.' }}</small>
               <span v-else class="upload-badge none">—</span>
             </span>
             <span class="col-actions">
@@ -5860,6 +5864,8 @@ async function deleteProject() {
 .upload-badge.ok { background: rgba(75, 200, 100, 0.18); color: var(--success, #5fc070); }
 .upload-badge.warn { background: rgba(224, 167, 44, 0.18); color: var(--warning, #d9a62e); }
 .upload-badge.none { color: var(--text-muted); }
+/* Why a video stays local: visible text, not a tooltip. */
+.row-reason { display: block; margin-top: 2px; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.3; }
 
 .storage-result {
   padding: 8px 12px; background: var(--bg-tertiary);

@@ -26,3 +26,10 @@ test('Ideas never shows a raw format id when the format list fails to load', () 
   const humanize = (id: string) => id ? id.replace(/[-_]+/g, ' ').replace(/^\w/, c => c.toUpperCase()) : ''
   assert.equal(humanize('narrated-scenes'), 'Narrated scenes')
 })
+
+test('Settings storage: why Verify & clear is off, and why a video stays local, are visible text', () => {
+  const settings = page('settings')
+  assert.match(settings, /<p v-if="storage && uploadedFinalsTotalBytes === 0 && !bulkRunning"[^>]*>\s*Verify &amp; clear is off:/)
+  assert.match(settings, /<small v-if="!row\.cleanup_eligible && row\.uploaded_to_youtube" class="row-reason">/)
+  assert.doesNotMatch(settings, /This receipt cannot authorize cleanup/)
+})
