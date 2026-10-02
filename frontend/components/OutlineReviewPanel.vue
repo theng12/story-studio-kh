@@ -155,11 +155,11 @@
               v-else
               class="btn btn-sm btn-secondary"
               :disabled="isRegenerating(entry.n)"
-              :title="`Regenerate chapter ${entry.n} — keeps the same outline title, applies any per-row word override`"
+              :title="REGENERATE_HINT"
               @click="regenerateOne(entry.n)"
             >
               <LoadingSpinner v-if="isRegenerating(entry.n)" size="sm" />
-              {{ isRegenerating(entry.n) ? 'Queueing…' : '↻ Regenerate' }}
+              {{ isRegenerating(entry.n) ? REGENERATING_LABEL : REGENERATE_LABEL }}
             </button>
             <!-- Preview button only shows once the chapter is on disk —
                  there's nothing to preview before expansion. Click to
@@ -335,6 +335,7 @@
 <script setup lang="ts">
 import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
 import { resumeExpandNotice } from '~/utils/outline-expand-resume'
+import { useChapterRegenerate, REGENERATE_HINT, REGENERATE_LABEL, REGENERATING_LABEL } from '~/composables/useChapterRegenerate'
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 
 interface OutlineEntry {
@@ -422,7 +423,6 @@ const emit = defineEmits<{
 
 const { get, post, put } = useApi()
 const freshOutlineExpansionAction = useFreshGenerationAction()
-const freshOutlineChapterAction = useFreshGenerationAction()
 const { success, error: showError, showAction } = useToast()
 const { jobs } = useJobs()
 const { find: findChatModel } = useGenStudioChatModels()
@@ -1096,68 +1096,24 @@ function expandOne(n: number) { void postExpand([n]) }
 function expandSelected() { void postExpand([...selectedNs.value].sort((a, b) => a - b)) }
 function expandAll() { void postExpand(null) }
 
-// Per-chapter regenerate (Phase 4 follow-up). Once a chapter is on
-// disk, the row's primary action should be "regenerate this chapter"
-// not "expand this chapter" — they're functionally the same operation
-// but the user model is different. We POST to /generate/chapter-only
-// (the existing endpoint that already threads outline title + hook +
-// key_facts into the prompt via the Phase 1 sidecar lookup, AND honours
-// per-chapter words override). Reuses the form prop the same way
-// ChapterListPanel does.
-//
-// Auto-saves any pending outline edits first so the regen prompt sees
-// the user's latest title / hook / facts, not the stale sidecar.
-// Per-chapter in-flight set so the user can queue multiple regens in a row.
-// Each entry holds the chapter number whose POST is currently being awaited
-// (cleared in finally regardless of success/error). Backend dedupes per
-// (episode, chapter), so two clicks on the SAME chapter still 409 — but
-// different chapters all enqueue and run back-to-back behind the queue.
-const regenInFlight = ref<Set<number>>(new Set())
+// Per-chapter Regenerate: the same shared action as the Script tab's
+// (useChapterRegenerate). Pending outline edits are saved first so the
+// rewrite sees the latest title / hook / facts.
+const chapterRegen = useChapterRegenerate()
 function isRegenerating(n: number): boolean {
-  return regenInFlight.value.has(n)
+  return !!props.episodeId && chapterRegen.isRegenerating(props.episodeId, n)
 }
-async function regenerateOne(n: number): Promise<void> {
-  if (regenInFlight.value.has(n)) return
-  if (isDirty.value) await saveEdits(/* silent */ true)
-  regenInFlight.value = new Set([...regenInFlight.value, n])
-
-  // Per-row word override on the outline entry wins over the form
-  // default. Same precedence as ChapterListPanel + the batch prompt.
-  const entry = outline.value.find(e => e.n === n)
-  const entryOverride = entry?.words_per_chapter
-  const wordTarget = (typeof entryOverride === 'number' && Number.isFinite(entryOverride) && entryOverride > 0)
-    ? Math.round(entryOverride)
-    : props.form?.words_per_chapter
-
-  const payload = {
-      episode_id: props.episodeId,
-      title: props.title || '',
-      chapter_number: n,
-      model: props.form?.model,
-      style: props.form?.style,
-      length: props.form?.length,
-      chapters: props.form?.chapters,
-      total_words: props.form?.total_words,
-      words_per_chapter: wordTarget,
-  }
-  const operationId = freshOutlineChapterAction.begin(payload, `chapter:${n}`)
-  try {
-    await post(`/projects/${props.projectSlug}/generate/chapter-only`, { ...payload, operation_id: operationId })
-    freshOutlineChapterAction.complete(operationId)
-    success(entryOverride
-      ? `Chapter ${n} regenerate queued at ${wordTarget} words`
-      : `Chapter ${n} regenerate queued`)
-  } catch (e: any) {
-    if (e?.data?.detail) showError(e.data.detail)
-    else showAction(UNCONFIRMED_SUBMISSION, 'Retry', () => regenerateOne(n), 'error')
-  } finally {
-    // Clear THIS chapter's in-flight flag so its button re-enables. Other
-    // chapters in flight stay flagged. Reassign the Set so Vue tracks the
-    // mutation (Set methods alone don't trigger reactivity).
-    const next = new Set(regenInFlight.value)
-    next.delete(n)
-    regenInFlight.value = next
-  }
+function regenerateOne(n: number): Promise<void> {
+  // Per-row word override on the outline entry wins over the form default.
+  return chapterRegen.regenerate({
+    projectSlug: props.projectSlug,
+    episodeId: props.episodeId,
+    title: props.title,
+    form: props.form,
+    chapter: n,
+    words: outline.value.find(e => e.n === n)?.words_per_chapter,
+    beforeSend: async () => { if (isDirty.value) await saveEdits(/* silent */ true) },
+  })
 }
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────

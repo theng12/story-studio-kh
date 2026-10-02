@@ -143,11 +143,19 @@ test('the outline hands scripts.vue its own episode direction', () => {
 })
 
 test('a failed submit says plainly that Retry is safe, and offers a Retry button', () => {
+  const shared = readFileSync(fileURLToPath(new URL('../composables/useChapterRegenerate.ts', import.meta.url)), 'utf8')
+  for (const file of [source, chapterList]) assert.doesNotMatch(file, /submission was not confirmed/)
+  assert.match(shared, /showAction\(UNCONFIRMED_SUBMISSION, 'Retry', \(\) => regenerate\(input, true\), 'error'\)/)
+  // ...which is true because the same click reuses its operation id.
+  assert.match(shared, /useFreshGenerationAction\(\)/)
+})
+
+test('Outline and Script tabs share one Regenerate: same action, confirm, wording', () => {
   for (const file of [source, chapterList]) {
-    assert.doesNotMatch(file, /submission was not confirmed/)
-    assert.match(file, /showAction\(UNCONFIRMED_SUBMISSION, 'Retry', \(\) => regenerate(One\(n\)|\(num\)), 'error'\)/)
-    // ...which is true because the same click reuses its operation id.
-    assert.match(file, /useFreshGenerationAction\(\)/)
+    assert.match(file, /useChapterRegenerate\(\)/)
+    assert.match(file, /REGENERATING_LABEL : REGENERATE_LABEL/)
+    assert.match(file, /:title="[^"]*REGENERATE_HINT"/)
+    assert.doesNotMatch(file, /post\(`[^`]*generate\/chapter-only/, 'only the shared action posts the request')
   }
 })
 
