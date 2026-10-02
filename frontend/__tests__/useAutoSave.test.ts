@@ -138,3 +138,30 @@ describe('useAutoSave', () => {
     assert.equal(maxInFlight, 1, 'pending guard must prevent overlapping save invocations')
   })
 })
+
+describe('useAutoSave — edit made while a save is in flight', () => {
+  test('the later edit is saved after the in-flight save finishes (not dropped)', async () => {
+    let value = 'a'
+    const saved: string[] = []
+    const { state, scheduleSave, flush } = useAutoSave({
+      debounceMs: 5,
+      save: async () => { const v = value; await sleep(40); saved.push(v) },
+    })
+
+    scheduleSave()
+    await sleep(15) // first save ('a') is now in flight
+    value = 'b'
+    scheduleSave() // debounce (5 ms) fires while 'a' is still saving
+    await sleep(120)
+    assert.deepEqual(saved, ['a', 'b'], 'the edit made during the save must be written')
+    assert.equal(state.value, 'saved')
+
+    // flush() during an in-flight save waits for the newest data to land.
+    value = 'c'
+    scheduleSave()
+    await sleep(15)
+    value = 'd'
+    await flush()
+    assert.deepEqual(saved, ['a', 'b', 'c', 'd'])
+  })
+})
