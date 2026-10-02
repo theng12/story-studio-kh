@@ -4776,6 +4776,17 @@ function resetFolderDefaults() {
 }
 
 // Sync editable data from config
+// What each draft field was last hydrated to. Saving the art style or the guide slider refreshes
+// the whole config, and this watcher used to overwrite every field with it — silently throwing away
+// an intro being typed or a category not yet saved. A field is replaced only on a new project, or
+// when it still shows exactly what was last loaded (i.e. nothing unsaved is in it).
+const hydratedDrafts: Record<string, unknown> = {}
+function hydrateDraft<T>(key: string, current: T, incoming: T, freshProject: boolean): T {
+  const untouched = Object.is(current, hydratedDrafts[key])
+  hydratedDrafts[key] = incoming
+  return freshProject || untouched ? incoming : current
+}
+
 watch(config, (c) => {
   if (c) {
     // Item J — hydrate the YouTube category_id from config when it
@@ -4783,18 +4794,19 @@ watch(config, (c) => {
     // because projectForm is declared between them and the
     // `immediate: true` in the upper watch would TDZ-fault.
     const cAny = c as any
-    projectForm.category_id = typeof cAny?.category_id === 'number' && cAny.category_id > 0
-      ? cAny.category_id : undefined
-    projectForm.mark_as_ai_generated = typeof cAny?.mark_as_ai_generated === 'boolean'
-      ? cAny.mark_as_ai_generated : undefined
+    const fresh = writingConfigLoadedSlug !== slug.value
+    projectForm.category_id = hydrateDraft('category_id', projectForm.category_id,
+      typeof cAny?.category_id === 'number' && cAny.category_id > 0 ? cAny.category_id : undefined, fresh)
+    projectForm.mark_as_ai_generated = hydrateDraft('mark_as_ai_generated', projectForm.mark_as_ai_generated,
+      typeof cAny?.mark_as_ai_generated === 'boolean' ? cAny.mark_as_ai_generated : undefined, fresh)
     standardsPresets.value = JSON.parse(JSON.stringify((c as any).standards_presets || []))
     introPresets.value = JSON.parse(JSON.stringify((c as any).intro_presets || []))
-    introStandards.value = (c as any).intro_standards || ''
+    introStandards.value = hydrateDraft('intro_standards', introStandards.value, (c as any).intro_standards || '', fresh)
     writingConfigLoadedSlug = slug.value
     // Load confirmation preferences
     const prefs = (c as any).confirmation_preferences || {}
     for (const gen of confirmGenerators) {
-      confirmPrefs[gen.key] = prefs[gen.key] !== false // default true
+      confirmPrefs[gen.key] = hydrateDraft(`confirm:${gen.key}`, confirmPrefs[gen.key], prefs[gen.key] !== false, fresh) // default true
     }
   }
 }, { immediate: true })

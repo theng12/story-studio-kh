@@ -308,3 +308,33 @@ test('YouTube backfill stops when saving the Publishing form fails, so old saved
     delete (globalThis as any).__settingsFixture
   }
 })
+
+test('a config refresh (art style or guide slider saved) keeps unsaved drafts, and still updates untouched fields', async () => {
+  const route = reactive({ params: reactive({ slug: 'project-a' }), hash: '', query: {} })
+  const config = ref<any>({ intro_standards: 'Saved intro', category_id: 27, mark_as_ai_generated: false })
+  const fixture: any = {
+    route,
+    api: { get: async () => ({ content: '' }), post: async () => ({}), put: async () => ({}), patch: async () => ({}), del: async () => ({}) },
+    projectState: { project: ref<any>({ name: 'A', episode_prefix: 'EP' }), config, refreshConfig: async () => undefined, loadProject: async () => undefined },
+  }
+  ;(globalThis as any).__settingsFixture = fixture
+  const app = createApp(await loadPage())
+  const host = document.body.appendChild(document.createElement('div'))
+  app.mount(host)
+  await flush()
+  try {
+    assert.equal(fixture.state.introStandards.value, 'Saved intro')
+    fixture.state.introStandards.value = 'Half-typed new intro'
+    fixture.state.projectForm.category_id = 31
+    // Saving the art style refreshes the whole config object.
+    config.value = { intro_standards: 'Saved intro', category_id: 27, mark_as_ai_generated: true }
+    await flush()
+    assert.equal(fixture.state.introStandards.value, 'Half-typed new intro', 'unsaved intro text survives')
+    assert.equal(fixture.state.projectForm.category_id, 31, 'unsaved category survives')
+    assert.equal(fixture.state.projectForm.mark_as_ai_generated, true, 'an untouched field takes the fresh value')
+  } finally {
+    app.unmount()
+    host.remove()
+    delete (globalThis as any).__settingsFixture
+  }
+})
