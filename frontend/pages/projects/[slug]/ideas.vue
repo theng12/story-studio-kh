@@ -3154,9 +3154,11 @@ async function resetIdea(idea: any) {
   })
   if (!ok) return
   try {
-    await post(`/projects/${slug.value}/ideas/${idea.id}/reset`)
+    const r = await post<{ warnings?: string[] }>(`/projects/${slug.value}/ideas/${idea.id}/reset`)
     await loadIdeas()
-    success(`${idea.episode_code} un-accepted. Its files are in the project's _trash folder.`)
+    const warning = Array.isArray(r?.warnings) ? r.warnings[0] : ''
+    if (warning) showError(`${idea.episode_code} un-accepted and its project files moved to _trash, but: ${warning}`)
+    else success(`${idea.episode_code} un-accepted. Its files are in the project's _trash folder.`)
   } catch (e: any) { showError(e.data?.detail || 'Could not un-accept this episode') }
 }
 async function remove(id: string) {

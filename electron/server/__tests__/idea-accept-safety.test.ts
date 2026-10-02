@@ -146,6 +146,50 @@ describe('Reset moves files to the project _trash', () => {
     assert.equal(idea.status, 'new')
   })
 
+  test('media_root copy: counted in the preview, moved after the project folder, a failure is a warning', async () => {
+    const proj = await project()
+    const mediaRoot = path.join(tempDir, 'media-drive')
+    await fs.mkdir(mediaRoot, { recursive: true })
+    await pm.updateProject(proj.slug, { media_root: mediaRoot } as any)
+    const [a] = await im.addIdeas(proj.slug, [{ ...base, title: 'Heavy Media' }], 'm')
+    const accepted = await im.acceptIdea(proj.slug, a!.id)
+    const outputRoot = path.join(pm.getProjectDir(proj.slug)!, 'episodes')
+    const heavyDir = path.join(mediaRoot, path.relative(outputRoot, accepted.episode_dir))
+    assert.ok(existsSync(heavyDir), 'Accept made the media_root twin')
+    await fs.writeFile(path.join(accepted.episode_dir, 'script.md'), 'light')
+    await fs.writeFile(path.join(heavyDir, 'clip.mp4'), 'heavy-bytes')
+
+    const preview = await im.previewIdeaReset(proj.slug, a!.id)
+    assert.equal(preview.file_count, 3, 'episode_info.json + script + the media-drive clip')
+    assert.equal(preview.breakdown.video, 1)
+
+    // Block the media drive's _trash so the heavy move fails.
+    await fs.writeFile(path.join(mediaRoot, '_trash'), 'not a folder')
+    const result = await im.resetIdea(proj.slug, a!.id)
+    assert.equal(result.warnings.length, 1)
+    assert.match(result.warnings[0]!, /media folder .* could not be moved/)
+    assert.equal(existsSync(accepted.episode_dir), false, 'project folder still moved')
+    assert.ok(existsSync(path.join(heavyDir, 'clip.mp4')), 'media left in place, not lost')
+    assert.equal((await im.getIdeas(proj.slug)).find(i => i.id === a!.id)!.status, 'new')
+  })
+
+  test('if the project folder cannot move, nothing moves and the idea stays accepted', async () => {
+    const proj = await project()
+    const mediaRoot = path.join(tempDir, 'media-drive-2')
+    await fs.mkdir(mediaRoot, { recursive: true })
+    await pm.updateProject(proj.slug, { media_root: mediaRoot } as any)
+    const [a] = await im.addIdeas(proj.slug, [{ ...base, title: 'Stuck Folder' }], 'm')
+    const accepted = await im.acceptIdea(proj.slug, a!.id)
+    const outputRoot = path.join(pm.getProjectDir(proj.slug)!, 'episodes')
+    const heavyDir = path.join(mediaRoot, path.relative(outputRoot, accepted.episode_dir))
+    await fs.writeFile(path.join(pm.getProjectDir(proj.slug)!, '_trash'), 'not a folder')
+
+    await assert.rejects(() => im.resetIdea(proj.slug, a!.id))
+    assert.ok(existsSync(accepted.episode_dir))
+    assert.ok(existsSync(heavyDir), 'the media copy was not moved ahead of a failed project move')
+    assert.equal((await im.getIdeas(proj.slug)).find(i => i.id === a!.id)!.status, 'accepted')
+  })
+
   test('deleting an episode folder by code also moves it to _trash', async () => {
     const proj = await project()
     const [a] = await im.addIdeas(proj.slug, [{ ...base, title: 'Delete Me' }], 'm')

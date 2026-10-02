@@ -754,7 +754,10 @@ export async function previewIdeaReset(slug: string, ideaId: string): Promise<Re
   if (!idea.episode_code) return empty
 
   const paths = await resolveEpisodePaths(slug, idea.episode_code, idea.title)
-  if (!existsSync(paths.episode_dir)) return { ...empty, episode_dir: paths.episode_dir }
+  // Un-accept moves the media_root copy too, so the confirm counts it too.
+  const heavy = await heavyEpisodeDir(paths, (meta as any).media_root)
+  const heavyExists = !!heavy && existsSync(heavy.dir)
+  if (!existsSync(paths.episode_dir) && !heavyExists) return { ...empty, episode_dir: paths.episode_dir }
 
   const breakdown = { images: 0, audio: 0, video: 0, scripts: 0, other: 0 }
   let fileCount = 0
@@ -780,6 +783,7 @@ export async function previewIdeaReset(slug: string, ideaId: string): Promise<Re
     }
   }
   await walk(paths.episode_dir)
+  if (heavyExists) await walk(heavy!.dir)
 
   return {
     episode_code: idea.episode_code,
@@ -806,23 +810,51 @@ function trashDirSync(slug: string, dir: string, anchor: string): string | null 
   return moveToTrashSync(dir, path.join(trashRootFor(anchor, projectDir, slug), keep))
 }
 
-/** The episode folder plus, when media_root is set, its heavy-media twin. */
-async function trashEpisodeFolders(slug: string, paths: EpisodePaths, mediaRoot?: string): Promise<string | null> {
-  if (mediaRoot) {
-    const { resolveAssetPath } = await import('./path-resolver.js')
-    let anchor: string | null = null
-    try { anchor = resolveAssetPath(String(mediaRoot), paths.output_root) } catch { /* root not defined on this Mac */ }
-    const heavy = anchor ? path.join(anchor, path.relative(paths.output_root, paths.episode_dir)) : null
-    if (anchor && heavy && path.resolve(heavy) !== path.resolve(paths.episode_dir)) trashDirSync(slug, heavy, anchor)
+/**
+ * The episode's heavy-media twin under `media_root`, when the project keeps
+ * one on another drive. Null when there is no media_root, it is not defined on
+ * this Mac, or it resolves to the episode folder itself.
+ */
+async function heavyEpisodeDir(paths: EpisodePaths, mediaRoot?: string): Promise<{ dir: string; anchor: string } | null> {
+  if (!mediaRoot) return null
+  const { resolveAssetPath } = await import('./path-resolver.js')
+  let anchor: string
+  try { anchor = resolveAssetPath(String(mediaRoot), paths.output_root) } catch { return null }
+  if (!anchor) return null
+  const dir = path.join(anchor, path.relative(paths.output_root, paths.episode_dir))
+  return path.resolve(dir) === path.resolve(paths.episode_dir) ? null : { dir, anchor }
+}
+
+/**
+ * The episode folder plus, when media_root is set, its heavy-media twin.
+ *
+ * The PROJECT folder moves first and is allowed to throw: if it cannot move,
+ * nothing has moved and the caller leaves the idea accepted. The heavy copy
+ * moves second; a failure there is reported as a warning rather than thrown,
+ * because the episode is already half-moved and un-accepting it is the
+ * truthful state. (Heavy-first used to leave media in _trash with the idea
+ * still accepted.)
+ */
+async function trashEpisodeFolders(
+  slug: string, paths: EpisodePaths, mediaRoot?: string,
+): Promise<{ moved: string | null; warnings: string[] }> {
+  const warnings: string[] = []
+  const moved = trashDirSync(slug, paths.episode_dir, projectDirFor(slug)) ? paths.episode_dir : null
+  const heavy = await heavyEpisodeDir(paths, mediaRoot)
+  if (heavy) {
+    try { trashDirSync(slug, heavy.dir, heavy.anchor) }
+    catch (e: any) {
+      warnings.push(`The episode's media folder on the media drive could not be moved to _trash (${e?.message || String(e)}). It is still at ${heavy.dir}.`)
+    }
   }
-  return trashDirSync(slug, paths.episode_dir, projectDirFor(slug)) ? paths.episode_dir : null
+  return { moved, warnings }
 }
 
 /**
  * Reset an accepted idea back to 'new', move its episode folder to the
  * project's `_trash`, and recycle the episode number.
  */
-export async function resetIdea(slug: string, ideaId: string): Promise<{ deleted_folder: string | null }> {
+export async function resetIdea(slug: string, ideaId: string): Promise<{ deleted_folder: string | null; warnings: string[] }> {
   const meta = await pm.getProject(slug)
   if (!meta) throw new Error('Project not found')
 
@@ -840,9 +872,10 @@ export async function resetIdea(slug: string, ideaId: string): Promise<{ deleted
   // Move the episode folder to _trash outside the lock. Never a hard delete:
   // Reset used to fs.rm the folder, destroying every rendered asset.
   let deletedFolder: string | null = null
+  let warnings: string[] = []
   if (episodeCode) {
     const paths = await resolveEpisodePaths(slug, episodeCode, snapshotIdea.title)
-    deletedFolder = await trashEpisodeFolders(slug, paths, (meta as any).media_root)
+    ;({ moved: deletedFolder, warnings } = await trashEpisodeFolders(slug, paths, (meta as any).media_root))
   }
 
   // Now commit the state change under the lock.
@@ -873,7 +906,7 @@ export async function resetIdea(slug: string, ideaId: string): Promise<{ deleted
     idea.accepted_at = null
   })
 
-  return { deleted_folder: deletedFolder }
+  return { deleted_folder: deletedFolder, warnings }
 }
 
 /**
