@@ -131,8 +131,8 @@ describe('shared model menus', () => {
     assert.match(transcriptionCatalog, /provider: model\.provider \|\| ''/)
     // An unpublished provider is unknown. It is never backfilled with the
     // gateway's name, and never guessed from an id.
-    assert.doesNotMatch(modelSurfaces.audio, /provider_name \|\| 'GenStudio/)
-    assert.doesNotMatch(transcriptionCatalog, /provider \|\| 'GenStudio/)
+    assert.doesNotMatch(modelSurfaces.audio, /provider_name \|\| '(GenStudio|Gateway)/)
+    assert.doesNotMatch(transcriptionCatalog, /provider \|\| '(GenStudio|Gateway)/)
     // The trigger and open rows summarise a PUBLISHED provider, never the plan
     // group. Optional provider fields remain empty until GenStudio publishes
     // them, rather than being guessed from model brands.
@@ -246,7 +246,7 @@ describe('shared model menus', () => {
     assert.match(voicePicker, /v-if="compatibleLibrary" #actions/)
     assert.match(voicePicker, /:library="compatibleLibrary"/)
     assert.match(voicePicker, /library\.provider_id === props\.ttsModelProviderId/)
-    assert.match(voicePicker, /Clone a voice in Gateway KH/)
+    assert.match(voicePicker, /Clone a voice in the Gateway/)
     assert.match(appSettings, /voices\.filter\(voice => !voice\.tts_model_id \|\| voice\.tts_model_id === modelId\)/)
     assert.match(voiceLibraryBrowser, /v-if="hasMore"/)
     assert.match(voiceLibraryBrowser, /Load more voices/)

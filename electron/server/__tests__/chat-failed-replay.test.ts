@@ -9,7 +9,7 @@
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { callChatWithGenStudio, chatKeyAfterFailedReplay } from '../lib/genstudio-client.js'
+import { callChatWithGenStudio, chatKeyAfterFailedReplay, clearGenStudioCatalogCache } from '../lib/genstudio-client.js'
 
 const catalog = [{
   id: 'writer-alpha', display_name: 'Writer Alpha', available: true, qualification_only: false,
@@ -118,6 +118,7 @@ for (const [label, chargeable, expectedPosts] of [
 ] as const) {
   test(`a held replay on a ${label} model ${expectedPosts === 2 ? 'is resubmitted fresh' : 'keeps its lock'}`, async () => {
     const models = [{ ...catalog[0], ...(chargeable === undefined ? {} : { chargeable }) }]
+    clearGenStudioCatalogCache()
     const s = stub((_key, n) => n === 1 ? held : { id: 'job_fresh', state: 'accepted' },
       expectedPosts === 2 ? ok : { ...ok, id: 'job_held' }, models)
     try {
@@ -129,6 +130,7 @@ for (const [label, chargeable, expectedPosts] of [
 }
 
 test('a free model\'s held replay is redone fresh even under a caller-supplied key (Retry of a lineup step)', async () => {
+  clearGenStudioCatalogCache()
   const s = stub((_key, n) => n === 1 ? held : { id: 'job_fresh', state: 'accepted' }, ok, [{ ...catalog[0], chargeable: false }])
   try {
     const result = await callChatWithGenStudio('k', { ...request, idempotencyKey: 'lineup-checkpoint-key' })

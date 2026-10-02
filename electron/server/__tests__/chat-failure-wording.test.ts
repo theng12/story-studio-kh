@@ -12,7 +12,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { GenStudioChatTerminalFailureError, describeGenStudioLanguageFailure } from '../lib/genstudio-client.js'
 
-const JARGON = /GenStudio KH|PROVIDER_|LANGUAGE_|reconcile|upstream|fallback route|durable|reservation|being checked|Provider reason|0 credits/i
+const JARGON = /[Tt]he Gateway|PROVIDER_|LANGUAGE_|reconcile|upstream|fallback route|durable|reservation|being checked|Provider reason|0 credits/i
 
 const gatewayFailure = (fields: Record<string, unknown>) => new GenStudioChatTerminalFailureError({
   id: 'job_1', state: 'failed', reserved_credits: 0, settled_credits: 0, released_credits: 0, ...fields,

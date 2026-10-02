@@ -225,7 +225,7 @@ describe('useToast.humanizeError', () => {
 
   test('an unreachable gateway blames the gateway, not the internet', () => {
     const out = humanizeError('connect ECONNREFUSED 127.0.0.1:8787')
-    assert.match(out, /GenStudio gateway/)
+    assert.match(out, /Could not reach the Gateway — is the Gateway app running\?/)
     assert.doesNotMatch(out, /internet/)
   })
 

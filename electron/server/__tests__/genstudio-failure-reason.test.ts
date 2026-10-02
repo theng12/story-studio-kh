@@ -55,7 +55,7 @@ test('a content refusal shows the provider reason and tells the user to reword',
   // The support handle survives, because the sentence tells him to use it.
   assert.match(error.message, /req_8f2c1a9d4e7b3006/)
   // And the original settlement wording is still there, not replaced.
-  assert.match(error.message, /GenStudio KH image generation failed/)
+  assert.match(error.message, /Gateway image generation failed/)
   assert.equal(error.failureClass, 'content_refused')
   assert.equal(error.failureReason, MODERATION_REASON)
 })
@@ -149,7 +149,7 @@ test('with no reason and no class the message is exactly what it was before', ()
   assert.equal(
     error.message,
     'Gateway image generation failed (IMAGE_CONTENT_REFUSED). '
-    + 'The Gateway reports 20 credits released. '
+    + 'GenStudio reports 20 credits released. '
     + 'This job cannot be reopened; Retry submits a new job.',
   )
   assert.equal(error.failureReason, null)

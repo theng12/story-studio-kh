@@ -522,7 +522,7 @@ void test('Gateway video, TTS and transcription settle, refuse to reopen, and ne
         onState: state => { states.push(state) },
       })
       assert.deepEqual(states, ['accepted', 'running', 'succeeded'])
-      assert.match(result.srt, /Hello from mock GenStudio/)
+      assert.match(result.srt, /Hello from mock the Gateway/)
       assert.equal(service.providerSubmissionCount('transcription'), 1)
 
       const raw = await fetch(`${service.baseUrl}/v1/transcriptions/${result.jobId}`, {

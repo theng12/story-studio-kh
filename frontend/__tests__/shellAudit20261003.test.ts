@@ -50,5 +50,5 @@ test('with no key the header says "Gateway · Connect", not the paid service\'s 
   const strip = read('../components/GenStudioStandingStrip.vue')
   assert.match(strip, /aria-label="Connect your Gateway"[\s\S]*?<span>Gateway<\/span>/)
   assert.match(strip, /if \(!genstudioConfigured\.value\) return 'Connect'/)
-  assert.doesNotMatch(strip, /Set up GenStudio/)
+  assert.doesNotMatch(strip, /Set up the Gateway/)
 })

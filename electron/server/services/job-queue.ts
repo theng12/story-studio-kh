@@ -5928,7 +5928,7 @@ export function readRecordedCreditReleases(lines: readonly string[]): { count: n
 function describeAbandonedCreditPosition(lines: readonly string[]): string {
   const released = readRecordedCreditReleases(lines)
   if (!released.count) {
-    return 'Credits: Story Studio holds no balance and refunds nothing itself. Whatever the Gateway '
+    return 'Credits: Story Studio holds no balance and refunds nothing itself. Whatever GenStudio '
       + 'charged or released for this job is recorded in your GenStudio account — check there for the '
       + 'final figure. Abandoning does not change it either way.'
   }

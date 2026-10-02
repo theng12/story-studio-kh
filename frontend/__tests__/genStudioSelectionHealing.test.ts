@@ -68,7 +68,7 @@ describe('describeGenStudioSelectionGap', () => {
     assert.deepEqual(gap, { kind: 'vanished', savedModelId: 'discontinued-model' })
     const message = genStudioSelectionGapMessage(gap)
     assert.match(message ?? '', /discontinued-model/)
-    assert.match(message ?? '', /no longer offered/)
+    assert.match(message ?? '', /was retired — choose a replacement/)
     // Distinct wording from the "still exists but disabled" case above.
     const unavailableMessage = genStudioSelectionGapMessage(
       describeGenStudioSelectionGap('writer-retired', models),

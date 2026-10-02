@@ -88,7 +88,7 @@ describe('finished-job dismiss gate', () => {
     assert.doesNotMatch(control.reason, /voice\.tts|tts-10/)
     // The two states are never conflated.
     assert.doesNotMatch(control.reason, /still settling/)
-    assert.doesNotMatch(control.reason, /GenStudio reports/)
+    assert.doesNotMatch(control.reason, /[Tt]he Gateway reports/)
     // And it offers the action rather than describing one it is not doing.
     assert.equal(control.enabled, true)
     assert.equal(control.action, 'recheck-provider-status')
@@ -100,7 +100,7 @@ describe('finished-job dismiss gate', () => {
       history_evidence_check: { state: 'unsettled', at: '2026-08-17T09:00:00.000Z' },
     }), capabilities)
     assert.equal(control.code, 'PROVIDER_WORK_ALREADY_STARTED')
-    assert.match(control.reason, /GenStudio reports that the narration request has not finished yet/)
+    assert.match(control.reason, /[Tt]he Gateway reports that the narration request has not finished yet/)
     assert.match(control.reason, /keeping this history until that work settles/)
     assert.doesNotMatch(control.reason, /voice\.tts|tts-10/)
     // The protection is intact: this is not a clear-history.

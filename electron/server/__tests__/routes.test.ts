@@ -645,7 +645,7 @@ describe('Account endpoints', () => {
   const assertGenStudioOnly = (res: request.Response) => {
     assert.equal(res.status, 410)
     assert.equal(res.body.code, 'GENSTUDIO_ONLY')
-    assert.match(res.body.detail, /GenStudio/i)
+    assert.match(res.body.detail, /Gateway key/i)
   }
 
   test('GET /settings/accounts is retired', async () => {

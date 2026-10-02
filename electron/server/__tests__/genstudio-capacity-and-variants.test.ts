@@ -260,14 +260,14 @@ test('every published capacity code gets its own actionable, provider-agnostic m
     GENSTUDIO_CAPACITY_REASONS.ACCOUNT_RATE_LIMIT,
     GENSTUDIO_CAPACITY_REASONS.ACCOUNT_QUEUE_LIMIT,
   ]) {
-    assert.match(messages.get(code)!, /your genstudio kh account/i)
+    assert.match(messages.get(code)!, /your gateway account/i)
   }
   // A provider/queue code says it is transient and already being retried, and
   // asks nothing of the user's account.
   const backpressure = messages.get(GENSTUDIO_CAPACITY_REASONS.PROVIDER_BACKPRESSURE)!
   assert.match(backpressure, /temporary/i)
   assert.match(backpressure, /retrying automatically/i)
-  assert.doesNotMatch(backpressure, /your genstudio kh account'?s? (?:plan|queue|limit)/i)
+  assert.doesNotMatch(backpressure, /your gateway account'?s? (?:plan|queue|limit)/i)
 })
 
 test('request_in_progress reads as work in flight, never as busy or failed', () => {

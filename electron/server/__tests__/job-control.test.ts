@@ -131,7 +131,7 @@ describe('server-owned job controls', () => {
     assert.deepEqual(controls.map(control => control.action), ['pause-submissions', 'request-remote-cancel', 'force-abandon'])
     assert.equal(controls[0]?.enabled, true)
     assert.deepEqual(controls[1]?.targets, [{ operation: 'image.generation', provider_job_id: 'not-dispatched' }])
-    assert.match(controls[0]?.reason || '', /already accepted work will finish/i)
+    assert.match(controls[0]?.reason || '', /anything already sent finishes/i)
   })
 
   test('keeps pause disabled for image jobs without a proven cooperative item boundary', () => {
@@ -185,7 +185,7 @@ describe('server-owned job controls', () => {
       { operation: 'chat.response', provider_job_id: 'chat-can-cancel' },
       { operation: 'music.generation', provider_job_id: 'music-can-cancel' },
     ])
-    assert.match(control.reason, /image request already started and will continue settling/i)
+    assert.match(control.reason, /image request already started and will finish/i)
     assert.doesNotMatch(control.reason, /image-keeps-running|chat-can-cancel|music-can-cancel/)
     assert.doesNotMatch(control.reason, /refund/i)
   })

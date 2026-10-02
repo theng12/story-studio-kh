@@ -122,7 +122,7 @@ test('a job waiting for a free Mac says so with the next try time, and is never 
     }],
   })
   assert.match(detail, /^Waiting for a free Mac — next try \d{1,2}:\d{2}.* \(No Mac is free\)\.$/)
-  assert.doesNotMatch(detail, /GenStudio is generating/)
+  assert.doesNotMatch(detail, /[Tt]he Gateway is generating/)
   // No next_try_at: the sentence still stands, with no invented time.
   assert.match(queueDetail({ genstudio_jobs: [{ state: 'running', waiting: { reason: null, next_try_at: null, since: null }, updated_at: 'now' }] }),
     /^Waiting for a free Mac\.$/)

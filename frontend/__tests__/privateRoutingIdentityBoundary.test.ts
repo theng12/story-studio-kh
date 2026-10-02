@@ -88,6 +88,6 @@ describe('the missing-key toast names one key and no vendors', () => {
 
   test('it still tells the customer a key is missing, and which one', () => {
     assert.match(source, /API key configured/)
-    assert.match(source, /GenStudio API key missing/)
+    assert.match(source, /Gateway key missing/)
   })
 })

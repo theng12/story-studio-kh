@@ -220,7 +220,7 @@ test('the switch changes the idempotency key, not just the body', async () => {
     try {
       await generateSceneClipJob(fixture.job)
       const key = fixture.job.output_lines
-        .map((line: string) => /GenStudio request: scene-switch -> (story-video-\S+)/.exec(line)?.[1])
+        .map((line: string) => /Gateway request: scene-switch -> (story-video-\S+)/.exec(line)?.[1])
         .find(Boolean)
       assert.ok(key, `the run must log the key it submitted (${fixture.job.output_lines.join(' | ')})`)
       return key

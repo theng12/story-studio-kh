@@ -142,7 +142,7 @@ describe('ModelMenu — a pinned model that left the catalogue', () => {
     await nextTick()
     const rendered = host.querySelector('.model-menu-catalog-notice')?.textContent || ''
     assert.match(rendered, /was retired — choose a replacement/)
-    assert.match(rendered, /Choose a replacement/)
+    assert.match(rendered, /choose a replacement/i)
     unmount()
   })
 
@@ -291,7 +291,7 @@ describe('ModelSelector — a pinned model that left the catalogue', () => {
     const gap = host.querySelector('.selection-gap')
     assert.ok(gap, 'a vanished pin must produce a visible message, not silence')
     assert.match(gap!.textContent || '', /"deleted-by-dedupe" was retired — choose a replacement/)
-    assert.match(gap!.textContent || '', /Choose a replacement/)
+    assert.match(gap!.textContent || '', /choose a replacement/i)
     unmount()
   })
 

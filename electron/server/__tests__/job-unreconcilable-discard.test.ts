@@ -380,7 +380,7 @@ test('an abandon landing mid-check never gains a confirmation nobody has', async
     assert.match(log, /Abandoned at your request/)
     // The whole point: abandoning is not evidence, and must never be minuted
     // as though GenStudio had answered.
-    assert.doesNotMatch(log, /GenStudio confirmed every recorded provider task/)
+    assert.doesNotMatch(log, /[Tt]he Gateway confirmed every recorded provider task/)
     assert.equal(after.status, 'cancelled')
     // The unsettled entries stay unsettled — nothing was rewritten as terminal.
     assert.equal((after.genstudio_jobs || []).filter(entry => entry.state === 'submitting').length, PENDING_COUNT)

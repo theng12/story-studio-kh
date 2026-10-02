@@ -38,6 +38,6 @@ describe('GET /models with no Gateway key', () => {
       'an empty catalogue and a missing key must not be the same answer',
     )
     assert.equal(res.status, 400)
-    assert.match(String(res.body?.detail ?? ''), /API key/i, 'the message must name the thing to fix')
+    assert.match(String(res.body?.detail ?? ''), /Gateway key/i, 'the message must name the thing to fix')
   })
 })

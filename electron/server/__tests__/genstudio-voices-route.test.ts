@@ -23,7 +23,7 @@ after(async () => {
 test('Gateway voice discovery requires a saved key', async () => {
   const response = await request(app).get('/api/app-settings/genstudio/voices')
   assert.equal(response.status, 400)
-  assert.match(response.body.detail, /API key/)
+  assert.match(response.body.detail, /Gateway key/)
 })
 
 test('Gateway voice discovery forwards the saved bearer key and catalog', async () => {
@@ -525,7 +525,7 @@ test('GenStudio usage failures name the supported usage:read scope actionably', 
 
   assert.equal(response.body.code, 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE')
   assert.match(response.body.detail, /invalid or missing usage:read/i)
-  assert.match(response.body.detail, /GenStudio key with usage:read/i)
+  assert.match(response.body.detail, /Gateway key with usage:read/i)
   assert.match(response.body.detail, /all-access keys already include it/i)
   assert.doesNotMatch(response.body.detail, /after Gateway exposes/i)
   assert.deepEqual(visited, ['http://127.0.0.1:8787/v1/account/overview'])

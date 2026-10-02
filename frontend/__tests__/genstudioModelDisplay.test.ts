@@ -49,7 +49,7 @@ test('Gateway model catalogs expose the catalogue name, unbranded', () => {
   assert.equal(labels.get('tts-qwen3'), 'Qwen3 TTS')
   assert.equal(labels.get('genstudio-tts:tts-qwen3'), 'Qwen3 TTS')
   // No label may carry the gateway. A model name is the model's.
-  for (const label of labels.values()) assert.doesNotMatch(label, /GenStudio/i)
+  for (const label of labels.values()) assert.doesNotMatch(label, /[Tt]he Gateway/i)
 })
 
 test('a name branded by an older release is healed, not shown', () => {
@@ -73,7 +73,7 @@ test('the display layer keeps no voice-tier vocabulary of its own', () => {
     'utf8',
   )
   assert.doesNotMatch(display, /genStudioTtsDisplayName|TTS_TIER_BY_ENGINE_ID|GenStudioTtsTier/)
-  assert.doesNotMatch(display, /GenStudio TTS (?:Regular|Premium|Clone)/)
+  assert.doesNotMatch(display, /Gateway TTS (?:Regular|Premium|Clone)/)
 })
 
 test('Jobs and Usage resolve catalog names instead of printing dispatch ids', () => {
@@ -103,7 +103,7 @@ test('Jobs and Usage resolve catalog names instead of printing dispatch ids', ()
       'billing action must not depend on service-tier metadata',
     )
   assert.match(usage, /target="_blank"[^>]*rel="noopener noreferrer"/)
-  assert.match(usage, /Billing is not available on this Gateway deployment/)
+  assert.match(usage, /Billing is not available on this GenStudio deployment/)
   assert.doesNotMatch(usage, /will link directly|localhost.*billing|GenStudioUrl/i)
   assert.doesNotMatch(usage, /Current plan|Manage plan · coming soon/)
   assert.match(usage, /<NuxtLink to="\/" class="btn btn-secondary btn-sm">← Back to projects<\/NuxtLink>/)

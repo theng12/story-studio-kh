@@ -292,7 +292,7 @@ test('a boundary Story Studio never passed is never reported as Gateway publishi
     },
   )
   // The genuinely-unpublished case keeps its original wording, and its advice.
-  assert.throws(() => splitGenStudioApiRequests('narration', null), /GenStudio KH published no maximum_input_characters/)
+  assert.throws(() => splitGenStudioApiRequests('narration', null), /[Tt]he Gateway published no maximum_input_characters/)
   assert.throws(() => splitGenStudioApiRequests('narration', null), /refresh the voice catalogue/i)
 })
 

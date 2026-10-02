@@ -314,7 +314,7 @@ describe('character-weighted word timing', () => {
   })
 
   test('the exact source is a seam, not a promise — it refuses rather than faking', () => {
-    assert.throws(() => createExactWordTimingSource(null), /GenStudio does not publish per-word times/)
+    assert.throws(() => createExactWordTimingSource(null), /[Tt]he Gateway does not publish per-word times/)
   })
 
   test('the exact source falls back to interpolation for a cue it does not cover', () => {

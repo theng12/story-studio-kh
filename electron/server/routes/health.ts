@@ -218,7 +218,7 @@ async function authoritativeUsage(res: any): Promise<void> {
       })
       return
     }
-    res.status(502).json(humanizeBackendError(error, 'Could not load authoritative GenStudio usage'))
+    res.status(502).json(humanizeBackendError(error, 'Could not load your GenStudio usage'))
   }
 }
 

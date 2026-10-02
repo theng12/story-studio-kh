@@ -312,7 +312,7 @@ describe('Research workspace flow', () => {
     // missing published evidence without relabelling the run as model knowledge.
     assert.match(research, /research-nosources-note/)
     assert.match(research, /WEB_SEARCH_NO_SOURCES_NOTICE/)
-    assert.match(provenance, /GenStudio did not publish structured citations or source URLs/)
+    assert.match(provenance, /[Tt]he Gateway did not publish structured citations or source URLs/)
     assert.doesNotMatch(research, /Treat these claims as model knowledge/)
   })
 

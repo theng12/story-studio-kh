@@ -231,7 +231,7 @@ void test('deterministic zero-spend Gateway release qualification', async (suite
         requestIdentity: 'qualification:transcription:success',
         language: 'en',
       })
-      assert.match(transcriptionResult.srt, /Hello from mock GenStudio/)
+      assert.match(transcriptionResult.srt, /Hello from mock the Gateway/)
 
       assert.deepEqual(service.creditSnapshot(imageResult.jobId), {
         quoted: 7, reserved: 7, final: 7, returned: 0,

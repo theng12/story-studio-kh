@@ -155,7 +155,7 @@ test('repair run reclaims saved subtitle output, preserves valid chapters, hands
   assert.equal(chain.length, 3, 'one action owns one real three-stage queue chain')
   assert.ok(chain.every(job => job.params.pipeline_repair?.action_id === actionId), 'handoff preserves the repair action')
   assert.deepEqual(await fs.readFile(validPath), validBytes, 'valid chapter is byte-identical')
-  assert.match(await fs.readFile(damagedPath, 'utf8'), /Hello from mock GenStudio/, 'saved provider result repaired the internally gapped chapter')
+  assert.match(await fs.readFile(damagedPath, 'utf8'), /Hello from mock the Gateway/, 'saved provider result repaired the internally gapped chapter')
   assert.equal(service.providerSubmissionCount('transcription'), transcriptionPosts, 'repair rejoined saved transcription without a new POST')
   assert.equal(service.providerSubmissionCount('image'), 1, 'only the missing Scene Review image used one fresh request')
 

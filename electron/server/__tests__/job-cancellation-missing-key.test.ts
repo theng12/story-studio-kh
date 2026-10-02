@@ -264,7 +264,7 @@ test('missing key: the primary cancellation control names the key, not just "Che
   const control = classifyJobControl(loaded, { remoteCancellationAudited: true })
   const copy = `${control.label} ${control.reason}`
 
-  assert.match(copy, /GenStudio API key/,
+  assert.match(copy, /Gateway key/,
     'the control the customer presses must say the key is missing, not only that something is being checked')
   assert.match(copy, /Settings/,
     'it must say where to fix it — the whole point of naming the cause')

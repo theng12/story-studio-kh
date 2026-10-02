@@ -59,7 +59,7 @@ test('Scene Review batches recover accepted work and leave scheduling to the Gat
   assert.match(generator, /tryRecoverImageFromManifest[\s\S]*imageProvider\.generateImage/)
   assert.match(generator, /manifestEntry\?\.input_hash === expectedInputHash/)
   assert.match(generator, /render_attempt_id/)
-  assert.match(generator, /GenStudio controls account concurrency and execution/)
+  assert.match(generator, /Gateway controls account concurrency and execution/)
   assert.doesNotMatch(route, /repair-image|body\.concurrency|body\.prompt_only|body\.from_scene_id/)
   assert.doesNotMatch(route, /resolveApiKeyForProvider|getImageProvider\(providerId\)/)
 })

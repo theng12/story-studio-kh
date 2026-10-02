@@ -289,8 +289,8 @@ test('the TTS picker uses Gateway queue metadata and shows the published full pr
     sale_disclaimer: 'The Gateway publishes this sale disclaimer.',
   })
   assert.match(display.text, /24 credits \/ 1,000 characters \(was 48 credits\)/)
-  assert.match(display.title, /GenStudio publishes this sale disclaimer\./)
-  assert.match(display.notice || '', /GenStudio publishes this sale disclaimer\./)
+  assert.match(display.title, /[Tt]he Gateway publishes this sale disclaimer\./)
+  assert.match(display.notice || '', /[Tt]he Gateway publishes this sale disclaimer\./)
   assert.match(
     menuTemplate as string,
     /<small v-if="option\.priceNote" class="model-menu-option-price-note">\{\{ option\.priceNote \}\}<\/small>/,

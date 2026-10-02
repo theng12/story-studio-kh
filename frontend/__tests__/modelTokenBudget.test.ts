@@ -231,7 +231,7 @@ describe('Scene Plan workspace wiring', () => {
 
   test('the budget is presented as an estimate, and is never turned into characters', () => {
     assert.match(scenePlan, /Estimated from the limits the Gateway publishes/)
-    assert.match(scenePlan, /GenStudio validates every request/)
+    assert.match(scenePlan, /[Tt]he Gateway validates every request/)
     // No token-to-character conversion anywhere: characters per token differ by
     // language, and Khmer and mixed-script narration would be mis-measured.
     assert.doesNotMatch(scenePlan, /availableInputBudget[^\n]*\*\s*\d/)

@@ -216,7 +216,7 @@ test('the newest failed image job is surfaced until a newer job replaces it', as
   const failed = { job_id: 'failed', type: 'scene_image_generate', episode_id: 'EP0001', status: 'error', created_at: '2026-09-06T10:00:00.000Z', error: 'The Gateway refused the prompt.' }
   const mounted = await mount([failed])
   assert.equal(mounted.state.failedRenderJob.value?.job_id, 'failed')
-  assert.match(mounted.state.failedRenderMessage.value, /GenStudio refused the prompt/)
+  assert.match(mounted.state.failedRenderMessage.value, /[Tt]he Gateway refused the prompt/)
   await mounted.state.retryFailedRender()
   assert.equal(mounted.calls.at(-1)?.path, '/projects/fixture-project/jobs/failed/retry')
   mounted.jobs.value = [failed, { ...failed, job_id: 'later', status: 'done', created_at: '2026-09-06T11:00:00.000Z' }]

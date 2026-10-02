@@ -31,7 +31,7 @@ describe('Scene Review image preview', () => {
     // No pixel menu: `sizes` was never published, so nothing selects one and
     // nothing falls back to a hardcoded table.
     assert.doesNotMatch(sceneReviewSource, /sr-gen-size|selectedGenStudioSizes|genstudio_size|genStudioSizeKey/)
-    assert.match(sceneReviewSource, /Chosen by GenStudio/)
+    assert.match(sceneReviewSource, /Chosen by the Gateway/)
     assert.match(sceneReviewSource, /selectedGenStudioModel\?\.default_resolution/)
     // Seed is offered only where GenStudio publishes support for one.
     assert.match(sceneReviewSource, /selectedGenStudioModel\.supports_seed !== false/)

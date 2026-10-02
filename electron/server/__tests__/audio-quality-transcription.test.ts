@@ -42,7 +42,7 @@ test('candidate alternate ASR is action-replayable, raw-only, and cannot confirm
     verification_credit_ceiling: 7,
   }
   const first = await verifyAudioQualityCandidateRawTranscript(input)
-  assert.match(first.srt, /Hello from mock GenStudio/)
+  assert.match(first.srt, /Hello from mock the Gateway/)
   assert.ok(first.rawCues.length > 0)
   assert.ok(first.quote)
   assert.equal(first.quote.quoted_credit_cost, 7)

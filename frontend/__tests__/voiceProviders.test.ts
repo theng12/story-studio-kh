@@ -241,7 +241,7 @@ test('Gateway catalogs stay provider-owned across voice, image, LLM, and video s
   assert.match(motionReview, /variant\.credits_per_video/)
   assert.doesNotMatch(motionReview, /capability\.durations|provider.*duration/i)
   assert.doesNotMatch(motionReview, /the cheapest option the Gateway publishes for this model/)
-  assert.doesNotMatch(motionReview, /Image-to-video generation through Gateway KH/)
+  assert.doesNotMatch(motionReview, /Image-to-video generation through (GenStudio|the Gateway)/i)
   assert.doesNotMatch(motionReview, /local fleet|cloud fleet|execution_label/i)
   assert.doesNotMatch(motionReview, /Unavailable saved selection|migration required|Historical/)
   assert.match(providerGroups, /category: 'mix'/)
@@ -273,7 +273,7 @@ test('the cloned view asks the Gateway for the collection instead of guessing wh
 
   // An empty clone list is normal, and must say where cloning actually happens
   // rather than reading as a failure to load.
-  assert.match(picker, /Voices are cloned in Gateway KH/)
+  assert.match(picker, /Voices are cloned in the Gateway/)
 
   // explore/my are published but undocumented to us — surfacing a label we
   // invented for someone else's vocabulary is what this asserts against.

@@ -196,7 +196,7 @@ void test('confirmed audio-quality candidate survives queue reload, preserves ol
       'the refresh assembles the full selected episode timeline, not only the repaired chapter')
     assert.deepEqual(sidecar.sections.find((section: any) => section.slug === 'Chapter_02').source_files, [untouchedFile])
     assert.deepEqual(await fs.readFile(path.join(paths.audio_dir, untouchedFile)), untouchedBytes)
-    assert.match(await fs.readFile(path.join(paths.subtitles_dir, `${episodeId}_Chapter_01.srt`), 'utf8'), /Hello from mock GenStudio/)
+    assert.match(await fs.readFile(path.join(paths.subtitles_dir, `${episodeId}_Chapter_01.srt`), 'utf8'), /Hello from mock the Gateway/)
     assert.equal(await fs.readFile(path.join(paths.subtitles_dir, `${episodeId}_Chapter_02.srt`), 'utf8'), untouchedSrt)
     assert.equal((await jq.getJobs(project.slug)).some(job => job.job_id === refreshJobId
       && job.type === 'audio_merge' && job.params?.audio_quality_refresh?.action_id === actionId && job.status === 'done'), true,

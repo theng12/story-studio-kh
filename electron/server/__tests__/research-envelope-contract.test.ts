@@ -492,7 +492,7 @@ test('a model-identity mismatch is explained by name, not as a generic failure',
   assert.match(message, /did not come from the writing model you chose/i)
   assert.match(message, /refused rather than used/i)
   // Not the generic terminal wording it used to degrade to.
-  assert.doesNotMatch(message, /GenStudio KH language generation failed \(/)
+  assert.doesNotMatch(message, /Gateway language generation failed \(/)
   // Fallbacks stay off, and that is still said out loud.
   assert.doesNotMatch(message, /fallback route/)
   // Settled means settled: never resubmitted, and not confused with "uncertain".

@@ -118,7 +118,7 @@ test('an explicitly selected subtitle succeeds while an unselected chapter is mi
   assert.deepEqual(job.result?.scoped_sections, ['Chapter_01'])
   assert.equal(job.result?.ready_sections, 1)
   assert.deepEqual(job.result?.missing_sections, ['Chapter_02', 'Chapter_03'])
-  assert.match(await fs.readFile(path.join(fixture.paths.subtitles_dir, `${fixture.code}_Chapter_01.srt`), 'utf8'), /Hello from mock GenStudio/)
+  assert.match(await fs.readFile(path.join(fixture.paths.subtitles_dir, `${fixture.code}_Chapter_01.srt`), 'utf8'), /Hello from mock the Gateway/)
   await assert.rejects(
     fs.access(path.join(fixture.paths.subtitles_dir, `${fixture.code}_stitched.srt`)),
     /ENOENT/,
@@ -289,7 +289,7 @@ test('a stamped fresh retry reuses its accepted Chapter_12 task instead of skipp
   assert.equal((job.result as any).generated_sections, 1)
   assert.equal((job.result as any).ready_sections, 16)
   assert.deepEqual((job.result as any).missing_sections, [])
-  assert.match(await fs.readFile(path.join(paths.subtitles_dir, `${code}_Chapter_12.srt`), 'utf8'), /Hello from mock GenStudio/)
+  assert.match(await fs.readFile(path.join(paths.subtitles_dir, `${code}_Chapter_12.srt`), 'utf8'), /Hello from mock the Gateway/)
   const selectedHash = await hashSubtitleAudioSources([path.join(paths.audio_dir, selectedAudio)])
   assert.ok(selectedHash)
   const recovery = JSON.parse(await fs.readFile(path.join(paths.subtitles_dir, '.subtitle-recovery.json'), 'utf8'))
@@ -305,7 +305,7 @@ test('a stamped fresh retry reuses its accepted Chapter_12 task instead of skipp
   await generateSubtitlesTranscribe(retry)
   assert.equal(mock.providerSubmissionCount('transcription'), 1,
     'Retry uses the same fresh action identity to recover its accepted task; it neither skips the old SRT nor posts a new task')
-  assert.match(await fs.readFile(staleTarget, 'utf8'), /Hello from mock GenStudio/)
+  assert.match(await fs.readFile(staleTarget, 'utf8'), /Hello from mock the Gateway/)
 })
 
 test('a changed active chapter source is re-transcribed instead of reusing its old provider output', async t => {
@@ -365,7 +365,7 @@ test('a changed active chapter source is re-transcribed instead of reusing its o
 
   assert.equal(mock.providerSubmissionCount('transcription'), 1, 'the changed source must make a fresh provider request')
   assert.equal((job.result as any).generated_sections, 1)
-  assert.match(await fs.readFile(srtPath, 'utf8'), /Hello from mock GenStudio/)
+  assert.match(await fs.readFile(srtPath, 'utf8'), /Hello from mock the Gateway/)
   const recovery = JSON.parse(await fs.readFile(path.join(paths.subtitles_dir, '.subtitle-recovery.json'), 'utf8'))
   assert.equal(recovery.sections[srtName].sourceAudioHash, await hashSubtitleAudioSources([source]))
 })
@@ -439,8 +439,8 @@ test('stamped pipeline repair transcribes only malformed and gap-mapped chapters
 
   assert.equal(mock.providerSubmissionCount('transcription'), 2)
   assert.deepEqual(await fs.readFile(path.join(paths.subtitles_dir, `${code}_Chapter_01.srt`)), good)
-  assert.match(await fs.readFile(path.join(paths.subtitles_dir, `${code}_Chapter_02.srt`), 'utf8'), /Hello from mock GenStudio/)
-  assert.match(await fs.readFile(path.join(paths.subtitles_dir, `${code}_Chapter_03.srt`), 'utf8'), /Hello from mock GenStudio/)
+  assert.match(await fs.readFile(path.join(paths.subtitles_dir, `${code}_Chapter_02.srt`), 'utf8'), /Hello from mock the Gateway/)
+  assert.match(await fs.readFile(path.join(paths.subtitles_dir, `${code}_Chapter_03.srt`), 'utf8'), /Hello from mock the Gateway/)
 })
 
 

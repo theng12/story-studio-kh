@@ -89,7 +89,7 @@ void test('an accepted subtitle task remains held on an account/model change and
 
     const restartedUnderA = makeJob()
     const recovered = await run(accountA, restartedUnderA)
-    assert.match(recovered.srt, /Hello from mock GenStudio/)
+    assert.match(recovered.srt, /Hello from mock the Gateway/)
     assert.equal(service.providerSubmissionCount('transcription'), 1, 'returning to the original account recovered the accepted task without another POST')
     assert.equal(restartedUnderA.params.genstudio_recovery.assets[manifestKey].idempotency_key, idempotencyKey)
   } finally {

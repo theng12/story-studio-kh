@@ -123,7 +123,7 @@ const ESTABLISHED_THREE_PREVIEW_FAMILIES = [
   'archival-map-investigation',
 ] as const
 const CENTERED_HERO_CUSTOM_ID = 'centered-hero-headline-custom'
-const forbiddenRuntimeMetadata = /\/Users\/|\bprovider\b|model_id|\bprice\b|\bdiscount\b|GenStudio/i
+const forbiddenRuntimeMetadata = /\/Users\/|\bprovider\b|model_id|\bprice\b|\bdiscount\b|the Gateway/i
 const privateKeyMaterial = /-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----|private[ _-]?key/i
 const RESTORED_RECIPE_AUDIT = [
   ['com.storystudio.thumbnail.annotated-business-board', 'content-packs/free-starters/thumbnail/annotated-business-board'],

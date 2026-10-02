@@ -380,7 +380,7 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     })
 
     assert.equal(fakeCalls.filter(call => call.kind === 'expansion').length, 4)
-    assert.ok(job.output_lines.some(line => /GenStudio reported incomplete output \(max_tokens\); preserved 0 parsed chapter/.test(line)))
+    assert.ok(job.output_lines.some(line => /[Tt]he Gateway reported incomplete output \(max_tokens\); preserved 0 parsed chapter/.test(line)))
     assert.ok(job.output_lines.some(line => /one bounded single-chapter repair pass/.test(line)))
     assert.equal(result.chaptersWritten, 3)
     for (let n = 1; n <= 3; n++) {

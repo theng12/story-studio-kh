@@ -309,7 +309,7 @@ describe('local rejection messages', () => {
       try {
         validateStructuredOutput(raw, contract)
       } catch (error: any) {
-        assert.match(error.message, /GenStudio completed the request/)
+        assert.match(error.message, /[Tt]he Gateway completed the request/)
         assert.doesNotMatch(error.message, /the output did not match the response schema\./)
       }
     }

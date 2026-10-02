@@ -153,7 +153,7 @@ describe('Settings workspace navigation', () => {
     assert.doesNotMatch(settingsSource, /Save performance/)
     assert.doesNotMatch(settingsSource, /script-concurrency/)
     assert.doesNotMatch(settingsSource, /launch stagger/i)
-    assert.doesNotMatch(thisMacSettingsSource, /GenStudio itself accepts 12|what the Gateway accepts/)
+    assert.doesNotMatch(thisMacSettingsSource, /[Tt]he Gateway itself accepts 12|what the Gateway accepts/)
     // Same meaning, plain words: Story's number only limits what it sends; the Gateway decides what runs.
     assert.match(thisMacSettingsSource, /the Gateway still decides/i)
   })
@@ -215,7 +215,7 @@ describe('Settings workspace navigation', () => {
     assert.match(thisMacSettingsSource, /Copy it from GatewayKH → Settings/)
     assert.match(thisMacSettingsSource, /connections: 'Gateway connection'/)
     assert.match(thisMacSettingsSource, /Content Store: \{\{/)
-    assert.doesNotMatch(thisMacSettingsSource, /<code>content:purchase<\/code>|Required scopes|Gateway key<\/label>/)
+    assert.doesNotMatch(thisMacSettingsSource, /<code>content:purchase<\/code>|Required scopes|GenStudio API key<\/label>/)
     assert.doesNotMatch(thisMacSettingsSource, /Sole AI boundary|Test scopes/)
     assert.doesNotMatch(thisMacSettingsSource, /one scoped key|Scoped API key|Scoped Gateway key saved/i)
     assert.doesNotMatch(thisMacSettingsSource, /\/v1\/api-keys|\/reveal/)

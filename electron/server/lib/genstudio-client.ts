@@ -588,7 +588,7 @@ export function genStudioFailureGuidance(
 function releasedCreditSettlement(job: GenStudioSettledJobShape): string {
   const released = job.released_credits
   return typeof released === 'number' && Number.isFinite(released) && released >= 0
-    ? `The Gateway reports ${released} credits released.`
+    ? `GenStudio reports ${released} credits released.`
     : 'Credit settlement is not yet published; check its Gateway status.'
 }
 
@@ -788,7 +788,7 @@ function chatFailureSentence(job: GenStudioSettledJobShape): string {
   const settled = job.settled_credits
   const credits = [
     typeof settled === 'number' && settled > 0 ? `${settled} credits were charged for this attempt.` : null,
-    typeof released === 'number' && released > 0 ? `The Gateway reports ${released} credits released.` : null,
+    typeof released === 'number' && released > 0 ? `GenStudio reports ${released} credits released.` : null,
   ].filter(Boolean).join(' ')
   return credits ? `${what} ${credits}` : what
 }
