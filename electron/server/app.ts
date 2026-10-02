@@ -243,7 +243,9 @@ if (shouldListen) {
   // whichever request happened to cross the hour boundary. Housekeeping belongs
   // on a timer, not on the path a person is waiting on.
   startLogPruning()
-  const server = app.listen(PORT, () => {
+  // Loopback only: this backend has no login, and Node's default bind is every
+  // interface (LAN + Tailscale). `HOST=0.0.0.0` opts back in deliberately.
+  const server = app.listen(PORT, process.env.HOST || '127.0.0.1', () => {
     console.log(`Story Studio API running on http://localhost:${PORT}`)
     console.log(`API docs: http://localhost:${PORT}/api/health`)
   })
