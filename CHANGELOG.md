@@ -4,6 +4,36 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.247 — 2026-10-02
+
+- **Cancel reaches a narration or music job that is already running.** Cancelling a narration or music job while it is running on a Mac now
+  tells the Gateway, which stops the work, and the job shows as cancelled instead of failing. Cancelling a music top-up job is no longer refused.
+- **Faster scene clips.** Scene clips for the final video are now made by a small built-in helper that uses the Mac's video hardware, with
+  the old method kept as a fallback, so rendering a video takes noticeably less time.
+- **Gemma 3 12B is gone.** Story Studio never asks for the retired Gemma 3 12B model, just like the retired LTX video model.
+
+---
+
+## v1.4.246 — 2026-10-02
+
+- **Smaller files, your choice.** New switches in Settings let you shrink each kind of asset: narration arrives as compact AAC (m4a),
+  music as m4a, and scene images and thumbnails as JPEG or PNG. Turn a switch off to get the original, uncompressed file.
+- **Cancel really cancels.** Cancelling a narration or music job now stops the work on the Mac, not only in Story Studio, and the job
+  shows as cancelled.
+- **Music length and time limits follow the Gateway.** The Gateway decides how long a job may take and Story Studio is told, so
+  a long music job is no longer cut short by a limit Story Studio guessed.
+- **Plain error text.** When something fails you now see a sentence in ordinary words, not an internal code.
+- **LTX video is gone.** Story Studio never asks for the retired local LTX video model any more.
+- **Faster, lighter review screens.** Review grids load small cached thumbnails, Motion Review loads scene stills only as you scroll, and
+  the Jobs page pauses its clock and polling while the window is hidden.
+- **Safer saves and a faster start.** Files are written through a temporary file so a crash cannot leave half a file, jobs.json is
+  smaller, and finding an episode no longer walks through every episode before it.
+- **Free up space: Clear preview cache** now moves the small preview images to the project's own `_trash` instead of deleting them.
+- **Audio is not re-encoded unnecessarily.** A music list that is all MP3 is left alone, and narration chunks already delivered as MP3 are
+  stored unchanged. A list that mixes MP3 and AAC no longer silently loses tracks.
+
+---
+
 ## v1.4.245 — 2026-10-01
 
 - **"Free up space" is now easy to find and asks you for no folder.** It is the first thing on Settings →

@@ -53,7 +53,8 @@ import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js
 import { listChatModels, listTranscriptionModels, publishedVideoControls } from '../lib/genstudio-client.js'
 import { resolveTranscriptionLanguage } from '../generators/subtitles.js'
 import { requireSceneClipGenStudioModel } from '../generators/scene-clip.js'
-import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
+import { isRetiredVideoModelId } from '../contracts/retired-video-models.js'
+import { resolveGenStudioModelId, unavailableLegacyModelMessage, unavailableTranscriptionModelMessage } from '../services/genstudio-model-migration.js'
 import { withLock } from '../lib/atomic-store.js'
 import { isDecodableImage } from '../lib/image-validation.js'
 import {
@@ -1266,7 +1267,7 @@ async function resolvePipelineTranscriptionParams(
   const modelId = resolveGenStudioModelId('transcription', requestedModel)
   if (!modelId) throw new Error(unavailableLegacyModelMessage('transcription', requestedModel || '(none)'))
   const selected = models.find(model => model.id === modelId)
-  if (!selected) throw new Error('The selected transcription model is no longer available.')
+  if (!selected) throw new Error(unavailableTranscriptionModelMessage(modelId))
   if (!selected.available) throw new Error('The selected transcription model is temporarily unavailable.')
   if (selected.locked) throw new Error('The selected transcription model is locked for this GenStudio account.')
   const language = resolveTranscriptionLanguage(selected, params.language)
@@ -1286,6 +1287,12 @@ async function resolvePipelineMotionParams(
   const resolution = typeof params.resolution === 'string' ? params.resolution.trim() : ''
   if (!model || !operation || !Number.isFinite(duration_seconds) || duration_seconds <= 0 || !resolution) {
     throw new Error('Open Motion Review, choose a current model and published clip variant, then save the preset again.')
+  }
+  if (isRetiredVideoModelId(model)) {
+    throw new Error(
+      `The Motion Review preset uses a video model that has been retired ("${model}"). `
+      + 'Open Motion Review and choose another model, or untick Motion Review to keep those scenes still.',
+    )
   }
   try {
     const resolved = await requireSceneClipGenStudioModel(model, { operation, duration_seconds, resolution })

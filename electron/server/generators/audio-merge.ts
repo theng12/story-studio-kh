@@ -14,6 +14,8 @@
 import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
+import { findDirLevelOrder } from '../lib/dir-search.js'
+import { homogenizeForConcat } from '../lib/audio-concat.js'
 import { spawn } from 'child_process'
 import * as pm from '../services/project-manager.js'
 import { trackChild } from '../services/job-queue.js'
@@ -118,25 +120,12 @@ async function runFfmpegWithStderr(args: string[], opts: { timeoutMs?: number } 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 async function findEpisodeDir(projectDir: string, code: string): Promise<string | null> {
-  async function searchRecursive(dir: string, depth: number): Promise<string | null> {
-    if (depth > 4) return null
-    try {
-      const entries = await fs.readdir(dir, { withFileTypes: true })
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue
-        if (episodeDirNameMatchesCode(entry.name, code)) {
-          return path.join(dir, entry.name)
-        }
-      }
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue
-        const found = await searchRecursive(path.join(dir, entry.name), depth + 1)
-        if (found) return found
-      }
-    } catch { /* skip */ }
+  return findDirLevelOrder(projectDir, 4, (entries, dir) => {
+    for (const entry of entries) {
+      if (entry.isDirectory() && episodeDirNameMatchesCode(entry.name, code)) return path.join(dir, entry.name)
+    }
     return null
-  }
-  return searchRecursive(projectDir, 0)
+  })
 }
 
 async function resolveSubfolder(episodeDir: string, subfolderName: string): Promise<string | null> {
@@ -1257,7 +1246,9 @@ async function mixAudioLayers(opts: MixOptions): Promise<void> {
       // Concatenate multiple music files first
       job.output_lines.push(`  Concatenating ${cleanedFiles.length} music files...`)
       const musicListPath = path.join(tempDir, 'music_list.txt')
-      const musicLines = cleanedFiles.map(f => escPath(f))
+      const { files: concatInputs, reencoded } = await homogenizeForConcat(cleanedFiles, path.join(tempDir, 'music_norm'))
+      if (reencoded) job.output_lines.push(`  Music files differ in format; re-encoded ${reencoded} to one format so none are dropped`)
+      const musicLines = concatInputs.map(f => escPath(f))
       await fs.writeFile(musicListPath, musicLines.join('\n') + '\n')
 
       const musicConcatPath = path.join(tempDir, 'music_concat.mp3')

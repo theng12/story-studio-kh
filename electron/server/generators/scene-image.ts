@@ -25,6 +25,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { registry } from '../providers/registry.js'
 import { stageGenStudioImage } from '../lib/genstudio-artifacts.js'
+import { resolveOutputFormat } from '../services/generation-compression.js'
 import { resolveEpisodePathsByCode, resolveSubfolderNames, resolveScenePlanPath, type ProjectFactsCache } from '../services/utils.js'
 import { findSubfolder } from '../lib/folder-resolver.js'
 import { mediaEpisodeBaseForCode } from '../services/media-root.js'
@@ -195,6 +196,8 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   const submittedAt = new Date().toISOString()
   const inputHash = hashInput(scene.visual_prompt)
   const seed = modelConfig.supports_seed === false ? undefined : params.seed
+  // "Smaller files" for scene images (Settings, per-project override); undefined = native PNG.
+  const outputFormat = await resolveOutputFormat(job.project_slug, 'scene_images')
   const idempotencyKey = buildGenStudioImageIdempotencyKey({
     prompt: scene.visual_prompt,
     modelId: modelConfig.api_model || model,
@@ -202,6 +205,7 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     ...(outputOption ? { resolution: outputOption.resolution } : { width: renderWidth, height: renderHeight }),
     seed,
     requestIdentity,
+    ...(outputFormat ? { outputFormat } : {}),
   })
   const filename = `${scene_id}.png`
   const previousOwner = (await readManifestStrict(outDir).catch((error: unknown) => {
@@ -244,6 +248,7 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
       ? { resolution: outputOption.resolution }
       : { width: renderWidth, height: renderHeight }),
     seed,
+    ...(outputFormat ? { outputFormat } : {}),
     idempotencyIdentity: requestIdentity,
     idempotencyKey,
     onQueueState: async state => {
@@ -300,7 +305,7 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     await compareAndRecordImageTaskStrict(outDir, filename, currentOwner, succeededOwner)
     currentOwner = succeededOwner
   }
-  const stagingPath = await stageGenStudioImage(url, outPath)
+  const stagingPath = await stageGenStudioImage(url, outPath, { compress: !!outputFormat })
   const promoted = await promoteCurrentImageTaskArtifactStrict(
     outDir,
     filename,

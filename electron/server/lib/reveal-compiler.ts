@@ -41,6 +41,14 @@ export interface RevealCompileOpts {
   timing: ResolvedRevealTiming
   /** The input label carrying the still, e.g. `0:v`. */
   sourceLabel?: string
+  /**
+   * The picture's drift was already rendered to a clip (by the native scene-clip helper), so input
+   * `0:v` is that clip and the still itself, needed only for an image-mode field, is input `1:v`.
+   * Everything the reveal DOES (the field, the xfade wipes, the micro-events) is unchanged and
+   * still FFmpeg's — only the expensive `zoompan` stage is replaced, so timing and easing are
+   * bit-identical to the all-FFmpeg graph.
+   */
+  prerenderedPicture?: boolean
 }
 
 /** One step of the chain, in the order it is applied. */
@@ -286,8 +294,9 @@ export function compileSceneReveal(
   // the camera move, so the field and the picture are the same geometry), and
   // otherwise goes straight into the picture chain.
   const imageField = doc.field.mode === 'image'
-  if (imageField) filters.push('[0:v]split=2[raw][fieldsrc]')
-  const rawLabel = imageField ? 'raw' : '0:v'
+  const prerendered = opts.prerenderedPicture === true
+  if (imageField) filters.push(prerendered ? '[1:v]null[fieldsrc]' : '[0:v]split=2[raw][fieldsrc]')
+  const rawLabel = imageField && !prerendered ? 'raw' : '0:v'
 
   // The picture chain, then ONE split of the *normalised* stream for the
   // micro-event re-grades. Splitting here rather than at the source is the fix
@@ -295,9 +304,11 @@ export function compileSceneReveal(
   // format AND frame rate, and a copy taken before `zoompan` had the source's
   // own (e.g. 25 fps, 1024x576) — FFmpeg then refused the whole graph with
   // "Failed to configure output pad on Parsed_xfade".
-  const pictureTokens = compileSceneMotion(revealDriftMotion(doc), {
-    w, h, fps, duration: picture.segment,
-  })
+  // A prerendered drift is already the camera's output at the canvas size; `fps` pins the time base
+  // the colour fields and xfade expect (a decoded mp4's is not 1/fps).
+  const pictureTokens = prerendered
+    ? [`fps=${fps}`, 'setsar=1']
+    : compileSceneMotion(revealDriftMotion(doc), { w, h, fps, duration: picture.segment })
   const gradeLabels = ['[base]', ...tints.map((_, index) => `[tintcopy${index + 1}]`)].join('')
   filters.push(
     `[${rawLabel}]${pictureTokens.join(',')},format=yuv420p,split=${1 + tints.length}${gradeLabels}`,

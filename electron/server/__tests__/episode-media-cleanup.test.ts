@@ -538,6 +538,10 @@ describe('episode media cleanup execution', () => {
       assert.equal(await fs.readFile(audio, 'utf8'), 'source bytes')
       const status = await cleanup.readLocalMediaCleanupStatus(SLUG, 'EP0001')
       assert.equal(status.has_retired_media, false)
+      // The failed copy is cleaned up, not left under the real name to block the retry.
+      const leftovers = (await fs.readdir(path.join(tmp.dir, 'archive'), { recursive: true, withFileTypes: true }))
+        .filter(entry => entry.isFile())
+      assert.deepEqual(leftovers.map(entry => entry.name), [])
     } finally {
       restore()
     }
@@ -770,6 +774,26 @@ describe('compress scene images (Archive episode)', () => {
     assert.match(operation.result?.items[0]?.reason || '', /already a JPEG/i)
     assert.deepEqual(await fs.readFile(scene), compressed)
     assert.deepEqual(await fs.readdir(path.join(trashDir(), 'images', 'scene_images')), trashListing)
+  })
+
+  test('a scene image the Hub already compressed (JPEG bytes under .png) is not a candidate for a second pass', async () => {
+    const episode = await seedEpisode('EP0001')
+    const scene = path.join(episode.paths.bg_dir, 'scene-01.png')
+    await scenePng(scene)
+    await sharp(await fs.readFile(scene)).jpeg({ quality: 90 }).toFile(`${scene}.tmp`)
+    await fs.rename(`${scene}.tmp`, scene)
+    const delivered = await fs.readFile(scene)
+    await makeOlder(scene)
+    await markUploaded(episode)
+
+    const bill = await preview(['EP0001'], ['images'])
+    assert.equal(bill.files[0]?.already_jpeg, true)
+    assert.equal(bill.estimate.compress_files, 0)
+    const operation = await run(bill.preview_id, 'compress')
+    assert.equal(operation.result?.compressed_count, 0)
+    assert.match(operation.result?.items[0]?.reason || '', /already a JPEG/i)
+    assert.deepEqual(await fs.readFile(scene), delivered)
+    assert.equal(existsSync(trashDir()), false, 'nothing is moved when the image is already small')
   })
 
   test('an image that would not shrink below 80% is left as it was', async () => {

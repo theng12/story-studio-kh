@@ -221,6 +221,11 @@ export interface ReconcileOptions {
    * a control request.
    */
   readOnly?: boolean
+  /**
+   * Who holds the claim on a `submitting` record: this pass (`own`), another live caller in this
+   * process (`other`), or nobody alive (`stale`, the default - boot recovery).
+   */
+  claimOf?: (record: JobRemoteCancellation) => 'own' | 'other' | 'stale'
 }
 
 /**
@@ -248,10 +253,22 @@ export async function reconcilePendingJobCancellation(
       let provider = await getGenStudioCancellationStatus(
         record.operation, baseUrl, apiKey, record.provider_job_id, {}, deadline,
       )
-      // `submitting` is a crash-recovery ownership marker. A fresh GET proves
-      // the provider is still pre-dispatch before we repeat the idempotent
-      // control request. `unknown` deliberately never retries blindly.
-      if (!options.readOnly && record.status === 'submitting' && provider.dispatch_state === 'pre_dispatch' && provider.cancellable === true && !isSettledGenStudioJob(provider)) {
+      // `submitting` is an ownership marker, and who owns it decides what a fresh read may do:
+      //  - `own`: this very pass claimed the queued record a moment ago, so the POST is ours to
+      //    send, whatever the dispatch state. Audit 2026-10-02: the reconciler used to send only
+      //    for `pre_dispatch`, and it claims a freshly queued record before the executor's wait
+      //    loop does, so for a RUNNING narration or music job (`dispatched`, `cancellable: true`)
+      //    nobody ever sent it: the Hub finished the work, the record went `rejected` and the
+      //    Story job ended `error` instead of `cancelled`. `cancellable` is the Gateway's own
+      //    promise that a cancel is honoured now (before dispatch, while queued for a Mac, and
+      //    while a narration/music job runs), so it is the condition that matters.
+      //  - `other`: a live caller in this process holds the claim and is about to send it.
+      //  - anything else is a record a dead process left behind. We do not know whether its POST
+      //    went out, so only a task that is still explicitly `pre_dispatch` is repeated.
+      //  `unknown` deliberately never retries blindly.
+      const claim = options.claimOf?.(record) ?? 'stale'
+      const mayPost = claim === 'own' || (claim === 'stale' && provider.dispatch_state === 'pre_dispatch')
+      if (!options.readOnly && record.status === 'submitting' && mayPost && provider.cancellable === true && !isSettledGenStudioJob(provider)) {
         provider = await requestGenStudioCancellation(
           record.operation, baseUrl, apiKey, record.provider_job_id, {}, deadline,
         )

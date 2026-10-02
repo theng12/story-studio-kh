@@ -73,8 +73,8 @@ export interface GenStudioVideoModelInfo extends PriceTruth {
    *
    * A separate field from `generates_audio` on purpose: that one says the
    * product makes a soundtrack, which says nothing about whether a caller may
-   * ask for a clip WITHOUT one. Measured 2026-09-27 — Studio Hub's LTX lane
-   * publishes `audio` (default `true`, note and all) and no cloud video lane
+   * ask for a clip WITHOUT one. Measured 2026-09-27 — a local Studio Hub video
+   * lane published `audio` (default `true`, note and all) and no cloud video lane
    * publishes any switch — so the control is rendered from this list and never
    * from a name Story Studio knows on its own. Absent means none published,
    * which is not the same statement as a published empty list.

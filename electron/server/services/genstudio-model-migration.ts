@@ -1,5 +1,7 @@
 /** GenStudio catalog identifiers are the only executable model identifiers. */
 
+import { isRetiredVideoModelId } from '../contracts/retired-video-models.js'
+
 export type GenStudioModality = 'chat' | 'image' | 'voice' | 'transcription' | 'video'
 
 const CHAT_PREFIX = 'genstudio-chat:'
@@ -19,9 +21,26 @@ export function stripGenStudioModelPrefix(modality: GenStudioModality, modelId: 
  */
 export function resolveGenStudioModelId(modality: GenStudioModality, modelId: string): string | null {
   const value = stripGenStudioModelPrefix(modality, modelId)
+  if (modality === 'video' && isRetiredVideoModelId(value)) return null
   return value && value.length <= 128 ? value : null
 }
 
 export function unavailableLegacyModelMessage(modality: GenStudioModality, modelId: string): string {
   return `Saved ${modality} product \"${modelId}\" is retired or unavailable and was not submitted. Open this generator, choose a current product from the GenStudio catalog, then save the preset again. No generation request or credit charge was made.`
+}
+
+/**
+ * The sentence for a saved transcription model the live catalogue no longer lists.
+ *
+ * Whisper base and small were shelved: the fleet offers only Whisper turbo. A preset that still
+ * names one fails — by decision the owner re-saves it himself, and nothing is swapped silently —
+ * but the failure has to say what to do rather than "no longer available".
+ */
+export function unavailableTranscriptionModelMessage(modelId: string): string {
+  if (/whisper[-_ ]?(base|small)/i.test(modelId)) {
+    return 'Whisper base/small are no longer offered — choose Whisper turbo in this preset. '
+      + 'No request or credit charge was made.'
+  }
+  return 'The selected transcription model is no longer available. Choose a current model in this preset. '
+    + 'No request or credit charge was made.'
 }

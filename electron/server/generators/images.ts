@@ -5,8 +5,11 @@
 
 import { existsSync } from 'fs'
 import path from 'path'
+import { findDirsLevelOrder } from '../lib/dir-search.js'
+import { episodeDirNameMatchesCode } from '../services/asset-status.js'
 import { parseImagePromptsDocx, type ParsedPrompts } from '../lib/docx-parser.js'
 import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
+import { resolveOutputFormat } from '../services/generation-compression.js'
 import { isDecodableImage } from '../lib/image-validation.js'
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { registry } from '../providers/registry.js'
@@ -175,6 +178,33 @@ async function findFileRecursive(
   return ref.rank === Infinity ? null : ref.path
 }
 
+/**
+ * The best-ranked prompts file for one episode.
+ *
+ * Looks inside the episode's own folder(s) only. This used to walk the ENTIRE
+ * project on every call — every episode's scene-image folder included — and the
+ * status, audit and review routes make that call per episode, so a 160-episode
+ * project cost ~0.6 M `readdir` calls per audit (measured). A project with no
+ * folder for the episode keeps the old whole-tree search.
+ */
+async function findPromptsFile(
+  outputRoot: string,
+  code: string,
+  candidates: string[],
+  options: { strictIo?: boolean } = {},
+): Promise<string | null> {
+  const rethrow = options.strictIo ? (error: unknown) => (error as NodeJS.ErrnoException)?.code !== 'ENOENT' : undefined
+  const dirs = await findDirsLevelOrder(outputRoot, 4, name => episodeDirNameMatchesCode(name, code), rethrow)
+  if (!dirs.length) return findFileRecursive(outputRoot, candidates, options)
+  let best: { path: string; rank: number } | null = null
+  for (const dir of dirs) {
+    const found = await findFileRecursive(dir, candidates, options)
+    const rank = found ? candidates.indexOf(path.basename(found)) : -1
+    if (found && (!best || rank < best.rank)) best = { path: found, rank }
+  }
+  return best?.path ?? null
+}
+
 export class ImagePromptsMissingError extends Error {
   readonly code = 'IMAGE_PROMPTS_MISSING' as const
 
@@ -201,7 +231,7 @@ export async function findScenePromptsFile(
     `${code}_Image_Prompts.md`,
     `${code}_Image_Prompts.docx`,
   ]
-  const found = await findFileRecursive(outputRoot, candidates, options)
+  const found = await findPromptsFile(outputRoot, code, candidates, options)
   if (found) return found
   throw new ImagePromptsMissingError('scene', code)
 }
@@ -222,7 +252,7 @@ export async function findThumbPromptsFile(
     `${code}_Image_Prompts.md`,
     `${code}_Image_Prompts.docx`,
   ]
-  const found = await findFileRecursive(outputRoot, candidates, options)
+  const found = await findPromptsFile(outputRoot, code, candidates, options)
   if (found) return found
   throw new ImagePromptsMissingError('thumbnail', code)
 }
@@ -354,6 +384,10 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
   }
   const imageProvider = registry.getImageProvider('genstudio-image')
   if (!imageProvider) throw new Error('GenStudio KH image provider is unavailable.')
+  // The owner's "smaller files" choice per asset type (Settings, per-project override). Undefined =
+  // field omitted = today's PNG. Resolved once per run; the sharp fallback below covers old nodes.
+  const sceneOutputFormat = await resolveOutputFormat(project_slug, 'scene_images')
+  const thumbOutputFormat = await resolveOutputFormat(project_slug, 'thumbnails')
   // The keyed account burst is advisory local staging only. Exact image
   // admission permits remain mandatory at the provider boundary.
   const admission = await refreshGenStudioAdmission(apiKey)
@@ -1000,7 +1034,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
           if (current.recovery.kind === 'recovered') {
             const recovered = current.recovery
             for (let i = 0; i < recovered.urls.length; i++) {
-              await saveGenStudioImage(recovered.urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb())
+              await saveGenStudioImage(recovered.urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb(), { compress: !!sceneOutputFormat })
             }
             await recordImageState(bgDir, filename, current, 'succeeded', recovered.taskId, '')
             completedCount++
@@ -1018,6 +1052,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             ...(outputOption ? { resolution: outputOption.resolution } : { width: renderWidth, height: renderHeight }),
             seed: req.seed,
             ...(sceneReferences.length ? { referenceImagePaths: sceneReferences } : {}),
+            ...(sceneOutputFormat ? { outputFormat: sceneOutputFormat } : {}),
             idempotencyIdentity: `${project_slug}:${episode_id}:scene:${scene.number}:image:${current.scope}`,
             onQueueState: state => publishImageQueueState(key, label, state),
             isCancelled: () => jq.isCancelled(job.job_id),
@@ -1041,7 +1076,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             )))
           }
           for (let i = 0; i < urls.length; i++) {
-            await saveGenStudioImage(urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb())
+            await saveGenStudioImage(urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb(), { compress: !!sceneOutputFormat })
           }
           completedCount++
           job.output_lines.push(`Scene ${scene.number}/${totalToProcess}: ${scene.title} — saved ${urls.length} variant(s)`)
@@ -1050,7 +1085,11 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
           if (isGenStudioInsufficientCredits(e)) throw e
           // Remember a settled provider failure so the next Retry mints a fresh
           // identity instead of replaying this dead job forever.
-          if (e instanceof GenStudioImageTerminalFailureError && attempt) {
+          //
+          // **Not for a job the gateway still holds as an unknown outcome**: it may yet be adopted
+          // as `succeeded`, and marking it dead here would mint a fresh identity on the next Retry
+          // and render the scene twice.
+          if (e instanceof GenStudioImageTerminalFailureError && attempt && !e.unknownOutcome) {
             await recordImageState(bgDir, filename, attempt, 'failed', e.jobId || acceptedTaskId, acceptedKey)
           }
           // The failures worth asking again about: a route that declined the
@@ -1346,7 +1385,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
           if (current.recovery.kind === 'recovered') {
             const recovered = current.recovery
             for (let i = 0; i < recovered.urls.length; i++) {
-              await saveGenStudioImage(recovered.urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb())
+              await saveGenStudioImage(recovered.urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb(), { compress: !!thumbOutputFormat })
             }
             if (current.paidRecovery) {
               await jq.checkpointPaidImageReplacementAttempt(job, filename, {
@@ -1383,6 +1422,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             requestIdentity: current.paidReplacement
               ? current.scope
               : `${project_slug}:${episode_id}:thumbnail:${thumb.number}:image:${current.scope}`,
+            ...(thumbOutputFormat ? { outputFormat: thumbOutputFormat } : {}),
           })
           if (!current.paidReplacement) {
             await recordImageState(thumbDir, filename, current, 'prepared', '', preparedKey, true)
@@ -1397,6 +1437,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             ...(requestSelector ? { resolution: requestSelector.resolution } : { width: renderWidth, height: renderHeight }),
             seed: req.seed,
             ...(requestReferences.length ? { referenceImagePaths: requestReferences } : {}),
+            ...(thumbOutputFormat ? { outputFormat: thumbOutputFormat } : {}),
             idempotencyIdentity: current.paidReplacement
               ? current.scope
               : `${project_slug}:${episode_id}:thumbnail:${thumb.number}:image:${current.scope}`,
@@ -1437,7 +1478,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             )))
           }
           for (let i = 0; i < urls.length; i++) {
-            await saveGenStudioImage(urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb())
+            await saveGenStudioImage(urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb(), { compress: !!thumbOutputFormat })
           }
           if (current.paidReplacement) {
             const actualSettledCredits = authoritativePaidImageSettledCredits(result.settledCredits)

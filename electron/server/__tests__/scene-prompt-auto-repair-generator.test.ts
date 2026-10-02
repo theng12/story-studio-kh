@@ -853,7 +853,8 @@ test('an accepted chat timeout keeps its exact evidence and starts no next paid 
   await barrier.started
   const realNow = Date.now
   let advanced = realNow()
-  Date.now = () => (advanced += 5 * 60 * 60_000)
+  // The client's own limit is a week (the gateway decides when a job is over); jump past it.
+  Date.now = () => (advanced += 8 * 24 * 60 * 60_000)
   try {
     barrier.release()
     const settled = await waitForStatus(queued.job_id, ['error', 'cancelled', 'done'])

@@ -17,6 +17,7 @@ import { isFinalVideoFilename } from '../lib/final-video-name.js'
 import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
+import { findDirLevelOrder, findDirsLevelOrder } from '../lib/dir-search.js'
 import { parseImagePromptsDocx } from '../lib/docx-parser.js'
 import {
   resolveEpisodePaths,
@@ -391,23 +392,12 @@ async function findEpisodeDir(
     }
   }
 
-  async function search(dir: string, depth: number): Promise<string | null> {
-    if (depth > 4) return null
-    try {
-      const entries = await fs.readdir(dir, { withFileTypes: true })
-      for (const e of entries) {
-        if (!e.isDirectory()) continue
-        if (episodeDirNameMatchesCode(e.name, CODE)) return path.join(dir, e.name)
-      }
-      for (const e of entries) {
-        if (!e.isDirectory()) continue
-        const found = await search(path.join(dir, e.name), depth + 1)
-        if (found) return found
-      }
-    } catch { /* skip */ }
+  return findDirLevelOrder(projectDir, 4, (entries, dir) => {
+    for (const e of entries) {
+      if (e.isDirectory() && episodeDirNameMatchesCode(e.name, CODE)) return path.join(dir, e.name)
+    }
     return null
-  }
-  return search(projectDir, 0)
+  })
 }
 
 // ── Images ─────────────────────────────────────────────────────────────────
@@ -561,7 +551,15 @@ export async function getVideoStatus(slug: string, episodeId: string): Promise<V
       }
       return null
     }
-    return recurse(root)
+    // Search the episode's own folder, not the whole library: this used to walk
+    // every directory under the root (scene-image folders included) until it hit
+    // the first match, so each episode's audit cost grew with the episodes before it.
+    const ownDirs = await findDirsLevelOrder(root, 4, name => episodeDirNameMatchesCode(name, code))
+    for (const ownDir of ownDirs) {
+      const found = await recurse(ownDir)
+      if (found) return found
+    }
+    return ownDirs.length ? null : recurse(root)
   }
 
   const promptsPath = await findFirstPrompts()

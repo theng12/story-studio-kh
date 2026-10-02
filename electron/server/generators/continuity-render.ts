@@ -13,6 +13,7 @@ import path from 'path'
 import { FITTED_REFERENCE_DIRNAME, fitReferenceImage } from '../lib/reference-image-fit.js'
 import { registry } from '../providers/registry.js'
 import { stageGenStudioImage } from '../lib/genstudio-artifacts.js'
+import { resolveOutputFormat } from '../services/generation-compression.js'
 import { isDecodableImage } from '../lib/image-validation.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import * as pm from '../services/project-manager.js'
@@ -356,6 +357,8 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
   }
   const imageProvider = registry.getImageProvider('genstudio-image')
   if (!imageProvider) throw new Error('GenStudio KH image provider is unavailable.')
+  // "Smaller files" for scene images (Settings, per-project override); undefined = native PNG.
+  const sceneOutputFormat = await resolveOutputFormat(job.project_slug, 'scene_images')
 
   // v1.4.11 — the stored `cfg.negative_prompt` is no longer copied in here.
   // *"we are never using negative prompts at all. so don't include it
@@ -1159,14 +1162,22 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               const requestIdentity = replacementScope
                 ? replacementScope
                 : `${job.project_slug}:${episode_id}:scene:${scene.id}:image:${requestScope}`
-              const calculatedPreparedKey = buildGenStudioImageIdempotencyKey({
+              const keyFor = (outputFormat: 'jpeg' | undefined) => buildGenStudioImageIdempotencyKey({
                 prompt: finalPrompt,
                 modelId: modelConfig.api_model || model,
                 aspectRatio: requestSelector?.aspect_ratio || aspectRatio,
                 ...(requestSelector ? { resolution: requestSelector.resolution } : { width: renderWidth, height: renderHeight }),
                 seed: params.seed,
                 requestIdentity,
+                ...(outputFormat ? { outputFormat } : {}),
               })
+              // A prepared request replays in the format it was prepared with: the owner may have
+              // flipped "smaller files" since, and that must not strand a request that is ready to go.
+              const replayFormats = preparedReplay
+                ? [sceneOutputFormat, undefined, 'jpeg' as const].filter(f => keyFor(f) === manifestEntry!.idempotency_key)
+                : []
+              const requestOutputFormat = replayFormats.length ? replayFormats[0] : sceneOutputFormat
+              const calculatedPreparedKey = keyFor(requestOutputFormat)
               if (preparedReplay && calculatedPreparedKey !== manifestEntry!.idempotency_key) {
                 throw new Error('The saved prepared image request no longer matches this scene. No provider work was submitted.')
               }
@@ -1245,6 +1256,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                     ? { resolution: requestSelector.resolution }
                     : { width: renderWidth, height: renderHeight }),
                   seed: params.seed,
+                  ...(requestOutputFormat ? { outputFormat: requestOutputFormat } : {}),
                   idempotencyIdentity: requestIdentity,
                   idempotencyKey: preparedKey,
                   ...(replacementScope && manifestEntry ? {
@@ -1325,7 +1337,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               }
               if (!result.urls.length) throw new Error('GenStudio KH returned no image')
               if (!currentOwner) throw new Error('Scene image request ownership was not recorded.')
-              const stagingPath = await stageGenStudioImage(result.urls[0]!, outPath)
+              const stagingPath = await stageGenStudioImage(result.urls[0]!, outPath, { compress: !!sceneOutputFormat })
               const promoted = await promoteCurrentImageTaskArtifactStrict(
                 outDir,
                 filename,

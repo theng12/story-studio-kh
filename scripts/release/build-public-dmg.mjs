@@ -40,6 +40,7 @@ if (treeErrors.length) {
 }
 
 run('npm', ['run', 'fetch:ffmpeg'])
+run('npm', ['run', 'build:scene-clip'])
 run('npm', ['run', 'build'])
 run('npm', ['run', 'check:release', '--', '--built', '--package-input'])
 

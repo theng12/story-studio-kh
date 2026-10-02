@@ -81,6 +81,9 @@ function startSSE(): void {
   try {
     sseSource = new EventSource(`/api/jobs/app/stream`)
     sseSource.addEventListener('snapshot', (e: MessageEvent) => {
+      // The stream is live again: the fallback poll started by an earlier error is no longer needed
+      // (it used to run every 4 s until the page unmounted).
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
       try {
         const data = JSON.parse(e.data) as AppJobsResponse
         announceTransitions(data.jobs)
@@ -161,4 +164,11 @@ export function useAppJobs() {
      *  broll_normalize / broll_autotag completes). */
     onJobDone,
   }
+}
+
+/** Test seams: the transport without a component lifecycle. */
+export const __appJobsTransportForTests = {
+  start: startSSE,
+  stop: stopAll,
+  pollActive: (): boolean => pollTimer !== null,
 }

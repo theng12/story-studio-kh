@@ -1111,6 +1111,7 @@
 <script setup lang="ts">
 import type { DeepReadonly } from 'vue'
 import type { Job } from '~/composables/useJobs'
+import { createVisibleInterval } from '~/composables/useVisibleInterval'
 import { publicProviderLabel } from '~/composables/useModelGroups'
 import { buildLatestBatchSummary, formatElapsed } from '~/composables/useBatchSummary'
 import {
@@ -1687,7 +1688,7 @@ function setRepairState(jobId: string, record: RepairRecord | null) {
   } catch { /* a full or disabled store costs us the persistence, never the run */ }
 }
 const now = ref(Date.now())
-let timer: ReturnType<typeof setInterval> | null = null
+const clock = createVisibleInterval(() => { now.value = Date.now() }, 1000)
 
 // Surface the durable Story-side queue hold and keep its status synchronized
 // across project and universal Jobs views.
@@ -1701,7 +1702,7 @@ const queueStateUnknown = computed(() => queuePaused.value === null)
 const globalQueueWork = ref<boolean | null>(null)
 const resumingQueue = ref(false)
 const changingQueueState = ref(false)
-let queueTimer: ReturnType<typeof setInterval> | null = null
+const queuePoll = createVisibleInterval(() => { void checkQueuePaused() }, 5000)
 let capacityTimer: ReturnType<typeof setInterval> | null = null
 const genStudioAdmission = ref<GenStudioAdmissionSnapshot | null>(null)
 const capacityReceivedAt = ref<number | null>(null)
@@ -1776,12 +1777,10 @@ async function pauseQueue(): Promise<void> {
 
 onMounted(() => {
   void genStudioModels.refresh()
-  timer = setInterval(() => now.value = Date.now(), 1000)
+  clock.start()
   void checkQueuePaused()
   refreshVisibleCapacity()
-  queueTimer = setInterval(() => {
-    void checkQueuePaused()
-  }, 5000)
+  queuePoll.start()
   // Capacity is advisory (the scheduler verifies admission at submission).
   // Keep it within the existing 30s display freshness window without asking
   // GenStudio on every local queue tick, or while this window is hidden.
@@ -1790,8 +1789,8 @@ onMounted(() => {
 })
 onUnmounted(() => {
   if (isUniversal.value) universalQueue.stop()
-  if (timer) clearInterval(timer)
-  if (queueTimer) clearInterval(queueTimer)
+  clock.stop()
+  queuePoll.stop()
   if (capacityTimer) clearInterval(capacityTimer)
   document.removeEventListener('visibilitychange', refreshVisibleCapacity)
 })

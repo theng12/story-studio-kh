@@ -453,8 +453,8 @@ describe('moving, without losing anything', () => {
   test('copy verification and source removal share the final pathname lock', () => {
     const src = readFileSync(fileURLToPath(new URL('../services/archive-sweep.ts', import.meta.url)), 'utf8')
     const lockAt = src.indexOf('withFinalVideoPathLock(candidate.source_path')
-    const copyAt = src.indexOf('await fs.copyFile(candidate.source_path, target,')
-    const verifyAt = src.indexOf('const [sourceHash, targetHash]')
+    const copyAt = src.indexOf('await fs.copyFile(candidate.source_path, partial,')
+    const verifyAt = src.indexOf('[sourceHash, targetHash] = await Promise.all(')
     const exclusiveCopyAt = src.indexOf('fsConstants.COPYFILE_EXCL')
     const removeAt = src.indexOf('await fs.rm(candidate.source_path, { force: true })')
     assert.ok(lockAt >= 0 && lockAt < copyAt && copyAt < exclusiveCopyAt && exclusiveCopyAt < verifyAt && verifyAt < removeAt)
@@ -477,6 +477,48 @@ describe('moving, without losing anything', () => {
       'an existing archived file must never be clobbered',
     )
     assert.ok(existsSync(source), 'and the source stays put')
+  })
+
+  test('a copy that died half-way is retried — it does not read as a name collision', async () => {
+    const src = path.join(tmp.dir, 'exports')
+    const dest = path.join(tmp.dir, 'archive')
+    await seedEpisode('TN0001', 'Uploaded One', true)
+    const source = await seedExport(src, 'TN0001', 4096)
+    const original = await fs.readFile(source)
+    // What an interrupted earlier run leaves: a truncated scratch copy.
+    await fs.mkdir(path.join(dest, SLUG), { recursive: true })
+    const stale = path.join(dest, SLUG, `TN0001_final_video.mp4${sweep.ARCHIVE_PARTIAL_SUFFIX}`)
+    await fs.writeFile(stale, original.subarray(0, 100))
+
+    const result = await sweep.runArchiveSweep({ destination: dest, sourceRoot: src })
+    assert.equal(result.moved.length, 1, JSON.stringify(result.skipped))
+    assert.deepEqual(await fs.readFile(result.moved[0]!.to), original)
+    assert.equal(existsSync(stale), false, 'no scratch file is left beside the archived video')
+    assert.equal(existsSync(source), false)
+  })
+
+  test('a full archive disk stops the run before copying, keeps every source and leaves no scratch file', async () => {
+    const src = path.join(tmp.dir, 'exports')
+    const dest = path.join(tmp.dir, 'archive')
+    await seedEpisode('TN0001', 'Uploaded One', true)
+    await seedEpisode('TN0002', 'Uploaded Two', true)
+    const first = await seedExport(src, 'TN0001', 4096)
+    const second = await seedExport(src, 'TN0002', 4096)
+    const target: any = fs
+    const realStatfs = target.statfs
+    target.statfs = async () => ({ bavail: 100, bsize: 1 }) // 100 bytes free
+    try {
+      const result = await sweep.runArchiveSweep({ destination: dest, sourceRoot: src })
+      assert.equal(result.moved.length, 0)
+      assert.equal(result.failed.length, 1, 'the second video is not even attempted')
+      assert.match(result.failed[0]!.error, /archive disk has .* free/)
+      assert.match(result.warnings.join(' '), /archive disk is full/)
+    } finally {
+      target.statfs = realStatfs
+    }
+    assert.ok(existsSync(first) && existsSync(second), 'both sources are untouched')
+    const left = existsSync(path.join(dest, SLUG)) ? await fs.readdir(path.join(dest, SLUG)) : []
+    assert.deepEqual(left, [], 'nothing is left in the archive folder')
   })
 
   test('a stop leaves every remaining file untouched', async () => {

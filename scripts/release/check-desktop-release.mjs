@@ -146,7 +146,13 @@ function checkPackageInputs() {
     const file = path.join(root, relative)
     if (!fs.existsSync(file)) fail(`${relative}: required offline FFmpeg input is missing`)
   }
-  for (const relative of ['bundled/ffmpeg/ffmpeg', 'bundled/ffmpeg/ffprobe']) {
+  // The native scene-clip helper (built by `npm run build:scene-clip`). The app falls back to FFmpeg without
+  // it, so this is about not shipping the slow path by accident.
+  for (const relative of ['bundled/scene-clip/scene-clip', 'bundled/scene-clip/MANIFEST.json']) {
+    const file = path.join(root, relative)
+    if (!fs.existsSync(file)) fail(`${relative}: native scene-clip helper is missing (run npm run build:scene-clip)`)
+  }
+  for (const relative of ['bundled/ffmpeg/ffmpeg', 'bundled/ffmpeg/ffprobe', 'bundled/scene-clip/scene-clip']) {
     const file = path.join(root, relative)
     if (fs.existsSync(file) && (fs.statSync(file).mode & 0o111) === 0) fail(`${relative}: binary is not executable`)
   }

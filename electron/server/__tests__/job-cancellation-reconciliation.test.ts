@@ -113,6 +113,73 @@ test('restart retries cancellation only for an explicitly pre-dispatch task', as
   }
 })
 
+test('a cancel this pass claimed itself is sent for a RUNNING (dispatched) task the Gateway still calls cancellable', async () => {
+  // Audit 2026-10-02: the reconciler used to send only for `pre_dispatch`, so cancelling a running
+  // narration or music job never reached the Gateway and the Story job ended `error`, not `cancelled`.
+  const original = globalThis.fetch
+  const requests: Array<{ method: string; path: string }> = []
+  let cancellable = true
+  globalThis.fetch = async (input, init) => {
+    const method = (init?.method || 'GET').toUpperCase()
+    requests.push({ method, path: new URL(String(input)).pathname })
+    if (method === 'POST') {
+      // The Gateway's own answer to the cancel: asked, not yet confirmed.
+      return Response.json({ id: 'provider-1', state: 'running', dispatch_state: 'dispatched', cancellable: false, cancellation_requested: true, cancelled: false })
+    }
+    return Response.json({ id: 'provider-1', state: 'running', dispatch_state: 'dispatched', cancellable, cancelled: false })
+  }
+  try {
+    const result = await reconcilePendingJobCancellation(job('submitting'), 'test-key', { claimOf: () => 'own' })
+    assert.equal(result.kind, 'pending', 'asked, but the Story job waits for the Gateway to confirm')
+    assert.deepEqual(requests, [
+      { method: 'GET', path: '/v1/jobs/provider-1' },
+      { method: 'POST', path: '/v1/jobs/provider-1/cancel' },
+    ])
+    assert.equal(result.records['voice.tts:provider-1']?.status, 'requested')
+
+    requests.length = 0
+    cancellable = false
+    const refused = await reconcilePendingJobCancellation(job('submitting'), 'test-key', { claimOf: () => 'own' })
+    assert.equal(refused.kind, 'pending')
+    assert.deepEqual(requests, [{ method: 'GET', path: '/v1/jobs/provider-1' }], 'the Gateway does not call it cancellable: no POST')
+    assert.equal(refused.records['voice.tts:provider-1']?.status, 'reconciling')
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('a claim another live caller holds is never sent twice, even for a pre-dispatch task', async () => {
+  const original = globalThis.fetch
+  const requests: string[] = []
+  globalThis.fetch = async (input, init) => {
+    requests.push(`${(init?.method || 'GET').toUpperCase()} ${new URL(String(input)).pathname}`)
+    return Response.json({ id: 'provider-1', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true, cancelled: false })
+  }
+  try {
+    await reconcilePendingJobCancellation(job('submitting'), 'test-key', { claimOf: () => 'other' })
+    assert.deepEqual(requests, ['GET /v1/jobs/provider-1'])
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('a Gateway that publishes state:"cancelled" settles the running cancel as cancelled', async () => {
+  const original = globalThis.fetch
+  globalThis.fetch = async (_input, init) => {
+    if ((init?.method || 'GET').toUpperCase() === 'POST') {
+      return Response.json({ id: 'provider-1', state: 'running', dispatch_state: 'dispatched', cancellable: false, cancellation_requested: true, cancelled: false })
+    }
+    return Response.json({ id: 'provider-1', state: 'cancelled', dispatch_state: 'dispatched', cancellable: false, cancelled: true })
+  }
+  try {
+    const result = await reconcilePendingJobCancellation(job('submitting'), 'test-key', { claimOf: () => 'own' })
+    assert.equal(result.kind, 'cancelled')
+    assert.equal(result.records['voice.tts:provider-1']?.status, 'confirmed')
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
 test('a 409 cancellation remains locked and continues read-only reconciliation', async () => {
   const original = globalThis.fetch
   const requests: Array<{ method: string; path: string }> = []

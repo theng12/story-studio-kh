@@ -25,11 +25,15 @@ import {
   GENSTUDIO_LONG_JOB_TIMEOUT_MS,
   GENSTUDIO_POLL_JITTER_FRACTION,
   GENSTUDIO_POLL_MAX_INTERVAL_MS,
+  GENSTUDIO_POLL_MIN_HINT_MS,
+  UNKNOWN_OUTCOME_GRACE_MS,
 } from '../lib/genstudio-client.js'
 
 function source(relative: string): string {
   return readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8')
 }
+
+const FOUR_HOURS_MS = 4 * 60 * 60_000
 
 /** No jitter: random() === 0.5 is the exact centre of the symmetric band. */
 const CENTRE = () => 0.5
@@ -42,7 +46,8 @@ function simulate(jobDurationMs: number, random: () => number = CENTRE): {
 } {
   let elapsed = 0
   let polls = 0
-  const deadline = GENSTUDIO_LONG_JOB_TIMEOUT_MS
+  // The cost model is per four hours of one stuck job; the client's own limit is now a week.
+  const deadline = FOUR_HOURS_MS
   while (elapsed < jobDurationMs && polls < 100_000) {
     elapsed += genStudioPollDelayMs({
       attempt: polls,
@@ -182,7 +187,7 @@ test('backoff can never overshoot the 4-hour deadline', () => {
 })
 
 test('a stuck job still gives up at the 4-hour ceiling, not later', () => {
-  const { observedAtMs } = simulate(GENSTUDIO_LONG_JOB_TIMEOUT_MS + 1)
+  const { observedAtMs } = simulate(FOUR_HOURS_MS + 1)
   assert.ok(
     observedAtMs <= GENSTUDIO_LONG_JOB_TIMEOUT_MS,
     `a widening interval pushed the deadline out to ${observedAtMs}ms`,
@@ -226,10 +231,10 @@ test('a 90-second job costs ~15 requests instead of 90', () => {
 })
 
 test('a stuck job costs under 1,000 requests instead of 14,400', () => {
-  const { polls } = simulate(GENSTUDIO_LONG_JOB_TIMEOUT_MS + 1)
+  const { polls } = simulate(FOUR_HOURS_MS + 1)
   assert.ok(polls < 1_000, `a stuck job still costs ${polls} polls`)
   // The flat 1s interval this replaced.
-  assert.equal(GENSTUDIO_LONG_JOB_TIMEOUT_MS / 1_000, 14_400)
+  assert.equal(FOUR_HOURS_MS / 1_000, 14_400)
 })
 
 test('real randomness keeps the stuck-job cost under 1,000 too', () => {
@@ -237,7 +242,7 @@ test('real randomness keeps the stuck-job cost under 1,000 too', () => {
   // spread does not push a real run over the target.
   let worst = 0
   for (let run = 0; run < 25; run++) {
-    worst = Math.max(worst, simulate(GENSTUDIO_LONG_JOB_TIMEOUT_MS + 1, Math.random).polls)
+    worst = Math.max(worst, simulate(FOUR_HOURS_MS + 1, Math.random).polls)
   }
   assert.ok(worst < 1_000, `worst simulated stuck-job cost was ${worst} polls`)
 })
@@ -276,4 +281,37 @@ test('every wait loop shares the one poller and the flat interval is gone', () =
   )
   assert.doesNotMatch(client, /setTimeout\(resolve, POLL_INTERVAL_MS\)/, 'a flat 1s poll survives')
   assert.doesNotMatch(client, /^const POLL_INTERVAL_MS/m, 'the flat interval constant survives')
+})
+
+// ── A hint is a floor on top of the ladder ─────────────────────────────────
+
+test('a hint of 0 (or a retry_at already past) is read as the 1 s floor, never a hot loop', () => {
+  for (const hintMs of [0, 1, 999]) {
+    const delay = genStudioPollDelayMs({ attempt: 0, remainingMs: GENSTUDIO_LONG_JOB_TIMEOUT_MS, hintMs, random: () => 0 })
+    assert.ok(delay >= GENSTUDIO_POLL_MIN_HINT_MS, `hint ${hintMs} gave ${delay} ms`)
+  }
+})
+
+test('a short server hint cannot hold a long job at that cadence: the ladder still backs off', () => {
+  // Attempt 12 is 15 s on the ladder. A 5 s hint (the Gateway's video hint) used to REPLACE it.
+  const delay = genStudioPollDelayMs({ attempt: 12, remainingMs: GENSTUDIO_LONG_JOB_TIMEOUT_MS, hintMs: 5_000, random: CENTRE })
+  assert.equal(delay, GENSTUDIO_POLL_MAX_INTERVAL_MS)
+})
+
+test('a hint longer than the ladder still wins, and a hint above the ladder step lifts an early poll', () => {
+  assert.ok(genStudioPollDelayMs({ attempt: 12, remainingMs: GENSTUDIO_LONG_JOB_TIMEOUT_MS, hintMs: 60_000, random: CENTRE }) >= 60_000)
+  assert.ok(genStudioPollDelayMs({ attempt: 0, remainingMs: GENSTUDIO_LONG_JOB_TIMEOUT_MS, hintMs: 5_000, random: () => 0 }) >= 5_000)
+})
+
+test('a second unknown-outcome hold gets its own grace window, not the first one\'s clock', () => {
+  let clock = 1_000_000
+  const poller = createGenStudioJobPoller(() => 0.5, () => clock)
+  const held = { state: 'failed', recovery_required: true, recovery_state: 'unknown_outcome' }
+  assert.equal(poller.settled(held), false, 'first hold starts its grace window')
+  clock += 60_000
+  assert.equal(poller.settled({ state: 'running' }), false, 'the job went back to work')
+  clock += UNKNOWN_OUTCOME_GRACE_MS + 60_000
+  assert.equal(poller.settled(held), false, 'a new hold must wait out its own grace, not inherit the old clock')
+  clock += UNKNOWN_OUTCOME_GRACE_MS
+  assert.equal(poller.settled(held), true)
 })

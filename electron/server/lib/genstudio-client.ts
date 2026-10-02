@@ -9,10 +9,12 @@ import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import { createHash, randomUUID } from 'crypto'
+import { carriesCapacityFacts, humanGatewayText } from './gateway-failure-text.js'
 import { getAppSetting, getGenStudioUrl, getLanguageTimeoutMs, setAppSetting, getPaidAudioReplacementSetting, getPaidWritingReplacementSetting, withPaidAudioConfirmation, withPaidWritingConfirmation } from '../services/app-settings.js'
 import { balancedReplacementSettlement, generationReplacementKey, replacementAllowance, type ReplacementKind } from '../services/generation-paid-replacement.js'
 import type { GenerationReplacementAttempt, Job } from '../models/types.js'
 import { runFfmpeg } from './ffmpeg-utils.js'
+import { probeAudioSignature } from './audio-concat.js'
 import {
   GenStudioAdmissionPool,
   type GenStudioAdmissionState,
@@ -55,6 +57,7 @@ import {
 } from './genstudio-request-preview.js'
 import type { JobRemoteOperation, ResearchEvidenceLevel } from '../models/types.js'
 import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
+import { isRetiredVideoModel } from '../contracts/retired-video-models.js'
 
 /**
  * Job-poll cadence — ONE schedule shared by all five wait loops.
@@ -91,18 +94,43 @@ import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js
 const POLL_LADDER_MS = [1_000, 1_000, 1_000, 2_000, 2_000, 2_000, 5_000, 5_000, 10_000, 10_000]
 export const GENSTUDIO_POLL_MAX_INTERVAL_MS = 15_000
 export const GENSTUDIO_POLL_JITTER_FRACTION = 0.2
+/** A server poll hint below this is read as this: 0 must never mean "ask again immediately". */
+export const GENSTUDIO_POLL_MIN_HINT_MS = 1_000
 /** How often an in-progress wait re-checks cancellation. Keeps a 15-second
  *  sleep from making the Cancel button feel dead. */
 const POLL_CANCEL_CHECK_MS = 250
 
 const NETWORK_RETRY_ATTEMPTS = 4
+/**
+ * Attempts for a READ of an accepted job (every wait-loop poll and every reconnect read).
+ *
+ * Four attempts spanned ~3.5 s of backoff. The Gateway is restarted on this Mac to install new
+ * builds, and a restart takes longer than that, so an image/voice/video job already accepted and
+ * running fell out of its poll, got one automatic reconnect that hit the same gap, and surfaced as a
+ * failed item although the Gateway finished it a few seconds later. A job read is idempotent and
+ * the 4-hour deadline still bounds it; twelve attempts ride out ~35 s of backoff (0.5, 1, 2, then 4 s
+ * steps) and a Cancel still lands within a quarter second.
+ */
+export const GENSTUDIO_JOB_READ_ATTEMPTS = 12
 const CATALOG_RETRY_ATTEMPTS = 3
 const CATALOG_REQUEST_TIMEOUT_MS = 8_000
 const CATALOG_FRESH_MS = 5 * 60_000
 const CATALOG_STALE_MS = 30 * 60_000
 /** How long a last-known account overview stays showable, clearly marked stale. */
 const ACCOUNT_OVERVIEW_STALE_MS = 30 * 60_000
-export const GENSTUDIO_LONG_JOB_TIMEOUT_MS = 4 * 60 * 60_000
+/**
+ * How long Story Studio keeps following ONE accepted gateway job.
+ *
+ * **The Gateway decides when a job is over; Story follows it.** This used to be four hours (and a
+ * deliberate reconnect after it, so about eight), which made Story give up on its own clock while
+ * the gateway — which owns the queue wait, the per-lane run budget, the machine retries and the
+ * cancel to the Hub — still held the job alive: an orphaned render nobody would collect. Story now
+ * waits for as long as the gateway reports the job alive (the job card shows its state: queued,
+ * waiting for a Mac, running), and the gateway ends every job itself with a typed failure and a real
+ * cancel. A week is only the safety valve for a gateway that went silent for good — every poll
+ * already fails fast when it is unreachable.
+ */
+export const GENSTUDIO_LONG_JOB_TIMEOUT_MS = 7 * 24 * 60 * 60_000
 export const GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS = 30_000
 export const GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS = 5 * 60_000
 /**
@@ -381,7 +409,12 @@ function parseGenStudioCancellationResponse(value: unknown): GenStudioJob & GenS
 const INFRASTRUCTURE_SHAPE = /\b(machines?|workers?|sites?|fleet|nodes?|placement window)\b/i
 
 export function customerSafeRemoteDetail(raw: string): string {
-  if (!INFRASTRUCTURE_SHAPE.test(raw)) return raw
+  // Known Gateway/Hub shapes become sentences first (`gateway-failure-text.ts`).
+  const human = humanGatewayText(raw)
+  // A memory or disk figure is the one thing the owner needs when no Mac can take the job ("needs
+  // ~16 GB, this one has 8 GB"); it is kept, with "machine" spelled "Mac", never blanked.
+  if (carriesCapacityFacts(raw) || carriesCapacityFacts(human)) return human.replace(/\bmachines\b/gi, 'Macs').replace(/\bmachine\b/gi, 'Mac')
+  if (!INFRASTRUCTURE_SHAPE.test(human)) return human
   console.log(`[genstudio] remote detail withheld from the customer view: ${raw}`)
   return 'Queued — waiting for capacity. Nothing failed and nothing was charged.'
 }
@@ -478,7 +511,7 @@ function settledFailureCode(job: GenStudioSettledJobShape): string | null {
 /** Absent, null, and blank all mean the same thing: nothing to show. */
 function settledFailureReason(job: GenStudioSettledJobShape): string | null {
   return typeof job.failure_reason === 'string' && job.failure_reason.trim()
-    ? job.failure_reason.trim()
+    ? humanGatewayText(job.failure_reason)
     : null
 }
 
@@ -951,6 +984,11 @@ export interface GenStudioTtsRequest extends GenStudioOperationContext {
    * in which case nothing is sent and the idempotency digest is unchanged.
    */
   controls?: TtsControlValues
+  /**
+   * `m4a` asks the lane to hand the narration back as AAC (transport only — Story still writes
+   * its MP3 chapter from whatever arrives). Absent = native WAV, today's behaviour.
+   */
+  outputFormat?: 'm4a'
   /** Stable Story asset identity, such as project + episode + output file. */
   requestIdentity?: string
   /** Reuse a key already checkpointed beside the Story asset. */
@@ -1361,6 +1399,8 @@ export interface GenStudioImageRequest extends GenStudioOperationContext {
   seed?: number
   /** One private GenStudio source asset for supported image-to-image models. */
   referenceAssetIds?: string[]
+  /** `jpeg` asks the lane for a JPEG instead of a PNG. Absent = native (today's behaviour). */
+  outputFormat?: 'jpeg'
   /** Stable for this Story Studio submission, distinct for a deliberate rerender. */
   requestIdentity?: string
   /** Reuse a key checkpointed before the charged image POST. */
@@ -1472,6 +1512,8 @@ export interface GenStudioSubmission {
     speed: number
     /** Present ONLY when the selected model published controls to send. */
     controls?: TtsControlValues
+    /** Present ONLY when the owner asked for compressed narration (`m4a`). */
+    output_format?: 'm4a'
   }
   idempotencyKey: string
 }
@@ -1589,6 +1631,10 @@ export interface GenStudioMusicModel extends GenStudioCatalogLock, GenStudioPric
   min_lyrics_characters: number | null
   max_title_characters: number
   outputs_per_request: number | null
+  /** The model's own track-length bounds and default, when the lane publishes them. Absent is unknown. */
+  min_duration_seconds?: number
+  max_duration_seconds?: number
+  default_duration_seconds?: number
 }
 
 /**
@@ -2022,8 +2068,8 @@ export interface GenStudioVideoModel extends GenStudioCatalogLock, GenStudioPric
    * A switch is a choice, not a capability, and the distinction is the reason
    * this is a separate field from `generates_audio`. `generates_audio: true`
    * says the product makes a soundtrack; it says nothing about whether the
-   * caller may ask for a clip WITHOUT one. Measured on 2026-09-27: Studio Hub's
-   * LTX lane publishes `audio` (default `true`, note and all) and no cloud video
+   * caller may ask for a clip WITHOUT one. Measured on 2026-09-27: a local Studio Hub
+   * video lane published `audio` (default `true`, note and all) and no cloud video
    * lane publishes any switch, so the control must be rendered from this list
    * and never from a name Story Studio knows.
    *
@@ -2867,9 +2913,18 @@ export function normalizeGenStudioProviderQueue(job: Pick<GenStudioJob, 'queue_p
   }
 }
 
-function providerQueueFingerprint(job: GenStudioJob): string {
+/** How coarsely the countdown in `queue_eta_seconds` counts as "changed" for the poll loops. */
+export const QUEUE_ETA_BUCKET_SECONDS = 30
+
+export function providerQueueFingerprint(job: GenStudioJob): string {
   const queue = normalizeGenStudioProviderQueue(job)
-  return `${queue.queue_reason || ''}:${queue.queue_position ?? ''}:${queue.queue_eta_seconds ?? ''}`
+  // **The ETA is a countdown, so its raw value changes on every poll.** Each change re-persisted the
+  // whole Story job (`recordGenStudioJob` → `persistJob`: measured ≈38 ms with 60 evidence entries,
+  // serialised on the project's jobs.json lock) — a deferred job polled every 1.5 s cost ~25 writes a
+  // minute for a number that only needs to be right to within half a minute. Bucketed, it is
+  // re-recorded when the position or reason changes, or the countdown crosses a bucket.
+  const eta = queue.queue_eta_seconds === null ? '' : Math.floor(queue.queue_eta_seconds / QUEUE_ETA_BUCKET_SECONDS)
+  return `${queue.queue_reason || ''}:${queue.queue_position ?? ''}:${eta}`
 }
 
 async function reportQueueState(
@@ -3345,6 +3400,9 @@ export function buildGenStudioSubmission(request: GenStudioTtsRequest): GenStudi
     text: request.text,
     speed,
     ...(controls ? { controls } : {}),
+    // Same conditional-spread rule as `controls`: absent for the native WAV so every existing
+    // key (and in-flight recovery) is unchanged, present so the two formats never share a replay.
+    ...(request.outputFormat ? { output_format: request.outputFormat } : {}),
   }
   const digest = createHash('sha256').update(JSON.stringify({
     ...body,
@@ -3414,6 +3472,20 @@ const SUBMISSION_UNCERTAIN_CODES: ReadonlySet<string> = new Set([
 ])
 export function isSubmissionUncertainCode(code: unknown): boolean {
   return typeof code === 'string' && SUBMISSION_UNCERTAIN_CODES.has(code.trim().toUpperCase())
+}
+
+/**
+ * Does recorded evidence say the gateway still holds this job as an unknown outcome?
+ *
+ * The code alone is not enough (see `isGenStudioSubmissionUncertain`): the evidence entry also
+ * carries the envelope's `recovery_required` / `recovery_state`. A retry that reads such an entry
+ * as a settled failure mints a fresh identity and submits a second job while the first may still
+ * be adopted by the gateway.
+ */
+export function evidenceHoldsUnknownOutcome(
+  entry: { failure_code?: unknown; recovery_required?: unknown; recovery_state?: unknown } | null | undefined,
+): boolean {
+  return !!entry && (isSubmissionUncertainCode(entry.failure_code) || holdsUnknownOutcome(entry))
 }
 
 /** A temporary provider quota stop, in either dialect (`PROVIDER_QUOTA_EXHAUSTED` is the gateway's). */
@@ -3592,7 +3664,11 @@ export function describeGenStudioLanguageFailure(code: string | null | undefined
  */
 export function isGenStudioSubmissionUncertain(error: unknown): boolean {
   if (error instanceof GenStudioTerminalFailureError) {
-    return isSubmissionUncertainCode(error.failureCode)
+    // A gateway hold (`recovery_required` / `unknown_outcome`) says the same thing whatever
+    // `failure_code` it carries: the gateway publishes `UNKNOWN_OUTCOME` for a restart or a Hub
+    // `uncertain` item and `SITE_CAPACITY_UNAVAILABLE` for an ambiguous read timeout, and neither
+    // is in the code list. Keyed on the code alone, a held chat job read as "proven uncharged".
+    return isSubmissionUncertainCode(error.failureCode) || error.unknownOutcome === true
   }
   if (!(error instanceof GenStudioApiError)) return false
   return isSubmissionUncertainCode(error.languageFailureCode) || isSubmissionUncertainCode(error.code)
@@ -3764,9 +3840,15 @@ export class GenStudioApiError extends Error {
 }
 
 /** A control request timed out before its HTTP outcome was known. */
-class GenStudioTransportTimeoutError extends Error {
+export class GenStudioTransportTimeoutError extends Error {
+  /** A transport signature (`isTransportFailure` reads `code`): a timeout is a dropped answer, not a user abort. */
+  readonly code = 'ETIMEDOUT'
   constructor(timeout: DOMException) {
-    super(timeout.message)
+    // NOT `timeout.message`. Node words it "The operation was aborted due to timeout", and every
+    // cancel check in Story matches /abort/ — so a 30 s gateway stall read as the owner pressing
+    // Cancel, and the audio generator logged "Cancelled." and skipped the chunk without counting
+    // a failure or retrying (audit 2026-10-01).
+    super(`GenStudio KH did not answer within the request time limit (${timeout.name})`)
     this.name = 'GenStudioTransportTimeoutError'
   }
 }
@@ -3840,9 +3922,10 @@ export function readGenStudioPollHintMs(payload: unknown, now = Date.now()): num
  * Pure and injectable so the schedule can be simulated in a test without any
  * real waiting. Three rules, in order:
  *
- *   1. A server hint WINS over the local ladder, and is jittered upward only.
- *   2. Otherwise walk the ladder, capped at GENSTUDIO_POLL_MAX_INTERVAL_MS,
- *      with symmetric ±20% jitter.
+ *   1. Walk the ladder, capped at GENSTUDIO_POLL_MAX_INTERVAL_MS, with
+ *      symmetric ±20% jitter.
+ *   2. A server hint is a MINIMUM on top of that (floored at 1 s, jittered
+ *      upward only): the delay is whichever is longer.
  *   3. Whatever comes out is clamped to the time left before the deadline, so
  *      backoff can never overshoot the 4-hour ceiling. A widening interval
  *      must not be able to delay the timeout that protects the pipeline.
@@ -3857,17 +3940,18 @@ export function genStudioPollDelayMs(options: {
   const hint = typeof options.hintMs === 'number' && Number.isFinite(options.hintMs) && options.hintMs >= 0
     ? options.hintMs
     : null
-  let delay: number
+  const attempt = Math.max(0, Math.floor(options.attempt))
+  const base = attempt < POLL_LADDER_MS.length
+    ? POLL_LADDER_MS[attempt]!
+    : GENSTUDIO_POLL_MAX_INTERVAL_MS
+  const spread = 1 + GENSTUDIO_POLL_JITTER_FRACTION * (random() * 2 - 1)
+  let delay = Math.round(base * spread)
   if (hint != null) {
-    // Upward-only jitter: honouring the server means never asking sooner.
-    delay = Math.ceil(hint * (1 + GENSTUDIO_POLL_JITTER_FRACTION * random()))
-  } else {
-    const attempt = Math.max(0, Math.floor(options.attempt))
-    const base = attempt < POLL_LADDER_MS.length
-      ? POLL_LADDER_MS[attempt]!
-      : GENSTUDIO_POLL_MAX_INTERVAL_MS
-    const spread = 1 + GENSTUDIO_POLL_JITTER_FRACTION * (random() * 2 - 1)
-    delay = Math.round(base * spread)
+    // The server's hint is a MINIMUM on top of the ladder, never a replacement for it: a 5 s hint on a
+    // four-hour video job must not hold the poll at 5 s once the ladder has backed off to 15 s, and a
+    // hint of 0 (or a retry_at already in the past) must not become a hot loop. Jitter is upward only.
+    const floored = Math.max(hint, GENSTUDIO_POLL_MIN_HINT_MS)
+    delay = Math.max(delay, Math.ceil(floored * (1 + GENSTUDIO_POLL_JITTER_FRACTION * random())))
   }
   const remaining = Number.isFinite(options.remainingMs) ? options.remainingMs : 0
   return Math.max(0, Math.min(delay, Math.max(0, remaining)))
@@ -3893,7 +3977,11 @@ export function createGenStudioJobPoller(random: () => number = Math.random, now
   return {
     attempts: () => attempt,
     settled(job) {
-      if (!isSettledGenStudioJob(job)) return false
+      if (!isSettledGenStudioJob(job)) {
+        // The job went back to work (or never failed): a later hold starts its own grace window.
+        heldSince = null
+        return false
+      }
       if (job.state !== 'failed' || job.cancelled === true || !holdsUnknownOutcome(job)) return true
       heldSince ??= now()
       return now() - heldSince >= UNKNOWN_OUTCOME_GRACE_MS
@@ -4805,6 +4893,9 @@ export async function listMusicModelsSnapshot(
         min_lyrics_characters: publishedOrNull(value.min_lyrics_characters),
         max_title_characters: value.max_title_characters,
         outputs_per_request: publishedOrNull(value.outputs_per_request),
+        ...(Number.isFinite(value?.min_duration_seconds) && value.min_duration_seconds > 0 ? { min_duration_seconds: value.min_duration_seconds } : {}),
+        ...(Number.isFinite(value?.max_duration_seconds) && value.max_duration_seconds > 0 ? { max_duration_seconds: value.max_duration_seconds } : {}),
+        ...(Number.isFinite(value?.default_duration_seconds) && value.default_duration_seconds > 0 ? { default_duration_seconds: value.default_duration_seconds } : {}),
       }]
     })
   }, { ...options, baseUrl, apiKey })
@@ -5284,6 +5375,16 @@ export async function listVideoModelsSnapshot(
   apiKey: string,
   options: { displayFallback?: boolean } = {},
 ): Promise<GenStudioCatalogSnapshot<GenStudioVideoModel[]>> {
+  const snapshot = await loadVideoModelsSnapshot(apiKey, options)
+  // Retired models (the local LTX lane) are dropped here, after the cache, so a
+  // stale or last-good copy written before the retirement cannot bring one back.
+  return { ...snapshot, value: snapshot.value.filter(model => !isRetiredVideoModel(model)) }
+}
+
+async function loadVideoModelsSnapshot(
+  apiKey: string,
+  options: { displayFallback?: boolean } = {},
+): Promise<GenStudioCatalogSnapshot<GenStudioVideoModel[]>> {
   const baseUrl = await getGenStudioUrl()
   return cachedCatalogSnapshot('video', catalogCacheKey('video', baseUrl, apiKey), async () => {
   const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/videos/models`, apiKey)
@@ -5487,6 +5588,7 @@ async function waitForVideoJob(
       { headers: authorization(apiKey) },
       request,
       deadline,
+      undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
     ) as GenStudioVideoJob
     await reportState()
   }
@@ -5527,6 +5629,7 @@ async function recoverVideoWithGenStudioAdmitted(
     { headers: authorization(apiKey) },
     request,
     deadline,
+    undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
   ) as GenStudioVideoJob
   // Classify BEFORE polling. A job that already failed (or was cancelled)
   // cannot become a clip, and a poll loop would only re-read the same terminal
@@ -5728,8 +5831,12 @@ export interface GenStudioMusicRequest extends GenStudioOperationContext {
   prompt: string
   lyrics?: string
   instrumental: boolean
+  /** Track length in seconds. Sent only when the caller states one; the lane's own default applies otherwise. */
+  durationSeconds?: number
   modelId: string
   requestIdentity?: string
+  /** `m4a` asks the lane for AAC instead of WAV. Absent = native (today's behaviour). */
+  outputFormat?: 'm4a'
   idempotencyKey?: string
   isCancelled?: () => boolean
   onJobAccepted?: (jobId: string, idempotencyKey: string) => Promise<void> | void
@@ -5750,8 +5857,10 @@ export function buildGenStudioMusicIdempotencyKey(input: {
   prompt: string
   lyrics?: string
   instrumental: boolean
+  durationSeconds?: number
   modelId: string
   requestIdentity?: string
+  outputFormat?: 'm4a'
 }): string {
   const digest = createHash('sha256').update(JSON.stringify({
     title: input.title.trim(),
@@ -5760,6 +5869,12 @@ export function buildGenStudioMusicIdempotencyKey(input: {
     instrumental: input.instrumental,
     model_id: input.modelId.trim(),
     request_identity: input.requestIdentity || null,
+    // Only when stated, so every key minted before a length existed is byte-identical and a retry
+    // that crosses this upgrade replays its job. A different length is different work.
+    ...(input.durationSeconds ? { duration_seconds: input.durationSeconds } : {}),
+    // Only when set: a key built without it must stay byte-identical, so an in-flight
+    // job (and every old caller) still replays on the key it was submitted with.
+    ...(input.outputFormat ? { output_format: input.outputFormat } : {}),
   })).digest('hex')
   return `story-music-${digest.slice(0, 44)}`
 }
@@ -5803,6 +5918,7 @@ async function waitForMusicJob(
       { headers: authorization(apiKey) },
       request,
       deadline,
+      undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
     ) as GenStudioMusicJob
     await reportState()
   }
@@ -5849,6 +5965,61 @@ function musicResult(
   }
 }
 
+/**
+ * Fetch one finished music track (a ~40 MB WAV) from the gateway, with a time limit and a retry.
+ *
+ * It used to be a bare `fetch`: no timeout, no retry, so a stalled socket hung the whole top-up and
+ * a dropped one failed a track that was already paid for. The job is finished and its artifact is
+ * on the gateway, so a retry only re-reads it; a 404/410 means the artifact was pruned, which a
+ * retry cannot fix. Re-running the track after a failure replays the same idempotency key and so
+ * reclaims this same job rather than buying another.
+ */
+export async function downloadGenStudioMusicTrack(
+  url: string,
+  headers: Record<string, string>,
+  request: { signal?: AbortSignal; isCancelled?: () => boolean } = {},
+  trackNumber = 1,
+): Promise<Buffer> {
+  const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
+  let lastError: unknown
+  for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS; attempt++) {
+    try {
+      const response = await fetch(url, {
+        headers,
+        signal: operationSignal(request.signal, deadline, GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS),
+      })
+      if (!response.ok) {
+        if (response.status === 404 || response.status === 410) {
+          throw new GenStudioMusicArtifactUnavailableError(trackNumber, response.status)
+        }
+        const error = new Error(`Could not download track ${trackNumber}: HTTP ${response.status}`)
+        if (!retryableStatus(response.status)) throw error
+        lastError = error
+      } else {
+        const bytes = Buffer.from(await response.arrayBuffer())
+        if (!bytes.length) throw new Error(`Track ${trackNumber} arrived empty.`)
+        return bytes
+      }
+    } catch (error) {
+      if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
+      if (error instanceof GenStudioMusicArtifactUnavailableError) throw error
+      lastError = error
+      const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+      if (!/timeout|timed out|fetch failed|network|socket|ECONN|HTTP (408|425|429|5\d\d)|terminated/i.test(message)
+        && !(error instanceof DOMException)) throw error
+    }
+    if (attempt < NETWORK_RETRY_ATTEMPTS) await retryDelay(attempt, request, deadline)
+  }
+  throw lastError instanceof Error ? lastError : new Error(`Could not download track ${trackNumber} after retries.`)
+}
+
+export class GenStudioMusicArtifactUnavailableError extends Error {
+  constructor(readonly trackNumber: number, readonly status: number) {
+    super(`Track ${trackNumber} is no longer on the gateway (HTTP ${status}); it was cleaned up before it was saved. Re-run the top-up to make it again.`)
+    this.name = 'GenStudioMusicArtifactUnavailableError'
+  }
+}
+
 /** Reconnect to an already accepted music task. Never submits new work. */
 async function recoverMusicWithGenStudioAdmitted(
   apiKey: string,
@@ -5862,6 +6033,7 @@ async function recoverMusicWithGenStudioAdmitted(
     { headers: authorization(apiKey) },
     request,
     deadline,
+    undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
   ) as GenStudioMusicJob
   // Classify BEFORE polling. A job that already failed cannot become a song,
   // and a poll loop would only re-read the same terminal record forever.
@@ -5908,8 +6080,10 @@ export async function generateMusicWithGenStudio(
     prompt,
     lyrics: request.lyrics,
     instrumental: request.instrumental,
+    durationSeconds: request.durationSeconds,
     modelId,
     requestIdentity: request.requestIdentity,
+    outputFormat: request.outputFormat,
   })
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
@@ -5922,7 +6096,9 @@ export async function generateMusicWithGenStudio(
     fields: [
       ['title', title],
       ['instrumental', request.instrumental],
+      ...(request.durationSeconds ? [['duration_seconds', request.durationSeconds] as [string, number]] : []),
       ...(request.lyrics?.trim() ? [['lyrics_characters', request.lyrics.trim().length] as [string, number]] : []),
+      ...(request.outputFormat ? [['output_format', request.outputFormat] as [string, string]] : []),
     ],
   })
   const submitted = await submitJsonWithAdmission(
@@ -5941,6 +6117,8 @@ export async function generateMusicWithGenStudio(
         prompt,
         instrumental: request.instrumental,
         ...(request.lyrics?.trim() ? { lyrics: request.lyrics.trim() } : {}),
+        ...(request.durationSeconds ? { duration_seconds: request.durationSeconds } : {}),
+        ...(request.outputFormat ? { output_format: request.outputFormat } : {}),
       }),
     },
     request,
@@ -7059,6 +7237,7 @@ async function waitForChatJob(
       { headers: authorization(apiKey) },
       request,
       deadline,
+      undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
     ) as GenStudioChatJob
     await reportState()
   }
@@ -7089,6 +7268,7 @@ async function recoverChatJobAdmitted(
     { headers: authorization(apiKey) },
     request,
     deadline,
+    undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
   ) as GenStudioChatJob
   // Classify BEFORE polling: a job that already failed cannot become output,
   // and a poll loop would only re-read the same terminal record.
@@ -7965,6 +8145,7 @@ export function buildGenStudioImageIdempotencyKey(input: {
   seed?: number
   requestIdentity?: string
   referenceAssetIds?: string[]
+  outputFormat?: 'jpeg'
 }): string {
   const hasDimensions = Number.isInteger(input.width) && input.width! > 0
     && Number.isInteger(input.height) && input.height! > 0
@@ -7988,6 +8169,9 @@ export function buildGenStudioImageIdempotencyKey(input: {
     request_identity: input.requestIdentity || null,
     reference_asset_ids: input.referenceAssetIds || [],
     ...(resolution ? { resolution } : {}),
+    // Emitted only when set, like `resolution`: a key built without it stays byte-identical,
+    // while asking for a different format is different work that must not replay the old job.
+    ...(input.outputFormat ? { output_format: input.outputFormat } : {}),
   })).digest('hex')
   return `story-image-${digest.slice(0, 44)}`
 }
@@ -8016,6 +8200,7 @@ async function waitForImageJob(
       { headers: authorization(apiKey) },
       request,
       deadline,
+      undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
     ) as GenStudioImageJob
     await recordGenStudioEvidence('image.generation', current)
     await reportQueueState(request, current)
@@ -8093,6 +8278,7 @@ async function recoverImageWithGenStudioAdmitted(
     { headers: authorization(apiKey) },
     request,
     deadline,
+    undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
   ) as GenStudioImageJob
   // Classify BEFORE polling. A job that already failed (or was cancelled)
   // cannot become an artifact, and a poll loop would only re-read the same
@@ -8480,6 +8666,7 @@ async function generateImageWithGenStudioAdmitted(
       : {}),
     ...(request.seed === undefined ? {} : { seed: request.seed }),
     ...(request.referenceAssetIds?.length ? { reference_asset_ids: request.referenceAssetIds } : {}),
+    ...(request.outputFormat ? { output_format: request.outputFormat } : {}),
   }
   const idempotencyKey = request.idempotencyKey?.trim() || buildGenStudioImageIdempotencyKey({
     prompt,
@@ -8491,6 +8678,7 @@ async function generateImageWithGenStudioAdmitted(
     seed: request.seed,
     requestIdentity: request.requestIdentity,
     referenceAssetIds: request.referenceAssetIds,
+    outputFormat: request.outputFormat,
   })
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
@@ -8516,6 +8704,7 @@ async function generateImageWithGenStudioAdmitted(
       ['height', hasDimensions ? request.height : undefined],
       ['seed', request.seed],
       ['reference_asset_ids', request.referenceAssetIds?.length ? request.referenceAssetIds : undefined],
+      ['output_format', request.outputFormat],
     ],
   })
   let submitted: GenStudioImageJob
@@ -8663,6 +8852,7 @@ async function waitForTranscriptionJob(
       { headers: authorization(apiKey) },
       request,
       deadline,
+      undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
     ) as GenStudioTranscriptionJob
     await reportState()
   }
@@ -8737,6 +8927,7 @@ async function recoverTranscriptionWithGenStudioAdmitted(
       { headers: authorization(apiKey) },
       request,
       deadline,
+      undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
     ) as GenStudioTranscriptionJob
   } catch (error) {
     if (error instanceof GenStudioApiError && error.status === 404) {
@@ -8927,6 +9118,7 @@ async function waitForJob(
       { headers: authorization(apiKey) },
       request,
       deadline,
+      undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
     ) as GenStudioJob
     await reportState()
   }
@@ -8950,7 +9142,9 @@ async function completeTtsJobToFile(
     throw new GenStudioTtsArtifactUnavailableError(completed.id, 0, 'the job completed without a download URL')
   }
 
-  const tempPath = path.join(os.tmpdir(), `genstudio-audio-${randomUUID()}.wav`)
+  // The download is whatever the lane returned: WAV, or AAC when `output_format: m4a` was honoured.
+  // ffmpeg identifies it by content, and Story's MP3 chapter below is written either way.
+  const tempPath = path.join(os.tmpdir(), `genstudio-audio-${randomUUID()}.${request.outputFormat === 'm4a' ? 'm4a' : 'wav'}`)
   try {
     let downloaded = false
     let downloadError: unknown
@@ -9002,7 +9196,19 @@ async function completeTtsJobToFile(
     }
     if (!downloaded) throw downloadError instanceof Error ? downloadError : new Error('GenStudio KH audio download failed')
     await fs.mkdir(path.dirname(outPath), { recursive: true })
-    await runFfmpeg(['-y', '-i', tempPath, '-c:a', 'libmp3lame', '-b:a', '96k', outPath])
+    // Cloud providers already deliver MP3 (the Hub delivers WAV): re-encoding one to 96 kbps MP3 is a
+    // second lossy pass and a few seconds of CPU per chunk for nothing, so keep its bytes as they are.
+    if ((await probeAudioSignature(tempPath))?.startsWith('mp3,')) {
+      const staged = `${outPath}.partial-${process.pid}`
+      try {
+        await fs.copyFile(tempPath, staged)
+        await fs.rename(staged, outPath)
+      } finally {
+        await fs.rm(staged, { force: true }).catch(() => {})
+      }
+    } else {
+      await runFfmpeg(['-y', '-i', tempPath, '-c:a', 'libmp3lame', '-b:a', '96k', outPath])
+    }
   } finally {
     await fs.rm(tempPath, { force: true }).catch(() => {})
   }
@@ -9022,6 +9228,7 @@ async function recoverTtsToFileAdmitted(
     { headers: authorization(apiKey) },
     request,
     deadline,
+    undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
   ) as GenStudioJob
   await completeTtsJobToFile(baseUrl, apiKey, outPath, current, request, deadline)
 }
@@ -9100,6 +9307,7 @@ async function generateTtsToFileAdmitted(
       ['voice_id', submission.body.voice_id],
       ['speed', submission.body.speed],
       ['characters', Array.from(String(submission.body.text ?? '').normalize('NFC')).length],
+      ...(submission.body.output_format ? [['output_format', submission.body.output_format] as [string, unknown]] : []),
       // Recorded only when the model published controls, so the operator can
       // see which settings a job went out under. The names are GenStudio's.
       ...(submission.body.controls

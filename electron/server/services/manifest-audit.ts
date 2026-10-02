@@ -34,6 +34,7 @@
 
 import fs from 'fs/promises'
 import path from 'path'
+import { findDirLevelOrder } from '../lib/dir-search.js'
 import { parseImagePromptsDocx } from '../lib/docx-parser.js'
 import { findNarrationFile, NarrationMissingError, resolveAudioDir } from '../generators/audio.js'
 import {
@@ -151,27 +152,12 @@ function unmeasurable(stage: AuditStage): StageAudit {
 
 async function findEpisodeDir(root: string, code: string): Promise<string | null> {
   const CODE = code.toUpperCase()
-  async function search(d: string, depth: number): Promise<string | null> {
-    if (depth > 4) return null
-    let entries: import('fs').Dirent[] = []
-    try {
-      entries = await fs.readdir(d, { withFileTypes: true }) as any
-    } catch (error) {
-      if (isMissing(error)) return null
-      throw error
-    }
+  return findDirLevelOrder(root, 4, (entries, dir) => {
     for (const e of entries) {
-      if (!e.isDirectory()) continue
-      if (episodeDirNameMatchesCode(e.name, CODE)) return path.join(d, e.name)
-    }
-    for (const e of entries) {
-      if (!e.isDirectory()) continue
-      const found = await search(path.join(d, e.name), depth + 1)
-      if (found) return found
+      if (e.isDirectory() && episodeDirNameMatchesCode(e.name, CODE)) return path.join(dir, e.name)
     }
     return null
-  }
-  return search(root, 0)
+  }, error => !isMissing(error))
 }
 
 // ── Per-stage audits ───────────────────────────────────────────────────────

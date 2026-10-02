@@ -115,7 +115,15 @@
           <input v-model="instrumental" type="checkbox">
           Instrumental (no singing)
         </label>
+        <label v-if="instrumental" class="ml-label">
+          Song length (minutes)
+          <input v-model.number="trackMinutes" type="number" min="1" max="30" step="0.5" class="input narrow">
+        </label>
       </div>
+      <p v-if="!instrumental" class="text-muted small">
+        With singing, the planner writes the lyrics and each song is as long as its lyrics need
+        (about 30 seconds per verse or chorus).
+      </p>
 
       <p v-if="genError" class="error-box mt-2">{{ genError }}</p>
 
@@ -198,6 +206,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { CREDIT_BASIS_LABEL, describeMusicUnitCost, type PricedMusicModel } from '../../../utils/genstudio-credit-cost.js'
+import { pickDefaultMusicModel } from '../../../../electron/server/contracts/music-model-choice'
 
 const route = useRoute()
 const slug = computed(() => String(route.params.slug || ''))
@@ -232,6 +241,8 @@ let libraryLoadSequence = 0
 const brief = ref('')
 const count = ref(10)
 const instrumental = ref(true)
+// Four minutes unless changed: Stable Audio 3's own default is 30 s, far shorter than a library track.
+const trackMinutes = ref(4)
 const generating = ref(false)
 const genError = ref('')
 
@@ -263,7 +274,10 @@ const unmeasured = computed(() =>
  * discount tag on it, which is what `describeMusicUnitCost` renders.
  */
 const musicModels = ref<PricedMusicModel[]>([])
-const musicModel = computed(() => musicModels.value[0] || null)
+// The model the backend will charge for: the first published row that can make a lyric-less
+// track (a vocal-only model such as YuE2 cannot), chosen by the same function it uses.
+const musicModel = computed(() =>
+  pickDefaultMusicModel(musicModels.value, { instrumental: instrumental.value, hasLyrics: false }) || null)
 const musicCost = computed(() => describeMusicUnitCost(musicModel.value))
 
 async function loadMusicModels() {
@@ -325,7 +339,10 @@ async function remove(track: LibraryTrack) {
 async function topUp() {
   generating.value = true
   genError.value = ''
-  const payload = { brief: brief.value, count: count.value, instrumental: instrumental.value }
+  const payload = {
+    brief: brief.value, count: count.value, instrumental: instrumental.value,
+    ...(instrumental.value && trackMinutes.value > 0 ? { duration_seconds: Math.round(trackMinutes.value * 60) } : {}),
+  }
   const operationId = freshMusicAction.begin(payload)
   try {
     await post(`/projects/${slug.value}/music-library/generate`, {

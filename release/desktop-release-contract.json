@@ -32,6 +32,10 @@
       "to": "ffmpeg"
     },
     {
+      "from": "bundled/scene-clip",
+      "to": "scene-clip"
+    },
+    {
       "from": "bundled/LICENSE-FFMPEG.txt",
       "to": "LICENSE-FFMPEG.txt"
     },
@@ -46,6 +50,7 @@
     "ffmpeg/MANIFEST.json",
     "ffmpeg/ffmpeg",
     "ffmpeg/ffprobe",
+    "scene-clip/scene-clip",
     "formats/continuity-chain.json",
     "niches/sleep.json",
     "templates/blank/config.json",

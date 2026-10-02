@@ -86,6 +86,13 @@ router.post('/projects/:slug/music-library/generate', async (req, res) => {
     const model = String(req.body?.model || '')
     const plannerModel = String(req.body?.planner_model || '')
     const instrumental = req.body?.instrumental !== false
+    // Track length for an instrumental model (seconds). A singing model's length follows its lyrics,
+    // so a value sent with vocals is simply ignored. Bounded here; the model's own bounds are applied
+    // (and explained in the job log) when the job runs.
+    const requestedSeconds = Number(req.body?.duration_seconds)
+    const durationSeconds = instrumental && Number.isFinite(requestedSeconds) && requestedSeconds > 0
+      ? Math.max(10, Math.min(1800, Math.round(requestedSeconds)))
+      : undefined
     const sameActionRequest = (candidate: any) => candidate.type === 'music_generate'
       && candidate.params?.generation_action?.id === operationId
       && candidate.params?.brief === brief
@@ -93,6 +100,7 @@ router.post('/projects/:slug/music-library/generate', async (req, res) => {
       && candidate.params?.model === model
       && candidate.params?.planner_model === plannerModel
       && candidate.params?.instrumental === instrumental
+      && candidate.params?.duration_seconds === durationSeconds
     const actionJobs = (await jq.getJobs(slug)).filter(job =>
       job.type === 'music_generate'
       && job.params?.generation_action?.id === operationId,
@@ -115,6 +123,7 @@ router.post('/projects/:slug/music-library/generate', async (req, res) => {
           model,
           planner_model: plannerModel,
           instrumental,
+          ...(durationSeconds ? { duration_seconds: durationSeconds } : {}),
           generation_action: { id: operationId, kind: 'fresh' },
           brief_id: operationId,
         },

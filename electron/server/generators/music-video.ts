@@ -20,7 +20,9 @@
 
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
+import os from 'os'
 import path from 'path'
+import { homogenizeForConcat } from '../lib/audio-concat.js'
 
 import * as jq from '../services/job-queue.js'
 import { runFfmpeg } from '../lib/ffmpeg-utils.js'
@@ -108,15 +110,20 @@ export async function generateMusicVideo(job: Job): Promise<void> {
   if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
 
   // ── Stitch ──
-  await fs.writeFile(
-    render.concatList,
-    buildConcatList(plan.entries.map(entry => path.join(library.folder, entry.filename))),
-    'utf8',
-  )
-  job.output_lines.push(
-    params.crossfade_sec ? 'Stitching with crossfades…' : 'Stitching (no crossfades)…',
-  )
-  await runFfmpeg(buildStitchArgs(render.concatList, render.stitchedAudio, params.crossfade_sec || 0))
+  // A library can hold MP3 takes beside AAC ones; the concat demuxer silently drops what it cannot read.
+  const normDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ssk-music-norm-'))
+  try {
+    const { files: stitchInputs, reencoded } = await homogenizeForConcat(
+      plan.entries.map(entry => path.join(library.folder, entry.filename)), normDir)
+    if (reencoded) job.output_lines.push(`Tracks differ in format; re-encoded ${reencoded} to one format so none are dropped.`)
+    await fs.writeFile(render.concatList, buildConcatList(stitchInputs), 'utf8')
+    job.output_lines.push(
+      params.crossfade_sec ? 'Stitching with crossfades…' : 'Stitching (no crossfades)…',
+    )
+    await runFfmpeg(buildStitchArgs(render.concatList, render.stitchedAudio, params.crossfade_sec || 0))
+  } finally {
+    await fs.rm(normDir, { recursive: true, force: true }).catch(() => {})
+  }
   job.progress = 55
 
   jq.throwIfPauseRequested(job.job_id)

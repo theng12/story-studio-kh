@@ -28,6 +28,7 @@ import {
   resolveMusicModel,
 } from '../generators/music-generate.js'
 import { FLEET_BUSY_RETRY_DELAYS_MS } from '../lib/genstudio-fleet-busy.js'
+import { pickDefaultMusicModel } from '../contracts/music-model-choice.js'
 
 const SRC = path.join(
   path.dirname(fileURLToPath(import.meta.url)), '..', 'generators', 'music-generate.ts')
@@ -237,6 +238,37 @@ describe('a retired model fails before anything is charged', () => {
   })
 })
 
+/**
+ * Contract audit 2026-10-01 — the default model must be one that can make what is asked.
+ *
+ * The gateway lists the Hub's models in catalogue order and YuE2 comes first. YuE2's lane states
+ * `lyrics` required and "no instrumental switch", so `models[0]` for a lyric-less top-up is a
+ * certain Hub refusal. The gateway now publishes `requires_lyrics` / `supports_instrumental` from
+ * the lane contract; these pin that Story reads them.
+ */
+describe('the default music model can make a lyric-less track', () => {
+  const yue2 = { id: 'studio-hub::vanch007/mlx-Yue2-3B', requires_lyrics: true, supports_instrumental: false, supports_vocals: true }
+  const stable = { id: 'studio-hub::stabilityai/stable-audio-3-optimized' }
+  test('a vocal-only first row is skipped when there are no lyrics', () => {
+    assert.equal(resolveMusicModel([yue2, stable], '').id, stable.id)
+  })
+  test('the page and the generator choose the same row', () => {
+    assert.equal(pickDefaultMusicModel([yue2, stable], { instrumental: true, hasLyrics: false })?.id, stable.id)
+  })
+  test('with lyrics the vocal model is a fair first choice again', () => {
+    assert.equal(resolveMusicModel([yue2, stable], '', { instrumental: false, hasLyrics: true }).id, yue2.id)
+  })
+  test('unstated capabilities never rule a model out', () => {
+    assert.equal(resolveMusicModel([{ id: 'a', requires_lyrics: null }, { id: 'b' }], '').id, 'a')
+  })
+  test('if every model needs lyrics it refuses before anything is charged', () => {
+    assert.throws(() => resolveMusicModel([yue2], ''), /needs lyrics[\s\S]*Nothing was charged/)
+  })
+  test('a named model is never second-guessed', () => {
+    assert.equal(resolveMusicModel([yue2, stable], yue2.id).id, yue2.id)
+  })
+})
+
 describe('a WAV track is stored as AAC (v1.4.244)', () => {
   const tone = async (dir: string, seconds: number) => {
     const wav = path.join(dir, `tone-${seconds}.wav`)
@@ -258,6 +290,28 @@ describe('a WAV track is stored as AAC (v1.4.244)', () => {
     console.log(`music: 20 s WAV ${bytes.length} B -> m4a ${size} B (${(100 * size / bytes.length).toFixed(1)}%)`)
     assert.ok(size < bytes.length / 4)
     assert.deepEqual(await readdir(lib), [saved.filename])
+  })
+
+  test('an m4a body (the Hub already encoded it) is stored as .m4a byte for byte, with no ffmpeg run', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'music-m4a-'))
+    const { wav } = await tone(dir, 10)
+    const m4a = path.join(dir, 'hub.m4a')
+    assert.equal(spawnSync('ffmpeg', ['-y', '-i', wav, '-c:a', 'aac', '-b:a', '256k', '-f', 'ipod', m4a]).status, 0)
+    const body = await readFile(m4a)
+    const lib = await mkdtemp(path.join(os.tmpdir(), 'music-lib-'))
+    // A PATH with no ffmpeg proves the bytes are not re-encoded: a second lossy generation would need it.
+    const realPath = process.env.PATH
+    process.env.PATH = '/nonexistent'
+    try {
+      const saved = await saveMusicTrack(lib, 'Rain', 'job_music_abcdef12', 1, body)
+      assert.match(saved.filename, /take1\.m4a$/)
+      assert.equal(saved.warning, undefined)
+      assert.deepEqual(await readFile(path.join(lib, saved.filename)), body)
+      assert.deepEqual(await readdir(lib), [saved.filename])
+    } finally {
+      process.env.PATH = realPath
+    }
+    assert.ok(Math.abs(probe(path.join(lib, 'rain-abcdef12-take1.m4a')) - 10) < 0.03)
   })
 
   test('an MP3 body passes through unchanged under the old name', async () => {
