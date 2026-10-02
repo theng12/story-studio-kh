@@ -170,3 +170,13 @@ test('every outline save names the build it was made on, and a 409 drops the sta
     'flush, save and approve all send it')
   assert.match(source, /if \(e\?\.status === 409\) discardAndShowCurrentOutline\(\)/)
 })
+
+test('row Expand while a run is stopped part-way resumes that run instead of dead-ending on a 409', async () => {
+  assert.match(source, /const resumingForRows = chapters !== null && resumableRun\.value/)
+  assert.match(source, /chapters === null \|\| resumingForRows \? terminalExpansionRetryJob\(\) : undefined/)
+  assert.doesNotMatch(source, /before other chapters can be expanded/)
+  const { resumeExpandNotice } = await import('../utils/outline-expand-resume.js')
+  assert.match(resumeExpandNotice([4], undefined), /only the chapters still missing, including 4/)
+  assert.match(resumeExpandNotice([4], [1, 2, 4]), /including 4/)
+  assert.match(resumeExpandNotice([7], [1, 2]), /Then press Expand on 7 again/)
+})

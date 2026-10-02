@@ -324,7 +324,7 @@
           {{ resumableRun ? `▶ Resume writing (${pendingCount})` : `▶ Expand all (${pendingCount})` }}
         </button>
         <span v-if="resumableRun" class="op-resume-hint">
-          The last writing run stopped part-way — Resume writing finishes it before other chapters can be expanded.
+          The last writing run stopped part-way. Resume writing (or Expand on any row) finishes it first, writing only the chapters still missing.
         </span>
       </div>
     </div>
@@ -334,6 +334,7 @@
 
 <script setup lang="ts">
 import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
+import { resumeExpandNotice } from '~/utils/outline-expand-resume'
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 
 interface OutlineEntry {
@@ -1061,7 +1062,10 @@ async function postExpand(chapters: number[] | null): Promise<void> {
     // The full-outline Resume button references any durable chat evidence. The
     // server uses current form fields only after every batch has resolved; a
     // mixed/pending chat source replays its exact historical params and key.
-    const terminalRetry = chapters === null ? terminalExpansionRetryJob() : undefined
+    // A row/selected Expand while a run is stopped part-way resumes that run
+    // (the server refuses anything else until it settles).
+    const resumingForRows = chapters !== null && resumableRun.value
+    const terminalRetry = chapters === null || resumingForRows ? terminalExpansionRetryJob() : undefined
     if (terminalRetry) body.terminal_retry_job_id = terminalRetry.job_id
     const operationId = freshOutlineExpansionAction.begin(body, chapters ? `expand:${chapters.join(',')}` : 'expand:all')
     const resp = await post<{ job_id: string }>(
@@ -1069,7 +1073,9 @@ async function postExpand(chapters: number[] | null): Promise<void> {
       { ...body, operation_id: operationId },
     )
     freshOutlineExpansionAction.complete(operationId)
-    success(chapters
+    success(chapters && resumingForRows
+      ? resumeExpandNotice(chapters, terminalRetry?.params?.chapters_to_expand)
+      : chapters
       ? `Queued expansion for chapter${chapters.length === 1 ? '' : 's'} ${chapters.join(', ')}`
       : `Queued expansion for ${pendingCount.value} chapter(s)`,
     )

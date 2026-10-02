@@ -159,6 +159,19 @@ describe('Contextual Cues contract', () => {
     assert.equal(outOfRange.position_y_pct, null)
   })
 
+  test('a held cue is named by its number, title and time, never its internal id', () => {
+    const held = cue({ status: 'proposed' })
+    const timeline = { schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at, cues: [held] } as any
+    assert.throws(
+      () => assertContextualCueReadiness({ enabled: true, auto_approve_cues: false }, timeline, plan),
+      (error: Error) => {
+        assert.match(error.message, new RegExp(`Cue 1 "${held.title}" \\(\\d+:\\d{2}\\)`))
+        assert.ok(!error.message.includes(held.id), 'raw cue id is not shown')
+        return true
+      },
+    )
+  })
+
   test('enabled projects reject unresolved proposals before assembly', () => {
     const timeline = { schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at, cues: [cue({ status: 'proposed' })] } as any
     assert.throws(() => assertContextualCueReadiness({ enabled: true, auto_approve_cues: false }, timeline, plan), /needs review/i)
