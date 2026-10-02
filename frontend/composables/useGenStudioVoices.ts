@@ -70,6 +70,8 @@ export interface GenStudioTtsModel extends PriceTruth {
   cost_tier?: GenStudioCostTier
   locked?: boolean
   lock_reason?: string
+  /** Gateway: false for free work. Optional — older catalogues omit it. */
+  chargeable?: boolean
 }
 
 /** `StandardVoiceResponse`. */
