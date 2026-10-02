@@ -63,7 +63,7 @@
       </article>
       <div v-if="hasMore" class="wnm-more-releases">
         <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingMore" @click="loadMoreReleases">
-          {{ loadingMore ? 'Loading more releases…' : entries.length > 20 ? 'View 500 more releases' : 'View all releases' }}
+          {{ loadingMore ? 'Loading more releases…' : entries.length > 20 ? 'View older releases' : 'View all releases' }}
         </button>
       </div>
     </div>

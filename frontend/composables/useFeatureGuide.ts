@@ -393,16 +393,27 @@ export const featureGuides: Record<string, FeatureGuide> = {
     tips: ['Offline external drives remain registered and can be rescanned when reconnected.', 'Keep source licensing information with every asset intended for customer-facing production.'],
   },
   usage: {
-    title: 'Credits and Settlement',
-    summary: 'Display GenStudio-authoritative balance, reservation, refund, and final settlement information without calculating prices locally.',
-    workflow: ['Refresh account data.', 'Review current balance and reserved credits.', 'Inspect recent job settlements when reconciling usage.'],
+    title: 'GenStudio Credits',
+    summary: 'Your GenStudio credit balance and what recent jobs were charged, exactly as GenStudio reports them. Story Studio never works out prices itself.',
+    workflow: ['Press Refresh for the latest figures.', 'Check the balance and what is held for running jobs.', 'Look through recent jobs to see what each one was charged or refunded.'],
     topics: [
-      { title: 'Spendable credits', purpose: 'Credits currently available for new GenStudio reservations.' },
-      { title: 'Reserved credits', purpose: 'Maximum expected cost held for accepted jobs until they settle.' },
-      { title: 'Final settlement', purpose: 'The actual GenStudio charge after completion.' },
-      { title: 'Returned credits', purpose: 'Unused reservation or eligible cancellation/failure amount returned by GenStudio.' },
+      { title: 'Available', purpose: 'Credits you can spend on new paid jobs. Free local work on your own Macs does not use them.' },
+      { title: 'Held credits', purpose: 'The most a running job can cost, set aside until it finishes.' },
+      { title: 'Charged credits', purpose: 'What GenStudio actually charged once the job finished.' },
+      { title: 'Refunded credits', purpose: 'Held credits given back — unused, cancelled, or a failure that is not charged.' },
     ],
-    tips: ['Story Studio never maintains independent model prices.', 'If data is unavailable, repair the GenStudio connection or permission rather than trusting stale local totals.'],
+    tips: ['If the page cannot load, check the Gateway app is running, then press Try again.', 'A balance of 0 only matters for paid cloud work; jobs on your own Macs are free.'],
+  },
+  'content-store': {
+    title: 'Content Store',
+    summary: 'Browse, buy and install Content Packs — series formulas, styles and other building blocks — that your GenStudio account owns for good.',
+    workflow: ['Browse Discover, or select several packs and see their exact quotes together.', 'Confirm once to buy; each pack is charged at most once.', 'Install owned packs from the Owned tab, or Install all missing.'],
+    topics: [
+      { title: 'Restore purchases', purpose: 'Re-checks which packs your account owns, e.g. on a new Mac. Never charges.' },
+      { title: 'Owned', purpose: 'Packs your account owns, installed here or not.' },
+      { title: 'Updates', purpose: 'Installed packs with a newer release ready to install.' },
+    ],
+    tips: ['Buying and installing stay off while the Gateway is not answering; nothing is lost.', 'If a purchase answer does not arrive, Retry re-sends the same purchase — it is never bought twice.'],
   },
   remote: {
     title: 'Remote Control',
@@ -539,6 +550,7 @@ export function featureGuideKeyForPath(path: string): string {
   if (path === '/login') return 'login'
   if (path === '/remote') return 'remote'
   if (path === '/usage') return 'usage'
+  if (path === '/content-store' || path.startsWith('/content-store/')) return 'content-store'
   if (path === '/character-library') return 'channel-characters'
   if (path === '/broll-library') return 'assets-library'
   const match = path.match(/^\/projects\/[^/]+(?:\/([^/?#]+))?/)
