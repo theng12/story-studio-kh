@@ -410,9 +410,10 @@ test('GenStudio key test proves every Story Studio catalog and generation scope'
     .expect(200)
 
   assert.equal(response.body.valid, true)
-  assert.match(response.body.message, /catalogs and TTS, transcription, image, LLM, music, and video job access/)
+  // Plain words (owner 2026-10-03): it is his Gateway, and scope names are not his vocabulary.
+  assert.match(response.body.message, /Gateway accepted this key for writing, voice, images, music, video and subtitles/)
   assert.equal(response.body.usage_available, false)
-  assert.match(response.body.warning, /usage:read/)
+  assert.match(response.body.warning, /cannot read your credit balance/)
   assert.deepEqual(response.body.content_store, {
     read_scope: 'verified',
     purchase_scope: 'required_unverified',

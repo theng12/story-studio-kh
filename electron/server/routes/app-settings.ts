@@ -1133,7 +1133,7 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
           return res.json({
             valid: false,
             reachable: true,
-            message: `The Gateway did not accept this key for ${probe.label}. Copy the key again from GatewayKH → Settings (an all-access key covers everything).`,
+            message: `The Gateway did not accept this key for its ${probe.label} (missing permission ${probe.scope}). Copy the key again from GatewayKH → Settings — an all-access key covers everything.`,
           })
         }
         if (probe.path === '/v1/content/account' && await isContentStoreNotConnected(response)) {
