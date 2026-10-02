@@ -14,6 +14,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { after, before, describe, test } from 'node:test'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService, type MockGenStudioService } from './fixtures/mock-genstudio-service.js'
 
 let isolated: Awaited<ReturnType<typeof useTempDataDir>>
@@ -142,7 +143,7 @@ describe('Contextual Cues proposal runs', () => {
     mock.queueScenario('chat', answer('scene-2', 'Paris'))
     mock.queueScenario('chat', answer('scene-3', 'Rome'))
     const run = generator.generateContextualCues(job('D'))
-    while (chatSubmissions().length < 1) await new Promise(resolve => setTimeout(resolve, 10))
+    await waitFor(() => chatSubmissions().length >= 1, { label: 'first cue batch submitted' })
     const timeline = (await cues.readContextualCueTimeline(planPath))!
     timeline.cues[0] = { ...timeline.cues[0]!, title: 'Berlin, approved', status: 'approved' }
     await cues.writeContextualCueTimeline(planPath, timeline)

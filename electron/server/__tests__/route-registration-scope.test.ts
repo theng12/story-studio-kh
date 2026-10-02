@@ -109,6 +109,8 @@ async function regenerate(n: number) {
       kind: 'thumbnail',
       number: 1,
       title: TITLE,
+      // Story never picks a writing model (2026-10-03): the regenerate names the one chosen.
+      model: 'mock-chat-v1',
     })
 }
 

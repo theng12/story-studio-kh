@@ -16,6 +16,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 
 let cleanup: () => Promise<void>
 let app: any
@@ -124,9 +125,7 @@ describe('import script', () => {
     } finally {
       await jq.requestJobCancellation(slug, active.job_id)
       await jq.setQueuePaused(false)
-      for (let i = 0; i < 50 && jq.getJob(active.job_id)?.status !== 'cancelled'; i++) {
-        await new Promise(r => setTimeout(r, 20))
-      }
+      await waitFor(() => jq.getJob(active.job_id)?.status === 'cancelled', { label: 'writer job cancelled' }).catch(() => {})
       jq.removeTerminalJob(slug, active.job_id)
     }
   })
