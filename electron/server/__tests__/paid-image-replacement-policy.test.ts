@@ -458,6 +458,8 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
     ['missing exhausted-failover settlement fields', { id: 'original-task', state: 'failed', failure_code: 'SITE_FAILOVER_EXHAUSTED', reserved_credits: 9, released_credits: 9 }, 'blocked', 'not_verified'],
     ['nonfinite settlement', { id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: Number.NaN, settled_credits: 3, released_credits: 6 }, 'blocked', 'not_verified'],
     ['charged generic image failure', { id: 'original-task', state: 'failed', failure_code: 'IMAGE_FAILED', reserved_credits: 9, settled_credits: 1, released_credits: 8 }, 'blocked', 'original_failure_not_eligible'],
+    ['gateway still holding an unknown outcome', { id: 'original-task', state: 'failed', failure_code: 'UNKNOWN_OUTCOME', recovery_required: true, recovery_state: 'unknown_outcome', reserved_credits: 0, settled_credits: 0, released_credits: 0 }, 'blocked', 'original_failure_not_eligible'],
+    ['charged unknown outcome after the hold closed', { id: 'original-task', state: 'failed', failure_code: 'UNKNOWN_OUTCOME', reserved_credits: 9, settled_credits: 1, released_credits: 8 }, 'blocked', 'original_failure_not_eligible'],
   ] as const) {
     await suite.test(`does not spend for ${label}`, async () => {
       const { result, writes } = await decision({ dependencies: {
@@ -474,7 +476,8 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
   }
 
   await suite.test('fully released terminal failures receive image-only safe retries with no policy writes', async () => {
-    for (const failureCode of ['SITE_FAILOVER_EXHAUSTED', 'IMAGE_FAILED']) {
+    // UNKNOWN_OUTCOME: the gateway closed its restart hold after the Hub reported the batch failed.
+    for (const failureCode of ['SITE_FAILOVER_EXHAUSTED', 'IMAGE_FAILED', 'UNKNOWN_OUTCOME']) {
       const zero = await decision({ dependencies: {
         readControl: async () => ({ id: 'original-task', state: 'failed', failure_code: failureCode, reserved_credits: 9, settled_credits: 0, released_credits: 9 }),
         artifactExists: async () => false, getSetting: async () => ({ enabled: true, additional_credit_ceiling: 8 }),

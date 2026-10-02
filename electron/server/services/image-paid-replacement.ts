@@ -335,7 +335,12 @@ export interface PaidImageReplacementDecisionInput {
 
 const PAID_WAIT_MS = 30 * 60 * 1_000
 const FLEET_FAILURE_CODES = new Set(['SITE_PLACEMENT_EXHAUSTED', 'SITE_CAPACITY_UNAVAILABLE'])
-const ZERO_SETTLEMENT_IMAGE_FAILURE_CODES = new Set([...FLEET_FAILURE_CODES, 'SITE_FAILOVER_EXHAUSTED', 'IMAGE_FAILED'])
+// `UNKNOWN_OUTCOME` reaches here only once the gateway has CLOSED its hold
+// (every caller checks `holdsUnknownOutcome` first): the Hub's own record said
+// the batch ended without an image, e.g. a gateway restart mid-render followed
+// by the Hub reporting the item `error`. Measured 2026-10-03 on a Z-Image
+// thumbnail; without it that thumbnail could never be generated again.
+const ZERO_SETTLEMENT_IMAGE_FAILURE_CODES = new Set([...FLEET_FAILURE_CODES, 'SITE_FAILOVER_EXHAUSTED', 'IMAGE_FAILED', 'UNKNOWN_OUTCOME'])
 const commitLocks = new Map<string, Promise<void>>()
 const EXPLICIT_BLOCKED_FAILURE = /(?:UNCERTAIN|REFUS|VALIDATION|AUTH|CREDIT|BILLING)/i
 
