@@ -271,3 +271,70 @@ test('the FFmpeg installer and manual fallback stay closed while the status is u
   assert.match(source, /v-if="ffmpegStatusError"[\s\S]{0,700}@click="refreshFfmpegStatus"/,
     'a failed check must be stated with a retry')
 })
+
+// ── Shell audit 2026-10-03 — a backfill never runs on values that failed to save ──
+
+test('YouTube backfill stops when saving the Publishing form fails, so old saved values are never applied to every video', async () => {
+  const route = reactive({ params: reactive({ slug: 'project-a' }), hash: '', query: {} })
+  const posts: string[] = []
+  const fixture: any = {
+    route,
+    savePlan: projectSettingsSavePlan,
+    api: {
+      get: async () => ({}),
+      post: async (path: string) => { posts.push(path); return { updated: 3, skipped: 0, items: [] } },
+      put: async () => { throw Object.assign(new Error('save failed'), { data: { detail: 'Disk is read-only.' } }) },
+      patch: async () => ({}),
+      del: async () => ({}),
+    },
+    projectState: {
+      project: ref<any>({ name: 'A', episode_prefix: 'EP' }), config: ref<any>({ category_id: 27, mark_as_ai_generated: true }),
+      refreshConfig: async () => undefined, loadProject: async () => undefined,
+    },
+  }
+  ;(globalThis as any).__settingsFixture = fixture
+  const app = createApp(await loadPage())
+  const host = document.body.appendChild(document.createElement('div'))
+  app.mount(host)
+  await flush()
+  try {
+    assert.equal(await fixture.state.saveProject('publishing'), false, 'a failed save says so')
+    await fixture.state.runYoutubeBackfill(false)
+    await fixture.state.runYoutubeBackfill(true)
+    assert.deepEqual(posts.filter(path => path.includes('youtube-backfill')), [])
+  } finally {
+    app.unmount()
+    host.remove()
+    delete (globalThis as any).__settingsFixture
+  }
+})
+
+test('a config refresh (art style or guide slider saved) keeps unsaved drafts, and still updates untouched fields', async () => {
+  const route = reactive({ params: reactive({ slug: 'project-a' }), hash: '', query: {} })
+  const config = ref<any>({ intro_standards: 'Saved intro', category_id: 27, mark_as_ai_generated: false })
+  const fixture: any = {
+    route,
+    api: { get: async () => ({ content: '' }), post: async () => ({}), put: async () => ({}), patch: async () => ({}), del: async () => ({}) },
+    projectState: { project: ref<any>({ name: 'A', episode_prefix: 'EP' }), config, refreshConfig: async () => undefined, loadProject: async () => undefined },
+  }
+  ;(globalThis as any).__settingsFixture = fixture
+  const app = createApp(await loadPage())
+  const host = document.body.appendChild(document.createElement('div'))
+  app.mount(host)
+  await flush()
+  try {
+    assert.equal(fixture.state.introStandards.value, 'Saved intro')
+    fixture.state.introStandards.value = 'Half-typed new intro'
+    fixture.state.projectForm.category_id = 31
+    // Saving the art style refreshes the whole config object.
+    config.value = { intro_standards: 'Saved intro', category_id: 27, mark_as_ai_generated: true }
+    await flush()
+    assert.equal(fixture.state.introStandards.value, 'Half-typed new intro', 'unsaved intro text survives')
+    assert.equal(fixture.state.projectForm.category_id, 31, 'unsaved category survives')
+    assert.equal(fixture.state.projectForm.mark_as_ai_generated, true, 'an untouched field takes the fresh value')
+  } finally {
+    app.unmount()
+    host.remove()
+    delete (globalThis as any).__settingsFixture
+  }
+})

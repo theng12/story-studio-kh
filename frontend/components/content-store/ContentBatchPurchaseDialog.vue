@@ -121,7 +121,7 @@
 
           <dl class="purchase-ledger">
             <div><dt>Packs now owned</dt><dd>{{ succeeded.length }}</dd></div>
-            <div v-if="failed.length"><dt>Not bought</dt><dd>{{ failed.length }}</dd></div>
+            <div v-if="failed.length"><dt>{{ failed.some(item => item.uncertain) ? 'Not bought or not confirmed' : 'Not bought' }}</dt><dd>{{ failed.length }}</dd></div>
             <div><dt>Credits charged</dt><dd>{{ formatCredits(totals.charged) }}</dd></div>
             <div><dt>Balance after</dt><dd>{{ formatCredits(finalBalance) }}</dd></div>
           </dl>

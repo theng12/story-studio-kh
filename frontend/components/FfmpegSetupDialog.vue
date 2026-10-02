@@ -57,7 +57,7 @@
       <!-- Error -->
       <div v-if="error" class="ffmpeg-error mt-2">
         <p style="color: var(--error);">{{ error }}</p>
-        <button class="btn btn-secondary btn-sm mt-1" @click="error = ''; installing = false">Try Again</button>
+        <p class="text-muted" style="font-size: 12px;">Press “Download &amp; Install FFmpeg Automatically” above to try again.</p>
       </div>
     </div>
 

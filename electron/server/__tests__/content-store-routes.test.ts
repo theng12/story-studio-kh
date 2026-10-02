@@ -366,6 +366,15 @@ describe('Content Store commerce routes', () => {
     assert.deepEqual(await jobQueue.getJobs(project.slug), jobsBefore)
   })
 
+  test('a stopped Gateway is named, not reported as a generic "Failed to load the Content Store."', async () => {
+    const { app: localApp } = await setup({ products: [product()] })
+    await mock.close()
+    const response = await request(localApp).get('/api/content-store')
+    assert.equal(response.status, 503)
+    assert.equal(response.body.code, 'GATEWAY_UNREACHABLE')
+    assert.match(response.body.detail, /Could not reach the Gateway/)
+  })
+
   test('projects authoritative hero and complete license fields without raw upstream proof bytes', async () => {
     const { app: localApp } = await setup({ products: [product({
       cover: { url: 'https://cdn.example.test/cover.webp', alt: 'Published cover' },

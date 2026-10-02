@@ -1261,7 +1261,7 @@ async function resolvePipelineTranscriptionParams(
   try {
     models = await listTranscriptionModels(apiKey)
   } catch {
-    throw new Error('Could not load transcription models. Check your connection and try again.')
+    throw new Error('Could not load transcription models. Check the Gateway app is running, then try again.')
   }
   const requestedModel = typeof params.model === 'string' ? params.model.trim() : ''
   const modelId = resolveGenStudioModelId('transcription', requestedModel)

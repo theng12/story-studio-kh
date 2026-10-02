@@ -173,6 +173,8 @@ function waitForBootReady(): Promise<void> {
  *      it amplified the loop above and made debugging noisier. Latch the
  *      first redirect; subsequent 401s become no-ops.
  */
+export const NO_RESPONSE_MESSAGE = 'Story Studio’s engine is not answering — it may be starting up. Wait a moment, then try again.'
+
 let _redirectingToLogin = false
 function handleAuthExpired(path: string, error: any): void {
   if (_redirectingToLogin) return
@@ -322,6 +324,12 @@ export function useApi() {
       // happens out-of-band.
       if (err?.response?.status === 401 || err?.status === 401) {
         handleAuthExpired(path, err)
+      }
+      // No response at all means Story Studio's own engine did not answer (starting up, restarting,
+      // or the remote Mac is unreachable). Callers show `e.data.detail || e.message`, and ofetch's
+      // message here is `[GET] "/api/…": <no response> Failed to fetch` — say what it means instead.
+      if (err && !err.response && !err.data && err.name === 'FetchError' && err.cause?.name !== 'AbortError') {
+        try { err.message = NO_RESPONSE_MESSAGE } catch { /* read-only message: leave it */ }
       }
       throw err
     }

@@ -14,7 +14,7 @@
  * `$fetch` is a Nuxt global stubbed before the module loads.
  */
 
-import { test, describe, beforeEach } from 'node:test'
+import { test, describe, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 
 // ── Controllable $fetch stub ────────────────────────────────────────────────
@@ -203,5 +203,36 @@ describe('useCredits.startPolling()', () => {
     assert.equal(healthCalls, 1)
     release()
     await Promise.all([first, second])
+  })
+})
+
+describe('useCredits polling while the window is hidden', () => {
+  test('stops polling while hidden and refreshes as soon as the window is shown', async () => {
+    fetchHandler = (url: string) => url.endsWith('/api-keys') ? configuredKey : authoritativeUsage
+    const visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState')
+    let state: 'visible' | 'hidden' = 'visible'
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state })
+    const drain = async () => { for (let i = 0; i < 20; i++) await Promise.resolve() }
+    mock.timers.enable({ apis: ['setInterval'] })
+    const { startPolling } = useCredits()
+    const release = startPolling(40)
+    try {
+      await drain()
+      state = 'hidden'
+      document.dispatchEvent(new Event('visibilitychange'))
+      const hiddenAt = fetchCalls.length
+      mock.timers.tick(400)
+      await drain()
+      assert.equal(fetchCalls.length, hiddenAt, 'no account reads while nobody can see the strip')
+      state = 'visible'
+      document.dispatchEvent(new Event('visibilitychange'))
+      await drain()
+      assert.ok(fetchCalls.length > hiddenAt, 'showing the window refreshes at once')
+    } finally {
+      release()
+      mock.timers.reset()
+      if (visibility) Object.defineProperty(document, 'visibilityState', visibility)
+      else delete (document as any).visibilityState
+    }
   })
 })

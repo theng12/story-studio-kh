@@ -15,7 +15,9 @@ test("What's New keeps the current release fully readable and expands older long
   assert.match(source, /View full release/)
   assert.match(source, /Show less/)
   assert.match(source, /View all releases/)
-  assert.match(source, /View 500 more releases/)
+  // It loads the next page, whose size it does not know; it never promised "500 more" honestly.
+  assert.match(source, /View older releases/)
+  assert.doesNotMatch(source, /View 500 more releases/)
   assert.match(source, /offset=\$\{offset\}/)
   assert.match(source, /max-height: calc\(100dvh - 230px\)/)
 })

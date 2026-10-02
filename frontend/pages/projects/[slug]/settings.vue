@@ -694,7 +694,7 @@
       <summary><span><strong>Episode folder names</strong><small>Templates used when Story Studio creates and syncs folders</small></span></summary>
       <h3>Folder Structure</h3>
       <p class="text-muted mt-1 mb-2">
-        Customize how episode subfolders are named. Each template must include <code>{'{code}'}</code> which is replaced with the episode code (e.g. TN0024).
+        Customize how episode subfolders are named. Each template must include <code>{{ '{code}' }}</code> which is replaced with the episode code (e.g. TN0024).
       </p>
       <p v-if="folderConfigLoading" class="text-muted mt-2">Loading folder settings…</p>
       <p v-else-if="folderConfigError" class="text-error mt-2">{{ folderConfigError }}</p>
@@ -807,7 +807,7 @@
             <code v-if="externalRootInput" class="overview-card-path">{{ externalRootInput }}</code>
           </a>
 
-          <a class="overview-card" href="#per-episode-section" @click.prevent="scrollTo('per-episode-section')">
+          <a class="overview-card" href="#per-episode-section" @click.prevent="openSpaceRecovery">
             <div class="overview-card-head">
               <span class="overview-card-icon">🧹</span>
               <strong>Space recovery</strong>
@@ -1066,7 +1066,7 @@
           <input
             v-model="mediaRootInput"
             class="input"
-            placeholder="(not set — media stays in the project tree)   e.g. ${MEDIA}"
+            placeholder="(not set — media stays in the project tree)   e.g. ${ASSET}/Media"
             spellcheck="false"
           />
           <button
@@ -2042,7 +2042,7 @@
               <option v-for="p in currentPresets" :key="p.id" :value="p.id">{{ p.name }}</option>
             </select>
             <button class="btn btn-secondary btn-sm" :disabled="writingControlsDisabled || !selectedPresetId" @click="loadPreset">Load</button>
-            <button class="btn btn-secondary btn-sm" :disabled="writingControlsDisabled || !selectedPresetId" @click="deletePreset" title="Delete preset">✕</button>
+            <button class="btn btn-secondary btn-sm" :disabled="writingControlsDisabled || !selectedPresetId" @click="deletePreset">Delete preset</button>
           </div>
 
           <button class="btn btn-secondary btn-sm" :disabled="writingControlsDisabled" @click="copyAsAiPrompt" title="Copy a chatbot-ready prompt to your clipboard">📋 Copy as AI refine prompt</button>
@@ -2378,6 +2378,9 @@ async function saveGuideDensity(): Promise<void> {
     success(`Guide visibility saved — ${guideDensityLabel.value.toLowerCase()}`)
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to save guide visibility')
+    // Put the slider back on the saved value rather than leave it showing one that was never saved.
+    const saved = Number((config.value as any)?.character_density)
+    if (Number.isFinite(saved)) guideDensity.value = Math.max(0, Math.min(100, Math.round(saved)))
   } finally {
     savingGuideDensity.value = false
   }
@@ -2992,7 +2995,7 @@ async function checkMediaRoot() {
     mediaRootStatus.value = `✓ Resolves to ${r.output} — keep this drive connected when generating media.`
   } catch (e: any) {
     mediaRootOk.value = false
-    mediaRootStatus.value = `⚠ ${e?.data?.detail || e?.message || 'Could not resolve this path on this machine. Define it under Named Roots.'}`
+    mediaRootStatus.value = `⚠ ${e?.data?.detail || e?.message || 'Could not resolve this path on this Mac. Use a full folder path or ${ASSET}/….'}`
   } finally {
     mediaRootChecking.value = false
   }
@@ -3049,7 +3052,7 @@ async function loadStorageAudit() {
     storage.value = await get<StorageAudit>(`/projects/${slug.value}/storage-audit`)
   } catch (e: any) {
     storage.value = null
-    alert(e?.data?.detail || e?.message || 'Storage audit failed')
+    showError(e?.data?.detail || e?.message || 'Storage audit failed')
   } finally {
     auditLoading.value = false
   }
@@ -3065,7 +3068,7 @@ async function clearPreviewCache() {
     )
     await loadStorageAudit()
   } catch (e: any) {
-    alert(e?.data?.detail || e?.message || 'Clearing the preview cache failed')
+    showError(e?.data?.detail || e?.message || 'Clearing the preview cache failed')
   } finally {
     previewCacheClearing.value = false
   }
@@ -3090,7 +3093,7 @@ async function runBulkCleanup() {
     lastBulkCleanup.value = r
     await loadStorageAudit()
   } catch (e: any) {
-    alert(e?.data?.detail || e?.message || 'Bulk cleanup failed')
+    showError(e?.data?.detail || e?.message || 'Bulk cleanup failed')
   } finally {
     bulkRunning.value = false
   }
@@ -3098,15 +3101,25 @@ async function runBulkCleanup() {
 
 async function cleanupRow(row: StorageEntry) {
   if (!row.cleanup_eligible) return
+  if (!await ask({
+    title: `Verify and clear ${row.episode_code}'s local video?`,
+    message: 'Story Studio checks the file matches the accepted YouTube upload before deleting it. If it cannot verify the file, the file stays and you are told why.',
+    confirmLabel: 'Verify & clear',
+    danger: true,
+  })) return
   rowCleanupRunning.value = row.episode_code
   try {
-    await post<CleanupResult>(
+    const result = await post<CleanupResult>(
       `/projects/${slug.value}/storage/cleanup-final/${row.episode_code}`,
       {},
     )
+    // A skipped file used to come back as a quiet 200: nothing happened and nothing said so.
+    const kept = result?.items?.find(item => item.status !== 'deleted')
+    if (result && !result.deleted_count && kept) info(`${row.episode_code}: the local video was kept — ${kept.reason || kept.status}.`)
+    else if (result?.deleted_count) success(`${row.episode_code}: freed ${formatBytes(result.bytes_freed)}.`)
     await loadStorageAudit()
   } catch (e: any) {
-    alert(e?.data?.detail || e?.message || 'Cleanup failed')
+    showError(e?.data?.detail || e?.message || 'Cleanup failed')
   } finally {
     rowCleanupRunning.value = null
   }
@@ -3123,7 +3136,7 @@ async function scanChunkedSidecars() {
     )
     lastSidecarCleanup.value = null
   } catch (e: any) {
-    alert(e?.data?.detail || e?.message || 'Sidecar scan failed')
+    showError(e?.data?.detail || e?.message || 'Sidecar scan failed')
   } finally {
     sidecarScanLoading.value = false
   }
@@ -3131,13 +3144,13 @@ async function scanChunkedSidecars() {
 
 async function cleanupAllChunkedSidecars() {
   if (!sidecarScan.value || sidecarScan.value.eligible_count === 0) return
-  const ok = confirm(
-    `Delete ${sidecarScan.value.eligible_count} chunked-progress sidecar(s) ` +
-    `(${formatBytes(sidecarScan.value.reclaimable_bytes)})?\n\n` +
-    `These are only eligible because their unified narration is complete. ` +
-    `Cleanup affects ONLY sidecar JSONs — chapter docx files, audio, and ` +
-    `everything else stays put.`,
-  )
+  const ok = await ask({
+    title: `Remove ${sidecarScan.value.eligible_count} narration progress file(s)?`,
+    message: `${formatBytes(sidecarScan.value.reclaimable_bytes)} of small progress files left over from finished narration. ` +
+      'Only those files go — chapter documents, audio and everything else stay put.',
+    confirmLabel: 'Remove them',
+    danger: true,
+  })
   if (!ok) return
   sidecarCleanupRunning.value = true
   try {
@@ -3149,13 +3162,19 @@ async function cleanupAllChunkedSidecars() {
     // ones stay).
     await scanChunkedSidecars()
   } catch (e: any) {
-    alert(e?.data?.detail || e?.message || 'Sidecar cleanup failed')
+    showError(e?.data?.detail || e?.message || 'Sidecar cleanup failed')
   } finally {
     sidecarCleanupRunning.value = false
   }
 }
 
 async function cleanupOneSidecar(episode_code: string) {
+  if (!await ask({
+    title: `Remove ${episode_code}'s narration progress files?`,
+    message: 'Only the leftover progress files go; chapter documents and audio stay put.',
+    confirmLabel: 'Remove',
+    danger: true,
+  })) return
   sidecarCleanupRunning.value = true
   try {
     lastSidecarCleanup.value = await post<SidecarCleanupResult>(
@@ -3164,7 +3183,7 @@ async function cleanupOneSidecar(episode_code: string) {
     )
     await scanChunkedSidecars()
   } catch (e: any) {
-    alert(e?.data?.detail || e?.message || 'Sidecar cleanup failed')
+    showError(e?.data?.detail || e?.message || 'Sidecar cleanup failed')
   } finally {
     sidecarCleanupRunning.value = false
   }
@@ -3218,6 +3237,12 @@ onMounted(loadExternalRoot)
  * `per-episode-section`). Falls back to no-op when the target doesn't
  * exist (e.g. if a future refactor renames an anchor).
  */
+/** The per-episode list lives on the Files tab; this card is on Maintenance, so switch first. */
+function openSpaceRecovery() {
+  activeTab.value = 'files'
+  nextTick(() => scrollTo('per-episode-section'))
+}
+
 function scrollTo(id: string) {
   const el = document.getElementById(id)
   if (!el) return
@@ -3524,13 +3549,13 @@ async function browseAndMoveLibrary() {
   }
   if (!picked) return
 
-  const ok = confirm(
-    `Move your Library to:\n  ${picked}\n\n` +
-    `Every channel, your shared assets and your exports are COPIED there.\n` +
-    `The current folder is left exactly as it is, so nothing can be lost —\n` +
-    `you can delete it yourself once you have checked the new one.\n\n` +
-    `The app will restart afterwards.`,
-  )
+  const ok = await ask({
+    title: 'Move your Library?',
+    message: `To: ${picked}\n\nEvery channel, your shared assets and your exports are COPIED there. ` +
+      'The current folder is left exactly as it is, so nothing can be lost — you can delete it yourself once you have checked the new one. ' +
+      'Story Studio restarts afterwards.',
+    confirmLabel: 'Copy and restart',
+  })
   if (!ok) return
 
   projectsRootBusy.value = true
@@ -3542,9 +3567,9 @@ async function browseAndMoveLibrary() {
     setTimeout(async () => {
       try { await post('/system/restart-app', {}) } catch (e: any) {
         if (e?.status === 503) {
-          alert('App is in dev mode and can\'t auto-restart. Quit and start it again to use the new Library.')
+          showError('App is in dev mode and can\'t auto-restart. Quit and start it again to use the new Library.')
         } else {
-          alert(`Restart failed: ${e?.data?.detail || e?.message}. Quit and reopen manually.`)
+          showError(`Restart failed: ${e?.data?.detail || e?.message}. Quit and reopen manually.`)
         }
       }
     }, 600)
@@ -3682,7 +3707,9 @@ async function runYoutubeBackfill(dryRun: boolean) {
     // If the user changed the AI toggle in the UI but hasn't hit Save yet,
     // the backfill would use the LAST-SAVED value — confusing. Force a
     // save first so the in-flight selection is what gets backfilled.
-    await saveProject('publishing')
+    // A failed save must stop here: otherwise every uploaded video is updated
+    // from the OLD saved values while the form shows the new ones.
+    if (!await saveProject('publishing')) return
     const r = await post<YtBackfillResp>(
       `/projects/${slug.value}/upload/youtube-backfill`,
       { dry_run: dryRun },
@@ -3711,7 +3738,7 @@ const tabZones = [
     title: 'This Mac',
     scope: 'Stays on this Mac',
     sections: [
-      { id: 'connections', label: 'Connections', description: 'GenStudio and YouTube accounts', keywords: 'api key oauth models catalog channel' },
+      { id: 'connections', label: 'Connections', description: 'Gateway and YouTube accounts', keywords: 'gateway genstudio api key oauth models catalog channel' },
       { id: 'performance', label: 'Performance & recovery', description: 'Local workload and retry choices', keywords: 'throughput concurrency failed image subtitles timeout' },
       { id: 'appearance', label: 'Appearance & notifications', description: 'Display, access, text and alerts', keywords: 'theme remote server emoji telegram digest' },
       { id: 'maintenance', label: 'Files & maintenance', description: 'Shared Library, exports and diagnostics', keywords: 'ffmpeg about version archive storage' },
@@ -4425,6 +4452,8 @@ async function savePreset() {
 
 async function deletePreset() {
   if (writingControlsDisabled.value) return
+  const doomed = (standardsSubTab.value === 'intro' ? introPresets : standardsPresets).value.find(p => p.id === selectedPresetId.value)
+  if (!await ask({ title: `Delete preset “${doomed?.name || 'this preset'}”?`, message: 'The text in the editor stays; only the saved preset is removed.', confirmLabel: 'Delete preset', danger: true })) return
   const projectSlug = slug.value
   const scope = writingConfigScope
   const subTab = standardsSubTab.value
@@ -4747,6 +4776,17 @@ function resetFolderDefaults() {
 }
 
 // Sync editable data from config
+// What each draft field was last hydrated to. Saving the art style or the guide slider refreshes
+// the whole config, and this watcher used to overwrite every field with it — silently throwing away
+// an intro being typed or a category not yet saved. A field is replaced only on a new project, or
+// when it still shows exactly what was last loaded (i.e. nothing unsaved is in it).
+const hydratedDrafts: Record<string, unknown> = {}
+function hydrateDraft<T>(key: string, current: T, incoming: T, freshProject: boolean): T {
+  const untouched = Object.is(current, hydratedDrafts[key])
+  hydratedDrafts[key] = incoming
+  return freshProject || untouched ? incoming : current
+}
+
 watch(config, (c) => {
   if (c) {
     // Item J — hydrate the YouTube category_id from config when it
@@ -4754,18 +4794,19 @@ watch(config, (c) => {
     // because projectForm is declared between them and the
     // `immediate: true` in the upper watch would TDZ-fault.
     const cAny = c as any
-    projectForm.category_id = typeof cAny?.category_id === 'number' && cAny.category_id > 0
-      ? cAny.category_id : undefined
-    projectForm.mark_as_ai_generated = typeof cAny?.mark_as_ai_generated === 'boolean'
-      ? cAny.mark_as_ai_generated : undefined
+    const fresh = writingConfigLoadedSlug !== slug.value
+    projectForm.category_id = hydrateDraft('category_id', projectForm.category_id,
+      typeof cAny?.category_id === 'number' && cAny.category_id > 0 ? cAny.category_id : undefined, fresh)
+    projectForm.mark_as_ai_generated = hydrateDraft('mark_as_ai_generated', projectForm.mark_as_ai_generated,
+      typeof cAny?.mark_as_ai_generated === 'boolean' ? cAny.mark_as_ai_generated : undefined, fresh)
     standardsPresets.value = JSON.parse(JSON.stringify((c as any).standards_presets || []))
     introPresets.value = JSON.parse(JSON.stringify((c as any).intro_presets || []))
-    introStandards.value = (c as any).intro_standards || ''
+    introStandards.value = hydrateDraft('intro_standards', introStandards.value, (c as any).intro_standards || '', fresh)
     writingConfigLoadedSlug = slug.value
     // Load confirmation preferences
     const prefs = (c as any).confirmation_preferences || {}
     for (const gen of confirmGenerators) {
-      confirmPrefs[gen.key] = prefs[gen.key] !== false // default true
+      confirmPrefs[gen.key] = hydrateDraft(`confirm:${gen.key}`, confirmPrefs[gen.key], prefs[gen.key] !== false, fresh) // default true
     }
   }
 }, { immediate: true })
@@ -4968,11 +5009,12 @@ async function saveStandards() {
   }
 }
 
-async function saveProject(requestedSection?: ProjectSettingsSaveSection) {
+/** True only when the section was saved for the project still on screen. */
+async function saveProject(requestedSection?: ProjectSettingsSaveSection): Promise<boolean> {
   try {
     const targetSlug = slug.value
     const section = requestedSection || (activeTab.value as ProjectSettingsSaveSection)
-    if (!['identity', 'publishing', 'files'].includes(section)) return
+    if (!['identity', 'publishing', 'files'].includes(section)) return false
     const draftBeforeSave = { ...projectForm }
     const plan = projectSettingsSavePlan(section, draftBeforeSave, serverSeasonSize.value)
 
@@ -4986,7 +5028,7 @@ async function saveProject(requestedSection?: ProjectSettingsSaveSection) {
     if (plan.config) {
       await put(`/projects/${targetSlug}/settings/config`, plan.config)
     }
-    if (slug.value !== targetSlug) return
+    if (slug.value !== targetSlug) return false
     if (project.value) {
       for (const key of Object.keys(plan.project)) {
         (project.value as any)[key] = savedProject[key]
@@ -5004,8 +5046,10 @@ async function saveProject(requestedSection?: ProjectSettingsSaveSection) {
     // would hydrate every section and discard drafts hidden behind another link.
     stampSaved(`project_${section}`)
     success(`${section === 'identity' ? 'Project identity' : section === 'publishing' ? 'Publishing defaults' : 'Project files'} saved!`)
+    return true
   } catch (e: any) {
     showError(e.data?.detail || 'Failed to save')
+    return false
   }
 }
 
@@ -5036,7 +5080,7 @@ async function deleteProject() {
     title: `Hide "${project.value?.name}" from the app?`,
     message:
       'Files stay on disk — only the registration is removed. ' +
-      'You can restore the project anytime, or permanently delete it later from the home-page Hidden projects panel.',
+      'You can restore the project anytime, or permanently delete it later from the home-page Hidden channels panel.',
     confirmLabel: 'Hide project',
     danger: false,
   })

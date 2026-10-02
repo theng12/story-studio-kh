@@ -310,6 +310,7 @@ export interface ContentStoreErrorPresentation {
 export function contentStoreErrorPresentation(error: ContentStoreUiError): ContentStoreErrorPresentation {
   const failure = (title: string, recovery: string, settingsAction = false): ContentStoreErrorPresentation => ({ title, detail: error.detail, recovery, settingsAction })
   switch (error.code) {
+    case 'GATEWAY_UNREACHABLE': return failure('The Gateway is not answering', 'Open the Gateway app, then press Refresh store. Nothing was bought or changed.', true)
     case 'CONTENT_STORE_KEY_REQUIRED':
     case 'CONTENT_STORE_SCOPE_REQUIRED': return failure('Content Store access is needed', 'Open Settings and test the Content Store scope, then refresh.', true)
     case 'CONTENT_STORE_SIGNING_KEY_MISSING': return failure('Content Store access is needed', 'GenStudio did not publish the signing key needed to verify this Content Store proof. Refresh later.')

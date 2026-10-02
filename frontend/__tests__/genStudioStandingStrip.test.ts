@@ -29,7 +29,7 @@ test('both application shells render one shared standing strip in their persiste
   // titlebar, outside the scrolling page content. That layout has no sidebar,
   // so the strip has always been on top there.
   assert.match(
-    region(defaultLayout, '<div class="account-standing">', '</div>'),
+    region(defaultLayout, '<div v-if="!signingIn" class="account-standing">', '</div>'),
     /<GenStudioStandingStrip/,
   )
 
@@ -62,4 +62,8 @@ test('the strip carries its own top-bar shape instead of relying on a parent ove
   assert.match(component, /variant\?: 'stacked' \| 'inline'/)
   assert.match(component, /\.standing-strip-inline\s*\{[^}]*flex-wrap:\s*nowrap/)
   assert.match(component, /\.standing-strip-inline small\s*\{[^}]*width:\s*auto/)
+})
+
+test('the sign-in page does not show account standing it cannot read before sign-in', () => {
+  assert.match(defaultLayout, /signingIn = computed\(\(\) => route\.path\.replace\(\/\\\/\+\$\/, ''\) === '\/login'\)/)
 })

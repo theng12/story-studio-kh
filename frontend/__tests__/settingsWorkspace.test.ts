@@ -154,7 +154,8 @@ describe('Settings workspace navigation', () => {
     assert.doesNotMatch(settingsSource, /script-concurrency/)
     assert.doesNotMatch(settingsSource, /launch stagger/i)
     assert.doesNotMatch(thisMacSettingsSource, /GenStudio itself accepts 12|what GenStudio accepts/)
-    assert.match(thisMacSettingsSource, /local staging preference/i)
+    // Same meaning, plain words: Story's number only limits what it sends; the Gateway decides what runs.
+    assert.match(thisMacSettingsSource, /the Gateway still decides/i)
   })
 
   test('Channel Identity owns the channel-wide recurring guide visibility default', () => {
@@ -207,12 +208,15 @@ describe('Settings workspace navigation', () => {
     assert.doesNotMatch(settingsSource, /activeTab === 'models'/)
     assert.doesNotMatch(settingsSource, /id: 'models'/)
     assert.equal(LEGACY_SETTINGS_HASHES.models, 'connections')
-    assert.match(thisMacSettingsSource, /music:generate/)
-    assert.match(thisMacSettingsSource, /content:read/)
-    assert.match(thisMacSettingsSource, /content:purchase/)
-    assert.match(thisMacSettingsSource, /Read scope verified/)
-    assert.match(thisMacSettingsSource, /Purchase scope required · not safely testable without buying/)
-    assert.match(thisMacSettingsSource, /all-access or scoped/i)
+    // Owner 2026-10-03: the connection is his Gateway, not the paid GenStudio cloud service, and the
+    // permission-scope list is jargon he cannot act on. The key test still reports the Content Store.
+    assert.match(thisMacSettingsSource, /<h4>Gateway<\/h4>/)
+    assert.match(thisMacSettingsSource, /Your GatewayKH on this Mac or network — it runs your free local models/)
+    assert.match(thisMacSettingsSource, /Copy it from GatewayKH → Settings/)
+    assert.match(thisMacSettingsSource, /connections: 'Gateway connection'/)
+    assert.match(thisMacSettingsSource, /Content Store: \{\{/)
+    assert.doesNotMatch(thisMacSettingsSource, /<code>content:purchase<\/code>|Required scopes|GenStudio API key<\/label>/)
+    assert.doesNotMatch(thisMacSettingsSource, /Sole AI boundary|Test scopes/)
     assert.doesNotMatch(thisMacSettingsSource, /one scoped key|Scoped API key|Scoped GenStudio key saved/i)
     assert.doesNotMatch(thisMacSettingsSource, /\/v1\/api-keys|\/reveal/)
   })

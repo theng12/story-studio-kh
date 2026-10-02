@@ -19,7 +19,7 @@
               :name="`compress-${row.kind}`"
               :checked="effective[row.kind]"
               :disabled="!loaded || saving === row.kind"
-              @change="onToggle(row.kind, ($event.target as HTMLInputElement).checked)"
+              @change="onToggle(row.kind, $event.target as HTMLInputElement)"
             />
             <span>{{ row.label }}</span>
           </label>
@@ -31,7 +31,7 @@
               :name="`compress-${row.kind}`"
               :value="choice(row.kind)"
               :disabled="!loaded || saving === row.kind"
-              @change="onChoice(row.kind, ($event.target as HTMLSelectElement).value)"
+              @change="onChoice(row.kind, $event.target as HTMLSelectElement)"
             >
               <option value="inherit">Use app default ({{ globalSettings[row.kind] ? 'On' : 'Off' }})</option>
               <option value="on">On</option>
@@ -104,7 +104,8 @@ async function load() {
   }
 }
 
-async function save(kind: Kind, value: boolean | null) {
+/** False when the save did not land; the control is then put back by the caller. */
+async function save(kind: Kind, value: boolean | null): Promise<boolean> {
   const version = generation
   saving.value = kind
   result.value = null
@@ -120,15 +121,25 @@ async function save(kind: Kind, value: boolean | null) {
       globalSettings.value = data.settings
     }
     result.value = { kind: 'ok', message: 'Saved. Applies to the next thing you generate.' }
+    return true
   } catch (e) {
     if (version === generation) result.value = { kind: 'err', message: message(e) }
+    return false
   } finally {
-    if (version === generation) saving.value = ''
+    // Cleared even when the project changed mid-save, or that row stayed disabled for good.
+    if (saving.value === kind) saving.value = ''
   }
 }
 
-function onToggle(kind: Kind, checked: boolean) { void save(kind, checked) }
-function onChoice(kind: Kind, value: string) { void save(kind, value === 'inherit' ? null : value === 'on') }
+// A failed save leaves the bound value unchanged, so Vue would not re-render the control and it
+// would keep showing a choice that was never saved. Put it back by hand.
+async function onToggle(kind: Kind, box: HTMLInputElement) {
+  if (!await save(kind, box.checked)) box.checked = effective.value[kind]
+}
+async function onChoice(kind: Kind, select: HTMLSelectElement) {
+  const value = select.value
+  if (!await save(kind, value === 'inherit' ? null : value === 'on')) select.value = choice(kind)
+}
 
 watch(() => props.slug, () => { void load() })
 onMounted(() => { void load() })

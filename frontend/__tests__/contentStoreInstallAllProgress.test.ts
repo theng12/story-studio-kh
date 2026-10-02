@@ -160,6 +160,13 @@ describe('the Install all missing button gives feedback', () => {
     assert.equal(liveRegion?.getAttribute('role'), 'status')
     assert.equal(liveRegion?.getAttribute('aria-live'), 'polite')
 
+    // Dismissing the finished-installs strip clears the queue's results back to idle. The button
+    // used to read that as "0 of 3 done, still running" and stay disabled until the tab changed.
+    queue.clearFinished()
+    await nextTick(); await nextTick()
+    assert.equal(button().disabled, false, 'Dismiss must not lock the button')
+    assert.equal(button().textContent, 'Install all missing (1)')
+
     rendered.unmount()
   })
 })

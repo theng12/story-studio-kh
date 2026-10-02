@@ -12,7 +12,9 @@ test('unconfigured GenStudio and usage failures lead to the connection settings'
 
   assert.match(strip, /appSettingsModal\.open\('connections'\)/)
   assert.match(strip, /<button\s+v-else/)
-  assert.match(strip, /<NuxtLink\s+v-if="genstudioConfigured"/)
+  assert.match(strip, /<NuxtLink\s+v-else-if="genstudioConfigured"/)
+  // A stopped Gateway comes first and leads to the same connection settings.
+  assert.match(strip, /v-if="gatewayDown"[\s\S]*?appSettingsModal\.open\('connections'\)/)
   assert.match(usage, /appSettingsModal\.open\('connections'\)/)
   assert.match(usage, /GENSTUDIO_USAGE_SCOPE_UNAVAILABLE/)
 })

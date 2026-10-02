@@ -312,3 +312,41 @@ describe('a figure GenStudio did not publish never becomes zero', () => {
     assert.equal(sumPublished(unpriced, row => row.creditPrice), null)
   })
 })
+
+describe('a purchase whose answer never arrived (shell audit 2026-10-03)', () => {
+  test('is reported as possibly owned, and Retry re-sends the SAME quote instead of buying again', async () => {
+    const catalog = ['a', 'b'].map(id => product({ productId: id }))
+    let firstTry = true
+    const quotes: string[] = []
+    const confirms: string[] = []
+    let lastError: ContentStoreUiError | null = null
+    const batch = useBatchPurchase({
+      quote: async productId => { quotes.push(productId); return attempt(productId, 30) },
+      confirm: async quoteId => {
+        confirms.push(quoteId)
+        if (quoteId === 'cq_b' && firstTry) {
+          firstTry = false
+          lastError = { code: 'CONTENT_PURCHASE_OUTCOME_UNCERTAIN', detail: 'Story Studio did not receive GenStudio\'s answer.' } as ContentStoreUiError
+          throw new Error('uncertain')
+        }
+        return { ...attempt(quoteId.replace(/^cq_/, ''), 30), status: 'completed', credits_charged: 30 }
+      },
+      lookup: productId => catalog.find(row => row.productId === productId),
+      lastError: () => lastError,
+    })
+    await batch.start(catalog)
+    await batch.confirmAll()
+    const b = batch.items.value.find(item => item.productId === 'b')!
+    assert.equal(b.outcome, 'failed')
+    assert.equal(b.uncertain, true)
+    assert.match(b.reason || '', /may already be yours/)
+    assert.equal(b.retryable, true)
+
+    await batch.retryFailed()
+    assert.deepEqual(quotes, ['a', 'b'], 'no fresh quote (and so no fresh idempotency key) for the uncertain pack')
+    assert.equal(batch.phase.value, 'review')
+    await batch.confirmAll()
+    assert.deepEqual(confirms, ['cq_a', 'cq_b', 'cq_b'], 'the same signed quote is confirmed again')
+    assert.equal(batch.items.value.find(item => item.productId === 'b')?.outcome, 'owned')
+  })
+})

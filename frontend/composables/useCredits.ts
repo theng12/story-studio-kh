@@ -2,6 +2,7 @@
 import { ref, readonly } from 'vue'
 import { useApi } from './useApi.js'
 import { keepStandingAfterFailedRefresh } from '../utils/genstudio-freshness.js'
+import { createVisibleInterval } from './useVisibleInterval.js'
 
 export const DEFAULT_CREDIT_POLL_MS = 30_000
 
@@ -39,7 +40,9 @@ const genstudioConfigured = ref(false)
 const usageError = ref('')
 const isRefreshing = ref(false)
 const pollIntervalMs = ref(DEFAULT_CREDIT_POLL_MS)
-let creditInterval: ReturnType<typeof setInterval> | null = null
+// Paused while the window is hidden (each tick is two local calls and a Gateway read, ~5 800 a day
+// for a strip nobody is looking at); refreshed the moment the window is shown again.
+let creditInterval: ReturnType<typeof createVisibleInterval> | null = null
 const pollingConsumers = new Set<symbol>()
 let creditRequest: Promise<void> | null = null
 
@@ -122,7 +125,8 @@ export function useCredits() {
     if (!creditInterval) {
       pollIntervalMs.value = intervalMs
       void fetchHealth()
-      creditInterval = setInterval(() => { void fetchHealth() }, intervalMs)
+      creditInterval = createVisibleInterval(() => { void fetchHealth() }, intervalMs)
+      creditInterval.start()
     }
     let released = false
     return () => {
@@ -134,7 +138,7 @@ export function useCredits() {
   }
 
   function clearPollingInterval(): void {
-    if (creditInterval) clearInterval(creditInterval)
+    creditInterval?.stop()
     creditInterval = null
   }
 

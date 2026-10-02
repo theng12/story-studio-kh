@@ -44,6 +44,11 @@ export interface BatchQuoteItem {
   charged?: number
   outcome?: 'owned' | 'failed'
   retryable?: boolean
+  /**
+   * GenStudio's answer never arrived, so the pack may already be owned. Its retry re-sends the SAME
+   * signed quote (same idempotency key), never a fresh quote that could be a second purchase.
+   */
+  uncertain?: boolean
 }
 
 export interface BatchPurchaseDeps {
@@ -183,9 +188,13 @@ export function useBatchPurchase(deps: BatchPurchaseDeps) {
           // Never abort the rest. A pack that cannot be bought is one line in
           // the report, not the end of the batch.
           const error = deps.lastError()
+          const uncertain = error?.code === 'CONTENT_PURCHASE_OUTCOME_UNCERTAIN'
           patch(item.productId, {
             outcome: 'failed',
-            reason: readableError('GenStudio did not complete this purchase'),
+            uncertain,
+            reason: uncertain
+              ? 'GenStudio’s answer did not arrive — this pack may already be yours. Retry re-sends the same purchase, so it is never bought twice.'
+              : readableError('GenStudio did not complete this purchase'),
             // A terminal refusal (recalled, retired) must not offer a retry
             // that can only fail the same way again.
             retryable: error?.terminal !== true,
@@ -209,8 +218,17 @@ export function useBatchPurchase(deps: BatchPurchaseDeps) {
     busy.value = true
     phase.value = 'quoting'
     try {
-      for (const item of retryable) patch(item.productId, { outcome: undefined, reason: undefined, attempt: null })
-      await quoteAll(retryable.map(item => item.productId))
+      // An uncertain purchase keeps its signed quote: confirming it again replays the saved
+      // idempotency key, so GenStudio answers with the first outcome instead of charging again.
+      // Only a definite failure is re-quoted.
+      const requote = retryable.filter(item => !item.uncertain)
+      for (const item of retryable) {
+        patch(item.productId, item.uncertain
+          ? { outcome: undefined, reason: undefined, uncertain: false }
+          : { outcome: undefined, reason: undefined, attempt: null })
+      }
+      if (requote.length) await quoteAll(requote.map(item => item.productId))
+      else phase.value = 'review'
     } finally { busy.value = false }
   }
 

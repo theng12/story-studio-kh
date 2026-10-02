@@ -4359,7 +4359,7 @@ export class GenStudioCatalogUnavailableError extends Error {
             : ` and the cached copy is ${Math.round(ageMs / 60_000)} minute(s) old, beyond the `
               + `${Math.round(CATALOG_STALE_MS / 60_000)}-minute staleness limit`}. `
           + 'Story Studio refused to submit work against an unverified product; nothing was requested '
-          + 'and no credits were charged. Check your connection, then Retry.',
+          + 'and no credits were charged. Check the Gateway app is running, then Retry.',
       cause === undefined ? undefined : { cause },
     )
     this.name = 'GenStudioCatalogUnavailableError'
@@ -6168,7 +6168,7 @@ export class GenStudioAccountUnavailableError extends Error {
         : ` and the cached copy is ${Math.round(ageMs / 60_000)} minute(s) old, beyond the `
           + `${Math.round(ACCOUNT_OVERVIEW_STALE_MS / 60_000)}-minute staleness limit`}. `
       + 'Balance and capacity are not shown rather than guessed. Work already running is '
-      + 'unaffected. Check your connection, then Retry.',
+      + 'unaffected. Check the Gateway app is running, then Retry.',
       cause === undefined ? undefined : { cause },
     )
     this.name = 'GenStudioAccountUnavailableError'

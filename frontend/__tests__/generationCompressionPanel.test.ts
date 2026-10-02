@@ -99,3 +99,29 @@ test('a failed load is stated and nothing is editable; a slow answer for the old
     assert.equal(sel('narration').value, 'inherit', 'the first project\'s late answer must not overwrite it')
   } finally { ui.close() }
 })
+
+test('a failed save puts the checkbox and the project select back on the saved value', async () => {
+  let project = false
+  const ui = await mount({
+    get: async (url: string) => url.startsWith('/projects/')
+      ? { global: defaults, override: { music: false }, effective: { ...defaults, music: false } }
+      : { settings: defaults, defaults },
+    put: async () => { throw Object.assign(new Error('nope'), { data: { detail: 'Disk is read-only.' } }) },
+  })
+  try {
+    const box = ui.host.querySelector<HTMLInputElement>('input[name="compress-music"]')!
+    assert.equal(box.checked, true)
+    box.checked = false
+    box.dispatchEvent(new Event('change', { bubbles: true })); await flush()
+    assert.equal(box.checked, true, 'the box shows what is saved, not the refused choice')
+    assert.match(ui.host.textContent || '', /Disk is read-only\./)
+    assert.equal(box.disabled, false, 'the row is usable again')
+
+    ui.props.value = { slug: 'first' }; project = true; await flush(); await flush()
+    const sel = ui.host.querySelector<HTMLSelectElement>('select[name="compress-music"]')!
+    assert.equal(sel.value, 'off')
+    sel.value = 'on'; sel.dispatchEvent(new Event('change', { bubbles: true })); await flush()
+    assert.equal(sel.value, 'off', 'the select shows the saved project choice again')
+    assert.ok(project)
+  } finally { ui.close() }
+})

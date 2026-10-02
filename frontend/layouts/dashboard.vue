@@ -120,13 +120,11 @@
             <NuxtLink v-if="slug" :to="`/projects/${slug}/settings`" class="sidebar-utility" active-class="active">Settings</NuxtLink>
             <button v-else type="button" class="sidebar-utility" @click="appSettingsModal.open()">Settings</button>
           </nav>
-          <div
-            class="network-status"
-            :class="networkOnline ? 'online' : 'offline'"
-          >
+          <div class="network-status" :class="connection.tone" role="status">
             <span class="network-dot" aria-hidden="true" />
-            <span>{{ networkOnline ? 'Story Studio online' : 'Story Studio unavailable' }}</span>
+            <span>{{ connection.label }}</span>
           </div>
+          <p v-if="connection.hint" class="network-hint">{{ connection.hint }}</p>
           <!-- Project pages had no version anywhere. The standing strip moved
                up to the top bar; the running build takes its place here, with
                the same content and title behaviour as default.vue's badge. -->
@@ -178,7 +176,7 @@ const { jobs, stats, startPolling: startJobPolling, stopPolling: stopJobPolling 
 const { stats: allJobStats, start: startAllJobs, stop: stopAllJobs } = useAllJobs()
 const { niches, isReady: nichesReady, error: nichesError } = useNiches()
 const { refreshReadiness } = useNotifications()
-const { online: networkOnline } = useNetworkStatus()
+const { connection } = useConnectionStatus()
 const { get: apiGet } = useApi()
 const { public: pubCfg } = useRuntimeConfig()
 const appVersion = computed(() => (pubCfg.appVersion as string | undefined) || '0.0.0')
@@ -512,6 +510,8 @@ onUnmounted(() => {
 .network-status { justify-content: flex-start; }
 .network-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--error); }
 .network-status.online .network-dot { background: var(--success); }
+.network-status.unknown .network-dot { background: var(--text-muted); }
+.network-hint { margin: -4px 0 0; padding: 0 8px; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.4; }
 
 .version-badge {
   display: inline-flex;
@@ -545,7 +545,9 @@ onUnmounted(() => {
 .sidebar-overlay { display: none; }
 
 @media (max-width: 900px) {
-  .menu-toggle { display: inline-flex; align-items: center; justify-content: center; }
+  /* Clear of the macOS traffic lights (x 16, ~52 px wide): at the 900 px minimum window the sidebar
+     collapses here, and a Menu button under the lights could not be clicked at all. */
+  .menu-toggle { display: inline-flex; align-items: center; justify-content: center; padding-left: 78px; min-width: 138px; }
   .sidebar {
     position: fixed;
     z-index: 300;

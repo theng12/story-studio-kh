@@ -139,6 +139,12 @@ interface SharedSlot {
   inflight: Promise<EpisodeRow[]> | null
   /** Monotonic request id so an older response cannot overwrite a mutation refresh. */
   requestSeq: number
+  /**
+   * Completed job ids this list has already refreshed for. Shared by every mounted instance (the
+   * episode dropdown and the page each hold one), so one completion is one list read, not one per
+   * instance — a 300-episode batch used to cost two full episode scans per finished job.
+   */
+  refreshedForJobs: Set<string>
 }
 
 const TTL_MS = 5 * 60 * 1000  // 5 minutes — past this, treat as cold
@@ -157,10 +163,16 @@ function getOrCreateSlot(slug: string): SharedSlot {
       fetchedFrom: ref(0),
       inflight: null,
       requestSeq: 0,
+      refreshedForJobs: new Set(),
     }
     slots.set(slug, slot)
   }
   return slot
+}
+
+/** Test-only: forget which completions each list already refreshed for (job ids repeat across tests). */
+export function _forgetEpisodeJobRefreshesForTests(): void {
+  for (const slot of slots.values()) slot.refreshedForJobs.clear()
 }
 
 /** Drop the cached entry for a slug. Next mount refetches from scratch. */
@@ -399,6 +411,8 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
       if (!isObservedTransition && fetchedFrom > 0 && Number.isFinite(completedAt) && completedAt <= fetchedFrom) continue
       const completionSlug = slugRef.value
       const slot = currentSlot()
+      if (slot.refreshedForJobs.has(seenKey)) continue
+      slot.refreshedForJobs.add(seenKey)
       invalidate()
       const inflight = slot.inflight
       if (!inflight) {

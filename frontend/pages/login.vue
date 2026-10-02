@@ -93,7 +93,10 @@ async function onSubmit() {
     window.location.assign('/')
   } catch (e: any) {
     // $fetch throws an FetchError with `data: { detail }` on non-2xx.
-    error.value = e?.data?.detail || e?.message || 'Sign-in failed'
+    // With no answer at all, ofetch's text is `[POST] "/api/auth/login": <no response> Failed to fetch`.
+    error.value = e?.data?.detail
+      || (e?.response ? e?.message : 'Can’t reach the Story Studio Mac — check it is switched on and connected, then try again.')
+      || 'Sign-in failed'
     submitting.value = false
   }
 }

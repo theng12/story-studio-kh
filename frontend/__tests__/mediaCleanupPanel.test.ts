@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { beforeEach, test } from 'node:test'
+import { beforeEach, mock, test } from 'node:test'
 import { createApp, defineComponent, h, nextTick, ref } from 'vue'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
@@ -170,4 +170,28 @@ test('the advanced review defaults to _trash, never to a destination folder', as
     button(ui.host, 'Move reviewed files to _trash').click(); await flush()
     assert.deepEqual(calls[1].body, { preview_id: 'review-1', mode: 'remove' })
   } finally { ui.close() }
+})
+
+test('one missed progress read does not freeze the operation: it keeps checking and then shows the result', async () => {
+  let reads = 0
+  const ui = await mount({
+    get: async (url: string) => {
+      if (url.endsWith('/episodes')) return listed
+      reads++
+      if (reads === 1) throw Object.assign(new Error('engine busy'), { status: 503, data: { detail: 'Engine busy.' } })
+      return { id: 'preview-op', project_slug: 'first', kind: 'preview', status: 'completed', done: 1, total: 1, current: '', stage: null, preview }
+    },
+    post: async () => ({ operation_id: 'preview-op' }),
+  })
+  try {
+    button(ui.host, 'Select all uploaded').click(); await flush()
+    change(ui.host.querySelector<HTMLInputElement>('input[type=checkbox][value=images]')!); await flush()
+    const drain = async () => { for (let i = 0; i < 20; i++) { await Promise.resolve(); await nextTick() } }
+    mock.timers.enable({ apis: ['setTimeout'] })
+    button(ui.host, 'Review selected files').click(); await drain()
+    assert.match(ui.host.textContent || '', /Checking again/)
+    mock.timers.tick(3_000); await drain()
+    assert.equal(reads, 2, 'the operation is read again after the miss')
+    assert.match(ui.host.textContent || '', /Move reviewed files to _trash/)
+  } finally { mock.timers.reset(); ui.close() }
 })

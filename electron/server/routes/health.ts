@@ -9,6 +9,7 @@ import {
   listChatModels as listGenStudioChatModels,
 } from '../lib/genstudio-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
+import { getGenStudioUrl } from '../services/app-settings.js'
 import { getSessionStats } from '../services/session-tracker.js'
 import { getFFmpegStatus, downloadFFmpeg, getInstallProgressState, _markInstallError } from '../services/ffmpeg-manager.js'
 import { getLogDir, logLine, flushLogLines } from '../services/logger.js'
@@ -243,6 +244,23 @@ router.get('/connectivity/precheck', async (_req, res) => {
     res.json({ online: true, genstudio: true })
   } catch (error: any) {
     res.json({ online: false, genstudio: false, detail: error?.message || 'GenStudio unavailable' })
+  }
+})
+
+/**
+ * Is the Gateway answering at all? The sidebar and header ask this every 20 s, so it is the cheapest
+ * question there is: no key, no catalogue, just the Gateway's own unauthenticated `/health`. Any HTTP
+ * answer means the app is running (a 404 from a gateway without `/health` still proves that); only a
+ * refused/timed-out connection is "not reachable". Before this the app could only say whether its OWN
+ * engine was up, so a stopped or restarting Gateway showed "Story Studio online" while nothing could run.
+ */
+router.get('/gateway/status', async (_req, res) => {
+  const url = await getGenStudioUrl()
+  try {
+    await fetch(`${url.trim().replace(/\/+$/, '')}/health`, { signal: AbortSignal.timeout(4_000) })
+    res.json({ reachable: true, url })
+  } catch {
+    res.json({ reachable: false, url })
   }
 })
 

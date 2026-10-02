@@ -160,6 +160,11 @@ async function pollOperation() {
       if (e?.statusCode === 404 || e?.status === 404) {
         forget(slug); operation.value = null
         error.value = 'This operation is no longer running, possibly after an app restart. Refresh uploads and review the files again; completed cleanup records are retained.'
+      } else {
+        // One missed read (the engine busy for a moment) used to freeze the progress and leave
+        // every button disabled. Keep following the operation; it carries on regardless.
+        error.value = `${message(e)} Checking again…`
+        timer = setTimeout(() => void pollOperation(), 3000)
       }
     }
   } finally { if (current(version)) polling.value = false }

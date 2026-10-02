@@ -180,7 +180,28 @@ async function refreshReadiness(slug: string): Promise<void> {
     //    The same catalogue read also answers check 2b below, so it is fetched
     //    once and both checks share it.
     let catalog: ChannelCatalogRow[] = []
+    // 2a. No Gateway key at all. `/models` answers that with a 400 (so "no key" cannot look like
+    //     "no models"), which the catch below reads as "unknown" — so a brand-new channel showed
+    //     only the upload warning and nothing about the one thing every generator needs.
+    let gatewayKeySaved = true
     try {
+      const keys = await get<{ providers: Array<{ providerId: string; hasKey: boolean }> }>('/app-settings/api-keys')
+      gatewayKeySaved = keys.providers.some(row => row.providerId === 'genstudio' && row.hasKey)
+      if (!gatewayKeySaved) {
+        removeItem(slug, 'apikeys')
+        setItem(slug, {
+          key: 'gateway-key',
+          severity: 'blocking',
+          title: 'Connect your Gateway',
+          detail: 'Paste its key from GatewayKH → Settings into Settings → Connections. Nothing can be written, voiced or drawn until it is connected.',
+          to: `/projects/${slug}/settings#connections`,
+        })
+      } else {
+        removeItem(slug, 'gateway-key')
+      }
+    } catch { /* unknown — leave prior state, no false alarm */ }
+    try {
+      if (!gatewayKeySaved) throw new Error('no Gateway key')
       const models = await get<Array<{ available: boolean } & ChannelCatalogRow>>(`/models?project=${slug}`)
       if (Array.isArray(models)) catalog = models
       const anyUsable = Array.isArray(models) && models.some(m => m.available)
@@ -189,8 +210,8 @@ async function refreshReadiness(slug: string): Promise<void> {
           key: 'apikeys',
           severity: 'blocking',
           title: 'No AI model available',
-          detail: 'No API key is configured for any text model, so script/metadata generation will fail. Add a key in Settings → This Mac.',
-          to: `/projects/${slug}/settings`,
+          detail: 'The Gateway lists no usable writing model, so scripts and metadata cannot be generated. Check the Gateway app has a writing model switched on.',
+          to: `/projects/${slug}/settings#connections`,
         })
       } else {
         removeItem(slug, 'apikeys')

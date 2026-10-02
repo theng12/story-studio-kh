@@ -15,7 +15,7 @@ import {
   startOwnedContentStoreReleaseInstall,
 } from '../services/content-store-delivery.js'
 import { GenStudioContentStoreApiError, GenStudioContentStoreLimitError } from '../lib/genstudio-content-store.js'
-import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { gatewayConnectionFailure, humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { redactSecrets } from '../lib/redact-secrets.js'
 import { logLine } from '../services/logger.js'
 
@@ -147,6 +147,10 @@ function projectFailure(
   if (error instanceof z.ZodError) {
     return { status: 400, body: { code: 'CONTENT_STORE_REQUEST_INVALID', detail: 'Content Store request fields are invalid.' } }
   }
+  // A read that never reached the Gateway: say so, instead of the generic "Failed to load the
+  // Content Store." A purchase whose outcome is uncertain never gets here (it is mapped earlier).
+  const offline = gatewayConnectionFailure(error)
+  if (offline) return { status: 503, body: { code: 'GATEWAY_UNREACHABLE', ...offline } }
   // A size refusal is the one unexpected failure whose cause is fully safe to
   // repeat: it names a limit and an endpoint, and nothing else. It used to fall
   // through to the generic fallback below, which is why the 2026-08-25 outage

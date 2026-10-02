@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { describe, test } from 'node:test'
+import { describe, mock, test } from 'node:test'
 import { createApp, defineComponent, h, nextTick, type Component } from 'vue'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
@@ -465,5 +465,25 @@ describe('Settings → YouTube boundaries', () => {
     // The application view exposes only whether a secret is stored.
     assert.doesNotMatch(source, /client_secret_masked|application\.client_secret/)
     assert.match(source, /has_client_secret/)
+  })
+})
+
+describe('Settings → YouTube while waiting for Google (shell audit 2026-10-03)', () => {
+  test('Stop waiting frees the page instead of locking every button for five minutes', async () => {
+    const mounted = await mount({ connectStatus: { status: 'pending' } })
+    const drain = async () => { for (let i = 0; i < 20; i++) { await Promise.resolve(); await nextTick() } }
+    mock.timers.enable({ apis: ['setTimeout'] })
+    try {
+      await clickConnect(mounted)
+      await drain()
+      const stop = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Stop waiting')
+      assert.ok(stop, 'a visible way out while waiting')
+      stop!.click()
+      mock.timers.tick(1_000)
+      await drain()
+      const connect = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Connect a YouTube channel'))!
+      assert.equal(connect.disabled, false)
+      assert.match(mounted.el.textContent!, /Stopped waiting for Google/)
+    } finally { mock.timers.reset(); mounted.destroy() }
   })
 })

@@ -9,7 +9,9 @@ const footer = dashboard.slice(footerStart, dashboard.indexOf('</footer>', foote
 test('the dashboard footer keeps operational status and shows the running build', () => {
   assert.notEqual(footerStart, -1, 'the sidebar status footer must exist')
   assert.match(dashboard, /<footer class="sidebar-credits" aria-label="Story Studio status">/)
-  assert.match(footer, /Story Studio online/)
+  // The footer reports the Gateway, not only the local engine (which is up whenever the window is).
+  assert.match(footer, /\{\{ connection\.label \}\}/)
+  assert.match(footer, /v-if="connection\.hint"/)
   assert.doesNotMatch(dashboard, /All systems online/)
 
   // Deliberately reversed in v1.2.3. The account standing strip moved to the
@@ -40,4 +42,9 @@ test('the project sidebar reaches the existing Image Pool beside Assets Library'
     dashboard.slice(assets, imagePool + '>Image Pool</NuxtLink>'.length),
     /:to="`\/projects\/\$\{slug\}\/image-pool`"[^>]*>Image Pool<\/NuxtLink>/,
   )
+})
+
+test('the collapsed-sidebar Menu button sits clear of the macOS traffic lights', () => {
+  const narrow = dashboard.slice(dashboard.indexOf('@media (max-width: 900px)'))
+  assert.match(narrow, /\.menu-toggle \{[^}]*padding-left: 78px/)
 })
