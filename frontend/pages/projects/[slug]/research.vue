@@ -565,6 +565,7 @@
 </template>
 
 <script setup lang="ts">
+import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
 import { ref, computed, watch, onMounted } from 'vue'
 import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
 import type { GenStudioLlmCostTier } from '~/utils/genstudio-cost-tier'
@@ -594,7 +595,7 @@ const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put, del } = useApi()
 const freshResearchAction = useFreshGenerationAction()
-const { success, error: showError } = useToast()
+const { success, error: showError, showAction } = useToast()
 const { ask } = useConfirm()
 const { config: projectConfig } = useProject()
 
@@ -1367,7 +1368,8 @@ async function runResearch(): Promise<void> {
   } catch (e: any) {
     // The same click reuses this operation id (useFreshGenerationAction), and
     // the server returns the job it already queued instead of a second run.
-    showError(e?.data?.detail || "Couldn't confirm the request arrived. Click the same button again — it won't run twice.")
+    if (e?.data?.detail) showError(e.data.detail)
+    else showAction(UNCONFIRMED_SUBMISSION, 'Retry', () => runResearch(), 'error')
   } finally {
     // Only clear if a LATER run for another episode hasn't taken over.
     if (researchingTarget.value?.projectSlug === projectSlug && researchingTarget.value.episodeId === ep) {

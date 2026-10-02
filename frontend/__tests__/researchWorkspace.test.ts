@@ -358,6 +358,6 @@ describe('Research re-runs and saved decisions', () => {
     assert.doesNotMatch(research, /research\.json \+ research\.md/)
     assert.match(research, /move to this project's _trash folder/)
     assert.doesNotMatch(research, /submission was not confirmed/)
-    assert.match(research, /Couldn't confirm the request arrived\. Click the same button again — it won't run twice\./)
+    assert.match(research, /showAction\(UNCONFIRMED_SUBMISSION, 'Retry', \(\) => runResearch\(\), 'error'\)/)
   })
 })

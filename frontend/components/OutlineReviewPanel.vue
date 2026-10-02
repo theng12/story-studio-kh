@@ -333,6 +333,7 @@
 </template>
 
 <script setup lang="ts">
+import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 
 interface OutlineEntry {
@@ -421,7 +422,7 @@ const emit = defineEmits<{
 const { get, post, put } = useApi()
 const freshOutlineExpansionAction = useFreshGenerationAction()
 const freshOutlineChapterAction = useFreshGenerationAction()
-const { success, error: showError } = useToast()
+const { success, error: showError, showAction } = useToast()
 const { jobs } = useJobs()
 const { find: findChatModel } = useGenStudioChatModels()
 
@@ -1141,7 +1142,8 @@ async function regenerateOne(n: number): Promise<void> {
       ? `Chapter ${n} regenerate queued at ${wordTarget} words`
       : `Chapter ${n} regenerate queued`)
   } catch (e: any) {
-    showError(e?.data?.detail || "Couldn't confirm the request arrived. Click the same button again — it won't run twice.")
+    if (e?.data?.detail) showError(e.data.detail)
+    else showAction(UNCONFIRMED_SUBMISSION, 'Retry', () => regenerateOne(n), 'error')
   } finally {
     // Clear THIS chapter's in-flight flag so its button re-enables. Other
     // chapters in flight stay flagged. Reassign the Set so Vue tracks the

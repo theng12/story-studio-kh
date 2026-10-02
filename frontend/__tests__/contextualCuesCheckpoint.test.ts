@@ -43,3 +43,10 @@ test('a failed on/off save puts the switch back, and errors are titled for what 
   assert.doesNotMatch(page, /timelineProjectSlug\.value\}\/\$\{timelineEpisodeId/, 'no "slug/EP0012" in a message')
   assert.doesNotMatch(page, /Retry submission/)
 })
+
+test('an unanswered submit on Introduction and Contextual Cues offers a real Retry with the shared sentence', () => {
+  const read = (rel: string) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8')
+  assert.match(read('pages/projects/[slug]/contextual-cues.vue'), /showAction\(UNCONFIRMED_SUBMISSION, 'Retry', \(\) => propose\(\), 'error'\)/)
+  assert.match(read('pages/projects/[slug]/introduction.vue'), /showAction\(UNCONFIRMED_SUBMISSION, 'Retry', \(\) => generateForEpisode\(\), 'error'\)/)
+  assert.match(read('composables/useFreshGenerationAction.ts'), /Click Retry: it resends the same request, so nothing is made or charged twice\./)
+})

@@ -317,6 +317,7 @@
 </template>
 
 <script setup lang="ts">
+import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useApi } from '../../../composables/useApi.js'
@@ -364,7 +365,7 @@ const route = useRoute()
 const slug = computed(() => String(route.params.slug))
 const { get, put, post } = useApi()
 const freshIntroductionAction = useFreshGenerationAction()
-const { success, error: showError } = useToast()
+const { success, error: showError, showAction } = useToast()
 
 const episodeId = ref('')
 const scriptReadiness = ref<{ projectSlug: string; episodeId: string; state: 'loading' | 'ready' | 'missing' | 'error' } | null>(null)
@@ -632,9 +633,8 @@ async function generateForEpisode(): Promise<void> {
     introFailure.value = ''
     success('Queued. The preview updates itself when it finishes.')
   } catch (cause: any) {
-    showError(cause?.data?.detail
-      || 'Couldn\u2019t confirm the request reached the queue. Check Jobs; if it isn\u2019t there, press '
-        + '\u201cWrite this episode\u2019s opening\u201d again \u2014 it won\u2019t run twice.')
+    if (cause?.data?.detail) showError(cause.data.detail)
+    else showAction(UNCONFIRMED_SUBMISSION, 'Retry', () => generateForEpisode(), 'error')
   } finally {
     generating.value = false
   }

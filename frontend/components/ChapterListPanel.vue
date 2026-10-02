@@ -115,6 +115,7 @@
 </template>
 
 <script setup lang="ts">
+import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
 interface ChapterRow {
   number: number
   title: string
@@ -141,7 +142,7 @@ const props = defineProps<{
 const { get, post } = useApi()
 const freshChapterAction = useFreshGenerationAction()
 const { jobs } = useJobs()
-const { success, error: showError } = useToast()
+const { success, error: showError, showAction } = useToast()
 
 const chapters = ref<ChapterRow[]>([])
 const loading = ref(false)
@@ -298,7 +299,8 @@ async function regenerate(num: number) {
       : `Chapter ${num} regenerate queued`,
     )
   } catch (e: any) {
-    showError(e?.data?.detail || "Couldn't confirm the request arrived. Click the same button again — it won't run twice.")
+    if (e?.data?.detail) showError(e.data.detail)
+    else showAction(UNCONFIRMED_SUBMISSION, 'Retry', () => regenerate(num), 'error')
     // Clear THIS chapter's in-flight on error. Success path leaves it set;
     // the relevantJobsSignal watcher clears it when the job lands terminal.
     const next = new Set(regenInFlight.value)

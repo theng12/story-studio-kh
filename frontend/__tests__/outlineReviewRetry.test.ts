@@ -142,10 +142,10 @@ test('the outline hands scripts.vue its own episode direction', () => {
   assert.match(source, /episodeId,\s*totalChapters: data\.total_chapters,\s*chaptersDone: chaptersDone\.value\.length,\s*manualGuidance: data\.generation_params\?\.manual_guidance \?\? null,/)
 })
 
-test('a failed submit says plainly that clicking again is safe', () => {
+test('a failed submit says plainly that Retry is safe, and offers a Retry button', () => {
   for (const file of [source, chapterList]) {
     assert.doesNotMatch(file, /submission was not confirmed/)
-    assert.match(file, /Couldn't confirm the request arrived\. Click the same button again — it won't run twice\./)
+    assert.match(file, /showAction\(UNCONFIRMED_SUBMISSION, 'Retry', \(\) => regenerate(One\(n\)|\(num\)), 'error'\)/)
     // ...which is true because the same click reuses its operation id.
     assert.match(file, /useFreshGenerationAction\(\)/)
   }

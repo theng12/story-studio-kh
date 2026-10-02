@@ -308,6 +308,7 @@
 </template>
 
 <script setup lang="ts">
+import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { cuesAwaitingApproval, storedPresetAutoApprove } from '../../../utils/contextual-cues.js'
 import {
@@ -349,7 +350,7 @@ const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put } = useApi()
 const freshCueAction = useFreshGenerationAction()
-const { success, error: showError } = useToast()
+const { success, error: showError, showAction } = useToast()
 const { isJobActiveFor } = useJobs()
 const episodeId = ref('')
 const config = ref<CueConfig>({ enabled: false, auto_approve_cues: false })
@@ -691,7 +692,9 @@ async function propose(): Promise<void> {
     success('Contextual cue proposal queued. Review the timeline when the job completes.')
     setTimeout(() => { if (isCurrentCueScope(projectSlug, episode, scopeEpoch)) void loadTimeline() }, 1200)
   } catch (e: any) {
-    if (isCurrentCueScope(projectSlug, episode, scopeEpoch)) showError(e?.data?.detail || 'Couldn\u2019t confirm the request reached the queue. Check Jobs; if it isn\u2019t there, press Propose cues again \u2014 it won\u2019t run twice.')
+    if (!isCurrentCueScope(projectSlug, episode, scopeEpoch)) return
+    if (e?.data?.detail) showError(e.data.detail)
+    else showAction(UNCONFIRMED_SUBMISSION, 'Retry', () => propose(), 'error')
   } finally { proposing.value = false }
 }
 // ── Saving ──────────────────────────────────────────────────────────────────

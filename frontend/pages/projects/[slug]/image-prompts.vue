@@ -38,9 +38,10 @@
          cached stale gets a one-click re-check instead of a dead end. -->
     <div v-if="scriptGateApplies && form.episode_id && statusKnown && !scriptReady" class="rescan-hint mt-1">
       <span class="text-muted text-xs">
-        No script detected for <strong>{{ form.episode_id }}</strong> —
-        if it's actually on disk (e.g. just generated, or copied in), force a re-check:
+        No finished script yet for <strong>{{ form.episode_id }}</strong>. If some chapters are still unwritten, finish them
+        first; if you just wrote or copied it in, re-check:
       </span>
+      <NuxtLink :to="`/projects/${slug}/scripts?episode_id=${encodeURIComponent(form.episode_id)}`" class="btn btn-secondary btn-xs">Open Script Generator</NuxtLink>
       <button
         type="button"
         class="btn btn-link btn-xs"
@@ -1737,7 +1738,7 @@ const { selectedEpisode, scriptReady, statusKnown, refetch: refetchEpisodeStatus
 // v1.0.296 — distinguish "still checking" from "confirmed no script". The
 // definitive message must only show once statusKnown is true; before that the
 // gate is locked but the copy says "Checking…" (see useEpisodeStatus header).
-const noScriptTooltip = 'Generate the script first to unlock this generator.'
+const noScriptTooltip = "No finished script yet — finish this episode's script in Script Generator first."
 const checkingTooltip = 'Checking script status…'
 // The reason text the gated buttons show: nothing if ready, "checking" while
 // the status is still loading, the generate-first message once we KNOW it's
