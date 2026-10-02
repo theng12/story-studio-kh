@@ -622,6 +622,10 @@ router.get('/projects/:slug/ideas', async (req, res) => {
   res.json({
     ideas,
     next_episode_number: nextNum,
+    // What a default Accept will really assign (a recycled gap comes first).
+    // The page shows this, so "Use next available" never promises one code
+    // and then hands out another.
+    next_accept_number: await im.getNextAcceptNumber(req.params.slug),
     episode_prefix: meta?.episode_prefix || 'EP',
   })
 })
@@ -1205,9 +1209,11 @@ router.post('/projects/:slug/ideas/batch-accept', async (req, res) => {
     return res.status(400).json({ detail: 'idea_ids array required' })
   }
   try {
-    const results = await im.acceptMultipleIdeas(req.params.slug, idea_ids)
-    invalidateProjectUploadCaches(req.params.slug)
-    res.json(results)
+    // Per-idea outcome: { accepted, skipped, failed: [{ id, title, reason }] }.
+    // One bad idea no longer aborts the rest of the batch.
+    const result = await im.acceptMultipleIdeas(req.params.slug, idea_ids)
+    if (result.accepted.length) invalidateProjectUploadCaches(req.params.slug)
+    res.json(result)
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Batch accept failed'))
   }

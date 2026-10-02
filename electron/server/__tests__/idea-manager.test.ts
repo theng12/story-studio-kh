@@ -162,7 +162,7 @@ describe('acceptIdea()', () => {
     const [a] = await im.addIdeas(proj.slug, [sampleIdea], 'm')
     await assert.rejects(
       () => im.acceptIdea(proj.slug, a.id, false, { override_code: 'XX042' }),
-      /must start with prefix/,
+      /must start with "EP"/,
     )
   })
 
