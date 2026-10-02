@@ -20,7 +20,9 @@ const overview = { paid_concurrency_limit: 5, paid_active_jobs: 0, paid_queued_j
 const request = { modelId: 'writer-alpha', system: '', userMessage: 'Write something.', outputContract: { mode: 'json_object' } as const }
 
 function envelope(fields: Record<string, unknown>) {
-  return { operation: 'chat.response', model_id: 'writer-alpha', output_text: null, failure_code: null, credit_cost: 0, ...fields }
+  // The gateway publishes a balanced zero settlement on every job.
+  return { operation: 'chat.response', model_id: 'writer-alpha', output_text: null, failure_code: null, credit_cost: 0,
+    reserved_credits: 0, settled_credits: 0, released_credits: 0, ...fields }
 }
 
 /** `byKey` answers each POST by its Idempotency-Key; GETs return `poll`. */
@@ -65,6 +67,14 @@ test('a replayed failure the gateway still holds (unknown outcome) is never resu
     await callChatWithGenStudio('k', request)
   } finally { s.restore() }
   assert.equal(s.keys.length, 1, 'a held job may still settle or charge, so no second POST')
+})
+
+test('a replayed failure that charged keeps one paid submission per click', async () => {
+  const s = stub(() => ({ id: 'job_charged', state: 'failed', failure_code: 'PROVIDER_FAILED', reserved_credits: 9, settled_credits: 3, released_credits: 6 }), ok)
+  try {
+    await callChatWithGenStudio('k', request).catch(() => null)
+  } finally { s.restore() }
+  assert.equal(s.keys.length, 1)
 })
 
 test('an uncertain-submission replay is never resubmitted', async () => {

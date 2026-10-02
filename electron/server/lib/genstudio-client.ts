@@ -7582,8 +7582,9 @@ const MAX_FAILED_CHAT_REPLAY_HOPS = 5
 /**
  * The POST answered with an EARLIER job for this key (`idempotent_replay`, or
  * the gateway's 200 where a new job gets 202) that already failed, settled, with
- * no gateway hold and no uncertain-submission code — so that attempt can never
- * produce output or charge again.
+ * no gateway hold, no uncertain-submission code, and a fully released ZERO
+ * settlement — so that attempt cost nothing and can never produce output or
+ * charge again. A failure that charged keeps "one paid submission per click".
  */
 export function replayedSettledChatFailure(job: {
   state?: unknown
@@ -7593,10 +7594,16 @@ export function replayedSettledChatFailure(job: {
   recovery_state?: unknown
   idempotent_replay?: unknown
   http_status?: unknown
+  reserved_credits?: unknown
+  settled_credits?: unknown
+  released_credits?: unknown
 }): boolean {
+  const credits = [job.reserved_credits, job.settled_credits, job.released_credits]
   return (job.idempotent_replay === true || job.http_status === 200)
     && job.state === 'failed' && job.cancelled !== true
     && !holdsUnknownOutcome(job) && !isSubmissionUncertainCode(job.failure_code)
+    && credits.every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0)
+    && job.settled_credits === 0 && job.released_credits === job.reserved_credits
 }
 
 export function chatKeyAfterFailedReplay(key: string, failedJobId: string): string {
@@ -7703,8 +7710,8 @@ async function callChatViaResponsesOnce(
     // re-POSTs the same key and the gateway answers with the OLD failed job.
     // Without this, one failure (the gateway
     // 0.2.97/0.2.98 pool bug, a provider 400) made that step fail in a second
-    // on every Retry forever. The old job is settled with no hold, so nothing is
-    // in flight under this key; the fresh key is derived from the failed job's
+    // on every Retry forever. The old job is settled, held by nobody and cost
+    // nothing, so nothing is in flight under this key; the fresh key is derived from the failed job's
     // id, so a restart of this run reattaches instead of buying a third.
     return callChatViaResponsesOnce(apiKey, request, {
       ...prepared, idempotencyKey: chatKeyAfterFailedReplay(prepared.idempotencyKey, submitted.id),
