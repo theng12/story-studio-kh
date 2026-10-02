@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { beforeEach, test } from 'node:test'
+import { beforeEach, mock, test } from 'node:test'
 import { createApp, defineComponent, h, nextTick, ref } from 'vue'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
@@ -186,10 +186,12 @@ test('one missed progress read does not freeze the operation: it keeps checking 
   try {
     button(ui.host, 'Select all uploaded').click(); await flush()
     change(ui.host.querySelector<HTMLInputElement>('input[type=checkbox][value=images]')!); await flush()
-    button(ui.host, 'Review selected files').click(); await flush(); await flush()
+    const drain = async () => { for (let i = 0; i < 20; i++) { await Promise.resolve(); await nextTick() } }
+    mock.timers.enable({ apis: ['setTimeout'] })
+    button(ui.host, 'Review selected files').click(); await drain()
     assert.match(ui.host.textContent || '', /Checking again/)
-    await new Promise(resolve => setTimeout(resolve, 3100)); await flush(); await flush()
+    mock.timers.tick(3_000); await drain()
     assert.equal(reads, 2, 'the operation is read again after the miss')
     assert.match(ui.host.textContent || '', /Move reviewed files to _trash/)
-  } finally { ui.close() }
+  } finally { mock.timers.reset(); ui.close() }
 })
