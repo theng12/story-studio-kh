@@ -60,3 +60,9 @@ test('owner-facing wording is plain English', () => {
   assert.match(source, /aria-label="Aspect ratio"/)
   assert.match(source, /aria-label="Resolution"/)
 })
+
+test('the Generate button and its status fit at 1280px (tracks may shrink; own row below 1400px)', () => {
+  assert.doesNotMatch(source, /minmax\(350px, auto\) minmax\(420px, 1fr\)/)
+  assert.match(source, /\.motion-command-bar :deep\(\.top-action-bar\) \{ display: grid; grid-template-columns: minmax\(0, auto\) minmax\(0, 1fr\) minmax\(0, auto\);/)
+  assert.match(source, /@media \(max-width: 1400px\) \{\n  \.motion-command-bar :deep\(\.top-action-bar\)/)
+})

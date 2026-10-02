@@ -119,8 +119,8 @@
         @click="stepFilter = null"
       >Needs {{ stepFilterCol.label }} ✕</button>
       <p class="board-hint">
-        <template v-if="mode === 'open'"><strong>Open</strong>: click a cell to go to that step for that episode.</template>
-        <template v-else><strong>Mark done</strong>: click a ○ to mark work you made outside the app as done; click a hand-marked ✓ to undo. Nothing is generated.</template>
+        <template v-if="mode === 'open'"><strong>Open</strong>: click a cell to go to that step for that episode.&nbsp;</template>
+        <template v-else><strong>Mark done</strong>: click a ○ to mark work you made outside the app as done; click a hand-marked ✓ to undo. Nothing is generated.&nbsp;</template>
         <strong>Needs work only</strong> hides finished episodes (a search always looks through all of them).
         <strong>Repair</strong> re-downloads results that finished but never saved to this Mac — it never starts new work or spends credits.
         <template v-if="failedStepCount"><strong>✕</strong> means the last attempt failed — retry it from <NuxtLink :to="`/projects/${slug}/jobs`">Jobs</NuxtLink>.</template>

@@ -1182,7 +1182,10 @@ watch(episodeId, () => {
 .motion-hero-route b { color: var(--text-secondary); font-size: var(--font-xs); font-weight: 600; }
 .motion-hero-route i { height: 1px; background: var(--border); }
 
-.motion-command-bar :deep(.top-action-bar) { display: grid; grid-template-columns: minmax(350px, auto) minmax(420px, 1fr) auto; align-items: end; gap: 16px; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
+/* Same fix as Scene Review (DS-12/F-15b): fixed 350px + 420px minimums pushed the Generate
+   button and its status off the right edge at 1280px. The tracks may now shrink, and below
+   1400px the button gets its own row. */
+.motion-command-bar :deep(.top-action-bar) { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto); align-items: end; gap: 16px; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
 .motion-command-bar :deep(.region-spacer) { display: none; }
 .motion-command-bar :deep(.generate-region) { justify-content: flex-end; align-items: flex-end; }
 .motion-command-bar :deep(.btn-primary-cta) { min-width: 180px; min-height: 38px; border-radius: 9px; white-space: nowrap; }
@@ -1294,6 +1297,11 @@ input:focus-visible, select:focus-visible, .duration-mode label:has(input:focus-
 .back-to-top:hover { transform: translateY(-3px); border-color: var(--motion-blue); background: #29333a; }
 .motion-float-enter-active, .motion-float-leave-active { transition: opacity .18s ease, transform .18s ease; }
 .motion-float-enter-from, .motion-float-leave-to { opacity: 0; transform: translateY(10px); }
+
+@media (max-width: 1400px) {
+  .motion-command-bar :deep(.top-action-bar) { grid-template-columns: minmax(0, .85fr) minmax(0, 1.4fr); }
+  .motion-command-bar :deep(.generate-region) { grid-column: 1 / -1; }
+}
 
 @media (max-width: 1220px) {
   .motion-command-bar :deep(.top-action-bar) { grid-template-columns: 1fr; align-items: stretch; }
