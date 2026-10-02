@@ -8,6 +8,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 import { splitChainAfterFailure } from '../lib/pipeline-continuation.js'
 
 let cleanup: () => Promise<void>
@@ -25,15 +26,6 @@ after(async () => { await cleanup() })
 
 function link(type: string, step: string, requires: string[]) {
   return { type, title: type, params: { pipeline_step: step, pipeline_requires: requires } }
-}
-
-async function until(check: () => boolean | Promise<boolean>, ms = 3_000): Promise<void> {
-  const deadline = Date.now() + ms
-  while (Date.now() < deadline) {
-    if (await check()) return
-    await new Promise(resolve => setTimeout(resolve, 20))
-  }
-  assert.fail('condition not reached in time')
 }
 
 test('split holds dependents (directly and through a held link) and keeps the rest', () => {
@@ -92,7 +84,7 @@ test('a failed opening no longer stops thumbnails; Retry continues only what wai
     },
   })
 
-  await until(() => runs.includes('thumb_images') && jq.getJob(head.job_id)?.status === 'error')
+  await waitFor(() => runs.includes('thumb_images') && jq.getJob(head.job_id)?.status === 'error')
   await jq._waitForJobPersistenceForTesting()
   const failed = jq.getJob(head.job_id)!
   assert.deepEqual(runs, ['introduction-only', 'image_prompts', 'thumb_images'])
@@ -104,6 +96,6 @@ test('a failed opening no longer stops thumbnails; Retry continues only what wai
 
   failIntro = false
   const retried = jq.retryTerminalJob(proj.slug, head.job_id)
-  await until(() => runs.includes('audio_merge') && jq.getJob(retried.job_id)?.status === 'done')
+  await waitFor(() => runs.includes('audio_merge') && jq.getJob(retried.job_id)?.status === 'done')
   assert.deepEqual(runs.slice(3), ['introduction-only', 'audio', 'audio_merge'], 'Retry never repeats the steps that already continued')
 })

@@ -438,7 +438,9 @@ export async function generateMetadata(job: Job): Promise<void> {
       const base = title_mode === 'manual' ? manual_title : (title || '').trim()
       if (!base) {
         throw Object.assign(
-          new Error(title_mode === 'manual' ? 'manual_title is required' : 'idea title is empty'),
+          new Error(title_mode === 'manual'
+            ? 'No title was given for this episode. Type the title on the YouTube Finalizer page, then try again.'
+            : 'This episode\'s idea has no title to use. Give it a title on the Ideas page, then try again.'),
           { statusCode: 400 },
         )
       }
