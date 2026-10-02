@@ -325,3 +325,39 @@ describe('Research workspace flow', () => {
     assert.match(research, /data\.form\.research_mode === 'web-search' \? 'web-search' : 'model-knowledge'/)
   })
 })
+
+describe('Research re-runs and saved decisions', () => {
+  test('results reload from the research_run job, not a 90 s topic poll', () => {
+    assert.doesNotMatch(research, /pollUntilLoaded/, 'the old poll stopped on the OLD research.json')
+    assert.doesNotMatch(research, /taking longer than 90s/)
+    assert.match(research, /j\.type === 'research_run' && j\.project_slug === slug\.value && j\.episode_id === episodeId\.value/)
+    // Only a transition this page saw counts; an old finished job does nothing.
+    assert.match(research, /if \(before !== 'queued' && before !== 'running' && before !== 'paused'\) continue/)
+    assert.match(research, /if \(job\.status === 'done'\) \{\s*researchJobError\.value = null\s*void loadExisting\(\)/)
+    // A failed run is shown inline, for its own episode only.
+    assert.match(research, /researchJobError\.value\?\.episode === episodeId\.value/)
+    assert.match(research, /class="research-job-error" role="alert"/)
+  })
+
+  test('the running state shows while the job runs, not only during the POST', () => {
+    assert.match(research, /const researchRunning = computed\(\(\) => researching\.value \|\| researchJobActive\.value\)/)
+    assert.match(research, /v-if="result \|\| researchRunning"/)
+    assert.match(research, /<div v-if="researchRunning" class="research-running-state">/)
+  })
+
+  test('running research again asks before clearing decided claims, naming the episode', () => {
+    const run = research.slice(research.indexOf('async function runResearch'), research.indexOf('async function saveResearch'))
+    assert.match(run, /const decided = acceptedCount\.value \+ ignoredCount\.value/)
+    assert.match(run, /will be cleared/)
+    // The ask happens before the paid request is begun.
+    assert.ok(run.indexOf('await ask(') < run.indexOf('freshResearchAction.begin('))
+  })
+
+  test('a stale save reloads the new run; delete and failure wording is plain', () => {
+    assert.match(research, /if \(e\?\.status === 409\) await loadExisting\(\)/)
+    assert.doesNotMatch(research, /research\.json \+ research\.md/)
+    assert.match(research, /move to this project's _trash folder/)
+    assert.doesNotMatch(research, /submission was not confirmed/)
+    assert.match(research, /Couldn't confirm the request arrived\. Click the same button again — it won't run twice\./)
+  })
+})

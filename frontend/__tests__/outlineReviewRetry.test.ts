@@ -111,3 +111,52 @@ test('Script Resume treats a malformed non-string job id as unresolved', () => {
     'older-malformed-id',
   )
 })
+
+const chapterList = readFileSync(
+  fileURLToPath(new URL('../components/ChapterListPanel.vue', import.meta.url)),
+  'utf8',
+)
+
+test('Expand all becomes "Resume writing" while a stopped run blocks other expansions', () => {
+  assert.match(source, /const resumableRun = computed\(/)
+  assert.match(source, /resumableRun \? `▶ Resume writing \(\$\{pendingCount\}\)` : `▶ Expand all \(\$\{pendingCount\}\)`/)
+  assert.match(source, /class="op-resume-hint"/, 'a visible one-line hint, not tooltip-only')
+})
+
+test('outline edits are saved to the episode they were made on, never dropped or misfiled', () => {
+  // Reorder used to mark the outline changed without ever saving it.
+  const reorder = source.slice(source.indexOf('function reorder('), source.indexOf('// ── Save / approve'))
+  assert.match(reorder, /markDirtyAndAutosave\(\)/)
+  // The target episode is captured at the first edit after a clean state.
+  assert.match(source, /if \(!isDirty\.value \|\| !dirtyTarget\) \{\s*dirtyTarget = \{ projectSlug: props\.projectSlug, episodeId: props\.episodeId, title: props\.title \}/)
+  // A late save never lands on another episode.
+  assert.match(source, /if \(target\.episodeId !== props\.episodeId \|\| target\.projectSlug !== props\.projectSlug\) return/)
+  // Pending edits are flushed (not cancelled) before any reload / switch and on leaving.
+  assert.match(source, /async function reloadOutline\(\): Promise<void> \{\s*await flushPendingEdits\(\)\s*await loadOutline\(\)/)
+  assert.match(source, /clearPreviewCache\(\)\s*\/\/[^\n]*\n\s*void reloadOutline\(\)/)
+  assert.match(source, /onUnmounted\(\(\) => \{[\s\S]*?void flushPendingEdits\(\)/)
+  assert.doesNotMatch(source, /onUnmounted\(\(\) => \{\s*if \(autosaveTimer\) clearTimeout\(autosaveTimer\)\s*\}\)/)
+})
+
+test('the outline hands scripts.vue its own episode direction', () => {
+  assert.match(source, /episodeId,\s*totalChapters: data\.total_chapters,\s*chaptersDone: chaptersDone\.value\.length,\s*manualGuidance: data\.generation_params\?\.manual_guidance \?\? null,/)
+})
+
+test('a failed submit says plainly that clicking again is safe', () => {
+  for (const file of [source, chapterList]) {
+    assert.doesNotMatch(file, /submission was not confirmed/)
+    assert.match(file, /Couldn't confirm the request arrived\. Click the same button again — it won't run twice\./)
+    // ...which is true because the same click reuses its operation id.
+    assert.match(file, /useFreshGenerationAction\(\)/)
+  }
+})
+
+test('ChapterListPanel handles each finished job once and refreshes at most once per change', () => {
+  assert.match(chapterList, /const handledTerminalJobs = new Set\(jobs\.value\.filter\(j => isTerminal\(j\.status\)\)\.map\(terminalKey\)\)/)
+  assert.match(chapterList, /handledTerminalJobs\.has\(terminalKey\(job\)\)\) continue/)
+  const watcher = chapterList.slice(chapterList.indexOf('watch(relevantJobsSignal'), chapterList.indexOf('// Declared BEFORE the immediate watcher'))
+  assert.equal(watcher.match(/void refresh\(\)/g)?.length, 1)
+  // The refresh sits after the loop, not inside it.
+  assert.ok(watcher.indexOf('void refresh()') > watcher.lastIndexOf('for (const job of jobs.value)'))
+  assert.match(watcher, /if \(landed\) \{/)
+})
