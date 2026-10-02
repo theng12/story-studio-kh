@@ -43,6 +43,7 @@
     <div v-if="metadataBusy" class="meta-result meta-result-running">
       <LoadingSpinner size="sm" />
       <span>Finalizing the YouTube package for <strong>{{ episodeId }}</strong>… you can switch episodes; it keeps running in the background.</span>
+      <span v-if="pollNotice" class="text-muted text-xs">{{ pollNotice }}</span>
     </div>
     <div
       v-else-if="lastGenResult"
@@ -50,6 +51,11 @@
     >
       <span class="meta-result-icon" aria-hidden="true">{{ lastGenResult.kind === 'success' ? '✓' : lastGenResult.kind === 'cancelled' ? '⊘' : '✗' }}</span>
       <span>{{ lastGenResult.message }}</span>
+      <NuxtLink
+        v-if="lastGenResult.kind === 'success' && episodeId"
+        :to="`/projects/${slug}/upload/publish?episode_id=${encodeURIComponent(episodeId)}`"
+        class="meta-template-link"
+      >Continue to Publish →</NuxtLink>
       <button type="button" class="btn btn-link btn-xs meta-result-dismiss" @click="lastGenResult = null">Dismiss</button>
     </div>
 
@@ -60,6 +66,11 @@
           <h3>Timing and evidence readiness</h3>
         </div>
         <span v-if="finalizationChecking" class="text-muted text-xs">Checking…</span>
+      </div>
+      <div v-if="finalizationError" class="finalizer-warning">
+        <strong>Couldn't check whether this episode is ready</strong>
+        <p class="text-xs">Story Studio couldn't read the Audio Assembly and subtitle status for {{ episodeId }}.</p>
+        <button type="button" class="btn btn-secondary btn-sm" :disabled="finalizationChecking" @click="loadFinalizationStatus">Retry</button>
       </div>
       <div v-if="finalizationStatus" class="finalizer-readiness-grid">
         <div :data-tone="finalizationStatus.audio_assembly_ready ? 'success' : 'warning'">
@@ -79,6 +90,10 @@
           <span>selected sources</span>
         </div>
       </div>
+      <p v-if="finalizationStatus && !finalizationStatus.audio_assembly_ready" class="finalizer-warning">
+        Run Audio Assembly first so the final description can use measured chapter timing.
+        <NuxtLink :to="`/projects/${slug}/audio-merge?episode_id=${encodeURIComponent(episodeId)}`" class="meta-template-link">Open Audio Assembly →</NuxtLink>
+      </p>
       <div v-if="finalizationStatus?.warnings.length" class="finalizer-warning">
         <strong>Package can still be generated with warnings</strong>
         <ul>
@@ -163,13 +178,18 @@
         </span>
       </div>
       <p v-if="effectiveFormula" class="text-muted text-xs mt-2">
-        <strong>{{ effectiveFormula.name }}</strong> supplies this run's description sections, lengths and counts,
-        so the Sections builder below is not used. Choose &ldquo;None for this episode&rdquo; to build them by hand instead.
+        <strong>{{ effectiveFormula.name }}</strong> supplies this run's description sections, lengths and counts.
+        Choose &ldquo;None for this episode&rdquo; to use the default sections, lengths and counts instead.
       </p>
       <p v-if="metadataFormulasError" class="text-muted text-xs mt-2">Could not load description formulas: {{ metadataFormulasError }}</p>
     </div>
 
     <!-- ═══════ Preview ═══════ -->
+    <div v-if="metadataLoadError" class="meta-result meta-result-error">
+      <span class="meta-result-icon" aria-hidden="true">✗</span>
+      <span>Couldn't load saved metadata for <strong>{{ metadataLoadError }}</strong>. Nothing was changed — the saved version is still on disk.</span>
+      <button type="button" class="btn btn-secondary btn-sm meta-result-dismiss" @click="retryLoadMetadata">Retry</button>
+    </div>
     <div class="card mt-2">
       <div class="card-header">
         <h3>Preview</h3>
@@ -190,10 +210,11 @@
           </div>
           <button
             class="btn btn-sm btn-secondary"
-            :title="'Force a new version snapshot right now (otherwise autosave handles this)'"
+            :title="'Save what is on screen as a new version right now (otherwise autosave handles this)'"
+            :disabled="!episodeId"
             @click="forkToNewVersion"
           >
-            🔱 Fork to v{{ nextVersionNumber }}
+            Save as new version (v{{ nextVersionNumber }})
           </button>
         </div>
       </div>
@@ -206,7 +227,7 @@
           </span>
           <button class="btn-icon" @click="copy(preview.title, 'Title')" title="Copy title">📋</button>
         </label>
-        <input v-model="preview.title" class="input" placeholder="SEO video title — click an option above or edit here" />
+        <input v-model="preview.title" class="input" :disabled="!episodeId" placeholder="SEO video title" />
       </div>
 
       <div class="form-group mt-1">
@@ -217,7 +238,7 @@
           </span>
           <button class="btn-icon" @click="copy(preview.description, 'Description')" title="Copy description">📋</button>
         </label>
-        <textarea v-model="preview.description" class="textarea preview-textarea" placeholder="Generated description will appear here" />
+        <textarea v-model="preview.description" class="textarea preview-textarea" :disabled="!episodeId" placeholder="Generated description will appear here" />
       </div>
 
       <div class="form-group mt-1">
@@ -226,7 +247,7 @@
           <span class="char-count">{{ preview.tags.length }} tags</span>
           <button class="btn-icon" @click="copy(tagsAsString, 'Tags')" title="Copy tags as comma-separated string">📋</button>
         </label>
-        <textarea v-model="tagsAsString" class="textarea tags-textarea" :placeholder="tagsPlaceholder" />
+        <textarea v-model="tagsAsString" class="textarea tags-textarea" :disabled="!episodeId" :placeholder="tagsPlaceholder" />
       </div>
     </div>
 
@@ -277,13 +298,15 @@ interface FinalizationStatus {
 }
 const finalizationStatus = ref<FinalizationStatus | null>(null)
 const finalizationChecking = ref(false)
+const finalizationError = ref(false)
 let finalizationLoadSequence = 0
 const finalizerGateReason = computed(() => {
   if (scriptGateReason.value) return scriptGateReason.value
   if (!episodeId.value) return ''
+  if (finalizationError.value) return "Couldn't check whether this episode is ready."
   if (finalizationChecking.value || !finalizationStatus.value) return 'Checking Audio Assembly timing…'
   if (!finalizationStatus.value.audio_assembly_ready) {
-    return 'Run Audio Assembly first so the final description can use measured chapter timing.'
+    return 'Run Audio Assembly first (link below) so the final description can use measured chapter timing.'
   }
   return finalizationStatus.value.subtitle_complete
     ? ''
@@ -296,9 +319,11 @@ async function loadFinalizationStatus() {
   const projectSlug = slug.value
   if (!episodeId.value) {
     finalizationStatus.value = null
+    finalizationError.value = false
     return
   }
   finalizationChecking.value = true
+  finalizationError.value = false
   const code = episodeId.value
   try {
     const status = await get<FinalizationStatus>(
@@ -306,7 +331,10 @@ async function loadFinalizationStatus() {
     )
     if (requestSequence === finalizationLoadSequence && metadataScopeEpoch === scopeEpoch && slug.value === projectSlug && episodeId.value === code) finalizationStatus.value = status
   } catch {
-    if (requestSequence === finalizationLoadSequence && metadataScopeEpoch === scopeEpoch && slug.value === projectSlug && episodeId.value === code) finalizationStatus.value = null
+    if (requestSequence === finalizationLoadSequence && metadataScopeEpoch === scopeEpoch && slug.value === projectSlug && episodeId.value === code) {
+      finalizationStatus.value = null
+      finalizationError.value = true
+    }
   } finally {
     if (requestSequence === finalizationLoadSequence && metadataScopeEpoch === scopeEpoch && slug.value === projectSlug && episodeId.value === code) finalizationChecking.value = false
   }
@@ -383,6 +411,7 @@ watch([slug, episodeId], ([projectSlug, newEp], [previousSlug, oldEp]) => {
     // in flight for the episode that is no longer open.
     finalizationStatus.value = null
     finalizationChecking.value = false
+    finalizationError.value = false
     finalizationLoadSequence++
   }
 })
@@ -1000,13 +1029,32 @@ function onEpisodeSelected(ep: any) {
   selectedEpisode.value = ep
 }
 
+// AGENTS.md §4: an episode's text must never stay on screen for another one.
+// The page's saved-metadata fields all go blank together.
+function blankPreview() {
+  preview.title = ''
+  preview.description = ''
+  preview.tags = []
+  titleOptions.value = []
+}
+
+// Episode code whose saved metadata could not be read ('' = no problem).
+const metadataLoadError = ref('')
+
 let metadataLoadSequence = 0
-async function loadExistingMetadata() {
+// `keepOnError`: the post-save dropdown refresh must not wipe what the user
+// is looking at when only the refresh failed.
+async function loadExistingMetadata(opts: { keepOnError?: boolean } = {}) {
   const requestSequence = ++metadataLoadSequence
   const scopeEpoch = metadataScopeEpoch
   const projectSlug = slug.value
   const code = episodeId.value
-  if (!code) return
+  if (!code) {
+    blankPreview()
+    versions.value = []
+    metadataLoadError.value = ''
+    return
+  }
   try {
     const title = selectedEpisode.value?.title || ''
     const data = await get<{ versions: typeof versions.value }>(
@@ -1014,20 +1062,27 @@ async function loadExistingMetadata() {
     )
     if (requestSequence !== metadataLoadSequence || metadataScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== code) return
     versions.value = data.versions || []
+    metadataLoadError.value = ''
     if (versions.value.length) {
       const latest = versions.value[versions.value.length - 1]!
       selectedVersion.value = latest.version
       applyVersion(latest)
     } else {
       selectedVersion.value = 1
-      preview.title = ''
-      preview.description = ''
-      preview.tags = []
+      blankPreview()
     }
   } catch {
     if (requestSequence !== metadataLoadSequence || metadataScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== code) return
+    if (opts.keepOnError) return
     versions.value = []
+    blankPreview()
+    metadataLoadError.value = code
   }
+}
+
+async function retryLoadMetadata() {
+  sessionVersion.value = null
+  await suppressAutoSaveDuring(() => loadExistingMetadata())
 }
 
 function applyVersion(v: { title: string; title_options?: string[]; description: string; tags: string[] }) {
@@ -1121,6 +1176,7 @@ async function generateAll() {
     freshMetadataAction.complete(operationId)
     success(`Metadata queued. You can switch episodes; we'll keep generating in the background.`)
     const completed = await waitForJob(projectSlug, job.job_id)
+    if (!completed) return   // page closed — the job keeps running in the background
     if (generationSequence !== metadataGenerationSequence || slug.value !== projectSlug || episodeId.value !== startedEpisodeId) return
     if (completed.status === 'cancelled') {
       lastGenResult.value = { kind: 'cancelled', message: `YouTube finalization cancelled for ${startedEpisodeId}.` }
@@ -1128,7 +1184,7 @@ async function generateAll() {
       return
     }
     if (completed.status === 'error') {
-      throw new Error(completed.error || `YouTube finalization failed (model=${model.value}). Check the Jobs panel for details.`)
+      throw new Error(completed.error || 'YouTube finalization failed. Open Jobs to see what went wrong.')
     }
     // Job done — re-load the latest version from disk. If the user is still
     // looking at the same episode they kicked off, refresh the preview;
@@ -1147,12 +1203,13 @@ async function generateAll() {
   } catch (e: any) {
     if (generationSequence !== metadataGenerationSequence || slug.value !== projectSlug || episodeId.value !== startedEpisodeId) return
     console.error('[metadata] generate all failed:', e)
-    const msg = e.data?.detail || e?.message || `Failed to finalize the YouTube package (model=${model.value}). Check the Jobs panel for details.`
+    const msg = e.data?.detail || e?.message || 'Failed to finalize the YouTube package. Open Jobs to see what went wrong.'
     lastGenResult.value = { kind: 'error', message: msg }
     showError(msg)
   } finally {
     if (generationSequence === metadataGenerationSequence
       && slug.value === projectSlug && episodeId.value === startedEpisodeId) {
+      pollNotice.value = ''
       genAll.value = false
       metaGenerating.value = false
     }
@@ -1163,12 +1220,32 @@ async function generateAll() {
 // ImageGeneratorPanel uses — useJobs() also streams updates globally, but a
 // direct poll is the simplest way to await one specific job.
 const JOB_POLL_INTERVAL_MS = 1500
+const JOB_POLL_MAX_FAILURES = 4
+const pollNotice = ref('')
+let pageUnmounted = false
+onBeforeUnmount(() => { pageUnmounted = true })
+// Returns null when the page was closed (the job itself keeps running). A few
+// consecutive network errors only show a note; the job is never reported as
+// failed just because the poll could not reach the server.
 async function waitForJob(projectSlug: string, jobId: string): Promise<any> {
-  while (true) {
-    const job: any = await get(`/projects/${projectSlug}/jobs/${jobId}`)
-    if (job?.status === 'done' || job?.status === 'error' || job?.status === 'cancelled') return job
+  let failures = 0
+  while (!pageUnmounted) {
+    try {
+      const job: any = await get(`/projects/${projectSlug}/jobs/${jobId}`)
+      failures = 0
+      pollNotice.value = ''
+      if (job?.status === 'done' || job?.status === 'error' || job?.status === 'cancelled') return job
+    } catch {
+      failures++
+      if (failures >= JOB_POLL_MAX_FAILURES) {
+        pollNotice.value = ''
+        throw new Error('Lost contact with Story Studio. The job may still be running — open Jobs to see its progress.')
+      }
+      pollNotice.value = 'Lost contact, still checking…'
+    }
     await new Promise(r => setTimeout(r, JOB_POLL_INTERVAL_MS))
   }
+  return null
 }
 
 // ── Save ───────────────────────────────────────────────────────────────────
@@ -1247,19 +1324,26 @@ function resetAutoSaveSession() {
   autoSave.reset()
 }
 
+// The episode an edit was made in, captured when the edit is scheduled so a
+// save that fires (or is flushed) after an episode switch still writes to the
+// episode the text belongs to.
+let scheduledTarget: { slug: string; code: string; title: string } | null = null
+
 const autoSave = useAutoSave({
   debounceMs: 800,
   save: async () => {
-    if (!episodeId.value) return
+    const target = scheduledTarget ?? { slug: slug.value, code: episodeId.value, title: selectedEpisode.value?.title || '' }
+    scheduledTarget = null
+    if (!target.code) return
     // Skip if there's nothing meaningful to persist yet
     if (!preview.title && !preview.description && !preview.tags.length) return
-    const projectSlug = slug.value
-    const code = episodeId.value
+    const projectSlug = target.slug
+    const code = target.code
     const scopeEpoch = metadataScopeEpoch
     const writingTo = sessionVersion.value
     const data = await post<{ version: number }>(`/projects/${projectSlug}/generate/metadata/save`, {
       episode_id: code,
-      title: selectedEpisode.value?.title || '',
+      title: target.title,
       metadata_title: preview.title,
       // Round-trip the AI-generated title alternatives so an overwrite save
       // doesn't wipe the alternates the pipeline saved. The backend defaults
@@ -1276,7 +1360,7 @@ const autoSave = useAutoSave({
     if (metadataScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== code) return
     sessionVersion.value = data.version
     // Refresh the version dropdown without re-triggering autosave.
-    await suppressAutoSaveDuring(() => loadExistingMetadata())
+    await suppressAutoSaveDuring(() => loadExistingMetadata({ keepOnError: true }))
     if (metadataScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== code) return
     selectedVersion.value = data.version
   },
@@ -1294,15 +1378,26 @@ async function suppressAutoSaveDuring<T>(fn: () => Promise<T> | T): Promise<T> {
 }
 
 watch([() => preview.title, () => preview.description, () => preview.tags], () => {
-  if (suppressAutoSave) return
+  if (suppressAutoSave || !episodeId.value) return
+  scheduledTarget = { slug: slug.value, code: episodeId.value, title: selectedEpisode.value?.title || '' }
   autoSave.scheduleSave()
 }, { deep: true })
 
 // ── Watchers ───────────────────────────────────────────────────────────────
 
 watch([slug, episodeId], async ([projectSlug, code]) => {
+  // A pending debounced save belongs to the episode we just left. This runs
+  // before the preview is replaced, so flush it now (against its captured
+  // episode) instead of letting it fire later and write into the new one.
+  if (autoSave.state.value === 'dirty' && scheduledTarget) void autoSave.flush()
+  scheduledTarget = null
+  sessionVersion.value = null
   metadataScopeEpoch++
-  await suppressAutoSaveDuring(() => loadExistingMetadata())
+  await suppressAutoSaveDuring(async () => {
+    blankPreview()
+    metadataLoadError.value = ''
+    await loadExistingMetadata()
+  })
   if (slug.value !== projectSlug || episodeId.value !== code) return
   resetAutoSaveSession()
   void loadFinalizationStatus()
@@ -1424,6 +1519,11 @@ const tagsPlaceholder = computed<string>(() => {
     return `Comma-separated tags (e.g. ${formatBroadKeywords.value.join(', ')})`
   }
   return 'Comma-separated tags'
+})
+
+// Leaving the page inside the debounce window must not drop the last edit.
+onBeforeUnmount(() => {
+  if (autoSave.state.value === 'dirty') void autoSave.flush()
 })
 
 onMounted(async () => {

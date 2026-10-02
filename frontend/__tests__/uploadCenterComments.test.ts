@@ -20,7 +20,7 @@ async function loadPage(): Promise<Component> {
   })
   const vueUrl = await import.meta.resolve('vue')
   const support = `
-    import { ref, computed, onMounted, reactive } from ${JSON.stringify(vueUrl)}
+    import { ref, computed, onMounted, reactive, watch } from ${JSON.stringify(vueUrl)}
     const useApi = () => globalThis.__ucApi
     const useRoute = () => ({ params: { slug: 'demo-project' } })
     const useConfirm = () => ({ ask: async (o) => globalThis.__ucConfirm(o) })
@@ -139,7 +139,9 @@ describe('Upload Center Comments', () => {
     otherView.destroy()
   })
 
-  test('rejecting without banning is one plain click', async () => {
+  test('rejecting without banning asks first, then is a plain reject', async () => {
+    // Changed from "one plain click, no confirmation": a one-click Reject hid a
+    // real viewer's comment with no warning. It is still not a ban.
     const mounted = await mount({ comments: [comment()] })
     button(mounted.el, 'Reject')!.click()
     for (let i = 0; i < 6; i++) await nextTick()
@@ -147,9 +149,10 @@ describe('Upload Center Comments', () => {
     const posted = mounted.calls.find(c => c.method === 'POST')
     assert.equal(posted.path, '/projects/demo-project/youtube/comments/moderate')
     assert.deepEqual(posted.body, { action: 'reject', comment_ids: ['c1'] })
-    // No ban flag anywhere near the easy path, and no confirmation demanded.
+    // No ban flag anywhere near the easy path; the confirmation says it is not a ban.
     assert.equal('ban_author' in posted.body, false)
-    assert.equal(mounted.confirms.length, 0)
+    assert.equal(mounted.confirms.length, 1)
+    assert.match(mounted.confirms[0].message, /not banned/)
     mounted.destroy()
   })
 
