@@ -195,13 +195,30 @@ router.post('/broll-pools/:id/clips/rename-bulk', async (req, res) => {
   }
 })
 
+// A grid of N thumbnails used to re-read and sort the whole clip index N
+// times. Cache filename → sha per pool, invalidated when the index file changes.
+const thumbShaCache = new Map<string, { key: string; byName: Map<string, string> }>()
+async function clipShaFor(poolId: string, filename: string): Promise<string | undefined> {
+  const pool = await bp.getPool(poolId)
+  if (!pool) return undefined
+  const stat = await fs.stat(bp.sidecarPath(pool.folder_path)).catch(() => null)
+  if (!stat) return undefined
+  const key = `${pool.folder_path}:${stat.mtimeMs}:${stat.size}`
+  let hit = thumbShaCache.get(poolId)
+  if (!hit || hit.key !== key) {
+    const clips = await bp.listClips(poolId, { includeMissing: true })
+    hit = { key, byName: new Map(clips.map(c => [c.filename, c.sha256])) }
+    thumbShaCache.set(poolId, hit)
+  }
+  return hit.byName.get(filename)
+}
+
 router.get('/broll-pools/:id/clips/:filename/thumbnail', async (req, res) => {
   try {
-    const clips = await bp.listClips(req.params.id, { includeMissing: true })
-    const clip = clips.find(c => c.filename === req.params.filename)
-    if (!clip) return res.status(404).json({ detail: 'Clip not in pool' })
+    const sha = await clipShaFor(req.params.id, req.params.filename)
+    if (!sha) return res.status(404).json({ detail: 'Clip not in pool' })
 
-    const abs = bp.thumbnailPath(clip.sha256)
+    const abs = bp.thumbnailPath(sha)
     if (!existsSync(abs)) return res.status(404).json({ detail: 'Thumbnail not cached yet — re-scan to generate.' })
 
     const fsMod = await import('fs')

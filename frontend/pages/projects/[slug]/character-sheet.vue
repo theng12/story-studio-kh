@@ -11,7 +11,7 @@
 <template>
   <div class="workspace-page character-sheet-workspace">
     <WorkspaceHero
-      eyebrow="Continuity · Visual anchors"
+      eyebrow="Continuity · Recurring cast"
       title="Character Sheet"
       description="Choose the recurring cast, an optional episode visual anchor, and the channel look for this episode."
     />
@@ -23,8 +23,8 @@
       :presets="pagePresets"
       generate-label="Save visual setup"
       :generate-loading="saving"
-      :generate-disabled="!episodeId"
-      :generate-status="saving ? 'Saving visual setup…' : (episodeId ? '' : 'Pick an episode first')"
+      :generate-disabled="!episodeId || !configLoaded"
+      :generate-status="saveStatus"
       @generate="saveConfig"
     />
 
@@ -35,12 +35,20 @@
       :title="pacingPresetNotice.applied ? 'The preset includes scene rhythm' : 'That preset has no saved scene rhythm'"
     >
       <template v-if="pacingPresetNotice.applied">
-        It stores {{ pacingPresetNotice.band }} in the visual setup draft. Save visual setup to keep it; manage the episode’s timing in Scene Plan.
+        It set {{ pacingPresetNotice.band }} on this page. Save visual setup to keep it; manage the episode’s timing in Scene Plan.
       </template>
       <template v-else>
         It was saved while presets did not record rhythm, so this episode stays on
         {{ pacingPresetNotice.band }} — nothing was reset. Manage the episode’s timing in Scene Plan.
       </template>
+    </WorkspaceNotice>
+
+    <WorkspaceNotice v-if="configLoadError" class="mt-3" tone="warning" title="This episode’s saved setup could not be read">
+      {{ configLoadError }} Saving is turned off so the saved setup is not overwritten.
+      <button class="btn btn-ghost btn-sm" @click="loadConfig">Retry</button>
+    </WorkspaceNotice>
+    <WorkspaceNotice v-if="droppedAnchorNotice" class="mt-3" tone="info" title="Removed characters that are no longer in this project">
+      {{ droppedAnchorNotice }} Save visual setup to keep the change.
     </WorkspaceNotice>
 
     <div v-if="!episodeId" class="card mt-3">
@@ -81,7 +89,7 @@
                 <img v-if="firstImage(character)" :src="charImageUrl(character, firstImage(character)!)" :alt="character.name" />
                 <span v-else class="cs-character-placeholder" aria-hidden="true">{{ character.name.slice(0, 1) }}</span>
                 <span class="cs-character-name">{{ character.name }}</span>
-                <span class="cs-character-state">{{ firstImage(character) ? (config.anchor_character_ids.includes(character.id) ? 'Anchored' : 'Select') : 'Needs image' }}</span>
+                <span class="cs-character-state">{{ firstImage(character) ? (config.anchor_character_ids.includes(character.id) ? 'In this episode' : 'Select') : 'Needs image' }}</span>
               </button>
             </div>
             <p v-if="anchorsWithoutImages.length" class="cs-warn text-xs">
@@ -173,7 +181,7 @@
                 >
                   {{ generatingComposition ? 'Starting…' : 'Generate template' }}
                 </button>
-                <p class="text-muted text-xs mt-1">Runs as a job — watch it on the Jobs page, then reload this page to see it.</p>
+                <p class="text-muted text-xs mt-1">Runs in the background (see the Jobs page). It appears here when finished and is switched on — then Save visual setup.</p>
               </details>
             </div>
           </div>
@@ -284,7 +292,26 @@ function onStyleApply(data: { style_bible: string; negative_prompt: string }): v
 
 const characters = ref<Character[]>([])
 const charsLoading = ref(false)
+const charactersLoaded = ref(false)
 const saving = ref(false)
+
+// The page edits a draft that only "Save visual setup" persists. Track what
+// is on disk so leaving or switching episode warns before dropping edits, and
+// refuse to save over a setup that could not be read.
+const configLoaded = ref(false)
+const configLoadError = ref('')
+const savedSnapshot = ref('')
+const snapshotOf = (c: ContinuityConfig) => { const { updated_at: _u, ...rest } = c; return JSON.stringify(rest) }
+const dirty = computed(() => configLoaded.value && snapshotOf(config.value) !== savedSnapshot.value)
+useUnsavedGuard(dirty, 'visual setup changes', { episodeSwitch: true })
+const saveStatus = computed(() => {
+  if (saving.value) return 'Saving visual setup…'
+  if (!episodeId.value) return 'Pick an episode first'
+  if (configLoadError.value) return 'Saving is off until the saved setup loads — use Retry above'
+  if (!configLoaded.value) return 'Loading this episode’s setup…'
+  return dirty.value ? 'Unsaved changes' : ''
+})
+const droppedAnchorNotice = ref('')
 
 // ── Episode sheet (master img2img reference) ─────────────────────────
 const masterExists = ref<boolean | null>(null)
@@ -345,6 +372,8 @@ async function loadCharacters(): Promise<void> {
     const loaded = await cm.listForEpisode(ep)
     if (!current()) return
     characters.value = loaded
+    charactersLoaded.value = true
+    dropUnknownAnchors()
   } catch (e: any) {
     if (current() && !e?.__slugRace) showError(e?.data?.detail || 'Failed to load characters')
   } finally {
@@ -357,14 +386,33 @@ async function loadConfig(): Promise<void> {
   const project = slug.value
   const scope = characterScopeSequence
   const current = () => scope === characterScopeSequence && project === slug.value && ep === episodeId.value
+  configLoaded.value = false
+  configLoadError.value = ''
   if (!ep) { config.value = continuityDefaults(); return }
   try {
     const r = await get<{ exists: boolean; config: ContinuityConfig }>(`/projects/${project}/continuity/${ep}`)
     if (!current()) return
     config.value = r.exists ? normalizeContinuityConfig(r.config) : continuityDefaults()
+    savedSnapshot.value = snapshotOf(config.value)
+    configLoaded.value = true
+    dropUnknownAnchors()
   } catch (e: any) {
-    if (current() && !e?.__slugRace) config.value = continuityDefaults()
+    // Never fall back to defaults silently: a later Save would overwrite the
+    // real setup with an empty one.
+    if (current() && !e?.__slugRace) configLoadError.value = e?.data?.detail || e?.message || 'The server did not answer.'
   }
+}
+
+/** Anchor ids of deleted/unassigned characters can't be seen or unticked — drop them and say so. */
+function dropUnknownAnchors(): void {
+  if (!configLoaded.value || !charactersLoaded.value) return
+  const known = new Set(characters.value.map(c => c.id))
+  const ids = config.value.anchor_character_ids
+  const unknown = ids.filter(id => !known.has(id))
+  if (!unknown.length) return
+  config.value.anchor_character_ids = ids.filter(id => known.has(id))
+  config.value.references.characters = config.value.anchor_character_ids.length > 0
+  droppedAnchorNotice.value = `${unknown.length} selected character${unknown.length === 1 ? ' was' : 's were'} deleted or unassigned and ${unknown.length === 1 ? 'has' : 'have'} been unticked.`
 }
 
 async function saveConfig(): Promise<void> {
@@ -372,12 +420,14 @@ async function saveConfig(): Promise<void> {
   const project = slug.value
   const scope = characterScopeSequence
   const current = () => scope === characterScopeSequence && project === slug.value && ep === episodeId.value
-  if (!ep) return
+  if (!ep || !configLoaded.value) return
   saving.value = true
   try {
     const saved = await put<{ ok: true; config: ContinuityConfig }>(`/projects/${project}/continuity/${ep}`, JSON.parse(JSON.stringify(config.value)))
     if (!current()) return
     config.value = normalizeContinuityConfig(saved.config)
+    savedSnapshot.value = snapshotOf(config.value)
+    droppedAnchorNotice.value = ''
     success('Visual setup saved')
   } catch (e: any) {
     if (current()) showError(e?.data?.detail || 'Failed to save continuity settings')
@@ -419,7 +469,7 @@ async function onSheetFiles(files: File[]): Promise<void> {
     masterVersion.value++       // cache-bust the preview
     masterExists.value = true
     episodeAnchorEnabled.value = true
-    success('Episode visual anchor uploaded')
+    success('Episode visual anchor uploaded and switched on — Save visual setup to use it')
   } catch (e: any) {
     if (current()) showError(e?.data?.detail || 'Failed to upload episode sheet')
   } finally {
@@ -433,7 +483,10 @@ const compositionVersion = ref(0)
 const uploadingComposition = ref(false)
 const generatingComposition = ref(false)
 const compositionPrompt = ref('')
-const compositionModel = ref('')
+// Restore the last explicit model choice before the picker mounts (AGENTS.md §7).
+const COMPOSITION_MODEL_KEY = 'storyStudio:compositionModel'
+const compositionModel = ref((() => { try { return localStorage.getItem(COMPOSITION_MODEL_KEY) || '' } catch { return '' } })())
+watch(compositionModel, (id) => { try { if (id) localStorage.setItem(COMPOSITION_MODEL_KEY, id) } catch { /* private mode */ } })
 const compositionUrl = computed(() =>
   `/api/projects/${slug.value}/episodes/${episodeId.value}/img2img-references/file/composition.png?v=${compositionVersion.value}`,
 )
@@ -459,7 +512,7 @@ async function onCompositionFiles(files: File[]): Promise<void> {
     // Uploading one is the customer saying they want it used. The flag is
     // still theirs to turn back off with the checkbox beside the preview.
     config.value.references.composition = true
-    success('Composition template uploaded')
+    success('Composition template uploaded and switched on — Save visual setup to use it')
   } catch (e: any) {
     if (current()) showError(e?.data?.detail || 'Failed to upload composition template')
   } finally {
@@ -469,7 +522,7 @@ async function onCompositionFiles(files: File[]): Promise<void> {
 
 async function removeComposition(): Promise<void> {
   if (!episodeId.value) return
-  if (!await useConfirm().ask({ title: 'Remove composition template?', message: 'The template (uploaded or generated) is deleted; a generated one costs credits to make again.', confirmLabel: 'Remove', danger: true })) return
+  if (!await useConfirm().ask({ title: 'Remove composition template?', message: 'The template (uploaded or generated) is deleted. A generated one would need to be generated again.', confirmLabel: 'Remove', danger: true })) return
   try {
     await del(`/projects/${slug.value}/episodes/${episodeId.value}/img2img-references/composition`)
     compositionExists.value = false
@@ -499,7 +552,7 @@ async function generateComposition(): Promise<void> {
 
 async function removeSheet(): Promise<void> {
   if (!episodeId.value) return
-  if (!await useConfirm().ask({ title: 'Remove episode visual anchor?', message: 'The anchor image (uploaded or generated) is deleted; a generated one costs credits to make again.', confirmLabel: 'Remove', danger: true })) return
+  if (!await useConfirm().ask({ title: 'Remove episode visual anchor?', message: 'The anchor image (uploaded or generated) is deleted. A generated one would need to be generated again.', confirmLabel: 'Remove', danger: true })) return
   try {
     await del(`/projects/${slug.value}/episodes/${episodeId.value}/img2img-references/master`)
     masterExists.value = false
@@ -510,6 +563,23 @@ async function removeSheet(): Promise<void> {
     showError(e?.data?.detail || 'Failed to remove episode sheet')
   }
 }
+
+// A generated composition template lands on disk when its job finishes: show
+// it and switch it on in the draft (the customer still saves the setup).
+const { jobs } = useJobs()
+const compositionJobStatus = computed(() =>
+  jobs.value.find(j => j.type === 'composition_generate' && j.project_slug === slug.value && j.episode_id === episodeId.value)?.status,
+)
+watch(compositionJobStatus, (status, previous) => {
+  if (status !== 'done' || !previous || previous === 'done') return
+  void loadRefs().then(() => {
+    if (compositionExists.value) {
+      compositionVersion.value++
+      config.value.references.composition = true
+      success('Composition template is ready and switched on — Save visual setup to use it')
+    }
+  })
+})
 
 // Authoritative existence check for the episode visual anchor. This avoids a
 // fragile hidden-image probe and keeps the compact preview truthful.
@@ -548,6 +618,10 @@ watch([slug, episodeId], () => {
   // anchors, pacing and references stayed live on the page. Blank synchronously
   // (AGENTS.md §4), matching the pattern the sibling pages use.
   config.value = continuityDefaults()
+  configLoaded.value = false
+  configLoadError.value = ''
+  charactersLoaded.value = false
+  droppedAnchorNotice.value = ''
   onPacingEdited()   // the last apply said nothing about the episode now open
   void loadCharacters()
   void loadConfig()

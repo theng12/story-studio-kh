@@ -19,7 +19,7 @@
   <div class="broll-page">
     <div class="page-header">
       <Breadcrumb />
-      <h1 class="page-title">Video Assembly</h1>
+      <h1 class="page-title">B-Roll Picker</h1>
     </div>
 
     <TopActionBar
@@ -29,8 +29,8 @@
       filter-field="broll_picked"
       generate-label="Pick B-Roll for this episode"
       :generate-loading="picking"
-      :generate-disabled="!subscribedPool || !form.episode_id || picking"
-      :generate-status="picking ? `Selecting clips for ${form.episode_id}…` : ''"
+      :generate-disabled="!!pickDisabledReason || picking"
+      :generate-status="picking ? `Selecting clips for ${form.episode_id}…` : pickDisabledReason"
       @generate="pickClips"
     />
 
@@ -44,9 +44,13 @@
     <section class="card mt-3">
       <h3>1. Pool subscription</h3>
       <div v-if="loadingPools" class="text-muted text-sm">Loading pools…</div>
+      <p v-else-if="loadError" class="validation-msg text-sm">
+        ⚠ {{ loadError }}
+        <button class="btn btn-ghost btn-sm" @click="loadPage">Retry</button>
+      </p>
       <div v-else-if="!pools.length" class="empty">
         No B-Roll pools registered on this Mac yet.
-        <NuxtLink :to="{ path: '/broll-library', query: { project: slug } }">Open the B-Roll Library</NuxtLink> to register a pool first.
+        <NuxtLink :to="{ path: '/broll-library', query: { project: slug } }">Open the Assets Library</NuxtLink> to register a pool first.
       </div>
       <div v-else class="pool-picker">
         <label>Pool for this project:</label>
@@ -74,7 +78,7 @@
             <option value="random">Random — shuffle the whole pool</option>
             <option value="tagged">Tag-filtered — pool clips matching ANY of the selected tags</option>
             <option value="themed">Themed — pool clips matching ALL of the selected tags</option>
-            <option value="manual">Manual — pick clips and order yourself (Phase 3)</option>
+            <option value="manual">Manual — pick clips and order yourself</option>
           </select>
           <span class="hint">
             Random ignores tags entirely. Tagged matches any of the picked tags (broader pool).
@@ -152,8 +156,8 @@
           </label>
         </div>
         <span class="hint">
-          A clip used in any of the last N uploads is excluded from the candidate pool for this
-          episode. Set to 0 to allow repeats freely (useful when your pool is small).
+          A clip used in any of the last N other episodes is left out for this episode. Set to 0
+          to allow repeats freely (useful when your pool is small). Remembered for this project.
         </span>
       </div>
     </section>
@@ -165,7 +169,7 @@
          clip target_duration input. Live total tracks against narration
          target. v1.0.89+. -->
     <section v-if="subscribedPool && form.selection_mode === 'manual'" class="card mt-3">
-      <h3>3. Manual clip selection</h3>
+      <h3>Manual clip selection</h3>
       <p class="hint">
         Click a tile in the pool to add it to your sequence. Reorder with the ▲ ▼ buttons; remove
         with ✕. Each clip plays for its native duration by default — type a different number to
@@ -176,6 +180,10 @@
 
       <div class="manual-layout">
         <div class="manual-pool">
+          <p v-if="poolClipsError" class="validation-msg text-sm">
+            ⚠ {{ poolClipsError }}
+            <button class="btn btn-ghost btn-sm" @click="loadPoolClips">Retry</button>
+          </p>
           <div class="manual-pool-header">
             Pool ({{ clipsInPool.length }} clips)
             <input
@@ -194,7 +202,7 @@
               :title="`${clip.filename} · ${formatDuration(clip.duration)}\nTags: ${(clip.tags || []).join(', ') || '(none)'}`"
               @click="addToManualSelection(clip)"
             >
-              <img :src="thumbnailUrl(subscribedPoolId, clip.filename)" :alt="clip.filename" class="manual-thumb" />
+              <img :src="thumbnailUrl(subscribedPoolId, clip.filename)" :alt="clip.filename" class="manual-thumb" loading="lazy" />
               <span class="manual-tile-name">{{ clip.filename }}</span>
               <span class="manual-tile-dur">{{ formatDuration(clip.duration) }}</span>
               <span v-if="manualSelection.some(m => m.filename === clip.filename)" class="manual-tile-badge">
@@ -217,7 +225,7 @@
           </div>
           <ol v-else class="manual-list">
             <li v-for="(m, idx) in manualSelection" :key="`${m.filename}-${idx}`" class="manual-row">
-              <img :src="thumbnailUrl(subscribedPoolId, m.filename)" :alt="m.filename" class="manual-row-thumb" />
+              <img :src="thumbnailUrl(subscribedPoolId, m.filename)" :alt="m.filename" class="manual-row-thumb" loading="lazy" />
               <div class="manual-row-body">
                 <span class="manual-row-name" :title="m.filename">{{ m.filename }}</span>
                 <div class="manual-row-controls">
@@ -251,7 +259,7 @@
          every clip pair) at v1.0.89; per-segment transition overrides
          can ship in a follow-up if useful. v1.0.89+. -->
     <section v-if="subscribedPool" class="card mt-3">
-      <h3>4. Camera motion + transitions</h3>
+      <h3>3. Camera motion + transitions</h3>
       <div class="grid-2">
         <div class="form-group">
           <label>Per-clip motion</label>
@@ -272,6 +280,10 @@
               <option v-for="m in motionOptions" :key="m.id" :value="m.id">{{ m.label }} — {{ m.hint }}</option>
             </select>
           </div>
+          <p v-if="motionCatalogueError" class="validation-msg text-sm mt-1">
+            ⚠ Camera moves could not be loaded, so only “Static” is offered.
+            <button class="btn btn-ghost btn-sm" @click="loadMotionCatalogue">Retry</button>
+          </p>
 
           <div v-else class="mt-2">
             <label class="text-xs text-muted">Motion pool (pick at least 1)</label>
@@ -337,6 +349,10 @@
     -->
     <section v-if="subscribedPool && form.episode_id" class="card mt-3">
       <h3>4. Subtitles (optional)</h3>
+      <p v-if="subtitlesStatusError" class="validation-msg text-sm">
+        ⚠ {{ subtitlesStatusError }}
+        <button class="btn btn-ghost btn-sm" @click="loadBrollSubtitlesStatus">Retry</button>
+      </p>
       <p class="text-muted mt-1">
         Generate or import a subtitle file for this episode. The
         <strong>Enable subtitles</strong> toggle controls whether the file
@@ -353,7 +369,7 @@
           <span class="ml-1-tight">Enable subtitles</span>
         </label>
         <span class="text-muted text-xs hint-line">
-          When on, the first matching file in <code>subtitles/</code> (priority: .srt → .ass → .vtt) is burned into the final video. Off skips the burn entirely.
+          When on, the subtitle file picked below is burned into the final video. Off renders without subtitles.
         </span>
       </div>
 
@@ -361,9 +377,8 @@
         v-if="subtitlesStatus && subtitlesStatus.has_libass === false && brollSubtitles.enabled"
         class="validation-msg text-sm mt-1"
       >
-        ⚠ This FFmpeg build doesn't include libass — subtitles can't be burned in.
-        Reinstall the app's bundled ffmpeg or install a libass-enabled build
-        (e.g. <code>brew install ffmpeg</code> with freetype + libass).
+        ⚠ The video tool on this Mac can't burn subtitles into the picture. Reinstall
+        Story Studio to restore its built-in video tool, then try again.
       </p>
 
       <!-- Source picker -->
@@ -536,9 +551,8 @@
       <div v-if="brollSubtitles.enabled" class="settings-section mt-3">
         <h4>Style</h4>
         <p class="text-muted text-xs hint-line">
-          Controls font, size, colour, outline, position, and background — applied via
-          libass <code>force_style</code> at burn time. Style choices are saved per project
-          so they survive reload + apply to every B-Roll assembly going forward.
+          Controls font, size, colour, outline, position, and background of the burned-in
+          subtitles. Style choices are saved per project and apply to every B-Roll assembly.
         </p>
         <SubtitleStylePicker
           :slug="slug"
@@ -551,11 +565,18 @@
     </section>
 
     <!-- ── Selected sequence preview ──────────────────────────────── -->
+    <p v-if="selectionLoadError" class="validation-msg text-sm mt-3">
+      ⚠ {{ selectionLoadError }}
+      <button class="btn btn-ghost btn-sm" @click="loadSavedSelection">Retry</button>
+    </p>
     <section v-if="selection.length" class="card mt-3">
-      <h3>3. Selected sequence ({{ selection.length }} clips · {{ formatDuration(selectionDuration) }})</h3>
+      <h3>5. Selected sequence for {{ form.episode_id }} ({{ selection.length }} clips · {{ formatDuration(selectionDuration) }})</h3>
+      <p v-if="selectionSavedAt" class="hint text-sm">
+        Saved pick from {{ new Date(selectionSavedAt).toLocaleString() }} — the settings above were restored from it.
+      </p>
       <div class="sequence-row">
         <div v-for="(s, idx) in selection" :key="idx" class="seq-tile" :title="`${s.filename} · ${formatDuration(s.target_duration)}`">
-          <img :src="thumbnailUrl(s.pool_id, s.filename)" :alt="s.filename" class="seq-thumb" />
+          <img :src="thumbnailUrl(s.pool_id, s.filename)" :alt="s.filename" class="seq-thumb" loading="lazy" />
           <span class="seq-idx">{{ idx + 1 }}</span>
           <span class="seq-duration">{{ formatDuration(s.target_duration) }}</span>
         </div>
@@ -570,9 +591,13 @@
           {{ (assembling || assembleJobActive) ? 'Assembling…' : '🎞 Assemble video' }}
         </button>
         <button class="btn btn-ghost" @click="pickClips" :disabled="picking">
-          ↻ Re-pick (different shuffle)
+          {{ form.selection_mode === 'manual' ? '↻ Save manual sequence again' : '↻ Re-pick (different shuffle)' }}
         </button>
       </div>
+      <p class="hint text-sm mt-1">
+        Assemble renders the narration with exactly this sequence.
+        {{ form.selection_mode === 'manual' ? 'Edit the manual sequence above, then save it again to update this list.' : 'Re-pick draws a new random set with the settings above.' }}
+      </p>
     </section>
   </div>
 </template>
@@ -749,18 +774,21 @@ const canTranscribeBroll = computed(() => {
     && isTranscriptionLanguageUsable(form.transcription_language, brollGenstudioSelectedModel.value)
 })
 
+const subtitlesStatusError = ref('')
 async function loadBrollSubtitlesStatus(): Promise<void> {
-  if (!form.episode_id) {
-    subtitlesStatus.value = null
-    return
-  }
+  // Blank first: the previous episode's subtitle list must never stand in for
+  // this one's, even when the read below fails (AGENTS.md §4).
+  const ep = form.episode_id
+  subtitlesStatus.value = null
+  subtitlesStatusError.value = ''
+  if (!ep) return
   try {
-    subtitlesStatus.value = await get(
-      `/projects/${slug.value}/video-editor/subtitles/status/${form.episode_id}`,
+    const status = await get<typeof subtitlesStatus.value>(
+      `/projects/${slug.value}/video-editor/subtitles/status/${ep}`,
     )
-  } catch {
-    // Non-fatal — leave previous value or null; the UI just hides the
-    // condition-gated warnings.
+    if (form.episode_id === ep) subtitlesStatus.value = status
+  } catch (e: any) {
+    if (form.episode_id === ep) subtitlesStatusError.value = `Could not read this episode's subtitle files. ${e?.data?.detail || e?.message || ''}`.trim()
   }
 }
 
@@ -895,6 +923,9 @@ watch(() => form.episode_id, (newEp, oldEp) => {
     manualSelection.value = []
     narrationTargetSec.value = 0
     manualPoolFilter.value = ''
+    // The picked sequence is that episode's too — blank it, then read this
+    // episode's own saved pick (if any) so Assemble never shows foreign clips.
+    void loadSavedSelection()
   }
 })
 
@@ -914,16 +945,23 @@ watch(() => form.episode_id, (newEp, oldEp) => {
 const motionOptions = ref<Array<{ id: string; label: string; hint: string }>>([
   { id: 'static', label: 'Static', hint: 'No camera move.' },
 ])
+const motionCatalogueError = ref(false)
 
 async function loadMotionCatalogue() {
   try {
     const data = await get<{ footage_motions: Array<{ id: string; name: string; description: string }> }>(
-      `/projects/${slug}/video-editor/effects/catalog`,
+      `/projects/${slug.value}/video-editor/effects/catalog`,
     )
     if (Array.isArray(data?.footage_motions) && data.footage_motions.length) {
       motionOptions.value = data.footage_motions.map(m => ({ id: m.id, label: m.name, hint: m.description }))
+      motionCatalogueError.value = false
+    } else {
+      motionCatalogueError.value = true
     }
-  } catch { /* keep the fallback; the picker must not go blank */ }
+  } catch {
+    // Keep the fallback so the picker never goes blank, but say why it's short.
+    motionCatalogueError.value = true
+  }
 }
 
 // Manual selection state: ordered list of {filename, target_duration}.
@@ -994,6 +1032,42 @@ const matchingClipCount = computed(() => {
 
 const selection = ref<Array<{ pool_id: string; filename: string; target_duration: number }>>([])
 const selectionDuration = computed(() => selection.value.reduce((s, c) => s + c.target_duration, 0))
+const selectionSavedAt = ref('')
+const selectionLoadError = ref('')
+
+/** Read the open episode's own saved pick and restore its settings. */
+async function loadSavedSelection(): Promise<void> {
+  const ep = form.episode_id
+  selection.value = []
+  selectionSavedAt.value = ''
+  selectionLoadError.value = ''
+  if (!ep || !slug.value) return
+  try {
+    const saved = await get<any>(`/projects/${slug.value}/broll/selection/${encodeURIComponent(ep)}`)
+    if (form.episode_id !== ep || !Array.isArray(saved?.selection)) return
+    for (const key of ['selection_mode', 'pacing_mode', 'segment_seconds', 'broll_volume', 'motion_mode', 'motion_default', 'transition_id', 'transition_duration'] as const) {
+      if (saved[key] !== undefined && saved[key] !== null) (form as any)[key] = saved[key]
+    }
+    if (Array.isArray(saved.tags)) form.tags = [...saved.tags]
+    if (Array.isArray(saved.motion_pool)) form.motion_pool = [...saved.motion_pool]
+    if (form.selection_mode === 'manual') {
+      manualSelection.value = saved.selection.map((s: any) => ({ filename: s.filename, target_duration: s.target_duration }))
+    }
+    selection.value = saved.selection
+    narrationTargetSec.value = saved.target_duration || 0
+    selectionSavedAt.value = saved.generated_at || ''
+  } catch (e: any) {
+    if (form.episode_id === ep) selectionLoadError.value = `Could not read the saved B-Roll pick for ${ep}. ${e?.data?.detail || e?.message || ''}`.trim()
+  }
+}
+
+const pickDisabledReason = computed(() => {
+  if (!subscribedPool.value) return 'Choose a B-Roll pool first (section 1).'
+  if (!subscribedPool.value.online) return 'Plug in the pool’s drive first.'
+  if (!form.episode_id) return 'Choose an episode first.'
+  if (form.selection_mode === 'manual' && !manualSelection.value.length) return 'Add at least one clip to the manual sequence.'
+  return ''
+})
 
 const picking = ref(false)
 const assembling = ref(false)
@@ -1007,54 +1081,65 @@ const assembleJobActive = computed(() => isJobActiveFor(form.episode_id, ['video
 // ── Init ───────────────────────────────────────────────────────────────
 
 async function loadConfig(): Promise<void> {
-  try {
-    const cfg = await get<any>(`/projects/${slug.value}/settings/config`)
-    subscribedPoolId.value = cfg?.broll_pool_id || ''
-    form.broll_lookback = cfg?.broll_lookback ?? 10
-    // Hydrate persistent subtitle config. Defensive Object.assign keeps the
-    // current defaults when a saved style is partial.
-    const saved = cfg?.broll_subtitles
-    if (saved && typeof saved === 'object') {
-      if (typeof saved.enabled === 'boolean') brollSubtitles.enabled = saved.enabled
-      // Replace, never shallow-merge: a project saved under the old flat shape
-      // would otherwise leave a half-upgraded hybrid document behind.
-      if (saved.style && typeof saved.style === 'object') brollSubtitles.style = normalizeSubtitleStyle(saved.style)
-    }
-  } catch { /* tolerate */ }
+  const cfg = await get<any>(`/projects/${slug.value}/settings/config`)
+  subscribedPoolId.value = cfg?.broll_pool_id || ''
+  form.broll_lookback = cfg?.broll_lookback ?? 10
+  // Hydrate persistent subtitle config. Defensive Object.assign keeps the
+  // current defaults when a saved style is partial.
+  const saved = cfg?.broll_subtitles
+  if (saved && typeof saved === 'object') {
+    if (typeof saved.enabled === 'boolean') brollSubtitles.enabled = saved.enabled
+    // Replace, never shallow-merge: a project saved under the old flat shape
+    // would otherwise leave a half-upgraded hybrid document behind.
+    if (saved.style && typeof saved.style === 'object') brollSubtitles.style = normalizeSubtitleStyle(saved.style)
+  }
 }
 
+const poolClipsError = ref('')
 async function loadPoolClips(): Promise<void> {
-  if (!subscribedPoolId.value) {
-    clipsInPool.value = []
-    availableTags.value = []
-    return
-  }
+  clipsInPool.value = []
+  availableTags.value = []
+  poolClipsError.value = ''
+  if (!subscribedPoolId.value) return
   try {
     const r = await broll.listClips(subscribedPoolId.value)
     clipsInPool.value = r.clips.filter((c: any) => !c.missing)
     const allTags = new Set<string>()
     for (const c of clipsInPool.value) for (const t of (c.tags || [])) allTags.add(t)
     availableTags.value = Array.from(allTags).sort()
-  } catch {
-    clipsInPool.value = []
-    availableTags.value = []
+  } catch (e: any) {
+    poolClipsError.value = `Could not list the pool's clips. ${e?.data?.detail || e?.message || ''}`.trim()
   }
 }
 
 watch(subscribedPoolId, () => { void loadPoolClips() })
 
-onMounted(async () => {
-  void loadMotionCatalogue()
-  await broll.loadPools()
-  await loadConfig()
+const loadError = ref('')
+/** Each step is independent: one failing read must not blank the others. */
+async function loadPage(): Promise<void> {
+  loadError.value = ''
+  const failed: string[] = []
+  const step = async (label: string, run: () => Promise<unknown>) => {
+    try { await run() } catch (e: any) { failed.push(`${label} (${e?.data?.detail || e?.message || 'error'})`) }
+  }
+  await step('B-Roll pools', () => broll.loadPools())
+  await step('project settings', () => loadConfig())
   await loadPoolClips()
   // v1.0.121+ — Hydrate presets AFTER loadConfig so an active preset's
   // values overlay the project-level defaults (matches how every other
   // generator page sequences these two). `load()` auto-applies the active
   // preset on mount per the composable's default — see usePresets opts.
-  await brollPresets.load()
-  // Status drives the libass and audio gates in the Subtitles section.
+  await step('presets', () => brollPresets.load())
+  // The episode's own saved pick wins over the preset: it is what Assemble renders.
+  await loadSavedSelection()
+  // Status drives the subtitle and audio gates in the Subtitles section.
   await loadBrollSubtitlesStatus()
+  if (failed.length) loadError.value = `Could not load: ${failed.join(', ')}.`
+}
+
+onMounted(async () => {
+  void loadMotionCatalogue()
+  await loadPage()
   if (subtitlesSource.value === 'whisper') await loadBrollGenstudioModels()
 })
 
@@ -1104,6 +1189,8 @@ async function pickClips(): Promise<void> {
     )
     selection.value = r.selection || []
     narrationTargetSec.value = r.target_duration || 0
+    selectionSavedAt.value = ''
+    selectionLoadError.value = ''
     if (r.warnings?.length) {
       for (const w of r.warnings) showError(w)
     }

@@ -63,7 +63,7 @@ export function thumbnailPath(sha256: string): string {
   return path.join(thumbnailDir(), `${sha256}.jpg`)
 }
 
-function sidecarPath(folderPath: string): string {
+export function sidecarPath(folderPath: string): string {
   return path.join(folderPath, '.story-studio-broll.json')
 }
 

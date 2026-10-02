@@ -136,10 +136,29 @@ export function selectBroll(input: SelectionInput): SelectionResult {
     const withoutExcludes = applyFilters({ withExcludes: false, withTags: true })
     if (withoutExcludes.length) {
       warnings.push(
-        `Cross-episode repeat avoidance eliminated every candidate (${excludeShas.size} clip(s) used in the last uploads). ` +
-        `Relaxing the lookback for this episode — consider adding more clips, lowering broll_lookback, or both.`,
+        `Every matching clip was used in your recent uploads (${excludeShas.size} clip(s)), so recent clips are reused for this episode. ` +
+        `Add more clips to the pool or lower "Avoid repeats" to avoid this.`,
       )
       candidates = withoutExcludes
+    }
+  }
+
+  // Auto-relax 2: what is left after repeat avoidance cannot fill the
+  // narration without looping clips inside this one episode. Repeating clips
+  // from an older episode is better than looping a handful within this one.
+  if (candidates.length && excludeShas.size && input.selection_mode !== 'manual') {
+    const capacity = (list: PoolClip[]) => input.pacing_mode === 'timed'
+      ? list.length * Math.max(1, Math.round(input.segment_seconds || 8))
+      : list.reduce((sum, c) => sum + (input.pacing_mode === 'natural' ? c.duration : Math.min(c.duration, ROTATE_MAX_SEGMENT_SEC)), 0)
+    if (capacity(candidates) < input.target_duration) {
+      const withoutExcludes = applyFilters({ withExcludes: false, withTags: true })
+      if (capacity(withoutExcludes) > capacity(candidates)) {
+        warnings.push(
+          `Not enough clips left that were unused in your recent uploads to fill this episode, so some clips from recent uploads are reused. ` +
+          `Add more clips to the pool or lower "Avoid repeats" to avoid this.`,
+        )
+        candidates = withoutExcludes
+      }
     }
   }
 
@@ -192,7 +211,7 @@ export function selectBroll(input: SelectionInput): SelectionResult {
     warnings.push(
       `Pool too small to fill ${Math.round(target)}s of narration without repeating clips. ` +
       `Got ${Math.round(cumulative)}s from ${selection.length} unique clip(s). ` +
-      `Add more clips to the pool, broaden the tag filter, or reduce broll_lookback.`,
+      `Add more clips to the pool, broaden the tag filter, or lower "Avoid repeats".`,
     )
   }
 

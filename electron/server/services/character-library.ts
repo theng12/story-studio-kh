@@ -30,6 +30,7 @@ import path from 'path'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import * as pm from './project-manager.js'
 import * as cm from './character-manager.js'
+import { moveToTrashSync } from '../lib/trash-move.js'
 import type { Character } from '../models/types.js'
 
 const SCHEMA_VERSION = 1 as const
@@ -338,7 +339,8 @@ export async function updateLibraryCharacter(
     const merged: Character = {
       ...current,
       name: patch.name?.trim() ?? current.name,
-      archetype: patch.archetype?.trim() ?? current.archetype,
+      // '' clears the role; undefined keeps it.
+      archetype: typeof patch.archetype === 'string' ? (patch.archetype.trim() || undefined) : current.archetype,
       description: patch.description?.trim() ?? current.description,
       speech: patch.speech !== undefined ? patch.speech : current.speech,
       channel_profiles: patch.channel_profiles !== undefined ? patch.channel_profiles : current.channel_profiles,
@@ -531,4 +533,21 @@ export async function addLibraryReferenceImage(
     },
   })
   return { relativePath: safe, absolutePath }
+}
+
+/** Remove one reference image (record entry and file). Returns the updated record. */
+export async function removeLibraryReferenceImage(characterId: string, filename: string): Promise<Character> {
+  const current = await getLibraryCharacter(characterId)
+  if (!current) throw new Error(`Channel character '${characterId}' not found`)
+  const images = current.references?.images || []
+  if (path.basename(filename) !== filename || !images.includes(filename)) {
+    throw new Error(`Reference image '${filename}' not found`)
+  }
+  const updated = await updateLibraryCharacter(characterId, {
+    references: { images: images.filter(f => f !== filename), style_keywords: current.references?.style_keywords },
+  })
+  // Never a hard delete: the picture moves to this character's own _trash folder.
+  const file = path.join(libraryDir(characterId), filename)
+  if (existsSync(file)) moveToTrashSync(file, path.join(libraryDir(characterId), '_trash', filename))
+  return updated!
 }
