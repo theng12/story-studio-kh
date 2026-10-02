@@ -11,7 +11,8 @@ const board = readFileSync(
 describe('Production Board defaults', () => {
   test('opens as a needs-work dashboard instead of a completed archive', () => {
     assert.match(board, /const needsWorkOnly = ref\(true\)/)
-    assert.match(board, /if \(needsWorkOnly\.value\) list = list\.filter\(ep => !isFullyDone\(ep\)\)/)
+    // A search still finds finished episodes (it is a lookup, not a work list).
+    assert.match(board, /if \(needsWorkOnly\.value && !searchActive\.value\) list = list\.filter\(ep => !isFullyDone\(ep\)\)/)
     assert.match(board, /Show all episodes/)
     assert.doesNotMatch(board, /const hidePending/)
   })
