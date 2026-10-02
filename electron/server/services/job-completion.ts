@@ -9,6 +9,8 @@ export interface JobCompletionAudit {
   item_name?: string
   issues?: Array<{ item_id: string; state: 'missing' | 'invalid'; reason?: string }>
   retry_hint?: string
+  /** A plain-language error to show instead of the generated count/id summary. */
+  message?: string
 }
 
 function formatItems(items: Array<string | number>): string {
@@ -35,6 +37,7 @@ function dedupeItems(items: Array<string | number>): Array<string | number> {
 }
 
 export function completionErrorMessage(audit: JobCompletionAudit): string {
+  if (audit.message?.trim()) return audit.message.trim()
   const problems = dedupeItems([...(audit.missing || []), ...(audit.invalid || [])])
   const noun = audit.item_name?.trim()
   const exactIssues = new Map<string, NonNullable<JobCompletionAudit['issues']>[number]>()
