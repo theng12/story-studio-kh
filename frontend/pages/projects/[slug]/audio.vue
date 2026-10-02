@@ -45,10 +45,12 @@
     <WorkspaceNotice
       v-if="form.episode_id && statusKnown && !scriptReady"
       tone="warning"
-      title="Script not detected"
+      title="No finished script yet"
     >
-      No script was found for {{ form.episode_id }}. If it was just written or copied in, rescan the episode folders.
+      Story Studio can't find a finished script for {{ form.episode_id }}. If some chapters are still unwritten,
+      finish them in Script Generator. If you just copied the script in, rescan the episode folders.
       <template #actions>
+        <NuxtLink :to="`/projects/${slug}/scripts?episode_id=${encodeURIComponent(form.episode_id)}`" class="btn btn-secondary btn-sm">Open Script Generator</NuxtLink>
         <button
           type="button"
           class="btn btn-secondary btn-sm"
@@ -242,7 +244,7 @@
         </div>
         <p v-if="qualityActionError" class="audio-quality-error" role="alert">{{ qualityActionError }}</p>
         <p v-if="qualityActionPending" class="audio-quality-retry" role="status">
-          The previous quality submission was not confirmed. Retry with the same scope, or change the selection or narration controls to start a new action.
+          {{ UNCONFIRMED_SUBMISSION }}
         </p>
       </section>
 
@@ -407,9 +409,15 @@
             No sections selected. Choose rows to generate, regenerate, or create another version.
           </template>
         </p>
+        <p class="audio-scope-summary text-muted">
+          <strong>Generate missing</strong> makes only chapters with no audio yet and never touches finished ones.
+          <strong>Get quote</strong> only asks the price; it makes nothing.
+          <strong>More → Create another version</strong> keeps the current audio and saves a new take beside it.
+          <template v-if="inlineGenerateDisabled && inlineGenerateDisabledReason"><br>Buttons are off because: {{ inlineGenerateDisabledReason }}</template>
+        </p>
         <p v-if="quoteError" class="audio-quote-error" role="alert">{{ quoteError }}</p>
         <p v-if="audioRetryPending" class="audio-quote-error" role="status">
-          The previous submission was not confirmed. Retry submission with the same scope, or change the selection to start a new action.
+          {{ UNCONFIRMED_SUBMISSION }}
         </p>
       </section>
 
@@ -583,10 +591,9 @@
     <div v-if="form.episode_id" class="card mt-2" aria-labelledby="audio-integrity-heading">
       <h3 id="audio-integrity-heading" class="integrity-title">Audio integrity</h3>
       <p class="text-muted text-sm integrity-blurb">
-        Check whether every expected audio file is on disk. If a completed
-        GenStudio download was interrupted, <strong>Repair missing</strong>
-        reconnects to the accepted job without submitting or charging twice.
-        Regenerate only when GenStudio no longer has a recoverable result.
+        Checks that every audio file is on disk. If a finished download was interrupted,
+        <strong>Repair missing</strong> downloads it again — it never makes or charges anything twice.
+        If repair can't find a copy, use <strong>Generate missing</strong>.
       </p>
 
       <div v-if="audioStatus.loading" class="text-muted text-md">
@@ -599,7 +606,7 @@
       </div>
 
       <div v-else-if="audioStatus.total === 0" class="text-muted text-md">
-        No audio chunks expected for this episode yet. Generate the script first,
+        No audio files expected for this episode yet. Generate the script first,
         then the system will know what to check.
       </div>
 
@@ -609,10 +616,10 @@
           :class="audioStatus.missing === 0 ? 'ok' : 'warn'"
         >
           <template v-if="audioStatus.missing === 0">
-            ✓ All {{ audioStatus.total }} audio chunks present
+            ✓ All {{ audioStatus.total }} audio files present
           </template>
           <template v-else>
-            ⚠ {{ audioStatus.missing }} of {{ audioStatus.total }} chunks missing
+            ⚠ {{ audioStatus.missing }} of {{ audioStatus.total }} audio files missing
           </template>
         </span>
 
@@ -636,12 +643,10 @@
       <div v-if="repairResult" class="repair-result mt-2">
         <div class="repair-summary" :class="repairResult.still_missing === 0 ? 'ok' : 'warn'">
           Recovered <strong>{{ repairResult.recovered }}</strong> /
-          {{ repairResult.recovered + repairResult.still_missing }} missing chunk(s).
+          {{ repairResult.recovered + repairResult.still_missing }} missing file(s).
           <span v-if="repairResult.still_missing > 0">
-            {{ repairResult.still_missing }} still missing — the task may have
-            aged out of the provider's history, failed on the provider side, or
-            was made with a streaming provider (no re-fetchable task).
-            Re-generate those (Skip existing will remake only the missing ones).
+            {{ repairResult.still_missing }} still missing — there is no finished copy left to download.
+            Click <strong>Generate missing</strong> above: it makes only these and keeps the audio you already have.
           </span>
         </div>
         <details class="mt-1">
@@ -655,6 +660,7 @@
 
 <script setup lang="ts">
 import type { GenStudioTtsModel, GenStudioVoice, GenStudioNarrationQuote } from '~/composables/useGenStudioVoices'
+import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
 import { voiceIsGenerable } from '~/composables/useGenStudioVoices'
 import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
 import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection'
@@ -1179,7 +1185,7 @@ const heldQualityApprovalKey = computed(() => {
 const heldQualityApprovalButtonLabel = computed(() => {
   if (qualitySubmitting.value) return 'Submitting…'
   if (heldQualityApprovalKey.value && qualityHeldApprovalKey.value === heldQualityApprovalKey.value) {
-    return 'Retry submission'
+    return 'Retry (same request)'
   }
   const quote = heldQualityApproval.value?.quote
   return quote === undefined ? 'Approve verification' : `Approve +${quote.toLocaleString()} credits`
@@ -1200,7 +1206,7 @@ const activeCheckExactTotalLabel = computed(() => activeCheckExactTotal.value ==
 const activeCheckApprovalButtonLabel = computed(() => {
   if (qualitySubmitting.value) return 'Submitting…'
   if (activeCheckApprovalKey.value && activeCheckApprovedKey.value === activeCheckApprovalKey.value) {
-    return 'Retry submission'
+    return 'Retry (same request)'
   }
   return activeCheckExactTotal.value === null
     ? 'Retry quote'
@@ -1325,7 +1331,7 @@ async function submitActiveAudioCheck(): Promise<void> {
     sectionRefreshKey.value++
     success(`Transcript double-check queued for ${approval.label}. Active audio and subtitles stay unchanged.`)
   } catch (e: any) {
-    qualityActionError.value = e?.data?.detail || e?.message || 'The double-check submission was not confirmed.'
+    qualityActionError.value = e?.data?.detail || e?.message || UNCONFIRMED_SUBMISSION
     showError(qualityActionError.value)
   } finally {
     qualitySubmitting.value = false
@@ -1489,7 +1495,7 @@ async function runAudioQualityCheck(targetSections: string[]): Promise<void> {
     sectionRefreshKey.value++
     success(`Checked repair queued for ${scopeSummary(targetSections)}. Current audio stays active until a candidate passes review.`)
   } catch (e: any) {
-    qualityActionError.value = e?.data?.detail || e?.message || 'The quality submission was not confirmed.'
+    qualityActionError.value = e?.data?.detail || e?.message || UNCONFIRMED_SUBMISSION
     showError(qualityActionError.value)
   } finally {
     qualitySubmitting.value = false
@@ -1742,7 +1748,7 @@ async function onRescan() {
     rescanning.value = false
   }
 }
-const noScriptTooltip = 'Generate the script first to unlock this generator.'
+const noScriptTooltip = "Finish this episode's script in Script Generator first — narration needs every chapter written."
 
 // ── Presets ─────────────────────────────────────────────────────────────
 const audioPresets = usePresets<any>({
@@ -1828,7 +1834,7 @@ async function previewVoiceId(voiceId?: string) {
     }
   } catch (e: any) {
     console.error(`[audio] voice preview failed (voice=${id}, model=${form.model}):`, e)
-    showError(e.data?.detail || `Voice preview failed for ${id}. Check your TTS provider key in Settings.`)
+    showError(e.data?.detail || 'Could not play this voice sample. Check that GenStudio is connected (top right), then try again.')
   } finally {
     previewing.value = false
   }
@@ -1952,16 +1958,16 @@ async function runRepair() {
     if (!isCurrentRepairScope(requestId, targetSlug, targetEpisode)) return
     repairResult.value = r
     if (r.recovered > 0) {
-      success(`Recovered ${r.recovered} chunk(s)`)
+      success(`Downloaded ${r.recovered} missing audio file(s) again`)
     } else if (r.still_missing === 0) {
-      success('Nothing to repair — all chunks already present')
+      success('Nothing to repair — every audio file is already there')
     }
     await refreshAudioStatus()
     if (isCurrentRepairScope(requestId, targetSlug, targetEpisode)) sectionRefreshKey.value++
   } catch (e: any) {
     if (!isCurrentRepairScope(requestId, targetSlug, targetEpisode)) return
     console.error('[audio] repair failed:', e)
-    showError(e?.data?.detail || 'Audio repair failed — GenStudio no longer has a recoverable result for this job.')
+    showError(e?.data?.detail || 'Repair could not download the missing audio. Use Generate missing to make only those chapters again.')
   } finally {
     if (isCurrentRepairScope(requestId, targetSlug, targetEpisode)) {
       repairing.value = false
@@ -2014,7 +2020,7 @@ function audioRequestPayload(targetSections: string[], mode: AudioActionMode): R
 
 function audioActionLabel(targetSections: string[], mode: AudioActionMode, label: string): string {
   if (mode === 'generate') return label
-  return freshAudioAction.isRetry(audioRequestPayload(targetSections, mode)) ? 'Retry submission' : label
+  return freshAudioAction.isRetry(audioRequestPayload(targetSections, mode)) ? 'Retry (same request)' : label
 }
 
 async function queueAudio(targetSections: string[], mode: AudioActionMode) {
@@ -2075,8 +2081,8 @@ async function queueAudio(targetSections: string[], mode: AudioActionMode) {
   } catch (e: any) {
     console.error('[audio] queue failed:', e, 'payload:', payload)
     showError(e.data?.detail || (payload.operation_id
-      ? 'The submission was not confirmed. Retry submission to continue this same audio action.'
-      : `Failed to queue audio generation (model=${form.model}, voice=${form.voice || 'unset'}). Check the TTS provider key in Settings.`))
+      ? UNCONFIRMED_SUBMISSION
+      : 'Could not start narration. Check that GenStudio is connected (top right), then try again.'))
     audioGenerating.value = false
   } finally {
     submitting.value = false

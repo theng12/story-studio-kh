@@ -29,6 +29,7 @@ async function loadPageScript(): Promise<Component> {
     const useApi = () => globalThis.__subtitlesInitialApi
     const useToast = () => ({ success: () => undefined, error: () => undefined, info: () => undefined })
     const useJobs = () => ({ jobs: ref([]) })
+    const useConfirm = () => ({ ask: async () => true })
     const useProject = () => ({ project: ref(null), episodesRoot: ref('/fixture/episodes') })
     const useGenStudioTranscriptionModels = () => globalThis.__subtitleSelectionModel || ({
       modelId: ref(''), selectedModel: ref(null), options: ref([]), loading: ref(false),

@@ -27,6 +27,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { createHash } from 'crypto'
 import * as pm from './project-manager.js'
+import { moveToTrashSync } from '../lib/trash-move.js'
 import type {
   MusicLibraryTrack,
   MusicLibraryUsageEntry,
@@ -202,7 +203,9 @@ export async function removeTrack(slug: string, filename: string): Promise<void>
   if (!filename || filename !== path.basename(filename)) {
     throw new Error(`Invalid track filename: ${filename}`)
   }
-  await fs.rm(path.join(dir, filename), { force: true })
+  // Never hard-deleted: a paid track moves to the project's `_trash` and the owner empties it himself.
+  const file = path.join(dir, filename)
+  if (existsSync(file)) moveToTrashSync(file, path.join(path.dirname(dir), '_trash', MUSIC_LIBRARY_DIRNAME, filename))
   const cfg = await pm.getConfig(slug).catch(() => null)
   await pm.updateConfig(slug, {
     music_library_tracks: (cfg?.music_library_tracks || []).filter(r => r.filename !== filename),

@@ -59,7 +59,7 @@
       <span
         v-if="liveProgress.concurrency === 1"
         class="cs-progress-note"
-        title="Speech is sent to the voice provider one request at a time. A cloned voice lives in a single provider workspace, so sending a whole episode at once gets most of it refused."
+        title="Parts are narrated one at a time for this voice, so a long episode takes a while."
       >· one at a time</span>
       <span v-for="a in liveProgress.active" :key="a.key || a.label" class="cs-progress-active">
         · {{ activeText(a) }}
@@ -103,7 +103,7 @@
             title="Narration characters include spaces and reflect the text prepared for TTS."
           >
             <span>{{ formatCount(s.word_count) }} words · {{ formatCount(s.character_count) }} chars ·
-              {{ s.present_chunks }}/{{ s.total_chunks }} chunks</span>
+              {{ s.present_chunks }}/{{ s.total_chunks }} parts</span>
             <NuxtLink
               v-if="s.subtitles_stale"
               class="cs-downstream-warning"
@@ -600,7 +600,7 @@ function secondsUntil(iso?: string): number {
 function activeText(a: LiveAttempt): string {
   if (a.state !== 'waiting_retry') return `${prettyLabel(a.label)} — generating`
   const remaining = secondsUntil(a.retry_at)
-  return `${prettyLabel(a.label)} — provider busy, retrying`
+  return `${prettyLabel(a.label)} — busy, trying again`
     + `${remaining ? ` in ${remaining}s` : ' now'}`
     + ` (attempt ${a.attempt + 1} of ${a.max_attempts})`
 }
@@ -631,7 +631,7 @@ function statusText(status: string): string {
   return status === 'generated' ? '✓ ready'
     : status === 'partial' ? '◐ partial'
     : status === 'generating' ? '⏳ generating'
-    : status === 'waiting' ? '⏸ provider busy'
+    : status === 'waiting' ? '⏸ busy, will retry'
     : status === 'queued' ? '· waiting its turn'
     : status === 'stale' ? '⚠ stale'
     : '○ pending'
@@ -666,7 +666,7 @@ function inlineActionTitle(section: SectionRow): string {
   if (status === 'generated' || status === 'stale') {
     return `Regenerate only ${prettyLabel(section.label)} and replace its active audio.`
   }
-  return `Send only ${prettyLabel(section.label)} to the selected TTS provider.`
+  return `Narrate only ${prettyLabel(section.label)} with the selected voice.`
 }
 
 function prettyLabel(label: string): string {

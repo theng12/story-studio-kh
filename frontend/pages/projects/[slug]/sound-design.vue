@@ -35,7 +35,7 @@
       <div>
         <span class="section-kicker">Saved setup</span>
         <h2>Set safe pacing and mix defaults</h2>
-        <p>These settings belong to a Sound Design preset. Phase 1 uses your local sound library only; compatible GenStudio sound capabilities will appear here when they are published.</p>
+        <p>Save these as a preset to reuse them on other episodes. Sounds come from your own sound-effect folders (SFX pools in the B-Roll Library).</p>
       </div>
       <div class="sound-settings-controls">
         <label class="sound-setting-field" title="Controls how frequently Sound Design suggests ambience and one-off effects. Minimal is safest for narration-first videos; Rich creates a busier soundscape.">
@@ -63,19 +63,23 @@
           <select v-model="settings.ducking_profile" class="select" aria-describedby="sound-ducking-help"><option value="gentle">Gentle — light narration protection</option><option value="standard">Standard — clearer narration</option><option value="strong">Strong — narration first</option></select>
           <small id="sound-ducking-help" class="setting-help">How much ambience lowers under speech. Gentle preserves atmosphere; Strong prioritizes voice clarity.</small>
         </label>
-        <div class="provider-note"><strong>GenStudio sound generation</strong><span>Not available yet. This workflow will use a qualified live GenStudio capability when one is published; Story Studio will not connect to providers directly.</span></div>
+        <div class="provider-note"><strong>Making new sounds</strong><span>Not available yet. For now, add sound files you already have to an SFX pool in the <NuxtLink to="/broll-library">B-Roll Library</NuxtLink>.</span></div>
       </div>
     </section>
 
     <WorkspaceNotice v-if="!config.enabled" tone="info" title="Sound Design is off">Save a preset now if you like. Enable the project setting only when approved sound cues should become part of Final Video.</WorkspaceNotice>
     <template v-else>
-      <WorkspaceNotice v-if="loadError" tone="warning" title="Sound Design needs a Scene Plan">{{ loadError }}</WorkspaceNotice>
-      <WorkspaceNotice v-else-if="validation.length" tone="warning" title="Resolve Sound Design before Final Video">{{ validation[0]?.detail }}</WorkspaceNotice>
+      <WorkspaceNotice v-if="loadError" tone="warning" title="Sound Design can't open this episode">{{ loadError }}</WorkspaceNotice>
+      <WorkspaceNotice v-else-if="loadingTimeline" tone="info" title="Loading this episode's sound cues…" />
+      <WorkspaceNotice v-else-if="validation.length" tone="warning" :title="`Fix ${validation.length} thing${validation.length === 1 ? '' : 's'} before Final Video`">
+        <span v-for="(issue, i) in validation" :key="i" class="sound-issue">• {{ issue.cue_id ? `${cueName(issue.cue_id)}: ` : '' }}{{ issue.detail }}</span>
+      </WorkspaceNotice>
       <WorkspaceNotice v-else-if="timeline" tone="success" title="Sound Design ready">{{ approvedCount }} approved cue{{ approvedCount === 1 ? '' : 's' }} will be mixed into Final Video. Excluded cues will not be used.</WorkspaceNotice>
 
       <section v-if="timeline" class="card sound-timeline">
         <div class="timeline-heading"><div><span class="section-kicker">Reviewed timeline</span><h2>{{ timeline.cues.length }} cue{{ timeline.cues.length === 1 ? '' : 's' }}</h2></div><div class="timeline-actions"><button class="btn btn-secondary btn-sm" @click="addBed">+ Ambient bed</button><button class="btn btn-secondary btn-sm" @click="addSpot">+ Spot effect</button><button class="btn btn-primary btn-sm" :disabled="saving || !dirty" @click="saveTimeline()">{{ saving ? 'Saving…' : 'Save Sound Design' }}</button></div></div>
         <p v-if="!timeline.cues.length" class="text-muted">No sound cues yet. Silence is valid; add only the moments that improve the episode.</p>
+        <p v-if="!candidates.length" class="text-muted text-sm">No sound files found. Add a folder of sound effects as an SFX pool in the <NuxtLink to="/broll-library">B-Roll Library</NuxtLink>, then reload this page.</p>
         <article v-for="cue in timeline.cues" :key="cue.id" class="sound-cue" :class="`is-${cue.status}`">
           <div class="cue-time">{{ time(cue.start_sec) }}<template v-if="cue.kind === 'bed'">–{{ time(cue.end_sec || cue.start_sec) }}</template></div>
           <div class="cue-icon">{{ cue.kind === 'bed' ? '〰️' : '🔔' }}</div>
@@ -85,9 +89,10 @@
             <label>Start <input v-model.number="cue.start_sec" class="input input-time" type="number" min="0" :max="duration" step="0.1" @input="markSoundDirty()" /></label>
             <label v-if="cue.kind === 'bed'">End <input v-model.number="cue.end_sec" class="input input-time" type="number" min="0" :max="duration" step="0.1" @input="markSoundDirty()" /></label>
             <label>Gain <input v-model.number="cue.gain_db" class="input input-gain" type="number" min="-45" max="-3" step="1" @input="markSoundDirty()" /> dB</label>
-            <select :value="cueKey(cue)" class="select clip-picker" @change="onClipChange(cue, $event)"><option value="">— choose a local sound asset —</option><option v-for="candidate in candidates" :key="candidate.pool_id + '/' + candidate.filename" :value="candidate.pool_id + '/' + candidate.filename">{{ candidate.filename }}<template v-if="candidate.tags.length"> · {{ candidate.tags.join(', ') }}</template></option></select>
+            <select :value="cueKey(cue)" class="select clip-picker" @change="onClipChange(cue, $event)"><option value="">— choose a sound —</option><option v-for="candidate in candidates" :key="candidate.pool_id + '/' + candidate.filename" :value="candidate.pool_id + '/' + candidate.filename">{{ candidate.filename }}<template v-if="candidate.tags.length"> · {{ candidate.tags.join(', ') }}</template></option></select>
           </div>
           <div class="cue-actions"><span class="cue-status">{{ statusLabel(cue) }}</span><button class="btn btn-sm" :class="cue.status === 'approved' ? 'btn-primary' : 'btn-secondary'" :disabled="!cue.clip" @click="setStatus(cue, 'approved')">Approve</button><button class="btn btn-sm btn-secondary" @click="setStatus(cue, 'excluded')">Exclude</button><button class="btn btn-sm btn-danger" @click="removeCue(cue.id)">Remove</button></div>
+          <p v-for="(issue, i) in cueIssues(cue.id)" :key="i" class="cue-issue" role="alert">{{ issue }}</p>
         </article>
       </section>
     </template>
@@ -127,7 +132,9 @@ function markSoundDirty(): void { dirty.value = true; soundEditSeq++ }
 function id(): string { return `sound-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` }
 function time(value: number): string { const whole = Math.max(0, Math.floor(value || 0)); return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}` }
 function cueKey(cue: Cue): string { return cue.pool_id && cue.clip ? `${cue.pool_id}/${cue.clip}` : '' }
-function statusLabel(cue: Cue): string { if (cue.status === 'approved') return 'approved'; if (cue.status === 'excluded') return 'excluded'; return cue.clip ? 'ready to review' : 'needs asset' }
+function statusLabel(cue: Cue): string { if (cue.status === 'approved') return 'approved'; if (cue.status === 'excluded') return 'excluded'; return cue.clip ? 'ready to review' : 'choose a sound first' }
+function cueIssues(cueId: string): string[] { return validation.value.filter(issue => issue.cue_id === cueId).map(issue => issue.detail) }
+function cueName(cueId: string): string { const index = timeline.value?.cues.findIndex(cue => cue.id === cueId) ?? -1; const cue = index >= 0 ? timeline.value!.cues[index]! : null; return cue ? `Cue ${index + 1}${cue.label ? ` (${cue.label})` : ''}` : 'A cue' }
 function ensureTimeline(): Timeline { if (!timeline.value) { timeline.value = blankTimeline(); timelineProjectSlug.value = slug.value; timelineEpisodeId.value = episodeId.value }; return timeline.value }
 function addSpot(): void { const target = ensureTimeline(); target.cues.push({ id: id(), kind: 'spot', label: '', start_sec: 0, clip: '', gain_db: settings.value.default_spot_gain_db, status: 'proposed', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }); markSoundDirty() }
 function addBed(): void { const target = ensureTimeline(); target.cues.push({ id: id(), kind: 'bed', label: '', start_sec: 0, end_sec: Math.min(20, duration.value || 20), clip: '', gain_db: settings.value.default_bed_gain_db, status: 'proposed', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }); markSoundDirty() }
@@ -189,7 +196,7 @@ async function loadEpisode(): Promise<void> {
       get<{ candidates: Candidate[] }>(`/projects/${projectSlug}/sound-design/${episode}/candidates`),
     ])
     if (request !== soundLoadSequence || !isCurrentSoundScope(projectSlug, episode, scopeEpoch)) return
-    timeline.value = data.timeline
+    timeline.value = data.timeline || blankTimeline()
     timelineProjectSlug.value = projectSlug
     timelineEpisodeId.value = episode
     validation.value = data.validation || []
@@ -231,8 +238,9 @@ async function writeTimeline(announce: boolean): Promise<void> {
     if (announce) success('Sound Design timeline saved')
   } catch (cause: any) {
     if (timelineProjectSlug.value === projectSlug && timelineEpisodeId.value === episode && announce) {
-      const issue = cause?.data?.issues?.[0]?.detail
-      error(issue || cause?.data?.detail || 'Could not save Sound Design timeline')
+      const issues = Array.isArray(cause?.data?.issues) ? cause.data.issues : []
+      if (issues.length) validation.value = issues
+      error(issues.length ? `Not saved — fix the ${issues.length} problem${issues.length === 1 ? '' : 's'} shown on this page.` : cause?.data?.detail || 'Could not save Sound Design timeline')
     }
   } finally { saving.value = false }
 }
@@ -247,6 +255,6 @@ onMounted(async () => { await Promise.all([loadConfig(), presets.load()]) })
 .sound-design-workspace :deep(.workspace-command-surface .top-action-bar) { margin:0; border:0; background:transparent; box-shadow:none; }
 .sound-command,.sound-settings { display:grid; grid-template-columns:minmax(20rem,1fr) auto; align-items:center; gap:2rem; margin:1rem 0; padding:1.25rem 1.5rem; }.sound-command h2,.sound-settings h2,.sound-timeline h2 { margin:.25rem 0; font-size:1.1rem; }.sound-command p,.sound-settings p { margin:0; color:var(--text-muted); max-width:48rem; }.section-kicker { color:var(--accent-gold); text-transform:uppercase; letter-spacing:.09em; font-size:.72rem; font-weight:700; }.sound-switch { display:flex; gap:.55rem; align-items:center; font-weight:700; white-space:nowrap; }.sound-switch input { width:1.2rem; height:1.2rem; accent-color:var(--accent-gold); }
 .sound-settings { align-items:end; grid-template-columns:minmax(18rem,.8fr) minmax(36rem,1.7fr); }.sound-settings-controls { display:grid; grid-template-columns:repeat(2,minmax(12rem,1fr)); gap:.8rem; }.sound-setting-field { display:grid; align-content:start; gap:.42rem; min-width:0; padding:.72rem; border:1px solid var(--border-color); border-radius:.55rem; background:color-mix(in srgb,var(--bg-input) 58%,transparent); color:var(--text-muted); }.setting-label-row { display:flex; justify-content:space-between; align-items:center; gap:.65rem; color:var(--text-primary); font-size:.82rem; font-weight:700; }.setting-purpose { flex:0 0 auto; color:var(--accent-gold); font-size:.65rem; font-weight:700; letter-spacing:.05em; text-transform:uppercase; }.setting-help { color:var(--text-muted); font-size:.74rem; line-height:1.4; }.provider-note { grid-column:1/-1; display:grid; gap:.18rem; padding:.65rem .8rem; border:1px solid var(--border-color); border-radius:.45rem; color:var(--text-muted); font-size:.8rem; }.provider-note strong { color:var(--text-primary); }
-.sound-timeline { padding:1.25rem; }.timeline-heading { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-bottom:1rem; }.timeline-actions,.cue-actions { display:flex; gap:.45rem; flex-wrap:wrap; align-items:center; }.sound-cue { display:grid; grid-template-columns:6.5rem 2.2rem minmax(30rem,1fr) auto; gap:.8rem; align-items:start; padding:1rem 0; border-top:1px solid var(--border-color); }.sound-cue.is-approved { border-left:3px solid var(--success); padding-left:.7rem; }.sound-cue.is-excluded { opacity:.55; }.cue-time { padding-top:.55rem; color:var(--accent-gold); font-variant-numeric:tabular-nums; font-weight:700; }.cue-icon { font-size:1.1rem; padding-top:.45rem; }.cue-fields { display:grid; grid-template-columns:9rem minmax(15rem,1fr) 7rem 7rem 8rem minmax(15rem,1.2fr); gap:.5rem; align-items:center; }.cue-fields label { display:flex; align-items:center; gap:.25rem; color:var(--text-muted); font-size:.75rem; }.input-time { width:4.7rem; }.input-gain { width:3.6rem; }.clip-picker { min-width:0; }.cue-status { font-size:.75rem; color:var(--text-muted); white-space:nowrap; }
-@media (max-width:1100px) { .sound-settings,.sound-command,.sound-cue { grid-template-columns:1fr; }.sound-settings-controls,.cue-fields { grid-template-columns:1fr 1fr; }.cue-actions { justify-content:flex-start; } }
+.sound-timeline { padding:1.25rem; }.timeline-heading { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-bottom:1rem; }.timeline-actions,.cue-actions { display:flex; gap:.45rem; flex-wrap:wrap; align-items:center; }.sound-cue { display:grid; grid-template-columns:6.5rem 2.2rem minmax(0,1fr) auto; gap:.8rem; align-items:start; padding:1rem 0; border-top:1px solid var(--border-color); }.sound-cue.is-approved { border-left:3px solid var(--success); padding-left:.7rem; }.sound-cue.is-excluded { opacity:.55; }.cue-time { padding-top:.55rem; color:var(--accent-gold); font-variant-numeric:tabular-nums; font-weight:700; }.cue-icon { font-size:1.1rem; padding-top:.45rem; }.cue-fields { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; min-width:0; }.cue-fields > select:first-child { flex:0 0 9rem; }.cue-fields > input { flex:1 1 14rem; min-width:10rem; }.cue-fields > label { flex:0 0 auto; }.cue-issue { grid-column:1 / -1; margin:0; color:var(--warning, #d97706); font-size:.78rem; }.sound-issue { display:block; }.cue-fields label { display:flex; align-items:center; gap:.25rem; color:var(--text-muted); font-size:.75rem; }.input-time { width:4.7rem; }.input-gain { width:4.6rem; }.clip-picker { flex:1 1 14rem; min-width:10rem; }.cue-status { font-size:.75rem; color:var(--text-muted); white-space:nowrap; }
+@media (max-width:1100px) { .sound-settings,.sound-command,.sound-cue { grid-template-columns:1fr; }.sound-settings-controls { grid-template-columns:1fr 1fr; }.cue-actions { justify-content:flex-start; } }
 </style>

@@ -173,11 +173,11 @@ function stageLabel(s: AuditStage): string { return STAGE_LABELS[s] || s }
 
 function jumpTo(code: string, stage: AuditStage): string {
   switch (stage) {
-    case 'audio': return `/projects/${props.slug}/audio?episode=${code}`
-    case 'scenes': return `/projects/${props.slug}/images?episode=${code}`
-    case 'thumbnails': return `/projects/${props.slug}/images?episode=${code}`
-    case 'video': return `/projects/${props.slug}/motion-review?episode=${code}`
-    case 'merged_audio': return `/projects/${props.slug}/audio-merge?episode=${code}`
+    case 'audio': return `/projects/${props.slug}/audio?episode_id=${encodeURIComponent(code)}`
+    case 'scenes': return `/projects/${props.slug}/images?episode_id=${encodeURIComponent(code)}`
+    case 'thumbnails': return `/projects/${props.slug}/images?episode_id=${encodeURIComponent(code)}`
+    case 'video': return `/projects/${props.slug}/motion-review?episode_id=${encodeURIComponent(code)}`
+    case 'merged_audio': return `/projects/${props.slug}/audio-merge?episode_id=${encodeURIComponent(code)}`
     default: return `/projects/${props.slug}/board?repair=1`
   }
 }

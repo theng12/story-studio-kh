@@ -885,9 +885,7 @@ export async function generateAudio(job: Job): Promise<void> {
 
   if (tasks.length > 1) {
     job.output_lines.push(
-      `Staging ${tasks.length} TTS request(s), ${concurrency === 1 ? 'one at a time' : `${concurrency} at a time`}`
-      + ` for ${genStudioProviderLabel}`
-      + '; GenStudio account admission is authoritative for the rest.',
+      `Narrating ${tasks.length} part(s), ${concurrency === 1 ? 'one at a time' : `up to ${concurrency} at a time`}…`,
     )
   }
 
@@ -1087,7 +1085,7 @@ export async function generateAudio(job: Job): Promise<void> {
         },
       }
       if (recoveryEntry?.task_id) {
-        job.output_lines.push(`  Reclaiming accepted GenStudio task ${recoveryEntry.task_id.slice(0, 12)}… for ${chunkFilename}.`)
+        job.output_lines.push(`  ${chunkFilename}: collecting the result of the earlier request (nothing new is made or charged; ref ${recoveryEntry.task_id.slice(0, 12)}).`)
         await recoverTtsGenStudio(apiKey, task.outputPath, recoveryEntry.task_id, request)
       } else {
         await generateTtsGenStudio(apiKey, task.outputPath, request)

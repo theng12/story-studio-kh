@@ -7,6 +7,7 @@ import { createReadStream, existsSync, statSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
+import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import { enqueue, enqueueEpisodeRecoveryOnce, getJobs, isDuplicate, loadAuthoritativeJob, subtitleFinalizerJobId } from '../services/job-queue.js'
 import { withLock } from '../lib/atomic-store.js'
 import { subtitlePurchaseParams } from '../services/subtitle-recovery.js'
@@ -1563,14 +1564,12 @@ router.delete('/projects/:slug/video-editor/subtitles/:episodeId/:filename', asy
     const subtitlesDir = await resolveSubtitlesDir(slug, episodeId)
     const target = path.join(subtitlesDir, filename)
 
-    try {
-      await fs.unlink(target)
-    } catch (e: any) {
-      if (e?.code === 'ENOENT') {
-        return res.status(404).json({ detail: `Subtitle file not found: ${filename}` })
-      }
-      throw e
-    }
+    if (!existsSync(target)) return res.status(404).json({ detail: `Subtitle file not found: ${filename}` })
+    // Never hard-deleted (a transcript can cost a transcription to remake): it moves to `_trash`
+    // on the same volume — the project's when the episode lives inside it.
+    const projectDir = pm.getProjectDir(slug) || ''
+    const anchor = projectDir && target.startsWith(`${projectDir}${path.sep}`) ? projectDir : path.dirname(subtitlesDir)
+    moveToTrashSync(target, path.join(trashRootFor(anchor, projectDir, slug), episodeId, 'subtitles', filename))
 
     // Return the fresh listing so the caller can swap state in-place.
     const existingSrts: Array<{ path: string; filename: string; mtime: number }> = []

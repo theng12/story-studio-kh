@@ -85,7 +85,7 @@
                 <strong>{{ subtitleFreshnessUnavailable ? '?' : coverage.done }}/{{ coverage.total }}</strong>
                 {{ subtitleFreshnessUnavailable ? 'chapter freshness unavailable' : 'chapter(s) current' }}
                 <template v-if="!subtitleFreshnessUnavailable && coverage.total && coverage.done === coverage.total && subtitleTimelineComplete"> — ready for Scene Plan ✓</template>
-                <template v-else-if="!subtitleFreshnessUnavailable && coverage.total && coverage.done === coverage.total && planningSourceRevalidationRequired"> — chapters transcribed; Scene Plan will revalidate the corrected timeline before any provider work</template>
+                <template v-else-if="!subtitleFreshnessUnavailable && coverage.total && coverage.done === coverage.total && planningSourceRevalidationRequired"> — chapters transcribed; Scene Plan re-checks the corrected timeline before it makes anything</template>
                 <template v-else-if="!subtitleFreshnessUnavailable && coverage.total && coverage.done === coverage.total"> — chapter files exist; check the timeline below</template>
               </span>
             </div>
@@ -106,7 +106,7 @@
                 Listen near the gap: if the speech is clear, regenerate that chapter’s subtitles; if the audio sounds wrong, fix it in Audio Generator first. Then stitch again.
               </p>
               <p v-else-if="planningSourceRevalidationRequired">
-                This is the current raw timeline. Scene Plan will revalidate the corrected timeline before any provider work.
+                This is the uncorrected timeline. Scene Plan re-checks the corrected timeline before it makes anything.
               </p>
               <p v-else>Subtitle timeline verification is incomplete. Re-stitch it, then recheck before Scene Plan.</p>
               <ul v-if="subtitleTimelineIntegrity.blocking_cue_gaps?.length" class="sub-gap-list">
@@ -142,7 +142,7 @@
               />
             </div>
             <p v-if="sections.length" class="text-muted text-xs mt-2">
-              Select the chapters to generate or regenerate. Only selected chapters get fresh transcription requests; their current quote may be charged.
+              Tick chapters to (re)make just those; unticked chapters are left alone. Each ticked chapter is a new request, so the model's current price may be charged.
             </p>
             <p v-if="subtitleSelectionUnavailable" class="validation-msg">Selected chapters could not be verified. Refresh status or <button type="button" class="btn btn-xs btn-secondary" @click="selectedSubtitleSections = []">Clear unavailable selection</button>.</p>
             <div v-if="sections.length" class="sub-selection-actions" role="group" aria-label="Subtitle chapter selection">
@@ -179,7 +179,7 @@
                     type="button"
                     :disabled="!canTranscribe || transcribing"
                     :aria-label="`${chapterIsStale(s.slug) ? 'Update' : chapterHasSrt(s.slug) ? 'Regenerate' : 'Generate'} ${s.label} subtitles`"
-                    :title="canTranscribe ? `Starts a fresh GenStudio request for ${s.label} only.` : transcribeDisabledReason"
+                    :title="canTranscribe ? `Makes new subtitles for ${s.label} only (a new request at the model's current price).` : transcribeDisabledReason"
                     @click="retranscribeChapter(s.slug)"
                   >{{ subtitleActionLabel(s.slug, chapterIsStale(s.slug) ? 'Update subtitles' : chapterHasSrt(s.slug) ? 'Regenerate subtitles' : 'Generate subtitles') }}</button>
                 </div>
@@ -254,7 +254,7 @@
           </button>
           <span v-if="transcribeJobActive" class="text-muted text-xs ml-1">Running… progress shows in Jobs / the bell.</span>
           <p v-if="subtitleRetryPending" class="text-muted text-xs mt-1" role="status">
-            The previous submission was not confirmed. Retry submission with the same chapter scope, or change the scope to start a new action.
+            {{ UNCONFIRMED_SUBMISSION }}
           </p>
         </div>
       </WorkspaceSection>
@@ -305,7 +305,7 @@
                 :title="previewFilename === srt.filename ? 'Hide preview' : 'Preview subtitle text'"
                 @click="viewSrt(srt.filename)"
               >👁</button>
-              <button class="btn-icon" title="Delete this subtitle file" @click="deleteSrt(srt.filename)">✕</button>
+              <button class="btn-icon" title="Remove this subtitle file (moves it to the project's _trash folder)" :aria-label="`Remove ${srt.filename}`" @click="deleteSrt(srt.filename)">✕</button>
             </li>
             <!-- v1.2.2 — the offending cues shown in place, so the file above can
                  be judged without opening it. Advisory only: nothing is disabled
@@ -421,6 +421,7 @@ import {
   transcriptionLanguageRequestFields,
 } from '~/utils/transcription-language'
 import type { SubtitleQualityReport } from '~/types/subtitle-quality'
+import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
 import { hasQualityFindings } from '~/types/subtitle-quality'
 import { audioQualityLabel, audioQualityTone, type AudioQualityEvidence } from '~/types/audio-quality'
 
@@ -933,7 +934,7 @@ function subtitleActionLabel(sectionSlug: string | null, label: string): string 
   // Disabled buttons still render while the catalogue is loading or unavailable.
   if (!isTranscriptionLanguageUsable(language.value, genstudioSelectedModel.value)) return label
   const payload = subtitleRequestPayload(sectionSlug || undefined)
-  return payload.force && freshSubtitleAction.isRetry(payload, subtitleActionTarget(sectionSlug || undefined)) ? 'Retry submission' : label
+  return payload.force && freshSubtitleAction.isRetry(payload, subtitleActionTarget(sectionSlug || undefined)) ? 'Retry (same request)' : label
 }
 
 async function transcribe(): Promise<void> {
@@ -954,7 +955,7 @@ async function transcribe(): Promise<void> {
   } catch (e: any) {
     if (episode !== episodeSequence) return
     showError(e?.data?.detail || e?.message || (operationId
-      ? 'The submission was not confirmed. Retry submission to continue this same transcription action.'
+      ? UNCONFIRMED_SUBMISSION
       : 'Could not start transcription'))
   } finally {
     if (episode === episodeSequence) transcribing.value = false
@@ -1035,6 +1036,8 @@ async function importSrt(): Promise<void> {
 
 async function deleteSrt(filename: string): Promise<void> {
   const episode = episodeSequence
+  if (!await useConfirm().ask({ title: 'Remove subtitle file?', message: `Remove ${filename}? It moves to this project's _trash folder, so you can put it back from Finder.`, confirmLabel: 'Remove', danger: true })) return
+  if (episode !== episodeSequence) return
   try {
     const r = await del<{ existing_srts: ExistingSrt[] }>(`/projects/${slug.value}/video-editor/subtitles/${episodeId.value}/${encodeURIComponent(filename)}`)
     if (episode !== episodeSequence) return
@@ -1050,7 +1053,7 @@ async function deleteSrt(filename: string): Promise<void> {
     await loadStatus()
     if (episode !== episodeSequence) return
     if (previewFilename.value === filename) closePreview()
-    success(`Deleted ${filename}`)
+    success(`Moved ${filename} to the project's _trash folder`)
   } catch (e: any) {
     if (episode !== episodeSequence) return
     showError(e?.data?.detail || e?.message || 'Delete failed')
