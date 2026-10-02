@@ -31,6 +31,7 @@
  */
 
 import { getApiKey } from '../app-secrets-store.js'
+import { noWritingModelChosenMessage } from '../genstudio-default-model.js'
 import { callChatWithGenStudio, GenStudioChatCapabilityUnavailableError, GenStudioChatProductUnavailableError, listChatModels, type GenStudioChatModel } from '../../lib/genstudio-client.js'
 import { executePipelineModelPolicy, llmLineupAttemptRequestIdentity, llmLineupAvailabilityScope, resolveLivePipelineModel } from '../../lib/ai-client.js'
 import { pipelinePolicyInputFingerprint, rankedPipelineModelCandidates, readPipelinePolicyAttemptCheckpoint } from '../../lib/pipeline-model-policy.js'
@@ -85,6 +86,8 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
     // Healing to a different product would change what the user is charged
     // for without telling them, so an unqualified request is refused by name.
     const requested = opts.model?.trim() || ''
+    // Never picked for the owner (2026-10-03): no choice and no Pipeline lineup is a plain stop.
+    if (!requested && !policy) throw new Error(noWritingModelChosenMessage('the Research page (web research model)'))
     let product = qualified[0]!
     if (requested && !policy) {
       const match = findGenStudioProduct(qualified, requested)
@@ -98,7 +101,7 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
     }
     // For an explicit policy, candidates are validated inside the bounded
     // executor so an unavailable primary can advance to the next authorized
-    // product. The non-policy path keeps its existing qualified default.
+    // product.
     if (!policy && !isWebResearchQualified(product)) throw new Error(WEB_MODE_UNAVAILABLE_REASON)
 
     let actualProduct: GenStudioChatModel | null = policy ? null : product

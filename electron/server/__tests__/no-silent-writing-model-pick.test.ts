@@ -46,6 +46,7 @@ test('each writing caller names where the owner chooses the model', () => {
     'routes/audio.ts': /resolveChosenChatModel\(apiKey, saved, 'the Audio Generator page/,
     'services/audio-expression.ts': /resolveChosenChatModel\(apiKey, saved, 'the Audio Generator page/,
     'services/research/genstudio.ts': /noWritingModelChosenMessage\('the Research page'\)/,
+    'services/research/genstudio-web.ts': /if \(!requested && !policy\) throw new Error\(noWritingModelChosenMessage\('the Research page \(web research model\)'\)\)/,
     'routes/pipeline.ts': /has no writing model saved[\s\S]*does not pick one for you/,
   }
   for (const [file, pattern] of Object.entries(callers)) {
