@@ -155,6 +155,11 @@ const props = defineProps<{
   thumbnailTextStyleCustom?: string
 }>()
 
+const emit = defineEmits<{
+  /** The thumbnail numbers now on disk for this episode (after every load). */
+  (e: 'loaded', payload: { thumbnails: number[] }): void
+}>()
+
 const { get, post, put } = useApi()
 const freshPromptAction = useFreshGenerationAction()
 const { success, error: showError, show: showToast } = useToast()
@@ -210,8 +215,12 @@ watch(totalScenesPages, (tp) => {
 // renders the "click Generate" hint; full lists render the rows.
 const show = computed(() => !!props.episodeId)
 
+// Bumped per load; a slower response for an earlier episode is dropped.
+let loadSequence = 0
+
 async function loadPrompts(): Promise<void> {
   if (!props.episodeId || !props.projectSlug) return
+  const sequence = ++loadSequence
   loading.value = true
   error.value = null
   scenes.value = []
@@ -221,20 +230,24 @@ async function loadPrompts(): Promise<void> {
     const data = await get<{ scenes: PromptRowData[]; thumbnails: PromptRowData[] }>(
       `/projects/${props.projectSlug}/episodes/${props.episodeId}/image-prompts${titleParam}`,
     )
+    if (sequence !== loadSequence) return
     scenes.value = Array.isArray(data?.scenes) ? data.scenes : []
     thumbnails.value = Array.isArray(data?.thumbnails) ? data.thumbnails : []
+    emit('loaded', { thumbnails: thumbnails.value.map(row => Number(row.number)) })
   } catch (e: any) {
+    if (sequence !== loadSequence) return
     if (e?.status === 404) {
       // 404 = prompts not generated yet → empty card with the "click
       // Generate" hint. Not an error condition for the user.
       scenes.value = []
       thumbnails.value = []
       error.value = null
+      emit('loaded', { thumbnails: [] })
     } else {
       error.value = e?.data?.detail || e?.message || 'Failed to load prompts'
     }
   } finally {
-    loading.value = false
+    if (sequence === loadSequence) loading.value = false
   }
 }
 
@@ -245,6 +258,7 @@ async function regenerateOne(
 ): Promise<void> {
   const key = `${kind}-${number}`
   if (busy.value.has(key)) return
+  const episodeId = props.episodeId
   busy.value = new Set([...busy.value, key])
   errors.value = { ...errors.value, [key]: '' }
   const request = {
@@ -267,7 +281,7 @@ async function regenerateOne(
   const operationId = freshPromptAction.begin(request, key)
   try {
     const data = await post<{ number: number; title: string; prompt: string; model_notice?: string }>(
-      `/projects/${props.projectSlug}/episodes/${props.episodeId}/image-prompts/regenerate`,
+      `/projects/${props.projectSlug}/episodes/${episodeId}/image-prompts/regenerate`,
       {
         ...request,
         // The same ceiling the row's counter is measured against, so a rewrite
@@ -280,6 +294,7 @@ async function regenerateOne(
       },
     )
     freshPromptAction.complete(operationId)
+    if (episodeId !== props.episodeId) return
     // Patch the in-memory list so the card reflects the new prompt
     // without a full reload.
     const list = kind === 'scene' ? scenes : thumbnails
@@ -297,6 +312,7 @@ async function regenerateOne(
     // because the sentence names two products and what to do about them.
     if (data.model_notice) showToast(data.model_notice, 'info', 12000)
   } catch (e: any) {
+    if (episodeId !== props.episodeId) return
     const msg = e?.data?.detail || e?.message || `${payload.reword ? 'Reword' : 'Regeneration'} failed`
     errors.value = { ...errors.value, [key]: msg }
     showError(msg)
@@ -314,11 +330,14 @@ async function saveOne(
 ): Promise<void> {
   const key = `${kind}-${number}`
   if (saving.value.has(key)) return
+  // The edit belongs to the episode it was made on, even if the picker moves.
+  const episodeId = props.episodeId
+  const episodeTitle = props.title || ''
   saving.value = new Set([...saving.value, key])
   errors.value = { ...errors.value, [key]: '' }
   try {
     const data = await put<{ number: number; title: string; prompt: string }>(
-      `/projects/${props.projectSlug}/episodes/${props.episodeId}/image-prompts/item?title=${encodeURIComponent(props.title || '')}`,
+      `/projects/${props.projectSlug}/episodes/${episodeId}/image-prompts/item?title=${encodeURIComponent(episodeTitle)}`,
       {
         kind,
         number,
@@ -326,6 +345,8 @@ async function saveOne(
         prompt: payload.prompt,
       },
     )
+    success(`${kind === 'scene' ? 'Scene' : 'Thumbnail'} ${number} saved for ${episodeId}`)
+    if (episodeId !== props.episodeId) return
     const list = kind === 'scene' ? scenes : thumbnails
     const idx = list.value.findIndex(p => p.number === number)
     if (idx >= 0) {
@@ -335,8 +356,11 @@ async function saveOne(
         ...list.value.slice(idx + 1),
       ]
     }
-    success(`${kind === 'scene' ? 'Scene' : 'Thumbnail'} ${number} saved`)
   } catch (e: any) {
+    if (episodeId !== props.episodeId) {
+      showError(`Could not save ${kind} ${number} for ${episodeId}: ${e?.data?.detail || e?.message || 'Save failed'}`)
+      return
+    }
     const msg = e?.data?.detail || e?.message || 'Save failed'
     errors.value = { ...errors.value, [key]: msg }
     showError(msg)
@@ -347,7 +371,13 @@ async function saveOne(
   }
 }
 
-watch(() => [props.episodeId, props.title, props.refreshKey], () => {
+watch(() => [props.episodeId, props.title, props.refreshKey], (next, prev) => {
+  // Row spinners and errors belong to one episode.
+  if (!prev || next[0] !== prev[0]) {
+    busy.value = new Set()
+    saving.value = new Set()
+    errors.value = {}
+  }
   if (props.episodeId) void loadPrompts()
 }, { immediate: true })
 </script>

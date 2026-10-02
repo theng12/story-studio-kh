@@ -8,7 +8,7 @@
   <div>
     <div class="page-header">
       <Breadcrumb />
-      <h1 class="page-title">Video Assembly</h1>
+      <h1 class="page-title">Image Pool</h1>
     </div>
 
     <div class="card mt-2">
@@ -26,7 +26,14 @@
     <!-- 1. Pool subscription -->
     <section class="card mt-3">
       <h3>1. Image pool</h3>
-      <template v-if="imagePools.length">
+      <p v-if="poolsError" class="ip-warn mt-2" role="alert">
+        Could not load your image pools: {{ poolsError }}
+        <button type="button" class="btn btn-sm btn-ghost" :disabled="poolsLoading" @click="loadPools">
+          {{ poolsLoading ? 'Retrying…' : 'Retry' }}
+        </button>
+      </p>
+      <p v-else-if="poolsLoading && !imagePools.length" class="text-muted text-sm mt-2">Loading image pools…</p>
+      <template v-else-if="imagePools.length">
         <div class="ip-row mt-2">
           <select v-model="poolId" class="select" @change="saveSubscription">
             <option value="" disabled>Pick an image pool…</option>
@@ -56,7 +63,7 @@
     <section v-if="poolId && episodeId" class="card mt-3">
       <h3>2. Pick images for this episode</h3>
       <p class="text-muted text-sm mt-1">
-        Saves an image sequence and makes Image Pool the visual source for this episode.
+        Saves a new image sequence (replacing any earlier pick) and makes Image Pool the visual source for this episode.
         Then open the <strong>🎞 Video Assembly</strong> tab to add motion, overlays, logo, effects,
         subtitles, and export settings.
       </p>
@@ -164,8 +171,8 @@
             {{ generating ? 'Queuing…' : `✨ Generate ${promptLines.length * genVariants || ''} into pool` }}
           </button>
           <span class="text-muted text-sm">
-            Runs in the background — images land in the pool + get indexed. Watch the
-            <NuxtLink :to="`/projects/${slug}/jobs`" class="text-accent">Jobs</NuxtLink> panel, then Re-pick.
+            Runs in the background — images land in the pool and the count above updates when it finishes. Watch the
+            <NuxtLink :to="`/projects/${slug}/jobs`" class="text-accent">Jobs</NuxtLink> panel, then pick again.
           </span>
         </div>
       </template>
@@ -175,18 +182,20 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
-import { findOutputOption, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
+import { findOutputOption, outputOptionsForRatio, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
 import { CREDIT_BASIS_LABEL, describeImageBatchEstimate } from '../../../utils/genstudio-credit-cost.js'
 
 definePageMeta({ layout: 'dashboard' })
-useAppTitle('Image Slideshow')
+useAppTitle('Image Pool')
 
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put } = useApi()
-const { success, error: showError } = useToast()
+const { success, error: showError, info: showInfo } = useToast()
 const broll = useBrollPools()
-const { config, reload: reloadConfig } = useProject() as any
+const { config, refreshConfig } = useProject()
+const { jobs } = useJobs()
+const { ask } = useConfirm()
 
 const initialEpisodeId = typeof route.query.episode_id === 'string'
   ? route.query.episode_id
@@ -229,12 +238,20 @@ watch([genModel, () => genStudioModels.value.length], () => {
  */
 const genOutputOption = ref<OutputOptionChoice | null>(null)
 /** A model switch that moved the pick is announced, never applied silently. */
-function onOutputOptionSwitched(notice: string): void { showError(notice) }
+function onOutputOptionSwitched(notice: string): void { showInfo(notice) }
 // The chosen row owns the ratio, because the row IS the (resolution, ratio)
 // pair GenStudio published. Keeping the ratio select in step means the run
 // submits exactly the combination on screen.
 watch(genOutputOption, (choice) => {
   if (choice?.aspect_ratio) genAspectRatio.value = choice.aspect_ratio
+})
+// ...and a ratio picked by hand moves the row with it: same size at the new
+// ratio when published, otherwise no row (so no stale resolution is sent).
+watch(genAspectRatio, (ratio) => {
+  const current = genOutputOption.value
+  if (!current || current.aspect_ratio === ratio) return
+  const same = outputOptionsForRatio(selectedGenStudioModel.value, ratio).find(row => row.resolution === current.resolution)
+  genOutputOption.value = same ? { resolution: same.resolution, aspect_ratio: same.aspect_ratio } : null
 })
 const genBatchCost = computed(() => describeImageBatchEstimate(
   selectedGenStudioModel.value,
@@ -278,7 +295,7 @@ async function saveSubscription(): Promise<void> {
     await put(`/projects/${slug.value}/settings/config`, { image_pool_id: poolId.value })
     success('Image pool saved for this project.')
     await loadPoolCount()
-    if (reloadConfig) await reloadConfig(slug.value).catch(() => {})
+    await refreshConfig(slug.value).catch(() => {})
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to save pool subscription')
   }
@@ -286,6 +303,11 @@ async function saveSubscription(): Promise<void> {
 
 async function pickImagesForEpisode(): Promise<void> {
   if (!poolId.value || !episodeId.value || pickingImages.value) return
+  if (!await ask({
+    title: `Pick new images for ${episodeId.value}?`,
+    message: `This saves a new random set from ${selectedPool.value?.name || 'this pool'}, replacing any images picked earlier for ${episodeId.value}, and switches its Video Assembly visuals to Image Pool (instead of scene images).`,
+    confirmLabel: 'Use these images',
+  })) return
   const request = ++imagePoolScopeSequence
   const project = slug.value
   const episode = episodeId.value
@@ -339,9 +361,15 @@ async function suggestPrompts(): Promise<void> {
 
 async function generateIntoPool(): Promise<void> {
   if (!poolId.value || !genModel.value || !promptLines.value.length) return
+  const total = promptLines.value.length * genVariants.value
+  if (!await ask({
+    title: `Generate ${total} image${total === 1 ? '' : 's'} into ${selectedPool.value?.name || 'this pool'}?`,
+    message: `${CREDIT_BASIS_LABEL[genBatchCost.value.basis]}: ${genBatchCost.value.text}. The images are added to the pool folder.`,
+    confirmLabel: 'Generate',
+  })) return
   generating.value = true
   try {
-    await post(`/projects/${slug.value}/image-pool/generate`, {
+    const job = await post<{ job_id?: string }>(`/projects/${slug.value}/image-pool/generate`, {
       pool_id: poolId.value,
       prompts: promptLines.value,
       model: genModel.value,
@@ -355,11 +383,41 @@ async function generateIntoPool(): Promise<void> {
         : undefined,
       variants: genVariants.value,
     })
-    success(`Queued generation of ${promptLines.value.length * genVariants.value} image(s) → watch the Jobs panel.`)
+    growJobId.value = job?.job_id || ''
+    success(`Queued generation of ${total} image(s) → watch the Jobs panel.`)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to queue generation')
   } finally {
     generating.value = false
+  }
+}
+
+// When a "Grow this pool" job ends, re-count the pool so the new images show.
+const growJobId = ref('')
+watch(() => jobs.value.find(j => j.job_id === growJobId.value)?.status, (status) => {
+  if (status !== 'done' && status !== 'error' && status !== 'cancelled') return
+  growJobId.value = ''
+  void loadPoolCount()
+})
+
+// A failed pool read is not "no pools": say so and offer Retry.
+const poolsError = ref('')
+const poolsLoading = ref(false)
+async function loadPools(): Promise<void> {
+  poolsLoading.value = true
+  poolsError.value = ''
+  try {
+    await broll.loadPools()
+    if (!poolId.value) {
+      // Default the pool from the saved project subscription, else the only image pool.
+      const saved = (config.value as any)?.image_pool_id
+      if (saved && imagePools.value.some((p: any) => p.id === saved)) poolId.value = saved
+      else if (imagePools.value.length === 1) poolId.value = imagePools.value[0].id
+    }
+  } catch (e: any) {
+    poolsError.value = e?.data?.detail || e?.message || 'unknown error'
+  } finally {
+    poolsLoading.value = false
   }
 }
 
@@ -372,11 +430,7 @@ watch([slug, episodeId, poolId], () => {
 
 onMounted(async () => {
   void refreshGenStudioModels()
-  await broll.loadPools().catch(() => {})
-  // Default the pool from the saved project subscription, else the first image pool.
-  const saved = (config?.value as any)?.image_pool_id
-  if (saved && imagePools.value.some((p: any) => p.id === saved)) poolId.value = saved
-  else if (imagePools.value.length === 1) poolId.value = imagePools.value[0].id
+  await loadPools()
   await loadPoolCount()
 })
 </script>

@@ -31,7 +31,7 @@
         :disabled="busy || saving"
         :title="busy
           ? 'Regenerating this prompt — wait a couple of seconds'
-          : 'Re-run this single prompt through the LLM. Other prompts on disk stay untouched.'"
+          : 'Write a new version of just this prompt (using your notes, if you added any). Other prompts stay as they are.'"
         @click="emitRegenerate"
       >
         <LoadingSpinner v-if="busy" size="sm" />
@@ -89,7 +89,7 @@
           @click="emitRegenerate"
         >
           <span aria-hidden="true">✨</span>
-          Reprompt With Notes
+          Rewrite with these notes
         </button>
         <!-- Manual only. GenStudio's exact IMAGE_CONTENT_REFUSED code can
              identify a refusal, but nothing triggers this automatically. -->
@@ -97,13 +97,17 @@
           type="button"
           class="btn btn-sm btn-secondary"
           :disabled="busy || saving || !canSave"
-          title="The image provider refused or failed on this prompt? Rewrite it from a different angle on the same idea, describing difficult historical material in ways that render — aftermath over act, period-illustration framing, no age markers. The history is kept; only the framing changes."
+          title="The image model refused or failed on this prompt? Rewrite it from a different angle on the same idea, describing difficult historical material in ways that render — aftermath over act, period-illustration framing, no age markers. The history is kept; only the framing changes."
           @click="emitReword"
         >
           <span aria-hidden="true">🛡</span>
           Reword
         </button>
       </div>
+      <p class="text-muted text-xs">
+        Save keeps your edits as typed. Rewrite (same as the row's Regenerate button) writes a new version guided by your notes.
+        Reword keeps the idea but changes the framing — use it when the image model refused the prompt.
+      </p>
     </div>
     <div v-if="error" class="prr-error" :title="error">⚠ {{ error }}</div>
   </div>

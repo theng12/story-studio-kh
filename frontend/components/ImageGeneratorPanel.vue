@@ -46,24 +46,12 @@
         {{ bulkDisabled ? 'Rendering…' : bulkActionLabel }}
       </button>
     </div>
-    <p v-if="!isRegenerateMode || jobActiveForEpisode" class="igp-guard" role="status">
-      <template v-if="jobActiveForEpisode">A render is already in progress. </template>
-      Completed images are preserved. Missing-only generation submits only missing {{ kindLabelLower }}s.
+    <p class="igp-guard" role="status">
+      <template v-if="jobActiveForEpisode">A render is already in progress for this episode. </template>
+      <template v-if="isRegenerateMode">This button re-renders every {{ kindLabelLower }} and replaces the existing files{{ paid ? ' (uses credits)' : '' }}.</template>
+      <template v-else>This button renders only missing {{ kindLabelLower }}s. Completed images are preserved.</template>
+      Each row's own button renders just that one {{ kindLabelLower }}.
     </p>
-
-    <!-- v1.0.416 — Thumbnail-only: optional render-time guidance appended to the
-         prompt for THIS generation (per-row or bulk), no prompt-reprompt needed. -->
-    <div v-if="kind === 'thumbnail'" class="igp-extra">
-      <label class="igp-extra-label">
-        Extra details for this render <span class="text-muted text-xs">(optional — applied to every thumbnail you generate below)</span>
-      </label>
-      <textarea
-        v-model="extraDetails"
-        class="textarea textarea-sm"
-        rows="2"
-        placeholder="e.g. push the subject closer, make the title bigger and higher-contrast, warmer lighting"
-      ></textarea>
-    </div>
 
     <!-- Loading / error / empty states -->
     <div v-if="loading" class="igp-status">
@@ -97,6 +85,7 @@
           :error="errors[row.number] || null"
           :cap="promptCharCap ?? null"
           :model-label="modelLabel"
+          :paid="paid"
           @generate="runOne(row.number)"
           @pin-toggle="togglePinForRow(imageByNumber.get(row.number)?.filename || null)"
           @open-preview="(p) => $emit('open-preview', p)"
@@ -121,8 +110,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import ImageGeneratorRow from './ImageGeneratorRow.vue'
+import { customerSafeJobText, jobRequestIds } from '../utils/job-presentation.js'
 
 interface PromptRow { number: number; title: string; prompt: string }
 interface ScannedImage { filename: string; path: string; number?: number | null }
@@ -136,21 +126,14 @@ const props = defineProps<{
   episodeId: string
   /** Episode title — used by the backend to resolve the on-disk folder. */
   title: string
-  /** Shared form fields the panels both consume. Passed through to per-row
-   *  + bulk POST /generate/images requests so model/aspect_ratio/tier/etc.
-   *  match what the parent images.vue shows. */
-  model?: string
-  aspectRatio?: string
   generationMode?: 'skip' | 'regenerate'
-  tier?: string
-  seed?: number | null
-  /** v1.0.308 — explicit render dimensions for LOCAL models. Set by the parent
-   *  only when the model is an Image Studio model + a sub-Full size is picked;
-   *  undefined for cloud models (which render from the aspect string). Sent on
-   *  both per-row and bulk POST /generate/images so the panel's renders match
-   *  the Size the form shows. */
-  renderWidth?: number
-  renderHeight?: number
+  /** The page's ONE request builder (model, ratio, size, seed, reference,
+   *  extra details…). Returns null when it refused or the customer cancelled.
+   *  `ask` = show the page's confirmation. The panel adds only thumb_number,
+   *  force and operation_id, so every render on the page sends the same body. */
+  prepare: (force: boolean, ask: boolean) => Promise<Record<string, any> | null>
+  /** Whether the selected model uses credits (unknown counts as paid). */
+  paid?: boolean
   /** Bumped by parent (e.g. on tab switch) to force a re-fetch of the
    *  prompt list + disk scan. */
   refreshKey?: number
@@ -162,8 +145,6 @@ const props = defineProps<{
   modelLabel?: string
   /** The thumbnail currently selected for upload, if the user pinned one. */
   pinnedFilename?: string | null
-  /** Durable project-owned reference selected in Thumbnail Prompts. */
-  thumbnailReferenceAsset?: Record<string, any> | null
 }>()
 
 const emit = defineEmits<{
@@ -182,10 +163,6 @@ const { success, error: showError } = useToast()
 // .toLowerCase() / String capitalization in template expressions.
 const kindLabel = computed(() => props.kind === 'scene' ? 'Scene' : 'Thumbnail')
 const kindLabelLower = computed(() => kindLabel.value.toLowerCase())
-
-// v1.0.416 — optional render-time guidance for thumbnails (see template).
-// Appended to the prompt server-side for both per-row and bulk renders.
-const extraDetails = ref('')
 
 // ── Prompt list (text from /episodes/:id/image-prompts) ────────────────────
 
@@ -269,7 +246,8 @@ const imageByNumber = computed<Map<number, ScannedImage>>(() => {
   return m
 })
 
-const renderedCount = computed(() => imageByNumber.value.size)
+// Only images that belong to a prompt on this board count as "ready".
+const renderedCount = computed(() => prompts.value.filter(row => imageByNumber.value.has(row.number)).length)
 const missingCount = computed(() => Math.max(0, prompts.value.length - renderedCount.value))
 const isRegenerateMode = computed(() => props.generationMode === 'regenerate')
 const bulkActionLabel = computed(() => {
@@ -323,68 +301,62 @@ const jobActiveForEpisode = computed(() =>
 )
 const bulkDisabled = computed(() => bulkBusy.value || jobActiveForEpisode.value)
 
-async function waitForJob(jobId: string): Promise<any> {
-  while (true) {
-    const job: any = await get(`/projects/${props.projectSlug}/jobs/${jobId}`)
-    if (job?.status === 'done' || job?.status === 'error' || job?.status === 'cancelled') return job
+const fresh = useFreshGenerationAction()
+let disposed = false
+onBeforeUnmount(() => { disposed = true })
+const MAX_POLL_FAILURES = 5
+
+/** Poll until the job ends. `null` = this panel was closed first (stop quietly).
+ *  A single failed read is not a failed job, so a few in a row are tolerated. */
+async function waitForJob(jobId: string): Promise<any | null> {
+  let failures = 0
+  while (!disposed) {
+    try {
+      const job: any = await get(`/projects/${props.projectSlug}/jobs/${jobId}`)
+      failures = 0
+      if (job?.status === 'done' || job?.status === 'error' || job?.status === 'cancelled') return job
+    } catch (e) {
+      if (++failures >= MAX_POLL_FAILURES) throw e
+    }
     await new Promise(r => setTimeout(r, JOB_POLL_INTERVAL_MS))
   }
+  return null
 }
 
-function sharedJobParams() {
-  // Mirror the existing images.vue submit payload shape so the executor
-  // sees the same fields whether the user clicks the page-level top
-  // Generate or a per-row button. The number filter is added per-call by
-  // runOne / runBulk below.
-  return {
-    episode_id: props.episodeId,
-    title: props.title || '',
-    model: props.model,
-    aspect_ratio: props.aspectRatio,
-    tier: props.tier,
-    ...(typeof props.seed === 'number' ? { seed: props.seed } : {}),
-    image_mode: props.kind === 'thumbnail' && props.thumbnailReferenceAsset?.id ? 'img2img' : 'text2img',
-    ...(props.kind === 'thumbnail' && props.thumbnailReferenceAsset?.id
-      ? { thumbnail_reference_asset: props.thumbnailReferenceAsset }
-      : {}),
-    // v1.0.308 — local render size. Only included when the parent supplies both
-    // (local model + sub-Full tier); cloud models omit them and use the aspect.
-    ...(typeof props.renderWidth === 'number' && typeof props.renderHeight === 'number'
-      ? { width: props.renderWidth, height: props.renderHeight }
-      : {}),
-    // v1.0.416 — thumbnail-only render-time guidance, appended to the prompt
-    // server-side (generators/images.ts). Sent on per-row + bulk alike.
-    ...(props.kind === 'thumbnail' && extraDetails.value.trim()
-      ? { extra_details: extraDetails.value.trim() }
-      : {}),
-    // For 'skip' generation_mode the executor honours its own skip
-    // logic (don't overwrite existing files unless force). Per-row
-    // calls always pass force=true regardless — clicking Regenerate
-    // means "I know an image exists; overwrite it."
-  }
+function jobErrorText(job: any, fallback: string): string {
+  return job?.error ? customerSafeJobText(job.error, jobRequestIds(job)) : fallback
+}
+function requestErrorText(e: any, fallback: string): string {
+  return customerSafeJobText(e?.data?.detail || e?.message || fallback)
+}
+
+/** Submit one render. Every explicit overwrite carries an operation id, so a
+ *  retried click after a lost response reuses the same request instead of
+ *  paying twice. */
+async function submit(body: Record<string, any>, target: string): Promise<any> {
+  const operationId = body.force ? fresh.begin(body, target) : null
+  const job: any = await post(`/projects/${props.projectSlug}/generate/images`, {
+    ...body,
+    ...(operationId ? { operation_id: operationId } : {}),
+  })
+  if (operationId) fresh.complete(operationId)
+  return job
 }
 
 async function runOne(number: number): Promise<void> {
   if (busy.value.has(number)) return
+  const episode = props.episodeId
+  const params = await props.prepare(true, false)
+  if (!params || episode !== props.episodeId) return
   busy.value = new Set([...busy.value, number])
   errors.value = { ...errors.value, [number]: '' }
   try {
-    const job: any = await post(`/projects/${props.projectSlug}/generate/images`, {
-      ...sharedJobParams(),
-      mode: props.kind === 'scene' ? 'scenes' : 'thumbs',
-      // Backend reads scene_number for scenes, thumb_number for thumbs —
-      // see generators/images.ts:615 and :646. Sending the wrong field
-      // silently iterates the whole list, so this branch matters.
-      ...(props.kind === 'scene' ? { scene_number: number } : { thumb_number: number }),
-      // Per-row click always forces overwrite — the user intent is "I
-      // want this one re-rendered", regardless of generation_mode setting.
-      force: true,
-    })
+    // A row click always overwrites: the intent is "re-render this one".
+    const job = await submit({ ...params, thumb_number: number, force: true }, `row-${number}`)
     success(`Queued ${kindLabelLower.value} ${number} — watch progress in Jobs.`)
     const completed = await waitForJob(job.job_id)
-    if (completed.status === 'error') {
-      throw new Error(completed.error || 'Job failed (see Jobs panel for details)')
-    }
+    if (!completed || episode !== props.episodeId) return
+    if (completed.status === 'error') throw new Error(jobErrorText(completed, 'Render failed (see Jobs for details)'))
     if (completed.status === 'cancelled') {
       errors.value = { ...errors.value, [number]: 'Cancelled' }
       return
@@ -396,7 +368,8 @@ async function runOne(number: number): Promise<void> {
     emit('refresh')
     success(`${kindLabel.value} ${number} rendered`)
   } catch (e: any) {
-    const msg = e?.data?.detail || e?.message || 'Generation failed'
+    if (episode !== props.episodeId) return
+    const msg = requestErrorText(e, 'Generation failed')
     errors.value = { ...errors.value, [number]: msg }
     showError(`${kindLabel.value} ${number}: ${msg}`)
   } finally {
@@ -411,25 +384,23 @@ async function runBulk(): Promise<void> {
   // jobActiveForEpisode covers a render queued from elsewhere (TopActionBar,
   // reload). The button is disabled in both cases — this is belt-and-braces.
   if (bulkBusy.value || jobActiveForEpisode.value || !prompts.value.length) return
+  const episode = props.episodeId
+  // Default is missing-only. Regeneration is the sole explicit overwrite
+  // action, so recovery never re-pays for artwork already on disk. Same
+  // confirmation as the page's top button.
+  const force = props.generationMode === 'regenerate'
+  const requested = force ? `all ${prompts.value.length}` : `${missingCount.value} missing`
   bulkBusy.value = true
   try {
-    const job: any = await post(`/projects/${props.projectSlug}/generate/images`, {
-      ...sharedJobParams(),
-      mode: props.kind === 'scene' ? 'scenes' : 'thumbs',
-      // Default is missing-only. Regeneration is the sole explicit overwrite
-      // action, so recovery never re-pays for artwork already on disk.
-      force: props.generationMode === 'regenerate',
-    })
-    const requested = props.generationMode === 'regenerate'
-      ? `all ${prompts.value.length}`
-      : `${missingCount.value} missing`
+    const params = await props.prepare(force, true)
+    if (!params || episode !== props.episodeId) return
+    const job = await submit({ ...params, force }, 'bulk')
     success(`Queued ${requested} ${kindLabelLower.value}s — watch progress in Jobs.`)
     const completed = await waitForJob(job.job_id)
-    if (completed.status === 'error') {
-      throw new Error(completed.error || 'Bulk job failed (see Jobs panel for details)')
-    }
+    if (!completed || episode !== props.episodeId) return
+    if (completed.status === 'error') throw new Error(jobErrorText(completed, 'Render failed (see Jobs for details)'))
     if (completed.status === 'cancelled') {
-      showError('Bulk render cancelled')
+      showError('Render cancelled')
       return
     }
     await loadScan()
@@ -437,13 +408,21 @@ async function runBulk(): Promise<void> {
     emit('refresh')
     success(`${kindLabel.value} board refreshed`)
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Bulk render failed')
+    if (episode === props.episodeId) showError(requestErrorText(e, 'Render failed'))
   } finally {
     bulkBusy.value = false
   }
 }
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+// Row state belongs to one episode; a running render for the old one keeps
+// going in Jobs but must not paint its spinner or error onto this board.
+watch(() => props.episodeId, () => {
+  busy.value = new Set()
+  errors.value = {}
+  bulkBusy.value = false
+})
 
 watch(
   () => [props.episodeId, props.title, props.refreshKey, props.kind],

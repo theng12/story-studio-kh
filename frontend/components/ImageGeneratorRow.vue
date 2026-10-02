@@ -116,6 +116,8 @@ const props = defineProps<{
   cap?: number | null
   /** Friendly model label for the cap tooltip. */
   modelLabel?: string
+  /** Whether the selected model uses credits (unknown counts as paid). */
+  paid?: boolean
 }>()
 
 defineEmits<{
@@ -150,10 +152,12 @@ const statusVariant = computed<'busy' | 'error' | 'done' | 'empty'>(() => {
 
 const actionTitle = computed(() => {
   if (props.busy) return 'Generation in progress — wait a few seconds'
+  const kind = props.prefix.toLowerCase()
+  const cost = props.paid === false ? 'Free on this model.' : 'Uses credits for one image.'
   if (props.imagePath) {
-    return `Re-render this ${props.prefix.toLowerCase()} with force-overwrite. Other ${props.prefix.toLowerCase()}s on disk stay untouched.`
+    return `Re-render just this ${kind} and replace the current one. Other ${kind}s stay as they are. ${cost}`
   }
-  return `Render this single ${props.prefix.toLowerCase()} only. Cheap one-off — use to test the prompt before committing to the full batch.`
+  return `Render just this one ${kind} — a quick way to test the prompt before rendering the rest. ${cost}`
 })
 
 // Char counter (advisory) — colored against the active image model's cap.
@@ -170,8 +174,8 @@ const charBadgeTooltip = computed(() => {
   const remaining = props.cap - promptLen.value
   const modelHint = props.modelLabel ? ` (${props.modelLabel})` : ''
   if (remaining < 0) {
-    return `⚠ ${Math.abs(remaining)} chars over the ${props.cap}-char cap${modelHint}. ` +
-      `The provider may reject the request or silently truncate — shorten this prompt before paying credits.`
+    return `⚠ ${Math.abs(remaining)} chars over the ${props.cap}-char limit${modelHint}. ` +
+      `The model may refuse it or cut it short — shorten this prompt before rendering.`
   }
   if (remaining < props.cap * 0.2) {
     return `Close to the ${props.cap}-char cap${modelHint} — ${remaining} chars left.`

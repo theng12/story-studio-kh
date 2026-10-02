@@ -1,10 +1,12 @@
 <template>
   <div class="ttp-root" :class="{ 'ttp-compact': compact }">
     <div v-if="loading" class="ttp-loading">Loading templates…</div>
+    <div v-else-if="loadError" class="ttp-empty ttp-error" role="alert">
+      Could not load thumbnail templates: {{ loadError }}
+      <button type="button" class="btn btn-sm btn-ghost" @click="load">Retry</button>
+    </div>
     <div v-else-if="!templates.length" class="ttp-empty">
-      No thumbnail templates installed yet. Drop a JSON file into
-      <code>electron/server/thumbnail-templates/</code> or
-      <code>{PROJECTS_ROOT}/.thumbnail-templates/</code> to add one.
+      No thumbnail templates yet. Templates you create or install will appear here.
     </div>
     <div v-else class="ttp-grid" :class="{ 'ttp-grid-strip': compact }">
       <button
@@ -33,11 +35,11 @@
               type="button"
               class="link-btn ttp-edit"
               :title="t.builtin
-                ? 'Open the visual editor. Built-ins fork to your user library on first save — the original stays pristine.'
-                : 'Open the visual editor. Changes save in place to your user library.'"
+                ? 'Open the visual editor. Saving makes your own copy; the built-in template stays as it is.'
+                : 'Open the visual editor. Changes save to your own template.'"
               @click.stop="emit('edit', t.id)"
             >
-              {{ t.builtin ? 'Edit (forks to user library)' : 'Edit' }}
+              {{ t.builtin ? 'Edit a copy' : 'Edit' }}
             </button>
           </div>
         </div>
@@ -154,17 +156,24 @@ function select(id: string) {
   if (t) emit('change', t)
 }
 
-onMounted(async () => {
+// A failed read is not "no templates": it is shown with a Retry.
+const loadError = ref('')
+
+async function load(): Promise<void> {
   loading.value = true
+  loadError.value = ''
   try {
     const r = await get<{ templates: ThumbnailTemplateLite[] }>('/thumbnail-templates')
     templates.value = r.templates || []
-  } catch {
+  } catch (e: any) {
     templates.value = []
+    loadError.value = e?.data?.detail || e?.message || 'unknown error'
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(load)
 </script>
 
 <style scoped>
@@ -178,6 +187,7 @@ onMounted(async () => {
   padding: 16px 0;
   text-align: center;
 }
+.ttp-error { color: var(--danger, #dc2626); }
 .ttp-empty code {
   background: rgba(255, 255, 255, 0.06);
   padding: 2px 4px;
