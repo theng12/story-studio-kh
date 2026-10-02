@@ -2883,7 +2883,7 @@ async function submit() {
   filter: grayscale(1);
 }
 .pill-legend { line-height: 2; }
-.ep-pill.legend-pill { width: 18px; height: 18px; font-size: 10px; vertical-align: middle; cursor: default; }
+.ep-pill.legend-pill { width: 18px; height: 18px; font-size: var(--font-xs); vertical-align: middle; cursor: default; }
 .ep-pill.failed {
   opacity: 1;
   filter: none;

@@ -364,6 +364,6 @@ watch(slug, () => {
   gap: 2px;
 }
 .tt-active-hint {
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 </style>
