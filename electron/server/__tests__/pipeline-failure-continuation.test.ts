@@ -57,7 +57,7 @@ test('narration waits for the opening and the final video waits for requested mo
   assert.ok(pipeline.pipelineLinkRequirements('audio', run as any, 'scene_plan').includes('introduction-only'))
   assert.ok(pipeline.pipelineLinkRequirements('video_assembly', run as any, 'scene_plan').includes('motion_review'))
   assert.ok(!pipeline.pipelineLinkRequirements('video_assembly', new Set(['video_assembly']) as any, 'scene_plan').includes('motion_review'))
-  const chain = [{ type: 'outline_only', params: {} }, { type: 'expand_chapters', params: {} }, { type: 'continuity_render', params: {} }]
+  const chain: Array<{ type: string; params: Record<string, any> }> = [{ type: 'outline_only', params: {} }, { type: 'expand_chapters', params: {} }, { type: 'continuity_render', params: {} }]
   pipeline.stampPipelineStepFacts(chain, 'scene_plan')
   assert.deepEqual(chain.map(l => l.params.pipeline_step), ['script-only', 'script-only', 'scene_review'])
   assert.deepEqual(chain[2].params.pipeline_requires, ['scene_plan'])
