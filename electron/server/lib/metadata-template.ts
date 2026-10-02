@@ -15,7 +15,7 @@
  * changing per episode. Channel consistency that the LLM can't randomly
  * override on a re-roll.
  *
- * Recognised placeholders (any other `{token}` is rendered empty):
+ * Recognised placeholders (any other `{token}` is filled in by the model):
  *   {topic}         — one-line description of the spoken topic
  *   {topic_tag}     — short tag-friendly version (1-3 words, kebab-ish)
  *   {summary}       — 2-3 sentence summary of the episode
@@ -61,16 +61,9 @@ export function deterministicValues(episodeCode: string): Record<string, string>
  * the story context. Used to build the smallest prompt that covers what
  * the template actually references.
  */
-export const LLM_FILLABLE_PLACEHOLDERS: readonly string[] = ['topic', 'topic_tag', 'summary', 'keywords']
-
-/**
- * Only the placeholders this engine documents. Anything else — `{topc}`, a
- * typo — used to be sent to the model too, which happily invented text for
- * it; the page promises an unknown placeholder is left empty, and
- * `applyTemplate` does exactly that once it is not asked for.
- */
 export function llmFillablePlaceholders(allFound: string[]): string[] {
-  return allFound.filter(p => LLM_FILLABLE_PLACEHOLDERS.includes(p))
+  const deterministic = new Set(['episode_code', 'date', 'date_long'])
+  return allFound.filter(p => !deterministic.has(p))
 }
 
 /**

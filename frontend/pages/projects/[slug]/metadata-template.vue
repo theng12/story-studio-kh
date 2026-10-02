@@ -33,7 +33,7 @@
         </tbody>
       </table>
       <p class="text-muted text-xs mt-2">
-        Use these only where episode-specific wording belongs. Unknown placeholders are left empty, so double-check spelling before saving.
+        Use these only where episode-specific wording belongs. Any other placeholder in braces is filled in by the writing model, so a typo gets invented text — double-check spelling before saving.
       </p>
     </section>
 
@@ -84,7 +84,7 @@
     </div>
 
     <div v-if="unknownPlaceholders.length" class="save-msg is-err">
-      Not recognised: {{ unknownPlaceholders.map(name => '{' + name + '}').join(', ') }}. These are left empty in every episode — check the spelling against the list above.
+      Not recognised: {{ unknownPlaceholders.map(name => '{' + name + '}').join(', ') }}. The writing model fills these in for every episode — if one is a typo, fix it against the list above.
     </div>
     <div v-if="saveMessage" :class="['save-msg', saveMessage.ok ? 'is-ok' : 'is-err']">{{ saveMessage.text }}</div>
     <WorkspaceNotice v-if="metadataTemplateLoadError" tone="warning" title="Publishing profile unavailable" class="mt-3">

@@ -1,25 +1,23 @@
 /**
- * Only documented placeholders are sent to the model.
+ * Which placeholders the model is asked to fill.
  *
- * A typo such as `{topc}` used to be asked for too, and the model invented
- * text for it — while the publishing profile page promises that an unknown
- * placeholder is left empty.
+ * Only the three fixed ones (episode code and the two dates) are filled
+ * without the model. Every other token — the documented four, and any a
+ * channel's saved template uses such as {title} or {focus} — is sent to the
+ * model, so an existing template never publishes a silent blank. A typo such as
+ * {topc} therefore gets invented text; the publishing profile page warns about
+ * unrecognised tokens before Save instead.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { extractPlaceholders, llmFillablePlaceholders, renderTemplate } from '../lib/metadata-template.js'
+import { extractPlaceholders, llmFillablePlaceholders } from '../lib/metadata-template.js'
 
-test('a misspelt placeholder is not sent to the model and renders empty', () => {
-  const tpl = { title: 'The Story of {topc}', description: '{summary}\n\nAired {date}', tags: ['{topic_tag}', '{keyword}'] }
+test('every non-fixed placeholder is sent to the model, including channel-specific ones', () => {
+  const tpl = { title: '{title}: {focus}', description: '{summary}\n\nAired {date} · {episode_code}', tags: ['{topic_tag}', '{topc}'] }
   const found = extractPlaceholders(tpl)
-  assert.deepEqual(found.sort(), ['date', 'keyword', 'summary', 'topc', 'topic_tag'])
-  assert.deepEqual(llmFillablePlaceholders(found).sort(), ['summary', 'topic_tag'])
-  const rendered = renderTemplate(tpl, { summary: 'A tale.', topic_tag: 'castles', date: '2026-10-03' })
-  assert.equal(rendered.title, 'The Story of')
-  assert.deepEqual(rendered.tags, ['castles'])
+  assert.deepEqual(llmFillablePlaceholders(found).sort(), ['focus', 'summary', 'title', 'topc', 'topic_tag'])
 })
 
-test('every documented model-filled placeholder is still asked for', () => {
-  assert.deepEqual(llmFillablePlaceholders(['topic', 'topic_tag', 'summary', 'keywords', 'episode_code', 'date', 'date_long']),
-    ['topic', 'topic_tag', 'summary', 'keywords'])
+test('the fixed placeholders are never sent to the model', () => {
+  assert.deepEqual(llmFillablePlaceholders(['episode_code', 'date', 'date_long']), [])
 })
