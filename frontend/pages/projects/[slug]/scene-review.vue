@@ -374,6 +374,12 @@
           :title="control.reason"
           @click="runSceneRenderControl(activeContinuityRenderJob, control)"
         >{{ cancelingRender ? 'Working…' : control.label }}</button>
+        <!-- What each button does, in plain words, without hovering. -->
+        <small
+          v-for="control in sceneRenderControls(activeContinuityRenderJob)"
+          :key="`${control.action}-hint`"
+          class="review-control-hint"
+        ><strong>{{ control.label }}:</strong> {{ control.reason }}</small>
       </div>
 
       <!-- Plan-health banner. Missing and duplicated prompts are blocking work;
@@ -2354,6 +2360,7 @@ watch([slug, episodeId], () => {
   border-radius: var(--radius-md, 8px);
   font-size: 13px;
 }
+.review-control-hint { flex-basis: 100%; color: var(--text-muted); font-size: var(--font-xs, 12px); line-height: 1.4; }
 .review-render-bar {
   flex: 1 1 160px; min-width: 120px; height: 6px;
   background: var(--bg-tertiary); border-radius: 999px; overflow: hidden;

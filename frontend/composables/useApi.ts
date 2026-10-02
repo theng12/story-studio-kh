@@ -331,6 +331,13 @@ export function useApi() {
       if (err && !err.response && !err.data && err.name === 'FetchError' && err.cause?.name !== 'AbortError') {
         try { err.message = NO_RESPONSE_MESSAGE } catch { /* read-only message: leave it */ }
       }
+      // The server's humanized errors carry a next step in `hint` that no page rendered. Every
+      // caller shows `e.data.detail`, so the hint travels there — said once, in one place.
+      const data = err?.data
+      if (data && typeof data.detail === 'string' && typeof data.hint === 'string'
+        && data.hint.trim() && !data.detail.includes(data.hint.trim())) {
+        try { data.detail = `${data.detail} ${data.hint.trim()}` } catch { /* frozen payload: leave it */ }
+      }
       throw err
     }
   }

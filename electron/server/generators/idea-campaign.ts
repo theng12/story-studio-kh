@@ -542,10 +542,10 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
       ? Array.from({ length: missingCount }, (_, index) => `idea-slot-${completed + index + 1}`)
       : [],
     // The owner reads this in Jobs. Slot ids and fingerprints mean nothing to
-    // him; the count, what was kept, and the one next step do. A Retry reuses
-    // this job's frozen Topic Packs, so a pack shortfall asks for a new batch.
+    // him; the count, what was kept, and the one next step do. A Retry uses
+    // the project's current Topic Packs (owner decision 2026-10-03).
     message: coverageShortfall
-      ? `${completed} of ${wanted} ideas were saved. Your Topic Packs have no unused subjects left for the other ${missingCount}. Add another Topic Pack with "Choose Formula & Topics", then queue ${missingCount} more.`
+      ? `${completed} of ${wanted} ideas were saved. Your Topic Packs have no unused subjects left for the other ${missingCount}. Add another Topic Pack with "Choose Formula & Topics", then press Retry to make the rest.`
       : `${completed} of ${wanted} ideas were saved. Press Retry to make the ${missingCount} missing one${missingCount === 1 ? '' : 's'}.`,
   })
   job.progress = 100

@@ -487,7 +487,7 @@ const stepFilter = ref<string | null>(null)
 const failedOnly = ref(false)
 const searchActive = computed(() => search.value.trim().length > 0)
 const stepFilterCol = computed(() => columns.value.find(c => c.field === stepFilter.value) || null)
-const EPISODES_PER_PAGE = 10
+const EPISODES_PER_PAGE = 25
 const currentPage = ref(1)
 
 function toggleStepFilter(field: string) {

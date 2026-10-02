@@ -232,3 +232,7 @@ test('Check again re-reads the uncertain job in place instead of ordering a repl
   assert.deepEqual(mounted.calls[0].body, {})
   mounted.unmount()
 })
+
+test('render banner explains Pause / Cancel in a visible line, not only a tooltip (owner decision 2026-10-03)', () => {
+  assert.match(source, /class="review-control-hint"\n?\s*><strong>\{\{ control\.label \}\}:<\/strong> \{\{ control\.reason \}\}<\/small>/)
+})

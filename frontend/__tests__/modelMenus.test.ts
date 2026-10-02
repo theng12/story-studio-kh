@@ -299,7 +299,9 @@ describe('shared model menus', () => {
     for (const source of [modelSurfaces.subtitles, modelSurfaces.broll, transcriptionCatalog]) {
       assert.doesNotMatch(source, /single route|ready workers|no ready workers|Transcribe \(GenStudio\)|from-chapters/i)
     }
-    assert.match(modelSurfaces.subtitles, /:generate-label="transcribeLabel"/)
+    assert.match(modelSurfaces.subtitles, /:generate-label="subtitleActionLabel\(null, transcribeLabel\)"/)
+    // Owner decision 2026-10-03: the section has no third "Transcribe chapters" button.
+    assert.equal((modelSurfaces.subtitles.match(/@click="transcribe"/g) || []).length, 1, "only the selection bar's button calls transcribe directly")
     assert.match(modelSurfaces.subtitles, /title="Import subtitles"/)
     assert.doesNotMatch(modelSurfaces.subtitles, /title="Other methods"|From chapters/)
     assert.match(transcriptionCatalog, /disabled: !catalogIsUsable\.value \|\| !model\.available \|\| model\.locked === true/)

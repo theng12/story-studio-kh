@@ -1,9 +1,6 @@
 import { normalizeLlmLineup, type LlmLineup } from '../contracts/llm-lineup.js'
 import { assignedPipelinePolicy, type PipelineModelPolicies, type PipelineModelPolicyStage } from '../lib/pipeline-model-policy.js'
 import { getConfig } from './project-manager.js'
-import { getApiKey } from './app-secrets-store.js'
-import { listChatModels, type GenStudioChatModel } from '../lib/genstudio-client.js'
-import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
 
 const WRITING_STAGES: Record<string, PipelineModelPolicyStage> = {
   idea_campaign: 'ideas',
@@ -21,34 +18,6 @@ const WRITING_STAGES: Record<string, PipelineModelPolicyStage> = {
 
 export function writingStageForJob(type: string): PipelineModelPolicyStage | null {
   return WRITING_STAGES[type] || null
-}
-
-/** Follow a published successor during the retirement warning, before request evidence. */
-export function replaceRetiredLineupModels(params: Record<string, any>, catalogue: readonly GenStudioChatModel[]): Record<string, any> {
-  if (Object.keys(params.pipeline_model_checkpoints || {}).length || params.genstudio_chat_recovery_preview) return params
-  const policies = params.pipeline_model_policy
-  if (!policies || typeof policies !== 'object') return params
-  const next: Record<string, any> = { ...params, pipeline_model_policy: { ...policies } }
-  for (const [stage, policy] of Object.entries(policies) as Array<[string, any]>) {
-    if (policy?.wait_for_availability !== true || !Array.isArray(policy.models)) continue
-    const models = [...new Set<string>(policy.models.map((saved: string) => {
-      const product = findGenStudioProduct(catalogue, saved)
-      // Retired products disappear from /chat/models. Follow the published
-      // successor while the warning row is visible, never infer one by name.
-      const retirementWarning = product?.retires_at && Number.isFinite(Date.parse(product.retires_at))
-      if (!retirementWarning || !product?.replacement_model_id) return saved
-      const replacement = findGenStudioProduct(catalogue, product.replacement_model_id)
-      return replacement && !replacement.qualification_only && !replacement.locked
-        ? product.replacement_model_id : saved
-    }))]
-    if (models.some((id, index) => id !== policy.models[index]) || models.length !== policy.models.length) {
-      next.pipeline_model_policy[stage] = {
-        ...policy, models, assigned_model: models[0], mode: models.length > 1 ? 'backup' : 'single',
-      }
-      next.model = models[0]
-    }
-  }
-  return next
 }
 
 export function lineupModelPolicies(lineup: LlmLineup): PipelineModelPolicies {
@@ -94,13 +63,7 @@ export async function snapshotLlmLineupParams(
   const saved = Object.prototype.hasOwnProperty.call(params, 'llm_lineup_snapshot')
     ? params.llm_lineup_snapshot
     : (await getConfig(projectSlug))?.llm_lineup
-  let result = applyLlmLineupSnapshot(type, episodeId, params, normalizeLlmLineup(saved))
-  if (Object.values(result.pipeline_model_policy || {}).some((policy: any) => policy?.wait_for_availability === true)
-    && !Object.keys(result.pipeline_model_checkpoints || {}).length) {
-    const key = await getApiKey('genstudio').catch(() => '')
-    // Catalogue outages must not erase a queued selection or block recovery.
-    // The executor still validates the live catalogue before any submission.
-    if (key) result = replaceRetiredLineupModels(result, await listChatModels(key).catch(() => []))
-  }
-  return result
+  // Owner decision 2026-10-03: a lineup never follows a gateway-published successor model on its
+  // own. A retired choice is named on the Pipeline page instead ("… was retired — choose a replacement").
+  return applyLlmLineupSnapshot(type, episodeId, params, normalizeLlmLineup(saved))
 }

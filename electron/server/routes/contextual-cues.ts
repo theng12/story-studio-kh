@@ -14,7 +14,6 @@ import {
   normalizeCuePlacement,
   normalizeCuePositionPair,
   readContextualCueProgress,
-  removeContextualCueProgress,
   readContextualCueTimeline,
   validateContextualCueTimeline,
   writeContextualCueTimeline,
@@ -135,12 +134,10 @@ router.put('/projects/:slug/contextual-cues/:episodeId', async (req, res) => {
     const blocking = issues.filter(issue => issue.severity !== 'warning')
     if (blocking.length) return res.status(422).json({ detail: 'Cue timeline is not safe to save.', issues: blocking })
     await writeContextualCueTimeline(path, timeline)
-    // A running proposal owns its checkpoint. Deleting it from under the job
-    // threw away batches already paid for; the job re-reads this timeline
-    // before it writes, so the edit saved here survives it.
-    if (!jq.isDuplicate(req.params.slug, req.params.episodeId, 'contextual_cues' as JobType)) {
-      await removeContextualCueProgress(path)
-    }
+    // A partial proposal's progress is kept whether or not a job is running
+    // (owner decision 2026-10-03): those batches are already paid for, and the
+    // next proposal re-reads this timeline before it writes, so the edit
+    // saved here survives it.
     res.json({ timeline, validation: issues })
   } catch (error: any) {
     // v1.3.3 — this route sent `error.message` straight out, so a disk failure

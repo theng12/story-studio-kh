@@ -104,7 +104,7 @@ function humanizeError(raw: string): string {
 
   // Network / connectivity
   if (/network|fetch failed|ECONNREFUSED|ENOTFOUND|ETIMEDOUT/i.test(s)) {
-    return 'Cannot reach the GenStudio gateway — is the gateway app running?'
+    return 'Could not reach the Gateway — is the Gateway app running?'
   }
 
   // Missing API key (backend's standard message format).

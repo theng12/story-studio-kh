@@ -46,7 +46,7 @@ import {
   type EstimateStep,
 } from '../lib/disk.js'
 import { getApiKey } from '../services/app-secrets-store.js'
-import { lineupModelPolicies, applyLlmLineupSnapshot, replaceRetiredLineupModels } from '../services/llm-lineup.js'
+import { lineupModelPolicies, applyLlmLineupSnapshot } from '../services/llm-lineup.js'
 import { normalizeLlmLineup } from '../contracts/llm-lineup.js'
 import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
 import { listChatModels, listTranscriptionModels, publishedVideoControls } from '../lib/genstudio-client.js'
@@ -1733,13 +1733,18 @@ async function validatePipelinePoliciesAgainstCatalogue(policies: PipelineModelP
   } catch {
     return 'model_policies could not be checked against GenStudio’s live language-model catalogue. Nothing was started; retry when the catalogue is reachable.'
   }
-  Object.assign(policies, replaceRetiredLineupModels({ pipeline_model_policy: policies }, catalogue).pipeline_model_policy)
   const explicit = Object.fromEntries(Object.entries(policies).filter(([, policy]) => !policy?.wait_for_availability))
   const errors = validatePipelineModelCatalogue(explicit, catalogue)
   const structuredStages = new Set<PipelineModelPolicyStage>(['research', 'image_prompts', 'scene_plan', 'contextual_cues'])
   for (const [stage, policy] of Object.entries(policies) as Array<[PipelineModelPolicyStage, PipelineModelPolicies[PipelineModelPolicyStage]]>) {
     if (!policy) continue
     if (policy.wait_for_availability) {
+      // A lineup never follows a successor on its own (owner, 2026-10-03): a choice the
+      // Gateway no longer lists is named so the owner picks its replacement.
+      for (const modelId of policy.models) {
+        const retired = `${modelId} was retired — choose a replacement in the LLM lineup on the Pipeline page.`
+        if (!findGenStudioProduct(catalogue, modelId) && !errors.includes(retired)) errors.push(retired)
+      }
       const eligible = policy.models.some(modelId => {
         const model = findGenStudioProduct(catalogue, modelId)
         return model && !model.locked && !model.qualification_only

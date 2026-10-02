@@ -7626,6 +7626,27 @@ export function replayedSettledChatFailure(job: {
     && job.settled_credits === 0 && job.released_credits === job.reserved_credits
 }
 
+/**
+ * Owner decision 2026-10-03: a FREE writing model's failure that the gateway still holds as an
+ * unknown outcome (or whose submission was uncertain) is redone with a fresh request. Free means the
+ * gateway published `chargeable: false` for the model (a pool is chargeable if any member is), so a
+ * second request can never be charged. Paid or unpublished chargeability keeps the lock.
+ */
+export function replayedHeldFreeChatFailure(job: {
+  state?: unknown
+  failure_code?: unknown
+  cancelled?: unknown
+  recovery_required?: unknown
+  recovery_state?: unknown
+  idempotent_replay?: unknown
+  http_status?: unknown
+}, chargeable: boolean | undefined): boolean {
+  return chargeable === false
+    && (job.idempotent_replay === true || job.http_status === 200)
+    && job.state === 'failed' && job.cancelled !== true
+    && (holdsUnknownOutcome(job) || isSubmissionUncertainCode(job.failure_code))
+}
+
 export function chatKeyAfterFailedReplay(key: string, failedJobId: string): string {
   return `story-chat-${createHash('sha256').update(`${key}:after-failed:${failedJobId}`).digest('hex').slice(0, 47)}`
 }
@@ -7723,9 +7744,14 @@ async function callChatViaResponsesOnce(
   }
   await recordGenStudioEvidence('chat.response', chatJobEvidence(submitted), requestPreview)
   // Only a key Story derived from content: a caller-supplied key (exact replay,
-  // paid replacement) names one specific request and must never be moved.
-  if (!request.idempotencyKey?.trim() && request.replacementChargeLimit === undefined
-    && replayedSettledChatFailure(submitted) && replayHops < MAX_FAILED_CHAT_REPLAY_HOPS) {
+  // paid replacement) names one specific request and must never be moved —
+  // except a free model's held failure, which the owner redoes fresh (see
+  // replayedHeldFreeChatFailure); its new key reaches the caller through onJobAccepted.
+  const freeHeldRedo = request.replacementChargeLimit === undefined
+    && replayedHeldFreeChatFailure(submitted, prepared.product.chargeable)
+  const settledRedo = !request.idempotencyKey?.trim() && request.replacementChargeLimit === undefined
+    && replayedSettledChatFailure(submitted)
+  if ((freeHeldRedo || settledRedo) && replayHops < MAX_FAILED_CHAT_REPLAY_HOPS) {
     // The key is derived from the request content, so a Retry of the same step
     // re-POSTs the same key and the gateway answers with the OLD failed job.
     // Without this, one failure (the gateway
@@ -8437,7 +8463,7 @@ function isRetryableImageAdmissionPermitFailure(error: unknown): boolean {
 
 class ImagePermitRetryError extends Error {
   constructor(readonly waitMs: number) {
-    super('GenStudio image admission permit will retry')
+    super('The Gateway is busy; this image will be tried again shortly')
   }
 }
 
@@ -8523,7 +8549,7 @@ async function drainImagePermitQueue(scope: string, queue: ImagePermitQueue): Pr
       const now = Date.now()
       for (const waiter of [...queue.waiters]) {
         if (waiter.deadline <= now) {
-          rejectImagePermitWaiter(queue, waiter, new Error('GenStudio KH job timed out while waiting for image admission permit'))
+          rejectImagePermitWaiter(queue, waiter, new Error('The Gateway was too busy to start this image in time (timed out while waiting for image admission permit). Nothing was charged; press Retry when the Macs are free.'))
         }
       }
       if (!queue.waiters.length) break
@@ -8647,7 +8673,7 @@ async function acquireImageAdmissionPermit(
   const acquire = async (): Promise<string> => {
     await assertImageSubmissionAllowed(request)
     if (Date.now() >= deadline) {
-      throw new Error('GenStudio KH job timed out while waiting for image admission permit')
+      throw new Error('The Gateway was too busy to start this image in time (timed out while waiting for image admission permit). Nothing was charged; press Retry when the Macs are free.')
     }
     const reservation = await genStudioAdmission.reservePermitRequest(apiKey)
     if ('retryAfterMs' in reservation) {

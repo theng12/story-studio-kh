@@ -174,4 +174,15 @@ describe('Contextual Cues proposal runs', () => {
     assert.equal(byTitle.get('Rome'), 'approved')
     assert.equal(saved.auto_approval_holds?.[0]?.cue_id, 'cue-scene-2')
   })
+
+  test('saving a cue edit while nothing runs keeps a partial proposal’s progress (owner decision 2026-10-03)', async () => {
+    await reset()
+    await savePartialRunFromActionA()
+    process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
+    const { app } = await import('../app.js')
+    const { default: request } = await import('supertest')
+    const res = await request(app).put(`/api/projects/${slug}/contextual-cues/${episode}`).send({ cues: [] })
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.ok(await cues.readContextualCueProgress(planPath), 'the paid batches stay for the next Propose cues')
+  })
 })

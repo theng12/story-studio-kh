@@ -31,7 +31,7 @@
       :presets="subtitlesPresets"
       v-model:episode-id="episodeId"
       filter-field="subtitles"
-      :generate-label="transcribeLabel"
+      :generate-label="subtitleActionLabel(null, transcribeLabel)"
       :generate-loading="transcribing || transcribeJobActive"
       :generate-disabled="!canTranscribe"
       :generate-status="transcribeJobActive ? `Transcribing ${episodeId}…` : (canTranscribe ? '' : transcribeDisabledReason)"
@@ -192,7 +192,7 @@
       <!-- Transcribe -->
       <WorkspaceSection
         eyebrow="Create"
-        title="Transcribe chapter audio"
+        title="Transcription settings"
         description="Current chapter subtitles are preserved. Transcription updates only missing or outdated sections unless you choose to re-run them all."
       >
         <div class="mt-2">
@@ -248,15 +248,14 @@
           Re-run chapters that already have a verified SRT
         </label>
 
-        <div class="mt-2">
-          <button class="btn btn-sm btn-primary" :disabled="!canTranscribe" @click="transcribe">
-            {{ transcribeJobActive ? 'Queued — check the Jobs panel' : subtitleActionLabel(null, selectedSubtitleIds.length ? transcribeLabel : coverage.done && !force ? 'Transcribe missing or outdated chapters' : 'Transcribe chapters') }}
-          </button>
-          <span v-if="transcribeJobActive" class="text-muted text-xs ml-1">Running… progress shows in Jobs / the bell.</span>
-          <p v-if="subtitleRetryPending" class="text-muted text-xs mt-1" role="status">
-            {{ UNCONFIRMED_SUBMISSION }}
-          </p>
-        </div>
+        <!-- Owner decision 2026-10-03: no third "Transcribe chapters" button here. The top bar
+             transcribes the episode and each chapter row has its own button. -->
+        <p class="text-muted text-xs mt-2">
+          {{ transcribeJobActive ? 'Running… progress shows in Jobs / the bell.' : `Start with "${subtitleActionLabel(null, transcribeLabel)}" at the top of the page, or use a chapter's own button above.` }}
+        </p>
+        <p v-if="subtitleRetryPending" class="text-muted text-xs mt-1" role="status">
+          {{ UNCONFIRMED_SUBMISSION }}
+        </p>
       </WorkspaceSection>
 
       <WorkspaceSection
@@ -754,7 +753,9 @@ const transcribeJobActive = computed(() =>
   ),
 )
 
-const transcribeLabel = computed(() => selectedSubtitleIds.value.length ? `Generate / regenerate selected (${selectedSubtitleIds.value.length})` : 'Transcribe')
+const transcribeLabel = computed(() => selectedSubtitleIds.value.length
+  ? `Generate / regenerate selected (${selectedSubtitleIds.value.length})`
+  : coverage.value.done && !force.value ? 'Transcribe missing or outdated chapters' : 'Transcribe chapters')
 
 const canTranscribe = computed(() => {
   if (!episodeId.value || !status.value?.has_chapter_audio || !status.value?.audio_assembly_ready) return false

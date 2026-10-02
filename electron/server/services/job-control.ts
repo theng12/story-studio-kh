@@ -245,7 +245,7 @@ function classifyProviderJobControl(
   }
 
   if ((job.status === 'queued' || job.status === 'paused') && !evidence.length && !Object.keys(job.remote_cancellations || {}).length) {
-    return control('cancel-before-submit', true, 'Cancel', 'This job has not submitted provider work.', 'READY', 'no-provider-request')
+    return control('cancel-before-submit', true, 'Cancel', 'Nothing has been sent to the Gateway yet, so cancelling costs nothing.', 'READY', 'no-provider-request')
   }
 
   const pendingCancellation = Object.values(job.remote_cancellations || {}).find(record => PENDING_CANCELLATION_STATES.has(record.status))
@@ -262,9 +262,9 @@ function classifyProviderJobControl(
 
   if (!evidence.length) {
     if (isSafelyStoppableLocalJob(job)) {
-      return control('stop-local', true, 'Stop local work', 'This local job has a proven cooperative or child-process stop path.', 'READY', 'local-only')
+      return control('stop-local', true, 'Stop', 'Stops this job on this Mac now. Nothing was sent to the Gateway, so nothing is charged.', 'READY', 'local-only')
     }
-    return control('pause-submissions', canPauseNewSubmissions(job), 'Pause new submissions', 'This running job has no proven safe local stop. Let its current work settle before starting more.', 'JOB_NOT_AT_SAFE_LOCAL_STOP', 'none')
+    return control('pause-submissions', canPauseNewSubmissions(job), 'Pause new work', 'This job can\'t be stopped halfway through a step. Pause stops it from starting anything new; the step under way finishes first.', 'JOB_NOT_AT_SAFE_LOCAL_STOP', 'none')
   }
 
   if (evidence.some(isSubmissionUncertain)) {
@@ -309,9 +309,9 @@ function classifyProviderJobControl(
   if (targets.length && capabilities.remoteCancellationAudited) {
     const settling = [...continuing, ...unsupported]
     const continuingReason = settling.length
-      ? ` ${capitalise(describeProviderWork(settling.filter(entry => isRemoteOperation(entry.operation)).map(entry => entry.operation as JobRemoteOperation)).text)} already started and will continue settling.`
+      ? ` ${capitalise(describeProviderWork(settling.filter(entry => isRemoteOperation(entry.operation)).map(entry => entry.operation as JobRemoteOperation)).text)} already started and will finish.`
       : ''
-    return control('request-remote-cancel', true, 'Request cancellation', `Story Studio will ask GenStudio to cancel ${targets.length === 1 ? 'the eligible provider task' : `${targets.length} eligible provider tasks`}; GenStudio determines whether credits are released.${continuingReason}`, 'READY', 'remote-result-required', targets)
+    return control('request-remote-cancel', true, 'Cancel', `Asks the Gateway to stop ${targets.length === 1 ? 'the request it can still stop' : `the ${targets.length} requests it can still stop`}. Work that never runs is not charged.${continuingReason}`, 'READY', 'remote-result-required', targets)
   }
 
   if (targets.length) {
@@ -325,7 +325,7 @@ function classifyProviderJobControl(
 
   if (continuing.length) {
     const work = describeProviderWork(continuing.filter(entry => isRemoteOperation(entry.operation)).map(entry => entry.operation as JobRemoteOperation))
-    return control('pause-submissions', canPauseNewSubmissions(job), 'Pause new submissions', `${capitalise(work.text)} already started and will continue settling. New provider submissions can be paused, but this request cannot be cancelled.`, 'PROVIDER_WORK_ALREADY_STARTED', 'provider-work-may-settle')
+    return control('pause-submissions', canPauseNewSubmissions(job), 'Pause new work', `${capitalise(work.text)} already started and will finish — it can't be cancelled now. Pause stops anything new from being sent.`, 'PROVIDER_WORK_ALREADY_STARTED', 'provider-work-may-settle')
   }
 
   return control('return-later', false, 'Return later', 'Story Studio is waiting for authoritative provider settlement.', 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')
@@ -346,8 +346,8 @@ export function classifyJobControls(
     ? control(
       'pause-submissions',
       true,
-      'Pause new submissions',
-      'Story Studio will stop claiming new items. Already accepted work will finish settling and checkpointing.',
+      'Pause new work',
+      'Stops sending new work. Anything already sent finishes and is saved, so nothing is lost or charged twice.',
       'READY',
       'none',
     )

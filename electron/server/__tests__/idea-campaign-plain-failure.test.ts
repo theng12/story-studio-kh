@@ -98,3 +98,29 @@ test('campaign failure text never shows slot ids, fingerprints, or a refuse-ever
   assert.match(source, /Your Topic Packs have no unused subjects left for the other/)
   assert.match(source, /similarityPool\.unshift\(\.\.\.savedCandidates\)/)
 })
+
+test('Retry of an Idea Campaign uses the project\'s current Topic Packs (owner decision 2026-10-03)', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  const pm = await import('../services/project-manager.js')
+  const wasPaused = jq.isQueuePaused()
+  await jq.setQueuePaused(true)
+  try {
+    const project = await pm.createProject({ name: 'Pack shortfall retry', niche_id: FORMULA })
+    const original = jq.enqueuePreparedForTest({
+      project_slug: project.slug, type: 'idea_campaign', episode_id: 'ideas', title: 'Ideas',
+      params: { campaign_id: 'pack-short', count: 10, model: MODEL, series_formula_id: FORMULA, topic_pack_ids: ['old-pack'] },
+    })
+    await jq.mutateAuthoritativeJob(project.slug, original.job_id, job => ({
+      ...job, status: 'error', finished_at: new Date().toISOString(), error: '8 of 10 ideas were saved.',
+    }))
+    const retried = jq.retryTerminalJob(project.slug, original.job_id)
+    assert.equal('topic_pack_ids' in retried.params, false, 'the generator then reads the project\'s current packs')
+    assert.equal(retried.params.campaign_id, 'pack-short', 'the same campaign keeps the ideas already saved')
+  } finally {
+    await jq._waitForJobPersistenceForTesting()
+    if (!wasPaused) await jq.setQueuePaused(false)
+    await jq._waitForJobPersistenceForTesting()
+    await temp.cleanup()
+  }
+})

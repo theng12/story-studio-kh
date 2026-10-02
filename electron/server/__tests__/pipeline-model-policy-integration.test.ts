@@ -182,6 +182,37 @@ test('a shared lineup owns a transient quota failure even when paid writing repl
   const jobId = started.body.jobs[0].job_id
   await waitFor(() => ['done', 'error', 'cancelled'].includes(jq.getJob(jobId)?.status || ''), { label: 'Lineup quota fallback settles', timeoutMs: 10_000 })
   const submissions = mock.submissions.filter(item => item.operation === 'chat' && !item.replay)
-  assert.deepEqual(submissions.map(item => item.parsedBody?.model_id), ['mock-chat-v1', 'lineup-backup'])
-  assert.deepEqual((await pm.getConfig(project.slug))?.llm_lineup?.models, ['retiring-model', 'lineup-backup'], 'fresh-job successor resolution leaves saved choices intact')
+  // Owner decision 2026-10-03: the lineup runs the owner's own choice, never the published successor.
+  assert.deepEqual(submissions.map(item => item.parsedBody?.model_id), ['retiring-model', 'lineup-backup'])
+  assert.deepEqual((await pm.getConfig(project.slug))?.llm_lineup?.models, ['retiring-model', 'lineup-backup'])
+})
+
+test('a lineup choice the Gateway no longer lists is named as retired instead of swapped (owner decision 2026-10-03)', async t => {
+  const isolated = await useTempDataDir()
+  const mock = await startMockGenStudioService()
+  process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
+  const app = (await import('../app.js')).app
+  const jq = await import('../services/job-queue.js')
+  t.after(async () => {
+    await jq._waitForJobPersistenceForTesting()
+    await mock.close()
+    await isolated.cleanup()
+  })
+  const pm = await import('../services/project-manager.js')
+  const settings = await import('../services/app-settings.js')
+  const secrets = await import('../services/app-secrets-store.js')
+  const client = await import('../lib/genstudio-client.js')
+  await settings.setGenStudioUrl(mock.baseUrl)
+  await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+  client.clearGenStudioCatalogCache()
+  const project = await pm.createProject({ name: 'Retired lineup choice', episode_prefix: 'EP', episode_digits: 4 })
+  await pm.updateConfig(project.slug, {
+    llm_lineup: { enabled: true, models: ['gone-model', 'mock-chat-v1'], prefer_savings: false },
+  } as any)
+  const res = await request(app).post(`/api/projects/${project.slug}/pipeline/preflight`).send({
+    episode_ids: ['EP0001'], steps: ['research'],
+  })
+  assert.equal(res.status, 422, JSON.stringify(res.body))
+  assert.match(res.body.detail, /gone-model was retired — choose a replacement in the LLM lineup on the Pipeline page\./)
+  assert.equal(mock.submissions.length, 0, 'nothing is submitted, and nothing is swapped in')
 })

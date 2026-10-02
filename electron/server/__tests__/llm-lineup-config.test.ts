@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { normalizeLlmLineup } from '../contracts/llm-lineup.js'
 import { UpdateConfigSchema } from '../contracts/index.js'
-import { applyLlmLineupSnapshot, replaceRetiredLineupModels } from '../services/llm-lineup.js'
+import * as llmLineup from '../services/llm-lineup.js'
+import { applyLlmLineupSnapshot } from '../services/llm-lineup.js'
 import { useTempDataDir } from './_helpers.js'
 
 const lineup = { enabled: true, models: ['free-choice', 'paid-choice'], prefer_savings: true }
@@ -41,20 +42,10 @@ test('disabled lineup and explicit stage policies retain existing model choice',
   assert.deepEqual(applyLlmLineupSnapshot('audio', 'EP1', { model: 'voice' }, lineup), { model: 'voice' })
 })
 
-test('published successor applies during the retirement warning only to fresh shared-lineup work', () => {
-  const catalogue: any[] = [
-    { id: 'old', retires_at: '2999-01-01T00:00:00Z', replacement_model_id: 'new' },
-    { id: 'new', available: true },
-  ]
+test('a lineup never follows a published successor on its own (owner decision 2026-10-03)', () => {
   const params = applyLlmLineupSnapshot('metadata', 'EP1', {}, { ...lineup, models: ['old', 'paid-choice'] })
-  assert.deepEqual(replaceRetiredLineupModels(params, catalogue).pipeline_model_policy.metadata.models, ['new', 'paid-choice'])
-  assert.equal(params.pipeline_model_policy.metadata.models[0], 'old')
-  const recovery = { ...params, pipeline_model_checkpoints: { request: { idempotency_key: 'accepted-request' } } }
-  assert.equal(replaceRetiredLineupModels(recovery, catalogue), recovery)
-  assert.equal(replaceRetiredLineupModels(params, [{ ...catalogue[0], retires_at: null }, catalogue[1]]).model, 'old')
-  assert.equal(replaceRetiredLineupModels(params, [{ ...catalogue[0], retires_at: 'invalid' }, catalogue[1]]).model, 'old')
-  assert.equal(replaceRetiredLineupModels(params, [{ ...catalogue[1], id: 'renamed', legacy_ids: ['old'] }]).model, 'old', 'an alias does not change the wire identity')
-  assert.equal(replaceRetiredLineupModels(params, [catalogue[1]]).model, 'old', 'missing retirement metadata cannot establish a successor')
+  assert.deepEqual(params.pipeline_model_policy.metadata.models, ['old', 'paid-choice'])
+  assert.equal('replaceRetiredLineupModels' in llmLineup, false, 'the successor-following helper is gone')
 })
 
 test('nonwriting handoff preserves a writing child’s deliberately disabled lineup snapshot', () => {

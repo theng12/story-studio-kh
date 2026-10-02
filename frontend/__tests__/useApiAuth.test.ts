@@ -86,4 +86,17 @@ describe('useApi when Story Studio’s own engine does not answer', () => {
     }
     await assert.rejects(useApi().get('/x'), /404 Not Found/)
   })
+
+  test('a humanized error shows its hint where the message is shown', async () => {
+    ;(globalThis as any).$fetch = async () => {
+      const error: any = new Error('[POST] "/api/x": 503 Service Unavailable')
+      error.name = 'FetchError'; error.response = { status: 503 }
+      error.data = { detail: 'Could not reach the Gateway — is the Gateway app running?', hint: 'Open the Gateway app, then try again.' }
+      throw error
+    }
+    await assert.rejects(useApi().post('/x', {}), (error: any) => {
+      assert.equal(error.data.detail, 'Could not reach the Gateway — is the Gateway app running? Open the Gateway app, then try again.')
+      return true
+    })
+  })
 })

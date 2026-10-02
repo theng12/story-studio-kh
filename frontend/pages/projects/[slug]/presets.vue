@@ -198,7 +198,7 @@ const groupsMeta: Omit<PresetGroup, 'items'>[] = [
   },
   {
     key: 'audio_merge',
-    label: 'Audio Merge',
+    label: 'Audio Assembly',
     icon: '🎛',
     hint: 'Intro clip, background music, gap duration, volumes.',
     configKey: 'audio_merge',

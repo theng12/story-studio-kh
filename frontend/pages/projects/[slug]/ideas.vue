@@ -1511,8 +1511,8 @@ const ideasPresets = usePresets<any>({
     avoid_repeated_ideas: form.avoid_repeated_ideas,
     title_template: form.title_template,
     items_per_listicle: form.items_per_listicle,
-    title_prefix: titleConfig.prefix,
-    title_suffix: titleConfig.suffix,
+    // The channel-wide title prefix/suffix are NOT part of an Ideas preset (owner decision
+    // 2026-10-03): Metadata uses them too, so a preset must never change them.
   }),
   apply: (data: any) => {
     if (!data || typeof data !== 'object') return
@@ -1531,20 +1531,12 @@ const ideasPresets = usePresets<any>({
     if (data.items_per_listicle === null || typeof data.items_per_listicle === 'number') {
       form.items_per_listicle = data.items_per_listicle
     }
-    if (typeof data.title_prefix === 'string') titleConfig.prefix = data.title_prefix
-    if (typeof data.title_suffix === 'string') titleConfig.suffix = data.title_suffix
   },
 })
 
 function onIdeasPresetApplied() {
-  const before = { prefix: titleConfig.prefix, suffix: titleConfig.suffix }
   ideasPresets.applyActive()
-  // The title prefix/suffix are channel-wide (Metadata reads them too), so a
-  // preset that changes them must say so rather than rewrite them quietly.
-  const changed = before.prefix !== titleConfig.prefix || before.suffix !== titleConfig.suffix
-  success(changed
-    ? 'Preset applied. It also changed the channel-wide title prefix/suffix, which Metadata uses too.'
-    : 'Preset applied')
+  success('Preset applied')
 }
 
 async function onIdeasPresetOverwrite() {
@@ -2324,13 +2316,13 @@ const parentImporting = ref(false)
 
 const assetLabels: Record<string, string> = {
   script: 'Script',
-  metadata: 'Metadata',
+  metadata: 'YouTube Finalizer',
   scene_prompts: 'Scene Prompts',
   thumb_prompts: 'Thumbnail Prompts',
   images: 'Scene Images',
   thumbnails: 'Thumbnail Images',
   audio: 'Audio',
-  merged_audio: 'Merged Audio',
+  merged_audio: 'Audio Assembly',
   video: 'Video',
 }
 

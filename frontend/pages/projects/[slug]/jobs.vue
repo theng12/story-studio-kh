@@ -1441,14 +1441,14 @@ function genStudioQueueDetail(job: RJob): string {
   const waitingPhase = waiting
     ? `Waiting for a free Mac${nextTry ? ` — next try ${nextTry}` : ''}${waiting.reason ? ` (${waiting.reason})` : ''}.`
     : ''
-  const phase = waitingPhase || (hasProviderQueuePosition ? 'Waiting in the GenStudio provider queue.' : ({
-    waiting_local: 'Waiting in Story Studio before provider submission.',
-    submitting: 'Waiting for GenStudio admission.',
-    accepted: 'GenStudio accepted the latest request; it is queued remotely.',
-    waiting_account_capacity: 'Waiting for GenStudio account admission.',
+  const phase = waitingPhase || (hasProviderQueuePosition ? 'Waiting in the Gateway queue.' : ({
+    waiting_local: 'Waiting in Story Studio before it is sent.',
+    submitting: 'Sending to the Gateway.',
+    accepted: 'The Gateway accepted it; it is waiting its turn.',
+    waiting_account_capacity: 'Waiting for a free slot at the Gateway.',
     waiting_credits: 'Waiting for GenStudio credits.',
-    running: 'GenStudio is generating.',
-    completing: 'GenStudio is completing the result.',
+    running: 'The Gateway is generating.',
+    completing: 'The Gateway is finishing the result.',
   } as Record<string, string>)[state] || '')
   const facts: string[] = []
   if (hasProviderQueuePosition) {
@@ -2269,6 +2269,15 @@ const STATUS_FILTERS: Array<{ key: typeof statusFilter.value; label: string }> =
   { key: 'recovered', label: 'Recovered' },
   { key: 'cancelled', label: 'Cancelled' },
 ]
+// `?status=error` (the dashboard's "Repair N failed jobs" link) opens the list already filtered.
+function statusFromQuery(value: unknown): typeof statusFilter.value | null {
+  const key = Array.isArray(value) ? value[0] : value
+  return STATUS_FILTERS.some(s => s.key === key) ? key as typeof statusFilter.value : null
+}
+watch(() => route.query.status, value => {
+  const next = statusFromQuery(value)
+  if (next) statusFilter.value = next
+}, { immediate: true })
 const statusFilters = computed(() => STATUS_FILTERS.map(s => ({
   ...s,
   count: s.key === 'all'
@@ -2290,7 +2299,7 @@ const filterTabs = computed(() => {
     { type: 'introduction-only',    label: 'Introductions' },
     { type: 'chapter-only',         label: 'Chapter Regen' },
     { type: 'research_run',         label: 'Research' },
-    { type: 'metadata',             label: 'Metadata' },
+    { type: 'metadata',             label: 'YouTube Finalizer' },
     { type: 'image_prompts',        label: 'Prompts' },
     { type: 'scene_plan_run',       label: 'Scene Plan' },
     { type: 'contextual_cues',       label: 'Contextual Cues' },
@@ -2301,7 +2310,7 @@ const filterTabs = computed(() => {
     { type: 'video',                label: 'AI Video' },
     { type: 'scene_clips_batch',    label: 'Motion Review' },
     { type: 'audio',                label: 'Audio' },
-    { type: 'audio_merge',          label: 'Audio Merge' },
+    { type: 'audio_merge',          label: 'Audio Assembly' },
     { type: 'video_assembly',       label: 'Video Assembly' },
     { type: 'subtitles_transcribe', label: 'Subtitles' },
     { type: 'youtube_upload',       label: 'YouTube' },

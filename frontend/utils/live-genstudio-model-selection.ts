@@ -151,6 +151,6 @@ export function genStudioSelectionGapMessage(gap: GenStudioSelectionGap): string
     case 'unavailable':
       return `Your saved GenStudio model "${gap.savedModelId}" is currently unavailable${gap.reason ? ` (${gap.reason})` : ''}. It stays selected until you pick a replacement — nothing was swapped automatically.`
     case 'vanished':
-      return `Your saved GenStudio model "${gap.savedModelId}" is no longer offered. Choose a replacement — nothing was swapped automatically.`
+      return `"${gap.savedModelId}" was retired — choose a replacement. Story Studio did not swap in another model.`
   }
 }

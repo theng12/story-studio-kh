@@ -545,3 +545,12 @@ test('Jobs names the published provider beside the model (§2 display-only)', ()
   const display = jobs.slice(jobs.indexOf('function jobModelDisplay'), jobs.indexOf('function jobModelTitle'))
   assert.match(display, /jobModelProvider\(job\)/, 'the model label must include the provider when one is published')
 })
+
+test('Jobs opens filtered by ?status= and names job types like the pages do (owner decision 2026-10-03)', () => {
+  // The dashboard's "Repair N failed jobs" links to `/jobs?status=error`.
+  assert.match(jobs, /watch\(\(\) => route\.query\.status, value => \{[\s\S]{0,120}statusFilter\.value = next/)
+  assert.match(jobs, /STATUS_FILTERS\.some\(s => s\.key === key\)/)
+  assert.match(jobs, /\{ type: 'metadata',\s+label: 'YouTube Finalizer' \}/)
+  assert.match(jobs, /\{ type: 'audio_merge',\s+label: 'Audio Assembly' \}/)
+  assert.doesNotMatch(jobs, /label: 'Metadata'|label: 'Audio Merge'/)
+})

@@ -26,12 +26,12 @@ function envelope(fields: Record<string, unknown>) {
 }
 
 /** `byKey` answers each POST by its Idempotency-Key; GETs return `poll`. */
-function stub(byKey: (key: string, n: number) => Record<string, unknown>, poll: Record<string, unknown>) {
+function stub(byKey: (key: string, n: number) => Record<string, unknown>, poll: Record<string, unknown>, models: unknown[] = catalog) {
   const original = globalThis.fetch
   const keys: string[] = []
   globalThis.fetch = async (input, init) => {
     const url = String(input)
-    if (url.endsWith('/v1/chat/models')) return Response.json(catalog)
+    if (url.endsWith('/v1/chat/models')) return Response.json(models)
     if (url.endsWith('/v1/account/overview')) return Response.json(overview)
     if ((init?.method || 'GET').toUpperCase() === 'POST') {
       const key = String((init?.headers as Record<string, string>)['Idempotency-Key'])
@@ -107,4 +107,32 @@ test('a caller-supplied key is never moved, even after a settled failure', async
     await callChatWithGenStudio('k', { ...request, idempotencyKey: 'exact-replay-key' }).catch(() => null)
   } finally { s.restore() }
   assert.deepEqual(s.keys, ['exact-replay-key'])
+})
+
+// Owner decision 2026-10-03: a FREE model's held failure is redone fresh; paid or unknown keeps the lock.
+const held = { id: 'job_held', state: 'failed', failure_code: 'PROVIDER_FAILED', recovery_required: true, recovery_state: 'unknown_outcome' }
+for (const [label, chargeable, expectedPosts] of [
+  ['free (chargeable: false)', false, 2],
+  ['paid (chargeable: true)', true, 1],
+  ['unpublished chargeability', undefined, 1],
+] as const) {
+  test(`a held replay on a ${label} model ${expectedPosts === 2 ? 'is resubmitted fresh' : 'keeps its lock'}`, async () => {
+    const models = [{ ...catalog[0], ...(chargeable === undefined ? {} : { chargeable }) }]
+    const s = stub((_key, n) => n === 1 ? held : { id: 'job_fresh', state: 'accepted' },
+      expectedPosts === 2 ? ok : { ...ok, id: 'job_held' }, models)
+    try {
+      await callChatWithGenStudio('k', request).catch(() => null)
+    } finally { s.restore() }
+    assert.equal(s.keys.length, expectedPosts)
+    if (expectedPosts === 2) assert.equal(s.keys[1], chatKeyAfterFailedReplay(s.keys[0]!, 'job_held'))
+  })
+}
+
+test('a free model\'s held replay is redone fresh even under a caller-supplied key (Retry of a lineup step)', async () => {
+  const s = stub((_key, n) => n === 1 ? held : { id: 'job_fresh', state: 'accepted' }, ok, [{ ...catalog[0], chargeable: false }])
+  try {
+    const result = await callChatWithGenStudio('k', { ...request, idempotencyKey: 'lineup-checkpoint-key' })
+    assert.deepEqual(JSON.parse(result.text), { ok: true })
+  } finally { s.restore() }
+  assert.deepEqual(s.keys, ['lineup-checkpoint-key', chatKeyAfterFailedReplay('lineup-checkpoint-key', 'job_held')])
 })

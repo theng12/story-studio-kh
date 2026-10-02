@@ -17,8 +17,8 @@ describe('Production Board defaults', () => {
     assert.doesNotMatch(board, /const hidePending/)
   })
 
-  test('shows fixed ten-episode pages with navigation above the matrix', () => {
-    assert.match(board, /const EPISODES_PER_PAGE = 10/)
+  test('shows fixed 25-episode pages with navigation above the matrix', () => {
+    assert.match(board, /const EPISODES_PER_PAGE = 25/)
     assert.match(board, /slice\(start, start \+ EPISODES_PER_PAGE\)/)
     assert.match(board, /v-for="ep in paginatedEpisodes"/)
     assert.match(board, /class="board-pagination" aria-label="Episode pages"/)

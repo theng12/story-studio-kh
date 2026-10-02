@@ -141,7 +141,7 @@ describe('ModelMenu — a pinned model that left the catalogue', () => {
     await nextTick()
     await nextTick()
     const rendered = host.querySelector('.model-menu-catalog-notice')?.textContent || ''
-    assert.match(rendered, /is no longer offered/)
+    assert.match(rendered, /was retired — choose a replacement/)
     assert.match(rendered, /Choose a replacement/)
     unmount()
   })
@@ -290,14 +290,14 @@ describe('ModelSelector — a pinned model that left the catalogue', () => {
     const { host, unmount } = await mountModelSelector('deleted-by-dedupe', catalogWithoutThePin)
     const gap = host.querySelector('.selection-gap')
     assert.ok(gap, 'a vanished pin must produce a visible message, not silence')
-    assert.match(gap!.textContent || '', /"deleted-by-dedupe" is no longer offered/)
+    assert.match(gap!.textContent || '', /"deleted-by-dedupe" was retired — choose a replacement/)
     assert.match(gap!.textContent || '', /Choose a replacement/)
     unmount()
   })
 
   test('hands both surfaces what they need', async () => {
     const { unmount } = await mountModelSelector('deleted-by-dedupe', catalogWithoutThePin)
-    assert.match(String(menuProps.catalogNotice), /is no longer offered/)
+    assert.match(String(menuProps.catalogNotice), /was retired — choose a replacement/)
     assert.equal(menuProps.missingSelectionLabel, 'No longer offered')
     unmount()
   })

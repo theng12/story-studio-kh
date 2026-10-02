@@ -46,7 +46,7 @@ test('Jobs uses only current provider evidence for a provider queue position and
       { state: 'accepted', queue_position: 2, queue_eta_seconds: 120, queue_reason: 'provider_pace', updated_at: '2026-09-09T10:00:00.000Z' },
     ],
   })
-  assert.match(detail, /Waiting in the GenStudio provider queue/)
+  assert.match(detail, /Waiting in the Gateway queue/)
   assert.match(detail, /provider queue position 2/)
   assert.match(detail, /Checking again in about 2 minutes/)
   assert.doesNotMatch(detail, /Estimated/, 'queue_eta_seconds is the gateway retry time, not a provider wait estimate')
@@ -78,9 +78,9 @@ test('Jobs clears provider queue copy once current evidence has no positive queu
 })
 
 test('Jobs distinguishes local handoff and GenStudio admission without inventing a provider queue position', () => {
-  assert.equal(queueDetail({ genstudio_jobs: [{ queue_state: 'waiting_local', updated_at: 'now' }] }), 'Waiting in Story Studio before provider submission.')
-  assert.equal(queueDetail({ genstudio_jobs: [{ queue_state: 'waiting_account_capacity', updated_at: 'now' }] }), 'Waiting for GenStudio account admission.')
-  assert.equal(queueDetail({ genstudio_jobs: [{ queue_state: 'accepted', updated_at: 'now' }] }), 'GenStudio accepted the latest request; it is queued remotely.')
+  assert.equal(queueDetail({ genstudio_jobs: [{ queue_state: 'waiting_local', updated_at: 'now' }] }), 'Waiting in Story Studio before it is sent.')
+  assert.equal(queueDetail({ genstudio_jobs: [{ queue_state: 'waiting_account_capacity', updated_at: 'now' }] }), 'Waiting for a free slot at the Gateway.')
+  assert.equal(queueDetail({ genstudio_jobs: [{ queue_state: 'accepted', updated_at: 'now' }] }), 'The Gateway accepted it; it is waiting its turn.')
   assert.match(jobs, /genStudioQueueDetail\(job\)/)
   assert.match(jobs, /remote\.queue_position/)
   assert.match(jobs, /remote\.queue_eta_seconds/)

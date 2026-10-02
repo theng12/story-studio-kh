@@ -5533,6 +5533,9 @@ export function retryTerminalJob(
   // retry machinery may retain ordinary continuity behavior, but cannot copy
   // that explicit paid intent into a new queue identity.
   if (original.type === 'continuity_render') delete retryParams.manual_image_finish
+  // Owner decision 2026-10-03: Retry of an Idea Campaign uses the project's CURRENT Topic Packs,
+  // so a "your packs ran out of subjects" shortfall is fixed by adding a pack and pressing Retry.
+  if (original.type === 'idea_campaign') delete retryParams.topic_pack_ids
   const retried = enqueuePrepared({
     project_slug: original.project_slug,
     type: retryType,

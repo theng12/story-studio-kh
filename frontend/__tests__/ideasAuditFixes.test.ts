@@ -88,8 +88,10 @@ test('Un-accept moves files to _trash and says so', () => {
   assert.match(ideas, /title="Move this episode's files to the project's _trash and un-accept"/)
 })
 
-test('presets announce the channel-wide title change; preferences save after a pause', () => {
-  assert.match(ideas, /It also changed the channel-wide title prefix\/suffix, which Metadata uses too/)
+test('presets leave the channel-wide title prefix/suffix alone; preferences save after a pause', () => {
+  // Owner decision 2026-10-03: an Ideas preset neither saves nor applies the channel-wide prefix/suffix.
+  assert.doesNotMatch(ideas, /title_prefix: titleConfig\.prefix,\n\s*title_suffix: titleConfig\.suffix,\n\s*\}\),/)
+  assert.doesNotMatch(ideas, /titleConfig\.prefix = data\.title_prefix/)
   assert.match(ideas, /Channel-wide — also used for metadata\./)
   assert.match(ideas, /setTimeout\(\(\) => \{\s*savePreferencesTimer = null\s*void saveIdeaPreferences\(savePreferencesSlug\)\s*\}, 500\)/)
   assert.doesNotMatch(ideas, /watch\(\(\) => titleConfig\.prefix, saveIdeaPreferences\)/)
