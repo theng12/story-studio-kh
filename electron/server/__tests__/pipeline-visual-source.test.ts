@@ -335,6 +335,6 @@ describe('Pipeline episode visual source', () => {
     assert.equal(response.body.jobs[0].episode_id, pool.code)
     assert.equal(response.body.jobs[0].type, 'metadata')
     assert.equal(response.body.blocked[0].episode_id, scene.code)
-    assert.match(response.body.blocked[0].reason, /No active preset for scene_plan/i)
+    assert.match(response.body.blocked[0].reason, /No active preset for Scene Plan/i)
   })
 })

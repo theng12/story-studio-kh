@@ -3,7 +3,7 @@
     <div class="dialog-head">
       <h2 id="mad-title" class="dialog-title">
         <span aria-hidden="true">&#9888;</span>
-        {{ hasUnmeasurable ? 'Asset audit' : 'Missing assets' }}
+        {{ hasUnmeasurable ? 'Files check' : 'Missing files' }}
       </h2>
       <p class="dialog-sub text-muted">
         {{ summary }}
@@ -23,7 +23,7 @@
     </div>
 
     <div v-else-if="auditIsComplete" class="dialog-empty">
-      <span aria-hidden="true">&#9989;</span> All assets match the project manifest.
+      <span aria-hidden="true">&#9989;</span> Every expected file is on disk.
     </div>
 
     <div v-else class="dialog-body">
@@ -73,7 +73,7 @@
               </li>
             </ul>
             <div v-if="s.extra.length" class="extras text-muted">
-              {{ s.extra.length }} file(s) in this folder aren't tracked by the manifest
+              {{ s.extra.length }} file(s) in this folder are not part of this episode's expected files
               — possibly a rename or a stray copy:
               <code v-for="n in s.extra.slice(0, 3)" :key="n">{{ n }}</code>
               <span v-if="s.extra.length > 3">&nbsp;+ {{ s.extra.length - 3 }} more</span>
@@ -156,7 +156,7 @@ const summary = computed(() => {
   if (hasUnmeasurable.value && total_missing === 0) return 'Some audit checks could not be completed.'
   if (hasUnmeasurable.value) return `${total_missing} asset${total_missing === 1 ? '' : 's'} missing across `
     + `${episodes_with_missing} episode${episodes_with_missing === 1 ? '' : 's'}; some checks could not be completed.`
-  if (total_missing === 0) return 'Everything on disk matches what the project manifest expects.'
+  if (total_missing === 0) return 'Every file this project expects is on disk.'
   return `${total_missing} asset${total_missing === 1 ? '' : 's'} missing across `
     + `${episodes_with_missing} episode${episodes_with_missing === 1 ? '' : 's'}.`
 })

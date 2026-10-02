@@ -177,7 +177,7 @@ describe('findActivePreset — thumbnail-only prompt and image preset pools', ()
     }
     const r = findActivePreset(config, 'image_prompts')
     assert.equal(r.preset, null)
-    assert.match(r.missingReason || '', /not found/)
+    assert.match(r.missingReason || '', /was deleted/)
   })
 
   test('image_prompts ignores the legacy unified prompt pool', () => {
@@ -197,7 +197,7 @@ describe('findActivePreset — thumbnail-only prompt and image preset pools', ()
     }
     const r = findActivePreset(config, 'image_prompts')
     assert.equal(r.preset, null)
-    assert.match(r.missingReason || '', /not found/)
+    assert.match(r.missingReason || '', /was deleted/)
   })
 
   test('thumb_images resolves from thumbnail_generator presets only', () => {

@@ -168,12 +168,12 @@
       </div>
       <div v-if="ffmpegStatus?.check_error" class="ffmpeg-warning mt-1">
         <p class="text-muted text-md">
-          We couldn't determine FFmpeg's status: <code>{{ ffmpegStatus.check_error }}</code>.
-          This is different from "not installed" — likely the backend is unreachable, the
-          binary isn't executable, or detection hit a permissions error. Try the
+          We couldn't check whether FFmpeg (the video tool) is ready. This is different from "not
+          installed" — the app may not be reachable, or the tool may not be allowed to run. Try the
           <NuxtLink :to="`/projects/${slug}/settings#ffmpeg`" class="ffmpeg-inline-link">FFmpeg page in Settings</NuxtLink>
           for the full diagnostic.
         </p>
+        <p class="text-muted text-xs">Technical details: <code>{{ ffmpegStatus.check_error }}</code></p>
       </div>
       <div v-else-if="ffmpegStatus && !ffmpegStatus.installed" class="ffmpeg-warning mt-1">
         <p class="text-muted text-md">
@@ -203,9 +203,9 @@
            failure visible and give it its own retry. -->
       <div v-if="scanError && !scanning" class="ffmpeg-warning mt-2" role="alert">
         <p class="text-muted text-md">
-          We couldn't check this episode's assets: <code>{{ scanError }}</code>.
-          Nothing below reflects this episode until the check succeeds.
+          We couldn't check this episode's files. Nothing below reflects this episode until the check succeeds.
         </p>
+        <p class="text-muted text-xs">Technical details: <code>{{ scanError }}</code></p>
         <button type="button" class="btn btn-sm btn-secondary mt-1" @click="scanAssets">Retry asset check</button>
       </div>
 
@@ -357,10 +357,10 @@
         :active-id="introPresets.activeId.value"
         @update:active-id="introPresets.setActive"
         @apply="introPresets.applyActive(); success('Intro preset applied')"
-        @overwrite="introPresets.overwrite(); success('Intro preset saved')"
-        @save-as="(n) => introPresets.saveAs(n).then(() => success('Intro preset saved'))"
-        @rename="(n) => introPresets.rename(n).then(() => success(`Renamed to ${n}`))"
-        @delete="introPresets.remove(); success('Intro preset deleted')"
+        @overwrite="finishPreset(introPresets.overwrite(), 'Intro preset saved')"
+        @save-as="(n) => finishPreset(introPresets.saveAs(n), 'Intro preset saved')"
+        @rename="(n) => finishPreset(introPresets.rename(n), `Renamed to ${n}`)"
+        @delete="finishPreset(introPresets.remove(), 'Intro preset deleted')"
       />
 
       <!-- Intro Video -->
@@ -536,10 +536,10 @@
         :active-id="timelinePresets.activeId.value"
         @update:active-id="timelinePresets.setActive"
         @apply="timelinePresets.applyActive(); success('Timeline preset applied')"
-        @overwrite="timelinePresets.overwrite(); success('Timeline preset saved')"
-        @save-as="(n) => timelinePresets.saveAs(n).then(() => success('Timeline preset saved'))"
-        @rename="(n) => timelinePresets.rename(n).then(() => success(`Renamed to ${n}`))"
-        @delete="timelinePresets.remove(); success('Timeline preset deleted')"
+        @overwrite="finishPreset(timelinePresets.overwrite(), 'Timeline preset saved')"
+        @save-as="(n) => finishPreset(timelinePresets.saveAs(n), 'Timeline preset saved')"
+        @rename="(n) => finishPreset(timelinePresets.rename(n), `Renamed to ${n}`)"
+        @delete="finishPreset(timelinePresets.remove(), 'Timeline preset deleted')"
       />
 
       <!-- Title Image -->
@@ -676,10 +676,10 @@
               :active-id="transitionPresets.activeId.value"
               @update:active-id="transitionPresets.setActive"
               @apply="transitionPresets.applyActive(); success('Transition preset applied')"
-              @overwrite="transitionPresets.overwrite(); success('Transition preset saved')"
-              @save-as="(n) => transitionPresets.saveAs(n).then(() => success('Transition preset saved'))"
-              @rename="(n) => transitionPresets.rename(n).then(() => success(`Renamed to ${n}`))"
-              @delete="transitionPresets.remove(); success('Transition preset deleted')"
+              @overwrite="finishPreset(transitionPresets.overwrite(), 'Transition preset saved')"
+              @save-as="(n) => finishPreset(transitionPresets.saveAs(n), 'Transition preset saved')"
+              @rename="(n) => finishPreset(transitionPresets.rename(n), `Renamed to ${n}`)"
+              @delete="finishPreset(transitionPresets.remove(), 'Transition preset deleted')"
             />
           </div>
         </div>
@@ -690,8 +690,9 @@
         <div v-if="transitionsCatalogLoading" class="text-muted text-sm catalog-loading">Loading transitions…</div>
         <div v-else-if="transitionsCatalogError" class="ffmpeg-warning" role="alert">
           <p class="text-muted text-md">
-            We couldn't load the transition catalogue: <code>{{ transitionsCatalogError }}</code>.
+            We couldn't load the list of transitions.
           </p>
+          <p class="text-muted text-xs">Technical details: <code>{{ transitionsCatalogError }}</code></p>
           <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadTransitionsCatalog">Retry</button>
         </div>
         <TransitionPicker
@@ -722,10 +723,10 @@
             :active-id="animationPresets.activeId.value"
             @update:active-id="animationPresets.setActive"
             @apply="animationPresets.applyActive(); success('Animation preset applied')"
-            @overwrite="animationPresets.overwrite(); success('Animation preset saved')"
-            @save-as="(n) => animationPresets.saveAs(n).then(() => success('Animation preset saved'))"
-            @rename="(n) => animationPresets.rename(n).then(() => success(`Renamed to ${n}`))"
-            @delete="animationPresets.remove(); success('Animation preset deleted')"
+            @overwrite="finishPreset(animationPresets.overwrite(), 'Animation preset saved')"
+            @save-as="(n) => finishPreset(animationPresets.saveAs(n), 'Animation preset saved')"
+            @rename="(n) => finishPreset(animationPresets.rename(n), `Renamed to ${n}`)"
+            @delete="finishPreset(animationPresets.remove(), 'Animation preset deleted')"
           />
         </div>
         <p class="text-muted text-sm hint-line">
@@ -742,7 +743,7 @@
           </label>
           <p class="text-muted text-sm hint-line">
             One image carries a whole narration line instead of a few seconds, so an episode needs
-            fewer images. Rendered locally: no model, no memory tier.
+            fewer images. It runs on this Mac, with no AI model and no extra cost.
           </p>
 
           <template v-if="sceneReveal.enabled">
@@ -779,7 +780,14 @@
 
             <div class="form-group mt-2">
               <label>Pool — the looks this episode may draw from</label>
-              <div v-if="!revealLibrary.length" class="text-muted text-sm">Loading the reveal library…</div>
+              <div v-if="revealLibraryError && !revealLibrary.length" class="ffmpeg-warning" role="alert">
+                <p class="text-muted text-md">
+                  We couldn't load the list of reveal looks. Rendering still works and uses the standard looks.
+                </p>
+                <p class="text-muted text-xs">{{ revealLibraryError }}</p>
+                <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadRevealLibrary">Try again</button>
+              </div>
+              <div v-else-if="!revealLibrary.length" class="text-muted text-sm">Loading the reveal library…</div>
               <div v-else class="reveal-pool">
                 <label v-for="preset in revealLibrary" :key="preset.id" class="reveal-pool-row">
                   <input
@@ -797,7 +805,12 @@
               <small class="text-muted">Nothing ticked uses the engine's default six wipes.</small>
             </div>
 
-            <div v-if="revealPlan" class="mt-3">
+            <div v-if="!revealPlan" class="mt-3">
+              <button class="btn btn-secondary btn-sm" :disabled="revealPlanLoading || !episodeId" @click="loadRevealPlan()">
+                {{ revealPlanLoading ? 'Planning…' : 'Show planned arrivals' }}
+              </button>
+            </div>
+            <div v-else class="mt-3">
               <div class="reveal-plan-head">
                 <strong>Planned arrivals</strong>
                 <button class="btn btn-secondary btn-sm" :disabled="revealPlanLoading" @click="loadRevealPlan()">
@@ -821,7 +834,12 @@
           </template>
         </div>
 
-        <div v-if="!animationsCatalog.length" class="text-muted text-sm catalog-loading">Loading animations…</div>
+        <div v-if="animationsCatalogLoading" class="text-muted text-sm catalog-loading">Loading animations…</div>
+        <div v-else-if="animationsCatalogError" class="ffmpeg-warning" role="alert">
+          <p class="text-muted text-md">We couldn't load the animation list.</p>
+          <p class="text-muted text-xs">{{ animationsCatalogError }}</p>
+          <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadAnimationsCatalog">Try again</button>
+        </div>
         <AnimationPicker
           v-else
           :slug="slug"
@@ -968,10 +986,10 @@
         :active-id="effectsPresets.activeId.value"
         @update:active-id="effectsPresets.setActive"
         @apply="effectsPresets.applyActive(); success('Effects preset applied')"
-        @overwrite="effectsPresets.overwrite(); success('Effects preset saved')"
-        @save-as="(n) => effectsPresets.saveAs(n).then(() => success('Effects preset saved'))"
-        @rename="(n) => effectsPresets.rename(n).then(() => success(`Renamed to ${n}`))"
-        @delete="effectsPresets.remove(); success('Effects preset deleted')"
+        @overwrite="finishPreset(effectsPresets.overwrite(), 'Effects preset saved')"
+        @save-as="(n) => finishPreset(effectsPresets.saveAs(n), 'Effects preset saved')"
+        @rename="(n) => finishPreset(effectsPresets.rename(n), `Renamed to ${n}`)"
+        @delete="finishPreset(effectsPresets.remove(), 'Effects preset deleted')"
       />
 
       <!-- Split layout: sticky preview left, scrollable controls right -->
@@ -1081,7 +1099,7 @@
 
         <div v-if="compilationLayout.layout === 'compilation'" class="mt-2" style="border-top: 1px solid var(--border); padding-top: 12px;">
           <p class="text-muted text-xs">
-            <strong>Requires Audio Merge to have run</strong> on this episode — the per-chapter durations from
+            <strong>Requires Audio Assembly to have run</strong> on this episode — the per-chapter durations from
             <code>audio_chapters.json</code> are what time-bound each foreground icon to its chapter narration.
           </p>
 
@@ -1756,7 +1774,7 @@
                   </div>
                 </div>
                 <div v-else class="text-muted text-xs">
-                  Run Audio Merge first so we can estimate the episode duration —
+                  Run Audio Assembly first so we can estimate the episode duration —
                   the drag timeline needs a reference frame to scale against.
                 </div>
 
@@ -2102,9 +2120,9 @@
         :active-id="subtitlesPresets.activeId.value"
         @update:active-id="subtitlesPresets.setActive"
         @apply="subtitlesPresets.applyActive(); success('Subtitles preset applied')"
-        @overwrite="subtitlesPresets.overwrite(); success('Subtitles preset saved')"
-        @save-as="(n) => subtitlesPresets.saveAs(n).then(() => success('Subtitles preset saved'))"
-        @delete="subtitlesPresets.remove(); success('Subtitles preset deleted')"
+        @overwrite="finishPreset(subtitlesPresets.overwrite(), 'Subtitles preset saved')"
+        @save-as="(n) => finishPreset(subtitlesPresets.saveAs(n), 'Subtitles preset saved')"
+        @delete="finishPreset(subtitlesPresets.remove(), 'Subtitles preset deleted')"
       />
 
       <div class="settings-section mt-2">
@@ -2142,9 +2160,10 @@
           </p>
           <div v-else-if="subtitlesStatusError" class="validation-msg text-sm mt-2" role="alert">
             <p>
-              We couldn't read this episode's subtitle files: <code>{{ subtitlesStatusError }}</code>.
-              What this step would burn is unknown until the check succeeds.
+              We couldn't read this episode's subtitle files. We can't tell which captions will be burned in
+              until the check succeeds.
             </p>
+            <p class="text-muted text-xs">Technical details: <code>{{ subtitlesStatusError }}</code></p>
             <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadSubtitlesStatus">Retry</button>
           </div>
           <p v-else-if="episodeId && !burnView.burning" class="validation-msg text-sm mt-2">
@@ -2259,7 +2278,7 @@
         <!-- v1.4.0 — Caption check. Three frames of the real video with the real
              captions burned in, produced before the render and confirmed by a
              person. Inline rather than a modal so the images can be zoomed. -->
-        <div class="settings-section mt-2">
+        <div id="caption-check" class="settings-section mt-2">
           <h4>Caption check</h4>
           <p class="text-muted text-sm">
             Three frames from this episode, at the render's real size and shape, with the captions burned
@@ -2281,8 +2300,23 @@
             </span>
           </div>
 
-          <p v-if="subtitlePreflight?.skipped" class="text-muted text-sm mt-2">
-            {{ subtitlePreflight.skipped }}
+          <WorkspaceNotice
+            v-if="noSubtitleFile && !preflightConfirmed"
+            tone="warning"
+            title="This episode has no subtitles yet"
+            class="mt-2"
+          >
+            Subtitles are switched on, but there is no subtitle file for this episode, so the video would
+            have no captions. Make the subtitles first, or render without captions.
+            <template #actions>
+              <NuxtLink :to="`/projects/${slug}/subtitles?episode_id=${encodeURIComponent(episodeId)}`" class="btn btn-sm btn-primary">Open Subtitles</NuxtLink>
+              <button class="btn btn-sm" :disabled="generating" @click="preflightConfirmed = true; generateVideo()">
+                Render without captions
+              </button>
+            </template>
+          </WorkspaceNotice>
+          <p v-else-if="subtitlePreflight?.skipped" class="text-muted text-sm mt-2">
+            {{ noSubtitleFile ? 'Rendering without captions, as you chose.' : subtitlePreflight.skipped }}
           </p>
 
           <!-- v1.4.15 — said BEFORE the encode rather than discovered after it.
@@ -2386,9 +2420,9 @@
         :active-id="exportPresets.activeId.value"
         @update:active-id="exportPresets.setActive"
         @apply="exportPresets.applyActive(); success('Export preset applied')"
-        @overwrite="exportPresets.overwrite(); success('Export preset saved')"
-        @save-as="(n) => exportPresets.saveAs(n).then(() => success('Export preset saved'))"
-        @delete="exportPresets.remove(); success('Export preset deleted')"
+        @overwrite="finishPreset(exportPresets.overwrite(), 'Export preset saved')"
+        @save-as="(n) => finishPreset(exportPresets.saveAs(n), 'Export preset saved')"
+        @delete="finishPreset(exportPresets.remove(), 'Export preset deleted')"
       />
 
       <!-- Quick-start presets: one-click sensible defaults across all 6 -->
@@ -2757,9 +2791,12 @@
         <div class="gen-head">
           <span class="gen-label">
             <strong v-if="generating">Generating video</strong>
+            <strong v-else-if="activeJobStatus === 'error'">Render failed — {{ activeJobErrorLine }}</strong>
+            <strong v-else-if="activeJobStatus === 'cancelled'">Cancelled</strong>
+            <strong v-else-if="activeJobStatus === 'done'">Done</strong>
             <strong v-else>Finished</strong>
             for <strong>{{ selectedEpisode?.title || episodeId }}</strong>
-            <span v-if="activeJobProgress > 0" class="gen-progress-pct">· {{ activeJobProgress }}%</span>
+            <span v-if="activeJobProgress > 0 && activeJobStatus !== 'error' && activeJobStatus !== 'cancelled'" class="gen-progress-pct">· {{ activeJobProgress }}%</span>
           </span>
           <span v-if="!generating" class="gen-close" @click="activeJobId = null; jobOutput = []; activeJobProgress = 0" title="Dismiss">✕</span>
         </div>
@@ -2773,8 +2810,11 @@
           <div v-for="(line, i) in jobOutput" :key="i" class="output-line">{{ line }}</div>
         </div>
         <p v-if="generating" class="text-muted gen-hint">
-          Live output from the render — streams from the jobs queue. You can navigate away; progress keeps running in the background.
+          Live progress from the render. You can leave this page; the render keeps running in the background.
         </p>
+        <div v-else-if="activeJobStatus === 'error' || activeJobStatus === 'cancelled'" class="mt-1">
+          <button type="button" class="btn btn-sm btn-primary" @click="generateVideo">Try again</button>
+        </div>
       </div>
 
       <div class="step-nav mt-3">
@@ -2802,6 +2842,7 @@ import { applyTitleImagePreset, snapshotTitleImagePreset } from '~/utils/video-a
 import { describeMergedAudioOpening } from '~/utils/merged-audio-opening'
 import { aspectRatioOptions, canvasFor, parseAspectRatio, DEFAULT_ASPECT_RATIO } from '~/utils/aspect-ratios'
 import { describeSubtitleBurn } from '~/utils/subtitle-episode-selection'
+import { customerSafeJobText } from '~/utils/job-presentation'
 import {
   applyOverlayTimings,
   collectOverlayTimings,
@@ -2826,7 +2867,7 @@ useAppTitle('Video Assembly')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put } = useApi()
-const { success, error: showError } = useToast()
+const { success, error: showError, info } = useToast()
 const { videoAssemblyGenerating } = useGenerating()
 // v1.0.514 — no cost/duration confirmation for video assembly (free local render).
 
@@ -3544,30 +3585,51 @@ function toggleRevealPool(id: string, on: boolean): void {
     : sceneReveal.pool.filter(candidate => candidate !== id)
 }
 
+const revealLibraryError = ref('')
 async function loadRevealLibrary(): Promise<void> {
+  revealLibraryError.value = ''
   try {
     const r = await get<{ reveals: typeof revealLibrary.value }>(`/projects/${slug.value}/video-editor/reveals/catalog`)
     revealLibrary.value = r.reveals || []
-  } catch { /* non-fatal: the engine's own default pool still renders */ }
+  } catch (e: any) {
+    // Non-fatal for rendering (the engine's own default pool still applies), but the panel must
+    // say so instead of showing "Loading…" forever.
+    revealLibraryError.value = e?.data?.detail || e?.message || 'Could not load the reveal library'
+  }
 }
 
 /** The plan the render will use, from the same resolver the assembly calls. */
 async function loadRevealPlan(): Promise<void> {
   if (!sceneReveal.enabled) { revealPlan.value = null; return }
   revealPlanLoading.value = true
+  const planEpisode = episodeId.value
   try {
     const r = await post<{ plan: typeof revealPlan.value }>(`/projects/${slug.value}/video-editor/reveals/plan`, {
-      episode_id: episodeId.value,
+      episode_id: planEpisode,
       scene_reveal: revealPayload(),
     })
+    if (planEpisode !== episodeId.value) return
     revealPlan.value = r.plan || null
   } catch (error: any) {
+    if (planEpisode !== episodeId.value) return
     revealPlan.value = null
     showError(error?.data?.detail || error?.message || 'Could not plan the episode\'s reveals')
   } finally {
     revealPlanLoading.value = false
   }
 }
+
+// Load the library and plan when Reveal effects is switched on, and re-plan on an episode change:
+// the plan belongs to one episode and must not stand while another is on screen (AGENTS §4).
+watch(() => sceneReveal.enabled, (enabled) => {
+  if (!enabled) { revealPlan.value = null; return }
+  if (!revealLibrary.value.length) void loadRevealLibrary()
+  if (episodeId.value) void loadRevealPlan()
+})
+watch([slug, episodeId], () => {
+  revealPlan.value = null
+  if (sceneReveal.enabled && episodeId.value) void loadRevealPlan()
+})
 
 /** Reroll one scene: a new derived pick, stored with the scene so a re-render keeps it. */
 async function rerollRevealScene(sceneId: string): Promise<void> {
@@ -3605,11 +3667,20 @@ function revealPayload(): Record<string, unknown> {
 
 const animationsCatalog = ref<Array<{ id: string; label: string; category: string; hint?: string }>>([])
 
+const animationsCatalogLoading = ref(true)
+const animationsCatalogError = ref('')
+
 async function loadAnimationsCatalog() {
+  animationsCatalogLoading.value = true
+  animationsCatalogError.value = ''
   try {
     const r = await get<{ animations: typeof animationsCatalog.value }>(`/projects/${slug.value}/video-editor/animations/catalog`)
     animationsCatalog.value = r.animations || []
-  } catch { /* non-fatal */ }
+  } catch (e: any) {
+    animationsCatalogError.value = e?.data?.detail || e?.message || 'Could not load animations'
+  } finally {
+    animationsCatalogLoading.value = false
+  }
 }
 
 const animationPresets = usePresets({
@@ -3836,6 +3907,8 @@ async function refreshBackgroundLibrary() {
     bgLibraryExists.value = !!r.exists
   } catch (e: any) {
     bgLibraryError.value = e?.data?.detail || e?.message || 'Could not scan backgrounds folder'
+    // The buttons that call this live outside the picker, where the inline error is not visible.
+    showError(bgLibraryError.value)
   } finally {
     bgLibraryLoading.value = false
   }
@@ -3847,6 +3920,8 @@ async function openBackgroundsFolder() {
     await refreshBackgroundLibrary()
   } catch (e: any) {
     bgLibraryError.value = e?.data?.detail || e?.message || 'Could not open backgrounds folder'
+    // The buttons that call this live outside the picker, where the inline error is not visible.
+    showError(bgLibraryError.value)
   }
 }
 
@@ -3898,6 +3973,8 @@ async function refreshOverlayLibrary() {
     overlayLibraryExists.value = !!r.exists
   } catch (e: any) {
     overlayPickerError.value = e?.data?.detail || e?.message || 'Could not scan overlays folder'
+    // The buttons that call this live outside the picker, where the inline error is not visible.
+    showError(overlayPickerError.value)
   } finally {
     overlayPickerLoading.value = false
   }
@@ -3911,6 +3988,8 @@ async function openOverlaysFolder() {
     await refreshOverlayLibrary()
   } catch (e: any) {
     overlayPickerError.value = e?.data?.detail || e?.message || 'Could not open overlays folder'
+    // The buttons that call this live outside the picker, where the inline error is not visible.
+    showError(overlayPickerError.value)
   }
 }
 
@@ -4316,6 +4395,8 @@ const subtitlePreflight = ref<{
 const preflightRunning = ref(false)
 /** Set once he has looked at the frames and said they are right. */
 const preflightConfirmed = ref(false)
+/** Set when the subtitle file changed after the check ran; declared here so a reset can clear it. */
+const preflightStale = ref(false)
 /** Frames are overwritten in place, so the browser must be told they changed. */
 const preflightCacheKey = ref(0)
 
@@ -4325,6 +4406,7 @@ function resetSubtitlePreflight() {
   preflightRunning.value = false
   subtitlePreflight.value = null
   preflightConfirmed.value = false
+  preflightStale.value = false
 }
 
 async function runSubtitlePreflight(): Promise<boolean> {
@@ -4342,9 +4424,10 @@ async function runSubtitlePreflight(): Promise<boolean> {
     subtitlePreflight.value = result
     preflightCacheKey.value = Date.now()
     preflightStale.value = false
-    // Nothing to look at — subtitles are off, or this episode has none. There is
-    // no caption to get wrong, so there is nothing to hold the render for.
-    if (subtitlePreflight.value?.skipped) preflightConfirmed.value = true
+    // Subtitles are switched off: no caption to get wrong, so nothing to hold the render for.
+    // Subtitles ON with no subtitle file is different — the render would silently have no
+    // captions — so that stays unconfirmed until the owner chooses (see `noSubtitleFile`).
+    if (subtitlePreflight.value?.skipped && !subtitles.enabled) preflightConfirmed.value = true
     return true
   } catch (e: any) {
     if (!current()) return false
@@ -4372,8 +4455,6 @@ async function runSubtitlePreflight(): Promise<boolean> {
  * before an expensive render, so the moment it might be describing an older
  * file it must stop claiming anything and say so.
  */
-const preflightStale = ref(false)
-
 async function checkPreflightFreshness(): Promise<void> {
   const current = subtitlePreflight.value
   const known = current?.subtitle_fingerprint
@@ -4395,6 +4476,9 @@ async function checkPreflightFreshness(): Promise<void> {
     }
   } catch { /* a freshness check that cannot run must not invalidate a good result */ }
 }
+
+/** Captions are on, but this episode has no subtitle file to burn. Never auto-confirmed. */
+const noSubtitleFile = computed(() => !!subtitlePreflight.value?.skipped && subtitles.enabled)
 
 if (typeof window !== 'undefined') {
   // On return to the window, because the usual way this goes stale is the owner
@@ -4559,6 +4643,20 @@ const jobOutput = ref<string[]>([])
 // job's output_lines + status onto the UI via useJobs() SSE stream.
 const activeJobId = ref<string | null>(null)
 const activeJobProgress = ref(0)
+// The job's own terminal status, so the panel can say "Done", "Cancelled" or "Render failed"
+// instead of calling every ended render "Finished". Read live from the job list.
+const activeJobRecord = computed(() => (
+  activeJobId.value ? allJobs.value.find(x => x.job_id === activeJobId.value) || null : null
+))
+const activeJobStatus = computed(() => {
+  const status = activeJobRecord.value?.status
+  return status === 'done' || status === 'error' || status === 'cancelled' ? status : null
+})
+const activeJobErrorLine = computed(() => {
+  const record = activeJobRecord.value
+  const raw = record?.error || [...(record?.output_lines || [])].reverse().find(line => /error|fail/i.test(line)) || ''
+  return customerSafeJobText(String(raw).split('\n')[0]!.trim()) || 'see the log below for details.'
+})
 
 // --------------- Per-slot preset lists ---------------
 // One usePresets() instance per wizard step. The list-of-named-presets
@@ -4970,7 +5068,7 @@ const videoBundlePresets = usePresets({
       // the slot dropdowns reset. Surface the failure so the user knows
       // the apply didn't stick to disk and can retry.
       _put(`/projects/${slug.value}/settings/config`, updates).catch((e: any) => {
-        showError(`Bundle applied locally but failed to persist: ${e?.data?.detail || e?.message || 'unknown error'}`)
+        showError(`The bundle is applied, but your choices could not be saved, so they may reset when you reopen this page. ${e?.data?.detail || e?.message || ''}`.trim())
       })
     }
   },
@@ -6052,6 +6150,20 @@ function onEpisodeSelected(ep: any) {
   loadSubtitlesStatus()
 }
 
+/**
+ * Report a preset save/delete/rename only after it has really finished. The preset controller
+ * resolves to null when there was nothing to change (a built-in preset, no preset picked) and
+ * throws when the save could not be verified; neither may read as "saved".
+ */
+async function finishPreset(run: Promise<unknown>, done: string): Promise<void> {
+  try {
+    if (await run) success(done)
+    else info('Nothing was changed. Built-in presets can\'t be edited — use "Save as…" to keep your own copy.')
+  } catch (e: any) {
+    showError(`Your preset was not saved. ${e?.data?.detail || e?.message || 'Please try again.'}`)
+  }
+}
+
 function goToStep(n: number) {
   if (n < 1 || n > 6) return
   // Refresh subtitle status whenever the user lands on that step so
@@ -6094,12 +6206,20 @@ async function generateVideo() {
     if (!preflightConfirmed.value) {
       const ok = await runSubtitlePreflight()
       if (!ok) return
-      // Show him what he is being asked about, wherever he clicked from.
+      // Show him what he is being asked about, wherever he clicked from — and say why he
+      // was moved, because a silent jump back to Step 5 reads as a bug.
       if (!preflightConfirmed.value) {
         currentStep.value = 5
+        info(subtitlePreflight.value?.skipped
+          ? 'This episode has no subtitle file. Open Subtitles to make one, or choose "Render without captions".'
+          : 'Play the three caption frames below and confirm the captions are right before rendering.')
+        await nextTick()
+        if (typeof document !== 'undefined') {
+          document.getElementById('caption-check')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
         return
       }
-      // A skipped check has no captions to review. Continue this same click.
+      // Subtitles off: there are no captions to review. Continue this same click.
     }
     await runGenerateVideo({ post, videoAssemblyGenerating })
   } catch (e: any) {

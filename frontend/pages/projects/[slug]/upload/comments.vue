@@ -176,11 +176,12 @@
               <button v-if="comment.moderation_status !== 'published'" class="btn btn-ghost btn-sm"
                 type="button" :disabled="busy !== ''" @click="moderate([comment.comment_id], 'approve')">Approve</button>
               <button class="btn btn-ghost btn-sm" type="button" :disabled="busy !== ''"
-                @click="moderate([comment.comment_id], 'reject')">Reject</button>
+                @click="rejectComment(comment)">Reject</button>
               <button class="btn btn-ghost btn-sm danger" type="button" :disabled="busy !== ''"
                 @click="banAuthor(comment)">Reject and ban author…</button>
             </div>
             <div v-if="replyingTo === comment.comment_id" class="reply">
+              <p class="hint">Replying to <strong>{{ comment.author }}</strong></p>
               <textarea v-model="replyText" class="input" rows="3" placeholder="Write a reply…"></textarea>
               <div class="field-row">
                 <button class="btn btn-sm btn-primary" type="button" :disabled="busy !== '' || !replyText.trim()"
@@ -308,7 +309,20 @@ const authors = computed(() => [...new Set(inbox.value.comments.map(c => c.autho
 const visible = computed(() =>
   inbox.value.comments.filter(c => matchesView(c, view.value) && matchesFilters(c)))
 
+// The selection is only ever what the person can see: changing the view or any
+// filter would otherwise leave hidden comments selected, and "Approve/Reject N
+// now" would act on them.
+watch([view, search, videoFilter, authorFilter, sinceFilter], () => {
+  selected.clear()
+  bulkPreview.value = null
+})
+
+// A half-written reply belongs to one comment; never carry it to another.
+watch(replyingTo, () => { replyText.value = '' })
+
 function toggle(commentId: string): void {
+  // The preview counted the old selection — make it be asked for again.
+  bulkPreview.value = null
   if (selected.has(commentId)) selected.delete(commentId)
   else selected.add(commentId)
 }
@@ -388,7 +402,6 @@ const refresh = () => run('refresh', async () => {
   await load()
 })
 
-/** Reject without banning is the plain path: one click, no confirmation. */
 async function moderateIds(commentIds: string[], action: 'approve' | 'reject'): Promise<void> {
   const res = await post<{ counts: { done: number; failed: number; unrecorded: number } }>(
     `/projects/${slug.value}/youtube/comments/moderate`, { action, comment_ids: commentIds },
@@ -399,6 +412,18 @@ async function moderateIds(commentIds: string[], action: 'approve' | 'reject'): 
       ? { kind: 'err', message: 'YouTube refused that.' }
       : { kind: 'ok', message: action === 'approve' ? 'Approved.' : 'Rejected and hidden, along with its replies.' }
   await load()
+}
+
+/** Reject without banning: confirmed, and says plainly what it does. */
+const rejectComment = async (comment: Comment) => {
+  const confirmed = await ask({
+    title: `Reject ${comment.author}’s comment?`,
+    message: 'This hides the comment on YouTube, along with its replies. The author is not banned and can keep commenting.',
+    confirmLabel: 'Reject comment',
+    danger: true,
+  })
+  if (!confirmed) return
+  await moderate([comment.comment_id], 'reject')
 }
 
 const moderate = (commentIds: string[], action: 'approve' | 'reject') =>

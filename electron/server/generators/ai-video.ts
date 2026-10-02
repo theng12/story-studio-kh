@@ -241,7 +241,7 @@ export async function generateAiVideo(job: Job): Promise<void> {
     admission.burst_concurrency_ceiling,
   )
   if (prompts.length > 1) {
-    job.output_lines.push(`Staging ${prompts.length} motion request(s); GenStudio account admission is authoritative.`)
+    job.output_lines.push(`Generating ${prompts.length} motion clip(s)…`)
   }
 
   async function processPrompt(index: number): Promise<void> {

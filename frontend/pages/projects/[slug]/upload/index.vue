@@ -2,7 +2,10 @@
   <div class="uc-overview">
     <NuxtLink :to="`/projects/${slug}/settings#free-up-space`" class="btn btn-sm btn-primary">Free up space</NuxtLink>
     <p v-if="loading" class="hint">Loading what needs your attention…</p>
-    <p v-else-if="loadError" class="result err">{{ loadError }}</p>
+    <p v-else-if="loadError" class="result err">
+      {{ loadError }}
+      <button class="btn btn-sm" type="button" @click="retryLoad">Retry</button>
+    </p>
 
     <template v-else-if="overview">
       <!-- Setup is incomplete: say which step, and only that step. -->
@@ -43,6 +46,7 @@
 
       <!-- A failed attempt is its own state. Showing the cached numbers with
            no word about the failure would be the worst of both. -->
+      <p v-if="syncError" class="result err" role="alert">Couldn’t check with YouTube: {{ syncError }}</p>
       <section v-if="syncProblem" class="panel sync-problem" role="status">
         <h3>{{ syncProblem.heading }}</h3>
         <p>{{ syncProblem.body }}</p>
@@ -134,6 +138,7 @@ const { get, post } = useApi()
 const loading = ref(true)
 const loadError = ref('')
 const syncing = ref(false)
+const syncError = ref('')
 const overview = ref<Overview | null>(null)
 const channelAvatarFailed = ref(false)
 
@@ -290,15 +295,23 @@ async function load(): Promise<void> {
  */
 async function syncNow(): Promise<void> {
   syncing.value = true
+  syncError.value = ''
   try {
     await post(`/projects/${slug.value}/youtube/sync`, {})
-  } catch {
-    // The attempt is recorded server-side either way; reloading shows what
-    // actually happened rather than a guess made here.
+  } catch (error: any) {
+    // The attempt is recorded server-side either way and the reload below shows
+    // it, but the owner who clicked must also be told right now that it failed.
+    syncError.value = error?.data?.detail || error?.message || 'The check did not finish.'
   } finally {
     await load()
     syncing.value = false
   }
+}
+
+async function retryLoad(): Promise<void> {
+  loadError.value = ''
+  loading.value = true
+  await load()
 }
 
 onMounted(load)

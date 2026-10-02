@@ -94,7 +94,7 @@ test('hiding a project has a way back, and Settings names it', () => {
 })
 
 test('restoring re-reads the live list rather than leaving a stale page', () => {
-  assert.match(home, /restoreHidden[\s\S]{0,320}loadProjects\(\)/)
+  assert.match(home, /restoreHidden[\s\S]{0,520}loadProjects\(\)/)
 })
 
 test('a project whose episodes folder is missing says so on the card', () => {
@@ -113,7 +113,7 @@ test('and on the project page, above everything else', () => {
   // It must sit ABOVE the loading/refresh notices: while it is true every count
   // below reads zero, and a person who cannot see why hunts the wrong fault.
   assert.ok(
-    dashboard.indexOf('outputRootMissing') < dashboard.indexOf('Loading verified project status'),
+    dashboard.indexOf('outputRootMissing') < dashboard.indexOf('Loading project status'),
     'the missing-folder notice must render above the loading notice',
   )
 })

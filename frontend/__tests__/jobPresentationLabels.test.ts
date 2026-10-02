@@ -34,7 +34,7 @@ test('F-11: every live job type has an explicit human label in the one map', () 
 
 test('F-11: an unknown future type is humanized, never a raw slug', () => {
   assert.equal(jobTypeLabel('some_future_job_type'), 'Some Future Job Type')
-  assert.equal(jobTypeLabel('metadata'), 'Metadata')
+  assert.equal(jobTypeLabel('metadata'), 'YouTube Finalizer')
 })
 
 test('F-11: prompt jobs keep the thumbnail/scene distinction', () => {

@@ -55,6 +55,7 @@ import { requireSceneClipGenStudioModel } from '../generators/scene-clip.js'
 import { isRetiredVideoModelId } from '../contracts/retired-video-models.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage, unavailableTranscriptionModelMessage } from '../services/genstudio-model-migration.js'
 import { withLock } from '../lib/atomic-store.js'
+import { pipelineStepLabel } from '../lib/pipeline-continuation.js'
 import { isDecodableImage } from '../lib/image-validation.js'
 import {
   inspectPipelineSubtitleRepairReadiness,
@@ -229,6 +230,8 @@ interface PreflightIssue {
   message: string
   episode_id?: string
   step?: BatchStep
+  /** For missing_prerequisite: the step it needs (machine-readable; the message is for people). */
+  requires?: BatchStep
   path?: string
 }
 
@@ -507,6 +510,50 @@ export function prerequisitesForStep(step: BatchStep, cueReviewPending = false):
   return step === 'scene_review' && cueReviewPending ? [...base, 'contextual_cues'] : base
 }
 
+const CHAIN_LINK_STEP: Record<string, BatchStep> = {
+  outline_only: 'script-only',
+  expand_chapters: 'script-only',
+  broll_select: 'broll',
+  broll_assemble: 'broll',
+  ...Object.fromEntries(Object.entries(STEP_JOB_TYPE).map(([step, type]) => [type, step as BatchStep])),
+}
+
+/**
+ * The steps one chain link waits for when an earlier link in the SAME run
+ * fails (lib/pipeline-continuation.ts). The prerequisite table, plus two
+ * in-run orderings the old straight-line chain enforced implicitly: narration
+ * waits for the channel's opening (an episode once reached paid audio without
+ * one), and the final video waits for motion clips the run was asked to make,
+ * so a failed clip never leaves a "finished" stills-only video behind.
+ */
+export function pipelineLinkRequirements(
+  step: BatchStep,
+  runSteps: ReadonlySet<BatchStep>,
+  visualSource: VideoVisualSource,
+): BatchStep[] {
+  const required = step === 'video_assembly' && visualSource === 'image_pool'
+    ? ['audio_merge' as BatchStep]
+    : prerequisitesForStep(step, runSteps.has('contextual_cues'))
+  if (step === 'audio' && runSteps.has('introduction-only')) required.push('introduction-only')
+  if (step === 'video_assembly' && runSteps.has('motion_review')) required.push('motion_review')
+  return required
+}
+
+export function stampPipelineStepFacts(
+  chain: Array<{ type: string; params: Record<string, any> }>,
+  visualSource: VideoVisualSource,
+): void {
+  const steps = chain.map(link => CHAIN_LINK_STEP[link.type] || link.type as BatchStep)
+  const runSteps = new Set(steps)
+  chain.forEach((link, index) => {
+    link.params = {
+      ...link.params,
+      pipeline_step: steps[index],
+      pipeline_requires: pipelineLinkRequirements(steps[index], runSteps, visualSource),
+    }
+  })
+}
+
 function collectMissingLocalAssets(value: unknown, out = new Set<string>()): Set<string> {
   if (!value || typeof value !== 'object') return out
   if (!Array.isArray(value) && (value as any).enabled === false) return out
@@ -591,7 +638,7 @@ async function preflightBatch(
         issues,
         visualSettingsByEpisode,
         step,
-        result.missingReason || `No active preset for ${step}`,
+        result.missingReason || `No active preset for ${pipelineStepLabel(step)}`,
       )
       continue
     }
@@ -617,7 +664,7 @@ async function preflightBatch(
         code: 'missing_local_asset',
         step,
         path: missingPath,
-        message: `${step} preset references a local file that is unavailable: ${missingPath}`,
+        message: `The ${pipelineStepLabel(step)} preset uses a file that isn't available (is the drive connected?): ${missingPath}`,
       })
     }
   }
@@ -671,7 +718,8 @@ async function preflightBatch(
           code: 'missing_prerequisite',
           episode_id: episodeId,
           step,
-          message: `${episodeId}: ${step} needs ${required} earlier in this run or already complete.`,
+          requires: required,
+          message: `${episodeId}: ${pipelineStepLabel(step)} needs ${pipelineStepLabel(required)} first — tick ${pipelineStepLabel(required)} in this run too, or finish it on its own page.`,
         })
       }
       available.add(step)
@@ -857,8 +905,8 @@ export function findActivePreset(
     }
   }
 
-  if (!firstActiveId) return { preset: null, missingReason: `No active preset for ${step}. Open the ${step} page, apply a preset, then retry.` }
-  return { preset: null, missingReason: `Active preset for ${step} (${firstActiveId}) not found in saved presets.` }
+  if (!firstActiveId) return { preset: null, missingReason: `No active preset for ${pipelineStepLabel(step)}. Open the ${pipelineStepLabel(step)} page, apply a preset, then retry.` }
+  return { preset: null, missingReason: `The preset chosen for ${pipelineStepLabel(step)} was deleted. Pick another one on the Pipeline or the ${pipelineStepLabel(step)} page.` }
 }
 
 /**
@@ -2090,7 +2138,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
           effectiveSteps.includes('motion_review') && !effectiveSteps.includes('scene_plan'),
         )
       } catch (e: any) {
-        skipped.push({ episode_id: episodeId, reason: `character sheet apply failed: ${e?.message || e}` })
+        skipped.push({ episode_id: episodeId, reason: `Character Sheet could not be applied: ${e?.message || e}` })
         continue
       }
     }
@@ -2106,10 +2154,10 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       if (step === 'character_sheet') continue
       if (step === 'broll') {
         const brollParams = resolveStepParams('broll', episodeId, idea.title || '', presetByStep.broll, effectiveFormat)
-        chain.push({ type: 'broll_select', title: `[batch] broll selection — ${episodeId}`, params: brollParams })
+        chain.push({ type: 'broll_select', title: `Pipeline: B-Roll selection — ${episodeId}`, params: brollParams })
         chain.push({
           type: 'broll_assemble',
-          title: `[batch] broll assembly — ${episodeId}`,
+          title: `Pipeline: B-Roll assembly — ${episodeId}`,
           params: { episode_id: episodeId, title: idea.title || '', broll_volume: brollParams.broll_volume || 0 },
         })
         continue
@@ -2130,15 +2178,14 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
           // An approved outline plus partial chapter files is recoverable.
           // Resume only missing work; rebuilding the outline could discard
           // reviewed creative decisions and spend unnecessary credits.
-          chain.push({ type: 'expand_chapters' as JobType, title: `[batch] repair chapters — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', model: outlineParams.model, auto_approve: true, ...(outlineParams.pipeline_model_policy ? { pipeline_model_policy: outlineParams.pipeline_model_policy } : {}) } })
+          chain.push({ type: 'expand_chapters' as JobType, title: `Pipeline: Script (finish missing chapters) — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', model: outlineParams.model, auto_approve: true, ...(outlineParams.pipeline_model_policy ? { pipeline_model_policy: outlineParams.pipeline_model_policy } : {}) } })
         } else {
-          chain.push({ type: 'outline_only' as JobType, title: `[batch] outline — ${episodeId}`, params: { ...outlineParams, auto_approve: true } })
-          chain.push({ type: 'expand_chapters' as JobType, title: `[batch] chapters — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', model: outlineParams.model, auto_approve: true, ...(outlineParams.pipeline_model_policy ? { pipeline_model_policy: outlineParams.pipeline_model_policy } : {}) } })
+          chain.push({ type: 'outline_only' as JobType, title: `Pipeline: Script outline — ${episodeId}`, params: { ...outlineParams, auto_approve: true } })
+          chain.push({ type: 'expand_chapters' as JobType, title: `Pipeline: Script chapters — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', model: outlineParams.model, auto_approve: true, ...(outlineParams.pipeline_model_policy ? { pipeline_model_policy: outlineParams.pipeline_model_policy } : {}) } })
         }
         continue
       }
       const jobType = jobTypeForStep(step)
-      const jobTitleStep = step === 'image_prompts' ? 'thumbnail_prompts' : step
       // A stored preset holding a value the resolvers cannot honour (today:
       // only a malformed `prompt_pack_size`) is SKIPPED and named, not quietly
       // repaired into some other number and not allowed to 500 the whole batch
@@ -2149,7 +2196,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       } catch (error: any) {
         skipped.push({
           episode_id: episodeId,
-          reason: `${step}: ${error?.message || String(error)} Fix the saved preset for this step, then run the batch again.`,
+          reason: `${pipelineStepLabel(step)}: ${error?.message || String(error)} Fix the saved preset for this step, then run the batch again.`,
         })
         continue
       }
@@ -2219,14 +2266,14 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       if (step === 'metadata' && !params.model && !params.pipeline_model_policy?.metadata) {
         skipped.push({
           episode_id: episodeId,
-          reason: 'metadata: the YouTube Finalizer preset has no writing model saved. Open it on the YouTube '
+          reason: `${pipelineStepLabel(step)}: the preset has no writing model saved. Open it on the YouTube `
             + 'Finalizer page, choose a writing model and save the preset. Story Studio does not pick one for you.',
         })
         continue
       }
       chain.push({
         type: jobType,
-        title: `[batch] ${jobTitleStep} — ${episodeId}`,
+        title: `Pipeline: ${pipelineStepLabel(step)} — ${episodeId}`,
         params,
       })
       // Editorial review is a deliberate pipeline handoff, never an implicit
@@ -2241,6 +2288,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     // Every link carries the same immutable episode decision. Later settings
     // edits cannot retarget a queued chain or widen its motion work.
     for (const link of chain) link.params = { ...link.params, ...visualSettings }
+    stampPipelineStepFacts(chain, visualSettings.visual_source)
 
     if (repairMissing) {
       for (const link of chain) {
@@ -2300,7 +2348,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     // already queued/running. The user can see the existing job in the
     // Jobs tab; silently piling another one on is worse UX than a skip.
     if (jq.isDuplicate(slug, episodeId, first.type)) {
-      skipped.push({ episode_id: episodeId, reason: `${first.type} already queued/running` })
+      skipped.push({ episode_id: episodeId, reason: `${pipelineStepLabel(CHAIN_LINK_STEP[first.type] || first.type)} is already queued or running for this episode — see Jobs.` })
       continue
     }
 

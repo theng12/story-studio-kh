@@ -405,7 +405,8 @@ describe('Upload Center shell', () => {
 
   test('every area now has its own page, with nothing handed back to the old one', () => {
     for (const area of ['Library', 'Reconcile', 'Comments', 'Analytics']) {
-      assert.match(shellSource, new RegExp(area))
+      // The tab reads "Match to YouTube"; its route path is still /reconcile.
+      assert.match(shellSource, new RegExp(area === 'Reconcile' ? 'Match to YouTube' : area))
       assert.match(shellSource, new RegExp(`upload/${area.toLowerCase()}`))
     }
     // No dead "Coming soon" panels — the spec forbids them in the replacement.

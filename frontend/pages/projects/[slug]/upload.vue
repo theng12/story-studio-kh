@@ -24,7 +24,7 @@
         Library
       </NuxtLink>
       <NuxtLink :to="`/projects/${slug}/upload/reconcile`" class="uc-area" active-class="active">
-        Reconcile
+        Match to YouTube
       </NuxtLink>
       <NuxtLink :to="`/projects/${slug}/upload/comments`" class="uc-area" active-class="active">
         Comments

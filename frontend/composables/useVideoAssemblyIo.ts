@@ -165,7 +165,10 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     scanSequence++
     s.scannedAssets.value = null
     s.scenes.value = []
+    // An episode change REPLACES these (AGENTS §4): blank here, re-filled from the new
+    // episode by scanAssets. A plain re-scan of the same episode must not do this.
     s.titleImage.image_path = ''
+    s.titleCard.text = ''
     s.scanning.value = false
   }, { flush: 'sync' })
 
@@ -175,8 +178,9 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     const current = () => sequence === scanSequence && scope === scopeSequence
     s.scannedAssets.value = null
     s.scenes.value = []
-    s.titleImage.image_path = ''
-    s.titleCard.text = s.selectedEpisode.value?.title || ''
+    // Only fill what is empty: "Check again" must not discard the title image or title text
+    // the owner already chose. The episode-change watcher above blanks them on a real switch.
+    if (!s.titleCard.text) s.titleCard.text = s.selectedEpisode.value?.title || ''
     scanError.value = ''
     if (!s.episodeId.value) { s.scanning.value = false; return }
     s.scanning.value = true
@@ -192,7 +196,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
       if (!current()) return
       s.scannedAssets.value = assets
       applyScenePoolMode()
-      s.titleImage.image_path = titlePath
+      if (!s.titleImage.image_path) s.titleImage.image_path = titlePath
     } catch (e: any) {
       if (!current()) return
       scanError.value = e?.data?.detail || e?.message || 'Could not scan video assets'

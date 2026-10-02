@@ -15,7 +15,8 @@
           <h3>{{ videos.length }} video{{ videos.length === 1 ? '' : 's' }} on YouTube</h3>
           <p class="hint">
             Each row compares what Story Studio intends, what YouTube said last time, and what it
-            says now. Nothing here contacts YouTube — use Sync on the Overview.
+            says now. Looking at this list does not contact YouTube — use Sync on the Overview.
+            The one button here that does change YouTube is “Update YouTube”, and it asks first.
           </p>
         </div>
 
@@ -50,7 +51,7 @@
 
                   <span v-if="decidable(field)" class="decisions">
                     <button class="btn btn-ghost btn-sm" type="button" :disabled="busy !== ''"
-                      @click="decide(video, field.field, 'use_story_studio')">Use Story Studio</button>
+                      @click="decide(video, field.field, 'use_story_studio')">Update YouTube to Story Studio’s version</button>
                     <button class="btn btn-ghost btn-sm" type="button" :disabled="busy !== ''"
                       @click="decide(video, field.field, 'keep_youtube')">Keep YouTube</button>
                     <button class="btn btn-ghost btn-sm" type="button" :disabled="busy !== ''"
@@ -345,6 +346,20 @@ async function load(): Promise<void> {
 }
 
 async function decide(video: Video, field: string, decision: string): Promise<void> {
+  if (decision === 'use_story_studio') {
+    // This rewrites the LIVE video on YouTube — name the field and both values first.
+    const row = video.comparison.fields.find(f => f.field === field)
+    const label = FIELD_LABELS[field] || field
+    const sensitive = field === 'privacy_status' || field === 'scheduled_for'
+    const confirmed = await ask({
+      title: `Update ${label} on YouTube for ${video.episode_code}?`,
+      message: `This changes the live video on YouTube. ${label} is now ${display(row?.live ?? null)} on YouTube and will become ${display(row?.local ?? null)}.`
+        + (sensitive ? ' Privacy and schedule changes can show or hide the video to viewers straight away.' : ''),
+      confirmLabel: 'Update YouTube',
+      danger: sensitive,
+    })
+    if (!confirmed) return
+  }
   busy.value = `${video.operation_id}:${field}`
   actionResult.value = null
   try {
@@ -353,7 +368,9 @@ async function decide(video: Video, field: string, decision: string): Promise<vo
       kind: 'ok',
       message: decision === 'review_later'
         ? `${video.episode_code}: left for later. The difference stays visible.`
-        : `${video.episode_code}: ${FIELD_LABELS[field] || field} decision saved.`,
+        : decision === 'use_story_studio'
+          ? `YouTube updated — ${video.episode_code}: ${FIELD_LABELS[field] || field} now matches Story Studio.`
+          : `${video.episode_code}: keeping YouTube’s ${FIELD_LABELS[field] || field}. Story Studio will not change it.`,
     }
     await load()
   } catch (error: any) {

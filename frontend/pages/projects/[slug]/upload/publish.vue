@@ -81,7 +81,10 @@
           </div>
           <NuxtLink :to="`/projects/${slug}/settings#youtube`" class="btn btn-ghost btn-sm">Assign channel</NuxtLink>
         </div>
-        <p v-if="planResult" :class="['result', planResult.kind]" role="status">{{ planResult.message }}</p>
+        <p v-if="planResult" :class="['result', planResult.kind]" role="status">
+          {{ planResult.message }}
+          <NuxtLink v-if="isNoActivePlanMessage(planResult.message)" :to="`/projects/${slug}/upload/plans`" class="inline-action">Open Upload plans</NuxtLink>
+        </p>
         <p v-if="relayoutResult" :class="['result', relayoutResult.kind]" role="status">{{ relayoutResult.message }}</p>
 
         <div v-if="episodes.length" class="episode-tools">
@@ -154,9 +157,9 @@
                 :speed-bps="uploadProgress(ep)?.speed_bps"
                 :eta-seconds="uploadProgress(ep)?.eta_seconds"
                 :indeterminate="uploadProgress(ep)?.progress == null && uploadProgress(ep)?.bytes_total == null"
-                :label="uploadState(ep) === 'queued' ? 'Waiting to upload' : 'Uploading to YouTube'"
+                :label="isUploadPaused(ep) ? 'Paused' : uploadState(ep) === 'queued' ? 'Waiting to upload' : 'Uploading to YouTube'"
               />
-              <NuxtLink v-if="uploadProgress(ep)" class="inline-action" :to="`/projects/${slug}/jobs`">View in Jobs</NuxtLink>
+              <NuxtLink v-if="uploadProgress(ep)" class="inline-action" :to="`/projects/${slug}/jobs`">{{ isUploadPaused(ep) ? 'Resume in Jobs' : 'View in Jobs' }}</NuxtLink>
               <span v-if="uploadProgress(ep) && jobsStale" class="fact-note">Progress may be out of date.</span>
             </div>
 
@@ -313,7 +316,10 @@
             Use the next date from this channel’s upload plan
           </button>
           <NuxtLink :to="`/projects/${slug}/upload/plans`" class="inline-action">Manage upload plans</NuxtLink>
-          <p v-if="timingError" class="row-result err" role="alert">{{ timingError }}</p>
+          <p v-if="timingError" class="row-result err" role="alert">
+            {{ timingError }}
+            <NuxtLink v-if="isNoActivePlanMessage(timingError)" :to="`/projects/${slug}/upload/plans`" class="inline-action">Open Upload plans</NuxtLink>
+          </p>
           <p v-else-if="timingDirty" class="hint" role="status">Review this timing choice to rebuild the exact YouTube payload before continuing.</p>
         </section>
 
@@ -493,7 +499,10 @@
               </button>
             </div>
 
-            <p v-if="relayoutError" class="row-result err" role="alert">{{ relayoutError }}</p>
+            <p v-if="relayoutError" class="row-result err" role="alert">
+              {{ relayoutError }}
+              <NuxtLink v-if="isNoActivePlanMessage(relayoutError)" :to="`/projects/${slug}/upload/plans`" class="inline-action">Open Upload plans</NuxtLink>
+            </p>
 
             <template v-if="relayoutPreview">
               <p v-if="!relayoutPreview.assignments.length" class="hint" role="status">
@@ -740,7 +749,7 @@ const total = ref(0)
 const filter = ref(typeof route.query.episode_id === 'string' ? route.query.episode_id : '')
 const statusFilter = ref<StatusFilter>('all')
 const sort = ref<SortMode>('episode_newest')
-const rowResults = reactive<Record<string, { kind: 'ok' | 'warn' | 'err'; message: string }>>({})
+const rowResults = reactive<Record<string, { kind: 'ok' | 'warn' | 'info' | 'err'; message: string }>>({})
 const planResult = ref<{ kind: 'ok' | 'warn' | 'err'; message: string } | null>(null)
 const selectedUploadCodes = ref<string[]>([])
 const bulkReviewOpen = ref(false)
@@ -873,7 +882,15 @@ function publicationState(ep: PublishableEpisode): PublicationState {
   return 'unpublished'
 }
 function renderLabel(ep: PublishableEpisode): string { return RENDER_LABELS[renderState(ep)] }
-function uploadLabel(ep: PublishableEpisode): string { return UPLOAD_LABELS[uploadState(ep)] }
+/** A paused upload job is waiting for the owner, not for the queue. */
+function isUploadPaused(ep: PublishableEpisode): boolean {
+  const live = liveUploadJob(ep)
+  if (live) return live.status === 'paused'
+  return uploadState(ep) === 'queued' && ep.local?.upload.reason === 'Upload job is paused.'
+}
+function uploadLabel(ep: PublishableEpisode): string {
+  return isUploadPaused(ep) ? 'Paused — resume it in Jobs' : UPLOAD_LABELS[uploadState(ep)]
+}
 function publicationLabel(ep: PublishableEpisode): string {
   const state = publicationState(ep)
   const visibility = ep.publication?.visibility
@@ -935,6 +952,10 @@ onMounted(() => {
   window.addEventListener('focus', refreshPlanClock)
 })
 onUnmounted(() => {
+  // Leaving the page ends any in-flight action, including the bulk queue loop
+  // (it checks actionIsCurrent before every row). Rows already queued stay queued.
+  actionRevision += 1
+  bulkQueueStopRequested.value = true
   clearInterval(planClockTimer)
   window.removeEventListener('focus', refreshPlanClock)
 })
@@ -1094,6 +1115,18 @@ function changeTimingMode(): void {
 function markTimingDirty(): void { timingDirty.value = true; timingError.value = '' }
 function reviewCustomTiming(): void { void rebuildTimingPreview('custom') }
 
+const NO_ACTIVE_PLAN_MESSAGE = 'This channel does not have an active upload plan. Create or activate one in the Upload plans tab.'
+function isNoActivePlanMessage(message: string): boolean { return message === NO_ACTIVE_PLAN_MESSAGE }
+
+/** A second click on an upload that is already waiting is not a failure. */
+function uploadFailure(error: any, episodeCode: string, fallback: string): { kind: 'info' | 'err'; message: string } {
+  const detail = String(error?.data?.detail || error?.message || '')
+  if (/youtube_upload generation already queued\/running/i.test(detail)) {
+    return { kind: 'info', message: `${episodeCode} is already waiting to upload — see Jobs.` }
+  }
+  return { kind: 'err', message: detail || fallback }
+}
+
 interface UploadPlan {
   id: string
   name: string
@@ -1112,7 +1145,7 @@ async function assignPlanDates(episodeCodes: string[], busyLabel: string): Promi
     if (!actionIsCurrent(action)) return null
     const planId = listed.active?.[`youtube:registry:${channelId}`]
     const plan = listed.plans.find(candidate => candidate.id === planId)
-    if (!plan) throw new Error('This channel does not have an active upload plan. Create or activate one in Upload Center → Upload plans.')
+    if (!plan) throw new Error(NO_ACTIVE_PLAN_MESSAGE)
     const previewResult = await post<{ assignments: PlanAssignment[]; skipped_existing: string[] }>(
       `/projects/${action.slug}/youtube/plan/preview`,
       { plan_id: plan.id, expected_channel_id: channelId, episode_codes: episodeCodes },
@@ -1322,7 +1355,7 @@ async function previewRelayout(): Promise<void> {
     if (!actionIsCurrent(action)) return
     const planId = listed.active?.[`youtube:registry:${channelId}`]
     const plan = listed.plans.find(candidate => candidate.id === planId)
-    if (!plan) throw new Error('This channel does not have an active upload plan. Create or activate one in Upload Center → Upload plans.')
+    if (!plan) throw new Error(NO_ACTIVE_PLAN_MESSAGE)
     const preview = await post<RelayoutPreview>(`/projects/${action.slug}/youtube/plan/relayout/preview`, {
       plan_id: plan.id,
       expected_channel_id: channelId,
@@ -1710,7 +1743,11 @@ async function upload(episodeCode: string): Promise<void> {
     void load()
   } catch (error: any) {
     if (!actionIsCurrent(action)) return
-    rowResults[episodeCode] = { kind: 'err', message: error?.data?.detail || error?.message || 'Failed to start that upload.' }
+    rowResults[episodeCode] = uploadFailure(error, episodeCode, 'Failed to start that upload.')
+    if (rowResults[episodeCode].kind === 'info') queuedUploadCodes.add(episodeCode)
+    // The queue may know something this list does not (e.g. a first click
+    // already queued it) — show what is actually there.
+    void load()
   } finally {
     if (actionIsCurrent(action)) busy.value = ''
   }
@@ -1905,9 +1942,17 @@ async function queueReviewedUploads(): Promise<void> {
       rowResults[item.episode_code] = { kind: 'ok', message: `Uploading ${item.episode_code} to ${result.channel_id}. Progress appears in Jobs.` }
     } catch (error: any) {
       if (!actionIsCurrent(action)) return
+      const failure = uploadFailure(error, item.episode_code, 'Failed to queue this upload.')
+      if (failure.kind === 'info') {
+        // Already in the queue from an earlier click: that is the outcome we wanted.
+        item.state = 'queued'
+        queuedUploadCodes.add(item.episode_code)
+        rowResults[item.episode_code] = failure
+        continue
+      }
       item.state = 'error'
-      item.error = error?.data?.detail || error?.message || 'Failed to queue this upload.'
-      rowResults[item.episode_code] = { kind: 'err', message: item.error! }
+      item.error = failure.message
+      rowResults[item.episode_code] = failure
     }
   }
   if (actionIsCurrent(action)) {
@@ -2144,6 +2189,7 @@ watch(slug, () => {
 .result, .row-result { font-size: var(--font-xs); }
 .result.ok, .row-result.ok { color: var(--success); }
 .result.warn, .row-result.warn { color: var(--warning, #d97706); }
+.row-result.info { color: var(--text-secondary); }
 .result.err, .row-result.err { color: var(--danger); }
 .load-failure { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .load-failure .result { margin: 0; }

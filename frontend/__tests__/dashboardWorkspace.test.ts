@@ -17,7 +17,7 @@ describe('project dashboard workspace', () => {
     assert.match(dashboard, /title="Focus now"/)
     assert.match(dashboard, /title="Production workflow"/)
     assert.match(dashboard, /title="Queue and delivery"/)
-    assert.match(dashboard, /title="Production pulse"/)
+    assert.match(dashboard, /title="Recent activity"/)
   })
 
   test('derives readiness from the shared verified episode inventory and current flow', () => {

@@ -1,9 +1,15 @@
 <template>
   <div class="uc-reconcile">
     <p v-if="loading" class="hint">Loading what is not linked up…</p>
-    <p v-else-if="loadError" class="result err">{{ loadError }}</p>
+    <p v-else-if="loadError" class="result err">
+      {{ loadError }}
+      <button class="btn btn-sm" type="button" @click="retryLoad">Retry</button>
+    </p>
 
     <template v-else>
+      <!-- At the top so an undo failure is seen right next to the undo banners. -->
+      <p v-if="actionResult" :class="['result', actionResult.kind]" role="status">{{ actionResult.message }}</p>
+
       <!--
         The promise Ideas and Settings make about Compact and Rebalance —
         "reversible for 30 days" — is honoured HERE. The routes behind it were
@@ -74,8 +80,8 @@
           <span class="eyebrow">Channel listing</span>
           <h3>{{ listedCopy }}</h3>
           <p class="hint">
-            Reconcile compares what this project knows against the channel’s uploads. Refreshing that
-            list is the only thing here that contacts YouTube.
+            This page matches your episodes to the videos on your YouTube channel. Refreshing the
+            channel listing is the only thing here that contacts YouTube.
           </p>
         </div>
         <div class="field-row">
@@ -198,7 +204,7 @@
         <div>
           <span class="eyebrow">Undo</span>
           <h3>Links made here</h3>
-          <p class="hint">Everything Reconcile decided can be put back the way it was.</p>
+          <p class="hint">Every link made on this page can be undone.</p>
         </div>
         <ul class="history-list">
           <li v-for="decision in undoable" :key="decision.decision_id">
@@ -210,7 +216,6 @@
         </ul>
       </section>
 
-      <p v-if="actionResult" :class="['result', actionResult.kind]">{{ actionResult.message }}</p>
     </template>
   </div>
 </template>
@@ -309,12 +314,14 @@ async function revertRenumber(): Promise<void> {
   })
   if (!confirmed) return
   renumberUndoBusy.value = true
+  actionResult.value = null
   try {
     await post(`/projects/${slug.value}/upload/renumber-undo/revert`, {})
     await loadUndo()
     await load()
   } catch (error: any) {
-    loadError.value = error?.data?.detail || error?.message || 'Failed to undo the renumber.'
+    // In-page result, not loadError: loadError replaces the whole page.
+    actionResult.value = { kind: 'err', message: error?.data?.detail || error?.message || 'Failed to undo the renumber.' }
   } finally {
     renumberUndoBusy.value = false
   }
@@ -331,11 +338,12 @@ async function dismissUndo(): Promise<void> {
     if (!confirmed) return
   }
   renumberUndoBusy.value = true
+  actionResult.value = null
   try {
     await del(`/projects/${slug.value}/upload/renumber-undo`)
     renumberUndo.value = { available: false }
-  } catch {
-    // Nothing to report: dismissing is a convenience, not a guarantee.
+  } catch (error: any) {
+    actionResult.value = { kind: 'err', message: error?.data?.detail || error?.message || 'Could not discard the undo record.' }
   } finally {
     renumberUndoBusy.value = false
   }
@@ -366,12 +374,13 @@ async function revertReseason(): Promise<void> {
   })
   if (!confirmed) return
   reseasonUndoBusy.value = true
+  actionResult.value = null
   try {
     await post(`/projects/${slug.value}/episodes/reseason-undo/revert`, {})
     await loadReseasonUndo()
     await load()
   } catch (error: any) {
-    loadError.value = error?.data?.detail || error?.message || 'Failed to undo the rebalance.'
+    actionResult.value = { kind: 'err', message: error?.data?.detail || error?.message || 'Failed to undo the rebalance.' }
   } finally {
     reseasonUndoBusy.value = false
   }
@@ -389,10 +398,16 @@ async function load(): Promise<void> {
     history.value = res.history ?? []
     listedAt.value = res.remote_listed_at ?? null
   } catch (error: any) {
-    loadError.value = error?.data?.detail || error?.message || 'Could not load the reconcile view.'
+    loadError.value = error?.data?.detail || error?.message || 'Could not load the YouTube matching page.'
   } finally {
     loading.value = false
   }
+}
+
+async function retryLoad(): Promise<void> {
+  loadError.value = ''
+  loading.value = true
+  await load()
 }
 
 async function run(key: string, fn: () => Promise<void>): Promise<void> {

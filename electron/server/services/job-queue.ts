@@ -56,6 +56,7 @@ import {
   readPipelinePolicyAttemptCheckpoint,
 } from '../lib/pipeline-model-policy.js'
 import { snapshotLlmLineupParams, writingStageForJob } from './llm-lineup.js'
+import { pipelineStepLabels, splitChainAfterFailure } from '../lib/pipeline-continuation.js'
 
 // ── Child-process tracking (for cancel → SIGTERM) ───────────────────────────
 //
@@ -1073,6 +1074,7 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
       emitUpdate(job)
       return
     }
+    if (job.status === 'error' && !hasCancellationContext(job)) await continuePipelineAfterFailure(job)
     job.finished_at = new Date().toISOString()
     await persistJob(job)
     emitUpdate(job)
@@ -3426,6 +3428,41 @@ async function completeSuccessfulJob(job: Job): Promise<void> {
     job.status = 'done'
     return
   }
+  await dispatchChainLink(job, nextStep, rest)
+  // enqueue() now verifies exact Content Pack pins asynchronously. Do not
+  // expose the parent as Done until its continuation or failure record is
+  // durably present; the previous synchronous insertion made this atomic.
+  job.status = 'done'
+}
+
+/**
+ * When a Pipeline step fails, start the later links of the same episode run
+ * that do not need it, and keep only the links that do on the failed job — so
+ * a Retry of that job continues exactly those and never repeats the others.
+ * Chains without step facts (written before 1.4.248) keep the old stop.
+ */
+async function continuePipelineAfterFailure(job: Job): Promise<void> {
+  // Subtitles keep their own warning-capable finalizer handoff.
+  if (job.type === 'subtitles_transcribe') return continueFinalizerAfterSubtitleFailure(job)
+  if (job.params?.episode_recovery_id) return
+  const chain = job.params?.pipeline_chain
+  if (!Array.isArray(chain) || chain.length === 0) return
+  const split = splitChainAfterFailure(job.params?.pipeline_step, chain)
+  if (!split) return
+  if (split.waiting.length) {
+    job.output_lines.push(`Waiting for this step: ${pipelineStepLabels(split.waiting)}. Retry this job and they continue on their own.`)
+  }
+  if (!split.survivors.length) return
+  job.params.pipeline_chain = split.waiting
+  // Durable before dispatch: a crash in between must never let a later Retry
+  // re-run (and re-pay for) the steps handed off below.
+  await persistJob(job)
+  const [nextStep, ...rest] = split.survivors
+  await dispatchChainLink(job, nextStep, rest)
+  job.output_lines.push(`This episode's run kept going with the steps that don't need this one: ${pipelineStepLabels(split.survivors)}.`)
+}
+
+async function dispatchChainLink(job: Job, nextStep: any, rest: unknown[]): Promise<void> {
   try {
     const batchId = job.params.pipeline_batch_id
     const nextParams = await snapshotLlmLineupParams(job.project_slug, nextStep.type, job.episode_id, {
@@ -3462,10 +3499,6 @@ async function completeSuccessfulJob(job: Job): Promise<void> {
     const failed = await recordChainHandoffFailure(job, nextStep, rest, error)
     job.output_lines.push(`Chain-next failed: ${error instanceof Error ? error.message : String(error)} (recorded as failed job ${failed.job_id})`)
   }
-  // enqueue() now verifies exact Content Pack pins asynchronously. Do not
-  // expose the parent as Done until its continuation or failure record is
-  // durably present; the previous synchronous insertion made this atomic.
-  job.status = 'done'
 }
 
 /**
@@ -3674,7 +3707,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
         job.status = 'error'
         job.error = e.message
         job.output_lines.push(`Error: ${e.message}`)
-        await continueFinalizerAfterSubtitleFailure(job)
+        await continuePipelineAfterFailure(job)
       }
     }
 

@@ -26,7 +26,10 @@
         <div class="workspace-metrics">
           <span class="workspace-metric"><strong>{{ episodes.length }}</strong> episodes</span>
           <span class="workspace-metric"><strong>{{ columns.length }}</strong> tracked stages</span>
-          <span v-if="searchActive || needsWorkOnly || stepFilter" class="workspace-metric" data-tone="info">
+          <span v-if="failedStepCount" class="workspace-metric" data-tone="warning">
+            <strong>{{ failedStepCount }}</strong> failed step{{ failedStepCount === 1 ? '' : 's' }}
+          </span>
+          <span v-if="searchActive || needsWorkOnly || stepFilter || failedOnly" class="workspace-metric" data-tone="info">
             <strong>{{ visibleEpisodes.length }}</strong> shown
           </span>
         </div>
@@ -79,6 +82,15 @@
           {{ needsWorkOnly ? '◉' : '○' }} Needs work only
         </button>
         <button
+          v-if="failedStepCount || failedOnly"
+          type="button"
+          class="board-filter board-filter-failed"
+          :class="{ active: failedOnly }"
+          @click="failedOnly = !failedOnly"
+        >
+          {{ failedOnly ? '◉' : '○' }} Failed only ({{ failedEpisodeCount }})
+        </button>
+        <button
           type="button"
           class="board-filter"
           :disabled="loading || isRevalidating"
@@ -106,6 +118,13 @@
         title="Clear this step filter"
         @click="stepFilter = null"
       >Needs {{ stepFilterCol.label }} ✕</button>
+      <p class="board-hint">
+        <template v-if="mode === 'open'"><strong>Open</strong>: click a cell to go to that step for that episode.&nbsp;</template>
+        <template v-else><strong>Mark done</strong>: click a ○ to mark work you made outside the app as done; click a hand-marked ✓ to undo. Nothing is generated.&nbsp;</template>
+        <strong>Needs work only</strong> hides finished episodes (a search always looks through all of them).
+        <strong>Repair</strong> re-downloads results that finished but never saved to this Mac — it never starts new work or spends credits.
+        <template v-if="failedStepCount"><strong>✕</strong> means the last attempt failed — retry it from <NuxtLink :to="`/projects/${slug}/jobs`">Jobs</NuxtLink>.</template>
+      </p>
       <div v-if="visibleEpisodes.length" class="board-pagination" aria-label="Episode pages">
         <span class="board-page-range">{{ visibleRangeText }}</span>
         <button
@@ -148,6 +167,13 @@
       <p>Reading episode status…</p>
     </div>
 
+    <!-- A failed read is not an empty project. -->
+    <div v-else-if="!episodes.length && episodesError" class="board-empty">
+      <p class="board-empty-title">Could not read this project's episodes</p>
+      <p class="text-muted">Nothing was changed. Check that the project folder or drive is available, then try again.</p>
+      <button class="btn btn-secondary" @click="refresh()">Try again</button>
+    </div>
+
     <!-- Empty -->
     <div v-else-if="!episodes.length" class="board-empty">
       <p class="board-empty-title">No episodes yet</p>
@@ -159,12 +185,13 @@
     <div v-else-if="!visibleEpisodes.length" class="board-empty">
       <p class="board-empty-title">Nothing matches</p>
       <p class="text-muted">
-        <template v-if="stepFilter && stepFilterCol">Every episode has {{ stepFilterCol.label }} done. </template>
-        <template v-if="needsWorkOnly">Every episode is fully done. </template>
         <template v-if="searchActive">No episode matches "{{ search }}". </template>
+        <template v-else-if="failedOnly">No episode has a failed step. </template>
+        <template v-else-if="stepFilter && stepFilterCol">Every episode has {{ stepFilterCol.label }} done. </template>
+        <template v-else-if="needsWorkOnly">Every episode is fully done. </template>
         Clear the filters to see all {{ episodes.length }}.
       </p>
-      <button class="btn btn-secondary" @click="search = ''; needsWorkOnly = false; stepFilter = null">Show all episodes</button>
+      <button class="btn btn-secondary" @click="search = ''; needsWorkOnly = false; stepFilter = null; failedOnly = false">Show all episodes</button>
     </div>
 
     <!-- The matrix -->
@@ -225,7 +252,7 @@
                   :title="`Import a finished file for ${ep.episode_code} (audio, thumbnail, final video…) — it lands with the right name and flips the step done.`"
                   :aria-label="`Import a finished file for ${ep.episode_code}`"
                   @click="openImport(ep)"
-                >⬆</button>
+                >⬆ Import</button>
               </div>
             </th>
             <td
@@ -270,8 +297,9 @@
       <span><b class="lg-done">✓</b> done (detected)</span>
       <span><b class="lg-manual">✓</b> marked done by hand</span>
       <span><b class="lg-pending">○</b> pending</span>
+      <span><b class="lg-failed">✕</b> last attempt failed</span>
       <span><b class="lg-not-used">—</b> not used by this episode source</span>
-      <span>🔄 generating now</span>
+      <span>🔄 being made now</span>
       <span class="board-legend-hint">
         · <template v-if="mode === 'open'">click any cell to open that step for that episode</template>
         <template v-else>click a pending cell to mark it done by hand · click a hand-marked one to undo</template>
@@ -321,6 +349,7 @@ import {
   type VisualSource,
 } from '~/composables/useProjectFlow'
 import { localMediaStatusLabel } from '~/composables/useEpisodes'
+import { episodeStepJobStates } from '~/utils/episode-step-jobs'
 import AssetImportDialog from '~/components/AssetImportDialog.vue'
 import RepairAssetsDialog from '~/components/RepairAssetsDialog.vue'
 
@@ -336,6 +365,7 @@ const {
   episodes,
   isLoading: loading,
   isRevalidating,
+  error: episodesError,
   refresh,
   revalidate,
   revalidateAfterMutation,
@@ -454,6 +484,7 @@ const needsWorkOnly = ref(true)
 // Click a column header to show only episodes still pending THAT step
 // ("who needs Audio?"). Null = no per-step filter.
 const stepFilter = ref<string | null>(null)
+const failedOnly = ref(false)
 const searchActive = computed(() => search.value.trim().length > 0)
 const stepFilterCol = computed(() => columns.value.find(c => c.field === stepFilter.value) || null)
 const EPISODES_PER_PAGE = 10
@@ -475,7 +506,9 @@ const visibleEpisodes = computed(() => {
       ? list.filter(ep => isColumnApplicable(ep, col) && ep.status?.[col.field] !== true)
       : list
   }
-  if (needsWorkOnly.value) list = list.filter(ep => !isFullyDone(ep))
+  if (failedOnly.value) list = list.filter(ep => columns.value.some(col => cellState(ep, col) === 'failed'))
+  // A search is a lookup: it must find a finished episode too.
+  if (needsWorkOnly.value && !searchActive.value) list = list.filter(ep => !isFullyDone(ep))
   if (searchActive.value) {
     const q = search.value.trim().toLowerCase()
     list = list.filter(ep =>
@@ -507,7 +540,8 @@ function goToPage(page: number) {
 
 // Filtering can shrink the result set substantially. Always return to a real
 // page instead of leaving the board on an empty slice.
-watch([search, needsWorkOnly, stepFilter], () => { currentPage.value = 1 })
+watch([search, needsWorkOnly, stepFilter, failedOnly], () => { currentPage.value = 1 })
+watch(slug, () => { failedOnly.value = false })
 watch(totalPages, pages => {
   if (currentPage.value > pages) currentPage.value = pages
 })
@@ -534,6 +568,29 @@ function isGenerating(code: string): boolean {
   return generatingCodes.value.has(code)
 }
 
+// Latest job per episode step: running now, or failed last time.
+const stepJobStates = computed(() => episodeStepJobStates(jobs.value || []))
+type CellState = 'done' | 'active' | 'failed' | 'pending'
+function cellState(ep: any, col: BoardCol): CellState {
+  if (ep.status?.[col.field] === true) return 'done'
+  if (!isColumnApplicable(ep, col)) return 'pending'
+  return stepJobStates.value.get(`${ep.episode_code}:${col.field}`)?.state || 'pending'
+}
+const failedCells = computed(() => {
+  const episodesWithFailure = new Set<string>()
+  let steps = 0
+  for (const ep of episodes.value) {
+    for (const col of columns.value) {
+      if (cellState(ep, col) !== 'failed') continue
+      steps++
+      episodesWithFailure.add(ep.episode_code)
+    }
+  }
+  return { steps, episodes: episodesWithFailure.size }
+})
+const failedStepCount = computed(() => failedCells.value.steps)
+const failedEpisodeCount = computed(() => failedCells.value.episodes)
+
 // ── Cell rendering ──────────────────────────────────────────────────────────
 function isManual(ep: any, field: string): boolean {
   const o = ep.status_overrides
@@ -543,17 +600,19 @@ function isColumnApplicable(ep: any, col: BoardCol): boolean {
   return isFlowStepApplicable(col, episodeVisualSource(ep))
 }
 function cellClass(ep: any, col: BoardCol): Record<string, boolean> {
-  const done = ep.status?.[col.field] === true
+  const state = cellState(ep, col)
   return {
-    'cell-done': done,
-    'cell-pending': !done,
+    'cell-done': state === 'done',
+    'cell-pending': state === 'pending',
+    'cell-active': state === 'active',
+    'cell-failed': state === 'failed',
     'cell-manual': isManual(ep, col.field),
     'cell-optional': col.optional === true,
   }
 }
 function cellMark(ep: any, col: BoardCol): string {
   if (cellBusy(ep, col)) return '…'
-  return ep.status?.[col.field] === true ? '✓' : '○'
+  return { done: '✓', active: '🔄', failed: '✕', pending: '○' }[cellState(ep, col)]
 }
 // The Research column's ✓ means "evidence exists" — the same field the
 // Pipeline's pill and the backend's skip logic read. It does NOT mean the
@@ -575,9 +634,14 @@ function researchNote(status: any): string {
 function cellTitle(ep: any, col: BoardCol): string {
   const done = ep.status?.[col.field] === true
   const manual = isManual(ep, col.field)
+  const jobState = stepJobStates.value.get(`${ep.episode_code}:${col.field}`)
   const state = done
     ? (manual ? 'done (marked by hand)' : 'done')
-    : 'pending'
+    : jobState?.state === 'active'
+      ? 'being made now'
+      : jobState?.state === 'failed'
+        ? `last attempt failed${jobState.error ? ` (${jobState.error})` : ''} — retry it from Jobs`
+        : 'pending'
   const note = col.field === 'research' ? researchNote(ep.status) : ''
   return `${ep.episode_code} · ${col.label}${col.optional ? ' (optional)' : ''}: ${state}${note} — click to open`
 }
@@ -919,16 +983,17 @@ async function markCell(ep: any, col: BoardCol) {
    cleanly but the affordance is one move away. */
 .ep-import {
   flex: 0 0 auto;
-  width: 22px;
   height: 22px;
+  padding: 0 6px;
   border: 1px solid var(--border);
   border-radius: 5px;
   background: var(--bg-tertiary);
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--font-xs);
   line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
-  opacity: 0;
+  opacity: 0.7;
   transition: opacity 0.12s, background 0.12s;
 }
 .board-row:hover .ep-import { opacity: 1; }
@@ -997,6 +1062,8 @@ async function markCell(ep: any, col: BoardCol) {
 .cell-btn:disabled { cursor: default; }
 .cell-loading { opacity: 0.5; }
 .cell-done { color: var(--success, #22c55e); }
+.cell-active { color: var(--accent); }
+.cell-failed { color: var(--error); font-weight: 700; }
 .cell-pending { color: var(--text-muted); opacity: 0.55; }
 .cell-optional.cell-pending { opacity: 0.32; }
 .cell-not-used {
@@ -1028,6 +1095,16 @@ async function markCell(ep: any, col: BoardCol) {
 .lg-manual { color: var(--success, #22c55e); text-decoration: underline dashed; text-underline-offset: 2px; }
 .lg-not-used { color: var(--text-muted); }
 .lg-pending { opacity: 0.55; }
+.lg-failed { color: var(--error); }
+.board-hint {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.5;
+}
+.board-hint strong { color: var(--text-secondary); }
+.board-filter-failed:not(.active) { border-color: color-mix(in srgb, var(--error) 55%, var(--border)); color: var(--text-primary); }
 .board-legend-hint { opacity: 0.8; }
 
 @media (max-width: 720px) {

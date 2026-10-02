@@ -127,8 +127,8 @@
           </label>
           <label class="model-field resolution-field">
             <span>Aspect ratio</span>
-            <select v-model="selectedAspectRatio" class="select" :disabled="!availableAspectRatios.length" aria-label="Published aspect ratio">
-              <option value="" disabled>{{ availableAspectRatios.length ? 'Choose a published aspect ratio' : 'No published aspect ratio' }}</option>
+            <select v-model="selectedAspectRatio" class="select" :disabled="!availableAspectRatios.length" aria-label="Aspect ratio">
+              <option value="" disabled>{{ availableAspectRatios.length ? 'Choose an aspect ratio' : 'No aspect ratio available' }}</option>
               <option v-for="ratio in availableAspectRatios" :key="ratio" :value="ratio">{{ ratio }}</option>
             </select>
           </label>
@@ -138,10 +138,10 @@
               class="select"
               :value="selectedResolution"
               :disabled="!availableResolutions.length"
-              aria-label="Published resolution"
+              aria-label="Resolution"
               @change="chooseResolution"
             >
-              <option v-if="!availableResolutions.length" value="">No published resolution</option>
+              <option v-if="!availableResolutions.length" value="">No resolution available</option>
               <option v-for="resolution in availableResolutions" :key="resolution" :value="resolution">
                 {{ resolution }}
               </option>
@@ -196,7 +196,7 @@
               </div>
             </div>
             <p class="duration-help">
-              Listed lengths: {{ publishedDurationLabels || 'None' }}. Typed values round up; values above the listed maximum use {{ maximumDuration }}s.
+              Available lengths: {{ publishedDurationLabels || 'None' }}. Typed values round up; values above the longest length use {{ maximumDuration }}s.
             </p>
           </div>
           <div v-else class="follow-duration-note">
@@ -204,8 +204,8 @@
             <span>Longer clips are trimmed. If narration exceeds the listed maximum, the final frame holds for the visible shortfall.</span>
           </div>
           <div v-if="selectedResolutionVariants.length" class="batch-cost" aria-live="polite">
-            <strong>{{ batchPlans.length }} {{ batchPlans.length === 1 ? 'clip' : 'clips' }}<template v-if="!videoHasUsdPrice"> · Listed total {{ formatCredits(batchListedTotal) }}</template></strong>
-            <span>The current catalogue rows are shown for planning; the provider quote is authoritative when each request is accepted.</span>
+            <strong>{{ batchPlans.length }} {{ batchPlans.length === 1 ? 'clip' : 'clips' }}<template v-if="!videoHasUsdPrice"> · Estimated total {{ formatCredits(batchListedTotal) }}</template></strong>
+            <span>Price is confirmed when each clip starts.</span>
             <span v-if="existingClipCount">Existing clips stay out of this batch.</span>
           </div>
           <button v-if="motionScope.mode === 'all'" class="btn btn-sm btn-secondary" :disabled="savingAll || scopedClipCount === 0" @click="approveAllClips">
@@ -224,9 +224,14 @@
     </WorkspaceNotice>
 
     <section v-if="!episodeId" class="card mt-3 empty-state">Pick an episode to review motion.</section>
-    <section v-else-if="loading" class="card mt-3 empty-state">Loading motion pass...</section>
+    <section v-else-if="loading && !scenes.length" class="card mt-3 empty-state">Loading motion pass...</section>
     <section v-else-if="usesImagePool" class="card mt-3 empty-state">
       Image Pool is the selected visual source. Motion Review is not used for this episode.
+    </section>
+    <section v-else-if="loadError && !scenes.length" class="card mt-3 empty-state" role="alert">
+      <p>We couldn't load this episode's scenes. Check your connection and try again.</p>
+      <p class="load-error-detail">{{ loadError }}</p>
+      <button class="btn btn-sm btn-secondary" :disabled="loading" @click="loadReview()">Try again</button>
     </section>
     <section v-else-if="!scenes.length" class="card mt-3 empty-state">
       No scene plan is available yet. Complete Scene Plan and Scene Review first.
@@ -260,7 +265,7 @@
             <span
               v-if="!videoHasUsdPrice"
               :title="`Minimum ${scene.duration_plan.variant.minimum_credits} credits · price list ${scene.duration_plan.variant.price_version}`"
-            ><small>Current listed cost</small><strong>Listed cost {{ formatCredits(scene.duration_plan.variant.credits_per_video) }}</strong></span>
+            ><small>Estimated cost</small><strong>{{ formatCredits(scene.duration_plan.variant.credits_per_video) }}</strong></span>
           </div>
           <p class="transcript">{{ scene.transcript_segment }}</p>
           <details open>
@@ -373,7 +378,8 @@ const initialEpisodeId = typeof route.query.episode_id === 'string'
     : ''
 const episodeId = ref(initialEpisodeId)
 const { get, post, put } = useApi()
-const { success, error: showError } = useToast()
+const { success, error: showError, info } = useToast()
+const { ask } = useConfirm()
 const { isJobActiveFor } = useJobs()
 const scenes = ref<MotionScene[]>([])
 const SCENE_RENDER_BATCH = 24
@@ -396,6 +402,8 @@ const motionScopeError = ref('')
 const visualSource = ref<'scene_plan' | 'image_pool'>('scene_plan')
 const animateMinSeconds = ref(0)
 const loading = ref(false)
+// Why the last load failed, shown with a Try again button instead of the false "no scene plan yet".
+const loadError = ref('')
 const queuing = ref(false)
 const savingAll = ref(false)
 const savingId = ref<string | null>(null)
@@ -871,8 +879,8 @@ const generateStatus = computed(() => {
   if (usesImagePool.value) return 'Motion Review is not used for Image Pool episodes'
   if (!i2vModels.value.length) return 'No image-to-video model is available right now. Scenes stay still.'
   if (!videoModel.value) return 'Pick an image-to-video model'
-  if (!availableAspectRatios.value.includes(selectedAspectRatio.value)) return 'Choose a published aspect ratio'
-  if (!selectedResolutionVariants.value.length) return 'Choose a published resolution'
+  if (!availableAspectRatios.value.includes(selectedAspectRatio.value)) return 'Choose an aspect ratio'
+  if (!selectedResolutionVariants.value.length) return 'Choose a resolution'
   if (!canGenerate.value) return 'No approved missing clips are waiting for motion'
   return `${batchPlans.value.length} approved missing ${batchPlans.value.length === 1 ? 'clip is' : 'clips are'} ready`
 })
@@ -890,7 +898,11 @@ function choiceLabel(scene: MotionScene) {
   return scene.clip_exists ? 'Needs review' : 'Waiting for clip'
 }
 
-async function loadReview() {
+// A clip changed when a scene gained/lost/staled one; only then do cached image/video URLs need to
+// be refreshed. Polling and decisions leave them alone so playing clips and scroll position survive.
+const clipSignature = (list: MotionScene[]) => list.map(scene => `${scene.id}:${scene.clip_exists ? 1 : 0}:${scene.clip_stale ? 1 : 0}`).join('|')
+
+async function loadReview(options: { bustCache?: boolean } = {}) {
   const ep = episodeId.value
   const requestSequence = ++reviewLoadSequence
   if (!ep) {
@@ -898,6 +910,7 @@ async function loadReview() {
     return
   }
   loading.value = true
+  loadError.value = ''
   try {
     const result = await get<{
       scenes: MotionScene[]
@@ -910,7 +923,9 @@ async function loadReview() {
       visual_source?: 'scene_plan' | 'image_pool'
     }>(`/projects/${slug.value}/scene-review/${ep}`)
     if (requestSequence !== reviewLoadSequence || episodeId.value !== ep) return
-    scenes.value = result.scenes || []
+    const nextScenes = result.scenes || []
+    const clipsChanged = clipSignature(nextScenes) !== clipSignature(scenes.value)
+    scenes.value = nextScenes
     stats.value = result.stats
     animateMinSeconds.value = Math.max(0, Number(result.animate_min_seconds) || 0)
     motionScope.value = result.motion_scope || { mode: 'off' }
@@ -918,10 +933,11 @@ async function loadReview() {
     motionCrossingSceneIds.value = Array.isArray(result.motion_crossing_scene_ids) ? result.motion_crossing_scene_ids : []
     motionScopeError.value = typeof result.motion_scope_error === 'string' ? result.motion_scope_error : ''
     visualSource.value = result.visual_source === 'image_pool' ? 'image_pool' : 'scene_plan'
-    cacheBuster.value = Date.now()
+    if (options.bustCache || clipsChanged) cacheBuster.value = Date.now()
   } catch (error: any) {
     if (requestSequence !== reviewLoadSequence || episodeId.value !== ep) return
-    showError(error?.data?.detail || error?.message || 'Could not load Motion Review')
+    loadError.value = error?.data?.detail || error?.message || 'Could not load Motion Review'
+    showError(loadError.value)
   } finally {
     if (requestSequence === reviewLoadSequence && episodeId.value === ep) loading.value = false
   }
@@ -953,6 +969,12 @@ async function generateOne(scene: MotionScene) {
   if (usesImagePool.value || !scopedMotionSceneIds.value.has(scene.id)) return
   const payload = generationPayload()
   if (!payload) return
+  if (scene.clip_exists && !await ask({
+    title: `Re-generate the clip for scene ${scene.scene_index}?`,
+    message: 'This replaces the current clip, and re-generating is charged again.',
+    confirmLabel: 'Re-generate clip',
+    danger: true,
+  })) return
   animatingId.value = scene.id
   try {
     await post(`/projects/${slug.value}/scene-review/${episodeId.value}/generate-clip`, {
@@ -970,12 +992,22 @@ async function generateOne(scene: MotionScene) {
 async function generateMissing() {
   const payload = generationPayload()
   if (!payload || !batchPlans.value.length) return
+  const count = batchPlans.value.length
+  if (!await ask({
+    title: `Generate ${count} ${count === 1 ? 'clip' : 'clips'}?`,
+    message: `This starts ${count} paid ${count === 1 ? 'clip' : 'clips'}.`
+      + (videoHasUsdPrice.value ? '' : ` Estimated total: ${formatCredits(batchListedTotal.value)}.`)
+      + ' The price is confirmed when each clip starts.',
+    confirmLabel: 'Generate clips',
+  })) return
   queuing.value = true
   try {
     const result = await post<{ queued: number; skipped: number }>(`/projects/${slug.value}/scene-review/${episodeId.value}/generate-missing-clips`, {
       ...payload,
     })
-    success(`${result.queued || 0} image-to-video clips queued.`)
+    const queued = result.queued || 0
+    if (queued) success(`${queued} ${queued === 1 ? 'clip' : 'clips'} queued.`)
+    else info('Nothing new to queue. Every eligible scene already has a clip or is waiting for one.')
   } catch (error: any) {
     showError(error?.data?.detail || error?.message || 'Could not queue motion clips')
   } finally {
@@ -984,6 +1016,12 @@ async function generateMissing() {
 }
 
 async function uploadClipOne(scene: MotionScene) {
+  if (scene.clip_exists && !await ask({
+    title: `Replace the clip for scene ${scene.scene_index}?`,
+    message: 'This replaces the current clip with your MP4. If the current clip was generated, you would pay again to get it back.',
+    confirmLabel: 'Choose MP4',
+    danger: true,
+  })) return
   const input = document.createElement('input')
   input.type = 'file'
   input.accept = 'video/mp4,.mp4'
@@ -1000,7 +1038,7 @@ async function uploadClipOne(scene: MotionScene) {
         const detail = await response.json().catch(() => ({} as any))
         throw new Error(detail.detail || `Upload failed (${response.status})`)
       }
-      await loadReview()
+      await loadReview({ bustCache: true })
       success(`External clip uploaded for scene ${scene.scene_index}. Review it, then choose Use clip.`)
     } catch (error: any) {
       showError(error?.message || 'Could not upload the external clip')
@@ -1037,7 +1075,14 @@ async function setAll(choice: 'clip' | 'still') {
   }
 }
 const approveAllClips = () => setAll('clip')
-const keepAllStills = () => setAll('still')
+async function keepAllStills() {
+  if (!await ask({
+    title: 'Keep every scene as a still?',
+    message: 'No scene will use a motion clip. Your clips stay saved, and you can pick Use clip on any scene later.',
+    confirmLabel: 'Keep all as stills',
+  })) return
+  await setAll('still')
+}
 
 const showBackToTop = ref(false)
 const SCROLL_THRESHOLD = 560
@@ -1070,6 +1115,11 @@ onMounted(() => {
     }, { root: el, rootMargin: '500px 0px' })
     if (sceneLoadSentinel.value) sceneLoadObserver.observe(sceneLoadSentinel.value)
   }
+})
+// The poll only runs while clip jobs are active, so the last job finishing between two polls
+// would leave the page showing the old clips. Reload once, with fresh clip URLs, when they stop.
+watch(clipJobsActive, (active, wasActive) => {
+  if (wasActive && !active) void loadReview({ bustCache: true })
 })
 watch(sceneLoadSentinel, (next, previous) => {
   if (!sceneLoadObserver) return
@@ -1106,6 +1156,7 @@ function resetEpisodeScopedMotionState() {
   motionCrossingSceneIds.value = []
   motionScopeError.value = ''
   visualSource.value = 'scene_plan'
+  loadError.value = ''
   cacheBuster.value = Date.now()
 }
 
@@ -1131,7 +1182,10 @@ watch(episodeId, () => {
 .motion-hero-route b { color: var(--text-secondary); font-size: var(--font-xs); font-weight: 600; }
 .motion-hero-route i { height: 1px; background: var(--border); }
 
-.motion-command-bar :deep(.top-action-bar) { display: grid; grid-template-columns: minmax(350px, auto) minmax(420px, 1fr) auto; align-items: end; gap: 16px; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
+/* Same fix as Scene Review (DS-12/F-15b): fixed 350px + 420px minimums pushed the Generate
+   button and its status off the right edge at 1280px. The tracks may now shrink, and below
+   1400px the button gets its own row. */
+.motion-command-bar :deep(.top-action-bar) { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto); align-items: end; gap: 16px; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
 .motion-command-bar :deep(.region-spacer) { display: none; }
 .motion-command-bar :deep(.generate-region) { justify-content: flex-end; align-items: flex-end; }
 .motion-command-bar :deep(.btn-primary-cta) { min-width: 180px; min-height: 38px; border-radius: 9px; white-space: nowrap; }
@@ -1235,6 +1289,7 @@ input:focus-visible, select:focus-visible, .duration-mode label:has(input:focus-
 .stale-note { color: #d99558; font-weight: 650; }
 .motion-actions { grid-column: 1 / -1; justify-content: flex-end; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--border); }
 .motion-actions .btn { min-height: 33px; border-radius: 8px; }
+.load-error-detail { font-size: var(--font-xs); opacity: .75; }
 .empty-state { padding: 42px; border-radius: 15px; text-align: center; color: var(--text-muted); }
 
 .back-to-top { position: fixed; right: 28px; bottom: 28px; z-index: 120; display: inline-flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 16px 0 11px; border: 1px solid rgba(115,168,223,.5); border-radius: 999px; background: #20282d; color: #f5f8ff; font-size: 12px; font-weight: 750; cursor: pointer; box-shadow: 0 12px 34px rgba(0,0,0,.38); transition: transform .18s ease, border-color .18s ease, background .18s ease; }
@@ -1242,6 +1297,11 @@ input:focus-visible, select:focus-visible, .duration-mode label:has(input:focus-
 .back-to-top:hover { transform: translateY(-3px); border-color: var(--motion-blue); background: #29333a; }
 .motion-float-enter-active, .motion-float-leave-active { transition: opacity .18s ease, transform .18s ease; }
 .motion-float-enter-from, .motion-float-leave-to { opacity: 0; transform: translateY(10px); }
+
+@media (max-width: 1400px) {
+  .motion-command-bar :deep(.top-action-bar) { grid-template-columns: minmax(0, .85fr) minmax(0, 1.4fr); }
+  .motion-command-bar :deep(.generate-region) { grid-column: 1 / -1; }
+}
 
 @media (max-width: 1220px) {
   .motion-command-bar :deep(.top-action-bar) { grid-template-columns: 1fr; align-items: stretch; }

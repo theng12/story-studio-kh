@@ -66,7 +66,8 @@ function loadRealFunctions(): Record<string, (...args: any[]) => any> {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
   }).outputText
   // eslint-disable-next-line no-new-func
-  return new Function('isFlowStepApplicable', js)(isFlowStepApplicable)
+  // Queue state (running / failed last time) is not under test here: no job.
+  return new Function('isFlowStepApplicable', 'stepJobState', js)(isFlowStepApplicable, () => null)
 }
 
 const real = loadRealFunctions()
@@ -97,6 +98,7 @@ async function renderPills(ep: Record<string, unknown>): Promise<string> {
       isStepDoneForEpisode: real.isStepDoneForEpisode,
       isStepManualForEpisode: real.isStepManualForEpisode,
       pillTitle: real.pillTitle,
+      stepJobState: () => null,
     },
   })
   app.config.warnHandler = () => {}

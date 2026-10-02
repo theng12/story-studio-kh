@@ -40,7 +40,7 @@ function property(object: ts.ObjectLiteralExpression, name: string): ts.Property
 }
 
 test('Motion Review derives resolution and duration controls from priced image-to-video rows', () => {
-  assert.match(source, /aria-label="Published resolution"/)
+  assert.match(source, /aria-label="Resolution"/)
   assert.match(source, /v-for="resolution in availableResolutions"/)
   assert.match(source, /variantsForVideoOperation\(selectedVideoModel\.value\?\.variants, STORY_STUDIO_VIDEO_OPERATION\)/)
   assert.doesNotMatch(source, /capability\.durations|provider.*duration/i)

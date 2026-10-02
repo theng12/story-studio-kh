@@ -89,7 +89,7 @@
         </article>
       </section>
 
-      <section v-else-if="false" />
+      <p v-if="noticesError" class="notice-error" role="status">{{ noticesError }}</p>
 
       <section v-if="projects.length" aria-labelledby="channels-heading">
         <div class="channel-list-header">
@@ -133,20 +133,29 @@
                      said. A missing folder outranks "Setup needed", because
                      nothing else about the project matters until it is found. -->
                 <span
-                  v-if="project.output_root_exists === false"
+                  v-if="isFolderUnreadable(project)"
+                  class="project-status project-status-missing"
+                >Can't read this channel's folder</span>
+                <span
+                  v-else-if="project.output_root_exists === false"
                   class="project-status project-status-missing"
                 >Folder missing</span>
+                <!-- This pill only says whether a GenStudio key is saved. It is
+                     not a readiness check, so it must not read like one. -->
                 <span v-else class="project-status" :data-ready="Boolean(project.has_api_keys)">
-                  {{ project.has_api_keys ? 'Ready' : 'Setup needed' }}
+                  {{ project.has_api_keys ? 'Key connected' : 'Needs GenStudio key' }}
                 </span>
               </span>
               <span class="project-copy">
                 <strong>{{ project.name || project.slug }}</strong>
-                <span v-if="project.output_root_exists === false" class="project-missing-path">
+                <span v-if="isFolderUnreadable(project)" class="project-missing-path">
+                  This folder did not answer in time. Check that its drive is connected, then reload.
+                </span>
+                <span v-else-if="project.output_root_exists === false" class="project-missing-path">
                   Episodes folder not found:
                   <code>{{ project.output_root }}</code>
                 </span>
-                <span v-else>{{ project.episode_prefix || 'EP' }} episodes · Created {{ formatDate(project.created_at) }}</span>
+                <span v-else>Episode codes: {{ project.episode_prefix || 'EP' }}… · Created {{ formatDate(project.created_at) }}</span>
               </span>
               <span class="project-open" aria-hidden="true">Open channel <span>→</span></span>
             </NuxtLink>
@@ -168,8 +177,10 @@
              DOOR: the files were safe on disk and unreachable from the app
              forever. The backend routes and their tests were untouched, so this
              is wiring rather than new machinery. -->
-        <div v-if="hiddenProjects.items.value.length" class="hidden-projects">
+        <div v-if="hiddenProjects.items.value.length || hiddenProjects.lastError.value" class="hidden-projects">
+          <p v-if="hiddenProjects.lastError.value" class="notice-error" role="alert">{{ hiddenProjects.lastError.value }}</p>
           <button
+            v-if="hiddenProjects.items.value.length"
             type="button"
             class="hidden-projects-chip"
             :aria-expanded="showHidden"
@@ -178,7 +189,7 @@
             🗑️ Hidden channels ({{ hiddenProjects.items.value.length }})
             <span aria-hidden="true">{{ showHidden ? '▾' : '▸' }}</span>
           </button>
-          <div v-if="showHidden" class="hidden-projects-list">
+          <div v-if="showHidden && hiddenProjects.items.value.length" class="hidden-projects-list">
             <p class="hidden-projects-note">
               Hidden channels are removed from the list above. Every file is still on disk —
               restoring one puts it back exactly as it was.
@@ -193,9 +204,9 @@
                 <button
                   type="button"
                   class="btn btn-sm btn-primary"
-                  :disabled="row.exists === false"
+                  :disabled="row.exists === false || !!restoringSlug"
                   @click="restoreHidden(row.slug)"
-                >Restore</button>
+                >{{ restoringSlug === row.slug ? 'Restoring…' : 'Restore' }}</button>
               </span>
             </div>
           </div>
@@ -290,6 +301,12 @@ const appSettingsModal = useAppSettingsModal()
 const LAST_KNOWN_CHANNELS = 'channels'
 const cachedChannels = readLastKnownList<any>(LAST_KNOWN_CHANNELS)
 const projects = ref<any[]>(cachedChannels)
+// The server answers `status: 'downloading'` for a folder whose read timed out
+// (it still lists the row). Only an explicit non-ready status counts: a list
+// cached by an older version has no status at all and must not read as broken.
+function isFolderUnreadable(project: { status?: string }): boolean {
+  return !!project.status && project.status !== 'ready'
+}
 /** True while what is on screen came from the cache and has not been confirmed. */
 const servingCachedChannels = ref(cachedChannels.length > 0)
 const loading = ref(true)
@@ -301,12 +318,17 @@ const libraryMissingPath = ref('')
 // v1.4.3 — one-time messages from the location-settings migration.
 interface MigrationNotice { id: string; title: string; body: string; paths?: string[] }
 const migrationNotices = ref<MigrationNotice[]>([])
+const noticesError = ref('')
 
 async function loadMigrationNotices() {
   try {
     const r = await get<{ notices: MigrationNotice[] }>('/library/notices')
     migrationNotices.value = Array.isArray(r?.notices) ? r.notices : []
-  } catch { /* never fatal — these are informational */ }
+    noticesError.value = ''
+  } catch (error: any) {
+    // Never fatal — these are informational — but not silent either.
+    noticesError.value = errorMessage(error, 'Could not check for upgrade notes.')
+  }
 }
 
 const dismissingId = ref('')
@@ -348,11 +370,20 @@ async function dismissNotice(id: string) {
 const hiddenProjects = useSoftDeletedProjects()
 const showHidden = ref(false)
 
+const restoringSlug = ref('')
+
 async function restoreHidden(slug: string) {
-  if (await hiddenProjects.restore(slug)) {
-    // Re-read the live list too: restoring clears the tombstone, so the channel
-    // must reappear above without a manual reload.
-    await loadProjects()
+  if (restoringSlug.value) return
+  restoringSlug.value = slug
+  hiddenProjects.lastError.value = ''
+  try {
+    if (await hiddenProjects.restore(slug)) {
+      // Re-read the live list too: restoring clears the tombstone, so the channel
+      // must reappear above without a manual reload.
+      await loadProjects()
+    }
+  } finally {
+    restoringSlug.value = ''
   }
 }
 const showCreate = ref(false)

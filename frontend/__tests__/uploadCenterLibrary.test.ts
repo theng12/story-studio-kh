@@ -151,7 +151,7 @@ describe('Upload Center Library', () => {
     assert.match(text, /Needs a decision/)
     assert.match(text, /Our Title/)
     assert.match(text, /Their Title/)
-    for (const label of ['Use Story Studio', 'Keep YouTube', 'Review later']) {
+    for (const label of ['Update YouTube to Story Studio’s version', 'Keep YouTube', 'Review later']) {
       assert.equal(
         [...mounted.el.querySelectorAll('button')].some(b => b.textContent!.trim() === label),
         true,
@@ -207,7 +207,7 @@ describe('Upload Center Library', () => {
         },
       })],
     })
-    const use = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Use Story Studio')!
+    const use = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Update YouTube to Story Studio’s version')!
     use.click()
     for (let i = 0; i < 6; i++) await nextTick()
 
@@ -368,7 +368,7 @@ describe('Upload Center Library', () => {
   test('opening the page contacts YouTube for nothing', async () => {
     const mounted = await mount({ videos: [video()] })
     assert.deepEqual(mounted.calls.map(call => call.path), ['/projects/demo-project/youtube/library'])
-    assert.match(mounted.text(), /Nothing here contacts YouTube/)
+    assert.match(mounted.text(), /Looking at this list does not contact YouTube/)
     mounted.destroy()
   })
 
@@ -383,8 +383,8 @@ describe('Upload Center Library', () => {
 describe('Upload Center Library boundaries', () => {
   test('the shell links Library as a real area, not out to the old page', () => {
     assert.match(shellSource, /upload\/library/)
-    // Reconcile, Comments and Analytics still hand over honestly.
-    for (const pending of ['Reconcile', 'Comments', 'Analytics']) {
+    // Match to YouTube (the reconcile route), Comments and Analytics still hand over honestly.
+    for (const pending of ['Match to YouTube', 'Comments', 'Analytics']) {
       assert.match(shellSource, new RegExp(pending))
     }
     assert.doesNotMatch(shellSource, /Coming soon/i)

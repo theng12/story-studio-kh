@@ -25,7 +25,8 @@ async function setupWith(models: ReturnType<typeof ref<any[]>>) {
     const useAppTitle = () => undefined
     const useRoute = () => ({ params: { slug: 'task13-project' }, query: { episode_id: 'EP0001' } })
     const useApi = () => ({ get: async () => ({ scenes: [], stats: null }), post: async () => ({}), put: async () => ({}) })
-    const useToast = () => ({ success: () => undefined, error: () => undefined })
+    const useToast = () => ({ success: () => undefined, error: () => undefined, info: () => undefined })
+    const useConfirm = () => ({ ask: async () => true })
     const useJobs = () => ({ isJobActiveFor: () => false })
     const useGenStudioMediaModels = () => ({ videoModels: globalThis.__task13VideoModels, refresh: async () => undefined })
     const usePresets = options => ({ apply: options.apply })
