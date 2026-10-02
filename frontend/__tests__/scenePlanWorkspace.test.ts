@@ -77,10 +77,10 @@ describe('Scene Plan workspace', () => {
   })
 
   test('repairs missing prompts in the saved GenStudio pack size', () => {
-    assert.match(scenePlan, /packs of up to \$\{effectivePromptPackSize\.value\} scenes per GenStudio request/)
+    assert.match(scenePlan, /up to \$\{effectivePromptPackSize\.value\} scenes per request/)
     assert.match(scenePlan, /prompt_pack_size: form\.value\.prompt_pack_size/)
     assert.match(scenePlan, /prompt_max_tokens: form\.value\.prompt_max_tokens/)
-    assert.match(scenePlan, /Prompt repair queued in durable GenStudio packs/)
+    assert.match(scenePlan, /Prompt repair started in batches/)
     assert.doesNotMatch(scenePlan, /one scene per endpoint|Chat Studio pool|model pool/)
   })
 

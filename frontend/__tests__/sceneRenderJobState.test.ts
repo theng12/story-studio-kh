@@ -47,4 +47,10 @@ describe('Scene Review render owner reconciliation', () => {
       }
     }
   })
+
+  test('a single-scene regenerate owns the episode render state while it runs', () => {
+    const single = { episode_id: 'EP-SSE', job_id: 'one-image', type: 'scene_image_generate' }
+    assert.equal(resolveActiveSceneRenderJob('EP-SSE', null, [{ ...single, status: 'running' }])?.job_id, 'one-image')
+    assert.equal(resolveActiveSceneRenderJob('EP-SSE', null, [{ ...single, status: 'error' }]), null)
+  })
 })

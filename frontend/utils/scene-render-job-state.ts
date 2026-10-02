@@ -7,7 +7,9 @@ export interface SceneRenderJob {
 }
 
 const ACTIVE_RENDER_STATUSES = new Set(['running', 'queued', 'paused'])
-const SCENE_RENDER_TYPES = new Set(['continuity_render', 'scene_images_batch', 'images', 'scene_images', 'thumb_images'])
+// scene_image_generate is the single-scene regenerate: it owns the episode's
+// image buttons while it runs, so it must drive the banner and live refresh too.
+const SCENE_RENDER_TYPES = new Set(['continuity_render', 'scene_images_batch', 'scene_image_generate', 'images', 'scene_images', 'thumb_images'])
 
 function isActiveRenderJob(job: SceneRenderJob | null | undefined, types: readonly string[] | undefined): job is SceneRenderJob {
   if (!job || !ACTIVE_RENDER_STATUSES.has(job.status || '')) return false

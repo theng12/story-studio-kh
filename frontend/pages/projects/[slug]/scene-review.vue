@@ -83,7 +83,7 @@
     >
       {{ promptIntegrity.empty_ids.length }} missing and {{ promptIntegrity.duplicate_ids.length }} duplicated.
       <template #actions>
-        <NuxtLink :to="`/projects/${slug}/scene-plan`" class="btn btn-sm btn-secondary">Fix Scene Plan</NuxtLink>
+        <NuxtLink :to="scenePlanLink" class="btn btn-sm btn-secondary">Fix Scene Plan</NuxtLink>
       </template>
     </WorkspaceNotice>
     <WorkspaceNotice
@@ -91,29 +91,49 @@
       tone="warning"
       title="Older images are not mapped to this timeline"
     >
-      {{ stats.legacy_unmapped_images }} older numbered image{{ stats.legacy_unmapped_images === 1 ? '' : 's' }} cannot be safely assigned to these stable scene IDs and are intentionally not counted.
+      {{ stats.legacy_unmapped_images }} older numbered image{{ stats.legacy_unmapped_images === 1 ? '' : 's' }} from a previous version of this plan cannot be matched to the current scenes, so they are not counted. The files stay on disk.
     </WorkspaceNotice>
     <WorkspaceNotice
       v-if="manualFinishStillGeneratingCount"
       tone="info"
       title="Still generating"
     >
-      Story Studio is rejoining {{ manualFinishStillGeneratingCount }} earlier accepted image{{ manualFinishStillGeneratingCount === 1 ? '' : 's' }} that GenStudio still reports as generating. No replacement was submitted.
+      {{ manualFinishStillGeneratingCount }} image{{ manualFinishStillGeneratingCount === 1 ? '' : 's' }} you already ordered {{ manualFinishStillGeneratingCount === 1 ? 'is' : 'are' }} still being made. Story Studio is waiting for {{ manualFinishStillGeneratingCount === 1 ? 'it' : 'them' }} — nothing was ordered twice.
     </WorkspaceNotice>
     <WorkspaceNotice
       v-if="replaceableUncertainJob"
       tone="warning"
       title="Earlier image request needs a decision"
     >
-      GenStudio did not prove whether the earlier request finished. Check saved results again, or explicitly replace only the uncertain image{{ replaceableUncertainJob.params.manual_image_finish.uncertain_scene_ids.length === 1 ? '' : 's' }}.
+      GenStudio could not confirm whether {{ replaceableUncertainJob.params.manual_image_finish.uncertain_scene_ids.length === 1 ? 'an earlier image was' : `${replaceableUncertainJob.params.manual_image_finish.uncertain_scene_ids.length} earlier images were` }} made.
+      <strong>Check again</strong> asks for the earlier result instead of ordering it again (other scenes still missing in this job are made as usual). <strong>Replace anyway</strong> orders a new one and may charge again.
       <template #actions>
-        <button class="btn btn-sm btn-warn" :disabled="replacingUncertain" @click="replaceUncertainImages">
+        <button class="btn btn-sm btn-secondary" :disabled="checkingUncertain || replacingUncertain" @click="checkUncertainAgain">
+          {{ checkingUncertain ? 'Checking…' : 'Check again' }}
+        </button>
+        <button class="btn btn-sm btn-warn" :disabled="replacingUncertain || checkingUncertain" @click="replaceUncertainImages">
           {{ replacingUncertain ? 'Replacing…' : 'Replace anyway' }}
         </button>
       </template>
     </WorkspaceNotice>
 
-    <!-- Greenlight panel -->
+    <WorkspaceNotice
+      v-if="failedRenderJob"
+      tone="error"
+      title="The last image job for this episode failed"
+    >
+      {{ failedRenderMessage }} Images that were already saved are kept.
+      <template #actions>
+        <button class="btn btn-sm btn-secondary" :disabled="retryingFailedRender" title="Tries again for the images that did not finish; may use credits." @click="retryFailedRender">
+          {{ retryingFailedRender ? 'Retrying…' : 'Retry' }}
+        </button>
+        <NuxtLink :to="`/projects/${slug}/jobs`" class="btn btn-sm btn-ghost">Open Jobs</NuxtLink>
+      </template>
+    </WorkspaceNotice>
+
+    <p v-if="loading && !stats" class="text-muted text-sm mt-3" role="status">Loading episode…</p>
+
+    <!-- Render settings panel -->
     <section v-if="stats && !usesImagePool" class="card mt-3 sr-control-deck" :class="{ 'is-greenlit': stats.all_approved }">
       <div class="sr-greenlight-head">
         <div class="sr-status-copy">
@@ -179,7 +199,7 @@
           <div v-if="form.model && !hasPublishedOutputOptions" class="sr-ratio-pick" title="GenStudio decides the output resolution for this render.">
             <span class="sr-ratio-label">Resolution</span>
             <div class="sr-static-control">
-              <strong>{{ selectedGenStudioModel ? 'Managed by GenStudio' : 'Managed by provider' }}</strong>
+              <strong>Chosen by GenStudio</strong>
               <small>
                 Uses {{ form.aspect_ratio }}<template v-if="selectedGenStudioModel?.default_resolution"> · {{ selectedGenStudioModel.default_resolution }}</template>
               </small>
@@ -226,7 +246,7 @@
             class="btn btn-sm btn-secondary"
             :disabled="approvingAll || stats.with_image === 0"
             @click="approveAll(true)"
-            title="Approves every scene that has an image. Useful after spot-checking the first few."
+            :title="staleCount ? `Approves every scene that has an image — including ${staleCount} drawn from an older prompt. Asks first.` : 'Approves every scene that has an image. Useful after spot-checking the first few.'"
           >
             ✓ Approve all
           </button>
@@ -234,22 +254,22 @@
             class="btn btn-sm btn-ghost"
             :disabled="approvingAll || stats.approved === 0"
             @click="approveAll(false)"
-            title="Unapprove every scene — back to needs-review for everything."
+            title="Unapprove every scene — back to needs-review for everything. Asks first."
           >
             ↺ Reset
           </button>
           <!-- Re-roll a chosen set as one durable GenStudio batch. -->
           <button
-            v-if="isContinuity && selectedCount > 0"
+            v-if="selectedCount > 0"
             class="btn btn-sm btn-primary"
             :disabled="!form.model || continuityRendering || reviewJobActive"
             @click="regenerateSelected"
-            title="Re-render the selected scenes in one durable GenStudio batch."
+            :title="reviewJobActive ? sceneRenderBlockReason({ id: '' }) : 'Re-render the selected scenes together as one image job. Replaces their current images; may use credits.'"
           >
             Regenerate selected ({{ selectedCount }})
           </button>
           <button
-            v-if="isContinuity && selectedCount > 0"
+            v-if="selectedCount > 0"
             class="btn btn-sm btn-ghost"
             @click="clearSelection"
             title="Clear the scene selection."
@@ -257,7 +277,7 @@
             Clear
           </button>
           <button
-            v-if="isContinuity && selectedCount === 0 && stats.approved < stats.total_scenes"
+            v-if="selectedCount === 0 && stats.approved < stats.total_scenes"
             class="btn btn-sm btn-ghost"
             @click="selectAllUnapproved"
             title="Tick every not-yet-approved scene so you can trim the selection, then Regenerate selected."
@@ -266,7 +286,7 @@
           </button>
           <!-- Stale images were rendered from an older prompt. -->
           <button
-            v-if="isContinuity && selectedCount === 0 && staleCount > 0"
+            v-if="selectedCount === 0 && staleCount > 0"
             class="btn btn-sm btn-warn"
             @click="selectAllStale"
             title="Tick every scene whose image is older than its current prompt, then Regenerate selected."
@@ -274,11 +294,11 @@
             ⚠ Select stale ({{ staleCount }})
           </button>
           <button
-            v-if="isContinuity && stats.with_image > 0 && stats.approved < stats.total_scenes"
+            v-if="stats.with_image > 0 && stats.approved < stats.total_scenes"
             class="btn btn-sm btn-ghost"
             :disabled="!form.model || continuityRendering || reviewJobActive"
             @click="regenerateUnapproved"
-            title="Re-render every not-yet-approved scene in one durable GenStudio batch."
+            :title="reviewJobActive ? sceneRenderBlockReason({ id: '' }) : 'Re-render every not-yet-approved scene as one image job. Replaces their current images; may use credits.'"
           >
             Regenerate all unapproved
           </button>
@@ -296,8 +316,8 @@
     <section v-if="!usesImagePool && !stats && !plan && !loading && !reviewError" class="card mt-3">
       <p class="text-muted text-sm">
         <strong>No scene plan yet.</strong>
-        Open the <NuxtLink :to="`/projects/${slug}/scene-plan`" class="text-accent">Scene Plan</NuxtLink>
-        page to stitch subtitles + run the planner first.
+        Open the <NuxtLink :to="scenePlanLink" class="text-accent">Scene Plan</NuxtLink>
+        page to build this episode’s scenes and prompts first.
       </p>
     </section>
 
@@ -320,12 +340,12 @@
       <div v-if="activeRenderJob" class="review-render-banner mt-2">
         <span v-if="!isRenderPaused && !isQueuedRender" class="review-spinner" aria-hidden="true" />
         <span v-if="isRenderPaused">
-          Paused — awaiting explicit Resume.
-          <span class="text-muted">{{ hasSettlingProviderWork ? ' Accepted provider work is still settling; no new submissions will start.' : ' No new submissions will start until you resume.' }}</span>
+          Paused — press Resume to continue.
+          <span class="text-muted">{{ hasSettlingProviderWork ? ' Images already ordered are still finishing; no new images will be ordered.' : ' No new images will be ordered until you resume.' }}</span>
         </span>
         <span v-else-if="isQueuedRender">
           <strong>{{ isQueuedRecoveryRender ? 'Queued for repair' : 'Queued for rendering' }}</strong>
-          <span class="text-muted"> — This existing job owns the next attempt, so another image request is disabled.</span>&nbsp;
+          <span class="text-muted"> — this episode already has an image job waiting its turn, so other image buttons are paused until it runs.</span>&nbsp;
           <NuxtLink :to="`/projects/${slug}/jobs`" class="text-accent">Open Jobs</NuxtLink>
         </span>
         <span v-else>
@@ -361,7 +381,7 @@
       <div v-if="problemScenes.length" class="sr-health mt-2">
         <div class="sr-health-head">
           ⚠ {{ problemScenes.length }} scene{{ problemScenes.length === 1 ? '' : 's' }} need attention
-          <NuxtLink :to="`/projects/${slug}/scene-plan`" class="sr-health-link">Fix on Scene Plan →</NuxtLink>
+          <NuxtLink :to="scenePlanLink" class="sr-health-link">Fix on Scene Plan →</NuxtLink>
         </div>
         <div class="sr-health-list">
           <button
@@ -417,12 +437,13 @@
               <!-- v1.0.359 — stale corner flag (image older than current prompt). -->
               <span v-if="scene.stale && !isSceneGenerating(scene)" class="review-thumb-stale" title="Stale — rendered from an older prompt">⚠</span>
               <!-- v1.0.470 — animated-clip badge. Click to preview the clip. -->
-              <span
+              <NuxtLink
                 v-if="scene.clip_exists"
+                :to="motionReviewLink"
                 class="review-thumb-clip"
-                :title="scene.clip_stale ? 'Animated clip exists but the motion prompt changed since — re-animate to refresh' : 'Animated clip ready — click to preview'"
-                @click.stop="openClipPreview(scene)"
-              >{{ scene.clip_stale ? '🎬⚠' : '🎬' }}</span>
+                :title="scene.clip_stale ? 'Animated clip exists but the motion prompt changed since — open Motion Review to re-animate it' : 'Animated clip ready — open Motion Review to watch it'"
+                @click.stop
+              >{{ scene.clip_stale ? '🎬⚠' : '🎬' }}</NuxtLink>
             </template>
             <!-- Empty scene currently generating in the batch. -->
             <div v-else-if="isSceneGenerating(scene)" class="review-thumb-generating" :style="{ aspectRatio: thumbAspect }">
@@ -434,7 +455,7 @@
               :class="['review-thumb-empty', { 'is-disabled': usesImagePool || reviewJobActive }]"
               :style="{ aspectRatio: thumbAspect }"
               :aria-disabled="usesImagePool || reviewJobActive"
-              :title="usesImagePool ? 'Scene Review is not used for Image Pool episodes' : reviewJobActive ? sceneRenderBlockReason(scene) : 'Generate image'"
+              :title="usesImagePool ? 'Scene Review is not used for Image Pool episodes' : reviewJobActive ? sceneRenderBlockReason(scene) : sceneTargetsBlockReason([scene.id]) || 'Generate image'"
               @click="!usesImagePool && !reviewJobActive && generateOne(scene)"
             >
               <span>No image yet</span>
@@ -451,7 +472,6 @@
           <div class="review-body-cell">
             <div class="review-row-head">
               <input
-              v-if="isContinuity"
               type="checkbox"
               class="review-select"
               :checked="selectedIds.has(scene.id)"
@@ -485,9 +505,9 @@
           <div class="review-actions-cell">
             <button
               class="btn btn-sm btn-secondary"
-              :disabled="usesImagePool || !form.model || regeneratingId === scene.id || reviewJobActive"
+              :disabled="usesImagePool || !form.model || regeneratingId === scene.id || reviewJobActive || !!sceneTargetsBlockReason([scene.id])"
               @click="generateOne(scene)"
-              :title="usesImagePool ? 'Scene Review is not used for Image Pool episodes' : !form.model ? 'Pick a model in the Render settings first' : reviewJobActive ? sceneRenderBlockReason(scene) : 'Generate or regenerate this scene image with GenStudio'"
+              :title="usesImagePool ? 'Scene Review is not used for Image Pool episodes' : !form.model ? 'Pick a model in the Render settings first' : reviewJobActive ? sceneRenderBlockReason(scene) : sceneTargetsBlockReason([scene.id]) || 'Generate or regenerate this scene image with GenStudio'"
             >
               {{ regeneratingId === scene.id ? '⏳' : (scene.image_filename ? '↻' : '✦') }}
               {{ scene.image_filename ? 'Regenerate image' : 'Generate image' }}
@@ -578,11 +598,10 @@
               class="btn btn-sm btn-secondary"
               :disabled="usesImagePool || !form.model || regeneratingId === previewScene.id || reviewJobActive"
               @click.stop="regenerateFromPreview(previewScene)"
-              :title="!form.model ? 'Pick a model in the Greenlight panel first' : reviewJobActive ? sceneRenderBlockReason(previewScene) : 'Re-render this image (saves your prompt edit first)'"
+              :title="!form.model ? 'Pick a model in Render settings first' : reviewJobActive ? sceneRenderBlockReason(previewScene) : sceneTargetsBlockReason([previewScene.id]) || 'Re-render this image (saves your prompt edit first)'"
             >{{ regeneratingId === previewScene.id ? '⏳ Rendering…' : '🔄 Regenerate' }}</button>
             <!-- Tick this scene for the selected-scene batch without leaving the preview. -->
             <button
-              v-if="isContinuity"
               :class="['btn btn-sm', previewSelected ? 'btn-primary' : 'btn-ghost']"
               @click.stop="toggleSelected(previewScene.id)"
               title="Mark this scene for batch regeneration. Keyboard: Shift+Y"
@@ -625,6 +644,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { resolveActiveSceneRenderJob } from '~/utils/scene-render-job-state'
+import { customerSafeJobText, jobRequestIds } from '../../../utils/job-presentation.js'
 import { findOutputOption, publishedOutputOptions, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
 import { CREDIT_BASIS_LABEL, describeImageUnitCost } from '../../../utils/genstudio-credit-cost.js'
 import { findGenStudioProduct } from '../../../../electron/server/contracts/genstudio-product-identity'
@@ -676,6 +696,9 @@ const episodeId = ref(initialEpisodeId)
 const pendingSceneDeepLink = ref(typeof route.query.scene_id === 'string' ? route.query.scene_id : '')
 const motionReviewLink = computed(() => `/projects/${slug.value}/motion-review?episode_id=${encodeURIComponent(episodeId.value)}`)
 const videoAssemblyLink = computed(() => `/projects/${slug.value}/video-assembly?episode_id=${encodeURIComponent(episodeId.value)}`)
+const scenePlanLink = computed(() => episodeId.value
+  ? `/projects/${slug.value}/scene-plan?episode_id=${encodeURIComponent(episodeId.value)}`
+  : `/projects/${slug.value}/scene-plan`)
 
 interface ReviewScene {
   id: string
@@ -888,7 +911,6 @@ function mediaVersion(version: string | null | undefined): string {
 const videoModel = ref('')
 const animatingId = ref<string | null>(null)
 const animatingAll = ref(false)
-const clipPreviewScene = ref<ReviewScene | null>(null)
 // Project video models that support image-to-video (modes includes 'frames').
 const i2vModels = computed(() => {
   const vm = (config.value as any)?.video_models || {}
@@ -903,10 +925,9 @@ watch(i2vModels, (list) => {
 function clipUrl(scene: ReviewScene): string {
   return `/api/projects/${slug.value}/scene-review/${episodeId.value}/clip/${scene.id}?v=${mediaVersion(scene.clip_version)}`
 }
-function openClipPreview(scene: ReviewScene): void { clipPreviewScene.value = scene }
 
 async function animateScene(scene: ReviewScene): Promise<void> {
-  if (!videoModel.value) { showError('Pick an image-to-video model in the Greenlight panel first'); return }
+  if (!videoModel.value) { showError('Pick an image-to-video model in Render settings first'); return }
   if (!scene.image_filename) { showError('Generate the image first — there\'s nothing to animate'); return }
   if (!scene.motion_prompt) { showError('This scene has no motion prompt. Add one on the Scene Plan page.'); return }
   animatingId.value = scene.id
@@ -981,9 +1002,20 @@ const problemScenes = computed(() => {
   return list
 })
 const problemIds = computed(() => new Set(problemScenes.value.map(p => p.scene.id)))
-const sceneInputsComplete = computed(() =>
-  promptIntegrity.value?.complete === true && subtitleIntegrity.value?.complete === true,
-)
+/**
+ * Why these exact scenes cannot be rendered yet, or '' when they can. The
+ * server checks only the requested scenes' prompts, so one bad prompt elsewhere
+ * in the episode must not block an unrelated single-scene render.
+ */
+function sceneTargetsBlockReason(ids: readonly string[]): string {
+  if (subtitleIntegrity.value?.complete !== true) return 'Complete and re-stitch the subtitles before rendering images.'
+  const wanted = new Set(ids)
+  const bad = scenes.value.filter(scene => wanted.has(scene.id)
+    && (!scene.visual_prompt?.trim() || duplicatePromptIds.value.has(scene.id)))
+  if (!bad.length) return ''
+  const names = bad.slice(0, 5).map(scene => `#${scene.scene_index}`).join(', ')
+  return `Scene ${names}${bad.length > 5 ? ` and ${bad.length - 5} more` : ''} ${bad.length === 1 ? 'has' : 'have'} a missing or duplicated prompt. Fix ${bad.length === 1 ? 'it' : 'them'} on Scene Plan or in the preview first.`
+}
 // Finish only submits scenes that do not yet have an image. A prompt problem
 // on an already saved image remains visible in the editor health warning, but
 // it must not prevent recovery of the independent missing-image targets.
@@ -1028,7 +1060,8 @@ const bulkStatus = computed(() => {
   if (!missingImagePromptsComplete.value) return 'Repair missing or duplicated prompts for images still missing'
   const missing = stats.value.total_scenes - stats.value.with_image
   if (missing === 0) return 'All scenes have images'
-  return `Checks saved GenStudio results first; completed images are preserved. ${missing} scene${missing === 1 ? '' : 's'} may need fresh generation.`
+  if (reviewJobActive.value) return sceneRenderBlockReason({ id: '' })
+  return `Collects any images already made first, then orders the rest. ${missing} scene${missing === 1 ? '' : 's'} may need a new image.`
 })
 
 function imageUrl(scene: ReviewScene): string {
@@ -1076,7 +1109,7 @@ function onPreviewKey(e: KeyboardEvent): void {
   else if (e.key === 'ArrowRight') { stepPreview(1); e.preventDefault() }
   // v1.0.359 — Shift+Y toggles THIS scene's re-render selection without
   // leaving the preview (continuity only — that's where the batch lives).
-  else if (e.shiftKey && (e.key === 'Y' || e.key === 'y') && isContinuity.value) {
+  else if (e.shiftKey && (e.key === 'Y' || e.key === 'y')) {
     toggleSelected(previewScene.value.id)
     e.preventDefault()
   }
@@ -1150,6 +1183,9 @@ async function savePromptOnly(scene: ReviewScene): Promise<boolean> {
     scene.visual_prompt = next
     scene.approved = false   // image is now stale vs the edited prompt
     success(`Prompt saved for scene ${scene.scene_index}`)
+    // The prompt check (missing/duplicate) is the server's; re-read it so a
+    // fixed prompt unblocks rendering straight away.
+    await loadReview()
     return true
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to save prompt')
@@ -1239,12 +1275,10 @@ async function loadReview(): Promise<void> {
 async function generateOne(scene: ReviewScene): Promise<void> {
   if (usesImagePool.value) return
   if (reviewJobActive.value) return
-  if (!sceneInputsComplete.value) {
-    showError('Complete subtitles and repair every missing or duplicated prompt before rendering images.')
-    return
-  }
+  const blocked = sceneTargetsBlockReason([scene.id])
+  if (blocked) { showError(blocked); return }
   if (!form.value.model) {
-    showError('Pick a model in the Greenlight panel before regenerating')
+    showError('Pick a model in Render settings before regenerating')
     return
   }
   const ep = episodeId.value
@@ -1277,13 +1311,14 @@ async function generateOne(scene: ReviewScene): Promise<void> {
         ...genStudioImageBody.value,
       }
       const operationId = freshSceneImageAction.begin(payload)
-      await post(`/projects/${slug.value}/scene-review/${episodeId.value}/generate-image`, {
+      const previousVersion = scene.image_version ?? null
+      const job = await post<{ job_id?: string }>(`/projects/${slug.value}/scene-review/${episodeId.value}/generate-image`, {
         ...payload,
         operation_id: operationId,
       })
       freshSceneImageAction.complete(operationId)
-      success(`Queued scene ${scene.scene_index} — watch the Jobs panel`)
-      await pollUntilImageReady(scene.id, ep, project, scope)
+      success(`Rendering scene ${scene.scene_index} — the new image appears here when it is ready.`)
+      await pollUntilImageReady(scene.id, previousVersion, job?.job_id || null, ep, project, scope)
     }
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to queue scene image')
@@ -1314,6 +1349,7 @@ function fileToBase64(file: File): Promise<string> {
     reader.readAsDataURL(file)
   })
 }
+const MAX_UPLOAD_IMAGE_BYTES = 7 * 1024 * 1024
 async function uploadOne(scene: ReviewScene): Promise<void> {
   if (usesImagePool.value) return
   const input = document.createElement('input')
@@ -1326,6 +1362,11 @@ async function uploadOne(scene: ReviewScene): Promise<void> {
     const scope = reviewScopeSequence
     const current = () => scope === reviewScopeSequence && project === slug.value && ep === episodeId.value
     if (!file || !ep) return
+    // The upload travels as text, which grows it by a third; 7 MB keeps it under the app's 10 MB request limit.
+    if (file.size > MAX_UPLOAD_IMAGE_BYTES) {
+      showError(`That image is ${(file.size / 1024 / 1024).toFixed(1)} MB. Images up to 7 MB can be uploaded here — save it smaller (for example as a JPEG) and try again.`)
+      return
+    }
     regeneratingId.value = scene.id
     try {
       const data_base64 = await fileToBase64(file)
@@ -1390,7 +1431,7 @@ const replacingUncertain = ref(false)
 function nextManualFinishActionId(action: typeof finishAction, context: Omit<ManualFinishAction, 'id'>): string | null {
   if (action.value?.slug === context.slug && action.value.episodeId === context.episodeId) return action.value.id
   if (!globalThis.crypto?.randomUUID) {
-    showError('This browser cannot create the secure action id needed to finish missing images.')
+    showError('This browser cannot start this action safely. Restart Story Studio and try again.')
     return null
   }
   action.value = { ...context, id: globalThis.crypto.randomUUID() }
@@ -1418,8 +1459,8 @@ async function finishMissingImages(): Promise<void> {
       },
     )
     success(r.reused
-      ? 'Already checking this Finish action — reused its existing work.'
-      : `Finish is checking ${r.queued} missing image${r.queued === 1 ? '' : 's'} (${r.skipped} already saved).`)
+      ? 'This Finish is already running — nothing was ordered twice.'
+      : `Finishing ${r.queued} missing image${r.queued === 1 ? '' : 's'} (${r.skipped} already saved).`)
     if (finishAction.value?.id === actionId) finishAction.value = null
     // Re-load every 4s while images are landing.
     await pollUntilAllPresent(ep, project, scope)
@@ -1451,13 +1492,11 @@ async function loadContinuityFlag(): Promise<void> {
 async function renderContinuity(opts: { sceneIds?: string[] } = {}): Promise<void> {
   if (usesImagePool.value) return
   if (reviewJobActive.value) return
-  if (!sceneInputsComplete.value) {
-    showError('Complete subtitles and repair every missing or duplicated prompt before rendering images.')
-    return
-  }
-  if (!form.value.model) { showError('Pick a model in the Greenlight panel first'); return }
+  if (!form.value.model) { showError('Pick a model in Render settings first'); return }
   const selection = opts.sceneIds && opts.sceneIds.length ? opts.sceneIds : undefined
   if (!selection) return
+  const blocked = sceneTargetsBlockReason(selection)
+  if (blocked) { showError(blocked); return }
   const ep = episodeId.value
   renderingEpisode.value = ep
   try {
@@ -1469,7 +1508,7 @@ async function renderContinuity(opts: { sceneIds?: string[] } = {}): Promise<voi
       auto_approve_generated: autoApproveGenerated.value,
       ...genStudioImageBody.value,
     })
-    success(`Queued ${selection.length} scene(s) for GenStudio — images land as each finishes.`)
+    success(`Rendering ${selection.length} scene(s) — each image appears here as it finishes.`)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to start render')
   } finally {
@@ -1528,8 +1567,10 @@ function isSceneQueuedForRepair(scene: Pick<ReviewScene, 'id'>): boolean {
 function sceneRenderBlockReason(scene: Pick<ReviewScene, 'id'>): string {
   if (isSceneQueuedForRepair(scene)) return 'Queued for repair. The existing recovery job owns this scene; open Jobs to check its place in the queue.'
   if (isQueuedRecoveryRender.value) return 'Another repair is queued for this episode. Finish waits for that existing job; open Jobs to check its place in the queue.'
-  if (isQueuedRender.value) return 'Queued for rendering. The existing job owns this attempt; open Jobs to check its place in the queue.'
-  return 'Resume or finish the current scene render before generating another image.'
+  if (isQueuedRender.value) return 'An image job for this episode is waiting its turn. Open Jobs to see where it is in the queue.'
+  if (activeRenderJob.value?.type === 'scene_image_generate') return 'A single scene image is rendering now. Other image buttons unlock when it finishes.'
+  if (isRenderPaused.value) return 'The image job for this episode is paused. Resume or stop it before rendering another image.'
+  return 'Images for this episode are rendering now. Other image buttons unlock when that job finishes.'
 }
 const renderProgress = computed<number | null>(() => {
   const p = (activeRenderJob.value as any)?.progress
@@ -1545,6 +1586,56 @@ function isSceneGenerating(scene: ReviewScene): boolean {
   if (isRenderPaused.value) return false
   if (regeneratingId.value === scene.id) return true
   return batchInFlight.value.has(scene.scene_index)
+}
+
+// The newest image job for this episode, when it failed. A later successful or
+// running job hides it; so does an active render.
+const RENDER_JOB_TYPES = new Set(['continuity_render', 'scene_image_generate', 'scene_images_batch'])
+const failedRenderJob = computed(() => {
+  if (reviewJobActive.value) return null
+  const latest = jobs.value
+    .filter(job => RENDER_JOB_TYPES.has(job.type) && job.episode_id === episodeId.value)
+    .reduce<any | null>((newest, job) => (!newest || jobCreatedAt(job) > jobCreatedAt(newest) ? job : newest), null)
+  if (latest?.status !== 'error') return null
+  // The uncertain-image notice above already explains this failure and offers its own choices.
+  if ((latest.params as any)?.manual_image_finish?.uncertain_scene_ids?.length) return null
+  return latest
+})
+const failedRenderMessage = computed(() => {
+  const job = failedRenderJob.value
+  return job ? customerSafeJobText(job.error || 'The image job stopped with an error.', jobRequestIds(job)) : ''
+})
+const retryingFailedRender = ref(false)
+async function retryFailedRender(): Promise<void> {
+  const job = failedRenderJob.value
+  if (!job || retryingFailedRender.value) return
+  retryingFailedRender.value = true
+  try {
+    await post(`/projects/${slug.value}/jobs/${job.job_id}/retry`, {})
+    success('Retry started — images already saved are kept.')
+    await loadReview()
+  } catch (e: any) {
+    showError(customerSafeJobText(e?.data?.detail || e?.message || 'Could not retry. Open the Jobs page to try from there.', jobRequestIds(job)))
+  } finally {
+    retryingFailedRender.value = false
+  }
+}
+
+const checkingUncertain = ref(false)
+/** Re-run the same job in place: it asks GenStudio for the earlier result and never orders a second image for an uncertain scene. */
+async function checkUncertainAgain(): Promise<void> {
+  const job = replaceableUncertainJob.value as any
+  if (!job || checkingUncertain.value) return
+  checkingUncertain.value = true
+  try {
+    await post(`/projects/${slug.value}/jobs/${job.job_id}/finish-missing-images`, {})
+    success('Checking the earlier image request again. Nothing new is ordered for the uncertain image.')
+    await loadReview()
+  } catch (e: any) {
+    showError(customerSafeJobText(e?.data?.detail || e?.message || 'Could not check again. Open the Jobs page to try from there.', jobRequestIds(job)))
+  } finally {
+    checkingUncertain.value = false
+  }
 }
 
 async function replaceUncertainImages(): Promise<void> {
@@ -1583,7 +1674,7 @@ async function replaceUncertainImages(): Promise<void> {
       },
     )
     success(r.reused
-      ? 'Already checking this replacement action — reused its existing work.'
+      ? 'This replacement is already running — nothing was ordered twice.'
       : `Replacing ${r.queued} uncertain image${r.queued === 1 ? '' : 's'} (${r.skipped} already saved).`)
     if (replaceAction.value?.id === actionId) replaceAction.value = null
     await pollUntilAllPresent(ep, project, scope)
@@ -1630,7 +1721,7 @@ async function resumeActiveRender(): Promise<void> {
   cancelingRender.value = true
   try {
     await post(`/projects/${slug.value}/jobs/${job.job_id}/resume`, {})
-    success('Scene render resumed. Saved files are audited; only missing scenes can be submitted.')
+    success('Rendering resumed. Images already saved are kept; only the missing ones are ordered.')
     await loadReview()
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to resume scene render')
@@ -1670,29 +1761,54 @@ watch(isRendering, (active) => {
     void loadReview()  // final refresh to pick up the last image
   }
 }, { immediate: true })
-onBeforeUnmount(stopRenderPoll)
+/** Set on unmount so long waits stop instead of fetching for a page that is gone. */
+let pageUnmounted = false
+onBeforeUnmount(() => {
+  pageUnmounted = true
+  stopRenderPoll()
+})
 
-async function pollUntilImageReady(sceneId: string, ep: string, project: string, scope: number): Promise<void> {
-  const current = () => scope === reviewScopeSequence && project === slug.value && ep === episodeId.value
+/**
+ * Wait for THIS render's image: a regenerate already has an image, so the
+ * signal is a changed image_version, not merely a present file. Stops when the
+ * tracked job ends (a failure is shown by the failed-job notice) or the page
+ * is left. While the render poll is running it already refreshes the review,
+ * so this loop only reads the result instead of fetching a second time.
+ */
+async function pollUntilImageReady(
+  sceneId: string,
+  previousVersion: string | null,
+  jobId: string | null,
+  ep: string,
+  project: string,
+  scope: number,
+): Promise<void> {
+  const current = () => !pageUnmounted && scope === reviewScopeSequence && project === slug.value && ep === episodeId.value
   const start = Date.now()
-  const timeoutMs = 120_000
+  const timeoutMs = 900_000
   while (Date.now() - start < timeoutMs) {
     await new Promise(r => setTimeout(r, 3000))
     if (!current()) return
-    await loadReview()
+    if (!renderPollActive) await loadReview()
     if (!current()) return
     const found = scenes.value.find(s => s.id === sceneId)
-    if (found?.image_filename) return  // its new image_version already re-keyed the <img>
+    if (found?.image_filename && (found.image_version ?? null) !== previousVersion) return  // the new version re-keyed the <img>
+    const job = jobId ? jobs.value.find(candidate => candidate.job_id === jobId) : null
+    if (job && ['done', 'error', 'cancelled'].includes(job.status)) {
+      await loadReview()
+      return
+    }
   }
 }
 async function pollUntilAllPresent(ep: string, project: string, scope: number): Promise<void> {
-  const current = () => scope === reviewScopeSequence && project === slug.value && ep === episodeId.value
+  const current = () => !pageUnmounted && scope === reviewScopeSequence && project === slug.value && ep === episodeId.value
   const start = Date.now()
   const timeoutMs = 300_000  // 5 min for bulk
   while (Date.now() - start < timeoutMs) {
     await new Promise(r => setTimeout(r, 4000))
     if (!current()) return
-    await loadReview()
+    // The render poll refreshes the review while the job is visible; avoid a second fetch.
+    if (!renderPollActive) await loadReview()
     if (!current()) return
     if (activeRenderJob.value?.status === 'paused') return
     if (stats.value && stats.value.with_image >= stats.value.total_scenes) return
@@ -1741,6 +1857,21 @@ async function approveOne(scene: ReviewScene, approved: boolean): Promise<void> 
   }
 }
 async function approveAll(approved: boolean): Promise<void> {
+  const ok = await ask(approved
+    ? {
+        title: 'Approve every scene with an image?',
+        message: staleCount.value
+          ? `${staleCount.value} of these images were drawn from an older prompt (marked ⚠ stale). They will be approved as they are.`
+          : 'Every scene that has an image will be marked approved.',
+        confirmLabel: 'Approve all',
+      }
+    : {
+        title: 'Un-approve every scene?',
+        message: `All ${stats.value?.approved ?? 0} approved scenes go back to needs-review. No images are deleted.`,
+        confirmLabel: 'Un-approve all',
+        danger: true,
+      })
+  if (!ok) return
   approvingAll.value = true
   try {
     const r = await put<{ changed: number; stats: ReviewStats }>(
@@ -1837,6 +1968,18 @@ watch([slug, episodeId], () => {
   // scenes that do not belong to the open episode (AGENTS.md §4).
   previewScene.value = null
   selectedIds.value = new Set()
+  // Blank the previous episode's review so nothing from it (scenes, counts,
+  // "Greenlit" links, render banner) shows while — or if — this one fails to load.
+  plan.value = null
+  scenes.value = []
+  stats.value = null
+  audioPath.value = null
+  audioVersion.value = null
+  promptIntegrity.value = null
+  subtitleIntegrity.value = null
+  renderStatus.value = null
+  activeRenderJobFromReview.value = null
+  reviewError.value = ''
   void loadReview()
   void loadContinuityFlag()
 }, { immediate: true, flush: 'sync' })

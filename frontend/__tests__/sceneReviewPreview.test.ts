@@ -31,7 +31,7 @@ describe('Scene Review image preview', () => {
     // No pixel menu: `sizes` was never published, so nothing selects one and
     // nothing falls back to a hardcoded table.
     assert.doesNotMatch(sceneReviewSource, /sr-gen-size|selectedGenStudioSizes|genstudio_size|genStudioSizeKey/)
-    assert.match(sceneReviewSource, /Managed by GenStudio/)
+    assert.match(sceneReviewSource, /Chosen by GenStudio/)
     assert.match(sceneReviewSource, /selectedGenStudioModel\?\.default_resolution/)
     // Seed is offered only where GenStudio publishes support for one.
     assert.match(sceneReviewSource, /selectedGenStudioModel\.supports_seed !== false/)
@@ -78,7 +78,7 @@ describe('Scene Review image preview', () => {
     assert.match(sceneReviewSource, /const action = control\.action === 'pause-submissions' \? 'pause' : \(isCancellation \? 'cancel' : null\)/)
     assert.match(sceneReviewSource, /post\(`\/projects\/\$\{slug\.value\}\/jobs\/\$\{job\.job_id\}\/\$\{action\}`, \{\}\)/)
     assert.doesNotMatch(sceneReviewSource, /del\(`\/projects\/\$\{slug\.value\}\/jobs\/\$\{job\.job_id\}`\)/)
-    assert.match(sceneReviewSource, /Paused — awaiting explicit Resume/)
+    assert.match(sceneReviewSource, /Paused — press Resume to continue/)
     assert.match(sceneReviewSource, /\/projects\/\$\{slug\.value\}\/jobs\/\$\{job\.job_id\}\/resume/)
     assert.match(sceneReviewSource, /resolveActiveSceneRenderJob\(episodeId\.value, activeRenderJobFromReview\.value, jobs\.value\)/)
     assert.ok((sceneReviewSource.match(/if \(reviewJobActive\.value\) return/g) || []).length >= 2)
