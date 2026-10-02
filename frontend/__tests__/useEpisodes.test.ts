@@ -52,7 +52,7 @@ class FakeEventSource {
 
 // useEpisodes wraps the useJobs import in try/catch so unit tests don't need
 // to provide an SSE-driven jobs source — auto-invalidation just disables.
-const { useEpisodes, invalidateEpisodes } = await import('../composables/useEpisodes.js')
+const { useEpisodes, invalidateEpisodes, _forgetEpisodeJobRefreshesForTests } = await import('../composables/useEpisodes.js')
 const { useJobs } = await import('../composables/useJobs.js')
 
 function fakeRow(code: string, scriptDone = true) {
@@ -142,6 +142,7 @@ describe('useEpisodes', () => {
     // Wipe internal slots between tests.
     invalidateEpisodes('alpha')
     invalidateEpisodes('beta')
+    _forgetEpisodeJobRefreshesForTests()
   })
 
   test('first mount fetches and populates episodes', async () => {
@@ -282,6 +283,21 @@ describe('useEpisodes', () => {
     assert.equal(fetchCalls.length, 1, 'reconnect snapshot does not rescan unchanged history')
     queue.stopPolling()
     m.app.unmount()
+  })
+
+  test('two mounted lists for one project refresh ONCE per finished job, not once each', async () => {
+    fetchHandler = () => [fakeRow('EP001')]
+    const { queue, stream } = startJobs('alpha')
+    const first = mountWithComposable('alpha', { invalidateOnJobTypes: true })
+    const second = mountWithComposable('alpha', { invalidateOnJobTypes: true })
+    await settle()
+    const before = fetchCalls.length
+    stream.fire('snapshot', snapshot([fakeJob({ job_id: 'shared-done', status: 'done', finished_at: new Date(Date.now() + 1_000).toISOString() })]))
+    await settle(); await settle()
+    assert.equal(fetchCalls.length - before, 1, 'one completion, one episode-list read')
+    queue.stopPolling()
+    first.app.unmount()
+    second.app.unmount()
   })
 
   test('refetches when a completion lands after the episode list was fetched', async () => {
