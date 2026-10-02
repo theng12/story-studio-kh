@@ -53,8 +53,10 @@ test('a fully tiered empty selector chooses only an available Economy model', ()
   assert.equal(selectLiveGenStudioModel('missing-saved-model', fullyTieredModels), null)
 })
 
-test('a fully tiered language selector chooses Promotional before other language tiers', () => {
-  assert.equal(selectLiveGenStudioModel('', llmModels)?.id, 'promotional-model')
+test('a writing-model selector never picks one for the owner (2026-10-03)', () => {
+  assert.equal(selectLiveGenStudioModel('', llmModels), null)
+  assert.equal(selectLiveGenStudioModel('', models, false, 'llm'), null)
+  assert.equal(selectLiveGenStudioModel('promotional-model', llmModels)?.id, 'promotional-model')
 })
 
 test('an untiered legacy catalog keeps its existing first-usable default', () => {
@@ -141,4 +143,9 @@ test('generator pickers keep stale selections visible until the user replaces th
   assert.match(motionPage, /selectLiveImageToVideoModel/)
   assert.doesNotMatch(motionPage, /const fallback = exact \|\| mapped \|\|/)
   assert.doesNotMatch(transcription, /\|\| models\.value\[0\]/)
+})
+
+test('an empty writing-model picker says the owner has to choose, visibly', () => {
+  const source = readFileSync(new URL('../components/ModelSelector.vue', import.meta.url), 'utf8')
+  assert.match(source, /v-else-if="!modelValue\.trim\(\) && allModels\.length && !loading"[\s\S]{0,120}Choose a writing model\. Story Studio does not pick one for you\./)
 })

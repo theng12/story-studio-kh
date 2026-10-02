@@ -51,7 +51,7 @@ import { createHash } from 'crypto'
 import { assertPipelineModelRequestCapabilities, callAi, callAiWithRetry, executePipelineModelPolicy, llmLineupAttemptRequestIdentity, llmLineupAvailabilityScope, parseStructuredJson, resolveLivePipelineModel } from './ai-client.js'
 import { pipelinePolicyInputFingerprint, rankedPipelineModelCandidates, readPipelinePolicyAttemptCheckpoint, type AssignedPipelineModelPolicy, type PipelinePolicyCheckpointStore } from './pipeline-model-policy.js'
 import { freshGenerationRequestIdentity } from './fresh-generation-action.js'
-import { GenStudioChatIncompleteError, GenStudioChatProductUnavailableError, isGenStudioInsufficientCredits, listChatModels } from './genstudio-client.js'
+import { GenStudioChatIncompleteError, isGenStudioInsufficientCredits, listChatModels } from './genstudio-client.js'
 import { stripGenStudioModelPrefix } from '../services/genstudio-model-migration.js'
 import { outlineOutputContract } from './story-output-contracts.js'
 import { getOutlineHeadroom } from '../services/app-settings.js'
@@ -821,9 +821,7 @@ export async function buildOutlineOnly(
     // expand-chapters executor falls back to the request body in that case.
     //
     // `model` is read from `params.model` AFTER `buildOutline` above, not
-    // from the snapshot setupChunkedJobContext took before the call — a
-    // saved reference `withModelFallback` had to heal is exactly the kind of
-    // dead id this record must never re-persist. The sidecar is the
+    // from the snapshot setupChunkedJobContext took before the call. The sidecar is the
     // operative source a later expand-chapters run reads back (see
     // setupChunkedJobContext's `source: 'sidecar'`), so it must always name
     // the product that actually wrote the outline, never one GenStudio had
@@ -969,13 +967,8 @@ export async function expandChapters(
   const finalSidecar = await readSidecar(params.scriptDir, params.episode_id)
   const written = finalSidecar?.chapters_done.length ?? verifiedDone.size
 
-  // `withModelFallback` may have healed `params.model` mid-run — a saved
-  // reference GenStudio no longer resolves. Persist the model that ACTUALLY
-  // wrote these chapters back into the sidecar so a later expand-chapters
-  // run reads the same live id instead of re-discovering the same dead one.
-  // This is how an outline built before a GenStudio catalogue change
-  // self-repairs on its next successful run, rather than needing every
-  // future expand to re-heal (and re-announce) the same substitution.
+  // Persist the model that ACTUALLY wrote these chapters (the one chosen for
+  // this run) back into the sidecar, so a later expand-chapters run reads it.
   if (finalSidecar?.generation_params && finalSidecar.generation_params.model !== params.model) {
     await writeSidecar(params.scriptDir, {
       ...finalSidecar,
@@ -1043,26 +1036,11 @@ export function estimateBatchCount(pending: number, mode: ChunkedMode): number {
 // catalogue happens to be unreachable.
 
 /**
- * Run one language-product call, healing a model reference GenStudio no
- * longer resolves instead of failing the whole batch/outline on its account.
- *
- * On `GenStudioChatProductUnavailableError` (the dead-id refusal — thrown
- * strictly before any submission, so nothing was charged for the refused
- * attempt), resolves the live default via `resolveDefaultChatModel`, ANNOUNCES
- * the swap in the job log (never a silent substitution — AGENTS.md), updates
- * `params.model` so every later call in this same run uses the healed id
- * directly, and retries ONCE with it.
- *
- * When there is genuinely nothing to heal to — no GenStudio API key, or the
- * live catalogue itself has no usable product — the ORIGINAL refusal is
- * rethrown unchanged. That is the one case that must still hard-fail: Story
- * Studio does not invent a product id to keep a run alive.
- *
- * Any other error (a real network failure, `GenStudioChatIncompleteError`,
- * etc.) passes straight through — this wrapper only ever acts on the one
- * error it names.
+ * Run one language-product call with the model the owner chose, or through his Pipeline lineup.
+ * A model GenStudio no longer offers stops the run with `GenStudioChatProductUnavailableError`
+ * (thrown before any submission, so nothing was charged) — it is never replaced by another model.
  */
-async function withModelFallback<T>(
+async function withChosenModel<T>(
   job: Job,
   params: ChunkedNarrationParams,
   attempt: (
@@ -1102,39 +1080,9 @@ async function withModelFallback<T>(
       { candidates: candidateOrder, availabilityScope },
     )
   }
-  try {
-    return await attempt(params.model)
-  } catch (error) {
-    if (!(error instanceof GenStudioChatProductUnavailableError)) throw error
-
-    // Listicle batches run several workers concurrently against the same
-    // `params`. If a sibling worker already healed this exact dead id (it
-    // mutates `params.model` below), just retry with what's there now — no
-    // duplicate catalogue lookup, no duplicate log line. `error.modelId` is
-    // always the bare GenStudio id (prepareChatSubmission strips the
-    // transport prefix before throwing); `params.model` may still carry the
-    // `genstudio-chat:` prefix, so both sides are normalised before comparing.
-    if (stripGenStudioModelPrefix('chat', params.model) !== error.modelId) {
-      return await attempt(params.model)
-    }
-
-    const { getApiKey } = await import('../services/app-secrets-store.js')
-    const { resolveDefaultChatModel } = await import('../services/genstudio-default-model.js')
-    const apiKey = await getApiKey('genstudio').catch(() => '')
-    if (!apiKey) throw error
-
-    const healed = await resolveDefaultChatModel(apiKey, error.modelId).catch(() => null)
-    if (!healed) throw error
-
-    job.output_lines.push(
-      `The saved model "${error.modelId}" is no longer available on GenStudio (retired, unpublished, or ` +
-      `qualification-only), so the refused attempt made no request and was not charged. Falling back to the ` +
-      `currently available "${healed.modelId}" for the rest of this run. Chapters already on disk are kept ` +
-      `as-is — regenerate any you want rewritten in the new voice.`,
-    )
-    params.model = healed.modelId
-    return await attempt(params.model)
-  }
+  // The owner's chosen model, or a plain stop. An unavailable model is never swapped for another
+  // (2026-10-03: the gateway publishes every chat model as free, so a swap could land on a paid one).
+  return attempt(params.model)
 }
 
 function pipelineAttemptContext<T extends Record<string, any>>(
@@ -1252,7 +1200,7 @@ async function buildOutline(
   const maxChapters = Math.max(params.totalChapters, Math.floor(params.totalChapters * headroom))
   const outlineContract = outlineOutputContract(params.totalChapters, maxChapters)
   const outlineCheckpointKey = `${job.project_slug}:${params.episode_id}:script:outline`
-  const arr = await withModelFallback(job, params, (model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch) => callForJsonArray(
+  const arr = await withChosenModel(job, params, (model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch) => callForJsonArray(
     model, params.systemPrompt, prompt, params.apiKeys,
     pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared, retryEpoch, outlineCheckpointKey, model, params.pipelineModelPolicy?.wait_for_availability === true),
     outlineContract,
@@ -1502,7 +1450,7 @@ async function expandNarrativeSequential(
         chapters: repairBatch.map(entry => entry.n), system: params.systemPrompt,
         generation_params: params.generationParams,
       })
-      const recoveredRepairText = await withModelFallback(job, params, (model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch) => callAiWithRetry(
+      const recoveredRepairText = await withChosenModel(job, params, (model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch) => callAiWithRetry(
         model, params.systemPrompt, repairPrompt, params.apiKeys, true, {
           ...pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared, retryEpoch, repairCheckpointKey, model, params.pipelineModelPolicy?.wait_for_availability === true),
           ...((retryEpoch || 0) > 0 ? {} : {
@@ -1528,7 +1476,7 @@ async function expandNarrativeSequential(
     let wrote: number[] = []
     let incomplete: GenStudioChatIncompleteError | null = null
     try {
-      const text = await withModelFallback(job, params, (model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch) =>
+      const text = await withChosenModel(job, params, (model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch) =>
         callAiWithRetry(model, params.systemPrompt, prompt, params.apiKeys, true, {
           ...pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared, retryEpoch, chapterCheckpointKey, model, params.pipelineModelPolicy?.wait_for_availability === true),
           ...uncreatedBatchRecovery,
@@ -1600,7 +1548,7 @@ async function expandNarrativeSequential(
         chapters: repairBatch.map(entry => entry.n), system: params.systemPrompt,
         generation_params: params.generationParams,
       })
-      const repairText = await withModelFallback(job, params, (model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch) => callAiWithRetry(
+      const repairText = await withChosenModel(job, params, (model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch) => callAiWithRetry(
         model, params.systemPrompt, repairPrompt, params.apiKeys, true, {
           ...pipelineAttemptContext(repairCtx, recovery, checkpointAccepted, checkpointPrepared, retryEpoch, repairCheckpointKey, model, params.pipelineModelPolicy?.wait_for_availability === true),
         },
@@ -1779,7 +1727,7 @@ async function expandListicleParallel(
           recoverByIdempotencyKey: job.genstudio_chat_recovery === true,
           allowedRecoveryKeys: job.genstudio_chat_recovery_keys,
         }
-        const text = await withModelFallback(job, params, (model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch) =>
+        const text = await withChosenModel(job, params, (model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch) =>
           callAiWithRetry(model, params.systemPrompt, prompt, params.apiKeys, true, {
             ...pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared, retryEpoch, chapterCheckpointKey, model, params.pipelineModelPolicy?.wait_for_availability === true),
           }), {

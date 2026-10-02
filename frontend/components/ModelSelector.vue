@@ -29,6 +29,9 @@
          thing telling the user why the field no longer names a model, and it
          asks them to do something about it. -->
     <p v-if="selectionGap" class="selection-gap">{{ selectionGap }}</p>
+    <p v-else-if="!modelValue.trim() && allModels.length && !loading" class="selection-gap">
+      Choose a writing model. Story Studio does not pick one for you.
+    </p>
     <!-- Rendered in full, always, while a model carrying it is selected. Not a
          tooltip, not collapsed, not truncated: choosing the model IS the
          consent act, so the words have to be readable at the moment of

@@ -1,5 +1,4 @@
 import {
-  isCompleteLlmTierCatalog,
   isCompleteTierCatalog,
   type GenStudioCostTier,
   type GenStudioLlmCostTier,
@@ -89,10 +88,11 @@ export function selectLiveGenStudioModel<T extends LiveGenStudioModel>(
   const tieredModels = models.map(model => ({ costTier: model.cost_tier }))
   const hasLanguageTier = tierProfile === 'llm'
     || (tierProfile === 'auto' && models.some(model => model.cost_tier === 'promotional' || model.cost_tier === 'value'))
-  if (hasLanguageTier && isCompleteLlmTierCatalog(tieredModels)) {
-    return models.find(model => model.cost_tier === 'promotional' && usable(model)) || null
-  }
-  if (hasLanguageTier || !isCompleteTierCatalog(tieredModels)) {
+  // A writing model is never picked for the owner (2026-10-03): the gateway labels every chat
+  // model economy / free, so "the first usable one" could be a paid provider. The picker stays
+  // empty and says so; the owner's choice is then remembered as usual.
+  if (hasLanguageTier) return null
+  if (!isCompleteTierCatalog(tieredModels)) {
     return models.find(usable) || null
   }
   return models.find(model => model.cost_tier === 'economy' && usable(model)) || null
