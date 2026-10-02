@@ -38,7 +38,8 @@ async function loadPage(): Promise<Component> {
     const useRoute = () => globalThis.__mrRoute
     const useProject = () => ({ config: {} })
     const useApi = () => globalThis.__mrApi
-    const useToast = () => ({ success: () => {}, error: error => { throw error } })
+    const useToast = () => ({ success: () => {}, error: error => { throw error }, info: () => {} })
+    const useConfirm = () => ({ ask: async () => true })
     const useJobs = () => ({ isJobActiveFor: () => false })
     const useGenStudioMediaModels = () => ({ videoModels: globalThis.__mrModels, refresh: async () => {} })
     const usePresets = options => { globalThis.__mrPreset = options; return {} }
@@ -200,7 +201,7 @@ describe('Motion Review audio switch', () => {
     ])])
     // The same route the duration suite drives: pick the published ratio, follow narration (which
     // is the mode that builds a batch plan), then press the page's generate action.
-    const ratio = mounted.el.querySelector<HTMLSelectElement>('select[aria-label="Published aspect ratio"]')!
+    const ratio = mounted.el.querySelector<HTMLSelectElement>('select[aria-label="Aspect ratio"]')!
     ratio.value = '16:9'
     ratio.dispatchEvent(new Event('change', { bubbles: true }))
     mounted.el.querySelector<HTMLInputElement>('input[name="duration-mode"][value="follow_narration"]')!.click()

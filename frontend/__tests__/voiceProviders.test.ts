@@ -235,7 +235,7 @@ test('GenStudio catalogs stay provider-owned across voice, image, LLM, and video
   // The controls describe what the CLIP will be. Resolution and manual timing
   // are separate, but both still come only from the selected model's current
   // priced image-to-video rows; the page never copies a duration/provider list.
-  assert.match(motionReview, /aria-label="Published resolution"/)
+  assert.match(motionReview, /aria-label="Resolution"/)
   assert.match(motionReview, /aria-label="Manual clip length slider"/)
   assert.match(motionReview, /variantsForVideoOperation\(selectedVideoModel\.value\?\.variants, STORY_STUDIO_VIDEO_OPERATION\)/)
   assert.match(motionReview, /variant\.credits_per_video/)

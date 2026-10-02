@@ -20,9 +20,11 @@ async function clickHarness(post: (...args: any[]) => Promise<any>) {
     const videoAssemblyGenerating = { value: false }, errors = []
     const buildVideoAssemblyPayload = () => ({ episode_id: episodeId.value })
     const showError = message => errors.push(message)
+    const info = message => infos.push(message), infos = []
+    const subtitles = { enabled: false }, nextTick = () => Promise.resolve()
     const runGenerateVideo = async () => { if (!generating.value) { generating.value = true; queued++ } }
     ${code}
-    return { generateVideo, preflightRunning, preflightConfirmed, currentStep, errors,
+    return { generateVideo, preflightRunning, subtitles, infos, subtitlePreflight, preflightStale, preflightConfirmed, currentStep, errors,
       get queued() { return queued },
       switchEpisode() { episodeId.value = 'TN0166'; videoEpisodeSequence++; resetSubtitlePreflight() }
     }

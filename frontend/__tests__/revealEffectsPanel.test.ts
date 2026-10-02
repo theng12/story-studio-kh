@@ -82,7 +82,7 @@ test('the panel shows the render\'s own plan rather than a second opinion', () =
 
 test('the panel says what the saving is and that it renders locally', () => {
   assert.match(page, /One image carries a whole narration line/)
-  assert.match(page, /Rendered locally: no model, no memory tier/)
+  assert.match(page, /It runs on this Mac, with no AI model and no extra cost/)
   // And the family's own approximation is shown where a pack carries one.
   assert.match(page, /preset\.approximation/)
 })

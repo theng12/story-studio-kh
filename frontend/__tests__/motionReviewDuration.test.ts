@@ -25,7 +25,8 @@ async function loadPage(): Promise<Component> {
     const useRoute = () => globalThis.__mrRoute
     const useProject = () => ({ config: {} })
     const useApi = () => globalThis.__mrApi
-    const useToast = () => ({ success: () => {}, error: error => { throw error } })
+    const useToast = () => ({ success: () => {}, error: error => { throw error }, info: () => {} })
+    const useConfirm = () => ({ ask: async () => true })
     const useJobs = () => ({ isJobActiveFor: () => false })
     const useGenStudioMediaModels = () => ({ videoModels: globalThis.__mrModels, refresh: async () => {} })
     const usePresets = options => { globalThis.__mrPreset = options; return {} }
@@ -196,13 +197,13 @@ describe('Motion Review duration controls', () => {
     assert.match(rows[0]!, /Narration\s*6\.2s/)
     assert.match(rows[0]!, /Next request\s*8s/)
     assert.match(rows[0]!, /Trim 1\.8s/)
-    assert.match(rows[0]!, /Listed cost 80 credits/)
+    assert.match(rows[0]!, /Estimated cost\s*80 credits/)
     assert.match(rows[1]!, /Narration\s*12s/)
     assert.match(rows[1]!, /Next request\s*10s/)
     assert.match(rows[1]!, /Hold final frame 2s/)
     assert.match(mounted.text(), /2 clips/)
-    assert.match(mounted.text(), /Listed total 180 credits/)
-    assert.match(mounted.text(), /provider quote is authoritative/i)
+    assert.match(mounted.text(), /Estimated total 180 credits/)
+    assert.match(mounted.text(), /Price is confirmed when each clip starts/i)
     mounted.destroy()
   })
 
@@ -236,7 +237,7 @@ describe('Motion Review duration controls', () => {
     manual.value = '8'
     manual.dispatchEvent(new Event('input', { bubbles: true }))
     manual.dispatchEvent(new Event('blur', { bubbles: true }))
-    change(mounted.el.querySelector<HTMLSelectElement>('select[aria-label="Published resolution"]')!, '1080p')
+    change(mounted.el.querySelector<HTMLSelectElement>('select[aria-label="Resolution"]')!, '1080p')
     await settle()
     assert.equal(manual.value, '10', 'a resolution switch rounds the selected duration up instead of resetting it')
 
@@ -245,13 +246,13 @@ describe('Motion Review duration controls', () => {
     assert.match(mounted.text(), /Maximum 30s/)
     assert.doesNotMatch(mounted.text(), /Maximum 8s/)
     assert.deepEqual(
-      [...mounted.el.querySelectorAll<HTMLSelectElement>('select[aria-label="Published resolution"] option')].map(option => option.value),
+      [...mounted.el.querySelectorAll<HTMLSelectElement>('select[aria-label="Resolution"] option')].map(option => option.value),
       ['1080p'],
     )
 
     mounted.models.value = [model('unavailable', [], false)]
     await settle()
-    assert.match(mounted.text(), /No published resolution/)
+    assert.match(mounted.text(), /No resolution available/)
     assert.equal(mounted.el.querySelector<HTMLButtonElement>('button')?.disabled, true)
     mounted.destroy()
   })
@@ -268,10 +269,10 @@ describe('Motion Review duration controls', () => {
         scene({ id: 'still', scene_index: 6, motion_choice: 'still' }),
       ],
     })
-    change(mounted.el.querySelector<HTMLSelectElement>('select[aria-label="Published aspect ratio"]')!, '16:9')
+    change(mounted.el.querySelector<HTMLSelectElement>('select[aria-label="Aspect ratio"]')!, '16:9')
     clickRadio(mounted.el, 'follow_narration')
     await settle()
-    assert.match(mounted.text(), /1 clip · Listed total 80 credits/)
+    assert.match(mounted.text(), /1 clip · Estimated total 80 credits/)
     assert.match(mounted.text(), /Existing clips stay out of this batch/)
     mounted.el.querySelector<HTMLButtonElement>('button')!.click()
     await settle()
@@ -285,7 +286,7 @@ describe('Motion Review duration controls', () => {
 
   test('presets retain the manual value and old presets remain manual', async () => {
     const mounted = await mount({ models: [model('sparse', [variant(5, '720p'), variant(8, '720p')])] })
-    change(mounted.el.querySelector<HTMLSelectElement>('select[aria-label="Published aspect ratio"]')!, '16:9')
+    change(mounted.el.querySelector<HTMLSelectElement>('select[aria-label="Aspect ratio"]')!, '16:9')
     const field = mounted.el.querySelector<HTMLInputElement>('input[aria-label="Manual clip length"]')!
     field.value = '8'
     field.dispatchEvent(new Event('input', { bubbles: true }))
@@ -329,13 +330,13 @@ describe('Motion Review duration controls', () => {
       motion_scene_ids: ['opening'],
       motion_crossing_scene_ids: ['crossing'],
     })
-    change(mounted.el.querySelector<HTMLSelectElement>('select[aria-label="Published aspect ratio"]')!, '16:9')
+    change(mounted.el.querySelector<HTMLSelectElement>('select[aria-label="Aspect ratio"]')!, '16:9')
     await settle()
 
     assert.match(mounted.text(), /Opening.*12s/i)
     assert.match(mounted.text(), /1 eligible scene/i)
     assert.match(mounted.text(), /Scene 2 crosses the opening boundary/i)
-    assert.match(mounted.text(), /1 clip · Listed total 50 credits/)
+    assert.match(mounted.text(), /1 clip · Estimated total 50 credits/)
     assert.ok(mounted.el.querySelector('a[href*="scene-plan"][href$="#visual-timing"]'))
     const generateButtons = [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
       .filter(button => /Generate clip/.test(button.textContent || ''))
