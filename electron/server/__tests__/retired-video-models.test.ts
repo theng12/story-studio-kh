@@ -25,10 +25,11 @@ const row = (id: string, display_name: string) => ({
 })
 
 test('every spelling of the retired model is recognised, and nothing else is', () => {
-  for (const id of [PACKAGE_ID, REPO_ID, 'local-ltx', 'genstudio-video:local-ltx', 'LTX-2.3']) {
+  for (const id of [PACKAGE_ID, REPO_ID, 'local-ltx', 'genstudio-video:local-ltx', 'LTX-2.3',
+    'gemma-3-12b-it-4bit', 'mlx-community/gemma-3-12b-it-4bit', 'studio-hub::mlx-community/Gemma-3-12B-IT-4bit']) {
     assert.equal(isRetiredVideoModelId(id), true, id)
   }
-  for (const id of ['genstudio-video-veo-31-v1', 'mlx-community/gemma-3-12b-it-4bit', 'gemma-4-26b', 'multixtreme', 'fal-ai/ltx-video', 'genstudio-video-ltx-video-v1', '', undefined]) {
+  for (const id of ['genstudio-video-veo-31-v1', 'gemma-4-26b', 'gemma-3-27b', 'mlx-community/gemma-3-27b-it-4bit', 'multixtreme', 'fal-ai/ltx-video', 'genstudio-video-ltx-video-v1', '', undefined]) {
     assert.equal(isRetiredVideoModelId(id), false, String(id))
   }
   assert.equal(isRetiredVideoModel({ id: 'genstudio-video-abc-v1', display_name: 'LTX 2.3 (local)' }), true)

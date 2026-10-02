@@ -8,6 +8,9 @@
  * does not publish: the picker offers the live models, and a scene with no clip
  * stays a still.
  *
+ * Retired 2026-10-02 with it: Gemma 3 12B 4-bit (`gemma-3-12b-it-4bit`, LTX's text encoder; the owner: "it's bad").
+ * Other Gemma models (gemma-4-*, gemma-3-27b) are different products and are not caught.
+ *
  * Dependency-free so renderer code can import it (see nuxt.config.ts).
  */
 
@@ -16,7 +19,7 @@
  * local lane's own spellings (`local-ltx`, `baa-ai/LTX-...`). Deliberately NOT every id containing
  * `ltx`: a hosted cloud model such as fal's `ltx-video` is a different product and stays selectable.
  */
-const RETIRED_VIDEO_TOKEN = /(^|[^a-z0-9])(ltx[-. ]?2[-. ]?3|local-ltx|baa-ai\/ltx)/i
+const RETIRED_VIDEO_TOKEN = /(^|[^a-z0-9])(ltx[-. ]?2[-. ]?3|local-ltx|baa-ai\/ltx|gemma[-. ]?3[-. ]?12b)/i
 
 export function isRetiredVideoModelId(value: unknown): boolean {
   return typeof value === 'string' && RETIRED_VIDEO_TOKEN.test(value)
