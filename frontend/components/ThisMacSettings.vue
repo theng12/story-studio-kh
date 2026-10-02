@@ -1027,8 +1027,9 @@ header p, .panel p { margin: 4px 0 0; color: var(--text-muted); font-size: 12px;
 .connection > * { min-width: 0; }
 .fields { display: grid; gap: 7px; }
 .fields label { margin-top: 4px; font-size: var(--font-xs); font-weight: 700; color: var(--text-secondary); }
-.field-row { display: flex; gap: 7px; }
-.field-row .input { min-width: 0; flex: 1; }
+/* Wraps: the key box sits beside three buttons and was squeezed to ~100 px in a 760 px panel. */
+.field-row { display: flex; flex-wrap: wrap; gap: 7px; }
+.field-row .input { min-width: 220px; flex: 1 1 220px; }
 .masked, .security-note { color: var(--text-muted); font-size: var(--font-xs); }
 .result { font-size: var(--font-xs); }
 .result.ok { color: var(--success); } .result.warn { color: var(--warning, #d97706); } .result.err { color: var(--danger); }

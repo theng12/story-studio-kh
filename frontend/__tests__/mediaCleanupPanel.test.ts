@@ -171,3 +171,25 @@ test('the advanced review defaults to _trash, never to a destination folder', as
     assert.deepEqual(calls[1].body, { preview_id: 'review-1', mode: 'remove' })
   } finally { ui.close() }
 })
+
+test('one missed progress read does not freeze the operation: it keeps checking and then shows the result', async () => {
+  let reads = 0
+  const ui = await mount({
+    get: async (url: string) => {
+      if (url.endsWith('/episodes')) return listed
+      reads++
+      if (reads === 1) throw Object.assign(new Error('engine busy'), { status: 503, data: { detail: 'Engine busy.' } })
+      return { id: 'preview-op', project_slug: 'first', kind: 'preview', status: 'completed', done: 1, total: 1, current: '', stage: null, preview }
+    },
+    post: async () => ({ operation_id: 'preview-op' }),
+  })
+  try {
+    button(ui.host, 'Select all uploaded').click(); await flush()
+    change(ui.host.querySelector<HTMLInputElement>('input[type=checkbox][value=images]')!); await flush()
+    button(ui.host, 'Review selected files').click(); await flush(); await flush()
+    assert.match(ui.host.textContent || '', /Checking again/)
+    await new Promise(resolve => setTimeout(resolve, 3100)); await flush(); await flush()
+    assert.equal(reads, 2, 'the operation is read again after the miss')
+    assert.match(ui.host.textContent || '', /Move reviewed files to _trash/)
+  } finally { ui.close() }
+})
