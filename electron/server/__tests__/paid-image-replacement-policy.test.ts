@@ -67,7 +67,7 @@ void test('job snapshots expose only the latest redacted paid image replacement 
   const projectSlug = 'paid-image-renderer-projection'
   const projectDir = path.join(temp.dir, 'projects', projectSlug)
   const privateReason = 'provider=secret-adapter failed beside /Users/private/channel/internal.png with trace=abc123'
-  const publicMessage = 'Automatic image replacement is unavailable. No replacement was submitted.'
+  const publicMessage = 'This image was not made, and nothing new was sent or charged. Press “Redo failed jobs” on the Jobs page to make it again.'
   const attempt = {
     asset_key: 'thumbnail:1', manifest_dir: '/private/manifest', manifest_key: 'thumb.png', output_path: '/private/output.png',
     state: 'blocked' as const, original_task_id: 'original-task-id', original_idempotency_key: 'original-idempotency-key',

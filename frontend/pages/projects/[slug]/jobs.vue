@@ -83,43 +83,61 @@
         <strong>Job actions</strong>
         <span>{{ actionScopeLabel }} · all job types and statuses</span>
       </div>
-      <div class="jobs-control-groups">
-        <div class="jobs-control-group" role="group" aria-label="Recovery and retry">
-          <span class="jobs-control-label">Recovery and retry</span>
-          <div class="jobs-control-buttons">
-            <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || recoverableEpisodes.length === 0"
-              title="Check the affected episodes for missing audio and images, then retrieve available provider output. No new generation or credits."
-              @click="recoverAllEpisodes">{{ recoveringAllEpisodes ? 'Recovering…' : `Recover all (${recoverableEpisodes.length})` }}</button>
-            <button class="btn btn-sm btn-secondary repair-all-btn" :disabled="bulkActionBusy || repairableFailedJobs.length === 0"
-              title="Recheck recorded provider tasks for the eligible jobs and download available output. No new generation or credits."
-              @click="repairAllFailed">{{ repairingAllFailed ? 'Repairing…' : `Repair all (${repairableFailedJobs.length})` }}</button>
-            <button class="btn btn-sm btn-secondary retry-all-btn" :disabled="bulkActionBusy || retryAllTriage.retry.length === 0"
-              :title="retryAllTooltip" @click="retryAllFailed">{{ retryAllButtonLabel }}</button>
-          </div>
+      <div class="jobs-primary-actions" role="group" aria-label="Main job actions">
+        <div class="jobs-primary-action">
+          <button class="btn btn-primary check-all-btn" :disabled="checkAction.disabled"
+            aria-describedby="check-all-hint" @click="checkOnRunningJobs()">{{ checkAction.label }}</button>
+          <p id="check-all-hint" class="jobs-action-hint">{{ checkAction.hint }}</p>
         </div>
-        <div class="jobs-control-group" role="group" aria-label="Queue controls">
-          <span class="jobs-control-label">Queue · pause applies to all projects</span>
-          <div class="jobs-control-buttons">
-            <button class="btn btn-sm btn-secondary" :disabled="changingQueueState || resumingQueue || queueStateUnknown || (!queuePaused && !hasQueueWork)"
-              :title="queueStateUnknown ? 'Story Studio cannot read the queue state right now. Refresh to check before pausing or resuming.' : queuePaused ? 'Release the queue hold across all projects.' : 'Hold new work across all projects. Accepted work is saved before it pauses.'"
-              @click="queuePaused ? resumeQueue() : pauseQueue()">{{ changingQueueState || resumingQueue ? 'Updating queue…' : queueStateUnknown ? 'Queue state unknown' : queuePaused ? 'Resume queue' : 'Pause queue' }}</button>
-            <button class="btn btn-sm btn-secondary resume-paused-btn" :disabled="bulkActionBusy || pausedJobCount === 0"
-              @click="resumePausedJobs">{{ bulkResumeBusy ? `Resuming ${bulkResumeCount}…` : `Resume paused (${pausedJobCount})` }}</button>
-          </div>
+        <div class="jobs-primary-action">
+          <button class="btn btn-primary retry-all-btn" :disabled="redoAction.disabled"
+            :title="retryAllTooltip" aria-describedby="redo-all-hint" @click="retryAllFailed()">{{ redoAction.label }}</button>
+          <p id="redo-all-hint" class="jobs-action-hint">{{ redoAction.hint }}</p>
         </div>
-        <div class="jobs-control-group" role="group" aria-label="Clear job history">
-          <span class="jobs-control-label">History · keeps files and billing records</span>
-          <div class="jobs-control-buttons">
-            <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || finishedCount === 0"
-              title="Remove completed, recovered and cancelled history whose provider work has settled."
-              @click="clearFinished">{{ clearingHistory === 'finished' ? 'Clearing…' : `Clear finished (${finishedCount})` }}</button>
-            <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || failedCount === 0"
-              title="Remove failed history whose provider work has settled. Files and provider evidence stay intact."
-              @click="clearFailed">{{ clearingHistory === 'failed' ? 'Clearing…' : `Clear failed (${failedCount})` }}</button>
+      </div>
+      <div class="jobs-more-actions" role="group" aria-label="Other job actions">
+        <div class="jobs-control-groups">
+          <div class="jobs-control-group" role="group" aria-label="Collect finished output">
+            <span class="jobs-control-label">Collect finished output · free · both already run inside “Check on running jobs”</span>
+            <div class="jobs-more-action">
+              <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || recoverableEpisodes.length === 0"
+                @click="recoverAllEpisodes()">{{ recoveringAllEpisodes ? 'Recovering…' : `Recover all (${recoverableEpisodes.length})` }}</button>
+              <small>{{ recoverableEpisodes.length ? MORE_ACTION_HINTS.recover : 'No episodes to recover.' }}</small>
+            </div>
+            <div class="jobs-more-action">
+              <button class="btn btn-sm btn-secondary repair-all-btn" :disabled="bulkActionBusy || repairableFailedJobs.length === 0"
+                @click="repairAllFailed()">{{ repairingAllFailed ? 'Repairing…' : `Repair all (${repairableFailedJobs.length})` }}</button>
+              <small>{{ repairableFailedJobs.length ? MORE_ACTION_HINTS.repair : 'No failed narration or thumbnail jobs to repair.' }}</small>
+            </div>
+          </div>
+          <div class="jobs-control-group" role="group" aria-label="Queue controls">
+            <span class="jobs-control-label">Queue · pause applies to all projects</span>
+            <div class="jobs-more-action">
+              <button class="btn btn-sm btn-secondary" :disabled="changingQueueState || resumingQueue || queueStateUnknown || (!queuePaused && !hasQueueWork)"
+                @click="queuePaused ? resumeQueue() : pauseQueue()">{{ changingQueueState || resumingQueue ? 'Updating queue…' : queueStateUnknown ? 'Queue state unknown' : queuePaused ? 'Resume queue' : 'Pause queue' }}</button>
+              <small>{{ queueStateUnknown ? 'Story Studio cannot read the queue state right now. Refresh to check.' : queuePaused ? 'Releases the hold so waiting work starts again.' : hasQueueWork ? MORE_ACTION_HINTS.queue : 'Nothing is waiting or running.' }}</small>
+            </div>
+            <div class="jobs-more-action">
+              <button class="btn btn-sm btn-secondary resume-paused-btn" :disabled="bulkActionBusy || pausedJobCount === 0"
+                @click="resumePausedJobs()">{{ bulkResumeBusy ? `Resuming ${bulkResumeCount}…` : `Resume paused (${pausedJobCount})` }}</button>
+              <small>{{ pausedJobCount ? MORE_ACTION_HINTS.resume : 'No paused jobs.' }}</small>
+            </div>
+          </div>
+          <div class="jobs-control-group" role="group" aria-label="Clear job history">
+            <span class="jobs-control-label">History · keeps files and billing records</span>
+            <div class="jobs-more-action">
+              <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || finishedCount === 0"
+                @click="clearFinished()">{{ clearingHistory === 'finished' ? 'Clearing…' : `Clear finished (${finishedCount})` }}</button>
+              <small>{{ finishedCount ? MORE_ACTION_HINTS.clearFinished : 'No finished rows to clear.' }}</small>
+            </div>
+            <div class="jobs-more-action">
+              <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || failedCount === 0"
+                @click="clearFailed()">{{ clearingHistory === 'failed' ? 'Clearing…' : `Clear failed (${failedCount})` }}</button>
+              <small>{{ failedCount ? MORE_ACTION_HINTS.clearFailed : 'No settled failed rows to clear.' }}</small>
+            </div>
           </div>
         </div>
       </div>
-      <p class="jobs-control-help">Recover checks an episode’s audio and images. Repair checks a job’s recorded requests. Retry continues unfinished work and may use credits.</p>
       <p v-if="retryAllStatusMessage" class="jobs-control-result" role="status">{{ retryAllStatusMessage }}</p>
       <details v-if="retryAllAttentionResults.length" class="retry-all-details">
         <summary>{{ retryAllAttentionResults.length }} retry action{{ retryAllAttentionResults.length === 1 ? ' needs' : 's need' }} attention</summary>
@@ -1135,6 +1153,7 @@ import {
   triageFailedJobsForRetryAll,
   type RepairRecord,
 } from '~/utils/repair-triage'
+import { checkRunningJobsAction, redoFailedJobsAction, MORE_ACTION_HINTS } from '~/utils/job-actions-bar'
 import {
   customerSafeJobText,
   filterJobsForView,
@@ -1817,8 +1836,8 @@ const repairingAllFailed = ref(false)
 const repairableFailedJobs = computed(() =>
   projectScopedJobs.value.filter((j: RJob) => (jobDisplayStatus(j) === 'error' || j.status === 'cancelled') && jobCanBeRepaired(j))
 )
-async function repairAllFailed() {
-  if (bulkActionBusy.value) return
+async function repairAllFailed(chained = false) {
+  if (bulkActionBusy.value && !chained) return
   const snapshot = [...repairableFailedJobs.value]
   if (snapshot.length === 0) return
   repairingAllFailed.value = true
@@ -1887,6 +1906,13 @@ function isTerminalContinuityRender(job: RJob): boolean {
     && !!job.episode_id
     && (job.status === 'error' || job.status === 'cancelled')
 }
+// A finished job whose provider work GenStudio has not confirmed as settled.
+// The backend refuses its Retry with a 409 ("unsettled provider evidence"), so
+// Redo leaves it for "Check on running jobs" instead of counting a dead end.
+function waitsForProviderCheck(job: RJob): boolean {
+  return ['done', 'error', 'cancelled'].includes(job.status)
+    && jobControls(job).some(control => control.action === 'recheck-provider-status' || control.action === 'return-later')
+}
 const failedJobsForRetryAll = computed(() =>
   projectScopedJobs.value.filter((j: RJob) =>
     (j.status === 'error' || j.status === 'cancelled')
@@ -1895,8 +1921,11 @@ const failedJobsForRetryAll = computed(() =>
     // Q-06 — bulk Retry must apply the same admission filter as the per-row
     // button and the backend, or it counts jobs it can only 409 on.
     && retryAdmissionAllowed(j)
-    && (!j.params?.jobs_replace_failed_items || canRetryManualFailedItemExactly(j)))
+    && (!j.params?.jobs_replace_failed_items || canRetryManualFailedItemExactly(j))
+    && !waitsForProviderCheck(j))
 )
+const failedWaitingForCheck = computed(() => projectScopedJobs.value.filter((j: RJob) =>
+  (j.status === 'error' || j.status === 'cancelled') && waitsForProviderCheck(j)).length)
 const retryAllTriage = computed(() => triageFailedJobsForRetryAll(
   failedJobsForRetryAll.value as RJob[],
   (j: RJob) => jobCanBeRepaired(j),
@@ -1924,6 +1953,73 @@ const retryAllStatusMessage = computed(() => {
   const current = retryAllCurrentEpisodes.value
   return `Retry all: ${run.completed} of ${run.total} finished${current.length ? ` · working on ${current.join(', ')}.` : '.'}`
 })
+
+// ── Check on running jobs ───────────────────────────────────────────────
+// The first of the two main buttons (owner, 2026-10-03). It chains only the
+// FREE actions — re-ask GenStudio about finished-but-unsettled jobs, Repair
+// (recorded requests) and Recover (episode files) — and never Retry: chaining
+// a paid resubmit onto a check is what v1.0.114 removed after duplicate charges.
+const recheckingAll = ref(false)
+const checkingAll = ref(false)
+const providerCheckJobs = computed(() => projectScopedJobs.value.filter((job: RJob) =>
+  ['done', 'error', 'cancelled'].includes(job.status)
+  && jobControls(job).some(control => control.enabled && control.action === 'recheck-provider-status')))
+const checkAction = computed(() => checkRunningJobsAction({
+  unsettled: providerCheckJobs.value.length,
+  repairable: repairableFailedJobs.value.length,
+  episodes: recoverableEpisodes.value.length,
+  running: projectScopedJobs.value.filter(job => job.status === 'running').length,
+}, { self: checkingAll.value, other: bulkActionBusy.value && !checkingAll.value }))
+const redoAction = computed(() => redoFailedJobsAction({
+  redo: retryAllTriage.value.retry.length,
+  waitingForCheck: retryAllTriage.value.blocked.length + failedWaitingForCheck.value,
+  alreadyComplete: retryAllTriage.value.alreadyComplete.length,
+}, {
+  self: retryingAllFailed.value,
+  other: bulkActionBusy.value && !retryingAllFailed.value,
+  progress: retryingAllFailed.value ? retryAllButtonLabel.value : undefined,
+}))
+
+async function recheckAllProviderStatus(): Promise<number> {
+  const snapshot = [...providerCheckJobs.value]
+  let settled = 0
+  recheckingAll.value = true
+  try {
+    let cursor = 0
+    async function worker() {
+      while (cursor < snapshot.length) {
+        const job = snapshot[cursor++]!
+        try {
+          const response = await post<{ job?: RJob }>(`${jobQueuePath(job)}/recheck-provider-status`, {})
+          if (response?.job?.control?.action === 'clear-history') settled++
+        } catch (e: any) {
+          console.warn('[check-all] recheck failed:', e?.data?.detail || e?.message)
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(3, snapshot.length) }, () => worker()))
+  } finally { recheckingAll.value = false }
+  return snapshot.length ? settled : 0
+}
+
+async function checkOnRunningJobs() {
+  if (bulkActionBusy.value || checkAction.value.disabled) return
+  checkingAll.value = true
+  try {
+    const asked = providerCheckJobs.value.length
+    const settled = asked ? await recheckAllProviderStatus() : 0
+    // `chained` lets each free step run under the check's own busy flag.
+    if (repairableFailedJobs.value.length) await repairAllFailed(true)
+    if (recoverableEpisodes.value.length) await recoverAllEpisodes(true)
+    await refreshVisibleJobs()
+    const parts = [
+      asked ? `${settled} of ${asked} unsettled job(s) confirmed finished` : '',
+      bulkActionMessage.value,
+    ].filter(Boolean)
+    bulkActionMessage.value = `Check finished. ${parts.join(' · ')} Redo failed jobs starts anything still missing.`
+    info(bulkActionMessage.value)
+  } finally { checkingAll.value = false }
+}
 
 function retryAllAttentionLabel(result: RetryAllResult): string {
   if (result.status === 'paused') return 'Paused'
@@ -2344,7 +2440,7 @@ const actionScopeLabel = computed(() => !isUniversal.value ? projectName(slug.va
 const hasQueueWork = computed(() => globalQueueWork.value !== false || jobs.value.some(job => ['queued', 'running'].includes(job.status)))
 const clearingHistory = ref<'finished' | 'failed' | null>(null)
 const bulkActionMessage = ref('')
-const bulkActionBusy = computed(() => recoveringAllEpisodes.value || recoveringEpisodes.value.size > 0
+const bulkActionBusy = computed(() => checkingAll.value || recheckingAll.value || recoveringAllEpisodes.value || recoveringEpisodes.value.size > 0
   || repairingAllFailed.value || repairingJobs.value.size > 0 || retryingAllFailed.value || bulkResumeBusy.value || clearingHistory.value !== null || clearingSelected.value)
 
 // ── Duration helpers ────────────────────────────────────────────────────
@@ -2939,11 +3035,12 @@ const SAFE_PROMPT_ISSUE_REASONS: Record<string, string> = {
   'missing from scene plan': 'no longer appears in the Scene Plan',
 }
 const PAID_REPLACEMENT_MESSAGES: Record<string, string> = {
-  original_failure_not_eligible: 'The original failure does not qualify for automatic replacement; no replacement was submitted.',
-  replacement_disabled: 'Automatic replacement is disabled for this job.',
-  not_verified: 'The saved result has not been verified as missing, so no replacement was submitted.',
-  budget_limit: 'Automatic replacement is not allowed at the current limit, so no replacement was submitted.',
-  automatic_replacement_unavailable: 'Automatic replacement is currently unavailable for this job.',
+  // Plain words (owner, 2026-10-03): what happened, and which button makes it again.
+  original_failure_not_eligible: 'The first try failed in a way Story Studio does not repeat on its own, so nothing new was sent or charged. Press “Redo failed jobs” to make it again.',
+  replacement_disabled: 'Automatic second tries are off for this job, so nothing new was sent or charged. Press “Redo failed jobs” to make it again.',
+  not_verified: 'Story Studio could not confirm the image is missing, so nothing new was sent. Press “Check on running jobs” first.',
+  budget_limit: 'A second try would go over this job’s spending limit, so nothing new was sent.',
+  automatic_replacement_unavailable: 'An automatic second try was not possible, so nothing new was sent or charged. Press “Redo failed jobs” to make it again.',
 }
 function paidReplacementAttemptMessage(job: RJob): string | null {
   const reason = (job.result as any)?.image_replacement?.reason
@@ -3103,8 +3200,8 @@ async function recoverEpisode(job: RJob, announce = true): Promise<boolean> {
     recoveringEpisodes.value = next
   }
 }
-async function recoverAllEpisodes() {
-  if (bulkActionBusy.value) return
+async function recoverAllEpisodes(chained = false) {
+  if (bulkActionBusy.value && !chained) return
   const snapshot = [...recoverableEpisodes.value]
   if (!snapshot.length) return
   const scope = actionScopeLabel.value
@@ -3560,20 +3657,27 @@ function clearFailed() { return clearHistory('failed') }
 }
 .jobs-control-toolbar { padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-secondary); }
 .jobs-control-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; margin-bottom: 16px; }
-.jobs-control-heading span, .jobs-control-label, .jobs-control-help { color: var(--text-secondary); font-size: var(--font-xs); }
-.jobs-control-groups { display: grid; grid-template-columns: 3fr 2fr 2fr; gap: 24px; }
+.jobs-control-heading span, .jobs-control-label { color: var(--text-secondary); font-size: var(--font-xs); }
+.jobs-primary-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.jobs-primary-action { min-width: 0; }
+.jobs-primary-action .btn { width: 100%; min-height: 48px; font-size: var(--font-md, 15px); font-weight: 600; white-space: normal; }
+.jobs-primary-action .btn:disabled { color: var(--text-muted); background: var(--bg-tertiary); border-color: var(--border); cursor: not-allowed; opacity: .7; }
+.jobs-action-hint { margin: 6px 2px 0; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.45; }
+.jobs-more-actions { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px; }
+.jobs-more-action { display: grid; grid-template-columns: minmax(130px, auto) 1fr; align-items: center; gap: 4px 10px; margin-bottom: 8px; }
+.jobs-more-action .btn { min-height: 36px; white-space: normal; }
+.jobs-more-action .btn:disabled { color: var(--text-muted); background: var(--bg-tertiary); border-color: var(--border); cursor: not-allowed; opacity: .65; }
+.jobs-more-action small { color: var(--text-muted, var(--text-secondary)); font-size: var(--font-xs); line-height: 1.4; }
+.jobs-control-groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
 .jobs-control-group { min-width: 0; }
 .jobs-control-label { display: block; margin-bottom: 8px; }
-.jobs-control-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
-.jobs-control-buttons .btn { min-height: 44px; flex: 1 1 120px; white-space: normal; }
-.jobs-control-buttons .btn:disabled { color: var(--text-muted); background: var(--bg-tertiary); border-color: var(--border); cursor: not-allowed; opacity: .65; }
-.jobs-control-help { margin: 12px 0 0; line-height: 1.5; }
 .jobs-control-result { margin: 8px 0 0; font-size: var(--font-sm); overflow-wrap: anywhere; }
 .retry-all-details { margin-top: 8px; font-size: var(--font-xs); }
 .retry-all-details summary { color: var(--text-secondary); cursor: pointer; }
 .retry-all-details ul { display: grid; gap: 6px; margin: 8px 0 0; padding-left: 20px; }
 .retry-all-details li span { display: block; color: var(--text-secondary); overflow-wrap: anywhere; }
 @media (max-width: 1000px) { .jobs-control-groups { grid-template-columns: 1fr; gap: 16px; } }
+@media (max-width: 720px) { .jobs-primary-actions { grid-template-columns: 1fr; } }
 .job-control-primary { border-color: var(--accent); color: var(--accent); }
 .job-control-reason {
   margin: 8px 0 0;
