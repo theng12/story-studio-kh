@@ -508,6 +508,50 @@ export function prerequisitesForStep(step: BatchStep, cueReviewPending = false):
   return step === 'scene_review' && cueReviewPending ? [...base, 'contextual_cues'] : base
 }
 
+const CHAIN_LINK_STEP: Record<string, BatchStep> = {
+  outline_only: 'script-only',
+  expand_chapters: 'script-only',
+  broll_select: 'broll',
+  broll_assemble: 'broll',
+  ...Object.fromEntries(Object.entries(STEP_JOB_TYPE).map(([step, type]) => [type, step as BatchStep])),
+}
+
+/**
+ * The steps one chain link waits for when an earlier link in the SAME run
+ * fails (lib/pipeline-continuation.ts). The prerequisite table, plus two
+ * in-run orderings the old straight-line chain enforced implicitly: narration
+ * waits for the channel's opening (an episode once reached paid audio without
+ * one), and the final video waits for motion clips the run was asked to make,
+ * so a failed clip never leaves a "finished" stills-only video behind.
+ */
+export function pipelineLinkRequirements(
+  step: BatchStep,
+  runSteps: ReadonlySet<BatchStep>,
+  visualSource: VideoVisualSource,
+): BatchStep[] {
+  const required = step === 'video_assembly' && visualSource === 'image_pool'
+    ? ['audio_merge' as BatchStep]
+    : prerequisitesForStep(step, runSteps.has('contextual_cues'))
+  if (step === 'audio' && runSteps.has('introduction-only')) required.push('introduction-only')
+  if (step === 'video_assembly' && runSteps.has('motion_review')) required.push('motion_review')
+  return required
+}
+
+export function stampPipelineStepFacts(
+  chain: Array<{ type: string; params: Record<string, any> }>,
+  visualSource: VideoVisualSource,
+): void {
+  const steps = chain.map(link => CHAIN_LINK_STEP[link.type] || link.type as BatchStep)
+  const runSteps = new Set(steps)
+  chain.forEach((link, index) => {
+    link.params = {
+      ...link.params,
+      pipeline_step: steps[index],
+      pipeline_requires: pipelineLinkRequirements(steps[index], runSteps, visualSource),
+    }
+  })
+}
+
 function collectMissingLocalAssets(value: unknown, out = new Set<string>()): Set<string> {
   if (!value || typeof value !== 'object') return out
   if (!Array.isArray(value) && (value as any).enabled === false) return out
@@ -2263,6 +2307,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     // Every link carries the same immutable episode decision. Later settings
     // edits cannot retarget a queued chain or widen its motion work.
     for (const link of chain) link.params = { ...link.params, ...visualSettings }
+    stampPipelineStepFacts(chain, visualSettings.visual_source)
 
     if (repairMissing) {
       for (const link of chain) {

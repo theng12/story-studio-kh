@@ -754,7 +754,8 @@
       <p v-else class="text-muted text-sm mt-2">
         Steps within each episode run in order. Different episodes' steps run
         concurrently when the queue has capacity. An episode chain can expand into dependent jobs and skip completed or inapplicable stages;
-        the receipt confirms the actual queued count. If a step fails for an episode, that episode's chain stops; other episodes continue.
+        the receipt confirms the actual queued count. If a step fails, only the later steps that need it wait (for example,
+        a failed thumbnail does not stop the audio or the video); Retry the failed job in Jobs and the waiting steps continue on their own.
       </p>
       <p v-if="modelPolicyRunSummary.length" class="text-muted text-sm mt-2">
         <template v-for="(line, index) in modelPolicyRunSummary" :key="line">
