@@ -137,7 +137,7 @@ export async function inspectAudioAssemblyReadiness(
     mergedAudioReady = Number.isFinite(duration) && Number(duration) > 0
     mergedAudioPath = mergedAudioReady ? merge.path! : null
     if (!mergedAudioReady) {
-      issues.push('No current, decodable merged narration exists. Re-run Audio Assembly first.')
+      issues.push('This episode has no playable merged narration yet. Run Audio Assembly first.')
     }
 
     const manifest = JSON.parse(
@@ -152,11 +152,14 @@ export async function inspectAudioAssemblyReadiness(
       const detail = missingTimelineSections.length
         ? ` Missing timeline section(s): ${missingTimelineSections.join(', ')}.`
         : ''
-      issues.push(`Audio Assembly's timing manifest is missing or incomplete.${detail}`)
+      issues.push(`Audio Assembly's record of where each chapter starts is missing or incomplete — run Audio Assembly again.${detail}`)
     }
   } catch {
-    if (!issues.some(issue => issue.includes('timing manifest'))) {
-      issues.push('Audio Assembly has not produced a verified audio_chapters.json timing manifest.')
+    // With no merge at all, the missing chapter-timing record is the same problem said twice.
+    if (!mergedAudioReady) {
+      if (!issues.some(issue => issue.includes('merged narration'))) issues.push('This episode has no playable merged narration yet. Run Audio Assembly first.')
+    } else if (!issues.some(issue => issue.includes('where each chapter starts'))) {
+      issues.push('Audio Assembly has not saved where each chapter starts — run Audio Assembly again.')
     }
   }
 

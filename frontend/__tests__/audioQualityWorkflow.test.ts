@@ -211,7 +211,7 @@ describe('Audio quality workflow', () => {
     assert.match(audioSource, /operation_id: approval\.actionId/)
     assert.match(audioSource, /source_fingerprint: approval\.sourceFingerprint/)
     assert.match(audioSource, /qualityHeldApprovalKey\.value = approvalKey/)
-    assert.match(audioSource, /return 'Retry submission'/)
+    assert.match(audioSource, /return 'Retry \(same request\)'/)
     assert.doesNotMatch(selectorSource, /qualityVerificationCreditCeiling|Set the verification credit ceiling above/)
     assert.match(audioSource, /Normal generation and chapter regeneration remain available/)
     assert.match(audioSource, /\/audio-quality\/active-check\/quote/)

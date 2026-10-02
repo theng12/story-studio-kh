@@ -29,6 +29,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import * as pm from './project-manager.js'
+import { moveToTrashSync } from '../lib/trash-move.js'
 import type {
   MusicPoolTrack,
   MusicPoolUsageEntry,
@@ -276,7 +277,7 @@ export async function addTrack(slug: string, sourcePath: string): Promise<{ file
 }
 
 /** Remove a file from the pool folder + drop its stored metadata.
- *  No soft-delete — the file is gone from disk. */
+ *  The file moves to the project's `_trash/music/` — never hard-deleted. */
 export async function removeTrack(slug: string, filename: string): Promise<{ removed: boolean }> {
   const dir = await getPoolDir(slug)
   if (!dir) return { removed: false }
@@ -287,7 +288,7 @@ export async function removeTrack(slug: string, filename: string): Promise<{ rem
   if (path.basename(filename) !== filename) return { removed: false }
   const full = path.join(dir, filename)
   if (!existsSync(full)) return { removed: false }
-  await fs.unlink(full)
+  moveToTrashSync(full, path.join(path.dirname(dir), '_trash', path.basename(dir), filename))
   const cfg = await pm.getConfig(slug)
   if (cfg) {
     const tracks = (cfg.music_pool_tracks || []).filter(t => t.filename !== filename)

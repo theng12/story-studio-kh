@@ -769,7 +769,7 @@ async function transcribePerChapter(
     admission.burst_concurrency_ceiling,
   )
   job.output_lines.push(
-    `Staging ${sections.length} transcription request(s); GenStudio account admission is authoritative…`,
+    `Transcribing ${sections.length} chapter(s)…`,
   )
 
   // One chapter's transcription. (The old loop's `continue`s become `return`s.)

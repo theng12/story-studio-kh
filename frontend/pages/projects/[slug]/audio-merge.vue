@@ -132,7 +132,7 @@
           {{ chapterAudioIssues.join(' ') }}
         </p>
         <div class="flex gap-2 mt-2">
-          <NuxtLink :to="`/projects/${slug}/audio?episode=${episodeId}`" class="btn btn-primary btn-sm">
+          <NuxtLink :to="`/projects/${slug}/audio?episode_id=${encodeURIComponent(episodeId)}`" class="btn btn-primary btn-sm">
             Repair missing audio →
           </NuxtLink>
           <button class="btn btn-sm btn-secondary" @click="scanAssets" :disabled="scanning">
@@ -197,7 +197,7 @@
           there's nothing to merge yet for {{ selectedEpisode?.title || episodeId }}.
         </p>
         <div class="flex gap-2 mt-2">
-          <NuxtLink :to="`/projects/${slug}/audio?episode=${episodeId}`" class="btn btn-primary btn-sm">
+          <NuxtLink :to="`/projects/${slug}/audio?episode_id=${encodeURIComponent(episodeId)}`" class="btn btn-primary btn-sm">
             Go to Audio Generator →
           </NuxtLink>
           <button class="btn btn-sm btn-secondary" @click="scanAssets" :disabled="scanning">
@@ -528,7 +528,7 @@
           <button
             :class="['btn btn-sm', backgroundNoise.mode === 'preset' ? 'btn-primary' : 'btn-secondary']"
             @click="backgroundNoise.mode = 'preset'"
-          >FFmpeg Presets</button>
+          >Built-in sounds</button>
           <button
             :class="['btn btn-sm', backgroundNoise.mode === 'custom' ? 'btn-primary' : 'btn-secondary']"
             @click="backgroundNoise.mode = 'custom'"
@@ -1930,7 +1930,7 @@ onUnmounted(() => {
 }
 .audio-mix-section > :first-child { margin-top: 0; }
 .audio-mix-section--intro { display: grid; grid-template-columns: minmax(170px, .6fr) minmax(0, 1.4fr); column-gap: 18px; align-items: start; }
-.audio-mix-section--intro > .mt-2 { margin-top: 0; }
+.audio-mix-section--intro > .mt-2 { grid-column: 1 / -1; margin-top: 10px; }
 .audio-mix-section--intro > .flex { padding-top: 2px; }
 .audio-mix-section-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .audio-mix-section-heading h3 { margin: 0; }

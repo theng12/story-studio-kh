@@ -47,6 +47,7 @@
         <button type="button" class="btn btn-sm btn-ghost" :disabled="libraryLoading" @click="load">Retry</button>
       </div>
 
+      <p v-if="!library && libraryLoading" class="text-muted mt-2 text-sm">Loading your songs…</p>
       <p v-if="library && !library.tracks.length" class="text-muted mt-2 text-sm">
         Nothing here yet. Add songs below, or drop audio files into
         <code>{{ library.folder }}</code>.
@@ -92,7 +93,7 @@
 
     <!-- ── 2. Top up — THE ONLY PAID ACTION ───────────────────────── -->
     <section class="card mt-3">
-      <h3>2. Add songs <span class="cost-flag">costs credits</span></h3>
+      <h3>2. Add songs <span v-if="musicCost.basis === 'free'" class="free-flag">free</span><span v-else class="cost-flag">may cost credits</span></h3>
       <p class="text-muted text-sm mt-1">
         Describe the sound once. Each song gets its own instruction, so you don't
         get twenty versions of the same thing. Every variation the model returns is kept.
@@ -140,10 +141,10 @@
       </p>
 
       <div class="ml-actions mt-2">
-        <button class="btn btn-primary" :disabled="!brief.trim() || generating" @click="topUp">
+        <button class="btn btn-primary" :disabled="!brief.trim() || !validCount || generating" @click="topUp">
           {{ generating ? 'Starting…' : `Add ${count} song(s)` }}
         </button>
-        <span class="text-muted text-sm">Runs as a job — watch it on the Jobs page.</span>
+        <span class="text-muted text-sm">{{ !brief.trim() ? 'Describe the sound first.' : !validCount ? 'Choose between 1 and 100 songs.' : 'Runs as a job — watch it on the Jobs page.' }}</span>
       </div>
     </section>
 
@@ -171,7 +172,13 @@
       </div>
 
       <label class="ml-label mt-2">Background image or clip</label>
-      <input v-model="backgroundPath" class="input" placeholder="/path/to/background.png">
+      <FilePicker
+        v-model="backgroundPath"
+        placeholder="Choose a picture or short clip"
+        :filters="[{ name: 'Images and clips', extensions: ['png', 'jpg', 'jpeg', 'webp', 'mp4', 'mov', 'm4v'] }]"
+        title="Choose the background for this music video"
+        clearable
+      />
 
       <div class="ml-actions mt-2">
         <button class="btn" :disabled="previewing" @click="preview">
@@ -184,6 +191,9 @@
         >
           {{ rendering ? 'Starting…' : 'Build the video' }}
         </button>
+        <span v-if="!episodeId.trim() || !backgroundPath.trim()" class="text-muted text-sm">
+          {{ !episodeId.trim() ? 'Type the episode code first.' : 'Choose a background first.' }}
+        </span>
       </div>
 
       <p v-if="renderError" class="error-box mt-2">{{ renderError }}</p>
@@ -207,6 +217,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { CREDIT_BASIS_LABEL, describeMusicUnitCost, type PricedMusicModel } from '../../../utils/genstudio-credit-cost.js'
 import { pickDefaultMusicModel } from '../../../../electron/server/contracts/music-model-choice'
+import { UNCONFIRMED_SUBMISSION } from '../../../composables/useFreshGenerationAction'
 
 const route = useRoute()
 const slug = computed(() => String(route.params.slug || ''))
@@ -255,6 +266,7 @@ const previewing = ref(false)
 const rendering = ref(false)
 const renderError = ref('')
 
+const validCount = computed(() => Number.isInteger(count.value) && count.value >= 1 && count.value <= 100)
 const unmeasured = computed(() =>
   (library.value?.tracks || []).filter(t => !t.duration_sec).length)
 
@@ -329,7 +341,7 @@ async function setEnabled(track: LibraryTrack, enabled: boolean) {
 }
 
 async function remove(track: LibraryTrack) {
-  if (!await useConfirm().ask({ title: 'Remove music track?', message: `Remove "${track.title}" from the library? This deletes the file from disk; making it again costs credits.`, confirmLabel: 'Remove', danger: true })) return
+  if (!await useConfirm().ask({ title: 'Remove music track?', message: `Remove "${track.title}" from the library? The file moves to this project's _trash folder, so you can put it back from Finder.`, confirmLabel: 'Remove', danger: true })) return
   try {
     library.value = await del(`/projects/${slug.value}/music-library/tracks/${encodeURIComponent(track.filename)}`)
     success(`Removed ${track.title}`)
@@ -352,7 +364,7 @@ async function topUp() {
     freshMusicAction.complete(operationId)
     success(`Adding ${count.value} song(s). Watch it on the Jobs page; the library fills as they arrive.`)
   } catch (e: any) {
-    genError.value = e?.data?.detail || e?.message || 'The submission was not confirmed. Retry submission to continue this music action.'
+    genError.value = e?.data?.detail || e?.message || UNCONFIRMED_SUBMISSION
   } finally { generating.value = false }
 }
 

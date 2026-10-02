@@ -132,7 +132,7 @@
           <button
             type="button"
             class="btn-icon danger mp-track-remove"
-            title="Remove from disk"
+            title="Remove from the pool (moves the file to the project's _trash folder)"
             @click="removeTrack(t)"
           >&#10005;</button>
         </div>
@@ -239,7 +239,7 @@
  *   - Rename tracks (label only — filename on disk stays put)
  *   - Add new tracks via native file picker (copies into the project's
  *     music/ folder)
- *   - Remove tracks (deletes from disk)
+ *   - Remove tracks (moved to the project _trash, never hard-deleted)
  *
  * Auto-pick (the actual "use the cycler's choice on the next merge")
  * lives on the parent page — this component manages the POOL itself,
@@ -526,7 +526,7 @@ async function onLabelBlur(t: PoolTrack, newLabel: string) {
 
 async function removeTrack(t: PoolTrack) {
   const { ask } = useConfirm()
-  if (!await ask({ title: 'Delete music track?', message: `Delete "${t.filename}" from the music pool? This removes the file from disk.`, confirmLabel: 'Delete', danger: true })) return
+  if (!await ask({ title: 'Remove music track?', message: `Remove "${t.filename}" from the music pool? The file moves to this project's _trash folder, so you can put it back from Finder.`, confirmLabel: 'Remove', danger: true })) return
   try {
     await del(`/projects/${props.projectSlug}/music-pool/tracks/${encodeURIComponent(t.filename)}`)
     await refresh()

@@ -20,6 +20,7 @@
 import { Router } from 'express'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
+import * as im from '../services/idea-manager.js'
 import * as lib from '../services/music-library.js'
 import { DEFAULT_MIX_RULES, buildMusicMix, renderTracklist, type MixCandidate } from '../services/music-mix.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -186,7 +187,11 @@ router.post('/projects/:slug/music-library/render', async (req, res) => {
     const slug = req.params.slug
     if (!await requireProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const episodeId = String(req.body?.episode_id || '').trim()
-    if (!episodeId) return res.status(400).json({ detail: 'episode_id is required' })
+    if (!episodeId) return res.status(400).json({ detail: 'Type the episode code this video is for.' })
+    // A typo here used to create a stray "<code> - " folder and render into it.
+    if (!(await im.getIdeas(slug, 'accepted')).some(idea => idea.episode_code === episodeId)) {
+      return res.status(400).json({ detail: `There is no episode ${episodeId} in this project. Check the code (for example EP0001) and try again.` })
+    }
     const backgroundPath = String(req.body?.background_path || '').trim()
     if (!backgroundPath) return res.status(400).json({ detail: 'Choose a background for this video.' })
     if (jq.isDuplicate(slug, episodeId, 'music_video' as JobType)) {

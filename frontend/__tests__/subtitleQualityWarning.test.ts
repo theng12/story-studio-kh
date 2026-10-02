@@ -100,8 +100,8 @@ describe('the app never edits anyone\'s subtitles', () => {
     assert.match(subtitlesPage, /@click="retranscribeChapter\(s\.slug\)"/)
     assert.match(subtitlesPage, /chapterHasSrt\(s\.slug\) \? 'Regenerate subtitles' : 'Generate subtitles'/)
     assert.match(subtitlesPage, /:aria-label="`\$\{chapterIsStale\(s\.slug\) \? 'Update' : chapterHasSrt\(s\.slug\) \? 'Regenerate' : 'Generate'\} \$\{s\.label\} subtitles`"/)
-    assert.match(subtitlesPage, /Starts a fresh GenStudio request for \$\{s\.label\} only/)
-    assert.match(subtitlesPage, /current quote[^<]*may be charged/i)
+    assert.match(subtitlesPage, /Makes new subtitles for \$\{s\.label\} only \(a new request at the model's current price\)/)
+    assert.match(subtitlesPage, /current price[^<]*may be charged/i)
   })
 
   test('stitched and imported files do not invent a chapter-level action', () => {

@@ -1,5 +1,8 @@
 import { computed, ref } from 'vue'
 
+/** What the owner reads when a paid/queued request was sent but no answer came back. */
+export const UNCONFIRMED_SUBMISSION = 'Story Studio sent this request but did not hear back. Click Retry: it resends the same request, so nothing is made or charged twice. Changing the selection starts a new request instead.'
+
 /** Keep one deliberate paid-action identity across an unresolved HTTP submit. */
 export function useFreshGenerationAction() {
   const pending = ref(new Map<string, { id: string; scope: string }>())

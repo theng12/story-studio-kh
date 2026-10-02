@@ -18,8 +18,11 @@ describe('stock and Sound Design boundary UI', () => {
     const sound = source('../pages/projects/[slug]/sound-design.vue')
     assert.match(sound, /definePageMeta\(\{\s*layout: 'dashboard'/)
     assert.match(sound, /useAppTitle\('Sound Design'\)/)
-    assert.match(sound, /choose a local sound asset/)
-    assert.match(sound, /GenStudio sound generation/)
+    assert.match(sound, /choose a sound/)
+    // Plain words, not catalogue jargon: say generation isn't available and where sounds come from.
+    assert.match(sound, /Making new sounds/)
+    assert.match(sound, /SFX pool in the <NuxtLink to="\/broll-library">B-Roll Library/)
+    assert.doesNotMatch(sound, /qualified live GenStudio capability|Phase 1 uses/)
     assert.doesNotMatch(sound, /ModelSelector|Freesound|ElevenLabs|Suno/)
   })
 

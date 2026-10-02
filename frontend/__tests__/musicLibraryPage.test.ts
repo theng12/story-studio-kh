@@ -24,7 +24,8 @@ describe('the page tells you what costs money', () => {
   test('exactly one action is flagged as costing credits', () => {
     assert.equal((page.match(/class="cost-flag"/g) || []).length, 1,
       'if two things cost money the flag stops meaning anything')
-    assert.match(page, /Add songs <span class="cost-flag">costs credits<\/span>/)
+    // The flag follows the published price: a free (own-Mac) model is not labelled as paid.
+    assert.match(page, /Add songs <span v-if="musicCost\.basis === 'free'" class="free-flag">free<\/span><span v-else class="cost-flag">may cost credits<\/span>/)
   })
 
   test('the paid action shows a real price, with a sale shown as a sale', () => {
