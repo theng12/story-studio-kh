@@ -279,7 +279,7 @@ function extractPageFunction(signature: string): string {
  */
 function loadIntroductionReadinessGate(): any {
   const stateStart = pageScript.indexOf("const episodeId = ref('')")
-  const stateEnd = pageScript.indexOf('const dirty = ref(false)', stateStart)
+  const stateEnd = pageScript.indexOf('const loading = ref(true)', stateStart)
   assert.ok(stateStart > -1 && stateEnd > stateStart,
     'the page must keep its episode/readiness/generation state together')
   const state = pageScript.slice(stateStart, stateEnd)
@@ -298,6 +298,9 @@ function loadIntroductionReadinessGate(): any {
     const success = () => undefined
     const showError = () => undefined
     const introFailure = ref('')
+    const dirty = ref(false)
+    const save = async () => true
+    const watchedIntroJobs = new Set()
     // The page derives this from the current episode's script jobs. Keep it
     // mutable here so the real gate is exercised for queued/running/paused.
     const scriptWriting = ref(false)

@@ -15,7 +15,7 @@
  * changing per episode. Channel consistency that the LLM can't randomly
  * override on a re-roll.
  *
- * Recognised placeholders (others pass through unchanged):
+ * Recognised placeholders (any other `{token}` is filled in by the model):
  *   {topic}         — one-line description of the spoken topic
  *   {topic_tag}     — short tag-friendly version (1-3 words, kebab-ish)
  *   {summary}       — 2-3 sentence summary of the episode

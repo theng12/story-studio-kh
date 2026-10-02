@@ -121,8 +121,12 @@ router.put('/projects/:slug/contextual-cues/:episodeId', async (req, res) => {
       status: cue.status === 'approved' || cue.status === 'disabled' ? cue.status : 'proposed',
       created_at: typeof cue.created_at === 'string' ? cue.created_at : now, updated_at: now,
     }))
+    // A hold reason stays with its cue while that cue is still awaiting review.
+    const stillProposed = new Set(cues.filter((cue: ContextualCue) => cue.status === 'proposed').map((cue: ContextualCue) => cue.id))
+    const holds = ((await readContextualCueTimeline(path))?.auto_approval_holds || []).filter(hold => stillProposed.has(hold.cue_id))
     const timeline: ContextualCueTimeline = {
       schema_version: 1, generated_at: now, source_scene_plan_generated_at: plan.generated_at, cues,
+      ...(holds.length ? { auto_approval_holds: holds } : {}),
     }
     const issues = validateContextualCueTimeline(timeline, plan)
     // Only errors refuse the save. A warning is a note for the person editing
@@ -131,7 +135,12 @@ router.put('/projects/:slug/contextual-cues/:episodeId', async (req, res) => {
     const blocking = issues.filter(issue => issue.severity !== 'warning')
     if (blocking.length) return res.status(422).json({ detail: 'Cue timeline is not safe to save.', issues: blocking })
     await writeContextualCueTimeline(path, timeline)
-    await removeContextualCueProgress(path)
+    // A running proposal owns its checkpoint. Deleting it from under the job
+    // threw away batches already paid for; the job re-reads this timeline
+    // before it writes, so the edit saved here survives it.
+    if (!jq.isDuplicate(req.params.slug, req.params.episodeId, 'contextual_cues' as JobType)) {
+      await removeContextualCueProgress(path)
+    }
     res.json({ timeline, validation: issues })
   } catch (error: any) {
     // v1.3.3 — this route sent `error.message` straight out, so a disk failure

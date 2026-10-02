@@ -186,6 +186,7 @@ describe('Contextual Cues contract', () => {
     assert.ok(caption, 'a bottom cue under enabled subtitles should still say something')
     assert.equal(caption!.severity, 'warning', 'it must not block the render')
     const crowding = issues.find(issue => /overlaps or crowds/.test(issue.detail))
+    assert.match(crowding?.detail || '', /the approved cue at \d+:\d\d;/, 'the other cue is named by its time, not an internal id')
     assert.ok(crowding, 'crowding is a real defect and stays an error')
     assert.notEqual(crowding!.severity, 'warning')
   })
