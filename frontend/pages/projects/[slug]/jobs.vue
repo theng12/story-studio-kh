@@ -3677,6 +3677,7 @@ function clearFailed() { return clearHistory('failed') }
 .retry-all-details ul { display: grid; gap: 6px; margin: 8px 0 0; padding-left: 20px; }
 .retry-all-details li span { display: block; color: var(--text-secondary); overflow-wrap: anywhere; }
 @media (max-width: 1000px) { .jobs-control-groups { grid-template-columns: 1fr; gap: 16px; } }
+@media (max-width: 1280px) { .jobs-more-action { grid-template-columns: 1fr; } .jobs-more-action .btn { justify-self: start; } }
 @media (max-width: 720px) { .jobs-primary-actions { grid-template-columns: 1fr; } }
 .job-control-primary { border-color: var(--accent); color: var(--accent); }
 .job-control-reason {
