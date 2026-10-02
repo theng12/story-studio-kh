@@ -7576,11 +7576,46 @@ async function callChatViaResponses(
   }
 }
 
+/** Bounds the walk from an old failed key to the newest attempt; ponytail: 5 Retries' worth. */
+const MAX_FAILED_CHAT_REPLAY_HOPS = 5
+
+/**
+ * The POST answered with an EARLIER job for this key (`idempotent_replay`, or
+ * the gateway's 200 where a new job gets 202) that already failed, settled, with
+ * no gateway hold, no uncertain-submission code, and a fully released ZERO
+ * settlement — so that attempt cost nothing and can never produce output or
+ * charge again. A failure that charged keeps "one paid submission per click".
+ */
+export function replayedSettledChatFailure(job: {
+  state?: unknown
+  failure_code?: unknown
+  cancelled?: unknown
+  recovery_required?: unknown
+  recovery_state?: unknown
+  idempotent_replay?: unknown
+  http_status?: unknown
+  reserved_credits?: unknown
+  settled_credits?: unknown
+  released_credits?: unknown
+}): boolean {
+  const credits = [job.reserved_credits, job.settled_credits, job.released_credits]
+  return (job.idempotent_replay === true || job.http_status === 200)
+    && job.state === 'failed' && job.cancelled !== true
+    && !holdsUnknownOutcome(job) && !isSubmissionUncertainCode(job.failure_code)
+    && credits.every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0)
+    && job.settled_credits === 0 && job.released_credits === job.reserved_credits
+}
+
+export function chatKeyAfterFailedReplay(key: string, failedJobId: string): string {
+  return `story-chat-${createHash('sha256').update(`${key}:after-failed:${failedJobId}`).digest('hex').slice(0, 47)}`
+}
+
 async function callChatViaResponsesOnce(
   apiKey: string,
   request: GenStudioChatRequest,
   prepared: PreparedChatSubmission,
   baseUrlOverride?: string,
+  replayHops = 0,
 ): Promise<GenStudioChatResult> {
   const restored = await restoreReplacementRequest('writing', apiKey, prepared.idempotencyKey, chatReplacementItemKey(prepared, request), request)
   request = restored.request
@@ -7667,6 +7702,21 @@ async function callChatViaResponsesOnce(
     return recoverChatByIdempotencyKey(apiKey, prepared.idempotencyKey, request, prepared, requestPreview, baseUrl)
   }
   await recordGenStudioEvidence('chat.response', chatJobEvidence(submitted), requestPreview)
+  // Only a key Story derived from content: a caller-supplied key (exact replay,
+  // paid replacement) names one specific request and must never be moved.
+  if (!request.idempotencyKey?.trim() && request.replacementChargeLimit === undefined
+    && replayedSettledChatFailure(submitted) && replayHops < MAX_FAILED_CHAT_REPLAY_HOPS) {
+    // The key is derived from the request content, so a Retry of the same step
+    // re-POSTs the same key and the gateway answers with the OLD failed job.
+    // Without this, one failure (the gateway
+    // 0.2.97/0.2.98 pool bug, a provider 400) made that step fail in a second
+    // on every Retry forever. The old job is settled, held by nobody and cost
+    // nothing, so nothing is in flight under this key; the fresh key is derived from the failed job's
+    // id, so a restart of this run reattaches instead of buying a third.
+    return callChatViaResponsesOnce(apiKey, request, {
+      ...prepared, idempotencyKey: chatKeyAfterFailedReplay(prepared.idempotencyKey, submitted.id),
+    }, baseUrlOverride, replayHops + 1)
+  }
   await reportQueueState(request, chatJobEvidence(submitted))
   await request.onJobAccepted?.(submitted.id, prepared.idempotencyKey)
   let completed: GenStudioChatJob

@@ -1,7 +1,16 @@
 <template>
   <div class="toast-container" role="status" aria-live="polite">
+    <button
+      v-if="split.hidden"
+      type="button"
+      class="toast-more"
+      title="Every job result stays in the bell's Activity list"
+      @click="openBell"
+    >
+      +{{ split.hidden }} more — open notifications
+    </button>
     <div
-      v-for="toast in toasts"
+      v-for="toast in split.visible"
       :key="toast.id"
       :title="toast.raw"
       :class="['toast', `toast-${toast.type}`, { 'has-undo': !!toast.onUndo, 'has-action': !!toast.action }]"
@@ -23,11 +32,22 @@
       >
         {{ toast.action.label }}
       </button>
+      <button
+        type="button"
+        class="toast-close"
+        aria-label="Dismiss notification"
+        title="Dismiss"
+        @click="dismiss(toast.id)"
+      >
+        ✕
+      </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { splitToasts } from '../composables/useToast.js'
+import { useNotifications } from '../composables/useNotifications.js'
 /**
  * Floating toast stack. Renders whatever `useToast` pushes into its state.
  *
@@ -42,7 +62,12 @@
  * fire when focus is on non-editable surface so the shortcut never steals
  * from a user typing in a form.
  */
-const { toasts } = useToast()
+const { toasts, dismiss } = useToast()
+const split = computed(() => splitToasts(toasts.value))
+const notifications = useNotifications()
+// The bell lives in the project layout; elsewhere this just opens nothing,
+// and the folded toasts still expire on their own timers.
+function openBell() { notifications.open('activity') }
 
 function isEditableTarget(el: EventTarget | null): boolean {
   if (!(el instanceof HTMLElement)) return false
@@ -110,6 +135,33 @@ if (import.meta.client) {
   animation: slideIn 0.22s ease-out;
 }
 .toast-message { flex: 1; color: var(--text-primary); }
+
+.toast-close {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted, var(--text-secondary));
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.toast-close:hover { color: var(--text-primary); background: var(--bg-tertiary, rgba(255, 255, 255, 0.06)); }
+.toast-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.toast-more {
+  pointer-events: auto;
+  align-self: flex-end;
+  padding: 6px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.toast-more:hover { color: var(--text-primary); border-color: var(--accent); }
 
 .toast-success { border-left: 3px solid #22c55e; }
 .toast-error   { border-left: 3px solid #ef4444; }

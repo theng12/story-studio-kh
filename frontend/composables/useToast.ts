@@ -37,6 +37,22 @@ export interface Toast {
 const toasts = ref<Toast[]>([])
 let nextId = 0
 
+/**
+ * At most this many toasts show at once; the rest collapse into "+N more",
+ * which opens the bell. Eleven failure toasts once stacked over the whole
+ * Jobs page (owner, 2026-10-03). The bell keeps every job record, so a toast
+ * is only ever a heads-up and may always be closed or expire.
+ */
+export const TOAST_VISIBLE_LIMIT = 3
+/** Action toasts ("Open job") used to stay until clicked; now they expire too. */
+export const ACTION_TOAST_MS = 8000
+
+/** The newest `limit` toasts to show, and how many older ones are folded away. */
+export function splitToasts<T>(list: readonly T[], limit = TOAST_VISIBLE_LIMIT): { visible: T[]; hidden: number } {
+  const hidden = Math.max(0, list.length - limit)
+  return { visible: list.slice(hidden), hidden }
+}
+
 // v1.0.124+ — Dedupe identical error messages within a short window.
 // Polling loops + watchers that hit a 404 every tick were generating a
 // constant stream of identical toasts (the symptom that surfaced this
@@ -195,23 +211,23 @@ export function useToast() {
   function info(message: string) { show(message, 'info') }
 
   /**
-   * Toast with a named action button. The toast stays open until the user
-   * clicks the action, clicks the background toast (no auto-dismiss), or
-   * the caller removes it manually via `dismiss(id)`. Useful for async
-   * state we want the user to acknowledge — "Project updated on another
-   * device → [Reload]" — without stealing modal focus.
+   * Toast with a named action button ("Open job", "View jobs"). Closes on the
+   * action, on its ✕, or after `duration` ms — the record it points at lives
+   * on in the bell / Jobs page, so the toast never has to wait for a click.
    */
   function showAction(
     message: string,
     actionLabel: string,
     onClick: () => void | Promise<void>,
     type: Toast['type'] = 'info',
+    duration = ACTION_TOAST_MS,
   ): number {
     const id = nextId++
     const wrapped = async () => {
       try { await onClick() } finally { dismiss(id) }
     }
     toasts.value.push({ id, message: customerSafeJobText(message), type, action: { label: actionLabel, onClick: wrapped } })
+    setTimeout(() => dismiss(id), duration)
     return id
   }
 

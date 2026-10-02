@@ -68,7 +68,8 @@ describe('per-episode targeted recovery', () => {
     assert.match(jobsPage, /completion\?\.issues/)
     assert.match(jobsPage, /scene-review\?episode_id=.*scene_id=/)
     assert.match(jobsPage, /paidReplacementAttemptMessage\(job: RJob\)/)
-    assert.match(jobsPage, /no replacement was submitted/i)
+    // Plain-English wording (owner, 2026-10-03) still says nothing was submitted.
+    assert.match(jobsPage, /nothing new was sent/i)
   })
 
   it('links the current structured subtitle prerequisite to its exact chapter', () => {
@@ -93,7 +94,8 @@ describe('per-episode targeted recovery', () => {
     assert.match(jobsPage, /const hasOpaqueLegacyInvalid = !structured\.length && legacyInvalid\.some/)
     assert.match(jobsPage, /scene_plan_run/)
     assert.match(jobsPage, /original_failure_not_eligible/)
-    assert.match(jobsPage, /no replacement was submitted/i)
+    // Plain-English wording (owner, 2026-10-03) still says nothing was submitted.
+    assert.match(jobsPage, /nothing new was sent/i)
   })
 
   it('shares one slow admission refresh instead of piling up interval requests', () => {

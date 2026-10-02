@@ -120,16 +120,22 @@ test('History presents one safe primary control and hides alternatives under Mor
   assert.doesNotMatch(history, /v-for="control in jobControls\(job\)"/)
 })
 
-test('Jobs keeps all seven toolbar actions available, disabled when their scoped count is zero', () => {
+test('Jobs keeps all toolbar actions available, disabled when their scoped count is zero', () => {
   assert.match(jobs, /<section class="jobs-control-toolbar" aria-label="Job actions">/)
   assert.match(jobs, /\{\{ actionScopeLabel \}\} · all job types and statuses/)
-  for (const action of ['recoverAllEpisodes', 'repairAllFailed', 'retryAllFailed', 'resumePausedJobs', 'clearFinished', 'clearFailed']) {
+  // Owner 2026-10-03: two main buttons, everything else under More actions.
+  assert.match(jobs, /:disabled="checkAction\.disabled"[\s\S]{0,120}@click="checkOnRunningJobs\(\)"/)
+  assert.match(jobs, /:disabled="redoAction\.disabled"[\s\S]{0,160}@click="retryAllFailed\(\)"/)
+  // Owner follow-up: the rest stay visible in a quieter row, never folded away.
+  assert.match(jobs, /<div class="jobs-more-actions" role="group" aria-label="Other job actions">/)
+  assert.doesNotMatch(jobs, /<details class="jobs-more-actions">/)
+  for (const action of ['recoverAllEpisodes', 'repairAllFailed', 'resumePausedJobs', 'clearFinished', 'clearFailed']) {
     assert.match(jobs, new RegExp(`:disabled="[^"\\n]+"[\\s\\S]{0,240}@click="${action}`))
   }
   assert.match(jobs, /:disabled="changingQueueState \|\| resumingQueue \|\| queueStateUnknown \|\| \(!queuePaused && !hasQueueWork\)"[\s\S]{0,520}@click="queuePaused \? resumeQueue\(\) : pauseQueue\(\)"/)
   assert.match(jobs, /recoverableEpisodes\.length === 0/)
   assert.match(jobs, /repairableFailedJobs\.length === 0/)
-  assert.match(jobs, /retryAllTriage\.retry\.length === 0/)
+  assert.match(jobs, /redo: retryAllTriage\.value\.retry\.length/)
   assert.match(jobs, /pausedJobCount === 0/)
   assert.match(jobs, /finishedCount === 0/)
   assert.match(jobs, /failedCount === 0/)
@@ -496,7 +502,7 @@ test('Paused work rejoin sends only server-owned scope and gives immediate busy 
 
 test('Paused controls give filters and actions separate wrapping room on narrow Jobs layouts', () => {
   assert.match(jobs, /@media \(max-width: 760px\)[\s\S]*?\.status-filters \{ flex: 1 1 100%; min-width: 0; \}/)
-  assert.match(jobs, /\.jobs-control-buttons \.btn \{ min-height: 44px; flex: 1 1 120px; white-space: normal; \}/)
+  assert.match(jobs, /\.jobs-more-action \.btn \{ min-height: 36px; white-space: normal; \}/)
 })
 
 test('Jobs keeps every sort control reachable on narrow layouts', () => {

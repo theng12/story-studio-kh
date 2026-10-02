@@ -67,7 +67,11 @@ test('forced Pipeline chat work replays one action, survives Jobs Retry, and a n
   const retried = await request(app).post(`/api/projects/${project.slug}/jobs/${firstJobId}/retry`)
   assert.equal(retried.status, 202, JSON.stringify(retried.body))
   await terminal(retried.body.job.job_id, 'forced Pipeline Jobs Retry')
-  assert.equal(mock.providerSubmissionCount('chat'), 1, 'Jobs Retry must rejoin the action provider key')
+  // Owner 2026-10-03: the action's first request failed and GenStudio released
+  // every credit, so rejoining it would only replay the failure. Retry submits
+  // once more under a key derived from that failed job (a charged failure
+  // would still rejoin — see chat-failed-replay.test.ts).
+  assert.equal(mock.providerSubmissionCount('chat'), 2, 'Jobs Retry of a free failure submits exactly one fresh request')
 
   mock.queueScenario('chat', { states: ['accepted', 'failed'], failureCode: 'provider_error' })
   const second = await request(app)
@@ -75,7 +79,7 @@ test('forced Pipeline chat work replays one action, survives Jobs Retry, and a n
     .send(body('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'))
   assert.equal(second.status, 201, JSON.stringify(second.body))
   await terminal(second.body.jobs[0].job_id, 'second forced Pipeline action')
-  assert.equal(mock.providerSubmissionCount('chat'), 2, 'a new click must submit a fresh provider request')
+  assert.equal(mock.providerSubmissionCount('chat'), 3, 'a new click must submit a fresh provider request')
 
   await jq.setQueuePaused(true)
   const recovery = await request(app)
