@@ -759,20 +759,43 @@ export class GenStudioTranscriptionTerminalFailureError extends GenStudioTermina
  */
 export class GenStudioChatTerminalFailureError extends GenStudioTerminalFailureError {
   constructor(job: GenStudioSettledJobShape) {
-    super(
-      'chat',
-      job,
-      `${describeGenStudioLanguageFailure(settledFailureCode(job))
-        ?? (job.cancelled === true
-          ? `GenStudio KH language job ${job.id} was cancelled${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
-            + 'Retry submits a new job.'
-          : `GenStudio KH language generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
-            + 'This job cannot be reopened; Retry submits a new job. '
-            + 'No fallback route was attempted.')} ${releasedCreditSettlement(job)}`,
-    )
+    super('chat', job, chatFailureSentence(job))
+    // The owner reads this on every writing page. The base class appends "Provider reason: …";
+    // here the reason is "Details", and the gateway's "being checked" note is dropped because a
+    // writing request that reached this point is over — nothing is checking it any more.
+    const details = this.failureReason?.replace(/\s*The result is being checked; nothing was run twice\./i, '').trim()
+    this.message = [chatFailureSentence(job), details ? `Details: ${details}` : null,
+      genStudioFailureGuidance(this.failureClass, 'chat')].filter(Boolean).join(' ')
     this.name = 'GenStudioChatTerminalFailureError'
   }
 }
+
+/**
+ * What happened to a writing request and what to do next, in the owner's words: no job ids, no
+ * failure codes, no "route"/"provider"/"reconcile". Credits are mentioned only when some moved —
+ * the free Gemini pool settles 0/0/0, and "0 credits released" is noise. A positive release keeps
+ * the exact "GenStudio reports N credits released." sentence `job-queue` quotes on Abandon.
+ */
+function chatFailureSentence(job: GenStudioSettledJobShape): string {
+  const code = settledFailureCode(job)
+  const what = job.cancelled === true
+    ? 'This writing request was cancelled. Retry sends it again.'
+    : holdsUnknownOutcome(job)
+      ? LOST_WRITING_REQUEST
+      : describeGenStudioLanguageFailure(code)
+        ?? 'Writing failed. Retry this step; if it keeps failing, pick a different writing model.'
+  const released = job.released_credits
+  const settled = job.settled_credits
+  const credits = [
+    typeof settled === 'number' && settled > 0 ? `${settled} credits were charged for this attempt.` : null,
+    typeof released === 'number' && released > 0 ? `GenStudio reports ${released} credits released.` : null,
+  ].filter(Boolean).join(' ')
+  return credits ? `${what} ${credits}` : what
+}
+
+const LOST_WRITING_REQUEST = 'The writing service lost track of this request after it was sent, so Story Studio '
+  + 'did not send it again by itself (a paid writing model could charge twice). Generate this step again to '
+  + 'send a fresh request.'
 
 /**
  * A transcription quote settled before it could be confirmed into a job.
@@ -3625,32 +3648,25 @@ export function isGenStudioRequestInProgress(error: unknown): boolean {
  */
 export function describeGenStudioLanguageFailure(code: string | null | undefined): string | null {
   if (typeof code !== 'string' || !code.trim()) return null
-  const normalized = code.trim().toUpperCase()
-  if (normalized === GENSTUDIO_LANGUAGE_FAILURE_CODES.SUBMISSION_UNCERTAIN || normalized === 'PROVIDER_SUBMISSION_UNCERTAIN') {
-    return 'GenStudio KH could not confirm whether the language provider had already accepted this '
-      + 'request, so it stopped rather than risk sending it — and being charged for it — twice. '
-      + 'Story Studio did NOT retry it automatically for the same reason. Check the run in your '
-      + 'GenStudio account before resubmitting; if nothing was charged, run this step again.'
+  // GenStudio-cloud spells these LANGUAGE_…; the gateway drops the prefix (PROVIDER_FAILED …).
+  const normalized = code.trim().toUpperCase().replace(/^LANGUAGE_/, '')
+  if (isSubmissionUncertainCode(normalized) || normalized === 'UNKNOWN_OUTCOME') return LOST_WRITING_REQUEST
+  switch (normalized) {
+    case 'PROVIDER_FAILED':
+      return 'The writing model could not answer this request. Retry this step; if it keeps failing, pick a different writing model.'
+    case 'PROVIDER_MODEL_MISMATCH':
+      return 'The reply did not come from the writing model you chose, so it was refused rather than used. '
+        + 'Retry this step, or pick a different writing model.'
+    case 'PROVIDER_BACKPRESSURE':
+    case 'PROVIDER_UNAVAILABLE':
+    case 'LOCATION_NOT_READY':
+      return 'No writing model was free to take this request. Retry in a few minutes, or pick a different writing model.'
+    case 'PROVIDER_QUOTA_EXHAUSTED':
+      return 'This writing model has used up its free allowance for now (for a pool: every model in it has). '
+        + 'Retry later — free allowances usually come back within a day — or pick a different writing model.'
+    default:
+      return null
   }
-  if (normalized === GENSTUDIO_LANGUAGE_FAILURE_CODES.PROVIDER_FAILED) {
-    return 'The language provider behind this GenStudio KH product failed on every route GenStudio '
-      + 'tried. No fallback route was attempted. Retry this step, or pick a different language product in Settings.'
-  }
-  if (normalized === GENSTUDIO_LANGUAGE_FAILURE_CODES.MODEL_MISMATCH) {
-    return 'GenStudio KH checked the language reply against the model this product sells, and the reply '
-      + 'did not identify itself as that model, so GenStudio refused it rather than hand back work you did '
-      + 'not buy. No fallback route was attempted. The durable job reports the exact credit settlement. '
-      + 'Retry this step, or pick a different language product in Settings.'
-  }
-  if (normalized === GENSTUDIO_LANGUAGE_FAILURE_CODES.PROVIDER_BACKPRESSURE) {
-    return 'GenStudio KH could not admit this language request because its provider lane was under pressure. '
-      + 'The durable job reports the exact credit settlement; Story Studio retries only when that record proves nothing was charged and the full reservation was released.'
-  }
-  if (normalized === GENSTUDIO_LANGUAGE_FAILURE_CODES.QUOTA_EXHAUSTED || normalized === 'PROVIDER_QUOTA_EXHAUSTED') {
-    return 'GenStudio KH reported that this language product\'s provider quota is temporarily exhausted. '
-      + 'The durable job reports the exact credit settlement; Story Studio advances only when that record proves nothing was charged and the full reservation was released.'
-  }
-  return null
 }
 
 /**

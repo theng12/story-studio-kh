@@ -340,7 +340,7 @@ void test('deterministic zero-spend GenStudio release qualification', async (sui
           assert.ok(error instanceof client.GenStudioChatTerminalFailureError)
           assert.equal(error.failureCode, 'LANGUAGE_PROVIDER_FAILED')
           // Safe to retry: the reservation was released.
-          assert.match(error.message, /Retry this step, or pick a different language product/i)
+          assert.match(error.message, /pick a different writing model/i)
           assert.equal(client.isGenStudioSubmissionUncertain(error), false)
           return true
         },
@@ -356,8 +356,7 @@ void test('deterministic zero-spend GenStudio release qualification', async (sui
           assert.ok(error instanceof client.GenStudioChatTerminalFailureError)
           assert.equal(error.failureCode, 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN')
           // NOT safe to retry by machine — check the account first.
-          assert.match(error.message, /could not confirm/i)
-          assert.match(error.message, /Check the run in your\s+GenStudio account/i)
+          assert.match(error.message, /lost track of this request/i)
           assert.equal(client.isGenStudioSubmissionUncertain(error), true)
           return true
         },
