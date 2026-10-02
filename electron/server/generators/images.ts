@@ -1730,7 +1730,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
         }
       } else {
         job.output_lines.push(
-          `Staging ${filteredScenes.length} scene image request(s); GenStudio account admission is authoritative...`,
+          `Generating ${filteredScenes.length} scene image(s)…`,
         )
         await runPool(filteredScenes, runScene)
       }
@@ -1743,7 +1743,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
       totalToProcess = thumbs.length
       publishProgress()
       job.output_lines.push(
-        `Staging ${thumbs.length} thumbnail request(s); GenStudio account admission is authoritative...`,
+        `Generating ${thumbs.length} thumbnail(s)…`,
       )
       await runPool(thumbs, runThumb)
     }

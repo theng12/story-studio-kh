@@ -23,20 +23,26 @@
                 — picked via {{ effectiveSource }}
               </span>
             </template>
+            <template v-else-if="loadError">
+              <span class="text-muted">{{ loadError }}</span>
+              <button type="button" class="btn btn-sm btn-ghost" @click="loadAll">Try again</button>
+            </template>
             <template v-else>
               <span class="text-muted">No template set. Pick one below — it'll become the default for this project.</span>
             </template>
           </div>
         </div>
-        <button
-          v-if="effectiveTemplate && hasProjectOverride"
-          type="button"
-          class="btn btn-sm btn-ghost"
-          :disabled="templateMutationBusy"
-          @click="clearProjectOverride"
-        >
-          Clear project override
-        </button>
+        <div v-if="effectiveTemplate && hasProjectOverride" class="tt-active-action">
+          <button
+            type="button"
+            class="btn btn-sm btn-ghost"
+            :disabled="templateMutationBusy"
+            @click="clearProjectOverride"
+          >
+            Use the niche default
+          </button>
+          <span class="text-muted tt-active-hint">Forgets this project's pick; no thumbnails are changed.</span>
+        </div>
       </div>
     </div>
 
@@ -56,9 +62,8 @@
       ★ marks templates recommended for this project's niche
       <template v-if="nicheId"> (<strong>{{ nicheId }}</strong>)</template>.
       Click any card to set it as the project default — the next thumbnail prompt and render use it automatically.
-      Recipe cards keep the generated image text-free and composite a crisp headline afterward. Or hit <strong>Edit</strong> on any card to open the
-      visual editor. Use <strong>+ New template</strong> to build one from scratch in your library
-      (built-ins fork to your user library on first save).
+      Recipe cards keep the generated image text-free and add a crisp headline afterward. Hit <strong>Edit</strong> on any card to change it
+      (built-in cards are copied to your own library on first save, the original stays), or use <strong>+ New template</strong> to start from scratch.
     </p>
 
     <ThumbnailTemplatePicker
@@ -79,21 +84,6 @@
       @cancelled="onEditorCancelled"
     />
 
-    <div class="card tt-howto mt-3">
-      <h3 style="margin: 0 0 8px;">Add your own template</h3>
-      <p class="text-muted tt-howto-p">
-        Drop a JSON file into <code>{{ userTemplatesDirHint }}</code> following the shape of the
-        built-in templates (see <code>electron/server/thumbnail-templates/portrait-block-right.json</code>
-        in the app bundle). The new file appears in this gallery on next page load with its own
-        live preview. No code changes; restart not required.
-      </p>
-      <p class="text-muted tt-howto-p" style="margin-top: 6px;">
-        Each template declares: <code>aspectRatio</code>, <code>canvas</code>,
-        <code>backgroundDimGradient</code>, <code>textZones</code> (title / subtitle positioning + font),
-        <code>accentStrokes</code> (horizontal rules), and an optional <code>logoSlot</code>.
-        See the schema in <code>electron/server/models/types.ts</code> for the full field list.
-      </p>
-    </div>
   </div>
 </template>
 
@@ -135,18 +125,13 @@ const effectiveTemplate = ref<any | null>(null)
 const effectiveSource = ref('') // 'project override' | 'niche default' | 'legacy inline'
 const hasProjectOverride = ref(false)
 const effectiveLoading = ref(true)
+const loadError = ref('')
 const editingId = ref('')
 let thumbnailTemplateScope = 0
 let thumbnailTemplateLoadRequest = 0
 let editingScope = 0
 let thumbnailTemplateMutation = 0
 const templateMutationBusy = ref(false)
-
-// Static hint string — the actual path is OS-specific (lives under
-// PROJECTS_ROOT/.thumbnail-templates), but the user knows what
-// PROJECTS_ROOT is from earlier setup. Avoids a server roundtrip just
-// to display a directory hint.
-const userTemplatesDirHint = '~/Documents/Story Studio KH/.thumbnail-templates/'
 
 function resetThumbnailTemplateState() {
   projectName.value = ''
@@ -156,6 +141,7 @@ function resetThumbnailTemplateState() {
   effectiveSource.value = ''
   hasProjectOverride.value = false
   effectiveLoading.value = true
+  loadError.value = ''
   editingId.value = ''
   editingScope = 0
   thumbnailTemplateMutation++
@@ -169,6 +155,7 @@ async function loadAll() {
   const current = () => projectSlug === slug.value
     && scope === thumbnailTemplateScope && request === thumbnailTemplateLoadRequest
   effectiveLoading.value = true
+  loadError.value = ''
   try {
     const [project, niche, eff, cfg] = await Promise.all([
       get<{ name?: string }>(`/projects/${projectSlug}`),
@@ -185,7 +172,7 @@ async function loadAll() {
     const override = typeof cfg?.thumbnail_template_id === 'string' ? cfg.thumbnail_template_id : ''
     hasProjectOverride.value = !!override
     if (override && eff?.template?.id === override) {
-      effectiveSource.value = 'project override'
+      effectiveSource.value = 'your pick for this project'
     } else if (eff?.template && niche?.niche?.defaultThumbnailTemplateId === eff.template.id) {
       effectiveSource.value = `niche default (${niche.niche.id})`
     } else if (eff?.template) {
@@ -195,7 +182,8 @@ async function loadAll() {
     }
   } catch (e: any) {
     if (!current()) return
-    toastError(e?.data?.detail || 'Could not load thumbnail templates page')
+    loadError.value = e?.data?.detail || 'Could not load this project’s thumbnail template.'
+    toastError(loadError.value)
   } finally {
     if (current()) effectiveLoading.value = false
   }
@@ -289,7 +277,7 @@ async function clearProjectOverride() {
       thumbnail_template_id: '',
     })
     if (!current()) return
-    toastSuccess('Project override cleared — falling back to the niche default')
+    toastSuccess('This project now uses the niche default template')
     await loadAll()
   } catch (e: any) {
     if (!current()) return
@@ -369,15 +357,13 @@ watch(slug, () => {
   max-width: 780px;
   margin: 0 0 14px;
 }
-.tt-howto-p code {
-  background: rgba(255, 255, 255, 0.06);
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-size: var(--font-xs);
+.tt-active-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
 }
-.tt-howto-p {
-  font-size: 12px;
-  margin: 0;
-  line-height: 1.5;
+.tt-active-hint {
+  font-size: 11px;
 }
 </style>

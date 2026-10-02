@@ -147,7 +147,7 @@ router.post('/projects/:slug/preview-image', validateBody(PreviewImageSchema), a
   // only ever returns GenStudio-routed image models.
   const imageProvider = registry.getImageProvider('genstudio-image')
   if (!imageProvider) {
-    return res.status(400).json({ detail: 'No image provider registered for: genstudio-image' })
+    return res.status(400).json({ detail: 'Image generation is not available in this build of Story Studio.' })
   }
   const apiKey = await resolveApiKeyForProvider(slug, imageProvider.meta, { model: modelName })
   if (!apiKey) {
@@ -199,9 +199,9 @@ router.post('/projects/:slug/preview-image', validateBody(PreviewImageSchema), a
     })
     urls = result.urls || []
   } catch (e: any) {
-    return res.status(502).json({ detail: e?.message || 'Image provider failed' })
+    return res.status(502).json({ detail: e?.message || 'The preview image could not be made. Try again in a moment.' })
   }
-  if (!urls.length) return res.status(502).json({ detail: 'Image provider returned no images' })
+  if (!urls.length) return res.status(502).json({ detail: 'No preview image came back. Try again in a moment.' })
 
   let imageBytes: Buffer
   try {
