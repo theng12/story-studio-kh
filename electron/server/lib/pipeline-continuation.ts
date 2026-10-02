@@ -35,13 +35,19 @@ const STEP_LABELS: Record<string, string> = {
   scene_review: 'Scene Review',
   motion_review: 'Motion Clips',
   video_assembly: 'Final Video',
+  character_sheet: 'Character Sheet',
+}
+
+/** The plain name the owner knows a Pipeline step by. */
+export function pipelineStepLabel(step: string): string {
+  return STEP_LABELS[step] || step
 }
 
 /** Plain step names for a list of links, each named once, in chain order. */
 export function pipelineStepLabels(links: PipelineChainLink[]): string {
   const names = links.map(link => {
     const step = String(link.params?.pipeline_step || link.type || '')
-    return STEP_LABELS[step] || step
+    return pipelineStepLabel(step)
   })
   return [...new Set(names)].join(', ')
 }

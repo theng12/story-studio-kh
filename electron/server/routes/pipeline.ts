@@ -56,6 +56,7 @@ import { requireSceneClipGenStudioModel } from '../generators/scene-clip.js'
 import { isRetiredVideoModelId } from '../contracts/retired-video-models.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage, unavailableTranscriptionModelMessage } from '../services/genstudio-model-migration.js'
 import { withLock } from '../lib/atomic-store.js'
+import { pipelineStepLabel } from '../lib/pipeline-continuation.js'
 import { isDecodableImage } from '../lib/image-validation.js'
 import {
   inspectPipelineSubtitleRepairReadiness,
@@ -230,6 +231,8 @@ interface PreflightIssue {
   message: string
   episode_id?: string
   step?: BatchStep
+  /** For missing_prerequisite: the step it needs (machine-readable; the message is for people). */
+  requires?: BatchStep
   path?: string
 }
 
@@ -636,7 +639,7 @@ async function preflightBatch(
         issues,
         visualSettingsByEpisode,
         step,
-        result.missingReason || `No active preset for ${step}`,
+        result.missingReason || `No active preset for ${pipelineStepLabel(step)}`,
       )
       continue
     }
@@ -662,7 +665,7 @@ async function preflightBatch(
         code: 'missing_local_asset',
         step,
         path: missingPath,
-        message: `${step} preset references a local file that is unavailable: ${missingPath}`,
+        message: `The ${pipelineStepLabel(step)} preset uses a file that isn't available (is the drive connected?): ${missingPath}`,
       })
     }
   }
@@ -716,7 +719,8 @@ async function preflightBatch(
           code: 'missing_prerequisite',
           episode_id: episodeId,
           step,
-          message: `${episodeId}: ${step} needs ${required} earlier in this run or already complete.`,
+          requires: required,
+          message: `${episodeId}: ${pipelineStepLabel(step)} needs ${pipelineStepLabel(required)} first — tick ${pipelineStepLabel(required)} in this run too, or finish it on its own page.`,
         })
       }
       available.add(step)
@@ -902,8 +906,8 @@ export function findActivePreset(
     }
   }
 
-  if (!firstActiveId) return { preset: null, missingReason: `No active preset for ${step}. Open the ${step} page, apply a preset, then retry.` }
-  return { preset: null, missingReason: `Active preset for ${step} (${firstActiveId}) not found in saved presets.` }
+  if (!firstActiveId) return { preset: null, missingReason: `No active preset for ${pipelineStepLabel(step)}. Open the ${pipelineStepLabel(step)} page, apply a preset, then retry.` }
+  return { preset: null, missingReason: `The preset chosen for ${pipelineStepLabel(step)} was deleted. Pick another one on the Pipeline or the ${pipelineStepLabel(step)} page.` }
 }
 
 /**
@@ -2154,7 +2158,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
           effectiveSteps.includes('motion_review') && !effectiveSteps.includes('scene_plan'),
         )
       } catch (e: any) {
-        skipped.push({ episode_id: episodeId, reason: `character sheet apply failed: ${e?.message || e}` })
+        skipped.push({ episode_id: episodeId, reason: `Character Sheet could not be applied: ${e?.message || e}` })
         continue
       }
     }
@@ -2213,7 +2217,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       } catch (error: any) {
         skipped.push({
           episode_id: episodeId,
-          reason: `${step}: ${error?.message || String(error)} Fix the saved preset for this step, then run the batch again.`,
+          reason: `${pipelineStepLabel(step)}: ${error?.message || String(error)} Fix the saved preset for this step, then run the batch again.`,
         })
         continue
       }
@@ -2283,7 +2287,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
         if (!batchDefaultChatModel) {
           skipped.push({
             episode_id: episodeId,
-            reason: `${step}: no model saved in the preset and GenStudio's live language-model catalog is unavailable. ` +
+            reason: `${pipelineStepLabel(step)}: no model saved in the preset and GenStudio's live language-model catalog is unavailable. ` +
               'Open the preset, choose a current model, and save it again, or configure a GenStudio API key.',
           })
           continue
@@ -2367,7 +2371,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     // already queued/running. The user can see the existing job in the
     // Jobs tab; silently piling another one on is worse UX than a skip.
     if (jq.isDuplicate(slug, episodeId, first.type)) {
-      skipped.push({ episode_id: episodeId, reason: `${first.type} already queued/running` })
+      skipped.push({ episode_id: episodeId, reason: `${pipelineStepLabel(CHAIN_LINK_STEP[first.type] || first.type)} is already queued or running for this episode — see Jobs.` })
       continue
     }
 

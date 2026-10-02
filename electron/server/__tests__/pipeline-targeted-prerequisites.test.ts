@@ -112,13 +112,13 @@ async function assertRejectedWithoutJob(
   assert.equal(response.status, 400, JSON.stringify(response.body))
   assert.match(response.body.detail, /Nothing was started/)
   assert.equal(response.body.blocked?.[0]?.episode_id, episodeId)
-  assert.match(response.body.blocked?.[0]?.reason || '', new RegExp(prerequisite))
+  assert.match(response.body.blocked?.[0]?.reason || '', new RegExp(prerequisite === 'subtitles' ? 'Subtitles' : 'Scene Plan'))
   assert.deepEqual(response.body.eligible_episode_ids, [])
   assert.ok(
     response.body.issues?.some((issue: { code?: string; episode_id?: string; step?: string; message?: string }) => issue.code === 'missing_prerequisite'
       && issue.episode_id === episodeId
       && issue.step === step
-      && issue.message?.includes(prerequisite)),
+      && (issue as { requires?: string }).requires === prerequisite),
     `preflight names ${prerequisite} as the missing prerequisite`,
   )
   assert.equal((await jq.getJobs(slug)).length, beforeJobs.length, 'preflight creates no job')
@@ -170,7 +170,7 @@ void test('bulk Scene Plan queues eligible episodes and reports blocked subtitle
     assert.equal(first.body.enqueued, 1)
     assert.equal(first.body.jobs[0]?.episode_id, eligible.episodeId)
     assert.equal(first.body.blocked?.[0]?.episode_id, blocked.episodeId)
-    assert.match(first.body.blocked?.[0]?.reason || '', /scene_plan needs subtitles/)
+    assert.match(first.body.blocked?.[0]?.reason || '', /Scene Plan needs Subtitles/)
     assert.ok(first.body.blocked?.[0]?.issues?.some((issue: { code?: string; step?: string }) =>
       issue.code === 'missing_prerequisite' && issue.step === 'scene_plan',
     ))
@@ -209,7 +209,7 @@ void test('bulk preflight admits eligible Scene Plan episodes while retaining bl
   assert.equal(response.body.ok, true)
   assert.deepEqual(response.body.eligible_episode_ids, [eligible.episodeId])
   assert.equal(response.body.blocked?.[0]?.episode_id, blocked.episodeId)
-  assert.match(response.body.blocked?.[0]?.reason || '', /scene_plan needs subtitles/)
+  assert.match(response.body.blocked?.[0]?.reason || '', /Scene Plan needs Subtitles/)
 })
 
 void test('targeted Scene Review rejects a missing Scene Plan before job creation', async () => {

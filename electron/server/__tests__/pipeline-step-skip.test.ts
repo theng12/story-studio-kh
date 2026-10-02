@@ -306,7 +306,7 @@ describe('run-batch — step skip behaviour', () => {
       (res.body.issues || []).some((issue: any) =>
         issue.code === 'missing_prerequisite'
         && issue.step === 'metadata'
-        && ['script-only', 'audio_merge'].includes(issue.message.match(/needs ([\w-]+)/)?.[1]),
+        && ['script-only', 'audio_merge'].includes(issue.requires),
       ),
       'preflight names the missing finalizer prerequisite',
     )
@@ -774,7 +774,7 @@ describe('run-batch — v1.0.363 audio-paced wiring', () => {
       assert.equal(res.body.character_sheets_applied, 1, 'the selected character_sheet step is applied inline')
       assert.equal(res.body.enqueued, 0, 'the duplicate step queues no second run')
       assert.ok(
-        (res.body.skipped || []).some((entry: any) => /already queued\/running/.test(String(entry.reason || ''))),
+        (res.body.skipped || []).some((entry: any) => /already queued or running/.test(String(entry.reason || ''))),
         'the aborted step is reported, not silently dropped',
       )
       // The write persists — it is the explicitly selected work, not a side

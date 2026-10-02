@@ -50,6 +50,11 @@
         Each episode follows the <strong>{{ chainLabel }}</strong> chain in order while separate episodes share the available queue capacity.
         Preset choices stay pinned to this project, and completed work is skipped unless you explicitly force a re-run.
       </p>
+      <p class="pipeline-command-copy pipeline-command-hint">
+        <strong>Run Batch</strong> queues the selected steps for the selected episodes and skips anything already finished.
+        <strong>Repair selected gaps</strong> first collects results that finished but never saved, then redoes only what is still missing in the selected steps — that part may use credits.
+        Both ask before anything starts.
+      </p>
       <WorkspaceNotice v-if="formatError" tone="warning" title="Production flow unavailable">
         {{ formatError }} Stage selection and batch actions stay disabled until the project format is available.
       </WorkspaceNotice>
@@ -347,6 +352,13 @@
           </button>
         </div>
       </template>
+
+      <p class="text-muted text-sm mt-1 ep-actions-hint">
+        <strong>Select all pending</strong> picks every episode still missing a selected step, across all pages;
+        <strong>Select all</strong> picks every episode (both follow the Show filter).
+        <strong>Select page</strong> and <strong>Select pending on page</strong> only touch the page you are looking at.
+        <template v-if="selectedEpisodes.size > 0"><strong>Mark as done</strong> / <strong>Unmark</strong> change the recorded status only — nothing is made or deleted.</template>
+      </p>
 
       <!-- Sort + filter + pagination toolbar. Scales the list to 100+ episodes
            without overwhelming the viewport. Sort + filter are derivations
