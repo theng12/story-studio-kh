@@ -19,7 +19,7 @@
 import { test, describe, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { useToast, type Toast } from '../composables/useToast.js'
+import { useToast, splitToasts, TOAST_VISIBLE_LIMIT, type Toast } from '../composables/useToast.js'
 
 // Clear the module-scoped toast list between tests. The composable stores
 // its state in a module-level `ref`, so prior tests would otherwise leave
@@ -235,5 +235,25 @@ describe('useToast.humanizeError', () => {
     const t = toasts.value.find(x => x.raw?.includes('zzz-unique'))
     assert.ok(t, 'rewritten toast carries raw')
     assert.match(t!.message, /Server error/)
+  })
+})
+
+describe('useToast — toasts never pile up over the page (owner, 2026-10-03)', () => {
+  test('an action toast ("Open job") expires on its own and can be dismissed early', async () => {
+    const { showAction, dismiss, toasts } = useToast()
+    const expiring = showAction('Research needs attention: EP0001', 'Open job', () => {}, 'error', 50)
+    const closed = showAction('Thumbnail Images needs attention: EP0002', 'Open job', () => {}, 'error', 10_000)
+    assert.ok(toasts.value.some(t => t.id === expiring))
+    dismiss(closed)
+    assert.ok(!toasts.value.some(t => t.id === closed), 'the ✕ removes it at once')
+    await sleep(80)
+    assert.ok(!toasts.value.some(t => t.id === expiring), 'it expired without a click')
+  })
+
+  test('only the newest three show; the rest fold into "+N more"', () => {
+    const list = Array.from({ length: 11 }, (_, i) => i)
+    assert.deepEqual(splitToasts(list), { visible: [8, 9, 10], hidden: 8 })
+    assert.deepEqual(splitToasts([1, 2]), { visible: [1, 2], hidden: 0 })
+    assert.equal(TOAST_VISIBLE_LIMIT, 3)
   })
 })
