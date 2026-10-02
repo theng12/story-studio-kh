@@ -167,11 +167,29 @@ export function resolveLivePipelineModel(
   })
 }
 
-function noteLlmLineupQuotaExhaustion(accountScope: string | undefined, savedModelId: string): string {
+/**
+ * Consecutive quota stops per account/model. A free allowance is usually DAILY, so a flat 60 s
+ * recheck re-asked the spent pool ~1,400 times a day per waiting step (each one a failed gateway
+ * job). The recheck doubles per stop — 1, 2, 4, 8, 16, then every 30 minutes — and a success resets it.
+ */
+const llmLineupQuotaStrikes = new Map<string, number>()
+export const LLM_LINEUP_MAX_RECHECK_MS = 30 * 60_000
+
+function lineupQuotaKeys(accountScope: string | undefined, savedModelId: string): [string, string] {
   const savedKey = sharedAvailabilityKey(accountScope, savedModelId)
-  const canonicalModelId = resolvedLlmLineupModels.get(savedKey) || savedModelId
-  const canonicalKey = sharedAvailabilityKey(accountScope, canonicalModelId)
-  const retryAt = localAvailabilityRecheckAt()
+  return [savedKey, sharedAvailabilityKey(accountScope, resolvedLlmLineupModels.get(savedKey) || savedModelId)]
+}
+
+function clearLlmLineupQuotaStrikes(accountScope: string | undefined, savedModelId: string): void {
+  for (const key of lineupQuotaKeys(accountScope, savedModelId)) llmLineupQuotaStrikes.delete(key)
+}
+
+function noteLlmLineupQuotaExhaustion(accountScope: string | undefined, savedModelId: string): string {
+  const [savedKey, canonicalKey] = lineupQuotaKeys(accountScope, savedModelId)
+  const strikes = (llmLineupQuotaStrikes.get(canonicalKey) || 0) + 1
+  llmLineupQuotaStrikes.set(canonicalKey, strikes)
+  const delay = Math.min(LLM_LINEUP_LOCAL_RECHECK_MS * 2 ** (strikes - 1), LLM_LINEUP_MAX_RECHECK_MS)
+  const retryAt = new Date(Date.now() + delay).toISOString()
   const value: SharedLlmLineupAvailability = { retryAt, reason: 'daily_quota_depleted' }
   sharedLlmLineupAvailability.set(savedKey, value)
   sharedLlmLineupAvailability.set(canonicalKey, value)
@@ -556,6 +574,7 @@ export async function executePipelineModelPolicy<T>(
         checkpointPrepared,
         retryEpochs[candidateIndex],
       ).then(async result => {
+        clearLlmLineupQuotaStrikes(options.availabilityScope, candidate)
         await checkpoint?.write(checkpointKey, checkpointState('succeeded'))
         return result
       })
