@@ -83,6 +83,9 @@
       <NuxtLink :to="`/projects/${slug}/metadata`" class="text-sm ml-auto">← Back to YouTube Finalizer</NuxtLink>
     </div>
 
+    <div v-if="unknownPlaceholders.length" class="save-msg is-err">
+      Not recognised: {{ unknownPlaceholders.map(name => '{' + name + '}').join(', ') }}. These are left empty in every episode — check the spelling against the list above.
+    </div>
     <div v-if="saveMessage" :class="['save-msg', saveMessage.ok ? 'is-ok' : 'is-err']">{{ saveMessage.text }}</div>
     <WorkspaceNotice v-if="metadataTemplateLoadError" tone="warning" title="Publishing profile unavailable" class="mt-3">
       {{ metadataTemplateLoadError }}
@@ -101,6 +104,7 @@ const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, put } = useApi()
 const { success, error: showError } = useToast()
+const { ask } = useConfirm()
 
 const tpl = reactive({
   title: '',
@@ -113,16 +117,15 @@ const metadataTemplateLoadError = ref('')
 const metadataTemplateConfigLoading = ref(false)
 const metadataFormulasLoading = ref(false)
 const metadataTemplateLoading = computed(() => metadataTemplateConfigLoading.value || metadataFormulasLoading.value)
-let metadataTemplateScope = 0
-let metadataTemplateConfigRequest = 0
-let metadataFormulaRequest = 0
 
 function resetMetadataTemplate() {
   tpl.title = ''
   tpl.description = ''
   tagsText.value = ''
+  savedProfile.value = profileShape()
   formulas.value = []
   selectedFormulaId.value = ''
+  savedFormulaId.value = ''
   formulasError.value = ''
   metadataTemplateLoadError.value = ''
   saveMessage.value = null
@@ -154,6 +157,27 @@ const formulasLoading = ref(false)
 const formulasError = ref('')
 const selectedFormula = computed(() => formulas.value.find(f => f.id === selectedFormulaId.value) || null)
 
+/** What is on disk, so "unsaved" is a comparison and never a guess. */
+const savedProfile = ref('')
+const savedFormulaId = ref('')
+const profileShape = () => JSON.stringify([tpl.title, tpl.description, tagsText.value])
+const dirty = computed(() => !metadataTemplateLoading.value && !metadataTemplateLoadError.value
+  && (profileShape() !== savedProfile.value || selectedFormulaId.value !== savedFormulaId.value))
+useUnsavedGuard(dirty, 'publishing profile edits')
+// A "Saved." line must not stay up once the page no longer matches it.
+watch(dirty, isDirty => { if (isDirty) saveMessage.value = null })
+
+/** The placeholders the generator fills (see lib/metadata-template.ts). */
+const KNOWN_PLACEHOLDERS = new Set(['topic', 'topic_tag', 'summary', 'keywords', 'episode_code', 'date', 'date_long'])
+const unknownPlaceholders = computed(() => [...new Set(
+  [...`${tpl.title}\n${tpl.description}\n${tagsText.value}`.matchAll(/\{([a-z_][a-z0-9_]*)\}/gi)]
+    .map(match => match[1]!.toLowerCase())
+    .filter(name => !KNOWN_PLACEHOLDERS.has(name)),
+)])
+let metadataTemplateScope = 0
+let metadataTemplateConfigRequest = 0
+let metadataFormulaRequest = 0
+
 async function loadFormulas(): Promise<void> {
   const projectSlug = slug.value
   const scope = metadataTemplateScope
@@ -169,6 +193,7 @@ async function loadFormulas(): Promise<void> {
     if (!current()) return
     formulas.value = Array.isArray(data?.formulas) ? data.formulas : []
     selectedFormulaId.value = data?.channel_default_id || ''
+    savedFormulaId.value = selectedFormulaId.value
   } catch (e: any) {
     if (!current()) return
     formulasError.value = e?.data?.detail || e?.message || 'unknown'
@@ -194,6 +219,7 @@ async function load(): Promise<void> {
     tpl.title = t.title || ''
     tpl.description = t.description || ''
     tagsText.value = Array.isArray(t.tags) ? t.tags.join('\n') : ''
+    savedProfile.value = profileShape()
   } catch (e: any) {
     if (!current()) return
     metadataTemplateLoadError.value = e?.data?.detail || e?.message || 'Could not load this publishing profile.'
@@ -230,11 +256,18 @@ async function save(): Promise<void> {
     if (tpl.title.trim()) template.title = tpl.title.trim()
     if (tpl.description.trim()) template.description = tpl.description.trim()
     if (tags.length) template.tags = tags
+    const sentProfile = profileShape()
+    const sentFormulaId = selectedFormulaId.value
+    // An empty object, never `undefined`: JSON drops an undefined key, so
+    // "Clear profile" used to leave the old profile on disk. An empty
+    // template is what the generator treats as "no profile".
     await put(`/projects/${projectSlug}/settings/config`, {
-      metadata_template: Object.keys(template).length ? template : undefined,
+      metadata_template: template,
       metadata_formula_id: selectedFormulaId.value,
     })
     if (!current()) return
+    savedProfile.value = sentProfile
+    savedFormulaId.value = sentFormulaId
     saveMessage.value = { ok: true, text: 'Saved. The next YouTube package will use this recurring channel copy.' }
     success('Publishing profile saved')
   } catch (e: any) {
@@ -247,6 +280,14 @@ async function save(): Promise<void> {
 }
 
 async function clearTpl(): Promise<void> {
+  const confirmed = await ask({
+    title: 'Clear the publishing profile?',
+    message: 'This removes the title wrapper, recurring description blocks and recurring tags for this channel. '
+      + 'Episodes then use what the Series Formula writes. It cannot be undone.',
+    confirmLabel: 'Clear profile',
+    danger: true,
+  })
+  if (!confirmed) return
   tpl.title = ''
   tpl.description = ''
   tagsText.value = ''
