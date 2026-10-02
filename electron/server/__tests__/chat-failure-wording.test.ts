@@ -57,6 +57,16 @@ test('credits are mentioned only when some moved, in the sentence Abandon still 
   assert.match(paid, /GenStudio reports 42 credits released\./)
 })
 
+test('a pool that ran out of members says so once, not as a 600-character member dump', () => {
+  const message = gatewayFailure({
+    failure_code: 'PROVIDER_QUOTA_EXHAUSTED',
+    failure_reason: "Pool 'gemini-free-all' had no member that could answer — google-ai-free::gemini-3-flash: "
+      + 'HTTP 429 RESOURCE_EXHAUSTED; google-ai-free::gemini-3.1-flash-lite: cooling-down',
+  }).message
+  assert.match(message, /Details: None of the models in the "gemini-free-all" pool could answer\.$/)
+  assert.doesNotMatch(message, /google-ai-free::|RESOURCE_EXHAUSTED/)
+})
+
 test('an unknown code still gives a plain next step, never the raw code', () => {
   const message = gatewayFailure({ failure_code: 'SOMETHING_NEW' }).message
   assert.match(message, /^Writing failed\. Retry this step/)
