@@ -5,7 +5,7 @@
  *   GET    /api/projects/:slug/research/:episodeId            — read existing research.json
  *   POST   /api/projects/:slug/research/:episodeId/run        — queue a research_run job
  *   PUT    /api/projects/:slug/research/:episodeId            — replace the research.json (user-edited claims/status)
- *   DELETE /api/projects/:slug/research/:episodeId            — remove the sidecar
+ *   DELETE /api/projects/:slug/research/:episodeId            — move both sidecars to the project _trash
  *
  * v1.0.761 — there is NO research-level verify endpoint. Whether research
  * counts as reviewed is DERIVED from the per-claim triage saved through PUT
@@ -17,6 +17,8 @@
 
 import { Router } from 'express'
 import fs from 'fs/promises'
+import { existsSync } from 'fs'
+import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { resolveEpisodePathsByCode } from '../services/utils.js'
@@ -38,6 +40,7 @@ import { listChatModels } from '../lib/genstudio-client.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import { sanitizeResearchOutputUrls } from '../services/research/urls.js'
 import { withLock } from '../lib/atomic-store.js'
+import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import { findFreshActionJob, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 import {
   readResearchReview,
@@ -248,7 +251,7 @@ router.put('/projects/:slug/research/:episodeId', async (req, res) => {
 
   try {
     const paths = await resolveEpisodePathsByCode(slug, episodeId)
-    const { dir, jsonPath: sidecarPath } = await resolveResearchPaths(paths.episode_dir, episodeId)
+    const { dir, jsonPath: sidecarPath, mdPath } = await resolveResearchPaths(paths.episode_dir, episodeId)
     await fs.mkdir(dir, { recursive: true })
 
     // v1.0.761 — the per-claim triage IS the research-level state, so saving it
@@ -265,6 +268,15 @@ router.put('/projects/:slug/research/:episodeId', async (req, res) => {
       previous = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ResearchOutput
     } catch { /* first save for this episode — no prior decisions to compare */ }
 
+    // Research was re-run after the page loaded it: these decisions belong to
+    // claims that no longer exist. Saving them would overwrite the new run.
+    if (previous && previous.generated_at !== body.generated_at) {
+      return res.status(409).json({
+        detail: `Research for ${episodeId} was run again after this page opened it, so these decisions were not saved. `
+          + 'The new claims are shown now — decide them again.',
+      })
+    }
+
     const triage = readResearchTriage(body)
     let normalized: ResearchOutput = sanitizeResearchOutputUrls({ ...(body as ResearchOutput) })
     delete (normalized as { verification?: unknown }).verification  // retired v1.0.760 block
@@ -277,6 +289,10 @@ router.put('/projects/:slug/research/:episodeId', async (req, res) => {
     }
 
     await fs.writeFile(sidecarPath, JSON.stringify(normalized, null, 2), 'utf-8')
+    // research.md carries the review state too; re-render it so it never keeps
+    // saying "review pending" after the decisions were saved.
+    const { renderResearchMarkdown, researchModelLabel } = await import('../generators/research.js')
+    await fs.writeFile(mdPath, renderResearchMarkdown(normalized, await researchModelLabel(normalized)), 'utf-8')
     await invalidateEpisodeStatus(slug, episodeId)
     res.json({
       ok: true,
@@ -309,17 +325,20 @@ async function invalidateEpisodeStatus(slug: string, episodeId: string): Promise
 }
 
 // ── DELETE /projects/:slug/research/:episodeId ────────────────────────
-// Drop the sidecar. ENOENT is treated as success — idempotent.
+// Move research.json AND research.md into the project's _trash (nothing the
+// app removes is hard-deleted). A missing file is success — idempotent.
 router.delete('/projects/:slug/research/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   try {
     const paths = await resolveEpisodePathsByCode(slug, episodeId)
-    const { jsonPath: sidecarPath } = await resolveResearchPaths(paths.episode_dir, episodeId)
-    try {
-      await fs.unlink(sidecarPath)
-    } catch (e: any) {
-      if (e?.code !== 'ENOENT') throw e
+    const { jsonPath, mdPath } = await resolveResearchPaths(paths.episode_dir, episodeId)
+    const projectDir = pm.getProjectDir(slug)!
+    for (const file of [jsonPath, mdPath]) {
+      if (!existsSync(file)) continue
+      const rel = path.relative(projectDir, file)
+      moveToTrashSync(file, path.join(trashRootFor(projectDir, projectDir, slug),
+        rel.startsWith('..') || path.isAbsolute(rel) ? path.join(episodeId, path.basename(file)) : rel))
     }
     await invalidateEpisodeStatus(slug, episodeId)
     res.json({ ok: true })
