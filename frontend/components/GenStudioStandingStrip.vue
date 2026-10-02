@@ -1,6 +1,19 @@
 <template>
+  <!-- A stopped Gateway outranks the balance: nothing can run, and the old figure would read as fine. -->
+  <button
+    v-if="gatewayDown"
+    type="button"
+    class="genstudio-standing-strip gateway-down"
+    :class="`standing-strip-${variant}`"
+    aria-label="Gateway not reachable — open connection settings"
+    @click="appSettingsModal.open('connections')"
+  >
+    <span class="gateway-dot" aria-hidden="true" />
+    <strong>Gateway not reachable</strong>
+    <small>{{ variant === 'inline' ? 'Open the Gateway app' : connection.hint }}</small>
+  </button>
   <NuxtLink
-    v-if="genstudioConfigured"
+    v-else-if="genstudioConfigured"
     to="/usage"
     class="genstudio-standing-strip"
     :class="`standing-strip-${variant}`"
@@ -31,6 +44,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from 'vue'
 import { genstudioStaleNote } from '../utils/genstudio-freshness.js'
+import { connectionStatus } from '../utils/connection-status.js'
 
 /**
  * `stacked` is the sidebar/band shape: the tier and lane line wraps onto its
@@ -55,6 +69,9 @@ const {
   startPolling,
 } = useCredits()
 const appSettingsModal = useAppSettingsModal()
+const { online, gateway, gatewayUrl } = useNetworkStatus()
+const connection = computed(() => connectionStatus(online.value, gateway.value, gatewayUrl.value))
+const gatewayDown = computed(() => online.value && gateway.value === 'unreachable')
 
 /**
  * Three states, not two. A balance we hold is shown whether or not the last
@@ -80,7 +97,7 @@ const standingSummary = computed(() => {
   const facts: string[] = []
   if (genstudioTier.value) facts.push(genstudioTier.value.current.display_name)
   if (genstudioActiveLanes.value !== null && genstudioLaneLimit.value !== null) {
-    facts.push(`${genstudioActiveLanes.value}/${genstudioLaneLimit.value} lanes`)
+    facts.push(`${genstudioActiveLanes.value} of ${genstudioLaneLimit.value} paid jobs running`)
   }
   return facts.join(' · ')
 })
@@ -111,6 +128,10 @@ onUnmounted(() => { releasePolling?.() })
 .genstudio-standing-strip small { width: 100%; color: var(--text-muted); line-height: 1.35; }
 /* Unobtrusive by design: a muted aside, never a banner. */
 .genstudio-standing-strip .freshness-badge { color: var(--text-muted); font-style: normal; font-size: var(--font-xs); }
+
+.gateway-down { border-color: color-mix(in srgb, var(--error) 55%, var(--border)); color: var(--text-primary); }
+.gateway-down strong { color: var(--error); }
+.gateway-dot { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--error); }
 
 /* Top-bar shape: one line inside a 38px header, shrinking rather than wrapping. */
 .standing-strip-inline { min-height: 26px; flex-wrap: nowrap; justify-content: flex-start; gap: 7px; padding: 3px 9px; white-space: nowrap; }

@@ -1,6 +1,6 @@
 /**
- * Tracks reachability of the app's backend (the engine that runs jobs) and
- * reports it to the dashboard.
+ * Tracks reachability of the app's backend (the engine that runs jobs) and of
+ * the Gateway behind it, and reports both to the shell.
  *
  * v1.0.190 — reachability is decided ONLY by a periodic probe to the local
  * backend (`GET /api/health`), never by `navigator.onLine`. Chromium's
@@ -12,18 +12,30 @@
  * is useful for status display only. The browser's online/offline events are
  * treated as a nudge to re-probe, not as gospel.
  *
+ * The local engine is up whenever the window is, so on its own that badge said
+ * "online" while a stopped or restarting Gateway made every job fail. The same
+ * probe now also asks the backend whether the Gateway answers
+ * (`GET /api/gateway/status`), and the shell shows that.
+ *
+ * The probe pauses while the window is hidden and re-checks the moment it is
+ * shown again. Informational only — it never touches the job queue.
+ *
  * Exposes a singleton so every component reads the same value.
  */
 
-// Explicit Vue import so this module is usable from plain node:test (no
-// Nuxt auto-import context). Nuxt's auto-imports remain additive inside
-// .vue files.
+// Explicit Vue import so this module is usable from plain node:test (no Nuxt
+// auto-import context). Nuxt's auto-imports remain additive inside .vue files.
 import { ref, readonly } from 'vue'
+import { createVisibleInterval } from './useVisibleInterval.js'
+
+/** `unknown` until the first answer, and whenever the engine itself is down. */
+export type GatewayReachability = 'unknown' | 'reachable' | 'unreachable'
 
 const online = ref(true)
+const gateway = ref<GatewayReachability>('unknown')
+const gatewayUrl = ref('')
 const lastChecked = ref<number>(Date.now())
 let started = false
-let interval: ReturnType<typeof setInterval> | null = null
 
 async function probe(): Promise<boolean> {
   try {
@@ -34,28 +46,42 @@ async function probe(): Promise<boolean> {
   }
 }
 
+async function probeGateway(): Promise<void> {
+  try {
+    const res = await fetch('/api/gateway/status', { method: 'GET', cache: 'no-store' })
+    if (!res.ok) { gateway.value = 'unknown'; return }
+    const body = await res.json() as { reachable?: unknown; url?: unknown }
+    gateway.value = body?.reachable === true ? 'reachable' : body?.reachable === false ? 'unreachable' : 'unknown'
+    if (typeof body?.url === 'string') gatewayUrl.value = body.url
+  } catch {
+    gateway.value = 'unknown'
+  }
+}
+
 async function refresh() {
-  // Reachability of the local job engine is informational only.
   // navigator.onLine is intentionally NOT consulted (see file header).
   online.value = await probe()
+  if (online.value) await probeGateway()
+  else gateway.value = 'unknown'
   lastChecked.value = Date.now()
 }
 
 export function useNetworkStatus() {
   if (!started && import.meta.client) {
     started = true
-    // Initial probe
     refresh()
     // Browser online/offline events only nudge a fresh probe — they never
     // directly flip the state (navigator.onLine is too flaky to trust).
     window.addEventListener('online', refresh)
     window.addEventListener('offline', refresh)
-    // Periodic re-check every 20 s
-    interval = setInterval(refresh, 20000)
+    // Every 20 s while the window is visible; immediately on becoming visible.
+    createVisibleInterval(() => { void refresh() }, 20_000).start()
   }
 
   return {
     online: readonly(online),
+    gateway: readonly(gateway),
+    gatewayUrl: readonly(gatewayUrl),
     lastChecked: readonly(lastChecked),
     refresh,
   }

@@ -22,7 +22,8 @@ import { transform } from 'esbuild'
 
 // ── Controllable fetch stub (happy-dom supplies a real fetch; we override) ──
 
-type Handler = (url: string, init?: any) => { ok: boolean; status?: number } | Promise<{ ok: boolean; status?: number }>
+type Reply = { ok: boolean; status?: number; body?: unknown }
+type Handler = (url: string, init?: any) => Reply | Promise<Reply>
 let handler: Handler = () => ({ ok: true, status: 200 })
 let fetchCalls: string[] = []
 ;(globalThis as any).fetch = async (url: string, init?: any) => {
@@ -31,7 +32,7 @@ let fetchCalls: string[] = []
   return {
     ok: r.ok,
     status: r.status ?? (r.ok ? 200 : 500),
-    json: async () => ({}),
+    json: async () => r.body ?? ({}),
     text: async () => '',
   } as unknown as Response
 }
@@ -51,7 +52,9 @@ async function useClientNetworkStatus(): Promise<ReturnType<typeof useNetworkSta
     { loader: 'ts', format: 'esm' },
   )
   const clientModule = await import(`data:text/javascript;base64,${Buffer.from(
-    transformed.code.replaceAll('"vue"', JSON.stringify(vueUrl)),
+    transformed.code
+      .replaceAll('"vue"', JSON.stringify(vueUrl))
+      .replaceAll('"./useVisibleInterval.js"', JSON.stringify(new URL('../composables/useVisibleInterval.ts', import.meta.url).href)),
   ).toString('base64')}`) as typeof import('../composables/useNetworkStatus.js')
 
   // The client branch owns a real 20-second interval. Keep this behavioral
@@ -187,6 +190,39 @@ describe('useNetworkStatus', () => {
     } finally {
       Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true })
     }
+  })
+
+  test('reports the Gateway separately: a running engine with a stopped Gateway is not "online"', async () => {
+    const { online, gateway, gatewayUrl, refresh } = useNetworkStatus()
+    handler = url => url === '/api/gateway/status'
+      ? { ok: true, body: { reachable: false, url: 'http://127.0.0.1:8787' } }
+      : { ok: true }
+    await refresh()
+    assert.equal(online.value, true)
+    assert.equal(gateway.value, 'unreachable')
+    assert.equal(gatewayUrl.value, 'http://127.0.0.1:8787')
+
+    handler = url => url === '/api/gateway/status' ? { ok: true, body: { reachable: true, url: 'http://127.0.0.1:8787' } } : { ok: true }
+    await refresh()
+    assert.equal(gateway.value, 'reachable')
+  })
+
+  test('the Gateway is "unknown", never "unreachable", when the engine itself is down or the answer is unreadable', async () => {
+    const { gateway, refresh } = useNetworkStatus()
+    handler = () => ({ ok: false, status: 500 })
+    fetchCalls = []
+    await refresh()
+    assert.equal(gateway.value, 'unknown')
+    assert.equal(fetchCalls.includes('/api/gateway/status'), false, 'no Gateway probe through a dead engine')
+
+    handler = url => url === '/api/gateway/status' ? { ok: false, status: 401 } : { ok: true }
+    await refresh()
+    assert.equal(gateway.value, 'unknown')
+  })
+
+  test('the 20 s probe pauses while the window is hidden', () => {
+    assert.match(composableSource, /createVisibleInterval\(/)
+    assert.doesNotMatch(composableSource, /\bsetInterval\(/)
   })
 
   test('composable has no queue mutation state or endpoints', () => {

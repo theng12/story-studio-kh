@@ -3,7 +3,7 @@
     <header class="usage-header">
       <div>
         <span class="eyebrow">GenStudio</span>
-        <h1>Credits &amp; settlement</h1>
+        <h1>GenStudio credits</h1>
         <p>Every value on this page comes from GenStudio. Story Studio does not calculate rates or balances.</p>
       </div>
       <div class="usage-actions">
@@ -23,11 +23,14 @@
       </div>
     </header>
 
-    <WorkspaceNotice v-if="error" tone="warning" title="Authoritative credit data unavailable">
-      {{ error }}
-      <template v-if="showConnectionSettings" #actions>
+    <p v-if="loading && !snapshot && !error" class="empty" role="status">Loading your GenStudio credits…</p>
+
+    <WorkspaceNotice v-if="error" tone="warning" title="Credit balance unavailable">
+      {{ gatewayDown ? connection.hint : error }}
+      <template #actions>
+        <button type="button" class="btn btn-sm btn-secondary" :disabled="loading" @click="load">Try again</button>
         <button type="button" class="btn btn-sm btn-secondary" @click="appSettingsModal.open('connections')">
-          {{ usageErrorCode === 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE' ? 'Review GenStudio connection' : 'Add GenStudio API key' }}
+          {{ usageErrorCode === 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE' ? 'Review GenStudio connection' : error === 'Add a GenStudio API key first.' ? 'Add GenStudio API key' : 'Open connection settings' }}
         </button>
       </template>
     </WorkspaceNotice>
@@ -46,7 +49,7 @@
           <h2>{{ tierHeading(snapshot.overview.service_tier.current) }}</h2>
           <p>
             {{ snapshot.overview.paid_active_jobs.toLocaleString() }} of
-            {{ snapshot.overview.paid_concurrency_limit.toLocaleString() }} standard lanes active ·
+            {{ snapshot.overview.paid_concurrency_limit.toLocaleString() }} paid jobs running ·
             {{ snapshot.overview.paid_queued_jobs.toLocaleString() }} queued.
           </p>
           <p v-if="snapshot.overview.service_tier.overridden">
@@ -56,18 +59,18 @@
             {{ formatMoney(snapshot.overview.service_tier.lifetime_paid_cents) }} lifetime spend ·
             {{ formatMoney(snapshot.overview.service_tier.cents_to_next_tier) }} more reaches
             {{ tierHeading(snapshot.overview.service_tier.next_tier) }} with
-            {{ snapshot.overview.service_tier.next_tier.paid_concurrency_limit }} standard lanes.
+            {{ snapshot.overview.service_tier.next_tier.paid_concurrency_limit }} paid jobs at once.
           </p>
         </div>
       </section>
 
       <section class="card">
         <h2>Recent jobs</h2>
-        <p v-if="snapshot.history_error" class="empty">Settlement history could not be read just now — the balance above is unaffected. Retry to load it.</p>
+        <p v-if="snapshot.history_error" class="empty">Recent jobs could not be read just now — the balance above is unaffected. Retry to load it.</p>
         <p v-else-if="!snapshot.jobs.items.length" class="empty">No GenStudio jobs reported.</p>
         <div v-if="!snapshot.history_error && snapshot.jobs.items.length" class="table-wrap">
           <table>
-            <thead><tr><th>Work</th><th>Operation</th><th>State</th><th class="num">Reserved credits</th><th class="num">Settled credits</th><th class="num">Returned credits</th></tr></thead>
+            <thead><tr><th>Work</th><th>Operation</th><th>State</th><th class="num">Held credits</th><th class="num">Charged credits</th><th class="num">Refunded credits</th></tr></thead>
             <tbody>
               <tr v-for="job in snapshot.jobs.items" :key="job.id">
                 <td>
@@ -91,7 +94,7 @@
         <ul v-if="!snapshot.history_error && snapshot.credit_activity.items.length" class="activity">
           <li v-for="entry in snapshot.credit_activity.items" :key="entry.id">
             <span :class="['activity-kind', entry.kind]">{{ entry.kind }}</span>
-            <span><strong>{{ usageActivityDescription(entry.description) }}</strong><small>{{ formatDate(entry.created_at) }} · {{ entry.reason_code }}</small></span>
+            <span><strong>{{ usageActivityDescription(entry.description) }}</strong><small>{{ formatDate(entry.created_at) }} · {{ plainReason(entry.reason_code) }}</small></span>
             <b>{{ entry.credits.toLocaleString() }} credits</b>
           </li>
         </ul>
@@ -102,6 +105,7 @@
 
 <script setup lang="ts">
 import { customerSafeJobText } from '~/utils/job-presentation'
+import { connectionStatus } from '~/utils/connection-status'
 
 useAppTitle('GenStudio Credits')
 
@@ -150,10 +154,9 @@ const usageErrorCode = ref('')
 const { get } = useApi()
 const appSettingsModal = useAppSettingsModal()
 const genStudioModels = useGenStudioModelDisplay()
-const showConnectionSettings = computed(() => (
-  usageErrorCode.value === 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE'
-  || error.value === 'Add a GenStudio API key first.'
-))
+const { online, gateway, gatewayUrl } = useNetworkStatus()
+const connection = computed(() => connectionStatus(online.value, gateway.value, gatewayUrl.value))
+const gatewayDown = computed(() => online.value && gateway.value === 'unreachable')
 
 async function load(): Promise<void> {
   loading.value = true
@@ -166,6 +169,12 @@ async function load(): Promise<void> {
     usageErrorCode.value = cause?.data?.code || ''
     error.value = cause?.data?.detail || cause?.message || 'GenStudio usage is unavailable.'
   } finally { loading.value = false }
+}
+
+/** `JOB_SETTLED` → "Job settled": the code is still there to quote, without reading as an error code. */
+function plainReason(code: string): string {
+  const words = String(code || '').replace(/[_.-]+/g, ' ').trim().toLowerCase()
+  return words ? words[0]!.toUpperCase() + words.slice(1) : ''
 }
 
 function formatDate(value: string): string {
@@ -188,7 +197,10 @@ function usageActivityDescription(description: string): string {
   return customerSafeJobText(description, snapshot.value?.jobs.items.map(job => job.id) || [])
 }
 
-await Promise.all([load(), genStudioModels.refresh()])
+// Not awaited: with the Gateway stopped or slow, awaiting here held the click on the credits strip
+// for the whole retry budget before the page appeared at all. The page shows its loading line instead.
+void load()
+void genStudioModels.refresh()
 </script>
 
 <style scoped>

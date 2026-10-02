@@ -9,7 +9,9 @@ const footer = dashboard.slice(footerStart, dashboard.indexOf('</footer>', foote
 test('the dashboard footer keeps operational status and shows the running build', () => {
   assert.notEqual(footerStart, -1, 'the sidebar status footer must exist')
   assert.match(dashboard, /<footer class="sidebar-credits" aria-label="Story Studio status">/)
-  assert.match(footer, /Story Studio online/)
+  // The footer reports the Gateway, not only the local engine (which is up whenever the window is).
+  assert.match(footer, /\{\{ connection\.label \}\}/)
+  assert.match(footer, /v-if="connection\.hint"/)
   assert.doesNotMatch(dashboard, /All systems online/)
 
   // Deliberately reversed in v1.2.3. The account standing strip moved to the
