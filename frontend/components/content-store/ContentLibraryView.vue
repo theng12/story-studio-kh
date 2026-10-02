@@ -131,7 +131,9 @@ const installManyStatuses = computed<InstallQueueStatus[]>(
 )
 const installManyDone = computed(() => installManyStatuses.value.filter(status => status === 'installed' || status === 'failed').length)
 const installManyFailedCount = computed(() => installManyStatuses.value.filter(status => status === 'failed').length)
-const installManyRunning = computed(() => installManyBatch.value.length > 0 && installManyDone.value < installManyBatch.value.length)
+// Running means something in the batch is still queued or installing — not "fewer than all are
+// finished", which stayed true for good once Dismiss cleared the finished statuses back to idle.
+const installManyRunning = computed(() => installManyStatuses.value.some(status => status === 'queued' || status === 'installing'))
 const installManyLabel = computed(() => installManyRunning.value
   ? `Installing ${installManyDone.value} of ${installManyBatch.value.length}…`
   : `Install all missing (${missingReleaseIds.value.length})`)
