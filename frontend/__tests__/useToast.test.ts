@@ -19,7 +19,7 @@
 import { test, describe, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { useToast, splitToasts, TOAST_VISIBLE_LIMIT, type Toast } from '../composables/useToast.js'
+import { useToast, splitToasts, TOAST_VISIBLE_LIMIT, ACTION_TOAST_MS, type Toast } from '../composables/useToast.js'
 
 // Clear the module-scoped toast list between tests. The composable stores
 // its state in a module-level `ref`, so prior tests would otherwise leave
@@ -239,15 +239,18 @@ describe('useToast.humanizeError', () => {
 })
 
 describe('useToast — toasts never pile up over the page (owner, 2026-10-03)', () => {
-  test('an action toast ("Open job") expires on its own and can be dismissed early', async () => {
+  test('an action toast ("Open job") expires on its own and can be dismissed early', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
     const { showAction, dismiss, toasts } = useToast()
-    const expiring = showAction('Research needs attention: EP0001', 'Open job', () => {}, 'error', 50)
-    const closed = showAction('Thumbnail Images needs attention: EP0002', 'Open job', () => {}, 'error', 10_000)
-    assert.ok(toasts.value.some(t => t.id === expiring))
+    const expiring = showAction('Research needs attention: EP0001', 'Open job', () => {}, 'error')
+    const closed = showAction('Thumbnail Images needs attention: EP0002', 'Open job', () => {}, 'error')
+    assert.ok(toasts.value.some(toast => toast.id === expiring))
     dismiss(closed)
-    assert.ok(!toasts.value.some(t => t.id === closed), 'the ✕ removes it at once')
-    await sleep(80)
-    assert.ok(!toasts.value.some(t => t.id === expiring), 'it expired without a click')
+    assert.ok(!toasts.value.some(toast => toast.id === closed), 'the ✕ removes it at once')
+    t.mock.timers.tick(ACTION_TOAST_MS - 1)
+    assert.ok(toasts.value.some(toast => toast.id === expiring), 'still showing just before it expires')
+    t.mock.timers.tick(1)
+    assert.ok(!toasts.value.some(toast => toast.id === expiring), 'it expired without a click')
   })
 
   test('only the newest three show; the rest fold into "+N more"', () => {
@@ -256,4 +259,14 @@ describe('useToast — toasts never pile up over the page (owner, 2026-10-03)', 
     assert.deepEqual(splitToasts([1, 2]), { visible: [1, 2], hidden: 0 })
     assert.equal(TOAST_VISIBLE_LIMIT, 3)
   })
+})
+
+test('nothing outside ToastContainer positions the toast stack (it once pinned toasts mid-page)', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const css = await readFile(new URL('../assets/css/main.css', import.meta.url), 'utf8')
+  assert.doesNotMatch(css, /\.toast-container\s*\{/)
+  const container = await readFile(new URL('../components/ToastContainer.vue', import.meta.url), 'utf8')
+  assert.match(container, /\.toast-container \{\s*position: fixed;\s*bottom: 24px;\s*right: 24px;/)
+  assert.match(container, /aria-label="Dismiss notification"/)
+  assert.match(container, /v-for="toast in split\.visible"/)
 })
