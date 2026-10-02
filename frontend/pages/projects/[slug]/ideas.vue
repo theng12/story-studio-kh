@@ -20,6 +20,7 @@
           <LoadingSpinner v-if="compactState.opening" size="sm" />
           {{ compactState.opening ? 'Loading…' : '↓ Compact codes' }}
         </button>
+        <small v-if="statusCounts.accepted > 0" class="text-muted text-xs control-hint">Closes gaps in episode numbers. Undo for 30 days.</small>
         </div>
       </template>
     </WorkspaceHero>
@@ -43,7 +44,7 @@
       </template>
       <template v-else-if="hydrationError.kind === 'project-no-format'">
         <strong>⚠ No production path is set on this project.</strong>
-        Generation will use the Continuity Engine default until Channel Identity is saved.
+        Ideas will use the app's standard settings until you choose a production path in Channel Identity.
         <NuxtLink :to="`/projects/${slug}/settings#channel`" class="banner-link">
           Open Channel Identity →
         </NuxtLink>
@@ -164,9 +165,6 @@
             <strong class="context-detail-value" :class="{ 'is-fallback': !form.niche_id }">
               {{ activeFormulaName }}
             </strong>
-            <button type="button" class="btn btn-ghost btn-sm effective-link" @click="identityPickerOpen = true">
-              Choose Formula &amp; Topics
-            </button>
           </div>
 
           <div class="context-detail-row">
@@ -294,7 +292,15 @@
             <div><strong>Generation settings</strong><small>Your last model is restored automatically.</small></div>
           </div>
           <div class="generation-settings-grid">
-            <ModelSelector v-if="modelPreferenceReady" v-model="form.model" :project-slug="slug" />
+            <!-- While the shared LLM lineup is on, the queue replaces this
+                 batch's model with the lineup's, so a picker here would do
+                 nothing. Say so instead of offering a dead control. -->
+            <div v-if="ideasLineupModelCount" class="form-group lineup-model-readonly">
+              <label>AI Model</label>
+              <div class="input text-muted">Shared LLM lineup ({{ ideasLineupModelCount }} model{{ ideasLineupModelCount === 1 ? '' : 's' }})</div>
+              <span class="text-muted text-xs">The lineup picks the model while it is on. Change it in <NuxtLink :to="`/projects/${slug}/pipeline`">Pipeline</NuxtLink>.</span>
+            </div>
+            <ModelSelector v-else-if="modelPreferenceReady" v-model="form.model" :project-slug="slug" />
             <div v-else class="form-group"><label>AI Model</label><div class="input text-muted">Restoring your last used model…</div></div>
             <div class="form-group">
               <label>Items or chapters per video <span class="text-muted">(optional)</span></label>
@@ -350,7 +356,7 @@
                   <div class="channel-identity-readonly">
                     <strong>{{ activeFormulaName }}</strong>
                     <span>{{ activeTopicPackLabel }}</span>
-                    <button type="button" class="btn btn-ghost btn-sm effective-link" @click="identityPickerOpen = true">Choose Formula &amp; Topics</button>
+                    <small class="text-muted text-xs">Change these with “Choose Formula &amp; Topics” above.</small>
                   </div>
                 </div>
                 <div class="form-group">
@@ -362,6 +368,7 @@
                   <div class="form-group"><label>Title prefix</label><input v-model="titleConfig.prefix" class="input" placeholder="Before every title" /></div>
                   <div class="form-group"><label>Title suffix</label><input v-model="titleConfig.suffix" class="input" placeholder="After every title" /></div>
                 </div>
+                <span class="text-muted text-xs">Channel-wide — also used for metadata.</span>
                 <p v-if="titleConfig.prefix || titleConfig.suffix" class="title-wrap-preview">Preview: <code>{{ titlePreviewText }}</code></p>
               </section>
 
@@ -402,8 +409,12 @@
             <LoadingSpinner v-if="generating" size="sm" label="Surprising you…" show-label />
             <template v-else>Surprise me</template>
           </button>
+          <NuxtLink v-if="ideaCampaignActive" :to="`/projects/${slug}/jobs`" class="btn btn-ghost btn-sm">View in Jobs</NuxtLink>
         </div>
       </div>
+      <p class="text-muted text-xs control-hint">
+        <strong>Randomize</strong> fills the fields under “Refine” for free. <strong>Surprise me</strong> fills them and queues {{ form.count }} ideas right away.
+      </p>
       <div class="generator-actions-secondary">
           <button
             type="button"
@@ -478,6 +489,7 @@
     <div v-if="selectedDoneIds.size > 0" class="bulk-mark-banner subtle mt-2">
       <div class="bulk-mark-text">
         <strong>{{ selectedDoneIds.size }}</strong> accepted episode{{ selectedDoneIds.size === 1 ? '' : 's' }} selected.
+        <small class="text-muted text-xs control-hint">Marking them done stops the pipeline asking for work on them. “Unmark” goes back to checking their files.</small>
       </div>
       <div class="flex gap-2">
         <button
@@ -572,8 +584,8 @@
                   :disabled="dismissingIds.has(idea.id)"
                   @click="dismiss(idea.id)"
                 >{{ dismissingIds.has(idea.id) ? 'Dismissing…' : 'Dismiss' }}</button>
-                <button v-if="idea.status === 'accepted'" class="btn btn-sm btn-secondary" @click="openRenumberDialog(idea)" title="Change this episode's code (renames folder + asset files)">Renumber</button>
-                <button v-if="idea.status === 'accepted'" class="btn btn-sm btn-danger" @click="resetIdea(idea)">Reset</button>
+                <button v-if="idea.status === 'accepted'" class="btn btn-sm btn-secondary" @click="openRenumberDialog(idea)" title="Change this episode's code (renames folder + asset files)">Change code</button>
+                <button v-if="idea.status === 'accepted'" class="btn btn-sm btn-danger" title="Move this episode's files to the project's _trash and un-accept" @click="resetIdea(idea)">Un-accept</button>
                 <button class="btn-icon" @click="openEditIdea(idea)" aria-label="Edit idea" title="Edit idea">✎</button>
                 <button class="btn-icon danger" @click="remove(idea.id)" aria-label="Delete idea" title="Delete idea">&#10005;</button>
               </td>
@@ -601,8 +613,10 @@
       <button class="btn btn-sm btn-secondary" :disabled="page === totalPages" @click="page++">Next →</button>
     </div>
 
+    <!-- v-if, not v-else-if: an empty state must never hide behind the
+         pagination row (that produced an empty "Page 3 of 2"). -->
     <EmptyState
-      v-else-if="allIdeas.length === 0 && !generating"
+      v-if="allIdeas.length === 0 && !generating"
       class="mt-3"
       icon="✨"
       title="No ideas yet"
@@ -671,16 +685,16 @@
       <div class="accept-options mt-3">
         <button
           class="btn btn-secondary btn-lg flex-1"
-          :disabled="!acceptCodeValid"
+          :disabled="!acceptCodeValid || accepting"
           @click="doAccept('folders')"
-        >Create Folders Only</button>
+        >{{ accepting ? 'Accepting…' : 'Create Folders Only' }}</button>
         <button
           class="btn btn-primary btn-lg flex-1"
-          :disabled="!acceptCodeValid"
+          :disabled="!acceptCodeValid || accepting"
           @click="doAccept('script')"
-        >Folders &amp; Open Script</button>
+        >{{ accepting ? 'Accepting…' : 'Folders & Open Script' }}</button>
       </div>
-      <button class="btn btn-sm btn-secondary mt-2 w-full" @click="acceptDialogIdea = null">Cancel</button>
+      <button class="btn btn-sm btn-secondary mt-2 w-full" :disabled="accepting" @click="acceptDialogIdea = null">Cancel</button>
     </Modal>
 
     <!-- Renumber dialog (per-episode rename) -->
@@ -690,14 +704,12 @@
       labelledby="renumber-title"
       @close="renumberDialogIdea = null"
     >
-      <h2 id="renumber-title">Renumber episode</h2>
+      <h2 id="renumber-title">Change episode code</h2>
       <div class="accept-preview">
         <h3>{{ renumberDialogIdea?.title }}</h3>
         <p class="text-muted">
           Currently <strong class="text-accent">{{ renumberDialogIdea?.episode_code }}</strong>.
-          Renames the episode folder, all per-asset filenames inside (audio, images, video,
-          merged audio, final video), updates <code>episode_info.json</code>, and patches
-          <code>ideas.json</code> atomically. The YouTube sidecar (if any) is preserved.
+          The new code is applied everywhere — the episode's folder, every file inside it, and its saved details — and any YouTube upload link stays attached.
         </p>
         <div class="accept-code-chooser mt-2">
           <label class="code-choice">
@@ -730,7 +742,7 @@
           :disabled="!renumberValid || renumberRunning"
           @click="doRenumber"
         >
-          {{ renumberRunning ? 'Renumbering…' : 'Renumber' }}
+          {{ renumberRunning ? 'Changing…' : 'Change code' }}
         </button>
       </div>
       <button class="btn btn-sm btn-secondary mt-2 w-full" @click="renumberDialogIdea = null">Cancel</button>
@@ -945,12 +957,13 @@
          checked → copy, unchecked → move (deletes originals). -->
     <AssetImportDialog
       v-if="assetMapEpisode"
+      :key="assetMapEpisode.episode_code"
       :visible="!!assetMapEpisode"
       :slug="slug"
       :episode-code="assetMapEpisode.episode_code"
       :prefilled-items="assetMapEpisode.prefilled"
       :default-mode="assetMapEpisode.mode"
-      @close="assetMapEpisode = null"
+      @close="openNextAssetMap"
       @imported="onAssetsMapped"
     />
 
@@ -1074,7 +1087,7 @@
       <div class="modal" style="max-width: 560px;">
         <h2>{{ editorMode === 'add' ? 'Add Idea' : 'Edit Idea' }}</h2>
         <p v-if="editorMode === 'edit' && editorIdea?.status === 'accepted'" class="text-muted text-sm mt-1">
-          This idea is already accepted — editing won't rename the episode folder.
+          This idea is already accepted — changing the title also renames its episode folder to match.
         </p>
         <div class="form-group mt-2">
           <label>Title *</label>
@@ -1127,8 +1140,11 @@
     <Transition name="bulk-bar">
       <div v-if="selectedIds.size > 0" class="ideas-bulk-bar" role="region" aria-label="Bulk selection actions">
         <span class="ideas-bulk-bar-count">{{ selectedIds.size }} selected</span>
-        <button class="btn btn-primary btn-sm" @click="batchAccept">Accept Selected</button>
-        <button class="btn btn-secondary btn-sm" @click="selectedIds.clear()">Clear</button>
+        <button class="btn btn-primary btn-sm" :disabled="bulkIdeasRunning" @click="batchAccept">
+          {{ bulkIdeasRunning ? 'Working…' : 'Accept Selected' }}
+        </button>
+        <button class="btn btn-secondary btn-sm" :disabled="bulkIdeasRunning" @click="dismissSelected">Dismiss Selected</button>
+        <button class="btn btn-secondary btn-sm" :disabled="bulkIdeasRunning" @click="selectedIds.clear()">Clear</button>
       </div>
     </Transition>
 
@@ -1159,8 +1175,8 @@
                 {{ compactState.preview.noop_count }} already in place.
               </span>
               <br />
-              Each rename touches the episode folder, every <code>{{ '{code}' }}</code>-scoped subfolder, and asset filenames inside.
-              The <code>.renumber-undo.json</code> safety net is written first, so this is fully reversible from the Unlinked Uploads tab for 30 days.
+              Each episode's folder and the files inside it take the new code.
+              You can undo this from the Unlinked Uploads tab for 30 days.
             </p>
             <div class="compact-rename-list">
               <div
@@ -1239,7 +1255,17 @@ watch(ideasTab, (v) => {
   _router.replace({ query: { ...route.query, tab: v } })
 })
 const { ask } = useConfirm()
-const { project } = useProject()
+const { project, config: projectConfig, slug: loadedProjectSlug } = useProject()
+// Same reading as InheritedLlmLineupNotice: when the shared lineup is on, the
+// job queue replaces an Idea Campaign's model with the lineup's.
+const ideasLineupModels = computed<string[]>(() => {
+  if (loadedProjectSlug.value !== slug.value) return []
+  const lineup = (projectConfig.value as any)?.llm_lineup
+  return lineup?.enabled === true && Array.isArray(lineup.models)
+    ? lineup.models.filter((model: unknown): model is string => typeof model === 'string' && !!model.trim())
+    : []
+})
+const ideasLineupModelCount = computed(() => ideasLineupModels.value.length)
 // v1.0.165 — the Pattern customization system was removed; its one
 // piece of value (the {X} title shape) is now a plain `title_template`
 // string field on the Ideas form. The pattern lookup composable,
@@ -1511,8 +1537,14 @@ const ideasPresets = usePresets<any>({
 })
 
 function onIdeasPresetApplied() {
+  const before = { prefix: titleConfig.prefix, suffix: titleConfig.suffix }
   ideasPresets.applyActive()
-  success('Preset applied')
+  // The title prefix/suffix are channel-wide (Metadata reads them too), so a
+  // preset that changes them must say so rather than rewrite them quietly.
+  const changed = before.prefix !== titleConfig.prefix || before.suffix !== titleConfig.suffix
+  success(changed
+    ? 'Preset applied. It also changed the channel-wide title prefix/suffix, which Metadata uses too.'
+    : 'Preset applied')
 }
 
 async function onIdeasPresetOverwrite() {
@@ -1813,11 +1845,11 @@ async function onIdeasIdentitySaved(value: { formulaId: string; topicPackIds: st
 // Persists the per-project Ideas-form preferences (title template, theme,
 // listicle count, and channel title wrap). Named for history;
 // v1.0.165 swapped the pattern fields for the title template.
-async function saveIdeaPreferences() {
+async function saveIdeaPreferences(targetSlug: string = slug.value) {
   // Skip the initial hydration round-trip — only fire on user-initiated
   // changes. Without this guard, the watch fires once when load sets the
   // initial value, writing the same value straight back.
-  if (!patternHydrated) return
+  if (!patternHydrated || !targetSlug) return
   try {
     const { put } = useApi()
     const preferences: Record<string, unknown> = {
@@ -1833,20 +1865,40 @@ async function saveIdeaPreferences() {
     if (modelPreferenceReady.value && form.model) {
       preferences[LAST_MODEL_KEY] = form.model
     }
-    await put(`/projects/${slug.value}/settings/config`, preferences)
+    await put(`/projects/${targetSlug}/settings/config`, preferences)
   } catch { /* non-fatal — selection still works in-session */ }
 }
 
-watch(() => form.title_template, saveIdeaPreferences)
+// Typing in the title template / prefix / suffix used to PUT the config on
+// every keystroke. Wait for a 500 ms pause; flush on leave so the last edit
+// still lands (bound to the slug it was typed for).
+let savePreferencesTimer: ReturnType<typeof setTimeout> | null = null
+let savePreferencesSlug = ''
+function queueSaveIdeaPreferences() {
+  if (savePreferencesTimer) clearTimeout(savePreferencesTimer)
+  savePreferencesSlug = slug.value
+  savePreferencesTimer = setTimeout(() => {
+    savePreferencesTimer = null
+    void saveIdeaPreferences(savePreferencesSlug)
+  }, 500)
+}
+onBeforeUnmount(() => {
+  if (!savePreferencesTimer) return
+  clearTimeout(savePreferencesTimer)
+  savePreferencesTimer = null
+  void saveIdeaPreferences(savePreferencesSlug)
+})
+
+watch(() => form.title_template, queueSaveIdeaPreferences)
 watch(() => form.model, (model, previous) => {
   if (!modelPreferenceReady.value || !model || model === previous) return
   writeRememberedIdeaModel(model)
-  void saveIdeaPreferences()
+  queueSaveIdeaPreferences()
 })
-watch(() => form.theme, saveIdeaPreferences)
-watch(() => form.items_per_listicle, saveIdeaPreferences)
-watch(() => titleConfig.prefix, saveIdeaPreferences)
-watch(() => titleConfig.suffix, saveIdeaPreferences)
+watch(() => form.theme, queueSaveIdeaPreferences)
+watch(() => form.items_per_listicle, queueSaveIdeaPreferences)
+watch(() => titleConfig.prefix, queueSaveIdeaPreferences)
+watch(() => titleConfig.suffix, queueSaveIdeaPreferences)
 // v1.0.93+ — five separate onMounted() calls used to race each other,
 // and the worst offender was usePresets() auto-applying an active preset
 // AFTER loadPatternPreferences() had populated the project niche →
@@ -2091,6 +2143,9 @@ function randomizeForm() {
   // 3–5 keywords keeps the prompt varied without blowing the 12-chip cap.
   const kwCount = 3 + Math.floor(Math.random() * 3)
   form.keywords = pickRandomN(allKeywords.value, kwCount)
+  // These fields live inside the collapsed Refine panel — open it so the
+  // picks are visible instead of changing hidden fields.
+  ideaRefinementsOpen.value = true
   success(`Randomized: ${form.genre} · ${form.mood}${form.theme ? ' · ' + form.theme : ''}`)
 }
 
@@ -2166,10 +2221,19 @@ async function saveEditor() {
       allIdeas.value.push(created)
       success('Idea added')
     } else if (editorIdea.value) {
-      const updated = await patch<any>(`/projects/${slug.value}/ideas/${editorIdea.value.id}`, payload)
+      const { folder_sync: folderSync, ...updated } = await patch<any>(`/projects/${slug.value}/ideas/${editorIdea.value.id}`, payload)
       const i = allIdeas.value.findIndex(x => x.id === updated.id)
       if (i >= 0) allIdeas.value[i] = updated
-      success('Idea updated')
+      // An accepted episode's folder follows its title. When that rename
+      // fails the title is still saved — say so plainly, in one message.
+      const reason = String(folderSync?.warnings?.[0] || '').replace(/[.\s]+$/, '')
+      if (folderSync && !folderSync.renamed && reason) {
+        showError(`Title saved, but the folder could not be renamed: ${reason}. Your files are still in the old folder.`)
+      } else if (reason) {
+        success(`Idea updated and its folder renamed. Note: ${reason}.`)
+      } else {
+        success('Idea updated')
+      }
     }
     editorOpen.value = false
     // Remember new custom genre/mood for future autocomplete (mood only — genre isn't on an idea)
@@ -2368,6 +2432,15 @@ async function doParentImport() {
         row.status = 'done'
         row.message = `${r.episode_code} — ${r.title}`
         imported++
+        // Same follow-up as a single-folder import: files found inside still
+        // need the mapping step, or they sit there under their old names.
+        if (Array.isArray(r.prefilled_import_items) && r.prefilled_import_items.length) {
+          assetMapQueue.push({
+            episode_code: r.episode_code,
+            prefilled: r.prefilled_import_items,
+            mode: importCopy.value ? 'copy' : 'move',
+          })
+        }
       } catch (e: any) {
         row.status = 'error'
         row.message = e.data?.detail || 'Import failed'
@@ -2377,7 +2450,10 @@ async function doParentImport() {
     await loadIdeas()
     if (imported > 0) {
       const tail = failed > 0 ? ` (${failed} failed)` : ''
-      success(`Imported ${imported} episode${imported === 1 ? '' : 's'}${tail}`)
+      const mapping = assetMapQueue.length
+        ? ` ${assetMapQueue.length} need${assetMapQueue.length === 1 ? 's' : ''} their files mapped — close this window and the mapping window opens for each in turn.`
+        : ''
+      success(`Imported ${imported} episode${imported === 1 ? '' : 's'}${tail}.${mapping}`)
     } else if (failed > 0) {
       showError(`All ${failed} folder${failed === 1 ? '' : 's'} failed to import`)
     }
@@ -2469,6 +2545,16 @@ async function doImport() {
 // classifiable files. Drives the AssetImportDialog mount; null = closed.
 interface AssetMapState { episode_code: string; prefilled: any[]; mode: 'copy' | 'move' }
 const assetMapEpisode = ref<AssetMapState | null>(null)
+// A parent-folder import can turn up several episodes with files to map;
+// they open one after another as each mapping window closes.
+const assetMapQueue: AssetMapState[] = []
+function openNextAssetMap() {
+  assetMapEpisode.value = assetMapQueue.shift() || null
+}
+// Wait until the import window is closed so its per-folder results stay readable.
+watch(importOpen, (open) => {
+  if (!open && assetMapQueue.length && !assetMapEpisode.value) openNextAssetMap()
+})
 
 async function onAssetsMapped(_summary: any) {
   // The importer invalidated its own cache server-side; refresh ideas
@@ -2663,13 +2749,23 @@ const pageIdeas = computed(() => {
   const start = (page.value - 1) * PER_PAGE
   return filteredIdeas.value.slice(start, start + PER_PAGE)
 })
-const allPageSelected = computed(() => {
-  const newOnPage = pageIdeas.value.filter(i => i.status === 'new')
-  return newOnPage.length > 0 && newOnPage.every(i => selectedIds.value.has(i.id))
-})
+// The header checkbox selects whatever the row checkboxes can: New ideas (for
+// Accept / Dismiss) and accepted episodes (for mark-done). It used to handle
+// New only, so on the Accepted filter it did nothing.
+const selectableOnPage = computed(() => pageIdeas.value.filter(
+  i => i.status === 'new' || (i.status === 'accepted' && i.episode_code),
+))
+function isRowSelected(idea: any): boolean {
+  return idea.status === 'new' ? selectedIds.value.has(idea.id) : selectedDoneIds.value.has(idea.episode_code)
+}
+const allPageSelected = computed(() =>
+  selectableOnPage.value.length > 0 && selectableOnPage.value.every(isRowSelected))
 
 // Reset page when filter changes
 watch([statusFilter, searchQuery, sourceFilter], () => { page.value = 1 })
+// …and pull it back when the list shrinks under it (delete, dismiss, reload),
+// so the table never shows an empty "Page 3 of 2".
+watch(totalPages, (pages) => { if (page.value > pages) page.value = pages })
 
 function toggleSort(field: string) {
   if (sortField.value === field) sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
@@ -2680,13 +2776,19 @@ function toggleExpand(id: string) { expandedId.value = expandedId.value === id ?
 function toggleSelect(id: string) { selectedIds.value.has(id) ? selectedIds.value.delete(id) : selectedIds.value.add(id) }
 function toggleAll(e: Event) {
   const checked = (e.target as HTMLInputElement).checked
-  for (const idea of pageIdeas.value) {
-    if (idea.status === 'new') { checked ? selectedIds.value.add(idea.id) : selectedIds.value.delete(idea.id) }
+  for (const idea of selectableOnPage.value) {
+    const set = idea.status === 'new' ? selectedIds.value : selectedDoneIds.value
+    const key = idea.status === 'new' ? idea.id : idea.episode_code
+    if (checked) set.add(key)
+    else set.delete(key)
   }
 }
 function shortDate(d: string) {
   try { return new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) } catch { return d }
 }
+
+// Ideas whose delete is waiting out its Undo window (see remove()).
+const pendingDeleteIds = new Set<string>()
 
 async function loadIdeas() {
   if (!slug.value) return
@@ -2699,8 +2801,12 @@ async function loadIdeas() {
     // disappear on navigation". Now we only update when we have a real
     // array to update from.
     if (Array.isArray(data?.ideas)) {
-      allIdeas.value = data.ideas
-      nextEpisodeNum.value = data.next_episode_number || 1
+      // An idea whose delete is still in its Undo window must not come back
+      // just because something else reloaded the list.
+      allIdeas.value = data.ideas.filter((idea: any) => !pendingDeleteIds.has(idea.id))
+      // The code a default Accept will really hand out (a recycled gap
+      // first), so "Use next available" never promises the wrong code.
+      nextEpisodeNum.value = data.next_accept_number || data.next_episode_number || 1
       episodePrefix.value = data.episode_prefix || 'EP'
       // Successful load clears any prior load-error banner.
       ideasLoadError.value = ''
@@ -2737,6 +2843,9 @@ async function generate() {
     // generated. Backend treats both empty strings as "no wrapping".
     body.title_prefix = titleConfig.prefix
     body.title_suffix = titleConfig.suffix
+    // With the shared lineup on, the queue assigns the lineup's model anyway;
+    // the request still has to name one, so name the lineup's first.
+    if (!body.model && ideasLineupModels.value.length) body.model = ideasLineupModels.value[0]
     // v1.0.165 — the X-Pattern-Warning header path was removed with the
     // Pattern system. The title template is a plain string that can't
     // "fail to load", so there's nothing to warn about; a normal POST
@@ -2749,15 +2858,27 @@ async function generate() {
   finally { generating.value = false }
 }
 
+// A campaign saves its ideas batch by batch, so a run that ends in error or
+// is cancelled still leaves real ideas behind. Reload on every ending, and on
+// each progress step while it runs, so saved ideas show up without a refresh.
+const ideaCampaignJob = computed(() => ideaJobs.value.find(job => job.type === 'idea_campaign' && job.episode_id === 'ideas'))
 watch(
-  () => ideaJobs.value.find(job => job.type === 'idea_campaign' && job.episode_id === 'ideas')?.status,
+  () => ideaCampaignJob.value?.status,
   async (status, previous) => {
-    if (status === 'done' && previous && previous !== 'done') {
-      await loadIdeas()
+    if (!status || !previous || status === previous) return
+    if (!['done', 'error', 'cancelled'].includes(status)) return
+    await loadIdeas()
+    if (status === 'done') {
       page.value = 1
       sortField.value = 'generated_at'
       sortDir.value = 'desc'
     }
+  },
+)
+watch(
+  () => ideaCampaignJob.value?.progress,
+  (progress, previous) => {
+    if (ideaCampaignJob.value?.status === 'running' && progress !== previous) void loadIdeas()
   },
 )
 
@@ -2814,17 +2935,20 @@ const acceptCodeValid = computed(() => {
 
 function showAcceptDialog(idea: any) { acceptDialogIdea.value = idea }
 
+const accepting = ref(false)
 async function doAccept(action: 'folders' | 'script') {
-  const idea = acceptDialogIdea.value; if (!idea) return
+  const idea = acceptDialogIdea.value; if (!idea || accepting.value) return
   if (!acceptCodeValid.value) return
+  accepting.value = true
   try {
     const body: any = { auto_generate_script: false }
     if (acceptCodeMode.value === 'custom') {
       body.override_code = resolvedCustomCode.value
     }
     const result = await post<any>(`/projects/${slug.value}/ideas/${idea.id}/accept`, body)
-    acceptDialogIdea.value = null; await loadIdeas()
-    const code = result.episode_code || nextEpisode.value
+    acceptDialogIdea.value = null
+    await loadIdeas()
+    const code = result.episode_code
     success(`Accepted! ${code} folders created.`)
     if (action === 'script') navigateTo({
       path: `/projects/${slug.value}/scripts`,
@@ -2835,7 +2959,13 @@ async function doAccept(action: 'folders' | 'script') {
         suggestedLength: idea.suggested_length,
       }),
     })
-  } catch (e: any) { showError(e.data?.detail || 'Failed to accept') }
+  } catch (e: any) {
+    showError(e.data?.detail || 'Failed to accept')
+    // Show the idea's real state after a failure, never a stale "New".
+    await loadIdeas()
+  } finally {
+    accepting.value = false
+  }
 }
 // ── Renumber dialog (already-accepted episode rename) ────────────────────
 const renumberDialogIdea = ref<any>(null)
@@ -2886,16 +3016,15 @@ async function doRenumber() {
     )
     renumberDialogIdea.value = null
     await loadIdeas()
-    const warnSuffix = (r.warnings || []).length
-      ? ` (${r.warnings.length} warning${r.warnings.length === 1 ? '' : 's'})`
-      : ''
-    success(`${r.old_code} → ${r.new_code}${warnSuffix}`)
-    if ((r.warnings || []).length) {
-      // Surface non-fatal warnings via the toast text so the user
-      // sees what didn't fully complete (e.g. "Source folder did not
-      // exist on disk"). Re-running renumber on the same episode is
-      // safe — operations are idempotent.
-      r.warnings.forEach((w: string) => showError(`Renumber warning: ${w}`))
+    const warnings: string[] = Array.isArray(r.warnings) ? r.warnings : []
+    if (!warnings.length) {
+      success(`${r.old_code} → ${r.new_code}`)
+    } else {
+      // One summary toast, not one error toast per warning. Re-running the
+      // code change on the same episode is safe — each step is idempotent.
+      const shown = warnings.slice(0, 2).map(w => w.replace(/[.\s]+$/, '')).join('; ')
+      const more = warnings.length > 2 ? ` (+${warnings.length - 2} more)` : ''
+      showError(`${r.old_code} → ${r.new_code} done, but ${warnings.length} step${warnings.length === 1 ? '' : 's'} need${warnings.length === 1 ? 's' : ''} a look: ${shown}${more}. Running it again is safe.`)
     }
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Renumber failed')
@@ -2904,13 +3033,58 @@ async function doRenumber() {
   }
 }
 
+interface BatchAcceptResponse {
+  accepted: Array<{ episode_code: string }>
+  skipped: Array<{ id: string; title: string }>
+  failed: Array<{ id: string; title: string; reason: string }>
+}
+const bulkIdeasRunning = ref(false)
+
 async function batchAccept() {
-  if (!selectedIds.value.size) return
+  if (!selectedIds.value.size || bulkIdeasRunning.value) return
+  bulkIdeasRunning.value = true
   try {
-    await post(`/projects/${slug.value}/ideas/batch-accept`, { idea_ids: Array.from(selectedIds.value) })
-    selectedIds.value.clear(); await loadIdeas()
-    success('Batch accepted!')
-  } catch (e: any) { showError(e.data?.detail || 'Failed') }
+    const r = await post<BatchAcceptResponse>(`/projects/${slug.value}/ideas/batch-accept`, { idea_ids: Array.from(selectedIds.value) })
+    const accepted = r.accepted?.length || 0
+    const skipped = r.skipped?.length || 0
+    const failed = r.failed || []
+    const requested = accepted + skipped + failed.length
+    // Keep only the ones that still need attention selected, so a second
+    // click retries just those.
+    selectedIds.value = new Set(failed.map(f => f.id))
+    if (!failed.length) {
+      success(`Accepted ${accepted} idea${accepted === 1 ? '' : 's'}${skipped ? ` (${skipped} already accepted)` : ''}.`)
+    } else {
+      const details = failed.slice(0, 3).map(f => `${f.title}: ${String(f.reason).replace(/[.\s]+$/, '')}`).join('; ')
+      const more = failed.length > 3 ? ` (+${failed.length - 3} more)` : ''
+      showError(`Accepted ${accepted} of ${requested} — ${failed.length} need${failed.length === 1 ? 's' : ''} attention: ${details}${more}`)
+    }
+  } catch (e: any) {
+    showError(e.data?.detail || 'Could not accept the selected ideas')
+  } finally {
+    bulkIdeasRunning.value = false
+    await loadIdeas()
+  }
+}
+
+async function dismissSelected() {
+  if (!selectedIds.value.size || bulkIdeasRunning.value) return
+  bulkIdeasRunning.value = true
+  const ids = Array.from(selectedIds.value)
+  const failed: string[] = []
+  try {
+    for (const id of ids) {
+      try { await post(`/projects/${slug.value}/ideas/${id}/dismiss`) }
+      catch { failed.push(id) }
+    }
+    selectedIds.value = new Set(failed)
+    const done = ids.length - failed.length
+    if (failed.length) showError(`Dismissed ${done} of ${ids.length}. ${failed.length} could not be dismissed — they are still selected.`)
+    else success(`Dismissed ${done} idea${done === 1 ? '' : 's'}.`)
+  } finally {
+    bulkIdeasRunning.value = false
+    await loadIdeas()
+  }
 }
 const dismissingIds = ref(new Set<string>())
 async function dismiss(id: string) {
@@ -2947,10 +3121,10 @@ function formatRelativeTime(iso: string | null): string {
 
 function buildResetMessage(idea: any, p: any): string {
   if (!p?.exists || !p?.file_count) {
-    return `This deletes the empty ${idea.episode_code}/ folder and returns the idea to its unused state.`
+    return `This moves the empty ${idea.episode_code} folder to the project's _trash folder and puts the idea back to New.`
   }
   const lines = [
-    `This deletes ${p.file_count} file${p.file_count === 1 ? '' : 's'} (${p.total_bytes_human}) from ${idea.episode_code}/ on disk:`,
+    `This moves ${p.file_count} file${p.file_count === 1 ? '' : 's'} (${p.total_bytes_human}) from ${idea.episode_code} to the project's _trash folder and puts the idea back to New:`,
     '',
   ]
   const b = p.breakdown || {}
@@ -2961,25 +3135,31 @@ function buildResetMessage(idea: any, p: any): string {
   if (b.other) lines.push(`• ${b.other} other file${b.other === 1 ? '' : 's'}`)
   const rel = formatRelativeTime(p.last_modified_iso)
   lines.push('')
-  lines.push(rel ? `Last modified ${rel}. Cannot be undone.` : 'Cannot be undone.')
+  const keep = 'Nothing is deleted — you can take the files back out of _trash.'
+  lines.push(rel ? `Last modified ${rel}. ${keep}` : keep)
   return lines.join('\n')
 }
 
 async function resetIdea(idea: any) {
-  let message = `This deletes the ${idea.episode_code} folder on disk (script, prompts, any generated images/audio) and returns the idea to its unused state.`
+  let message = `Move this episode's files (${idea.episode_code}: script, prompts, any images or audio) to the project's _trash and un-accept the idea. Nothing is deleted.`
   try {
     const preview = await get<any>(`/projects/${slug.value}/ideas/${idea.id}/reset-preview`)
     message = buildResetMessage(idea, preview)
   } catch { /* fall back to generic copy — don't block the operator */ }
   const ok = await ask({
-    title: `Reset "${idea.title}"?`,
+    title: `Un-accept "${idea.title}"?`,
     message,
-    confirmLabel: 'Reset idea',
+    confirmLabel: 'Move to _trash and un-accept',
     danger: true,
   })
   if (!ok) return
-  try { await post(`/projects/${slug.value}/ideas/${idea.id}/reset`); await loadIdeas(); success('Reset done.') }
-  catch (e: any) { showError(e.data?.detail || 'Failed') }
+  try {
+    const r = await post<{ warnings?: string[] }>(`/projects/${slug.value}/ideas/${idea.id}/reset`)
+    await loadIdeas()
+    const warning = Array.isArray(r?.warnings) ? r.warnings[0] : ''
+    if (warning) showError(`${idea.episode_code} un-accepted and its project files moved to _trash, but: ${warning}`)
+    else success(`${idea.episode_code} un-accepted. Its files are in the project's _trash folder.`)
+  } catch (e: any) { showError(e.data?.detail || 'Could not un-accept this episode') }
 }
 async function remove(id: string) {
   // Two-tier safeguard, calibrated to the cost of a misclick:
@@ -3005,7 +3185,7 @@ async function remove(id: string) {
     const code = target.episode_code || '?'
     const ok = await ask({
       title: `Delete accepted episode ${code}?`,
-      message: `Removes ${label} from ideas.json and recycles ${code} so a future Accept can reuse the number. The on-disk folder + any rendered assets / sidecar / uploaded video link are NOT deleted (we don't touch user files automatically) — they'll just be unowned until you clean them up manually or hit ${code} again. After this, an undo toast gives you 10 seconds to take it back.`,
+      message: `Removes ${label} from your idea list and frees the code ${code} for a future Accept. The episode's folder and files stay where they are — nothing on disk is deleted. You'll have 10 seconds to undo.`,
       confirmLabel: 'Delete idea',
       danger: true,
     })
@@ -3013,14 +3193,19 @@ async function remove(id: string) {
   }
 
   // Optimistic removal — applies after the confirm gate (if any) has
-  // already passed.
-  allIdeas.value = [...allIdeas.value.slice(0, idx), ...allIdeas.value.slice(idx + 1)]
+  // already passed. Bound to the slug it was clicked on, and hidden from any
+  // reload until the real DELETE settles.
+  const slugAtDelete = slug.value
+  pendingDeleteIds.add(id)
+  allIdeas.value = allIdeas.value.filter(i => i.id !== id)
   selectedIds.value.delete(id)
 
   successUndoable({
     message: `Deleted ${label}`,
     duration: 10_000,
     onUndo: () => {
+      pendingDeleteIds.delete(id)
+      if (allIdeas.value.some(i => i.id === id)) return
       // Splice back at the original index so the user's view doesn't jump.
       allIdeas.value = [
         ...allIdeas.value.slice(0, idx),
@@ -3032,7 +3217,15 @@ async function remove(id: string) {
     onTimeout: async () => {
       // Only here do we actually hit the backend. If this fails the toast
       // helper will call onUndo to restore the UI and surface an error.
-      await del(`/projects/${slug.value}/ideas/${id}`)
+      try {
+        await del(`/projects/${slugAtDelete}/ideas/${id}`)
+      } catch (e: any) {
+        // Already gone (a second delete, another window) is the outcome we
+        // wanted — not a reason to bring the idea back.
+        if ((e?.status ?? e?.statusCode ?? e?.response?.status) !== 404) throw e
+      } finally {
+        pendingDeleteIds.delete(id)
+      }
     },
   })
 }
@@ -3132,6 +3325,8 @@ async function confirmCompact() {
     var(--bg-secondary);
 }
 .generator-title { margin: 0 0 12px; font-size: 18px; }
+/* Visible one-line explanations under controls (not tooltip-only). */
+.control-hint { display: block; margin: 6px 0 0; line-height: 1.4; }
 .idea-composer {
   padding: 16px;
   border: 1px solid var(--border);

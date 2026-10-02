@@ -310,3 +310,15 @@ describe('remembered names survive to the failure that needs them', () => {
     assert.ok(!label.includes(VOICE_HANDLE))
   })
 })
+
+describe('the outline review panel never shows a raw model or narrator-style id', () => {
+  test('model and style are rendered through display names only', () => {
+    const panel = source('../components/OutlineReviewPanel.vue')
+    assert.doesNotMatch(panel, /\{\{\s*currentModel\s*\}\}/)
+    assert.doesNotMatch(panel, /\{\{\s*outlineModel\s*\}\}/)
+    assert.doesNotMatch(panel, /\{\{\s*generationParams\.style\s*\}\}/)
+    assert.doesNotMatch(panel, /Narrator style: \$\{gp\.style\}/)
+    assert.match(panel, /findChatModel\(currentModel\.value\)\?\.display_name/)
+    assert.match(panel, /props\.styleLabels\?\.\[id\] \|\| ''/, 'an unknown style shows nothing, not its id')
+  })
+})

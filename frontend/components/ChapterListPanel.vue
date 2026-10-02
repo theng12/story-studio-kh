@@ -115,6 +115,7 @@
 </template>
 
 <script setup lang="ts">
+import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
 interface ChapterRow {
   number: number
   title: string
@@ -141,7 +142,7 @@ const props = defineProps<{
 const { get, post } = useApi()
 const freshChapterAction = useFreshGenerationAction()
 const { jobs } = useJobs()
-const { success, error: showError } = useToast()
+const { success, error: showError, showAction } = useToast()
 
 const chapters = ref<ChapterRow[]>([])
 const loading = ref(false)
@@ -298,7 +299,8 @@ async function regenerate(num: number) {
       : `Chapter ${num} regenerate queued`,
     )
   } catch (e: any) {
-    showError(e?.data?.detail || `Chapter ${num} submission was not confirmed. Retry submission to continue the same action.`)
+    if (e?.data?.detail) showError(e.data.detail)
+    else showAction(UNCONFIRMED_SUBMISSION, 'Retry', () => regenerate(num), 'error')
     // Clear THIS chapter's in-flight on error. Success path leaves it set;
     // the relevantJobsSignal watcher clears it when the job lands terminal.
     const next = new Set(regenInFlight.value)
@@ -326,37 +328,40 @@ const relevantJobsSignal = computed(() =>
     .sort()
     .join('|'),
 )
+// Each terminal transition is handled ONCE (keyed job:status, like
+// scripts.vue's seenDoneJobs), and a change refreshes the list at most once.
+// Without this every old finished job re-ran refresh() on every change, and an
+// old done job for chapter N cleared the flag of a NEW chapter-N regen.
+// Seeded with what was already finished when the panel opened.
+const terminalKey = (job: { job_id: string; status: string }) => `${job.job_id}:${job.status}`
+const isTerminal = (status: string) => status === 'done' || status === 'error' || status === 'cancelled'
+const handledTerminalJobs = new Set(jobs.value.filter(j => isTerminal(j.status)).map(terminalKey))
 watch(relevantJobsSignal, () => {
-  // Cheap path: just walk the current jobs and act on terminal states.
-  // The signal-based watch only fires when something transitions, so
-  // this is at most a handful of iterations per real event.
+  let landed = false
   for (const job of jobs.value) {
     if (job.episode_id !== props.episodeId) continue
-    const isRelevant = job.type === 'chapter-only' || job.type === 'expand_chapters'
-    if (!isRelevant) continue
+    if (job.type !== 'chapter-only' && job.type !== 'expand_chapters') continue
+    if (!isTerminal(job.status) || handledTerminalJobs.has(terminalKey(job))) continue
+    handledTerminalJobs.add(terminalKey(job))
     // chapter-only carries the chapter number in params — use it to clear
     // ONLY that chapter's in-flight flag. Siblings still queued/running
     // stay flagged. expand_chapters has no chapter number; we only refresh
     // for it.
-    const jobChapter = job.type === 'chapter-only'
-      ? Number(job.params?.chapter_number)
-      : NaN
-    if (job.status === 'done') {
-      if (job.type === 'chapter-only' && Number.isFinite(jobChapter)
-          && regenInFlight.value.has(jobChapter)) {
-        const next = new Set(regenInFlight.value)
-        next.delete(jobChapter)
-        regenInFlight.value = next
-      }
-      clearPreviewCache()
-      void refresh()
-    } else if (job.status === 'error' && job.type === 'chapter-only'
-               && Number.isFinite(jobChapter) && regenInFlight.value.has(jobChapter)) {
+    const jobChapter = job.type === 'chapter-only' ? Number(job.params?.chapter_number) : NaN
+    const wasInFlight = Number.isFinite(jobChapter) && regenInFlight.value.has(jobChapter)
+    if (wasInFlight) {
       const next = new Set(regenInFlight.value)
       next.delete(jobChapter)
       regenInFlight.value = next
-      showError('Chapter regenerate failed — see Jobs tab.')
     }
+    if (job.status === 'done') landed = true
+    else if (job.status === 'error' && wasInFlight) {
+      showError(`Chapter ${jobChapter} regenerate failed — see the Jobs tab.`)
+    }
+  }
+  if (landed) {
+    clearPreviewCache()
+    void refresh()
   }
 })
 

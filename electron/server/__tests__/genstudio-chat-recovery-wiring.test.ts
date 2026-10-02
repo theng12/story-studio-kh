@@ -70,7 +70,7 @@ void test('an exact-replay chapter retry reaches GET by idempotency key with zer
 
     await assert.rejects(
       generateNarrativeChunked(makeJob(), params),
-      /could not confirm whether the language provider/i,
+      /lost track of this request/i,
     )
     assert.equal(service.providerSubmissionCount('chat'), 2, 'outline plus the original failed chapter batch')
     const historicChapterKey = service.submissions.at(-1)?.idempotencyKey
@@ -81,7 +81,7 @@ void test('an exact-replay chapter retry reaches GET by idempotency key with zer
 
     await assert.rejects(
       generateNarrativeChunked(makeJob(true, ['an-unrelated-recorded-key', historicChapterKey]), params),
-      /could not confirm whether the language provider/i,
+      /lost track of this request/i,
     )
     assert.equal(
       service.requests.filter(request => request.method === 'POST' && request.path === '/v1/chat/responses').length,
@@ -135,7 +135,7 @@ void test('a conclusively failed outline retry posts once with a fresh durable k
       job_id: 'outline-original', project_slug: 'outline-project', episode_id: params.episode_id,
       type: 'outline_only', status: 'running', output_lines: [], params: {}, created_at: new Date().toISOString(),
     } as any
-    await assert.rejects(buildOutlineOnly(original, params, 'narrative'), /language provider/i)
+    await assert.rejects(buildOutlineOnly(original, params, 'narrative'), /writing model/i)
     const historicKey = service.submissions[0]?.idempotencyKey
     assert.ok(historicKey)
 

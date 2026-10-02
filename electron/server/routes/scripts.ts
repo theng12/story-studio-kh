@@ -31,6 +31,7 @@ import { prependAvoidanceToPrompt, recordUsageForScope } from '../services/recen
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { resolveTextStyle, resolveFontStyle } from '../models/thumbnail-styles.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
+import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import {
   finalizeYouTubeDescription,
@@ -304,7 +305,8 @@ router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
 
     if (jq.hasUnresolvedTerminalChapterExpansion(slug, episode_id)) {
       return res.status(409).json({
-        detail: 'A terminal chapter expansion has unresolved GenStudio chat evidence. Resume that job before starting another expansion.',
+        detail: `Writing chapters for ${episode_id} stopped part-way and may still be finishing at GenStudio. `
+          + 'Click "Resume writing" at the bottom of the Outline tab to finish that run first, then expand other chapters.',
       })
     }
 
@@ -386,6 +388,18 @@ router.put('/projects/:slug/episodes/:episodeId/outline', async (req, res) => {
     const raw = await fs.readFile(sidecarFile, 'utf-8')
     const existing = JSON.parse(raw)
     const totalChapters = existing.total_chapters
+
+    // The outline was rebuilt (or imported) after the page loaded it: these
+    // edits belong to the old one and must not overwrite — or approve — the
+    // new outline. Optional so older clients keep working.
+    const basedOn = req.body?.outline_completed_at
+    if (typeof basedOn === 'string' && typeof existing.outline_completed_at === 'string'
+        && basedOn !== existing.outline_completed_at) {
+      return res.status(409).json({
+        detail: `The outline for ${episodeId} was rebuilt after these edits were made, so they were not saved. `
+          + 'The new outline is shown now.',
+      })
+    }
 
     // Length must match total_chapters: the rest of the chunked machinery
     // (expandChapters' pending-set computation, the OutlineReviewPanel's row
@@ -510,6 +524,16 @@ async function resolveScriptDirForImport(slug: string, episodeId: string, title:
   return resolveSubfolder(actualDir, pathMod.basename(paths.script_dir), true)
 }
 
+/** A queued, running or paused writer owns this episode's script files; an
+ *  import would be overwritten by it, or overwrite what it is writing. */
+function importBlockedByActiveWriter(slug: string, episodeId: string): string {
+  const active = ['introduction-only', 'script-only', 'chapter-only', 'expand_chapters', 'outline_only']
+    .some(type => jq.isDuplicate(slug, episodeId, type))
+  return active
+    ? `${episodeId} is still writing its script. Wait for that job to finish (or cancel it in Jobs), then import again.`
+    : ''
+}
+
 // POST import-script — paste a finished script; written as per-chapter files +
 // the unified narration so Audio/Subtitles/Scene Plan run on it directly.
 router.post('/projects/:slug/episodes/:episodeId/import-script', async (req, res) => {
@@ -520,6 +544,8 @@ router.post('/projects/:slug/episodes/:episodeId/import-script', async (req, res
     const text = typeof req.body?.text === 'string' ? req.body.text : ''
     const title = typeof req.body?.title === 'string' ? req.body.title : ''
     if (!text.trim()) return res.status(400).json({ detail: 'Paste your script in `text`.' })
+    const busy = importBlockedByActiveWriter(slug, episodeId)
+    if (busy) return res.status(409).json({ detail: busy })
 
     const scriptDir = await resolveScriptDirForImport(slug, episodeId, title)
 
@@ -531,15 +557,17 @@ router.post('/projects/:slug/episodes/:episodeId/import-script', async (req, res
       parts = { chapters: [{ number: 1, title: title || 'Script', text: text.trim() }], ...(parts.intro ? { intro: parts.intro } : {}) }
     }
 
-    // Clear prior script artifacts for this episode so a re-import is clean.
+    // Move prior script artifacts for this episode into the project's _trash
+    // (never hard-deleted) so a re-import is clean.
     //
     // The code is ESCAPED before it is used as a pattern. It arrives as a route
     // param, and an unescaped `.*` turns `^${code}_Chapter_` into a pattern that
     // matches every episode's chapters in this folder — and the loop below
-    // `fs.rm`s each match. `scene-review.ts` already escapes at its own pattern
-    // sites; this block was the copy that did not.
+    // moves each match away. `scene-review.ts` already escapes at its own
+    // pattern sites; this block was the copy that did not.
     const codePattern = episodeId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const entries = await fs.readdir(scriptDir).catch(() => [] as string[])
+    const projectDir = pm.getProjectDir(slug)!
     for (const f of entries) {
       if (
         new RegExp(`^${codePattern}_Chapter_\\d+\\.(md|docx)$`).test(f) ||
@@ -548,7 +576,10 @@ router.post('/projects/:slug/episodes/:episodeId/import-script', async (req, res
         f === `${episodeId}_Script_Narration.intro.json` ||
         f === `${episodeId}_chunked-progress.json`
       ) {
-        await fs.rm(pathMod.join(scriptDir, f), { force: true }).catch(() => {})
+        const file = pathMod.join(scriptDir, f)
+        const rel = pathMod.relative(projectDir, file)
+        moveToTrashSync(file, pathMod.join(trashRootFor(projectDir, projectDir, slug),
+          rel.startsWith('..') || pathMod.isAbsolute(rel) ? pathMod.join(episodeId, f) : rel))
       }
     }
 
@@ -583,6 +614,8 @@ router.post('/projects/:slug/episodes/:episodeId/import-outline', async (req, re
       outline = parseOutlineText(req.body.text)
     }
     if (!outline.length) return res.status(400).json({ detail: 'Provide `outline[]` or `text` (one chapter per line).' })
+    const busy = importBlockedByActiveWriter(slug, episodeId)
+    if (busy) return res.status(409).json({ detail: busy })
 
     const scriptDir = await resolveScriptDirForImport(slug, episodeId, title)
     const fmt = await getEffectiveFormat(slug).catch(() => null as any)

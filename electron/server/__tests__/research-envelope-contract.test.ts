@@ -312,8 +312,8 @@ test('publisher, published_at and excerpts stay absent rather than invented', ()
 test('both published failure codes produce a clear, actionable message', () => {
   const failed = describeGenStudioLanguageFailure(GENSTUDIO_LANGUAGE_FAILURE_CODES.PROVIDER_FAILED)
   assert.ok(failed)
-  assert.match(failed!, /language provider/i)
-  assert.match(failed!, /retry|different language product/i)
+  assert.match(failed!, /writing model/i)
+  assert.match(failed!, /retry|different writing model/i)
   // Never leaks the raw code as the whole explanation.
   assert.doesNotMatch(failed!, /^LANGUAGE_/)
 
@@ -323,9 +323,9 @@ test('both published failure codes produce a clear, actionable message', () => {
   assert.ok(uncertain)
   // The user is told WHY nothing happened automatically: a second paid
   // submission was the alternative.
-  assert.match(uncertain!, /could not confirm/i)
+  assert.match(uncertain!, /lost track of this request/i)
   assert.match(uncertain!, /twice|duplicate/i)
-  assert.match(uncertain!, /did NOT retry it automatically/)
+  assert.match(uncertain!, /did not send it again by itself/)
 
   // Unknown / absent codes are not given invented meanings.
   assert.equal(describeGenStudioLanguageFailure(null), null)
@@ -338,7 +338,7 @@ test('the failure code drives the surfaced error message', () => {
     502, 'language generation failed', GENSTUDIO_LANGUAGE_FAILURE_CODES.SUBMISSION_UNCERTAIN,
   )
   assert.equal(error.languageFailureCode, GENSTUDIO_LANGUAGE_FAILURE_CODES.SUBMISSION_UNCERTAIN)
-  assert.match(error.message, /could not confirm/i)
+  assert.match(error.message, /lost track of this request/i)
   assert.equal(isGenStudioSubmissionUncertain(error), true)
 
   // A 502 that identifies no code keeps the existing generic wording and is
@@ -351,7 +351,7 @@ test('the failure code drives the surfaced error message', () => {
   // The code is also recovered when GenStudio quotes it in the detail string.
   const quoted = new GenStudioApiError(502, 'route failed: LANGUAGE_PROVIDER_FAILED')
   assert.equal(quoted.languageFailureCode, GENSTUDIO_LANGUAGE_FAILURE_CODES.PROVIDER_FAILED)
-  assert.match(quoted.message, /language provider/i)
+  assert.match(quoted.message, /writing model/i)
 })
 
 test('SUBMISSION_UNCERTAIN never triggers an automatic resubmit', async () => {
@@ -381,7 +381,7 @@ test('SUBMISSION_UNCERTAIN never triggers an automatic resubmit', async () => {
 
     assert.ok(error instanceof GenStudioApiError)
     assert.equal(isGenStudioSubmissionUncertain(error), true)
-    assert.match((error as Error).message, /could not confirm/i)
+    assert.match((error as Error).message, /lost track of this request/i)
     assert.equal(submissions, 1, 'an uncertain submission must be sent exactly once')
   } finally {
     globalThis.fetch = originalFetch
@@ -444,7 +444,7 @@ test('a durable job distinguishes the two failure codes the 502 could not', asyn
   assert.ok(failed.error instanceof GenStudioChatTerminalFailureError)
   assert.equal(failed.error.failureCode, GENSTUDIO_LANGUAGE_FAILURE_CODES.PROVIDER_FAILED)
   // Retryable: the reservation was released and nothing was charged twice.
-  assert.match((failed.error as Error).message, /Retry this step, or pick a different language product/i)
+  assert.match((failed.error as Error).message, /pick a different writing model/i)
   assert.equal(isGenStudioSubmissionUncertain(failed.error), false)
 
   const uncertain = await failedChatJob(
@@ -455,9 +455,9 @@ test('a durable job distinguishes the two failure codes the 502 could not', asyn
   assert.equal(isGenStudioSubmissionUncertain(uncertain.error), true)
   // The user is told to check the account BEFORE resubmitting, and told that
   // Story Studio deliberately did not do it for them.
-  assert.match((uncertain.error as Error).message, /could not confirm/i)
-  assert.match((uncertain.error as Error).message, /Check the run in your\s+GenStudio account/i)
-  assert.match((uncertain.error as Error).message, /did NOT retry it automatically/)
+  assert.match((uncertain.error as Error).message, /lost track of this request/i)
+  assert.match((uncertain.error as Error).message, /Generate this step again/)
+  assert.match((uncertain.error as Error).message, /did not send it again by itself/)
 
   // Neither code resubmits, and the uncertain one is doubly protected: it is a
   // settled outcome AND it is refused by name in shouldReconnectAcceptedTask.
@@ -489,12 +489,12 @@ test('a model-identity mismatch is explained by name, not as a generic failure',
 
   const message = (mismatch.error as Error).message
   // The real reason, in the user's terms.
-  assert.match(message, /did not identify itself as that model/i)
-  assert.match(message, /refused it rather than hand back work you did not buy/i)
+  assert.match(message, /did not come from the writing model you chose/i)
+  assert.match(message, /refused rather than used/i)
   // Not the generic terminal wording it used to degrade to.
   assert.doesNotMatch(message, /GenStudio KH language generation failed \(/)
   // Fallbacks stay off, and that is still said out loud.
-  assert.match(message, /No fallback route was attempted/)
+  assert.doesNotMatch(message, /fallback route/)
   // Settled means settled: never resubmitted, and not confused with "uncertain".
   assert.equal(mismatch.submits.length, 1, 'a settled mismatch must not be resubmitted')
   assert.equal(isGenStudioSubmissionUncertain(mismatch.error), false)

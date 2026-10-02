@@ -109,8 +109,11 @@ function campaignPrompt(options: {
    PROFILE TITLE POLICY: ${profile.titlePolicy}` : ''}`
     })
     .join('\n')
+  // `avoid` is newest-first (formula history is sorted that way and each saved
+  // batch is unshifted), so the first 200 are the most recent — the ones a
+  // model is likeliest to echo. slice(-200) used to send the OLDEST 200.
   const avoidBlock = options.avoid
-    .slice(-200)
+    .slice(0, 200)
     .map(item => `- ${item.title}`)
     .join('\n')
   const template = request.title_template?.trim()
@@ -345,6 +348,10 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
   // formula changes the provider/prompt branch below.
   const isFormulaFreeform = !activePackIds.length && !(topicPackIds?.length)
   let assignmentPool: IdeaAssignment[] = []
+  // How many requested ideas the Topic Packs cannot cover at all. Those that
+  // fit are still made and saved; the job then fails loudly naming the rest,
+  // instead of refusing the whole batch up front.
+  let coverageShortfall = 0
   if (!isFormulaFreeform) {
     const usedFingerprints = history
       .map(idea => idea.idea_fingerprint)
@@ -352,13 +359,9 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     assignmentPool = planIdeaAssignments({
       niche: plannerNiche, count: remaining, usedFingerprints, seed: request.campaign_id,
     })
-    if (assignmentPool.length < remaining) {
-      requireJobCompletion(job, {
-        label: 'Idea Campaign coverage plan', expected: wanted, completed: alreadyCompleted.length,
-        missing: Array.from({ length: remaining }, (_, index) => 'coverage-slot-' + (index + 1)),
-        retry_hint: 'Add another compatible Topic Pack or more subjects/axis values, then Retry.',
-      })
-      return
+    coverageShortfall = Math.max(0, remaining - assignmentPool.length)
+    if (coverageShortfall) {
+      job.output_lines.push(`Your Topic Packs have unused subjects for only ${assignmentPool.length} of the ${remaining} ideas still needed; making those now.`)
     }
   }
 
@@ -510,8 +513,8 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
         themes: idea.themes,
         mood: idea.mood,
       }))
-      if (isFormulaFreeform) similarityPool.unshift(...savedCandidates)
-      else similarityPool.push(...savedCandidates)
+      // Newest-first on both paths, matching collectFormulaHistory's order.
+      similarityPool.unshift(...savedCandidates)
       job.output_lines.push(`  ✓ Saved ${stored.length}; campaign now ${alreadyCompleted.length + created.length}/${wanted}.`)
     }
     if (ideasPolicy) {
@@ -530,16 +533,20 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     series_formula_id: formulaId || plannerNiche.id,
     topic_pack_ids: activePackIds,
   }
+  const missingCount = wanted - completed
   requireJobCompletion(job, {
     label: 'Idea Campaign',
     expected: wanted,
     completed,
     missing: completed < wanted
-      ? Array.from({ length: wanted - completed }, (_, index) => `idea-slot-${completed + index + 1}`)
+      ? Array.from({ length: missingCount }, (_, index) => `idea-slot-${completed + index + 1}`)
       : [],
-    retry_hint: isFormulaFreeform
-      ? 'Completed ideas were saved. Retry this job to fill only the missing ideas.'
-      : 'Completed ideas were saved. Retry this job to fill only the missing slots with unused fingerprints.',
+    // The owner reads this in Jobs. Slot ids and fingerprints mean nothing to
+    // him; the count, what was kept, and the one next step do. A Retry reuses
+    // this job's frozen Topic Packs, so a pack shortfall asks for a new batch.
+    message: coverageShortfall
+      ? `${completed} of ${wanted} ideas were saved. Your Topic Packs have no unused subjects left for the other ${missingCount}. Add another Topic Pack with "Choose Formula & Topics", then queue ${missingCount} more.`
+      : `${completed} of ${wanted} ideas were saved. Press Retry to make the ${missingCount} missing one${missingCount === 1 ? '' : 's'}.`,
   })
   job.progress = 100
   job.output_lines.push(isFormulaFreeform

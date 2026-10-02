@@ -8,7 +8,7 @@
 
 import { getApiKey } from '../app-secrets-store.js'
 import { callAiWithModelPolicy, callAiWithRetry } from '../../lib/ai-client.js'
-import { resolveDefaultChatModel } from '../genstudio-default-model.js'
+import { noWritingModelChosenMessage } from '../genstudio-default-model.js'
 import { JSON_OBJECT_OUTPUT_CONTRACT } from '../../lib/json-output-contract.js'
 import type { ResearchAdapter } from './types.js'
 import type { ResearchOutput, ResearchRunOptions } from '../../models/types.js'
@@ -31,12 +31,9 @@ class GenStudioResearchAdapter implements ResearchAdapter {
     // A missing model is resolved against GenStudio's live catalog rather
     // than a hardcoded external product id — GenStudio owns the catalog and
     // a retired/renamed literal must never be submitted blind.
-    let model = requestedModel
-    if (!model) {
-      const apiKey = await getApiKey('genstudio').catch(() => '')
-      if (!apiKey) throw new Error('No GenStudio API key configured. Add it in Settings → This Mac before running research.')
-      model = (await resolveDefaultChatModel(apiKey)).modelId
-    }
+    // A Pipeline lineup brings its own models; otherwise only the owner's choice runs.
+    const model = requestedModel || opts.pipeline_model_policy?.assigned_model || ''
+    if (!model) throw new Error(noWritingModelChosenMessage('the Research page'))
     const { system, user } = buildResearchPrompt(opts, 'llm-only')
     // Long-form: a research pass returns a summary, a claims list, a citation
     // list and an episode outline in one JSON object. The 2,048-token

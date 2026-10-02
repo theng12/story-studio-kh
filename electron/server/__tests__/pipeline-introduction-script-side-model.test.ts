@@ -96,7 +96,7 @@ describe('run-batch wires introduction-only to the script-side model, not the ca
     assert.notEqual(start, -1, 'introduction-only model branch not found in run-batch')
     // Stop at the next branch so the metadata fallback below is not read as
     // part of the opening's.
-    const end = source.indexOf("if (step === 'metadata' && !params.model)", start)
+    const end = source.indexOf("if (step === 'metadata' && !params.model", start)
     assert.ok(end > start, 'the metadata branch must follow the introduction branch')
     const branch = source.slice(start, end)
     // The channel's own choice comes first — that is the picker the owner
@@ -113,28 +113,10 @@ describe('run-batch wires introduction-only to the script-side model, not the ca
     assert.match(branch, /No model was substituted/)
   })
 
-  test('the live-catalogue default is resolved for metadata only', async () => {
+  test('no catalogue default is resolved for any step — a metadata step with no model is skipped plainly', async () => {
     const source = await fs.readFile(PIPELINE_SOURCE, 'utf8')
-    const code = source
-      .split('\n')
-      .filter(line => {
-        const t = line.trim()
-        return !(t.startsWith('//') || t.startsWith('*') || t.startsWith('/*'))
-      })
-      .join('\n')
-    const defaultResolverStart = code.indexOf('let batchDefaultChatModel')
-    const defaultResolverEnd = code.indexOf('let pipelineTranscriptionParams', defaultResolverStart)
-    assert.ok(defaultResolverStart >= 0, 'batch default model state not found')
-    assert.ok(defaultResolverEnd > defaultResolverStart, 'batch default model block not bounded')
-    const defaultResolver = code.slice(defaultResolverStart, defaultResolverEnd)
-    // Selection is now filtered per episode, so `steps.includes` is no longer
-    // the source of truth. The saved metadata preset is the only trigger that
-    // resolves a live catalogue default for the batch.
-    assert.match(defaultResolver, /if \(presetByStep\.metadata\) \{/)
-    assert.doesNotMatch(
-      defaultResolver,
-      /presetByStep(?:\.introduction|\[['"]introduction-only['"]\])/,
-      'the introduction must not trigger catalogue-default resolution',
-    )
+    assert.doesNotMatch(source, /batchDefaultChatModel|resolveDefaultChatModel/)
+    assert.match(source, /if \(step === 'metadata' && !params\.model && !params\.pipeline_model_policy\?\.metadata\) \{\s*skipped\.push\(/)
+    assert.match(source, /has no writing model saved[\s\S]{0,200}does not pick one for you/)
   })
 })

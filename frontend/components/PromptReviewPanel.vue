@@ -266,7 +266,7 @@ async function regenerateOne(
   }
   const operationId = freshPromptAction.begin(request, key)
   try {
-    const data = await post<{ number: number; title: string; prompt: string; model_notice?: string }>(
+    const data = await post<{ number: number; title: string; prompt: string }>(
       `/projects/${props.projectSlug}/episodes/${props.episodeId}/image-prompts/regenerate`,
       {
         ...request,
@@ -295,7 +295,6 @@ async function regenerateOne(
     // The server healed away from the saved model. Informational, never
     // blocking — the prompt IS regenerated. Longer dwell than the default
     // because the sentence names two products and what to do about them.
-    if (data.model_notice) showToast(data.model_notice, 'info', 12000)
   } catch (e: any) {
     const msg = e?.data?.detail || e?.message || `${payload.reword ? 'Reword' : 'Regeneration'} failed`
     errors.value = { ...errors.value, [key]: msg }

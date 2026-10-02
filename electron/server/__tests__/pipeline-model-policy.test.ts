@@ -397,7 +397,7 @@ test('An accepted backup candidate never advances on a later product refusal', a
     { mode: 'backup', models: ['primary', 'backup'], assigned_model: 'primary' },
     async model => { seen.push(model); throw new GenStudioChatProductUnavailableError(model) },
     checkpointStore(entries), 'research:EP0004', 'same-input',
-  ), /not available/)
+  ), /isn't available right now/)
   assert.deepEqual(seen, ['primary'])
   assert.equal(entries.get('research:EP0004')?.status, 'unknown')
   assert.equal(entries.get('research:EP0004')?.idempotency_key, 'accepted-primary-key')
@@ -465,7 +465,7 @@ test('Pipeline backup checkpoints exhaustion and never wraps back to its last ca
   const policy = { mode: 'backup' as const, models: ['primary', 'backup'], assigned_model: 'primary' }
   await assert.rejects(executePipelineModelPolicy(policy, async model => {
     throw new GenStudioChatProductUnavailableError(model)
-  }, store, 'cues:EP0004', 'same-input'), /not available/)
+  }, store, 'cues:EP0004', 'same-input'), /isn't available right now/)
   assert.equal(entries.get('cues:EP0004')?.status, 'exhausted')
   let calls = 0
   await assert.rejects(executePipelineModelPolicy(policy, async () => { calls++; return 'unsafe' }, store, 'cues:EP0004', 'same-input'), /Every selected Pipeline backup/)

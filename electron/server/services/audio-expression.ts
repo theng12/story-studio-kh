@@ -320,18 +320,13 @@ export async function mapExpressionConcurrent<T, R>(
 export interface ExpressionMarkupParams {
   episode_id: string
   title?: string
-  /** Text model for the markup pass. When omitted, resolved against
-   *  GenStudio's live catalog (see resolveDefaultChatModel in
-   *  services/genstudio-default-model.ts) — never a hardcoded default. */
+  /** Text model for the markup pass. When omitted, the project's saved choice is used, or the
+   *  job stops asking for one — Story never picks a model (services/genstudio-default-model.ts). */
   model?: string
   /** Tag dialect to write (matches the target TTS model). Defaults to 'fish'. */
   dialect?: TagDialect
   /** Limit to these section slugs; omit/empty = every section. */
   slugs?: string[]
-  /** Set when the enqueuing route resolved `model` itself and that resolution
-   *  healed away from the project's saved preference. The route has no job to
-   *  announce on, so the sentence rides here and this job logs it. */
-  model_heal_notice?: string
 }
 
 /**
@@ -361,21 +356,12 @@ export async function runExpressionMarkupJob(job: Job): Promise<void> {
   let model = requestedModel
   if (!model) {
     const { getApiKey } = await import('./app-secrets-store.js')
-    const { resolveDefaultChatModel, describeHealedDefaultChatModel } = await import('./genstudio-default-model.js')
+    const { resolveChosenChatModel } = await import('./genstudio-default-model.js')
     const apiKey = await getApiKey('genstudio').catch(() => '')
     if (!apiKey) throw new Error('No GenStudio API key configured. Add it in Settings → This Mac before generating expression markup.')
     const saved = typeof (config as any)?.prompt_model === 'string' ? (config as any).prompt_model : null
-    const resolved = await resolveDefaultChatModel(apiKey, saved)
-    model = resolved.modelId
-    // The heal itself is unchanged — only its silence is. Without this the log
-    // named a model the operator never chose, with nothing saying why.
-    const healNotice = describeHealedDefaultChatModel(resolved)
-    if (healNotice) job.output_lines.push(healNotice)
+    model = await resolveChosenChatModel(apiKey, saved, 'the Audio Generator page (Expression tags)')
   }
-  // "Tag all" resolves the model in the route, before this job exists, so it
-  // carries the notice in params rather than dropping it at the handoff.
-  const carriedNotice = typeof params.model_heal_notice === 'string' ? params.model_heal_notice.trim() : ''
-  if (carriedNotice) job.output_lines.push(carriedNotice)
   const narrationPath = await findNarrationFile(job.project_slug, episodeId)
   const parsed = await parseNarrationDocx(narrationPath)
   const targets = (Array.isArray(params.slugs) && params.slugs.length)

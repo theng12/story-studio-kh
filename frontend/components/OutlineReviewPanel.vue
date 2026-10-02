@@ -57,8 +57,8 @@
         <span v-if="generationParams.perspective" class="op-locked-pill">
           POV: {{ perspectiveLabel(generationParams.perspective) }}
         </span>
-        <span v-if="generationParams.style" class="op-locked-pill">
-          style: {{ generationParams.style }}
+        <span v-if="styleLabel" class="op-locked-pill">
+          narrator: {{ styleLabel }}
         </span>
         <span v-if="generationParams.character_ids?.length" class="op-locked-pill">
           cast: {{ generationParams.character_ids.length }}
@@ -69,18 +69,22 @@
            never something the user has to infer from a job log after the
            fact. `op-model-changed` fires only when the two actually differ. -->
       <p v-if="outlineModel" class="op-model-line" :class="{ 'op-model-changed': modelChanged }">
+        <!-- Published display names only (useGenStudioChatModels). A model id
+             is an internal handle; when the catalogue has no name for it the
+             pill is simply left out. -->
         <template v-if="modelChanged">
           ⚠ Model changed since this outline was built.
-          Outline used <span class="op-locked-pill">{{ outlineModel }}</span>,
-          expansion will use the selected <span class="op-locked-pill">{{ currentModel }}</span>.
+          <template v-if="outlineModelName">Outline used <span class="op-locked-pill">{{ outlineModelName }}</span>, expansion</template>
+          <template v-else>Expansion</template>
+          will use the selected model<template v-if="currentModelName"> <span class="op-locked-pill">{{ currentModelName }}</span></template>.
           Chapters already on disk are kept — regenerate any you want in the new voice.
         </template>
         <template v-else-if="currentModel">
-          Model: <span class="op-locked-pill">{{ currentModel }}</span>
+          Model: <span v-if="currentModelName" class="op-locked-pill">{{ currentModelName }}</span>
           — same one this outline was built with.
         </template>
         <template v-else>
-          Outline was built with <span class="op-locked-pill">{{ outlineModel }}</span>.
+          Outline was built with <span v-if="outlineModelName" class="op-locked-pill">{{ outlineModelName }}</span><template v-else>a model that is no longer listed</template>.
           Pick a model in the form above; expansion uses the selected one.
         </template>
       </p>
@@ -317,8 +321,11 @@
           @click="expandAll"
         >
           <LoadingSpinner v-if="expanding" size="sm" />
-          ▶ Expand all ({{ pendingCount }})
+          {{ resumableRun ? `▶ Resume writing (${pendingCount})` : `▶ Expand all (${pendingCount})` }}
         </button>
+        <span v-if="resumableRun" class="op-resume-hint">
+          The last writing run stopped part-way — Resume writing finishes it before other chapters can be expanded.
+        </span>
       </div>
     </div>
   </div>
@@ -326,6 +333,7 @@
 </template>
 
 <script setup lang="ts">
+import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 
 interface OutlineEntry {
@@ -340,6 +348,7 @@ interface OutlineEntry {
 
 interface GenerationParams {
   model: string
+  manual_guidance?: string
   length?: number
   total_words?: number
   words_per_chapter: number
@@ -381,6 +390,9 @@ const props = defineProps<{
    *  reaches a terminal state — triggers a fresh load to pick up new
    *  outline / chapters_done. */
   refreshKey?: number
+  /** Narrator style id → its display label (Formula styles + saved custom
+   *  voices). A style id is never shown raw. */
+  styleLabels?: Record<string, string>
 }>()
 
 const emit = defineEmits<{
@@ -393,7 +405,11 @@ const emit = defineEmits<{
    *  defaults on remount, forcing the user to re-type the chapter count +
    *  words/chapter they already committed at outline-build time. */
   (e: 'outline-loaded', payload: {
+    episodeId: string
     totalChapters: number
+    chaptersDone: number
+    /** The Episode direction this outline was built with (null = none). */
+    manualGuidance: string | null
     wordsPerChapter: number | null
     totalWords: number | null
     lengthMinutes: number | null
@@ -406,8 +422,9 @@ const emit = defineEmits<{
 const { get, post, put } = useApi()
 const freshOutlineExpansionAction = useFreshGenerationAction()
 const freshOutlineChapterAction = useFreshGenerationAction()
-const { success, error: showError } = useToast()
+const { success, error: showError, showAction } = useToast()
 const { jobs } = useJobs()
+const { find: findChatModel } = useGenStudioChatModels()
 
 const outline = ref<OutlineEntry[]>([])
 const mode = ref<'narrative' | 'listicle'>('listicle')
@@ -415,6 +432,8 @@ const totalChapters = ref(0)
 const chaptersDone = ref<number[]>([])
 const approvedAt = ref<string | null>(null)
 const editedAt = ref<string | null>(null)
+/** `outline_completed_at` of the outline on screen — which build it is. */
+const completedAt = ref('')
 const generationParams = ref<GenerationParams | null>(null)
 const loaded = ref(false)
 const saving = ref(false)
@@ -474,6 +493,16 @@ const outlineModel = computed(() => String(generationParams.value?.model || '').
 const modelChanged = computed(() =>
   !!outlineModel.value && !!currentModel.value && outlineModel.value !== currentModel.value,
 )
+/** Published display names; '' when the live catalogue has no row. */
+const currentModelName = computed(() => findChatModel(currentModel.value)?.display_name?.trim() || '')
+const outlineModelName = computed(() => findChatModel(outlineModel.value)?.display_name?.trim() || '')
+const styleLabel = computed(() => {
+  const id = generationParams.value?.style
+  if (!id) return ''
+  if (id === 'auto') return 'Formula default'
+  if (id === 'custom') return 'One-off narrator direction'
+  return props.styleLabels?.[id] || ''
+})
 
 const lockedParamsTooltip = computed(() => {
   if (!generationParams.value) return ''
@@ -484,7 +513,7 @@ const lockedParamsTooltip = computed(() => {
   if (gp.length) parts.push(`Length: ${gp.length} min`)
   if (gp.total_words) parts.push(`Total words: ${gp.total_words.toLocaleString()}`)
   if (gp.perspective) parts.push(`POV: ${perspectiveLabel(gp.perspective)}`)
-  if (gp.style) parts.push(`Narrator style: ${gp.style}`)
+  if (styleLabel.value) parts.push(`Narrator style: ${styleLabel.value}`)
   if (gp.custom_perspective) parts.push(`Custom POV: ${gp.custom_perspective}`)
   if (gp.character_ids?.length) parts.push(`Cast: ${gp.character_ids.length} character(s)`)
   return parts.join(' · ') +
@@ -555,6 +584,12 @@ function terminalExpansionRetryJob(): any | undefined {
       || Date.parse(b.finished_at || b.created_at || '') - Date.parse(a.finished_at || a.created_at || ''),
     )[0]
 }
+/** A stopped run still has chat work GenStudio has not settled. The server
+ *  refuses other expansions until it is resumed, so Expand all says
+ *  "Resume writing" (it is the button that sends the resume reference). */
+const resumableRun = computed(() => (terminalExpansionRetryJob()?.genstudio_jobs || []).some((entry: any) =>
+  entry.operation === 'chat.response'
+  && (typeof entry.id !== 'string' || !entry.id || entry.id.startsWith('pending:') || !['succeeded', 'failed'].includes(entry.state))))
 
 function isChapterDone(n: number): boolean {
   return chaptersDone.value.includes(n)
@@ -700,6 +735,7 @@ async function loadOutline() {
     chaptersDone.value = data.chapters_done || []
     approvedAt.value = data.outline_approved_at
     editedAt.value = data.outline_edited_at
+    completedAt.value = data.outline_completed_at || ''
     generationParams.value = data.generation_params
     loaded.value = true
     isDirty.value = false
@@ -709,7 +745,10 @@ async function loadOutline() {
     // time — surface that on the inputs so they don't appear to revert to
     // format defaults after a reload/remount.
     emit('outline-loaded', {
+      episodeId,
       totalChapters: data.total_chapters,
+      chaptersDone: chaptersDone.value.length,
+      manualGuidance: data.generation_params?.manual_guidance ?? null,
       wordsPerChapter: data.generation_params?.words_per_chapter ?? null,
       totalWords: data.generation_params?.total_words ?? null,
       lengthMinutes: data.generation_params?.length ?? null,
@@ -748,12 +787,52 @@ async function loadOutline() {
 // ── Edit handlers ─────────────────────────────────────────────────────────
 
 let autosaveTimer: ReturnType<typeof setTimeout> | null = null
+/** The episode an unsaved edit belongs to, captured when it was made, so a
+ *  save that runs later can never land on a different episode. */
+/** `completedAt` names WHICH outline the edits were made on; the server
+ *  refuses them (409) once that outline has been rebuilt or re-imported. */
+let dirtyTarget: { projectSlug: string; episodeId: string; title?: string; completedAt: string } | null = null
 
-function markDirtyAndAutosave() {
+function markDirty() {
+  // The first edit after a clean state names the episode the edits belong to.
+  if (!isDirty.value || !dirtyTarget) {
+    dirtyTarget = { projectSlug: props.projectSlug, episodeId: props.episodeId, title: props.title, completedAt: completedAt.value }
+  }
   isDirty.value = true
   justSaved.value = false
+}
+
+function markDirtyAndAutosave() {
+  markDirty()
   if (autosaveTimer) clearTimeout(autosaveTimer)
   autosaveTimer = setTimeout(() => { void saveEdits(/* silent */ true) }, 600)
+}
+
+/** Save pending edits to the episode they were made on, right now. Runs
+ *  before any reload or episode switch, and on leaving the page, so an edit
+ *  is never dropped by a reload and never written to the next episode. If the
+ *  outline was rebuilt meanwhile (e.g. Create outline with Force), the server
+ *  refuses the old edits with a 409 instead of writing them over — or
+ *  approving — the new outline, and the reload then shows the new one. */
+async function flushPendingEdits(): Promise<void> {
+  if (autosaveTimer) { clearTimeout(autosaveTimer); autosaveTimer = null }
+  const target = dirtyTarget
+  if (!isDirty.value || !target) return
+  dirtyTarget = null
+  isDirty.value = false
+  const snapshot = outline.value.map(e => ({ ...e }))
+  try {
+    const titleParam = target.title ? `?title=${encodeURIComponent(target.title)}` : ''
+    await put(`/projects/${target.projectSlug}/episodes/${target.episodeId}/outline${titleParam}`,
+      { outline: snapshot, approved: !!approvedAt.value, outline_completed_at: target.completedAt || undefined })
+  } catch (e: any) {
+    showError(e?.data?.detail || `Could not save your outline edits for ${target.episodeId}`)
+  }
+}
+
+async function reloadOutline(): Promise<void> {
+  await flushPendingEdits()
+  await loadOutline()
 }
 
 // Per-chapter word floor enforced by the backend (see
@@ -775,8 +854,7 @@ function onWordsInput(ev: Event, idx: number) {
     // (passing through "1", "15", "150"). Floor only on blur.
     outline.value[idx].words_per_chapter = Math.round(num)
   }
-  isDirty.value = true
-  justSaved.value = false
+  markDirty()
 }
 
 function onWordsBlur(idx: number) {
@@ -862,21 +940,27 @@ function reorder(idx: number, delta: -1 | 1) {
   // through a reorder), so the buffer at n=N still holds the OLD row's
   // text after the swap. Re-seed both buffers to match the new content.
   seedRowBuffersFromOutline()
-  isDirty.value = true
-  justSaved.value = false
+  markDirtyAndAutosave()
 }
 
 // ── Save / approve ────────────────────────────────────────────────────────
 
 async function saveEdits(silent = false): Promise<void> {
   if (saving.value) return
+  if (autosaveTimer) { clearTimeout(autosaveTimer); autosaveTimer = null }
+  const target = dirtyTarget || { projectSlug: props.projectSlug, episodeId: props.episodeId, title: props.title, completedAt: completedAt.value }
+  // Only the episode the edits were made on is ever written. The episode
+  // watcher flushes before a switch, so a mismatch here means nothing to save.
+  if (target.episodeId !== props.episodeId || target.projectSlug !== props.projectSlug) return
   saving.value = true
   try {
-    const titleParam = props.title ? `?title=${encodeURIComponent(props.title)}` : ''
+    const titleParam = target.title ? `?title=${encodeURIComponent(target.title)}` : ''
     const resp = await put<{ outline_edited_at: string; outline_approved_at: string | null }>(
-      `/projects/${props.projectSlug}/episodes/${props.episodeId}/outline${titleParam}`,
-      { outline: outline.value, approved: !!approvedAt.value },
+      `/projects/${target.projectSlug}/episodes/${target.episodeId}/outline${titleParam}`,
+      { outline: outline.value, approved: !!approvedAt.value, outline_completed_at: target.completedAt || undefined },
     )
+    if (target.episodeId !== props.episodeId) return
+    dirtyTarget = null
     editedAt.value = resp.outline_edited_at
     approvedAt.value = resp.outline_approved_at
     isDirty.value = false
@@ -884,9 +968,18 @@ async function saveEdits(silent = false): Promise<void> {
     if (!silent) success('Outline saved')
   } catch (e: any) {
     showError(e?.data?.detail || 'Could not save outline')
+    if (e?.status === 409) discardAndShowCurrentOutline()
   } finally {
     saving.value = false
   }
+}
+
+/** 409 = the outline was rebuilt since it loaded; the edits belong to the
+ *  old one. Drop them and show the outline that is actually on disk. */
+function discardAndShowCurrentOutline(): void {
+  dirtyTarget = null
+  isDirty.value = false
+  void loadOutline()
 }
 
 async function approveOutline() {
@@ -897,7 +990,7 @@ async function approveOutline() {
     const titleParam = props.title ? `?title=${encodeURIComponent(props.title)}` : ''
     const resp = await put<{ outline_edited_at: string; outline_approved_at: string | null }>(
       `/projects/${props.projectSlug}/episodes/${props.episodeId}/outline${titleParam}`,
-      { outline: outline.value, approved: true },
+      { outline: outline.value, approved: true, outline_completed_at: completedAt.value || undefined },
     )
     editedAt.value = resp.outline_edited_at
     approvedAt.value = resp.outline_approved_at
@@ -905,6 +998,7 @@ async function approveOutline() {
     success('Outline approved — ready to expand')
   } catch (e: any) {
     showError(e?.data?.detail || 'Could not approve outline')
+    if (e?.status === 409) discardAndShowCurrentOutline()
   } finally {
     saving.value = false
   }
@@ -1048,7 +1142,8 @@ async function regenerateOne(n: number): Promise<void> {
       ? `Chapter ${n} regenerate queued at ${wordTarget} words`
       : `Chapter ${n} regenerate queued`)
   } catch (e: any) {
-    showError(e?.data?.detail || `Chapter ${n} submission was not confirmed. Retry submission to continue the same action.`)
+    if (e?.data?.detail) showError(e.data.detail)
+    else showAction(UNCONFIRMED_SUBMISSION, 'Retry', () => regenerateOne(n), 'error')
   } finally {
     // Clear THIS chapter's in-flight flag so its button re-enables. Other
     // chapters in flight stay flagged. Reassign the Set so Vue tracks the
@@ -1076,7 +1171,8 @@ watch(() => [props.episodeId, props.title, props.refreshKey], (next, prev) => {
     selectedNs.value = []
   }
   clearPreviewCache()
-  void loadOutline()
+  // Pending edits are saved to THEIR episode before anything reloads.
+  void reloadOutline()
 })
 
 // Auto-refresh when an outline_only or expand_chapters job for THIS
@@ -1107,7 +1203,7 @@ const relevantTerminalJobsSignal = computed(() =>
 watch(relevantTerminalJobsSignal, (next, prev) => {
   if (next === prev) return
   if (next) {
-    void loadOutline()
+    void reloadOutline()
     // expand_chapters just landed → on-disk chapter content is fresh.
     // Wipe + re-fetch any open preview drawers so the user sees the
     // new text immediately, no manual re-toggle needed.
@@ -1137,11 +1233,12 @@ watch(chapterOnlySignal, (next, prev) => {
 })
 
 onUnmounted(() => {
-  if (autosaveTimer) clearTimeout(autosaveTimer)
+  // Leaving the page saves pending edits instead of dropping them.
+  void flushPendingEdits()
 })
 
 // Expose loaded so scripts.vue can show the right empty-state.
-defineExpose({ loaded, reload: loadOutline })
+defineExpose({ loaded, reload: reloadOutline })
 </script>
 
 <style scoped>
@@ -1446,6 +1543,11 @@ defineExpose({ loaded, reload: loadOutline })
   display: inline-flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+.op-resume-hint {
+  flex-basis: 100%;
+  font-size: var(--font-xs);
+  color: var(--text-muted);
 }
 
 @media (max-width: 720px) {

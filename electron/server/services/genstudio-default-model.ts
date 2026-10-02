@@ -10,48 +10,23 @@
  * A retired/renamed product id would then be submitted blind.
  *
  * GenStudio owns the product catalogue. Story Studio must never invent a
- * product id; it may only submit ids that the live `/v1/chat/models`
- * catalogue currently reports as usable. This module is the single place
- * that makes that decision for chat/text generation.
+ * product id, and (2026-10-03) never CHOOSE one either: it submits only the
+ * model the owner chose, after the live `/v1/chat/models` catalogue confirms
+ * it is usable. This module is the single place that check lives.
  */
 
 import { listChatModels } from '../lib/genstudio-client.js'
 import type { GenStudioChatModel } from '../lib/genstudio-client.js'
 
-export interface ResolvedDefaultChatModel {
-  /** The GenStudio product id to submit. Always a live, usable catalogue id. */
-  modelId: string
-  /** True when a saved selection was removed, retired, or qualification-only,
-   *  so this result healed to a different live product. Account-locked
-   *  selections fail closed instead of healing. Callers that hold a saved
-   *  preference should persist `modelId` back so the heal becomes durable
-   *  and should surface this to the operator instead of healing silently. */
-  healed: boolean
-  /** The saved selection that was requested (trimmed), or null if none was
-   *  given. Present even when healing occurred, so callers can log/report
-   *  what was replaced. */
-  requestedModelId: string | null
-}
-
 /**
- * The sentence an operator should see when a saved default healed to a
- * different product, or null when nothing was substituted.
- *
- * `ResolvedDefaultChatModel.healed` documents that callers "should surface
- * this to the operator instead of healing silently", and every caller holding
- * a saved preference discarded it — the substitution happened, correctly, and
- * then went unmentioned. The wording lives here rather than at seven call
- * sites so a customer reading two different job logs is told the same thing.
- *
- * Shaped like the announcement `lib/chunked-narration.ts` already makes for a
- * mid-run heal: what was saved, why it could not be used, what ran instead,
- * and what the operator can do about it.
+ * "Choose a writing model on <where>" — the one sentence every writing step shows when nothing was
+ * chosen. Story Studio never picks a model for the owner (coordinator decision 2026-10-03): the
+ * gateway publishes every chat model as economy / 0 credits, so "the first usable economy model"
+ * could silently be a PAID provider.
  */
-export function describeHealedDefaultChatModel(resolved: ResolvedDefaultChatModel): string | null {
-  if (!resolved.healed || !resolved.requestedModelId) return null
-  return `The saved model "${resolved.requestedModelId}" is no longer available on GenStudio `
-    + `(retired, unpublished, or qualification-only), so "${resolved.modelId}" was used instead. `
-    + 'Choose a model explicitly if you want a different one.'
+export function noWritingModelChosenMessage(where: string): string {
+  return `No writing model is chosen for this step. Choose one on ${where}, then run it again. `
+    + 'Story Studio does not pick a writing model for you.'
 }
 
 /** A product is selectable when GenStudio marks it available, unlocked, and
@@ -61,27 +36,20 @@ function isUsableChatModel(model: GenStudioChatModel): boolean {
 }
 
 /**
- * Resolve the model id that should actually be submitted for a chat/text
- * generation request.
+ * The writing model the owner chose, confirmed against the live catalogue — or a plain error.
  *
- *  - If `savedModelId` is set and still present + usable in the live
- *    catalogue, it wins (explicit user selections are preserved).
- *  - If `savedModelId` is set but is no longer usable (removed, retired,
- *    now qualification-only), this heals to the first usable live product
- *    and reports `healed: true` so the caller can persist/surface the change
- *    — it never heals silently to a value the caller can't see.
- *  - If `savedModelId` names an account-locked product, resolution fails
- *    closed. A lock is an explicit access boundary, not a retired preference.
- *  - If `savedModelId` is absent, the first usable live product is chosen.
- *  - If the catalogue can't be reached, or reports no usable product at
- *    all, this throws with an actionable message. It never substitutes a
- *    literal product id — GenStudio being offline is not a reason to guess.
+ *  - Nothing chosen → error naming where to choose one. Nothing is picked on his behalf.
+ *  - Chosen but removed, unavailable, qualification-only or locked → error naming the model.
+ *    No other model is substituted, ever.
+ *  - Catalogue unreachable → error; no literal id is guessed.
  */
-export async function resolveDefaultChatModel(
+export async function resolveChosenChatModel(
   apiKey: string,
-  savedModelId?: string | null,
-): Promise<ResolvedDefaultChatModel> {
-  const requestedModelId = savedModelId?.trim() || null
+  chosenModelId: string | null | undefined,
+  where: string,
+): Promise<string> {
+  const chosen = chosenModelId?.trim() || ''
+  if (!chosen) throw new Error(noWritingModelChosenMessage(where))
 
   let catalog: GenStudioChatModel[]
   try {
@@ -89,44 +57,15 @@ export async function resolveDefaultChatModel(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     throw new Error(
-      `Could not resolve a default GenStudio language model: the live catalog is unreachable (${message}). ` +
-      'Check the GenStudio API key in Settings → This Mac, or choose a model explicitly, then try again.',
+      `Could not check the writing model "${chosen}": the model list is unreachable (${message}). `
+      + 'Check the connection in Settings → This Mac, then try again.',
     )
   }
-
-  const usable = catalog.filter(isUsableChatModel)
-
-  if (requestedModelId) {
-    const requested = catalog.find(model => model.id === requestedModelId)
-    if (requested?.locked === true) {
-      const accessDetail = requested.lock_reason === 'requires_paid_account'
-        ? ' It requires a paid GenStudio account.'
-        : ''
-      throw new Error(
-        `The selected GenStudio language model "${requestedModelId}" is locked for this account.${accessDetail} ` +
-        'Story Studio did not substitute another model. Choose an unlocked model, then try again.',
-      )
-    }
-    const match = usable.find(model => model.id === requestedModelId)
-    if (match) return { modelId: match.id, healed: false, requestedModelId }
-  }
-
-  const fullyTiered = usable.length > 0 && usable.every(model => model.cost_tier !== undefined)
-  const fallback = fullyTiered
-    ? usable.find(model => model.cost_tier === 'economy')
-    : usable[0]
-  if (!fallback) {
-    if (fullyTiered) {
-      throw new Error(
-        'No published Economy GenStudio language model is currently available. ' +
-        'Choose an Economy model explicitly after GenStudio publishes one; Story Studio will not substitute Balanced or Premium automatically.',
-      )
-    }
-    throw new Error(
-      'No published GenStudio language model is currently available. ' +
-      'Open GenStudio KH, publish/enable a chat model, then try again.',
-    )
-  }
-
-  return { modelId: fallback.id, healed: !!requestedModelId, requestedModelId }
+  const match = catalog.find(model => model.id === chosen)
+  if (match && isUsableChatModel(match)) return match.id
+  const paid = match?.locked === true && match.lock_reason === 'requires_paid_account' ? ' It needs a paid account.' : ''
+  throw new Error(
+    `The writing model "${chosen}" isn't available right now.${paid} Pick another one on ${where}, or try again later. `
+    + 'Story Studio did not switch to a different model.',
+  )
 }

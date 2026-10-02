@@ -290,8 +290,8 @@ describe('expand-chapters executor — the model swap is visible, never silent',
     await generateExpandChapters(job)
 
     const log = job.output_lines.join('\n')
-    assert.doesNotMatch(log, /is not available/)
-    assert.doesNotMatch(log, /Choose a published product/)
+    assert.doesNotMatch(log, /isn't available right now/)
+    assert.doesNotMatch(log, /Pick another writing model/)
     assert.match(log, /Nothing to do/)
   })
 })

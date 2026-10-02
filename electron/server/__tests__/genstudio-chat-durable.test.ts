@@ -229,9 +229,9 @@ test('SUBMISSION_UNCERTAIN is never auto-resubmitted and says to check the accou
       .then(() => null, (err: unknown) => err)
     assert.ok(error instanceof GenStudioChatTerminalFailureError)
     assert.equal(isGenStudioSubmissionUncertain(error), true)
-    assert.match(error.message, /could not confirm/i)
-    assert.match(error.message, /Check the run in your\s+GenStudio account before resubmitting/i)
-    assert.match(error.message, /did NOT retry it automatically/)
+    assert.match(error.message, /lost track of this request/i)
+    assert.match(error.message, /Generate this step again/)
+    assert.match(error.message, /did not send it again by itself/)
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -648,7 +648,7 @@ test('catalogue-dependent guards read the catalogue but submit nothing', async (
     }
     await assert.rejects(
       callChatWithGenStudio('guard-catalog-key', { ...baseRequest, modelId: 'retired-alpha' }),
-      /is not available.*No request or credit charge was made/i,
+      /isn't available right now.*Nothing was sent or charged/i,
     )
     await assert.rejects(
       callChatWithGenStudio('guard-catalog-key', { ...baseRequest, maxOutputTokens: 8_193 }),

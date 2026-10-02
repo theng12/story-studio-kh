@@ -67,4 +67,49 @@ describe('Script Generator workspace', () => {
     assert.doesNotMatch(scripts, /Include introduction/)
     assert.doesNotMatch(scripts, /function generateScript\(/)
   })
+
+  test('episode direction, Force and pasted import text never ride along to the next episode', () => {
+    const swap = scripts.slice(scripts.indexOf('watch(() => form.episode_id, (newEp, oldEp) => {'))
+    const body = swap.slice(0, swap.indexOf('\n})') + 3)
+    for (const reset of [/form\.manual_guidance = ''/, /form\.force = false/, /byoText\.value = ''/,
+      /outlineTotalChapters\.value = 0/, /autoIntroForEpisode\.value = ''/]) {
+      assert.match(body, reset)
+    }
+    assert.match(body, /not carried over to/, 'the drop is announced (AGENTS.md §4)')
+    // This episode's own saved direction comes back with its outline, once.
+    assert.match(scripts, /payload\.episodeId === form\.episode_id && guidanceLoadedFor\.value !== form\.episode_id/)
+    assert.match(scripts, /form\.manual_guidance = payload\.manualGuidance \|\| ''/)
+  })
+
+  test('Force switches itself off after a submit, and an existing outline is never replaced unasked', () => {
+    const submit = scripts.slice(scripts.indexOf('async function submitOutline'), scripts.indexOf('function waitForJob'))
+    assert.match(submit, /if \(outlineTotalChapters\.value > 0\)[\s\S]*?await ask\(/)
+    assert.match(submit, /Create a new outline for \$\{targetEpisode\}\?/)
+    assert.match(submit, /chapter\$\{written === 1 \? '' : 's'\} written/)
+    assert.ok(submit.indexOf('await ask(') < submit.indexOf('freshScriptAction.begin('), 'asks before the paid request')
+    assert.match(submit, /freshScriptAction\.complete\(operationId\)\s*\/\/[^\n]*\n\s*form\.force = false/)
+  })
+
+  test('the automatic opening is keyed to the episode whose outline run armed it', () => {
+    assert.doesNotMatch(scripts, /autoIntroAfterScript/)
+    assert.doesNotMatch(scripts, /selectedEpisode\.value\?\.episode_id/, 'rows carry episode_code, not episode_id')
+    const submit = scripts.slice(scripts.indexOf('async function submitOutline'), scripts.indexOf('function waitForJob'))
+    // Armed only after the POST is accepted, never before the confirms.
+    assert.ok(submit.indexOf('autoIntroForEpisode.value = ') > submit.indexOf("await post<{ job_id: string }>(`/projects/${slug.value}/generate/outline-only`"))
+    assert.match(scripts, /armed === form\.episode_id && selectedEpisode\.value\?\.episode_code === armed/)
+  })
+
+  test('importing over existing work asks first and names the episode', () => {
+    const imp = scripts.slice(scripts.indexOf('async function importContent'), scripts.indexOf('function onExpansionQueued'))
+    assert.match(imp, /scriptGenerated\.value \|\| outlineTotalChapters\.value > 0/)
+    assert.match(imp, /Replace \$\{ep\}'s script\?/)
+    assert.match(imp, /_trash folder/)
+    assert.ok(imp.indexOf('await ask(') < imp.indexOf('byoImporting.value = true'))
+  })
+
+  test('Create outline says what is missing instead of a generic disabled state', () => {
+    assert.match(scripts, /:generate-status="scriptJobActiveForEpisode \? `Building outline for \$\{form\.episode_id\}…` : submitDisabledReason"/)
+    assert.match(scripts, /if \(!form\.episode_id\) return 'Pick an episode first'/)
+    assert.match(scripts, /if \(!scriptModelReady\.value\) return 'Pick a writing model'/)
+  })
 })

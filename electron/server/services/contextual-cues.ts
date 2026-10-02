@@ -232,6 +232,10 @@ export async function readContextualCueTimeline(scenePlanPath: string): Promise<
       generated_at: typeof raw.generated_at === 'string' ? raw.generated_at : '',
       source_scene_plan_generated_at: typeof raw.source_scene_plan_generated_at === 'string' ? raw.source_scene_plan_generated_at : '',
       cues: raw.cues.filter(isCue),
+      // Why a cue was held back from auto-approval. Dropped here before, so the
+      // review page never saw a single hold reason it was built to show.
+      ...(Array.isArray(raw.auto_approval_holds) && raw.auto_approval_holds.length
+        ? { auto_approval_holds: raw.auto_approval_holds } : {}),
     }
   } catch {
     return null
@@ -366,7 +370,9 @@ export function validateContextualCueTimeline(
     const previous = approved[index - 1]!
     const current = approved[index]!
     if (current.start_sec < previous.end_sec + 0.5) {
-      issues.push({ cue_id: current.id, detail: `Cue overlaps or crowds ${previous.id}; keep at least 0.5s clear between approved cues.` })
+      // Named by its time, as the review page shows it — never by an internal id.
+      const at = `${Math.floor(previous.start_sec / 60)}:${String(Math.floor(previous.start_sec % 60)).padStart(2, '0')}`
+      issues.push({ cue_id: current.id, detail: `Cue overlaps or crowds the approved cue at ${at}; keep at least 0.5s clear between approved cues.` })
     }
   }
   return issues

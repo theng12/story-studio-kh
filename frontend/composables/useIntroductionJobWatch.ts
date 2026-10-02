@@ -74,23 +74,29 @@ export function introductionJobSignal(
 /**
  * The transitions worth reacting to, exactly once each.
  *
- * `settled` is the caller's memory of what it has already acted on, and this
- * function ADDS to it. A job that is still queued or running yields nothing —
- * "not yet" is not an outcome — and a job already reacted to yields nothing
+ * `watching` is the caller's memory of jobs it has SEEN unfinished (queued,
+ * running or paused); this function adds to it and removes from it. Only a
+ * watched job can settle. A job that was already finished when the page first
+ * saw it is history, not news: reacting to it replayed old results and old
+ * errors every time the page opened or the episode changed. A job yields
+ * nothing while unfinished — "not yet" is not an outcome — and nothing again
  * however many times the stream re-emits it.
  */
 export function settleIntroductionJobs(
   jobs: readonly IntroductionJobLike[],
   slug: string,
   episodeId: string,
-  settled: Set<string>,
+  watching: Set<string>,
 ): IntroductionJobTransition[] {
   const transitions: IntroductionJobTransition[] = []
   for (const job of jobs) {
     if (!isIntroductionJobFor(job, slug, episodeId)) continue
+    if (job.status === 'queued' || job.status === 'running' || job.status === 'paused') {
+      watching.add(job.job_id)
+      continue
+    }
     if (job.status !== 'done' && job.status !== 'error') continue
-    if (settled.has(job.job_id)) continue
-    settled.add(job.job_id)
+    if (!watching.delete(job.job_id)) continue
     transitions.push(job.status === 'done'
       ? { job_id: job.job_id, outcome: 'done' }
       : { job_id: job.job_id, outcome: 'error', message: job.error?.trim() || INTRODUCTION_FAILED_FALLBACK })

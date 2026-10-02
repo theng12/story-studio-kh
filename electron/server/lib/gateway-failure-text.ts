@@ -105,6 +105,11 @@ export function humanGatewayText(raw: string): string {
     return detail || `The Mac refused this job (HTTP ${http[1]}).`
   }
 
+  // A writing pool walked every member: `Pool 'x' had no member that could answer — <600 chars of
+  // member ids and provider errors>`. The job's own code already says why (quota, busy …).
+  const pool = /^Pool '([^']+)' had no member that could answer\b/.exec(text)
+  if (pool) return `None of the models in the "${pool[1]}" pool could answer.`
+
   const finishing = /^hub job did not finish within (\d+)s of running/i.exec(text)
   if (finishing) {
     const minutes = Math.max(1, Math.round(Number(finishing[1]) / 60))

@@ -197,12 +197,11 @@ async function generateOne() {
   const slug = activeSlug.value
   busy.value = slug
   try {
-    const r = await post<{ sections: ExprSection[]; model_notice?: string }>(`/projects/${props.projectSlug}/episodes/${props.episodeId}/expression/generate`, { model: markupModel.value, slugs: [slug], audio_model: props.audioModel })
+    const r = await post<{ sections: ExprSection[] }>(`/projects/${props.projectSlug}/episodes/${props.episodeId}/expression/generate`, { model: markupModel.value, slugs: [slug], audio_model: props.audioModel })
     applyServer(r.sections || [])
     // The server healed away from the saved model. Informational, never
     // blocking — the section IS tagged. ("Tag all" is a background job and
     // announces the same substitution on its own output lines instead.)
-    if (r.model_notice) showToast(r.model_notice, 'info', 12000)
   } catch (e: any) {
     loadError.value = e?.data?.detail || 'AI tagging failed. Check your text-model API key in Settings.'
   } finally { busy.value = '' }

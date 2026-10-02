@@ -62,6 +62,10 @@
         :generate-status="actionStatus"
         @generate="generateForEpisode"
       />
+      <p class="muted mt-1">
+        The preset bar above keeps a reusable recipe you can load on any channel. It does not change what
+        this channel writes — only <strong>Save for this channel</strong> below does.
+      </p>
       <p v-if="scriptReadinessState === 'missing'" class="muted mt-1">
         <NuxtLink :to="`/projects/${slug}/scripts?episode_id=${encodeURIComponent(episodeId)}`">Open Script Generator</NuxtLink>
       </p>
@@ -134,8 +138,8 @@
             {{ provenanceLine }}
           </p>
         </div>
-        <button class="btn btn-primary" :disabled="saving || !dirty" @click="save">
-          {{ saving ? 'Saving…' : 'Save' }}
+        <button class="btn btn-primary" :disabled="saving || (!dirty && !segment.inferred_at)" @click="save">
+          {{ saving ? 'Saving…' : 'Save for this channel' }}
         </button>
       </div>
 
@@ -313,6 +317,7 @@
 </template>
 
 <script setup lang="ts">
+import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useApi } from '../../../composables/useApi.js'
@@ -360,20 +365,28 @@ const route = useRoute()
 const slug = computed(() => String(route.params.slug))
 const { get, put, post } = useApi()
 const freshIntroductionAction = useFreshGenerationAction()
-const { success, error: showError } = useToast()
+const { success, error: showError, showAction } = useToast()
 
 const episodeId = ref('')
 const scriptReadiness = ref<{ projectSlug: string; episodeId: string; state: 'loading' | 'ready' | 'missing' | 'error' } | null>(null)
 const scriptReadinessState = computed(() => scriptReadiness.value?.projectSlug === slug.value
   && scriptReadiness.value?.episodeId === episodeId.value ? scriptReadiness.value.state : 'loading')
-const canGenerateIntroduction = computed(() => segment.enabled && !!episodeId.value
+const canGenerateIntroduction = computed(() => segment.enabled && !!episodeId.value && !saving.value
   && scriptReadinessState.value === 'ready' && !scriptWriting.value && !generating.value && !previewSaving.value && !introductionInFlight.value)
 const saving = ref(false)
 const generating = ref(false)
 const previewSaving = ref(false)
-const dirty = ref(false)
-useUnsavedGuard(dirty, 'Introduction edits')
 const loading = ref(true)
+/**
+ * What the server last confirmed, as one string. `dirty` is a comparison
+ * against it, not a flag: a deep watch used to set the flag AFTER load() and
+ * save() had cleared it, so the page claimed unsaved changes straight after
+ * Save.
+ */
+const savedShape = ref('')
+const currentShape = (): string => JSON.stringify({ enabled: segment.enabled, recipe: segment.recipe })
+const dirty = computed(() => !loading.value && currentShape() !== savedShape.value)
+useUnsavedGuard(dirty, 'Introduction edits')
 const newBeatLabel = ref('')
 const expanded = ref<Set<string>>(new Set())
 const previewRefreshKey = ref(0)
@@ -383,8 +396,8 @@ const formulaName = ref('')
 /**
  * The recipe exactly as the server last sent it.
  *
- * `dirty` cannot stand in for this: it is set by a deep watch that also fires
- * when the on/off switch is flipped, and flipping the switch does not make an
+ * `dirty` cannot stand in for this: it also counts the on/off switch, and
+ * flipping the switch does not make an
  * opening this channel's own. This is compared against the recipe alone.
  */
 const loadedRecipeShape = ref('')
@@ -428,7 +441,7 @@ const provenanceState = computed<'edited' | 'formula' | 'own'>(() => {
 const provenanceLine = computed(() => {
   const named = formulaName.value ? `the ${formulaName.value} Formula` : 'this channel\u2019s Formula'
   if (provenanceState.value === 'edited') {
-    return 'Edited, and not saved yet. Press Save and this becomes this channel\u2019s own opening,'
+    return 'Edited, and not saved yet. Press Save for this channel and this becomes this channel\u2019s own opening,'
       + ' kept exactly as you leave it.'
   }
   if (provenanceState.value === 'formula') {
@@ -447,6 +460,7 @@ const actionStatus = computed(() => {
   if (scriptReadinessState.value === 'loading') return 'Checking this episode’s script…'
   if (scriptReadinessState.value === 'missing') return 'Generate a script first. This episode has no chapters yet.'
   if (scriptReadinessState.value === 'error') return 'Could not check the script. Refresh the preview to try again.'
+  if (dirty.value) return 'Your recipe edits are saved for this channel first — the opening is written from what is saved.'
   return 'Writes the opening for this one episode. Its chapters must already exist — the opening introduces them.'
 })
 
@@ -473,7 +487,6 @@ function restoreBeat(): void {
   if (!definition) return
   segment.recipe.beats.push({ id: definition.id, label: definition.label, enabled: true })
   restoreBeatId.value = ''
-  dirty.value = true
 }
 
 /**
@@ -494,7 +507,7 @@ const modelMode = ref<'script' | 'own'>('script')
 const usesScriptModel = computed(() => modelMode.value === 'script')
 function useScriptModel(): void {
   modelMode.value = 'script'
-  if (segment.recipe.model) { segment.recipe.model = ''; dirty.value = true }
+  if (segment.recipe.model) segment.recipe.model = ''
 }
 function useOwnModel(): void {
   // Left blank deliberately: ModelSelector fills it with a current, usable
@@ -514,18 +527,15 @@ function moveBeat(index: number, direction: number): void {
   if (target < 0 || target >= segment.recipe.beats.length) return
   const beats = segment.recipe.beats
   ;[beats[index], beats[target]] = [beats[target], beats[index]]
-  dirty.value = true
 }
 function removeBeat(index: number): void {
   segment.recipe.beats.splice(index, 1)
-  dirty.value = true
 }
 function addBeat(): void {
   const label = newBeatLabel.value.trim()
   if (!label) return
   segment.recipe.beats.push({ id: `custom-${Date.now()}`, label, enabled: true })
   newBeatLabel.value = ''
-  dirty.value = true
 }
 
 async function load(): Promise<void> {
@@ -549,12 +559,12 @@ async function load(): Promise<void> {
   } catch (cause: any) {
     showError(cause?.data?.detail || 'Could not read this channel\'s Introduction settings')
   } finally {
+    savedShape.value = currentShape()
     loading.value = false
-    dirty.value = false
   }
 }
 
-async function save(): Promise<void> {
+async function save(): Promise<boolean> {
   saving.value = true
   try {
     const data = await put<{ segments: Record<string, Segment>; opening_follows_formula?: boolean }>(
@@ -574,12 +584,14 @@ async function save(): Promise<void> {
       // copy of it, free to disagree.
       followsFormula.value = data.opening_follows_formula === true
     }
-    dirty.value = false
+    savedShape.value = currentShape()
     success(segment.enabled
       ? 'Saved. Every episode this channel writes will now open with an Introduction.'
       : 'Saved. Episodes will begin at chapter one.')
+    return true
   } catch (cause: any) {
     showError(cause?.data?.detail || 'Could not save the Introduction settings')
+    return false
   } finally {
     saving.value = false
   }
@@ -600,15 +612,19 @@ function onPreviewSavingChange(saving: boolean): void {
 
 async function generateForEpisode(): Promise<void> {
   if (!canGenerateIntroduction.value) return
+  // The opening is written from what is SAVED for this channel, so unsaved
+  // edits are saved first rather than silently ignored.
+  if (dirty.value && !await save()) return
   generating.value = true
   const payload = { episode_id: episodeId.value }
   const operationId = freshIntroductionAction.begin(payload)
   try {
-    await post(`/projects/${slug.value}/generate/introduction-only`, {
+    const job = await post<{ job_id?: string }>(`/projects/${slug.value}/generate/introduction-only`, {
       ...payload,
       operation_id: operationId,
     })
     freshIntroductionAction.complete(operationId)
+    if (job?.job_id) watchedIntroJobs.add(job.job_id)
     // No refresh-key bump here, deliberately. This POST only ENQUEUES — its
     // own toast says so. Bumping now reloads the panel at the one moment
     // there is nothing new on disk to find, and worse, replaces a previously
@@ -617,8 +633,8 @@ async function generateForEpisode(): Promise<void> {
     introFailure.value = ''
     success('Queued. The preview updates itself when it finishes.')
   } catch (cause: any) {
-    showError(cause?.data?.detail
-      || 'The submission was not confirmed. Retry submission to continue this same opening action.')
+    if (cause?.data?.detail) showError(cause.data.detail)
+    else showAction(UNCONFIRMED_SUBMISSION, 'Retry', () => generateForEpisode(), 'error')
   } finally {
     generating.value = false
   }
@@ -658,7 +674,10 @@ const scriptJobs = computed(() => jobs.value.filter(job => job.project_slug === 
   && ['script-only', 'chapter-only', 'expand_chapters'].includes(job.type)))
 const scriptWriting = computed(() => scriptJobs.value.some(job => ['queued', 'running', 'paused'].includes(job.status)))
 watch(() => scriptJobs.value.map(job => `${job.job_id}:${job.status}`).join('|'), () => { previewRefreshKey.value += 1 })
-const settledIntroJobs = new Set<string>()
+// Only jobs this page has SEEN queued or running can settle. Openings that
+// finished before the page opened are history, not news — and the global job
+// stream already toasts every finish, so this page adds no toast of its own.
+const watchedIntroJobs = new Set<string>()
 const introFailure = ref('')
 
 const introductionInFlight = computed(() =>
@@ -668,17 +687,11 @@ const introductionJobSignal = computed(() =>
   introductionJobSignalFor(jobs.value, slug.value, episodeId.value))
 
 watch(introductionJobSignal, () => {
-  for (const transition of settleIntroductionJobs(jobs.value, slug.value, episodeId.value, settledIntroJobs)) {
-    if (transition.outcome === 'done') {
-      introFailure.value = ''
-      previewRefreshKey.value += 1
-      success('The opening is written.')
-    } else {
-      introFailure.value = transition.message || ''
-      showError(introFailure.value)
-    }
+  for (const transition of settleIntroductionJobs(jobs.value, slug.value, episodeId.value, watchedIntroJobs)) {
+    introFailure.value = transition.outcome === 'error' ? transition.message || '' : ''
+    if (transition.outcome === 'done') previewRefreshKey.value += 1
   }
-})
+}, { immediate: true })
 
 // A new episode is a clean slate: the previous episode's failure is not this
 // one's, and its preview must be re-read rather than inherited.
@@ -686,8 +699,6 @@ watch(episodeId, () => {
   introFailure.value = ''
   previewRefreshKey.value += 1
 })
-
-watch(segment, () => { if (!loading.value) dirty.value = true }, { deep: true })
 
 /**
  * Saved recipes, so a shape that works can be used on the next channel.
@@ -726,7 +737,6 @@ const introPresets = usePresets<{ recipe: Recipe }>({
       ...data.recipe,
     }
     modelMode.value = segment.recipe.model?.trim() ? 'own' : 'script'
-    dirty.value = true
   },
 })
 

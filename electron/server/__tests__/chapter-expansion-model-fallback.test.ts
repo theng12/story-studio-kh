@@ -1,32 +1,14 @@
 /**
- * Chapter expansion heals a dead saved model instead of hard-failing, in the
- * ONE case `expansion-selected-model.test.ts` does not cover: the request
- * and the outline snapshot name the SAME retired id.
+ * Chapter expansion never swaps the owner's chosen writing model for another one.
  *
- * THE GAP THIS GUARDS
- * --------------------
- * `setupChunkedJobContext` (generators/episode.ts) only announces a model
- * substitution when the request's model and the outline snapshot's model
- * DIFFER. A headless caller that re-supplies the outline's own (now dead)
- * model — Pipeline's "repair chapters" step re-reading a stale preset, or a
- * resumed expansion that never named a different model — makes both sides
- * of that comparison equal, so the divergence check stays silent and the
- * dead id used to reach GenStudio's product-resolution guard unexamined,
- * hard-failing the whole batch with:
+ * It used to: when the chosen model (named by both the request and the outline snapshot) was no
+ * longer published, `withModelFallback` resolved "the live default" — the first usable economy
+ * model — logged the swap and carried on. The gateway publishes every chat model as economy /
+ * 0 credits, so that default could be a PAID provider the owner never picked (coordinator decision
+ * 2026-10-03: Story never picks a writing model). Now the run stops with a plain sentence naming the
+ * model, nothing is submitted, and the outline keeps the owner's choice.
  *
- *   The selected GenStudio language product "..." is not available. Choose
- *   a published product before retrying.
- *
- * even though a perfectly usable product was published and reachable.
- *
- * The fix lives at the one place a submission is actually about to happen
- * (`withModelFallback` in lib/chunked-narration.ts): GenStudio's own refusal
- * is caught, the live default is resolved, the swap is logged, and the same
- * batch is retried once. When there is truly nothing to fall back to (empty
- * catalogue), the original refusal must still surface unchanged.
- *
- * Zero paid calls: every request in here goes to an in-process mock HTTP
- * server, never a real provider.
+ * Zero paid calls: every request in here goes to an in-process mock HTTP server.
  */
 
 import { test, describe, before, after, beforeEach } from 'node:test'
@@ -138,60 +120,28 @@ beforeEach(async () => {
   await fs.rm(path.join(scriptDir, chapterFilename(EPISODE_ID, 1)), { force: true })
 })
 
-describe('expand-chapters heals a dead model the request and the outline snapshot both name', () => {
+describe('expand-chapters stops on a chosen model that is gone, even when another model is live', () => {
   let service: MockGenStudioService
 
   before(async () => { service = await startMockGenStudioService() })
   after(async () => { await service.close() })
   beforeEach(() => { service.reset() })
 
-  test('falls back to the live default, says so, writes the chapter, and self-repairs the sidecar', async () => {
+  test('no other model is used, nothing is submitted, and the outline keeps the owner\'s choice', async () => {
     await pointGenStudioAt(service.baseUrl, MOCK_GENSTUDIO_FULL_KEY)
     await seedSidecar()
-    service.queueScenario('chat', {
-      outputText: '## Chapter 01: Topic 1\n\nThe quick brown fox jumps over the lazy dog. Lorem ipsum dolor.\n',
-    })
+    service.queueScenario('chat', { outputText: '## Chapter 01: Topic 1\n\nShould never be written.\n' })
 
     const { generateExpandChapters } = await import('../generators/episode.js')
-    // Request and snapshot name the SAME dead id — the divergence check in
-    // setupChunkedJobContext has nothing to compare, unlike
-    // expansion-selected-model.test.ts's scenario.
     const job = fakeExpandJob({ model: DEAD_MODEL })
-    await generateExpandChapters(job)
+    await assert.rejects(generateExpandChapters(job))
 
     const log = job.output_lines.join('\n')
-    assert.ok(log.includes(DEAD_MODEL) || log.includes('genstudio-chat-b7abf15650287980589c-v1'),
-      `log must name the dead model: ${log}`)
-    assert.ok(log.includes('mock-chat-v1'), `log must name the live fallback: ${log}`)
-    assert.doesNotMatch(log, /is not available.*Choose a published product/,
-      'the dead-model refusal must not be the final outcome')
-
-    // The chapter actually got written, using the healed model's output.
-    const { chapterFilePath } = await import('../lib/narration-assembly.js')
-    const chapterText = await fs.readFile(chapterFilePath(scriptDir, EPISODE_ID, 1), 'utf-8')
-    assert.match(chapterText, /quick brown fox/)
-
-    // Self-repair: the sidecar now names the live model, not the dead one —
-    // a later run reads this back and never needs to heal again.
+    assert.match(log, /isn't available right now.*Pick another writing model/s, `plain stop expected: ${log}`)
+    assert.doesNotMatch(log, /mock-chat-v1|Falling back/, 'the live catalogue model must never be used instead')
+    assert.equal(service.providerSubmissionCount('chat'), 0)
     const sidecar = JSON.parse(await fs.readFile(sidecarFile, 'utf-8'))
-    assert.equal(sidecar.generation_params.model, 'mock-chat-v1')
-  })
-
-  test('a single provider submission serves the retry — the refused attempt was never billed', async () => {
-    await pointGenStudioAt(service.baseUrl, MOCK_GENSTUDIO_FULL_KEY)
-    await seedSidecar()
-    service.queueScenario('chat', {
-      outputText: '## Chapter 01: Topic 1\n\nBody text for the healed run.\n',
-    })
-
-    const { generateExpandChapters } = await import('../generators/episode.js')
-    const job = fakeExpandJob({ model: DEAD_MODEL })
-    await generateExpandChapters(job)
-
-    // The refused attempt against the dead id never reached the network at
-    // all (prepareChatSubmission's guard fires before any submission) — only
-    // the healed retry actually submits.
-    assert.equal(service.providerSubmissionCount('chat'), 1)
+    assert.notEqual(sidecar.generation_params.model, 'mock-chat-v1')
   })
 })
 
@@ -238,7 +188,7 @@ describe('expand-chapters still refuses when nothing is left to fall back to', (
       const log = job.output_lines.join('\n')
       assert.match(
         log,
-        /is not available.*Choose a published product.*No request or credit charge was made/s,
+        /isn't available right now.*Pick another writing model.*Nothing was sent or charged/s,
         `the original GenStudio refusal must reach the job log unchanged: ${log}`,
       )
       assert.doesNotMatch(log, /Falling back to the currently available/,

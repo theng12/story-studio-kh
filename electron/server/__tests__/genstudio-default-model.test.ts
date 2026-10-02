@@ -74,155 +74,70 @@ class ChatCatalogServer {
   }
 }
 
-describe('resolveDefaultChatModel — live-catalog default resolution', () => {
+describe('resolveChosenChatModel — only the owner\'s choice ever runs', () => {
   let temp: Awaited<ReturnType<typeof useTempDataDir>>
   let server: ChatCatalogServer
-  let resolveDefaultChatModel: typeof import('../services/genstudio-default-model.js')['resolveDefaultChatModel']
+  let resolveChosenChatModel: typeof import('../services/genstudio-default-model.js')['resolveChosenChatModel']
   let settings: typeof import('../services/app-settings.js')
+  const WHERE = 'the Metadata page'
 
   before(async () => {
     temp = await useTempDataDir()
     process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
     settings = await import('../services/app-settings.js')
-    ;({ resolveDefaultChatModel } = await import('../services/genstudio-default-model.js'))
+    ;({ resolveChosenChatModel } = await import('../services/genstudio-default-model.js'))
   })
 
   afterEach(async () => {
     if (server) await server.close()
   })
 
-  test('a published live model is selectable', async () => {
+  async function catalog(models: ChatModelFixture[]) {
     server = await new ChatCatalogServer().start()
     await settings.setGenStudioUrl(server.baseUrl)
-    server.catalog = [
-      { id: 'genstudio-chat-current-v1', available: true, qualification_only: false },
-      { id: 'genstudio-chat-qualification-only', available: true, qualification_only: true },
-    ]
-    const result = await resolveDefaultChatModel('gsk_test_key')
-    assert.equal(result.modelId, 'genstudio-chat-current-v1')
-    assert.equal(result.healed, false)
-    assert.equal(result.requestedModelId, null)
+    server.catalog = models
+  }
+
+  test('a chosen live model runs as chosen', async () => {
+    await catalog([{ id: 'chosen-v1' }, { id: 'other-v1', cost_tier: 'economy' }])
+    assert.equal(await resolveChosenChatModel('gsk_test_key', 'chosen-v1', WHERE), 'chosen-v1')
   })
 
-  test('an unavailable/retired model is not selectable', async () => {
-    server = await new ChatCatalogServer().start()
-    await settings.setGenStudioUrl(server.baseUrl)
-    server.catalog = [
-      { id: 'genstudio-chat-retired', available: false, qualification_only: false },
-      { id: 'genstudio-chat-qualification-only', available: true, qualification_only: true },
-    ]
-    // Only unusable products in the catalog: never invent a literal.
-    await assert.rejects(
-      resolveDefaultChatModel('gsk_test_key'),
-      /No published GenStudio language model is currently available/,
-    )
-    // A saved selection pointing at the retired product must not be echoed
-    // back — it should heal to a usable product instead, and there isn't
-    // one here, so this still fails loudly.
-    await assert.rejects(
-      resolveDefaultChatModel('gsk_test_key', 'genstudio-chat-retired'),
-      /No published GenStudio language model is currently available/,
-    )
+  test('nothing chosen stops with where to choose — no model is picked, even with an economy one live', async () => {
+    await catalog([{ id: 'free-looking-v1', cost_tier: 'economy' }])
+    for (const none of [undefined, null, '', '   ']) {
+      await assert.rejects(resolveChosenChatModel('gsk_test_key', none, WHERE),
+        /No writing model is chosen for this step\. Choose one on the Metadata page.*does not pick a writing model for you/)
+    }
   })
 
-  test('a visible account-locked teaser is not selected as the default', async () => {
-    server = await new ChatCatalogServer().start()
-    await settings.setGenStudioUrl(server.baseUrl)
-    server.catalog = [
-      { id: 'locked-teaser', available: true, qualification_only: false, locked: true },
-      { id: 'open-model', available: true, qualification_only: false },
-    ]
-    const result = await resolveDefaultChatModel('gsk_test_key')
-    assert.equal(result.modelId, 'open-model')
-  })
-
-  test('an explicitly requested account-locked model fails closed instead of healing', async () => {
-    server = await new ChatCatalogServer().start()
-    await settings.setGenStudioUrl(server.baseUrl)
-    server.catalog = [
-      { id: 'locked-selection', available: true, qualification_only: false, locked: true },
-      { id: 'economy-open', available: true, qualification_only: false, cost_tier: 'economy' },
-    ]
-
-    await assert.rejects(
-      resolveDefaultChatModel('gsk_test_key', 'locked-selection'),
-      /locked-selection.*locked.*did not substitute/i,
-    )
-  })
-
-  test('a still-valid saved selection is preserved', async () => {
-    server = await new ChatCatalogServer().start()
-    await settings.setGenStudioUrl(server.baseUrl)
-    server.catalog = [
-      { id: 'genstudio-chat-a', available: true, qualification_only: false },
-      { id: 'genstudio-chat-b', available: true, qualification_only: false },
-    ]
-    const result = await resolveDefaultChatModel('gsk_test_key', 'genstudio-chat-b')
-    assert.equal(result.modelId, 'genstudio-chat-b')
-    assert.equal(result.healed, false)
-    assert.equal(result.requestedModelId, 'genstudio-chat-b')
-  })
-
-  test('a removed saved selection heals visibly instead of silently', async () => {
-    server = await new ChatCatalogServer().start()
-    await settings.setGenStudioUrl(server.baseUrl)
-    server.catalog = [
-      { id: 'genstudio-chat-current-v1', available: true, qualification_only: false },
-    ]
-    const result = await resolveDefaultChatModel('gsk_test_key', 'genstudio-chat-retired-product')
-    assert.equal(result.modelId, 'genstudio-chat-current-v1')
-    assert.equal(result.healed, true, 'a vanished saved selection must be reported as healed, not hidden')
-    assert.equal(result.requestedModelId, 'genstudio-chat-retired-product')
-  })
-
-  test('a removed saved selection heals only to Economy and never silently spends at Premium', async () => {
-    server = await new ChatCatalogServer().start()
-    await settings.setGenStudioUrl(server.baseUrl)
-    server.catalog = [
-      { id: 'premium-first', available: true, cost_tier: 'premium' },
-      { id: 'economy-safe', available: true, cost_tier: 'economy' },
-    ]
-    assert.equal(
-      (await resolveDefaultChatModel('gsk_test_key', 'removed-model')).modelId,
-      'economy-safe',
-    )
-
-    await server.close()
-    server = await new ChatCatalogServer().start()
-    await settings.setGenStudioUrl(server.baseUrl)
-    server.catalog = [{ id: 'premium-only', available: true, cost_tier: 'premium' }]
-    await assert.rejects(
-      resolveDefaultChatModel('gsk_test_key', 'removed-model'),
-      /Choose an Economy model explicitly|No published Economy/i,
-    )
-  })
-
-  test('a saved selection that is now qualification-only is treated as unusable and heals', async () => {
-    server = await new ChatCatalogServer().start()
-    await settings.setGenStudioUrl(server.baseUrl)
-    server.catalog = [
-      { id: 'genstudio-chat-current-v1', available: true, qualification_only: false },
-      { id: 'genstudio-chat-gated', available: true, qualification_only: true },
-    ]
-    const result = await resolveDefaultChatModel('gsk_test_key', 'genstudio-chat-gated')
-    assert.equal(result.modelId, 'genstudio-chat-current-v1')
-    assert.equal(result.healed, true)
-  })
-
-  test('catalog-offline fails loudly instead of substituting a literal', async () => {
-    // Point at a closed port — nothing is listening, so the fetch itself fails.
-    await settings.setGenStudioUrl('http://127.0.0.1:1')
-    await assert.rejects(
-      resolveDefaultChatModel('gsk_test_key'),
-      (err: unknown) => {
+  for (const [why, row] of [
+    ['removed', null],
+    ['unavailable', { id: 'chosen-v1', available: false }],
+    ['qualification-only', { id: 'chosen-v1', qualification_only: true }],
+    ['locked', { id: 'chosen-v1', locked: true }],
+  ] as const) {
+    test(`a chosen model that is ${why} stops, naming it — never swapped for another`, async () => {
+      await catalog([...(row ? [row as ChatModelFixture] : []), { id: 'other-v1', cost_tier: 'economy' }])
+      await assert.rejects(resolveChosenChatModel('gsk_test_key', 'chosen-v1', WHERE), (err: unknown) => {
         assert.ok(err instanceof Error)
-        assert.match(err.message, /Could not resolve a default GenStudio language model/)
-        assert.match(err.message, /live catalog is unreachable/)
-        // Must never contain a plausible hardcoded fallback id.
-        assert.doesNotMatch(err.message, /deepseek-v4-flash|gpt-4o-mini|gpt-4o\b/)
+        assert.match(err.message, /The writing model "chosen-v1" isn't available right now/)
+        assert.match(err.message, /Pick another one on the Metadata page/)
+        assert.match(err.message, /did not switch to a different model/)
+        assert.doesNotMatch(err.message, /other-v1/)
         return true
-      },
-    )
+      })
+    })
+  }
+
+  test('catalog offline fails loudly instead of substituting a literal', async () => {
+    await settings.setGenStudioUrl('http://127.0.0.1:1')
+    await assert.rejects(resolveChosenChatModel('gsk_test_key', 'chosen-v1', WHERE), (err: unknown) => {
+      assert.ok(err instanceof Error)
+      assert.match(err.message, /model list is unreachable/)
+      assert.doesNotMatch(err.message, /deepseek-v4-flash|gpt-4o-mini|gpt-4o\b/)
+      return true
+    })
   })
 })
 
@@ -237,9 +152,8 @@ describe('no owned source file expresses a hardcoded external product id as a ge
     'services/audio-expression.ts',
     'services/research/genstudio.ts',
     'services/genstudio-default-model.ts',
-    // Chapter/outline expansion joined the resolveDefaultChatModel family via
-    // lib/chunked-narration.ts's withModelFallback (called from both this file
-    // and generators/episode.ts). See chapter-expansion-model-fallback.test.ts.
+    // Chapter/outline expansion runs through lib/chunked-narration.ts's
+    // withChosenModel (called from both this file and generators/episode.ts).
     'lib/chunked-narration.ts',
     'generators/episode.ts',
   ]

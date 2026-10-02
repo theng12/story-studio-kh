@@ -46,10 +46,12 @@ test('dirty edits are protected on leave, project switch, episode switch and unl
   assert.equal(clean.defaultPrevented, false)
 })
 
-test('the three manually-saved pages use the guard, and the selector honours a refused navigation', () => {
+test('the manually-saved pages use the guard, and the selector honours a refused navigation', () => {
   const at = (rel: string) => readFileSync(join(import.meta.dirname, '..', rel), 'utf8')
-  for (const page of ['scene-plan', 'introduction', 'sound-design']) {
+  for (const page of ['scene-plan', 'introduction', 'sound-design', 'research', 'metadata-template']) {
     assert.match(at(`pages/projects/[slug]/${page}.vue`), /useUnsavedGuard\(dirty,/, page)
   }
+  // Research's claim decisions are lost on an episode switch, so it guards that too.
+  assert.match(at('pages/projects/[slug]/research.vue'), /useUnsavedGuard\(dirty, 'claim decisions', \{ episodeSwitch: true \}\)/)
   assert.match(at('components/EpisodeSelector.vue'), /isNavigationFailure\(await router\.replace[\s\S]{0,120}NavigationFailureType\.aborted/)
 })

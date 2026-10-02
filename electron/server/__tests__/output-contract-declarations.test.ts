@@ -303,7 +303,7 @@ describe('the prose call sites are left alone', () => {
     for (const ctx of contexts) {
       assert.ok(!ctx.includes('outputContract'), 'chapter expansion output is markdown, never JSON')
     }
-    assert.ok(!callRegion('lib/chunked-narration.ts', 'const repairText = await withModelFallback(').includes('outputContract'))
+    assert.ok(!callRegion('lib/chunked-narration.ts', 'const repairText = await withChosenModel(').includes('outputContract'))
     // The one JSON call expansion depends on keeps its contract, passed as its
     // own argument rather than on the shared ctx above.
     //

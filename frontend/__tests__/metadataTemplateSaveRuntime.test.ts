@@ -37,6 +37,8 @@ async function loadPage(): Promise<Component> {
     const useRoute = () => globalThis.__metadataTemplateFixture.route
     const useApi = () => ({ get: globalThis.__metadataTemplateFixture.get, put: globalThis.__metadataTemplateFixture.put })
     const useToast = () => ({ success: () => undefined, error: () => undefined })
+    const useConfirm = () => ({ ask: async (options) => { globalThis.__metadataTemplateFixture.asked.push(options); return globalThis.__metadataTemplateFixture.answer } })
+    const useUnsavedGuard = (dirty) => { globalThis.__metadataTemplateFixture.dirty = dirty }
     const WorkspaceHero = _defineComponent({ setup(_, { slots }) { return () => h('section', slots.default?.()) } })
     const WorkspaceNotice = _defineComponent({ setup(_, { slots }) { return () => h('section', slots.default?.()) } })
     const LoadingSpinner = _defineComponent({ setup: () => () => h('span') })
@@ -65,6 +67,8 @@ async function mount(put: (path: string, body: unknown) => Promise<unknown>) {
   const fixture: any = {
     route,
     put,
+    asked: [],
+    answer: true,
     get: async (path: string) => {
       if (path.endsWith('/metadata/formulas')) return { channel_default_id: '', formulas: [] }
       return path.includes('project-b')
@@ -115,6 +119,66 @@ test('metadata save freezes the rendered fields and ignores a stale project resp
     await flush()
     assert.equal((mounted.host.querySelector('input') as HTMLInputElement).value, 'Project B')
     assert.doesNotMatch(mounted.host.textContent || '', /Saved\. The next YouTube package/)
+  } finally {
+    mounted.dispose()
+  }
+})
+
+test('Clear profile asks first, then really clears what is on disk', async () => {
+  const calls: Array<{ path: string; body: any }> = []
+  const mounted = await mount(async (path, body) => { calls.push({ path, body }); return { ok: true } })
+  try {
+    const clear = Array.from(mounted.host.querySelectorAll('button')).find(button => button.textContent?.includes('Clear profile')) as HTMLButtonElement
+    mounted.fixture.answer = false
+    clear.click()
+    await flush()
+    assert.equal(mounted.fixture.asked.length, 1, 'a destructive clear asks first')
+    assert.equal(calls.length, 0, 'declining changes nothing')
+    assert.equal((mounted.host.querySelector('input') as HTMLInputElement).value, 'Project A')
+
+    mounted.fixture.answer = true
+    clear.click()
+    await flush()
+    assert.equal(calls.length, 1)
+    // JSON drops `undefined`, which is how the old clear left the profile on
+    // disk. An empty object is sent and reaches the server.
+    assert.deepEqual(JSON.parse(JSON.stringify(calls[0].body)).metadata_template, {})
+  } finally {
+    mounted.dispose()
+  }
+})
+
+test('unsaved edits are tracked against what was loaded, and a stale Saved line goes away', async () => {
+  const mounted = await mount(async () => ({ ok: true }))
+  try {
+    assert.equal(mounted.fixture.dirty.value, false)
+    const title = mounted.host.querySelector('input') as HTMLInputElement
+    title.value = 'Changed'
+    title.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+    assert.equal(mounted.fixture.dirty.value, true)
+    const saveButton = Array.from(mounted.host.querySelectorAll('button')).find(button => button.textContent?.includes('Save publishing profile')) as HTMLButtonElement
+    saveButton.click()
+    await flush()
+    assert.equal(mounted.fixture.dirty.value, false)
+    assert.match(mounted.host.textContent || '', /Saved\. The next YouTube package/)
+    title.value = 'Changed again'
+    title.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+    assert.doesNotMatch(mounted.host.textContent || '', /Saved\. The next YouTube package/)
+  } finally {
+    mounted.dispose()
+  }
+})
+
+test('a placeholder the generator does not know is named before Save', async () => {
+  const mounted = await mount(async () => ({ ok: true }))
+  try {
+    const title = mounted.host.querySelector('input') as HTMLInputElement
+    title.value = 'All about {topc}'
+    title.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+    assert.match(mounted.host.textContent || '', /Not recognised: \{topc\}/)
   } finally {
     mounted.dispose()
   }

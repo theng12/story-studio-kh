@@ -33,6 +33,11 @@
       </p>
     </div>
 
+    <p v-if="episodeId && statusKnown && !scriptReady" class="workspace-command-copy">
+      No finished script yet for <strong>{{ episodeId }}</strong>. If some chapters are still unwritten, finish them first.
+      <NuxtLink :to="`/projects/${slug}/scripts?episode_id=${encodeURIComponent(episodeId)}`" class="btn btn-secondary btn-sm">Open Script Generator</NuxtLink>
+    </p>
+
     <InheritedLlmLineupNotice :project-slug="slug" />
 
     <!-- v1.0.298 — persistent generation feedback. The button spinner covers
@@ -257,7 +262,7 @@ const model = ref('')
 const { selectedEpisode, scriptReady, statusKnown } = useEpisodeStatus(episodeId, slug, {
   refetchOnJobTypes: ['script-only', 'audio_merge', 'subtitles_transcribe'],
 })
-const noScriptTooltip = 'Generate the script first to unlock this generator.'
+const noScriptTooltip = "No finished script yet — finish this episode's script in Script Generator first."
 // v1.0.296 — gate copy distinguishes "still checking" from "confirmed missing".
 const scriptGateReason = computed(() => {
   if (!episodeId.value || scriptReady.value) return ''

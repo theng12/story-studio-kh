@@ -46,7 +46,6 @@ import {
   type EstimateStep,
 } from '../lib/disk.js'
 import { getApiKey } from '../services/app-secrets-store.js'
-import { resolveDefaultChatModel } from '../services/genstudio-default-model.js'
 import { lineupModelPolicies, applyLlmLineupSnapshot, replaceRetiredLineupModels } from '../services/llm-lineup.js'
 import { normalizeLlmLineup } from '../contracts/llm-lineup.js'
 import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
@@ -1115,10 +1114,8 @@ export function resolveStepParams(
     // metadata.vue. Older presets omit model. This mapper is a pure/sync
     // preset→params transform with no catalog access, so it never invents
     // a literal external model id here — it passes the saved value through
-    // (or '' when absent). An empty model is resolved against GenStudio's
-    // live catalog by the async batch runner (resolveDefaultChatModel in
-    // this file's run-batch handler) immediately before the job is
-    // enqueued, and by generateMetadata itself for non-batch calls.
+    // (or '' when absent). The run-batch handler skips a step with no model
+    // (and no Pipeline lineup) with a plain reason — Story never picks one.
     //
     // Format-aware defaults (v1.0.69+): pull description size, title count,
     // title length, and tag count from the project's effective Format
@@ -1908,27 +1905,10 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
   const ideaByCode = preflight.ideaByCode
   const effectiveFormat = preflight.effectiveFormat
 
-  // The `metadata` preset can omit a saved model (legacy presets, or ones
-  // that never set one). resolveStepParams is a pure/sync mapper with no
-  // catalog access, so it leaves `model` empty in that case instead of
-  // inventing a literal id. Resolve the live-catalog default ONCE per batch
-  // run here (this handler is async and already holds the GenStudio key) so
-  // every episode that needs it gets the same current product. A catalog
-  // failure never falls back to a hardcoded id — affected steps are
-  // individually skipped below with a clear reason.
-  //
-  // `introduction-only` is deliberately NOT in this list. Its model comes from
-  // the channel's own choice or, failing that, from the Script Generator. A
-  // catalogue default here would not be a fallback for a missing preference —
-  // it would silently override a model the operator did choose. It reads
-  // `preflight.introductionChatModel` / `preflight.scriptSideChatModel`.
-  let batchDefaultChatModel: string | null = null
-  if (presetByStep.metadata) {
-    const apiKey = await getApiKey('genstudio').catch(() => '')
-    if (apiKey) {
-      batchDefaultChatModel = await resolveDefaultChatModel(apiKey).then(r => r.modelId).catch(() => null)
-    }
-  }
+  // A `metadata` preset can omit a saved model (legacy presets, or ones that never set one). Story
+  // Studio never picks one on the owner's behalf (2026-10-03): such a step is skipped below with a
+  // plain reason. `introduction-only` reads `preflight.introductionChatModel` /
+  // `preflight.scriptSideChatModel` — the owner's own choices — and nothing else.
 
   let pipelineTranscriptionParams: { model: string; language?: string } | null = null
   if (presetByStep.subtitles) {
@@ -1960,7 +1940,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     effective_format: effectiveFormat,
     transcription: pipelineTranscriptionParams,
     motion: pipelineMotionParams,
-    default_chat_model: batchDefaultChatModel,
+    default_chat_model: null,
     introduction_chat_model: preflight.introductionChatModel,
     script_chat_model: preflight.scriptSideChatModel,
     model_policies: modelPolicies,
@@ -2235,16 +2215,14 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
         }
         params.model = resolved
       }
-      if (step === 'metadata' && !params.model) {
-        if (!batchDefaultChatModel) {
-          skipped.push({
-            episode_id: episodeId,
-            reason: `${step}: no model saved in the preset and GenStudio's live language-model catalog is unavailable. ` +
-              'Open the preset, choose a current model, and save it again, or configure a GenStudio API key.',
-          })
-          continue
-        }
-        params.model = batchDefaultChatModel
+      // Story Studio never picks a writing model: a metadata preset without one is skipped, said plainly.
+      if (step === 'metadata' && !params.model && !params.pipeline_model_policy?.metadata) {
+        skipped.push({
+          episode_id: episodeId,
+          reason: 'metadata: the YouTube Finalizer preset has no writing model saved. Open it on the YouTube '
+            + 'Finalizer page, choose a writing model and save the preset. Story Studio does not pick one for you.',
+        })
+        continue
       }
       chain.push({
         type: jobType,

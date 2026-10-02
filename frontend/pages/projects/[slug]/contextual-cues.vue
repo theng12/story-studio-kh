@@ -127,8 +127,12 @@
           </div>
         </div>
         <label class="cue-auto-approve">
-          <input v-model="form.auto_approve" type="checkbox" @change="onAutoApproveEdited" />
-          <span><strong>Auto-approve safe proposals</strong><small>Off by default. Use only after you trust this preset; Pipeline can then continue automatically.</small></span>
+          <input v-model="form.auto_approve" type="checkbox" :disabled="config.auto_approve_cues" @change="onAutoApproveEdited" />
+          <span>
+            <strong>Auto-approve safe proposals</strong>
+            <small v-if="config.auto_approve_cues">Not used — the project setting above already approves each safe cue.</small>
+            <small v-else>Off by default. Each cue must pass the same checks as manual review; one that fails waits here for you. Use only after you trust this preset; Pipeline can then continue automatically.</small>
+          </span>
         </label>
         <WorkspaceNotice
           v-if="autoApproveNotice"
@@ -159,12 +163,12 @@
     </WorkspaceNotice>
 
     <template v-else>
-      <WorkspaceNotice v-if="loadError" tone="warning" title="Contextual Cues need a Scene Plan">
+      <WorkspaceNotice v-if="loadError" tone="warning" :title="/Scene Plan/.test(loadError) ? 'Contextual Cues need a Scene Plan' : 'This episode\'s cues could not be opened'">
         {{ loadError }}
       </WorkspaceNotice>
       <WorkspaceNotice v-else-if="proposalProgress" tone="info" title="Saved partial proposal">
         {{ proposalProgress.completed_batches.length }} of {{ proposalProgress.total_batches }} batches are safely checkpointed.
-        {{ proposalProgress.total_scenes - completedProposalScenes }} scenes remain. Retry resumes only the missing batches; Video Assembly still treats this timeline as incomplete.
+        {{ proposalProgress.total_scenes - completedProposalScenes }} scenes remain. Press Propose cues with the same model and settings and it continues from where it stopped — only the missing batches are requested. Video Assembly still treats this timeline as incomplete.
       </WorkspaceNotice>
       <WorkspaceNotice v-else-if="timeline?.auto_approval_holds?.length" tone="warning" title="Held back from auto-approval">
         {{ timeline.auto_approval_holds.length }} cue{{ timeline.auto_approval_holds.length === 1 ? '' : 's' }} failed a structural check
@@ -192,7 +196,7 @@
             <button
               v-if="proposedCount"
               class="btn btn-secondary btn-sm"
-              :disabled="saving"
+              :disabled="saving || cueJobActive"
               title="Approves the cues still awaiting review. Cues you excluded are left as they are."
               @click="approveAllProposed"
             >Approve all {{ proposedCount }}</button>
@@ -201,8 +205,15 @@
             <button class="btn btn-secondary btn-sm" :disabled="saving" @click="saveTimeline">Save changes</button>
           </div>
         </div>
+        <p v-if="cueJobActive" class="cue-job-lock" role="status">A proposal is running — edits are paused until it finishes.</p>
         <p v-if="!timeline.cues.length" class="text-muted">No cues were proposed. That is valid—this episode will continue without contextual labels.</p>
+        <!-- Disables every field and button in the rows while a proposal runs:
+             the job writes this timeline when it finishes. -->
+        <fieldset class="cue-rows" :disabled="cueJobActive">
         <article v-for="cue in timeline.cues" :key="cue.id" class="cue-row" :class="`is-${cue.status}`">
+          <p v-if="cueErrors.get(cue.id)?.length" class="cue-hold-reason">
+            Not saved: {{ cueErrors.get(cue.id)!.join(' ') }}
+          </p>
           <p v-if="holdReasons.get(cue.id)?.length" class="cue-hold-reason">
             Held back from auto-approval: {{ holdReasons.get(cue.id)!.join('; ') }}
           </p>
@@ -280,6 +291,7 @@
             <button class="btn btn-sm btn-secondary" :class="{ 'is-active': cue.status === 'disabled' }" @click="setStatus(cue, 'disabled')">Exclude</button>
           </div>
         </article>
+        </fieldset>
       </section>
       <section v-else-if="proposalProgress?.provisional_cues?.length" class="card cue-list" aria-label="Saved partial contextual cue preview">
         <div class="cue-list-heading">
@@ -296,6 +308,7 @@
 </template>
 
 <script setup lang="ts">
+import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { cuesAwaitingApproval, storedPresetAutoApprove } from '../../../utils/contextual-cues.js'
 import {
@@ -337,7 +350,7 @@ const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put } = useApi()
 const freshCueAction = useFreshGenerationAction()
-const { success, error: showError } = useToast()
+const { success, error: showError, showAction } = useToast()
 const { isJobActiveFor } = useJobs()
 const episodeId = ref('')
 const config = ref<CueConfig>({ enabled: false, auto_approve_cues: false })
@@ -454,6 +467,7 @@ function positionFromPointer(cue: Cue, event: PointerEvent): void {
   setCuePosition(cue, ((event.clientX - rect.left) / rect.width) * 100, ((event.clientY - rect.top) / rect.height) * 100)
 }
 function startCueDrag(cue: Cue, event: PointerEvent): void {
+  if (cueJobActive.value) return
   draggingCueId.value = cue.id
   ;(event.currentTarget as HTMLElement | null)?.setPointerCapture(event.pointerId)
   positionFromPointer(cue, event)
@@ -531,6 +545,15 @@ const cueWarnings = computed(() => {
   return map
 })
 const blockingValidation = computed(() => validation.value.filter(issue => issue.severity !== 'warning'))
+/** Errors (a refused save's included) marked on the cue they belong to. */
+const cueErrors = computed(() => {
+  const map = new Map<string, string[]>()
+  for (const issue of blockingValidation.value) {
+    if (!issue.cue_id) continue
+    map.set(issue.cue_id, [...(map.get(issue.cue_id) || []), issue.detail])
+  }
+  return map
+})
 /**
  * v1.2.6 — approve every cue still awaiting review, in one click.
  *
@@ -587,6 +610,8 @@ async function saveConfig(): Promise<void> {
   const projectSlug = slug.value
   const projectEpoch = cueProjectEpoch
   const payload = { ...config.value }
+  // The switch has already flipped (v-model); put it back if the save fails.
+  const previousEnabled = !payload.enabled
   savingConfig.value = true
   try {
     const data = await put<CueConfig>(`/projects/${projectSlug}/contextual-cues/config`, payload)
@@ -594,7 +619,10 @@ async function saveConfig(): Promise<void> {
     config.value = data
     success(data.enabled ? 'Contextual Cues enabled' : 'Contextual Cues disabled — Video Assembly is no longer gated.')
   } catch (e: any) {
-    if (cueProjectEpoch === projectEpoch && slug.value === projectSlug) showError(e?.data?.detail || 'Could not save contextual cue settings')
+    if (cueProjectEpoch === projectEpoch && slug.value === projectSlug) {
+      config.value.enabled = previousEnabled
+      showError(e?.data?.detail || 'Could not save contextual cue settings')
+    }
   } finally { savingConfig.value = false }
 }
 // v1.0.796 — "Approve cues automatically", persisted per project beside
@@ -632,7 +660,7 @@ async function loadTimeline(): Promise<void> {
   await saveNow()
   if (!isCurrentCueScope(projectSlug, episode, scopeEpoch)) return
   if (dirty.value || saveError.value) {
-    loadError.value = `Changes to ${timelineProjectSlug.value}/${timelineEpisodeId.value} are still on this page. Save them before loading ${projectSlug}/${episode}.`
+    loadError.value = `Changes to episode ${timelineEpisodeId.value} are still on this page. Save them before opening episode ${episode}.`
     return
   }
   timeline.value = null; timelineProjectSlug.value = ''; timelineEpisodeId.value = ''; proposalProgress.value = null; validation.value = []; loadError.value = ''; dirty.value = false; saveError.value = ''; savedAt.value = ''
@@ -664,7 +692,9 @@ async function propose(): Promise<void> {
     success('Contextual cue proposal queued. Review the timeline when the job completes.')
     setTimeout(() => { if (isCurrentCueScope(projectSlug, episode, scopeEpoch)) void loadTimeline() }, 1200)
   } catch (e: any) {
-    if (isCurrentCueScope(projectSlug, episode, scopeEpoch)) showError(e?.data?.detail || 'The submission was not confirmed. Retry submission to continue this cue action.')
+    if (!isCurrentCueScope(projectSlug, episode, scopeEpoch)) return
+    if (e?.data?.detail) showError(e.data.detail)
+    else showAction(UNCONFIRMED_SUBMISSION, 'Retry', () => propose(), 'error')
   } finally { proposing.value = false }
 }
 // ── Saving ──────────────────────────────────────────────────────────────────
@@ -751,7 +781,13 @@ async function writeTimeline(): Promise<void> {
     // Keep the edits. `dirty` stays true, so the next edit or Save changes
     // retries — but nothing retries on a timer, because a backend that is down
     // would then be asked every 800ms forever.
-    if (timelineProjectSlug.value === projectSlug && timelineEpisodeId.value === episode) saveError.value = e?.data?.detail || 'Could not save the cue timeline.'
+    if (timelineProjectSlug.value === projectSlug && timelineEpisodeId.value === episode) {
+      // A refused save names the cues at fault; keep that list so each one is
+      // marked where it sits instead of leaving only a generic sentence.
+      const issues = Array.isArray(e?.data?.issues) ? e.data.issues : []
+      if (issues.length) validation.value = issues
+      saveError.value = (e?.data?.detail || 'Could not save the cue timeline.') + (issues.length ? ' The cues at fault are marked below.' : '')
+    }
   } finally {
     saving.value = false
   }
@@ -868,8 +904,10 @@ onMounted(async () => {
 .cue-default-position-copy p { margin:.2rem 0 .45rem; }
 .cue-axis-fields { display:grid; gap:.35rem; min-width:9rem; }
 .cue-axis-fields label { display:grid; gap:.15rem; color:var(--text-muted); font-size:var(--font-xs); }
-.cue-settings { display:grid; grid-template-columns:minmax(16rem, .85fr) minmax(30rem, 1.6fr); align-items:end; gap:1.5rem; margin-bottom:1rem; padding:1.25rem 1.5rem; }.cue-settings-controls { display:grid; grid-template-columns:minmax(16rem, 1.6fr) minmax(11rem, 1fr) minmax(9rem, .8fr); gap:1rem; align-items:end; }.cue-settings-controls > label { display:grid; gap:.4rem; color:var(--text-muted); font-size:.82rem; }.cue-auto-approve { grid-column:1/-1; display:flex !important; align-items:flex-start; gap:.55rem; padding:.55rem .65rem; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:.4rem; }.cue-auto-approve input { margin-top:.14rem; accent-color:var(--accent-gold); }.cue-auto-approve strong,.cue-auto-approve small { display:block; }.cue-auto-approve small { margin-top:.15rem; color:var(--text-muted); line-height:1.35; }
+.cue-settings { display:grid; grid-template-columns:minmax(16rem, .85fr) minmax(30rem, 1.6fr); align-items:start; gap:1.5rem; margin-bottom:1rem; padding:1.25rem 1.5rem; }.cue-settings-controls { display:grid; grid-template-columns:minmax(16rem, 1.6fr) minmax(11rem, 1fr) minmax(9rem, .8fr); gap:1rem; align-items:end; }.cue-settings-controls > label { display:grid; gap:.4rem; color:var(--text-muted); font-size:.82rem; }.cue-auto-approve { grid-column:1/-1; display:flex !important; align-items:flex-start; gap:.55rem; padding:.55rem .65rem; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:.4rem; }.cue-auto-approve input { margin-top:.14rem; accent-color:var(--accent-gold); }.cue-auto-approve strong,.cue-auto-approve small { display:block; }.cue-auto-approve small { margin-top:.15rem; color:var(--text-muted); line-height:1.35; }
 .cue-auto-approve-notice { grid-column:1/-1; margin:0; }
+.cue-rows { display:contents; }
+.cue-job-lock { margin:0 0 .75rem; padding:.5rem .7rem; color:var(--text-primary); background:var(--accent-dim); border-radius:.35rem; font-size:.82rem; }
 .cue-list { padding:1.25rem; }.cue-list-heading { display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }.cue-list-actions { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; }
 /* Saved is the resting state and must not compete with the buttons beside it;
    only the states that need something from the customer take a colour. */

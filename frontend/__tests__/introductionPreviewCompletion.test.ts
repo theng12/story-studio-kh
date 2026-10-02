@@ -54,7 +54,7 @@ describe('the preview reacts to the job ending, not to it being queued', () => {
     const jobs = [job({ job_id: 'a', status: 'queued' }), job({ job_id: 'b', status: 'running' })]
     assert.deepEqual(settleIntroductionJobs(jobs, SLUG, EPISODE, settled), [],
       'refreshing at queue time is the whole defect — "not yet" is not an outcome')
-    assert.equal(settled.size, 0)
+    assert.deepEqual([...settled].sort(), ['a', 'b'], 'unfinished jobs are now being watched')
     assert.equal(introductionInFlight(jobs, SLUG, EPISODE), true)
   })
 
@@ -72,15 +72,25 @@ describe('the preview reacts to the job ending, not to it being queued', () => {
     assert.equal(introductionInFlight(done, SLUG, EPISODE), false)
   })
 
-  test('a failed job is a different answer from an empty panel, and carries the reason', () => {
+  test('a job that had already finished when first seen is history, not news', () => {
     const settled = new Set<string>()
+    const history = [
+      job({ job_id: 'old-error', status: 'error', error: 'provider returned 503' }),
+      job({ job_id: 'old-done', status: 'done' }),
+    ]
+    assert.deepEqual(settleIntroductionJobs(history, SLUG, EPISODE, settled), [],
+      'replaying old results toasted and painted a stale red error on every visit')
+  })
+
+  test('a failed job is a different answer from an empty panel, and carries the reason', () => {
+    const settled = new Set<string>(['a'])
     const failed = [job({ job_id: 'a', status: 'error', error: 'provider returned 503' })]
     assert.deepEqual(settleIntroductionJobs(failed, SLUG, EPISODE, settled),
       [{ job_id: 'a', outcome: 'error', message: 'provider returned 503' }])
   })
 
   test('a failure with no reason still says it failed rather than going quiet', () => {
-    const settled = new Set<string>()
+    const settled = new Set<string>(['a'])
     const [transition] = settleIntroductionJobs(
       [job({ job_id: 'a', status: 'error', error: '   ' })], SLUG, EPISODE, settled)
     assert.equal(transition!.outcome, 'error')
@@ -88,7 +98,7 @@ describe('the preview reacts to the job ending, not to it being queued', () => {
   })
 
   test('another episode, another project, or another job type is not mine', () => {
-    const settled = new Set<string>()
+    const settled = new Set<string>(['a', 'b', 'c'])
     const strangers = [
       job({ job_id: 'a', status: 'done', episode_id: 'EP0008' }),
       job({ job_id: 'b', status: 'done', project_slug: 'other' }),
@@ -99,7 +109,7 @@ describe('the preview reacts to the job ending, not to it being queued', () => {
   })
 
   test('with no episode chosen nothing is mine, so nothing fires', () => {
-    const settled = new Set<string>()
+    const settled = new Set<string>(['a'])
     assert.deepEqual(settleIntroductionJobs([job({ job_id: 'a', status: 'done' })], SLUG, '', settled), [])
   })
 
@@ -128,6 +138,12 @@ describe('the page is wired to that decision', () => {
     assert.match(page, /watch\(introductionJobSignal/)
     assert.match(page, /previewRefreshKey\.value \+= 1/)
     assert.match(page, /introFailure/)
+  })
+
+  test('the page adds no finish toast of its own — the global job stream already announces it', () => {
+    const watcher = page.slice(page.indexOf('watch(introductionJobSignal'))
+    const body = watcher.slice(0, watcher.indexOf('\n})'))
+    assert.doesNotMatch(body, /success\(|showError\(/)
   })
 
   test('the page cannot enqueue a generated replacement while a manual save is active', () => {

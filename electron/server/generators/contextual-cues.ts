@@ -294,6 +294,26 @@ function applySafePacing(cues: ContextualCue[], density: 'restrained' | 'standar
   return out
 }
 
+/**
+ * The saved partial proposal this run may continue from, or null.
+ *
+ * Same run (crash replay, Retry): used as is. A different action for the SAME
+ * plan and settings (another "Propose cues" click): carried over under this
+ * action's fingerprint, so finished batches are not bought again. Anything
+ * whose base fingerprint differs — another Scene Plan, model, density — is
+ * never reused.
+ */
+export function carryOverContextualCueProgress(
+  existing: ContextualCueProgress | null,
+  baseFingerprint: string,
+  fingerprint: string,
+): ContextualCueProgress | null {
+  if (!existing) return null
+  if (existing.fingerprint === fingerprint) return existing
+  if (existing.fingerprint.split(':fresh:')[0] !== baseFingerprint) return null
+  return { ...existing, fingerprint }
+}
+
 export async function generateContextualCues(job: Job): Promise<void> {
   const episodeId = job.episode_id
   if (!episodeId) throw new Error('Contextual Cues needs an episode.')
@@ -312,16 +332,17 @@ export async function generateContextualCues(job: Job): Promise<void> {
   if (!apiKey) throw new Error('Contextual Cues needs a configured GenStudio API key.')
   const cuesPolicy = pipelinePolicyForJob(job.params, 'contextual_cues')
   const cuesCheckpoint = pipelinePolicyCheckpointStore(job.params, () => checkpointJobState(job))
-  const prior = await readContextualCueTimeline(planPath)
-  const protectedCues = prior?.cues.filter(cue => cue.status !== 'proposed') || []
   const baseFingerprint = contextualCueProgressFingerprint(plan, settings)
   const actionId = job.params?.generation_action?.kind === 'fresh'
     ? job.params.generation_action.id
     : ''
   const fingerprint = actionId ? `${baseFingerprint}:fresh:${actionId}` : baseFingerprint
-  const existingProgress = await readContextualCueProgress(planPath)
-  const saved = existingProgress?.fingerprint === fingerprint ? existingProgress : null
-  if (existingProgress && !saved) await removeContextualCueProgress(planPath)
+  // A new "Propose cues" click is a new action id, but batches an earlier
+  // click already PAID for are still good for the same plan and settings.
+  // They are carried over (under this action's identity, so only the missing
+  // batches are requested); anything for a different plan or settings is not.
+  const saved = carryOverContextualCueProgress(await readContextualCueProgress(planPath), baseFingerprint, fingerprint)
+  if (!saved) await removeContextualCueProgress(planPath)
   // A saved policy run may contain an accepted request. Its batch shape is a
   // historical request fact, so recover it before reading today's catalogue;
   // every still-pending batch revalidates in beforeModelAttempt below.
@@ -346,7 +367,12 @@ export async function generateContextualCues(job: Job): Promise<void> {
   const resolvedBatchSize = catalogModel
     ? resolveContextualCueBatchSize(catalogModel.max_structured_items_per_request, saved?.batch_size)
     : batchSize
-  if (saved && catalogModel && saved.batch_size !== resolvedBatchSize) throw new Error('GenStudio batch capacity changed; start a new proposal run.')
+  if (saved && catalogModel && saved.batch_size !== resolvedBatchSize) {
+    // The saved batches no longer line up with what GenStudio accepts. Drop
+    // them, or every later click would hit this same refusal forever.
+    await removeContextualCueProgress(planPath)
+    throw new Error('GenStudio now accepts a different number of scenes per request, so the saved partial proposal cannot be reused. Press Propose cues again to start over.')
+  }
   const batches = chunk(plan.scenes, resolvedBatchSize)
   const completed = new Map((saved?.completed_batches || []).map(batch => [batch.index, batch]))
   const candidates: CueCandidate[] = [...completed.values()].flatMap(batch => batch.candidates as CueCandidate[])
@@ -551,17 +577,24 @@ export async function generateContextualCues(job: Job): Promise<void> {
   // a cue only becomes 'approved' if it clears every structural rule
   // validateContextualCueTimeline enforces for a human reviewer; anything that
   // doesn't stays 'proposed' and is recorded in auto_approval_holds, never
-  // silently dropped. When the project default is off (the untouched default
-  // for every project), this branch never runs and the block below it —
-  // `settings.auto_approve`'s old all-or-nothing approval — is byte-identical
-  // to before this setting existed.
+  // silently dropped.
+  //
+  // The preset's `settings.auto_approve` now runs the SAME per-cue pass. It used
+  // to approve every cue unchecked, so one crowding cue failed the whole run
+  // below; now that cue is held for review like any other.
+  //
+  // The timeline is re-read HERE, not at the start: a run takes minutes, and
+  // approvals or edits made on the review page meanwhile must survive it.
+  const latest = await readContextualCueTimeline(planPath)
+  const protectedCues = latest?.cues.filter(cue => cue.status !== 'proposed') || []
+  // One cue per scene: a scene the reviewer already resolved keeps that cue.
+  const resolvedIds = new Set(protectedCues.map(cue => cue.id))
+  proposed = proposed.filter(cue => !resolvedIds.has(cue.id))
   let autoApprovalHolds: ContextualCueAutoApprovalHold[] = []
-  if (config.auto_approve_cues) {
+  if (config.auto_approve_cues || settings.auto_approve) {
     const result = autoApproveEligibleCues(proposed, protectedCues, plan)
     proposed = result.cues
     autoApprovalHolds = result.holds
-  } else if (settings.auto_approve) {
-    for (const cue of proposed) cue.status = 'approved'
   }
   const timeline: ContextualCueTimeline = {
     schema_version: 1 as const,
@@ -587,7 +620,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
   job.output_lines.push(config.auto_approve_cues
     ? `Saved ${proposed.length} contextual cue(s): ${approvedNow} auto-approved, ${autoApprovalHolds.length} held back for review (failed a structural check — see the timeline for why).`
     : settings.auto_approve
-      ? `Saved and auto-approved ${proposed.length} contextual cue(s) using this trusted preset. The validated timeline can continue through Pipeline.`
+      ? `Saved ${proposed.length} contextual cue(s) using this trusted preset: ${approvedNow} auto-approved, ${autoApprovalHolds.length} held back for review (failed a structural check — see the timeline for why).`
       : `Saved ${proposed.length} proposed contextual cue(s). Review and approve or disable every cue before Video Assembly.`)
   requireJobCompletion(job, { label: 'Contextual cue proposal', expected: 1, completed: 1 })
 }

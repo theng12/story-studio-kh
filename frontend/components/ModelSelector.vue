@@ -29,6 +29,9 @@
          thing telling the user why the field no longer names a model, and it
          asks them to do something about it. -->
     <p v-if="selectionGap" class="selection-gap">{{ selectionGap }}</p>
+    <p v-else-if="!modelValue.trim() && allModels.length && !loading" class="selection-gap">
+      Choose a writing model. Story Studio does not pick one for you.
+    </p>
     <!-- Rendered in full, always, while a model carrying it is selected. Not a
          tooltip, not collapsed, not truncated: choosing the model IS the
          consent act, so the words have to be readable at the moment of
@@ -89,6 +92,8 @@ interface LlmModelRow {
   structured_output_mode?: 'json_object' | 'request_json_schema'
   legacy_ids?: string[]
   cost_tier?: GenStudioLlmCostTier
+  /** Gateway-published: this model may cost money. */
+  chargeable?: boolean
   locked?: boolean
   lock_reason?: string | null
   input_credits_per_million_tokens?: number | null
@@ -258,6 +263,9 @@ const menuOptions = computed(() => {
       // is rendered in full beneath the selector once the model is chosen — a
       // badge is a signpost, never the disclosure.
       badges: [
+        ...(model.chargeable === true
+          ? [{ label: 'Paid', tone: 'warning' as const, title: 'This writing model may cost money (the gateway marks it paid).' }]
+          : []),
         ...(model.discount === true
           ? [{ label: 'Data notice', tone: 'warning' as const, title: model.discount_disclaimer || 'This model carries a data notice from GenStudio.' }]
           : []),
