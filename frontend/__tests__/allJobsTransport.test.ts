@@ -201,3 +201,38 @@ test('a job that fails in a project that is not open raises a failure toast with
     assert.equal(useToast().toasts.value.length, before)
   } finally { queue.stop() }
 })
+
+test('hidden window closes the all-jobs stream; back on screen it catches up and still toasts failures', async () => {
+  ;(globalThis as any).EventSource = Stream
+  const { useToast } = await import('../composables/useToast.js')
+  const setVisibility = (state: 'hidden' | 'visible') => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state })
+    document.dispatchEvent(new Event('visibilitychange'))
+  }
+  const queue = useAllJobs()
+  queue.start()
+  try {
+    const first = Stream.last
+    first.fire('snapshot', { jobs: [{ job_id: 'was-running', project_slug: 'gamma', status: 'running', episode_id: 'EP0101', type: 'audio' }], stats: { running: 1, queued: 0, paused: 0, done: 0, error: 0, total: 1 } })
+    setVisibility('hidden')
+    assert.equal(first.closed, true, 'no stream while hidden')
+    setVisibility('visible')
+    const second = Stream.last
+    assert.notEqual(second, first, 'a fresh stream on return')
+    second.fire('snapshot', {
+      jobs: [
+        { job_id: 'was-running', project_slug: 'gamma', status: 'error', episode_id: 'EP0101', type: 'audio', finished_at: new Date().toISOString() },
+        { job_id: 'new-unseen', project_slug: 'gamma', status: 'error', episode_id: 'EP0102', type: 'audio', finished_at: new Date().toISOString() },
+        { job_id: 'old-failure', project_slug: 'gamma', status: 'error', episode_id: 'EP0103', type: 'audio', finished_at: '2020-01-01T00:00:00Z' },
+      ],
+      stats: { running: 0, queued: 0, paused: 0, done: 0, error: 3, total: 3 },
+    })
+    const messages = useToast().toasts.value.map(t => t.message).join('\n')
+    assert.match(messages, /EP0101/, 'a job that failed while away is announced')
+    assert.match(messages, /EP0102/, 'a job that started and failed while away is announced')
+    assert.doesNotMatch(messages, /EP0103/, 'an old failure is not re-announced')
+  } finally {
+    queue.stop()
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
+  }
+})

@@ -69,6 +69,24 @@ const SSE_RETRY_EVERY_TICKS = 6
 // Track previous statuses to detect completion transitions for toasts.
 const previousStatuses = new Map<string, string>()
 
+// While the window is hidden the stream is closed (nothing on screen reads it).
+// On return one fresh snapshot catches up, and failures that happened while
+// away still get their toast — including jobs that started and failed unseen.
+let pausedWhileHidden = false
+let awaySince: number | null = null
+function onVisibilityChange() {
+  if (typeof document === 'undefined') return
+  if (document.visibilityState === 'hidden') {
+    if (pausedWhileHidden || !currentSlug || !(source || pollInterval)) return
+    pausedWhileHidden = true
+    awaySince = Date.now()
+    stopTransport()
+  } else if (pausedWhileHidden) {
+    pausedWhileHidden = false
+    if (currentSlug) startStream(currentSlug)
+  }
+}
+
 function resetJobsState() {
   stateRevision++
   jobs.value = []
@@ -103,7 +121,7 @@ function removeJobs(jobIds: Iterable<string>) {
 
 function announceTransitions(next: Job[]) {
   // Toast on queued/running → done/error, same behaviour as the old poller.
-  if (!import.meta.client || previousStatuses.size === 0) {
+  if (!import.meta.client || (previousStatuses.size === 0 && awaySince === null)) {
     previousStatuses.clear()
     for (const job of next) previousStatuses.set(job.job_id, job.status)
     return
@@ -119,10 +137,14 @@ function announceTransitions(next: Job[]) {
         else info(notice.message)
       }
       else if (job.status === 'error') announceJobFailure(job)
-    }
+    } else if (!prev && failedWhileAway(job)) announceJobFailure(job)
   }
   previousStatuses.clear()
   for (const job of next) previousStatuses.set(job.job_id, job.status)
+}
+
+function failedWhileAway(job: Job): boolean {
+  return awaySince !== null && job.status === 'error' && Date.parse(job.finished_at || '') >= awaySince
 }
 
 /** A failure toast that says which job and takes the customer straight to it. */
@@ -203,6 +225,7 @@ function completeSnapshot(snapshot: JobListResponse, slug: string) {
   }
   refreshFailures.value = 0
   lastRefreshError.value = ''
+  awaySince = null
 }
 
 function reconcileInitialSnapshot(snapshot: JobListResponse): JobListResponse {
@@ -438,12 +461,17 @@ export function useJobs() {
     if (currentSlug !== slug) resetJobsState()
     currentSlug = slug
     isLoading.value = true
+    pausedWhileHidden = false
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibilityChange)
     startStream(slug)
   }
 
   function stopPolling() {
     stopTransport()
     previousStatuses.clear()
+    pausedWhileHidden = false
+    awaySince = null
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibilityChange)
   }
 
   return {

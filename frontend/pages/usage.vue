@@ -49,7 +49,7 @@
           <h2>{{ tierHeading(snapshot.overview.service_tier.current) }}</h2>
           <p>
             {{ snapshot.overview.paid_active_jobs.toLocaleString() }} of
-            {{ snapshot.overview.paid_concurrency_limit.toLocaleString() }} paid jobs running ·
+            {{ snapshot.overview.paid_concurrency_limit.toLocaleString() }} jobs running at once (free and paid) ·
             {{ snapshot.overview.paid_queued_jobs.toLocaleString() }} queued.
           </p>
           <p v-if="snapshot.overview.service_tier.overridden">

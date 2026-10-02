@@ -65,3 +65,14 @@ export function keepStandingAfterFailedRefresh(
   if (errorCode === 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE') return false
   return now - loadedAt <= GENSTUDIO_STALE_CEILING_MS
 }
+
+/**
+ * The Gateway's `paid_active_jobs` / `paid_concurrency_limit` count EVERY job
+ * it runs (free local and free-pool ones included) against the fleet's live
+ * capacity — not paid work. Say that plainly, and say nothing when idle.
+ */
+export function gatewayJobsLine(active: number | null, limit: number | null): string {
+  if (!active || active < 0) return ''
+  const jobs = `${active} job${active === 1 ? '' : 's'} running`
+  return limit === null ? jobs : `${jobs} · room for ${Math.max(0, limit - active)} more`
+}
