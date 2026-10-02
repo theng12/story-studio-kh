@@ -597,7 +597,10 @@ describe('POST /expand-chapters — terminal manual retry', () => {
       })
 
     assert.equal(res.status, 409)
-    assert.match(res.body.detail, /unresolved GenStudio chat/i)
+    // Plain words naming the button that finishes it, not queue jargon.
+    assert.match(res.body.detail, /stopped part-way/)
+    assert.match(res.body.detail, /"Resume writing"/)
+    assert.doesNotMatch(res.body.detail, /terminal|evidence/i)
     const jq = await import('../services/job-queue.js')
     assert.equal(jq.getJob(source.job_id)?.status, 'cancelled')
     jq.removeTerminalJob(slug, source.job_id)

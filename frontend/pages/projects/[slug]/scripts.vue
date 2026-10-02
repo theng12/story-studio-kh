@@ -22,7 +22,7 @@
       generate-label="Create outline"
       :generate-loading="submitting || scriptJobActiveForEpisode"
       :generate-disabled="!canSubmit"
-      :generate-status="scriptJobActiveForEpisode ? `Building outline for ${form.episode_id}…` : ''"
+      :generate-status="scriptJobActiveForEpisode ? `Building outline for ${form.episode_id}…` : submitDisabledReason"
       @generate="submitOutline"
       @episode-selected="onEpisodeSelected"
       />
@@ -57,7 +57,7 @@
           />
           <span class="text-muted text-xs">
             {{ byoMode === 'script'
-              ? 'Imported as this episode\'s script — overwrites any existing script for it.'
+              ? 'Imported as this episode\'s script — the old script moves to the project\'s _trash folder.'
               : 'Imported as an approved outline — overwrites any existing outline. Then use Expand Chapters (Outline tab).' }}
           </span>
         </div>
@@ -397,7 +397,7 @@
         </div>
         <p class="guidance-help text-muted text-xs">
           A concrete creative instruction for this episode. It is saved with the outline and carried into
-          every chapter: a setting, angle, fact to foreground, or detail to avoid.
+          every chapter: a setting, angle, fact to foreground, or detail to avoid. Each episode keeps its own.
         </p>
         <textarea
           id="manual-guidance"
@@ -494,7 +494,8 @@
             <strong>Force regenerate</strong>
           </label>
           <span class="text-muted text-xs">
-            Overwrites the existing outline. Per-chapter regeneration remains available on the Script tab.
+            Overwrites the existing outline. Switches itself off after each run and when you change episode.
+            Per-chapter regeneration remains available on the Script tab.
           </span>
         </div>
       </div>
@@ -572,6 +573,7 @@
       :default-words="form.words_per_chapter || 500"
       :form="form"
       :refresh-key="outlineRefreshKey"
+      :style-labels="narratorStyleLabels"
       @expansion-queued="onExpansionQueued"
       @outline-loaded="onOutlineLoaded"
     />
@@ -701,9 +703,22 @@ const byoText = ref('')
 const byoImporting = ref(false)
 async function importContent(): Promise<void> {
   if (!form.episode_id || !byoText.value.trim()) return
+  const ep = form.episode_id
+  // Never replace this episode's work without asking, and say which episode.
+  const replacingScript = byoMode.value === 'script'
+  if (replacingScript ? (scriptGenerated.value || outlineTotalChapters.value > 0) : outlineTotalChapters.value > 0) {
+    const ok = await ask({
+      title: replacingScript ? `Replace ${ep}'s script?` : `Replace ${ep}'s outline?`,
+      message: replacingScript
+        ? `${ep}'s current chapters, introduction, narration and outline move to this project's _trash folder, and your pasted script takes their place.`
+        : `${ep}'s current outline, including any edits you made to it, is replaced by the pasted outline.`,
+      confirmLabel: 'Replace',
+      danger: true,
+    })
+    if (!ok || form.episode_id !== ep) return
+  }
   byoImporting.value = true
   try {
-    const ep = form.episode_id
     if (byoMode.value === 'script') {
       const r = await post<{ chapters: number; introduction: boolean }>(
         `/projects/${slug.value}/episodes/${ep}/import-script`,
@@ -760,7 +775,10 @@ function onExpansionQueued(_payload: { jobId: string; chapters: number[] | null 
  * episode-dropdown picks don't bulldoze the synced values.
  */
 function onOutlineLoaded(payload: {
+  episodeId: string
   totalChapters: number
+  chaptersDone: number
+  manualGuidance: string | null
   wordsPerChapter: number | null
   totalWords: number | null
   lengthMinutes: number | null
@@ -774,6 +792,14 @@ function onOutlineLoaded(payload: {
   // value below — but the user can also bump form.chapters manually
   // and we want the banner to compare DISK STATE not FORM STATE.
   outlineTotalChapters.value = payload.totalChapters
+  outlineChaptersDone.value = payload.chaptersDone
+  // The Episode direction this outline was built with is THIS episode's own
+  // (AGENTS.md §4). Loaded once per episode so a later refresh never wipes
+  // what the producer is typing.
+  if (payload.episodeId === form.episode_id && guidanceLoadedFor.value !== form.episode_id) {
+    guidanceLoadedFor.value = form.episode_id
+    form.manual_guidance = payload.manualGuidance || ''
+  }
   if (payload.totalChapters > 0) form.chapters = payload.totalChapters
   if (payload.wordsPerChapter && payload.wordsPerChapter > 0) {
     form.words_per_chapter = payload.wordsPerChapter
@@ -1006,6 +1032,11 @@ const selectedNarratorStyle = computed<NarratorStyleOption | undefined>(() => {
   return styles.find(style => style.id === form.style)
 })
 const selectedCustomNarrator = computed(() => customStyles.value.find(style => style.id === form.style))
+/** Narrator style id → label, so the outline panel never shows a raw id. */
+const narratorStyleLabels = computed<Record<string, string>>(() => Object.fromEntries([
+  ...availableNarratorStyles.value.map(style => [style.id, style.label]),
+  ...customStyles.value.map(style => [style.id, style.name]),
+]))
 const activeNarratorLabel = computed(() => {
   if (form.style === 'custom') return 'One-off narrator direction'
   if (selectedCustomNarrator.value) return `Episode override — ${selectedCustomNarrator.value.name}`
@@ -1035,6 +1066,10 @@ const activeNarratorDescription = computed(() => {
 // banner that tells the user to bump + regenerate when the saved
 // outline doesn't match the niche's recommended chapter count.
 const outlineTotalChapters = ref(0)
+/** Chapters already written for the loaded outline (from its sidecar). */
+const outlineChaptersDone = ref(0)
+/** Which episode's saved Episode direction is in the box. */
+const guidanceLoadedFor = ref('')
 const outlineNicheMismatch = computed(() => {
   if (outlineTotalChapters.value <= 0) return false
   const target = nicheContext.value?.scriptStructure?.defaultChapterCount
@@ -1469,9 +1504,25 @@ const scriptJobActiveForEpisode = computed(() => {
   )
 })
 
-// Defensive — clear `submitting` on episode swap.
+// Clear per-episode state on episode swap (AGENTS.md §4): Episode direction,
+// Force regenerate and pasted import text belong to the episode they were
+// typed for. The new episode's own direction arrives with its outline.
 watch(() => form.episode_id, (newEp, oldEp) => {
-  if (newEp !== oldEp) submitting.value = false
+  if (newEp === oldEp) return
+  submitting.value = false
+  const dropped = [
+    form.manual_guidance.trim() && 'Episode direction',
+    form.force && 'Force regenerate',
+    byoText.value.trim() && 'pasted import text',
+  ].filter(Boolean)
+  form.manual_guidance = ''
+  form.force = false
+  byoText.value = ''
+  guidanceLoadedFor.value = ''
+  outlineTotalChapters.value = 0
+  outlineChaptersDone.value = 0
+  autoIntroForEpisode.value = ''
+  if (oldEp && newEp && dropped.length) showInfo(`${dropped.join(', ')} from ${oldEp} not carried over to ${newEp}.`)
 })
 
 const scriptJobsSignal = computed(() =>
@@ -1579,6 +1630,14 @@ const estimatedDuration = computed(() =>
 const estimatedTotalDuration = computed(() =>
   Math.round(totalOutput.value / wordsPerMinute.value)
 )
+/** Names the first missing item, like Research's runDisabledReason. */
+const submitDisabledReason = computed(() => {
+  if (canSubmit.value) return ''
+  if (!form.episode_id) return 'Pick an episode first'
+  if (!form.title) return 'Enter an episode title'
+  if (!scriptModelReady.value) return 'Pick a writing model'
+  return `Set ${sectionLabel.value.plural} and words per ${sectionLabel.value.singular}`
+})
 const canSubmit = computed(() => {
   if (!scriptModelReady.value) return false
   return canSubmitScriptOutline({
@@ -1801,9 +1860,23 @@ async function submitOutline(): Promise<boolean> {
     creative_mode: 'guided',
     creative_direction: '',
   }
-  // When enabled, the channel opening is generated only after the approved
-  // outline has become completed chapters; it never has to be toggled again.
-  autoIntroAfterScript.value = channelIntroEnabled.value
+  const targetEpisode = form.episode_id
+  // An outline already exists for this episode: building again can replace it
+  // (and the hand edits in it). Ask first, naming the episode.
+  if (outlineTotalChapters.value > 0) {
+    const written = outlineChaptersDone.value
+    const writtenNote = written ? ` (${written} chapter${written === 1 ? '' : 's'} written)` : ''
+    const ok = await ask({
+      title: `Create a new outline for ${targetEpisode}?`,
+      message: form.force
+        ? `This replaces ${targetEpisode}'s outline${writtenNote} and any edits you made to it. Continue?`
+        : `${targetEpisode} already has an outline${writtenNote}. If you changed the direction, ${sectionLabel.value.plural}, words or cast, `
+          + 'a new outline replaces it and your edits to it are lost. Otherwise the saved outline is kept. Continue?',
+      confirmLabel: 'Continue',
+      danger: true,
+    })
+    if (!ok || form.episode_id !== targetEpisode) return false
+  }
 
   // v1.0.71: chunked-mode pre-flight. When the target wordcount exceeds
   // ~10k words, expansion will issue MULTIPLE LLM calls (one per batch).
@@ -1842,6 +1915,12 @@ async function submitOutline(): Promise<boolean> {
   try {
     const job = await post<{ job_id: string }>(`/projects/${slug.value}/generate/outline-only`, params)
     freshScriptAction.complete(operationId)
+    // Force is per-run: it never stays armed for the next click.
+    form.force = false
+    // When enabled, the channel opening is generated only after THIS episode's
+    // approved outline has become completed chapters. Armed only once the
+    // request is accepted, and only for the episode it was made for.
+    autoIntroForEpisode.value = channelIntroEnabled.value ? targetEpisode : ''
     success('Outline build queued — review when it finishes!')
     const ok = await waitForJob(job.job_id)
     if (ok) outlineRefreshKey.value++
@@ -1926,20 +2005,23 @@ async function submitIntroduction(opts: { confirm?: boolean } = { confirm: true 
 // The Outline flow is intentionally review-first. If this opening is enabled,
 // it runs only after the user-approved outline has become completed chapters.
 const introDone = computed(() => !!selectedEpisode.value?.status?.introduction)
-const autoIntroAfterScript = ref(false)
+/** The episode whose outline run armed the automatic opening ('' = none). */
+const autoIntroForEpisode = ref('')
 const pageReadyForAutoIntro = ref(false)
-// Fire once when chapters finish, if it was armed on this outline run. Never
-// trigger this on a page load for an older completed episode.
+// Fire once when chapters finish, only for the episode that armed it. Never
+// trigger this on a page load or an episode switch to an older completed
+// episode (the episode watcher above disarms it on every switch).
 watch(scriptGenerated, (now, prev) => {
   if (!pageReadyForAutoIntro.value) return
-  if (now && !prev && autoIntroAfterScript.value && channelIntroEnabled.value && !introDone.value && !submitting.value) {
-    autoIntroAfterScript.value = false
-    success('Channel opening auto-generating…')
+  const armed = autoIntroForEpisode.value
+  if (now && !prev && armed && armed === form.episode_id && selectedEpisode.value?.episode_code === armed
+      && channelIntroEnabled.value && !introDone.value && !submitting.value) {
+    autoIntroForEpisode.value = ''
+    success(`Channel opening auto-generating for ${armed}…`)
     void submitIntroduction({ confirm: false })
   }
 })
 onMounted(() => { setTimeout(() => { pageReadyForAutoIntro.value = true }, 1500) })
-watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.value = false })
 
 </script>
 

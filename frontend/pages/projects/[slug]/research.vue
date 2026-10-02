@@ -51,6 +51,10 @@
         :generate-status="(researching || researchJobActive) ? `Researching for ${episodeId}…` : (canRun ? '' : runDisabledReason)"
         @generate="runResearch"
       />
+      <p v-if="researchJobErrorText" class="research-job-error" role="alert">
+        Research for {{ episodeId }} did not finish: {{ researchJobErrorText }}
+        <NuxtLink :to="`/projects/${slug}/jobs`">Open Jobs</NuxtLink>
+      </p>
       <div class="research-flow-rail" aria-label="Research workflow">
         <span class="research-flow-step" :class="{ active: !result }"><b>1</b> Brief</span>
         <span class="research-flow-line" aria-hidden="true"></span>
@@ -284,14 +288,14 @@
 
     <!-- Results -->
     <WorkspaceSection
-      v-if="result || researching"
+      v-if="result || researchRunning"
       eyebrow="Evidence review"
-      :title="researching ? 'Gathering evidence' : 'Decide claim by claim'"
-      :description="researching ? 'The selected source is building a reviewable evidence set.' : 'Only verified claims are passed into Script Generator. Ignored claims remain recorded but are not used.'"
+      :title="researchRunning ? 'Gathering evidence' : 'Decide claim by claim'"
+      :description="researchRunning ? 'The selected source is building a reviewable evidence set.' : 'Only verified claims are passed into Script Generator. Ignored claims remain recorded but are not used.'"
       class="workspace-section research-review-section"
     >
       <template #actions>
-        <div v-if="result" class="research-result-actions">
+        <div v-if="result && !researchRunning" class="research-result-actions">
           <button
             class="btn btn-sm btn-primary"
             :disabled="saving || !dirty"
@@ -311,7 +315,7 @@
         </div>
       </template>
 
-      <div v-if="researching" class="research-running-state">
+      <div v-if="researchRunning" class="research-running-state">
         <LoadingSpinner size="sm" />
         <div>
           <strong>Research is running for {{ episodeId }}</strong>
@@ -1004,7 +1008,7 @@ function normalizeResearchOutput(raw: ResearchOutput): ResearchOutput {
 const result = ref<ResearchOutput | null>(null)
 const serverResult = ref<string>('')  // JSON snapshot of last save for diff
 // v1.0.268 — track WHICH episode is researching, not just a global boolean.
-// A research run holds its flag through pollUntilLoaded (up to 90s); a plain
+// A research run holds its flag while the run request is in flight; a plain
 // page-level boolean would keep the Run button disabled (generateLoading) for a
 // DIFFERENT episode the user switches to mid-job. Keying it to the episode makes
 // `researching` true only when the in-flight episode is the one on screen.
@@ -1018,8 +1022,9 @@ const researching = computed(() => {
 // episode. `researching` only covers the brief enqueue window (it resets when
 // the POST returns), so without this the button re-enabled while the job ran.
 // See useJobs.isJobActiveFor — survives reloads too.
-const { isJobActiveFor } = useJobs()
+const { isJobActiveFor, jobs } = useJobs()
 const researchJobActive = computed(() => isJobActiveFor(episodeId.value, ['research_run']))
+const researchRunning = computed(() => researching.value || researchJobActive.value)
 const saving = ref(false)
 const deleting = ref(false)
 
@@ -1027,6 +1032,38 @@ const dirty = computed(() => {
   if (!result.value) return false
   return JSON.stringify(result.value) !== serverResult.value
 })
+// Unsaved Verified / Ignore decisions survive nothing: leaving, switching
+// project and switching episode all ask first.
+useUnsavedGuard(dirty, 'claim decisions', { episodeSwitch: true })
+
+// The research_run job, not a timer, decides when results are ready. Only a
+// transition this page actually saw counts, so an old finished job never
+// reloads or reports anything. A failure is shown inline for its own episode.
+const researchJobError = ref<{ episode: string; text: string } | null>(null)
+const researchJobErrorText = computed(() =>
+  researchJobError.value?.episode === episodeId.value ? researchJobError.value.text : '')
+const lastResearchJobStatus = new Map<string, string>()
+const researchJobsSignal = computed(() => jobs.value
+  .filter(j => j.type === 'research_run' && j.project_slug === slug.value && j.episode_id === episodeId.value)
+  .map(j => `${j.job_id}:${j.status}`)
+  .join('|'))
+watch(researchJobsSignal, () => {
+  for (const job of jobs.value) {
+    if (job.type !== 'research_run' || job.project_slug !== slug.value || job.episode_id !== episodeId.value) continue
+    const before = lastResearchJobStatus.get(job.job_id)
+    lastResearchJobStatus.set(job.job_id, job.status)
+    if (before !== 'queued' && before !== 'running' && before !== 'paused') continue
+    if (job.status === 'done') {
+      researchJobError.value = null
+      void loadExisting()
+    } else if (job.status === 'error') {
+      researchJobError.value = {
+        episode: job.episode_id,
+        text: String(job.error || 'The job stopped with an error.').split('\n')[0]!,
+      }
+    }
+  }
+}, { immediate: true })
 // ── v1.0.761 — the per-claim triage IS the research-level state ─────────
 // Counts ignore blank placeholder claims, matching the backend's
 // readResearchTriage() so this page and the Production Board never disagree
@@ -1287,7 +1324,20 @@ async function runResearch(): Promise<void> {
   const scopeEpoch = researchScopeEpoch
   const projectSlug = slug.value
   const ep = episodeId.value          // pin the episode this run belongs to
+  // A new run resets every claim to unreviewed. Say so before a finished
+  // review is thrown away.
+  const decided = acceptedCount.value + ignoredCount.value
+  if (decided > 0) {
+    const ok = await ask({
+      title: `Run research again for ${ep}?`,
+      message: `Your ${decided} claim decision${decided === 1 ? '' : 's'} for ${ep} will be cleared. The new claims start unreviewed.`,
+      confirmLabel: 'Run again',
+      danger: true,
+    })
+    if (!ok || researchScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== ep) return
+  }
   researchingTarget.value = { projectSlug, episodeId: ep }
+  researchJobError.value = null
   const payload = {
     topic: form.value.topic.trim(),
     specific_questions: form.value.specific_questions.trim() || undefined,
@@ -1304,34 +1354,26 @@ async function runResearch(): Promise<void> {
     // Domain filters are sent only in web mode; the backend drops them again
     // unless the SELECTED model advertises domain filters, so a filter the
     // provider would ignore never looks like it was applied.
-    await post<{ job_id: string }>(`/projects/${projectSlug}/research/${ep}/run`, { ...payload, operation_id: operationId })
+    const job = await post<{ job_id: string; status?: string }>(`/projects/${projectSlug}/research/${ep}/run`, { ...payload, operation_id: operationId })
     freshResearchAction.complete(operationId)
-    success('Research job queued — watch the Jobs panel for progress')
-    // The job runs async; poll for completion by re-loading every 3s
-    // until research.json shows up + matches the topic we just sent.
-    await pollUntilLoaded(form.value.topic.trim(), scopeEpoch, projectSlug, ep)
+    success('Research job queued — results appear here when it finishes')
+    // The research_run watcher above reloads when this job finishes. A reused
+    // job that already finished never transitions again, so load it now.
+    if (job?.status === 'done') {
+      if (researchScopeEpoch === scopeEpoch && slug.value === projectSlug && episodeId.value === ep) await loadExisting()
+    } else if (job?.job_id && !lastResearchJobStatus.has(job.job_id)) {
+      lastResearchJobStatus.set(job.job_id, 'queued')
+    }
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'The submission was not confirmed. Retry submission to continue this research action.')
+    // The same click reuses this operation id (useFreshGenerationAction), and
+    // the server returns the job it already queued instead of a second run.
+    showError(e?.data?.detail || "Couldn't confirm the request arrived. Click the same button again — it won't run twice.")
   } finally {
     // Only clear if a LATER run for another episode hasn't taken over.
     if (researchingTarget.value?.projectSlug === projectSlug && researchingTarget.value.episodeId === ep) {
       researchingTarget.value = null
     }
   }
-}
-
-async function pollUntilLoaded(expectedTopic: string, scopeEpoch: number, projectSlug: string, ep: string): Promise<void> {
-  const start = Date.now()
-  const timeoutMs = 90_000
-  while (Date.now() - start < timeoutMs) {
-    await new Promise(r => setTimeout(r, 3000))
-    // User switched episodes — stop polling; that episode's own loader owns its
-    // state now, and this poll must not overwrite it via loadExisting().
-    if (researchScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== ep) return
-    await loadExisting()
-    if (result.value && result.value.topic === expectedTopic) return
-  }
-  if (researchScopeEpoch === scopeEpoch && slug.value === projectSlug && episodeId.value === ep) showError('Research job is taking longer than 90s — check the Jobs panel for details.')
 }
 
 async function saveResearch(): Promise<void> {
@@ -1364,6 +1406,9 @@ async function saveResearch(): Promise<void> {
   } catch (e: any) {
     if (researchScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== ep) return
     showError(e?.data?.detail || 'Failed to save research')
+    // 409 = research was re-run since this page loaded it. The decisions
+    // belong to claims that no longer exist; show the new ones.
+    if (e?.status === 409) await loadExisting()
   } finally {
     saving.value = false
   }
@@ -1375,8 +1420,8 @@ async function deleteResearch(): Promise<void> {
   const projectSlug = slug.value
   const ep = episodeId.value
   const ok = await ask({
-    title: 'Delete research?',
-    message: 'Removes research.json + research.md from the episode dir. The next Run starts fresh.',
+    title: `Delete research for ${ep}?`,
+    message: `The claims and your decisions for ${ep} move to this project's _trash folder. The next Run starts fresh.`,
     confirmLabel: 'Delete',
     danger: true,
   })
@@ -1846,6 +1891,15 @@ watch(
 .research-running-state div { display: grid; gap: 4px; }
 .research-running-state strong { font-size: 13px; }
 .research-running-state span { color: var(--text-muted); font-size: var(--font-xs); }
+.research-job-error {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-md, 10px);
+  border: 1px solid color-mix(in srgb, var(--research-danger) 55%, var(--border));
+  background: color-mix(in srgb, var(--research-danger) 10%, transparent);
+  font-size: var(--font-xs);
+  overflow-wrap: anywhere;
+}
 
 .research-review-dashboard {
   display: grid;
