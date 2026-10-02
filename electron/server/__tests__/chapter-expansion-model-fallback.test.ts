@@ -163,7 +163,7 @@ describe('expand-chapters heals a dead model the request and the outline snapsho
     assert.ok(log.includes(DEAD_MODEL) || log.includes('genstudio-chat-b7abf15650287980589c-v1'),
       `log must name the dead model: ${log}`)
     assert.ok(log.includes('mock-chat-v1'), `log must name the live fallback: ${log}`)
-    assert.doesNotMatch(log, /is not available.*Choose a published product/,
+    assert.doesNotMatch(log, /isn't available right now.*Pick another writing model/,
       'the dead-model refusal must not be the final outcome')
 
     // The chapter actually got written, using the healed model's output.
@@ -238,7 +238,7 @@ describe('expand-chapters still refuses when nothing is left to fall back to', (
       const log = job.output_lines.join('\n')
       assert.match(
         log,
-        /is not available.*Choose a published product.*No request or credit charge was made/s,
+        /isn't available right now.*Pick another writing model.*Nothing was sent or charged/s,
         `the original GenStudio refusal must reach the job log unchanged: ${log}`,
       )
       assert.doesNotMatch(log, /Falling back to the currently available/,

@@ -2813,9 +2813,9 @@ export class GenStudioChatProductUnavailableError extends Error {
       : []
     super(
       blockers.length
-        ? `The selected GenStudio language product "${modelId}" is not available: ${blockers.join(' ')} `
-          + 'Choose a published product before retrying. No request or credit charge was made.'
-        : `The selected GenStudio language product "${modelId}" is not available. Choose a published product before retrying. No request or credit charge was made.`,
+        ? `The writing model "${modelId}" isn't available right now: ${blockers.join(' ')} `
+          + 'Pick another writing model and run this step again. Nothing was sent or charged.'
+        : `The writing model "${modelId}" isn't available right now. Pick another writing model and run this step again. Nothing was sent or charged.`,
     )
     this.name = 'GenStudioChatProductUnavailableError'
     this.modelId = modelId
@@ -2839,7 +2839,7 @@ export class GenStudioChatCapabilityUnavailableError extends Error {
   readonly modelId: string
 
   constructor(modelId: string, detail: string) {
-    super(`The selected GenStudio language product "${modelId}" cannot run this request: ${detail}. No request or credit charge was made.`)
+    super(`The writing model "${modelId}" can't do this request: ${detail}. Nothing was sent or charged.`)
     this.name = 'GenStudioChatCapabilityUnavailableError'
     this.modelId = modelId
   }

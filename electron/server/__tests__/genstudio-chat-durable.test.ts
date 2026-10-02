@@ -648,7 +648,7 @@ test('catalogue-dependent guards read the catalogue but submit nothing', async (
     }
     await assert.rejects(
       callChatWithGenStudio('guard-catalog-key', { ...baseRequest, modelId: 'retired-alpha' }),
-      /is not available.*No request or credit charge was made/i,
+      /isn't available right now.*Nothing was sent or charged/i,
     )
     await assert.rejects(
       callChatWithGenStudio('guard-catalog-key', { ...baseRequest, maxOutputTokens: 8_193 }),

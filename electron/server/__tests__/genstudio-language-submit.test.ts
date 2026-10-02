@@ -218,7 +218,7 @@ test('an account-locked teaser model is refused before any generation POST', asy
         userMessage: 'One pack.',
         outputContract: { mode: 'json_object' },
       }),
-      /not available/i,
+      /isn't available right now/i,
     )
     assert.equal(submissions, 0)
   } finally {
