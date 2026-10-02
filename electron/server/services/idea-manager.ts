@@ -7,9 +7,10 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { resolveEpisodePaths, formatEpisodeCode, projectDirFor, projectMetaOnce, type ProjectFactsCache } from './utils.js'
+import { resolveEpisodePaths, formatEpisodeCode, projectDirFor, projectMetaOnce, type EpisodePaths, type ProjectFactsCache } from './utils.js'
 import * as pm from './project-manager.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
+import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 
 export type IdeaStatus = 'new' | 'accepted' | 'dismissed'
 
@@ -184,6 +185,16 @@ async function mutateStore<T>(
 
 // ── Public API ──────────────────────────────────────────────────────────────
 
+/**
+ * An idea title becomes part of the episode folder name ({code} - {title}),
+ * and a folder name cannot hold a path separator — resolveEpisodePaths refuses
+ * one outright. "AC/DC" or "Before/After" used to be stored as-is and then
+ * fail at Accept, so separators are swapped for a dash where titles enter.
+ */
+export function sanitizeIdeaTitle(title: string): string {
+  return String(title ?? '').replace(/[/\\\u0000]+/g, '-').trim()
+}
+
 export async function getIdeas(slug: string, filter?: IdeaStatus, cache?: ProjectFactsCache): Promise<StoredIdea[]> {
   const store = await loadStore(slug, cache)
   if (filter) return store.ideas.filter(i => i.status === filter)
@@ -208,6 +219,7 @@ export async function addIdeas(
     const newIdeas: StoredIdea[] = ideas.map((idea, i) => ({
       id: `idea-${Date.now()}-${i}`,
       ...idea,
+      title: sanitizeIdeaTitle(idea.title),
       status: 'new' as IdeaStatus,
       episode_code: null,
       generated_at: now,
@@ -238,7 +250,7 @@ export async function updateIdea(
   return mutateStore(slug, (store) => {
     const idea = store.ideas.find(i => i.id === ideaId)
     if (!idea) return null
-    if (patch.title !== undefined) idea.title = patch.title
+    if (patch.title !== undefined) idea.title = sanitizeIdeaTitle(patch.title)
     if (patch.logline !== undefined) idea.logline = patch.logline
     if (patch.themes !== undefined) idea.themes = patch.themes
     if (patch.suggested_chapters !== undefined) idea.suggested_chapters = patch.suggested_chapters
@@ -383,6 +395,16 @@ export async function getNextEpisodeNumber(slug: string): Promise<number> {
   return store.next_episode_number
 }
 
+/**
+ * The number a default Accept will actually hand out: the lowest recycled gap
+ * first, else the counter. Same healed view acceptIdea's lock sees, so the
+ * Accept dialog can promise exactly the code the click will produce.
+ */
+export async function getNextAcceptNumber(slug: string): Promise<number> {
+  const store = await loadStore(slug)
+  return store.recycled_numbers?.length ? store.recycled_numbers[0]! : store.next_episode_number
+}
+
 export interface AcceptResult {
   idea: StoredIdea
   episode_code: string
@@ -403,10 +425,12 @@ export async function acceptIdea(
   // Folder creation is deliberately kept OUTSIDE the lock — each episode gets a
   // unique code from this phase, so per-episode filesystem work can proceed in
   // parallel without contending on ideas.json.
-  const { idea, episodeCode } = await mutateStore(slug, (store) => {
+  const { idea, episodeCode, paths } = await mutateStore(slug, async (store) => {
     const idea = store.ideas.find(i => i.id === ideaId)
     if (!idea) throw new Error('Idea not found')
-    if (idea.status === 'accepted') throw new Error('Idea already accepted')
+    if (idea.status === 'accepted') {
+      throw new Error(`This idea is already accepted${idea.episode_code ? ` as ${idea.episode_code}` : ''}.`)
+    }
 
     let epNum: number
     let episodeCode: string
@@ -415,13 +439,14 @@ export async function acceptIdea(
       // User-supplied custom code path. Validate prefix + parse the
       // number, then enforce uniqueness against current accepted ideas.
       const override = opts.override_code.toUpperCase()
+      const example = formatEpisodeCode(42, meta.episode_prefix, meta.episode_digits)
       if (!override.startsWith(meta.episode_prefix.toUpperCase())) {
-        throw new Error(`override_code must start with prefix "${meta.episode_prefix}"`)
+        throw new Error(`The episode code must start with "${meta.episode_prefix}", for example ${example}.`)
       }
       const numStr = override.slice(meta.episode_prefix.length)
       const parsed = parseInt(numStr, 10)
       if (!Number.isFinite(parsed) || !/^\d+$/.test(numStr) || parsed < 1) {
-        throw new Error(`override_code "${opts.override_code}" must be ${meta.episode_prefix}<positive integer>`)
+        throw new Error(`"${opts.override_code}" is not a valid episode code. Use "${meta.episode_prefix}" followed by a positive integer, for example ${example}.`)
       }
       const formatted = formatEpisodeCode(parsed, meta.episode_prefix, meta.episode_digits)
       const collision = store.ideas.find(
@@ -452,18 +477,24 @@ export async function acceptIdea(
       episodeCode = formatEpisodeCode(epNum, meta.episode_prefix, meta.episode_digits)
     }
 
+    // Resolve the folder BEFORE flipping status. A title stored before titles
+    // were sanitised can still hold "/"; heal it here. Any other refusal
+    // throws now, so ideas.json is left untouched and the idea stays 'new'
+    // instead of becoming "accepted" with no folder and no way to retry.
+    idea.title = sanitizeIdeaTitle(idea.title)
+    const paths = await resolveEpisodePaths(slug, episodeCode, idea.title)
+
     idea.status = 'accepted'
     idea.episode_code = episodeCode
     idea.accepted_at = new Date().toISOString()
 
-    return { idea, episodeCode }
+    return { idea, episodeCode, paths }
   })
 
   // Phase 2 (unlocked): create the full folder structure (all 10 canonical
   // subfolders) so every stage's folder is present up-front — including
   // 08 Audio Merge Output and 09 Subtitles Output, which used to be created
   // lazily only when those steps ran.
-  const paths = await resolveEpisodePaths(slug, episodeCode, idea.title)
   const foldersCreated: string[] = []
 
   for (const dir of [
@@ -506,15 +537,38 @@ export async function acceptIdea(
   }
 }
 
+export interface BatchAcceptResult {
+  accepted: AcceptResult[]
+  /** Already accepted before this click — nothing to do, not a failure. */
+  skipped: Array<{ id: string; title: string; episode_code: string | null }>
+  failed: Array<{ id: string; title: string; reason: string }>
+}
+
+/**
+ * Accept each idea independently. One bad idea used to stop the loop, leaving
+ * the ones before it accepted but the page still showing them as New — and a
+ * second click then failed on "already accepted". Every idea now gets its own
+ * attempt, and ones accepted earlier are skipped rather than reported as errors.
+ */
 export async function acceptMultipleIdeas(
   slug: string,
   ideaIds: string[],
-): Promise<AcceptResult[]> {
-  const results: AcceptResult[] = []
+): Promise<BatchAcceptResult> {
+  const result: BatchAcceptResult = { accepted: [], skipped: [], failed: [] }
+  const byId = new Map((await readStoreFromDisk(slug)).ideas.map(idea => [idea.id, idea]))
   for (const id of ideaIds) {
-    results.push(await acceptIdea(slug, id))
+    const known = byId.get(id)
+    if (known?.status === 'accepted') {
+      result.skipped.push({ id, title: known.title, episode_code: known.episode_code })
+      continue
+    }
+    try {
+      result.accepted.push(await acceptIdea(slug, id))
+    } catch (e: any) {
+      result.failed.push({ id, title: known?.title || id, reason: e?.message || String(e) })
+    }
   }
-  return results
+  return result
 }
 
 export async function dismissIdea(slug: string, ideaId: string): Promise<boolean> {
@@ -700,7 +754,10 @@ export async function previewIdeaReset(slug: string, ideaId: string): Promise<Re
   if (!idea.episode_code) return empty
 
   const paths = await resolveEpisodePaths(slug, idea.episode_code, idea.title)
-  if (!existsSync(paths.episode_dir)) return { ...empty, episode_dir: paths.episode_dir }
+  // Un-accept moves the media_root copy too, so the confirm counts it too.
+  const heavy = await heavyEpisodeDir(paths, (meta as any).media_root)
+  const heavyExists = !!heavy && existsSync(heavy.dir)
+  if (!existsSync(paths.episode_dir) && !heavyExists) return { ...empty, episode_dir: paths.episode_dir }
 
   const breakdown = { images: 0, audio: 0, video: 0, scripts: 0, other: 0 }
   let fileCount = 0
@@ -726,6 +783,7 @@ export async function previewIdeaReset(slug: string, ideaId: string): Promise<Re
     }
   }
   await walk(paths.episode_dir)
+  if (heavyExists) await walk(heavy!.dir)
 
   return {
     episode_code: idea.episode_code,
@@ -740,10 +798,63 @@ export async function previewIdeaReset(slug: string, ideaId: string): Promise<Re
 }
 
 /**
- * Reset an accepted idea back to 'new', delete its episode folder,
- * and recycle the episode number if it was the highest.
+ * Move a directory into the project's `_trash` (or `<media_root>/_trash/<slug>`
+ * for heavy media on another drive), keeping its path under `anchor`. Nothing
+ * the app removes is hard-deleted; the owner empties `_trash` himself.
  */
-export async function resetIdea(slug: string, ideaId: string): Promise<{ deleted_folder: string | null }> {
+function trashDirSync(slug: string, dir: string, anchor: string): string | null {
+  if (!existsSync(dir)) return null
+  const projectDir = projectDirFor(slug)
+  const rel = path.relative(anchor, dir)
+  const keep = rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel : path.basename(dir)
+  return moveToTrashSync(dir, path.join(trashRootFor(anchor, projectDir, slug), keep))
+}
+
+/**
+ * The episode's heavy-media twin under `media_root`, when the project keeps
+ * one on another drive. Null when there is no media_root, it is not defined on
+ * this Mac, or it resolves to the episode folder itself.
+ */
+async function heavyEpisodeDir(paths: EpisodePaths, mediaRoot?: string): Promise<{ dir: string; anchor: string } | null> {
+  if (!mediaRoot) return null
+  const { resolveAssetPath } = await import('./path-resolver.js')
+  let anchor: string
+  try { anchor = resolveAssetPath(String(mediaRoot), paths.output_root) } catch { return null }
+  if (!anchor) return null
+  const dir = path.join(anchor, path.relative(paths.output_root, paths.episode_dir))
+  return path.resolve(dir) === path.resolve(paths.episode_dir) ? null : { dir, anchor }
+}
+
+/**
+ * The episode folder plus, when media_root is set, its heavy-media twin.
+ *
+ * The PROJECT folder moves first and is allowed to throw: if it cannot move,
+ * nothing has moved and the caller leaves the idea accepted. The heavy copy
+ * moves second; a failure there is reported as a warning rather than thrown,
+ * because the episode is already half-moved and un-accepting it is the
+ * truthful state. (Heavy-first used to leave media in _trash with the idea
+ * still accepted.)
+ */
+async function trashEpisodeFolders(
+  slug: string, paths: EpisodePaths, mediaRoot?: string,
+): Promise<{ moved: string | null; warnings: string[] }> {
+  const warnings: string[] = []
+  const moved = trashDirSync(slug, paths.episode_dir, projectDirFor(slug)) ? paths.episode_dir : null
+  const heavy = await heavyEpisodeDir(paths, mediaRoot)
+  if (heavy) {
+    try { trashDirSync(slug, heavy.dir, heavy.anchor) }
+    catch (e: any) {
+      warnings.push(`The episode's media folder on the media drive could not be moved to _trash (${e?.message || String(e)}). It is still at ${heavy.dir}.`)
+    }
+  }
+  return { moved, warnings }
+}
+
+/**
+ * Reset an accepted idea back to 'new', move its episode folder to the
+ * project's `_trash`, and recycle the episode number.
+ */
+export async function resetIdea(slug: string, ideaId: string): Promise<{ deleted_folder: string | null; warnings: string[] }> {
   const meta = await pm.getProject(slug)
   if (!meta) throw new Error('Project not found')
 
@@ -758,14 +869,13 @@ export async function resetIdea(slug: string, ideaId: string): Promise<{ deleted
   if (snapshotIdea.status !== 'accepted') throw new Error('Only accepted ideas can be reset')
   const episodeCode = snapshotIdea.episode_code
 
-  // Delete the episode folder outside the lock (slow rm).
+  // Move the episode folder to _trash outside the lock. Never a hard delete:
+  // Reset used to fs.rm the folder, destroying every rendered asset.
   let deletedFolder: string | null = null
+  let warnings: string[] = []
   if (episodeCode) {
     const paths = await resolveEpisodePaths(slug, episodeCode, snapshotIdea.title)
-    if (existsSync(paths.episode_dir)) {
-      await fs.rm(paths.episode_dir, { recursive: true })
-      deletedFolder = paths.episode_dir
-    }
+    ;({ moved: deletedFolder, warnings } = await trashEpisodeFolders(slug, paths, (meta as any).media_root))
   }
 
   // Now commit the state change under the lock.
@@ -796,7 +906,7 @@ export async function resetIdea(slug: string, ideaId: string): Promise<{ deleted
     idea.accepted_at = null
   })
 
-  return { deleted_folder: deletedFolder }
+  return { deleted_folder: deletedFolder, warnings }
 }
 
 /**
@@ -853,11 +963,11 @@ export async function deleteEpisodeFolder(slug: string, episodeCode: string): Pr
     return null
   }
 
-  // Delete the folder outside the lock (slow rm).
+  // Move the folder to the project's _trash outside the lock — never a hard delete.
   const episodeDir = await findEpisodeDir(outputRoot)
   let deletedFolder: string | null = null
   if (episodeDir) {
-    await fs.rm(episodeDir, { recursive: true })
+    trashDirSync(slug, episodeDir, projectDirFor(slug))
     deletedFolder = episodeDir
   }
 
