@@ -74,12 +74,12 @@ test('an unmeasurable stage stays uncertain until a re-scan measures it', async 
     missing: [], extra: [], error: 'Could not measure audio assets. Check that project storage is connected and readable, then retry the audit.',
   }]))
   try {
-    assert.match(ui.host.querySelector('h2')?.textContent || '', /Asset audit/)
+    assert.match(ui.host.querySelector('h2')?.textContent || '', /Files check/)
     assert.equal(ui.host.querySelector('h2')?.id, 'mad-title')
     assert.equal(ui.host.querySelector('[role="dialog"]')?.getAttribute('aria-labelledby'), 'mad-title')
     assert.match(ui.host.textContent || '', /Some audit checks could not be completed/)
     assert.match(ui.host.textContent || '', /Check that project storage is connected and readable, then retry the audit/)
-    assert.doesNotMatch(ui.host.textContent || '', /All assets match the project manifest/)
+    assert.doesNotMatch(ui.host.textContent || '', /Every expected file is on disk/)
     assert.equal(ui.host.querySelector('a'), null, 'an unknown audit result must not offer Repair')
 
     ;[...ui.host.querySelectorAll('button')].find(button => button.textContent === 'Re-scan audit')?.click()
@@ -89,7 +89,7 @@ test('an unmeasurable stage stays uncertain until a re-scan measures it', async 
       stage: 'audio', outcome: 'measured', started: true, expected: 1, present: 1, missing: [], extra: [],
     }])
     await nextTick()
-    assert.match(ui.host.textContent || '', /All assets match the project manifest/)
+    assert.match(ui.host.textContent || '', /Every expected file is on disk/)
   } finally {
     ui.unmount()
   }

@@ -1,18 +1,18 @@
 <template>
   <div class="workspace-page dashboard-workspace">
     <WorkspaceHero
-      eyebrow="Project command center"
+      eyebrow="Channel dashboard"
       :title="project?.name || 'Dashboard'"
-      description="See verified production readiness, unblock the next episodes, and keep production moving from one calm overview."
+      description="See where every episode stands, what to do next, and what is holding production up."
     >
       <template #aside>
         <div class="dashboard-hero-summary">
           <div>
-            <strong>{{ readyCount }}</strong>
+            <strong>{{ statusKnown ? readyCount : '—' }}</strong>
             <span>complete</span>
           </div>
           <div>
-            <strong>{{ needsWorkCount }}</strong>
+            <strong>{{ statusKnown ? needsWorkCount : '—' }}</strong>
             <span>need work</span>
           </div>
           <div>
@@ -43,13 +43,13 @@
       </template>
     </WorkspaceNotice>
 
-    <WorkspaceNotice v-if="initialLoading" title="Loading verified project status" tone="info">
-      The cached episode inventory appears immediately on return visits.
+    <WorkspaceNotice v-if="initialLoading" title="Loading project status" tone="info">
+      Episodes you have already opened appear straight away while the latest status loads.
     </WorkspaceNotice>
     <WorkspaceNotice v-else-if="loadError" title="Some project information could not be refreshed" tone="warning">
       {{ loadError }}
       <template #actions>
-        <button class="btn btn-sm btn-secondary" @click="refreshAll">Retry</button>
+        <button class="btn btn-sm btn-secondary" :disabled="refreshing" @click="retryLoad">Retry</button>
       </template>
     </WorkspaceNotice>
 
@@ -59,44 +59,49 @@
           <span class="dashboard-metric-kicker">Needs work</span>
           <span class="dashboard-metric-arrow" aria-hidden="true">→</span>
         </span>
-        <strong>{{ needsWorkCount }}</strong>
-        <span class="dashboard-metric-detail">{{ needsWorkCount === 1 ? 'episode has' : 'episodes have' }} at least one required stage pending</span>
+        <strong>{{ statusKnown ? needsWorkCount : '—' }}</strong>
+        <span class="dashboard-metric-detail">{{ !statusKnown ? 'Status has not loaded yet' : `${needsWorkCount === 1 ? 'episode has' : 'episodes have'} at least one required step still to do` }}</span>
       </NuxtLink>
       <NuxtLink :to="`/projects/${slug}/video-assembly`" class="dashboard-metric dashboard-metric-accent">
         <span class="dashboard-metric-top">
-          <span class="dashboard-metric-kicker">Ready to render</span>
+          <span class="dashboard-metric-kicker">Ready for final video</span>
           <span class="dashboard-metric-arrow" aria-hidden="true">→</span>
         </span>
-        <strong>{{ readyToRenderCount }}</strong>
-        <span class="dashboard-metric-detail">Verified through Scene Review and waiting for final assembly</span>
+        <strong>{{ statusKnown ? readyToRenderCount : '—' }}</strong>
+        <span class="dashboard-metric-detail">{{ statusKnown ? 'Ready for final video: every earlier step is done' : 'Status has not loaded yet' }}</span>
       </NuxtLink>
       <NuxtLink :to="`/projects/${slug}/upload`" class="dashboard-metric dashboard-metric-success">
         <span class="dashboard-metric-top">
           <span class="dashboard-metric-kicker">Final videos</span>
           <span class="dashboard-metric-arrow" aria-hidden="true">→</span>
         </span>
-        <strong>{{ finalVideoCount }}</strong>
-        <span class="dashboard-metric-detail">Assembled episodes ready for publishing or already delivered</span>
+        <strong>{{ episodesKnown ? finalVideoCount : '—' }}</strong>
+        <span class="dashboard-metric-detail">{{ episodesKnown ? 'Finished videos, ready to publish or already published' : 'Status has not loaded yet' }}</span>
       </NuxtLink>
       <NuxtLink :to="`/projects/${slug}/ideas`" class="dashboard-metric">
         <span class="dashboard-metric-top">
           <span class="dashboard-metric-kicker">Idea library</span>
           <span class="dashboard-metric-arrow" aria-hidden="true">→</span>
         </span>
-        <strong>{{ overview?.ideas?.total || 0 }}</strong>
-        <span class="dashboard-metric-detail">{{ overview?.ideas?.new || 0 }} new ideas waiting for review</span>
+        <strong>{{ overview?.ideas ? overview.ideas.total : '—' }}</strong>
+        <span class="dashboard-metric-detail">{{ overview?.ideas ? `${overview.ideas.new} new ideas waiting for review` : 'Idea counts have not loaded yet' }}</span>
       </NuxtLink>
     </section>
 
     <WorkspaceSection
       eyebrow="Priority queue"
       title="Focus now"
-      description="The most useful next moves, ranked from current verified status rather than folder guesses."
+      description="The most useful next steps, based on each episode's checked status."
     >
       <template #actions>
-        <button class="btn btn-sm btn-secondary" :disabled="refreshing" @click="refreshAll">
+        <button
+          class="btn btn-sm btn-secondary"
+          :disabled="refreshing"
+          title="Re-reads every episode from disk. This can take a while on a large channel."
+          @click="refreshAll"
+        >
           <LoadingSpinner v-if="refreshing" size="sm" />
-          <span v-else>Refresh status</span>
+          <span v-else>Re-check all episodes</span>
         </button>
       </template>
       <div v-if="focusActions.length" class="focus-grid">
@@ -109,22 +114,33 @@
           <span class="focus-arrow" aria-hidden="true">&rarr;</span>
         </NuxtLink>
       </div>
+      <div v-else-if="statusPending" class="dashboard-empty">
+        <strong>Checking project status…</strong>
+      </div>
+      <div v-else-if="!statusKnown" class="dashboard-empty">
+        <strong>Can't tell yet — status didn't load.</strong>
+        <span>Nothing is being reported as finished until the episode status can be read.</span>
+        <div><button class="btn btn-sm btn-secondary" :disabled="refreshing" @click="retryLoad">Retry</button></div>
+      </div>
       <div v-else class="dashboard-empty">
-        <strong>{{ noAcceptedIdeas ? 'Start with ideas.' : 'No blockers detected.' }}</strong>
+        <strong>{{ noAcceptedIdeas ? 'Start with ideas.' : 'Nothing is holding you up.' }}</strong>
         <span v-if="noAcceptedIdeas">Generate and accept an idea to begin tracking this channel’s production workflow.</span>
-        <span v-else>Your required production stages are complete for every accepted episode.</span>
+        <span v-else>Every required step is done for every accepted episode.</span>
       </div>
     </WorkspaceSection>
 
     <WorkspaceSection
-      eyebrow="Verified coverage"
+      eyebrow="Progress by step"
       title="Production workflow"
-      description="Every count uses the same completion contract as Pipeline and Production Board. Optional stages remain visible but never block completion."
+      description="Every count uses the same rules as Pipeline and Production Board. Optional steps are shown but never hold an episode back."
     >
       <template #actions>
         <NuxtLink :to="`/projects/${slug}/pipeline`" class="btn btn-sm btn-primary">Open Pipeline</NuxtLink>
       </template>
-      <div class="coverage-grid">
+      <p v-if="!coverageStages.length" class="text-muted">
+        {{ statusPending ? 'Checking project status…' : 'Step progress appears once this project’s status has loaded.' }}
+      </p>
+      <div v-else class="coverage-grid">
         <NuxtLink
           v-for="stage in coverageStages"
           :key="stage.key"
@@ -158,24 +174,26 @@
       >
         <div class="operations-stack">
           <NuxtLink :to="`/projects/${slug}/jobs`" class="operation-row">
-            <span class="operation-mark" data-tone="info">Q</span>
+            <span class="operation-mark" data-tone="info" aria-hidden="true">☰</span>
             <div>
               <strong>Job Queue</strong>
-              <p v-if="jobStats.total">{{ jobStats.running }} running, {{ jobStats.queued }} queued, {{ jobStats.error }} failed</p>
+              <p v-if="jobsLoading">Checking…</p>
+              <p v-else-if="jobStats.total">{{ jobStats.running }} running, {{ jobStats.queued }} queued, {{ jobStats.error }} failed</p>
               <p v-else>No queued or recent jobs.</p>
             </div>
-            <span v-if="jobsStale" class="operation-state warning">may be stale</span>
+            <span v-if="jobsLoading" class="operation-state">checking</span>
+            <span v-else-if="jobsStale" class="operation-state warning">may be stale</span>
             <span v-else-if="activeJobCount" class="operation-state live">working</span>
             <span v-else class="operation-state">idle</span>
           </NuxtLink>
 
           <NuxtLink :to="`/projects/${slug}/upload`" class="operation-row">
-            <span class="operation-mark" data-tone="success">P</span>
+            <span class="operation-mark" data-tone="success" aria-hidden="true">↗</span>
             <div>
               <strong>Publishing</strong>
-              <p v-if="uploadAccountCount === 0">No YouTube destination is connected yet.</p>
-              <p v-else-if="uploadAccountCount === null">Publishing connection could not be checked.</p>
-              <p v-else>{{ uploadAccountCount }} connected destination{{ uploadAccountCount === 1 ? '' : 's' }}.</p>
+              <p v-if="uploadAccountCount === 0">No YouTube account is connected yet.</p>
+              <p v-else-if="uploadAccountCount === null">Couldn't check the YouTube connection.</p>
+              <p v-else>{{ uploadAccountCount }} YouTube account{{ uploadAccountCount === 1 ? '' : 's' }} connected.</p>
             </div>
             <span class="operation-state" :class="uploadAccountCount === 0 ? 'warning' : uploadAccountCount === null ? '' : 'live'">
               {{ uploadAccountCount === 0 ? 'setup needed' : uploadAccountCount === null ? 'unknown' : 'ready' }}
@@ -183,20 +201,20 @@
           </NuxtLink>
 
           <div class="operation-row operation-row-static">
-            <span class="operation-mark" data-tone="accent">A</span>
+            <span class="operation-mark" data-tone="accent" aria-hidden="true">▣</span>
             <div>
-              <strong>Asset integrity</strong>
-              <p v-if="auditRunning">Checking every expected artifact against disk...</p>
-              <p v-else-if="audit && audit.total_missing && hasUnmeasurableAudit">{{ audit.total_missing }} missing across {{ audit.episodes_with_missing }} episodes. Some checks could not be completed; check storage access and re-scan.</p>
-              <p v-else-if="audit && audit.total_missing">{{ audit.total_missing }} missing across {{ audit.episodes_with_missing }} episodes.</p>
-              <p v-else-if="audit && hasUnmeasurableAudit">Some audit checks could not be completed. Check that project storage is available, then re-scan.</p>
-              <p v-else-if="audit">Last audit found no missing assets.</p>
-              <p v-else>Deep audit is manual so large projects stay fast.</p>
+              <strong>Files check</strong>
+              <p v-if="auditRunning">Checking that every expected file is on disk…</p>
+              <p v-else-if="audit && audit.total_missing && hasUnmeasurableAudit">{{ audit.total_missing }} missing across {{ audit.episodes_with_missing }} episodes. Some checks could not be completed; check storage access and check again. {{ auditAgeLabel }}</p>
+              <p v-else-if="audit && audit.total_missing">{{ audit.total_missing }} missing across {{ audit.episodes_with_missing }} episodes. {{ auditAgeLabel }}</p>
+              <p v-else-if="audit && hasUnmeasurableAudit">Some checks could not be completed. Check that project storage is available, then check again. {{ auditAgeLabel }}</p>
+              <p v-else-if="audit">No missing files found. {{ auditAgeLabel }}</p>
+              <p v-else>Not checked yet. This is manual so large channels stay fast.</p>
             </div>
             <div class="operation-actions">
               <button v-if="hasAuditDetails" class="btn btn-sm btn-secondary" @click="showDialog = true">Details</button>
               <button class="btn btn-sm" :class="hasAuditDetails ? 'btn-primary' : 'btn-secondary'" :disabled="auditRunning" @click="runAudit">
-                {{ audit ? 'Re-scan' : 'Run audit' }}
+                {{ audit ? 'Check again' : 'Check files' }}
               </button>
             </div>
           </div>
@@ -205,33 +223,33 @@
 
       <WorkspaceSection
         eyebrow="Activity"
-        title="Production pulse"
-        description="A compact view of tracked output and production activity. Credit balances and settlement live in GenStudio."
+        title="Recent activity"
+        description="A quick look at what has been created. Credit balances and billing live in GenStudio."
       >
         <div class="pulse-grid">
           <div class="pulse-stat">
             <span>This session</span>
-            <strong>{{ currentSessionOutputs }}</strong>
-            <small>tracked outputs</small>
+            <strong>{{ overview ? currentSessionOutputs : '—' }}</strong>
+            <small>items created</small>
           </div>
           <div class="pulse-stat">
             <span>All sessions</span>
-            <strong>{{ overview?.session?.all_time?.total_sessions || 0 }}</strong>
-            <small>production sessions</small>
+            <strong>{{ overview ? (overview.session?.all_time?.total_sessions || 0) : '—' }}</strong>
+            <small>times you worked on this</small>
           </div>
           <div class="pulse-stat">
             <span>All outputs</span>
-            <strong>{{ overview?.session?.all_time?.total_assets || 0 }}</strong>
-            <small>tracked across sessions</small>
+            <strong>{{ overview ? (overview.session?.all_time?.total_assets || 0) : '—' }}</strong>
+            <small>created in total</small>
           </div>
           <div class="pulse-stat">
             <span>Accepted episodes</span>
-            <strong>{{ episodeCount }}</strong>
+            <strong>{{ episodesKnown ? episodeCount : '—' }}</strong>
             <small>in this project</small>
           </div>
         </div>
         <div class="pulse-note">
-          <span>{{ currentSessionSummary }}</span>
+          <span>{{ overview ? currentSessionSummary : 'Activity could not be loaded.' }}</span>
           <NuxtLink to="/usage">View usage</NuxtLink>
         </div>
       </WorkspaceSection>
@@ -288,13 +306,14 @@ const outputRootMissing = computed(() => project.value?.output_root_exists === f
 // person a path that is not a location.
 const outputRootPath = computed(() => project.value?.output_root_resolved || '')
 const { get } = useApi()
-const { stats: jobStats, jobsStale } = useJobs()
+const { stats: jobStats, jobsStale, isLoading: jobsLoading } = useJobs()
 const {
   episodes,
   isLoading: episodesLoading,
   isRevalidating: episodesRefreshing,
   error: episodesError,
   refresh: refreshEpisodes,
+  revalidate: revalidateEpisodes,
 } = useEpisodes(slug)
 const notif = useNotifications()
 
@@ -329,7 +348,13 @@ const steps = computed(() => visualSource.value
   ? unionFlowForEpisodeSources(visualSource.value, episodes.value.map(episodeVisualSource))
   : [])
 const episodeCount = computed(() => episodes.value.length)
-const noAcceptedIdeas = computed(() => overview.value?.ideas?.accepted === 0 && episodeCount.value === 0)
+// "No episodes" is only a fact once the episode read actually succeeded
+// (AGENTS §6): a failed read, a missing folder or a first load all look like an
+// empty list, and none of them may read as "nothing to do".
+const episodesKnown = computed(() => !episodesError.value && !outputRootMissing.value && !initialLoading.value)
+const statusKnown = computed(() => episodesKnown.value && !!visualSource.value)
+const statusPending = computed(() => initialLoading.value || (overviewLoading.value && !visualSource.value))
+const noAcceptedIdeas = computed(() => overview.value?.ideas?.accepted === 0 && episodeCount.value === 0 && episodesKnown.value)
 
 function routeForStep(step: FlowStep): string {
   const base = `/projects/${slug.value}${step.path}`
@@ -340,14 +365,13 @@ function statusDone(ep: EpisodeRow, field: keyof EpisodeRow['status']): boolean 
   return ep.status?.[field] === true
 }
 
-const coverageStages = computed(() => steps.value.map((step, index) => {
+// Only steps the episode status actually reports on get a card. Ideas, Contextual
+// Cues and Sound Design have no status field, so a card for them could only
+// invent a number; Ideas has its own metric above.
+const coverageStages = computed(() => steps.value.filter(step => STATUS_FIELD[step.key]).map((step, index) => {
   const field = STATUS_FIELD[step.key]
   const eligible = episodes.value.filter(ep => isFlowStepApplicable(step, episodeVisualSource(ep)))
-  const done = step.key === 'ideas'
-    ? eligible.length
-    : field
-      ? eligible.filter(ep => statusDone(ep, field)).length
-      : 0
+  const done = eligible.filter(ep => statusDone(ep, field)).length
   const pct = eligible.length ? Math.round((done / eligible.length) * 100) : 0
   return {
     ...step,
@@ -370,8 +394,14 @@ function isComplete(ep: EpisodeRow): boolean {
 const readyCount = computed(() => episodes.value.filter(isComplete).length)
 const needsWorkCount = computed(() => Math.max(0, episodeCount.value - readyCount.value))
 const finalVideoCount = computed(() => episodes.value.filter(ep => statusDone(ep, 'video_assembly')).length)
+// The renderer refuses an episode whose switched-on Contextual Cues or Sound
+// Design are not ready (`false` only when the feature is on and unfinished), so
+// such an episode is not ready for the final video even though every step
+// below is done.
 const readyToRenderCount = computed(() => episodes.value.filter(ep =>
   visualSource.value
+    && ep.status?.contextual_cues !== false
+    && ep.status?.sound_design !== false
     && !statusDone(ep, 'video_assembly')
     && requiredStatusFields(visualSource.value, episodeVisualSource(ep))
       .filter(field => field !== 'video_assembly')
@@ -396,15 +426,15 @@ const focusActions = computed<FocusAction[]>(() => {
     actions.push({
       key: 'failed-jobs', order: String(actions.length + 1).padStart(2, '0'), tone: 'warning',
       title: `Repair ${jobStats.value.error} failed job${jobStats.value.error === 1 ? '' : 's'}`,
-      detail: 'Open the queue for the exact missing output and a safe retry path.',
+      detail: 'Open the queue to see exactly what is missing and retry safely.',
       to: `/projects/${slug.value}/jobs?status=error`,
     })
   }
   if (readyToRenderCount.value > 0) {
     actions.push({
       key: 'ready-render', order: String(actions.length + 1).padStart(2, '0'), tone: 'accent',
-      title: `Render ${readyToRenderCount.value} ready episode${readyToRenderCount.value === 1 ? '' : 's'}`,
-      detail: 'All required upstream stages are verified; final assembly is the only remaining step.',
+      title: `Make the final video for ${readyToRenderCount.value} ready episode${readyToRenderCount.value === 1 ? '' : 's'}`,
+      detail: 'Every earlier required step is done; the final video is the only step left.',
       to: `/projects/${slug.value}/video-assembly`,
     })
   }
@@ -413,15 +443,15 @@ const focusActions = computed<FocusAction[]>(() => {
     actions.push({
       key: `pending-${firstPending.key}`, order: String(actions.length + 1).padStart(2, '0'), tone: 'neutral',
       title: `Continue ${firstPending.label}`,
-      detail: `${firstPending.missing} episode${firstPending.missing === 1 ? '' : 's'} still need this required stage.`,
+      detail: `${firstPending.missing} episode${firstPending.missing === 1 ? '' : 's'} still need this required step.`,
       to: firstPending.to,
     })
   }
   if (finalVideoCount.value > 0 && uploadAccountCount.value === 0) {
     actions.push({
       key: 'publishing-setup', order: String(actions.length + 1).padStart(2, '0'), tone: 'warning',
-      title: 'Connect a publishing destination',
-      detail: 'Final videos exist, but this project has no YouTube destination connected.',
+      title: 'Connect a YouTube account',
+      detail: 'Final videos exist, but this project has no YouTube account connected.',
       to: `/projects/${slug.value}/upload`,
     })
   } else if ((overview.value?.ideas?.new || 0) > 0) {
@@ -460,13 +490,14 @@ const currentSessionSummary = computed(() => {
     ['images', currentSession.value.images_generated],
     ['audio items', currentSession.value.audio_generated],
   ].filter(([, count]) => Number(count) > 0).map(([label, count]) => `${count} ${label}`)
-  return parts.length ? `This session: ${parts.join(' · ')}` : 'No generation output has been tracked in this session yet.'
+  return parts.length ? `This session: ${parts.join(' · ')}` : 'Nothing has been created in this session yet.'
 })
 
 const audit = ref<ProjectAudit | null>(null)
 const auditRunning = ref(false)
 const auditError = ref('')
 const showDialog = ref(false)
+const auditCheckedAt = ref<number | null>(null)
 const auditCache = useState<Record<string, { result: ProjectAudit; ts: number }>>('dashboard-audit-cache', () => ({}))
 const AUDIT_TTL_MS = 30 * 60 * 1000
 const hasUnmeasurableAudit = computed(() => audit.value?.episodes.some(episode =>
@@ -478,65 +509,101 @@ function hydrateAudit() {
   const cached = auditCache.value[slug.value]
   if (cached && Date.now() - cached.ts < AUDIT_TTL_MS) {
     audit.value = cached.result
+    auditCheckedAt.value = cached.ts
   } else {
     audit.value = null
+    auditCheckedAt.value = null
   }
 }
+
+// A cached result can be up to 30 minutes old, so say how old it is.
+const auditAgeLabel = computed(() => {
+  if (auditCheckedAt.value === null) return ''
+  const minutes = Math.floor((Date.now() - auditCheckedAt.value) / 60000)
+  if (minutes < 1) return 'Checked just now.'
+  return `Checked ${minutes} min ago.`
+})
 
 async function runAudit() {
   if (auditRunning.value) return
+  // Capture the project before awaiting: the route can move on while the check
+  // runs, and project A's result must never be written under project B.
+  const requestSlug = slug.value
   auditRunning.value = true
   auditError.value = ''
   try {
-    const result = await get<ProjectAudit>(`/projects/${slug.value}/assets-audit-detail`)
-    audit.value = result
-    auditCache.value[slug.value] = { result, ts: Date.now() }
+    const result = await get<ProjectAudit>(`/projects/${requestSlug}/assets-audit-detail`)
+    const ts = Date.now()
+    auditCache.value[requestSlug] = { result, ts }
+    if (slug.value === requestSlug) {
+      audit.value = result
+      auditCheckedAt.value = ts
+    }
   } catch (error: any) {
-    auditError.value = error?.data?.detail || error?.message || 'Asset audit failed'
+    if (slug.value === requestSlug) auditError.value = error?.data?.detail || error?.message || 'File check failed'
   } finally {
     auditRunning.value = false
-    reportReadiness()
+    if (slug.value === requestSlug) reportReadiness()
   }
 }
 
+let visualSourceSlug = ''
+
 async function loadOverview() {
+  // Capture the project before any await (AGENTS §4): every write below is
+  // dropped if the route has moved to another project in the meantime.
+  const requestSlug = slug.value
+  const current = () => slug.value === requestSlug
   overviewLoading.value = true
-  visualSource.value = null
+  // Keep the last known format while refreshing so the numbers and the workflow
+  // grid do not vanish on every refresh; blank it only on a project change.
+  if (visualSourceSlug !== requestSlug) visualSource.value = null
   formatError.value = ''
   await Promise.all([
     (async () => {
       try {
-        overview.value = await get<DashboardOverview>(`/projects/${slug.value}/dashboard-stats`)
+        const result = await get<DashboardOverview>(`/projects/${requestSlug}/dashboard-stats`)
+        if (!current()) return
+        overview.value = result
         overviewError.value = ''
       } catch (error: any) {
-        if (!error?.__slugRace) overviewError.value = error?.data?.detail || error?.message || 'Dashboard overview failed'
+        if (!error?.__slugRace && current()) overviewError.value = error?.data?.detail || error?.message || 'Dashboard overview failed'
       }
     })(),
     (async () => {
       try {
-        const response = await get<{ accounts: Record<string, unknown[]> }>(`/projects/${slug.value}/upload/accounts`)
-        uploadAccountCount.value = Object.values(response?.accounts || {}).reduce((sum, accounts) => sum + accounts.length, 0)
+        const response = await get<{ accounts?: { youtube?: unknown } }>(`/projects/${requestSlug}/upload/accounts`)
+        if (!current()) return
+        // The copy on this row is about YouTube, so count YouTube accounts only
+        // (the response also lists TikTok and Facebook). A missing list is
+        // "could not tell", never zero.
+        const youtube = response?.accounts?.youtube
+        uploadAccountCount.value = Array.isArray(youtube) ? youtube.length : null
         accountsError.value = ''
       } catch (error: any) {
-        if (error?.__slugRace) return
+        if (error?.__slugRace || !current()) return
         uploadAccountCount.value = null
         accountsError.value = error?.data?.detail || error?.message || 'Publishing connection check failed'
       }
     })(),
     (async () => {
       try {
-        const format = await get<{ visualSource?: unknown }>(`/projects/${slug.value}/effective-format`)
+        const format = await get<{ visualSource?: unknown }>(`/projects/${requestSlug}/effective-format`)
+        if (!current()) return
         const source = parseVisualSource(format?.visualSource)
         if (!source) {
+          visualSource.value = null
           formatError.value = 'The project returned an unknown production format. Refresh this project before using dashboard workflow actions.'
           return
         }
         visualSource.value = source
+        visualSourceSlug = requestSlug
       } catch (error: any) {
-        if (!error?.__slugRace) formatError.value = error?.data?.detail || error?.message || 'Project workflow check failed'
+        if (!error?.__slugRace && current()) formatError.value = error?.data?.detail || error?.message || 'Project workflow check failed'
       }
     })(),
   ])
+  if (!current()) return
   overviewLoading.value = false
   reportReadiness()
 }
@@ -548,9 +615,18 @@ const loadError = computed(() => {
   return [episodeMessage, overviewError.value, accountsError.value, formatError.value, auditError.value].filter(Boolean).join(' ')
 })
 
+// The explicit, slow path: re-reads every episode from disk.
 async function refreshAll() {
+  const requestSlug = slug.value
   await Promise.all([refreshEpisodes(), loadOverview()])
-  reportReadiness()
+  if (slug.value === requestSlug) reportReadiness()
+}
+
+// Retry after a failed load uses the light re-read (no full project recompute).
+async function retryLoad() {
+  const requestSlug = slug.value
+  await Promise.all([revalidateEpisodes(), loadOverview()])
+  if (slug.value === requestSlug) reportReadiness()
 }
 
 function reportReadiness() {
@@ -562,7 +638,7 @@ function reportReadiness() {
       severity: 'warning',
       title: 'Some dashboard information could not be refreshed',
       detail: loadError.value,
-      onClick: refreshAll,
+      onClick: retryLoad,
       actionLabel: 'Retry',
     })
   } else {
@@ -573,17 +649,17 @@ function reportReadiness() {
       key: 'assets',
       severity: 'warning',
       title: audit.value.total_missing
-        ? `${audit.value.total_missing} measured missing asset${audit.value.total_missing === 1 ? '' : 's'}; some checks incomplete`
-        : 'Some asset checks could not be completed',
-      detail: 'Check that project storage is connected and readable, then retry the audit.',
+        ? `${audit.value.total_missing} missing file${audit.value.total_missing === 1 ? '' : 's'}; some checks incomplete`
+        : 'Some file checks could not be completed',
+      detail: 'Check that project storage is connected and readable, then check again.',
       onClick: runAudit,
-      actionLabel: 'Re-scan audit',
+      actionLabel: 'Check files again',
     })
   } else if (audit.value && audit.value.total_missing > 0) {
     notif.report(projectSlug, {
       key: 'assets',
       severity: 'warning',
-      title: `${audit.value.total_missing} missing asset${audit.value.total_missing === 1 ? '' : 's'}`,
+      title: `${audit.value.total_missing} missing file${audit.value.total_missing === 1 ? '' : 's'}`,
       detail: `The gaps affect ${audit.value.episodes_with_missing} episode${audit.value.episodes_with_missing === 1 ? '' : 's'}.`,
       to: `/projects/${projectSlug}/board?repair=1`,
     })
