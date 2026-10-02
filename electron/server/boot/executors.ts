@@ -7,7 +7,7 @@
  * grep across app.ts.
  */
 
-import { initializeQueuePauseState, registerExecutor, resumeInterruptedJobsAtBoot, unregisteredJobTypes } from '../services/job-queue.js'
+import { initializeQueuePauseState, jobEvents, registerExecutor, resumeInterruptedJobsAtBoot, unregisteredJobTypes } from '../services/job-queue.js'
 import {
   generateScriptOnly, generateIntroductionOnly, generateChapterOnly,
   generateOutlineOnly, generateExpandChapters,
@@ -22,6 +22,7 @@ import { generateAudioMerge } from '../generators/audio-merge.js'
 import { generateMetadata } from '../generators/metadata.js'
 import { generateSubtitlesTranscribe } from '../generators/subtitles.js'
 import { startEpisodeRecovery } from '../services/episode-recovery.js'
+import { invalidateForFinishedJob } from '../services/episode-status-cache.js'
 import { generateYoutubeUpload } from '../generators/youtube-upload.js'
 import { generateYoutubePlaylistUpdate } from '../generators/youtube-playlist-update.js'
 import { generateThumbnailRefresh } from '../generators/youtube-thumbnail-refresh.js'
@@ -384,6 +385,9 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
   if (missingExecutors.length) {
     throw new Error(`Job executor registration incomplete: ${missingExecutors.join(', ')}`)
   }
+
+  // A finished job refreshes its episode's status right away (Board, lists).
+  if (!jobEvents.listeners('update').includes(invalidateForFinishedJob)) jobEvents.on('update', invalidateForFinishedJob)
 
   if (options.loadSettings !== false) {
     void initializeQueuePauseState()

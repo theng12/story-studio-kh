@@ -300,6 +300,54 @@ describe('episode-status-cache', () => {
     assert.equal(after.misses - before.misses, 1, 'next get is a miss')
   })
 
+  test('invalidateForFinishedJob(): a finished job drops its episode at once; running jobs do not', async () => {
+    await makeProject()
+    const cache = cacheMod.episodeStatusCache
+    await cache.get(SLUG, CODE)
+    assert.equal(cache.getStats().size, 1)
+
+    cacheMod.invalidateForFinishedJob({ project_slug: SLUG, episode_id: CODE.toLowerCase(), status: 'running' })
+    assert.equal(cache.getStats().size, 1, 'a running job leaves the cache alone')
+
+    cacheMod.invalidateForFinishedJob({ project_slug: SLUG, episode_id: CODE.toLowerCase(), status: 'done' })
+    assert.equal(cache.getStats().size, 0, 'the finished job dropped its episode')
+
+    await cache.get(SLUG, CODE)
+    cacheMod.invalidateForFinishedJob({ project_slug: SLUG, episode_id: '', status: 'error' })
+    assert.equal(cache.getStats().size, 0, 'a job with no episode drops the project')
+  })
+
+  test('boot wires invalidateForFinishedJob to queue updates exactly once', async () => {
+    const { registerAllExecutors } = await import('../boot/executors.js')
+    const { jobEvents } = await import('../services/job-queue.js')
+    registerAllExecutors({ loadSettings: false })
+    registerAllExecutors({ loadSettings: false })
+    const hooked = jobEvents.listeners('update').filter(l => l === cacheMod.invalidateForFinishedJob)
+    assert.equal(hooked.length, 1)
+    jobEvents.off('update', cacheMod.invalidateForFinishedJob)
+  })
+
+  test('a failed read (not "missing") is never cached as pending', { skip: process.getuid?.() === 0 }, async () => {
+    const { epDir } = await makeProject()
+    const cache = cacheMod.episodeStatusCache
+    const { researchFolderName } = await import('../lib/research-paths.js')
+    const researchDir = path.join(epDir, researchFolderName(CODE))
+    await fs.mkdir(researchDir, { recursive: true })
+    const researchJson = path.join(researchDir, 'research.json')
+    await fs.writeFile(researchJson, JSON.stringify({ topic: 't', summary: 'Real summary', claims: [] }))
+    await fs.chmod(researchJson, 0o000) // EACCES, like an iCloud file mid-sync
+    try {
+      const status = await cache.get(SLUG, CODE)
+      assert.equal(status.research, false)
+      assert.equal(cache.getStats().size, 0, 'the unreadable result was not stored')
+    } finally {
+      await fs.chmod(researchJson, 0o644)
+    }
+    const fresh = await cache.get(SLUG, CODE)
+    assert.equal(fresh.research, true, 'next read sees the real research')
+    assert.equal(cache.getStats().size, 1)
+  })
+
   test('invalidateProject(): drops every entry under the slug', async () => {
     await makeProject()
     const cache = cacheMod.episodeStatusCache

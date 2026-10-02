@@ -56,3 +56,23 @@ export async function inspectMetadataCompletion(dir: string, code: string): Prom
     return { authoritative: true, complete: false, missing: ['metadata output'] }
   }
 }
+
+/**
+ * Metadata folders written before completion manifests existed. A stray file
+ * is not proof: done only when a saved package has a real description (JSON),
+ * or a metadata/description text file has real text in it.
+ */
+export async function legacyMetadataPresent(dir: string, files: string[]): Promise<boolean> {
+  for (const name of files) {
+    const file = path.join(dir, name)
+    try {
+      if (/\.json$/i.test(name) && !/\.completion\.json$/i.test(name)) {
+        const data = JSON.parse(await fs.readFile(file, 'utf-8'))
+        if (typeof data?.description === 'string' && data.description.trim()) return true
+      } else if (/\.(txt|md)$/i.test(name) && /metadata|description/i.test(name)) {
+        if ((await fs.readFile(file, 'utf-8')).trim()) return true
+      }
+    } catch { /* unreadable file is not output */ }
+  }
+  return false
+}

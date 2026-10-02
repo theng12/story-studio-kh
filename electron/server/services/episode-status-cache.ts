@@ -759,3 +759,15 @@ export const episodeStatusCache = new EpisodeStatusCache()
 // files into a project's episodes tree. Wired here (not in the watcher
 // module) to avoid a circular import.
 bindInvalidator((slug, code) => episodeStatusCache.invalidate(slug, code))
+
+/**
+ * A job that just finished (done, failed or cancelled) may have written or
+ * removed this episode's files. Drop its cached status at once instead of
+ * waiting for the folder watcher or the 15 s re-check. Jobs without an
+ * episode drop the whole project. Wired to the queue's update events at boot.
+ */
+export function invalidateForFinishedJob(job: { project_slug?: string; episode_id?: string; status?: string }): void {
+  if (!job?.project_slug || !['done', 'error', 'cancelled'].includes(String(job.status))) return
+  if (job.episode_id) episodeStatusCache.invalidate(job.project_slug, job.episode_id)
+  else episodeStatusCache.invalidateProject(job.project_slug)
+}
