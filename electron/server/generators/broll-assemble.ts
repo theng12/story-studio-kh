@@ -35,6 +35,7 @@ import * as pm from '../services/project-manager.js'
 import * as bp from '../services/broll-pool-manager.js'
 import * as jq from '../services/job-queue.js'
 import { getSelectionSidecar } from '../services/broll-selection-sidecar.js'
+import { trimUsageLogToEpisodes } from '../services/broll-selection.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { withFinalVideoPathLock } from '../services/final-video-lock.js'
 import {
@@ -186,7 +187,23 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
   // filtergraph approach for all clips regardless of normalization
   // state, so mixing in this batch is harmless.
   const clipPaths: Array<{ src: string; duration: number; normalized: boolean }> = []
-  for (const entry of sidecar.selection) {
+  // A clip renamed in the library after the pick keeps its sha256, so a
+  // missing filename is looked up by content before failing.
+  let byShaCache: Map<string, string> | null = null
+  const renamedTo = async (sha: string | undefined): Promise<string | undefined> => {
+    if (!sha) return undefined
+    byShaCache ??= new Map((await bp.listClips(pool.id, { includeMissing: false })).map(c => [c.sha256, c.filename]))
+    return byShaCache.get(sha)
+  }
+  for (const picked of sidecar.selection) {
+    let entry = picked
+    if (!existsSync(path.join(pool.folder_path, entry.filename))) {
+      const current = await renamedTo(entry.sha256)
+      if (current && current !== entry.filename) {
+        job.output_lines.push(`Clip renamed since the pick: ${entry.filename} → ${current}`)
+        entry = { ...entry, filename: current }
+      }
+    }
     const normalized = path.join(bp.normalizedSubdir(pool.folder_path), entry.filename)
     const original = path.join(pool.folder_path, entry.filename)
     if (existsSync(normalized)) {
@@ -605,9 +622,10 @@ async function appendUsageLog(
     seen.add(s.sha256)
     additions.push({ clip_sha: s.sha256, clip_filename: s.filename, episode_code: episodeCode, used_at: now })
   }
-  // Keep a generous tail so a future lookback bump still has history. Image
-  // pools default to a 20-episode window, so 300 entries is plenty of runway.
-  const cap = isImage ? 300 : Math.max(30, ((cfg as any).broll_lookback ?? 10) * 3)
-  const merged = [...existing, ...additions].slice(-cap)
+  // Keep a generous tail, measured in EPISODES (the lookback unit), so a
+  // future lookback bump still has history. Image pools default to a
+  // 20-episode window.
+  const capEpisodes = isImage ? 60 : Math.max(30, ((cfg as any).broll_lookback ?? 10) * 3)
+  const merged = trimUsageLogToEpisodes([...existing, ...additions], capEpisodes)
   await pm.updateConfig(slug, { [logKey]: merged } as any)
 }

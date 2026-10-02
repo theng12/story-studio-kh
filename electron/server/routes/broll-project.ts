@@ -18,6 +18,7 @@ import * as im from '../services/idea-manager.js'
 import * as jq from '../services/job-queue.js'
 import { selectBroll } from '../lib/broll-selector.js'
 import { saveSelectionSidecar, getSelectionSidecar } from '../services/broll-selection-sidecar.js'
+import { recentlyUsedClipShas, trimUsageLogToEpisodes } from '../services/broll-selection.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { resolveAuthoritativeBrollNarration } from '../services/video-visual-source.js'
@@ -110,11 +111,8 @@ router.post('/projects/:slug/broll/pick', async (req, res) => {
     const usageLog: BrollUsageEntry[] = Array.isArray((config as any).broll_usage_log)
       ? (config as any).broll_usage_log
       : []
-    const recentShas: string[] = effectiveLookback > 0
-      // Last N usage entries — usage log is append-only with truncation,
-      // so the tail is the most recent.
-      ? Array.from(new Set(usageLog.slice(-effectiveLookback).map(e => e.clip_sha)))
-      : []
+    // Last N distinct episodes (not log entries — one entry per clip).
+    const recentShas = recentlyUsedClipShas(usageLog, effectiveLookback, episode_id)
 
     // Manual mode short-circuits the selector entirely — the caller has
     // already chosen the clips + per-clip durations in the UI. We still
@@ -188,6 +186,10 @@ router.post('/projects/:slug/broll/pick', async (req, res) => {
       transition_id: typeof transition_id === 'string' ? transition_id : 'none',
       transition_duration: safeTransitionDur,
     })
+    // The repeat-avoidance window is a project setting: remember the last one used.
+    if (typeof broll_lookback === 'number' && broll_lookback >= 0 && broll_lookback !== (config as any).broll_lookback) {
+      await pm.updateConfig(slug, { broll_lookback } as any)
+    }
 
     res.json({
       selection: result.selection.map(s => ({
@@ -200,6 +202,28 @@ router.post('/projects/:slug/broll/pick', async (req, res) => {
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'B-Roll selection failed'))
+  }
+})
+
+// ── GET /broll/selection/:episode_id ───────────────────────────────────
+// The episode's saved B-Roll pick (or `selection: null`), so the picker page
+// shows what Assemble will render after a reload or an episode switch.
+// Image Pool picks share the file but are not B-Roll, so they read as none.
+router.get('/projects/:slug/broll/selection/:episode_id', async (req, res) => {
+  const { slug, episode_id } = req.params
+  try {
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const sidecar = await getSelectionSidecar(slug, episode_id, await resolveTitle(slug, episode_id))
+    if (!sidecar || sidecar.media === 'image' || (sidecar.episode_code && sidecar.episode_code !== episode_id)) {
+      return res.json({ episode_id, selection: null })
+    }
+    res.json({
+      ...sidecar,
+      episode_id,
+      selection: sidecar.selection.map(s => ({ ...s, pool_id: sidecar.pool_id })),
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not read the saved B-Roll pick'))
   }
 })
 
@@ -250,9 +274,7 @@ router.post('/projects/:slug/image-pool/pick', async (req, res) => {
     const usageLog: BrollUsageEntry[] = Array.isArray((config as any).image_pool_usage_log)
       ? (config as any).image_pool_usage_log
       : []
-    const recentShas = lookback > 0
-      ? Array.from(new Set(usageLog.slice(-lookback).map(e => e.clip_sha)))
-      : []
+    const recentShas = recentlyUsedClipShas(usageLog, lookback, episode_id)
 
     const mode = (selection_mode === 'tagged' || selection_mode === 'themed') ? selection_mode : 'random'
     const result = selectBroll({
@@ -349,8 +371,7 @@ router.post('/projects/:slug/image-pool/materialize', async (req, res) => {
     const clips = await bp.listClips(effectivePoolId, { includeMissing: false })
     const usageLog: BrollUsageEntry[] = Array.isArray((config as any).image_pool_usage_log)
       ? (config as any).image_pool_usage_log : []
-    const recentShas = lookback > 0
-      ? Array.from(new Set(usageLog.slice(-lookback).map(e => e.clip_sha))) : []
+    const recentShas = recentlyUsedClipShas(usageLog, lookback, episode_id)
 
     const result = selectBroll({
       pool: clips.map(c => ({ filename: c.filename, duration: c.duration || perImage, sha256: c.sha256, tags: c.tags || [], normalized: c.normalized, missing: c.missing })),
@@ -406,7 +427,7 @@ router.post('/projects/:slug/image-pool/materialize', async (req, res) => {
       seen.add(s.sha256)
       additions.push({ clip_sha: s.sha256, clip_filename: s.filename, episode_code: episode_id, used_at: now })
     }
-    await pm.updateConfig(slug, { image_pool_usage_log: [...usageLog, ...additions].slice(-300) } as any)
+    await pm.updateConfig(slug, { image_pool_usage_log: trimUsageLogToEpisodes([...usageLog, ...additions], Math.max(60, lookback * 3)) } as any)
 
     res.json({ count: n, images_dir: imagesDir, target_duration: narrationSec, seconds_per_image: perImage })
   } catch (e: any) {
@@ -453,8 +474,7 @@ router.post('/projects/:slug/broll/materialize', async (req, res) => {
     const clips = await bp.listClips(effectivePoolId, { includeMissing: false })
     const usageLog: BrollUsageEntry[] = Array.isArray((config as any).broll_usage_log)
       ? (config as any).broll_usage_log : []
-    const recentShas = lookback > 0
-      ? Array.from(new Set(usageLog.slice(-lookback).map(e => e.clip_sha))) : []
+    const recentShas = recentlyUsedClipShas(usageLog, lookback, episode_id)
 
     const result = selectBroll({
       pool: clips.map(c => ({ filename: c.filename, duration: c.duration || perClip, sha256: c.sha256, tags: c.tags || [], normalized: c.normalized, missing: c.missing })),
@@ -509,7 +529,7 @@ router.post('/projects/:slug/broll/materialize', async (req, res) => {
       seen.add(s.sha256)
       additions.push({ clip_sha: s.sha256, clip_filename: s.filename, episode_code: episode_id, used_at: now })
     }
-    await pm.updateConfig(slug, { broll_usage_log: [...usageLog, ...additions].slice(-300) } as any)
+    await pm.updateConfig(slug, { broll_usage_log: trimUsageLogToEpisodes([...usageLog, ...additions], Math.max(30, lookback * 3)) } as any)
 
     res.json({
       count: n,

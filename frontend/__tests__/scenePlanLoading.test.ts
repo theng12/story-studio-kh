@@ -84,6 +84,7 @@ async function loadScenePlan(): Promise<Component> {
     const useGenStudioImageModels = () => ({ models: ref([]), refresh: async () => undefined })
     const useJobs = () => ({ isJobActiveFor: () => false })
     const useVisualStyleCatalog = () => ({ styles: ref([]), loading: ref(false), error: ref(null), refresh: async () => undefined })
+    const customerSafeJobText = value => String(value || '')
   `
   const content = script.content
     .replace(/^import[\s\S]*?from ['"][^'"]+['"];?\n/gm, '')
@@ -122,7 +123,7 @@ async function mountScenePlan(initialEpisode = 'EP_A') {
       if (path.endsWith('/scene-plan-opening')) return Promise.resolve({ seconds: 0, breakdown: '', unresolved: [] })
       return Promise.resolve({})
     },
-    post: async () => ({}),
+    post: (path: string, body: unknown) => ((globalThis as any).__scenePlanPost || (async () => ({})))(path, body),
     put: async () => ({}),
     del: async () => ({}),
   }
@@ -209,5 +210,61 @@ test('mounted Scene Plan keeps missing prerequisites hidden and exposes a retry 
   mounted.state.retryStatus()
   await flush()
   assert.equal(mounted.requests.filter(item => item.path.includes('/scene-plan/EP_FAIL')).length, 2)
+  mounted.unmount()
+})
+
+const twoScenePlan = () => ({
+  schema_version: 1, generated_at: '2026-09-01T00:00:00.000Z', total_duration_sec: 20, research_used: false,
+  scenes: [
+    { id: 'a', scene_index: 1, start_sec: 0, end_sec: 10, transcript_segment: 'First line.', visual_prompt: 'P1', approved: false },
+    { id: 'b', scene_index: 2, start_sec: 10, end_sec: 20, transcript_segment: 'Second line.', visual_prompt: 'P2', approved: false },
+  ],
+})
+
+async function mountWithPlan() {
+  const mounted = await mountScenePlan('EP_PLAN')
+  scenePlanRequest(mounted, '/projects/project-a/scene-plan/EP_PLAN')
+    .resolve({ audio_merged: true, audio_merge_gap_s: 1, stitched_srt: null, scene_plan: twoScenePlan() })
+  await flush()
+  return mounted
+}
+
+test('Cancel on a prompt repair asks the queue to stop the job and reports a refusal instead of claiming success', async () => {
+  const calls: string[] = []
+  ;(globalThis as any).__scenePlanPost = async (path: string) => {
+    calls.push(path)
+    throw { data: { detail: 'Only running jobs can be cancelled.' } }
+  }
+  const mounted = await mountWithPlan()
+  mounted.state.bulkReplan.value = { active: true, completed: 0, total: 2, currentSceneIndex: null, cancelRequested: false, jobId: 'job-1' }
+  await mounted.state.cancelBulkReplan()
+  assert.deepEqual(calls, ['/projects/project-a/jobs/job-1/cancel'])
+  assert.match((globalThis as any).__scenePlanErrors.at(-1), /Only running jobs can be cancelled/)
+  assert.equal(mounted.state.bulkReplan.value.cancelRequested, false, 'a refused cancel is not shown as stopping')
+  ;(globalThis as any).__scenePlanPost = async (path: string) => { calls.push(path); return { ok: true } }
+  await mounted.state.cancelBulkReplan()
+  assert.equal(mounted.state.bulkReplan.value.cancelRequested, true)
+  ;(globalThis as any).__scenePlanPost = undefined
+  mounted.unmount()
+})
+
+test('split leaves the new half pending and merge keeps the first prompt as written', async () => {
+  const mounted = await mountWithPlan()
+  mounted.state.mergeScene(1)
+  assert.equal(mounted.state.plan.value.scenes.length, 1)
+  assert.equal(mounted.state.plan.value.scenes[0].visual_prompt, 'P1')
+  mounted.state.splitScene(0)
+  const added = mounted.state.plan.value.scenes[1]
+  assert.equal(added.visual_prompt, '', 'a copied prompt would count as a duplicate')
+  assert.equal(added.transcript_segment, '')
+  mounted.unmount()
+})
+
+test('unsaved edits disable every action that reloads the plan, with a visible reason', async () => {
+  const mounted = await mountWithPlan()
+  mounted.state.markPlanDirty()
+  await flush()
+  assert.equal(mounted.state.headerPrimaryDisabled.value, true)
+  assert.match(mounted.host.textContent || '', /You have unsaved edits/)
   mounted.unmount()
 })

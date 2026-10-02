@@ -61,10 +61,14 @@
             :image-models="config?.image_models || {}"
             :image-mode="thumbnailReferenceActive ? 'img2img' : 'text2img'"
           />
-          <span class="text-muted text-xs">
-            <template v-if="thumbnailReferenceActive">Reference-guided generation · your image is used privately as a composition reference and is not sent as a public URL.</template>
-            <template v-else>Tip: Use a higher-quality model for eye-catching thumbnails</template>
-          </span>
+          <p v-if="thumbnailReferenceActive" class="reference-notice" role="status">
+            A reference thumbnail is switched on for this project, so only <strong>paid</strong> models that can use a
+            reference image are listed. Your image is used privately as a composition guide.
+            <button type="button" class="btn btn-sm btn-ghost" :disabled="clearingReference" @click="stopUsingReference">
+              {{ clearingReference ? 'Turning off…' : 'Stop using the reference' }}
+            </button>
+          </p>
+          <span v-else class="text-muted text-xs">Tip: Use a higher-quality model for eye-catching thumbnails</span>
           <!-- Prompt-character cap indicator. Surfaces the documented limit
                for the active model so users know how long their image
                prompts can be before the provider rejects/silently truncates.
@@ -74,7 +78,7 @@
                prices as though they were current, which rule 1 forbids. -->
           <span class="cap-row">
             <template v-if="activeModelCap">
-              <span class="cap-pill" :title="`Approximate provider limit for ${activeModelLabel}. Prompts over this may be rejected or silently truncated.`">
+              <span class="cap-pill" :title="`Approximate prompt length limit for ${activeModelLabel}. Longer prompts may be refused or cut short.`">
                 Prompt cap: <strong>~{{ activeModelCap.toLocaleString() }} chars</strong>
               </span>
             </template>
@@ -135,7 +139,7 @@
             <strong>Automatic</strong>
             <span>GenStudio uses {{ activeGenStudioModel.display_name }}’s recommended quality.</span>
           </div>
-          <p class="text-muted text-xs mt-1">No step setting is saved or sent by Story Studio.</p>
+          <p class="text-muted text-xs mt-1">Nothing to set here — quality is picked for you.</p>
         </div>
         <!-- `supports_seed: false` is published, so the control is not offered
              rather than accepting a value that would be silently dropped. -->
@@ -189,6 +193,24 @@
         </div>
       </div>
 
+      <!-- v1.0.416 — optional render-time guidance appended to the prompt for
+           every thumbnail rendered from this page (top button, board, rows).
+           It belongs to ONE episode, so it is never remembered or put in a
+           preset, and it is cleared (with a notice) when the episode changes. -->
+      <div class="form-group">
+        <label for="thumb-extra-details">
+          Extra details for this render <span class="text-muted text-xs">(optional — this episode only)</span>
+        </label>
+        <textarea
+          id="thumb-extra-details"
+          v-model="extraDetails"
+          class="textarea textarea-sm"
+          rows="2"
+          placeholder="e.g. push the subject closer, make the title bigger and higher-contrast, warmer lighting"
+        ></textarea>
+        <p class="text-muted text-xs mt-1">Added to every thumbnail you render on this page. Cleared when you switch episode.</p>
+      </div>
+
     </div>
 
     <!-- ── Per-tab generator panel (v1.0.87+) ─────────────────────────────
@@ -206,17 +228,12 @@
       :project-slug="slug"
       :episode-id="form.episode_id"
       :title="selectedEpisode?.title || ''"
-      :model="form.thumbnail.model"
-      :aspect-ratio="form.thumbnail.aspect_ratio"
       :generation-mode="form.thumbnail.generation_mode"
-      :tier="form.thumbnail.tier"
-      :seed="form.thumbnail.seed"
-      :render-width="thumbnailRenderSize?.width"
-      :render-height="thumbnailRenderSize?.height"
+      :prepare="prepareGeneration"
+      :paid="activeModelPaid"
       :refresh-key="igPanelRefreshKey"
       :prompt-char-cap="thumbnailModelInfo.cap"
       :model-label="thumbnailModelInfo.label"
-      :thumbnail-reference-asset="(config as any)?.thumbnail_reference_asset || null"
       :pinned-filename="pinnedThumbnailFilename"
       @open-preview="openLightboxAt"
       @refresh="onPanelRefresh"
@@ -231,8 +248,8 @@
       </h3>
       <p class="text-muted text-sm integrity-blurb">
         Check the expected {{ activePoolLabel }} against files on disk. <strong>Recover prior result(s)</strong>
-        downloads only accepted GenStudio work without charging again. Missing artwork with no saved recovery record
-        needs a fresh generation; existing files are never overwritten in missing-only mode.
+        downloads thumbnails that were already made but never saved, without charging again. Missing artwork that can't
+        be recovered needs a new render; existing files are never overwritten in missing-only mode.
       </p>
 
       <div v-if="imageStatus.loading" class="text-muted text-md">
@@ -259,8 +276,8 @@
         <button
           v-if="activeRecoverableCount > 0"
           class="btn btn-sm btn-secondary"
-                :disabled="submitting || generating"
-          :title="`Re-fetches missing ${activePoolLabel} from provider history — no credit cost. Existing files with content are skipped.`"
+          :disabled="submitting || imageJobActiveForEpisode"
+          :title="`Downloads ${activePoolLabel} that were already made but never saved — no new credits used. Existing files are kept.`"
           @click="repairMissing"
         >
           Recover prior result{{ activeRecoverableCount === 1 ? '' : 's' }} ({{ activeRecoverableCount }})
@@ -269,8 +286,8 @@
         <button
           v-if="activeFreshCount > 0"
           class="btn btn-sm btn-primary"
-          :disabled="submitting || generating"
-          :title="`Creates only the ${activeFreshCount} missing ${activePoolLabel}; existing files are skipped. This submits new provider work and may use credits.`"
+          :disabled="submitting || imageJobActiveForEpisode"
+          :title="`Makes only the ${activeFreshCount} missing ${activePoolLabel}; existing files are kept. Paid models use credits.`"
           @click="generateMissingFresh"
         >
           Generate missing fresh ({{ activeFreshCount }})
@@ -279,10 +296,13 @@
         <button class="btn btn-sm btn-ghost" :disabled="imageStatus.loading" @click="refreshImageStatus">
           Refresh
         </button>
+        <span v-if="imageJobActiveForEpisode && (activeRecoverableCount > 0 || activeFreshCount > 0)" class="text-muted text-xs">
+          A thumbnail render for this episode is running — these buttons unlock when it finishes.
+        </span>
       </div>
 
       <details v-if="activeMissingList" class="missing-detail mt-2">
-        <summary>Technical recovery details ({{ activeMissingCount }} missing)</summary>
+        <summary>Which thumbnails are missing ({{ activeMissingCount }})</summary>
         <div class="text-muted text-sm">
           Missing {{ activePoolLabel }}: {{ activeMissingList }}
         </div>
@@ -291,9 +311,9 @@
           <!-- Recovery evidence stays in the manifest; customer copy only says
                whether that evidence exists. -->
           <span v-if="item.task_id" class="repair-task-id">
-            Provider recovery record saved
+            Can be recovered for free
           </span>
-          <span v-else class="repair-task-none">No provider recovery record · fresh generation required</span>
+          <span v-else class="repair-task-none">Can't be recovered · needs a new render</span>
         </div>
       </details>
 
@@ -363,7 +383,7 @@
 </template>
 
 <script setup lang="ts">
-import { findOutputOption, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
+import { findOutputOption, outputOptionsForRatio, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
 import { CREDIT_BASIS_LABEL, describeImageUnitCost } from '../../../utils/genstudio-credit-cost.js'
 import { customerSafeJobText, jobRequestIds } from '../../../utils/job-presentation.js'
 
@@ -371,9 +391,9 @@ definePageMeta({ layout: 'dashboard' })
 
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
-const { post, get } = useApi()
+const { post, get, put } = useApi()
 const freshImagesAction = useFreshGenerationAction()
-const { config } = useProject()
+const { config, refreshConfig } = useProject()
 const {
   models: genStudioImageModels,
   refresh: refreshGenStudioImageModels,
@@ -391,7 +411,7 @@ const {
 // downstream watch / computed (cap, tier, label) continues to fire
 // unchanged because the bound value type didn't change.
 
-const { success, error: showError } = useToast()
+const { success, error: showError, info: showInfo } = useToast()
 const { thumbImageGenerating } = useGenerating()
 const { confirmGeneration } = useConfirmation()
 const { isJobActiveFor, jobs } = useJobs()
@@ -444,11 +464,36 @@ useAppTitle('Thumbnail Generator')
 
 // v1.0.259 — remember the render settings (model / aspect / tier / generation mode) across reloads.
 useRememberedForm('images', slug, form, { include: ['thumbnail'] })
+// The format's recommended ratio only seeds a form that remembered none.
+const aspectRatioRemembered = !!form.thumbnail.aspect_ratio
+
+// Render-time guidance for ONE episode. Deliberately outside `form`, so it is
+// neither remembered nor captured by a preset (AGENTS §4/§5).
+const extraDetails = ref('')
 
 // Template auto-unwraps computed refs — `activeForm.model` Just Works
 // there; script uses `activeForm.value.model`.
 const activeForm = computed<ImagesSubForm>(() => form.thumbnail)
 const thumbnailReferenceActive = computed(() => !!(config.value as any)?.thumbnail_reference_asset?.id)
+const clearingReference = ref(false)
+/** Same project setting the Thumbnail Prompts "Remove reference" button clears. */
+async function stopUsingReference(): Promise<void> {
+  if (!await useConfirm().ask({
+    title: 'Stop using the reference thumbnail?',
+    message: 'Thumbnails will be rendered from the prompt alone, and free models become available again. You can add a reference again on Thumbnail Prompts.',
+    confirmLabel: 'Stop using it',
+  })) return
+  clearingReference.value = true
+  try {
+    await put(`/projects/${slug.value}/settings/config`, { thumbnail_reference_asset: null })
+    await refreshConfig(slug.value)
+    success('Reference thumbnail switched off for this project.')
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Could not switch off the reference thumbnail')
+  } finally {
+    clearingReference.value = false
+  }
+}
 
 // Hydrate the selected episode so child components + computeds can read
 // the human-readable title (resolveEpisodePaths needs it on the prompt-
@@ -588,6 +633,8 @@ const imgPresets = computed(() => thumbnailGeneratorPresets)
  * Saved presets still override these — preset.load() runs after seeding.
  */
 async function applyImageFormatDefaultsIfNoPreset() {
+  // A remembered or preset ratio is the customer's choice; never overwrite it.
+  if (aspectRatioRemembered || thumbnailGeneratorPresets.activeId.value) return
   try {
     const f = await get<any>(`/projects/${slug.value}/effective-format`)
     const ip = f?.imagePrompts
@@ -601,11 +648,11 @@ async function applyImageFormatDefaultsIfNoPreset() {
 }
 
 onMounted(async () => {
-  await applyImageFormatDefaultsIfNoPreset()
   await Promise.all([
     thumbnailGeneratorPresets.load(),
     refreshGenStudioImageModels(),
   ])
+  await applyImageFormatDefaultsIfNoPreset()
 })
 
 // Bumped on every project/episode change so a slow read for the previous scope can tell it is stale.
@@ -626,11 +673,23 @@ watch(() => activeForm.value.generation_mode as string, mode => {
  */
 const outputOption = ref<OutputOptionChoice | null>(null)
 /** A model switch that moved the pick is announced, never applied silently. */
-function onOutputOptionSwitched(notice: string): void { showError(notice) }
+function onOutputOptionSwitched(notice: string): void { showInfo(notice) }
 // The row owns the ratio, so the submitted combination is the one on screen.
 watch(outputOption, (choice) => {
   if (choice?.aspect_ratio) activeForm.value.aspect_ratio = choice.aspect_ratio
 })
+// ...and the other way: a ratio picked from the dropdown that no longer matches
+// the chosen row clears the row, so the picker shows (and the request sends)
+// the ratio on screen rather than the old row's resolution.
+watch(() => activeForm.value.aspect_ratio, (ratio) => {
+  outputOption.value = realignOutputOption(activeGenStudioModel.value, outputOption.value, ratio)
+})
+/** Keep the same size at the newly picked ratio when published; otherwise clear the row. */
+function realignOutputOption(model: any, current: OutputOptionChoice | null, ratio: string): OutputOptionChoice | null {
+  if (!current || current.aspect_ratio === ratio) return current
+  const same = outputOptionsForRatio(model, ratio).find(row => row.resolution === current.resolution)
+  return same ? { resolution: same.resolution, aspect_ratio: same.aspect_ratio } : null
+}
 /** Live price of the current model + row. Recomputes on every selection change. */
 const imageUnitCost = computed(() => describeImageUnitCost(
   activeGenStudioModel.value,
@@ -772,7 +831,7 @@ const lastRepairJobText = computed(() => {
   const job = lastRepairJob.value
   if (!job) return ''
   if (job.status === 'queued') return 'queued'
-  if (job.status === 'running') return 'checking provider history'
+  if (job.status === 'running') return 'looking for earlier results'
   if (job.status === 'error') return job.error ? customerSafeJobText(job.error, jobRequestIds(job)) : 'failed'
   const result = job.result || {}
   const recovered = Number(result.recovered || 0)
@@ -1015,7 +1074,12 @@ async function onLightboxPinToggle(payload: { filename: string; pin: boolean }) 
 // Episode-id watcher MUST come after the editThumbs
 // declarations above — `{ immediate: true }` fires this synchronously
 // during setup, and the else-branch reads those refs. See comment above.
-watch([slug, () => form.episode_id], ([, v]) => {
+watch([slug, () => form.episode_id], ([, v], old) => {
+  // Extra render details were written for the previous episode (AGENTS §4).
+  if (old?.[1] && extraDetails.value.trim()) {
+    extraDetails.value = ''
+    showInfo('Cleared "Extra details for this render" — they were written for the previous episode.')
+  }
   lastRepairJobId.value = ''
   repairStatus.thumb = null
   // v1.4.196 — blank on the CHANGE, not only when the episode becomes empty.
@@ -1045,6 +1109,7 @@ function generationParams(forceOverride?: boolean) {
     aspect_ratio: activeForm.value.aspect_ratio,
     image_mode: thumbnailReferenceActive.value ? 'img2img' : 'text2img',
     ...(thumbnailReferenceActive.value ? { thumbnail_reference_asset: (config.value as any).thumbnail_reference_asset } : {}),
+    ...(extraDetails.value.trim() ? { extra_details: extraDetails.value.trim() } : {}),
     force,
   }
   // Forward a tier only when the active model has tiers.
@@ -1072,23 +1137,42 @@ function generationParams(forceOverride?: boolean) {
   return params
 }
 
-async function queueGeneration(forceOverride?: boolean, queuedMessage = 'Image generation queued!') {
+/** Unknown counts as paid: the confirm must never promise "free" by guessing. */
+const activeModelPaid = computed(() => activeGenStudioModel.value?.chargeable !== false)
+const regenerateAllAction = computed(() => activeModelPaid.value
+  ? 'Re-render ALL thumbnails? This replaces the existing ones and uses credits again.'
+  : 'Re-render ALL thumbnails? This replaces the existing ones. This model is free, so no credits are used.')
+
+/**
+ * The ONE request builder for every thumbnail render on this page: the top
+ * button, the board's bulk button and each row. The board adds only
+ * thumb_number / operation_id. `ask` = show the same confirmation the top
+ * button shows (rows render a single image and skip it).
+ */
+async function prepareGeneration(forceOverride?: boolean, ask = true): Promise<any | null> {
   const params = generationParams(forceOverride)
   if (!params) {
-    showError('This model has no published aspect ratios. Refresh the catalogue or choose another model before generating.')
-    return
+    showError("This model doesn't list any picture shapes yet. Refresh the model list or choose another model before generating.")
+    return null
   }
+  if (!ask) return params
   const confirmed = await confirmGeneration(slug.value, 'thumb_images', params, params.force
-    ? { action: 'Re-render ALL thumbnails? This replaces the existing ones and charges again.', always: true }
+    ? { action: regenerateAllAction.value, always: true }
     : undefined)
-  if (!confirmed) return
+  if (!confirmed) return null
   // Never replace a confirmed choice with a new model/ratio behind the dialog.
   if (activeForm.value.model !== params.model
     || activeForm.value.aspect_ratio !== params.aspect_ratio
     || !modelArs(params.model)?.includes(params.aspect_ratio)) {
-    showError('The image model or aspect ratio changed during confirmation. Review the current selection and generate again to confirm it.')
-    return
+    showError('The image model or picture shape changed during confirmation. Review the current selection and generate again to confirm it.')
+    return null
   }
+  return params
+}
+
+async function queueGeneration(forceOverride?: boolean, queuedMessage = 'Image generation queued!') {
+  const params = await prepareGeneration(forceOverride)
+  if (!params) return
   const operationId = params.force ? freshImagesAction.begin(params) : null
   if (operationId) params.operation_id = operationId
 
@@ -1130,11 +1214,11 @@ async function submit() {
 
 .required { color: var(--error); margin-left: 2px; }
 
-/* Generation Mode (M6) — three-up radio cards. Mirror of audio.vue;
+/* Generation Mode (M6) — two-up radio cards. Mirror of audio.vue;
    if more pages adopt this control later, lift to a shared component. */
 .generation-mode-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 8px;
   margin-top: 4px;
 }

@@ -13,12 +13,12 @@
             class="input input-sm tte-desc-input"
             placeholder="Short description (optional)"
           />
-          <p class="text-muted tte-subtitle"><span class="tte-pill tte-pill-fork">new template</span> saves to your library</p>
+          <p class="text-muted tte-subtitle"><span class="tte-pill tte-pill-fork">new template</span> saved as one of your own templates</p>
         </template>
         <template v-else>
           <h3 class="tte-title">{{ workingTemplate?.name || 'Loading…' }}</h3>
           <p class="text-muted tte-subtitle">
-            <span v-if="isFork" class="tte-pill tte-pill-fork">forked copy</span>
+            <span v-if="isFork" class="tte-pill tte-pill-fork">your copy</span>
             <code class="tte-mono">{{ workingTemplate?.id }}</code>
             <template v-if="dirty"> · <span class="tte-pill tte-pill-dirty">unsaved changes</span></template>
           </p>
@@ -39,9 +39,7 @@
 
     <p v-if="willFork" class="tte-fork-warn">
       <strong>This is a built-in template.</strong>
-      Saving will fork a copy to your user library at
-      <code class="tte-mono">~/Documents/Story Studio KH/.thumbnail-templates/{{ forkedId }}.json</code> —
-      the original built-in stays pristine. Future edits save to the fork.
+      Saving makes your own copy of it; the built-in stays as it is. Later edits change your copy.
     </p>
 
     <!-- Canvas -->
@@ -49,12 +47,14 @@
       <!-- Background preview image — same endpoint the gallery card uses, -->
       <!-- so the editor view matches what's saved to disk. -->
       <img
+        v-if="previewUrl"
         :src="previewUrl"
         :alt="`${workingTemplate.name} canvas`"
         class="tte-canvas-bg"
         :style="canvasInnerStyle"
         draggable="false"
       />
+      <p v-else class="tte-canvas-empty">The picture preview appears after you save this template.</p>
       <!-- Draggable zones overlaid on top -->
       <div
         v-for="(zone, idx) in workingTemplate.textZones || []"
@@ -149,15 +149,18 @@
             y={{ selectedZone.y }} +{{ selectedZone.yOffset ?? 0 }}
           </code>
         </div>
-        <div v-if="livePreviewSrc" class="tte-live-preview-wrap">
+        <div class="tte-live-preview-wrap">
           <button
             type="button"
             class="link-btn"
-            :disabled="rendering"
+            :disabled="rendering || isNew || dirty"
             @click="renderLivePreview"
           >
             {{ rendering ? 'Rendering…' : '↻ Re-render preview' }}
           </button>
+          <p class="text-muted tte-props-hint">
+            {{ isNew || dirty ? 'Save first — the preview shows the saved version, not unsaved changes.' : 'Redraws the picture from the saved template.' }}
+          </p>
         </div>
       </div>
     </div>
@@ -262,9 +265,6 @@ const canvasInnerStyle = computed(() => ({
 
 const isFork = computed(() => workingTemplate.value && !workingTemplate.value.builtin)
 const willFork = computed(() => workingTemplate.value && workingTemplate.value.builtin)
-const forkedId = computed(() =>
-  props.templateId.endsWith('-custom') ? props.templateId : `${props.templateId}-custom`,
-)
 
 // v1.0.417 — creating a brand-new template (parent passes templateId='new').
 const isNew = computed(() => props.templateId === 'new')
@@ -318,6 +318,8 @@ const previewUrl = computed(() => {
   // on disk). The re-render path is opt-in because preview generation
   // hits the server.
   if (livePreviewSrc.value) return livePreviewSrc.value
+  // A template that was never saved has no preview on the server yet.
+  if (isNew.value) return ''
   return `/api/thumbnail-templates/${encodeURIComponent(props.templateId)}/preview.png?k=${cacheKey.value}`
 })
 
@@ -471,6 +473,7 @@ async function save() {
     saving.value = true
     try {
       const r = await post<{ template: Template }>(`/thumbnail-templates`, workingTemplate.value)
+      savedJson.value = JSON.stringify(workingTemplate.value)
       toastSuccess(`Created "${r.template.name}"`)
       emit('saved', r.template.id)
     } catch (e: any) {
@@ -499,6 +502,7 @@ async function save() {
       `/thumbnail-templates/${encodeURIComponent(saveId)}`,
       payload,
     )
+    savedJson.value = JSON.stringify(workingTemplate.value)
     toastSuccess(`Saved "${r.template.name}"`)
     emit('saved', r.template.id)
   } catch (e: any) {
@@ -508,8 +512,23 @@ async function save() {
   }
 }
 
+// Leaving the page with unsaved edits asks first, same as Cancel. A brand-new
+// template is "dirty" from the start, so it only asks once something changed.
+const savedJson = ref('')
+const hasUnsavedEdits = computed(() => {
+  if (!workingTemplate.value) return false
+  if (savedJson.value && savedJson.value === JSON.stringify(workingTemplate.value)) return false
+  if (isNew.value) return JSON.stringify(workingTemplate.value) !== JSON.stringify(blankTemplate())
+  return dirty.value
+})
+onBeforeRouteLeave(async () => {
+  if (!hasUnsavedEdits.value || saving.value) return true
+  const { ask } = useConfirm()
+  return ask({ title: 'Leave without saving?', message: 'Your thumbnail template changes have not been saved.', confirmLabel: 'Leave', danger: true })
+})
+
 async function cancel() {
-  if (dirty.value) {
+  if (hasUnsavedEdits.value) {
     const { ask } = useConfirm()
     if (!await ask({ title: 'Discard changes?', message: 'Discard all unsaved thumbnail template changes?', confirmLabel: 'Discard', danger: true })) return
   }
@@ -613,6 +632,12 @@ onBeforeUnmount(() => {
   color: #f5bc42;
 }
 
+.tte-canvas-empty {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; height: 100%; margin: 0;
+  color: var(--text-muted); font-size: 13px; text-align: center;
+  background: var(--bg-tertiary);
+}
 .tte-fork-warn {
   padding: 10px 14px;
   font-size: 12px;

@@ -24,6 +24,44 @@ export interface BrollSelectionParams {
   transition_duration?: number
 }
 
+/**
+ * Clips used by the last `episodes` OTHER episodes in a usage log (oldest
+ * first). "Last N" means N distinct episodes, not N log entries — one episode
+ * writes one entry per clip, so slicing entries covered a fraction of one
+ * upload. The episode being picked is skipped so re-picking it never counts
+ * against its own window.
+ */
+export function recentlyUsedClipShas(log: BrollUsageEntry[], episodes: number, currentEpisode?: string): string[] {
+  if (!(episodes > 0) || !Array.isArray(log)) return []
+  const seen = new Set<string>()
+  const shas = new Set<string>()
+  for (let i = log.length - 1; i >= 0; i--) {
+    const entry = log[i]
+    if (!entry || entry.episode_code === currentEpisode) continue
+    if (!seen.has(entry.episode_code)) {
+      if (seen.size >= episodes) break
+      seen.add(entry.episode_code)
+    }
+    shas.add(entry.clip_sha)
+  }
+  return [...shas]
+}
+
+/** Keep only the entries of the newest `episodes` distinct episodes. */
+export function trimUsageLogToEpisodes(log: BrollUsageEntry[], episodes: number): BrollUsageEntry[] {
+  const seen = new Set<string>()
+  let start = log.length
+  for (let i = log.length - 1; i >= 0; i--) {
+    const code = log[i]!.episode_code
+    if (!seen.has(code)) {
+      if (seen.size >= episodes) break
+      seen.add(code)
+    }
+    start = i
+  }
+  return log.slice(start)
+}
+
 async function titleFor(slug: string, episodeId: string): Promise<string> {
   const ideas = await im.getIdeas(slug, 'accepted')
   return ideas.find(idea => idea.episode_code === episodeId)?.title || ''
@@ -54,7 +92,7 @@ export async function pickBrollForEpisode(slug: string, episodeId: string, param
   const clips = await bp.listClips(poolId, { includeMissing: false })
   const lookback = typeof params.broll_lookback === 'number' ? params.broll_lookback : ((config as any).broll_lookback ?? 10)
   const usage: BrollUsageEntry[] = Array.isArray((config as any).broll_usage_log) ? (config as any).broll_usage_log : []
-  const excluded = lookback > 0 ? Array.from(new Set(usage.slice(-lookback).map(entry => entry.clip_sha))) : []
+  const excluded = recentlyUsedClipShas(usage, lookback, episodeId)
   const result = selectBroll({
     pool: clips.map(clip => ({ filename: clip.filename, duration: clip.duration, sha256: clip.sha256, tags: clip.tags || [], normalized: clip.normalized, missing: clip.missing })),
     target_duration: duration,

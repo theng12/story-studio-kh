@@ -84,7 +84,8 @@
       </article>
     </div>
 
-    <div v-if="editorOpen" class="editor-backdrop" @click.self="closeEditor">
+    <!-- No close-on-backdrop-click: a stray click must not throw away typing. -->
+    <div v-if="editorOpen" class="editor-backdrop">
       <form class="character-editor" @submit.prevent="saveCharacter">
         <header class="editor-header">
           <div>
@@ -120,7 +121,7 @@
               </label>
               <label class="form-group">
                 <span>Reference image</span>
-                <small>Stored with the shared character and reused by every assigned channel.</small>
+                <small>Stored with the shared character and reused by every assigned channel. Max 5 MB. The first image is the portrait.</small>
                 <input class="input file-input" type="file" accept="image/*" @change="onReferencePicked" />
               </label>
               <div v-if="editing?.references?.images?.length" class="reference-strip">
@@ -138,6 +139,11 @@
                     <button type="button" class="btn btn-sm btn-secondary" @click="retryReferencePreview(editing, filename)">Retry preview</button>
                   </div>
                   <small class="reference-filename">{{ filename }}</small>
+                  <div class="reference-actions">
+                    <span v-if="editing.references.images[0] === filename" class="text-xs text-muted">Portrait</span>
+                    <button v-else type="button" class="btn btn-sm btn-ghost" :disabled="referenceBusy" title="Use this image as the character's portrait" @click="makePortrait(filename)">Make portrait</button>
+                    <button type="button" class="btn btn-sm btn-ghost" :disabled="referenceBusy" :title="`Delete ${filename}`" aria-label="Delete reference image" @click="removeReference(filename)">✕</button>
+                  </div>
                   <button v-if="visionModelOptions.length" type="button" class="btn btn-sm btn-secondary" :disabled="describingFrom === filename" @click="describeFromImage(filename)">
                     {{ describingFrom === filename ? 'Describing…' : 'Describe image' }}
                   </button>
@@ -224,7 +230,7 @@ useAppTitle('Channel Characters')
 const route = useRoute()
 const router = useRouter()
 const cl = useCharacterLibrary()
-const { get, post } = useApi()
+const { get, post, del } = useApi()
 const { ask } = useConfirm()
 const { success, error: showError } = useToast()
 
@@ -354,7 +360,7 @@ async function saveCharacter() {
     }
     const payload: Partial<Character> & Pick<Character, 'name' | 'description'> = {
       name: draft.name.trim(),
-      archetype: draft.archetype || undefined,
+      archetype: draft.archetype,  // '' clears the role
       description: draft.description.trim(),
       projects: [...selectedChannels.value],
       channel_profiles: profiles,
@@ -363,13 +369,20 @@ async function saveCharacter() {
     let saved = editing.value
       ? await cl.update(editing.value.id, payload)
       : await cl.create(payload)
+    // From here on this is an existing record: if the upload below fails, the
+    // next Save updates it instead of creating a duplicate.
+    editing.value = saved
+    upsertCharacter(saved)
     if (pendingReference.value) {
-      await cl.uploadReferenceImage(saved.id, pendingReference.value)
+      try {
+        await cl.uploadReferenceImage(saved.id, pendingReference.value)
+      } catch (e: any) {
+        showError(`"${saved.name}" was saved, but the image could not be added: ${e?.data?.detail || e?.message || 'upload failed'}`)
+        return
+      }
       saved = await cl.getOne(saved.id)
+      upsertCharacter(saved)
     }
-    const index = characters.value.findIndex(character => character.id === saved.id)
-    if (index >= 0) characters.value.splice(index, 1, saved)
-    else characters.value.unshift(saved)
     success(`Saved "${saved.name}"`)
     closeEditor()
   } catch (e: any) {
@@ -377,6 +390,44 @@ async function saveCharacter() {
   } finally {
     saving.value = false
   }
+}
+
+function upsertCharacter(saved: Character) {
+  const index = characters.value.findIndex(character => character.id === saved.id)
+  if (index >= 0) characters.value.splice(index, 1, saved)
+  else characters.value.unshift(saved)
+}
+
+const referenceBusy = ref(false)
+async function changeReferences(run: (target: Character) => Promise<Character>, done: string) {
+  const target = editing.value
+  if (!target || referenceBusy.value) return
+  referenceBusy.value = true
+  try {
+    const updated = await run(target)
+    if (editing.value?.id === target.id) editing.value = updated
+    upsertCharacter(updated)
+    success(done)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Reference image could not be changed')
+  } finally {
+    referenceBusy.value = false
+  }
+}
+
+async function removeReference(filename: string) {
+  if (!await ask({ title: `Delete ${filename}?`, message: 'The image is removed from this character for every channel. A copy is kept in the character’s _trash folder.', confirmLabel: 'Delete image', danger: true })) return
+  await changeReferences(
+    target => del<Character>(`/character-library/${encodeURIComponent(target.id)}/reference-image/${encodeURIComponent(filename)}`),
+    'Reference image deleted',
+  )
+}
+
+async function makePortrait(filename: string) {
+  await changeReferences(target => {
+    const images = target.references?.images || []
+    return cl.update(target.id, { references: { ...target.references, images: [filename, ...images.filter(f => f !== filename)] } })
+  }, 'Portrait updated')
 }
 
 async function deleteCharacter() {
@@ -528,6 +579,7 @@ function initials(name: string): string {
 .editor-header, .editor-footer { display: flex; align-items: center; gap: 10px; padding: 18px 22px; background: var(--bg-secondary); border-bottom: 1px solid var(--border); }.editor-header { justify-content: space-between; }.editor-header h2 { margin: 3px 0 0; }.editor-footer { border-top: 1px solid var(--border); border-bottom: 0; }.editor-spacer { flex: 1; }
 .editor-scroll { overflow-y: auto; padding: 4px 22px 22px; }.editor-section { display: grid; grid-template-columns: 46px 1fr; gap: 14px; padding: 24px 0; border-bottom: 1px solid var(--border); }.editor-section:last-child { border-bottom: 0; }.section-number { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; color: var(--accent); background: rgba(245,193,88,.11); font: 700 11px monospace; }.section-body h3 { margin: 3px 0 5px; }.section-help, .form-group small { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.5; }.field-grid, .voice-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }.form-group { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; font-size: 12px; }.file-input { padding: 8px; }
 .channel-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; margin-top: 14px; }.channel-option { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; background: var(--bg-secondary); }.channel-option.selected { border-color: var(--accent); background: rgba(245,193,88,.08); }.channel-option span, .channel-option small { display: block; }.channel-option small { color: var(--text-muted); margin-top: 2px; }
-.voice-profile-list { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }.voice-profile-card { padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-secondary); }.voice-profile-title { display: flex; justify-content: space-between; gap: 10px; }.voice-profile-title div span { display: block; color: var(--text-muted); font-size: var(--font-xs); margin-top: 2px; }.profile-state { color: var(--text-muted); font-size: var(--font-xs); text-transform: uppercase; letter-spacing: .09em; }.profile-state.ready { color: #63d995; }.voice-picker-field :deep(.voice-picker) { width: 100%; }.reference-strip { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }.reference-card { width: 132px; display: flex; flex-direction: column; gap: 6px; }.reference-strip img, .reference-preview-error { width: 132px; height: 132px; object-fit: cover; border-radius: 10px; border: 1px solid var(--border); }.reference-preview-error { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 8px; padding: 12px; background: rgba(231, 103, 103, .08); color: var(--text-muted); font-size: var(--font-xs); overflow-wrap: anywhere; }.reference-preview-error strong { color: #f08f8f; font-size: var(--font-xs); }.reference-filename { overflow: hidden; color: var(--text-muted); font-size: var(--font-xs); text-overflow: ellipsis; white-space: nowrap; }.vision-control { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px; align-items: center; margin-top: 12px; }.vision-control label { font-size: 12px; color: var(--text-muted); }
+.voice-profile-list { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }.voice-profile-card { padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-secondary); }.voice-profile-title { display: flex; justify-content: space-between; gap: 10px; }.voice-profile-title div span { display: block; color: var(--text-muted); font-size: var(--font-xs); margin-top: 2px; }.profile-state { color: var(--text-muted); font-size: var(--font-xs); text-transform: uppercase; letter-spacing: .09em; }.profile-state.ready { color: #63d995; }.voice-picker-field :deep(.voice-picker) { width: 100%; }.reference-strip { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }.reference-card { width: 132px; display: flex; flex-direction: column; gap: 6px; }.reference-strip img, .reference-preview-error { width: 132px; height: 132px; object-fit: cover; border-radius: 10px; border: 1px solid var(--border); }.reference-preview-error { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 8px; padding: 12px; background: rgba(231, 103, 103, .08); color: var(--text-muted); font-size: var(--font-xs); overflow-wrap: anywhere; }.reference-preview-error strong { color: #f08f8f; font-size: var(--font-xs); }.reference-actions { display: flex; align-items: center; gap: 6px; }
+.reference-filename { overflow: hidden; color: var(--text-muted); font-size: var(--font-xs); text-overflow: ellipsis; white-space: nowrap; }.vision-control { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px; align-items: center; margin-top: 12px; }.vision-control label { font-size: 12px; color: var(--text-muted); }
 @media (max-width: 760px) { .roster-toolbar, .field-grid, .voice-fields { grid-template-columns: 1fr; }.character-grid { grid-template-columns: 1fr; }.character-tile { grid-template-columns: 90px 1fr; }.editor-backdrop { padding: 8px; }.editor-section { grid-template-columns: 1fr; } }
 </style>

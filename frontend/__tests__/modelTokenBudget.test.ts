@@ -190,7 +190,7 @@ describe('Scene Plan workspace wiring', () => {
   test('a model without a published output ceiling stays usable and is explained', () => {
     assert.match(scenePlan, /hasSelectedPromptModel/)
     assert.match(scenePlan, /publishes no output ceiling/)
-    assert.match(scenePlan, /Story Studio omits/)
+    assert.match(scenePlan, /Story Studio sends no output limit/)
   })
 
   test('an explicit allowance on a no-ceiling model remains selected, sent, and sizes its batch', () => {

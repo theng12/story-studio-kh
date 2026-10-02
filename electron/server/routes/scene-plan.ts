@@ -1130,6 +1130,31 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
   }
 })
 
+/** Exactly the fields `services/scene-media-checkpoint.ts` writes for an image or clip. */
+const SCENE_MEDIA_FIELDS = [
+  'approved', 'image_path', 'rendered_prompt', 'image_version', 'motion_choice',
+  'clip_path', 'rendered_motion_prompt', 'clip_source_image_version',
+  'clip_requested_duration_seconds', 'clip_duration_seconds', 'clip_shortfall_mode',
+] as const
+
+/** Scene Plan edits text and timing; media on disk is authoritative for every scene id it still has. */
+export function keepSavedSceneMedia(incoming: ScenePlan, onDisk: ScenePlan | null): ScenePlan {
+  const saved = new Map((onDisk?.scenes || []).map(scene => [scene.id, scene]))
+  return {
+    ...incoming,
+    scenes: incoming.scenes.map(scene => {
+      const fresh = saved.get(scene.id)
+      if (!fresh) return scene
+      const merged: Record<string, unknown> = { ...scene }
+      for (const field of SCENE_MEDIA_FIELDS) {
+        if (fresh[field] === undefined) delete merged[field]
+        else merged[field] = fresh[field]
+      }
+      return merged as unknown as typeof scene
+    }),
+  }
+}
+
 // ── PUT /scene-plan/:ep ───────────────────────────────────────────────
 router.put('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
@@ -1146,9 +1171,14 @@ router.put('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
     const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const sidecarPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
     await fs.mkdir(path.dirname(sidecarPath), { recursive: true })
-    // A deliberate whole-document replacement from the client, not a
-    // read-modify-write — locked so it cannot land in the middle of one.
-    await withLock(sidecarPath, () => writeJsonAtomic(sidecarPath, body))
+    // A whole-document replacement from the client, locked so it cannot land in
+    // the middle of another writer. Image/clip results are owned by the render
+    // checkpoints, so for every scene that still exists the on-disk media wins:
+    // an editor opened before a render finished must not erase that render.
+    await withLock(sidecarPath, async () => {
+      const onDisk = await fs.readFile(sidecarPath, 'utf-8').then(text => JSON.parse(text) as ScenePlan, () => null)
+      await writeJsonAtomic(sidecarPath, keepSavedSceneMedia(body as ScenePlan, onDisk))
+    })
     await invalidateScenePlanStatus(slug, episodeId)
     res.json({ ok: true, sidecar_path: sidecarPath })
   } catch (e: any) {

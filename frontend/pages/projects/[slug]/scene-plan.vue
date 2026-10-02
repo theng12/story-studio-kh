@@ -14,7 +14,7 @@
     <WorkspaceHero
       eyebrow="Narration-timed workflow"
       title="Scene Plan"
-      description="Build narration timing without an LLM, then create detailed visual prompts in durable packs and add motion only when the episode needs it."
+      description="Split the narration into timed scenes (instant, no AI needed), then write a picture prompt for each scene in batches, and add motion only when the episode needs it."
     >
       <template #aside>
         <div class="workspace-metrics">
@@ -46,8 +46,8 @@
           <button
             v-if="plan?.scenes?.length"
             class="btn btn-secondary"
-            :disabled="!canPlan || planning || planJobActive"
-            :title="`${timelineBuiltLabel}. Rebuilding clears the current visual and motion prompts and asks for confirmation first.`"
+            :disabled="!canPlan || planning || planJobActive || dirty"
+            :title="dirty ? 'Save your scene edits first' : `${timelineBuiltLabel}. Rebuilding starts every scene over: new scenes, cleared prompts, and existing images and approvals no longer attached. Asks for confirmation first.`"
             @click="planScenes"
           >
             1. Rebuild timeline
@@ -100,16 +100,16 @@
       </div>
       <div v-else class="mt-2">
         <div class="text-sm text-muted">
-          Audio merged with gap = <strong>{{ status.audio_merge_gap_s }}s</strong>.
+          Audio joined with a <strong>{{ status.audio_merge_gap_s }}s</strong> pause between chapters.
           <span v-if="status.stitched_srt && subtitleTimelineComplete">
-            Stitched SRT ready:
-            <strong>{{ status.stitched_srt.meta?.total_cues ?? '?' }} cues</strong>
+            Episode subtitles ready:
+            <strong>{{ status.stitched_srt.meta?.total_cues ?? '?' }} lines</strong>
             across
-            <strong>{{ status.stitched_srt.meta?.sections?.length ?? '?' }} section(s)</strong>,
+            <strong>{{ status.stitched_srt.meta?.sections?.length ?? '?' }} chapter(s)</strong>,
             <strong>{{ status.stitched_srt.meta?.total_duration_sec?.toFixed(1) ?? '?' }}s</strong> total. ✓
           </span>
-          <span v-else-if="status.stitched_srt">Stitched SRT is incomplete.</span>
-          <span v-else>No stitched SRT yet.</span>
+          <span v-else-if="status.stitched_srt">The episode subtitles are incomplete.</span>
+          <span v-else>The chapter subtitles are not joined into one episode file yet.</span>
         </div>
         <!-- v1.0.797 — which words the planner will actually read. Whisper
              re-spells names it has never seen and invents words in silence, so
@@ -117,9 +117,9 @@
              words) whenever the two demonstrably agree. Shown rather than left
              implicit: a silent correction is one nobody can audit. -->
         <div v-if="status.transcript_source?.corrected" class="text-sm text-muted mt-2">
-          Planning reads your script's words on Whisper's timings —
-          <strong>{{ status.transcript_source.cues_rewritten ?? 0 }}</strong> cue(s) corrected,
-          <strong>{{ status.transcript_source.cues_dropped ?? 0 }}</strong> hallucinated cue(s) dropped,
+          Planning uses your script's words with the subtitle timings —
+          <strong>{{ status.transcript_source.cues_rewritten ?? 0 }}</strong> line(s) corrected,
+          <strong>{{ status.transcript_source.cues_dropped ?? 0 }}</strong> invented line(s) dropped,
           <strong>{{ status.transcript_source.cues_out ?? 0 }}</strong> of
           <strong>{{ status.transcript_source.cues_in ?? 0 }}</strong> kept. Timings are unchanged
           and your original transcript is untouched. ✓
@@ -134,7 +134,7 @@
         </div>
         <div v-if="!status.stitched_srt" class="validation-msg text-sm mt-2">
           ⚠ Stitch the subtitles first —
-          <NuxtLink :to="`/projects/${slug}/subtitles`" class="inline-link">open Subtitles → "Stitch into the timeline"</NuxtLink>.
+          <NuxtLink :to="subtitleLink()" class="inline-link">open Subtitles → "Stitch into the timeline"</NuxtLink>.
         </div>
         <div v-else-if="missingSubtitleSections.length" class="validation-msg validation-msg-strong text-sm mt-2">
           ⚠ <strong>Do not rebuild or re-plan yet.</strong>
@@ -152,17 +152,17 @@
           then transcribe or correct it and stitch again.
         </div>
         <div v-else-if="status.stitched_srt?.drifts_from_current_merge" class="validation-msg text-sm mt-2">
-          ⚠ Stitched SRT was built with a different gap
+          ⚠ The episode subtitles were joined with a different pause between chapters
           (<strong>{{ status.stitched_srt.meta?.gap_duration_s }}s</strong>)
-          than the current merge (<strong>{{ status.audio_merge_gap_s }}s</strong>) —
-          <NuxtLink :to="`/projects/${slug}/subtitles`" class="inline-link">re-stitch in Subtitles</NuxtLink>
+          than the current audio (<strong>{{ status.audio_merge_gap_s }}s</strong>) —
+          <NuxtLink :to="subtitleLink()" class="inline-link">re-stitch in Subtitles</NuxtLink>
           to fix scene-timing drift.
         </div>
         <!-- v1.0.250 — content staleness: subtitles re-transcribed after the
              last stitch. Planning now would reuse the OLD timeline. -->
         <div v-else-if="status.stitched_srt?.stale_vs_subtitles" class="validation-msg text-sm mt-2">
-          ⚠ Your subtitles were re-transcribed <strong>after</strong> the last stitch — the stitched SRT (and any plan built from it) is out of date.
-          <NuxtLink :to="`/projects/${slug}/subtitles`" class="inline-link">re-stitch in Subtitles</NuxtLink>,
+          ⚠ Your subtitles were re-transcribed <strong>after</strong> the last stitch — the episode subtitles (and any plan built from them) are out of date.
+          <NuxtLink :to="subtitleLink()" class="inline-link">re-stitch in Subtitles</NuxtLink>,
           then re-run the plan so it picks up the new audio.
         </div>
         <!-- v1.2.2 — text quality of the exact transcript the planner will read.
@@ -177,7 +177,7 @@
           consequence="Scene Plan feeds this text to the model that writes your image prompts, so garbled lines can buy wrong pictures."
         >
           <template #actions>
-            <NuxtLink :to="`/projects/${slug}/subtitles`" class="btn btn-sm">Review in Subtitles</NuxtLink>
+            <NuxtLink :to="subtitleLink()" class="btn btn-sm">Review in Subtitles</NuxtLink>
           </template>
         </SubtitleQualityWarning>
       </div>
@@ -203,7 +203,7 @@
           <p class="model-budget-note">Estimated from the limits GenStudio publishes for this model. GenStudio validates every request.</p>
           <label v-if="status?.research_available" class="scene-inline-toggle text-sm">
             <input type="checkbox" v-model="form.use_research" />
-            Include <code>research.json</code> as optional context
+            Use this episode’s research notes as optional background
           </label>
           <span v-else class="text-muted text-xs">Research context is unavailable; prompt generation continues without it.</span>
         </div>
@@ -228,7 +228,7 @@
             so fix them in Video Assembly and build the timeline again.
           </p>
           <p class="scene-setting-help">
-            Change the opening in <NuxtLink :to="`/projects/${slug}/video-assembly`">Video Assembly</NuxtLink>,
+            Change the opening in <NuxtLink :to="episodeLink('video-assembly')">Video Assembly</NuxtLink>,
             then build the timeline again. Nothing to type here — the length comes from the clips themselves.
           </p>
         </div>
@@ -255,7 +255,7 @@
             GenStudio still decides when the response ends.
           </p>
           <p v-else-if="hasSelectedPromptModel" class="scene-setting-help">
-            This model publishes no output ceiling. Story Studio omits <code>max_output_tokens</code> and uses your
+            This model publishes no output ceiling. Story Studio sends no output limit and uses your
             configured default of {{ promptBatchSizeDefault }} scenes per request; GenStudio decides when the response ends.
           </p>
           <p v-else class="scene-setting-help">Choose a prompt model to see its published output allowance and batch size.</p>
@@ -466,7 +466,7 @@
         <div class="scene-setting-card">
           <div class="scene-setting-head">
             <strong>Style and guidance</strong>
-            <NuxtLink :to="`/projects/${slug}/character-sheet`" class="link">Edit Character Sheet</NuxtLink>
+            <NuxtLink :to="episodeLink('character-sheet')" class="link">Edit Character Sheet</NuxtLink>
           </div>
           <!-- v1.2.6 — the selected look is NAMED here, not just quoted. The
                Character Sheet shows a name, a category and a preview; this page
@@ -584,7 +584,7 @@
       <div class="stage-grid mt-2">
         <div class="stage-step">
           <strong>1. Timeline</strong>
-          <span>{{ plan?.scenes?.length || 0 }} scenes · no LLM</span>
+          <span>{{ plan?.scenes?.length || 0 }} scenes · instant, no AI needed</span>
           <span class="stage-built">{{ timelineBuiltLabel }}</span>
           <span v-if="plan?.pacing" class="stage-setting">
             Saved plan: {{ pacingSummary(plan.pacing) }}
@@ -593,7 +593,7 @@
             Next build: {{ pacingSummary(continuityPacing) }}
             <a href="#visual-timing">Change</a>
           </span>
-          <button class="btn btn-secondary mt-2" :disabled="!canPlan || planning || planJobActive" @click="planScenes">
+          <button class="btn btn-secondary mt-2" :disabled="!canPlan || planning || planJobActive || dirty" @click="planScenes">
             {{ plan?.scenes?.length ? 'Rebuild timeline' : 'Build timeline' }}
           </button>
         </div>
@@ -602,28 +602,34 @@
           <span>{{ visualDoneCount }}/{{ plan?.scenes?.length || 0 }} ready</span>
           <span class="stage-setting">Full detail · 110–150 words per scene</span>
           <div class="flex gap-1 mt-2 flex-wrap">
-            <button v-if="hasSelectedPromptModel" class="btn btn-primary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !plan || !visualPendingCount || planning || planJobActive" @click="runPromptStage('visual', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
-            <button class="btn btn-secondary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !plan || !visualPendingCount || planning || planJobActive" @click="runPromptStage('visual')">All pending</button>
+            <button v-if="hasSelectedPromptModel" class="btn btn-primary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !plan || !visualPendingCount || planning || planJobActive || dirty" @click="runPromptStage('visual', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
+            <button class="btn btn-secondary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !plan || !visualPendingCount || planning || planJobActive || dirty" @click="runPromptStage('visual')">All pending</button>
           </div>
-          <small v-if="hasSelectedPromptModel">{{ effectivePromptPackSize }} scenes per GenStudio request. GenStudio queues and distributes eligible requests at your available concurrency.</small>
+          <small v-if="hasSelectedPromptModel">Sends {{ effectivePromptPackSize }} scenes per request; several requests can run at once when your account allows it.</small>
           <small v-else>Choose a prompt model to see the Next batch size. All pending remains available after a model is selected.</small>
         </div>
         <div class="stage-step" :class="{ optional: true }">
           <strong>3. Motion prompts <em>optional</em></strong>
           <span>{{ motionDoneCount }}/{{ motionTargetCount }} animated · {{ motionStillCount }} held still</span>
           <div v-if="form.generate_motion_prompts" class="flex gap-1 mt-2 flex-wrap">
-            <button v-if="hasSelectedPromptModel" class="btn btn-primary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
-            <button class="btn btn-secondary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion')">All pending</button>
+            <button v-if="hasSelectedPromptModel" class="btn btn-primary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive || dirty" @click="runPromptStage('motion', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
+            <button class="btn btn-secondary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive || dirty" @click="runPromptStage('motion')">All pending</button>
           </div>
           <small v-if="form.generate_motion_prompts && hasSelectedPromptModel">Uses the same {{ effectivePromptPackSize }}-scene request size saved for visual prompts. Held-still scenes stay valid in final assembly without an image-to-video render.</small>
           <small v-else-if="form.generate_motion_prompts">Choose a prompt model to see a model-backed Next batch size. All pending remains available after a model is selected.</small>
           <small v-else>Skipped for this project. Still images remain valid through assembly.</small>
         </div>
       </div>
+      <p v-if="dirty" class="validation-msg text-sm mt-2" role="status">
+        Save your scene edits first — generating reloads the plan, and unsaved edits would be lost.
+      </p>
+      <p v-else-if="planJobActive && !planning" class="text-muted text-sm mt-2" role="status">
+        A Scene Plan job is already running for this episode. These buttons unlock when it finishes.
+      </p>
     </WorkspaceSection>
 
     <!-- Step 3: Plan + edit -->
-    <section v-if="plan || planning" class="card workspace-section">
+    <section v-if="plan || planBusy" class="card workspace-section">
       <!-- v1.0.250 — the plan predates the current stitched SRT (you changed
            audio / re-stitched after this plan was generated). Re-run so it
            matches the new timeline. -->
@@ -634,21 +640,21 @@
            actually fixes drifted timing while KEEPING every image, prompt and
            approval is Reconcile timings, and it was the one action the banner
            did not mention. -->
-      <div v-if="status?.plan_stale_vs_stitched && !planning" class="validation-msg text-sm mb-2">
+      <div v-if="status?.plan_stale_vs_stitched && !planBusy" class="validation-msg text-sm mb-2">
         ⚠ This plan is <strong>older than the current stitched subtitles</strong> — it was built from a previous audio/timeline.
         Use <strong>🎯 Reconcile timings</strong> below: it re-times these scenes against the current subtitles and keeps
         every scene's image, prompt and approval. Rebuild the timeline only if you intend to start the scenes over —
         it renumbers them and leaves your generated images unattached.
       </div>
-      <div class="flex justify-between items-center">
+      <div class="flex justify-between items-center flex-wrap gap-2">
         <h3>3. Scenes</h3>
-        <div v-if="plan" class="flex gap-2 items-center">
+        <div v-if="plan" class="flex gap-2 items-center flex-wrap">
           <span class="text-muted text-xs">
             {{ plan.scenes.length }} scene{{ plan.scenes.length === 1 ? '' : 's' }}
             · {{ plan.total_duration_sec?.toFixed(1) ?? '?' }}s total
             <span v-if="plan.research_used">· research used</span>
           </span>
-          <button class="btn btn-sm btn-primary" :disabled="saving || !dirty" @click="savePlan">
+          <button class="btn btn-sm btn-primary" :disabled="saving || !dirty || planBusy" @click="savePlan">
             {{ saving ? 'Saving…' : (dirty ? 'Save' : 'Saved') }}
           </button>
           <Popover v-if="overlongSceneCount" placement="top">
@@ -689,7 +695,7 @@
             <button
               class="btn btn-sm btn-secondary"
               :disabled="reconciling || !!dirty"
-              :title="dirty ? 'Save your edits first' : 'Re-anchor existing scenes to current subtitles after audio or subtitle timing changed; preserves scene assets.'"
+              :title="dirty ? 'Save your edits first' : 'Line existing scenes back up with the current subtitles after the audio or subtitles changed. Keeps every image, prompt and approval.'"
               @click="reconcileTimings"
             >
               {{ reconciling ? 'Reconciling…' : '🎯 Reconcile timings' }}
@@ -703,7 +709,8 @@
           </Popover>
           <button
             class="btn btn-sm btn-danger"
-            :disabled="deleting"
+            :disabled="deleting || planBusy || bulkReplan.active"
+            :title="planBusy || bulkReplan.active ? 'Wait for the running Scene Plan job to finish' : 'Delete this episode’s scene list. Images stay on disk.'"
             @click="deletePlan"
           >
             {{ deleting ? 'Deleting…' : '✕ Delete plan' }}
@@ -711,13 +718,16 @@
         </div>
       </div>
 
-      <div v-if="planning" class="text-muted mt-2">
-        <LoadingSpinner size="sm" /> LLM is planning — typically 20-60s
-        depending on episode length + model speed. Watch the Jobs panel
-        for progress.
+      <p v-if="dirty" class="validation-msg text-sm mt-2" role="status">
+        You have unsaved edits. Save them before using ✨ Prompt only, 🛡 Reword, 🎬 Regen motion or any generate button —
+        those reload the plan and would discard the edits.
+      </p>
+      <div v-if="planBusy" class="text-muted mt-2" role="status">
+        <LoadingSpinner size="sm" /> {{ planBusyLabel }}
+        <template v-if="plan">The scenes below are read-only until it finishes.</template>
       </div>
 
-      <template v-else-if="plan">
+      <template v-if="plan">
         <div
           v-if="coverageNeedsRepair"
           class="validation-msg validation-msg-strong text-sm mt-2 coverage-warning"
@@ -774,8 +784,8 @@
             <div class="bulk-buttons" v-if="emptyPromptCount > 0">
               <button
                 class="btn btn-sm btn-primary"
-                :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || planning || bulkReplan.active"
-                :title="!form.model
+                :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || planBusy || bulkReplan.active || dirty"
+                :title="dirty ? 'Save your scene edits first' : !form.model
                   ? 'Pick a model above first'
                   : `Regenerate the ${emptyPromptCount} missing or duplicated visual prompts. Time ranges and transcripts stay unchanged.`"
                 @click="regenAllEmptyPrompts"
@@ -794,9 +804,13 @@
               ></div>
             </div>
             <div class="bulk-progress-text">
-              Repairing {{ bulkReplan.total }} prompt{{ bulkReplan.total === 1 ? '' : 's' }} in durable GenStudio packs ·
+              Repairing {{ bulkReplan.total }} prompt{{ bulkReplan.total === 1 ? '' : 's' }} in batches ·
               {{ bulkReplan.completed }}/{{ bulkReplan.total }} done
-              <button class="link-btn-danger" @click="cancelBulkReplan">Cancel</button>
+              <button
+                class="link-btn-danger"
+                :disabled="!bulkReplan.jobId || bulkReplan.cancelRequested"
+                @click="cancelBulkReplan"
+              >{{ bulkReplan.cancelRequested ? 'Stopping…' : 'Cancel' }}</button>
             </div>
           </div>
 
@@ -816,7 +830,7 @@
               Fix the missing subtitle chapters first. Prompt generation and timeline repair are paused to protect this plan.
             </template>
             <template v-else>
-              Use <strong>Prompt only</strong> for missing text prompts, or <strong>Repair long scenes</strong> for abnormal timing. Neither action uses the retired LLM boundary planner.
+              Use <strong>✨ Repair prompts</strong> (or a scene’s <strong>✨ Prompt only</strong>) for missing or duplicated prompts, and <strong>✂ Repair out-of-range scenes</strong> for scenes that are too long. Neither changes the other scenes.
             </template>
           </p>
         </div>
@@ -857,6 +871,7 @@
                 <select
                   :value="scene.scene_type || 'character'"
                   class="scene-type-select"
+                  :disabled="planBusy"
                   @change="setSceneType(scene, ($event.target as HTMLSelectElement).value)"
                 >
                   <option v-for="t in SCENE_TYPE_OPTIONS" :key="t.value" :value="t.value">{{ t.emoji }} {{ t.label }}</option>
@@ -870,6 +885,7 @@
                 v-model="scene.transcript_segment"
                 class="textarea scene-textarea"
                 rows="2"
+                :readonly="planBusy"
                 @input="markPlanDirty"
               />
             </div>
@@ -892,6 +908,7 @@
                 v-model="scene.visual_prompt"
                 class="textarea scene-textarea"
                 rows="2"
+                :readonly="planBusy"
                 @input="markPlanDirty"
               />
               <p v-if="scenePromptLength(scene).overCap" class="prompt-cap-notice">
@@ -908,18 +925,19 @@
                 v-model="scene.motion_prompt"
                 class="textarea scene-textarea"
                 rows="2"
+                :readonly="planBusy"
                 placeholder="e.g. Slow push-in as mist drifts across the valley; the lantern flame flickers gently."
                 @input="markPlanDirty"
                 @blur="saveMotionPrompt(scene)"
               />
               <button
                 class="btn-icon mt-1"
-                :disabled="scenePlanGenerationUnavailable || !form.model || regenMotionId === scene.id || planning || !scene.visual_prompt?.trim()"
-                :title="!form.model
+                :disabled="scenePlanGenerationUnavailable || !form.model || regenMotionId === scene.id || planBusy || dirty || !scene.visual_prompt?.trim()"
+                :title="dirty ? 'Save your scene edits first' : planBusy ? 'Wait for the running Scene Plan job to finish' : !form.model
                   ? 'Pick a model above first'
                   : !scene.visual_prompt?.trim()
                     ? 'Write the visual prompt first — the motion prompt animates that image'
-                    : 'Regenerate this scene\'s motion prompt with the LLM (visual prompt + timing untouched)'"
+                    : 'Write a new motion prompt for this scene (picture prompt and timing stay the same)'"
                 @click="regenMotionPrompt(scene)"
               >{{ regenMotionId === scene.id ? '⏳ Motion…' : '🎬 Regen motion' }}</button>
             </div>
@@ -932,20 +950,20 @@
               >Fix subtitles first</NuxtLink>
               <button
                 class="btn-icon"
-                :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || regenPromptId === scene.id || planning || bulkReplan.active || !scene.transcript_segment?.trim()"
-                :title="!subtitleTimelineComplete
+                :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || regenPromptId === scene.id || planBusy || bulkReplan.active || dirty || !scene.transcript_segment?.trim()"
+                :title="dirty ? 'Save your scene edits first' : planBusy ? 'Wait for the running Scene Plan job to finish' : !subtitleTimelineComplete
                   ? 'Complete the subtitle timeline first'
                   : !form.model
                   ? 'Pick a model above first'
                   : !scene.transcript_segment?.trim()
-                    ? 'Scene has no transcript_segment — fill that in first'
+                    ? 'This scene has no narration text — fill in the transcript first'
                     : 'Regenerate only the visual prompt; the deterministic time range and transcript stay unchanged.'"
                 @click="regenerateScenePrompt(scene)"
               >{{ regenPromptId === scene.id && !rewordingPrompt ? '⏳ Regenerating…' : '✨ Prompt only' }}</button>
               <button
                 class="btn-icon"
-                :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || regenPromptId === scene.id || planning || bulkReplan.active || !scene.transcript_segment?.trim() || !scene.visual_prompt?.trim()"
-                :title="!scene.visual_prompt?.trim()
+                :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || regenPromptId === scene.id || planBusy || bulkReplan.active || dirty || !scene.transcript_segment?.trim() || !scene.visual_prompt?.trim()"
+                :title="dirty ? 'Save your scene edits first' : planBusy ? 'Wait for the running Scene Plan job to finish' : !scene.visual_prompt?.trim()
                   ? 'Nothing to reword yet — write or generate the prompt first.'
                   : !form.model
                     ? 'Pick a model above first'
@@ -954,18 +972,19 @@
               >{{ regenPromptId === scene.id && rewordingPrompt ? '⏳ Rewording…' : '🛡 Reword' }}</button>
               <button
                 class="btn-icon"
-                :disabled="i === 0"
-                title="Merge into previous scene"
+                :disabled="i === 0 || planBusy"
+                title="Merge into previous scene (keeps the previous scene’s picture prompt)"
                 @click="mergeScene(i)"
               >▲ Merge up</button>
               <button
                 class="btn-icon"
-                :disabled="sceneOverlapsMissingSubtitles(scene) || (scene.end_sec - scene.start_sec) < 6"
+                :disabled="planBusy || sceneOverlapsMissingSubtitles(scene) || (scene.end_sec - scene.start_sec) < 6"
                 :title="sceneOverlapsMissingSubtitles(scene) ? 'Fix missing subtitles first; splitting now would still have no narration text' : 'Split this scene in half (min 6s)'"
                 @click="splitScene(i)"
               >✂ Split</button>
               <button
                 class="btn-icon danger"
+                :disabled="planBusy"
                 title="Remove this scene (the next scene extends to fill the gap)"
                 @click="removeScene(i)"
               >✕ Remove</button>
@@ -1060,6 +1079,7 @@ import {
 } from '../../../utils/prompt-char-cap.js'
 import { readRememberedImageModelId } from '../../../utils/project-image-model.js'
 import { composeScenePlanGuidance } from '../../../utils/scene-plan-guidance.js'
+import { customerSafeJobText } from '../../../utils/job-presentation.js'
 import { DEFAULT_EXCLUDE_KEYS } from '~/composables/usePresets'
 import { useVisualStyleCatalog } from '~/composables/useVisualStyleCatalog'
 import { pacingBandAt, type ScenePacing } from '@shared/pacing'
@@ -1464,6 +1484,8 @@ const renderedScenes = computed(() => (plan.value?.scenes || []).slice(0, render
 let sceneLoadObserver: IntersectionObserver | null = null
 let loadedPlanEpisode = ''
 let statusLoadSequence = 0
+/** Stops background polls once the page is gone. */
+let pageUnmounted = false
 let continuityLoadSequence = 0
 
 function markPlanDirty(): void {
@@ -1571,6 +1593,12 @@ function subtitleLink(section?: string): string {
   if (section) query.set('section', section)
   return `/projects/${slug.value}/subtitles?${query.toString()}`
 }
+/** Keep the open episode selected on the destination page. */
+function episodeLink(page: string): string {
+  return episodeId.value
+    ? `/projects/${slug.value}/${page}?episode_id=${encodeURIComponent(episodeId.value)}`
+    : `/projects/${slug.value}/${page}`
+}
 function refusedChapterMessage(chapter: NonNullable<NonNullable<ScenePlanStatus['transcript_source']>['refused_chapters']>[number]): string {
   if (chapter.reason_code === 'unmapped_section') {
     return `${chapter.slug} could not be mapped to a numbered script chapter; it keeps Whisper's words.`
@@ -1592,6 +1620,16 @@ const planning = computed(() => planningEpisode.value === episodeId.value)
 // `planning` ref doesn't survive one). See useJobs.isJobActiveFor.
 const { isJobActiveFor } = useJobs()
 const planJobActive = computed(() => isJobActiveFor(episodeId.value, ['scene_plan_run']))
+/** Any Scene Plan job for this episode: the scene list stays visible but read-only. */
+const planBusy = computed(() => planning.value || planJobActive.value)
+/** Which stage this page started, so the progress line names it. */
+const planningStage = ref<'timeline' | 'visual' | 'motion' | null>(null)
+const planBusyLabel = computed(() => {
+  if (planning.value && planningStage.value === 'timeline') return 'Building the timeline from your subtitles — usually a few seconds.'
+  if (planning.value && planningStage.value === 'visual') return 'Writing picture prompts in batches — progress is on the Jobs page.'
+  if (planning.value && planningStage.value === 'motion') return 'Writing motion prompts in batches — progress is on the Jobs page.'
+  return 'A Scene Plan job is running for this episode — progress is on the Jobs page.'
+})
 const saving = ref(false)
 const deleting = ref(false)
 
@@ -2239,6 +2277,7 @@ const headerPrimaryDisabled = computed(() => {
   if (episodeVisualSource.value !== 'scene_plan') return true
   if (headerPrimaryStage.value !== 'visual' && visualSettingsError.value) return true
   if (headerPrimaryStage.value === 'ready') return true
+  if (dirty.value) return true
   if (headerPrimaryStage.value === 'timeline') return !canPlan.value
   return !!subtitleTimelineBlocker.value || !form.value.model || !plan.value
 })
@@ -2249,6 +2288,7 @@ const headerPrimaryStatus = computed(() => {
   if (!status.value) return 'Episode readiness is unavailable. Retry to continue.'
   if (episodeVisualSource.value !== 'scene_plan') return visualSourceError.value || 'Image Pool visuals are configured in Video Assembly. Saved Scene Plan assets remain here.'
   if (planning.value || planJobActive.value) return `Scene Plan is working on ${episodeId.value}…`
+  if (dirty.value && headerPrimaryStage.value !== 'ready') return 'Save your scene edits first — generating reloads the plan.'
   if (headerPrimaryStage.value === 'timeline') return canPlan.value ? '' : planDisabledReason.value
   if (subtitleTimelineBlocker.value) return subtitleTimelineBlocker.value
   if (!form.value.model) return 'Choose the visual and motion prompt model first'
@@ -2323,20 +2363,23 @@ async function planScenes(): Promise<void> {
   if (!canPlan.value) return
   if (plan.value?.scenes?.length) {
     const ok = await ask({
-      title: 'Rebuild the scene timeline?',
-      message: `${timelineBuiltLabel.value}. This recalculates all ${plan.value.scenes.length} scene windows from the stitched subtitles and clears their current visual and motion prompts. Existing image files are not deleted, but changed scene IDs may no longer match them.`,
-      confirmLabel: 'Rebuild timeline',
+      title: 'Start every scene over?',
+      message: `${timelineBuiltLabel.value}. Rebuilding replaces all ${plan.value.scenes.length} scenes with new ones: every visual and motion prompt is cleared, and the images and approvals you already have will no longer be attached to any scene (the image files stay on disk). `
+        + 'If the audio or subtitles only shifted, use 🎯 Reconcile timings instead — it keeps every image, prompt and approval.',
+      confirmLabel: 'Rebuild and start over',
+      danger: true,
     })
     if (!ok) return
   }
   const ep = episodeId.value
   planningEpisode.value = ep
+  planningStage.value = 'timeline'
   try {
     // No opening fields travel with the request any more — the backend probes
     // the project's real opening clips instead. See `refreshMeasuredOpening`.
-    await post(`/projects/${slug.value}/scene-plan/${ep}/run`, { stage: 'timeline' })
-    success('Timeline build queued — no LLM call is needed')
-    await pollUntilPlanLanded(ep)
+    const job = await post<{ job_id?: string }>(`/projects/${slug.value}/scene-plan/${ep}/run`, { stage: 'timeline' })
+    success('Timeline build started — no AI is needed for this step.')
+    await pollUntilPlanLanded(ep, { trackJobId: job?.job_id || null })
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to start planner')
   } finally {
@@ -2353,6 +2396,7 @@ async function runPromptStage(stage: 'visual' | 'motion', promptLimit?: number):
   if (!form.value.model || !plan.value) return
   const ep = episodeId.value
   planningEpisode.value = ep
+  planningStage.value = stage
   const previousGeneratedAt = plan.value.generated_at || null
   try {
     const job = await post<{ job_id?: string }>(`/projects/${slug.value}/scene-plan/${ep}/run`, {
@@ -2373,7 +2417,7 @@ async function runPromptStage(stage: 'visual' | 'motion', promptLimit?: number):
       custom_instructions: composeScenePlanGuidance(form.value.custom_instructions, form.value.reusable_guidance),
       avoid_legible_text: form.value.avoid_legible_text,
     })
-    success(`${stage === 'visual' ? 'Visual' : 'Motion'} prompt packs queued — watch progress in Jobs.`)
+    success(`${stage === 'visual' ? 'Picture' : 'Motion'} prompts started — progress is on the Jobs page.`)
     await pollUntilPlanLanded(ep, { previousGeneratedAt, timeoutMs: 3_600_000, trackJobId: job?.job_id || null })
   } catch (e: any) {
     await reportGenerationError(e, `Failed to start ${stage} prompt stage`)
@@ -2382,10 +2426,11 @@ async function runPromptStage(stage: 'visual' | 'motion', promptLimit?: number):
   }
 }
 
+/** Returns the tracked job's final status ('done' | 'error' | 'cancelled'), or null when untracked/abandoned. */
 async function pollUntilPlanLanded(
   ep: string,
   opts?: { previousGeneratedAt?: string | null; timeoutMs?: number; trackJobId?: string | null },
-): Promise<void> {
+): Promise<string | null> {
   const start = Date.now()
   // v1.0.458 — bulk parallel regen is one long job, so callers can extend the
   // deadline past the 120s default; trackJobId drives the progress bar and
@@ -2405,20 +2450,23 @@ async function pollUntilPlanLanded(
   const prev = opts?.previousGeneratedAt ?? null
   while (Date.now() - start < timeoutMs) {
     await new Promise(r => setTimeout(r, 3000))
-    if (episodeId.value !== ep) return  // switched away — stop; the new episode's own load owns its state
+    if (pageUnmounted || episodeId.value !== ep) return null  // left the page or switched episode — the new view owns its state
     // v1.0.458 — drive the bulk progress bar from the job's % and bail early
     // if the job terminated (error/cancelled) instead of waiting for the
     // generated_at advance that will never come.
     if (trackJobId) {
       try {
-        const j = await get<{ status: string; progress?: number }>(`/projects/${slug.value}/jobs/${trackJobId}`)
+        const j = await get<{ status: string; progress?: number; error?: string | null }>(`/projects/${slug.value}/jobs/${trackJobId}`)
         if (j && typeof j.progress === 'number' && bulkReplan.value.active && bulkReplan.value.total > 0) {
           const frac = Math.max(0, Math.min(1, (j.progress - 10) / 85))
           bulkReplan.value.completed = Math.round(bulkReplan.value.total * frac)
         }
         if (j && (j.status === 'done' || j.status === 'error' || j.status === 'cancelled')) {
           await loadStatus()
-          return
+          if (j.status === 'error' && episodeId.value === ep) {
+            showError(customerSafeJobText(j.error || 'The Scene Plan job failed. Open the Jobs page for details.', [trackJobId]))
+          }
+          return j.status
         }
       } catch { /* transient job-poll error — keep waiting on generated_at */ }
     }
@@ -2429,14 +2477,15 @@ async function pollUntilPlanLanded(
     if (!trackJobId && plan.value && plan.value.generated_at) {
       if (prev !== null) {
         // Wait specifically for generated_at to advance past `prev`.
-        if (plan.value.generated_at !== prev) return
+        if (plan.value.generated_at !== prev) return null
       } else {
         const generated = new Date(plan.value.generated_at).getTime()
-        if (Date.now() - generated < timeoutMs) return
+        if (Date.now() - generated < timeoutMs) return null
       }
     }
   }
-  if (episodeId.value === ep) showError('Scene planner taking longer than expected — check the Jobs panel.')
+  if (!pageUnmounted && episodeId.value === ep) showError('Scene Plan is taking longer than expected — check the Jobs page.')
+  return null
 }
 
 // ── Plan health + deterministic repair guidance ─────────────────────────
@@ -2473,7 +2522,7 @@ async function regenerateScenePrompt(scene: ScenePlanEntry, opts: { reword?: boo
   if (scenePlanGenerationUnavailable.value) return
   if (!subtitleTimelineComplete.value) { showError('Complete and stitch every subtitle chapter first.'); return }
   if (!form.value.model) { showError('Pick a model above first'); return }
-  if (!scene.transcript_segment?.trim()) { showError('Scene has no transcript_segment to base a prompt on.'); return }
+  if (!scene.transcript_segment?.trim()) { showError('This scene has no narration text to base a prompt on — fill in its transcript first.'); return }
   if (opts.reword && !scene.visual_prompt?.trim()) {
     showError('Nothing to reword yet — write or generate this scene\'s prompt first.')
     return
@@ -2494,15 +2543,15 @@ async function regenerateScenePrompt(scene: ScenePlanEntry, opts: { reword?: boo
   }
   const operationId = freshScenePromptAction.begin(payload, `visual:${scene.id}`)
   try {
-    await post(`/projects/${slug.value}/scene-plan/${ep}/regenerate-prompt`, {
+    const job = await post<{ job_id?: string }>(`/projects/${slug.value}/scene-plan/${ep}/regenerate-prompt`, {
       ...payload,
       operation_id: operationId,
     })
     freshScenePromptAction.complete(operationId)
     success(opts.reword
-      ? 'Reword queued — the same beat from a different angle; the prompt updates when it lands.'
-      : 'Regen queued — watch the Jobs panel; the prompt updates when it lands.')
-    await pollUntilPlanLanded(ep, { previousGeneratedAt })
+      ? 'Reword started — the same moment from a different angle; the prompt updates when it is ready.'
+      : 'New prompt started — it updates here when it is ready.')
+    await pollUntilPlanLanded(ep, { previousGeneratedAt, trackJobId: job?.job_id || null })
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || `Failed to start prompt ${opts.reword ? 'reword' : 'regen'}`)
   } finally {
@@ -2552,13 +2601,13 @@ async function regenMotionPrompt(scene: ScenePlanEntry): Promise<void> {
   }
   const operationId = freshScenePromptAction.begin(payload, `motion:${scene.id}`)
   try {
-    await post(`/projects/${slug.value}/scene-plan/${ep}/regenerate-motion-prompt`, {
+    const job = await post<{ job_id?: string }>(`/projects/${slug.value}/scene-plan/${ep}/regenerate-motion-prompt`, {
       ...payload,
       operation_id: operationId,
     })
     freshScenePromptAction.complete(operationId)
-    success('Motion regen queued — the prompt updates when the job lands.')
-    await pollUntilPlanLanded(ep, { previousGeneratedAt })
+    success('New motion prompt started — it updates here when it is ready.')
+    await pollUntilPlanLanded(ep, { previousGeneratedAt, trackJobId: job?.job_id || null })
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to start motion regen')
   } finally {
@@ -2583,9 +2632,8 @@ async function regenAllEmptyPrompts(): Promise<void> {
   const ok = await ask({
     title: `Repair ${empty.length} visual prompt${empty.length === 1 ? '' : 's'}?`,
     message:
-      `Rewrites only missing or duplicated visual prompts in packs of up to ${effectivePromptPackSize.value} scenes per GenStudio request. `
-      + `Time boundaries, transcripts, and completed prompts stay exactly as-is.`
-      + `${dirty.value ? ' Unsaved edits to the plan will be discarded first.' : ''}`,
+      `Rewrites only missing or duplicated visual prompts, up to ${effectivePromptPackSize.value} scenes per request. `
+      + `Scene timings, narration text, and finished prompts stay exactly as they are.`,
     confirmLabel: `Repair all ${empty.length}`,
   })
   if (!ok) return
@@ -2611,27 +2659,28 @@ async function regenAllEmptyPrompts(): Promise<void> {
       avoid_legible_text: form.value.avoid_legible_text,
     })
     bulkReplan.value.jobId = job?.job_id || null
-    success('Prompt repair queued in durable GenStudio packs. Watch the Jobs panel for detail.')
+    success('Prompt repair started in batches — finished prompts are saved as each batch completes. Progress is on the Jobs page.')
     // One long job: extend the deadline well past the 120s default and let the
     // job's % drive the progress bar.
-    await pollUntilPlanLanded(ep, { previousGeneratedAt, timeoutMs: 1_800_000, trackJobId: job?.job_id || null })
-    if (episodeId.value !== ep) return  // user switched episodes mid-run
+    const finalStatus = await pollUntilPlanLanded(ep, { previousGeneratedAt, timeoutMs: 1_800_000, trackJobId: job?.job_id || null })
+    if (pageUnmounted || episodeId.value !== ep) return  // left the page or switched episodes mid-run
+    if (finalStatus === 'error') return  // the job's own error was already shown
 
     const stillEmpty = (plan.value?.scenes || []).filter(
       s => (!s.visual_prompt || !s.visual_prompt.trim()) && (s.transcript_segment && s.transcript_segment.trim()),
     ).length
     const filled = Math.max(0, empty.length - stillEmpty)
-    if (bulkReplan.value.cancelRequested) {
-      success(`Bulk regen cancelled. Filled ${filled} of ${empty.length} before stopping.`)
+    if (finalStatus === 'cancelled') {
+      success(`Prompt repair stopped. Filled ${filled} of ${empty.length} before stopping.`)
     } else if (stillEmpty > 0 && filled > 0) {
-      success(`Bulk regen finished. Filled ${filled}, ${stillEmpty} still empty. Re-run the button to retry, or fill the rest in manually.`)
+      success(`Prompt repair finished. Filled ${filled}, ${stillEmpty} still empty. Press Repair again to retry, or fill the rest in manually.`)
     } else if (stillEmpty > 0 && filled === 0) {
-      showError('Bulk regen finished with 0 prompts filled. Choose another available GenStudio model and retry.')
+      showError('Prompt repair finished with 0 prompts filled. Choose another available model and retry.')
     } else {
       success(`Regenerated ${filled} visual prompt${filled === 1 ? '' : 's'} across your pool.`)
     }
   } catch (e: any) {
-    await reportGenerationError(e, 'Failed to start bulk regen')
+    await reportGenerationError(e, 'Could not start the prompt repair')
   } finally {
     bulkReplan.value = { active: false, completed: 0, total: 0, currentSceneIndex: null, cancelRequested: false, jobId: null }
   }
@@ -2648,14 +2697,17 @@ const bulkReplan = ref<{
   jobId?: string | null
 }>({ active: false, completed: 0, total: 0, currentSceneIndex: null, cancelRequested: false })
 
-function cancelBulkReplan(): void {
-  if (!bulkReplan.value.active) return
-  bulkReplan.value.cancelRequested = true
-  // The packed repair is one backend job. Cancelling the frontend poll alone
-  // would leave it running, so tell the server to stop between packs.
+async function cancelBulkReplan(): Promise<void> {
   const jobId = bulkReplan.value.jobId
-  if (jobId) {
-    void del(`/projects/${slug.value}/jobs/${jobId}`).catch(() => { /* already finished — harmless */ })
+  if (!bulkReplan.value.active || !jobId || bulkReplan.value.cancelRequested) return
+  bulkReplan.value.cancelRequested = true
+  // The packed repair is one backend job; ask the queue to stop it. The
+  // "stopped" message is shown only once the job itself reports cancelled.
+  try {
+    await post(`/projects/${slug.value}/jobs/${jobId}/cancel`, {})
+  } catch (e: any) {
+    bulkReplan.value.cancelRequested = false
+    showError(customerSafeJobText(e?.data?.detail || e?.message || 'Could not stop the prompt repair. Try again from the Jobs page.', [jobId]))
   }
 }
 
@@ -2699,6 +2751,7 @@ watch(sceneLoadSentinel, (next, previous) => {
   if (next) sceneLoadObserver.observe(next)
 })
 onUnmounted(() => {
+  pageUnmounted = true
   const el = getScrollContainer()
   if (el) el.removeEventListener('scroll', onScroll)
   sceneLoadObserver?.disconnect()
@@ -2791,7 +2844,7 @@ async function reconcileTimings(): Promise<void> {
       changes: string[]
     }>(`/projects/${slug.value}/scene-plan/${episodeId.value}/reconcile-timings`, {})
     const warn = r.unmatched_ids.length ? ` (${r.unmatched_ids.length} interpolated — spot-check them)` : ''
-    success(`Re-anchored ${r.matched}/${r.total} scene(s) to the subtitles${warn}. ${r.changes.join(' ')}`)
+    success(`Lined up ${r.matched}/${r.total} scene(s) with the subtitles${warn}. ${r.changes.join(' ')}`)
     await loadStatus()
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to reconcile timings')
@@ -2820,7 +2873,7 @@ async function deletePlan(): Promise<void> {
   if (!episodeId.value) return
   const ok = await ask({
     title: 'Delete scene plan?',
-    message: 'Removes scene_plan.json from the "03 Scene Prompts" folder. Generated images are NOT deleted — only the planning data.',
+    message: 'Deletes this episode’s scene list, timings and prompts. Generated images stay on disk but will no longer be attached to any scene.',
     confirmLabel: 'Delete',
     danger: true,
   })
@@ -2848,7 +2901,8 @@ function mergeScene(i: number): void {
   const cur = plan.value.scenes[i]!
   prev.end_sec = cur.end_sec
   prev.transcript_segment = `${prev.transcript_segment} ${cur.transcript_segment}`.trim()
-  prev.visual_prompt = `${prev.visual_prompt} (merged with: ${cur.visual_prompt})`
+  // Keep the first scene's prompt as-is; a joined "A (merged with: B)" string
+  // is never a usable picture prompt.
   plan.value.scenes.splice(i, 1)
   markPlanDirty()
 }
@@ -2862,8 +2916,9 @@ function splitScene(i: number): void {
     scene_index: 0,  // re-stamped on save
     start_sec: midpoint,
     end_sec: cur.end_sec,
-    transcript_segment: '(split — paste the second half here)',
-    visual_prompt: cur.visual_prompt,
+    transcript_segment: '',
+    // Pending, not a copy: an identical prompt counts as a duplicate to repair.
+    visual_prompt: '',
     approved: false,
   }
   cur.end_sec = midpoint

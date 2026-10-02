@@ -51,6 +51,8 @@ async function loadSceneReview(): Promise<Component> {
     const describeImageUnitCost = () => ({ basis: 'unpublished', text: 'Not published', title: '' })
     const CREDIT_BASIS_LABEL = { unpublished: 'Credit cost' }
     const findGenStudioProduct = () => null
+    const customerSafeJobText = (value) => String(value || '')
+    const jobRequestIds = () => []
   `
   const content = script.content
     .replace(/^import[\s\S]*?from ['"][^'"]+['"];?\n/gm, '')
@@ -91,7 +93,7 @@ async function mount(jobs: JobFixture[]) {
   ;(globalThis as any).__sceneReviewAsk = () => new Promise<boolean>(resolve => { resolveConfirm = resolve })
   ;(globalThis as any).__sceneReviewApi = {
     get: async () => ({ scene_plan: null, scenes: [], audio_path: null, stats: null, render_status: null }),
-    post: async (path: string, body: any) => { calls.push({ path, body }); return { queued: 1, skipped: 0 } },
+    post: async (path: string, body: any) => { calls.push({ path, body }); return { queued: 1, skipped: 0, job_id: 'posted-job' } },
     put: async () => ({}),
   }
   const Page = await loadSceneReview()
@@ -155,7 +157,7 @@ test('mounted Scene Review can finish a valid missing scene when only a saved sc
   ]
   mounted.state.form.value.model = 'published-image-model'
   assert.equal(mounted.state.canBulkGenerate.value, true)
-  assert.match(mounted.state.bulkStatus.value, /completed images are preserved/i)
+  assert.match(mounted.state.bulkStatus.value, /images already made first/i)
   mounted.unmount()
 })
 
@@ -186,5 +188,47 @@ test('mounted Scene Review names only the exact recovery target as queued for re
   }])
   assert.equal(mounted.host.querySelector('#queued-target')?.textContent, 'Queued for repair')
   assert.equal(mounted.host.querySelector('#queued-other')?.textContent, 'Another repair is queued')
+  mounted.unmount()
+})
+
+test('one bad prompt elsewhere does not block regenerating a different scene', async () => {
+  const mounted = await mount([{ job_id: 'posted-job', type: 'scene_image_generate', episode_id: 'EP0001', status: 'done', created_at: '2026-09-06T10:00:00.000Z' }])
+  mounted.state.subtitleIntegrity.value = { complete: true, missing_sections: [] }
+  mounted.state.promptIntegrity.value = { complete: false, empty_ids: ['bad-scene'], duplicate_ids: [] }
+  mounted.state.scenes.value = [
+    { id: 'bad-scene', scene_index: 1, visual_prompt: '', image_filename: 'a.png', image_version: '1-1' },
+    { id: 'good-scene', scene_index: 2, visual_prompt: 'A lantern on the sea', image_filename: 'b.png', image_version: '1-1' },
+  ]
+  mounted.state.form.value.model = 'published-image-model'
+
+  await mounted.state.generateOne(mounted.state.scenes.value[0])
+  assert.equal(mounted.calls.length, 0, 'the scene with no prompt is refused')
+  assert.match((globalThis as any).__sceneReviewErrors.at(-1), /Scene #1 has a missing or duplicated prompt/)
+
+  await mounted.state.generateOne(mounted.state.scenes.value[1])
+  assert.equal(mounted.calls.length, 1, 'a valid scene renders even though another scene has a bad prompt')
+  assert.equal(mounted.calls[0].path, '/projects/fixture-project/scene-review/EP0001/generate-image')
+  assert.equal(mounted.calls[0].body.scene_id, 'good-scene')
+  mounted.unmount()
+})
+
+test('the newest failed image job is surfaced until a newer job replaces it', async () => {
+  const failed = { job_id: 'failed', type: 'scene_image_generate', episode_id: 'EP0001', status: 'error', created_at: '2026-09-06T10:00:00.000Z', error: 'GenStudio refused the prompt.' }
+  const mounted = await mount([failed])
+  assert.equal(mounted.state.failedRenderJob.value?.job_id, 'failed')
+  assert.match(mounted.state.failedRenderMessage.value, /GenStudio refused the prompt/)
+  await mounted.state.retryFailedRender()
+  assert.equal(mounted.calls.at(-1)?.path, '/projects/fixture-project/jobs/failed/retry')
+  mounted.jobs.value = [failed, { ...failed, job_id: 'later', status: 'done', created_at: '2026-09-06T11:00:00.000Z' }]
+  assert.equal(mounted.state.failedRenderJob.value, null)
+  mounted.unmount()
+})
+
+test('Check again re-reads the uncertain job in place instead of ordering a replacement', async () => {
+  const mounted = await mount([manual({ params: { manual_image_finish: { uncertain_scene_ids: ['scene-unknown'] } } })])
+  await mounted.state.checkUncertainAgain()
+  assert.equal(mounted.calls.length, 1)
+  assert.equal(mounted.calls[0].path, '/projects/fixture-project/jobs/job-manual/finish-missing-images')
+  assert.deepEqual(mounted.calls[0].body, {})
   mounted.unmount()
 })

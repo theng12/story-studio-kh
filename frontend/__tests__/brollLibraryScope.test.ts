@@ -119,3 +119,41 @@ for (const media of ['image', 'audio']) {
     }finally{f.dispose()}
   })
 }
+
+test('refreshing clips after a finished job keeps the grid on screen', async()=>{
+  const later=deferred<any>();let calls=0
+  const f=await mount({listClips:async()=>(++calls===1?{clips:[{filename:'A.png'}]}:later.promise)})
+  try {
+    const run=f.state.loadClips();await nextTick()
+    assert.equal(f.state.clipsLoading.value,false,'no "Loading clips…" while clips are shown')
+    assert.equal(f.state.clips.value[0].filename,'A.png')
+    later.resolve({clips:[{filename:'A.png',normalized:true}]});await run
+    assert.equal(f.state.clips.value[0].normalized,true)
+  }finally{f.dispose()}
+})
+
+test('Normalize all asks first, naming how many clips', async()=>{
+  const calls:string[]=[];const asked:any[]=[]
+  const f=await mount({listClips:async()=>({clips:[{filename:'a.mp4'},{filename:'b.mp4'}]}),normalizeAll:async()=>{calls.push('all');return {queued:2}}})
+  try {
+    ;(globalThis as any).__brollFixture.ask=async(o:any)=>{asked.push(o);return false}
+    await f.state.runNormalizeAll()
+    assert.match(asked[0].title,/Normalize 2 clips/)
+    assert.deepEqual(calls,[])
+    ;(globalThis as any).__brollFixture.ask=async()=>true
+    await f.state.runNormalizeAll()
+    assert.deepEqual(calls,['all'])
+  }finally{f.dispose()}
+})
+
+test('large pools render 120 clips at a time and can be filtered', async()=>{
+  const many=Array.from({length:300},(_,i)=>({filename:`clip${i}.mp4`,tags:i===250?['sunrise']:[]}))
+  const f=await mount({listClips:async()=>({clips:many})})
+  try {
+    assert.equal(f.state.shownClips.value.length,120)
+    f.state.clipLimit.value+=120;await flush()
+    assert.equal(f.state.shownClips.value.length,240)
+    f.state.clipFilter.value='sunrise';await flush()
+    assert.deepEqual(f.state.shownClips.value.map((c:any)=>c.filename),['clip250.mp4'])
+  }finally{f.dispose()}
+})

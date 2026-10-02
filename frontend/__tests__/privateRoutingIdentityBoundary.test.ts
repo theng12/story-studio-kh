@@ -73,7 +73,7 @@ describe('image surfaces invent no provider and echo no legacy one', () => {
     assert.equal(source.includes("{{ item.provider || 'provider' }}"), false,
       'this printed the transport recorded in a pre-migration .task-manifest.json')
     assert.doesNotMatch(source, /Task: \{\{ item\.task_id \}\}/)
-    assert.match(source, /Provider recovery record saved/)
+    assert.match(source, /Can be recovered for free/)
   })
 })
 

@@ -25,6 +25,8 @@
     <!-- A published capability, stated as the model's, not Story Studio's. -->
     <p v-if="referenceUnsupportedNotice" class="notice notice-limit">{{ referenceUnsupportedNotice }}</p>
     <p v-if="seedNotice" class="notice notice-limit">{{ seedNotice }}</p>
+    <!-- A model the picker replaced on its own is announced, never swapped silently. -->
+    <p v-if="switchNotice" class="notice" role="status">{{ switchNotice }}</p>
     <p v-if="catalogStaleNote" class="notice notice-stale" role="status">
       {{ catalogStaleNote }} · display only. Refresh before starting new image work.
       <button type="button" class="btn btn-sm btn-ghost" :disabled="loading" @click="refresh(true)">Retry</button>
@@ -152,8 +154,12 @@ const seedNotice = computed(() => {
     + "That is the model's published capability in GenStudio, not a Story Studio restriction."
 })
 
+/** Set when the picker replaced the selection itself; cleared on a manual pick. */
+const switchNotice = ref('')
+
 function select(modelId: string): void {
   if (!isUsable.value) return
+  switchNotice.value = ''
   const selected = models.value.find(model => model.id === modelId)
   if (!selected?.available || (props.imageMode === 'img2img' && (!selected.supports_reference_images || selected.max_reference_images < 1 || !selected.chargeable))) return
   emit('update:modelValue', modelId)
@@ -165,7 +171,15 @@ function syncLiveSelection(): void {
     ? models.value.filter(model => model.available && model.supports_reference_images && model.max_reference_images >= 1 && model.chargeable)
     : models.value
   const selected = selectLiveGenStudioModel(props.modelValue, candidates)
-  if (selected && selected.id !== props.modelValue) emit('update:modelValue', selected.id)
+  if (selected && selected.id !== props.modelValue) {
+    if (props.modelValue) {
+      const previous = models.value.find(model => model.id === props.modelValue)?.display_name || props.modelValue
+      switchNotice.value = props.imageMode === 'img2img'
+        ? `${previous} can't be used with a reference image right now, so ${selected.display_name} was picked instead.`
+        : `${previous} isn't available right now, so ${selected.display_name} was picked instead.`
+    }
+    emit('update:modelValue', selected.id)
+  }
 }
 
 watch([models, () => props.modelValue, () => props.imageMode], syncLiveSelection, { deep: true, immediate: true })

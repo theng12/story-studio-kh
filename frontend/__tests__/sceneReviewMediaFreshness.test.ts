@@ -34,6 +34,6 @@ describe('Scene Review media freshness', () => {
     assert.doesNotMatch(source, /setInterval\(/)
     assert.match(source, /function armRenderPoll\(\): void \{[\s\S]*?setTimeout\(async \(\) => \{[\s\S]*?try \{ await loadReview\(\) \} finally \{ armRenderPoll\(\) \}/)
     assert.match(source, /watch\(isRendering, \(active\) => \{[\s\S]*?stopRenderPoll\(\)\s*void loadReview\(\)/)
-    assert.match(source, /onBeforeUnmount\(stopRenderPoll\)/)
+    assert.match(source, /onBeforeUnmount\(\(\) => \{\s*pageUnmounted = true\s*stopRenderPoll\(\)/)
   })
 })

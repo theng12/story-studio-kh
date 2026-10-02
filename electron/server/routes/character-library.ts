@@ -5,6 +5,7 @@
  *   GET    /api/character-library/:id
  *   PUT    /api/character-library/:id  (edit a library entry in place)
  *   DELETE /api/character-library/:id
+ *   DELETE /api/character-library/:id/reference-image/:filename
  *
  *   POST   /api/projects/:slug/characters/:id/save-to-library
  *          body: { libraryId?, overwrite? } — defaults libraryId to char id
@@ -126,6 +127,14 @@ router.post('/character-library/:id/reference-image', async (req, res) => {
     if (!buf.length) return res.status(400).json({ detail: 'decoded image is empty' })
     if (buf.length > MAX_IMAGE_BYTES) return res.status(413).json({ detail: 'Image is larger than 5 MB' })
     res.json({ ok: true, ...(await cl.addLibraryReferenceImage(req.params.id, buf, filename)) })
+  } catch (e: any) {
+    res.status(e?.message?.includes('not found') ? 404 : 500).json({ detail: e.message })
+  }
+})
+
+router.delete('/character-library/:id/reference-image/:filename', async (req, res) => {
+  try {
+    res.json(await cl.removeLibraryReferenceImage(req.params.id, req.params.filename))
   } catch (e: any) {
     res.status(e?.message?.includes('not found') ? 404 : 500).json({ detail: e.message })
   }

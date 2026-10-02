@@ -30,7 +30,7 @@
       v-else-if="!pools.length"
       icon="&#127909;"
       title="No B-Roll pools yet"
-      message="Register a folder on your SSD that holds the clips. Tags + indexing metadata live in a JSON sidecar inside that folder, so they travel with the SSD across Macs."
+      message="Register a folder on your drive that holds the clips. Tags are saved in a small file inside that folder, so they travel with the drive to other Macs."
     >
       <template #action>
         <button class="btn btn-primary mt-2" @click="openCreateModal()">+ Register pool</button>
@@ -115,6 +115,10 @@
             >
               auto-normalize: {{ selectedPool.auto_normalize ? 'ON' : 'OFF' }}
             </button>
+            <span v-if="isVideoPool" class="text-muted text-xs pool-actions-hint">
+              Normalize = make a smooth-playing 1080p copy of each clip (originals untouched).
+              Auto-normalize {{ selectedPool.auto_normalize ? 'does this for new clips on every Re-scan' : 'is off — use Normalize all when ready' }}.
+            </span>
             <button class="btn btn-ghost btn-sm" title="Rename this pool or repoint it to a different folder (e.g. you moved the drive)." @click="openEditModal">✎ Edit</button>
             <button class="btn btn-ghost btn-sm danger" @click="confirmDeletePool">✕ Unregister</button>
           </div>
@@ -152,8 +156,8 @@
         <div v-show="poolTab === 'clips'">
 
         <div v-if="!selectedPool.online" class="offline-banner">
-          🔌 SSD not connected — connect <code>{{ selectedPool.folder_path }}</code> to scan or edit tags.
-          Indexed clip metadata is preserved.
+          🔌 Drive not connected. Plug in the drive that holds <code>{{ selectedPool.folder_path }}</code> —
+          the clips and their tags appear again as soon as it is connected (nothing was lost).
         </div>
 
         <div v-if="scanResult" class="scan-result">
@@ -195,10 +199,17 @@
                 <div v-if="job.status === 'error' && job.error" class="pool-job-error" :title="customerJobError(job)">⚠ {{ customerJobError(job).slice(0, 200) }}</div>
               </div>
               <span class="pool-job-when">{{ relativeTime(job.finished_at || job.created_at) }}</span>
+              <button
+                v-if="job.status === 'queued' || job.status === 'running'"
+                class="btn btn-ghost btn-sm"
+                :disabled="cancellingJobs.has(job.job_id)"
+                title="Stop this job. Clips already converted stay converted."
+                @click="cancelPoolJob(job)"
+              >{{ cancellingJobs.has(job.job_id) ? 'Cancelling…' : 'Cancel' }}</button>
             </div>
             <div v-if="!visibleJobs.length" class="pool-jobs-empty">
-              No recent pool jobs. Drop new clips into the folder + ↻ Re-scan to queue normalize jobs;
-              click ✨ Auto-tag untagged to queue tag jobs.
+              No recent pool jobs. Drop new clips into the folder and click ↻ Re-scan; use ⚡ Normalize all
+              to convert them.
             </div>
           </div>
         </div>
@@ -208,14 +219,22 @@
         <div v-else-if="clipsLoadError" class="offline-banner" role="alert">
           {{ clipsLoadError }} <button class="btn btn-sm btn-secondary" @click="loadClips()">Retry</button>
         </div>
+        <template v-else-if="!clips.length && !selectedPool.online"><!-- the offline banner above says it all --></template>
         <div v-else-if="!clips.length" class="empty">
           No {{ selectedPool.media === 'image' ? 'images' : selectedPool.media === 'audio' ? 'sound effects' : 'clips' }} indexed yet. Drop
           {{ selectedPool.media === 'image' ? 'image files (jpg/png/webp…)' : selectedPool.media === 'audio' ? 'audio files (mp3/wav/m4a/ogg…)' : 'video files' }} into
           <code>{{ selectedPool.folder_path }}</code> via Finder and click <strong>↻ Re-scan</strong>.
         </div>
 
-        <div v-else class="clip-grid">
-          <article v-for="clip in clips" :key="clip.filename" :class="['clip-card', { 'is-missing': clip.missing }]">
+        <template v-else>
+        <div class="clip-filter-row">
+          <input v-model="clipFilter" class="input input-sm clip-filter" type="search" placeholder="Filter by file name or tag…" />
+          <span class="text-muted text-xs">
+            Showing {{ shownClips.length }} of {{ filteredClips.length }}{{ clipFilter.trim() ? ` matching (${clips.length} in pool)` : '' }}
+          </span>
+        </div>
+        <div class="clip-grid">
+          <article v-for="clip in shownClips" :key="clip.filename" :class="['clip-card', { 'is-missing': clip.missing }]">
             <div class="clip-thumb-wrap">
               <!-- Audio (SFX) pools have no thumbnail — play the clip inline. -->
               <template v-if="isAudioPool">
@@ -272,7 +291,7 @@
                 <button
                   class="btn btn-ghost btn-sm"
                   :disabled="!selectedPool.online"
-                  :title="'Rename this clip on disk. The sidecar entry + .broll-normalized/ variant follow automatically. Keep the file extension (e.g. .mp4) intact.'"
+                  :title="'Rename this clip on disk. Its tags and converted copy follow automatically. Keep the file extension (e.g. .mp4).'"
                   @click="openRenameOne(clip.filename)"
                 >
                   ✏ Rename
@@ -298,12 +317,16 @@
                   @click.stop
                 >view source ↗</a>
               </div>
-              <div v-else class="clip-source-row clip-source-local" title="Hand-added clip — no fetch provenance recorded.">
+              <div v-else class="clip-source-row clip-source-local" title="Added by you — no download record.">
                 <span class="clip-source-pill source-local">local</span>
               </div>
             </div>
           </article>
         </div>
+        <button v-if="filteredClips.length > shownClips.length" class="btn btn-secondary btn-sm mt-2" @click="clipLimit += CLIP_PAGE">
+          Show more ({{ filteredClips.length - shownClips.length }} left)
+        </button>
+        </template>
 
         </div><!-- /Clips tab -->
 
@@ -314,7 +337,7 @@
             Copy {{ isAudioPool ? 'MP3, WAV, M4A, or OGG files' : selectedPool.media === 'image' ? 'JPG, PNG, or WebP files' : 'video files' }} into
             <code>{{ selectedPool.folder_path }}</code>, then return to <strong>Clips</strong> and click <strong>↻ Re-scan</strong>.
             <p class="fetch-hint text-muted text-xs">
-              Direct stock and SFX provider search is disabled. It will return only through a qualified typed GenStudio KH asset route.
+              Searching stock-footage and sound-effect sites from here isn't available yet.
             </p>
           </div>
         </div><!-- /Fetch tab -->
@@ -346,7 +369,7 @@
           </div>
 
           <div v-if="!provenanceCount" class="empty">
-            No historical provider provenance is stored for this pool. Hand-added files remain local and do not require provenance records.
+            No download records for this pool. Files you added yourself don't need one.
           </div>
 
           <table v-else class="log-table">
@@ -387,8 +410,9 @@
       <div class="create-modal">
         <h3>Register a B-Roll pool</h3>
         <p class="text-muted text-sm">
-          Point at the folder on your SSD that holds the clips. The app writes a small JSON sidecar
-          inside the folder for tags + index — that file travels with the SSD across Macs.
+          Point at the folder on your drive that holds the clips. The app saves tags in a small file
+          inside that folder, so they travel with the drive to other Macs. The folder is scanned
+          right after you register it.
         </p>
         <div class="form-group">
           <label>Pool name <span class="req">*</span></label>
@@ -461,8 +485,8 @@
               normalize job to re-encode to 1080p at the target fps. For a fresh 200-clip pool that's
               1–3&nbsp;hours of CPU + disk, so leaving this off and clicking
               <em>⚡&nbsp;Normalize all</em> on the pool when you're ready is usually the safer
-              choice. The original files are never modified — normalized variants live alongside
-              them in a <code>.broll-normalized/</code> sidecar folder.
+              choice. The original files are never modified — the converted copies are kept in a
+              hidden folder next to them.
             </span>
           </div>
         </template>
@@ -539,10 +563,9 @@
       <div class="create-modal">
         <h3>Rename clip</h3>
         <p class="text-muted text-sm">
-          Renames the file on disk and updates the pool's sidecar in one step.
-          Any matching <code>.broll-normalized/</code> variant follows automatically.
-          <strong>Keep the file extension</strong> (e.g. <code>.mp4</code>) intact —
-          ffmpeg uses it to pick the right demuxer.
+          Renames the file on disk; its tags and converted copy follow automatically.
+          <strong>Keep the file extension</strong> (e.g. <code>.mp4</code>) — the video tools need it.
+          Saved B-Roll picks still find the clip under its new name.
         </p>
         <div class="form-group">
           <label>Current name</label>
@@ -584,7 +607,7 @@
         <h3>Bulk rename — {{ selectedPool?.name || 'pool' }}</h3>
         <p class="text-muted text-sm">
           Apply a naming template to every clip in this pool. Originals are
-          renamed on disk and the sidecar follows. Files are processed in
+          renamed on disk and their tags follow. Files are processed in
           their current alphabetical order; the <code>{n}</code> counter
           starts at the value below.
         </p>
@@ -698,7 +721,7 @@ import { customerSafeJobText, jobRequestIds } from '~/utils/job-presentation'
 import { pickFolder } from '~/composables/usePathPicker'
 
 definePageMeta({ layout: 'dashboard' })
-useAppTitle('B-Roll Library')
+useAppTitle('Assets Library')
 
 const broll = useBrollPools()
 const { ask } = useConfirm()
@@ -766,7 +789,19 @@ async function submitEdit(): Promise<void> {
     })
     if (scope !== poolScope) return
     editModalOpen.value = false
-    success(repointed ? 'Pool updated — click ↻ Re-scan to index the new folder.' : 'Pool updated.')
+    if (repointed) {
+      // Refresh the online flag for the new folder, then index it straight away.
+      await broll.loadPools().catch(() => undefined)
+      if (scope !== poolScope) return
+      if (selectedPool.value?.online) {
+        success('Pool updated — scanning the new folder…')
+        void runScan()
+      } else {
+        success('Pool updated. Plug in the drive, then click ↻ Re-scan.')
+      }
+    } else {
+      success('Pool updated.')
+    }
   } catch (e: any) {
     if (scope === poolScope) editError.value = e?.data?.detail || e?.message || 'Failed to update pool'
   } finally {
@@ -892,6 +927,21 @@ onBeforeUnmount(() => { if (unsubDone) unsubDone() })
 
 async function refreshClipsAfterJob(): Promise<void> {
   await loadClips()
+}
+
+const { post: apiPost } = useApi()
+const cancellingJobs = ref(new Set<string>())
+async function cancelPoolJob(job: any): Promise<void> {
+  cancellingJobs.value = new Set([...cancellingJobs.value, job.job_id])
+  try {
+    await apiPost(`/jobs/all/${encodeURIComponent(job.job_id)}/cancel`, {})
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Could not cancel the job')
+  } finally {
+    const next = new Set(cancellingJobs.value)
+    next.delete(job.job_id)
+    cancellingJobs.value = next
+  }
 }
 
 // ── v1.0.122+ Pool tab nav (Clips / Fetch / Asset Log) ──────────────────
@@ -1091,7 +1141,9 @@ async function loadClips(): Promise<void> {
   const current = () => scope === poolScope && request === clipsRequest && id === selectedPoolId.value
   clipsLoadError.value = ''
   if (!id) { clips.value = []; clipsLoading.value = false; return }
-  clipsLoading.value = true
+  // Only show "Loading clips…" when there is nothing on screen yet: a refresh
+  // after a finished job must not wipe the grid, the scroll position or typing.
+  clipsLoading.value = !clips.value.length
   try {
     const r = await broll.listClips(id)
     if (!current()) return
@@ -1106,9 +1158,23 @@ async function loadClips(): Promise<void> {
   }
 }
 
+// Large pools: filter + render in pages instead of thousands of cards at once.
+const CLIP_PAGE = 120
+const clipFilter = ref('')
+const clipLimit = ref(CLIP_PAGE)
+const filteredClips = computed(() => {
+  const q = clipFilter.value.trim().toLowerCase()
+  if (!q) return clips.value
+  return clips.value.filter(c => c.filename.toLowerCase().includes(q) || (c.tags || []).some((t: string) => t.toLowerCase().includes(q)))
+})
+const shownClips = computed(() => filteredClips.value.slice(0, clipLimit.value))
+watch(clipFilter, () => { clipLimit.value = CLIP_PAGE })
+
 watch(selectedPoolId, () => {
   poolScope++
   scanResult.value = null
+  clipFilter.value = ''
+  clipLimit.value = CLIP_PAGE
   clips.value = []
   provenance.value = []
   scanning.value = false
@@ -1144,6 +1210,13 @@ async function runScan(): Promise<void> {
 
 async function runNormalizeAll(): Promise<void> {
   if (!selectedPoolId.value || !isVideoPool.value || normalizingAll.value) return
+  const count = unnormalizedCount.value
+  const ok = await ask({
+    title: `Normalize ${count} clip${count === 1 ? '' : 's'}?`,
+    message: `This converts ${count} clip${count === 1 ? '' : 's'} to smooth-playing 1080p copies on this Mac. It runs in the background and can take a while — roughly 1–3 hours for 200 clips — and keeps the computer busy. Originals are not changed. You can cancel from the Pool jobs list.`,
+    confirmLabel: 'Start normalizing',
+  })
+  if (!ok) return
   const scope = poolScope
   normalizingAll.value = true
   try {
@@ -1183,7 +1256,7 @@ async function confirmDeletePool(): Promise<void> {
   const target = selectedPool.value
   const ok = await ask({
     title: `Unregister pool "${target.name}"?`,
-    body: 'Removes the pool from the app registry. Clip files and the on-folder sidecar JSON stay on disk — you can re-register the same folder later and tags will be intact.',
+    body: 'Removes the pool from this app. The clip files and their saved tags stay in the folder — you can register the same folder again later and the tags will still be there.',
     confirmLabel: 'Unregister',
     danger: true,
   })
@@ -1459,7 +1532,12 @@ async function submitCreate(): Promise<void> {
     })
     createModalOpen.value = false
     selectedPoolId.value = created.id
-    success(`Pool "${created.name}" registered. Click Re-scan to index clips.`)
+    if (created.online) {
+      success(`Pool "${created.name}" registered — scanning the folder…`)
+      void runScan()
+    } else {
+      success(`Pool "${created.name}" registered. Plug in the drive, then click ↻ Re-scan.`)
+    }
   } catch (e: any) {
     createError.value = e?.data?.detail || e?.message || 'Failed to register pool'
   } finally {
@@ -1631,6 +1709,9 @@ function onThumbError(e: Event): void {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .clip-actions { display: flex; gap: 4px; }
+.clip-filter-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+.clip-filter { max-width: 280px; }
+.pool-actions-hint { flex-basis: 100%; text-align: right; }
 
 /* Create modal */
 .modal-overlay {
@@ -1640,6 +1721,8 @@ function onThumbError(e: Event): void {
   z-index: 200; padding: 24px;
 }
 .create-modal {
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
   background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: 8px;

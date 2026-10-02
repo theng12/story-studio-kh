@@ -46,7 +46,7 @@
         type="button"
         class="btn btn-link btn-xs"
         :disabled="rescanning"
-        title="Wipe this project's status cache and re-stat every episode folder. Fixes the case where a script on disk wasn't picked up by the cached status."
+        title="Look at every episode folder on disk again. Use this when a script you know is there isn't being picked up."
         @click="onRescan"
       >
         {{ rescanning ? '↻ Rescanning…' : '↻ Rescan from disk' }}
@@ -653,6 +653,19 @@
           <p class="text-muted text-xs hint-line">Start with three. You can refine or regenerate one prompt later.</p>
         </div>
       </div>
+      <div v-if="form.episode_id && existingThumbNumbers.length" class="replace-prompts-row mt-1">
+        <button
+          type="button"
+          class="btn btn-sm btn-secondary"
+          :disabled="generating || promptsJobActiveForEpisode"
+          @click="replaceAllThumbnailPrompts"
+        >
+          Replace all {{ existingThumbNumbers.length }} prompts
+        </button>
+        <span class="text-muted text-xs">
+          Generate only fills in missing prompts. This writes every prompt for {{ form.episode_id }} again from scratch.
+        </span>
+      </div>
       <div class="form-group mt-2">
         <ThumbnailRecipePicker
           :selected-recipe-id="form.thumbnail.thumbnail_template_id"
@@ -745,7 +758,7 @@
                 :disabled="extractingThumbRef"
               />
               <p v-if="selectedThumbnailVisionModel" class="text-muted text-xs hint-line">
-                {{ selectedThumbnailVisionModel.max_input_images }} image · {{ selectedThumbnailVisionModel.supported_detail_levels.join(', ') }} detail · {{ selectedThumbnailVisionModel.accepted_image_mime_types.join(', ') }} · up to {{ Math.round(selectedThumbnailVisionModel.max_image_bytes / 1024 / 1024) }} MB / {{ selectedThumbnailVisionModel.max_image_dimension }}px
+                Reads {{ selectedThumbnailVisionModel.max_input_images }} image · {{ selectedThumbnailVisionModel.accepted_image_mime_types.map(type => type.replace(/^image\//, '').toUpperCase()).join(', ') }} files · up to {{ Math.round(selectedThumbnailVisionModel.max_image_bytes / 1024 / 1024) }} MB and {{ selectedThumbnailVisionModel.max_image_dimension }}px on the longest side
               </p>
             </div>
           </template>
@@ -774,7 +787,7 @@
       <section class="lettering-card mt-2" aria-labelledby="lettering-heading">
         <header class="lettering-head">
           <div><span class="lettering-eyebrow">Thumbnail lettering</span><h4 id="lettering-heading">What the words say, and how they look</h4></div>
-          <button type="button" class="link-btn" @click="randomizeThumbStyles">🎲 Surprise me</button>
+          <button type="button" class="link-btn" title="Pick a random font, text style and title location. Nothing is generated." @click="randomizeThumbStyles">🎲 Shuffle lettering</button>
         </header>
 
         <!-- WHAT THE WORDS SAY comes before how they look, because it is the
@@ -836,8 +849,9 @@
           :disabled="!form.episode_id || generating"
           @click="surpriseMeThumb"
         >
-          ✨ Surprise me
+          ✨ Shuffle &amp; generate
         </button>
+        <span class="text-muted text-xs">Shuffles the lettering, then generates the missing prompts straight away.</span>
       </div>
 
       <div class="form-group mt-2">
@@ -849,7 +863,10 @@
           placeholder="e.g. a lone ship against an impossible storm, urgent and mysterious"
         />
         <p class="text-muted text-xs hint-line">
-          The episode title is rendered directly into every thumbnail. Each result is ready to use as generated.
+          <template v-if="thumbnailHeadlineMode === 'none'">No words are drawn on these thumbnails — this note only guides the picture.</template>
+          <template v-else-if="thumbnailHeadlineInvents">Each thumbnail gets its own short text, written to suit it. Check it with the prompt before rendering.</template>
+          <template v-else>The episode title is drawn directly into every thumbnail.</template>
+          This note is for this episode only and is cleared when you switch episode.
         </p>
       </div>
 
@@ -897,6 +914,7 @@
       :thumbnail-font-style-custom="form.thumbnail.thumb_font_style_custom"
       :thumbnail-text-style-custom="form.thumbnail.thumb_text_style_custom"
       pool="thumbnails"
+      @loaded="existingThumbNumbers = $event.thumbnails"
     />
 
     <!-- Provider prompt-cap reference table. Same modal shape as the
@@ -1047,6 +1065,7 @@
 
 <script setup lang="ts">
 import { useVisualStyleCatalog } from '~/composables/useVisualStyleCatalog'
+import { DEFAULT_EXCLUDE_KEYS } from '~/composables/usePresets'
 import {
   normalizePromptCharCapSetting,
   promptCharCapAboveModel,
@@ -1068,6 +1087,43 @@ const { styles: visualStyles, refresh: refreshVisualStyles } = useVisualStyleCat
 const { success, info: showInfo, error: showError } = useToast()
 
 const generating = ref(false)
+/** Thumbnail prompt numbers on disk for this episode, reported by PromptReviewPanel. */
+const existingThumbNumbers = ref<number[]>([])
+
+/**
+ * Run `restore` (the remembered-form restore) and report, per sub-form, which
+ * of `keys` it actually supplied. Keys it did not supply get their default back.
+ */
+function probeRememberedKeys<K extends string>(
+  form: object,
+  keys: Record<K, readonly string[]>,
+  restore: () => void,
+): Record<K, Set<string>> {
+  const target = form as Record<string, Record<string, any>>
+  const defaults: Record<string, Record<string, any>> = {}
+  for (const sub of Object.keys(keys) as K[]) {
+    const subForm = target[sub]!
+    const subDefaults: Record<string, any> = {}
+    defaults[sub] = subDefaults
+    for (const key of keys[sub]) {
+      subDefaults[key] = subForm[key]
+      subForm[key] = undefined
+    }
+  }
+  restore()
+  const remembered = {} as Record<K, Set<string>>
+  for (const sub of Object.keys(keys) as K[]) {
+    const subForm = target[sub]!
+    const subDefaults = defaults[sub]!
+    const seen = new Set<string>()
+    remembered[sub] = seen
+    for (const key of keys[sub]) {
+      if (subForm[key] === undefined || subForm[key] === null) subForm[key] = subDefaults[key]
+      else seen.add(key)
+    }
+  }
+  return remembered
+}
 // Bumped after the bulk Generate completes so the per-prompt
 // PromptReviewPanel re-fetches the freshly-saved docx and the user
 // sees their just-generated prompts in the regen panel.
@@ -1604,9 +1660,23 @@ function applyThumbnailTreatment(): void {
 // art-direction / cast) across reloads. `force` is a per-run regenerate flag,
 // so reset it to false after the restore so a remembered run can't silently
 // re-overwrite on the next visit.
-useRememberedForm('image-prompts', slug, form, { include: ['thumbnail', 'scene'] })
+//
+// Which of the format/template-seedable fields did the remembered form
+// actually restore? Probe by blanking them first: a key still blank after the
+// restore was not remembered and gets its default back. Format and template
+// defaults later seed ONLY those keys, so a remembered choice (or a preset)
+// is never overwritten on the next visit.
+const SEEDABLE_KEYS = {
+  thumbnail: ['thumb_headline_mode', 'style_tag', 'style_preset', 'thumb_count', 'aspect_ratio'],
+  scene: ['style_tag', 'style_preset', 'aspect_ratio', 'scenes_per_chapter'],
+} as const
+const rememberedKeys = probeRememberedKeys(form, SEEDABLE_KEYS, () =>
+  useRememberedForm('image-prompts', slug, form, { include: ['thumbnail', 'scene'] }))
 form.thumbnail.force = false
 form.thumbnail.thumb_title_mode = 'ai'
+// The click brief describes ONE episode (AGENTS §4): never carried in from a
+// previous visit, and never saved into a preset (see thumbnailPresets).
+form.thumbnail.thumb_creative_direction = ''
 const thumbnailHeadlineMode = computed<string>(() => form.thumbnail.thumb_headline_mode)
 /** True for every mode where the model chooses the words, which is all of them
  *  except the exact episode title and rendering nothing at all. */
@@ -1626,7 +1696,15 @@ let promptScopeSequence = 0
 // and audio-merge.vue.
 watch([slug, () => form.episode_id], ([, newEp], [, oldEp]) => {
   promptScopeSequence++
-  if (newEp !== oldEp) generating.value = false
+  if (newEp !== oldEp) {
+    generating.value = false
+    existingThumbNumbers.value = []
+    // The click brief was written for the previous episode (AGENTS §4).
+    if (oldEp && form.thumbnail.thumb_creative_direction.trim()) {
+      form.thumbnail.thumb_creative_direction = ''
+      showInfo('Cleared "What should make someone click?" — it was written for the previous episode.')
+    }
+  }
 }, { flush: 'sync' })
 
 // The active sub-form. Template bindings on shared-field controls use
@@ -1920,6 +1998,9 @@ watch(() => form.scene.total_scenes, (v) => {
 const thumbnailPresets = usePresets<any>({
   slug: slug.value,
   configKey: 'thumbnail_prompts',
+  // The click brief is episode text. Stripped on save AND on apply; apply is an
+  // Object.assign, so the live (current-episode) value survives either way.
+  excludeKeys: [...DEFAULT_EXCLUDE_KEYS, 'thumb_creative_direction'],
   snapshot: () => ({ form: { ...form.thumbnail } }),
   apply: (data) => { if (data?.form) Object.assign(form.thumbnail, data.form) },
 })
@@ -1964,6 +2045,12 @@ const promptPresets = computed(() => thumbnailPresets)
  *                                           override.)
  */
 async function applyFormatDefaultsIfNoPreset() {
+  // A remembered value or an active preset is the customer's choice. Seed only
+  // the keys neither supplied.
+  const seedThumb = (key: string) => !thumbnailPresets.activeId.value && !rememberedKeys.thumbnail.has(key)
+  const seedScene = (key: string) => !scenePresets.activeId.value && !rememberedKeys.scene.has(key)
+  if (!['style_tag', 'thumb_count', 'aspect_ratio'].some(seedThumb)
+    && !['style_tag', 'aspect_ratio', 'scenes_per_chapter'].some(seedScene)) return
   try {
     const f = await get<any>(`/projects/${slug.value}/effective-format`)
     const ip = f?.imagePrompts
@@ -1976,10 +2063,10 @@ async function applyFormatDefaultsIfNoPreset() {
         // by the watcher above). Floor at 1 so single-chapter idea-stage
         // episodes still get a sensible default.
         const chapters = effectiveChapterCount.value || 1
-        form.scene.scenes_per_chapter = Math.max(1, Math.ceil(lo / chapters))
+        if (seedScene('scenes_per_chapter')) form.scene.scenes_per_chapter = Math.max(1, Math.ceil(lo / chapters))
       }
     }
-    if (typeof ip.defaultThumbnails === 'number' && ip.defaultThumbnails > 0) {
+    if (typeof ip.defaultThumbnails === 'number' && ip.defaultThumbnails > 0 && seedThumb('thumb_count')) {
       form.thumbnail.thumb_count = ip.defaultThumbnails
     }
     // v1.0.88+: seed BOTH sub-forms from the format defaults, not just
@@ -1987,18 +2074,22 @@ async function applyFormatDefaultsIfNoPreset() {
     // starts from the same shared default; the user can then diverge
     // them per tab after switching.
     if (typeof ip.recommendedAspect === 'string' && ip.recommendedAspect) {
-      form.thumbnail.aspect_ratio = ip.recommendedAspect
-      form.scene.aspect_ratio = ip.recommendedAspect
+      if (seedThumb('aspect_ratio')) form.thumbnail.aspect_ratio = ip.recommendedAspect
+      if (seedScene('aspect_ratio')) form.scene.aspect_ratio = ip.recommendedAspect
     }
     if (typeof ip.defaultStyleTag === 'string' && ip.defaultStyleTag.trim()) {
       // Switching to 'custom' opens the style editor (see onStyleChange);
       // we set style_tag manually here instead of going through that
       // handler so the page boots up with the editor already showing the
       // format's text.
-      form.thumbnail.style_preset = 'custom'
-      form.thumbnail.style_tag = ip.defaultStyleTag
-      form.scene.style_preset = 'custom'
-      form.scene.style_tag = ip.defaultStyleTag
+      if (seedThumb('style_tag')) {
+        form.thumbnail.style_preset = 'custom'
+        form.thumbnail.style_tag = ip.defaultStyleTag
+      }
+      if (seedScene('style_tag')) {
+        form.scene.style_preset = 'custom'
+        form.scene.style_tag = ip.defaultStyleTag
+      }
     }
   } catch {
     // Format endpoint unavailable / project missing — keep the legacy
@@ -2013,20 +2104,25 @@ onMounted(async () => {
   // no saved preset yet. v1.0.88+: load BOTH per-kind preset lists so
   // either tab can immediately use saved presets without a tab-switch
   // first.
-  await applyFormatDefaultsIfNoPreset()
+  // Presets load first so the format seeding below knows whether one is active.
   await Promise.all([
     thumbnailPresets.load(),
     scenePresets.load(),
     loadVisionCaps(),
     loadThumbnailVisionModels(),
   ])
+  await applyFormatDefaultsIfNoPreset()
   try {
     const effective = await get<{ template: { id: string; name: string; recipe?: { headlineMode?: 'episode-title' | 'curiosity-hook' } } | null }>(`/projects/${slug.value}/effective-thumbnail-template`)
     if (effective.template) {
       if (!form.thumbnail.thumbnail_template_id) form.thumbnail.thumbnail_template_id = effective.template.id
-      form.thumbnail.thumb_headline_mode = effective.template.recipe?.headlineMode === 'curiosity-hook'
-        ? 'curiosity-hook'
-        : 'episode-title'
+      // The template only SEEDS "Thumbnail text"; the customer's remembered or
+      // preset choice stands on every later visit.
+      if (!thumbnailPresets.activeId.value && !rememberedKeys.thumbnail.has('thumb_headline_mode')) {
+        form.thumbnail.thumb_headline_mode = effective.template.recipe?.headlineMode === 'curiosity-hook'
+          ? 'curiosity-hook'
+          : 'episode-title'
+      }
     }
   } catch {
     // Catalog availability never blocks prompt authoring.
@@ -2392,19 +2488,36 @@ type PromptMode = 'scenes' | 'thumbnails'
 const JOB_POLL_INTERVAL_MS = 1500
 let promptGenerationSequence = 0
 
-async function waitForJob(slug: string, jobId: string): Promise<any> {
-  while (true) {
-    const job: any = await get(`/projects/${slug}/jobs/${jobId}`)
-    if (job?.status === 'done' || job?.status === 'error' || job?.status === 'cancelled') {
-      return job
+let pageDisposed = false
+onBeforeUnmount(() => { pageDisposed = true })
+const MAX_POLL_FAILURES = 5
+
+/** Poll until the job ends; `null` = the page closed first. A single failed
+ *  read is not a failed job, so a few in a row are tolerated. */
+async function waitForJob(slug: string, jobId: string): Promise<any | null> {
+  let failures = 0
+  while (!pageDisposed) {
+    try {
+      const job: any = await get(`/projects/${slug}/jobs/${jobId}`)
+      failures = 0
+      if (job?.status === 'done' || job?.status === 'error' || job?.status === 'cancelled') {
+        return job
+      }
+    } catch (e) {
+      if (++failures >= MAX_POLL_FAILURES) throw e
     }
     await new Promise(r => setTimeout(r, JOB_POLL_INTERVAL_MS))
   }
+  return null
 }
 
-async function runGenerate(mode: PromptMode) {
+async function runGenerate(mode: PromptMode, replaceAll = false) {
   const ep = form.episode_id
   if (!ep) return
+  // Fill-gaps runs write only the numbers still missing; note them up front so
+  // the result toast can say what actually happened.
+  const missingBefore = Array.from({ length: safeThumbCount.value }, (_, i) => i + 1)
+    .filter(n => !existingThumbNumbers.value.includes(n)).length
   const generationSlug = slug.value
   const scope = promptScopeSequence
   const requestSequence = ++promptGenerationSequence
@@ -2441,8 +2554,8 @@ async function runGenerate(mode: PromptMode) {
     title: selectedEpisode.value?.title || '',
     mode,
     character_ids: activeForm.value.character_ids,
-    fill_gaps: !activeForm.value.force,
-    force: activeForm.value.force,
+    fill_gaps: !replaceAll,
+    force: replaceAll,
   }
   const operationId = payload.force ? freshImagePromptsAction.begin(payload) : null
   try {
@@ -2470,6 +2583,7 @@ async function runGenerate(mode: PromptMode) {
     success(`Queued ${mode === 'scenes' ? 'scene prompts' : 'thumbnail prompts'} — watch progress in Jobs.`)
 
     const completed = await waitForJob(generationSlug, job.job_id)
+    if (!completed) return
     if (scope !== promptScopeSequence || slug.value !== generationSlug || form.episode_id !== ep || requestSequence !== promptGenerationSequence) return
     if (completed.status === 'error') {
       throw new Error(completed.error || 'Job failed (see Jobs panel for details)')
@@ -2518,9 +2632,10 @@ async function runGenerate(mode: PromptMode) {
 
     const sceneCt = onDisk?.scenes?.length || 0
     const thumbCt = onDisk?.thumbnails?.length || 0
-    const msg = mode === 'scenes' ? `Generated ${sceneCt} scene prompts`
-      : `Generated ${thumbCt} thumbnail prompts`
-    success(msg)
+    if (mode === 'scenes') success(`Generated ${sceneCt} scene prompts`)
+    else if (payload.force) success(`Replaced all ${thumbCt} thumbnail prompts`)
+    else if (missingBefore === 0) showInfo(`All ${thumbCt} prompts already exist — nothing new generated. Use "Replace all" to write them again.`)
+    else success(`Generated ${missingBefore} new thumbnail prompt${missingBefore === 1 ? '' : 's'} (${thumbCt} in total)`)
   } catch (e: any) {
     if (scope !== promptScopeSequence || slug.value !== generationSlug || form.episode_id !== ep || requestSequence !== promptGenerationSequence) return
     // Name the pool that failed so the toast is actionable.
@@ -2547,6 +2662,18 @@ async function generate() {
 // The legacy per-pool inline buttons were removed in v1.0.304 — the top action
 // bar generates the active tab's pool, so a separate "…Only" button was redundant.
 async function generateThumbnails() { await runGenerate('thumbnails') }
+
+/** The one explicit overwrite: asks first, then rewrites every prompt. */
+async function replaceAllThumbnailPrompts() {
+  const count = existingThumbNumbers.value.length
+  if (!await useConfirm().ask({
+    title: `Replace all ${count} thumbnail prompts?`,
+    message: `Every thumbnail prompt for ${form.episode_id} is written again from scratch, including any you edited by hand. The old prompts are replaced.`,
+    confirmLabel: 'Replace all',
+    danger: true,
+  })) return
+  await runGenerate('thumbnails', true)
+}
 
 async function saveToFile() {
   if (!generatedPrompts.value) return

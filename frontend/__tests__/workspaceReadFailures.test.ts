@@ -75,7 +75,7 @@ test('E-10: deleting a Scene Plan leaves an actionable empty state, not a headin
   // The plan section renders only when a plan object actually exists (or one is
   // being built); a stale `status.scene_plan` after a delete no longer keeps the
   // heading on screen by itself.
-  assert.match(source, /<section v-if="plan \|\| planning"/)
+  assert.match(source, /<section v-if="plan \|\| planBusy"/)
   const emptyAt = source.indexOf('<section v-else class="card mt-3">')
   assert.ok(emptyAt >= 0, 'the no-plan empty card must exist')
   const empty = source.slice(emptyAt, emptyAt + 700)

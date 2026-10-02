@@ -28,7 +28,10 @@ test('destructive removals and bulk clears ask first', () => {
 
 test('force-regenerate thumbnails is explicit and cannot be skipped', () => {
   const s = src('pages/projects/[slug]/images.vue')
-  assert.match(s, /params\.force\s*\? \{ action: 'Re-render ALL thumbnails[^']*', always: true \}/)
+  assert.match(s, /params\.force\s*\? \{ action: regenerateAllAction\.value, always: true \}/)
+  // The wording follows the selected model: credits are only promised when it charges.
+  assert.match(s, /activeModelPaid\.value\s*\? 'Re-render ALL thumbnails\? This replaces the existing ones and uses credits again\.'/)
+  assert.match(s, /: 'Re-render ALL thumbnails\? This replaces the existing ones\. This model is free/)
 })
 
 test('a forced confirmation ignores a saved skip preference, and a second call settles the first', async () => {

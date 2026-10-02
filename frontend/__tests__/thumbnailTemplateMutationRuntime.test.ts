@@ -91,3 +91,36 @@ test('a deferred thumbnail choice cannot overwrite a newly selected project', as
     delete (globalThis as any).__thumbnailTemplateFixture
   }
 })
+
+test('a failed load says so and can be retried, instead of claiming no template is set', async () => {
+  const route = reactive({ params: reactive({ slug: 'project-a' }) })
+  let fail = true
+  const fixture: any = {
+    route,
+    put: async () => ({ ok: true }),
+    get: async (path: string) => {
+      if (fail) throw { data: { detail: 'Story Studio is still starting.' } }
+      if (path.endsWith('/effective-niche')) return { niche: null }
+      if (path.endsWith('/effective-thumbnail-template')) return { template: { id: 'template-a', name: 'A' } }
+      if (path.endsWith('/settings/config')) return {}
+      return { name: 'Project A' }
+    },
+  }
+  ;(globalThis as any).__thumbnailTemplateFixture = fixture
+  const app = createApp(await loadPage())
+  const host = document.body.appendChild(document.createElement('div'))
+  app.mount(host)
+  await flush()
+  try {
+    assert.equal(fixture.state.loadError.value, 'Story Studio is still starting.')
+    assert.equal(fixture.state.effectiveTemplate.value, null)
+    fail = false
+    await fixture.state.loadAll()
+    assert.equal(fixture.state.loadError.value, '')
+    assert.equal(fixture.state.effectiveTemplate.value?.id, 'template-a')
+  } finally {
+    app.unmount()
+    host.remove()
+    delete (globalThis as any).__thumbnailTemplateFixture
+  }
+})
