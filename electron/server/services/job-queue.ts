@@ -154,6 +154,18 @@ function queuedCancellationKey(operation: JobRemoteOperation, providerJobId: str
 }
 
 /**
+ * Claims taken by THIS process, so a status read that finds a `submitting` record can tell "a live
+ * caller is about to send this POST" from "a previous process died after claiming" (the only case
+ * the reconciler may send it itself). Without it the reconciler and the executor's wait loop could
+ * both POST the same cancel, and since 2026-10-02 the reconciler also sends for running jobs.
+ */
+const liveCancellationClaims = new Set<string>()
+
+export function hasLiveCancellationClaim(storyJobId: string, operation: JobRemoteOperation, providerJobId: string): boolean {
+  return liveCancellationClaims.has(`${storyJobId}|${queuedCancellationKey(operation, providerJobId)}`)
+}
+
+/**
  * Atomically claim one already-queued provider cancellation.  The caller that
  * receives true owns the one network POST; every other poller only observes
  * the durable evidence it leaves behind.
@@ -169,6 +181,7 @@ export async function claimRemoteCancellation(
   if (!job || !record || record.status !== 'queued') return false
   record.status = 'submitting'
   record.updated_at = new Date().toISOString()
+  liveCancellationClaims.add(`${storyJobId}|${key}`)
   // Claiming is the ownership boundary. Persist it before the provider call
   // can be retried by another in-process poller; a restart reconciles records
   // left in submitting state instead of issuing a second blind POST.
@@ -180,6 +193,7 @@ export async function claimRemoteCancellation(
     // it must not send the provider request on this turn.
     record.status = 'queued'
     record.updated_at = new Date().toISOString()
+    liveCancellationClaims.delete(`${storyJobId}|${key}`)
     throw error
   }
   emitUpdate(job)
@@ -198,6 +212,7 @@ export async function recordRemoteCancellation(
   const key = queuedCancellationKey(operation, providerJobId)
   const previous = job?.remote_cancellations?.[key]
   if (!job || !previous) return
+  if (evidence.status !== 'submitting') liveCancellationClaims.delete(`${storyJobId}|${key}`)
   job.remote_cancellations = {
     ...job.remote_cancellations,
     [key]: {
@@ -719,15 +734,23 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
       }
       return
     }
+    const claimedHere = new Set<string>()
     for (const [key, record] of Object.entries(job.remote_cancellations || {})) {
       if (record.status !== 'queued') continue
       const claimed = await claimRemoteCancellation(job.job_id, record.operation, record.provider_job_id).catch(() => false)
       if (!claimed) continue
+      claimedHere.add(key)
       // The claim changes the in-memory object too. Reconciliation reads the
       // fresh durable state below rather than carrying a stale closure.
       job.output_lines.push(`Checking GenStudio cancellation for ${key}.`)
     }
-    const outcome = await reconcilePendingJobCancellation(job, apiKey)
+    // Who holds each `submitting` claim decides whether the reconciler may send its POST (see
+    // `reconcilePendingJobCancellation`): this pass, another live caller (the wait loop), or nobody.
+    const outcome = await reconcilePendingJobCancellation(job, apiKey, {
+      claimOf: record => claimedHere.has(`${record.operation}:${record.provider_job_id}`)
+        ? 'own'
+        : hasLiveCancellationClaim(job.job_id, record.operation, record.provider_job_id) ? 'other' : 'stale',
+    })
     job.remote_cancellations = outcome.records
     if (outcome.reason && outcome.reason !== job.reconciliation_error) job.output_lines.push(outcome.reason)
     job.reconciliation_error = outcome.reason
@@ -962,6 +985,17 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
       job.status = 'error'
       job.error = 'A GenStudio provider task failed after cancellation reconciliation. Provider evidence is retained.'
       job.output_lines.push(job.error)
+    } else if (
+      evidence.some(entry => entry.cancelled === true)
+      && evidence.every(entry => entry.cancelled === true || entry.state === 'succeeded')
+      && Object.values(job.remote_cancellations || {}).some(record => record.status === 'confirmed' && record.covers_outstanding === true)
+    ) {
+      // The owner cancelled a running job: every task still in flight was stopped (confirmed above)
+      // and the ones that had already finished (earlier narration chunks, earlier music requests)
+      // stay on disk. That is a cancelled job, not a half-failed one.
+      job.status = 'cancelled'
+      job.error = null
+      job.output_lines.push('GenStudio confirmed cancellation. Provider work that had already finished before the cancel was kept.')
     } else if (evidence.some(entry => entry.cancelled === true)) {
       // A mixed success/cancellation is not a complete output set. Preserve
       // every artifact and make the existing Repair path explicit.
@@ -5744,6 +5778,13 @@ async function queueRemoteCancellationTargetsUnlocked(
   const now = new Date().toISOString()
   const records = { ...(job.remote_cancellations || {}) }
   let added = 0
+  // Is anything unsettled left that this cancel does NOT ask GenStudio to stop (a render the
+  // Gateway cannot interrupt)? If not, the owner has stopped the whole job, and provider tasks that
+  // finished before the click are work he keeps rather than a reason to call the job half-done.
+  const targeted = new Set(targets.map(remoteCancellationKey))
+  const coversOutstanding = !(job.genstudio_jobs || []).some(entry => (
+    isUnsettledProviderEntry(entry) && !targeted.has(`${entry.operation}:${entry.id}`)
+  ))
   for (const target of targets) {
     const key = remoteCancellationKey(target)
     const existing = records[key]
@@ -5757,6 +5798,7 @@ async function queueRemoteCancellationTargetsUnlocked(
       provider_job_id: target.provider_job_id,
       requested_at: now,
       updated_at: now,
+      ...(coversOutstanding ? { covers_outstanding: true } : {}),
     }
     added++
   }

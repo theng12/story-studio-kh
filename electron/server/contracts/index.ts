@@ -683,6 +683,12 @@ export interface JobRemoteCancellationResponse {
   reserved_credits?: number
   settled_credits?: number
   released_credits?: number
+  /**
+   * The owner's cancel was asked for every provider task that was still unsettled at that moment
+   * (none was left to finish on its own). Provider tasks that had already succeeded before it are
+   * finished work the owner keeps, so `succeeded + cancelled` still ends the job `cancelled`.
+   */
+  covers_outstanding?: boolean
   reconciliation_error?: string
 }
 

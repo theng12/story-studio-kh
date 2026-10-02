@@ -48,6 +48,7 @@ import { inspectPromptCompletion } from '../services/prompt-completion.js'
 import { inspectMetadataCompletion } from '../services/metadata-completion.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import { isResearchComplete } from '../lib/research-verification.js'
+import { getLibraryDir } from '../services/music-library.js'
 import { auditSceneClipCompletion, auditSceneImageCompletion } from '../services/scene-media-checkpoint.js'
 import { auditScenePromptCompletion } from '../services/scene-prompt-checkpoint.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
@@ -165,6 +166,21 @@ export async function auditBrollAssemblyOutput(job: any): Promise<'complete' | '
   return 'repair-required'
 }
 
+/** Every planned music request saved at least one non-empty track into the library. */
+export async function auditMusicLibraryTopUp(job: any): Promise<'complete' | 'repair-required'> {
+  const saved: unknown[] = Array.isArray(job.result?.saved_tracks) ? job.result.saved_tracks : []
+  const requests = Number(job.result?.requests)
+  if (!saved.length || !Number.isFinite(requests) || requests < 1 || saved.length < requests) return 'repair-required'
+  const dir = await getLibraryDir(job.project_slug)
+  if (!dir) return 'repair-required'
+  for (const name of saved) {
+    if (typeof name !== 'string' || !name || name !== path.basename(name)) return 'repair-required'
+    const stat = await fs.stat(path.join(dir, name)).catch(() => null)
+    if (!stat?.isFile() || stat.size <= 0) return 'repair-required'
+  }
+  return 'complete'
+}
+
 /** Register only producer-specific completion proofs; no generic file guess. */
 function registerCancellationAuditors(): void {
   registerJobCancellationAuditor('audio', async job => {
@@ -231,6 +247,12 @@ function registerCancellationAuditors(): void {
     registerJobCancellationAuditor(type, auditSceneClips)
   }
   registerJobCancellationAuditor('scene_plan_run', auditScenePlanOutput)
+  // Audit 2026-10-02 — `music_generate` had none, so cancelling a running top-up answered 409
+  // REMOTE_CANCELLATION_NOT_SUPPORTED and the Hub finished the render anyway. The proof it can
+  // give is the one its own generator writes: every request it planned saved at least one track
+  // that is still in the library folder. A job that stopped half way has fewer tracks than
+  // requests, so it stays repair-required rather than being called complete.
+  registerJobCancellationAuditor('music_generate', auditMusicLibraryTopUp)
   // Group 1.1b — `broll_assemble` had no auditor at all, so a truncated video
   // (the generator encodes `-shortest`) reported Done over a cut-off render.
   registerJobCancellationAuditor('broll_assemble', auditBrollAssemblyOutput)
