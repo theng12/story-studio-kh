@@ -6,6 +6,10 @@
     </header>
 
     <div v-if="loadingProjects" class="rm-empty">Loading projects…</div>
+    <div v-else-if="projectsLoadError" class="rm-empty">
+      <p>{{ projectsLoadError }}</p>
+      <button type="button" class="rm-seg-btn" @click="loadProjects">Try again</button>
+    </div>
     <div v-else-if="!projects.length" class="rm-empty">No projects found.</div>
 
     <template v-else>
@@ -54,7 +58,7 @@
         <div class="rm-card-head">
           <p class="rm-card-title">Active jobs</p>
           <button v-if="bulkControlJobs.length" class="rm-stopall" :disabled="stoppingAll" @click="requestEligibleControls">
-            {{ stoppingAll ? 'Requesting…' : `Manage eligible (${bulkControlJobs.length})` }}
+            {{ stoppingAll ? 'Stopping…' : `Stop ${bulkControlJobs.length} job${bulkControlJobs.length === 1 ? '' : 's'}` }}
           </button>
         </div>
 
@@ -76,12 +80,12 @@
               class="rm-job-control"
               :class="`control-${primaryJobControl(job)?.action}`"
             >
-              <template v-if="hasPendingCancellation(job) && primaryJobControl(job)?.action === 'request-remote-cancel'">Story Studio is reconciling the cancellation result. </template>
+              <template v-if="hasPendingCancellation(job) && primaryJobControl(job)?.action === 'request-remote-cancel'">Checking whether the stop went through. </template>
               {{ customerJobText(primaryJobControl(job)?.reason, job) }}
             </p>
           </div>
           <button
-            v-if="job.status === 'error'"
+            v-if="job.status === 'error' && job.episode_id"
             class="rm-job-btn rm-retry"
             :disabled="retrying.has(job.job_id)"
             @click="retry(job)"
@@ -145,6 +149,8 @@ definePageMeta({ layout: 'default' })
 
 const { get, post, put, del } = useApi()
 const { success, error: showError } = useToast()
+const { ask } = useConfirm()
+const projectsLoadError = ref('')
 const { jobs, stats, startPolling, stopPolling } = useJobs()
 
 interface ProjectSummary { slug: string; name?: string }
@@ -205,7 +211,7 @@ function jobSubline(job: Job): string {
   if (providerDetail) return customerJobText(providerDetail, job)
   if (job.status === 'error') return customerJobText(job.error || 'failed', job)
   if (job.status === 'queued') return 'queued'
-  if (job.status === 'paused') return 'paused before provider submission'
+  if (job.status === 'paused') return 'paused — nothing sent yet'
   const last = job.output_lines?.[job.output_lines.length - 1]
   return last ? customerJobText(last, job).slice(0, 80) : 'running…'
 }
@@ -246,6 +252,7 @@ async function approve(ep: PendingApproval) {
 
 async function loadProjects() {
   loadingProjects.value = true
+  projectsLoadError.value = ''
   try {
     const data = await get<any>('/projects')
     projects.value = Array.isArray(data) ? data : (data?.projects || [])
@@ -253,7 +260,8 @@ async function loadProjects() {
     const initial = projects.value.find(p => p.slug === saved)?.slug || projects.value[0]?.slug || ''
     selectedSlug.value = initial
   } catch (e: any) {
-    showError(e?.data?.detail || 'Failed to load projects')
+    // An empty list here used to read "No projects found." with no way back.
+    projectsLoadError.value = e?.data?.detail || e?.message || 'Could not load your projects.'
   } finally {
     loadingProjects.value = false
   }
@@ -304,6 +312,15 @@ watch(() => stats.value?.done, (now, prev) => {
 async function run() {
   const slug = selectedSlug.value
   if (!slug || !episodeCount.value || submitting.value) return
+  const count = episodeCount.value
+  if (!await ask({
+    title: `Run ${count} episode${count === 1 ? '' : 's'}?`,
+    message: force.value
+      ? `Every step runs again for all ${count}, including finished ones — paid steps are paid for again.`
+      : `Only unfinished steps run; finished steps are skipped.`,
+    confirmLabel: `Run ${count}`,
+    danger: force.value,
+  })) return
   submitting.value = true
   runError.value = ''
   try {
@@ -376,6 +393,12 @@ async function runJobControl(job: Job, requestedControl?: JobControl): Promise<b
 async function requestEligibleControls() {
   if (stoppingAll.value) return
   const snapshot = [...bulkControlJobs.value]
+  if (!await ask({
+    title: `Stop ${snapshot.length} job${snapshot.length === 1 ? '' : 's'}?`,
+    message: 'Each one is stopped or cancelled where that is safe. Jobs that cannot be stopped safely yet are left running.',
+    confirmLabel: 'Stop them',
+    danger: true,
+  })) return
   const total = activeJobs.value.length
   stoppingAll.value = true
   try {

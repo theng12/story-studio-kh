@@ -43,3 +43,8 @@ test('the project sidebar reaches the existing Image Pool beside Assets Library'
     /:to="`\/projects\/\$\{slug\}\/image-pool`"[^>]*>Image Pool<\/NuxtLink>/,
   )
 })
+
+test('the collapsed-sidebar Menu button sits clear of the macOS traffic lights', () => {
+  const narrow = dashboard.slice(dashboard.indexOf('@media (max-width: 900px)'))
+  assert.match(narrow, /\.menu-toggle \{[^}]*padding-left: 78px/)
+})

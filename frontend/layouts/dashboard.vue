@@ -545,7 +545,9 @@ onUnmounted(() => {
 .sidebar-overlay { display: none; }
 
 @media (max-width: 900px) {
-  .menu-toggle { display: inline-flex; align-items: center; justify-content: center; }
+  /* Clear of the macOS traffic lights (x 16, ~52 px wide): at the 900 px minimum window the sidebar
+     collapses here, and a Menu button under the lights could not be clicked at all. */
+  .menu-toggle { display: inline-flex; align-items: center; justify-content: center; padding-left: 78px; min-width: 138px; }
   .sidebar {
     position: fixed;
     z-index: 300;

@@ -24,7 +24,9 @@
         </button>
       </div>
     </header>
-    <div class="account-standing">
+    <!-- Not on the sign-in page: nothing behind it can be read before signing in, and a
+         "GenStudio · Set up" button there opened settings he could not use. -->
+    <div v-if="!signingIn" class="account-standing">
       <GenStudioStandingStrip class="default-standing-strip" />
       <ContentInstallStrip class="default-install-strip" />
     </div>
@@ -42,6 +44,9 @@ import ContentInstallStrip from '~/components/content-store/ContentInstallStrip.
 const { public: pubCfg } = useRuntimeConfig()
 const appVersion = computed(() => (pubCfg.appVersion as string | undefined) || '0.0.0')
 const buildDate = computed(() => (pubCfg.buildDate as string | undefined) || '')
+
+const route = useRoute()
+const signingIn = computed(() => route.path.replace(/\/+$/, '') === '/login')
 
 const _whatsNew = useWhatsNewModal()
 function openWhatsNew() { _whatsNew.open() }

@@ -413,7 +413,7 @@ export const featureGuides: Record<string, FeatureGuide> = {
       { title: 'Full run', purpose: 'Queues the project’s saved production chain while preserving dependency checks.' },
       { title: 'Up to review', purpose: 'Stops the chain at the visual review gate when supported.' },
       { title: 'Force rerun', purpose: 'Requeues completed steps and should be used only when replacement output is intentional.' },
-      { title: 'Stop all', purpose: 'Stops Story Studio dispatch for the displayed active jobs.' },
+      { title: 'Stop N jobs', purpose: 'Asks first, then stops every running job that can be stopped safely; the rest keep running.' },
     ],
     tips: ['Configure presets on the desktop workspace before relying on remote runs.', 'Use Tailscale plus Server Mode authentication for iPad or remote-browser access.'],
   },

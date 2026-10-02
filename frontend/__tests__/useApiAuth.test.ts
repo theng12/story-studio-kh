@@ -55,3 +55,35 @@ describe('useApi authentication boundary', () => {
     assert.equal(window.location.pathname, '/login')
   })
 })
+
+describe('useApi when Story Studio’s own engine does not answer', () => {
+  test('a request with no response says the engine is not answering, not "<no response> Failed to fetch"', async () => {
+    const { NO_RESPONSE_MESSAGE } = await import('../composables/useApi.js')
+    ;(globalThis as any).$fetch = async () => {
+      const error: any = new Error('[GET] "/api/projects/a": <no response> Failed to fetch', { cause: new TypeError('Failed to fetch') })
+      error.name = 'FetchError'
+      throw error
+    }
+    await assert.rejects(useApi().get('/projects/a'), (error: any) => {
+      assert.equal(error.message, NO_RESPONSE_MESSAGE)
+      assert.doesNotMatch(error.message, /no response|Failed to fetch/)
+      return true
+    })
+  })
+
+  test('a deliberate abort and a real HTTP answer keep their own text', async () => {
+    ;(globalThis as any).$fetch = async () => {
+      const abort = new Error('This operation was aborted'); abort.name = 'AbortError'
+      const error: any = new Error('[GET] "/api/x": <no response> This operation was aborted', { cause: abort })
+      error.name = 'FetchError'
+      throw error
+    }
+    await assert.rejects(useApi().get('/x'), /aborted/)
+    ;(globalThis as any).$fetch = async () => {
+      const error: any = new Error('[GET] "/api/x": 404 Not Found')
+      error.name = 'FetchError'; error.response = { status: 404 }; error.data = { detail: 'Project not found' }
+      throw error
+    }
+    await assert.rejects(useApi().get('/x'), /404 Not Found/)
+  })
+})
