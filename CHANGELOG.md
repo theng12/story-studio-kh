@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.247 — 2026-10-02
+
+- **Cancel reaches a narration or music job that is already running.** Cancelling a narration or music job while it is running on a Mac now
+  tells the Gateway, which stops the work, and the job shows as cancelled instead of failing. Cancelling a music top-up job is no longer refused.
+- **Faster scene clips.** Scene clips for the final video are now made by a small built-in helper that uses the Mac's video hardware, with
+  the old method kept as a fallback, so rendering a video takes noticeably less time.
+- **Gemma 3 12B is gone.** Story Studio never asks for the retired Gemma 3 12B model, just like the retired LTX video model.
+
+---
+
 ## v1.4.246 — 2026-10-02
 
 - **Smaller files, your choice.** New switches in Settings let you shrink each kind of asset: narration arrives as compact AAC (m4a),
