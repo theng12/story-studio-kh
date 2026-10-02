@@ -15,7 +15,8 @@
 
 import path from 'node:path'
 import { runFfmpeg, stillDecoderArgs } from './ffmpeg-utils.js'
-import { compileSceneReveal, type CompiledReveal } from './reveal-compiler.js'
+import { compileSceneReveal, planRevealStages, revealDriftMotion, type CompiledReveal } from './reveal-compiler.js'
+import { renderNativeSceneClip } from './native-scene-clip.js'
 import { planSceneHold, type RevealHoldPlan, type RevealPace, type RevealSnapCandidates } from './reveal-pacing.js'
 import { normalizeSceneReveal, type SceneRevealDocument } from '../contracts/scene-reveal.js'
 
@@ -36,6 +37,19 @@ export interface RenderRevealInput {
   timeoutMs?: number
   /** Test seam: production always runs the real FFmpeg. */
   run?: (args: string[], options: { timeoutMs?: number }) => Promise<unknown>
+  /**
+   * Render the picture's drift with the native helper (the one expensive stage) and let FFmpeg do
+   * the rest. Any native problem, or a failure of the hybrid graph, re-renders the clip with the
+   * all-FFmpeg graph, so this can only make a clip faster, never absent.
+   */
+  native?: {
+    /** Where the intermediate drift clip is written. */
+    driftPath: string
+    /** Reports why the native drift was not used. */
+    onFallback?: (detail: string) => void
+    /** Test seam for the helper. */
+    render?: typeof renderNativeSceneClip
+  }
 }
 
 export interface RenderedReveal {
@@ -44,6 +58,8 @@ export interface RenderedReveal {
   compiled: CompiledReveal
   /** The exact argument list, so a receipt can name what ran. */
   args: string[]
+  /** `native-drift` when the picture came from the helper, `ffmpeg` otherwise. */
+  renderer: 'native-drift' | 'ffmpeg'
 }
 
 /**
@@ -74,25 +90,64 @@ export async function renderRevealClip(input: RenderRevealInput): Promise<Render
     doc,
     snap: input.snap,
   })
-  const compiled = compileSceneReveal(doc, {
-    w: input.width,
-    h: input.height,
-    fps: input.fps,
-    timing: {
-      reveal_seconds: plan.reveal_seconds,
-      hold_seconds: plan.hold_seconds,
-      total_seconds: plan.total_seconds,
-      micro_event_offsets: plan.micro_event_offsets,
-      source: 'preset',
-    },
-  })
+  const timing = {
+    reveal_seconds: plan.reveal_seconds,
+    hold_seconds: plan.hold_seconds,
+    total_seconds: plan.total_seconds,
+    micro_event_offsets: plan.micro_event_offsets,
+    source: 'preset' as const,
+  }
+  const runner = input.run ?? runFfmpeg
+  const timeoutMs = input.timeoutMs ?? 10 * 60_000
+  const encoder = revealEncoderArgs({ fps: input.fps, crf: input.crf ?? 20 })
+  const decoder = await stillDecoderArgs(input.imagePath)
+
+  // ── Hybrid: native drift, FFmpeg wipes ──────────────────────────────────────
+  if (input.native) {
+    const fallback = (detail: string) => input.native?.onFallback?.(detail)
+    const picture = planRevealStages(doc, timing).find(stage => stage.kind === 'picture')!
+    const render = input.native.render ?? renderNativeSceneClip
+    const drift = await render({
+      imagePath: input.imagePath,
+      outPath: input.native.driftPath,
+      document: revealDriftMotion(doc),
+      w: input.width, h: input.height, fps: input.fps,
+      duration: picture.segment,
+      // This clip is decoded and re-encoded below at the reveal's own CRF, so it only has to be clean.
+      quality: 0.8,
+    })
+    if (drift.rendered) {
+      const compiled = compileSceneReveal(doc, { w: input.width, h: input.height, fps: input.fps, timing, prerenderedPicture: true })
+      const imageField = doc.field.mode === 'image'
+      const args = [
+        '-y',
+        '-i', input.native.driftPath,
+        ...(imageField ? [...decoder, '-i', input.imagePath] : []),
+        '-filter_complex', compiled.filters.join(';'),
+        '-map', `[${compiled.output}]`,
+        '-t', String(compiled.duration),
+        ...encoder,
+        input.outPath,
+      ]
+      try {
+        await runner(args, { timeoutMs })
+        return { path: input.outPath, plan, compiled, args, renderer: 'native-drift' }
+      } catch (error: any) {
+        fallback(`hybrid graph failed: ${String(error?.message || error).split('\n')[0]}`)
+      }
+    } else {
+      fallback(`${drift.reason}: ${drift.detail}`)
+    }
+  }
+
+  // ── All FFmpeg ──────────────────────────────────────────────────────────────
+  const compiled = compileSceneReveal(doc, { w: input.width, h: input.height, fps: input.fps, timing })
 
   // One frame in, no `-loop`: the picture stream is built by `zoompan` (which
   // generates its own frames from a single image) and the field by `tpad`
   // cloning that same frame. Looping the input would make zoompan multiply the
   // clip by the number of times the image arrived — the "stuck at 1/160" shape
   // of defect this app already fixed once in `prepareSceneClips`.
-  const decoder = await stillDecoderArgs(input.imagePath)
   const args = [
     '-y',
     ...decoder,
@@ -100,13 +155,12 @@ export async function renderRevealClip(input: RenderRevealInput): Promise<Render
     '-filter_complex', compiled.filters.join(';'),
     '-map', `[${compiled.output}]`,
     '-t', String(compiled.duration),
-    ...revealEncoderArgs({ fps: input.fps, crf: input.crf ?? 20 }),
+    ...encoder,
     input.outPath,
   ]
 
-  const runner = input.run ?? runFfmpeg
-  await runner(args, { timeoutMs: input.timeoutMs ?? 10 * 60_000 })
-  return { path: input.outPath, plan, compiled, args }
+  await runner(args, { timeoutMs })
+  return { path: input.outPath, plan, compiled, args, renderer: 'ffmpeg' }
 }
 
 /** Where a reveal clip lives inside a job's temp directory. */
