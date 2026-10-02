@@ -205,3 +205,31 @@ describe('useCredits.startPolling()', () => {
     await Promise.all([first, second])
   })
 })
+
+describe('useCredits polling while the window is hidden', () => {
+  test('stops polling while hidden and refreshes as soon as the window is shown', async () => {
+    fetchHandler = (url: string) => url.endsWith('/api-keys') ? configuredKey : authoritativeUsage
+    const visibility = Object.getOwnPropertyDescriptor(Document.prototype, 'visibilityState')
+      ?? Object.getOwnPropertyDescriptor(document, 'visibilityState')
+    let state: 'visible' | 'hidden' = 'visible'
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state })
+    const { startPolling } = useCredits()
+    const release = startPolling(40)
+    try {
+      await sleep(10)
+      state = 'hidden'
+      document.dispatchEvent(new Event('visibilitychange'))
+      const hiddenAt = fetchCalls.length
+      await sleep(150)
+      assert.equal(fetchCalls.length, hiddenAt, 'no account reads while nobody can see the strip')
+      state = 'visible'
+      document.dispatchEvent(new Event('visibilitychange'))
+      await sleep(5)
+      assert.ok(fetchCalls.length > hiddenAt, 'showing the window refreshes at once')
+    } finally {
+      release()
+      if (visibility) Object.defineProperty(document, 'visibilityState', visibility)
+      else delete (document as any).visibilityState
+    }
+  })
+})
