@@ -110,7 +110,7 @@ router.post('/projects/:slug/generate/video-prompts', async (req, res) => {
   if (!episode_id) return res.status(400).json({ detail: 'episode_id is required' })
   if (typeof model !== 'string' || !model.trim()) {
     return res.status(409).json({
-      detail: 'Choose an available GenStudio KH language product. Story Studio did not choose a hidden fallback, and no generation request or credit charge was made.',
+      detail: 'Choose an available Gateway language product. Story Studio did not choose a hidden fallback, and no generation request or credit charge was made.',
     })
   }
 
@@ -168,7 +168,7 @@ RETURN ONLY THIS JSON (no markdown):
     const end = text.lastIndexOf('}')
     if (start < 0 || end <= start) {
       throw new Error(
-        'GenStudio completed the request, but the video-prompt response contained no JSON object '
+        'The Gateway completed the request, but the video-prompt response contained no JSON object '
         + `(${text.length} character(s) returned). The result was rejected locally.`,
       )
     }
@@ -177,14 +177,14 @@ RETURN ONLY THIS JSON (no markdown):
       parsed = JSON.parse(text.slice(start, end + 1))
     } catch (error: any) {
       throw new Error(
-        `GenStudio completed the request, but the video-prompt response was not valid JSON — ${error?.message || error}. The result was rejected locally.`,
+        `The Gateway completed the request, but the video-prompt response was not valid JSON — ${error?.message || error}. The result was rejected locally.`,
       )
     }
     // The contract accepts the envelope; per-scene correctness is enforced here.
     const { scenes, missing } = normalizeVideoPromptScenes(parsed?.scenes, nClips)
     if (!scenes.length) {
       throw new Error(
-        `GenStudio completed the request, but none of the ${Array.isArray(parsed?.scenes) ? parsed.scenes.length : 0} returned `
+        `The Gateway completed the request, but none of the ${Array.isArray(parsed?.scenes) ? parsed.scenes.length : 0} returned `
         + `entr${Array.isArray(parsed?.scenes) && parsed.scenes.length === 1 ? 'y' : 'ies'} carried a usable prompt with a scene number in 1-${nClips}. `
         + 'The result was rejected locally.',
       )
@@ -251,7 +251,7 @@ router.post('/projects/:slug/generate/video', async (req, res) => {
     return res.status(400).json({ detail: 'Text-to-video has been retired. Choose an image-to-video model and generate the scene image first.' })
   }
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) return res.status(400).json({ detail: 'Add a GenStudio API key in Settings → This Mac.' })
+  if (!apiKey) return res.status(400).json({ detail: 'Add a Gateway key in Settings → This Mac.' })
   try {
     const catalog = await listGenStudioVideoModels(apiKey)
     // Alias-aware: a saved raw id still resolves after GenStudio republishes
@@ -259,11 +259,11 @@ router.post('/projects/:slug/generate/video', async (req, res) => {
     const entry = findGenStudioProduct(catalog, modelId)
     if (!entry?.available || entry.locked === true || !entry.modes.includes('image-to-video')) {
       return res.status(409).json({
-        detail: `Saved video model "${selectedModelId}" is not currently available in the GenStudio catalog. Select an available image-to-video model.`,
+        detail: `Saved video model "${selectedModelId}" is not currently available in the Gateway catalog. Select an available image-to-video model.`,
       })
     }
   } catch (error: any) {
-    return res.status(502).json(humanizeBackendError(error, 'Could not verify the GenStudio video catalog'))
+    return res.status(502).json(humanizeBackendError(error, 'Could not verify the Gateway video catalog'))
   }
 
   if (jq.isDuplicate(slug, episodeId, 'video')) {

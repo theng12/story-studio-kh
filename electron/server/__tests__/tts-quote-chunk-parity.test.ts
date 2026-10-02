@@ -137,7 +137,7 @@ test('splitting refuses to invent a boundary when the model published none', () 
   assert.throws(() => planGenStudioTtsRequests(narrationFixture(), 0), /maximum_input_characters/)
 })
 
-test('GenStudio is asked to price each submitted request, and the total is the sum of its answers', async () => {
+test('The Gateway is asked to price each submitted request, and the total is the sum of its answers', async () => {
   const requests = flattenTtsRequestPlan(
     planGenStudioTtsRequests((() => {
       const sections = narrationFixture()
@@ -178,7 +178,7 @@ test('GenStudio is asked to price each submitted request, and the total is the s
   assert.ok(result.parts.every(part => part.credits > 0))
 })
 
-test('a voice GenStudio publishes as not quotable is reported, not priced locally', async () => {
+test('a voice the Gateway publishes as not quotable is reported, not priced locally', async () => {
   const result = await quoteNarrationRequests({
     requests: [{ section_slug: 'intro', section_label: 'Introduction', part: 1, part_count: 1, text: 'hi', characters: 2 }],
     quoteEnabled: false,
@@ -335,7 +335,7 @@ test('parity holds under the reduced budget: quoted units are still submitted un
   }
 })
 
-test('the discovered-refusal cache is gone — every ask reaches GenStudio', async () => {
+test('the discovered-refusal cache is gone — every ask reaches the Gateway', async () => {
   // The cache remembered, per model and per process, the smallest body the
   // quote endpoint had already refused, so a repeat ask could skip the round
   // trip. Its only reason to exist was the quote endpoint's own undiscoverable
@@ -435,7 +435,7 @@ function oneRequest() {
   ))
 }
 
-test('a 422 from the quote endpoint surfaces the status and GenStudio\'s own detail', async () => {
+test('a 422 from the quote endpoint surfaces the status and the Gateway\'s own detail', async () => {
   const detail = 'model_id: field required'
   const result = await quoteNarrationRequests({
     requests: oneRequest(),
@@ -451,7 +451,7 @@ test('a 422 from the quote endpoint surfaces the status and GenStudio\'s own det
   assert.equal(result.total_credits, null)
 })
 
-test('the status GenStudio answered with reaches the reader, not just the log', () => {
+test('the status the Gateway answered with reaches the reader, not just the log', () => {
   const page = readFileSync(new URL('../../../frontend/pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
   // The note the page renders when a quote is unavailable carries the status
   // beside GenStudio's words. Without it a transport failure and a publication
@@ -479,7 +479,7 @@ test('an absent published figure stays absent through the quote parse — no `??
     assert.match(
       quoteParse,
       new RegExp(`${field}: optionalCount\\(payload\\?\\.${field}\\) \\?\\? null`),
-      `${field} must stay null when GenStudio's 200 quote did not publish it`,
+      `${field} must stay null when the Gateway's 200 quote did not publish it`,
     )
   }
   // Comments stripped: the block above explains the `?? 0` it is there to stop.

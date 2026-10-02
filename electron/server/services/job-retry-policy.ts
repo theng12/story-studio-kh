@@ -119,7 +119,7 @@ export function resolveJobAutoRetryPolicy(
   if (job.type === 'subtitles_transcribe') {
     return {
       ...MANUAL_ONLY,
-      reason: 'Story Studio already retries free catalog/network reads and reconnects accepted GenStudio tasks. Whole-job replay stays manual so terminal paid work is never submitted twice.',
+      reason: 'Story Studio already retries free catalog/network reads and reconnects accepted Gateway tasks. Whole-job replay stays manual so terminal paid work is never submitted twice.',
     }
   }
 
@@ -144,7 +144,7 @@ export function resolveJobAutoRetryPolicy(
     if (job.type === 'scene_plan_run' && model.startsWith('genstudio-chat:')) {
       return {
         ...MANUAL_ONLY,
-        reason: 'Scene Plan already performs bounded, ID-scoped GenStudio prompt repair before it fails; a further provider submission requires a manual Retry.',
+        reason: 'Scene Plan already performs bounded, ID-scoped Gateway prompt repair before it fails; a further provider submission requires a manual Retry.',
       }
     }
     return isLocalTextModel(model)
@@ -169,7 +169,7 @@ export function resolveJobAutoRetryPolicy(
     if (model) {
       return {
         ...MANUAL_ONLY,
-        reason: 'Story Studio already retries free catalog/network reads and reconnects accepted GenStudio tasks. Whole-job replay stays manual so terminal paid work is never submitted twice.',
+        reason: 'Story Studio already retries free catalog/network reads and reconnects accepted Gateway tasks. Whole-job replay stays manual so terminal paid work is never submitted twice.',
       }
     }
     return MANUAL_ONLY

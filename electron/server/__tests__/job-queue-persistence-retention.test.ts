@@ -280,8 +280,8 @@ describe('status-aware durable job retention', () => {
     await jq.setQueuePaused(false)
   })
 
-  test('checkpointed GenStudio work is never displaced by terminal history', async () => {
-    const project = await pm.createProject({ name: 'GenStudio Checkpoint Retention' })
+  test('checkpointed Gateway work is never displaced by terminal history', async () => {
+    const project = await pm.createProject({ name: 'Gateway Checkpoint Retention' })
     const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
     const checkpointed = makeJob(project.slug, 1, 'running', {
       job_id: 'checkpointed-genstudio',

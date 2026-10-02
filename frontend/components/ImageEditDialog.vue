@@ -7,7 +7,7 @@
       </div>
       <div class="iedit-body">
         <p>
-          Image editing will return after GenStudio exposes and qualifies a secure image-edit API.
+          Image editing will return after Gateway exposes and qualifies a secure image-edit API.
         </p>
         <p class="text-muted">
           Story Studio will not send this image or your credentials directly to a cloud provider.

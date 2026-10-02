@@ -1476,7 +1476,7 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
     })
   }
   if (selectedModel.locked) {
-    return res.status(409).json({ detail: 'The selected transcription model is locked for this GenStudio account. Choose an unlocked model.' })
+    return res.status(409).json({ detail: 'The selected transcription model is locked for this Gateway account. Choose an unlocked model.' })
   }
   const requestedLanguage = typeof req.body?.language === 'string' ? req.body.language : undefined
   try {

@@ -8,7 +8,7 @@ const source = readFileSync(
   'utf8',
 )
 
-describe('GenStudio catalog diagnostics', () => {
+describe('Gateway catalog diagnostics', () => {
   test('shows live catalog health without reviving retired access controls', () => {
     assert.match(source, /GenStudio Catalog/)
     assert.match(source, /Connection/)

@@ -374,7 +374,7 @@ async function runJobControl(job: Job, requestedControl?: JobControl): Promise<b
       const response = await post<{ job?: Job }>(`${jobQueuePath(job)}/recheck-provider-status`, {})
       const refreshed = response?.job?.control
       success(refreshed?.action === 'clear-history'
-        ? 'GenStudio confirmed this job\'s provider work has finished. This history can now be removed.'
+        ? 'The Gateway confirmed this job\'s provider work has finished. This history can now be removed.'
         : customerJobText(refreshed?.reason || control.reason, job))
       return true
     } else {

@@ -17,10 +17,10 @@
     to="/usage"
     class="genstudio-standing-strip"
     :class="`standing-strip-${variant}`"
-    aria-label="GenStudio account standing"
+    aria-label="Gateway account standing"
     :title="usageError || 'Open GenStudio usage'"
   >
-    <span>GenStudio</span>
+    <span>Gateway</span>
     <strong>{{ creditSummary }}</strong>
     <em v-if="stalenessNote" class="freshness-badge">{{ stalenessNote }}</em>
     <small v-if="standingSummary">{{ standingSummary }}</small>

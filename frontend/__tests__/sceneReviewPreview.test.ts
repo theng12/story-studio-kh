@@ -17,7 +17,7 @@ const videoAssemblySource = readFileSync(
 )
 
 describe('Scene Review image preview', () => {
-  test('render controls expose one GenStudio image model and no invented step control', () => {
+  test('render controls expose one Gateway image model and no invented step control', () => {
     assert.match(sceneReviewSource, /class="sr-model-grid is-single"[\s\S]*Image model/)
     assert.match(sceneReviewSource, /image-mode="text2img"/)
     assert.doesNotMatch(sceneReviewSource, /Rewrite LLM|Rewrite with AI|<ModelSelector/)
@@ -27,7 +27,7 @@ describe('Scene Review image preview', () => {
     assert.doesNotMatch(sceneReviewSource, /sr-gen-quality|sr-gen-steps|image_steps|image_quality:|genStudioQualitySteps/)
   })
 
-  test('resolution ownership comes only from the live GenStudio catalog', () => {
+  test('resolution ownership comes only from the live Gateway catalog', () => {
     // No pixel menu: `sizes` was never published, so nothing selects one and
     // nothing falls back to a hardcoded table.
     assert.doesNotMatch(sceneReviewSource, /sr-gen-size|selectedGenStudioSizes|genstudio_size|genStudioSizeKey/)

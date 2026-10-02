@@ -83,12 +83,12 @@
           </div>
           <div v-else-if="voicesError" class="vp-warning">
             {{ voicesError }}
-            <a href="#" @click.prevent="goToGenStudioSettings">Check GenStudio settings</a>
+            <a href="#" @click.prevent="goToGenStudioSettings">Check Gateway settings</a>
           </div>
-          <div v-else-if="voicesLoading && !visibleVoices.length" class="vp-empty">Loading voices from GenStudio KH…</div>
+          <div v-else-if="voicesLoading && !visibleVoices.length" class="vp-empty">Loading voices from the Gateway…</div>
 
           <section v-if="savedVoiceRows.length" class="vp-section">
-            <h4>Saved in your GenStudio account</h4>
+            <h4>Saved in your Gateway account</h4>
             <VoicePickerRow
               v-for="voice in savedVoiceRows"
               :key="`saved-${voice.id}`"
@@ -209,9 +209,9 @@ const search = ref('')
  * semantics are published.
  */
 const VOICE_FILTERS = [
-  { id: 'all' as const, label: 'All', hint: 'Every voice GenStudio serves for this model' },
-  { id: 'saved' as const, label: 'Saved', hint: 'Voices you saved to your GenStudio account with ★' },
-  { id: 'cloned' as const, label: 'Cloned', hint: 'Voices you cloned in GenStudio' },
+  { id: 'all' as const, label: 'All', hint: 'Every voice Gateway serves for this model' },
+  { id: 'saved' as const, label: 'Saved', hint: 'Voices you saved to your Gateway account with ★' },
+  { id: 'cloned' as const, label: 'Cloned', hint: 'Voices you cloned in the Gateway' },
 ]
 type VoiceFilter = (typeof VOICE_FILTERS)[number]['id']
 const voiceFilter = ref<VoiceFilter>('all')
@@ -235,7 +235,7 @@ const compatibleLibrary = computed(() => libraries.value.find(
 ) || null)
 const cloneHint = computed(() => {
   if (!props.ttsModelSupportsVoiceCloning || !props.ttsModelName) return ''
-  return `Clone a voice in GenStudio KH; once its compatible copy is ready, it appears here for ${props.ttsModelName}.`
+  return `Clone a voice in the Gateway; once its compatible copy is ready, it appears here for ${props.ttsModelName}.`
 })
 
 const matchingVoices = computed(() => {
@@ -259,7 +259,7 @@ const otherVoicesHeading = computed(() => {
 const emptyStateTitle = computed(() => {
   if (voiceFilter.value === 'saved') return 'No saved voices for this model.'
   if (voiceFilter.value === 'cloned') return 'No cloned voices for this model.'
-  return 'GenStudio KH returned no voices for this model.'
+  return 'The Gateway returned no voices for this model.'
 })
 
 const emptyStateHint = computed(() => {
@@ -267,9 +267,9 @@ const emptyStateHint = computed(() => {
   // An empty clone list is the normal answer for someone who has not cloned
   // anything — say where cloning happens rather than letting it read as a
   // failure to load. Story Studio deliberately does not clone voices.
-  if (voiceFilter.value === 'cloned') return 'Voices are cloned in GenStudio KH; once its compatible copy is ready, it appears here for the selected model.'
+  if (voiceFilter.value === 'cloned') return 'Voices are cloned in the Gateway; once its compatible copy is ready, it appears here for the selected model.'
   if (compatibleLibrary.value) return `Browse the ${compatibleLibrary.value.label} library to add one, or refresh the catalog.`
-  return cloneHint.value || 'Refresh the catalog after GenStudio makes compatible voices available.'
+  return cloneHint.value || 'Refresh the catalog after Gateway makes compatible voices available.'
 })
 const savedVoiceRows = computed(() => visibleVoices.value.filter(voice => voice.is_saved === true))
 const otherVoiceRows = computed(() => visibleVoices.value.filter(voice => voice.is_saved !== true))
@@ -285,9 +285,9 @@ function voiceProviderText(voice: GenStudioVoice): string {
 }
 
 function unavailableReason(voice: GenStudioVoice): string {
-  if (voice.generation_enabled === false) return 'GenStudio has generation turned off for this voice.'
-  if (voice.catalog_status === 'qualification') return 'GenStudio lists this voice as qualification-only.'
-  if (voice.catalog_status === 'retired') return 'GenStudio has retired this voice.'
+  if (voice.generation_enabled === false) return 'The Gateway has generation turned off for this voice.'
+  if (voice.catalog_status === 'qualification') return 'The Gateway lists this voice as qualification-only.'
+  if (voice.catalog_status === 'retired') return 'The Gateway has retired this voice.'
   return ''
 }
 
@@ -343,9 +343,9 @@ const currentVoiceName = computed(() => {
 const currentVoiceProviderLabel = computed(() =>
   currentGenStudioVoice.value ? voiceProviderText(currentGenStudioVoice.value) : '')
 const currentVoiceSaved = computed(() => currentGenStudioVoice.value?.is_saved === true)
-const scopeTitle = computed(() => props.ttsModelName ? `${props.ttsModelName} voices` : 'GenStudio KH voices')
+const scopeTitle = computed(() => props.ttsModelName ? `${props.ttsModelName} voices` : 'Gateway voices')
 const scopeDescription = computed(() =>
-  props.ttsModelDescription || 'Read live from your GenStudio KH account for the selected voice model.')
+  props.ttsModelDescription || 'Read live from your Gateway account for the selected voice model.')
 const voiceCountLabel = computed(() => {
   const count = visibleVoices.value.length
   return count === 1 ? '1 voice' : `${count} voices`
@@ -394,7 +394,7 @@ async function toggleSaved(voice: GenStudioVoice) {
     await setSaved(voice.id, voice.is_saved !== true)
     emit('catalog-updated', voices.value)
   } catch (error: any) {
-    const detail = error?.data?.detail || error?.message || 'GenStudio could not update the saved state of this voice'
+    const detail = error?.data?.detail || error?.message || 'The Gateway could not update the saved state of this voice'
     saveError.value = detail
     showError(detail)
   } finally {
@@ -423,7 +423,7 @@ function reconcileSelection() {
   emit('update:modelValue', null)
   info(props.scopeToModel
     ? 'Voice cleared: the selected voice model does not serve it.'
-    : 'Voice cleared: it is no longer in your GenStudio catalogue.')
+    : 'Voice cleared: it is no longer in your Gateway catalogue.')
 }
 
 async function toggle() {

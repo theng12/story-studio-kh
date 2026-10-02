@@ -9,7 +9,7 @@ import { motionPromptScenesForRequest, resolveScenePlanCatalogModel } from '../g
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const serverRoot = path.resolve(HERE, '..')
 
-test('scene motion resolves only available GenStudio video catalog entries', () => {
+test('scene motion resolves only available Gateway video catalog entries', () => {
   const catalog = [
     {
       id: 'genstudio-video-veo-31-v1', display_name: 'Veo 3.1 Fast', available: true,
@@ -30,7 +30,7 @@ test('scene motion resolves only available GenStudio video catalog entries', () 
   assert.equal(resolveSceneClipCatalogModel('unmapped-direct-provider-model', catalog), null)
 })
 
-test('scene planning accepts only live GenStudio catalog ids', () => {
+test('scene planning accepts only live Gateway catalog ids', () => {
   const catalog = [
     {
       id: 'genstudio-chat-304c7e5dd2011f75a067-v1', display_name: 'DeepSeek', available: true,

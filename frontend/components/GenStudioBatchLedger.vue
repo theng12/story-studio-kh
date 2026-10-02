@@ -1,7 +1,7 @@
 <template>
-  <section class="gs-batch" :aria-label="`GenStudio batch with ${remoteJobs.length} items`">
+  <section class="gs-batch" :aria-label="`Gateway batch with ${remoteJobs.length} items`">
     <div class="gs-batch-head">
-      <span class="meta-label">GenStudio batch:</span>
+      <span class="meta-label">Gateway batch:</span>
       <!-- v1.4.7 — every credit figure says "credits".
            These sit immediately after an ITEM count, and read without a unit:
            "50 items · 450 on hold" looks like 450 items on hold. They are
@@ -46,10 +46,10 @@
     </div>
 
     <p v-if="contentRefusedCount" class="gs-batch-guidance">
-      GenStudio marked {{ contentRefusedCount.toLocaleString() }} image{{ contentRefusedCount === 1 ? '' : 's' }} as a content refusal. Review the prompt, then use Reword to try a different angle; nothing is rewritten automatically.
+      The Gateway marked {{ contentRefusedCount.toLocaleString() }} image{{ contentRefusedCount === 1 ? '' : 's' }} as a content refusal. Review the prompt, then use Reword to try a different angle; nothing is rewritten automatically.
     </p>
     <p v-if="notCreatedCount" class="gs-batch-guidance">
-      GenStudio has no record of {{ notCreatedCount.toLocaleString() }} request{{ notCreatedCount === 1 ? '' : 's' }}.
+      The Gateway has no record of {{ notCreatedCount.toLocaleString() }} request{{ notCreatedCount === 1 ? '' : 's' }}.
       <template v-if="unchargedNotCreatedCount === notCreatedCount">
         {{ notCreatedCount === 1 ? 'It was' : 'They were' }} not created or charged; Retry resubmits only the missing work.
       </template>
@@ -203,7 +203,7 @@ function segmentStyle(count: number) {
 
 const QUEUE_LABELS: Record<string, string> = {
   waiting_local: 'Waiting locally',
-  submitting: 'Submitting to GenStudio',
+  submitting: 'Submitting to the Gateway',
   accepted: 'Accepted',
   waiting_account_capacity: 'Waiting for account capacity',
   reserved: 'Reserved',

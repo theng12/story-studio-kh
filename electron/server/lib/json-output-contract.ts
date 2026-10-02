@@ -196,11 +196,11 @@ export function jsonValueMatchesSchema(value: unknown, schema: JsonSchema): bool
 
 export function parseJsonOutput(raw: string): unknown {
   const text = raw.trim()
-  if (!text) throw new Error('GenStudio returned an empty structured response.')
+  if (!text) throw new Error('The Gateway returned an empty structured response.')
   try {
     return JSON.parse(text)
   } catch {
-    throw new Error('GenStudio returned invalid JSON. The result was rejected locally.')
+    throw new Error('The Gateway returned invalid JSON. The result was rejected locally.')
   }
 }
 
@@ -217,7 +217,7 @@ export function validateStructuredOutput(
   const value = parseJsonOutput(raw)
   if (contract.mode === 'json_object') {
     if (!isPlainObject(value)) {
-      throw new Error('GenStudio returned JSON, but this workflow requires one JSON object.')
+      throw new Error('The Gateway returned JSON, but this workflow requires one JSON object.')
     }
     // `accept` is what this workflow can safely USE; `schema` is what the model
     // was ASKED for. They differ only where the workflow checks items itself.
@@ -226,7 +226,7 @@ export function validateStructuredOutput(
       const reason = explainJsonSchemaMismatch(value, enforced)
       if (reason) {
         throw new Error(
-          `GenStudio completed the request, but the output did not match the ${contract.name ?? 'requested'} response schema — ${reason}. The result was rejected locally.`,
+          `The Gateway completed the request, but the output did not match the ${contract.name ?? 'requested'} response schema — ${reason}. The result was rejected locally.`,
         )
       }
     }
@@ -236,7 +236,7 @@ export function validateStructuredOutput(
     const reason = explainJsonSchemaMismatch(value, contract.schema)
     if (reason) {
       throw new Error(
-        `GenStudio completed the request, but the output did not match the ${contract.name} response schema — ${reason}. The result was rejected locally.`,
+        `The Gateway completed the request, but the output did not match the ${contract.name} response schema — ${reason}. The result was rejected locally.`,
       )
     }
     return value
@@ -273,7 +273,7 @@ export function validateStructuredOutput(
  */
 function unwrapProseOutput(raw: string): { text: string } {
   const trimmed = raw.trim()
-  if (!trimmed) throw new Error('GenStudio completed the request but returned an empty response.')
+  if (!trimmed) throw new Error('The Gateway completed the request but returned an empty response.')
   try {
     const wrapped = JSON.parse(trimmed)
     if (isPlainObject(wrapped) && typeof wrapped.text === 'string' && wrapped.text.trim()) {

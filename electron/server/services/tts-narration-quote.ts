@@ -150,7 +150,7 @@ export async function quoteNarrationRequests(
     return {
       ...empty,
       unavailable_reason: 'quote_disabled',
-      unavailable_detail: 'GenStudio publishes this voice as not quotable, so there is no quote to show for it.',
+      unavailable_detail: 'The Gateway publishes this voice as not quotable, so there is no quote to show for it.',
     }
   }
 
@@ -175,7 +175,7 @@ export async function quoteNarrationRequests(
       return {
         ...empty,
         unavailable_reason: 'quote_failed',
-        unavailable_detail: error?.detail || error?.message || 'GenStudio could not quote this narration.',
+        unavailable_detail: error?.detail || error?.message || 'The Gateway could not quote this narration.',
         unavailable_status: error instanceof GenStudioApiError ? error.status : null,
       }
     }
@@ -190,7 +190,7 @@ export async function quoteNarrationRequests(
       return {
         ...empty,
         unavailable_reason: 'quote_failed',
-        unavailable_detail: `GenStudio KH answered the quote for this narration without ${missing}. `
+        unavailable_detail: `The Gateway answered the quote for this narration without ${missing}. `
           + 'Story Studio will not show a total it had to invent a figure for.',
       }
     }

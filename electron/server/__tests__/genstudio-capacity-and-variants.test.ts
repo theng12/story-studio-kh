@@ -47,7 +47,7 @@ test('transcription reads the published per-SECOND rate and its minimum', async 
         {
           id: 'gs-transcribe-priced-v1',
           display_name: 'Priced',
-          provider: 'GenStudio KH',
+          provider: 'Gateway',
           language: 'multilingual',
           available: true,
           available_workers: 2,
@@ -61,7 +61,7 @@ test('transcription reads the published per-SECOND rate and its minimum', async 
           // publishes, so it must not become a price.
           id: 'gs-transcribe-legacy-field-v1',
           display_name: 'Legacy field',
-          provider: 'GenStudio KH',
+          provider: 'Gateway',
           language: 'multilingual',
           available: true,
           available_workers: 1,
@@ -206,7 +206,7 @@ test('scene clips resolve operation before duration/resolution and reject absent
   assert.throws(
     () => selectSceneClipGenStudioVariant(variants, { duration_seconds: 3, resolution: '480p' }),
     /operation.*required/i,
-    'duration/resolution alone are ambiguous across GenStudio operations',
+    'duration/resolution alone are ambiguous across Gateway operations',
   )
   assert.throws(
     () => selectSceneClipGenStudioVariant(variants, { operation: 'text-to-video', duration_seconds: 3, resolution: '480p' }),
@@ -334,7 +334,7 @@ test('retry_after_seconds rides the same server-hint reader as every other hint'
   assert.equal(error.retryAfterSeconds, 45)
 })
 
-test('GenStudio 1.2 retry_at is honored when no relative retry delay is published', () => {
+test('The Gateway 1.2 retry_at is honored when no relative retry delay is published', () => {
   const now = Date.parse('2026-08-13T03:00:00Z')
   assert.equal(readGenStudioPollHintMs({ retry_at: '2026-08-13T03:00:12Z' }, now), 12_000)
   assert.equal(readGenStudioPollHintMs({ retry_at: 'not-a-date' }, now), null)
@@ -372,14 +372,14 @@ test('a request_in_progress 429 is never resubmitted and never reported as a fai
     }
 
     const error = await generateImageWithGenStudio('request-in-progress-key', {
-      prompt: 'A request GenStudio already has.',
+      prompt: 'A request the Gateway already has.',
       modelId: 'genstudio-image-fast-v1',
       aspectRatio: '16:9',
       requestIdentity: 'project:EP0001:scene:0001',
       onQueueState: (state: string) => { queueStates.push(state) },
     }).then(() => null, (caught: unknown) => caught)
 
-    assert.ok(error instanceof GenStudioApiError, 'expected a typed GenStudio error')
+    assert.ok(error instanceof GenStudioApiError, 'expected a typed Gateway error')
     assert.equal(isGenStudioRequestInProgress(error), true)
     // THE POINT: exactly one POST. 429 is a retryable status, so without an
     // explicit guard the retry loop would have re-sent this request — which is

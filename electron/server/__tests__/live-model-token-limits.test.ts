@@ -86,7 +86,7 @@ test('context_window_tokens is the field read from the catalogue', async () => {
 
 test('the deprecated context_limit_tokens alias is used ONLY when the new field is absent', async () => {
   const [older] = await readCatalog([chatEntry({ context_limit_tokens: 200_000 })])
-  assert.equal(older?.context_window_tokens, 200_000, 'an older GenStudio must still be readable')
+  assert.equal(older?.context_window_tokens, 200_000, 'an older the Gateway must still be readable')
 
   // Both published and disagreeing: the CURRENT field wins. If the alias could
   // override it, a newer GenStudio would be silently downgraded to a legacy

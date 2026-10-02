@@ -62,7 +62,7 @@ describe('a historical record carrying a legacy provider string does not display
   })
 
   test('the gateway and Story Studio\'s own local features stay nameable', () => {
-    assert.equal(publicProviderLabel('genstudio'), 'GenStudio KH')
+    assert.equal(publicProviderLabel('genstudio'), 'Gateway')
     for (const local of ['voicestudio', 'imagestudio', 'chatstudio', 'macos']) {
       assert.notEqual(publicProviderLabel(local), '',
         `"${local}" runs on the customer's own machine and stays nameable`)

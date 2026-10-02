@@ -863,7 +863,7 @@ describe('the research generator resets the triage', () => {
     const md = await fs.readFile(mdPath, 'utf-8')
     assert.match(md, /## Structured citations/)
     assert.match(md, /\[Safe citation\]\(<https:\/\/example\.invalid\/citation>\)/)
-    assert.match(md, /## Pages GenStudio reported retrieving/)
+    assert.match(md, /## Pages the Gateway reported retrieving/)
     assert.match(md, /https:\/\/example\.invalid\/opened/)
     assert.match(md, /not citations and do not back individual claims/i)
     assert.doesNotMatch(md, /javascript:|data:text\/html/)
@@ -915,7 +915,7 @@ describe('the research generator resets the triage', () => {
 
     const { mdPath } = await researchPaths.resolveResearchPaths(epDir, CODE)
     const md = await fs.readFile(mdPath, 'utf-8')
-    assert.match(md, /Research ran, but GenStudio did not publish structured citations or source URLs for this run\./)
+    assert.match(md, /Research ran, but the Gateway did not publish structured citations or source URLs for this run\./)
     assert.match(md, /Searches executed: 3\. Web search cost: 5 credits\./)
     assert.doesNotMatch(md, /Searched the web and cited its sources below/)
     assert.doesNotMatch(md, /Treat these claims as model knowledge/)

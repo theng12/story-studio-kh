@@ -3,7 +3,7 @@
     <WorkspaceHero
       eyebrow="Generator · Narration"
       title="Audio Generator"
-      description="Turn approved scripts into chapter narration through your GenStudio voice catalog."
+      description="Turn approved scripts into chapter narration through your Gateway voice catalog."
     >
       <template #aside>
         <div class="workspace-metrics" aria-label="Audio generator context">
@@ -17,7 +17,7 @@
         </div>
       </template>
     </WorkspaceHero>
-    <!-- Live TTS download speed while GenStudio audio bytes stream back. -->
+    <!-- Live TTS download speed while Gateway audio bytes stream back. -->
     <AssetDownloadStrip :job-types="['audio']" />
     <TopActionBar
       :project-slug="slug"
@@ -102,11 +102,11 @@
             title="Choose a voice model"
             placeholder="Pick a voice model…"
             search-placeholder="Search voice models…"
-            aria-label="GenStudio TTS model options"
+            aria-label="Gateway TTS model options"
           />
           <p v-if="ttsModelsError" class="text-muted text-xs hint-line">{{ ttsModelsError }}</p>
           <p v-else-if="ttsModelsLoading && !audioModelOptions.length" class="text-muted text-xs hint-line">
-            Loading voice models from GenStudio KH…
+            Loading voice models from the Gateway…
           </p>
           <p v-else-if="selectedTtsModel" class="text-muted text-xs hint-line">
             <!-- Only a PUBLISHED provider is named. With none published this
@@ -158,7 +158,7 @@
         <span class="text-muted text-xs">
           <template v-if="selectedTtsModel">
             Voices served on <strong>{{ selectedTtsModel.display_name }}</strong>. Save one with ★ to keep it in
-            your GenStudio account, or browse the provider libraries from inside the picker.
+            your Gateway account, or browse the provider libraries from inside the picker.
           </template>
           <template v-else>
             Pick a voice model above — voices are listed for the model that serves them.
@@ -335,7 +335,7 @@
             </small>
           </label>
           <p v-if="activeCheckExactTotal === null" class="audio-quality-error" role="alert">
-            GenStudio did not return an exact total. Retry the quote before approving paid work.
+            The Gateway did not return an exact total. Retry the quote before approving paid work.
           </p>
           <p v-if="qualityActionError" class="audio-quality-error" role="alert">{{ qualityActionError }}</p>
           <div class="quality-approval-actions">
@@ -425,7 +425,7 @@
         <summary>Delivery and request controls <span>{{ advancedSummary }}</span></summary>
         <div class="audio-advanced-body">
       <div class="grid-3">
-        <!-- GenStudio publishes `supports_speed` and the numeric bounds per
+        <!-- the Gateway publishes `supports_speed` and the numeric bounds per
              model. A model without a complete published range gets no slider. -->
         <div v-if="supportsSpeed" class="form-group">
           <label>Speed ({{ form.speed.toFixed(2) }}) <span class="field-hint">Playback pace · Published range {{ publishedSpeedBounds?.minimum?.toFixed(2) }}–{{ publishedSpeedBounds?.maximum?.toFixed(2) }}×</span></label>
@@ -443,7 +443,7 @@
         <div v-else-if="selectedTtsModel" class="form-group">
           <label>Speed <span class="field-hint">Not available on this model</span></label>
           <p class="text-muted text-xs hint-line">
-            GenStudio does not publish a usable speed range for <strong>{{ selectedTtsModel.display_name }}</strong>, so Story Studio
+            The Gateway does not publish a usable speed range for <strong>{{ selectedTtsModel.display_name }}</strong>, so Story Studio
             sends its neutral speed. Choose a model that publishes speed bounds to change the pace.
           </p>
         </div>
@@ -476,18 +476,18 @@
           <strong>{{ selectedTtsModel?.display_name }}</strong> publishes
           <strong>{{ (resolvedChunkCap || 0).toLocaleString() }}</strong> characters per request; Story Studio plans at
           <strong>{{ plannedRequestCap.toLocaleString() }}</strong><template v-if="requestMarginPercent">
-            ({{ requestMarginPercent }}% head-room)</template>, because GenStudio counts billable characters its own way and a
+            ({{ requestMarginPercent }}% head-room)</template>, because Gateway counts billable characters its own way and a
           part refused at the very edge would land after earlier parts were already charged. Longer sections are split at
           sentence boundaries within the planned figure. It is not a project setting.
         </p>
       </div>
 
       <!-- Cost: the model's published rate until there is real text, then
-           GenStudio's own quotes — ONE PER TTS JOB this narration will actually
+           The Gateway's own quotes — ONE PER TTS JOB this narration will actually
            be submitted as — listed and added up. Never an estimate. -->
       <div v-if="selectedTtsModel" class="form-group mb-2">
         <label>
-          Cost <span class="field-hint">— GenStudio's figures</span>
+          Cost <span class="field-hint">— the Gateway's figures</span>
           <em v-if="ttsCatalogStaleNote" class="freshness-badge">{{ ttsCatalogStaleNote }}</em>
         </label>
         <div class="chunk-display" :title="quotedCost ? quotedCost.title : modelRate.title">
@@ -496,7 +496,7 @@
               {{ CREDIT_BASIS_LABEL[quotedCost.basis] }}: {{ quotedCost.text }}
               <span class="text-muted text-xs">
                 · {{ (narrationQuote?.total_billable_characters || 0).toLocaleString() }} billable characters
-                <template v-if="!narrationQuote?.chargeable"> · GenStudio marks these requests non-chargeable</template>
+                <template v-if="!narrationQuote?.chargeable"> · Gateway marks these requests non-chargeable</template>
               </span>
             </template>
             <template v-else>
@@ -508,13 +508,13 @@
             type="button"
             class="btn btn-sm btn-secondary"
             :disabled="!quoteEligible || !form.episode_id || quoting"
-            :title="quoteEligible ? 'Ask GenStudio to price every TTS job this narration will be submitted as' : 'GenStudio does not offer a quote for this voice'"
+            :title="quoteEligible ? 'Ask the Gateway to price every TTS job this narration will be submitted as' : 'The Gateway does not offer a quote for this voice'"
             @click="refreshQuote"
           >{{ quoting ? 'Asking…' : 'Get quote' }}</button>
         </div>
 
         <!-- The parts, shown because they are real: each row is a separate
-             GenStudio job, separately submitted, separately billed, and
+             Gateway job, separately submitted, separately billed, and
              separately subject to the model's published per-job minimum. -->
         <ul v-if="quotedParts.length" class="quote-parts">
           <li v-for="(part, index) in quotedParts" :key="index" class="quote-part text-xs">
@@ -542,14 +542,14 @@
             <strong>{{ selectedTtsModel.display_name }}</strong> did not report a per-request character ceiling.
           </template>
           Each part is its own
-          GenStudio job, carrying that model's published minimum of
-          {{ formatCredits(narrationQuote.minimum_credits) }} in its own right — so GenStudio was asked to price every
+          Gateway job, carrying that model's published minimum of
+          {{ formatCredits(narrationQuote.minimum_credits) }} in its own right — so the Gateway was asked to price every
           one of them, and the total above is the sum of those {{ narrationQuote.part_count }} quotes. Nothing was
-          calculated here. GenStudio reports the actual charge on each finished job.
+          calculated here. The Gateway reports the actual charge on each finished job.
         </p>
         <p v-else class="text-muted text-xs hint-line">
-          A quote is GenStudio's own figure for the requests about to be sent, not a Story Studio estimate.
-          GenStudio reports the actual charge on each finished job.
+          A quote is the Gateway's own figure for the requests about to be sent, not a Story Studio estimate.
+          The Gateway reports the actual charge on each finished job.
         </p>
       </div>
 
@@ -754,8 +754,8 @@ const audioModelOptions = computed(() => ttsModels.value.map((model) => {
     description: model.description,
     disabled: ttsModelsStale.value || !model.generation_enabled || model.locked === true,
     disabledReason: ttsModelsStale.value
-      ? 'Last-known catalog only. Refresh GenStudio before starting new narration work.'
-      : genStudioModelLockReason(model) || (model.generation_enabled ? '' : 'GenStudio has generation turned off for this model.'),
+      ? 'Last-known catalog only. Refresh the Gateway before starting new narration work.'
+      : genStudioModelLockReason(model) || (model.generation_enabled ? '' : 'The Gateway has generation turned off for this model.'),
     badges: [
       ...(model.supports_voice_cloning ? [{ label: 'Voice cloning', tone: 'info' as const }] : []),
       ...(ttsModelsStale.value ? [{ label: 'last known', tone: 'warning' as const }] : []),
@@ -919,12 +919,12 @@ function formatChunkSeconds(chars: number): string {
   return s ? `${m}m ${s}s` : `${m} min`
 }
 const chunkSizeTooltip = computed(() => resolvedChunkCap.value
-  ? `GenStudio publishes ${resolvedChunkCap.value.toLocaleString()} characters per request for `
+  ? `The Gateway publishes ${resolvedChunkCap.value.toLocaleString()} characters per request for `
     + `${selectedTtsModel.value?.display_name || 'this model'}. Story Studio plans at `
-    + `${(plannedRequestCap.value || 0).toLocaleString()} — the published figure less head-room, because GenStudio `
+    + `${(plannedRequestCap.value || 0).toLocaleString()} — the published figure less head-room, because the Gateway `
     + 'counts billable characters under its own rules — and splits longer sections at sentence boundaries within it. '
     + 'Both figures move with the selected model.'
-  : 'Choose a voice model to see the request boundary GenStudio publishes for it.')
+  : 'Choose a voice model to see the request boundary the Gateway publishes for it.')
 
 /** GenStudio publishes whether a model takes speed and its exact numeric bounds. */
 const publishedSpeedBounds = computed<{ minimum: number; maximum: number } | null>(() => {
@@ -1545,23 +1545,23 @@ const quoteUnavailableNote = computed(() => {
   // apart. Status plus verbatim detail, or nothing.
   const status = result.unavailable_status ? `HTTP ${result.unavailable_status}` : ''
   const said = result.unavailable_detail
-    ? ` GenStudio said${status ? ` (${status})` : ''}: “${result.unavailable_detail}”.`
+    ? ` The Gateway said${status ? ` (${status})` : ''}: “${result.unavailable_detail}”.`
     : status
-      ? ` GenStudio answered ${status}.`
+      ? ` The Gateway answered ${status}.`
       : ''
   if (result.unavailable_reason === 'quote_disabled') {
-    return `GenStudio publishes this voice as not quotable, so there is no quote to show. `
-      + `The published rate above is ${modelRate.value.text}; GenStudio reports the actual charge on each finished job.`
+    return `The Gateway publishes this voice as not quotable, so there is no quote to show. `
+      + `The published rate above is ${modelRate.value.text}; The Gateway reports the actual charge on each finished job.`
   }
   if (result.unavailable_reason === 'generation_unit_rejected') {
-    return 'No quote is available for this model. GenStudio\'s quote endpoint refused a '
+    return 'No quote is available for this model. The Gateway\'s quote endpoint refused a '
       + `${(result.unquotable_characters || 0).toLocaleString()}-character request that ${result.model_name} itself `
       + `publishes as valid — it accepts ${result.maximum_input_characters.toLocaleString()} characters per request — `
       + 'so the requests Story Studio will actually submit cannot be priced. They are not sub-split to force a quote, '
       + `because that would price work nobody is billed for. The published rate above stands: ${modelRate.value.text}, `
       + `with a minimum of ${formatCredits(result.minimum_credits)} per job.${said}`
   }
-  return `GenStudio could not quote this narration.${said}`
+  return `The Gateway could not quote this narration.${said}`
 })
 
 async function refreshQuote() {
@@ -1592,7 +1592,7 @@ async function refreshQuote() {
     quoteScopeKey.value = sections.join(',')
   } catch (e: any) {
     if (revision === quoteRevision) {
-      quoteError.value = e?.data?.detail || e?.message || 'GenStudio could not quote this narration.'
+      quoteError.value = e?.data?.detail || e?.message || 'The Gateway could not quote this narration.'
     }
   } finally {
     if (revision === quoteRevision) quoting.value = false
@@ -1834,7 +1834,7 @@ async function previewVoiceId(voiceId?: string) {
     }
   } catch (e: any) {
     console.error(`[audio] voice preview failed (voice=${id}, model=${form.model}):`, e)
-    showError(e.data?.detail || 'Could not play this voice sample. Check that GenStudio is connected (top right), then try again.')
+    showError(e.data?.detail || 'Could not play this voice sample. Check that the Gateway is connected (top right), then try again.')
   } finally {
     previewing.value = false
   }
@@ -2037,11 +2037,11 @@ async function queueAudio(targetSections: string[], mode: AudioActionMode) {
     return
   }
   if (!selectedTtsModelEligible.value) {
-    showError('Refresh GenStudio and choose a current voice model before starting narration work.')
+    showError('Refresh the Gateway and choose a current voice model before starting narration work.')
     return
   }
   if (!selectedVoiceCompatible.value) {
-    showError('GenStudio cannot currently generate with the selected voice. Pick another from the voice list.')
+    showError('The Gateway cannot currently generate with the selected voice. Pick another from the voice list.')
     return
   }
   const sections = targetSections.join(',')
@@ -2082,7 +2082,7 @@ async function queueAudio(targetSections: string[], mode: AudioActionMode) {
     console.error('[audio] queue failed:', e, 'payload:', payload)
     showError(e.data?.detail || (payload.operation_id
       ? UNCONFIRMED_SUBMISSION
-      : 'Could not start narration. Check that GenStudio is connected (top right), then try again.'))
+      : 'Could not start narration. Check that the Gateway is connected (top right), then try again.'))
     audioGenerating.value = false
   } finally {
     submitting.value = false

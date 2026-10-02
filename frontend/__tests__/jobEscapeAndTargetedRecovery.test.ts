@@ -41,7 +41,7 @@ describe('force-abandon on the Jobs page', () => {
     // The dialog renders `control.reason` verbatim, so this is the text the
     // customer reads before agreeing. Each clause is asserted separately so a
     // future edit cannot quietly drop one.
-    assert.match(jobControl, /does not cancel provider work GenStudio has already accepted/)
+    assert.match(jobControl, /does not cancel provider work the Gateway has already accepted/)
     assert.match(jobControl, /does not refund credits already spent/)
     assert.match(jobControl, /Output may still arrive, and it stays recoverable/)
     // And it is not written as a scare. He has accepted these consequences.

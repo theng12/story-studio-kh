@@ -278,7 +278,7 @@ export function useGenStudioVoices() {
       models.value = []
       modelsStale.value = false
       modelsLoadedAt.value = null
-      modelsError.value = error?.data?.detail || error?.message || 'The GenStudio KH voice model catalogue is unavailable.'
+      modelsError.value = error?.data?.detail || error?.message || 'The Gateway voice model catalogue is unavailable.'
     } finally {
       if (revision === modelLoadRevision) modelsLoading.value = false
     }
@@ -310,7 +310,7 @@ export function useGenStudioVoices() {
     if (!modelId.trim()) {
       voices.value = []
       voicesModelId.value = null
-      voicesError.value = 'Choose a voice model first. GenStudio KH lists voices per model, '
+      voicesError.value = 'Choose a voice model first. The Gateway lists voices per model, '
         + 'so there is no voice catalogue to show until one is selected.'
       return
     }
@@ -331,7 +331,7 @@ export function useGenStudioVoices() {
     } catch (error: any) {
       voices.value = []
       voicesModelId.value = null
-      voicesError.value = error?.data?.detail || error?.message || 'The GenStudio KH voice catalogue is unavailable.'
+      voicesError.value = error?.data?.detail || error?.message || 'The Gateway voice catalogue is unavailable.'
     } finally {
       voicesLoading.value = false
     }

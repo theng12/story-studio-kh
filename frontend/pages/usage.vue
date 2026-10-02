@@ -4,7 +4,7 @@
       <div>
         <span class="eyebrow">GenStudio</span>
         <h1>GenStudio credits</h1>
-        <p>Every value on this page comes from GenStudio. Story Studio does not calculate rates or balances.</p>
+        <p>Every value on this page comes from the Gateway. Story Studio does not calculate rates or balances.</p>
       </div>
       <div class="usage-actions">
         <NuxtLink to="/" class="btn btn-secondary btn-sm">← Back to projects</NuxtLink>
@@ -30,7 +30,7 @@
       <template #actions>
         <button type="button" class="btn btn-sm btn-secondary" :disabled="loading" @click="load">Try again</button>
         <button type="button" class="btn btn-sm btn-secondary" @click="appSettingsModal.open('connections')">
-          {{ usageErrorCode === 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE' ? 'Review the Gateway connection' : error === 'Add a GenStudio API key first.' ? 'Connect your Gateway' : 'Open connection settings' }}
+          {{ usageErrorCode === 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE' ? 'Review the Gateway connection' : error === 'Add a Gateway key first.' ? 'Connect your Gateway' : 'Open connection settings' }}
         </button>
       </template>
     </WorkspaceNotice>
@@ -39,8 +39,8 @@
       <div class="totals">
         <article><span>Available</span><strong>{{ snapshot.overview.credit_balance.toLocaleString() }}</strong><small>credits</small></article>
         <article><span>Used · 30 days</span><strong>{{ snapshot.overview.credits_used_30d.toLocaleString() }}</strong><small>credits</small></article>
-        <article><span>Active jobs</span><strong>{{ snapshot.overview.active_jobs.toLocaleString() }}</strong><small>GenStudio jobs</small></article>
-        <article><span>Completed</span><strong>{{ snapshot.overview.completed_jobs.toLocaleString() }}</strong><small>GenStudio jobs</small></article>
+        <article><span>Active jobs</span><strong>{{ snapshot.overview.active_jobs.toLocaleString() }}</strong><small>Gateway jobs</small></article>
+        <article><span>Completed</span><strong>{{ snapshot.overview.completed_jobs.toLocaleString() }}</strong><small>Gateway jobs</small></article>
       </div>
 
       <section v-if="snapshot.overview.service_tier" class="card plan-card">
@@ -67,7 +67,7 @@
       <section class="card">
         <h2>Recent jobs</h2>
         <p v-if="snapshot.history_error" class="empty">Recent jobs could not be read just now — the balance above is unaffected. Retry to load it.</p>
-        <p v-else-if="!snapshot.jobs.items.length" class="empty">No GenStudio jobs reported.</p>
+        <p v-else-if="!snapshot.jobs.items.length" class="empty">No Gateway jobs reported.</p>
         <div v-if="!snapshot.history_error && snapshot.jobs.items.length" class="table-wrap">
           <table>
             <thead><tr><th>Work</th><th>Operation</th><th>State</th><th class="num">Held credits</th><th class="num">Charged credits</th><th class="num">Refunded credits</th></tr></thead>

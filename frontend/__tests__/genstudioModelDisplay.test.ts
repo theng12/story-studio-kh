@@ -14,7 +14,7 @@ import {
 // crowded out the model name, which is the only part of the row that varies.
 // The suffix is now stated once per surface, by the group heading, and never
 // baked into the name itself.
-test('GenStudio model catalogs expose the catalogue name, unbranded', () => {
+test('Gateway model catalogs expose the catalogue name, unbranded', () => {
   const labels = new Map(buildGenStudioModelLabelEntries({
     chat: [{
       id: 'genstudio-chat-opaque-v1',
@@ -103,7 +103,7 @@ test('Jobs and Usage resolve catalog names instead of printing dispatch ids', ()
       'billing action must not depend on service-tier metadata',
     )
   assert.match(usage, /target="_blank"[^>]*rel="noopener noreferrer"/)
-  assert.match(usage, /Billing is not available on this GenStudio deployment/)
+  assert.match(usage, /Billing is not available on this Gateway deployment/)
   assert.doesNotMatch(usage, /will link directly|localhost.*billing|GenStudioUrl/i)
   assert.doesNotMatch(usage, /Current plan|Manage plan · coming soon/)
   assert.match(usage, /<NuxtLink to="\/" class="btn btn-secondary btn-sm">← Back to projects<\/NuxtLink>/)

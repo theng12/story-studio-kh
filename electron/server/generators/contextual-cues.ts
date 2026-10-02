@@ -215,7 +215,7 @@ async function waitForFleetCapacity(jobId: string, delayMs: number): Promise<voi
 
 function parseCandidates(raw: string): CueCandidate[] {
   const object = JSON.parse(sanitizeJsonControlChars(raw.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')))
-  if (!object || !Array.isArray(object.cues)) throw new Error('GenStudio returned no contextual cue list.')
+  if (!object || !Array.isArray(object.cues)) throw new Error('The Gateway returned no contextual cue list.')
   return object.cues.filter((cue: any): cue is CueCandidate => (
     cue && typeof cue.scene_id === 'string' && typeof cue.title === 'string'
   ))
@@ -326,10 +326,10 @@ export async function generateContextualCues(job: Job): Promise<void> {
   if (!config.enabled) throw new Error('Contextual Cues are disabled for this project. Enable them first.')
   const settings = normalizeContextualCueProposalSettings(job.params)
   let model = settings.model
-  if (!model) throw new Error('Choose a live GenStudio model in Contextual Cues before proposing cues.')
+  if (!model) throw new Error('Choose a live Gateway model in Contextual Cues before proposing cues.')
 
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) throw new Error('Contextual Cues needs a configured GenStudio API key.')
+  if (!apiKey) throw new Error('Contextual Cues needs a configured Gateway key.')
   const cuesPolicy = pipelinePolicyForJob(job.params, 'contextual_cues')
   const cuesCheckpoint = pipelinePolicyCheckpointStore(job.params, () => checkpointJobState(job))
   const baseFingerprint = contextualCueProgressFingerprint(plan, settings)
@@ -371,7 +371,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
     // The saved batches no longer line up with what GenStudio accepts. Drop
     // them, or every later click would hit this same refusal forever.
     await removeContextualCueProgress(planPath)
-    throw new Error('GenStudio now accepts a different number of scenes per request, so the saved partial proposal cannot be reused. Press Propose cues again to start over.')
+    throw new Error('The Gateway now accepts a different number of scenes per request, so the saved partial proposal cannot be reused. Press Propose cues again to start over.')
   }
   const batches = chunk(plan.scenes, resolvedBatchSize)
   const completed = new Map((saved?.completed_batches || []).map(batch => [batch.index, batch]))
@@ -398,7 +398,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
     active: [],
   }
   job.output_lines.push(
-    `Proposing contextual cues in ${batches.length} paced GenStudio batch(es); ${completed.size} saved batch(es) will be reused. Existing approved or disabled cues stay untouched.`,
+    `Proposing contextual cues in ${batches.length} paced Gateway batch(es); ${completed.size} saved batch(es) will be reused. Existing approved or disabled cues stay untouched.`,
   )
   for (const [index, scenes] of batches.entries()) {
     if (isCancelled(job.job_id)) throw new Error('Cancelled by user')
@@ -455,7 +455,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
               if (!live || !live.available) throw new GenStudioChatProductUnavailableError(selected)
               assertContextualCueCapability(live, scenes.length)
             },
-            onModelSelected: selected => { job.output_lines.push(`[pipeline] contextual cues using GenStudio product "${selected}".`) },
+            onModelSelected: selected => { job.output_lines.push(`[pipeline] contextual cues using Gateway product "${selected}".`) },
             outputBudget: 'standard',
             outputContract: CONTEXTUAL_CUES_OUTPUT_CONTRACT,
             disableReasoning: true,
@@ -537,7 +537,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
         // without it the label could read "5 of 4".
         maxAttempts = Math.max(maxAttempts, attemptNum + 1 + (CONTEXTUAL_CUE_BACKPRESSURE_RETRIES - backpressureRetries))
         job.output_lines.push(
-          `Batch ${index + 1} met confirmed provider backpressure. GenStudio settled 0 credits and released the full reservation; retrying only this batch after a bounded cooldown.`,
+          `Batch ${index + 1} met confirmed provider backpressure. The Gateway settled 0 credits and released the full reservation; retrying only this batch after a bounded cooldown.`,
         )
         job.item_progress.active = [{ label: `Batch ${index + 1}`, key: `batch-${index}`, state: 'waiting_retry', attempt: attemptNum, max_attempts: maxAttempts, retry_at: new Date(Date.now() + CONTEXTUAL_CUE_BACKPRESSURE_COOLDOWN_MS).toISOString(), reason: 'provider backpressure' }]
         await waitWhileActive(job.job_id, CONTEXTUAL_CUE_BACKPRESSURE_COOLDOWN_MS)

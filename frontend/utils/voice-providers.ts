@@ -1,5 +1,5 @@
 export const VOICE_PROVIDER_OPTIONS = [
-  { id: 'genstudio', label: 'GenStudio KH' },
+  { id: 'genstudio', label: 'Gateway' },
 ] as const
 
 export type VoiceProviderId = typeof VOICE_PROVIDER_OPTIONS[number]['id']

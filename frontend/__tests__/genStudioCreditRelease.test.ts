@@ -75,7 +75,7 @@ const FAILED_IMAGE_JOB = {
   failure_code: 'provider_error',
 }
 
-describe('GenStudio released reservations are never shown as held', () => {
+describe('The Gateway released reservations are never shown as held', () => {
   it('keeps a reserved job with a transient diagnostic code active and on hold', async () => {
     const source = read('frontend/components/GenStudioBatchLedger.vue')
     const ledger = await loadLifted(
@@ -338,7 +338,7 @@ describe('GenStudio released reservations are never shown as held', () => {
     assert.equal(ledger.displayState({ state: 'failed', failure_code: 'IMAGE_PROVIDER_FAILED' }), 'Failed')
   })
 
-  it('offers Reword guidance only for GenStudio\'s exact terminal image-refusal code', async () => {
+  it('offers Reword guidance only for the Gateway\'s exact terminal image-refusal code', async () => {
     const source = read('frontend/components/GenStudioBatchLedger.vue')
     const ledger = await loadLifted(
       'type RemoteJob = any',

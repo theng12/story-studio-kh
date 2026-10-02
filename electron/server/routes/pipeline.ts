@@ -1314,7 +1314,7 @@ async function resolvePipelineTranscriptionParams(
   const selected = models.find(model => model.id === modelId)
   if (!selected) throw new Error(unavailableTranscriptionModelMessage(modelId))
   if (!selected.available) throw new Error('The selected transcription model is temporarily unavailable.')
-  if (selected.locked) throw new Error('The selected transcription model is locked for this GenStudio account.')
+  if (selected.locked) throw new Error('The selected transcription model is locked for this Gateway account.')
   const language = resolveTranscriptionLanguage(selected, params.language)
   return { model: selected.id, ...(language ? { language } : {}) }
 }
@@ -1726,12 +1726,12 @@ function repairRequestError(request: ReturnType<typeof parseBatchRequest>): stri
 async function validatePipelinePoliciesAgainstCatalogue(policies: PipelineModelPolicies): Promise<string | null> {
   if (!Object.keys(policies).length) return null
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) return 'model_policies requires a configured GenStudio API key so each selected product can be checked before submission.'
+  if (!apiKey) return 'model_policies requires a configured Gateway key so each selected product can be checked before submission.'
   let catalogue
   try {
     catalogue = await listChatModels(apiKey)
   } catch {
-    return 'model_policies could not be checked against GenStudio’s live language-model catalogue. Nothing was started; retry when the catalogue is reachable.'
+    return 'model_policies could not be checked against the Gateway’s live language-model catalogue. Nothing was started; retry when the catalogue is reachable.'
   }
   const explicit = Object.fromEntries(Object.entries(policies).filter(([, policy]) => !policy?.wait_for_availability))
   const errors = validatePipelineModelCatalogue(explicit, catalogue)

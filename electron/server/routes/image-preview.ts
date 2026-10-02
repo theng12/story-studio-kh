@@ -160,7 +160,7 @@ router.post('/projects/:slug/preview-image', validateBody(PreviewImageSchema), a
   try {
     modelConfig = await resolveImageModelConfig(config, modelName, apiKey)
   } catch (e: any) {
-    return res.status(502).json({ detail: e?.message || 'Could not load the GenStudio image catalog' })
+    return res.status(502).json({ detail: e?.message || 'Could not load the Gateway image catalog' })
   }
   if (!modelConfig) {
     return res.status(400).json({ detail: `Unknown image model: ${modelName}` })

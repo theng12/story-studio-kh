@@ -16,9 +16,9 @@ import { buildResearchPrompt, assembleOutput } from './prompt.js'
 
 class GenStudioResearchAdapter implements ResearchAdapter {
   readonly provider = 'llm-only' as const
-  readonly displayName = 'GenStudio LLM'
+  readonly displayName = 'Gateway LLM'
   readonly helperText =
-    'Uses the model’s own knowledge through your published GenStudio catalog. Reliable on well-established '
+    'Uses the model’s own knowledge through your published Gateway catalog. Reliable on well-established '
     + 'facts, but it cannot cite live sources.'
 
   async isConfigured(): Promise<boolean> {
@@ -60,7 +60,7 @@ class GenStudioResearchAdapter implements ResearchAdapter {
       requestIdentity: opts.request_identity,
     })).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)
-      throw new Error(`GenStudio research failed: ${message}`)
+      throw new Error(`Gateway research failed: ${message}`)
     })
 
     return assembleOutput(raw, [], {

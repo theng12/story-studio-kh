@@ -47,7 +47,7 @@ const heldCount = computed(() => props.remoteJobs.filter(remote => {
 }).length)
 const message = computed(() => {
   if (!heldCount.value) return ''
-  return 'GenStudio has published a provisional reservation while this work settles.'
+  return 'The Gateway has published a provisional reservation while this work settles.'
 })
 </script>
 

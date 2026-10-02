@@ -146,17 +146,17 @@ function unsettledHistoryControl(
       && !isProviderTerminal(entry)
     ))
     return control(
-      'recheck-provider-status', true, 'Check GenStudio again',
+      'recheck-provider-status', true, 'Check the Gateway again',
       staleTranscriptionAbsence
-        ? `Story Studio could not reach GenStudio to recheck an earlier no-record transcription result, so it cannot confirm whether that request was created or charged.${detail}`
-        : `Story Studio could not reach GenStudio to confirm whether ${outstanding} finished, so it cannot say whether that work is still running.${detail}`,
+        ? `Story Studio could not reach the Gateway to recheck an earlier no-record transcription result, so it cannot confirm whether that request was created or charged.${detail}`
+        : `Story Studio could not reach the Gateway to confirm whether ${outstanding} finished, so it cannot say whether that work is still running.${detail}`,
       'PROVIDER_STATUS_UNREACHABLE', 'remote-result-required',
     )
   }
   if (check?.state === 'unsettled') {
     return control(
-      'recheck-provider-status', true, 'Check GenStudio again',
-      `GenStudio reports that ${outstanding} ${plural ? 'have' : 'has'} not finished yet, so Story Studio is keeping this history until that work settles.`,
+      'recheck-provider-status', true, 'Check the Gateway again',
+      `The Gateway reports that ${outstanding} ${plural ? 'have' : 'has'} not finished yet, so Story Studio is keeping this history until that work settles.`,
       'PROVIDER_WORK_ALREADY_STARTED', 'remote-result-required',
     )
   }
@@ -164,7 +164,7 @@ function unsettledHistoryControl(
   // actually happening, and stays disabled only for as long as that is true.
   return control(
     'return-later', false, 'Checking provider status',
-    `Story Studio is asking GenStudio whether ${outstanding} finished. This history can be removed as soon as GenStudio confirms ${plural ? 'they have' : 'it has'}.`,
+    `Story Studio is asking Gateway whether ${outstanding} finished. This history can be removed as soon as the Gateway confirms ${plural ? 'they have' : 'it has'}.`,
     'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required',
   )
 }
@@ -188,7 +188,7 @@ function unsettledHistoryControl(
  */
 const FORCE_ABANDON_REASON =
   'Story Studio stops tracking this job and the queue moves on. '
-  + 'It does not cancel provider work GenStudio has already accepted. '
+  + 'It does not cancel provider work the Gateway has already accepted. '
   + 'It does not refund credits already spent. '
   + 'Output may still arrive, and it stays recoverable from the episode afterwards. '
   + 'Use this when a job is stuck and you would rather move on than keep waiting.'
@@ -253,7 +253,7 @@ function classifyProviderJobControl(
     const detail = pendingCancellation.reconciliation_error || job.reconciliation_error
       ? ` ${publicControlDetail(pendingCancellation.reconciliation_error || job.reconciliation_error)}`
       : ''
-    return control('return-later', false, 'Checking cancellation', `Story Studio is waiting for GenStudio to confirm the cancellation result. The provider work may still settle.${detail}`, 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')
+    return control('return-later', false, 'Checking cancellation', `Story Studio is waiting for the Gateway to confirm the cancellation result. The provider work may still settle.${detail}`, 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')
   }
 
   if (job.reconciliation_error) {

@@ -189,7 +189,7 @@ test('a model with no retirement carries no badge', async () => {
 })
 
 test('the picker builds that badge from the published flag, not from a date it read', () => {
-  assert.match(selectorSource, /isRetiring\(model\)/, 'the badge is gated on GenStudio\'s own flag')
+  assert.match(selectorSource, /isRetiring\(model\)/, 'the badge is gated on the Gateway\'s own flag')
   assert.match(selectorSource, /label: 'Retiring'/)
   assert.match(selectorSource, /title: describeModelRetirement\(model\)/, 'the badge carries the sentence')
   assert.match(
@@ -225,7 +225,7 @@ test('an open warning window with no published date still warns, and invents not
   assert.doesNotMatch(notice, /\d{4}/, 'no year, because no date was published')
 })
 
-test('the warning window is GenStudio\'s call — a date alone never opens it', () => {
+test('the warning window is the Gateway\'s call — a date alone never opens it', () => {
   // How much notice a customer gets is GenStudio's decision. Re-deriving the
   // window from `retires_at` would be a second policy, and it would disagree
   // with GenStudio's the first time GenStudio moved a date.
@@ -234,7 +234,7 @@ test('the warning window is GenStudio\'s call — a date alone never opens it', 
   assert.equal(isRetiring(quiet), false)
 })
 
-test('the published instant is rendered as the day GenStudio published, not the reader\'s', () => {
+test('the published instant is rendered as the day the Gateway published, not the reader\'s', () => {
   // An instant near midnight UTC lands on the previous calendar day in any
   // western timezone. A withdrawal date that is a day out is worse than none.
   const lateNight = Date.parse('2026-10-15T23:30:00Z')

@@ -47,10 +47,10 @@ describe('per-word timings change the request, not just the payload', () => {
     assert.equal(TRANSCRIPTION_WORD_TIMESTAMPS, true)
   })
 
-  test('the GenStudio idempotency key differs with and without word timings', () => {
+  test('the Gateway idempotency key differs with and without word timings', () => {
     const without = buildGenStudioTranscriptionIdempotencyKey({ ...BASE, wordTimestamps: false })
     const with_ = buildGenStudioTranscriptionIdempotencyKey({ ...BASE, wordTimestamps: true })
-    assert.notEqual(without, with_, 'same key = GenStudio replays the word-less result')
+    assert.notEqual(without, with_, 'same key = Gateway replays the word-less result')
   })
 
   test('an omitted flag hashes as false, so old keys stay stable', () => {

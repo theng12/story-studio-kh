@@ -388,7 +388,7 @@ const holdReasons = computed(() => {
 const proposalStatus = computed(() => {
   if (!config.value.enabled) return 'Enable Contextual Cues for this project first.'
   if (!episodeId.value) return 'Choose an episode with a Scene Plan.'
-  if (!form.value.model) return 'Choose a live GenStudio model.'
+  if (!form.value.model) return 'Choose a live Gateway model.'
   return timeline.value?.cues?.length ? 'Refreshes unresolved proposals; approved and excluded cues stay intact.' : 'Creates a reviewed cue proposal from this episode’s Scene Plan.'
 })
 

@@ -33,7 +33,7 @@ void test('ordinary Audio Assembly adopts one ready candidate when no prior merg
     const accepted = await ideas.acceptIdea(project.slug, idea!.id, false); const code = accepted.episode_code
     const paths = await resolveEpisodePathsByCode(project.slug, code)
     await Promise.all([paths.script_dir, paths.subtitles_dir].map(dir => fs.mkdir(dir, { recursive: true })));
-    await fs.writeFile(paths.narration_docx, '# Narration\n\n## Chapter 01: Repair\n\nHello from mock GenStudio.\n\n## Chapter 02: Keep\n\nKeep this chapter.\n')
+    await fs.writeFile(paths.narration_docx, '# Narration\n\n## Chapter 01: Repair\n\nHello from mock the Gateway.\n\n## Chapter 02: Keep\n\nKeep this chapter.\n')
     const terminal = async (id: string) => waitFor(() => ['done', 'error', 'cancelled'].includes(jq.getJob(id)?.status || ''), { label: id, timeoutMs: 15_000 })
     const id = (body: any) => String(body.job_id || body.job?.job_id || '')
     const generated = await request(app).post(`/api/projects/${project.slug}/generate/audio`).send({ episode_id: code, model: 'mock-tts-v1', voice: 'mock-voice', sections: 'all', speed: 1 })

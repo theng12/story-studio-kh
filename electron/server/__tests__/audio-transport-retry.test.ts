@@ -83,9 +83,9 @@ test('a dropped connection is recognised, and a settled failure is never mistake
   assert.equal(isTransportFailure(new GenStudioTtsTerminalFailureError({
     id: 'tts-exhausted', state: 'failed', failure_code: GENSTUDIO_ROUTE_EXHAUSTED_FAILURE_CODE,
   })), false)
-  assert.equal(isTransportFailure(new GenStudioApiError(500, 'GenStudio KH is unwell')), false)
+  assert.equal(isTransportFailure(new GenStudioApiError(500, 'The Gateway is unwell')), false)
   assert.equal(isTransportFailure(new GenStudioApiError(402, 'insufficient credits')), false)
-  assert.equal(isTransportFailure(new Error('GenStudio KH image download failed (HTTP 503)')), false)
+  assert.equal(isTransportFailure(new Error('Gateway image download failed (HTTP 503)')), false)
 
   // A cancel is the owner's instruction. It can carry a torn-down socket in
   // its cause, and retrying it would overrule him.
@@ -146,7 +146,7 @@ void test('a chapter that lost its connection replays onto the same job, never a
       // Neither settled-failure predicate sees it — which is exactly why the
       // generator used to abandon the chapter here.
       assert.equal(error instanceof GenStudioTtsTerminalFailureError, false)
-      assert.equal(service.providerSubmissionCount('tts'), 0, 'nothing reached GenStudio at all')
+      assert.equal(service.providerSubmissionCount('tts'), 0, 'nothing reached the Gateway at all')
     })
 
     await suite.test('retrying the SAME identity once the service returns buys exactly one job', async () => {

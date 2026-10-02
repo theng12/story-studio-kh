@@ -1215,7 +1215,7 @@ function modelPolicyLimits(stepId: StepId, index: number): string {
   if (typeof context === 'number' && context > 0) facts.push(`Context window: ${context.toLocaleString()} tokens.`)
   if (typeof output === 'number' && output > 0) facts.push(`Max output: ${output.toLocaleString()} tokens.`)
   if (typeof context === 'number' && context > 0 && typeof output === 'number' && output > 0) {
-    facts.push(`Input capacity estimate at this output: ${Math.max(0, context - output).toLocaleString()} tokens. GenStudio validates the exact prompt fit.`)
+    facts.push(`Input capacity estimate at this output: ${Math.max(0, context - output).toLocaleString()} tokens. The Gateway validates the exact prompt fit.`)
   }
   return facts.join(' ')
 }
@@ -1245,7 +1245,7 @@ function modelPolicyError(stepId: StepId): string {
   const policy = modelPolicyFor(stepId)
   if (!policy?.enabled) return ''
   const models = policy.models.filter(Boolean)
-  if (models.length !== policy.models.length) return 'Choose a published GenStudio product for every model slot.'
+  if (models.length !== policy.models.length) return 'Choose a published Gateway product for every model slot.'
   if (new Set(models).size !== models.length) return 'Choose each product once.'
   if (policy.mode === 'single' && models.length !== 1) return 'Single mode needs one product.'
   if ((policy.mode === 'distribute' || policy.mode === 'backup') && models.length < 2) {

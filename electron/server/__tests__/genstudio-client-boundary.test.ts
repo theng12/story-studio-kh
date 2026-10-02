@@ -59,7 +59,7 @@ const ONE_PIXEL_PNG = Buffer.from(
   'base64',
 )
 
-test('Story-owned TTS defaults are empty because GenStudio owns the catalog', () => {
+test('Story-owned TTS defaults are empty because the Gateway owns the catalog', () => {
   assert.equal(DEFAULT_AUDIO_MODELS['genstudio-qwen3-standard'], undefined)
   const voices = normalizeVoicePresets(DEFAULT_VOICE_PRESETS)
   assert.equal(voices.length, 0)
@@ -133,7 +133,7 @@ test('only the authoritative operator pause code opens the global submission bre
 // itself owns no constant to pin.
 const PUBLISHED_MAX_CHARACTERS = 12_000
 
-test('a request exactly at the published boundary stays one GenStudio request', () => {
+test('a request exactly at the published boundary stays one Gateway request', () => {
   const text = 'a'.repeat(PUBLISHED_MAX_CHARACTERS)
   assert.equal(splitGenStudioApiRequests(text, PUBLISHED_MAX_CHARACTERS).length, 1)
   const submission = buildGenStudioSubmission({
@@ -208,7 +208,7 @@ test('the request the generator SUBMITS carries the boundary, not just the one i
   assert.match(
     submitted,
     /modelId: genStudioModelId/,
-    'the submitted request must carry the model GenStudio is being asked to sell',
+    'the submitted request must carry the model the Gateway is being asked to sell',
   )
 })
 
@@ -273,7 +273,7 @@ test('a FastAPI field-level rejection names the field instead of collapsing to H
   assert.equal(describeGenStudioDetail({ detail: [] }, 422), 'HTTP 422')
 })
 
-test('a boundary Story Studio never passed is never reported as GenStudio publishing nothing', () => {
+test('a boundary Story Studio never passed is never reported as Gateway publishing nothing', () => {
   // GenStudio declares maximum_input_characters a required, non-null `int` on
   // both TTSModelResponse and TTSQuoteResponse, so a 200 from either cannot
   // omit it. An absent figure at SUBMISSION time is therefore ours, and has to
@@ -284,7 +284,7 @@ test('a boundary Story Studio never passed is never reported as GenStudio publis
     (error: Error) => {
       assert.doesNotMatch(error.message, /published no maximum_input_characters/i)
       assert.match(error.message, /Story Studio did not carry .*maximum_input_characters/)
-      assert.match(error.message, /Story Studio defect, not a GenStudio KH publication gap/)
+      assert.match(error.message, /Story Studio defect, not a Gateway publication gap/)
       // Refreshing the catalogue cannot repair an omission on our side, so it
       // must no longer be the advice offered for one.
       assert.doesNotMatch(error.message, /refresh the voice catalogue/i)
@@ -296,13 +296,13 @@ test('a boundary Story Studio never passed is never reported as GenStudio publis
   assert.throws(() => splitGenStudioApiRequests('narration', null), /refresh the voice catalogue/i)
 })
 
-test('text longer than the retired 375-character cap remains one GenStudio request', () => {
+test('text longer than the retired 375-character cap remains one Gateway request', () => {
   const requests = splitGenStudioApiRequests('Long-form narration. '.repeat(30), PUBLISHED_MAX_CHARACTERS)
   assert.equal(requests.length, 1)
   assert.ok(requests[0]!.length > 375)
 })
 
-test('GenStudio JSON carries speed and retries reuse the same idempotency key', () => {
+test('Gateway JSON carries speed and retries reuse the same idempotency key', () => {
   const request = {
     text: 'A calm long-form sample.', voiceId: 'voice_live', modelId: 'model_live', speed: 0.9,
     supportsSpeed: true, minimumSpeed: 0.5, maximumSpeed: 2, maxInputCharacters: PUBLISHED_MAX_CHARACTERS,
@@ -345,7 +345,7 @@ test('TTS speed validation uses the selected live range and neutralizes an unpub
   assert.equal(unpublished.body.speed, 1)
 })
 
-test('GenStudio chat retries keep one logical request identity', () => {
+test('Gateway chat retries keep one logical request identity', () => {
   const request = {
     modelId: 'genstudio-chat-local-v1',
     system: 'Return verified JSON.',
@@ -419,7 +419,7 @@ test('a prose retry after the response_format fix no longer collides with a v1.0
   assert.notEqual(
     currentKey,
     stuckLegacyKey,
-    'a prose retry must get a fresh key, or GenStudio will refuse it as "idempotency key was already used for a different request"',
+    'a prose retry must get a fresh key, or the Gateway will refuse it as "idempotency key was already used for a different request"',
   )
 
   // Requirement 3: a genuine retry of the SAME request, on the SAME (current)
@@ -471,7 +471,7 @@ test('web-search options join chat identity without changing the historical non-
   assert.notEqual(withDomainLimit, withSearch)
 })
 
-test('GenStudio publishes normalized capability, chat, and video catalogs', async () => {
+test('The Gateway publishes normalized capability, chat, and video catalogs', async () => {
   const originalFetch = globalThis.fetch
   try {
     globalThis.fetch = async (input, init) => {
@@ -738,7 +738,7 @@ test('chat pricing preserves absent rates as unpublished while keeping a publish
   }
 })
 
-test('GenStudio music catalog preserves only published provider details', async () => {
+test('Gateway music catalog preserves only published provider details', async () => {
   const originalFetch = globalThis.fetch
   clearGenStudioCatalogCache()
   try {
@@ -815,7 +815,7 @@ test('generation confirmation stays local and does not request estimates or quot
   assert.doesNotMatch(health, /usage-tracker\.js/)
 })
 
-test('GenStudio voice catalog preserves tiers and stored previews without generating audio', async () => {
+test('Gateway voice catalog preserves tiers and stored previews without generating audio', async () => {
   const originalFetch = globalThis.fetch
   let previewDownloads = 0
   try {
@@ -854,20 +854,20 @@ test('GenStudio voice catalog preserves tiers and stored previews without genera
   }
 })
 
-test('GenStudio long jobs are not constrained by a short client timeout', () => {
+test('Gateway long jobs are not constrained by a short client timeout', () => {
   // The gateway decides when a job is over; Story follows it (a week is only the silent-gateway valve).
   assert.equal(GENSTUDIO_LONG_JOB_TIMEOUT_MS, 7 * 24 * 60 * 60_000)
   assert.equal(GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, 30_000)
   assert.equal(GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS, 5 * 60_000)
 })
 
-test('individual GenStudio requests time out before the durable job deadline', async () => {
+test('individual Gateway requests time out before the durable job deadline', async () => {
   const signal = operationSignal(undefined, Date.now() + 60_000, 5)
   await new Promise(resolve => setTimeout(resolve, 15))
   assert.equal(signal.aborted, true)
 })
 
-test('GenStudio authentication failures are immediate and actionable', async () => {
+test('Gateway authentication failures are immediate and actionable', async () => {
   const originalFetch = globalThis.fetch
   let attempts = 0
   try {
@@ -894,7 +894,7 @@ test('GenStudio authentication failures are immediate and actionable', async () 
   }
 })
 
-test('GenStudio result handling converts format without applying speed twice', () => {
+test('Gateway result handling converts format without applying speed twice', () => {
   const source = readFileSync(new URL('../lib/genstudio-client.ts', import.meta.url), 'utf8')
   assert.doesNotMatch(source, /atempo|rubberband|setpts/)
   assert.match(source, /runFfmpeg\(\['-y', '-i', tempPath, '-c:a', 'libmp3lame', '-b:a', '96k', outPath\]\)/)
@@ -907,7 +907,7 @@ test('Story TTS generation has no direct VoiceStudio or Studio Hub execution rou
   assert.match(source, /Persisted audio_models is historical evidence only/)
 })
 
-test('GenStudio client cannot bypass its API boundary to contact Studio Hub', () => {
+test('Gateway client cannot bypass its API boundary to contact Studio Hub', () => {
   const source = readFileSync(new URL('../lib/genstudio-client.ts', import.meta.url), 'utf8')
   assert.equal(source.includes('studiohub-client'), false)
   assert.equal(source.includes('getHubBackend'), false)
@@ -916,7 +916,7 @@ test('GenStudio client cannot bypass its API boundary to contact Studio Hub', ()
   assert.doesNotMatch(source, /No OpenAI, Studio Hub, or direct Voice Studio fallback/)
 })
 
-test('GenStudio credentials remain in the app secret store and never enter recovery diagnostics', () => {
+test('Gateway credentials remain in the app secret store and never enter recovery diagnostics', () => {
   const secrets = readFileSync(new URL('../services/app-secrets-store.ts', import.meta.url), 'utf8')
   const settings = readFileSync(new URL('../routes/app-settings.ts', import.meta.url), 'utf8')
   const recovery = readFileSync(new URL('../services/genstudio-recovery.ts', import.meta.url), 'utf8')
@@ -926,7 +926,7 @@ test('GenStudio credentials remain in the app secret store and never enter recov
   assert.doesNotMatch(recovery, /apiKey|api_key|Authorization|Bearer|hub_url|hub_token|worker_address/)
 })
 
-test('GenStudio transcription retries and new Story queue jobs keep one logical asset identity', () => {
+test('Gateway transcription retries and new Story queue jobs keep one logical asset identity', () => {
   const input = {
     requestIdentity: 'project:EP0001:transcription:EP0001_Chapter_01.srt',
     fileSha256: 'a'.repeat(64),
@@ -943,7 +943,7 @@ test('GenStudio transcription retries and new Story queue jobs keep one logical 
   assert.match(first, /^story-stt-[a-f0-9]{48}$/)
 })
 
-test('GenStudio image idempotency keeps network retries stable but separates deliberate renders', () => {
+test('Gateway image idempotency keeps network retries stable but separates deliberate renders', () => {
   const input = {
     prompt: 'A moonlit Cambodian temple reflected in still water.',
     modelId: 'genstudio-image-fast-v1',
@@ -1021,14 +1021,14 @@ test('adding the resolution field left every pre-existing image idempotency key 
   assert.notEqual(oneK, buildGenStudioImageIdempotencyKey(base))
 })
 
-test('GenStudio image catalog carries every published capability and invents none', async () => {
+test('Gateway image catalog carries every published capability and invents none', async () => {
   const originalFetch = globalThis.fetch
   try {
     globalThis.fetch = async (input) => {
       assert.match(String(input), /\/v1\/image\/models$/)
       return Response.json([{
           id: 'genstudio-image-fast-v1',
-          display_name: 'GenStudio Image Fast',
+          display_name: 'Gateway Image Fast',
           provider_name: 'Published image creator',
           cost_tier: 'balanced',
           locked: true,
@@ -1060,7 +1060,7 @@ test('GenStudio image catalog carries every published capability and invents non
           ],
         }, {
           id: 'genstudio-image-invalid-tier-v1',
-          display_name: 'GenStudio Image Invalid Tier',
+          display_name: 'Gateway Image Invalid Tier',
           cost_tier: 'cheap',
           aspect_ratios: ['16:9'],
           default_aspect_ratio: '16:9',
@@ -1119,7 +1119,7 @@ test('an image model that publishes nothing optional reports nothing optional', 
   try {
     globalThis.fetch = async () => Response.json([{
       id: 'genstudio-image-bare-v1',
-      display_name: 'GenStudio Image Bare',
+      display_name: 'Gateway Image Bare',
       aspect_ratios: ['16:9'],
       default_aspect_ratio: '16:9',
     }])
@@ -1133,7 +1133,7 @@ test('an image model that publishes nothing optional reports nothing optional', 
     ] as const) {
       assert.equal(
         (model as any)?.[field] ?? undefined, undefined,
-        `${field} must stay absent when GenStudio publishes nothing`,
+        `${field} must stay absent when the Gateway publishes nothing`,
       )
     }
   } finally {
@@ -1141,7 +1141,7 @@ test('an image model that publishes nothing optional reports nothing optional', 
   }
 })
 
-test('GenStudio drops retired Relaxed fields from account and transcription responses', async () => {
+test('Gateway drops retired Relaxed fields from account and transcription responses', async () => {
   const originalFetch = globalThis.fetch
   try {
     globalThis.fetch = async (input) => {
@@ -1202,7 +1202,7 @@ test('GenStudio drops retired Relaxed fields from account and transcription resp
   }
 })
 
-test('GenStudio preserves valid 0.94 capacity display facts from account overview', async () => {
+test('Gateway preserves valid 0.94 capacity display facts from account overview', async () => {
   const originalFetch = globalThis.fetch
   try {
     globalThis.fetch = async () => Response.json({
@@ -1271,7 +1271,7 @@ test('GenStudio preserves valid 0.94 capacity display facts from account overvie
   }
 })
 
-test('GenStudio preserves the published opaque billing link from account overview', async () => {
+test('Gateway preserves the published opaque billing link from account overview', async () => {
   const originalFetch = globalThis.fetch
   try {
     globalThis.fetch = async () => Response.json({
@@ -1302,7 +1302,7 @@ test('GenStudio preserves the published opaque billing link from account overvie
   }
 })
 
-test('GenStudio keeps a published null billing link unavailable', async () => {
+test('The Gateway keeps a published null billing link unavailable', async () => {
   const originalFetch = globalThis.fetch
   try {
     globalThis.fetch = async () => Response.json({
@@ -1331,7 +1331,7 @@ test('GenStudio keeps a published null billing link unavailable', async () => {
   }
 })
 
-test('GenStudio omits malformed 0.94 capacity display facts from account overview', async () => {
+test('Gateway omits malformed 0.94 capacity display facts from account overview', async () => {
   const originalFetch = globalThis.fetch
   try {
     globalThis.fetch = async () => Response.json({
@@ -1373,7 +1373,7 @@ test('concurrent transcription catalog reads share bounded automatic reconnects'
       return Response.json([{
         id: 'genstudio-transcribe-fast-v1',
         display_name: 'Whisper Fast',
-        provider: 'GenStudio KH',
+        provider: 'Gateway',
         language: 'multilingual',
         available: true,
       }])
@@ -1389,7 +1389,7 @@ test('concurrent transcription catalog reads share bounded automatic reconnects'
   }
 })
 
-test('GenStudio Retry-After supports seconds and HTTP dates', () => {
+test('Gateway Retry-After supports seconds and HTTP dates', () => {
   assert.equal(parseGenStudioRetryAfterMs('2.5', 0), 2_500)
   assert.equal(
     parseGenStudioRetryAfterMs('Thu, 01 Jan 2026 00:00:05 GMT', Date.parse('2026-01-01T00:00:00Z')),
@@ -1399,7 +1399,7 @@ test('GenStudio Retry-After supports seconds and HTTP dates', () => {
   assert.equal(parseGenStudioRetryAfterMs(null, 0), null)
 })
 
-test('GenStudio image generation sends catalog controls and returns a verified private PNG', async () => {
+test('Gateway image generation sends catalog controls and returns a verified private PNG', async () => {
   const originalFetch = globalThis.fetch
   let accepted = ''
   let posts = 0
@@ -1448,7 +1448,7 @@ test('GenStudio image generation sends catalog controls and returns a verified p
   }
 })
 
-test('accepted GenStudio image jobs can be reclaimed without a second submit', async () => {
+test('accepted Gateway image jobs can be reclaimed without a second submit', async () => {
   const originalFetch = globalThis.fetch
   let posts = 0
   try {
@@ -1557,7 +1557,7 @@ test('Story transcription has no direct OpenAI, Studio Hub, or Voice Studio rout
   assert.match(pipeline, /engine: 'genstudio'/)
 })
 
-test('GenStudio transcription uploads the selected model and verifies private SRT output', async () => {
+test('Gateway transcription uploads the selected model and verifies private SRT output', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'story-genstudio-stt-'))
   const audioPath = path.join(dir, 'chapter.wav')
   await fs.writeFile(audioPath, Buffer.from('RIFF-story-audio'))
@@ -1790,7 +1790,7 @@ test('accepted TTS IDs are polled directly without submitting replacement work',
   }
 })
 
-test('terminal GenStudio failure never falls back and empty artifacts never count as complete', async () => {
+test('terminal Gateway failure never falls back and empty artifacts never count as complete', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'story-genstudio-stt-failure-'))
   const audioPath = path.join(dir, 'chapter.wav')
   await fs.writeFile(audioPath, Buffer.from('RIFF-story-audio'))
@@ -1850,7 +1850,7 @@ test('terminal GenStudio failure never falls back and empty artifacts never coun
   }
 })
 
-test('GenStudio catalog membership accepts only enabled live voice IDs', () => {
+test('Gateway catalog membership accepts only enabled live voice IDs', () => {
   const voices = [
     { id: 'voice_live', display_name: 'Live', generation_enabled: true },
     { id: 'voice_disabled', display_name: 'Disabled', generation_enabled: false },
@@ -1861,7 +1861,7 @@ test('GenStudio catalog membership accepts only enabled live voice IDs', () => {
   assert.equal(catalogHasVoice(voices, 'voice_missing'), false)
 })
 
-test('GenStudio 1.2 control responses preserve published cancellation, settlement, and waiting fields', async () => {
+test('The Gateway 1.2 control responses preserve published cancellation, settlement, and waiting fields', async () => {
   // This fixture pins the published remote contract. Removing any forwardable
   // field from the boundary would hide cancellation or billing truth from a
   // durable Story job.
@@ -1924,7 +1924,7 @@ test('GenStudio 1.2 control responses preserve published cancellation, settlemen
   }
 })
 
-test('GenStudio control parser excludes invalid optional dispatch and settlement fields', async () => {
+test('Gateway control parser excludes invalid optional dispatch and settlement fields', async () => {
   // A malformed optional value must not become durable evidence. Replacing
   // finite/non-negative validation with a truthiness check would fail here.
   const originalFetch = globalThis.fetch
@@ -1961,7 +1961,7 @@ test('GenStudio control parser excludes invalid optional dispatch and settlement
   }
 })
 
-test('all six GenStudio operations derive status, cancellation, and idempotency paths from their control resource', async () => {
+test('all six Gateway operations derive status, cancellation, and idempotency paths from their control resource', async () => {
   const cases = [
     ['chat.response', '/v1/chat/responses'],
     ['image.generation', '/v1/images'],

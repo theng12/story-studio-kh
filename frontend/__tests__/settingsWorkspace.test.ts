@@ -149,11 +149,11 @@ describe('Settings workspace navigation', () => {
     assert.doesNotMatch(settingsSource, /editVoices|voiceProviderFilter|saveVoices|VOICE_PROVIDER_OPTIONS/)
   })
 
-  test('GenStudio owns admission without a second Story performance policy', () => {
+  test('The Gateway owns admission without a second Story performance policy', () => {
     assert.doesNotMatch(settingsSource, /Save performance/)
     assert.doesNotMatch(settingsSource, /script-concurrency/)
     assert.doesNotMatch(settingsSource, /launch stagger/i)
-    assert.doesNotMatch(thisMacSettingsSource, /GenStudio itself accepts 12|what GenStudio accepts/)
+    assert.doesNotMatch(thisMacSettingsSource, /GenStudio itself accepts 12|what the Gateway accepts/)
     // Same meaning, plain words: Story's number only limits what it sends; the Gateway decides what runs.
     assert.match(thisMacSettingsSource, /the Gateway still decides/i)
   })
@@ -200,7 +200,7 @@ describe('Settings workspace navigation', () => {
     assert.doesNotMatch(settingsSource, /label="Built-in styles"/)
   })
 
-  test('GenStudio catalogs are account-scoped under App & Connections', () => {
+  test('Gateway catalogs are account-scoped under App & Connections', () => {
     assert.match(
       settingsSource,
       /activeTab === 'connections'[\s\S]*?<ThisMacSettings section="connections" \/>[\s\S]*?<GenStudioCatalogSettings \/>/,
@@ -215,9 +215,9 @@ describe('Settings workspace navigation', () => {
     assert.match(thisMacSettingsSource, /Copy it from GatewayKH → Settings/)
     assert.match(thisMacSettingsSource, /connections: 'Gateway connection'/)
     assert.match(thisMacSettingsSource, /Content Store: \{\{/)
-    assert.doesNotMatch(thisMacSettingsSource, /<code>content:purchase<\/code>|Required scopes|GenStudio API key<\/label>/)
+    assert.doesNotMatch(thisMacSettingsSource, /<code>content:purchase<\/code>|Required scopes|Gateway key<\/label>/)
     assert.doesNotMatch(thisMacSettingsSource, /Sole AI boundary|Test scopes/)
-    assert.doesNotMatch(thisMacSettingsSource, /one scoped key|Scoped API key|Scoped GenStudio key saved/i)
+    assert.doesNotMatch(thisMacSettingsSource, /one scoped key|Scoped API key|Scoped Gateway key saved/i)
     assert.doesNotMatch(thisMacSettingsSource, /\/v1\/api-keys|\/reveal/)
   })
 

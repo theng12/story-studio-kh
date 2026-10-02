@@ -117,7 +117,7 @@ function humanizeError(raw: string): string {
   // checks one key. So it now matches the messages the backend actually emits
   // and states the one true thing: the missing key is the GenStudio API key.
   if (/\bNo\b[^.]{0,40}\bAPI key configured\b/i.test(s)) {
-    return 'GenStudio API key missing. Add it in Settings → This Mac.'
+    return 'Gateway key missing. Add it in Settings → This Mac.'
   }
 
   // Auth errors

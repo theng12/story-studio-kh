@@ -218,7 +218,7 @@ test('switching models drops the old set entirely and adopts the new defaults', 
   assert.deepEqual(resolveTtsControlValues([], chosen), {})
 })
 
-test('a controls map echoed back by GenStudio is read structurally, by no known name', () => {
+test('a controls map echoed back by the Gateway is read structurally, by no known name', () => {
   assert.deepEqual(
     parseTtsControlValues({ zephyr_bias: 1.25, lantern_mode: true, quay_directive: 'hi', bad: { nested: 1 } }),
     { zephyr_bias: 1.25, lantern_mode: true, quay_directive: 'hi' },
@@ -335,7 +335,7 @@ test('a submission without the selected model refuses here, in Story Studio\'s n
       // absent one at submission time is ours. Saying otherwise is what sent
       // three EP0067 diagnoses at the wrong repository.
       assert.match(error.message, /Story Studio did not carry the selected voice model/)
-      assert.match(error.message, /Story Studio defect, not a GenStudio KH publication gap/)
+      assert.match(error.message, /Story Studio defect, not a Gateway publication gap/)
       return true
     },
   )

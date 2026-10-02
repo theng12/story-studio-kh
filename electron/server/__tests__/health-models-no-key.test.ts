@@ -26,7 +26,7 @@ before(async () => {
 })
 after(async () => { await cleanup() })
 
-describe('GET /models with no GenStudio key', () => {
+describe('GET /models with no Gateway key', () => {
   test('answers with an actionable error rather than an empty catalogue', async () => {
     const app = express()
     app.use(healthRouter)

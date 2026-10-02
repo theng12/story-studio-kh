@@ -52,14 +52,14 @@ describe('finished-job dismiss gate', () => {
     assert.equal(control.action, 'return-later')
     assert.equal(control.enabled, false)
     assert.equal(control.label, 'Checking provider status')
-    assert.match(control.reason, /Story Studio is asking GenStudio whether the narration request finished/)
-    assert.match(control.reason, /can be removed as soon as GenStudio confirms it has/)
+    assert.match(control.reason, /Story Studio is asking Gateway whether the narration request finished/)
+    assert.match(control.reason, /can be removed as soon as the Gateway confirms it has/)
     assert.doesNotMatch(control.reason, /voice\.tts|tts-10/)
     // It must not assert anything about the provider it has not yet asked.
     assert.doesNotMatch(control.reason, /still settling/)
   })
 
-  test('terminal on GenStudio means dismissable, with no further clicks', () => {
+  test('terminal on Gateway means dismissable, with no further clicks', () => {
     const settled = finishedAudioJob({
       genstudio_jobs: [
         { id: 'tts-9', operation: 'voice.tts', state: 'succeeded', updated_at: '2026-08-16T02:38:00.000Z' },
@@ -73,16 +73,16 @@ describe('finished-job dismiss gate', () => {
     assert.equal(control.code, 'READY')
   })
 
-  test('an unreachable GenStudio is a statement about Story Studio, not about the provider', () => {
+  test('an unreachable the Gateway is a statement about Story Studio, not about the provider', () => {
     const control = classifyJobControl(finishedAudioJob({
       history_evidence_check: {
         state: 'unreachable',
         at: '2026-08-17T09:00:00.000Z',
-        detail: 'GenStudio status check is waiting (HTTP 503: service unavailable)',
+        detail: 'Gateway status check is waiting (HTTP 503: service unavailable)',
       },
     }), capabilities)
     assert.equal(control.code, 'PROVIDER_STATUS_UNREACHABLE')
-    assert.match(control.reason, /could not reach GenStudio to confirm whether the narration request finished/)
+    assert.match(control.reason, /could not reach the Gateway to confirm whether the narration request finished/)
     assert.match(control.reason, /cannot say whether that work is still running/)
     assert.match(control.reason, /HTTP 503/)
     assert.doesNotMatch(control.reason, /voice\.tts|tts-10/)
@@ -92,10 +92,10 @@ describe('finished-job dismiss gate', () => {
     // And it offers the action rather than describing one it is not doing.
     assert.equal(control.enabled, true)
     assert.equal(control.action, 'recheck-provider-status')
-    assert.equal(control.label, 'Check GenStudio again')
+    assert.equal(control.label, 'Check the Gateway again')
   })
 
-  test('genuinely unfinished work still blocks dismissal, now on GenStudio\'s own word', () => {
+  test('genuinely unfinished work still blocks dismissal, now on the Gateway\'s own word', () => {
     const control = classifyJobControl(finishedAudioJob({
       history_evidence_check: { state: 'unsettled', at: '2026-08-17T09:00:00.000Z' },
     }), capabilities)

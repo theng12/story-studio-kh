@@ -94,7 +94,7 @@ router.get('/research/web-models', async (_req, res) => {
       return res.json({
         available: false,
         configured: false,
-        reason: 'Connect GenStudio in Settings to see which models can search the web.',
+        reason: 'Connect the Gateway in Settings to see which models can search the web.',
         models: [],
       })
     }

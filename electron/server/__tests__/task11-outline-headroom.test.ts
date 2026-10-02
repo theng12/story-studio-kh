@@ -54,7 +54,7 @@ before(async () => {
   ;({ generateOutlineOnly } = await import('../generators/episode.js'))
   const { registry } = await import('../providers/registry.js')
   const provider: TextProvider = {
-    meta: { id: 'genstudio', name: 'Fake GenStudio', apiKeyField: 'genstudio_api_key' as any },
+    meta: { id: 'genstudio', name: 'Fake the Gateway', apiKeyField: 'genstudio_api_key' as any },
     supportsModel: model => model === `genstudio-chat:${MODEL}`,
     async callText(req: TextGenerationRequest): Promise<string> {
       if (!req.outputContract) throw new Error('The headroom fixture permits outline calls only.')

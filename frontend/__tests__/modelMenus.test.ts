@@ -122,7 +122,7 @@ describe('shared model menus', () => {
     // Nothing may append the gateway to a model's own name.
     for (const source of [imagePicker, modelSelector, transcriptionCatalog, modelSurfaces.audio, modelSurfaces.motion]) {
       assert.doesNotMatch(source, /\[GenStudio( KH)?\]/)
-      assert.doesNotMatch(source, /provider:\s*model\.execution_label|provider:\s*'GenStudio'/)
+      assert.doesNotMatch(source, /provider:\s*model\.execution_label|provider:\s*'Gateway'/)
     }
     // Where the catalogue DOES publish who serves a product, that is what the
     // row shows — the real vendor, not the gateway standing in for it.
@@ -168,7 +168,7 @@ describe('shared model menus', () => {
     assert.match(modelSurfaces.research, /priceTitle:\s*rate\.title/)
   })
 
-  test('thumbnail generator enables reference guidance only for qualified GenStudio models', () => {
+  test('thumbnail generator enables reference guidance only for qualified Gateway models', () => {
     assert.doesNotMatch(imageGenerator, /Reference-image generation is coming soon\./)
     assert.doesNotMatch(imageGenerator, /:disabled="tab\.comingSoon"/)
     assert.match(imageGenerator, /thumbnailReferenceActive \? 'img2img' : 'text2img'/)
@@ -246,7 +246,7 @@ describe('shared model menus', () => {
     assert.match(voicePicker, /v-if="compatibleLibrary" #actions/)
     assert.match(voicePicker, /:library="compatibleLibrary"/)
     assert.match(voicePicker, /library\.provider_id === props\.ttsModelProviderId/)
-    assert.match(voicePicker, /Clone a voice in GenStudio KH/)
+    assert.match(voicePicker, /Clone a voice in Gateway KH/)
     assert.match(appSettings, /voices\.filter\(voice => !voice\.tts_model_id \|\| voice\.tts_model_id === modelId\)/)
     assert.match(voiceLibraryBrowser, /v-if="hasMore"/)
     assert.match(voiceLibraryBrowser, /Load more voices/)
@@ -275,7 +275,7 @@ describe('shared model menus', () => {
     assert.match(modelSurfaces.channelCharacters, /title="Character vision model"/)
   })
 
-  test('every customer model menu maps GenStudio published cost tiers', () => {
+  test('every customer model menu maps the Gateway published cost tiers', () => {
     assert.match(modelSelector, /costTier:\s*model\.cost_tier/)
     assert.match(imagePicker, /costTier:\s*model\.cost_tier/)
     assert.match(modelSurfaces.audio, /costTier:\s*model\.cost_tier/)
@@ -297,7 +297,7 @@ describe('shared model menus', () => {
 
   test('transcription keeps dispatch details internal and supports import instead of chapter timing synthesis', () => {
     for (const source of [modelSurfaces.subtitles, modelSurfaces.broll, transcriptionCatalog]) {
-      assert.doesNotMatch(source, /single route|ready workers|no ready workers|Transcribe \(GenStudio\)|from-chapters/i)
+      assert.doesNotMatch(source, /single route|ready workers|no ready workers|Transcribe \(The Gateway\)|from-chapters/i)
     }
     assert.match(modelSurfaces.subtitles, /:generate-label="subtitleActionLabel\(null, transcribeLabel\)"/)
     // Owner decision 2026-10-03: the section has no third "Transcribe chapters" button.
@@ -305,7 +305,7 @@ describe('shared model menus', () => {
     assert.match(modelSurfaces.subtitles, /title="Import subtitles"/)
     assert.doesNotMatch(modelSurfaces.subtitles, /title="Other methods"|From chapters/)
     assert.match(transcriptionCatalog, /disabled: !catalogIsUsable\.value \|\| !model\.available \|\| model\.locked === true/)
-    assert.match(transcriptionCatalog, /Last-known catalog only\. Refresh GenStudio before starting paid transcription\./)
+    assert.match(transcriptionCatalog, /Last-known catalog only\. Refresh the Gateway before starting paid transcription\./)
     assert.match(transcriptionCatalog, /temporarily unavailable/)
   })
 

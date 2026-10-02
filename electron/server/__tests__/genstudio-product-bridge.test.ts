@@ -111,7 +111,7 @@ function accountOverview() {
   }
 }
 
-test('GenStudio catalog preserves exact product ids, modes, and advertised limits', async () => {
+test('Gateway catalog preserves exact product ids, modes, and advertised limits', async () => {
   const originalFetch = globalThis.fetch
   try {
     globalThis.fetch = async () => Response.json(catalog('request_json_schema', 'claude-sonnet-4-6'))
@@ -637,7 +637,7 @@ test('story workflow schemas accept complete output and reject partial output', 
   }
 })
 
-test('GenStudio errors remain distinct and actionable', () => {
+test('Gateway errors remain distinct and actionable', () => {
   assert.match(new GenStudioApiError(401, 'bad key').message, /valid account key/i)
   assert.match(new GenStudioApiError(402, 'balance too low').message, /insufficient credits/i)
   assert.match(new GenStudioApiError(403, 'scope missing').message, /scopes and product access/i)

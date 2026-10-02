@@ -184,5 +184,5 @@ test('Editorial provenance ledger identifies every copied preview byte without p
     readJson(path.join(RECIPE.root, 'content', 'thumbnail-recipe.json')),
     readJson(path.join(STYLE.root, 'content', 'visual-style.json')),
   ])
-  assert.doesNotMatch(JSON.stringify(runtimeJson), /\/Users\/[^/"\s]+\/Documents|GenStudio|price|discount|provider|model_id/i)
+  assert.doesNotMatch(JSON.stringify(runtimeJson), /\/Users\/[^/"\s]+\/Documents|the Gateway|price|discount|provider|model_id/i)
 })

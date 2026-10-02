@@ -307,14 +307,14 @@ function isValidSettlement(value: unknown): value is number {
 
 function parseGenStudioCancellationResponse(value: unknown): GenStudioJob & GenStudioCancellationFields {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('GenStudio KH cancellation response was not an object')
+    throw new Error('Gateway cancellation response was not an object')
   }
   const body = value as Record<string, unknown>
   if (typeof body.id !== 'string' || !body.id.trim()) {
-    throw new Error('GenStudio KH cancellation response did not include a job id')
+    throw new Error('Gateway cancellation response did not include a job id')
   }
   if (typeof body.state !== 'string' || !GENSTUDIO_JOB_STATES.has(body.state as GenStudioJob['state'])) {
-    throw new Error('GenStudio KH cancellation response did not include a valid state')
+    throw new Error('Gateway cancellation response did not include a valid state')
   }
   const optionalBoolean = (name: string): boolean | undefined => (
     typeof body[name] === 'boolean' ? body[name] : undefined
@@ -588,8 +588,8 @@ export function genStudioFailureGuidance(
 function releasedCreditSettlement(job: GenStudioSettledJobShape): string {
   const released = job.released_credits
   return typeof released === 'number' && Number.isFinite(released) && released >= 0
-    ? `GenStudio reports ${released} credits released.`
-    : 'Credit settlement is not yet published; check its GenStudio status.'
+    ? `The Gateway reports ${released} credits released.`
+    : 'Credit settlement is not yet published; check its Gateway status.'
 }
 
 /**
@@ -662,9 +662,9 @@ export class GenStudioImageTerminalFailureError extends GenStudioTerminalFailure
       'image',
       job,
       job.cancelled === true
-        ? `GenStudio KH image job ${job.id} was cancelled${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
+        ? `Gateway image job ${job.id} was cancelled${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
           + `${releasedCreditSettlement(job)} Retry submits a new job.`
-        : `GenStudio KH image generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
+        : `Gateway image generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
           + `${releasedCreditSettlement(job)} This job cannot be reopened; Retry submits a new job.`,
     )
     this.name = 'GenStudioImageTerminalFailureError'
@@ -677,9 +677,9 @@ export class GenStudioVideoTerminalFailureError extends GenStudioTerminalFailure
       'video',
       job,
       job.cancelled === true
-        ? `GenStudio KH video job ${job.id} was cancelled. `
+        ? `Gateway video job ${job.id} was cancelled. `
           + `${releasedCreditSettlement(job)} Retry submits a new job. No legacy fallback was attempted.`
-        : `GenStudio video generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
+        : `Gateway video generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
           + `${releasedCreditSettlement(job)} This job cannot be reopened; Retry submits a new job. `
           + 'No legacy fallback was attempted.',
     )
@@ -702,9 +702,9 @@ export class GenStudioMusicTerminalFailureError extends GenStudioTerminalFailure
       'music',
       job,
       job.cancelled === true
-        ? `GenStudio KH music job ${job.id} was cancelled. `
+        ? `Gateway music job ${job.id} was cancelled. `
           + `${releasedCreditSettlement(job)} Retry submits a new job. No legacy fallback was attempted.`
-        : `GenStudio music generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
+        : `Gateway music generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
           + `${releasedCreditSettlement(job)} This job cannot be reopened; Retry submits a new job. `
           + 'No legacy fallback was attempted.',
     )
@@ -718,9 +718,9 @@ export class GenStudioTtsTerminalFailureError extends GenStudioTerminalFailureEr
       'tts',
       job,
       job.cancelled === true
-        ? `GenStudio KH TTS job ${job.id} was cancelled${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
+        ? `Gateway TTS job ${job.id} was cancelled${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
           + `${releasedCreditSettlement(job)} Retry submits a new job. No fallback route was attempted.`
-        : `GenStudio KH generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
+        : `Gateway generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
           + `${releasedCreditSettlement(job)} No fallback route was attempted.`,
     )
     this.name = 'GenStudioTtsTerminalFailureError'
@@ -733,10 +733,10 @@ export class GenStudioTranscriptionTerminalFailureError extends GenStudioTermina
       'transcription',
       job,
       job.cancelled === true
-        ? `GenStudio KH transcription job ${job.id} was cancelled${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
+        ? `Gateway transcription job ${job.id} was cancelled${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
           + `${releasedCreditSettlement(job)} Retry submits a new job. `
           + 'No fallback route was attempted.'
-        : `GenStudio KH transcription failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
+        : `Gateway transcription failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
           + `${releasedCreditSettlement(job)} No fallback route was attempted.`,
     )
     this.name = 'GenStudioTranscriptionTerminalFailureError'
@@ -788,7 +788,7 @@ function chatFailureSentence(job: GenStudioSettledJobShape): string {
   const settled = job.settled_credits
   const credits = [
     typeof settled === 'number' && settled > 0 ? `${settled} credits were charged for this attempt.` : null,
-    typeof released === 'number' && released > 0 ? `GenStudio reports ${released} credits released.` : null,
+    typeof released === 'number' && released > 0 ? `The Gateway reports ${released} credits released.` : null,
   ].filter(Boolean).join(' ')
   return credits ? `${what} ${credits}` : what
 }
@@ -812,7 +812,7 @@ export class GenStudioTranscriptionQuoteExpiredError extends Error {
 
   constructor(status: number, detail: string) {
     super(
-      `GenStudio KH could not confirm this transcription quote (HTTP ${status}): ${detail}. `
+      `The Gateway could not confirm this transcription quote (HTTP ${status}): ${detail}. `
       + 'The quote expired or was already settled; no transcription was created and nothing was charged. '
       + 'Retry submits one fresh quote.',
     )
@@ -829,7 +829,7 @@ export class GenStudioTranscriptionTaskUnavailableError extends Error {
 
   constructor(jobId: string, status: number) {
     super(
-      `Saved transcription task ${jobId} was not found with the current GenStudio connection/account (HTTP ${status}). `
+      `Saved transcription task ${jobId} was not found with the current Gateway connection/account (HTTP ${status}). `
       + 'It cannot be retrieved here; a fresh request requires an explicit section re-run and may be charged.',
     )
     this.name = 'GenStudioTranscriptionTaskUnavailableError'
@@ -865,9 +865,9 @@ export class GenStudioImageArtifactUnavailableError extends GenStudioArtifactUna
       'image',
       jobId,
       status,
-      `GenStudio KH image download failed${status ? ` (HTTP ${status})` : ''}`
+      `Gateway image download failed${status ? ` (HTTP ${status})` : ''}`
       + `${detail ? ` — ${detail}` : ''}: job ${jobId} no longer serves its artifact. `
-      + 'Retry submits a new job; check the original job in GenStudio for its settlement status.',
+      + 'Retry submits a new job; check the original job in the Gateway for its settlement status.',
     )
     this.name = 'GenStudioImageArtifactUnavailableError'
   }
@@ -880,9 +880,9 @@ export class GenStudioTtsArtifactUnavailableError extends GenStudioArtifactUnava
       jobId,
       status,
       status
-        ? `GenStudio KH audio download failed (HTTP ${status})${detail ? ` — ${detail}` : ''}: `
+        ? `Gateway audio download failed (HTTP ${status})${detail ? ` — ${detail}` : ''}: `
           + `job ${jobId} no longer serves its artifact. Retry submits a new job.`
-        : `GenStudio KH job completed without an audio download URL: job ${jobId} `
+        : `Gateway job completed without an audio download URL: job ${jobId} `
           + 'no longer serves its artifact. Retry submits a new job.',
     )
     this.name = 'GenStudioTtsArtifactUnavailableError'
@@ -896,9 +896,9 @@ export class GenStudioTranscriptionArtifactUnavailableError extends GenStudioArt
       jobId,
       status,
       status
-        ? `GenStudio KH SRT download failed (HTTP ${status})${detail ? ` — ${detail}` : ''}: `
+        ? `Gateway SRT download failed (HTTP ${status})${detail ? ` — ${detail}` : ''}: `
           + `job ${jobId} no longer serves its artifact. Retry submits a new job.`
-        : `GenStudio KH transcription completed without an SRT download URL: job ${jobId} `
+        : `Gateway transcription completed without an SRT download URL: job ${jobId} `
           + 'no longer serves its artifact. Retry submits a new job.',
     )
     this.name = 'GenStudioTranscriptionArtifactUnavailableError'
@@ -1057,12 +1057,12 @@ export function resolveGenStudioTtsSpeed(
   maximumSpeed?: number | null,
 ): number {
   const speed = requested == null ? 1 : Number(requested)
-  if (!Number.isFinite(speed)) throw new Error('GenStudio KH speed must be a finite number.')
+  if (!Number.isFinite(speed)) throw new Error('Gateway speed must be a finite number.')
   if (supportsSpeed !== true) return 1
   if (typeof minimumSpeed !== 'number' || !Number.isFinite(minimumSpeed) || minimumSpeed <= 0
     || typeof maximumSpeed !== 'number' || !Number.isFinite(maximumSpeed) || maximumSpeed < minimumSpeed) return 1
   if (speed < minimumSpeed || speed > maximumSpeed) {
-    throw new Error(`GenStudio KH speed must be between ${minimumSpeed} and ${maximumSpeed}.`)
+    throw new Error(`Gateway speed must be between ${minimumSpeed} and ${maximumSpeed}.`)
   }
   return speed
 }
@@ -1522,7 +1522,7 @@ export async function quoteGenStudioTranscription(
   const quote = await submitJsonWithAdmission(apiKey, `${apiBase(baseUrl)}/v1/audio/transcriptions/quotes`, {
     method: 'POST', headers: { ...authorization(apiKey), 'Idempotency-Key': idempotencyKey }, body,
   }, {}, deadline, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS) as GenStudioTranscriptionQuote
-  if (!quote.id) throw new Error('GenStudio KH transcription quote returned no quote id.')
+  if (!quote.id) throw new Error('Gateway transcription quote returned no quote id.')
   return { quote, idempotencyKey, fileSha256 }
 }
 
@@ -2739,11 +2739,11 @@ export class GenStudioChatIncompleteError extends Error {
         // one of them: the same request against the same ceiling truncates
         // again at the same place.
         ? 'The answer was cut off before it finished: this request hit its output-token ceiling '
-          + `(GenStudio reported finish_reason "${finishReason}"). Story Studio did not return the `
+          + `(The Gateway reported finish_reason "${finishReason}"). Story Studio did not return the `
           + 'partial answer as a finished result. Choose a language product with a larger published '
           + 'output limit, or make the request smaller (fewer chapters, scenes, or items per run), '
           + 'then run it again.'
-        : `GenStudio KH reported incomplete chat output${finishReason ? ` (${finishReason})` : ''}. `
+        : `The Gateway reported incomplete chat output${finishReason ? ` (${finishReason})` : ''}. `
           + 'The partial output was not returned as a finished result.',
     )
     this.name = 'GenStudioChatIncompleteError'
@@ -2869,7 +2869,7 @@ const genStudioAdmission = new GenStudioAdmissionPool(async (apiKey): Promise<Ge
     !Number.isInteger(overview.paid_concurrency_limit)
     || overview.paid_concurrency_limit < 1
   ) {
-    throw new Error('GenStudio account overview did not include a valid paid concurrency limit')
+    throw new Error('Gateway account overview did not include a valid paid concurrency limit')
   }
   const burstCeiling = positiveInteger(overview.burst_concurrency_ceiling)
   const tierStanding = parseServiceTierStanding(overview.service_tier)
@@ -2997,7 +2997,7 @@ export async function getGenStudioCancellationStatus(
   )
   const parsed = parseGenStudioCancellationResponse(response)
   if (parsed.id !== providerJobId) {
-    throw new Error('GenStudio KH status response did not match the requested provider job')
+    throw new Error('Gateway status response did not match the requested provider job')
   }
   return parsed
 }
@@ -3038,7 +3038,7 @@ export async function getGenStudioChatStatus(
   const parsed = pending
     ? await getGenStudioJobByIdempotencyKey('chat.response', baseUrl, apiKey, idempotencyKey!, {}, deadline)
     : await getGenStudioCancellationStatus('chat.response', baseUrl, apiKey, providerJobId, {}, deadline)
-  if (!pending && parsed.id !== providerJobId) throw new Error('GenStudio KH Chat status response did not match the requested provider job')
+  if (!pending && parsed.id !== providerJobId) throw new Error('Gateway Chat status response did not match the requested provider job')
   return parsed
 }
 
@@ -3068,7 +3068,7 @@ export async function requestGenStudioCancellation(
   )
   const parsed = parseGenStudioCancellationResponse(response)
   if (parsed.id !== providerJobId) {
-    throw new Error('GenStudio KH cancellation response did not match the requested provider job')
+    throw new Error('Gateway cancellation response did not match the requested provider job')
   }
   return parsed
 }
@@ -3290,13 +3290,13 @@ function requestUrl(baseUrl: string, value: string): string {
   const base = new URL(`${apiBase(baseUrl)}/`)
   const resolved = new URL(value, base)
   if (resolved.origin !== base.origin) {
-    throw new Error('GenStudio KH returned an artifact URL outside its API origin')
+    throw new Error('The Gateway returned an artifact URL outside its API origin')
   }
   return resolved.toString()
 }
 
 function authorization(apiKey: string): Record<string, string> {
-  if (!apiKey.trim()) throw new Error('No GenStudio KH API key configured. Open Settings → This Mac → API Keys.')
+  if (!apiKey.trim()) throw new Error('No Gateway key configured. Open Settings → This Mac → API Keys.')
   return { Authorization: `Bearer ${apiKey.trim()}` }
 }
 
@@ -3333,12 +3333,12 @@ function describeMissingRequestBoundary(
       return 'Story Studio did not carry the selected voice model\'s maximum_input_characters into '
         + `this TTS submission. ${consequence}`
     }
-    return `GenStudio KH published no maximum_input_characters for the selected voice model. ${consequence}`
+    return `The Gateway published no maximum_input_characters for the selected voice model. ${consequence}`
   }
   // A number arrived, and it is unusable — zero, negative, or non-finite. That
   // is a value problem, not a missing publication, and saying so keeps the
   // "GenStudio published nothing" phrase for the case where it is true.
-  return 'GenStudio KH published maximum_input_characters as '
+  return 'The Gateway published maximum_input_characters as '
     + `${Number.isFinite(maxCharacters) ? maxCharacters : String(maxCharacters)} for the selected voice model, `
     + `which is not a usable request boundary. ${consequence}`
 }
@@ -3372,30 +3372,30 @@ export function splitGenStudioApiRequests(text: string, maxCharacters: number | 
 /** Build the exact customer API payload plus a stable retry identity. */
 export function buildGenStudioSubmission(request: GenStudioTtsRequest): GenStudioSubmission {
   const voiceId = request.voiceId?.trim() || ''
-  if (!voiceId) throw new Error('Select a GenStudio KH voice before generating audio.')
+  if (!voiceId) throw new Error('Select a Gateway voice before generating audio.')
   const modelId = request.modelId?.trim() || ''
   if (!modelId) {
     throw new Error(
       'Story Studio did not carry the selected voice model into this TTS submission. '
-      + 'GenStudio KH sells speech by model and requires model_id on every request, so it '
+      + 'The Gateway sells speech by model and requires model_id on every request, so it '
       + 'refuses the body before any provider is contacted. That is a Story Studio defect, '
-      + 'not a GenStudio KH publication gap — the catalogue publishes the model id the '
+      + 'not a Gateway publication gap — the catalogue publishes the model id the '
       + 'generator already selected and quoted with.',
     )
   }
-  if (!request.text.trim()) throw new Error('GenStudio KH text cannot be empty.')
+  if (!request.text.trim()) throw new Error('Gateway text cannot be empty.')
   const maxCharacters = request.maxInputCharacters
   if (maxCharacters == null || !Number.isFinite(maxCharacters) || maxCharacters <= 0) {
     throw new Error(describeMissingRequestBoundary(
       maxCharacters,
-      'That is a Story Studio defect, not a GenStudio KH publication gap — the catalogue publishes '
+      'That is a Story Studio defect, not a Gateway publication gap — the catalogue publishes '
       + 'the field for every TTS model. Story Studio will not guess a request boundary.',
       'submission',
     ))
   }
   const characterCount = Array.from(request.text.normalize('NFC')).length
   if (characterCount > maxCharacters) {
-    throw new Error(`GenStudio KH accepts at most ${Math.floor(maxCharacters).toLocaleString()} characters per request for this voice model.`)
+    throw new Error(`The Gateway accepts at most ${Math.floor(maxCharacters).toLocaleString()} characters per request for this voice model.`)
   }
   const speed = resolveGenStudioTtsSpeed(
     request.speed,
@@ -3601,24 +3601,24 @@ export function readGenStudioCapacityReason(
 export function describeGenStudioCapacityReason(code: string | null | undefined): string | null {
   switch (normalizeGenStudioCapacityReason(code)) {
     case GENSTUDIO_CAPACITY_REASONS.ACCOUNT_CONCURRENCY:
-      return 'Your GenStudio KH account is already running as many jobs at once as its plan allows, so this '
+      return 'Your Gateway account is already running as many jobs at once as its plan allows, so this '
         + 'one is waiting for a slot. Nothing failed and nothing was charged. It starts on its own as soon as '
         + 'one of your running jobs finishes — or run fewer steps at once, or raise your account\'s '
         + 'concurrency limit, to clear the queue faster.'
     case GENSTUDIO_CAPACITY_REASONS.ACCOUNT_RATE_LIMIT:
-      return 'Your GenStudio KH account has sent more requests per minute than its plan allows, so this one '
+      return 'Your Gateway account has sent more requests per minute than its plan allows, so this one '
         + 'was held back. Nothing failed and nothing was charged. Story Studio is spacing out its retries for '
         + 'you; to stop hitting the limit, run fewer steps at once or raise your account\'s per-minute rate.'
     case GENSTUDIO_CAPACITY_REASONS.ACCOUNT_QUEUE_LIMIT:
-      return 'Your GenStudio KH account\'s job queue is full, so this request could not be accepted. Nothing '
-        + 'was charged. Wait for queued jobs to finish, or cancel some in your GenStudio account, then Retry '
+      return 'Your Gateway account\'s job queue is full, so this request could not be accepted. Nothing '
+        + 'was charged. Wait for queued jobs to finish, or cancel some in your Gateway account, then Retry '
         + '— raising your account\'s queue limit also clears it.'
     case GENSTUDIO_CAPACITY_REASONS.PROVIDER_BACKPRESSURE:
-      return 'GenStudio KH is under heavy load right now and asked Story Studio to wait before trying again. '
+      return 'The Gateway is under heavy load right now and asked Story Studio to wait before trying again. '
         + 'This is temporary and is not a problem with your account, your credits, or this request. Story '
-        + 'Studio is retrying automatically at the pace GenStudio asked for.'
+        + 'Studio is retrying automatically at the pace Gateway asked for.'
     case GENSTUDIO_CAPACITY_REASONS.REQUEST_IN_PROGRESS:
-      return 'GenStudio KH is already running this exact request. Story Studio did NOT send it again — a '
+      return 'The Gateway is already running this exact request. Story Studio did NOT send it again — a '
         + 'second submission would abandon the run already in progress and could be charged twice. The work '
         + 'is still going: leave this step alone and it will be picked up when it finishes. If Story Studio '
         + 'was restarted, use Retry to RECONNECT to the running job rather than starting the step over.'
@@ -3830,22 +3830,22 @@ export class GenStudioApiError extends Error {
       : capacityMessage
       ? capacityMessage
       : status === 401
-      ? `GenStudio KH did not accept this API key: ${detail}. Save a valid account key in Settings → This Mac.`
+      ? `The Gateway did not accept this API key: ${detail}. Save a valid account key in Settings → This Mac.`
       : status === 402
-        ? `GenStudio KH has insufficient credits for this request: ${detail}. Add credits, then Retry.`
+        ? `The Gateway has insufficient credits for this request: ${detail}. Add credits, then Retry.`
         : status === 403
-          ? `This GenStudio KH key or account is not allowed to use the selected product: ${detail}. Check its scopes and product access.`
+          ? `This Gateway key or account is not allowed to use the selected product: ${detail}. Check its scopes and product access.`
           : status === 422
-            ? `GenStudio KH rejected the product request before generation: ${detail}. Review the selected model and its output contract.`
+            ? `The Gateway rejected the product request before generation: ${detail}. Review the selected model and its output contract.`
             : status === 429
-              ? `GenStudio KH is busy or rate-limited: ${detail}. Story Studio will honor its Retry-After guidance.`
+              ? `The Gateway is busy or rate-limited: ${detail}. Story Studio will honor its Retry-After guidance.`
               : status === 502
-                ? `The provider behind this GenStudio KH product failed: ${detail}. No fallback route was attempted.`
+                ? `The provider behind this Gateway product failed: ${detail}. No fallback route was attempted.`
                 : isGenStudioGenerationPaused(status, detail)
-                  ? 'GenStudio generation is paused by its operator. Story Studio stopped all remaining new ' +
+                  ? 'Gateway generation is paused by its operator. Story Studio stopped all remaining new ' +
                     'submissions; accepted jobs and completed checkpoints are preserved. Enable generation in ' +
-                    'GenStudio Admin, then Retry only unfinished work.'
-                  : `GenStudio KH request failed: ${detail}`
+                    'Gateway Admin, then Retry only unfinished work.'
+                  : `Gateway request failed: ${detail}`
     super(message)
     this.name = 'GenStudioApiError'
     this.languageFailureCode = languageFailureCode
@@ -3866,7 +3866,7 @@ export class GenStudioTransportTimeoutError extends Error {
     // cancel check in Story matches /abort/ — so a 30 s gateway stall read as the owner pressing
     // Cancel, and the audio generator logged "Cancelled." and skipped the chunk without counting
     // a failure or retrying (audit 2026-10-01).
-    super(`GenStudio KH did not answer within the request time limit (${timeout.name})`)
+    super(`The Gateway did not answer within the request time limit (${timeout.name})`)
     this.name = 'GenStudioTransportTimeoutError'
   }
 }
@@ -4035,7 +4035,7 @@ async function retryDelay(
   const wakeAt = Date.now() + Math.min(requestedMs, Math.max(0, deadline - Date.now()))
   for (;;) {
     if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
-    if (Date.now() >= deadline) throw new Error('GenStudio KH job timed out while waiting for completion')
+    if (Date.now() >= deadline) throw new Error('Gateway job timed out while waiting for completion')
     const left = wakeAt - Date.now()
     if (left <= 0) return
     await beforeWaitSlice?.()
@@ -4087,7 +4087,7 @@ async function requestJsonWithRetry(
       let body: any = {}
       if (raw) {
         try { body = JSON.parse(raw) }
-        catch { throw new Error(`GenStudio KH returned invalid JSON (HTTP ${response.status})`) }
+        catch { throw new Error(`The Gateway returned invalid JSON (HTTP ${response.status})`) }
       }
       if (!response.ok) {
         const detail = describeGenStudioDetail(body, response.status)
@@ -4189,7 +4189,7 @@ async function requestJsonWithRetry(
       await retryDelay(attempt, request, deadline, retryAfterMs)
     }
   }
-  throw lastError instanceof Error ? lastError : new Error('GenStudio KH request failed after reconnect attempts')
+  throw lastError instanceof Error ? lastError : new Error('Gateway request failed after reconnect attempts')
 }
 
 async function submitJsonWithAdmission(
@@ -4371,7 +4371,7 @@ export class GenStudioCatalogUnavailableError extends Error {
     super(
       cause instanceof GenStudioCatalogFieldValidationError
         ? cause.message
-        : `The GenStudio KH ${CATALOG_LABEL[kind]} catalogue could not be refreshed`
+        : `The Gateway ${CATALOG_LABEL[kind]} catalogue could not be refreshed`
           + `${ageMs == null
             ? ' and Story Studio has no cached copy'
             : ` and the cached copy is ${Math.round(ageMs / 60_000)} minute(s) old, beyond the `
@@ -4490,7 +4490,7 @@ export function invalidateGenStudioCatalogFreshness(): void {
 async function fetchRetryingJson(
   url: string,
   apiKey: string,
-  unreachable = 'GenStudio KH model catalog could not be reached after automatic reconnect attempts.',
+  unreachable = 'Gateway model catalog could not be reached after automatic reconnect attempts.',
 ): Promise<unknown> {
   let lastError: unknown
   for (let attempt = 1; attempt <= CATALOG_RETRY_ATTEMPTS; attempt++) {
@@ -4691,7 +4691,7 @@ async function forceLiveCatalogSnapshot<T>(
   catalogRefreshes.delete(key)
   const snapshot = await cachedCatalogSnapshot(kind, key, load, options)
   if ((catalogGenerations.get(key) ?? 0) !== generation) {
-    throw new Error(`GenStudio KH ${CATALOG_LABEL[kind]} catalogue force-live read was superseded by a newer refresh.`)
+    throw new Error(`The Gateway ${CATALOG_LABEL[kind]} catalogue force-live read was superseded by a newer refresh.`)
   }
   if (snapshot.freshness !== 'live') {
     throw new GenStudioCatalogUnavailableError(kind, snapshot.ageMs, new Error('force-live image catalog read was not live'))
@@ -4738,7 +4738,7 @@ export async function listVoicesSnapshot(
   const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/voices${suffix}`, apiKey)
   // gateway-kh answers `{ voices, models }`; the old endpoint answered an array.
   const rows = readCatalogRows(payload, 'voices')
-  if (!rows) throw new Error('GenStudio KH returned an invalid voice catalog')
+  if (!rows) throw new Error('The Gateway returned an invalid voice catalog')
   return rows.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
@@ -4789,7 +4789,7 @@ export async function listTtsModelsSnapshot(
   return cachedCatalogSnapshot('tts-models', catalogCacheKey('tts-models', baseUrl, apiKey), async () => {
     const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/tts/models`, apiKey)
     const rows = readCatalogRows(payload)
-    if (!rows) throw new Error('GenStudio KH returned an invalid voice model catalog')
+    if (!rows) throw new Error('The Gateway returned an invalid voice model catalog')
     return rows.flatMap((value: any): GenStudioTtsModel[] => {
       const id = typeof value?.id === 'string' ? value.id.trim() : ''
       const displayName = typeof value?.display_name === 'string' ? value.display_name.trim() : ''
@@ -4854,7 +4854,7 @@ export async function listMusicModelsSnapshot(
   return cachedCatalogSnapshot('music', catalogCacheKey('music', baseUrl, apiKey), async () => {
     const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/music/models`, apiKey)
     const rows = readCatalogRows(payload)
-    if (!rows) throw new Error('GenStudio KH returned an invalid music model catalog')
+    if (!rows) throw new Error('The Gateway returned an invalid music model catalog')
     return rows.flatMap((value: any): GenStudioMusicModel[] => {
       const id = typeof value?.id === 'string' ? value.id.trim() : ''
       const displayName = typeof value?.display_name === 'string' ? value.display_name.trim() : ''
@@ -4934,7 +4934,7 @@ export async function setGenStudioVoiceSaved(
   saved: boolean,
 ): Promise<void> {
   const id = voiceId.trim()
-  if (!id) throw new Error('A GenStudio voice id is required to change its saved state.')
+  if (!id) throw new Error('A Gateway voice id is required to change its saved state.')
   const baseUrl = await getGenStudioUrl()
   const response = await fetch(`${apiBase(baseUrl)}/v1/voices/${encodeURIComponent(id)}/save`, {
     method: saved ? 'POST' : 'DELETE',
@@ -4950,7 +4950,7 @@ export async function setGenStudioVoiceSaved(
 function voiceLibraryPath(library: string): string {
   const match = GENSTUDIO_VOICE_LIBRARIES.find(entry => entry.id === library.trim())
   if (!match) {
-    throw new Error(`GenStudio KH publishes no voice library named "${library}".`)
+    throw new Error(`The Gateway publishes no voice library named "${library}".`)
   }
   return match.path
 }
@@ -4968,7 +4968,7 @@ export async function listGenStudioVoiceLibrary(
   const suffix = query.size ? `?${query.toString()}` : ''
   const payload: any = await fetchRetryingJson(`${apiBase(baseUrl)}${voiceLibraryPath(library)}${suffix}`, apiKey)
   if (!payload || !Array.isArray(payload.voices)) {
-    throw new Error('GenStudio KH returned an invalid voice library page')
+    throw new Error('The Gateway returned an invalid voice library page')
   }
   return {
     page: optionalCount(payload.page) ?? 0,
@@ -5046,7 +5046,7 @@ export async function requestGenStudioTtsQuote(
   },
 ): Promise<GenStudioTtsQuote> {
   const voiceId = request.voiceId.trim()
-  if (!voiceId) throw new Error('Select a GenStudio KH voice before asking for a quote.')
+  if (!voiceId) throw new Error('Select a Gateway voice before asking for a quote.')
   // GenStudio requires `model_id` on the quote body too, so a conditional
   // spread here only bought the right to send a body GenStudio must reject —
   // and its rejection is a field-level 422 nobody reads as "we forgot the
@@ -5054,7 +5054,7 @@ export async function requestGenStudioTtsQuote(
   const modelId = request.modelId?.trim() || ''
   if (!modelId) {
     throw new Error(
-      'Story Studio did not carry the selected voice model into this quote. GenStudio KH '
+      'Story Studio did not carry the selected voice model into this quote. The Gateway '
       + 'prices speech by model and requires model_id on every quote request.',
     )
   }
@@ -5117,7 +5117,7 @@ export async function downloadVoicePreview(
   const isLibraryPreview = GENSTUDIO_VOICE_LIBRARIES.some(library => previewPath.startsWith(`${library.path}/`))
     && previewPath.endsWith('/preview')
   if (!isCatalogPreview && !isLibraryPreview) {
-    throw new Error('GenStudio KH returned an invalid voice preview path')
+    throw new Error('The Gateway returned an invalid voice preview path')
   }
   const response = await fetch(requestUrl(baseUrl, previewPath), {
     headers: authorization(apiKey),
@@ -5128,7 +5128,7 @@ export async function downloadVoicePreview(
   }
   const mediaType = (response.headers.get('content-type') || 'audio/mpeg').split(';')[0]!.trim()
   if (!mediaType.startsWith('audio/')) {
-    throw new Error('GenStudio KH voice preview did not return audio')
+    throw new Error('Gateway voice preview did not return audio')
   }
   return {
     bytes: Buffer.from(await response.arrayBuffer()),
@@ -5145,7 +5145,7 @@ export async function listModelCapabilitiesSnapshot(
   return cachedCatalogSnapshot('capabilities', catalogCacheKey('capabilities', baseUrl, apiKey), async () => {
   const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/models`, apiKey)
   const rows = readCatalogRows(payload)
-  if (!rows) throw new Error('GenStudio KH returned an invalid capability catalog')
+  if (!rows) throw new Error('The Gateway returned an invalid capability catalog')
   const modalities = new Set(['audio', 'image', 'text', 'video'])
   const operations = new Set(['voice.tts', 'audio.transcription', 'image.generation', 'chat.response', 'video.generation'])
   const availability = new Set(['available', 'unavailable', 'unknown'])
@@ -5213,7 +5213,7 @@ function readPublishedChatMaxOutputTokens(value: unknown, rawModelId: unknown): 
     ? rawModelId.trim().replace(/[\r\n\t]/g, ' ').slice(0, 120)
     : '(missing model id)'
   throw new GenStudioCatalogFieldValidationError(
-    `GenStudio KH chat model ${JSON.stringify(modelId)} published malformed max_output_tokens; `
+    `Gateway chat model ${JSON.stringify(modelId)} published malformed max_output_tokens; `
     + 'expected null/omitted or a positive safe integer. No request or credit charge was made.',
   )
 }
@@ -5249,7 +5249,7 @@ export async function listChatModelsSnapshot(
   return cachedCatalogSnapshot('chat', catalogCacheKey('chat', baseUrl, apiKey), async () => {
   const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/chat/models`, apiKey)
   const rows = readCatalogRows(payload)
-  if (!rows) throw new Error('GenStudio KH returned an invalid chat model catalog')
+  if (!rows) throw new Error('The Gateway returned an invalid chat model catalog')
   return rows.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
     ...parseGenStudioProductAliases(value),
@@ -5409,7 +5409,7 @@ async function loadVideoModelsSnapshot(
   return cachedCatalogSnapshot('video', catalogCacheKey('video', baseUrl, apiKey), async () => {
   const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/videos/models`, apiKey)
   const rows = readCatalogRows(payload)
-  if (!rows) throw new Error('GenStudio KH returned an invalid video model catalog')
+  if (!rows) throw new Error('The Gateway returned an invalid video model catalog')
   return rows.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
     ...parseGenStudioProductAliases(value),
@@ -5601,7 +5601,7 @@ async function waitForVideoJob(
     if (request.isCancelled?.() || request.signal?.aborted) {
       throw new Error('Cancelled by user')
     }
-    if (Date.now() >= deadline) throw new Error('GenStudio video job timed out while waiting for completion.')
+    if (Date.now() >= deadline) throw new Error('Gateway video job timed out while waiting for completion.')
     await poller.wait(deadline, request, current)
     current = await requestJsonWithRetry(
       `${apiBase(baseUrl)}/v1/videos/${encodeURIComponent(current.id)}`,
@@ -5686,13 +5686,13 @@ async function generateVideoWithGenStudioAdmitted(
 ): Promise<GenStudioVideoResult> {
   const prompt = request.prompt.trim()
   const modelId = request.modelId.trim()
-  if (prompt.length < 3 || prompt.length > 4_000) throw new Error('GenStudio video prompts must contain 3 to 4,000 characters.')
-  if (!modelId) throw new Error('Select a GenStudio video model.')
+  if (prompt.length < 3 || prompt.length > 4_000) throw new Error('Gateway video prompts must contain 3 to 4,000 characters.')
+  if (!modelId) throw new Error('Select a Gateway video model.')
   if (request.operation !== STORY_STUDIO_VIDEO_MODE) {
     throw new Error(`Story Studio only submits the published ${STORY_STUDIO_VIDEO_MODE} video operation.`)
   }
   const source = await fs.readFile(request.sourceImagePath)
-  if (!source.length) throw new Error('GenStudio video source image is empty.')
+  if (!source.length) throw new Error('Gateway video source image is empty.')
   const sourceSha256 = createHash('sha256').update(source).digest('hex')
   // A caller that checkpointed its key before this call is authoritative: that
   // persisted key is exactly what makes a lost submit response replay instead
@@ -5722,7 +5722,7 @@ async function generateVideoWithGenStudioAdmitted(
     request,
     deadline,
   ) as GenStudioVideoSourceAsset
-  if (!sourceAsset.id) throw new Error('GenStudio video source upload returned no asset id.')
+  if (!sourceAsset.id) throw new Error('Gateway video source upload returned no asset id.')
 
   const requestPreview = await recordGenStudioRequestPreview('video.generation', {
     method: 'POST',
@@ -5931,7 +5931,7 @@ async function waitForMusicJob(
   while (!poller.settled(current)) {
     await submitQueuedRemoteCancellation('music.generation', baseUrl, apiKey, current.id, deadline)
     if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
-    if (Date.now() >= deadline) throw new Error('GenStudio music job timed out while waiting for completion.')
+    if (Date.now() >= deadline) throw new Error('Gateway music job timed out while waiting for completion.')
     await poller.wait(deadline, request, current)
     current = await requestJsonWithRetry(
       `${apiBase(baseUrl)}/v1/music/jobs/${encodeURIComponent(current.id)}`,
@@ -5972,7 +5972,7 @@ function musicResult(
       ),
     }))
   if (!tracks.length) {
-    throw new Error(`GenStudio music job ${completed.id} succeeded but returned no tracks.`)
+    throw new Error(`Gateway music job ${completed.id} succeeded but returned no tracks.`)
   }
   return {
     tracks,
@@ -6089,9 +6089,9 @@ export async function generateMusicWithGenStudio(
   const title = request.title.trim()
   const prompt = request.prompt.trim()
   const modelId = request.modelId.trim()
-  if (!title) throw new Error('GenStudio music requests need a title.')
-  if (!prompt) throw new Error('GenStudio music requests need a creative direction.')
-  if (!modelId) throw new Error('Select a GenStudio music model.')
+  if (!title) throw new Error('Gateway music requests need a title.')
+  if (!prompt) throw new Error('Gateway music requests need a creative direction.')
+  if (!modelId) throw new Error('Select a Gateway music model.')
   // A caller that checkpointed its key before this call is authoritative: that
   // persisted key is exactly what makes a lost submit response replay instead
   // of creating a second paid job.
@@ -6166,7 +6166,7 @@ async function readAccountJson<T>(apiKey: string, pathName: string): Promise<T> 
   return await fetchRetryingJson(
     `${apiBase(baseUrl)}${pathName}`,
     apiKey,
-    'GenStudio KH account data could not be reached after automatic reconnect attempts.',
+    'Gateway account data could not be reached after automatic reconnect attempts.',
   ) as T
 }
 
@@ -6182,7 +6182,7 @@ export class GenStudioAccountUnavailableError extends Error {
 
   constructor(ageMs: number | null, cause?: unknown) {
     super(
-      'The GenStudio KH account overview could not be refreshed'
+      'The Gateway account overview could not be refreshed'
       + `${ageMs == null
         ? ' and Story Studio has no cached copy'
         : ` and the cached copy is ${Math.round(ageMs / 60_000)} minute(s) old, beyond the `
@@ -6847,8 +6847,8 @@ function parseLanguageOutput(
   }
   if (typeof raw !== 'string' || !raw.trim()) {
     throw new Error(
-      'GenStudio KH language product returned a successful envelope without usable output. '
-      + 'Story Studio did not automatically resubmit a replacement; inspect the recorded GenStudio '
+      'Gateway language product returned a successful envelope without usable output. '
+      + 'Story Studio did not automatically resubmit a replacement; inspect the recorded Gateway '
       + 'job and settlement, then use Retry deliberately.',
     )
   }
@@ -6970,10 +6970,10 @@ async function prepareChatSubmission(
   request: GenStudioChatRequest,
 ): Promise<PreparedChatSubmission> {
   const modelId = request.modelId.trim().replace(/^genstudio-chat:/, '')
-  if (!modelId) throw new Error('Select a GenStudio KH chat model.')
-  if (!request.userMessage.trim()) throw new Error('GenStudio KH chat input cannot be empty.')
+  if (!modelId) throw new Error('Select a Gateway chat model.')
+  if (!request.userMessage.trim()) throw new Error('Gateway chat input cannot be empty.')
   if (request.inputImage) {
-    throw new Error('The GenStudio language-product endpoint is text-only in this release. No request or credit charge was made.')
+    throw new Error('The Gateway language-product endpoint is text-only in this release. No request or credit charge was made.')
   }
   const product = findGenStudioProduct(await listChatModels(apiKey), modelId)
   if (!product || !product.available || product.qualification_only || product.locked === true) {
@@ -7122,8 +7122,8 @@ export class GenStudioChatRecoveryUnresolvedError extends Error {
 
   constructor(idempotencyKey: string, cause?: unknown) {
     super(
-      `GenStudio KH could not find the earlier language submission for idempotency key ${idempotencyKey}. `
-      + 'Story Studio kept its existing request identity and did not submit fresh work. Check GenStudio, then Retry.',
+      `The Gateway could not find the earlier language submission for idempotency key ${idempotencyKey}. `
+      + 'Story Studio kept its existing request identity and did not submit fresh work. Check the Gateway, then Retry.',
       cause === undefined ? undefined : { cause },
     )
     this.name = 'GenStudioChatRecoveryUnresolvedError'
@@ -7249,7 +7249,7 @@ async function waitForChatJob(
       // A slow job can never hang a pipeline step forever: the deadline is set
       // once at submission from GENSTUDIO_LONG_JOB_TIMEOUT_MS and every poll,
       // retry and backoff inside this loop is bounded by it.
-      throw new Error('GenStudio KH language job timed out while waiting for completion')
+      throw new Error('Gateway language job timed out while waiting for completion')
     }
     await poller.wait(deadline, request, current)
     current = await requestJsonWithRetry(
@@ -7326,7 +7326,7 @@ async function restoreReplacementRequest<R extends GenStudioOperationContext>(
   key = attempt.idempotency_key
   const baseUrl = await getGenStudioUrl()
   if (attempt.connection_fingerprint !== replacementConnectionFingerprint(baseUrl, apiKey)) {
-    throw new Error('The GenStudio connection changed since this replacement was prepared. Restore its original connection to recover the saved request; no new work was submitted.')
+    throw new Error('The Gateway connection changed since this replacement was prepared. Restore its original connection to recover the saved request; no new work was submitted.')
   }
   const operation = kind === 'audio' ? 'voice.tts' : 'chat.response'
   // Read before POST, including a crash between physical acceptance and the
@@ -7352,7 +7352,7 @@ async function restoreReplacementRequest<R extends GenStudioOperationContext>(
   const gate = kind === 'audio' ? withPaidAudioConfirmation : withPaidWritingConfirmation
   const support: any = await requestJsonWithRetry(`${apiBase(baseUrl)}/v1/account/overview`, { headers: authorization(apiKey) }, request,
     Date.now() + GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, apiKey, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], true, 1)
-  if (!Array.isArray(support?.max_charge_credits_supported_operations) || !support.max_charge_credits_supported_operations.includes(operation)) throw new Error('GenStudio spending-limit support must be available before replacement can resume.')
+  if (!Array.isArray(support?.max_charge_credits_supported_operations) || !support.max_charge_credits_supported_operations.includes(operation)) throw new Error('Gateway spending-limit support must be available before replacement can resume.')
   return { key, request: { ...request, replacementChargeLimit: attempt.max_credits,
     withPost: post => gate(async () => {
       const policy = await setting()
@@ -7424,16 +7424,16 @@ async function replaceConfirmedGeneration<T>(
   try {
     support = await requestJsonWithRetry(`${apiBase(baseUrl)}/v1/account/overview`,
       { headers: authorization(apiKey) }, request, deadline, apiKey, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], true, 1)
-  } catch { return refuse('GenStudio spending-limit support could not be checked.') }
+  } catch { return refuse('Gateway spending-limit support could not be checked.') }
   if (!Array.isArray(support?.max_charge_credits_supported_operations)
     || !support.max_charge_credits_supported_operations.includes(operation)) {
-    return refuse('This GenStudio API does not yet support bounded automatic replacement. Manual Retry remains available.')
+    return refuse('This Gateway does not yet support bounded automatic replacement. Manual Retry remains available.')
   }
   let quotedMaximum: number | null = null
   if (quoteMaximum) {
     try { quotedMaximum = await quoteMaximum() } catch { return refuse('The current audio price could not be verified.') }
     if (quotedMaximum === null || !Number.isSafeInteger(quotedMaximum) || quotedMaximum < 0) {
-      return refuse('GenStudio did not publish a valid maximum audio quote.')
+      return refuse('The Gateway did not publish a valid maximum audio quote.')
     }
   }
   let attempt: GenerationReplacementAttempt | undefined
@@ -7441,7 +7441,7 @@ async function replaceConfirmedGeneration<T>(
   await gate(async () => {
     const policy = await setting()
     if (!policy.enabled || request.isCancelled?.() || request.signal?.aborted || await getGenStudioUrl() !== baseUrl) {
-      blocked = 'Replacement was disabled, cancelled, or the GenStudio connection changed.'
+      blocked = 'Replacement was disabled, cancelled, or the Gateway connection changed.'
       return
     }
     await queue.mutateAuthoritativeJob(storyJob.project_slug, storyJob.job_id, job => {
@@ -8008,7 +8008,7 @@ export async function uploadImageSourceWithGenStudio(
     method: 'POST', headers: authorization(apiKey), body, signal: AbortSignal.timeout(GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS),
   })
   const value = await readJson(response)
-  if (!value || typeof value.id !== 'string') throw new Error('GenStudio KH did not return a private reference asset id.')
+  if (!value || typeof value.id !== 'string') throw new Error('The Gateway did not return a private reference asset id.')
   return {
     id: value.id, media_type: typeof value.media_type === 'string' ? value.media_type : type,
     byte_size: Number.isInteger(value.byte_size) ? value.byte_size : bytes.length,
@@ -8029,7 +8029,7 @@ export async function listTranscriptionModelsSnapshot(
     const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/transcription/models`, apiKey)
     const rows = readCatalogRows(payload)
     if (!rows) {
-      throw new Error('GenStudio KH returned an invalid transcription model catalog')
+      throw new Error('The Gateway returned an invalid transcription model catalog')
     }
     return rows.map((value: any) => ({
       id: typeof value?.id === 'string' ? value.id.trim() : '',
@@ -8105,7 +8105,7 @@ function publishedCredits(value: unknown): number | undefined {
 async function loadImageModelsFromGenStudio(baseUrl: string, apiKey: string): Promise<GenStudioImageModel[]> {
     const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/image/models`, apiKey)
     const rows = readCatalogRows(payload)
-    if (!rows) throw new Error('GenStudio KH returned an invalid image model catalog')
+    if (!rows) throw new Error('The Gateway returned an invalid image model catalog')
     return rows.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
     ...parseGenStudioProductAliases(value),
@@ -8289,7 +8289,7 @@ async function waitForImageJob(
     if (request.isCancelled?.() || request.signal?.aborted) {
       throw new Error('Cancelled by user')
     }
-    if (Date.now() >= deadline) throw new Error('GenStudio KH image job timed out while waiting for completion')
+    if (Date.now() >= deadline) throw new Error('Gateway image job timed out while waiting for completion')
     await poller.wait(deadline, request, current)
     current = await requestJsonWithRetry(
       `${apiBase(baseUrl)}/v1/images/${encodeURIComponent(current.id)}`,
@@ -8332,13 +8332,13 @@ async function downloadImageArtifact(
         if (response.status === 404 || response.status === 410) {
           throw new GenStudioImageArtifactUnavailableError(completed.id, response.status)
         }
-        const error = new Error(`GenStudio KH image download failed (HTTP ${response.status})`)
+        const error = new Error(`Gateway image download failed (HTTP ${response.status})`)
         if (!retryableStatus(response.status)) throw error
         lastError = error
       } else {
         const bytes = Buffer.from(await response.arrayBuffer())
         const mediaType = bytes.length < 24 ? null : sniffImageMediaType(bytes)
-        if (!mediaType) throw new Error('GenStudio KH returned an invalid image artifact (not PNG, JPEG or WebP)')
+        if (!mediaType) throw new Error('The Gateway returned an invalid image artifact (not PNG, JPEG or WebP)')
         return `data:${mediaType};base64,${bytes.toString('base64')}`
       }
     } catch (error) {
@@ -8350,7 +8350,7 @@ async function downloadImageArtifact(
     }
     if (attempt < NETWORK_RETRY_ATTEMPTS) await retryDelay(attempt, request, deadline)
   }
-  throw lastError instanceof Error ? lastError : new Error('GenStudio KH image download failed')
+  throw lastError instanceof Error ? lastError : new Error('Gateway image download failed')
 }
 
 /** The gateway relays each provider's own format, so accept what the bytes say they are. */
@@ -8503,7 +8503,7 @@ function monitorQueuedImagePermit(scope: string, queue: ImagePermitQueue, waiter
         // second sleep here would race the deadline and hide cancellation.
         if (waiter.retryAt) return
         const left = waiter.deadline - Date.now()
-        if (left <= 0) throw new Error('GenStudio KH job timed out while waiting for completion')
+        if (left <= 0) throw new Error('Gateway job timed out while waiting for completion')
         await new Promise(resolve => setTimeout(resolve, Math.min(POLL_CANCEL_CHECK_MS, left)))
       }
     } catch (error) {
@@ -8701,7 +8701,7 @@ async function acquireImageAdmissionPermit(
           1,
         )
       const permitId = typeof permit?.id === 'string' ? permit.id.trim() : ''
-      if (!permitId) throw new Error('GenStudio KH returned an invalid image admission permit')
+      if (!permitId) throw new Error('The Gateway returned an invalid image admission permit')
       await request.onQueueState?.('submitting')
       return permitId
     } catch (error) {
@@ -8742,9 +8742,9 @@ async function generateImageWithGenStudioAdmitted(
   // model before this point — this check must never sit below it, or a prompt
   // GenStudio publishes as acceptable would be refused by an invented limit.
   if (prompt.length < 3 || prompt.length > 32_000) {
-    throw new Error('GenStudio KH image prompts must contain 3 to 32,000 characters.')
+    throw new Error('Gateway image prompts must contain 3 to 32,000 characters.')
   }
-  if (!modelId) throw new Error('Select a GenStudio KH image model.')
+  if (!modelId) throw new Error('Select a Gateway image model.')
   const hasDimensions = Number.isInteger(request.width) && request.width! > 0
     && Number.isInteger(request.height) && request.height! > 0
   // Sent only when the caller resolved one from the model's published
@@ -8940,7 +8940,7 @@ async function waitForTranscriptionJob(
       throw new Error('Cancelled by user')
     }
     if (Date.now() >= deadline) {
-      throw new Error('GenStudio KH transcription timed out while waiting for completion')
+      throw new Error('Gateway transcription timed out while waiting for completion')
     }
     await poller.wait(deadline, request, current)
     current = await requestJsonWithRetry(
@@ -8984,12 +8984,12 @@ async function downloadTranscriptionArtifact(
         if (response.status === 404 || response.status === 410) {
           throw new GenStudioTranscriptionArtifactUnavailableError(completed.id, response.status)
         }
-        const error = new Error(`GenStudio KH SRT download failed (HTTP ${response.status})`)
+        const error = new Error(`Gateway SRT download failed (HTTP ${response.status})`)
         if (!retryableStatus(response.status)) throw error
         lastError = error
       } else {
         const srt = await response.text()
-        if (!srt.trim()) throw new Error('GenStudio KH returned an empty SRT artifact')
+        if (!srt.trim()) throw new Error('The Gateway returned an empty SRT artifact')
         return srt
       }
     } catch (error) {
@@ -9003,7 +9003,7 @@ async function downloadTranscriptionArtifact(
   }
   throw lastError instanceof Error
     ? lastError
-    : new Error('GenStudio KH SRT download failed after reconnect attempts')
+    : new Error('Gateway SRT download failed after reconnect attempts')
 }
 
 /** Reconnect to an already accepted transcription. Never submits new work. */
@@ -9061,12 +9061,12 @@ async function transcribeWithGenStudioAdmitted(
   request: GenStudioTranscriptionRequest,
 ): Promise<{ srt: string; jobId: string; modelId: string }> {
   const modelId = request.modelId.trim()
-  if (!modelId) throw new Error('Select a GenStudio KH transcription model.')
+  if (!modelId) throw new Error('Select a Gateway transcription model.')
   if (!request.requestIdentity.trim()) throw new Error('Stable Story Studio transcription asset identity is required.')
   const file = await fs.readFile(request.audioPath)
   if (!file.length) throw new Error('Transcription audio is empty.')
   if (file.length > GENSTUDIO_MAX_TRANSCRIPTION_BYTES) {
-    throw new Error('GenStudio KH transcription input exceeds the 100 MiB qualification limit.')
+    throw new Error('Gateway transcription input exceeds the 100 MiB qualification limit.')
   }
   const fileSha256 = createHash('sha256').update(file).digest('hex')
   const idempotencyKey = request.idempotencyKey?.trim() || buildGenStudioTranscriptionIdempotencyKey({
@@ -9126,7 +9126,7 @@ async function transcribeWithGenStudioAdmitted(
     }
     throw error
   }) as GenStudioTranscriptionQuote
-  if (!quote.id) throw new Error('GenStudio KH transcription quote returned no quote id.')
+  if (!quote.id) throw new Error('Gateway transcription quote returned no quote id.')
   const confirmIdempotencyKey = `${idempotencyKey}-confirm`
   const submitted = await submitJsonWithAdmission(
     apiKey,
@@ -9206,7 +9206,7 @@ async function waitForJob(
       throw new Error('Cancelled by user')
     }
     if (Date.now() >= deadline) {
-      throw new Error('GenStudio KH TTS job timed out while waiting for completion')
+      throw new Error('Gateway TTS job timed out while waiting for completion')
     }
     await poller.wait(deadline, request, current)
     current = await requestJsonWithRetry(
@@ -9256,12 +9256,12 @@ async function completeTtsJobToFile(
           if (audioResponse.status === 404 || audioResponse.status === 410) {
             throw new GenStudioTtsArtifactUnavailableError(completed.id, audioResponse.status)
           }
-          const error = new Error(`GenStudio KH audio download failed (HTTP ${audioResponse.status})`)
+          const error = new Error(`Gateway audio download failed (HTTP ${audioResponse.status})`)
           if (!retryableStatus(audioResponse.status)) throw error
           downloadError = error
         } else {
           const body = audioResponse.body as ReadableStream<Uint8Array> | null
-          if (!body) throw new Error('GenStudio KH audio download returned no body')
+          if (!body) throw new Error('Gateway audio download returned no body')
           const file = await fs.open(tempPath, 'w')
           let received = 0
           try {
@@ -9290,7 +9290,7 @@ async function completeTtsJobToFile(
         await retryDelay(attempt, request, deadline)
       }
     }
-    if (!downloaded) throw downloadError instanceof Error ? downloadError : new Error('GenStudio KH audio download failed')
+    if (!downloaded) throw downloadError instanceof Error ? downloadError : new Error('Gateway audio download failed')
     await fs.mkdir(path.dirname(outPath), { recursive: true })
     // Cloud providers already deliver MP3 (the Hub delivers WAV): re-encoding one to 96 kbps MP3 is a
     // second lossy pass and a few seconds of CPU per chunk for nothing, so keep its bytes as they are.

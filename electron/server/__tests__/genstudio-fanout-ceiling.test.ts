@@ -31,7 +31,7 @@ const read = (rel: string) => readFile(path.join(SERVER, rel), 'utf8')
 describe('the width follows the account', () => {
   test('the exact Scene Review case that was measured: 108 images, keyed burst 128', () => {
     assert.equal(resolveGenStudioLocalFanout(108, 128), 108,
-      'the whole episode goes out at once; GenStudio decides what actually runs')
+      'the whole episode goes out at once; The Gateway decides what actually runs')
   })
 
   test('a bigger episode than the ceiling is capped at the ceiling', () => {

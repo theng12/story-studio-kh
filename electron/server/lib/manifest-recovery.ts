@@ -87,13 +87,13 @@ export async function tryRecoverImageFromManifestEntry(
   if (!entry) return { kind: 'no-saved-job' }
   if (!entry.task_id && !entry.idempotency_key) return { kind: 'no-saved-job' }
   if (entry.provider !== 'genstudio-image' && entry.provider !== 'genstudio') {
-    throw new Error('This image job predates GenStudio-only operation. Submit a new GenStudio image job.')
+    throw new Error('This image job predates GenStudio-only operation. Submit a new Gateway image job.')
   }
-  if (!apiKey) throw new Error('A GenStudio API key is required to reconnect to this image job.')
+  if (!apiKey) throw new Error('A Gateway key is required to reconnect to this image job.')
   // Cheapest possible check: we already recorded this job as terminal, so do not
   // spend a round-trip re-reading a 6-day-old failure.
   if (isTerminalGenStudioImageTaskFailure(entry)) {
-    const reason = `the saved GenStudio job is already recorded as ${entry.last_state}`
+    const reason = `the saved Gateway job is already recorded as ${entry.last_state}`
     return entry.last_state === 'artifact_expired'
       ? { kind: 'artifact-unavailable', taskId: entry.task_id, reason }
       : { kind: 'terminal-failed', taskId: entry.task_id, failureCode: null, reason }
@@ -110,13 +110,13 @@ export async function tryRecoverImageFromManifestEntry(
       if (!['succeeded', 'failed'].includes(control.state) && control.cancelled !== true && options.observeCurrentState) {
         return {
           kind: 'still-generating', taskId: control.id, state: control.state,
-          reason: `GenStudio reports this task as ${control.state}`,
+          reason: `The Gateway reports this task as ${control.state}`,
         }
       }
       if (control.state === 'failed' || control.cancelled === true) {
         return {
           kind: 'terminal-failed', taskId: control.id, failureCode: control.failure_code || null,
-          reason: `GenStudio reports this task as failed`,
+          reason: `The Gateway reports this task as failed`,
         }
       }
     }

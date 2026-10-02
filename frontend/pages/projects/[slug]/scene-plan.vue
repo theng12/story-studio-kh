@@ -187,7 +187,7 @@
     <WorkspaceSection
       eyebrow="Configuration"
       title="2. Scene workflow settings"
-      description="Choose how Story Studio interprets the episode. Timeline construction is deterministic; GenStudio handles prompt batches."
+      description="Choose how Story Studio interprets the episode. Timeline construction is deterministic; The Gateway handles prompt batches."
     >
       <div class="scene-workflow-grid mt-2">
         <div class="scene-setting-card scene-setting-model">
@@ -200,7 +200,7 @@
             <div><dt>Output allowance</dt><dd>{{ outputAllowanceLabel }} tokens</dd></div>
             <div><dt>Available input budget at this setting</dt><dd>{{ availableInputBudgetLabel }} tokens</dd></div>
           </dl>
-          <p class="model-budget-note">Estimated from the limits GenStudio publishes for this model. GenStudio validates every request.</p>
+          <p class="model-budget-note">Estimated from the limits the Gateway publishes for this model. The Gateway validates every request.</p>
           <label v-if="status?.research_available" class="scene-inline-toggle text-sm">
             <input type="checkbox" v-model="form.use_research" />
             Use this episode’s research notes as optional background
@@ -238,25 +238,25 @@
             <strong>Prompt batches</strong>
             <span>Model-aware</span>
           </div>
-          <!-- This line used to claim Automatic "uses the selected GenStudio
+          <!-- This line used to claim Automatic "uses the selected Gateway
                model’s published output limit". It did not: a hardcoded 50-scene
                cap sat on top of the derivation and bound for every model
                publishing 20,000 output tokens or more. The cap is gone, and the
                copy now states the two things that actually decide the number. -->
           <p v-if="hasPublishedPromptBudget" class="scene-setting-help">
             Automatic sends this channel’s default of {{ promptBatchSizeDefault }} scenes per request, reduced only if
-            the selected GenStudio model cannot return that many complete in one response. Its published output
+            the selected Gateway model cannot return that many complete in one response. Its published output
             limit is the only ceiling — {{ maximumPromptPackSize.toLocaleString() }} scenes on the model chosen now.
             <template v-if="promptBudgetSourceNote">That limit is {{ promptBudgetSourceNote }}.</template>
           </p>
           <p v-else-if="hasUnpublishedExplicitPromptBudget" class="scene-setting-help">
             This model publishes no output ceiling. Story Studio sends your selected allowance of up to
             {{ effectivePromptTokenBudget.toLocaleString() }} output tokens and sizes this batch from that allowance;
-            GenStudio still decides when the response ends.
+            The Gateway still decides when the response ends.
           </p>
           <p v-else-if="hasSelectedPromptModel" class="scene-setting-help">
             This model publishes no output ceiling. Story Studio sends no output limit and uses your
-            configured default of {{ promptBatchSizeDefault }} scenes per request; GenStudio decides when the response ends.
+            configured default of {{ promptBatchSizeDefault }} scenes per request; The Gateway decides when the response ends.
           </p>
           <p v-else class="scene-setting-help">Choose a prompt model to see its published output allowance and batch size.</p>
           <div v-if="hasSelectedPromptModel" class="scene-batch-summary">
@@ -331,7 +331,7 @@
         </div>
 
         <!-- Prompt length. An LLM writes these prompts; a separately chosen
-             image model renders them. Every number offered here is GenStudio's
+             image model renders them. Every number offered here is the Gateway's
              own published `max_prompt_characters` — no ladder is hardcoded —
              and it is given to the writer as a ceiling, never as a length to
              fill. Nothing is truncated; over-length prompts are flagged amber
@@ -1912,7 +1912,7 @@ const selectedModelContextWindow = computed(() => contextWindowTokens(liveModelL
 const selectedModelContextLabel = computed(() =>
   selectedModelContextWindow.value
     ? `${selectedModelContextWindow.value.toLocaleString()} tokens`
-    : 'published by GenStudio when available',
+    : 'published by the Gateway when available',
 )
 const contextWindowLabel = computed(() => formatTokenCount(selectedModelContextWindow.value))
 const outputAllowanceLabel = computed(() => formatTokenCount(publishedMaxOutput.value))
@@ -2094,7 +2094,7 @@ function imageModelCapHint(model: { display_name?: string; max_prompt_characters
   const name = model.display_name || 'This model'
   return cap
     ? `${name} accepts prompts up to ${cap.toLocaleString()} characters. Picking it sets the Auto limit to that figure.`
-    : `${name} publishes no prompt-character limit, so Auto leaves prompts unlimited. GenStudio still validates every render.`
+    : `${name} publishes no prompt-character limit, so Auto leaves prompts unlimited. The Gateway still validates every render.`
 }
 const autoPromptCharCapLabel = computed(() => {
   if (!form.value.intended_image_model) return 'no image model chosen — no limit'

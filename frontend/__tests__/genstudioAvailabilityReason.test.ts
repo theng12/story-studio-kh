@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import { describeGenStudioAvailability } from '../utils/genstudio-availability.ts'
 
-describe('GenStudio availability reasons', () => {
+describe('Gateway availability reasons', () => {
   test('explains depleted daily capacity with a localized return time', () => {
     const message = describeGenStudioAvailability({
       available: false,

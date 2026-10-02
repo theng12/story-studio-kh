@@ -222,7 +222,7 @@ test('a finished image job coalesces a pruned pending receipt into its exact suc
   }
 })
 
-test('an unreachable GenStudio keeps the hold — a network outage is never read as "never created"', async () => {
+test('an unreachable the Gateway keeps the hold — a network outage is never read as "never created"', async () => {
   const job = interruptedBatch('restart-unreachable', 'placeholder')
   const slug = await persist('Restart unreachable holds', job)
 
@@ -236,7 +236,7 @@ test('an unreachable GenStudio keeps the hold — a network outage is never read
     await jq.getJobs(slug)
     await waitFor(
       () => !!jq.getJob('restart-unreachable')?.reconciliation_error,
-      'the job to record that Story Studio could not reach GenStudio',
+      'the job to record that Story Studio could not reach the Gateway',
     )
 
     const held = jq.getJob('restart-unreachable')!
@@ -277,7 +277,7 @@ test('a job with no other way out can always be abandoned, and re-run from the s
     assert.ok(escape, 'a wedged job must offer force-abandon')
     assert.equal(escape.enabled, true)
     assert.equal(escape.label, 'Abandon this job')
-    assert.match(escape.reason, /does not cancel provider work GenStudio has already accepted/)
+    assert.match(escape.reason, /does not cancel provider work the Gateway has already accepted/)
     assert.match(escape.reason, /does not refund credits already spent/)
     assert.match(escape.reason, /Output may still arrive, and it stays recoverable/)
 
@@ -356,8 +356,8 @@ function settledJobWithLog(jobId: string, lines: string[]): Job {
 
 test('abandoning quotes the credit releases the job already recorded, instead of denying them', async () => {
   const slug = await persist('Abandon credits already released', settledJobWithLog('abandon-released', [
-    'GenStudio KH language generation failed (LANGUAGE_PROVIDER_MODEL_MISMATCH). GenStudio reports 611 credits released.',
-    'GenStudio KH language generation failed (LANGUAGE_PROVIDER_MODEL_MISMATCH). GenStudio reports 42 credits released.',
+    'Gateway language generation failed (LANGUAGE_PROVIDER_MODEL_MISMATCH). The Gateway reports 611 credits released.',
+    'Gateway language generation failed (LANGUAGE_PROVIDER_MODEL_MISMATCH). The Gateway reports 42 credits released.',
   ]))
 
   const abandoned = await jq.forceAbandonJob(slug, 'abandon-released')
@@ -366,16 +366,16 @@ test('abandoning quotes the credit releases the job already recorded, instead of
   // The blanket claim is gone, everywhere in the log.
   assert.doesNotMatch(log, /nothing was refunded/i)
   // The evidence is quoted, and summed, and attributed to GenStudio.
-  assert.match(log, /already records GenStudio releasing 653 credit\(s\) across 2 settled requests/)
+  assert.match(log, /already records Gateway releasing 653 credit\(s\) across 2 settled requests/)
   // Story Studio's own limit is still stated honestly, and the user is pointed
   // at the only place that holds the real balance.
   assert.match(log, /Story Studio holds no balance and refunds nothing itself/)
   assert.match(log, /GenStudio KH account has the final figure/)
 })
 
-test('with no recorded release, abandoning says what Story Studio cannot do — and asserts nothing about GenStudio', async () => {
+test('with no recorded release, abandoning says what Story Studio cannot do — and asserts nothing about the Gateway', async () => {
   const slug = await persist('Abandon no release recorded', settledJobWithLog('abandon-unknown', [
-    'Processing 3 adaptive pack(s) through GenStudio KH.',
+    'Processing 3 adaptive pack(s) through the Gateway.',
   ]))
 
   const abandoned = await jq.forceAbandonJob(slug, 'abandon-unknown')
@@ -383,7 +383,7 @@ test('with no recorded release, abandoning says what Story Studio cannot do — 
 
   assert.doesNotMatch(log, /nothing was refunded/i)
   assert.match(log, /Story Studio holds no balance and refunds nothing itself/)
-  assert.match(log, /recorded in your GenStudio KH account/)
+  assert.match(log, /recorded in your Gateway account/)
   // No number is invented when the log carries no release evidence.
   assert.doesNotMatch(log, /credit\(s\) across/)
 })
@@ -391,17 +391,17 @@ test('with no recorded release, abandoning says what Story Studio cannot do — 
 test('the release reader counts only published release lines', () => {
   assert.deepEqual(jq.readRecordedCreditReleases([]), { count: 0, total: 0 })
   assert.deepEqual(
-    jq.readRecordedCreditReleases(['GenStudio reports 0 credits released.']),
+    jq.readRecordedCreditReleases(['The Gateway reports 0 credits released.']),
     { count: 1, total: 0 },
-    'an explicit zero release is still evidence GenStudio published a settlement',
+    'an explicit zero release is still evidence the Gateway published a settlement',
   )
   assert.deepEqual(
-    jq.readRecordedCreditReleases(['Credit settlement is not yet published; check its GenStudio status.']),
+    jq.readRecordedCreditReleases(['Credit settlement is not yet published; check its Gateway status.']),
     { count: 0, total: 0 },
     'an unpublished settlement is not a release',
   )
   assert.deepEqual(
-    jq.readRecordedCreditReleases(['GenStudio reports 12.5 credits released. GenStudio reports 2.5 credits released.']),
+    jq.readRecordedCreditReleases(['The Gateway reports 12.5 credits released. The Gateway reports 2.5 credits released.']),
     { count: 2, total: 15 },
     'two releases on one line are both counted',
   )

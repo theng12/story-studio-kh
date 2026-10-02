@@ -7,7 +7,7 @@ import {
 } from '../utils/api-provider-groups.js'
 
 describe('API provider settings groups', () => {
-  test('exposes only the GenStudio mixed-capability connection group', () => {
+  test('exposes only the Gateway mixed-capability connection group', () => {
     assert.deepEqual(
       API_PROVIDER_GROUPS.map(group => group.id),
       ['mix'],

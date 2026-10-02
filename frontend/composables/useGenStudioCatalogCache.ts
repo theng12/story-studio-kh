@@ -163,7 +163,7 @@ export function createGenStudioCatalogCache<T>(
         lastFetchedAt.value = now()
         loaded.value = true
       } catch (cause: any) {
-        error.value = cause?.data?.detail || cause?.message || 'GenStudio KH catalog unavailable'
+        error.value = cause?.data?.detail || cause?.message || 'Gateway catalog unavailable'
         // A stale-but-still-under-ceiling cache is more useful than a blank
         // screen — keep it displayable. Past the ceiling (or if nothing ever
         // loaded) there is nothing trustworthy left, so clear to `empty`

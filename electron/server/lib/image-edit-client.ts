@@ -7,7 +7,7 @@
  */
 
 export const IMAGE_EDIT_UNAVAILABLE_MESSAGE =
-  'Image editing requires a qualified GenStudio image-edit endpoint.'
+  'Image editing requires a qualified Gateway image-edit endpoint.'
 
 export const IMAGE_EDIT_MODELS = [] as const
 

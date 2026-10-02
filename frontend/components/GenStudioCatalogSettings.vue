@@ -3,7 +3,7 @@
     <header class="catalog-header">
       <div>
         <span class="eyebrow">Connected account</span>
-        <h3>GenStudio Catalog</h3>
+        <h3>Gateway Catalog</h3>
         <p>Read-only model availability shared by every Story Studio project on this Mac.</p>
       </div>
       <button class="btn btn-secondary btn-sm" :disabled="loading" @click="refresh">
@@ -11,7 +11,7 @@
       </button>
     </header>
 
-    <div class="account-grid" aria-label="GenStudio account summary">
+    <div class="account-grid" aria-label="Gateway account summary">
       <article>
         <span>Connection</span>
         <strong :class="`status-${connectionState.tone}`">{{ connectionState.label }}</strong>
@@ -50,7 +50,7 @@
     <WorkspaceNotice
       v-if="combinedErrors.length"
       tone="warning"
-      title="Some GenStudio catalog data is unavailable"
+      title="Some Gateway catalog data is unavailable"
     >
       <ul class="error-list">
         <li v-for="message in combinedErrors" :key="message">{{ message }}</li>
@@ -351,7 +351,7 @@ async function refresh(): Promise<void> {
       accountConfigured.value = (keys.value.providers || []).some(row => row.providerId === 'genstudio' && row.hasKey)
     } else {
       accountConfigured.value = false
-      requestErrors.value.push(errorMessage(keys.reason, 'Could not verify the GenStudio API key.'))
+      requestErrors.value.push(errorMessage(keys.reason, 'Could not verify the Gateway key.'))
     }
     configurationChecked.value = true
   } finally {

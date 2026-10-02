@@ -47,7 +47,7 @@ import { sanitizeResearchCitations } from './urls.js'
 /** Shown wherever web mode is offered but nothing qualifies. Deliberately
  *  explains the situation instead of reading as a failure. */
 export const WEB_MODE_UNAVAILABLE_REASON =
-  'No evidence-backed model is currently available. Searching the web needs a GenStudio model that '
+  'No evidence-backed model is currently available. Searching the web needs a Gateway model that '
   + 'returns structured citations and has been qualified for research; none of your published models offers '
   + 'that yet. It turns on by itself here as soon as one does.'
 
@@ -55,7 +55,7 @@ export const WEB_MODE_UNAVAILABLE_REASON =
  *  qualifies" — an unreachable catalogue is a connection problem, and telling
  *  the user "nothing qualifies" would be a guess. */
 export const WEB_MODE_CATALOG_UNAVAILABLE_REASON =
-  'Could not check which models can search the web — the GenStudio catalog was unreachable. '
+  'Could not check which models can search the web — the Gateway catalog was unreachable. '
   + 'Model-knowledge research still works.'
 
 /** The seven published conditions, one per entry, so a caller (or a test) can
@@ -79,7 +79,7 @@ export const WEB_RESEARCH_CONDITIONS: ReadonlyArray<{
     label: 'returns machine-readable (structured) citations',
     test: m => m.citation_format === 'structured',
   },
-  { id: 'research_qualified', label: 'qualified by GenStudio for research', test: m => m.research_qualified === true },
+  { id: 'research_qualified', label: 'qualified by the Gateway for research', test: m => m.research_qualified === true },
 ]
 
 /** Does this product pass ALL seven conditions? Capability only. */

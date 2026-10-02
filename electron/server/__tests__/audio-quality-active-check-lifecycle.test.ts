@@ -35,7 +35,7 @@ void test('active-audio ASR check quotes, holds, resumes once, and never changes
     const accepted = await ideas.acceptIdea(project.slug, idea!.id, false); const code = accepted.episode_code
     const paths = await resolveEpisodePathsByCode(project.slug, code)
     await Promise.all([paths.script_dir, paths.subtitles_dir].map(dir => fs.mkdir(dir, { recursive: true })))
-    await fs.writeFile(paths.narration_docx, '# Narration\n\n## Chapter 01: Verify\n\nHello from mock GenStudio.\n')
+    await fs.writeFile(paths.narration_docx, '# Narration\n\n## Chapter 01: Verify\n\nHello from mock the Gateway.\n')
     const terminal = async (id: string) => waitFor(() => ['done', 'error', 'cancelled'].includes(jq.getJob(id)?.status || ''), { label: id, timeoutMs: 15_000 })
     const id = (body: any) => String(body.job_id || body.job?.job_id || '')
     const generated = await request(app).post(`/api/projects/${project.slug}/generate/audio`).send({ episode_id: code, model: 'mock-tts-v1', voice: 'mock-voice', sections: 'all', speed: 1 })
@@ -45,7 +45,7 @@ void test('active-audio ASR check quotes, holds, resumes once, and never changes
     const filename = `${code}_Chapter_01.mp3`; const srtName = `${code}_Chapter_01.srt`
     const originalAudio = await fs.readFile(path.join(paths.audio_dir, filename))
     const originalMap = await fs.readFile(path.join(paths.episode_dir, 'audio_chapters.json'), 'utf8')
-    const originalSrt = '1\n00:00:00,000 --> 00:00:01,000\nHello from mock GenStudio.\n'
+    const originalSrt = '1\n00:00:00,000 --> 00:00:01,000\nHello from mock the Gateway.\n'
     await fs.writeFile(path.join(paths.subtitles_dir, srtName), originalSrt)
     const activeHash = await hashSubtitleAudioSources([path.join(paths.audio_dir, filename)]); assert.ok(activeHash)
     await recordSubtitleSourceEvidence(paths.subtitles_dir, srtName, activeHash, 'legacy-whisper')

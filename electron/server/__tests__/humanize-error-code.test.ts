@@ -104,7 +104,7 @@ describe('humanizeBackendError — what Node fetch actually throws (shell audit 
   })
 
   test('a client wrapper around that failure is translated the same way', () => {
-    const wrapped = new Error('GenStudio KH account data could not be reached after automatic reconnect attempts.', {
+    const wrapped = new Error('Gateway account data could not be reached after automatic reconnect attempts.', {
       cause: Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error('x'), { code: 'ECONNREFUSED' }) }),
     })
     assert.match(humanizeBackendError(wrapped).detail, /Could not reach the Gateway/)

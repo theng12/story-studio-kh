@@ -91,8 +91,8 @@ export function unpublishedCost(what = 'This action'): CreditDisplay {
   return {
     text: 'Price not reported',
     basis: 'unpublished',
-    title: `${what} has no published price in the GenStudio catalogue. Story Studio does not estimate one. `
-      + 'The charge GenStudio reports on the finished job is the authoritative figure.',
+    title: `${what} has no published price in the Gateway catalogue. Story Studio does not estimate one. `
+      + 'The charge the Gateway reports on the finished job is the authoritative figure.',
   }
 }
 
@@ -159,11 +159,11 @@ export function describeImageModelRate(
     text,
     basis: 'rate',
     title: minimum === maximum
-      ? `GenStudio publishes ${formatCredits(minimum)} per image for every listed output size for ${label}. `
-        + 'GenStudio reports the charge it actually applied on the finished job.'
-      : `GenStudio publishes rates from ${formatCredits(minimum)} to ${formatCredits(maximum)} per image for ${label}, depending on output size. `
+      ? `The Gateway publishes ${formatCredits(minimum)} per image for every listed output size for ${label}. `
+        + 'The Gateway reports the charge it actually applied on the finished job.'
+      : `The Gateway publishes rates from ${formatCredits(minimum)} to ${formatCredits(maximum)} per image for ${label}, depending on output size. `
         + 'The output-size picker shows the exact published rate for the output size you choose. '
-        + 'GenStudio reports the charge it actually applied on the finished job.',
+        + 'The Gateway reports the charge it actually applied on the finished job.',
   }
 }
 
@@ -187,7 +187,7 @@ export function describeImageUnitCost(
     return {
       text: 'No credit charge',
       basis: 'free',
-      title: `GenStudio publishes ${label} as non-chargeable, so this render will not spend credits.`,
+      title: `The Gateway publishes ${label} as non-chargeable, so this render will not spend credits.`,
     }
   }
 
@@ -200,7 +200,7 @@ export function describeImageUnitCost(
     ? `${option.resolution} at ${option.aspect_ratio}`
     : label
   let text = `${formatCredits(unit)} / image`
-  const parts = [`GenStudio publishes ${formatCredits(unit)} per image for ${where}.`]
+  const parts = [`The Gateway publishes ${formatCredits(unit)} per image for ${where}.`]
 
   const base = opts.referenceGuided
     ? null
@@ -217,9 +217,9 @@ export function describeImageUnitCost(
     )
   }
 
-  if (opts.referenceGuided) parts[0] = `GenStudio publishes ${formatCredits(unit)} per reference-guided image for ${where}.`
+  if (opts.referenceGuided) parts[0] = `The Gateway publishes ${formatCredits(unit)} per reference-guided image for ${where}.`
 
-  parts.push('GenStudio reports the charge it actually applied on the finished job.')
+  parts.push('The Gateway reports the charge it actually applied on the finished job.')
   return { text, basis: 'rate', title: parts.join(' ') }
 }
 
@@ -249,7 +249,7 @@ export function describeImageBatchEstimate(
     text: `Estimate ${formatCredits(estimate)} (${unitDisplay.text} × ${count.toLocaleString()})`,
     basis: 'estimate',
     title: `${unitDisplay.title} This total is Story Studio's own arithmetic over ${count.toLocaleString()} image(s) `
-      + 'at that published rate — it is an estimate, not a charge GenStudio has quoted. '
+      + 'at that published rate — it is an estimate, not a charge the Gateway has quoted. '
       + 'Retries and replays can change what is actually spent.',
   }
 }
@@ -285,7 +285,7 @@ export function describeChatRate(model: PriceTruth & {
     return {
       text: 'No credit charge',
       basis: 'free',
-      title: `GenStudio publishes ${label} as non-chargeable.`,
+      title: `The Gateway publishes ${label} as non-chargeable.`,
     }
   }
   const input = publishedNumber(model.input_credits_per_million_tokens)
@@ -308,13 +308,13 @@ export function describeChatRate(model: PriceTruth & {
   if (output !== null) rates.push(`${formatCredits(output)}${outputWas} / 1M output tokens`)
   const minimum = publishedNumber(model.minimum_credits)
   const parts = [
-    `GenStudio publishes ${rates.join(' and ')} for ${label}.`,
+    `The Gateway publishes ${rates.join(' and ')} for ${label}.`,
     'The total depends on how long the prompt and the generated text turn out to be, '
     + 'which is not known until the model has written it, so Story Studio shows no up-front total. '
-    + 'GenStudio reports the actual charge on the finished job.',
+    + 'The Gateway reports the actual charge on the finished job.',
   ]
   if (inputWas || outputWas) {
-    parts.splice(1, 0, 'The figures in brackets are the undiscounted prices GenStudio publishes for this product; '
+    parts.splice(1, 0, 'The figures in brackets are the undiscounted prices the Gateway publishes for this product; '
       + 'the rates above them are what this account is charged today.')
   }
   if (minimum !== null && minimum > 0) parts.splice(1, 0, `A minimum of ${formatCredits(minimum)} applies per request.`)
@@ -337,9 +337,9 @@ export function describeVideoVariantRate(variant: {
   return {
     text: `${formatCredits(perVideo)} / clip`,
     basis: 'rate',
-    title: `GenStudio publishes ${formatCredits(perVideo)} per clip`
+    title: `The Gateway publishes ${formatCredits(perVideo)} per clip`
       + (minimum !== null && minimum > 0 ? `, with a minimum of ${formatCredits(minimum)} per request` : '')
-      + '. GenStudio reports the actual charge on the finished job.',
+      + '. The Gateway reports the actual charge on the finished job.',
   }
 }
 
@@ -373,9 +373,9 @@ export function describeVideoModelRate(model: PriceTruth & {
     text,
     basis: 'rate',
     title: minimum === maximum
-      ? `GenStudio publishes ${formatCredits(minimum)} per clip for every listed duration and resolution for ${label}. `
+      ? `The Gateway publishes ${formatCredits(minimum)} per clip for every listed duration and resolution for ${label}. `
         + 'The variant selector shows that row’s published per-request minimum.'
-      : `GenStudio publishes rates from ${formatCredits(minimum)} to ${formatCredits(maximum)} per clip for ${label}, depending on duration and resolution. `
+      : `The Gateway publishes rates from ${formatCredits(minimum)} to ${formatCredits(maximum)} per clip for ${label}, depending on duration and resolution. `
         + 'The variant selector shows the exact published rate for the duration and resolution you choose, including its per-request minimum.',
   }
 }
@@ -402,9 +402,9 @@ export function describeWebResearchRate(model: {
   return {
     text: rates.join(' · '),
     basis: perRequest === 0 && perSearch === 0 ? 'free' : 'rate',
-    title: `GenStudio publishes ${rates.join(' and ')} for ${label}. `
+    title: `The Gateway publishes ${rates.join(' and ')} for ${label}. `
       + 'The provider decides how many searches to make, so there is no up-front total. '
-      + 'GenStudio reports the actual charge on the finished job.',
+      + 'The Gateway reports the actual charge on the finished job.',
   }
 }
 
@@ -423,7 +423,7 @@ export function describeVoiceRate(model: PriceTruth & {
   if (rate === null) return unpublishedCost(model?.display_name || 'This voice model')
   let text = `${formatCredits(rate)} / 1,000 characters`
   const parts = [
-    `GenStudio publishes ${formatCredits(rate)} per 1,000 characters for ${model?.display_name || 'this model'}.`,
+    `The Gateway publishes ${formatCredits(rate)} per 1,000 characters for ${model?.display_name || 'this model'}.`,
   ]
   const notices: string[] = []
   const standard = publishedNumber(model?.standard_credits)
@@ -447,8 +447,8 @@ export function describeVoiceRate(model: PriceTruth & {
     notices.push(disclaimer)
   }
   parts.push(
-    'Ask GenStudio for a quote to get the exact figure for a specific script; '
-      + 'GenStudio reports the actual charge on the finished job.',
+    'Ask the Gateway for a quote to get the exact figure for a specific script; '
+      + 'the Gateway reports the actual charge on the finished job.',
   )
   return {
     text,
@@ -465,7 +465,7 @@ export function describeQuotedCost(credits: number | null | undefined, what = 't
   return {
     text: `Quoted ${formatCredits(quoted)}`,
     basis: 'quote',
-    title: `GenStudio quoted ${formatCredits(quoted)} for ${what}. This is GenStudio's own figure, not a Story Studio estimate.`,
+    title: `The Gateway quoted ${formatCredits(quoted)} for ${what}. This is the Gateway's own figure, not a Story Studio estimate.`,
   }
 }
 
@@ -500,14 +500,14 @@ export function describeQuotedTotal(
   const count = parts.length
   if (count === 1) return describeQuotedCost(credits, what)
   return {
-    text: `Quoted ${formatCredits(credits)} · sum of ${count} GenStudio quotes`,
+    text: `Quoted ${formatCredits(credits)} · sum of ${count} the Gateway quotes`,
     basis: 'quoted-total',
-    title: `${what.charAt(0).toUpperCase()}${what.slice(1)} will be submitted as ${count} separate GenStudio jobs, `
-      + `and GenStudio quoted every one of them — ${count} exact figures for ${count} requests that will actually be sent. `
+    title: `${what.charAt(0).toUpperCase()}${what.slice(1)} will be submitted as ${count} separate Gateway jobs, `
+      + `and the Gateway quoted every one of them — ${count} exact figures for ${count} requests that will actually be sent. `
       + 'Story Studio added those figures together and did nothing else: no rate was multiplied out and no number was '
-      + 'derived here, so this is a total of quotes, not an estimate. Each job carries GenStudio\'s published per-job '
+      + 'derived here, so this is a total of quotes, not an estimate. Each job carries the Gateway\'s published per-job '
       + 'minimum in its own right, which is why the parts are quoted separately instead of the whole script being '
-      + 'priced at once. GenStudio reports the actual charge on each finished job.',
+      + 'priced at once. The Gateway reports the actual charge on each finished job.',
   }
 }
 
@@ -518,14 +518,14 @@ export function describeActualCost(credits: number | null | undefined): CreditDi
     return {
       text: 'Charge not reported',
       basis: 'unpublished',
-      title: 'GenStudio reported no credit cost for this job. Story Studio does not reconstruct one; '
+      title: 'The Gateway reported no credit cost for this job. Story Studio does not reconstruct one; '
         + 'the Usage page carries the authoritative settlement.',
     }
   }
   return {
     text: `Charged ${formatCredits(actual)}`,
     basis: 'actual',
-    title: `GenStudio reported ${formatCredits(actual)} for this job. Reservations settle on the Usage page.`,
+    title: `The Gateway reported ${formatCredits(actual)} for this job. Reservations settle on the Usage page.`,
   }
 }
 
@@ -576,7 +576,7 @@ export function describeMusicUnitCost(model: PricedMusicModel | null | undefined
   if (unit === null) return unpublishedCost(label)
 
   let text = `${formatCredits(unit)} / song request`
-  const parts = [`GenStudio publishes ${formatCredits(unit)} per song request for ${label}.`]
+  const parts = [`The Gateway publishes ${formatCredits(unit)} per song request for ${label}.`]
 
   // A sale is only a sale when the list price is genuinely higher than what is
   // being charged. `standard_credits` equal to the charge is just the list
@@ -602,6 +602,6 @@ export function describeMusicUnitCost(model: PricedMusicModel | null | undefined
   const disclaimer = model.sale_disclaimer?.trim()
   if (disclaimer) parts.push(disclaimer)
 
-  parts.push('GenStudio reports the charge it actually applied on the finished job.')
+  parts.push('The Gateway reports the charge it actually applied on the finished job.')
   return { text, basis: 'rate', title: parts.join(' ') }
 }

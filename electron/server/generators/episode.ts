@@ -1222,7 +1222,7 @@ Do not add a heading, preface, explanation, divider, or separator.`
           requestIdentity: freshGenerationRequestIdentity(job, 'introduction'),
           pipelinePolicyCheckpoint: pipelinePolicyCheckpointStore(params, () => jq.checkpointJobState(job)),
           pipelinePolicyCheckpointKey: `${project_slug}:${episode_id}:introduction`,
-          onModelSelected: selected => { job.output_lines.push(`[pipeline] introduction using GenStudio product "${selected}".`) },
+          onModelSelected: selected => { job.output_lines.push(`[pipeline] introduction using Gateway product "${selected}".`) },
         })
       : callAiWithRetry(req.model, sysPrompt, introPrompt, apiKeys, true,
       // Long: a full introduction section of narration.

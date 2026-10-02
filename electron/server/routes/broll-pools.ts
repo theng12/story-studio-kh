@@ -335,7 +335,7 @@ router.post('/broll-pools/:id/clips/:filename/normalize', async (req, res) => {
 router.post('/broll-pools/:id/clips/:filename/autotag', (_req, res) => {
   res.status(501).json({
     code: 'GENSTUDIO_CAPABILITY_UNAVAILABLE',
-    detail: 'Visual auto-tagging is unavailable until GenStudio KH publishes a qualified image-input LLM route.',
+    detail: 'Visual auto-tagging is unavailable until the Gateway publishes a qualified image-input LLM route.',
   })
 })
 
@@ -346,7 +346,7 @@ router.post('/broll-pools/:id/clips/:filename/autotag', (_req, res) => {
 router.post('/broll-pools/:id/autotag-untagged', (_req, res) => {
   res.status(501).json({
     code: 'GENSTUDIO_CAPABILITY_UNAVAILABLE',
-    detail: 'Visual auto-tagging is unavailable until GenStudio KH publishes a qualified image-input LLM route.',
+    detail: 'Visual auto-tagging is unavailable until the Gateway publishes a qualified image-input LLM route.',
   })
 })
 

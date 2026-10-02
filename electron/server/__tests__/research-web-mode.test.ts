@@ -242,7 +242,7 @@ describe('web mode when nothing in the catalogue qualifies', () => {
     assert.match(availability.reason, /as soon as one does/)
   })
 
-  it('turns itself on with no code change the moment GenStudio flips research_qualified', () => {
+  it('turns itself on with no code change the moment Gateway flips research_qualified', () => {
     const before = unqualifiedCatalog()
     assert.equal(describeWebResearchAvailability(before).available, false)
     // Exactly one flag changes — nothing else about the catalogue or this app.
@@ -259,7 +259,7 @@ describe('web mode when nothing in the catalogue qualifies', () => {
 })
 
 describe('Pipeline web research recovery', () => {
-  it('reads the saved GenStudio key without a current catalogue lookup or replacement POST', async () => {
+  it('reads the saved Gateway key without a current catalogue lookup or replacement POST', async () => {
     const { setGenStudioUrl } = await import('../services/app-settings.js')
     const { setApiKey } = await import('../services/app-secrets-store.js')
     const { clearGenStudioCatalogCache } = await import('../lib/genstudio-client.js')
@@ -474,7 +474,7 @@ describe('envelope citations', () => {
     )
     assert.deepEqual(output.citations, [])
     const notice = researchModeNotice('web-search', output.citations.length)
-    assert.match(notice, /Research ran, but GenStudio did not publish structured citations or source URLs/)
+    assert.match(notice, /Research ran, but the Gateway did not publish structured citations or source URLs/)
     assert.doesNotMatch(notice, /model knowledge/i)
     assert.notEqual(notice, WEB_SEARCH_NOTICE)
   })
@@ -703,7 +703,7 @@ describe('research — per-claim source attribution', () => {
     )
   }
 
-  it('asks for per-claim sources only when GenStudio will ground them', () => {
+  it('asks for per-claim sources only when the Gateway will ground them', () => {
     const withAttribution = buildResearchPrompt({ topic: 'T' } as any, 'web', true)
     assert.match(withAttribution.system, /`sources`/)
     assert.match(withAttribution.system, /leave its `sources` array empty/)
@@ -732,7 +732,7 @@ describe('research — per-claim source attribution', () => {
     )
   })
 
-  it('links a claim to the sources GenStudio grounded for it', () => {
+  it('links a claim to the sources Gateway grounded for it', () => {
     const output = webOutput(
       [
         { text: 'Backed by both.', sources: ['https://en.wikipedia.org/wiki/Great_Smog_of_London'] },
@@ -748,7 +748,7 @@ describe('research — per-claim source attribution', () => {
     assert.deepEqual(output.claims[1]!.citation_indices, [1])
   })
 
-  it('leaves a claim GenStudio did not attribute visibly uncited', () => {
+  it('leaves a claim the Gateway did not attribute visibly uncited', () => {
     const output = webOutput(
       [
         { text: 'Grounded.', sources: ['https://en.wikipedia.org/wiki/Great_Smog_of_London'] },
@@ -831,7 +831,7 @@ describe('research — per-claim source attribution', () => {
     assert.match(WEB_SEARCH_MODE_BLURB, /checked against what was really retrieved/)
   })
 
-  it('carries the GenStudio source id so a grounded link can resolve', () => {
+  it('carries the Gateway source id so a grounded link can resolve', () => {
     const [citation] = toResearchCitations(parseGenStudioCitations([
       { id: 'citation-7', url: 'https://example.org/a', title: 'A' },
     ]))

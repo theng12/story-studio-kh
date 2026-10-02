@@ -133,7 +133,7 @@ void test('audio generation honors selected-model fanout and independent New ver
       request_key: 'story-different-request-key',
       updated_at: new Date().toISOString(),
     }]
-    await assert.rejects(generateAudio(contradictoryRetry), /Saved GenStudio task identity does not match/)
+    await assert.rejects(generateAudio(contradictoryRetry), /Saved Gateway task identity does not match/)
     assert.equal(service.providerSubmissionCount('tts'), 1, 'contradictory task/key evidence stops before a fresh POST')
 
     const wasPaused = jq.isQueuePaused()

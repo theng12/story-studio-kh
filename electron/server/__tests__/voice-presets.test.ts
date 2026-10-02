@@ -21,7 +21,7 @@ test('legacy Fish voices migrate to Fish Audio only', () => {
   assert.deepEqual(voice?.providers, ['fishaudio'])
 })
 
-test('GenStudio standard voices preserve their dedicated provider label', () => {
+test('Gateway standard voices preserve their dedicated provider label', () => {
   const voice = normalizeVoicePreset({
     name: 'Ryan', voice_id: 'voice_qwen3_ryan', providers: ['genstudio'],
   })

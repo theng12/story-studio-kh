@@ -425,7 +425,7 @@ export async function requireScenePlanGenStudioModel(selectedModel: string): Pro
 export async function getScenePlanGenStudioModel(selectedModel: string): Promise<GenStudioChatModel> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
-    throw new Error('Add a GenStudio API key in Settings → This Mac before generating scene prompts.')
+    throw new Error('Add a Gateway key in Settings → This Mac before generating scene prompts.')
   }
   const catalog = await listGenStudioChatModels(apiKey)
   const modelId = resolveScenePlanCatalogModel(selectedModel, catalog)
@@ -442,7 +442,7 @@ export async function getScenePlanGenStudioModel(selectedModel: string): Promise
 
 async function getScenePlanPolicyPlanningModel(policy: NonNullable<ReturnType<typeof pipelinePolicyForJob>>): Promise<GenStudioChatModel> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) throw new Error('Add a GenStudio API key in Settings → This Mac before generating scene prompts.')
+  if (!apiKey) throw new Error('Add a Gateway key in Settings → This Mac before generating scene prompts.')
   const catalog = await listGenStudioChatModels(apiKey)
   const candidates = [policy.assigned_model, ...policy.models.filter(model => model !== policy.assigned_model)]
   for (const candidateId of candidates) {
@@ -489,7 +489,7 @@ export function assertModelCanHoldAJsonContract(model: GenStudioChatModel): void
   throw new GenStudioChatCapabilityUnavailableError(
     model.id,
     `"${label}" cannot be held to a JSON contract because it publishes no structured-output support. `
-      + 'Choose a model that GenStudio KH publishes structured-output support for and run Scene Plan again. Nothing was charged',
+      + 'Choose a model that the Gateway publishes structured-output support for and run Scene Plan again. Nothing was charged',
   )
 }
 
@@ -735,7 +735,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         pipelinePolicyCheckpointKey: requestIdentity,
         onModelSelected: async selected => {
           await context.onModelSelected?.(selected)
-          job.output_lines.push(`[pipeline] scene plan using GenStudio product "${selected}".`)
+          job.output_lines.push(`[pipeline] scene plan using Gateway product "${selected}".`)
         },
       })
     }
@@ -1305,8 +1305,8 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       : packScenePromptItems(targets, effectivePackSize)
     if (isPackedRepair) {
       job.output_lines.push(explicitPaidRepair
-        ? `Paid auto-repair: ${targets.length} missing or duplicated visual prompt(s), one scene per GenStudio request. Verified prompts and timeline boundaries stay unchanged; another pass runs only while the durable missing count improves.`
-        : `Repairing ${targets.length} ${stage} prompt(s) in ${targetPacks.length} durable GenStudio pack(s) `
+        ? `Paid auto-repair: ${targets.length} missing or duplicated visual prompt(s), one scene per Gateway request. Verified prompts and timeline boundaries stay unchanged; another pass runs only while the durable missing count improves.`
+        : `Repairing ${targets.length} ${stage} prompt(s) in ${targetPacks.length} durable Gateway pack(s) `
           + (effectivePackSize === 1 && targets.length > 1
             ? '(one scene per request — small packs fail far more often than single scenes). '
             : `(up to ${effectivePackSize} scenes per request). `)
@@ -1555,12 +1555,12 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             pipelinePolicyCheckpointKey: requestIdentity,
             beforeModelAttempt: async selected => {
               const apiKey = await getApiKey('genstudio').catch(() => '')
-              if (!apiKey) throw new Error('Add a GenStudio API key in Settings → This Mac before generating scene prompts.')
+              if (!apiKey) throw new Error('Add a Gateway key in Settings → This Mac before generating scene prompts.')
               const live = (await listGenStudioChatModels(apiKey)).find(candidate => candidate.id === selected)
               if (!live || !live.available) throw new GenStudioChatProductUnavailableError(selected)
               assertScenePromptPackCapability(live, input.maxTokens, input.sceneIds.length)
             },
-            onModelSelected: selected => { job.output_lines.push(`[pipeline] scene plan using GenStudio product "${selected}".`) },
+            onModelSelected: selected => { job.output_lines.push(`[pipeline] scene plan using Gateway product "${selected}".`) },
             onRequestPrepared: (idempotencyKey: string) => { preparedIdempotencyKey = idempotencyKey },
             maxTokens: input.maxTokens,
             outputContract: scenePromptPackOutputContract(input.sceneIds, isMotion ? 'motion' : 'visual'),
@@ -1697,8 +1697,8 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       }
     }
     job.output_lines.push(explicitPaidRepair
-      ? `Processing one missing-prompt repair set through GenStudio KH (${model}).`
-      : `Processing ${packs.length} adaptive pack(s) through GenStudio KH (${model}).`)
+      ? `Processing one missing-prompt repair set through the Gateway (${model}).`
+      : `Processing ${packs.length} adaptive pack(s) through the Gateway (${model}).`)
     const incompletePacks: string[] = []
     let unresolvedProviderRequest = false
     for (const pack of packs) {
@@ -1712,7 +1712,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       for (const [index, recovery] of savedPromptRecoveries.entries()) {
         const checkpointIds = recovery.scene_ids.filter(id => missing.includes(id))
         if (!checkpointIds.length) continue
-        job.output_lines.push(`↻ Checking the saved GenStudio prompt request before starting new paid work (${checkpointIds.length} missing scene(s)).`)
+        job.output_lines.push(`↻ Checking the saved Gateway prompt request before starting new paid work (${checkpointIds.length} missing scene(s)).`)
         const recovered = await requestPromptPack({
           sceneIds: recovery.scene_ids,
           checkpointSceneIds: checkpointIds,
@@ -1722,7 +1722,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           recoverByIdempotencyKey: recovery.idempotency_key,
         })
         if (recovered.checkpointErrors.length) {
-          throw new Error(`Story Studio recovered the earlier GenStudio output but could not save it, so no new paid request was started: ${recovered.checkpointErrors.join('; ')}`)
+          throw new Error(`Story Studio recovered the earlier Gateway output but could not save it, so no new paid request was started: ${recovered.checkpointErrors.join('; ')}`)
         }
         if (recovered.requestError) recoveryErrors.push(recovered.requestError)
         recoveryUnresolved ||= recovered.requestUnresolved
@@ -1802,7 +1802,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         job.output_lines.push(
           explicitPaidRepair
             ? `↻ Paid repair pass ${attempt}: requesting ${outstanding.length} still-missing prompt(s), one scene per request.`
-            : `↻ GenStudio prompt repair ${attempt}/${MAX_AUTOMATIC_PROMPT_REPAIR_ATTEMPTS}: requesting ${outstanding.length} missing or invalid scene prompt(s) only`
+            : `↻ Gateway prompt repair ${attempt}/${MAX_AUTOMATIC_PROMPT_REPAIR_ATTEMPTS}: requesting ${outstanding.length} missing or invalid scene prompt(s) only`
               + `${repairGroups.length > 1 ? `, one scene per request (${repairGroups.length} requests — small packs fail far more often than single scenes)` : ''}.`,
         )
         const repairBudget = isMotion ? activePromptOutputBudget : visualMaxTokens
@@ -1862,7 +1862,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           responseReceived: repair.answeredIds.size > 0,
         })
         if (!receipt.missing_ids.length) {
-          job.output_lines.push(`✓ GenStudio prompt repair verified ${pack.scene_ids.length}/${pack.scene_ids.length} prompts for ${pack.pack_id}.`)
+          job.output_lines.push(`✓ Gateway prompt repair verified ${pack.scene_ids.length}/${pack.scene_ids.length} prompts for ${pack.pack_id}.`)
           break
         }
         const repairDetails = [
@@ -1871,7 +1871,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         ].filter(Boolean)
         lastError = repairDetails.join('; ') || lastError
         if (previousRequestUnresolved) {
-          lastError = `${lastError}; the last GenStudio request is still unresolved, so no replacement request was submitted`
+          lastError = `${lastError}; the last Gateway request is still unresolved, so no replacement request was submitted`
           break
         }
         if (explicitPaidRepair) {
@@ -1888,8 +1888,8 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         incompletePacks.push(`${pack.pack_id} saved ${receipt.completed_ids.length}/${pack.scene_ids.length}; missing ${receipt.missing_ids.join(', ')} (${lastError})`)
         job.output_lines.push(
           initial.requestUnresolved || previousRequestUnresolved
-            ? `Partial checkpoint: ${pack.pack_id} saved ${receipt.completed_ids.length}/${pack.scene_ids.length} on disk. No replacement request was started for this pack because the last GenStudio request is still unresolved (${lastError}). ${explicitPaidRepair ? 'Auto repair will recover that exact request before any fresh work.' : 'Retry will reconcile that request before any fresh work.'}`
-            : `Partial checkpoint: ${pack.pack_id} saved ${receipt.completed_ids.length}/${pack.scene_ids.length} on disk after ${automaticRepairAttempts} automatic repair attempt(s). Last reason: ${lastError}. Auto repair requests only the missing scene IDs through GenStudio.`,
+            ? `Partial checkpoint: ${pack.pack_id} saved ${receipt.completed_ids.length}/${pack.scene_ids.length} on disk. No replacement request was started for this pack because the last Gateway request is still unresolved (${lastError}). ${explicitPaidRepair ? 'Auto repair will recover that exact request before any fresh work.' : 'Retry will reconcile that request before any fresh work.'}`
+            : `Partial checkpoint: ${pack.pack_id} saved ${receipt.completed_ids.length}/${pack.scene_ids.length} on disk after ${automaticRepairAttempts} automatic repair attempt(s). Last reason: ${lastError}. Auto repair requests only the missing scene IDs through the Gateway.`,
         )
       } else {
         job.output_lines.push(`Checkpointed ${pack.pack_id}: ${receipt.completed_ids.length}/${pack.scene_ids.length} prompts verified on disk.`)
@@ -1906,10 +1906,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         missing: completion.missing_ids,
         issues: completion.issues,
         retry_hint: unresolvedProviderRequest
-          ? 'GenStudio could not confirm whether an earlier prompt request was accepted. Story Studio saved that request identity and did not submit replacement work. Reconcile it before retrying; verified prompts remain saved.'
+          ? 'The Gateway could not confirm whether an earlier prompt request was accepted. Story Studio saved that request identity and did not submit replacement work. Reconcile it before retrying; verified prompts remain saved.'
           : explicitPaidRepair
           ? 'Paid auto-repair stopped with unresolved prompts. Review the named reason, then click Auto repair prompts again; verified prompts remain saved.'
-          : 'Automatic GenStudio repair is exhausted. Retry All pending; image rendering remains blocked until every scene has a unique prompt.',
+          : 'Automatic Gateway repair is exhausted. Retry All pending; image rendering remains blocked until every scene has a unique prompt.',
       })
     } else {
       requireJobCompletion(job, {

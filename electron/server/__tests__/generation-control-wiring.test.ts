@@ -193,7 +193,7 @@ function enableMockVideoCatalog(
   return () => { globalThis.fetch = originalFetch }
 }
 
-test('GenStudio video reports each accepted variant before its first status poll', async () => {
+test('Gateway video reports each accepted variant before its first status poll', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   const originalFetch = globalThis.fetch
@@ -501,7 +501,7 @@ test('Replace uncertain hydrates the private durable identity receipt after a co
   }
 })
 
-test('the generic GenStudio provider filters the exact image-to-video operation before matching duplicate variants', async () => {
+test('the generic Gateway provider filters the exact image-to-video operation before matching duplicate variants', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   let restoreVideoCatalog: (() => void) | undefined
@@ -788,7 +788,7 @@ test('AI video writes the accepted variant checkpoint before its first video sta
   }
 })
 
-test('a scene clip with a removed selected variant fails before a GenStudio video POST', async () => {
+test('a scene clip with a removed selected variant fails before a Gateway video POST', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   try {
@@ -865,7 +865,7 @@ test('a scene clip checkpoints its exact published operation before the first vi
   }
 })
 
-test('each GenStudio modality exposes its exact accepted identity before its first status read', async () => {
+test('each Gateway modality exposes its exact accepted identity before its first status read', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   const originalFetch = globalThis.fetch
@@ -930,7 +930,7 @@ test('each GenStudio modality exposes its exact accepted identity before its fir
   }
 })
 
-test('an accepted GenStudio image stops local monitoring when its cancellation probe changes', async () => {
+test('an accepted Gateway image stops local monitoring when its cancellation probe changes', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   try {

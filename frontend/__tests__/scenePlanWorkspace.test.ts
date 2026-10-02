@@ -76,7 +76,7 @@ describe('Scene Plan workspace', () => {
     assert.match(scenePlan, /reduced only if/)
   })
 
-  test('repairs missing prompts in the saved GenStudio pack size', () => {
+  test('repairs missing prompts in the saved Gateway pack size', () => {
     assert.match(scenePlan, /up to \$\{effectivePromptPackSize\.value\} scenes per request/)
     assert.match(scenePlan, /prompt_pack_size: form\.value\.prompt_pack_size/)
     assert.match(scenePlan, /prompt_max_tokens: form\.value\.prompt_max_tokens/)

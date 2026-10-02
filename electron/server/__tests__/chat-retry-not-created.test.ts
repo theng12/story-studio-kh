@@ -72,7 +72,7 @@ test('Retry resumes a proven not-created chat request with its exact key and pre
       ...job,
       status: 'error',
       finished_at: new Date().toISOString(),
-      error: 'GenStudio had no record of the request',
+      error: 'The Gateway had no record of the request',
     }))
 
     const retried = jq.retryTerminalJob(project.slug, original.job_id)
@@ -116,7 +116,7 @@ test('conflicting or settled chat evidence never unlocks a not-created POST', as
         await fs.writeFile(path.join(temp.dir, 'projects', project.slug, 'jobs.json'), JSON.stringify({ jobs: [{
           job_id: jobId, project_slug: project.slug, type: 'expand_chapters', episode_id: `EP${index + 1}`,
           title: 'Chapter expansion', status: 'error', created_at: now, started_at: now, finished_at: now,
-          error: 'GenStudio had no record of the request', output_lines: [], params: { model: 'writer-alpha' },
+          error: 'The Gateway had no record of the request', output_lines: [], params: { model: 'writer-alpha' },
           genstudio_jobs: [
             {
               id: 'pending:story-chat-unsafe-evidence', operation: 'chat.response', state: 'not_created',
@@ -204,7 +204,7 @@ test('a verified absent chat request posts its exact saved body under the same k
   }
 })
 
-test('a verified absent retry cannot switch GenStudio URLs between lookup and POST', async () => {
+test('a verified absent retry cannot switch Gateway URLs between lookup and POST', async () => {
   const temp = await useTempDataDir()
   const first = await startMockGenStudioService()
   const second = await startMockGenStudioService()

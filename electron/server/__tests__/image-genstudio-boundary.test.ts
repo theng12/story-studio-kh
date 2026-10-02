@@ -16,11 +16,11 @@ const generationFiles = [
   'generators/composition-template.ts',
 ]
 
-test('every reachable Story image generator is pinned to the GenStudio boundary', async () => {
+test('every reachable Story image generator is pinned to the Gateway boundary', async () => {
   for (const relative of generationFiles) {
     const source = await fs.readFile(path.join(serverRoot, relative), 'utf8')
-    assert.match(source, /getApiKey\('genstudio'\)/, `${relative} must use the scoped GenStudio key`)
-    assert.match(source, /getImageProvider\('genstudio-image'\)/, `${relative} must use the GenStudio adapter`)
+    assert.match(source, /getApiKey\('genstudio'\)/, `${relative} must use the scoped Gateway key`)
+    assert.match(source, /getImageProvider\('genstudio-image'\)/, `${relative} must use the Gateway adapter`)
     assert.doesNotMatch(source, /resolveApiKeyForProvider|getHubBackend|renderImageBatchViaHub|runOnPool\s*\(/)
     assert.doesNotMatch(source, /getApiKey\(['"](?:kie|fal|openai|imagestudio)['"]\)/)
   }
@@ -42,13 +42,13 @@ test('image recovery cannot poll a legacy provider or silently resubmit', async 
   assert.equal(await tryRecoverImageFromManifest(null, 'scoped-genstudio-key', modelConfig), null)
 })
 
-test('manual image repair only reconnects GenStudio job identities', async () => {
+test('manual image repair only reconnects Gateway job identities', async () => {
   const source = await fs.readFile(path.join(serverRoot, 'services/image-reconciler.ts'), 'utf8')
   assert.match(source, /recoverImageWithGenStudio/)
   assert.doesNotMatch(source, /fetchImageUrlsByTaskId|fetch\s*\(|getApiKey\(['"]kie['"]\)/)
 })
 
-test('Scene Review batches recover accepted work and leave scheduling to GenStudio', async () => {
+test('Scene Review batches recover accepted work and leave scheduling to the Gateway', async () => {
   const generator = await fs.readFile(path.join(serverRoot, 'generators/continuity-render.ts'), 'utf8')
   const route = await fs.readFile(path.join(serverRoot, 'routes/scene-review.ts'), 'utf8')
 

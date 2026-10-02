@@ -259,7 +259,7 @@ describe('enqueue() dedupe', () => {
 })
 
 describe('remote cancellation checkpoints', () => {
-  test('queues each eligible GenStudio target once and keeps the Story job running', async () => {
+  test('queues each eligible Gateway target once and keeps the Story job running', async () => {
     const proj = await pm.createProject({ name: 'RemoteCancellationTargets' })
     let release!: () => void
     const hold = new Promise<void>(resolve => { release = resolve })
@@ -318,7 +318,7 @@ describe('remote cancellation checkpoints', () => {
     })
     assert.equal(jq.isCancelled(job.job_id), false)
     const requested = await jq.requestJobCancellation(proj.slug, job.job_id)
-    assert.equal(requested.status, 'running', 'the Story job waits for GenStudio to confirm')
+    assert.equal(requested.status, 'running', 'the Story job waits for the Gateway to confirm')
     assert.equal(jq.isCancelled(job.job_id), true, 'but its generator must not submit the next chunk')
     release()
   })
@@ -354,7 +354,7 @@ describe('remote cancellation checkpoints', () => {
     release()
   })
 
-  test('persists GenStudio dispatch and settlement evidence from a settled cancellation update', async () => {
+  test('persists Gateway dispatch and settlement evidence from a settled cancellation update', async () => {
     const project = await pm.createProject({ name: 'CancellationSettlementEvidence' })
     let release!: () => void
     const hold = new Promise<void>(resolve => { release = resolve })
@@ -1071,7 +1071,7 @@ describe('job route controls', () => {
     }
   })
 
-  test('refuses remote work that GenStudio no longer marks cancellable', async () => {
+  test('refuses remote work that Gateway no longer marks cancellable', async () => {
     const app = express()
     app.use(express.json())
     app.use('/api', jobsRouter)

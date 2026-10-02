@@ -103,11 +103,11 @@ async function generatorsHandlingGenStudioFailures(): Promise<string[]> {
 }
 
 describe('the register of who waits for a busy fleet', () => {
-  test('every generator that handles a GenStudio failure is accounted for', async () => {
+  test('every generator that handles a Gateway failure is accounted for', async () => {
     const handling = await generatorsHandlingGenStudioFailures()
     const unaccounted = handling.filter(f => !PROTECTED.has(f) && !EXEMPT.has(f))
     assert.deepEqual(unaccounted, [],
-      `These generators handle GenStudio failures and do not wait for a busy fleet: ${unaccounted.join(', ')}. `
+      `These generators handle Gateway failures and do not wait for a busy fleet: ${unaccounted.join(', ')}. `
       + 'Add the fleet-busy retry and put them in PROTECTED, or argue the exemption in EXEMPT. '
       + 'Silently doing neither is how a generator drops the owner\'s work for a year without anyone noticing.')
   })
@@ -125,11 +125,11 @@ describe('the register of who waits for a busy fleet', () => {
   test('all of them are protected, and an exemption must carry its reason', async () => {
     const handling = await generatorsHandlingGenStudioFailures()
     assert.equal(handling.length, 8,
-      `Expected the eight known GenStudio generators, found ${handling.length}: ${handling.join(', ')}. `
+      `Expected the eight known Gateway generators, found ${handling.length}: ${handling.join(', ')}. `
       + 'A new one is not a problem — add it to PROTECTED and update this count — but it must not '
       + 'arrive unnoticed.')
     assert.deepEqual([...handling].filter(f => !PROTECTED.has(f)), [],
-      'every generator that handles a GenStudio failure now waits for a busy fleet')
+      'every generator that handles a Gateway failure now waits for a busy fleet')
     for (const [name, reason] of EXEMPT) {
       assert.ok(reason.trim().length > 20,
         `${name} is exempt without a reason worth reading. An exemption is an argument, not a list entry.`)

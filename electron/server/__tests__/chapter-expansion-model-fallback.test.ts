@@ -189,7 +189,7 @@ describe('expand-chapters still refuses when nothing is left to fall back to', (
       assert.match(
         log,
         /isn't available right now.*Pick another writing model.*Nothing was sent or charged/s,
-        `the original GenStudio refusal must reach the job log unchanged: ${log}`,
+        `the original Gateway refusal must reach the job log unchanged: ${log}`,
       )
       assert.doesNotMatch(log, /Falling back to the currently available/,
         'there is nothing usable to heal to — no fallback claim may appear')

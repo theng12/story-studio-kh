@@ -40,7 +40,7 @@ void test('last-good catalogues survive a short outage only for the same display
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
     seen.push(url)
     if (forbidden) return Response.json({ detail: 'missing required scope: audio:transcribe' }, { status: 403 })
-    if (!online) throw new TypeError('GenStudio is restarting')
+    if (!online) throw new TypeError('The Gateway is restarting')
     if (new URL(url).pathname === '/v1/transcription/models') return Response.json(transcription(revision))
     throw new Error(`Unexpected request ${url}`)
   }) as typeof globalThis.fetch
@@ -91,7 +91,7 @@ void test('last-good catalogues survive a short outage only for the same display
     await assert.rejects(
       client.listTranscriptionModelsSnapshot('account-a', { displayFallback: true }),
       /could not be refreshed/i,
-      'a different GenStudio base URL must never see another endpoint’s catalogue',
+      'a different Gateway base URL must never see another endpoint’s catalogue',
     )
 
     await settings.setGenStudioUrl('http://127.0.0.1:43101')

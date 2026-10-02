@@ -7,7 +7,7 @@ import {
   resolveGenStudioTtsFanout,
 } from '../lib/genstudio-runtime.js'
 
-describe('GenStudio local admission staging', () => {
+describe('Gateway local admission staging', () => {
   test('uses one worker for empty or invalid item counts', () => {
     assert.equal(resolveGenStudioLocalFanout(0), 1)
     assert.equal(resolveGenStudioLocalFanout(undefined), 1)
@@ -22,7 +22,7 @@ describe('GenStudio local admission staging', () => {
   })
 })
 
-describe('GenStudio speech dispatch follows the selected model publication', () => {
+describe('Gateway speech dispatch follows the selected model publication', () => {
   const noEnv: NodeJS.ProcessEnv = {}
 
   test('uses the selected model\'s positive published submit hint', () => {

@@ -1047,7 +1047,7 @@ test('Pipeline repair replays its exact prepared image identity after an absent 
     globalThis.fetch = async (input, init) => {
       const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
       if (interruptSubmit && url.pathname === '/v1/images/generations' && (init?.method || 'GET') === 'POST') {
-        throw new TypeError('simulated interruption before image POST reached GenStudio')
+        throw new TypeError('simulated interruption before image POST reached the Gateway')
       }
       return originalFetch(input, init)
     }
@@ -1912,7 +1912,7 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
   }
 })
 
-test('a successful paid thumbnail records only the completed GenStudio settlement', async () => {
+test('a successful paid thumbnail records only the completed Gateway settlement', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   const originalFetch = globalThis.fetch
@@ -2262,7 +2262,7 @@ test('a thumbnail left prepared with no task is replayed, not failed forever', a
     await sharp(path.join(thumbDir, filename)).stats()
     assert.equal(
       service.providerSubmissionCount('image'), 1,
-      'a prepared entry that GenStudio says is absent must be submitted once — not twice, and not failed',
+      'a prepared entry that the Gateway says is absent must be submitted once — not twice, and not failed',
     )
     assert.ok(
       !thumbJob.output_lines.some((line: string) => line.includes('Could not confirm the prepared image')),

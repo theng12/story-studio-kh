@@ -294,7 +294,7 @@ test('account queue backpressure pauses new submissions until overview refreshes
   assert.equal(submitted, true)
 })
 
-test('GenStudio admission fails closed when account overview is unavailable', async () => {
+test('Gateway admission fails closed when account overview is unavailable', async () => {
   const pool = new GenStudioAdmissionPool(async () => {
     throw new Error('usage scope unavailable')
   })
@@ -329,7 +329,7 @@ for (const [value, label] of [
   ['999', 'a numeric string'],
   [Number.NaN, 'NaN'],
 ] as const) {
-  test(`GenStudio admission falls back to five for ${label} submission rate`, async () => {
+  test(`Gateway admission falls back to five for ${label} submission rate`, async () => {
     const pool = new GenStudioAdmissionPool(async () => capacity({
       generation_submissions_per_minute: value as number,
     }))
@@ -342,7 +342,7 @@ for (const [value, label] of [
   })
 }
 
-test('GenStudio admission preserves a valid published submission rate', async () => {
+test('Gateway admission preserves a valid published submission rate', async () => {
   const pool = new GenStudioAdmissionPool(async () => capacity({
     generation_submissions_per_minute: 7,
   }))
@@ -353,7 +353,7 @@ test('GenStudio admission preserves a valid published submission rate', async ()
   assert.equal(pool.snapshot('published-overview-key').capacity_verified, true)
 })
 
-test('GenStudio admission preserves valid capacity display facts without admitting above standard lanes', async () => {
+test('Gateway admission preserves valid capacity display facts without admitting above standard lanes', async () => {
   const pool = new GenStudioAdmissionPool(async () => capacity({
     paid_concurrency_limit: 1,
     burst_concurrency_ceiling: 4,
@@ -396,7 +396,7 @@ test('GenStudio admission preserves valid capacity display facts without admitti
   await first
 })
 
-test('GenStudio admission omits malformed capacity display facts and fallback metadata', async () => {
+test('Gateway admission omits malformed capacity display facts and fallback metadata', async () => {
   const malformed = new GenStudioAdmissionPool(async () => capacity({
     burst_concurrency_ceiling: 0,
     service_tier: { current: { display_name: '$5 tier' } } as any,
@@ -439,7 +439,7 @@ test('a malformed published submission rate admits five requests before rate lim
   await Promise.all(jobs.slice(0, 5))
 })
 
-test('a cancelled locally queued request never reaches GenStudio', async () => {
+test('a cancelled locally queued request never reaches the Gateway', async () => {
   const pool = new GenStudioAdmissionPool(async () => capacity({ paid_concurrency_limit: 1 }))
   const firstGate = deferred()
   const first = pool.run('scoped-key', undefined, async () => firstGate.promise)
@@ -518,7 +518,7 @@ test('one account-wide release failure rejects every unsent modality', async () 
   })
   await new Promise(resolve => setImmediate(resolve))
 
-  const releaseError = new Error('GenStudio release is not generation-ready')
+  const releaseError = new Error('Gateway release is not generation-ready')
   pool.noteGlobalFailure(releaseError, 60_000)
 
   await assert.rejects(image, /not generation-ready/)

@@ -375,7 +375,7 @@ async function runActiveAudioQualityCheck(job: Job, req: GenerateAudioRequest, m
   const checkRoot = path.resolve(paths.episode_dir, active.staging_dir)
   if (checkRoot !== expectedRoot) throw new Error('The active-audio quality check staging path is invalid.')
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) throw new Error('No GenStudio API key configured. Add it in Settings → This Mac.')
+  if (!apiKey) throw new Error('No Gateway key configured. Add it in Settings → This Mac.')
   const narrationPath = await findNarrationFile(job.project_slug, job.episode_id)
   const { inspectAudioQualityActionScope } = await import('../services/audio-quality.js')
   const proveScope = async () => {
@@ -563,7 +563,7 @@ export async function generateAudio(job: Job): Promise<void> {
   // per-provider paths it used to select are gone — so it is no longer read
   // here; `audio-genstudio-only.test.ts` pins the invariant instead.
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) throw new Error('No GenStudio API key configured. Add it in Settings → This Mac.')
+  if (!apiKey) throw new Error('No Gateway key configured. Add it in Settings → This Mac.')
 
   // `maximum_input_characters` belongs to the model, is read fresh on every
   // run, and is never remembered between runs. Without it Story Studio has no
@@ -571,15 +571,15 @@ export async function generateAudio(job: Job): Promise<void> {
   const ttsModel = (await listGenStudioTtsModels(apiKey)).find(model => model.id === req.model)
   if (!ttsModel) {
     throw new Error(
-      `The selected voice model "${req.model}" is not in your GenStudio KH catalogue. `
+      `The selected voice model "${req.model}" is not in your Gateway catalogue. `
       + 'Reopen the Audio Generator and choose a current model.',
     )
   }
   if (!ttsModel.generation_enabled) {
-    throw new Error(`GenStudio KH has generation turned off for ${ttsModel.display_name}. Choose another voice model.`)
+    throw new Error(`The Gateway has generation turned off for ${ttsModel.display_name}. Choose another voice model.`)
   }
   if (ttsModel.locked) {
-    throw new Error(`${ttsModel.display_name} is locked for this GenStudio account. Choose an unlocked voice model. No request or credit charge was made.`)
+    throw new Error(`${ttsModel.display_name} is locked for this Gateway account. Choose an unlocked voice model. No request or credit charge was made.`)
   }
   // The published boundary, and the budget Story Studio actually plans at:
   // that boundary less the shared safety margin. `resolveTtsRequestBudget` is
@@ -623,7 +623,7 @@ export async function generateAudio(job: Job): Promise<void> {
     + ` · ${genStudioMaxCharacters.toLocaleString()} characters per request published`
     + ` · splitting at ${requestBudget.effective.toLocaleString()}`
     + ` (${Math.round(requestBudget.safety_margin * 100)}% head-room, so a part cannot be refused`
-    + ' for a character count GenStudio counts differently)',
+    + ' for a character count Gateway counts differently)',
   )
 
   const narrationPath = await findNarrationFile(project_slug, episode_id)
@@ -993,7 +993,7 @@ export async function generateAudio(job: Job): Promise<void> {
 
       if (announceRecoveryFromTerminal) {
         job.output_lines.push(
-          `  Previous GenStudio task failed terminally; submitting a new recovery task for ${chunkFilename}.`,
+          `  Previous Gateway task failed terminally; submitting a new recovery task for ${chunkFilename}.`,
         )
       }
       // The identity above is derived ONCE per attempt, then persisted below
@@ -1018,7 +1018,7 @@ export async function generateAudio(job: Job): Promise<void> {
         ...(recoveryEntry?.task_id ? { job_id: recoveryEntry.task_id } : {}),
         state: (recoveryEntry?.last_state || 'prepared') as GenStudioRecoveryState,
       })
-      job.output_lines.push(`  GenStudio request: ${task.sectionLabel} -> ${idempotencyKey}`)
+      job.output_lines.push(`  Gateway request: ${task.sectionLabel} -> ${idempotencyKey}`)
       const request = {
         text: task.chunkText,
         voiceId: effectiveVoice,
@@ -1064,7 +1064,7 @@ export async function generateAudio(job: Job): Promise<void> {
             job_id: providerJobId,
             state: 'accepted',
           })
-          job.output_lines.push(`  GenStudio task: ${task.sectionLabel} -> ${providerJobId}`)
+          job.output_lines.push(`  Gateway task: ${task.sectionLabel} -> ${providerJobId}`)
         },
         onState: async (state: GenStudioRecoveryState, providerJobId: string) => {
           await recordTaskStrict(audioDir, chunkFilename, {
@@ -1145,7 +1145,7 @@ export async function generateAudio(job: Job): Promise<void> {
       && [relatedEvidence[0]!.request_key, relatedEvidence[0]!.request?.idempotency_key]
         .some(value => typeof value === 'string' && value.trim().length > 0)
     if (relatedEvidence.length && !exactEvidence) {
-      throw new Error(`Saved GenStudio task identity does not match ${chunkFilename}; no provider work was submitted.`)
+      throw new Error(`Saved Gateway task identity does not match ${chunkFilename}; no provider work was submitted.`)
     }
     const uncertainRecovery = exactEvidence
       && evidenceHoldsUnknownOutcome(relatedEvidence[0])

@@ -579,7 +579,7 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
           if (current.replacement) current.freeRetryFromKey = current.idempotencyKey
         } else if (error instanceof GenStudioTranscriptionTaskUnavailableError) {
           return block(
-            'The saved subtitle task was not found with the current GenStudio connection/account, so it cannot be retrieved here. Its task/key evidence is retained. Explicitly generate this section to create a fresh request at the current quote; the new request may be charged.',
+            'The saved subtitle task was not found with the current Gateway connection/account, so it cannot be retrieved here. Its task/key evidence is retained. Explicitly generate this section to create a fresh request at the current quote; the new request may be charged.',
             'rerun_subtitle_section',
             'needs_attention',
           )

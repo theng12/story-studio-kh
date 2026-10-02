@@ -288,7 +288,7 @@ export function resolveMusicModel<T extends { id: string } & MusicModelCapabilit
     }
     return named
   }
-  if (!models.length) throw new Error('GenStudio KH publishes no music model for this account.')
+  if (!models.length) throw new Error('The Gateway publishes no music model for this account.')
   // "The first published row" is only the right default when that row can make what is being
   // asked for. A vocal-only model (YuE2: lyrics required, no instrumental switch) listed first
   // would make every lyric-less top-up a certain refusal — see `contracts/music-model-choice.ts`,
@@ -296,7 +296,7 @@ export function resolveMusicModel<T extends { id: string } & MusicModelCapabilit
   const usable = pickDefaultMusicModel(models, needs)
   if (!usable) {
     throw new Error(
-      'None of the music models GenStudio KH publishes can make this track: each one needs lyrics, '
+      'None of the music models the Gateway publishes can make this track: each one needs lyrics, '
       + 'and this request has none. Nothing was charged. Pick a model or add lyrics.',
     )
   }
@@ -309,7 +309,7 @@ export async function generateMusicLibraryTracks(job: Job): Promise<void> {
   if (!brief) throw new Error('A style brief is required.')
   const wanted = Math.max(1, Math.floor(params.count || 1))
   const apiKey = await getApiKey('genstudio')
-  if (!apiKey) throw new Error('Add your GenStudio KH API key in Settings first.')
+  if (!apiKey) throw new Error('Add your Gateway key in Settings first.')
   const dir = await getLibraryDir(job.project_slug)
   if (!dir) throw new Error(`Project ${job.project_slug} has no folder on disk.`)
 

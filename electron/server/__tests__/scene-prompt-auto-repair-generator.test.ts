@@ -456,7 +456,7 @@ test('an unresolved accepted request fences every later scene and repair request
   await assert.rejects(runScenePlanJob(job), (error: any) => {
     assert.match(error.message, /incomplete/i)
     assert.match(error.message, /could not confirm whether an earlier prompt request was accepted/i)
-    assert.doesNotMatch(error.message, /Automatic GenStudio repair is exhausted/i)
+    assert.doesNotMatch(error.message, /Automatic Gateway repair is exhausted/i)
     return true
   })
 

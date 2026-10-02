@@ -171,7 +171,7 @@ function normalizeMaxOutputTokens(value: unknown): number | null {
   const parsed = Number(value)
   if (typeof value !== 'number' || !Number.isInteger(parsed) || parsed < 1) {
     throw new Error(
-      'Cannot resolve a scene-prompt output budget: the selected GenStudio product published '
+      'Cannot resolve a scene-prompt output budget: the selected Gateway product published '
       + `no usable max_output_tokens (got ${JSON.stringify(value)}). `
       + 'Story Studio does not substitute a ceiling of its own.',
     )
@@ -306,7 +306,7 @@ export function describeScenePromptPackSize(
   const resolved = resolveScenePromptPackSize(outputBudget, setting, tuning)
   const budget = normalizeMaxOutputTokens(outputBudget)
   if (budget === null) {
-    const basis = 'the selected GenStudio product publishes no output ceiling; Story Studio sends no output-token limit'
+    const basis = 'the selected Gateway product publishes no output ceiling; Story Studio sends no output-token limit'
     return setting === 'auto'
       ? `Batch: ${resolved} scenes per request (project default; ${basis}).`
       : `Batch: ${resolved} scenes per request (requested; ${basis}).`

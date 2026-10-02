@@ -47,7 +47,7 @@
 
            v1.0.786 — the MODEL is no longer in this row. It is no longer
            locked: expansion runs on whatever model is selected in the form,
-           because a stored model id goes stale when GenStudio re-versions a
+           because a stored model id goes stale when Gateway re-versions a
            product and a locked stale id left the episode with no way to
            finish. It moved to the "built with / will use" line below, which
            states the change instead of hiding it. -->
@@ -521,7 +521,7 @@ const lockedParamsTooltip = computed(() => {
     'they are outline-shaped, so changing them mid-flight would desync the outline ' +
     'from the prose. To change words/cast, regenerate the outline.' +
     '\n\nThe MODEL is the exception: expansion always uses the model selected in the ' +
-    'form. A recorded model id goes stale when GenStudio re-versions a product, and ' +
+    'form. A recorded model id goes stale when Gateway re-versions a product, and ' +
     'a stale id must never be the reason an episode cannot be finished.'
 })
 

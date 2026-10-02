@@ -6,7 +6,7 @@ function source(path: string): string {
   return readFileSync(new URL(path, import.meta.url), 'utf8')
 }
 
-test('unconfigured GenStudio and usage failures lead to the connection settings', () => {
+test('unconfigured the Gateway and usage failures lead to the connection settings', () => {
   const strip = source('../components/GenStudioStandingStrip.vue')
   const usage = source('../pages/usage.vue')
 

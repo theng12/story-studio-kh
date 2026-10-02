@@ -87,7 +87,7 @@ before(async () => {
   ;({ parseNarrationDocx } = await import('../lib/docx-parser.js'))
   const { registry } = await import('../providers/registry.js')
   const provider: TextProvider = {
-    meta: { id: 'genstudio', name: 'Fake GenStudio', apiKeyField: 'genstudio_api_key' },
+    meta: { id: 'genstudio', name: 'Fake the Gateway', apiKeyField: 'genstudio_api_key' },
     supportsModel: model => model === `genstudio-chat:${MODEL}`,
     async callText(req: TextGenerationRequest): Promise<string> {
       requests.push(req)

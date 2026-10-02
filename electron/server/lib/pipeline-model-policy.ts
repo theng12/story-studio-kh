@@ -270,7 +270,7 @@ export function validatePipelineModelCatalogue(
   for (const [stage, policy] of Object.entries(policies)) {
     for (const modelId of policy?.models || []) {
       const model = findGenStudioProduct(catalogue, modelId)
-      if (!model) errors.push(`model_policies.${stage}: product "${modelId}" is not in the live GenStudio catalogue`)
+      if (!model) errors.push(`model_policies.${stage}: product "${modelId}" is not in the live Gateway catalogue`)
       // A temporarily unavailable row remains a valid explicit backup
       // candidate: the shared client may switch only after GenStudio proves
       // that this candidate made no request.

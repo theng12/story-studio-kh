@@ -199,7 +199,7 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
     assert.equal(params.mode, 'thumbnails')
   })
 
-  test('thumb_images always uses automatic GenStudio quality', () => {
+  test('thumb_images always uses automatic Gateway quality', () => {
     const params = resolveStepParams('thumb_images', 'EP0042', 'Title', fakePreset({
       form: {
         model: 'genstudio-image-studio-v1',

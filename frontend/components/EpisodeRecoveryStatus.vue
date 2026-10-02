@@ -15,7 +15,7 @@
         <button class="btn btn-xs btn-primary" type="submit" :disabled="busy">{{ busy ? 'Queueing recovery…' : 'Buy missing subtitles now' }}</button>
       </form>
       <div v-if="rerunSections.length && rerunHref" class="subtitle-rerun">
-        <p>Recovery cannot finish the saved result. A fresh GenStudio request is limited to the chapter you choose; GenStudio confirms the current quote before submission and the new request may be charged.</p>
+        <p>Recovery cannot finish the saved result. A fresh Gateway request is limited to the chapter you choose; The Gateway confirms the current quote before submission and the new request may be charged.</p>
         <a class="btn btn-xs btn-secondary" :href="rerunHref">Open missing chapter controls</a>
       </div>
       <p v-if="sent">Recovery queued. Existing task identities and completed sections are preserved.</p>

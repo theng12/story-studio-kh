@@ -213,7 +213,7 @@ test('one bad prompt elsewhere does not block regenerating a different scene', a
 })
 
 test('the newest failed image job is surfaced until a newer job replaces it', async () => {
-  const failed = { job_id: 'failed', type: 'scene_image_generate', episode_id: 'EP0001', status: 'error', created_at: '2026-09-06T10:00:00.000Z', error: 'GenStudio refused the prompt.' }
+  const failed = { job_id: 'failed', type: 'scene_image_generate', episode_id: 'EP0001', status: 'error', created_at: '2026-09-06T10:00:00.000Z', error: 'The Gateway refused the prompt.' }
   const mounted = await mount([failed])
   assert.equal(mounted.state.failedRenderJob.value?.job_id, 'failed')
   assert.match(mounted.state.failedRenderMessage.value, /GenStudio refused the prompt/)

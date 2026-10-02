@@ -68,7 +68,7 @@ test('Jobs takes the newest active provider evidence even when it is earlier in 
 
 test('Jobs clears provider queue copy once current evidence has no positive queue facts or is terminal', () => {
   const cleared = queueDetail({ genstudio_jobs: [{ state: 'running', queue_position: 0, queue_eta_seconds: null, updated_at: 'now' }] })
-  assert.equal(cleared, 'GenStudio is generating.')
+  assert.equal(cleared, 'The Gateway is generating.')
 
   const terminal = queueDetail({ genstudio_jobs: [{ state: 'succeeded', queue_position: 1, queue_eta_seconds: 90, updated_at: 'done' }] })
   assert.equal(terminal, '')
@@ -77,7 +77,7 @@ test('Jobs clears provider queue copy once current evidence has no positive queu
   assert.equal(cancelled, '')
 })
 
-test('Jobs distinguishes local handoff and GenStudio admission without inventing a provider queue position', () => {
+test('Jobs distinguishes local handoff and Gateway admission without inventing a provider queue position', () => {
   assert.equal(queueDetail({ genstudio_jobs: [{ queue_state: 'waiting_local', updated_at: 'now' }] }), 'Waiting in Story Studio before it is sent.')
   assert.equal(queueDetail({ genstudio_jobs: [{ queue_state: 'waiting_account_capacity', updated_at: 'now' }] }), 'Waiting for a free slot at the Gateway.')
   assert.equal(queueDetail({ genstudio_jobs: [{ queue_state: 'accepted', updated_at: 'now' }] }), 'The Gateway accepted it; it is waiting its turn.')
@@ -127,6 +127,6 @@ test('a job waiting for a free Mac says so with the next try time, and is never 
   assert.match(queueDetail({ genstudio_jobs: [{ state: 'running', waiting: { reason: null, next_try_at: null, since: null }, updated_at: 'now' }] }),
     /^Waiting for a free Mac\.$/)
   // Older gateway: no `waiting`, nothing changes.
-  assert.equal(queueDetail({ genstudio_jobs: [{ state: 'running', updated_at: 'now' }] }), 'GenStudio is generating.')
+  assert.equal(queueDetail({ genstudio_jobs: [{ state: 'running', updated_at: 'now' }] }), 'The Gateway is generating.')
   assert.match(jobs, /latestActiveGenStudioRequest\(job\)\?\.waiting\) return false/, 'is-stale colouring is suppressed while waiting')
 })

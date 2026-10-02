@@ -21,14 +21,14 @@
             <span v-if="stats.recovered" class="workspace-metric" data-tone="success"><strong>{{ stats.recovered }}</strong> recovered</span>
             <span v-if="stats.error" class="workspace-metric" data-tone="error"><strong>{{ stats.error }}</strong> job{{ stats.error === 1 ? '' : 's' }} need{{ stats.error === 1 ? 's' : '' }} attention</span>
           </div>
-          <div class="genstudio-capacity-summary" aria-label="GenStudio account capacity">
+          <div class="genstudio-capacity-summary" aria-label="Gateway account capacity">
             <span
               v-if="freshQueueAdmission && genStudioAdmission?.submissions_blocked"
               class="capacity-error"
               :title="genStudioAdmission.submission_block_reason || undefined"
             >
               <strong>Submissions stopped</strong>
-              GenStudio release not ready
+              Gateway release not ready
             </span>
             <span v-if="freshQueueAdmission && genStudioAdmission?.local_waiting">
               <strong>{{ genStudioAdmission.local_waiting }}</strong>
@@ -43,7 +43,7 @@
               class="capacity-boost"
             >
               <strong>Temporary boost</strong>
-              up to {{ genStudioAdmission.burst_concurrency_ceiling }} jobs when GenStudio has spare capacity — best effort, not guaranteed.
+              up to {{ genStudioAdmission.burst_concurrency_ceiling }} jobs when the Gateway has spare capacity — best effort, not guaranteed.
             </span>
             <span v-if="genStudioAdmission.service_tier" class="capacity-tier">
               <strong>{{ genStudioAdmission.service_tier.current.display_name }}</strong>
@@ -61,7 +61,7 @@
             </span>
             <span :class="{ 'capacity-warning': genStudioAdmission.queue_near_capacity }">
               <strong>{{ genStudioAdmission.paid_queued_jobs }}/{{ genStudioAdmission.max_queued_jobs }}</strong>
-              GenStudio queued
+              Gateway queued
             </span>
             <span>
               <strong>{{ genStudioAdmission.generation_submissions_per_minute }}</strong>
@@ -151,9 +151,9 @@
     </section>
 
     <!-- Durable Story-side queue hold. Queued work has not been submitted;
-         accepted GenStudio items checkpoint before their job pauses. -->
+         accepted Gateway items checkpoint before their job pauses. -->
     <WorkspaceNotice v-if="queuePaused === true" tone="warning" title="Job queue is paused">
-      New Story jobs are held before submission. Running GenStudio jobs finish saving already accepted items, then pause safely.
+      New Story jobs are held before submission. Running Gateway jobs finish saving already accepted items, then pause safely.
 
     </WorkspaceNotice>
     <WorkspaceNotice v-if="queueStateUnknown" tone="info" title="Queue state could not be read">
@@ -1334,7 +1334,7 @@ function jobModelTitle(job: RJob): string {
 
 const GENSTUDIO_QUEUE_LABELS: Record<string, string> = {
   waiting_local: 'Waiting locally',
-  submitting: 'Submitting to GenStudio',
+  submitting: 'Submitting to the Gateway',
   accepted: 'Accepted',
   waiting_account_capacity: 'Waiting for account capacity',
   reserved: 'Reserved',
@@ -1401,7 +1401,7 @@ function genStudioStatusDetail(job: RJob): string {
   if (typeof remote.retry_after_seconds === 'number' && remote.retry_after_seconds > 0) {
     return `${detail} Retry in ${Math.ceil(remote.retry_after_seconds)} seconds.`
   }
-  if (remote.stall_recovery_at) return `${detail} GenStudio will step in ${formatTime(remote.stall_recovery_at)}.`
+  if (remote.stall_recovery_at) return `${detail} the Gateway will step in ${formatTime(remote.stall_recovery_at)}.`
   return detail
 }
 
@@ -1452,13 +1452,13 @@ function genStudioQueueDetail(job: RJob): string {
   } as Record<string, string>)[state] || '')
   const facts: string[] = []
   if (hasProviderQueuePosition) {
-    facts.push(`GenStudio provider queue position ${remote.queue_position}.`)
+    facts.push(`Gateway provider queue position ${remote.queue_position}.`)
   }
   if (typeof remote.queue_eta_seconds === 'number' && remote.queue_eta_seconds > 0) {
     // queue_eta_seconds is when the gateway retries, not a prediction of the provider finishing.
     facts.push(`Checking again in ${formatGenStudioQueueEta(remote.queue_eta_seconds)}.`)
   }
-  if (remote.queue_reason === 'provider_pace') facts.push('GenStudio is pacing new requests.')
+  if (remote.queue_reason === 'provider_pace') facts.push('The Gateway is pacing new requests.')
   return [activeRequestCount > 1 ? `Latest request: ${phase}` : phase, ...facts].filter(Boolean).join(' ')
 }
 
@@ -2882,7 +2882,7 @@ async function runJobControl(job: RJob, requestedControl?: JobControl) {
       const response = await post<{ job?: RJob }>(`${jobQueuePath(job)}/recheck-provider-status`, {})
       const refreshed = response?.job?.control
       success(refreshed?.action === 'clear-history'
-        ? 'GenStudio confirmed this job\'s provider work has finished. This history can now be removed.'
+        ? 'The Gateway confirmed this job\'s provider work has finished. This history can now be removed.'
         : customerJobText(refreshed?.reason || control.reason, job))
       return
     } else {
@@ -3092,7 +3092,7 @@ function jobAttentionCause(job: RJob): string {
       && remote.failure_code === 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN'
   })
   return submissionUncertain
-    ? 'GenStudio could not confirm the earlier prompt request. That request needs reconciliation before replacement.'
+    ? 'The Gateway could not confirm the earlier prompt request. That request needs reconciliation before replacement.'
     : ''
 }
 
@@ -3288,7 +3288,7 @@ function retryTooltip(job: Pick<RJob, 'type' | 'params' | 'auto_retry'>): string
   }
   const jobType = job.type
   if (jobType === 'scene_plan_run') {
-    return 'SMART RETRY — Keeps every prompt already verified on disk and sends only missing or duplicated stable scene IDs in bounded GenStudio packs.'
+    return 'SMART RETRY — Keeps every prompt already verified on disk and sends only missing or duplicated stable scene IDs in bounded Gateway packs.'
   }
   if (jobType === 'image_prompts') {
     const mode = (job.params as any)?.mode
@@ -3577,7 +3577,7 @@ async function autoRepairScenePrompts(job: RJob) {
       `/projects/${jobProjectSlug(job)}/jobs/${job.job_id}/auto-repair-scene-prompts`,
       {},
     )
-    success(`Auto repair started for ${response.missing_prompts} missing or duplicated prompt${response.missing_prompts === 1 ? '' : 's'}. Each scene is a separate GenStudio request; credits may be charged.`)
+    success(`Auto repair started for ${response.missing_prompts} missing or duplicated prompt${response.missing_prompts === 1 ? '' : 's'}. Each scene is a separate Gateway request; credits may be charged.`)
   } catch (e: any) {
     showError(customerJobText(e?.data?.detail || e?.message || 'Prompt auto-repair could not start.', job))
   } finally {

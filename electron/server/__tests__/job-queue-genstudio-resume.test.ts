@@ -45,13 +45,13 @@ async function waitFor(check: () => boolean, message: string, timeoutMs = 2_000)
   await waitForScheduled(check, { label: message, timeoutMs })
 }
 
-describe('startup recovery for explicitly checkpointed GenStudio assets', () => {
+describe('startup recovery for explicitly checkpointed Gateway assets', () => {
   for (const scenario of [
     { type: 'audio' as const, operation: 'tts' as const, jobId: 'genstudio-tts-restart' },
     { type: 'subtitles_transcribe' as const, operation: 'transcription' as const, jobId: 'genstudio-stt-restart' },
   ]) {
     test(`requeues interrupted ${scenario.operation} with the same durable request identity`, async () => {
-      const project = await pm.createProject({ name: `GenStudio ${scenario.operation} Resume` })
+      const project = await pm.createProject({ name: `The Gateway ${scenario.operation} Resume` })
       const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
       let executions = 0
       jq.registerExecutor(scenario.type, async (job) => {
@@ -65,7 +65,7 @@ describe('startup recovery for explicitly checkpointed GenStudio assets', () => 
         project_slug: project.slug,
         type: scenario.type,
         episode_id: 'EP0001',
-        title: `GenStudio ${scenario.operation}`,
+        title: `The Gateway ${scenario.operation}`,
         status: 'running',
         created_at: new Date().toISOString(),
         started_at: new Date().toISOString(),
@@ -94,7 +94,7 @@ describe('startup recovery for explicitly checkpointed GenStudio assets', () => 
       const resumed = jq.getJob(scenario.jobId)!
       assert.equal(executions, 1)
       assert.equal(resumed.status, 'done')
-      assert.match(resumed.output_lines.join('\n'), /checkpointed GenStudio asset job/i)
+      assert.match(resumed.output_lines.join('\n'), /checkpointed Gateway asset job/i)
       assert.doesNotMatch(JSON.stringify(resumed.params), /api[_-]?key|authorization|bearer/i)
     })
   }
@@ -119,7 +119,7 @@ describe('startup recovery for explicitly checkpointed GenStudio assets', () => 
         body: JSON.stringify({ model_id: 'mock-tts-v1', voice_id: 'mock-voice', text: 'recover me', speed: 1 }),
       }).then(response => response.json()) as { id: string }
 
-      const project = await pm.createProject({ name: 'GenStudio TTS Artifact Resume' })
+      const project = await pm.createProject({ name: 'Gateway TTS Artifact Resume' })
       const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
       const outputPath = path.join(tempDir, 'recovered-audio.mp3')
       let executions = 0
@@ -138,7 +138,7 @@ describe('startup recovery for explicitly checkpointed GenStudio assets', () => 
         project_slug: project.slug,
         type: 'audio',
         episode_id: 'EP0002',
-        title: 'GenStudio TTS artifact recovery',
+        title: 'Gateway TTS artifact recovery',
         status: 'running',
         created_at: new Date().toISOString(),
         started_at: new Date().toISOString(),
@@ -176,8 +176,8 @@ describe('startup recovery for explicitly checkpointed GenStudio assets', () => 
       const recovered = jq.getJob('genstudio-tts-artifact-restart')!
       assert.equal(executions, 1)
       assert.equal(recovered.status, 'done')
-      assert.match(recovered.output_lines.join('\n'), /resuming the checkpointed GenStudio asset job/i)
-      assert.doesNotMatch(recovered.output_lines.join('\n'), /reconciling the existing GenStudio request/i)
+      assert.match(recovered.output_lines.join('\n'), /resuming the checkpointed Gateway asset job/i)
+      assert.doesNotMatch(recovered.output_lines.join('\n'), /reconciling the existing Gateway request/i)
       assert.ok((await fs.stat(outputPath)).size > 0)
       assert.ok(service.requests.every(request => request.method === 'GET'))
       assert.deepEqual(
@@ -251,7 +251,7 @@ describe('startup recovery for interrupted image-episode renders', () => {
     const lines = resumed.output_lines.join('\n')
     assert.match(lines, /reclaimed from its saved task id at no extra credits/i)
     // The bug was that it took THIS path and stayed there.
-    assert.doesNotMatch(lines, /reconciling the existing GenStudio request/i)
+    assert.doesNotMatch(lines, /reconciling the existing Gateway request/i)
     assert.doesNotMatch(lines, /Interrupted by app restart/i)
   })
 
@@ -1058,7 +1058,7 @@ describe('automatic recovery for cooperative Continuity Render stall holds', () 
         const url = new URL(String(input))
         if (url.origin === service.baseUrl && url.pathname === `/v1/images/${taskId}`) {
           statusChecks++
-          throw new TypeError('fixture cannot reach GenStudio')
+          throw new TypeError('fixture cannot reach the Gateway')
         }
         return originalFetch(input, init)
       }

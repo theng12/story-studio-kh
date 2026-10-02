@@ -11,7 +11,7 @@ import { Router } from 'express'
 export const router = Router()
 
 export const IMAGE_EDIT_UNAVAILABLE_DETAIL =
-  'Image editing is temporarily unavailable. It will return after GenStudio exposes and qualifies a secure image-edit API.'
+  'Image editing is temporarily unavailable. It will return after Gateway exposes and qualifies a secure image-edit API.'
 
 function unavailablePayload() {
   return {

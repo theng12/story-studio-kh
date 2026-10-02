@@ -68,10 +68,10 @@ describe('the provider registry names only the gateway', () => {
     '../providers/image/genstudio.ts',
     '../providers/video/genstudio.ts',
   ]) {
-    test(`${relative} publishes 'GenStudio KH' as its display name`, () => {
+    test(`${relative} publishes 'Gateway' as its display name`, () => {
       // `meta.name` is interpolated into job output lines and into
       // "No API key configured for X" — it is a rendered string.
-      assert.match(read(relative), /name: 'GenStudio KH'/)
+      assert.match(read(relative), /name: 'Gateway'/)
     })
   }
 })

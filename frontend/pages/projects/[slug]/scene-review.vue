@@ -105,7 +105,7 @@
       tone="warning"
       title="Earlier image request needs a decision"
     >
-      GenStudio could not confirm whether {{ replaceableUncertainJob.params.manual_image_finish.uncertain_scene_ids.length === 1 ? 'an earlier image was' : `${replaceableUncertainJob.params.manual_image_finish.uncertain_scene_ids.length} earlier images were` }} made.
+      The Gateway could not confirm whether {{ replaceableUncertainJob.params.manual_image_finish.uncertain_scene_ids.length === 1 ? 'an earlier image was' : `${replaceableUncertainJob.params.manual_image_finish.uncertain_scene_ids.length} earlier images were` }} made.
       <strong>Check again</strong> asks for the earlier result instead of ordering it again (other scenes still missing in this job are made as usual). <strong>Replace anyway</strong> orders a new one and may charge again.
       <template #actions>
         <button class="btn btn-sm btn-secondary" :disabled="checkingUncertain || replacingUncertain" @click="checkUncertainAgain">
@@ -195,17 +195,17 @@
             </select>
           </div>
           <!-- Only shown when the model publishes NO output options: there is
-               then genuinely no resolution to choose and GenStudio decides. -->
-          <div v-if="form.model && !hasPublishedOutputOptions" class="sr-ratio-pick" title="GenStudio decides the output resolution for this render.">
+               then genuinely no resolution to choose and the Gateway decides. -->
+          <div v-if="form.model && !hasPublishedOutputOptions" class="sr-ratio-pick" title="The Gateway decides the output resolution for this render.">
             <span class="sr-ratio-label">Resolution</span>
             <div class="sr-static-control">
-              <strong>Chosen by GenStudio</strong>
+              <strong>Chosen by the Gateway</strong>
               <small>
                 Uses {{ form.aspect_ratio }}<template v-if="selectedGenStudioModel?.default_resolution"> · {{ selectedGenStudioModel.default_resolution }}</template>
               </small>
             </div>
           </div>
-          <!-- Inference steps are not a customer control: GenStudio publishes
+          <!-- Inference steps are not a customer control: The Gateway publishes
                no step contract and its request schema has no `steps` field, so
                no control is offered rather than one driving a phantom value. -->
           <div v-if="selectedGenStudioModel && selectedGenStudioModel.supports_seed !== false" class="sr-ratio-pick" title="Optional reproducible seed. Leave blank for a fresh random composition per scene.">
@@ -258,7 +258,7 @@
           >
             ↺ Reset
           </button>
-          <!-- Re-roll a chosen set as one durable GenStudio batch. -->
+          <!-- Re-roll a chosen set as one durable Gateway batch. -->
           <button
             v-if="selectedCount > 0"
             class="btn btn-sm btn-primary"
@@ -349,10 +349,10 @@
           <NuxtLink :to="`/projects/${slug}/jobs`" class="text-accent">Open Jobs</NuxtLink>
         </span>
         <span v-else>
-          Rendering with GenStudio
+          Rendering with the Gateway
           <template v-if="batchInFlight.size"> — {{ batchInFlight.size }} scene{{ batchInFlight.size === 1 ? '' : 's' }} in flight</template>
           <template v-if="renderProgress != null"> · {{ renderProgress }}% done</template>
-          <span class="text-muted"> — GenStudio schedules the batch and images appear here as each one finishes.</span>
+          <span class="text-muted"> — Gateway schedules the batch and images appear here as each one finishes.</span>
         </span>
         <span v-if="!isRenderPaused && renderProgress != null" class="review-render-bar" aria-hidden="true">
           <span class="review-render-fill" :style="{ width: renderProgress + '%' }" />
@@ -513,7 +513,7 @@
               class="btn btn-sm btn-secondary"
               :disabled="usesImagePool || !form.model || regeneratingId === scene.id || reviewJobActive || !!sceneTargetsBlockReason([scene.id])"
               @click="generateOne(scene)"
-              :title="usesImagePool ? 'Scene Review is not used for Image Pool episodes' : !form.model ? 'Pick a model in the Render settings first' : reviewJobActive ? sceneRenderBlockReason(scene) : sceneTargetsBlockReason([scene.id]) || 'Generate or regenerate this scene image with GenStudio'"
+              :title="usesImagePool ? 'Scene Review is not used for Image Pool episodes' : !form.model ? 'Pick a model in the Render settings first' : reviewJobActive ? sceneRenderBlockReason(scene) : sceneTargetsBlockReason([scene.id]) || 'Generate or regenerate this scene image with the Gateway'"
             >
               {{ regeneratingId === scene.id ? '⏳' : (scene.image_filename ? '↻' : '✦') }}
               {{ scene.image_filename ? 'Regenerate image' : 'Generate image' }}
@@ -869,7 +869,7 @@ const aspectRatios = computed(() => {
   const ratios = selectedGenStudioModel.value?.aspect_ratios
   if (!ratios?.length) return defaultAspectRatios
   const labels = Object.fromEntries(defaultAspectRatios.map(item => [item.value, item.label]))
-  return ratios.map(value => ({ value, label: labels[value] || 'Supported by GenStudio' }))
+  return ratios.map(value => ({ value, label: labels[value] || 'Supported by the Gateway' }))
 })
 /**
  * The published output row this page renders at, kept as the PAIR because the
@@ -1167,7 +1167,7 @@ async function regenerateSelected(): Promise<void> {
 async function regenerateUnapproved(): Promise<void> {
   const ids = scenes.value.filter(s => !s.approved && s.visual_prompt).map(s => s.id)
   if (!ids.length) { showError('No unapproved scenes to regenerate'); return }
-  if (!await ask({ title: 'Re-render unapproved scenes?', message: `Re-render all ${ids.length} unapproved scene(s) as a GenStudio batch? Existing images for those scenes are replaced.`, confirmLabel: `Re-render ${ids.length}`, danger: true })) return
+  if (!await ask({ title: 'Re-render unapproved scenes?', message: `Re-render all ${ids.length} unapproved scene(s) as a Gateway batch? Existing images for those scenes are replaced.`, confirmLabel: `Re-render ${ids.length}`, danger: true })) return
   await renderContinuity({ sceneIds: ids })
 }
 watch(() => previewScene.value?.id, (id) => {
@@ -1654,7 +1654,7 @@ async function replaceUncertainImages(): Promise<void> {
   const sourceJobId = source.job_id
   if (!await ask({
     title: 'Replace uncertain image request?',
-    message: 'GenStudio did not prove whether the earlier request finished. A new request may create a second image and may charge again. Any late old result will not replace the new chosen result.',
+    message: 'The Gateway did not prove whether the earlier request finished. A new request may create a second image and may charge again. Any late old result will not replace the new chosen result.',
     confirmLabel: 'Replace anyway',
     danger: true,
   })) return

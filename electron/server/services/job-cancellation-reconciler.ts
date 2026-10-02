@@ -208,7 +208,7 @@ function reconciliationError(error: unknown): string {
     ? `HTTP ${(error as { status: number }).status}: `
     : ''
   const message = error instanceof Error ? error.message : String(error)
-  return redactSensitiveValue(`GenStudio status check is waiting (${status}${message})`).slice(0, 320)
+  return redactSensitiveValue(`Gateway status check is waiting (${status}${message})`).slice(0, 320)
 }
 
 export interface ReconcileOptions {

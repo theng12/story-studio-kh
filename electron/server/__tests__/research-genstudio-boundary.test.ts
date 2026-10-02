@@ -14,7 +14,7 @@ import {
 
 const SERVER_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
-describe('GenStudio Research boundary', () => {
+describe('Gateway Research boundary', () => {
   it('publishes exactly two adapters, both GenStudio-backed', () => {
     // These are the two research MODES, not a provider choice: both run
     // through the same GenStudio boundary on the same API key. No third entry
@@ -22,11 +22,11 @@ describe('GenStudio Research boundary', () => {
     assert.equal(GENSTUDIO_RESEARCH_PROVIDER, 'llm-only')
     assert.equal(GENSTUDIO_WEB_RESEARCH_PROVIDER, 'genstudio-web')
     assert.deepEqual(Object.keys(RESEARCH_ADAPTERS).sort(), ['genstudio-web', 'llm-only'])
-    assert.equal(RESEARCH_ADAPTERS['llm-only'].displayName, 'GenStudio LLM')
-    assert.equal(RESEARCH_ADAPTERS['genstudio-web'].displayName, 'GenStudio web search')
+    assert.equal(RESEARCH_ADAPTERS['llm-only'].displayName, 'Gateway LLM')
+    assert.equal(RESEARCH_ADAPTERS['genstudio-web'].displayName, 'Gateway web search')
   })
 
-  it('accepts only the two GenStudio research identities', () => {
+  it('accepts only the two Gateway research identities', () => {
     for (const savedValue of [undefined, '', 'llm-only']) {
       assert.equal(normalizeResearchSourceProvider(savedValue), 'llm-only')
       assert.equal(getResearchAdapter(savedValue), RESEARCH_ADAPTERS['llm-only'])

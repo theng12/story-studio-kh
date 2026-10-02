@@ -38,7 +38,7 @@ test('a new channel with no Gateway key gets a blocking "Connect your Gateway" a
     calls.push(url)
     if (url.endsWith('/upload/accounts')) return { accounts: {} }
     if (url.endsWith('/app-settings/api-keys')) return { providers: [{ providerId: 'genstudio', hasKey: false, keyMasked: '' }] }
-    if (url.includes('/models?')) { const e: any = new Error('400'); e.data = { detail: 'Add a GenStudio API key' }; throw e }
+    if (url.includes('/models?')) { const e: any = new Error('400'); e.data = { detail: 'Add a Gateway key' }; throw e }
     if (url.endsWith('/ffmpeg/status')) return { installed: true }
     throw new Error(`unexpected ${url}`)
   }

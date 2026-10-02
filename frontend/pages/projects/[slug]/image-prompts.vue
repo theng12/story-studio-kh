@@ -115,7 +115,7 @@
             {{ showVisualStyleGallery ? 'Hide visual style gallery' : 'Browse visual style gallery…' }}
           </button>
         </div>
-        <!-- Ratios come from the selected GenStudio image model's published
+        <!-- Ratios come from the selected Gateway image model's published
              `aspect_ratios`, not a hardcoded list. The old static options
              both hid ratios a model supports and offered ones it does not,
              so a prompt sheet could be written for a frame that would be
@@ -170,7 +170,7 @@
           placeholder="Describe the visual style…" />
 
         <!-- Reference-image style extraction (pain-point #7). Upload an -->
-        <!-- image → a vision-capable GenStudio model returns a style-only description that -->
+        <!-- image → a vision-capable Gateway model returns a style-only description that -->
         <!-- populates the textarea above. Re-analyze lets users iterate on -->
         <!-- the focus hint without re-picking the file. -->
         <div v-if="visionModels.length" class="style-extract mt-2">
@@ -420,7 +420,7 @@
             <label>Thumbnail Count</label>
             <input v-model.number="form.thumbnail.thumb_count" class="input" type="number" min="1" max="10" />
           </div>
-          <!-- Prompt length. Every number offered here is GenStudio's own
+          <!-- Prompt length. Every number offered here is the Gateway's own
                published `max_prompt_characters` — no ladder is hardcoded — and
                it reaches the writing LLM as a ceiling, never as a length to
                fill. Over-length prompts are counted and flagged amber on each
@@ -744,7 +744,7 @@
 
           <template v-if="thumbnailVisionModels.length">
             <p class="text-muted text-xs hint-line">
-              The image is uploaded privately to GenStudio for analysis and generation—never as a local path, browser URL, or public URL.
+              The image is uploaded privately to the Gateway for analysis and generation—never as a local path, browser URL, or public URL.
             </p>
             <div class="form-group mt-1">
               <label>Composition analysis model</label>
@@ -763,7 +763,7 @@
             </div>
           </template>
           <p v-else class="thumbnail-reference-card__warning">
-            {{ thumbnailVisionLoadError || 'No currently available GenStudio model is qualified to analyse a thumbnail reference. Check the GenStudio connection, then retry.' }}
+            {{ thumbnailVisionLoadError || 'No currently available Gateway model is qualified to analyse a thumbnail reference. Check the Gateway connection, then retry.' }}
           </p>
 
           <template v-if="form.thumbnail.thumb_reference_asset">
@@ -1298,9 +1298,9 @@ const visionModelMenuOptions = computed(() => visionModels.value.map(model => ({
   label: model.id,
   // Gateway named once, by the group heading. The chat catalogue publishes no
   // provider for these products, so no `provider` is set.
-  group: 'GenStudio KH',
+  group: 'Gateway',
   disabled: !model.available,
-  disabledReason: model.available ? undefined : 'This GenStudio model is currently unavailable.',
+  disabledReason: model.available ? undefined : 'This Gateway model is currently unavailable.',
   badges: [{ label: 'Vision', tone: 'info' as const }],
   costTier: model.cost_tier,
 })))
@@ -1555,7 +1555,7 @@ function imageModelCapHint(model: { display_name?: string; max_prompt_characters
   const name = model.display_name || 'This model'
   return cap
     ? `${name} accepts prompts up to ${cap.toLocaleString()} characters. Picking it sets the Auto limit to that figure.`
-    : `${name} publishes no prompt-character limit, so Auto leaves prompts unlimited. GenStudio still validates every render.`
+    : `${name} publishes no prompt-character limit, so Auto leaves prompts unlimited. The Gateway still validates every render.`
 }
 const autoPromptCharCapLabel = computed(() => {
   if (!form.thumbnail.intended_image_model) return 'no image model chosen — no limit'
@@ -1755,7 +1755,7 @@ const aspectRatios = computed(() => {
   if (!ratios?.length) {
     return Object.entries(aspectRatioLabels).map(([value, label]) => ({ value, label }))
   }
-  return ratios.map(value => ({ value, label: aspectRatioLabels[value] || 'Supported by GenStudio' }))
+  return ratios.map(value => ({ value, label: aspectRatioLabels[value] || 'Supported by the Gateway' }))
 })
 // Keep the form on a ratio the selected model actually publishes.
 watch(selectedGenStudioImageModel, (model) => {
@@ -2179,11 +2179,11 @@ async function loadThumbnailVisionModels() {
     )
     if (selected && selected.id !== thumbnailVisionModel.value) thumbnailVisionModel.value = selected.id
     if (!thumbnailVisionModels.value.length) {
-      thumbnailVisionLoadError.value = 'GenStudio is connected, but it has not published a currently available vision model with image input and structured JSON output.'
+      thumbnailVisionLoadError.value = 'The Gateway is connected, but it has not published a currently available vision model with image input and structured JSON output.'
     }
   } catch (error: any) {
     thumbnailVisionModels.value = []
-    thumbnailVisionLoadError.value = error?.data?.detail || error?.message || 'Could not reach the GenStudio vision-model catalog.'
+    thumbnailVisionLoadError.value = error?.data?.detail || error?.message || 'Could not reach the Gateway vision-model catalog.'
   } finally {
     thumbnailVisionLoading.value = false
   }
@@ -2286,7 +2286,7 @@ async function extractThumbReferenceStyle() {
     })
     if (!r.path) return
     extractingThumbRef.value = true
-    if (!thumbnailVisionModel.value) throw new Error('No GenStudio vision model is currently available for thumbnail analysis.')
+    if (!thumbnailVisionModel.value) throw new Error('No Gateway vision model is currently available for thumbnail analysis.')
     const data = await post<{ reference: ThumbnailReferenceAsset }>(
       `/projects/${slug.value}/thumbnail-reference/analyze`,
       { source_path: r.path, model_id: thumbnailVisionModel.value },

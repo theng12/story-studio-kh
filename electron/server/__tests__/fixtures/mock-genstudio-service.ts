@@ -306,7 +306,7 @@ function normalizeScenario(
   const terminal = states.at(-1)
   const finalCredits = scenario.finalCredits ?? (terminal === 'failed' ? 0 : reservedCredits)
   if (!['succeeded', 'failed'].includes(terminal || '')) {
-    throw new Error('Mock GenStudio scenarios must end in succeeded or failed')
+    throw new Error('Mock Gateway scenarios must end in succeeded or failed')
   }
   if (quotedCredits < 0 || reservedCredits < 0 || finalCredits < 0 || finalCredits > reservedCredits) {
     throw new Error('Mock GenStudio credit values are invalid')
@@ -318,7 +318,7 @@ function normalizeScenario(
     finalCredits,
     failureCode: scenario.failureCode || null,
     routingStatusCode: scenario.routingStatusCode || null,
-    outputText: scenario.outputText || 'Mock GenStudio output.',
+    outputText: scenario.outputText || 'Mock Gateway output.',
     finishReason: scenario.finishReason || 'stop',
     envelope: scenario.envelope || {},
     artifactExpired: scenario.artifactExpired === true,
@@ -369,7 +369,7 @@ export class MockGenStudioService {
   readonly submissions: MockGenStudioSubmission[] = []
   readonly server: Server
   ttsModels: Array<Record<string, unknown>> = [{
-    id: 'mock-tts-v1', display_name: 'Mock TTS', provider_id: 'mock-provider', provider_name: 'GenStudio mock',
+    id: 'mock-tts-v1', display_name: 'Mock TTS', provider_id: 'mock-provider', provider_name: 'Gateway mock',
     description: 'In-process TTS fixture.', credits_per_1000_characters: 1, minimum_credits: 1,
     maximum_input_characters: 15_000, supports_speed: true, minimum_speed: 0.5, maximum_speed: 2, supports_voice_cloning: false,
     preview_policy: '', generation_enabled: true, provider_submit_concurrency: null, controls: [],
@@ -452,7 +452,7 @@ export class MockGenStudioService {
     this.server.listen(0, '127.0.0.1')
     await once(this.server, 'listening')
     const address = this.server.address()
-    if (!address || typeof address === 'string') throw new Error('Mock GenStudio did not bind a TCP port')
+    if (!address || typeof address === 'string') throw new Error('Mock the Gateway did not bind a TCP port')
     this.baseUrl = `http://127.0.0.1:${address.port}`
     return this
   }
@@ -613,7 +613,7 @@ export class MockGenStudioService {
    *  as `pauseNextContentArchiveResponse`, for generators whose read-modify-write
    *  window is bracketed by an LLM call. */
   pauseNextSubmitResponse(): { started: Promise<void>; release: () => void } {
-    if (this.nextSubmitResponseBarrier) throw new Error('A mock GenStudio submission is already paused')
+    if (this.nextSubmitResponseBarrier) throw new Error('A mock Gateway submission is already paused')
     let signalStarted!: () => void
     let release!: () => void
     const started = new Promise<void>(resolve => { signalStarted = resolve })
@@ -745,7 +745,7 @@ export class MockGenStudioService {
 
   private requireJob(jobId: string): MockJob {
     const job = this.jobs.get(jobId)
-    if (!job) throw new Error(`Unknown mock GenStudio job: ${jobId}`)
+    if (!job) throw new Error(`Unknown mock Gateway job: ${jobId}`)
     return job
   }
 
@@ -1426,7 +1426,7 @@ export class MockGenStudioService {
         duration_seconds: 65,
         price_version: 'mock-price-v1',
         preview_only: false,
-        transcript: state === 'succeeded' ? 'Hello from the mock GenStudio service.' : null,
+        transcript: state === 'succeeded' ? 'Hello from the mock Gateway service.' : null,
         srt_url: state === 'succeeded' ? `/v1/transcriptions/${job.id}/srt` : null,
       }
     }
@@ -1821,7 +1821,7 @@ export class MockGenStudioService {
           response.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': String(bytes.length) })
           response.end(bytes)
         } else {
-          const srt = Buffer.from('1\n00:00:00,000 --> 00:00:01,000\nHello from mock GenStudio.\n')
+          const srt = Buffer.from('1\n00:00:00,000 --> 00:00:01,000\nHello from mock the Gateway.\n')
           response.writeHead(200, { 'Content-Type': 'application/x-subrip', 'Content-Length': String(srt.length) })
           response.end(srt)
         }
@@ -1885,7 +1885,7 @@ export class MockGenStudioService {
     }
     if (pathname === '/v1/voices') {
       json(response, 200, [{
-        id: 'mock-voice', display_name: 'Mock Voice', language: 'en', provider: 'GenStudio mock',
+        id: 'mock-voice', display_name: 'Mock Voice', language: 'en', provider: 'Gateway mock',
         engine_id: 'mock-tts-v1', engine_name: 'Mock TTS', model_revision_id: 'mock-tts-r1',
         model_family: 'mock', voice_tier: 'standard', catalog_status: 'published', generation_enabled: true,
       }])
@@ -1897,7 +1897,7 @@ export class MockGenStudioService {
     }
     if (pathname === '/v1/transcription/models') {
       json(response, 200, this.transcriptionModelsByKey.get(this.bearerKey(request)) ?? [{
-        id: 'mock-whisper-v1', display_name: 'Mock Whisper', provider: 'GenStudio mock',
+        id: 'mock-whisper-v1', display_name: 'Mock Whisper', provider: 'Gateway mock',
         language: 'multilingual', available: true, available_workers: 1, qualification_only: false,
         supported_languages: ['en'], supports_language_auto_detect: true,
         // Transcription is priced per SECOND with a floor, as GenStudio
@@ -1935,7 +1935,7 @@ export class MockGenStudioService {
     }
     if (pathname === '/v1/music/models') {
       json(response, 200, [{
-        id: 'mock-music-v1', display_name: 'Mock Music', provider_name: 'GenStudio mock',
+        id: 'mock-music-v1', display_name: 'Mock Music', provider_name: 'Gateway mock',
         description: 'In-process music fixture.', coming_soon: false,
         credits_per_request: 13, minimum_credits: 13, price_version: 'mock-music-price-v1',
         standard_credits: 13, sale_credits: null, sale_ends_at: null, sale_disclaimer: null,

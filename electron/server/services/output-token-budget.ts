@@ -125,7 +125,7 @@ function productCeiling(maxOutputTokens: unknown): number | null {
   if (maxOutputTokens === null || maxOutputTokens === undefined || maxOutputTokens === 0) return null
   if (!Number.isInteger(maxOutputTokens) || (maxOutputTokens as number) < 1) {
     throw new Error(
-      'Cannot resolve an output-token budget: the selected GenStudio product published a malformed '
+      'Cannot resolve an output-token budget: the selected Gateway product published a malformed '
       + `max_output_tokens (got ${JSON.stringify(maxOutputTokens)}). `
       + 'Story Studio does not substitute a ceiling of its own.',
     )

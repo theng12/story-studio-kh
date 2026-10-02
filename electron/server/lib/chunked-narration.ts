@@ -931,7 +931,7 @@ export async function expandChapters(
     const wanted = new Set(recoveryChapters)
     pending = sidecar.outline.filter(entry => wanted.has(entry.n))
     if (pending.length !== wanted.size || !job.genstudio_chat_recovery_key) {
-      throw new Error('Saved GenStudio repair identity no longer matches the original chapter slots. No replacement provider work was submitted.')
+      throw new Error('Saved Gateway repair identity no longer matches the original chapter slots. No replacement provider work was submitted.')
     }
   } else if (opts.chaptersToExpand?.length) {
     const want = new Set(opts.chaptersToExpand)
@@ -1071,7 +1071,7 @@ async function withChosenModel<T>(
             shareTemporaryAvailability: params.pipelineModelPolicy?.wait_for_availability === true,
           })
         }
-        job.output_lines.push(`[pipeline] script using GenStudio product "${model}".`)
+        job.output_lines.push(`[pipeline] script using Gateway product "${model}".`)
         return attempt(model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch)
       },
       params.pipelinePolicyCheckpoint,
@@ -1442,7 +1442,7 @@ async function expandNarrativeSequential(
     if (recoveryChapters?.length) {
       const repairBatch = batch.filter(entry => recoveryChapters.includes(entry.n))
       if (repairBatch.length !== recoveryChapters.length || !job.genstudio_chat_recovery_key) {
-        throw new Error('Saved GenStudio repair identity no longer matches the pending chapter slots. No replacement provider work was submitted.')
+        throw new Error('Saved Gateway repair identity no longer matches the pending chapter slots. No replacement provider work was submitted.')
       }
       const repairPrompt = narrativeRepairPrompt(
         params, outline, repairBatch, await narrativeTransitionWindow(params, repairBatch[0]!.n), useTOC,
@@ -1471,7 +1471,7 @@ async function expandNarrativeSequential(
       await writeSidecar(params.scriptDir, runningSidecar)
       const stillMissing = repairBatch.filter(entry => !repaired.includes(entry.n)).map(entry => entry.n)
       if (stillMissing.length) {
-        throw new Error(`Recovered GenStudio repair did not contain chapters ${stillMissing.join(', ')}. No replacement provider work was submitted.`)
+        throw new Error(`Recovered Gateway repair did not contain chapters ${stillMissing.join(', ')}. No replacement provider work was submitted.`)
       }
       job.output_lines.push(`[chunked]   → recovered repair wrote ${repaired.length} chapter(s) (${repaired.join(', ')})`)
       continue
@@ -1506,7 +1506,7 @@ async function expandNarrativeSequential(
         })
       }
       job.output_lines.push(
-        `[chunked]   → GenStudio reported incomplete output${error.finishReason ? ` (${error.finishReason})` : ''}; ` +
+        `[chunked]   → the Gateway reported incomplete output${error.finishReason ? ` (${error.finishReason})` : ''}; ` +
         `preserved ${wrote.length} parsed chapter(s) and released the original reservation.`,
       )
     }

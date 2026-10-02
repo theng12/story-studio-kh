@@ -51,7 +51,7 @@ function manifestEntry(overrides: Partial<TaskManifestEntry> = {}): TaskManifest
   }
 }
 
-void test('GenStudio image retry identity is fresh after failure and stable on a lost response', async (suite) => {
+void test('Gateway image retry identity is fresh after failure and stable on a lost response', async (suite) => {
   const service = await startMockGenStudioService()
   process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
 
@@ -233,7 +233,7 @@ void test('GenStudio image retry identity is fresh after failure and stable on a
         undefined,
         { allowPreparedReplayOnAbsent: true },
       )
-      assert.equal(outcome.kind, 'no-saved-job', '404 proves this exact prepared key never reached GenStudio')
+      assert.equal(outcome.kind, 'no-saved-job', '404 proves this exact prepared key never reached the Gateway')
       assert.equal(service.providerSubmissionCount('image'), 0, 'the recovery check itself remains read-only')
     })
 

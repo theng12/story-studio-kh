@@ -155,7 +155,7 @@
           <!-- Published rate for the SELECTED product, never a total: script
                length in tokens is unknown until the model has written it. -->
           <p v-if="selectedChatModel" class="script-rate" :class="`basis-${chatRateNote.basis}`" :title="chatRateNote.title">
-            {{ CREDIT_BASIS_LABEL[chatRateNote.basis] }}: {{ chatRateNote.text }} <PriceDetails :cost="chatRateNote" /> — the total depends on length, and GenStudio reports the actual charge per job.
+            {{ CREDIT_BASIS_LABEL[chatRateNote.basis] }}: {{ chatRateNote.text }} <PriceDetails :cost="chatRateNote" /> — the total depends on length, and the Gateway reports the actual charge per job.
           </p>
         </div>
         <div class="form-group">
@@ -1894,7 +1894,7 @@ async function submitOutline(): Promise<boolean> {
         // known until the model has written it.
         `Rate: ${chatRateNote.value.text}.\n` +
         `The total depends on how long the prompts and the written text turn out to be, ` +
-        `so no up-front figure is shown. GenStudio reports the actual charge on each finished job — see Usage.\n\n` +
+        `so no up-front figure is shown. The Gateway reports the actual charge on each finished job — see Usage.\n\n` +
         `Each chapter is written to disk as soon as it's generated, so cancel / crash / restart preserves partial work.`,
       confirmLabel: 'Generate outline',
       cancelLabel: 'Cancel',

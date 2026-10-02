@@ -60,7 +60,7 @@ export function thumbnailVisionModelMenuOption(
   return {
     id: model.id,
     label: model.display_name,
-    group: queueClassGroupLabel(model, 'GenStudio KH · Vision only'),
+    group: queueClassGroupLabel(model, 'Gateway · Vision only'),
     groupNote: isRelaxedQueue(model) ? describeRelaxedQueueHint(model.relaxed_queue_hint) : '',
     meta: `${model.max_input_images} image · ${model.supported_detail_levels.join(', ')} detail`,
     price: rate.text,

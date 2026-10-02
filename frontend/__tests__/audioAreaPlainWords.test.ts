@@ -56,7 +56,7 @@ test('Audio Generator: no stale or provider-key advice, and every action is expl
 })
 
 test('Subtitles: no "provider work" jargon, and removing a file asks first', () => {
-  assert.doesNotMatch(subtitles, /provider work|fresh GenStudio request/)
+  assert.doesNotMatch(subtitles, /provider work|fresh Gateway request/)
   assert.match(subtitles, /async function deleteSrt[\s\S]{0,200}useConfirm\(\)\.ask\(/)
 })
 

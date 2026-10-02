@@ -26,7 +26,7 @@ const ONE_PIXEL_PNG = Buffer.from(
   'base64',
 )
 
-void test('GenStudio video, TTS and transcription settle, refuse to reopen, and never double-charge', async (suite) => {
+void test('Gateway video, TTS and transcription settle, refuse to reopen, and never double-charge', async (suite) => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
@@ -218,7 +218,7 @@ void test('GenStudio video, TTS and transcription settle, refuse to reopen, and 
       assert.equal('released_credits' in omittedPayload, false)
     })
 
-    await suite.test('cancellation returns GenStudio truth without a replacement request', async () => {
+    await suite.test('cancellation returns Gateway truth without a replacement request', async () => {
       service.reset()
       service.queueScenario('tts', { states: ['accepted', 'running', 'succeeded'], reservedCredits: 5 })
       const submitted = await fetch(`${service.baseUrl}/v1/audio/jobs`, {
@@ -663,7 +663,7 @@ void test('terminal errors report only published release settlement and preserve
     id: 'image-omitted', state: 'failed', reserved_credits: 9, settled_credits: 0,
   })
   assert.match(omitted.message, /settlement is not yet published/i)
-  assert.match(omitted.message, /check.*GenStudio status/i)
+  assert.match(omitted.message, /check.*Gateway status/i)
   assert.doesNotMatch(omitted.message, /reservation was released|credits (?:were )?returned/i)
 
   const zero = new client.GenStudioVideoTerminalFailureError({

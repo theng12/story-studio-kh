@@ -28,7 +28,7 @@ async function loadComponent(): Promise<Component> {
 const zones = [
   {
     id: 'machine', title: 'This Mac', scope: 'Stays on this Mac', sections: [
-      { id: 'connections', label: 'Connections', description: 'GenStudio and YouTube accounts', keywords: 'api key oauth channel' },
+      { id: 'connections', label: 'Connections', description: 'The Gateway and YouTube accounts', keywords: 'api key oauth channel' },
       { id: 'performance', label: 'Performance & recovery', description: 'Local workload and retries', keywords: 'throughput failed image subtitles' },
     ],
   },

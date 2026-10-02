@@ -66,16 +66,16 @@ export async function stageGenStudioImage(
   // The gateway relays each provider's own format; assertDecodableImage below checks the real bytes.
   const header = /^data:image\/(?:png|jpeg|webp);base64,/.exec(artifact)
   if (!header) {
-    throw new Error('GenStudio returned an unsupported image artifact.')
+    throw new Error('The Gateway returned an unsupported image artifact.')
   }
   const bytes = Buffer.from(artifact.slice(header[0].length), 'base64')
-  if (!bytes.length) throw new Error('GenStudio returned an empty image artifact.')
+  if (!bytes.length) throw new Error('The Gateway returned an empty image artifact.')
 
   await fs.mkdir(path.dirname(savePath), { recursive: true })
   const temporaryPath = `${savePath}.partial-${process.pid}-${Date.now()}`
   try {
     await fs.writeFile(temporaryPath, bytes, { flag: 'wx' })
-    await assertDecodableImage(temporaryPath, 'GenStudio image')
+    await assertDecodableImage(temporaryPath, 'Gateway image')
     if (options.compress && header[0].startsWith('data:image/png')) await recompressPngInPlace(temporaryPath)
     return temporaryPath
   } catch (error) {

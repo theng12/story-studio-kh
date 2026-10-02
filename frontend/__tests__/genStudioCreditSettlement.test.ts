@@ -19,7 +19,7 @@ describe('GenStudio credit settlement language', () => {
     assert.doesNotMatch(source, /settledLabel/)
   })
 
-  it('shows only a published provisional hold and points to final GenStudio settlement', () => {
+  it('shows only a published provisional hold and points to final Gateway settlement', () => {
     const source = read('frontend/components/GenStudioCreditSettlementHint.vue')
 
     assert.match(source, /GenStudio has published a provisional reservation while this work settles/)

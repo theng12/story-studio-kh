@@ -535,7 +535,7 @@ test('the published floor is satisfied by enough references and the render proce
 
 // ── Seed ─────────────────────────────────────────────────────────────────
 
-test('seed is forwarded when GenStudio publishes nothing about seeds', async () => {
+test('seed is forwarded when the Gateway publishes nothing about seeds', async () => {
   await withGenStudio([publishedModel()], async (calls) => {
     const provider = registry.getImageProvider('genstudio-image')!
     await provider.generateImage({

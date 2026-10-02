@@ -26,7 +26,7 @@ const completeLlm = [
   { id: 'premium', costTier: 'premium' as const },
 ]
 
-describe('GenStudio cost-tier policy', () => {
+describe('Gateway cost-tier policy', () => {
   test('enables tier mode only for a fully classified non-empty catalog', () => {
     // Catches a regression that renders tier tabs while a row has no published tier.
     assert.equal(isCompleteTierCatalog(complete), true)

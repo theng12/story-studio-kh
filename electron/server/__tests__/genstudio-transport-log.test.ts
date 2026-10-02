@@ -115,7 +115,7 @@ test('the line never carries the API key or anything derived from it', () => {
       { [GENSTUDIO_CHAT_TRANSPORT_ENV]: 'responses' },
     ]) {
       const line = genStudioChatTransportLogLine(env)
-      assert.doesNotMatch(line, /gsk_/i, 'a GenStudio key prefix reached the startup line')
+      assert.doesNotMatch(line, /gsk_/i, 'a Gateway key prefix reached the startup line')
       assert.doesNotMatch(line, /api[_-]?key/i, 'the startup line mentions an API key')
       assert.doesNotMatch(line, /Bearer/i)
       assert.doesNotMatch(line, /authorization/i)

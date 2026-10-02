@@ -104,7 +104,7 @@ export function runBootMigrations(): void {
     const { setImageFanoutOverride } = await import('../services/job-queue.js')
     const setting = await getImageFanout()
     setImageFanoutOverride(setting === 'auto' ? 0 : setting)
-    console.log(`[boot] images per episode at once: ${setting === 'auto' ? 'auto (follows GenStudio)' : setting}`)
+    console.log(`[boot] images per episode at once: ${setting === 'auto' ? 'auto (follows the Gateway)' : setting}`)
   })().catch(error => console.error('[boot] image fanout load failed:', error?.message || error)))
 
   tasks.push((async () => {

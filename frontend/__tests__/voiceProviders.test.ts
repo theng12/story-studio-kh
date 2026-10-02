@@ -26,13 +26,13 @@ test('frontend strips removed provider labels from duplicate historical IDs', ()
   }])
 })
 
-test('provider filter rejects historical voices with no GenStudio mapping', () => {
+test('provider filter rejects historical voices with no Gateway mapping', () => {
   const voice = normalizeSavedVoice({ name: 'Fish', voice_id: 'fish', providers: ['fishaudio'] })!
   assert.equal(voiceSupportsProvider(voice, 'fishaudio'), false)
   assert.equal(voiceSupportsProvider(voice, 'genstudio'), false)
 })
 
-test('frontend retains the dedicated GenStudio voice label', () => {
+test('frontend retains the dedicated Gateway voice label', () => {
   const voice = normalizeSavedVoice({
     name: 'Ryan', voice_id: 'voice_qwen3_ryan', providers: ['genstudio'],
   })!
@@ -40,7 +40,7 @@ test('frontend retains the dedicated GenStudio voice label', () => {
   assert.equal(voiceSupportsProvider(voice, 'elevenlabs'), false)
 })
 
-test('discovered GenStudio voices merge without replacing saved names', () => {
+test('discovered Gateway voices merge without replacing saved names', () => {
   assert.deepEqual(mergeDiscoveredVoices([
     { name: 'My Ryan', voice_id: 'voice_qwen3_ryan', providers: ['genstudio'] },
   ], [
@@ -53,7 +53,7 @@ test('discovered GenStudio voices merge without replacing saved names', () => {
   ])
 })
 
-test('discovered GenStudio voices preserve tier and stored-preview metadata', () => {
+test('discovered Gateway voices preserve tier and stored-preview metadata', () => {
   assert.deepEqual(mergeDiscoveredVoices([], [{
     id: 'voice-premium',
     display_name: 'Premium narrator',
@@ -84,7 +84,7 @@ test('Story Studio holds no local TTS product list — the model catalogue is th
   assert.doesNotMatch(audioPage, /genstudio-multilingual-v3|Khmer/i)
 })
 
-test('Audio generation receives the live GenStudio voice catalog from VoicePicker', () => {
+test('Audio generation receives the live Gateway voice catalog from VoicePicker', () => {
   const picker = readFileSync(new URL('../components/VoicePicker.vue', import.meta.url), 'utf8')
   const audioPage = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
   assert.match(picker, /'catalog-updated': \[voices: GenStudioVoice\[\]\]/)
@@ -160,7 +160,7 @@ test('the quote renders an unpublished character ceiling instead of crashing on 
   assert.match(audioPage, /planned_request_characters \?\? narrationQuote\.maximum_input_characters/)
 })
 
-test('cost is the model rate before there is text, and a sum of GenStudio quotes after', () => {
+test('cost is the model rate before there is text, and a sum of the Gateway quotes after', () => {
   const audioPage = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
   assert.match(audioPage, /describeVoiceRate\(selectedTtsModel\.value\)/)
   // A narration is submitted as N jobs, so it is quoted as N quotes and the
@@ -191,7 +191,7 @@ test('speed is offered only when the selected model publishes supports_speed', (
   assert.match(audioPage, /v-if="supportsSpeed"/)
 })
 
-test('speed bounds come from the selected GenStudio model catalogue row', () => {
+test('speed bounds come from the selected Gateway model catalogue row', () => {
   const audioPage = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
   assert.match(audioPage, /publishedSpeedBounds\?\.minimum/)
   assert.match(audioPage, /publishedSpeedBounds\?\.maximum/)
@@ -200,7 +200,7 @@ test('speed bounds come from the selected GenStudio model catalogue row', () => 
   assert.doesNotMatch(audioPage, /:max="2"/)
 })
 
-test('all Story Studio transcription UI uses the GenStudio model catalog only', () => {
+test('all Story Studio transcription UI uses the Gateway model catalog only', () => {
   const subtitles = readFileSync(
     new URL('../pages/projects/[slug]/subtitles.vue', import.meta.url),
     'utf8',
@@ -218,7 +218,7 @@ test('all Story Studio transcription UI uses the GenStudio model catalog only', 
   }
 })
 
-test('GenStudio catalogs stay provider-owned across voice, image, LLM, and video selectors', () => {
+test('Gateway catalogs stay provider-owned across voice, image, LLM, and video selectors', () => {
   const mediaModels = readFileSync(new URL('../composables/useGenStudioMediaModels.ts', import.meta.url), 'utf8')
   const imageModels = readFileSync(new URL('../composables/useGenStudioImageModels.ts', import.meta.url), 'utf8')
   const modelSelector = readFileSync(new URL('../components/ModelSelector.vue', import.meta.url), 'utf8')
@@ -240,8 +240,8 @@ test('GenStudio catalogs stay provider-owned across voice, image, LLM, and video
   assert.match(motionReview, /variantsForVideoOperation\(selectedVideoModel\.value\?\.variants, STORY_STUDIO_VIDEO_OPERATION\)/)
   assert.match(motionReview, /variant\.credits_per_video/)
   assert.doesNotMatch(motionReview, /capability\.durations|provider.*duration/i)
-  assert.doesNotMatch(motionReview, /the cheapest option GenStudio publishes for this model/)
-  assert.doesNotMatch(motionReview, /Image-to-video generation through GenStudio KH/)
+  assert.doesNotMatch(motionReview, /the cheapest option the Gateway publishes for this model/)
+  assert.doesNotMatch(motionReview, /Image-to-video generation through Gateway KH/)
   assert.doesNotMatch(motionReview, /local fleet|cloud fleet|execution_label/i)
   assert.doesNotMatch(motionReview, /Unavailable saved selection|migration required|Historical/)
   assert.match(providerGroups, /category: 'mix'/)
@@ -249,7 +249,7 @@ test('GenStudio catalogs stay provider-owned across voice, image, LLM, and video
   assert.doesNotMatch(providerGroups, /openai|anthropic|kie|fal|elevenlabs|studio hub/i)
 })
 
-test('the cloned view asks GenStudio for the collection instead of guessing which voices are clones', () => {
+test('the cloned view asks the Gateway for the collection instead of guessing which voices are clones', () => {
   const picker = readFileSync(new URL('../components/VoicePicker.vue', import.meta.url), 'utf8')
   const composable = readFileSync(new URL('../composables/useGenStudioVoices.ts', import.meta.url), 'utf8')
 
@@ -273,7 +273,7 @@ test('the cloned view asks GenStudio for the collection instead of guessing whic
 
   // An empty clone list is normal, and must say where cloning actually happens
   // rather than reading as a failure to load.
-  assert.match(picker, /Voices are cloned in GenStudio KH/)
+  assert.match(picker, /Voices are cloned in Gateway KH/)
 
   // explore/my are published but undocumented to us — surfacing a label we
   // invented for someone else's vocabulary is what this asserts against.

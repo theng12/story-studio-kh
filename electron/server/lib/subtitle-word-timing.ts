@@ -135,7 +135,7 @@ export const estimatedWordTimingSource: WordTimingSource = {
 export function createExactWordTimingSource(words: TimedWord[] | null | undefined): WordTimingSource {
   if (!words) {
     throw new Error(
-      'Exact word timings are not available yet: GenStudio does not publish per-word times for a transcription. '
+      'Exact word timings are not available yet: The Gateway does not publish per-word times for a transcription. '
       + 'Use estimatedWordTimingSource until that endpoint exists.',
     )
   }

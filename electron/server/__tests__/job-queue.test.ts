@@ -1480,7 +1480,7 @@ async function waitForTerminalJob(jobId: string): Promise<void> {
   )
 }
 
-describe('manual GenStudio chat retries', () => {
+describe('manual Gateway chat retries', () => {
   test('an unresolved outline retry carries its recorded key to read-only recovery', async () => {
     const proj = await pm.createProject({ name: 'JQ Outline Exact Replay Key' })
     jq.registerExecutor('outline_only', async job => {
@@ -1796,7 +1796,7 @@ describe('manual GenStudio chat retries', () => {
         state: 'failed',
         updated_at: new Date().toISOString(),
       })
-      throw new Error('GenStudio settled the request as terminal')
+      throw new Error('The Gateway settled the request as terminal')
     })
     const failed = jq.enqueuePreparedForTest({
       project_slug: proj.slug,
@@ -1822,7 +1822,7 @@ describe('manual GenStudio chat retries', () => {
     await waitForTerminalJob(retry.job_id)
   })
 
-  test('a failed chapter expansion receives a new scope only when GenStudio recorded a terminal chat job', async () => {
+  test('a failed chapter expansion receives a new scope only when the Gateway recorded a terminal chat job', async () => {
     const proj = await pm.createProject({ name: 'JQ Terminal Chat Retry Scope' })
     jq.registerExecutor('expand_chapters', async job => {
       await jq.recordGenStudioJob(job.job_id, {
@@ -1832,7 +1832,7 @@ describe('manual GenStudio chat retries', () => {
         failure_code: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN',
         updated_at: new Date().toISOString(),
       })
-      throw new Error('GenStudio settled the request as terminal')
+      throw new Error('The Gateway settled the request as terminal')
     })
     const failed = jq.enqueuePreparedForTest({
       project_slug: proj.slug,
@@ -1864,7 +1864,7 @@ describe('manual GenStudio chat retries', () => {
         state: 'running',
         updated_at: new Date().toISOString(),
       })
-      throw new Error('connection lost before GenStudio returned a terminal result')
+      throw new Error('connection lost before the Gateway returned a terminal result')
     })
     const failed = jq.enqueuePreparedForTest({
       project_slug: proj.slug,

@@ -544,7 +544,7 @@ const i2vModels = computed(() => {
         label: model.display_name,
         // Named once, by the group heading. `VideoModelResponse` publishes no
         // provider, so no `provider` is set and none is guessed from the id.
-        group: 'GenStudio KH',
+        group: 'Gateway',
         price: rate.text,
         priceTitle: rate.title,
         meta: variant
@@ -553,7 +553,7 @@ const i2vModels = computed(() => {
         description: (variant
           ? `The cheapest published option is selected first (${variant.duration_seconds}s at ${variant.resolution}). `
             + 'Choose a resolution, then use one published length or match each scene to its narration.'
-          : 'GenStudio publishes no priced length or resolution for this model, so Story Studio '
+          : 'The Gateway publishes no priced length or resolution for this model, so Story Studio '
             + 'cannot generate a clip with it.')
           + (generatesAudio ? ` ${GENERATED_AUDIO_DISCLOSURE}` : '')
           + (publishesAudioSwitch
@@ -564,7 +564,7 @@ const i2vModels = computed(() => {
         disabledReason: genStudioModelLockReason(model) || (!model.available
           ? 'This video model is not currently available.'
           : !variant
-            ? 'GenStudio publishes no priced length or resolution for this model.'
+            ? 'The Gateway publishes no priced length or resolution for this model.'
             : undefined),
         badges: generatesAudio ? [{ label: 'Generates audio', tone: 'warning' as const }] : [],
         costTier: model.cost_tier,

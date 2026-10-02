@@ -83,7 +83,7 @@ test('the episode\'s own recorded model decides the split, with no job history a
       `the reconciler must predict the parts the episode's own model produces; got ${JSON.stringify(names)}`,
     )
     assert.equal(status.expected[0]!.totalChunks, names.length)
-    assert.equal(status.provider, 'genstudio', 'a recorded GenStudio model is still GenStudio work')
+    assert.equal(status.provider, 'genstudio', 'a recorded Gateway model is still Gateway work')
   } finally {
     await tmp.cleanup()
   }

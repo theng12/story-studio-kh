@@ -23,7 +23,7 @@
       <div>
         <label>{{ title }}</label>
         <p class="text-muted text-xs mt-1">
-          Build a reusable style pack, render one representative proof with a live GenStudio image model, then save the style text and preview with this project.
+          Build a reusable style pack, render one representative proof with a live Gateway image model, then save the style text and preview with this project.
         </p>
       </div>
       <div class="psl-controls">
@@ -70,7 +70,7 @@
         <button
           class="btn btn-secondary btn-sm"
           :disabled="renderingAll || anySampleLoading || !draftDescription.trim() || !previewModel"
-          :title="!previewModel ? 'Pick a GenStudio image model first' : 'Render one balanced scene that tests the complete visual style'"
+          :title="!previewModel ? 'Pick a Gateway image model first' : 'Render one balanced scene that tests the complete visual style'"
           @click="generateAllSamples"
         >
           {{ renderingAll ? 'Rendering style proof…' : 'Generate style proof' }}
@@ -103,7 +103,7 @@
           Apply to Style Bible
         </button>
         <span v-if="galleryCount" class="psl-gallery-count">{{ galleryCount }} sample{{ galleryCount === 1 ? '' : 's' }} selected for gallery</span>
-        <span class="text-muted text-xs">Uses the live GenStudio catalog and the selected model's supported defaults.</span>
+        <span class="text-muted text-xs">Uses the live Gateway catalog and the selected model's supported defaults.</span>
       </div>
       <p v-if="renderError" class="psl-error">{{ renderError }}</p>
 

@@ -16,7 +16,7 @@ import { dialectForModel } from '../services/audio-expression.js'
  * starts branching on a model name again (AGENTS.md's first rule).
  */
 describe('dialectForModel — dead pending a published capability signal', () => {
-  it('returns null for current GenStudio TTS tier ids', () => {
+  it('returns null for current Gateway TTS tier ids', () => {
     assert.equal(dialectForModel('genstudio-tts-regular'), null)
     assert.equal(dialectForModel('genstudio-tts-premium'), null)
     assert.equal(dialectForModel('genstudio-tts-clone'), null)

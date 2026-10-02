@@ -54,7 +54,7 @@ describe('GenStudio-only image-edit boundary', () => {
         prompt: 'remove the watermark',
         model: 'legacy-direct-provider',
       }),
-      /qualified GenStudio image-edit endpoint/,
+      /qualified Gateway image-edit endpoint/,
     )
   })
 

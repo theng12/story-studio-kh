@@ -1,8 +1,8 @@
 <template>
-  <section v-if="requests.length" class="gs-req" aria-label="Request sent to GenStudio">
+  <section v-if="requests.length" class="gs-req" aria-label="Request sent to the Gateway">
     <button type="button" class="gs-req-toggle" :aria-expanded="open" @click="open = !open">
       <span class="gs-req-caret" :class="{ open }">&#9656;</span>
-      {{ open ? 'Hide request' : 'Show request' }} sent to GenStudio
+      {{ open ? 'Hide request' : 'Show request' }} sent to the Gateway
       <span class="gs-req-count">({{ requests.length.toLocaleString() }} call{{ requests.length === 1 ? '' : 's' }})</span>
     </button>
 

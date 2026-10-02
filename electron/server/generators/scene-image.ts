@@ -152,15 +152,15 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   // The key is resolved first: model capabilities come from the live
   // GenStudio catalogue, not from a synthesised constant.
   const apiKey = await getApiKey('genstudio')
-  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
+  if (!apiKey) throw new Error('Add the Gateway key in Settings before generating images.')
   const modelConfig = await resolveImageModelConfig(config, model, apiKey)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
 
   if (modelConfig.provider !== 'genstudio-image') {
-    throw new Error(`Image model "${model}" is not routed through GenStudio KH.`)
+    throw new Error(`Image model "${model}" is not routed through the Gateway.`)
   }
   const imageProvider = registry.getImageProvider('genstudio-image')
-  if (!imageProvider) throw new Error('GenStudio KH image provider is unavailable.')
+  if (!imageProvider) throw new Error('Gateway image provider is unavailable.')
 
   const providerParams = (modelConfig as any).provider_params || {
     endpoint: modelConfig.endpoint,

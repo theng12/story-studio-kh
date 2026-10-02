@@ -148,8 +148,8 @@ test('with no reason and no class the message is exactly what it was before', ()
 
   assert.equal(
     error.message,
-    'GenStudio KH image generation failed (IMAGE_CONTENT_REFUSED). '
-    + 'GenStudio reports 20 credits released. '
+    'Gateway image generation failed (IMAGE_CONTENT_REFUSED). '
+    + 'The Gateway reports 20 credits released. '
     + 'This job cannot be reopened; Retry submits a new job.',
   )
   assert.equal(error.failureReason, null)

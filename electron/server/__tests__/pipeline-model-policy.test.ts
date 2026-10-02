@@ -66,7 +66,7 @@ test('Pipeline catalogue validation names missing and qualification-only product
   const policies = normalizePipelineModelPolicies({ metadata: { mode: 'backup', models: ['model-a', 'model-b'] } })
   assert.deepEqual(validatePipelineModelCatalogue(policies, [
     { id: 'model-a', available: true, qualification_only: false },
-  ]), ['model_policies.metadata: product "model-b" is not in the live GenStudio catalogue'])
+  ]), ['model_policies.metadata: product "model-b" is not in the live Gateway catalogue'])
   assert.match(validatePipelineModelCatalogue(policies, [
     { id: 'model-a', available: true, qualification_only: false },
     { id: 'model-b', available: true, qualification_only: true },

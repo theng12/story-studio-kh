@@ -16,13 +16,13 @@ export interface ApiProviderMeta {
 }
 
 export const API_PROVIDER_GROUPS: ApiProviderGroup[] = [
-  { id: 'mix', label: 'GenStudio', description: 'The sole catalog, job, and credit boundary.' },
+  { id: 'mix', label: 'Gateway', description: 'The sole catalog, job, and credit boundary.' },
 ]
 
 export const API_PROVIDER_META: ApiProviderMeta[] = [
   {
     id: 'genstudio',
-    name: 'GenStudio KH',
+    name: 'Gateway',
     category: 'mix',
     helpText: 'Sole LLM, image, voice/TTS, transcription, video, job, and credit boundary.',
     placeholder: 'gsk_…',

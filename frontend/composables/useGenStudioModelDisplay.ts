@@ -48,7 +48,7 @@ const catalogCache = createGenStudioCatalogCache<Record<string, GenStudioDisplay
     // Only a total failure (every catalog rejected) is a real fetch error —
     // a single endpoint being down still yields a usable partial map, same
     // as before this composable had a shared cache underneath it.
-    if (!anyFulfilled && endpoints.length) throw new Error('GenStudio model catalogs are unavailable.')
+    if (!anyFulfilled && endpoints.length) throw new Error('Gateway model catalogs are unavailable.')
     return catalogs
   },
 })

@@ -280,8 +280,8 @@ const catalogWithoutThePin = [
 describe('ModelSelector — a pinned model that left the catalogue', () => {
   test('distinguishes an empty catalogue caused by missing setup from a search miss', async () => {
     const { host, unmount } = await mountModelSelector('', [])
-    assert.match(String(menuProps.emptyCatalogLabel), /Add a GenStudio API key/)
-    assert.match(host.querySelector('.catalog-message')?.textContent || '', /No GenStudio API key is configured/)
+    assert.match(String(menuProps.emptyCatalogLabel), /Add a Gateway key/)
+    assert.match(host.querySelector('.catalog-message')?.textContent || '', /No Gateway key is configured/)
     assert.ok(host.querySelector('.catalog-action'), 'the setup message must offer a usable action')
     unmount()
   })
@@ -310,12 +310,12 @@ describe('ModelSelector — a pinned model that left the catalogue', () => {
         label: 'Paused Writer',
         provider: 'genstudio',
         available: false,
-        disabled_reason: 'Temporarily paused by GenStudio.',
+        disabled_reason: 'Temporarily paused by the Gateway.',
       },
     ])
     assert.equal(
       host.querySelector('.catalog-message')?.textContent,
-      'Temporarily paused by GenStudio.',
+      'Temporarily paused by the Gateway.',
     )
     assert.equal(
       host.querySelector('.selection-gap'),

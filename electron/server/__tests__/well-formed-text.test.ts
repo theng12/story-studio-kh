@@ -209,7 +209,7 @@ function accountOverview() {
   }
 }
 
-test('no chat request body can carry a lone surrogate to GenStudio', async () => {
+test('no chat request body can carry a lone surrogate to the Gateway', async () => {
   const originalFetch = globalThis.fetch
   let sentBody: string | null = null
   // Built with plain `slice` on purpose: this is the exact string the old
@@ -256,7 +256,7 @@ test('no chat request body can carry a lone surrogate to GenStudio', async () =>
     for (const value of collectStrings(JSON.parse(body))) {
       assert.equal(
         hasLoneSurrogate(value), false,
-        `GenStudio would decode a lone surrogate out of ${JSON.stringify(value)}`,
+        `The Gateway would decode a lone surrogate out of ${JSON.stringify(value)}`,
       )
     }
     // Buffer.from is what an HTTP client does to the body. It never throws, it
@@ -363,7 +363,7 @@ test('HIS emoji survive — the model’s do not', () => {
   assert.equal(stripEmojiFromGenerated(generated), 'Ancient Rome Explained')
 })
 
-test('stripping leaves text safe for the GenStudio boundary', () => {
+test('stripping leaves text safe for the Gateway boundary', () => {
   // The two layers compose: what comes out of the stripper still passes the
   // well-formedness gate that 1.4.9 added at the network boundary.
   const messy = `Title ${FAMILY} ${LONE_HIGH} end`

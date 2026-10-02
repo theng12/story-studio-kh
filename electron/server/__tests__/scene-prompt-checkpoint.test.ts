@@ -42,7 +42,7 @@ afterEach(async () => {
 })
 
 describe('scene prompt checkpoints', () => {
-  it('packs a 322-scene repair into seven bounded GenStudio requests', () => {
+  it('packs a 322-scene repair into seven bounded Gateway requests', () => {
     const sceneIds = Array.from({ length: 322 }, (_, index) => `scene-${index + 1}`)
     const packs = packScenePromptItems(sceneIds, 50)
 

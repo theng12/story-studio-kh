@@ -62,7 +62,7 @@ export function classifySubtitleFailure(failure: SubtitleReplacementInput['failu
 export function decideSubtitleReplacement(input: SubtitleReplacementInput): SubtitleReplacementDecision {
   const classification = classifySubtitleFailure(input.failure)
   if (classification === 'blocked') return { action: 'blocked', reason: 'the transcription failure is not an eligible settled transient failure' }
-  if (classification === 'free-retry') return { action: 'free-retry', reason: 'GenStudio confirmed a fully released zero-settlement transcription failure.' }
+  if (classification === 'free-retry') return { action: 'free-retry', reason: 'The Gateway confirmed a fully released zero-settlement transcription failure.' }
   if (!input.enabled) return { action: 'blocked', reason: 'automatic paid subtitle replacement is Off' }
   const ceiling = input.ceiling
   if (typeof ceiling !== 'number' || !Number.isSafeInteger(ceiling) || ceiling < 1) return { action: 'blocked', reason: 'the subtitle additional-credit ceiling is unavailable' }

@@ -11,7 +11,7 @@ const source = readFileSync(
 describe('GenStudio-only project onboarding', () => {
   test('keeps service credentials out of channel creation', () => {
     assert.match(source, /appSettingsModal\.open\(\)/)
-    assert.doesNotMatch(source, /KeyProvider|apiKeys|Scoped GenStudio API key/)
+    assert.doesNotMatch(source, /KeyProvider|apiKeys|Scoped Gateway key/)
 
     for (const retired of [
       'OpenAI API Key',

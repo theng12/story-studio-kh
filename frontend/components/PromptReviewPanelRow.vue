@@ -91,7 +91,7 @@
           <span aria-hidden="true">✨</span>
           Rewrite with these notes
         </button>
-        <!-- Manual only. GenStudio's exact IMAGE_CONTENT_REFUSED code can
+        <!-- Manual only. The Gateway's exact IMAGE_CONTENT_REFUSED code can
              identify a refusal, but nothing triggers this automatically. -->
         <button
           type="button"

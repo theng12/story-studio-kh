@@ -268,7 +268,7 @@ export function selectSceneClipGenStudioVariant(
   }
   const intended = variantsForGenStudioVideoOperation(variants, operation)
   const cheapest = cheapestGenStudioVideoVariant(intended)
-  if (!cheapest) throw new Error('GenStudio publishes no priced duration/resolution variant for this model.')
+  if (!cheapest) throw new Error('The Gateway publishes no priced duration/resolution variant for this model.')
   const duration = requestedVariant.duration_seconds
   const resolution = requestedVariant.resolution
   if (typeof duration !== 'number' || !Number.isFinite(duration) || typeof resolution !== 'string' || !resolution.trim()) {
@@ -278,7 +278,7 @@ export function selectSceneClipGenStudioVariant(
     variant.duration_seconds === duration && variant.resolution.trim() === resolution.trim()
   ))
   if (!matches.length) {
-    throw new Error(`GenStudio does not publish a ${duration}s at ${resolution.trim()} option for this model.`)
+    throw new Error(`The Gateway does not publish a ${duration}s at ${resolution.trim()} option for this model.`)
   }
   // **A duration and resolution can name more than one row, and the aspect ratio is what
   // separates them.** A Studio Hub video lane publishes canvases as pairs — its 448p class
@@ -294,7 +294,7 @@ export function selectSceneClipGenStudioVariant(
   const ratioMatch = stated.find(variant => variant.aspect_ratio!.trim() === requestedAspect)
   if (ratioMatch) return ratioMatch
   throw new Error(
-    `GenStudio does not publish ${requestedAspect} at ${duration}s ${resolution.trim()} for this model; `
+    `The Gateway does not publish ${requestedAspect} at ${duration}s ${resolution.trim()} for this model; `
     + `that duration and resolution offer: ${stated.map(variant => variant.aspect_ratio!.trim()).join(', ')}.`,
   )
 }
@@ -323,7 +323,7 @@ export function selectSceneClipNarrationVariant(
   const candidates = (ratioMatched.length ? ratioMatched : forResolution)
     .sort((a, b) => a.duration_seconds - b.duration_seconds)
   if (!candidates.length) {
-    throw new Error(`GenStudio publishes no priced image-to-video duration at ${resolution.trim()} for this model.`)
+    throw new Error(`The Gateway publishes no priced image-to-video duration at ${resolution.trim()} for this model.`)
   }
   return candidates.find(variant => variant.duration_seconds >= narrationDurationSeconds) || candidates.at(-1)!
 }
@@ -335,7 +335,7 @@ export async function requireSceneClipGenStudioCatalogModel(
 ): Promise<{ apiKey: string; modelId: string; model: GenStudioVideoModel }> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
-    throw new Error('Add a GenStudio API key in Settings → This Mac before generating motion clips.')
+    throw new Error('Add a Gateway key in Settings → This Mac before generating motion clips.')
   }
   const catalog = await listGenStudioVideoModels(apiKey)
   const modelId = resolveSceneClipCatalogModel(selectedModel, catalog)
@@ -343,9 +343,9 @@ export async function requireSceneClipGenStudioCatalogModel(
     throw new Error(
       isRetiredVideoModelId(selectedModel)
         ? `Saved video model "${selectedModel}" has been retired and was not requested. `
-          + 'Choose an available GenStudio image-to-video model, or leave the scene still.'
-        : `Saved video model "${selectedModel}" is not available through GenStudio. `
-          + 'Choose an available GenStudio image-to-video model; no other route was attempted.',
+          + 'Choose an available Gateway image-to-video model, or leave the scene still.'
+        : `Saved video model "${selectedModel}" is not available through the Gateway. `
+          + 'Choose an available Gateway image-to-video model; no other route was attempted.',
     )
   }
   return { apiKey, modelId, model: catalog.find(model => model.id === modelId)! }
@@ -396,7 +396,7 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
   // by the lane — or worse, submitted and answered with a different shape.
   const requestAspect = typeof params.aspect_ratio === 'string' ? params.aspect_ratio.trim() : ''
   if (!requestAspect) {
-    throw new Error(`An aspect ratio is required for ${model}; GenStudio publishes no default aspect ratio for video models.`)
+    throw new Error(`An aspect ratio is required for ${model}; The Gateway publishes no default aspect ratio for video models.`)
   }
 
   // Re-check the live catalog at execution time. A queued historical job may
@@ -412,7 +412,7 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
     }
   const { apiKey, modelId, model: catalogModel, variant } = await requireSceneClipGenStudioModel(model, requestedVariant)
   if (!catalogModel.aspect_ratios.some(ratio => ratio.trim() === requestAspect)) {
-    throw new Error(`GenStudio model ${modelId} does not publish aspect ratio ${requestAspect}.`)
+    throw new Error(`Gateway model ${modelId} does not publish aspect ratio ${requestAspect}.`)
   }
   // The ratio actually submitted: the resolved row's own published one where the catalogue states
   // it, otherwise the ratio the caller asked for. It is the same value the selector used to choose
@@ -434,12 +434,12 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
   }
   const audioChoice = publishesAudioSwitch && typeof params.audio === 'boolean' ? params.audio : undefined
 
-  job.output_lines.push(`Scene ${scene.scene_index} (${scene_id}) — animate via GenStudio KH / ${modelId}`)
+  job.output_lines.push(`Scene ${scene.scene_index} (${scene_id}) — animate via the Gateway / ${modelId}`)
   // The operation, duration, and resolution actually submitted are a current published
   // row. Say so, with its price: an enforced limit the user was never told
   // about is what turns a clear constraint into a mystery.
   job.output_lines.push(
-    `Variant: ${variant.operation} / ${describeGenStudioVideoVariant(variant)} — GenStudio's published option for this model `
+    `Variant: ${variant.operation} / ${describeGenStudioVideoVariant(variant)} — the Gateway's published option for this model `
     + `(${variant.credits_per_video} credits, minimum ${variant.minimum_credits}, price ${variant.price_version}).`,
   )
   job.output_lines.push(`Motion: ${scene.motion_prompt.slice(0, 200)}${scene.motion_prompt.length > 200 ? '…' : ''}`)
@@ -528,7 +528,7 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
       : null
     if (retry.isRetry) {
       job.output_lines.push(
-        `Previous GenStudio video task ${(retry.previousTaskId || '').slice(0, 12)}… is terminal; `
+        `Previous Gateway video task ${(retry.previousTaskId || '').slice(0, 12)}… is terminal; `
         + 'submitting one fresh job under a new retry identity.',
       )
     }
@@ -570,7 +570,7 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
       ...(recoveryEntry?.task_id ? { job_id: recoveryEntry.task_id } : {}),
       state: preparedState,
     })
-    job.output_lines.push(`GenStudio request: ${scene_id} -> ${idempotencyKey}`)
+    job.output_lines.push(`Gateway request: ${scene_id} -> ${idempotencyKey}`)
 
     const videoRequest: GenStudioVideoRequest = {
       prompt: scene.motion_prompt,
@@ -596,7 +596,7 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
           job_id: providerJobId,
           state: 'accepted',
         })
-        job.output_lines.push(`GenStudio task: ${scene_id} -> ${providerJobId}`)
+        job.output_lines.push(`Gateway task: ${scene_id} -> ${providerJobId}`)
       },
       onState: async (state, providerJobId) => {
         await recordTaskStrict(outDir, manifestKey, clipManifestEntry({
@@ -611,13 +611,13 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
         })
       },
       onReconnect: (providerJobId) => {
-        job.output_lines.push(`Connection interrupted; reconnecting accepted GenStudio task ${providerJobId}.`)
+        job.output_lines.push(`Connection interrupted; reconnecting accepted Gateway task ${providerJobId}.`)
       },
     }
 
     try {
       if (recoveryEntry?.task_id) {
-        job.output_lines.push(`Reclaiming accepted GenStudio task ${recoveryEntry.task_id.slice(0, 12)}… for ${manifestKey}.`)
+        job.output_lines.push(`Reclaiming accepted Gateway task ${recoveryEntry.task_id.slice(0, 12)}… for ${manifestKey}.`)
         result = await recoverVideoWithGenStudio(apiKey, recoveryEntry.task_id, videoRequest)
       } else {
         result = await generateVideoWithGenStudio(apiKey, videoRequest)

@@ -645,7 +645,7 @@ function mergeGenStudioReconciliationEvidence(
   }
   job.genstudio_jobs = coalesceExactProviderEvidence(job, entries)
   if (correctedFalseTranscriptionAbsence) {
-    const correction = `GenStudio later located ${operation} ${provider.id}; Story Studio corrected its earlier no-record result without submitting a new request.`
+    const correction = `Gateway later located ${operation} ${provider.id}; Story Studio corrected its earlier no-record result without submitting a new request.`
     if (!job.output_lines.includes(correction)) job.output_lines.push(correction)
   }
 }
@@ -669,7 +669,7 @@ function reportNeverCreatedProviderTasks(
   if (!absent.length) return
   const already = new Set(job.output_lines.slice(-40))
   for (const item of absent) {
-    const line = `GenStudio has no record of ${item.operation} ${item.evidence_id}. `
+    const line = `The Gateway has no record of ${item.operation} ${item.evidence_id}. `
       + 'That request was never created, so nothing was generated and nothing was charged for it.'
     if (!already.has(line)) job.output_lines.push(line)
   }
@@ -681,7 +681,7 @@ function reportNeverCreatedProviderTasks(
 
 function reportUnverifiedTranscriptionAbsence(job: Job): void {
   if (!(job.genstudio_jobs || []).some(shouldRecheckStoredTranscriptionAbsence)) return
-  const correction = 'Story Studio is rechecking an earlier no-record transcription result. Until GenStudio responds, it cannot confirm whether that request was created or charged.'
+  const correction = 'Story Studio is rechecking an earlier no-record transcription result. Until the Gateway responds, it cannot confirm whether that request was created or charged.'
   if (!job.output_lines.includes(correction)) job.output_lines.push(correction)
 }
 
@@ -691,7 +691,7 @@ function reportUnverifiedTranscriptionAbsence(job: Job): void {
  * checking (NEW-01).
  */
 const MISSING_KEY_RECONCILIATION_DETAIL =
-  'The GenStudio API key is not available on this Mac, so this cancellation cannot be confirmed yet. Add it in Settings → This Mac.'
+  'The Gateway key is not available on this Mac, so this cancellation cannot be confirmed yet. Add it in Settings → This Mac.'
 
 /**
  * Reconciliation has its own persisted set, not a queue worker slot. This is
@@ -715,7 +715,7 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
       // this same line — and rewrite jobs.json — once per tick for as long as
       // the job waited. State the fact once, and write only when this pass
       // actually changed something.
-      const line = 'Cancellation is waiting for the GenStudio API key to be available on this Mac.'
+      const line = 'Cancellation is waiting for the Gateway key to be available on this Mac.'
       let changed = false
       if (!job.output_lines.slice(-8).includes(line)) {
         job.output_lines.push(line)
@@ -743,7 +743,7 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
       claimedHere.add(key)
       // The claim changes the in-memory object too. Reconciliation reads the
       // fresh durable state below rather than carrying a stale closure.
-      job.output_lines.push(`Checking GenStudio cancellation for ${key}.`)
+      job.output_lines.push(`Checking Gateway cancellation for ${key}.`)
     }
     // Who holds each `submitting` claim decides whether the reconciler may send its POST (see
     // `reconcilePendingJobCancellation`): this pass, another live caller (the wait loop), or nobody.
@@ -767,20 +767,20 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
       // "reconciling the provider cancellation" reports an action he did not
       // take, on work he still wants. Say what is actually happening instead.
       const line = job.status === 'paused'
-        ? 'Paused. Story Studio is checking already accepted GenStudio work; no new generation request was sent.'
+        ? 'Paused. Story Studio is checking already accepted Gateway work; no new generation request was sent.'
         : hasCancellationContext(job)
           ? 'Story Studio is reconciling the provider cancellation; no new generation request was sent.'
-          : 'Story Studio is checking what GenStudio already finished for this job; no new generation request was sent.'
+          : 'Story Studio is checking what the Gateway already finished for this job; no new generation request was sent.'
       if (!job.output_lines.slice(-8).includes(line)) job.output_lines.push(line)
     } else if (job.status === 'paused') {
-      const line = 'Paused. All previously accepted GenStudio work has settled; Resume will verify files and submit only missing items.'
+      const line = 'Paused. All previously accepted Gateway work has settled; Resume will verify files and submit only missing items.'
       if (!job.output_lines.slice(-8).includes(line)) job.output_lines.push(line)
     } else if (!job.local_execution_complete) {
       // A live generator can receive its provider success before it has
       // downloaded/checkpointed the authoritative output. Persist that remote
       // truth now, but leave the duplicate lock and audit for runJob's local
       // boundary. Recovered jobs explicitly set this marker at load time.
-      job.output_lines.push('GenStudio settled provider work; waiting for the active local executor to finish saving output before verification.')
+      job.output_lines.push('The Gateway settled provider work; waiting for the active local executor to finish saving output before verification.')
     } else {
       await finalizeSettledProviderJob(job.job_id)
     }
@@ -874,7 +874,7 @@ async function refreshFinishedJobProviderEvidence(jobId: string): Promise<void> 
 
     const apiKey = await getApiKey('genstudio').catch(() => '')
     if (!apiKey) {
-      await recordHistoryEvidenceCheck(job, 'unreachable', previous, 'The GenStudio API key is not available on this Mac, so the provider could not be asked.')
+      await recordHistoryEvidenceCheck(job, 'unreachable', previous, 'The Gateway key is not available on this Mac, so the provider could not be asked.')
       return
     }
 
@@ -900,7 +900,7 @@ async function refreshFinishedJobProviderEvidence(jobId: string): Promise<void> 
       // GenStudio confirmed everything is terminal. Nothing is outstanding, so
       // the gate opens on this same snapshot with no further clicks.
       delete job.history_evidence_check
-      job.output_lines.push('GenStudio confirmed every recorded provider task for this job has finished. This history can now be removed.')
+      job.output_lines.push('The Gateway confirmed every recorded provider task for this job has finished. This history can now be removed.')
       await persistJob(job)
       emitUpdate(job)
       return
@@ -916,7 +916,7 @@ async function refreshFinishedJobProviderEvidence(jobId: string): Promise<void> 
     if (latest) {
       await recordHistoryEvidenceCheck(
         latest, 'unreachable', previous,
-        redactSensitiveValue(`GenStudio status check failed: ${error instanceof Error ? error.message : String(error)}`).slice(0, 320),
+        redactSensitiveValue(`Gateway status check failed: ${error instanceof Error ? error.message : String(error)}`).slice(0, 320),
       )
     }
   } finally {
@@ -934,8 +934,8 @@ async function recordHistoryEvidenceCheck(
   job.history_evidence_check = { state, at: new Date().toISOString(), ...(detail ? { detail } : {}) }
   if (previous !== state) {
     job.output_lines.push(state === 'unreachable'
-      ? `Story Studio could not confirm this job's remaining provider work with GenStudio.${detail ? ` ${detail}` : ''}`
-      : 'GenStudio reports this job still has provider work that has not finished.')
+      ? `Story Studio could not confirm this job's remaining provider work with the Gateway.${detail ? ` ${detail}` : ''}`
+      : 'The Gateway reports this job still has provider work that has not finished.')
   }
   await persistJob(job)
   emitUpdate(job)
@@ -981,10 +981,10 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
     if (evidence.every(entry => entry.cancelled === true)) {
       job.status = 'cancelled'
       job.error = null
-      job.output_lines.push('GenStudio confirmed cancellation for every provider task.')
+      job.output_lines.push('The Gateway confirmed cancellation for every provider task.')
     } else if (evidence.some(entry => entry.state === 'failed' && entry.cancelled !== true)) {
       job.status = 'error'
-      job.error = 'A GenStudio provider task failed after cancellation reconciliation. Provider evidence is retained.'
+      job.error = 'A Gateway provider task failed after cancellation reconciliation. Provider evidence is retained.'
       job.output_lines.push(job.error)
     } else if (
       evidence.some(entry => entry.cancelled === true)
@@ -996,7 +996,7 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
       // stay on disk. That is a cancelled job, not a half-failed one.
       job.status = 'cancelled'
       job.error = null
-      job.output_lines.push('GenStudio confirmed cancellation. Provider work that had already finished before the cancel was kept.')
+      job.output_lines.push('The Gateway confirmed cancellation. Provider work that had already finished before the cancel was kept.')
     } else if (evidence.some(entry => entry.cancelled === true)) {
       // A mixed success/cancellation is not a complete output set. Preserve
       // every artifact and make the existing Repair path explicit.
@@ -1013,7 +1013,7 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
       // failure, and the wording refuses to call it one.
       const missing = evidence.filter(isNeverCreatedProviderTask).length
       job.status = 'error'
-      job.error = `GenStudio has no record of ${missing} request${missing === 1 ? '' : 's'} from this job. `
+      job.error = `The Gateway has no record of ${missing} request${missing === 1 ? '' : 's'} from this job. `
         + `${missing === 1 ? 'It' : 'They'} never reached the provider, so nothing was generated and nothing was charged. `
         + 'Every other request settled. Retry resubmits only what is missing.'
       job.result = { ...(job.result || {}), provider_settled: 'never-created', repair_required: true }
@@ -1029,7 +1029,7 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
         // only exit. AGENTS.md §8: unverifiable output is never success, so fail
         // loudly, retain the provider evidence, and let the owner Retry.
         job.status = 'error'
-        job.error = 'GenStudio finished this step\'s provider work, but Story Studio cannot verify the local output because no completion audit is registered for this job type. Retry runs this step again; the settled provider task stays recorded as evidence.'
+        job.error = 'The Gateway finished this step\'s provider work, but Story Studio cannot verify the local output because no completion audit is registered for this job type. Retry runs this step again; the settled provider task stays recorded as evidence.'
         job.result = { ...(job.result || {}), provider_settled: 'succeeded', repair_required: true }
         job.finished_at = new Date().toISOString()
         job.output_lines.push(job.error)
@@ -3030,8 +3030,8 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
               j.output_lines.push(recoverableVideoAssembly
                 ? '↻ Story Studio restarted — resuming local Video Assembly from its validated scene-clip checkpoint. Missing or invalid clips and every later stage will be rebuilt.'
                 : recoverableImageEpisode
-                  ? '↻ Story Studio restarted — resuming this render. Every image GenStudio already finished will be reclaimed from its saved task id at no extra credits, and only genuinely missing scenes will be submitted.'
-                  : '↻ Story Studio restarted — resuming the checkpointed GenStudio asset job automatically; the saved request identity will be reused and no direct fallback will run.')
+                  ? '↻ Story Studio restarted — resuming this render. Every image the Gateway already finished will be reclaimed from its saved task id at no extra credits, and only genuinely missing scenes will be submitted.'
+                  : '↻ Story Studio restarted — resuming the checkpointed Gateway asset job automatically; the saved request identity will be reused and no direct fallback will run.')
               queues[j.type as JobType].pending.push(j)
               resumedTypes.add(j.type as JobType)
             } else {
@@ -3042,7 +3042,7 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
                 j.local_execution_complete = true
                 j.finished_at = null
                 j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
-                j.output_lines.push('↻ Story Studio restarted — reconciling the existing GenStudio request before allowing any retry.')
+                j.output_lines.push('↻ Story Studio restarted — reconciling the existing Gateway request before allowing any retry.')
                 reconciliationJobs.push(j.job_id)
               } else {
                 observePersistedRunningJobLoadStage(j, 'interrupted-terminalization')
@@ -5479,7 +5479,7 @@ export function retryTerminalJob(
     )
   if (anotherUnresolvedExpansionExists) {
     throw Object.assign(
-      new Error('Another terminal chapter expansion has unresolved GenStudio chat evidence.'),
+      new Error('Another terminal chapter expansion has unresolved Gateway chat evidence.'),
       { status: 409, expose: true },
     )
   }
@@ -5509,7 +5509,7 @@ export function retryTerminalJob(
     && pendingKeys.length !== unresolvedChatCount
   ) {
     throw Object.assign(
-      new Error('Unresolved GenStudio chat evidence does not prove one recoverable request identity. No provider work was submitted.'),
+      new Error('Unresolved Gateway chat evidence does not prove one recoverable request identity. No provider work was submitted.'),
       { status: 409, expose: true },
     )
   }
@@ -5689,7 +5689,7 @@ export function retryTerminalChapterExpansion(
   const retryMode = chapterChatRetryMode(original)
   if (!retryMode) {
     throw Object.assign(
-      new Error('Terminal retry job has no durable GenStudio chat evidence.'),
+      new Error('Terminal retry job has no durable Gateway chat evidence.'),
       { status: 409, expose: true },
     )
   }
@@ -5845,7 +5845,7 @@ async function queueRemoteCancellationTargetsUnlocked(
   job.finished_at = null
   job.pause_requested = false
   pauseRequested.delete(job.job_id)
-  if (added > 0) job.output_lines.push(`Cancellation requested for ${added} provider task${added === 1 ? '' : 's'}; waiting for GenStudio confirmation.`)
+  if (added > 0) job.output_lines.push(`Cancellation requested for ${added} provider task${added === 1 ? '' : 's'}; waiting for Gateway confirmation.`)
   await persistJob(job)
   emitUpdate(job)
   // Recovered jobs have no executor boundary; live jobs can be inside one.
@@ -5928,14 +5928,14 @@ export function readRecordedCreditReleases(lines: readonly string[]): { count: n
 function describeAbandonedCreditPosition(lines: readonly string[]): string {
   const released = readRecordedCreditReleases(lines)
   if (!released.count) {
-    return 'Credits: Story Studio holds no balance and refunds nothing itself. Whatever GenStudio '
-      + 'charged or released for this job is recorded in your GenStudio KH account — check there for the '
+    return 'Credits: Story Studio holds no balance and refunds nothing itself. Whatever the Gateway '
+      + 'charged or released for this job is recorded in your GenStudio account — check there for the '
       + 'final figure. Abandoning does not change it either way.'
   }
-  return `Credits: this job's own log already records GenStudio releasing ${released.total} credit(s) across `
+  return `Credits: this job's own log already records Gateway releasing ${released.total} credit(s) across `
     + `${released.count === 1 ? 'one settled request' : `${released.count} settled requests`}. That release happened `
-    + 'in your GenStudio KH account, not here, and abandoning does not undo it. Story Studio holds no balance and '
-    + 'refunds nothing itself; your GenStudio KH account has the final figure.'
+    + 'in your GenStudio account, not here, and abandoning does not undo it. Story Studio holds no balance and '
+    + 'refunds nothing itself; your GenStudio account has the final figure.'
 }
 
 /**
@@ -5996,7 +5996,7 @@ async function forceAbandonJobUnlocked(job: Job): Promise<Job> {
   job.finished_at = new Date().toISOString()
   job.output_lines.push('Abandoned at your request. Story Studio has stopped tracking this job and the queue has moved on.')
   job.output_lines.push(job.force_abandoned.unsettled.length
-    ? `No cancellation was sent to GenStudio. ${job.force_abandoned.unsettled.length === 1 ? 'This provider task was' : `These ${job.force_abandoned.unsettled.length} provider tasks were`} still unresolved and may yet finish: ${job.force_abandoned.unsettled.join(', ')}. Anything they produce can still be recovered from the episode.`
+    ? `No cancellation was sent to the Gateway. ${job.force_abandoned.unsettled.length === 1 ? 'This provider task was' : `These ${job.force_abandoned.unsettled.length} provider tasks were`} still unresolved and may yet finish: ${job.force_abandoned.unsettled.join(', ')}. Anything they produce can still be recovered from the episode.`
     : 'No provider work was outstanding when it was abandoned.')
   job.output_lines.push(describeAbandonedCreditPosition(job.output_lines))
   job.output_lines.push('Run this step again whenever you are ready — Retry on this row starts it fresh.')

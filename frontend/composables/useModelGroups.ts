@@ -36,7 +36,7 @@
  * goes through this map — see AGENTS.md → Provider Transparency.
  */
 export const PROVIDER_DISPLAY: Record<string, string> = {
-  genstudio: 'GenStudio KH',
+  genstudio: 'Gateway',
   // v1.0.149+ — Voice Studio KH local modal (Pinokio FastAPI wrapper,
   // reached over Tailscale). v1.0.150 dropped the standalone Chatterbox
   // entry (chatterbox-mlx is reachable through Voice Studio's family list).

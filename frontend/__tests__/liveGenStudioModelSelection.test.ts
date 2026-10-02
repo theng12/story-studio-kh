@@ -105,7 +105,7 @@ test('the lock-reason call sites pass the gateway sentence through unchanged', (
   ]) {
     const source = readFileSync(new URL(path, import.meta.url), 'utf8')
     assert.match(source, /genStudioModelLockReason\(model\)/)
-    assert.doesNotMatch(source, /Locked for this GenStudio account/)
+    assert.doesNotMatch(source, /Locked for this Gateway account/)
   }
 })
 
@@ -137,7 +137,7 @@ test('generator pickers keep stale selections visible until the user replaces th
   assert.match(imagesPage, /model: '',/)
   assert.match(promptsPage, /thumbnail:\s*\{\s*model: '',/)
   assert.match(promptsPage, /scene:\s*\{\s*model: '',/)
-  assert.match(promptsPage, /group: 'GenStudio KH'/)
+  assert.match(promptsPage, /group: 'Gateway'/)
   assert.doesNotMatch(promptsPage, /claude-sonnet-4-6|gpt-4o-mini|gpt-4-turbo/)
   assert.match(metadataPage, /const model = ref\(''\)/)
   assert.match(motionPage, /selectLiveImageToVideoModel/)

@@ -55,13 +55,13 @@ export const WEB_SEARCH_MODE_BLURB =
  * did not publish structured citations or source URLs for it.
  */
 export const WEB_SEARCH_NO_SOURCES_NOTICE =
-  'Research ran, but GenStudio did not publish structured citations or source URLs for this run.'
+  'Research ran, but the Gateway did not publish structured citations or source URLs for this run.'
 
 /** Web research can prove it opened pages without attributing a claim to one.
  * This is weaker than citations but is real run-level evidence, never a
  * no-source outcome. */
 export const WEB_SEARCH_SOURCE_URLS_NOTICE =
-  'Searched the web and recorded the pages GenStudio reported retrieving for this run. '
+  'Searched the web and recorded the pages the Gateway reported retrieving for this run. '
   + 'They show pages opened, not sources for individual claims.'
 
 /** Whether a persisted run has provider-reported retrieved pages. */
@@ -164,7 +164,7 @@ export function readResearchWebRun(run: ResearchWebRunReport | undefined | null)
 export function webRunUsageSentence(run: ResearchWebRunReport | undefined | null): string {
   const { searchesExecuted, searchCreditCost } = readResearchWebRun(run)
   if (searchesExecuted === null && searchCreditCost === null) {
-    return 'GenStudio did not report how many searches this run made or what the search cost.'
+    return 'The Gateway did not report how many searches this run made or what the search cost.'
   }
   return `Searches executed: ${searchesExecuted ?? NOT_REPORTED}. `
     + `Web search cost: ${searchCreditCost === null ? NOT_REPORTED : `${searchCreditCost} credits`}.`

@@ -149,7 +149,7 @@ export function genStudioSelectionGapMessage(gap: GenStudioSelectionGap): string
     case 'migrated':
       return null
     case 'unavailable':
-      return `Your saved GenStudio model "${gap.savedModelId}" is currently unavailable${gap.reason ? ` (${gap.reason})` : ''}. It stays selected until you pick a replacement — nothing was swapped automatically.`
+      return `Your saved Gateway model "${gap.savedModelId}" is currently unavailable${gap.reason ? ` (${gap.reason})` : ''}. It stays selected until you pick a replacement — nothing was swapped automatically.`
     case 'vanished':
       return `"${gap.savedModelId}" was retired — choose a replacement. Story Studio did not swap in another model.`
   }

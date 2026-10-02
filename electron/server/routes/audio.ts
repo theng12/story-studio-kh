@@ -38,7 +38,7 @@ export const router = Router()
 async function resolveExpressionDefaultModel(config: any): Promise<string> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
-    throw new Error('No GenStudio API key configured. Add it in Settings → This Mac before generating expression markup.')
+    throw new Error('No Gateway key configured. Add it in Settings → This Mac before generating expression markup.')
   }
   const saved = typeof config?.prompt_model === 'string' ? config.prompt_model : null
   return resolveChosenChatModel(apiKey, saved, 'the Audio Generator page (Expression tags)')
@@ -61,26 +61,26 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
   if (!apiKey) {
     return res.status(400).json({
       code: 'GENSTUDIO_KEY_REQUIRED',
-      detail: 'No GenStudio KH API key configured. Add it in Settings → This Mac.',
+      detail: 'No Gateway key configured. Add it in Settings → This Mac.',
     })
   }
 
   try {
     const ttsModel = (await listGenStudioTtsModels(apiKey)).find(model => model.id === migratedModel)
     if (!ttsModel) {
-      return res.status(409).json({ detail: `The saved voice model "${req.body.model}" is not currently in your GenStudio KH catalogue.` })
+      return res.status(409).json({ detail: `The saved voice model "${req.body.model}" is not currently in your Gateway catalogue.` })
     }
     if (!ttsModel.generation_enabled) {
-      return res.status(409).json({ detail: `GenStudio KH has generation turned off for ${ttsModel.display_name}. Choose another voice model.` })
+      return res.status(409).json({ detail: `The Gateway has generation turned off for ${ttsModel.display_name}. Choose another voice model.` })
     }
     if (ttsModel.locked) {
-      return res.status(409).json({ detail: `${ttsModel.display_name} is locked for this GenStudio account. Choose an unlocked voice model.` })
+      return res.status(409).json({ detail: `${ttsModel.display_name} is locked for this Gateway account. Choose an unlocked voice model.` })
     }
     const voices = await listGenStudioVoices(apiKey, { modelId: migratedModel })
     const selectedVoice = voices.find(voice => voice.id === req.body.voice && voice.generation_enabled !== false)
     if (!selectedVoice || !catalogHasVoice(voices, req.body.voice)) {
       return res.status(400).json({
-        detail: `The selected voice is not available on ${ttsModel.display_name} in your GenStudio KH catalog. `
+        detail: `The selected voice is not available on ${ttsModel.display_name} in your Gateway catalog. `
           + 'Refresh the voice picker and choose an available voice.',
       })
     }
@@ -88,7 +88,7 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
     // no longer a selector and no longer a price band.
     if (selectedVoice.voice_tier) req.body.tts_tier = selectedVoice.voice_tier
   } catch (error: any) {
-    return res.status(502).json(humanizeBackendError(error, 'Could not verify the GenStudio KH voice catalog'))
+    return res.status(502).json(humanizeBackendError(error, 'Could not verify the Gateway voice catalog'))
   }
   const deliberateFresh = req.body.force === true || req.body.no_overwrite === true
   let operationId: string | null
@@ -145,11 +145,11 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
   if (!apiKey) {
     return res.status(400).json({
       code: 'GENSTUDIO_KEY_REQUIRED',
-      detail: 'No GenStudio KH API key configured. Add it in Settings → This Mac.',
+      detail: 'No Gateway key configured. Add it in Settings → This Mac.',
     })
   }
   const resolvedVoiceId = typeof voice_id === 'string' ? voice_id.trim() : ''
-  if (!resolvedVoiceId) return res.status(400).json({ detail: 'Select a GenStudio voice before previewing.' })
+  if (!resolvedVoiceId) return res.status(400).json({ detail: 'Select a Gateway voice before previewing.' })
 
   try {
     // Scoped by the model this preview belongs to. GenStudio requires
@@ -159,7 +159,7 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
     const voices = await listGenStudioVoices(apiKey, { modelId: migratedModel })
     const voice = voices.find(entry => entry.id === resolvedVoiceId)
     if (!voice) {
-      return res.status(404).json({ detail: 'That voice is no longer available in your GenStudio catalog.' })
+      return res.status(404).json({ detail: 'That voice is no longer available in your Gateway catalog.' })
     }
     if (!voice.preview_available || !voice.preview_url) {
       return res.status(404).json({ detail: 'No saved preview is available for this voice yet.' })
@@ -198,7 +198,7 @@ async function quoteCandidateTts(input: {
   slug: string; code: string; modelId: string; voiceId: string; sections: string[]; speed?: unknown; controls?: unknown
 }): Promise<Record<string, unknown>> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) throw new Error('No GenStudio KH API key configured.')
+  if (!apiKey) throw new Error('No Gateway key configured.')
   const ttsModel = (await listGenStudioTtsModels(apiKey)).find(model => model.id === input.modelId)
   if (!ttsModel || !ttsModel.generation_enabled || ttsModel.locked) throw new Error('The selected voice model is no longer available for generation.')
   const voices = await listGenStudioVoices(apiKey, { modelId: input.modelId })
@@ -261,7 +261,7 @@ router.post('/projects/:slug/episodes/:code/tts-quote', async (req, res) => {
     if (!apiKey) {
       return res.status(400).json({
         code: 'GENSTUDIO_KEY_REQUIRED',
-        detail: 'No GenStudio KH API key configured. Add it in Settings → This Mac.',
+        detail: 'No Gateway key configured. Add it in Settings → This Mac.',
       })
     }
 
@@ -269,16 +269,16 @@ router.post('/projects/:slug/episodes/:code/tts-quote', async (req, res) => {
     // customer selected. Nothing here is remembered between requests.
     const ttsModel = (await listGenStudioTtsModels(apiKey)).find(model => model.id === modelId)
     if (!ttsModel) {
-      return res.status(409).json({ detail: `The selected voice model "${modelId}" is not currently in your GenStudio KH catalogue.` })
+      return res.status(409).json({ detail: `The selected voice model "${modelId}" is not currently in your Gateway catalogue.` })
     }
     if (!ttsModel.generation_enabled || ttsModel.locked) {
-      return res.status(409).json({ detail: `${ttsModel.display_name} is not available for generation on this GenStudio account.` })
+      return res.status(409).json({ detail: `${ttsModel.display_name} is not available for generation on this Gateway account.` })
     }
     const voices = await listGenStudioVoices(apiKey, { modelId })
     const voice = voices.find(candidate => candidate.id === voiceId)
     if (!voice) {
       return res.status(400).json({
-        detail: `The selected voice is not available on ${ttsModel.display_name} in your GenStudio KH catalog.`,
+        detail: `The selected voice is not available on ${ttsModel.display_name} in your Gateway catalog.`,
       })
     }
 
@@ -354,7 +354,7 @@ router.post('/projects/:slug/episodes/:code/tts-quote', async (req, res) => {
       section_count: sections.length,
     })
   } catch (e: any) {
-    res.status(502).json(humanizeBackendError(e, 'Could not get GenStudio KH quotes for this narration'))
+    res.status(502).json(humanizeBackendError(e, 'Could not get the Gateway quotes for this narration'))
   }
 })
 
@@ -886,7 +886,7 @@ router.post('/projects/:slug/episodes/:code/audio-quality/confirm', async (req, 
     }
     const configuredAlternateModel = config.audio_quality.alternate_transcription_model?.trim() || ''
     const apiKey = await getApiKey('genstudio').catch(() => '')
-    if (!apiKey) return res.status(400).json({ code: 'GENSTUDIO_KEY_REQUIRED', detail: 'No GenStudio KH API key configured. Add it in Settings → This Mac.' })
+    if (!apiKey) return res.status(400).json({ code: 'GENSTUDIO_KEY_REQUIRED', detail: 'No Gateway key configured. Add it in Settings → This Mac.' })
     const [ttsModels, voices, transcriptionModels] = await Promise.all([
       listGenStudioTtsModels(apiKey),
       listGenStudioVoices(apiKey, { modelId: model }),
@@ -1038,7 +1038,7 @@ router.post('/projects/:slug/episodes/:code/audio-quality/active-check/quote', a
     const alternateModel = config.audio_quality.alternate_transcription_model?.trim() || ''
     if (!alternateModel) return res.status(409).json({ detail: 'Choose a published alternate transcription model in Project Settings first.' })
     const apiKey = await getApiKey('genstudio').catch(() => '')
-    if (!apiKey) return res.status(400).json({ code: 'GENSTUDIO_KEY_REQUIRED', detail: 'No GenStudio KH API key configured. Add it in Settings → This Mac.' })
+    if (!apiKey) return res.status(400).json({ code: 'GENSTUDIO_KEY_REQUIRED', detail: 'No Gateway key configured. Add it in Settings → This Mac.' })
     const eligible = (await listGenStudioTranscriptionModels(apiKey)).find(model => model.id === alternateModel)
     if (!eligible || !eligible.available || eligible.qualification_only) {
       return res.status(409).json({ detail: 'The selected alternate transcription model is no longer available. Refresh Settings and choose another model.' })

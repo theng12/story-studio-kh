@@ -356,7 +356,7 @@ test('a paid GenStudio image job stays manual-only under either identifier', () 
     assert.equal(policy.eligible, false, `${model} must not auto-retry`)
     assert.match(
       policy.reason, reason,
-      `${model} must be classified as charged GenStudio work, not fall through to the generic reason`,
+      `${model} must be classified as charged Gateway work, not fall through to the generic reason`,
     )
   }
 })

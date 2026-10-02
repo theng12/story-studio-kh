@@ -20,13 +20,13 @@ after(async () => {
   await cleanup()
 })
 
-test('GenStudio voice discovery requires a saved key', async () => {
+test('Gateway voice discovery requires a saved key', async () => {
   const response = await request(app).get('/api/app-settings/genstudio/voices')
   assert.equal(response.status, 400)
   assert.match(response.body.detail, /API key/)
 })
 
-test('GenStudio voice discovery forwards the saved bearer key and catalog', async () => {
+test('Gateway voice discovery forwards the saved bearer key and catalog', async () => {
   await request(app)
     .put('/api/app-settings/api-keys/genstudio')
     .send({ apiKey: 'gsk_test_story_catalog' })
@@ -68,7 +68,7 @@ test('GenStudio voice discovery forwards the saved bearer key and catalog', asyn
   assert.equal(voice.model_revision_id, 'qwen-r1', 'model_revision_id is published to the customer')
   assert.equal(voice.provider, 'fish', 'provider is published to the customer')
   assert.equal(voice.tts_model_id, 'tts-qwen3', 'the serving model is published to the customer')
-  assert.equal(voice.is_saved, true, "GenStudio's own saved flag reaches the picker")
+  assert.equal(voice.is_saved, true, "The Gateway's own saved flag reaches the picker")
   assert.equal(voice.voice_tier, 'standard')
   assert.equal(voice.id, 'voice_qwen3_ryan')
 })
@@ -103,7 +103,7 @@ test('the voice model catalogue is published with its price, minimum and boundar
   assert.equal(JSON.stringify(model).includes('km'), false, 'Story must not restore retired Khmer support')
 })
 
-test('the voice model catalogue keeps direct and relaxed Fish products separate with GenStudio sale metadata', async () => {
+test('the voice model catalogue keeps direct and relaxed Fish products separate with Gateway sale metadata', async () => {
   await request(app)
     .put('/api/app-settings/api-keys/genstudio')
     .send({ apiKey: 'gsk_test_story_tts_relaxed_catalog' })
@@ -112,7 +112,7 @@ test('the voice model catalogue keeps direct and relaxed Fish products separate 
   const relaxedQueueHint = {
     discount_percent: 50,
     unlock_threshold_cents: 5_000,
-    message: 'GenStudio publishes this availability and discount notice.',
+    message: 'The Gateway publishes this availability and discount notice.',
   }
   const base = {
     provider_id: 'fish', provider_name: 'Fish Audio', description: 'Multilingual narration',
@@ -133,7 +133,7 @@ test('the voice model catalogue keeps direct and relaxed Fish products separate 
         standard_credits: 48,
         sale_credits: 24,
         sale_ends_at: null,
-        sale_disclaimer: 'GenStudio publishes this sale disclaimer.',
+        sale_disclaimer: 'The Gateway publishes this sale disclaimer.',
         queue_class: 'relaxed',
         relaxed_queue_hint: relaxedQueueHint,
       },
@@ -150,10 +150,10 @@ test('the voice model catalogue keeps direct and relaxed Fish products separate 
   assert.equal(relaxed.standard_credits, 48)
   assert.equal(relaxed.sale_credits, 24)
   assert.equal(relaxed.sale_ends_at, null)
-  assert.equal(relaxed.sale_disclaimer, 'GenStudio publishes this sale disclaimer.')
+  assert.equal(relaxed.sale_disclaimer, 'The Gateway publishes this sale disclaimer.')
 })
 
-test('the music model catalogue forwards GenStudio published details without inferring a provider', async () => {
+test('the music model catalogue forwards the Gateway published details without inferring a provider', async () => {
   await request(app)
     .put('/api/app-settings/api-keys/genstudio')
     .send({ apiKey: 'gsk_music_catalog' })
@@ -217,7 +217,7 @@ test('the published voice libraries are named after their providers', async () =
   ])
 })
 
-test('GenStudio media and LLM discovery use provider-owned live catalogs', async () => {
+test('Gateway media and LLM discovery use provider-owned live catalogs', async () => {
   await request(app)
     .put('/api/app-settings/api-keys/genstudio')
     .send({ apiKey: 'gsk_test_story_catalog' })
@@ -267,7 +267,7 @@ test('GenStudio media and LLM discovery use provider-owned live catalogs', async
   assert.equal(video.body.models[0].available, false)
 })
 
-test('GenStudio cost tiers pass through every Story catalog response without replacing catalog facts', async () => {
+test('Gateway cost tiers pass through every Story catalog response without replacing catalog facts', async () => {
   await request(app)
     .put('/api/app-settings/api-keys/genstudio')
     .send({ apiKey: 'gsk_cost_tier_catalog' })
@@ -361,7 +361,7 @@ test('GenStudio cost tiers pass through every Story catalog response without rep
   assert.equal(visionModels.body.models[0].price_version, 'chat-tier-price-v1')
 })
 
-test('GenStudio transcription discovery uses the same scoped boundary key', async () => {
+test('Gateway transcription discovery uses the same scoped boundary key', async () => {
   await request(app)
     .put('/api/app-settings/api-keys/genstudio')
     .send({ apiKey: 'gsk_test_story_catalog' })
@@ -390,7 +390,7 @@ test('GenStudio transcription discovery uses the same scoped boundary key', asyn
   ])
 })
 
-test('GenStudio key test proves every Story Studio catalog and generation scope', async () => {
+test('Gateway key test proves every Story Studio catalog and generation scope', async () => {
   const visited: string[] = []
   globalThis.fetch = async (input, init) => {
     const url = String(input)
@@ -437,7 +437,7 @@ test('GenStudio key test proves every Story Studio catalog and generation scope'
   ])
 })
 
-test('GenStudio key test names content:read and never probes the debit endpoint', async () => {
+test('Gateway key test names content:read and never probes the debit endpoint', async () => {
   const visited: string[] = []
   globalThis.fetch = async (input) => {
     const url = String(input)
@@ -463,7 +463,7 @@ test('GenStudio key test names content:read and never probes the debit endpoint'
   assert.ok(!visited.some(url => url.includes('/v1/content/quotes')), 'a key test does not need to create a quote')
 })
 
-test('GenStudio key test names music:generate when the music catalog is not authorized', async () => {
+test('Gateway key test names music:generate when the music catalog is not authorized', async () => {
   globalThis.fetch = async (input) => {
     const url = String(input)
     if (url.endsWith('/v1/music/models')) {
@@ -484,7 +484,7 @@ test('GenStudio key test names music:generate when the music catalog is not auth
   assert.match(response.body.message, /music:generate/)
 })
 
-test('GenStudio key test names the first missing scope without submitting work', async () => {
+test('Gateway key test names the first missing scope without submitting work', async () => {
   globalThis.fetch = async (input) => {
     const url = String(input)
     if (url.endsWith('/v1/chat/responses/story-studio-key-probe')) {
@@ -527,7 +527,7 @@ test('GenStudio usage failures name the supported usage:read scope actionably', 
   assert.match(response.body.detail, /invalid or missing usage:read/i)
   assert.match(response.body.detail, /GenStudio key with usage:read/i)
   assert.match(response.body.detail, /all-access keys already include it/i)
-  assert.doesNotMatch(response.body.detail, /after GenStudio exposes/i)
+  assert.doesNotMatch(response.body.detail, /after Gateway exposes/i)
   assert.deepEqual(visited, ['http://127.0.0.1:8787/v1/account/overview'])
 })
 
@@ -585,7 +585,7 @@ test('GenStudio usage requests supported account pagination and returns authorit
  * missing selection.
  */
 
-test('the voice picker asks for a model instead of making a call GenStudio must refuse', async () => {
+test('the voice picker asks for a model instead of making a call the Gateway must refuse', async () => {
   await request(app)
     .put('/api/app-settings/api-keys/genstudio')
     .send({ apiKey: 'gsk_unscoped_voice_ask' })

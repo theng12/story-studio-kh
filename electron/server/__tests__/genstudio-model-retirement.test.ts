@@ -149,7 +149,7 @@ test('the settings catalogue carries the schedule too, so both surfaces agree', 
   assert.equal(response.body.models[0].retires_at, new Date(WITHDRAWN).toISOString())
 })
 
-test('the warning window is GenStudio\'s call, never re-derived from the dates', async () => {
+test('the warning window is the Gateway\'s call, never re-derived from the dates', async () => {
   clearCache()
   // A published withdrawal date with the window still CLOSED. How much notice a
   // customer gets is GenStudio's decision; a second policy here would disagree

@@ -176,7 +176,7 @@ describe('image content guidance — wiring', () => {
     assert.match(
       guidance,
       /IMAGE_CONTENT_REFUSED/,
-      'the module must document GenStudio\'s exact published refusal code',
+      'the module must document the Gateway\'s exact published refusal code',
     )
   })
 })

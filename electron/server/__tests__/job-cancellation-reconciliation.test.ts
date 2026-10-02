@@ -480,7 +480,7 @@ test('boot and manual recheck replace a stale transcription absence without reta
   persisted.finished_at = new Date().toISOString()
   persisted.local_execution_complete = true
   persisted.remote_cancellations = {}
-  persisted.output_lines = ['GenStudio has no record of audio.transcription pending:stale-transcription-boot. That request was never created, so nothing was generated and nothing was charged for it.']
+  persisted.output_lines = ['The Gateway has no record of audio.transcription pending:stale-transcription-boot. That request was never created, so nothing was generated and nothing was charged for it.']
   persisted.genstudio_jobs = [{
     id: 'pending:stale-transcription-boot', operation: 'audio.transcription', state: 'not_created', updated_at: new Date().toISOString(),
     cancelled: false, cancellable: false, cancellation_requested: false,

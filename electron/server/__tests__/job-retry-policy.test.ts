@@ -8,11 +8,11 @@ function policy(type: JobType, params: Record<string, any> = {}) {
 }
 
 describe('local auto-retry policy', () => {
-  test('leaves GenStudio durable recovery to GenStudio and never duplicates provider work', () => {
+  test('leaves Gateway durable recovery to the Gateway and never duplicates provider work', () => {
     assert.equal(policy('subtitles_transcribe', { engine: 'genstudio' }).eligible, false)
     assert.match(
       policy('subtitles_transcribe', { engine: 'genstudio' }).reason,
-      /reconnects accepted GenStudio tasks/,
+      /reconnects accepted Gateway tasks/,
     )
     // Queued pre-migration values are also manual-only while the generator
     // heals them onto GenStudio.
@@ -47,7 +47,7 @@ describe('local auto-retry policy', () => {
       model: 'genstudio-chat:genstudio-chat-test-v1',
     })
     assert.equal(genStudioPromptRun.eligible, false)
-    assert.match(genStudioPromptRun.reason, /ID-scoped GenStudio prompt repair/)
+    assert.match(genStudioPromptRun.reason, /ID-scoped Gateway prompt repair/)
     assert.equal(policy('audio_merge').eligible, true)
     assert.equal(policy('video_assembly').eligible, true)
     assert.equal(policy('broll_normalize').eligible, true)

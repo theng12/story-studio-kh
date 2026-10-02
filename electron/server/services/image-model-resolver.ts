@@ -51,10 +51,10 @@ export function publishedReferenceCeiling(models: GenStudioImageModel[]): number
 /** Human-readable reason a model cannot be submitted right now, or ''. */
 export function publishedAvailabilityProblem(model: GenStudioImageModel): string {
   if (model.locked) {
-    return `${model.display_name} is visible for comparison but locked for this GenStudio account. Choose an unlocked published model.`
+    return `${model.display_name} is visible for comparison but locked for this Gateway account. Choose an unlocked published model.`
   }
   if (!model.available) {
-    return `${model.display_name} is currently unavailable in GenStudio. Choose a published model.`
+    return `${model.display_name} is currently unavailable in the Gateway. Choose a published model.`
   }
   if (model.qualification_only) {
     return `${model.display_name} is qualification-only for this account and cannot be submitted.`
@@ -317,7 +317,7 @@ export async function resolveImageModelConfig(
   const resolvedModelId = resolveGenStudioModelId('image', modelId)
   if (!resolvedModelId) return undefined
   if (!apiKey.trim()) {
-    throw new Error('Add the GenStudio API key in Settings before generating images.')
+    throw new Error('Add the Gateway key in Settings before generating images.')
   }
   // Alias-aware: a saved raw id still resolves after GenStudio republishes the
   // product under its customer handle.

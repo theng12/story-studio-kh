@@ -474,7 +474,7 @@ export function describeJobExceptions(
   const settlement = summariseSettlement(job.genstudio_jobs)
   if ((job.genstudio_jobs || []).length && !settlement.confirmed) {
     const returned = settlement.returned > 0 ? `${settlement.returned.toLocaleString()} credits returned so far. ` : ''
-    lines.push({ key: 'credit-pending', text: `${returned}Credit outcome pending — Story Studio is checking GenStudio.` })
+    lines.push({ key: 'credit-pending', text: `${returned}Credit outcome pending — Story Studio is checking the Gateway.` })
   }
 
   return lines

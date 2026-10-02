@@ -93,7 +93,7 @@
         <!-- Tier picker — only renders for variable-priced models that
              carry a `tiers[]` array (resolution/speed/etc.). Flat-priced
              models hide it entirely. Credits are quoted authoritatively by
-             GenStudio at confirmation and settlement. -->
+             The Gateway at confirmation and settlement. -->
         <div v-if="modelTiers.length > 0" class="form-group">
           <label>{{ modelTierLabel }}</label>
           <div class="tier-picker">
@@ -112,7 +112,7 @@
       </div>
 
       <!-- Published `(resolution, aspect_ratio)` rows for the selected model,
-           each priced by GenStudio. Absent for a model publishing none. -->
+           each priced by the Gateway. Absent for a model publishing none. -->
       <ImageOutputOptionPicker
         v-if="activeGenStudioModel"
         v-model="outputOption"
@@ -137,7 +137,7 @@
           <label>Generation quality</label>
           <div class="input generator-automatic-quality" aria-live="polite">
             <strong>Automatic</strong>
-            <span>GenStudio uses {{ activeGenStudioModel.display_name }}’s recommended quality.</span>
+            <span>Gateway uses {{ activeGenStudioModel.display_name }}’s recommended quality.</span>
           </div>
           <p class="text-muted text-xs mt-1">Nothing to set here — quality is picked for you.</p>
         </div>
@@ -241,7 +241,7 @@
     />
 
     <!-- Recovery is scoped to the active artwork pool. It only reclaims an
-         accepted GenStudio result; fresh work remains an explicit action. -->
+         accepted Gateway result; fresh work remains an explicit action. -->
     <div v-if="form.episode_id" class="card workspace-section" aria-labelledby="image-integrity-heading">
       <h3 id="image-integrity-heading" class="integrity-title">
         Recovery & completeness

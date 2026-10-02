@@ -118,7 +118,7 @@ export function describeModelRetirement(
   const name = (selected.label || '').trim() || 'This model'
   const retires = publishedInstant(selected.retires_at)
   if (retires === null) {
-    return `${name} is scheduled for retirement. GenStudio has not published the date it stops `
+    return `${name} is scheduled for retirement. The Gateway has not published the date it stops `
       + `being available yet.${advice ? ' Choose another model before it does.' : ''}`
   }
   const date = formatRetirementDate(retires)

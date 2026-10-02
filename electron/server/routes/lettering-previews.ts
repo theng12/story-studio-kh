@@ -167,14 +167,14 @@ router.post('/lettering-styles/preview', validateBody(PreviewSchema), async (req
 
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
-    return res.status(400).json({ detail: 'No GenStudio KH API key is saved. Add one in Settings → App & Connections.' })
+    return res.status(400).json({ detail: 'No Gateway key is saved. Add one in Settings → App & Connections.' })
   }
 
   let catalog
   try {
     catalog = await listImageModels(apiKey)
   } catch (e: any) {
-    return res.status(502).json({ detail: e?.message || 'Could not load the GenStudio image catalog' })
+    return res.status(502).json({ detail: e?.message || 'Could not load the Gateway image catalog' })
   }
   const requested = req.body.model ? String(req.body.model) : ''
   const selected = requested
@@ -183,12 +183,12 @@ router.post('/lettering-styles/preview', validateBody(PreviewSchema), async (req
   if (!selected) {
     return res.status(409).json({
       detail: requested
-        ? `Not in the live GenStudio image catalog: ${requested}`
-        : `No published GenStudio image model can render a ${aspectRatio} swatch right now.`,
+        ? `Not in the live Gateway image catalog: ${requested}`
+        : `No published Gateway image model can render a ${aspectRatio} swatch right now.`,
     })
   }
-  if (!selected.available) return res.status(409).json({ detail: `${selected.display_name} is currently unavailable in GenStudio.` })
-  if (selected.locked) return res.status(409).json({ detail: `${selected.display_name} is locked for this GenStudio account.` })
+  if (!selected.available) return res.status(409).json({ detail: `${selected.display_name} is currently unavailable in the Gateway.` })
+  if (selected.locked) return res.status(409).json({ detail: `${selected.display_name} is locked for this Gateway account.` })
   if (selected.aspect_ratios.length && !selected.aspect_ratios.includes(aspectRatio)) {
     return res.status(400).json({ detail: `${selected.display_name} does not support ${aspectRatio}.` })
   }
@@ -216,12 +216,12 @@ router.post('/lettering-styles/preview', validateBody(PreviewSchema), async (req
     })
     source = result.url
   } catch (e: any) {
-    return res.status(502).json({ detail: e?.message || 'GenStudio image generation failed' })
+    return res.status(502).json({ detail: e?.message || 'Gateway image generation failed' })
   }
 
   let imageBytes: Buffer
   try {
-    if (!source.startsWith('data:')) throw new Error('GenStudio returned an unsupported swatch artifact')
+    if (!source.startsWith('data:')) throw new Error('The Gateway returned an unsupported swatch artifact')
     imageBytes = Buffer.from(source.slice(source.indexOf(',') + 1), 'base64')
     if (imageBytes.length === 0) throw new Error('Downloaded zero bytes')
   } catch (e: any) {

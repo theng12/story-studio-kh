@@ -19,7 +19,7 @@ const FULL_SCOPES: MockGenStudioScope[] = [
 
 function transcriptionModel(id: string) {
   return {
-    id, display_name: `Mock ${id}`, provider: 'GenStudio mock', language: 'multilingual',
+    id, display_name: `Mock ${id}`, provider: 'Gateway mock', language: 'multilingual',
     available: true, available_workers: 1, qualification_only: false,
     supported_languages: ['en'], supports_language_auto_detect: true,
     credits_per_second: 0.25, minimum_credits: 3, price_version: 'account-fixture-v1',
@@ -76,7 +76,7 @@ void test('an accepted subtitle task remains held on an account/model change and
     const beforeB = service.submissions.length
     await assert.rejects(
       run(accountB, restartedUnderB),
-      /not found with the current GenStudio connection\/account/i,
+      /not found with the current Gateway connection\/account/i,
       'the new account must hold this accepted task rather than replace it',
     )
     assert.equal(service.submissions.length, beforeB, 'an unavailable old-account task caused no new provider submission')

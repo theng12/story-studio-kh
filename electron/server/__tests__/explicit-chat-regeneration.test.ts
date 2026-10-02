@@ -120,7 +120,7 @@ test('prompt-row replay makes one provider request and concurrent different rows
   ])
   assert.equal(sameFirst.status, 200, JSON.stringify(sameFirst.body))
   assert.equal(sameReplay.status, 200, JSON.stringify(sameReplay.body))
-  assert.equal(mock.providerSubmissionCount('chat'), 1, 'same row action replays one GenStudio request')
+  assert.equal(mock.providerSubmissionCount('chat'), 1, 'same row action replays one Gateway request')
 
   const completedReplay = await request(app).post(endpoint).send(body(1, sameAction))
   assert.equal(completedReplay.status, 200, JSON.stringify(completedReplay.body))

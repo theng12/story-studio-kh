@@ -39,7 +39,7 @@ const settled = (over: Record<string, unknown> = {}) => ({
   ...over,
 }) as any
 
-describe('a music failure is an ordinary GenStudio failure', () => {
+describe('a music failure is an ordinary Gateway failure', () => {
   test('it carries the modality the fleet-busy rule will be asked about', () => {
     assert.equal(new GenStudioMusicTerminalFailureError(settled()).modality, 'music')
   })
@@ -65,7 +65,7 @@ describe('a music failure is an ordinary GenStudio failure', () => {
     assert.equal(isFleetBusyFailure(cancelled, 'music'), false)
   })
 
-  test('the settlement it reports is GenStudio\'s, never derived locally', () => {
+  test('the settlement it reports is the Gateway\'s, never derived locally', () => {
     const e = new GenStudioMusicTerminalFailureError(settled())
     assert.equal(e.reservedCredits, 100)
     assert.equal(e.settledCredits, 0)

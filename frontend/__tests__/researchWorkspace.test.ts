@@ -40,9 +40,9 @@ describe('Research workspace flow', () => {
 
   // The MODE choice added in this release is not a provider choice: both
   // modes run through the same GenStudio boundary on the same API key.
-  test('uses one fixed GenStudio route without a provider selector', () => {
-    assert.match(research, />GenStudio LLM</)
-    assert.match(research, /Only published GenStudio LLM models appear here/)
+  test('uses one fixed Gateway route without a provider selector', () => {
+    assert.match(research, />Gateway LLM</)
+    assert.match(research, /Only published Gateway LLM models appear here/)
     assert.match(research, /<ModelSelector v-else v-model="form\.source_model"/)
     assert.doesNotMatch(research, /form\.source_provider/)
     assert.doesNotMatch(research, /v-for="src in sources"/)

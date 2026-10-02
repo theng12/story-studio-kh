@@ -26,15 +26,15 @@ before(async () => {
 after(async () => { await cleanup() })
 
 describe('queue-owned local retries', () => {
-  test('GenStudio subtitles preserve partial evidence without automatic resubmission', async () => {
-    const project = await pm.createProject({ name: 'GenStudio Subtitle Recovery' })
+  test('Gateway subtitles preserve partial evidence without automatic resubmission', async () => {
+    const project = await pm.createProject({ name: 'Gateway Subtitle Recovery' })
     let attempts = 0
     let chained = 0
 
     jq.registerExecutor('subtitles_transcribe', async (job) => {
       attempts++
       job.result = { complete: false, missing_sections: ['Chapter_10'] }
-      throw new Error('GenStudio terminal failure')
+      throw new Error('Gateway terminal failure')
     })
     jq.registerExecutor('audio_merge', async () => { chained++ })
 
@@ -71,7 +71,7 @@ describe('queue-owned local retries', () => {
     let attempts = 0
     jq.registerExecutor('subtitles_transcribe', async () => {
       attempts++
-      throw new Error('Legacy setting awaiting GenStudio migration')
+      throw new Error('Legacy setting awaiting Gateway migration')
     })
 
     const queued = jq.enqueuePreparedForTest({

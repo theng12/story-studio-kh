@@ -164,7 +164,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
   const config = await pm.getConfig(job.project_slug)
   if (!config) throw new Error('Project config not found')
   const apiKey = await getApiKey('genstudio')
-  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
+  if (!apiKey) throw new Error('Add the Gateway key in Settings before generating images.')
   const modelConfig = await resolveImageModelConfig(config, model, apiKey)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
   const aspectRatio = resolveConfiguredAspectRatio(modelConfig, params.aspect_ratio)
@@ -182,10 +182,10 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
   }
 
   if (modelConfig.provider !== 'genstudio-image') {
-    throw new Error(`Image model "${model}" is not routed through GenStudio KH.`)
+    throw new Error(`Image model "${model}" is not routed through the Gateway.`)
   }
   const imageProvider = registry.getImageProvider('genstudio-image')
-  if (!imageProvider) throw new Error('GenStudio KH image provider is unavailable.')
+  if (!imageProvider) throw new Error('Gateway image provider is unavailable.')
   // "Smaller files" for the image pool (Settings, per-project override); undefined = native PNG.
   const outputFormat = await resolveOutputFormat(job.project_slug, 'image_pool')
   const providerParams = (modelConfig as any).provider_params || {
@@ -402,7 +402,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
           // An unconfirmed outcome must never become a second paid submission.
           if (submittedRecoveryEntry) throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
           throw new Error(
-            `Could not confirm GenStudio task ${recovery.taskId.slice(0, 12)}… (${recovery.reason}). ` +
+            `Could not confirm Gateway task ${recovery.taskId.slice(0, 12)}… (${recovery.reason}). ` +
             'No duplicate image was submitted; Retry reconnects to the same job.',
           )
         }
@@ -454,7 +454,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
           scope = identity?.requestScope || logicalScope
           inputHash = identity?.inputHash || hashInput(`${scope}\n${item.prompt}`)
           job.output_lines.push(
-            `↻ item ${item.index + 1}: saved GenStudio task ${recovery.taskId.slice(0, 12)}… is terminal; ` +
+            `↻ item ${item.index + 1}: saved Gateway task ${recovery.taskId.slice(0, 12)}… is terminal; ` +
             'submitting one fresh job under a new retry identity.',
           )
         }

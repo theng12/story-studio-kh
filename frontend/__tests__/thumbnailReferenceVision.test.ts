@@ -8,7 +8,7 @@ function source(path: string): string {
   return readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8')
 }
 
-test('thumbnail reference analysis shows only qualified GenStudio vision models', () => {
+test('thumbnail reference analysis shows only qualified Gateway vision models', () => {
   const route = source('../../electron/server/routes/vision.ts')
   const page = source('../pages/projects/[slug]/image-prompts.vue')
   const selector = source('../components/ModelSelector.vue')
@@ -25,7 +25,7 @@ test('thumbnail reference analysis shows only qualified GenStudio vision models'
     max_image_dimension: 1, input_credits_per_million_tokens: 2,
     output_credits_per_million_tokens: 3, minimum_credits: 1, price_version: 'v1',
   })
-  assert.equal(option.group, 'GenStudio KH · Vision only')
+  assert.equal(option.group, 'Gateway · Vision only')
   assert.equal(option.price, '2 credits / 1M input tokens · 3 credits / 1M output tokens')
   assert.match(option.priceTitle, /minimum of 1 credit applies/i)
   assert.match(page, /Reference-guided thumbnail/)
@@ -36,7 +36,7 @@ test('thumbnail reference analysis shows only qualified GenStudio vision models'
   assert.match(health, /supports_vision: model\.supports_vision/)
 })
 
-test('thumbnail reference keeps a durable Story asset while using a private GenStudio upload', () => {
+test('thumbnail reference keeps a durable Story asset while using a private Gateway upload', () => {
   const route = source('../../electron/server/routes/vision.ts')
   const client = source('../../electron/server/lib/genstudio-client.ts')
   const page = source('../pages/projects/[slug]/image-prompts.vue')

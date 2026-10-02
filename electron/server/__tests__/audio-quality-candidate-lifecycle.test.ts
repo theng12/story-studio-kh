@@ -53,7 +53,7 @@ void test('confirmed audio-quality candidate survives queue reload, preserves ol
     const paths = await resolveEpisodePathsByCode(project.slug, episodeId)
     await Promise.all([paths.script_dir, paths.subtitles_dir].map(dir => fs.mkdir(dir, { recursive: true })))
     await fs.writeFile(paths.narration_docx,
-      '# Narration\n\n## Chapter 01: Repair\n\nHello from the mock GenStudio service.\n\n## Chapter 02: Preserve\n\nThe untouched chapter remains selected.\n')
+      '# Narration\n\n## Chapter 01: Repair\n\nHello from the mock Gateway service.\n\n## Chapter 02: Preserve\n\nThe untouched chapter remains selected.\n')
 
     const terminal = async (jobId: string, label: string) => waitFor(() => {
       const status = jq.getJob(jobId)?.status

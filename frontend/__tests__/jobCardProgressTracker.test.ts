@@ -185,7 +185,7 @@ describe('the default card view carries no raw identifiers', () => {
       result: { completion: { completed: 143, expected: 193, issues } },
       genstudio_jobs: [{ operation: 'chat.response', state: 'failed', failure_code: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' }],
     }
-    assert.equal(summary(job), '143 of 193 prompts verified; 50 Scene Plan prompts need attention. GenStudio could not confirm the earlier prompt request. That request needs reconciliation before replacement.')
+    assert.equal(summary(job), '143 of 193 prompts verified; 50 Scene Plan prompts need attention. The Gateway could not confirm the earlier prompt request. That request needs reconciliation before replacement.')
 
     assert.equal(summary({ ...job, result: { completion: { completed: null, expected: null, issues } }, genstudio_jobs: [] }),
       '50 Scene Plan prompts need attention.', 'null counts must not become a fabricated 0 of 0')
@@ -447,11 +447,11 @@ describe('exceptions', () => {
     }
 
     assert.deepEqual(describeJobExceptions(DK0072, nowMs).map(line => line.text), [
-      'Credit outcome pending — Story Studio is checking GenStudio.',
+      'Credit outcome pending — Story Studio is checking the Gateway.',
     ])
     assert.deepEqual(describeJobExceptions(DK0076, nowMs).map(line => line.text), [
       '354 images are ready. 1 image needs another try.',
-      'Credit outcome pending — Story Studio is checking GenStudio.',
+      'Credit outcome pending — Story Studio is checking the Gateway.',
     ])
   })
 
@@ -471,7 +471,7 @@ describe('exceptions', () => {
     }, nowMs)
     assert.deepEqual(contentRefused.map(line => line.text), [
       '1 image needs another try. Review the prompt before trying again.',
-      'Credit outcome pending — Story Studio is checking GenStudio.',
+      'Credit outcome pending — Story Studio is checking the Gateway.',
     ])
   })
 
@@ -500,7 +500,7 @@ describe('exceptions', () => {
       ],
     }
     assert.deepEqual(describeJobExceptions(healthy, nowMs).map(line => line.text), [
-      'Credit outcome pending — Story Studio is checking GenStudio.',
+      'Credit outcome pending — Story Studio is checking the Gateway.',
     ])
     assert.equal(hasJobExceptions(healthy, nowMs), true)
   })
@@ -518,7 +518,7 @@ describe('exceptions', () => {
     const lines = describeJobExceptions(job, nowMs)
     assert.deepEqual(lines.map(line => line.text), [
       '2 images are ready. 1 image needs another try. Review the prompt before trying again.',
-      '13 credits returned so far. Credit outcome pending — Story Studio is checking GenStudio.',
+      '13 credits returned so far. Credit outcome pending — Story Studio is checking the Gateway.',
     ])
   })
 
@@ -544,8 +544,8 @@ describe('exceptions', () => {
       item_progress: {
         total: 5, completed: 1, failed: 0, concurrency: 2,
         active: [
-          { key: 'a', label: 'Scene 2', state: 'waiting_retry' as const, reason: 'GenStudio is busy', attempt: 1, max_attempts: 4, retry_at: retryAt },
-          { key: 'b', label: 'Scene 3', state: 'waiting_retry' as const, reason: 'GenStudio is busy', attempt: 1, max_attempts: 4, retry_at: retryAt },
+          { key: 'a', label: 'Scene 2', state: 'waiting_retry' as const, reason: 'The Gateway is busy', attempt: 1, max_attempts: 4, retry_at: retryAt },
+          { key: 'b', label: 'Scene 3', state: 'waiting_retry' as const, reason: 'The Gateway is busy', attempt: 1, max_attempts: 4, retry_at: retryAt },
           { key: 'c', label: 'Scene 4', state: 'waiting_retry' as const, reason: 'Account rate limit reached', attempt: 1, max_attempts: 4, retry_at: retryAt },
         ],
       },
@@ -561,8 +561,8 @@ describe('exceptions', () => {
       item_progress: {
         total: 2, completed: 0, failed: 0, concurrency: 2,
         active: [
-          { key: 'a', label: 'Scene 2', state: 'waiting_retry' as const, reason: 'GenStudio is busy', attempt: 1, max_attempts: 4, retry_at: retryAt },
-          { key: 'b', label: 'Scene 3', state: 'waiting_retry' as const, reason: 'GenStudio is busy', attempt: 1, max_attempts: 6, retry_at: retryAt },
+          { key: 'a', label: 'Scene 2', state: 'waiting_retry' as const, reason: 'The Gateway is busy', attempt: 1, max_attempts: 4, retry_at: retryAt },
+          { key: 'b', label: 'Scene 3', state: 'waiting_retry' as const, reason: 'The Gateway is busy', attempt: 1, max_attempts: 6, retry_at: retryAt },
         ],
       },
     }
@@ -793,7 +793,7 @@ describe('the escalation deadline is stated once, from the timestamp', () => {
   )
 
   test('the card renders the deadline from stall_recovery_at, through formatTime', () => {
-    assert.match(page, /if \(remote\.stall_recovery_at\) return `\$\{detail\} GenStudio will step in \$\{formatTime\(remote\.stall_recovery_at\)\}\.`/)
+    assert.match(page, /if \(remote\.stall_recovery_at\) return `\$\{detail\} the Gateway will step in \$\{formatTime\(remote\.stall_recovery_at\)\}\.`/)
     // `formatTime` is the one helper every time on this page goes through, so
     // the deadline is in the reader's timezone like all of them.
     assert.match(page, /function formatTime\(iso: string\): string \{[\s\S]{0,200}toLocaleTimeString/)

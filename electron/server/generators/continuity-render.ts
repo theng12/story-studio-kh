@@ -211,7 +211,7 @@ export function planEpisodeReference(input: {
   if (!input.supportsReferences || input.maxReferences < 1 || !input.chargeable) {
     const reason = input.chargeable
       ? `publishes no reference-image support (max_reference_images: ${Math.max(0, input.maxReferences)})`
-      : 'is not chargeable, and GenStudio accepts private reference images only on chargeable products'
+      : 'is not chargeable, and the Gateway accepts private reference images only on chargeable products'
     return {
       sourcePath: '',
       note: `Episode anchor is switched on, but '${input.modelName}' ${reason}. ` +
@@ -349,14 +349,14 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
   const config = await pm.getConfig(job.project_slug)
   if (!config) throw new Error('Project config not found')
   const apiKey = await getApiKey('genstudio')
-  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
+  if (!apiKey) throw new Error('Add the Gateway key in Settings before generating images.')
   const modelConfig = await resolveImageModelConfig(config, model, apiKey)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
   if (modelConfig.provider !== 'genstudio-image') {
-    throw new Error(`Image model "${model}" is not routed through GenStudio KH.`)
+    throw new Error(`Image model "${model}" is not routed through the Gateway.`)
   }
   const imageProvider = registry.getImageProvider('genstudio-image')
-  if (!imageProvider) throw new Error('GenStudio KH image provider is unavailable.')
+  if (!imageProvider) throw new Error('Gateway image provider is unavailable.')
   // "Smaller files" for scene images (Settings, per-project override); undefined = native PNG.
   const sceneOutputFormat = await resolveOutputFormat(job.project_slug, 'scene_images')
 
@@ -650,9 +650,9 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
     const skipped = scenes.length - toRender.length
 
     job.output_lines.push(
-      `GenStudio image batch — ${imageProvider.meta.name} / ${model} · ` +
+      `Gateway image batch — ${imageProvider.meta.name} / ${model} · ` +
       `${toRender.length}/${scenes.length} scene(s) · ${mode}. ` +
-      'GenStudio controls account concurrency and execution.',
+      'Gateway controls account concurrency and execution.',
     )
 
     const inFlight = new Map<number, string>()
@@ -1009,7 +1009,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   await jq.checkpointJobState(job)
                 }
                 job.output_lines.push(
-                  `Scene ${scene.scene_index}: earlier GenStudio task is still generating; rejoining it without a new request.`,
+                  `Scene ${scene.scene_index}: earlier Gateway task is still generating; rejoining it without a new request.`,
                 )
                 try {
                   recovery = await tryRecoverImageFromManifestEntry(
@@ -1047,7 +1047,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                     await jq.checkpointJobState(job)
                   }
                   throw new Error(
-                    `Could not confirm the earlier GenStudio request (${recovery.reason}). ` +
+                    `Could not confirm the earlier Gateway request (${recovery.reason}). ` +
                     'No duplicate image was submitted; Scene Review can offer Replace anyway.',
                   )
                 }
@@ -1117,7 +1117,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   : null
                 requestScope = identity?.requestScope || logicalScope
                 job.output_lines.push(
-                  `Scene ${scene.scene_index}: saved GenStudio task ${recovery.taskId.slice(0, 12)}… is terminal ` +
+                  `Scene ${scene.scene_index}: saved Gateway task ${recovery.taskId.slice(0, 12)}… is terminal ` +
                   `(${recovery.kind === 'artifact-unavailable' ? 'artifact expired' : 'failed'}); ` +
                   'submitting one fresh job under a new retry identity.',
                 )
@@ -1313,7 +1313,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   },
                   onReconnect: (taskId) => {
                     job.output_lines.push(
-                      `Scene ${scene.scene_index}: reconnecting accepted GenStudio task ${taskId.slice(0, 12)}…`,
+                      `Scene ${scene.scene_index}: reconnecting accepted Gateway task ${taskId.slice(0, 12)}…`,
                     )
                   },
                 })
@@ -1335,7 +1335,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   attemptOwner = succeededOwner
                 }
               }
-              if (!result.urls.length) throw new Error('GenStudio KH returned no image')
+              if (!result.urls.length) throw new Error('The Gateway returned no image')
               if (!currentOwner) throw new Error('Scene image request ownership was not recorded.')
               const stagingPath = await stageGenStudioImage(result.urls[0]!, outPath, { compress: !!sceneOutputFormat })
               const promoted = await promoteCurrentImageTaskArtifactStrict(
@@ -1489,7 +1489,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   ? jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE
                   : `Scene ${scene.scene_index} failed: ${e?.message || e}`)
               } else {
-                job.output_lines.push(`Scene ${scene.scene_index} cancelled by customer; GenStudio settlement is preserved and this is not counted as a provider failure.`)
+                job.output_lines.push(`Scene ${scene.scene_index} cancelled by customer; Gateway settlement is preserved and this is not counted as a provider failure.`)
               }
               break
             } finally {

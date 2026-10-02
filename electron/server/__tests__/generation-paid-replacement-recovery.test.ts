@@ -215,7 +215,7 @@ test('generation replacement recovery reuses receipts, stays off-safe, and keeps
       assert.deepEqual(added.map(entry => entry.key), [uncertainAudioKey])
     })
 
-    await t.test('a committed receipt refuses a changed GenStudio origin or credential before any POST', async () => {
+    await t.test('a committed receipt refuses a changed Gateway origin or credential before any POST', async () => {
       const before = posts.filter(entry => entry.operation === 'audio').length
       const outPath = path.join(temp.dir, 'connection-bound.mp3')
       const request = {

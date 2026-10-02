@@ -965,7 +965,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req,
     })
     res.status(201).json(job)
   } catch (e: any) {
-    res.status(409).json(humanizeBackendError(e, 'GenStudio motion model is unavailable'))
+    res.status(409).json(humanizeBackendError(e, 'Gateway motion model is unavailable'))
   }
 })
 
@@ -1034,7 +1034,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clips-batch', asyn
     res.status(201).json(job)
   } catch (e: any) {
     if (e instanceof jq.DuplicateJobError) return res.status(409).json({ detail: e.message })
-    res.status(409).json(humanizeBackendError(e, 'GenStudio motion model is unavailable'))
+    res.status(409).json(humanizeBackendError(e, 'Gateway motion model is unavailable'))
   }
 })
 
@@ -1138,7 +1138,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
     }
     res.json({ ok: true, queued, skipped, queued_scene_ids: queuedIds })
   } catch (e: any) {
-    res.status(409).json(humanizeBackendError(e, 'GenStudio motion model is unavailable'))
+    res.status(409).json(humanizeBackendError(e, 'Gateway motion model is unavailable'))
   }
 })
 

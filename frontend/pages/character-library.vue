@@ -181,7 +181,7 @@
             <div class="section-number">03</div>
             <div class="section-body">
               <h3>Channel voice profiles</h3>
-              <p class="section-help">Each channel may use a different GenStudio voice and delivery note for this same character.</p>
+              <p class="section-help">Each channel may use a different Gateway voice and delivery note for this same character.</p>
               <div class="voice-profile-list">
                 <div v-for="slug in [...selectedChannels]" :key="slug" class="voice-profile-card">
                   <div class="voice-profile-title">

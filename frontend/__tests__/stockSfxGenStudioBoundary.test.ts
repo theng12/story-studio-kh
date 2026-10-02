@@ -22,7 +22,7 @@ describe('stock and Sound Design boundary UI', () => {
     // Plain words, not catalogue jargon: say generation isn't available and where sounds come from.
     assert.match(sound, /Making new sounds/)
     assert.match(sound, /SFX pool in the <NuxtLink to="\/broll-library">B-Roll Library/)
-    assert.doesNotMatch(sound, /qualified live GenStudio capability|Phase 1 uses/)
+    assert.doesNotMatch(sound, /qualified live Gateway capability|Phase 1 uses/)
     assert.doesNotMatch(sound, /ModelSelector|Freesound|ElevenLabs|Suno/)
   })
 

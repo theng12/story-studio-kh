@@ -99,10 +99,10 @@ function withLiveEvidence(entry: Evidence, live: GenStudioJob): Evidence {
 async function verifyFailure(entry: Evidence, operation: 'voice.tts' | 'chat.response'): Promise<Evidence> {
   const key = requestKey(entry)
   if (!key || !entry.id || entry.id.startsWith('pending:')) {
-    return conflict('The failed request has no exact accepted GenStudio identity. Story Studio did not queue replacement work.')
+    return conflict('The failed request has no exact accepted Gateway identity. Story Studio did not queue replacement work.')
   }
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) return conflict('GenStudio could not be checked because its API key is unavailable. No replacement was queued.')
+  if (!apiKey) return conflict('The Gateway could not be checked because its API key is unavailable. No replacement was queued.')
   const baseUrl = await getGenStudioUrl()
   let live: GenStudioJob
   try {
@@ -115,10 +115,10 @@ async function verifyFailure(entry: Evidence, operation: 'voice.tts' | 'chat.res
       Date.now() + GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
     )
   } catch {
-    return conflict('GenStudio could not confirm the failed request. Story Studio kept its recovery evidence and did not queue replacement work.')
+    return conflict('The Gateway could not confirm the failed request. Story Studio kept its recovery evidence and did not queue replacement work.')
   }
   if (live.id !== entry.id) {
-    return conflict('GenStudio returned a different task for the saved request identity. No replacement was queued.')
+    return conflict('The Gateway returned a different task for the saved request identity. No replacement was queued.')
   }
   if (!settledFailure(live)) {
     return conflict('The request is not a confirmed eligible failure with settled credits. No replacement was queued.')
@@ -138,7 +138,7 @@ async function planAudio(job: Job): Promise<FailedItemReplacementPlan> {
   const checkpoint = job.params?.genstudio_recovery as any
   if (checkpoint?.version !== 1 || checkpoint?.route !== 'genstudio'
     || !checkpoint.assets || typeof checkpoint.assets !== 'object') {
-    return conflict('This audio job has no complete saved GenStudio recovery map. No replacement was queued.')
+    return conflict('This audio job has no complete saved Gateway recovery map. No replacement was queued.')
   }
   const evidence = structuredClone(job.genstudio_jobs || []) as Evidence[]
   const byId = new Map(evidence.filter(entry => entry.operation === 'voice.tts').map(entry => [entry.id, entry]))
@@ -198,7 +198,7 @@ function chaptersFromPreview(entry: Evidence): number[] | null {
 async function planWriting(job: Job): Promise<FailedItemReplacementPlan> {
   const evidence = structuredClone(job.genstudio_jobs || []) as Evidence[]
   const chat = evidence.filter(entry => entry.operation === 'chat.response')
-  if (!chat.length) return conflict('This writing job has no saved GenStudio request evidence. No replacement was queued.')
+  if (!chat.length) return conflict('This writing job has no saved Gateway request evidence. No replacement was queued.')
   if (chat.some(entry => entry.cancelled === true || !['succeeded', 'failed'].includes(entry.state))) {
     return conflict('Writing recovery still has cancelled or unsettled provider work. Check it again before replacing failures.')
   }

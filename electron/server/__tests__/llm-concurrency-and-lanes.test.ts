@@ -32,13 +32,13 @@ import { LLM_CONCURRENCY_DEFAULT } from '../services/app-settings.js'
 import * as jq from '../services/job-queue.js'
 
 describe('how many writing jobs run at once', () => {
-  test('the default sits inside the owner\'s range and under GenStudio\'s own limit', () => {
+  test('the default sits inside the owner\'s range and under the Gateway\'s own limit', () => {
     // He said 5-10. GenStudio runs chat 12 wide, so anything above that only
     // moves the queue somewhere he cannot see it.
     assert.ok(LLM_CONCURRENCY_DEFAULT >= 5 && LLM_CONCURRENCY_DEFAULT <= 10,
       `${LLM_CONCURRENCY_DEFAULT} is outside the range the owner asked for`)
     assert.ok(LLM_CONCURRENCY_DEFAULT <= 12,
-      'pushing past GenStudio\'s chat concurrency does not make anything faster')
+      'pushing past the Gateway\'s chat concurrency does not make anything faster')
     // Chat execution has peaked at exactly 8 concurrent in this platform's
     // history, and worked.
     assert.equal(LLM_CONCURRENCY_DEFAULT, 8)

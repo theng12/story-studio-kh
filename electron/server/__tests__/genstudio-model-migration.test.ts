@@ -5,7 +5,7 @@ import {
   unavailableLegacyModelMessage,
 } from '../services/genstudio-model-migration.js'
 
-describe('GenStudio model migration boundary', () => {
+describe('Gateway model migration boundary', () => {
   test('accepts exact owner-defined product identifiers and known transport prefixes', () => {
     assert.equal(resolveGenStudioModelId('chat', 'genstudio-chat:genstudio-chat-current-v1'), 'genstudio-chat-current-v1')
     assert.equal(resolveGenStudioModelId('chat', 'claude-sonnet-4-6'), 'claude-sonnet-4-6')

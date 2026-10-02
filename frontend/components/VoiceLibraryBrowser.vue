@@ -15,7 +15,7 @@
     </div>
 
     <p class="vlb-note">
-      Voices published by <strong>{{ activeLibraryLabel }}</strong> in your GenStudio KH account. Adding one brings it
+      Voices published by <strong>{{ activeLibraryLabel }}</strong> in your Gateway account. Adding one brings it
       into your own library so it appears with the voices for a compatible model.
     </p>
 
@@ -146,8 +146,8 @@ async function add(voice: GenStudioLibraryVoice) {
   try {
     const result = await addLibraryVoice(props.library.id, voice.public_voice_id)
     success(result.created
-      ? `Added “${voice.name}” to your GenStudio library.`
-      : `“${voice.name}” was already in your GenStudio library.`)
+      ? `Added “${voice.name}” to your Gateway library.`
+      : `“${voice.name}” was already in your Gateway library.`)
     emit('added', result.voice_id)
     void load(0)
   } catch (e: any) {

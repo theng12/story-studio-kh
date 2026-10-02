@@ -16,7 +16,7 @@ describe('idea output token budget', () => {
     assert.equal(ideaOutputTokenBudget(13), 9_216)
   })
 
-  test('keeps unusually large requests below the GenStudio model ceiling', () => {
+  test('keeps unusually large requests below the Gateway model ceiling', () => {
     assert.equal(ideaOutputTokenBudget(100), 16_384)
     assert.equal(ideaOutputTokenBudget(10_000), 16_384)
   })

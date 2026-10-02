@@ -8,6 +8,6 @@
 import type { Job } from '../models/types.js'
 
 export async function generateBrollAutotag(job: Job): Promise<void> {
-  job.output_lines.push('Visual auto-tagging requires a qualified GenStudio KH image-input LLM route.')
+  job.output_lines.push('Visual auto-tagging requires a qualified Gateway image-input LLM route.')
   throw new Error('Visual auto-tagging is unavailable. No direct cloud provider or local Studio connection was attempted.')
 }

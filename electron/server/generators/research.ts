@@ -407,7 +407,7 @@ export function renderResearchMarkdown(r: ResearchOutput, modelLabel = ''): stri
 
   const sourceUrls = canonicalHttpUrls(r.web_run?.source_urls)
   if (mode === 'web-search' && sourceUrls.length) {
-    lines.push('## Pages GenStudio reported retrieving')
+    lines.push('## Pages the Gateway reported retrieving')
     lines.push('')
     lines.push('These are pages the provider reported opening. They are not citations and do not back individual claims.')
     lines.push('')

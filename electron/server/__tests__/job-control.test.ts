@@ -65,7 +65,7 @@ describe('server-owned job controls', () => {
         audited: true,
         action: 'return-later',
         code: 'CANCELLATION_STATUS_UNKNOWN',
-        reason: 'Story Studio is waiting for GenStudio to confirm the cancellation result. The provider work may still settle.',
+        reason: 'Story Studio is waiting for the Gateway to confirm the cancellation result. The provider work may still settle.',
       },
       { name: 'done', input: { status: 'done' }, action: 'clear-history', code: 'READY', reason: 'This finished job can be removed from the job list. Its files and provider evidence stay intact.' },
       { name: 'error', input: { status: 'error' }, action: 'clear-history', code: 'READY', reason: 'This finished job can be removed from the job list. Its files and provider evidence stay intact.' },
@@ -208,7 +208,7 @@ describe('server-owned job controls', () => {
     }
   })
 
-  test('fails closed for every operation unless GenStudio explicitly says pre-dispatch and cancellable', () => {
+  test('fails closed for every operation unless Gateway explicitly says pre-dispatch and cancellable', () => {
     const operations: Evidence['operation'][] = [
       'voice.tts', 'audio.transcription', 'image.generation',
       'video.generation', 'chat.response', 'music.generation',

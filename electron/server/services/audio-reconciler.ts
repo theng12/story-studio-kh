@@ -483,7 +483,7 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
   for (const filename of status.missing) {
     const entry = manifest.tasks[filename]
     if (!entry) {
-      fail(filename, undefined, 'No accepted GenStudio task is recorded. Retry generation; no legacy provider fallback was attempted.')
+      fail(filename, undefined, 'No accepted Gateway task is recorded. Retry generation; no legacy provider fallback was attempted.')
       continue
     }
     if (entry.provider !== 'genstudio') {
@@ -495,16 +495,16 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
         // upstream routing identity. `result.logs` is returned straight to the
         // customer by POST /audio-repair, so the name is dropped — what matters
         // is that the evidence is read-only and nothing was contacted.
-        'Legacy evidence is read-only. Retry generation through GenStudio; the legacy route was not contacted.',
+        'Legacy evidence is read-only. Retry generation through the Gateway; the legacy route was not contacted.',
       )
       continue
     }
     if (!entry.task_id) {
-      fail(filename, undefined, 'The GenStudio request was prepared but has no accepted job id. Retry generation with the same idempotency identity.')
+      fail(filename, undefined, 'The Gateway request was prepared but has no accepted job id. Retry generation with the same idempotency identity.')
       continue
     }
     if (!apiKey) {
-      fail(filename, entry.task_id, 'No GenStudio KH API key configured. Add it in Settings → This Mac.')
+      fail(filename, entry.task_id, 'No Gateway key configured. Add it in Settings → This Mac.')
       continue
     }
     const chunk = expectedByName.get(filename)!
@@ -515,9 +515,9 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
       })
       recovered++
       outcomes.push({ filename, status: 'recovered', task_id: entry.task_id })
-      logs.push(`✓ ${filename}: reclaimed from GenStudio (task ${entry.task_id.slice(0, 12)}…)`)
+      logs.push(`✓ ${filename}: reclaimed from the Gateway (task ${entry.task_id.slice(0, 12)}…)`)
     } catch (e: any) {
-      fail(filename, entry.task_id, `GenStudio recovery failed: ${e.message}`)
+      fail(filename, entry.task_id, `Gateway recovery failed: ${e.message}`)
     }
   }
 

@@ -27,7 +27,7 @@ import {
 const genstudioImageProvider: ImageProvider = {
   meta: {
     id: 'genstudio-image',
-    name: 'GenStudio KH',
+    name: 'Gateway',
     apiKeyField: 'genstudio_api_key',
     providerId: 'genstudio',
   },
@@ -69,7 +69,7 @@ const genstudioImageProvider: ImageProvider = {
     // failing after the owner already waited for the batch.
     const model = findGenStudioProduct(await listImageModels(request.apiKey), modelId)
     if (!model) {
-      throw new Error('The selected GenStudio image model is no longer available. Refresh the model picker and choose a current model.')
+      throw new Error('The selected Gateway image model is no longer available. Refresh the model picker and choose a current model.')
     }
 
     // Availability is checked on EVERY submit path, not only when a reference
@@ -97,7 +97,7 @@ const genstudioImageProvider: ImageProvider = {
 
     const requestedReferences = (request.referenceImagePaths || []).filter(Boolean)
     if (requestedReferences.length && (!supportsReferences || !model.chargeable)) {
-      throw new Error('The selected GenStudio KH image model does not support private reference-image generation. Choose a reference-capable model.')
+      throw new Error('The selected Gateway image model does not support private reference-image generation. Choose a reference-capable model.')
     }
     // Submit as many references as the model publishes room for, not the one
     // the old `[0]` slice allowed. Extra references are dropped at the

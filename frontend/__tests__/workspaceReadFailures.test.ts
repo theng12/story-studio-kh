@@ -32,10 +32,10 @@ test('E-02: Research distinguishes a failed source read from an unconfigured API
   assert.match(loader, /sourcesError\.value = .*Failed to load research sources/s)
   assert.match(loader, /sourcesError\.value = ''/, 'a successful read clears the failure')
   const reason = source.slice(source.indexOf('const runDisabledReason = computed'), source.indexOf('// ── Result state'))
-  assert.match(reason, /if \(sourcesError\.value\) return 'Could not check GenStudio access/, 'unknown must not read as "not configured"')
+  assert.match(reason, /if \(sourcesError\.value\) return 'Could not check Gateway access/, 'unknown must not read as "not configured"')
   assert.match(reason, /GenStudio API not configured — Settings → This Mac/, 'the genuine unconfigured case keeps its guidance')
   const sourcesAt = reason.indexOf('sourcesError.value')
-  const configuredAt = reason.indexOf('GenStudio API not configured')
+  const configuredAt = reason.indexOf('Gateway not configured')
   assert.ok(sourcesAt >= 0 && configuredAt >= 0 && sourcesAt < configuredAt, 'the unknown reason must be checked before the unconfigured one')
 })
 

@@ -9,7 +9,7 @@ export const GENSTUDIO_CHAT_MODEL_PREFIX = 'genstudio-chat:'
 const genstudioProvider: TextProvider = {
   meta: {
     id: 'genstudio',
-    name: 'GenStudio KH',
+    name: 'Gateway',
     apiKeyField: 'genstudio_api_key',
     providerId: 'genstudio',
   },
@@ -20,13 +20,13 @@ const genstudioProvider: TextProvider = {
 
   async callText(request: TextGenerationRequest): Promise<string> {
     if (!request.apiKey) {
-      throw new Error('No GenStudio KH API key configured. Add one in Settings -> API Keys.')
+      throw new Error('No Gateway key configured. Add one in Settings -> API Keys.')
     }
     if (request.images?.length) {
-      throw new Error('The selected GenStudio KH text model does not publish image-input support.')
+      throw new Error('The selected Gateway text model does not publish image-input support.')
     }
     const modelId = request.model.slice(GENSTUDIO_CHAT_MODEL_PREFIX.length).trim()
-    if (!modelId) throw new Error(`Invalid GenStudio KH chat model id: ${request.model}`)
+    if (!modelId) throw new Error(`Invalid Gateway chat model id: ${request.model}`)
 
     const result = await callChatWithGenStudio(request.apiKey, {
       modelId,

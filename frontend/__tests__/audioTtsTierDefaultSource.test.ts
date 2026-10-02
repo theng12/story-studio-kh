@@ -15,15 +15,15 @@ test('Audio Generator seeds no TTS model id of its own', () => {
   assert.doesNotMatch(source, /model:\s*'genstudio-tts-/)
 })
 
-test('a remembered named model is preserved unless GenStudio publishes an explicit alias', () => {
+test('a remembered named model is preserved unless the Gateway publishes an explicit alias', () => {
   const source = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
   assert.match(source, /watch\(\[ttsModels, \(\) => form\.model\]/)
   assert.match(source, /selectLiveGenStudioModel\(/)
   assert.match(source, /if \(selected && selected\.id !== form\.model\)/)
-  assert.doesNotMatch(source, /no longer in your GenStudio KH catalogue/)
+  assert.doesNotMatch(source, /no longer in your Gateway catalogue/)
 })
 
-test('GenStudio TTS submission carries the voice, the text, the speed and published controls only', () => {
+test('Gateway TTS submission carries the voice, the text, the speed and published controls only', () => {
   const source = readFileSync(new URL('../../electron/server/lib/genstudio-client.ts', import.meta.url), 'utf8')
   // No voice TIER, no provider, no model id chosen here: the voice identifies
   // the work. `controls` joined it when GenStudio began publishing per-model

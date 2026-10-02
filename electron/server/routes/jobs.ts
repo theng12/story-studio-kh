@@ -456,7 +456,7 @@ router.post('/jobs/all/:jobId/retry', async (req, res) => {
 
 router.post('/jobs/all/:jobId/replace-failed-items', async (req, res) => {
   if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).length) {
-    return res.status(400).json({ detail: 'Request body must be an empty object. Failed-item scope comes from the saved job and GenStudio evidence.' })
+    return res.status(400).json({ detail: 'Request body must be an empty object. Failed-item scope comes from the saved job and Gateway evidence.' })
   }
   const existing = await findUniversalJob(req.params.jobId)
   if (!existing) {
@@ -681,7 +681,7 @@ router.post('/projects/:slug/jobs/:jobId/finish-missing-images', async (req, res
 
 router.post('/projects/:slug/jobs/:jobId/replace-failed-items', async (req, res) => {
   if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).length) {
-    return res.status(400).json({ detail: 'Request body must be an empty object. Failed-item scope comes from the saved job and GenStudio evidence.' })
+    return res.status(400).json({ detail: 'Request body must be an empty object. Failed-item scope comes from the saved job and Gateway evidence.' })
   }
   try {
     return res.status(202).json({ ok: true, job: await jq.replaceFailedItems(String(req.params.slug), String(req.params.jobId)) })
@@ -740,7 +740,7 @@ router.post('/projects/:slug/jobs/:jobId/auto-repair-scene-prompts', async (req,
       entry.operation === 'chat.response'
       && evidenceHoldsUnknownOutcome(entry)
     ))) {
-      throw Object.assign(new Error('GenStudio could not prove whether an earlier prompt request was accepted. Story Studio kept that evidence and did not submit fresh paid work. Check GenStudio before trying again.'), { status: 409, expose: true })
+      throw Object.assign(new Error('The Gateway could not prove whether an earlier prompt request was accepted. Story Studio kept that evidence and did not submit fresh paid work. Check the Gateway before trying again.'), { status: 409, expose: true })
     }
     const recoveries = scenePromptAutoRepairRecoveries(refreshed, missing)
     const job = jq.retryTerminalJob(

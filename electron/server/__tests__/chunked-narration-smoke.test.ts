@@ -63,7 +63,7 @@ const DISPATCH_MODEL = `genstudio-chat:${FAKE_MODEL}`
 const fakeProvider: TextProvider = {
   meta: {
     id: 'genstudio',
-    name: 'Fake GenStudio Provider',
+    name: 'Fake Gateway Provider',
     apiKeyField: 'genstudio_api_key' as any,
   },
   supportsModel(modelId: string): boolean { return modelId === DISPATCH_MODEL },

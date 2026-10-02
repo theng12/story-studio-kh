@@ -139,7 +139,7 @@ describe('createGenStudioCatalogCache', () => {
   test('a failed fetch with no usable cache surfaces an error rather than a fabricated catalogue', async () => {
     const cache = createGenStudioCatalogCache<Row[]>({
       empty: [],
-      fetcher: failing('GenStudio unreachable'),
+      fetcher: failing('Gateway unreachable'),
       freshMs: 1000,
       staleCeilingMs: 5000,
     })
@@ -147,7 +147,7 @@ describe('createGenStudioCatalogCache', () => {
     await cache.refresh()
 
     assert.deepEqual(cache.data.value, [])
-    assert.equal(cache.error.value, 'GenStudio unreachable')
+    assert.equal(cache.error.value, 'Gateway unreachable')
     assert.equal(cache.isUsable.value, false)
     assert.equal(cache.loaded.value, true)
   })

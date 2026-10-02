@@ -1139,7 +1139,7 @@ export async function getGenStudioUrl(): Promise<string> {
 }
 
 export async function setGenStudioUrl(url: string): Promise<void> {
-  const cleaned = normalizeServiceBaseUrl(typeof url === 'string' ? url : '', 'GenStudio')
+  const cleaned = normalizeServiceBaseUrl(typeof url === 'string' ? url : '', 'Gateway')
   await setAppSetting(GENSTUDIO_URL_KEY, cleaned)
 }
 

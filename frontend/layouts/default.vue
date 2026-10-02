@@ -25,7 +25,7 @@
       </div>
     </header>
     <!-- Not on the sign-in page: nothing behind it can be read before signing in, and a
-         "GenStudio · Set up" button there opened settings he could not use. -->
+         "Gateway · Set up" button there opened settings he could not use. -->
     <div v-if="!signingIn" class="account-standing">
       <GenStudioStandingStrip class="default-standing-strip" />
       <ContentInstallStrip class="default-install-strip" />

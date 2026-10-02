@@ -21,7 +21,7 @@ export function describeGenStudioAvailability(
   const reason = model.availability_reason === 'daily_quota_depleted'
     ? 'Daily capacity is currently depleted.'
     : model.availability_reason === 'temporary_backpressure'
-      ? 'Temporarily unavailable while GenStudio manages provider capacity.'
+      ? 'Temporarily unavailable while Gateway manages provider capacity.'
       : ''
   if (!reason) return ''
 

@@ -73,8 +73,8 @@ describe('redactSecrets()', () => {
     assert.ok(!out.includes('sk-abc123'))
   })
 
-  test('redacts GenStudio scoped keys before the secrets store has loaded', () => {
-    const out = redactSecrets('GenStudio rejected gsk_test_ThisMustNeverReachTheRenderer123')
+  test('redacts Gateway scoped keys before the secrets store has loaded', () => {
+    const out = redactSecrets('The Gateway rejected gsk_test_ThisMustNeverReachTheRenderer123')
     assert.ok(!out.includes('gsk_test_ThisMustNeverReachTheRenderer123'))
     assert.match(out, /\[REDACTED\]/)
   })

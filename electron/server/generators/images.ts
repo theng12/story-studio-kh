@@ -374,16 +374,16 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
   // The key is resolved first because the model's capabilities now come from
   // the live GenStudio catalogue rather than a synthesised constant.
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) throw new Error('Add the GenStudio API key in Settings before generating images.')
+  if (!apiKey) throw new Error('Add the Gateway key in Settings before generating images.')
   const modelConfig = await resolveImageModelConfig(config, modelName, apiKey)
   if (!modelConfig) throw new Error(`Unknown image model: ${modelName}`)
   const resolvedModelConfig: ImageModelConfig = modelConfig
 
   if (modelConfig.provider !== 'genstudio-image') {
-    throw new Error(`Image model "${modelName}" is not routed through GenStudio KH.`)
+    throw new Error(`Image model "${modelName}" is not routed through the Gateway.`)
   }
   const imageProvider = registry.getImageProvider('genstudio-image')
-  if (!imageProvider) throw new Error('GenStudio KH image provider is unavailable.')
+  if (!imageProvider) throw new Error('Gateway image provider is unavailable.')
   // The owner's "smaller files" choice per asset type (Settings, per-project override). Undefined =
   // field omitted = today's PNG. Resolved once per run; the sharp fallback below covers old nodes.
   const sceneOutputFormat = await resolveOutputFormat(project_slug, 'scene_images')
@@ -487,7 +487,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
   }
   if (castWithRefs.length) {
     const note = supportsReferences
-      ? `model '${modelName}' will receive their references (up to ${maxReferences} per render as published by GenStudio)`
+      ? `model '${modelName}' will receive their references (up to ${maxReferences} per render as published by the Gateway)`
       : `model '${modelName}' publishes no reference-image support — they'll be ignored; pick a reference-capable model for reference-driven gen`
     job.output_lines.push(
       `Cast with reference images: ${castWithRefs.map(c => c.name).join(', ')} — ${note}`,
@@ -870,7 +870,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
       scope = identity?.requestScope || logicalScope
       inputHash = identity?.inputHash || hashInput(`${scope}\n${prompt}`)
       notes.push(
-        `saved GenStudio task ${recovery.taskId.slice(0, 12)}… is terminal ` +
+        `saved Gateway task ${recovery.taskId.slice(0, 12)}… is terminal ` +
         `(${recovery.kind === 'artifact-unavailable' ? 'artifact expired' : 'failed'}); ` +
         'submitting one fresh job under a new retry identity.',
       )
@@ -955,7 +955,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
   function uncertainRecoveryError(recovery: ImageRecoveryOutcome & { kind: 'uncertain' }): Error {
     // Never let an unconfirmed outcome become a duplicate paid submission.
     return new Error(
-      `Could not confirm GenStudio task ${recovery.taskId.slice(0, 12)}… (${recovery.reason}). ` +
+      `Could not confirm Gateway task ${recovery.taskId.slice(0, 12)}… (${recovery.reason}). ` +
       'No duplicate image was submitted; Retry reconnects to the same job.',
     )
   }

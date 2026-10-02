@@ -179,7 +179,7 @@ test('a finished job whose only enabled control is a futile re-check is still of
   assert.equal(abandon.label, 'Abandon this job')
 
   // And it must still be honest about the three things it does not do.
-  assert.match(abandon.reason, /does not cancel provider work GenStudio has already accepted/)
+  assert.match(abandon.reason, /does not cancel provider work the Gateway has already accepted/)
   assert.match(abandon.reason, /does not refund credits already spent/)
   assert.match(abandon.reason, /Output may still arrive/)
   assert.equal(abandon.financial_effect, 'provider-work-may-settle')

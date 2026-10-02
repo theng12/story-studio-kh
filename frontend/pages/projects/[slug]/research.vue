@@ -78,7 +78,7 @@
     >
       <template #actions>
         <span class="research-selection-pill" :data-ready="genStudioSource?.configured ? 'true' : 'false'">
-          GenStudio LLM
+          Gateway LLM
         </span>
       </template>
 
@@ -111,13 +111,13 @@
             <small>Managed centrally</small>
           </div>
           <div v-if="sourcesLoading" class="research-source-loading">
-            <LoadingSpinner size="sm" /> Checking GenStudio…
+            <LoadingSpinner size="sm" /> Checking the Gateway…
           </div>
           <div v-else class="research-source-summary">
             <span class="research-source-mark" aria-hidden="true">G</span>
             <span class="research-source-copy">
-              <strong>GenStudio LLM</strong>
-              <small>Uses the model selected below through your single GenStudio API connection.</small>
+              <strong>Gateway LLM</strong>
+              <small>Uses the model selected below through your single Gateway connection.</small>
             </span>
             <span class="research-source-badge" :class="{ active: genStudioSource?.configured }">
               {{ genStudioSource?.configured ? 'Ready' : 'Not connected' }}
@@ -128,7 +128,7 @@
             :to="`/projects/${slug}/settings#app`"
             class="research-settings-link"
           >
-            Connect GenStudio in Settings
+            Connect the Gateway in Settings
           </NuxtLink>
         </aside>
       </div>
@@ -144,7 +144,7 @@
 
         <!-- Research mode. Two genuinely different promises, so they are a
              visible choice rather than a hidden setting. Web mode is offered
-             only when GenStudio publishes a model that qualifies for it; when
+             only when the Gateway publishes a model that qualifies for it; when
              none does, the option stays visible and explains itself instead of
              disappearing without a word. -->
         <fieldset class="research-mode-field">
@@ -186,7 +186,7 @@
         <div class="research-run-controls">
           <div class="research-model-field">
             <label>Research model</label>
-            <!-- Web mode may only offer models GenStudio has qualified, so it
+            <!-- Web mode may only offer models the Gateway has qualified, so it
                  keeps its own list — but it is the SAME centred dialog every
                  other picker uses. It was the last native <select> left, and
                  it was the one mode actually in daily use. -->
@@ -204,12 +204,12 @@
             <ModelSelector v-else v-model="form.source_model" :project-slug="slug" />
             <span class="research-field-note">
               <template v-if="webMode">Only models qualified to search the web and return structured citations appear here.</template>
-              <template v-else>Only published GenStudio LLM models appear here. Your last choice remains selected for this project.</template>
+              <template v-else>Only published Gateway LLM models appear here. Your last choice remains selected for this project.</template>
             </span>
           </div>
           <!-- Depth control. Hidden unless the SELECTED web model publishes an
                enforceable search cap (`max_web_searches`). A null cap means
-               GenStudio cannot enforce a provider-side search count for that
+               The Gateway cannot enforce a provider-side search count for that
                model, and in model-knowledge mode the number was only ever a
                prompt hint — offering a control that changes nothing would be a
                lie. Read per selection, so the control appears and disappears
@@ -486,7 +486,7 @@
           <div class="research-sources-head">
             <div>
               <span class="research-panel-kicker">Run-level evidence</span>
-              <h3>Pages GenStudio reported retrieving</h3>
+              <h3>Pages the Gateway reported retrieving</h3>
               <p>These are pages the provider reported opening. They are not citations and do not back individual claims.</p>
             </div>
           </div>
@@ -552,7 +552,7 @@
         <div>
           <strong>{{ episodeId ? 'This episode has no research yet' : 'Choose an episode to begin' }}</strong>
           <p v-if="episodeId">
-            Confirm the topic and GenStudio model above, then run research when this story benefits from a
+            Confirm the topic and Gateway model above, then run research when this story benefits from a
             reviewed evidence set.
           </p>
           <p v-else>
@@ -645,8 +645,8 @@ interface SourceInfo {
 }
 const genStudioSource = ref<SourceInfo>({
   id: 'llm-only',
-  display_name: 'GenStudio LLM',
-  helper_text: 'Uses the published GenStudio language-model catalog.',
+  display_name: 'Gateway LLM',
+  helper_text: 'Uses the published Gateway language-model catalog.',
   configured: false,
 })
 const sourcesLoading = ref(false)
@@ -845,7 +845,7 @@ const webModelMenuOptions = computed(() => webModels.value.map((model) => {
   return {
     id: model.id,
     label: model.display_name,
-    group: queueClassGroupLabel(model, 'GenStudio KH'),
+    group: queueClassGroupLabel(model, 'Gateway'),
     groupNote: isRelaxedQueue(model) ? describeRelaxedQueueHint(model.relaxed_queue_hint) : '',
     meta: facts.join(' · '),
     price: rate.text,
@@ -912,8 +912,8 @@ const runDisabledReason = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
   if (!form.value.topic.trim()) return 'Enter a topic'
   // E-02 — an unreadable source list is unknown, not "unconfigured".
-  if (sourcesError.value) return 'Could not check GenStudio access — reopen Research to retry'
-  if (!genStudioSource.value?.configured) return 'GenStudio API not configured — Settings → This Mac'
+  if (sourcesError.value) return 'Could not check Gateway access — reopen Research to retry'
+  if (!genStudioSource.value?.configured) return 'Gateway not configured — Settings → This Mac'
   if (!modelReadiness.value.model) return modelReadiness.value.reason
   return ''
 })
@@ -1213,7 +1213,7 @@ const webRunReportLabel = computed(() => {
   const searches = run?.web_searches_executed ?? run?.searches_performed
   const searchCost = run?.web_search_credit_cost ?? run?.credits_charged
   if (searches === undefined && searchCost === undefined) {
-    return 'GenStudio did not report how many searches this run made or what the search cost.'
+    return 'The Gateway did not report how many searches this run made or what the search cost.'
   }
   const parts: string[] = []
   parts.push(searches === undefined ? 'Searches executed: not reported.' : `Searches executed: ${searches}.`)

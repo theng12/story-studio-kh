@@ -215,7 +215,7 @@ describe('useToast.humanizeError', () => {
   })
 
   test('real HTTP statuses are still translated', () => {
-    assert.match(humanizeError('GenStudio KH request failed (HTTP 401)'), /API key is invalid/)
+    assert.match(humanizeError('Gateway request failed (HTTP 401)'), /API key is invalid/)
     assert.match(humanizeError('Request failed with status code 429'), /rate limit/)
     assert.match(humanizeError('returned HTTP 503'), /overloaded/)
     assert.match(humanizeError('voice save returned HTTP 502'), /Server error/)
@@ -231,7 +231,7 @@ describe('useToast.humanizeError', () => {
 
   test('a rewritten error keeps the raw message reachable for the tooltip', () => {
     const { error, toasts } = useToast()
-    error('GenStudio request failed (HTTP 500) zzz-unique')
+    error('Gateway request failed (HTTP 500) zzz-unique')
     const t = toasts.value.find(x => x.raw?.includes('zzz-unique'))
     assert.ok(t, 'rewritten toast carries raw')
     assert.match(t!.message, /Server error/)

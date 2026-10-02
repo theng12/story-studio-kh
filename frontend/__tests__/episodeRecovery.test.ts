@@ -157,7 +157,7 @@ test('unavailable saved subtitle work points to a scoped fresh request and state
   app.mount(host)
   try {
     assert.match(host.textContent!, /15\/16 sections ready/)
-    assert.match(host.textContent!, /fresh GenStudio request/i)
+    assert.match(host.textContent!, /fresh Gateway request/i)
     assert.match(host.textContent!, /current quote/i)
     assert.match(host.textContent!, /may be charged/i)
     assert.equal(host.querySelector('button'), null)

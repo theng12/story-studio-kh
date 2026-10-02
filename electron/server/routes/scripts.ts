@@ -305,7 +305,7 @@ router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
 
     if (jq.hasUnresolvedTerminalChapterExpansion(slug, episode_id)) {
       return res.status(409).json({
-        detail: `Writing chapters for ${episode_id} stopped part-way and may still be finishing at GenStudio. `
+        detail: `Writing chapters for ${episode_id} stopped part-way and may still be finishing at the Gateway. `
           + 'Click "Resume writing" at the bottom of the Outline tab to finish that run first, then expand other chapters.',
       })
     }

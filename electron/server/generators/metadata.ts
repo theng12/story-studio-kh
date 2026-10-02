@@ -130,7 +130,7 @@ function aiCreds(_config: any) { return {} }
 async function resolveDefaultMetadataModel(config: any): Promise<string> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
-    throw new Error('No GenStudio API key configured. Add it in Settings → This Mac before generating metadata.')
+    throw new Error('No Gateway key configured. Add it in Settings → This Mac before generating metadata.')
   }
   const saved = typeof config?.prompt_model === 'string' ? config.prompt_model : null
   return resolveChosenChatModel(apiKey, saved, 'the Metadata page (or in the Metadata preset for batch runs)')
@@ -228,7 +228,7 @@ export async function generateMetadata(job: Job): Promise<void> {
           || `${project_slug}:${episode_id}:metadata:${pipelinePolicyInputFingerprint({ system, user })}`,
         onModelSelected: async selected => {
           await context?.onModelSelected?.(selected)
-          job.output_lines.push(`[pipeline] metadata using GenStudio product "${selected}".`)
+          job.output_lines.push(`[pipeline] metadata using Gateway product "${selected}".`)
         },
       })
     : callAiWithRetry(model, system, user, aiCreds(config), stream, context)

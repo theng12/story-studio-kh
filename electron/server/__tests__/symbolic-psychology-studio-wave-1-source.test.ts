@@ -490,7 +490,7 @@ test('Oil source: Store packaging keeps a qualified asset and safe runtime docum
   )
   assert.doesNotMatch(
     JSON.stringify(document),
-    /episode|provider|model|price|discount|GenStudio|(?:\/Users\/|[A-Za-z]:[\\/])/i,
+    /episode|provider|model|price|discount|the Gateway|(?:\/Users\/|[A-Za-z]:[\\/])/i,
   )
 })
 

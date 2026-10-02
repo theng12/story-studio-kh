@@ -255,7 +255,7 @@ async function resolveGenStudioTranscription(
     throw new Error('The selected transcription model is temporarily unavailable.')
   }
   if (selected.locked) {
-    throw new Error('The selected transcription model is locked for this GenStudio account. Choose an unlocked model. No request or credit charge was made.')
+    throw new Error('The selected transcription model is locked for this Gateway account. Choose an unlocked model. No request or credit charge was made.')
   }
   if (requestedModel !== migratedModel) {
     job.output_lines.push(`Migrated legacy transcription model ${requestedModel} → ${migratedModel}.`)

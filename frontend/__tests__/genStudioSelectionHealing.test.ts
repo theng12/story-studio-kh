@@ -24,7 +24,7 @@ import {
 const models = [
   { id: 'writer-fast', available: true },
   { id: 'writer-quality', available: true, legacy_ids: ['old-quality'] },
-  { id: 'writer-retired', available: false, disabled_reason: 'Paused by GenStudio' },
+  { id: 'writer-retired', available: false, disabled_reason: 'Paused by the Gateway' },
 ]
 
 describe('describeGenStudioSelectionGap', () => {
@@ -54,7 +54,7 @@ describe('describeGenStudioSelectionGap', () => {
     assert.deepEqual(gap, {
       kind: 'unavailable',
       savedModelId: 'writer-retired',
-      reason: 'Paused by GenStudio',
+      reason: 'Paused by the Gateway',
     })
     const message = genStudioSelectionGapMessage(gap)
     assert.match(message ?? '', /writer-retired/)

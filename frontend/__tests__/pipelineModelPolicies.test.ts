@@ -143,7 +143,7 @@ test('Pipeline shows the exact candidate’s live published limits and clears th
   })
   assert.match(page.modelPolicyLimits('metadata', 0), /Context window: 128,000 tokens/)
   assert.match(page.modelPolicyLimits('metadata', 0), /Max output: 16,000 tokens/)
-  assert.match(page.modelPolicyLimits('metadata', 0), /Input capacity estimate at this output: 112,000 tokens\. GenStudio validates the exact prompt fit\./)
+  assert.match(page.modelPolicyLimits('metadata', 0), /Input capacity estimate at this output: 112,000 tokens\. The Gateway validates the exact prompt fit\./)
 
   page.setModelPolicyModel('metadata', 0, 'genstudio:writer-b')
   assert.equal(page.modelPolicyLimits('metadata', 0), '')

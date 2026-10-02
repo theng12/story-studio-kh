@@ -2,7 +2,7 @@
   <section class="compression" :aria-labelledby="headingId">
     <h3 :id="headingId">Smaller files</h3>
     <p v-if="!slug">
-      Ask GenStudio to hand back music, narration and images already compressed, so they move and store faster.
+      Ask the Gateway to hand back music, narration and images already compressed, so they move and store faster.
       Each change applies to the next thing you generate; files you already have are not touched. A computer that
       cannot compress simply sends the normal file. Projects can override these.
     </p>

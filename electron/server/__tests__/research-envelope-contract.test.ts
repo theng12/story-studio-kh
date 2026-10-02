@@ -197,7 +197,7 @@ test('the retired GUESSED names are no longer read off the wire', async () => {
   assert.equal(result.webSearch.searchCreditCost, null)
 })
 
-test('source URLs retain only valid HTTP(S) pages at the GenStudio boundary', async () => {
+test('source URLs retain only valid HTTP(S) pages at the Gateway boundary', async () => {
   const result = await webCall({
     source_urls: [
       ' https://example.invalid/retrieved ',
@@ -346,7 +346,7 @@ test('the failure code drives the surfaced error message', () => {
   const plain = new GenStudioApiError(502, 'language generation failed')
   assert.equal(plain.languageFailureCode, null)
   assert.equal(isGenStudioSubmissionUncertain(plain), false)
-  assert.match(plain.message, /provider behind this GenStudio KH product failed/i)
+  assert.match(plain.message, /provider behind this Gateway product failed/i)
 
   // The code is also recovered when GenStudio quotes it in the detail string.
   const quoted = new GenStudioApiError(502, 'route failed: LANGUAGE_PROVIDER_FAILED')

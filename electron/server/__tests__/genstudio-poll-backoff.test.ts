@@ -123,7 +123,7 @@ test('jitter actually varies, so concurrent clients cannot stay in lockstep', ()
 
 // ── A server hint beats the local schedule ─────────────────────────────────
 
-test('a GenStudio poll hint wins over the local ladder', () => {
+test('a Gateway poll hint wins over the local ladder', () => {
   // Attempt 0 would locally be 1s. The server says 30s; the server wins.
   const delay = genStudioPollDelayMs({
     attempt: 0,

@@ -53,9 +53,9 @@ export const GENSTUDIO_WEB_RESEARCH_PROVIDER = 'genstudio-web' as const
 
 class GenStudioWebResearchAdapter implements ResearchAdapter {
   readonly provider = GENSTUDIO_WEB_RESEARCH_PROVIDER
-  readonly displayName = 'GenStudio web search'
+  readonly displayName = 'Gateway web search'
   readonly helperText =
-    'Searches the web through a qualified GenStudio model and records the sources it read.'
+    'Searches the web through a qualified Gateway model and records the sources it read.'
 
   async isConfigured(): Promise<boolean> {
     const key = await getApiKey('genstudio').catch(() => '')
@@ -65,7 +65,7 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
   async run(opts: ResearchRunOptions): Promise<ResearchOutput> {
     const apiKey = await getApiKey('genstudio').catch(() => '')
     if (!apiKey) {
-      throw new Error('No GenStudio API key configured. Add it in Settings → This Mac before running research.')
+      throw new Error('No Gateway key configured. Add it in Settings → This Mac before running research.')
     }
     const availabilityScope = llmLineupAvailabilityScope(apiKey)
 
@@ -200,7 +200,7 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
         )
       : runProduct(product!.id)).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)
-      throw new Error(`GenStudio web research failed: ${message}`)
+      throw new Error(`Gateway web research failed: ${message}`)
     })
 
     // Report what GenStudio actually reported, and nothing more. A null field

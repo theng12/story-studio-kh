@@ -83,7 +83,7 @@ const defaultModelMenuOptions = [
     costTier: 'balanced',
     description: 'A balanced model for routine work.',
     price: '12 credits / 1M input tokens · 24 credits / 1M output tokens',
-    priceTitle: 'GenStudio publishes this token rate. The final charge depends on actual usage.',
+    priceTitle: 'The Gateway publishes this token rate. The final charge depends on actual usage.',
   },
   { id: 'flagship', label: 'Flagship', costTier: 'premium' },
 ]
@@ -156,7 +156,7 @@ describe('picker dialog opening focus', () => {
     try {
       const price = host.querySelector<HTMLElement>('.model-menu-option-price')
       assert.equal(price?.textContent?.trim(), 'Published rate · 12 credits / 1M input tokens · 24 credits / 1M output tokens')
-      assert.equal(price?.title, 'GenStudio publishes this token rate. The final charge depends on actual usage.')
+      assert.equal(price?.title, 'The Gateway publishes this token rate. The final charge depends on actual usage.')
       assert.equal(
         host.querySelector<HTMLElement>('.model-menu-option-description')?.textContent?.trim(),
         'A balanced model for routine work.',

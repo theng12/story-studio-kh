@@ -76,7 +76,7 @@ test('terminal visual Scene Plan rows offer explicit paid prompt repair without 
   assert.match(jobs, />\{\{ controlBusy\.has\(job\.job_id\) \? 'Starting…' : 'Auto repair prompts · credits' \}\}<\/button>/)
   assert.match(jobs, /GenStudio credits may be charged/)
   assert.match(jobs, /submits each missing or duplicated scene alone/i)
-  assert.match(jobs, /Each scene is a separate GenStudio request/)
+  assert.match(jobs, /Each scene is a separate Gateway request/)
   assert.match(jobs, /Pause stops new requests after any accepted request settles/)
   assert.match(jobs, /\.job-actions \{ margin-left: 0; width: 100%; justify-content: flex-start; \}/)
   assert.match(jobs, /:aria-label="`Auto repair missing prompts for \$\{job\.episode_id\}; GenStudio credits may be charged`"/)
@@ -181,7 +181,7 @@ test('Jobs reports whole-batch completed, settling, cancelled, failed, and not-s
   assert.match(jobs, /summariseJobItems\(job\.item_progress\)/)
 })
 
-test('GenStudio batch ledger keeps customer cancellations neutral instead of failed', () => {
+test('Gateway batch ledger keeps customer cancellations neutral instead of failed', () => {
   const ledger = readFileSync(
     fileURLToPath(new URL('../components/GenStudioBatchLedger.vue', import.meta.url)),
     'utf8',
@@ -206,7 +206,7 @@ test('Jobs contracts carry all six remote operations and published cancellation 
   assert.doesNotMatch(jobs, /post-dispatch Video|Video best effort/i)
 })
 
-test('Jobs explains GenStudio 1.2 waits and retries from provider-published fields', () => {
+test('Jobs explains the Gateway 1.2 waits and retries from provider-published fields', () => {
   for (const field of [
     'retry_after_seconds', 'retry_at', 'last_provider_progress_at',
     'stall_recovery_at', 'status_detail', 'failure_detail',
@@ -233,7 +233,7 @@ test('Jobs retries every non-episode job through the durable queue without repos
   assert.match(replacement, /job\.type === 'images' \? 'thumb_images' : job\.type/)
 })
 
-test('Jobs renders exact GenStudio account facts only for a verified live snapshot', () => {
+test('Jobs renders exact Gateway account facts only for a verified live snapshot', () => {
   assert.match(jobs, /verifiedGenStudioAdmission/)
   assert.match(jobs, /paid_active_jobs }} active \/ {{ genStudioAdmission\.paid_concurrency_limit }} standard lanes/)
   assert.match(jobs, /genStudioAdmission\.burst_concurrency_ceiling &&\s*genStudioAdmission\.paid_active_jobs > genStudioAdmission\.paid_concurrency_limit/)
@@ -254,7 +254,7 @@ test('the conservative capacity message wraps safely on narrow Jobs layouts', ()
   )
 })
 
-test('Jobs makes temporary capacity best effort and directs upgrades to GenStudio', () => {
+test('Jobs makes temporary capacity best effort and directs upgrades to the Gateway', () => {
   assert.match(jobs, /Temporary boost[\s\S]*?best effort, not guaranteed/i)
   assert.match(jobs, /Purchase more standard capacity in GenStudio/i)
   assert.match(jobs, /\.capacity-boost \{[\s\S]*?white-space: normal;[\s\S]*?overflow-wrap: anywhere;/)
@@ -530,7 +530,7 @@ test('Q-10: the subtitle Retry tooltip does not point at a Repair control', () =
   const start = jobs.indexOf("if (jobType === 'subtitles_transcribe')")
   assert.ok(start >= 0, 'the subtitle tooltip branch must exist')
   const block = jobs.slice(start, jobs.indexOf('}', start))
-  assert.doesNotMatch(block, /Repair first retrieves saved GenStudio work/)
+  assert.doesNotMatch(block, /Repair first retrieves saved Gateway work/)
   assert.match(block, /Retry keeps completed SRT files/)
 })
 

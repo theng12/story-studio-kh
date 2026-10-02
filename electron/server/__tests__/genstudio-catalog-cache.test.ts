@@ -79,7 +79,7 @@ const CATALOGUES: Catalogue[] = [
 
 type FetchMode = 'ok' | 'offline' | 'forbidden'
 
-void test('every GenStudio catalogue follows one caching and staleness policy', async (suite) => {
+void test('every Gateway catalogue follows one caching and staleness policy', async (suite) => {
   const originalFetch = globalThis.fetch
   process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
 
@@ -114,7 +114,7 @@ void test('every GenStudio catalogue follows one caching and staleness policy', 
         assert.ok(live.value.length > 0)
 
         const cached = await catalogue.load(apiKey)
-        assert.equal(requests, 1, 'a read inside the freshness window must not hit GenStudio')
+        assert.equal(requests, 1, 'a read inside the freshness window must not hit the Gateway')
         assert.equal(cached.freshness, 'fresh')
         assert.equal(cached.stale, false)
         assert.deepEqual(cached.value, live.value)

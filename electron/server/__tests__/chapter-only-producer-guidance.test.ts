@@ -108,7 +108,7 @@ test('chapter-only regeneration sends saved producer guidance when its request o
   await generateChapterOnly(chapterOnlyJob())
 
   const submission = service.submissions.find(item => item.operation === 'chat' && !item.replay)
-  assert.ok(submission, 'chapter-only regeneration must submit exactly one fake GenStudio chat request')
+  assert.ok(submission, 'chapter-only regeneration must submit exactly one fake Gateway chat request')
   const prompt = JSON.stringify(submission.parsedBody)
   assert.match(prompt, /PRODUCER NOTES \(binding — follow these over any generic default/i)
   assert.match(prompt, /Do not reintroduce the rejected banking-timing claim\./)
@@ -124,7 +124,7 @@ test('chapter-only regeneration prioritizes saved producer guidance over a confl
   await generateChapterOnly(chapterOnlyJob({ manual_guidance: conflictingRequestGuidance }))
 
   const submission = service.submissions.find(item => item.operation === 'chat' && !item.replay)
-  assert.ok(submission, 'chapter-only regeneration must submit exactly one fake GenStudio chat request')
+  assert.ok(submission, 'chapter-only regeneration must submit exactly one fake Gateway chat request')
   const prompt = JSON.stringify(submission.parsedBody)
   assert.match(prompt, /Do not reintroduce the rejected banking-timing claim\./)
   assert.doesNotMatch(prompt, /Replace the saved direction with this request value\./)
@@ -143,6 +143,6 @@ test('chapter-only regeneration falls back to request producer guidance for side
   await generateChapterOnly(chapterOnlyJob({ manual_guidance: requestGuidance }))
 
   const submission = service.submissions.find(item => item.operation === 'chat' && !item.replay)
-  assert.ok(submission, 'chapter-only regeneration must submit exactly one fake GenStudio chat request')
+  assert.ok(submission, 'chapter-only regeneration must submit exactly one fake Gateway chat request')
   assert.match(JSON.stringify(submission.parsedBody), /Keep the constitutional crisis distinct from the later wars\./)
 })

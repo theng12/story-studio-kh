@@ -116,7 +116,7 @@ router.get('/models', async (_req, res) => {
   // sentence the customer can act on; this endpoint was the only one in the file
   // that spelled "I don't know" as an empty list (AGENTS.md §6).
   if (!apiKey) {
-    return res.status(400).json({ detail: 'Add a GenStudio API key in Settings → This Mac.' })
+    return res.status(400).json({ detail: 'Add a Gateway key in Settings → This Mac.' })
   }
   try {
     const models = (await listGenStudioChatModels(apiKey)).map(model => ({
@@ -140,7 +140,7 @@ router.get('/models', async (_req, res) => {
       // retry window is the fact that replaced them, and it rides on the job.
       disabled_reason: model.available
         ? null
-        : (model.activation_blockers.join(' ') || 'This model is not currently available in GenStudio.'),
+        : (model.activation_blockers.join(' ') || 'This model is not currently available in the Gateway.'),
       hint: model.description || null,
       // The live GenStudio catalog is the capability authority. This is used
       // by reference-guided thumbnail prompts to keep text-only models out of
@@ -198,14 +198,14 @@ router.get('/models', async (_req, res) => {
     }))
     res.json(models)
   } catch (error: any) {
-    res.status(502).json(humanizeBackendError(error, 'Could not load the GenStudio chat catalog'))
+    res.status(502).json(humanizeBackendError(error, 'Could not load the Gateway chat catalog'))
   }
 })
 
 async function authoritativeUsage(res: any): Promise<void> {
   const apiKey = await withGenStudioKey()
   if (!apiKey) {
-    res.status(400).json({ detail: 'Add a GenStudio API key in Settings → This Mac.' })
+    res.status(400).json({ detail: 'Add a Gateway key in Settings → This Mac.' })
     return
   }
   try {
@@ -228,23 +228,23 @@ router.get('/usage/rollup', (_req, res) => authoritativeUsage(res))
 router.get('/projects/:slug/health', async (req, res) => {
   if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
   const apiKey = await withGenStudioKey()
-  if (!apiKey) return res.json({ genstudio: { configured: false, online: false, detail: 'Add a GenStudio API key.' } })
+  if (!apiKey) return res.json({ genstudio: { configured: false, online: false, detail: 'Add a Gateway key.' } })
   try {
     const models = await listGenStudioChatModels(apiKey)
     res.json({ genstudio: { configured: true, online: true, available_chat_models: models.filter(model => model.available).length } })
   } catch (error: any) {
-    res.json({ genstudio: { configured: true, online: false, detail: error?.message || 'GenStudio unavailable' } })
+    res.json({ genstudio: { configured: true, online: false, detail: error?.message || 'Gateway unavailable' } })
   }
 })
 
 router.get('/connectivity/precheck', async (_req, res) => {
   const apiKey = await withGenStudioKey()
-  if (!apiKey) return res.json({ online: false, genstudio: false, detail: 'GenStudio API key is not configured.' })
+  if (!apiKey) return res.json({ online: false, genstudio: false, detail: 'Gateway key is not configured.' })
   try {
     await listGenStudioChatModels(apiKey)
     res.json({ online: true, genstudio: true })
   } catch (error: any) {
-    res.json({ online: false, genstudio: false, detail: error?.message || 'GenStudio unavailable' })
+    res.json({ online: false, genstudio: false, detail: error?.message || 'Gateway unavailable' })
   }
 })
 
@@ -267,24 +267,24 @@ router.get('/gateway/status', async (_req, res) => {
 
 async function testGenStudioKey(apiKey: string, res: any): Promise<void> {
   if (!apiKey) {
-    res.status(400).json({ valid: false, reachable: false, message: 'A GenStudio API key is required.' })
+    res.status(400).json({ valid: false, reachable: false, message: 'A Gateway key is required.' })
     return
   }
   try {
     const models = await listGenStudioChatModels(apiKey)
-    res.json({ valid: true, reachable: true, message: `GenStudio key works · ${models.filter(model => model.available).length} chat model(s) available.` })
+    res.json({ valid: true, reachable: true, message: `Gateway key works · ${models.filter(model => model.available).length} chat model(s) available.` })
   } catch (error: any) {
-    res.json({ valid: false, reachable: !(error instanceof TypeError), message: error?.message || 'GenStudio key test failed.' })
+    res.json({ valid: false, reachable: !(error instanceof TypeError), message: error?.message || 'Gateway key test failed.' })
   }
 }
 
 router.post('/test-key/:provider', async (req, res) => {
-  if (req.params.provider !== 'genstudio') return res.status(410).json({ code: 'GENSTUDIO_ONLY', detail: 'Only GenStudio credentials are supported.' })
+  if (req.params.provider !== 'genstudio') return res.status(410).json({ code: 'GENSTUDIO_ONLY', detail: 'Only Gateway credentials are supported.' })
   await testGenStudioKey(typeof req.body?.apiKey === 'string' ? req.body.apiKey.trim() : '', res)
 })
 
 router.post('/projects/:slug/test-key/:provider', async (req, res) => {
-  if (req.params.provider !== 'genstudio') return res.status(410).json({ code: 'GENSTUDIO_ONLY', detail: 'Only GenStudio credentials are supported.' })
+  if (req.params.provider !== 'genstudio') return res.status(410).json({ code: 'GENSTUDIO_ONLY', detail: 'Only Gateway credentials are supported.' })
   if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
   await testGenStudioKey(await withGenStudioKey(), res)
 })

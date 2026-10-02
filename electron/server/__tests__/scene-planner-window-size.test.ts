@@ -32,7 +32,7 @@ describe('resolveTargetScenesPerWindow', () => {
     assert.equal(resolveTargetScenesPerWindow('auto', 8_192, 2_048), 5)
   })
 
-  it('auto falls back to the small window when GenStudio published nothing usable', () => {
+  it('auto falls back to the small window when the Gateway published nothing usable', () => {
     // Model-free runs (deterministic-timeline) or a caller that never
     // resolved the live catalog: no context figure to size from at all —
     // note the function no longer takes a model id at all, only the

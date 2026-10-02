@@ -91,7 +91,7 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
     return res.status(400).json({
-      detail: 'No GenStudio KH API key is saved. Add one in Settings → App & Connections.',
+      detail: 'No Gateway key is saved. Add one in Settings → App & Connections.',
     })
   }
 
@@ -99,21 +99,21 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
   try {
     catalog = await listImageModels(apiKey)
   } catch (e: any) {
-    return res.status(502).json({ detail: e?.message || 'Could not load the GenStudio image catalog' })
+    return res.status(502).json({ detail: e?.message || 'Could not load the Gateway image catalog' })
   }
   const selectedModel = catalog.find(model => model.id === modelName)
   if (!selectedModel) {
     return res.status(400).json({
-      detail: `The selected model is not in the live GenStudio image catalog: ${modelName}`,
+      detail: `The selected model is not in the live Gateway image catalog: ${modelName}`,
     })
   }
   if (!selectedModel.available) {
     return res.status(409).json({
-      detail: `${selectedModel.display_name} is currently unavailable in GenStudio.`,
+      detail: `${selectedModel.display_name} is currently unavailable in the Gateway.`,
     })
   }
   if (selectedModel.locked) {
-    return res.status(409).json({ detail: `${selectedModel.display_name} is locked for this GenStudio account.` })
+    return res.status(409).json({ detail: `${selectedModel.display_name} is locked for this Gateway account.` })
   }
   if (selectedModel.aspect_ratios.length && !selectedModel.aspect_ratios.includes(aspectRatio)) {
     return res.status(400).json({
@@ -151,7 +151,7 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
     })
     source = result.url
   } catch (e: any) {
-    return res.status(502).json({ detail: e?.message || 'GenStudio image generation failed' })
+    return res.status(502).json({ detail: e?.message || 'Gateway image generation failed' })
   }
 
   let imageBytes: Buffer
@@ -159,7 +159,7 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
     if (source.startsWith('data:')) {
       imageBytes = Buffer.from(source.slice(source.indexOf(',') + 1), 'base64')
     } else {
-      throw new Error('GenStudio returned an unsupported preview artifact')
+      throw new Error('The Gateway returned an unsupported preview artifact')
     }
     if (imageBytes.length === 0) throw new Error('Downloaded zero bytes')
   } catch (e: any) {

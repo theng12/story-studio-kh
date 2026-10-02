@@ -26,7 +26,7 @@ export function resolveGenStudioModelId(modality: GenStudioModality, modelId: st
 }
 
 export function unavailableLegacyModelMessage(modality: GenStudioModality, modelId: string): string {
-  return `Saved ${modality} product \"${modelId}\" is retired or unavailable and was not submitted. Open this generator, choose a current product from the GenStudio catalog, then save the preset again. No generation request or credit charge was made.`
+  return `Saved ${modality} product \"${modelId}\" is retired or unavailable and was not submitted. Open this generator, choose a current product from the Gateway catalog, then save the preset again. No generation request or credit charge was made.`
 }
 
 /**

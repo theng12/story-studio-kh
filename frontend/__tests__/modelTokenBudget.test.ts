@@ -151,7 +151,7 @@ describe('available input budget', () => {
   })
 })
 
-describe('GenStudio validation errors', () => {
+describe('Gateway validation errors', () => {
   test('a context/output rejection is recognised by SHAPE, never by model name', () => {
     assert.ok(isModelTokenLimitError('This request exceeds the model context window.'))
     assert.ok(isModelTokenLimitError('requested 200000 output tokens, but the product publishes 32768'))
@@ -230,7 +230,7 @@ describe('Scene Plan workspace wiring', () => {
   })
 
   test('the budget is presented as an estimate, and is never turned into characters', () => {
-    assert.match(scenePlan, /Estimated from the limits GenStudio publishes/)
+    assert.match(scenePlan, /Estimated from the limits the Gateway publishes/)
     assert.match(scenePlan, /GenStudio validates every request/)
     // No token-to-character conversion anywhere: characters per token differ by
     // language, and Khmer and mixed-script narration would be mis-measured.
@@ -239,7 +239,7 @@ describe('Scene Plan workspace wiring', () => {
     assert.doesNotMatch(scenePlan, /maxlength=/i)
   })
 
-  test('a GenStudio limit rejection refreshes the catalogue and clamps', () => {
+  test('a Gateway limit rejection refreshes the catalogue and clamps', () => {
     assert.match(scenePlan, /isModelTokenLimitError\(message\)/)
     assert.match(scenePlan, /modelSelector\.value\?\.reloadCatalog\(\)/)
     assert.match(scenePlan, /reportGenerationError\(e,/)

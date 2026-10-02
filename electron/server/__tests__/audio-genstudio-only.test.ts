@@ -17,7 +17,7 @@ test('arbitrary project audio_models cannot select a direct TTS provider', () =>
   assert.equal(resolveAudioProvider('voicestudio-qwen3-tts', malicious), 'genstudio')
 })
 
-test('a terminal GenStudio task failure starts a new manual recovery request', () => {
+test('a terminal Gateway task failure starts a new manual recovery request', () => {
   assert.equal(isTerminalGenStudioTaskFailure({ task_id: 'job_failed', last_state: 'failed' }), true)
   assert.equal(isTerminalGenStudioTaskFailure({ task_id: 'job_running', last_state: 'running' }), false)
   assert.equal(isTerminalGenStudioTaskFailure({ task_id: '', last_state: 'failed' }), false)

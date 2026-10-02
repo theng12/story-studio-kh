@@ -45,7 +45,7 @@ const FAKE_MODEL = 'genstudio-chat-test-outline-split-v1'
 const DISPATCH_MODEL = `genstudio-chat:${FAKE_MODEL}`
 
 const fakeProvider: TextProvider = {
-  meta: { id: 'genstudio', name: 'Fake GenStudio', apiKeyField: 'genstudio_api_key' as any },
+  meta: { id: 'genstudio', name: 'Fake the Gateway', apiKeyField: 'genstudio_api_key' as any },
   supportsModel(m: string): boolean { return m === DISPATCH_MODEL },
   async callText(req: TextGenerationRequest): Promise<string> {
     if (req.signal?.aborted) throw new Error('Cancelled by user')

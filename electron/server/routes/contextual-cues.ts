@@ -72,7 +72,7 @@ router.post('/projects/:slug/contextual-cues/:episodeId/propose', async (req, re
   if (!config.enabled) return res.status(409).json({ detail: 'Enable Contextual Cues for this project before proposing cues.' })
   try { await loadPlan(slug, episodeId) } catch (error: any) { return res.status(409).json({ detail: error?.message || 'Scene Plan is required.' }) }
   const settings = normalizeContextualCueProposalSettings(req.body)
-  if (!settings.model) return res.status(409).json({ detail: 'Choose a live GenStudio model in Contextual Cues before proposing cues.' })
+  if (!settings.model) return res.status(409).json({ detail: 'Choose a live Gateway model in Contextual Cues before proposing cues.' })
   let operationId: string
   try { operationId = readOperationId(req.body, true)! } catch (error) {
     return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })

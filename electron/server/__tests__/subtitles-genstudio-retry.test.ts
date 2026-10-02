@@ -36,7 +36,7 @@ test('terminal transcription states and typed provider outcomes are classified w
   )
   // A transient/auth failure is NOT terminal, however it is worded...
   assert.equal(isTerminalGenStudioTranscriptionProviderError(new GenStudioApiError(401, 'key rejected')), false)
-  assert.equal(isTerminalGenStudioTranscriptionProviderError(new Error('GenStudio KH request failed: transcription quote has expired')), false)
+  assert.equal(isTerminalGenStudioTranscriptionProviderError(new Error('Gateway request failed: transcription quote has expired')), false)
   // ...and another modality's terminal failure never retires a transcription key.
   assert.equal(
     isTerminalGenStudioTranscriptionProviderError(new GenStudioTtsTerminalFailureError({ id: 'tts-1', state: 'failed' })),
@@ -142,7 +142,7 @@ test('a TTS failure is not treated as a transcription retry', async () => {
   assert.equal(isFleetBusyTranscriptionFailure(null), false)
 })
 
-test('the waits are minutes, because GenStudio already waited fifteen', async () => {
+test('the waits are minutes, because the Gateway already waited fifteen', async () => {
   // SITE_PLACEMENT_EXHAUSTED is only raised after a fifteen-minute placement
   // window, so a chapter that reaches here has been queued a long time and the
   // fleet is genuinely saturated. A two-second retry would rejoin the same jam

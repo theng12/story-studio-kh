@@ -22,7 +22,7 @@ function importedModules(source: string): string[] {
   return [...source.matchAll(/\bfrom\s+['"]([^'"]+)['"]/g)].map(match => match[1]!)
 }
 
-void test('deterministic zero-spend GenStudio release qualification', async (suite) => {
+void test('deterministic zero-spend Gateway release qualification', async (suite) => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   const originalFetch = globalThis.fetch
@@ -41,7 +41,7 @@ void test('deterministic zero-spend GenStudio release qualification', async (sui
       assert.equal(
         url.origin,
         service.baseUrl,
-        `GenStudio qualification blocked non-mock network access to ${url.origin}`,
+        `Gateway qualification blocked non-mock network access to ${url.origin}`,
       )
       return originalFetch(input, init)
     }
@@ -82,7 +82,7 @@ void test('deterministic zero-spend GenStudio release qualification', async (sui
       }
     })
 
-    await suite.test('rejects every generation scope before creating a GenStudio job', async () => {
+    await suite.test('rejects every generation scope before creating a Gateway job', async () => {
       service.reset()
       await assert.rejects(
         client.callChatWithGenStudio(CHAT_CATALOG_ONLY_KEY, {
@@ -249,7 +249,7 @@ void test('deterministic zero-spend GenStudio release qualification', async (sui
         assert.doesNotMatch(
           submission.bodyText,
           /quoted_credits|reserved_credits|final_credits|settled_credits|returned_credits|released_credits/i,
-          'Story Studio must not tell GenStudio how to quote, reserve, settle, or return credits',
+          'Story Studio must not tell Gateway how to quote, reserve, settle, or return credits',
         )
       }
     })

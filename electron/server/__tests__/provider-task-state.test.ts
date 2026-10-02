@@ -6,7 +6,7 @@ import {
   reconciledGenStudioQueueState,
 } from '../contracts/provider-task-state.js'
 
-describe('GenStudio provider task state', () => {
+describe('Gateway provider task state', () => {
   test('provider-confirmed no-record state overrides a stale local running hint', () => {
     const entry = { state: 'not_created', queue_state: 'running' }
     assert.equal(effectiveGenStudioTaskState(entry), 'not_created')

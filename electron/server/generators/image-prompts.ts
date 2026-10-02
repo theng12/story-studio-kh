@@ -145,17 +145,17 @@ function parseThumbnailPromptsJson(raw: string): any[] {
   // made the scene-pack incident cost hours to diagnose.
   if (!parsed || typeof parsed !== 'object') {
     throw new Error(
-      `GenStudio completed the request, but the thumbnail response parsed to ${parsed === null ? 'null' : typeof parsed}, not a JSON object. The result was rejected locally.`,
+      `The Gateway completed the request, but the thumbnail response parsed to ${parsed === null ? 'null' : typeof parsed}, not a JSON object. The result was rejected locally.`,
     )
   }
   if (Array.isArray(parsed)) {
     throw new Error(
-      `GenStudio completed the request, but the thumbnail response was a bare array of ${parsed.length}, not an object with a "thumbnails" key. The result was rejected locally.`,
+      `The Gateway completed the request, but the thumbnail response was a bare array of ${parsed.length}, not an object with a "thumbnails" key. The result was rejected locally.`,
     )
   }
   if (!Array.isArray(parsed.thumbnails)) {
     throw new Error(
-      `GenStudio completed the request, but the thumbnail response has no "thumbnails" array (present: ${JSON.stringify(Object.keys(parsed))}). The result was rejected locally.`,
+      `The Gateway completed the request, but the thumbnail response has no "thumbnails" array (present: ${JSON.stringify(Object.keys(parsed))}). The result was rejected locally.`,
     )
   }
   return parsed.thumbnails
@@ -394,7 +394,7 @@ async function loadExistingThumbnails(
 async function resolveDefaultImagePromptsModel(config: any): Promise<string> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
-    throw new Error('No GenStudio API key configured. Add it in Settings → This Mac before generating thumbnail prompts.')
+    throw new Error('No Gateway key configured. Add it in Settings → This Mac before generating thumbnail prompts.')
   }
   const saved = typeof config?.prompt_model === 'string' ? config.prompt_model : null
   return resolveChosenChatModel(apiKey, saved, 'the Thumbnail Prompts page')
@@ -637,7 +637,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
             pipelinePolicyCheckpoint: promptCheckpoint,
             pipelinePolicyCheckpointKey: promptRequestIdentity,
             onModelSelected: selected => {
-              job.output_lines.push(`[pipeline] image prompts using GenStudio product "${selected}".`)
+              job.output_lines.push(`[pipeline] image prompts using Gateway product "${selected}".`)
             },
             outputContract: thumbnailPromptsOutputContract(targetNumbers.length),
             outputBudget: 'standard',

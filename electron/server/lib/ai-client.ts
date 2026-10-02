@@ -286,7 +286,7 @@ export async function callAi(
   // Find which provider handles this model
   const provider = registry.findTextProviderForModel(model)
   if (!provider || provider.meta.id !== 'genstudio') {
-    throw new Error(`GenStudio text provider is unavailable for ${model}. No legacy provider fallback was attempted.`)
+    throw new Error(`Gateway text provider is unavailable for ${model}. No legacy provider fallback was attempted.`)
   }
 
   // GenStudio is the sole execution boundary; its encrypted app-level key is
@@ -555,14 +555,14 @@ export async function executePipelineModelPolicy<T>(
       await checkpoint?.write(checkpointKey, checkpointState('in_flight'))
       const checkpointAccepted = checkpoint
         ? async (idempotencyKey: string) => {
-          if (!idempotencyKey.trim()) throw new Error('GenStudio accepted a Pipeline request without an idempotency key.')
+          if (!idempotencyKey.trim()) throw new Error('The Gateway accepted a Pipeline request without an idempotency key.')
           acceptedIdempotencyKey = idempotencyKey
           await checkpoint.write(checkpointKey, checkpointState('accepted', idempotencyKey))
         }
         : undefined
       const checkpointPrepared = checkpoint
         ? async (idempotencyKey: string) => {
-          if (!idempotencyKey.trim()) throw new Error('GenStudio prepared a Pipeline request without an idempotency key.')
+          if (!idempotencyKey.trim()) throw new Error('Gateway prepared a Pipeline request without an idempotency key.')
           acceptedIdempotencyKey = idempotencyKey
           await checkpoint.write(checkpointKey, checkpointState('in_flight', idempotencyKey))
         }

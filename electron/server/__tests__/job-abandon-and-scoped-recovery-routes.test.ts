@@ -59,7 +59,7 @@ describe('force-abandon route', () => {
         id: 'chat-accepted', operation: 'chat.response', state: 'accepted',
         updated_at: new Date().toISOString(),
       }],
-      reconciliation_error: 'GenStudio status check is waiting (HTTP 404: GenStudio KH request failed: not found)',
+      reconciliation_error: 'Gateway status check is waiting (HTTP 404: Gateway request failed: not found)',
     }
     await fs.writeFile(
       path.join(tempDir, 'projects', project.slug, 'jobs.json'),

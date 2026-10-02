@@ -6,7 +6,7 @@
       <span class="field-hint">— published by {{ modelName || 'the selected model' }}</span>
     </label>
     <p class="text-muted text-xs hint-line">
-      These are {{ modelName || 'this model' }}'s own controls, exactly as GenStudio publishes them.
+      These are {{ modelName || 'this model' }}'s own controls, exactly as the Gateway publishes them.
       Choosing another model shows that model's controls instead, reset to its own defaults — nothing carries over.
     </p>
 

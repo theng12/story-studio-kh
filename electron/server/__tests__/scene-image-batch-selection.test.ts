@@ -8,7 +8,7 @@ const scenes = [
   { id: 'scene-3', scene_index: 3, visual_prompt: 'Third scene' },
 ]
 
-describe('Scene Review GenStudio batch selection', () => {
+describe('Scene Review Gateway batch selection', () => {
   test('missing-only retry submits only selected scenes still absent on disk', () => {
     const existing = new Set(['scene-1', 'scene-2'])
     const selected = selectSceneImageBatch(scenes, {

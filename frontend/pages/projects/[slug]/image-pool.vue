@@ -148,7 +148,7 @@
               <option v-for="ratio in selectedGenStudioModel.aspect_ratios" :key="ratio" :value="ratio">{{ ratio }}</option>
             </select>
           </label>
-          <!-- No quality/steps control: GenStudio publishes no step contract
+          <!-- No quality/steps control: The Gateway publishes no step contract
                and its image request has no `steps` field. -->
           <label v-if="selectedGenStudioModel.supports_seed !== false" class="ip-inline-label">
             Seed
@@ -156,7 +156,7 @@
           </label>
         </div>
         <!-- Published `(resolution, aspect_ratio)` rows for this model, each
-             priced by GenStudio. Renders nothing when the model publishes none. -->
+             priced by the Gateway. Renders nothing when the model publishes none. -->
         <ImageOutputOptionPicker
           v-if="selectedGenStudioModel"
           v-model="genOutputOption"

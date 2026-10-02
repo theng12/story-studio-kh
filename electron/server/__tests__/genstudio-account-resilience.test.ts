@@ -118,7 +118,7 @@ test('the overview always revalidates, so a moving balance is never served from 
     await getGenStudioAccountOverviewSnapshot('scoped-key')
     const second = await getGenStudioAccountOverviewSnapshot('scoped-key')
     assert.equal(second.freshness, 'live', 'a balance must not lag real spend')
-    assert.equal(stub.calls(), 2, 'both calls hit GenStudio')
+    assert.equal(stub.calls(), 2, 'both calls hit the Gateway')
   } finally {
     stub.restore()
   }

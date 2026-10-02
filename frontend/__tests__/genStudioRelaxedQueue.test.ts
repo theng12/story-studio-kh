@@ -118,7 +118,7 @@ test('only an explicit queue_class puts a product on the relaxed shelf', () => {
   assert.equal(isRelaxedQueue({ queue_class: 'RELAXED' } as any), false)
 })
 
-test('no picker reads the words "Relaxed Queue" out of anything GenStudio publishes', () => {
+test('no picker reads the words "Relaxed Queue" out of anything the Gateway publishes', () => {
   for (const [name, source] of [
     ['ModelSelector.vue', selectorSource],
     ['research.vue', researchSource],
@@ -135,7 +135,7 @@ test('no picker reads the words "Relaxed Queue" out of anything GenStudio publis
 
 test('a direct row keeps whatever heading its picker already used', () => {
   assert.equal(queueClassGroupLabel({ queue_class: 'direct' }, 'Language models'), 'Language models')
-  assert.equal(queueClassGroupLabel({}, 'GenStudio KH · Vision only'), 'GenStudio KH · Vision only')
+  assert.equal(queueClassGroupLabel({}, 'Gateway · Vision only'), 'Gateway · Vision only')
   assert.equal(queueClassGroupLabel({ queue_class: 'relaxed' }, 'Language models'), RELAXED_QUEUE_GROUP_LABEL)
 })
 
@@ -274,7 +274,7 @@ test('no discount tag appears where there is no discount', () => {
   assert.equal(unsold.text, '30 credits / 1M input tokens · 60 credits / 1M output tokens')
 })
 
-test('the TTS picker uses GenStudio queue metadata and shows the published full price', () => {
+test('the TTS picker uses Gateway queue metadata and shows the published full price', () => {
   assert.match(audioSource, /queueClassGroupLabel\(model, model\.provider_name \|\| 'Voice models'\)/)
   assert.match(
     audioSource,
@@ -286,7 +286,7 @@ test('the TTS picker uses GenStudio queue metadata and shows the published full 
     credits_per_1000_characters: 24,
     standard_credits: 48,
     sale_credits: 24,
-    sale_disclaimer: 'GenStudio publishes this sale disclaimer.',
+    sale_disclaimer: 'The Gateway publishes this sale disclaimer.',
   })
   assert.match(display.text, /24 credits \/ 1,000 characters \(was 48 credits\)/)
   assert.match(display.title, /GenStudio publishes this sale disclaimer\./)
@@ -344,7 +344,7 @@ test('the vision menu sections a legacy row the same way, and a relaxed one too'
     price_version: 'v1',
   }
   const legacy = thumbnailVisionModelMenuOption({ ...base, id: 'v1' })
-  assert.equal(legacy.group, 'GenStudio KH · Vision only', 'unchanged for a payload without the field')
+  assert.equal(legacy.group, 'Gateway · Vision only', 'unchanged for a payload without the field')
   assert.equal(legacy.groupNote, '')
 
   const relaxed = thumbnailVisionModelMenuOption({

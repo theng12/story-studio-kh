@@ -131,8 +131,8 @@ async function inspectProject(
         if (isGenStudioProvider(entry.provider)) {
           summary.pending++
           log(
-            `[boot-recovery] ${filename}: retained GenStudio job ${entry.task_id}; `
-            + 'retry the original job to resume through GenStudio.',
+            `[boot-recovery] ${filename}: retained Gateway job ${entry.task_id}; `
+            + 'retry the original job to resume through the Gateway.',
           )
           continue
         }

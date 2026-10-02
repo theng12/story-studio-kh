@@ -61,7 +61,7 @@ describe('a model that cannot return structured output is refused up front', () 
       assert.fail('expected a refusal')
     } catch (error) {
       const message = (error as Error).message
-      assert.match(message, /Choose a model that GenStudio KH publishes structured-output support for/)
+      assert.match(message, /Choose a model that the Gateway publishes structured-output support for/)
       assert.match(message, /Nothing was charged/,
         'a refusal before any request must say so, or it reads like a failed paid run')
     }

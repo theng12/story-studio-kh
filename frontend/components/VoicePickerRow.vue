@@ -73,7 +73,7 @@ defineEmits<{
 
 const metaParts = computed(() =>
   [props.language, props.providerLabel, props.modelName].filter(Boolean))
-const saveTitle = computed(() => props.favourite ? 'Remove from your saved voices' : 'Save to your GenStudio voices')
+const saveTitle = computed(() => props.favourite ? 'Remove from your saved voices' : 'Save to your Gateway voices')
 </script>
 
 <style scoped>

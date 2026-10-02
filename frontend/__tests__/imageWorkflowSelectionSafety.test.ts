@@ -55,7 +55,7 @@ test('image pages ignore stale selected-pool and episode responses', () => {
 
 test('the retired scene half of the Thumbnail Generator stays gone', () => {
   assert.doesNotMatch(images, /renderPromptPreview|previewState|editScenes|form\.scene|form\.mode|modeTabs/)
-  assert.doesNotMatch(images, /imagestudio\/models|isCatalog/, 'GenStudio is the only source of image sizes')
+  assert.doesNotMatch(images, /imagestudio\/models|isCatalog/, 'The Gateway is the only source of image sizes')
 })
 
 test('Scene Review uploads retain the episode selected when the file was chosen', () => {

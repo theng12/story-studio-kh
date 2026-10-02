@@ -40,7 +40,7 @@ export const featureGuides: Record<string, FeatureGuide> = {
       { title: 'Hidden channels', purpose: 'Lists channels removed from the list with Hide project, and restores them without touching any files.', useWhen: 'Use when a channel you hid needs to come back.' },
       { title: 'New Project', purpose: 'Creates the channel structure, production format, and initial settings.', effect: 'A new project folder and project record are created.' },
       { title: 'Usage', purpose: 'Shows your GenStudio credits: what is set aside for running jobs and what finished jobs actually cost.' },
-      { title: 'Settings', purpose: 'Opens settings that belong to this Mac, including appearance, remote access, and the GenStudio connection.' },
+      { title: 'Settings', purpose: 'Opens settings that belong to this Mac, including appearance, remote access, and the Gateway connection.' },
     ],
     tips: ['Removing a project from the app is different from deleting its files. Use project controls rather than deleting folders blindly.', 'A "Folder missing" badge means the project record is safe but the episodes folder it points at is not there — the path is named on the project page so you can move the folder back or repoint it in Settings → Storage.'],
   },
@@ -60,7 +60,7 @@ export const featureGuides: Record<string, FeatureGuide> = {
   ideas: {
     title: 'Ideas Generator',
     summary: 'Develop channel-fit episode concepts, explore creative directions, prevent repeats, and promote approved ideas into production episodes.',
-    workflow: ['Describe the territory you want to explore.', 'Choose creative freedom, lenses, and a GenStudio model.', 'Generate, review, and promote the strongest ideas.'],
+    workflow: ['Describe the territory you want to explore.', 'Choose creative freedom, lenses, and a Gateway model.', 'Generate, review, and promote the strongest ideas.'],
     topics: [
       { title: 'Creative brief', purpose: 'Tells the model what this batch should explore in natural language.', useWhen: 'Use a sentence, question, constraint, or detailed editorial direction.' },
       { title: 'Creative freedom', purpose: 'Controls how tightly the channel formula constrains new concepts.', effect: 'Explore freely produces broader ideas; Channel-safe stays close to proven boundaries.' },
@@ -145,7 +145,7 @@ export const featureGuides: Record<string, FeatureGuide> = {
   metadata: {
     title: 'YouTube Finalizer',
     summary: 'Build the upload-ready YouTube title, description, tags, measured chapters, selected sources, and disclosures once the production timeline exists.',
-    workflow: ['Complete Script and Audio Assembly; finish Subtitles when available.', 'Choose a reusable preset and GenStudio model.', 'Finalize once, then review the complete upload package.'],
+    workflow: ['Complete Script and Audio Assembly; finish Subtitles when available.', 'Choose a reusable preset and Gateway model.', 'Finalize once, then review the complete upload package.'],
     topics: [
       { title: 'Formula publishing profile', purpose: 'Applies the channel Formula’s reusable title and description behavior.' },
       { title: 'Measured chapters', purpose: 'Uses Audio Assembly timing and approved outline titles to create the YouTube chapter block.' },
@@ -159,7 +159,7 @@ export const featureGuides: Record<string, FeatureGuide> = {
   'thumbnail-prompts': {
     title: 'Thumbnail Prompts',
     summary: 'Turn an episode into several distinct thumbnail concepts with composition, subject, text, and visual-direction instructions.',
-    workflow: ['Choose a recipe, style, and GenStudio model.', 'Generate multiple prompt concepts.', 'Review differences before rendering images.'],
+    workflow: ['Choose a recipe, style, and Gateway model.', 'Generate multiple prompt concepts.', 'Review differences before rendering images.'],
     topics: [
       { title: 'Thumbnail recipe', purpose: 'Defines a reusable visual strategy such as subject scale, layout, emotion, and title treatment.' },
       { title: 'Prompt count', purpose: 'Controls how many distinct thumbnail directions are generated.' },
@@ -172,22 +172,22 @@ export const featureGuides: Record<string, FeatureGuide> = {
   thumbnails: {
     title: 'Thumbnail Generator',
     summary: 'Render, inspect, recover, pin, and choose final thumbnail images from approved thumbnail prompts.',
-    workflow: ['Select a GenStudio image model and its supported controls.', 'Generate missing images or render one sample first.', 'Preview results and pin the preferred upload thumbnail.'],
+    workflow: ['Select a Gateway image model and its supported controls.', 'Generate missing images or render one sample first.', 'Preview results and pin the preferred upload thumbnail.'],
     topics: [
-      { title: 'Model', purpose: 'Chooses a live, approved GenStudio image model. Available ratios and controls come from its catalog capabilities.' },
-      { title: 'Aspect ratio', purpose: 'Controls the output shape. GenStudio owns the output resolution and render effort.' },
+      { title: 'Model', purpose: 'Chooses a live, approved Gateway image model. Available ratios and controls come from its catalog capabilities.' },
+      { title: 'Aspect ratio', purpose: 'Controls the output shape. The Gateway owns the output resolution and render effort.' },
       { title: 'Generate missing fresh', purpose: 'Submits only missing images as new paid work; verified existing images are skipped.' },
-      { title: 'Image integrity', purpose: 'Compares expected thumbnail IDs with usable files and recoverable GenStudio jobs.' },
+      { title: 'Image integrity', purpose: 'Compares expected thumbnail IDs with usable files and recoverable Gateway jobs.' },
       { title: 'Pin for upload', purpose: 'Locks a specific thumbnail so automatic highest-version selection does not replace it.' },
     ],
     tips: ['Use a single sample to validate an unfamiliar style or model before generating the full set.', 'Repair recovers an existing accepted job; fresh generation creates a new request and may use credits.'],
   },
   audio: {
     title: 'Audio Generator',
-    summary: 'Create narration per introduction or chapter using a compatible GenStudio voice and model, with per-section recovery.',
+    summary: 'Create narration per introduction or chapter using a compatible Gateway voice and model, with per-section recovery.',
     workflow: ['Choose a TTS model and compatible voice.', 'Select missing sections or generate one chapter inline.', 'Review files before Audio Assembly.'],
     topics: [
-      { title: 'TTS model', purpose: 'Chooses the voice-generation tier and capabilities published by GenStudio.' },
+      { title: 'TTS model', purpose: 'Chooses the voice-generation tier and capabilities published by the Gateway.' },
       { title: 'Voice', purpose: 'Filters to voices compatible with the selected model or provider family.' },
       { title: 'Section selection', purpose: 'Controls exactly which chapters enter the next job.' },
       { title: 'Inline Generate', purpose: 'Generates one chapter only.', useWhen: 'Useful for repairs, testing a voice, or using a small remaining credit balance.' },
@@ -213,7 +213,7 @@ export const featureGuides: Record<string, FeatureGuide> = {
     summary: 'Transcribe the verified assembled narration into per-section subtitles, stitch the complete timeline, and preview cue timing.',
     workflow: ['Complete Audio Assembly first.', 'Transcribe only missing sections.', 'Stitch and review the complete subtitle timeline.'],
     topics: [
-      { title: 'Transcription model', purpose: 'Chooses a qualified GenStudio speech-to-text model.' },
+      { title: 'Transcription model', purpose: 'Chooses a qualified Gateway speech-to-text model.' },
       { title: 'Missing only', purpose: 'Targets sections without valid subtitle files and preserves completed work.' },
       { title: 'Re-run', purpose: 'Explicitly overwrites existing subtitle sections.' },
       { title: 'Stitched SRT', purpose: 'Combines section subtitles against the assembled audio timeline for Scene Plan and Video Assembly.' },
@@ -241,7 +241,7 @@ export const featureGuides: Record<string, FeatureGuide> = {
       { title: 'Timeline', purpose: 'Splits narration into stable, timestamped scenes without using an LLM.' },
       { title: 'Opening visuals', purpose: 'Reserves a branded opening or starts story scenes from the first second.' },
       { title: 'Visual interpretation', purpose: 'Controls how literally or creatively narration becomes imagery.' },
-      { title: 'Prompt batch size', purpose: 'Controls scenes per GenStudio LLM request while preserving each result by stable scene ID.' },
+      { title: 'Prompt batch size', purpose: 'Controls scenes per Gateway LLM request while preserving each result by stable scene ID.' },
       { title: 'Motion prompts', purpose: 'Adds optional image-to-video direction without changing scene timing.' },
       { title: 'Repair controls', purpose: 'Fix long scenes, coverage gaps, or timestamp drift without discarding healthy work.' },
     ],
@@ -278,7 +278,7 @@ export const featureGuides: Record<string, FeatureGuide> = {
     workflow: ['Generate or upload missing scene images.', 'Preview each result at full size.', 'Approve every usable scene or repair it before assembly.'],
     topics: [
       { title: 'Episode readiness', purpose: 'Shows image coverage, stale assets, and approval percentage using authoritative scene IDs.' },
-      { title: 'Render settings', purpose: 'Controls the GenStudio image model, aspect, size, quality, seed, and rewrite model.' },
+      { title: 'Render settings', purpose: 'Controls the Gateway image model, aspect, size, quality, seed, and rewrite model.' },
       { title: 'Auto-approve generated images', purpose: 'Marks newly verified generated images approved when the saved preset explicitly enables it.' },
       { title: 'Repair', purpose: 'Recovers or regenerates only the affected stable scene.' },
       { title: 'Greenlight', purpose: 'Unlocks Motion Review or Video Assembly only when required images and approvals are complete.' },
@@ -292,7 +292,7 @@ export const featureGuides: Record<string, FeatureGuide> = {
     topics: [
       { title: 'Motion prompt', purpose: 'Describes camera and subject movement without changing scene content.' },
       { title: 'Motion intensity', purpose: 'Ranges from near-still ambience to more visible movement.' },
-      { title: 'Image-to-video model', purpose: 'Chooses a qualified GenStudio video model and its supported duration or quality controls.' },
+      { title: 'Image-to-video model', purpose: 'Chooses a qualified Gateway video model and its supported duration or quality controls.' },
       { title: 'Clip approval', purpose: 'Prevents failed or visually poor motion from replacing an approved still.' },
       { title: 'Skip motion', purpose: 'Keeps the still image valid for Video Assembly when motion is unnecessary.' },
     ],
@@ -328,16 +328,16 @@ export const featureGuides: Record<string, FeatureGuide> = {
   },
   jobs: {
     title: 'Jobs',
-    summary: 'Monitor durable work, understand failures, pause local queue dispatch, recover accepted GenStudio jobs, and inspect verified output.',
+    summary: 'Monitor durable work, understand failures, pause local queue dispatch, recover accepted Gateway jobs, and inspect verified output.',
     workflow: ['Filter by project, type, or status.', 'Inspect progress and provider diagnostics.', 'Pause, retry, reclaim, cancel, or clear history as appropriate.'],
     topics: [
       { title: 'Waiting locally', purpose: 'The durable Story Studio queue has not submitted this work yet.' },
-      { title: 'Accepted or account queued', purpose: 'GenStudio owns the job and may be waiting for account or provider capacity.' },
-      { title: 'Pause', purpose: 'Stops Story Studio from submitting further queued items; already accepted GenStudio jobs continue and can be reclaimed.' },
+      { title: 'Accepted or account queued', purpose: 'The Gateway owns the job and may be waiting for account or provider capacity.' },
+      { title: 'Pause', purpose: 'Stops Story Studio from submitting further queued items; already accepted Gateway jobs continue and can be reclaimed.' },
       { title: 'Retry', purpose: 'Repairs missing work using persisted idempotency and job identifiers rather than duplicating accepted work.' },
       { title: 'All Jobs', purpose: 'Shows work across every project instead of only the current channel.' },
     ],
-    tips: ['A queued GenStudio job is healthy, not failed.', 'Do not create new work after an uncertain response; Story Studio reuses the stable idempotency key.'],
+    tips: ['A queued Gateway job is healthy, not failed.', 'Do not create new work after an uncertain response; Story Studio reuses the stable idempotency key.'],
   },
   presets: {
     title: 'Presets',
@@ -357,7 +357,7 @@ export const featureGuides: Record<string, FeatureGuide> = {
     summary: 'Configure what belongs to this Mac and what travels with this project. The Gateway decides which models you can use.',
     workflow: ['Use App and Connections for this Mac.', 'Use Content and Generation for channel behavior.', 'Use Files for project paths and storage.'],
     topics: [
-      { title: 'App and Connections', purpose: 'Manages appearance, server mode, secure GenStudio connection, catalog access, and account diagnostics.' },
+      { title: 'App and Connections', purpose: 'Manages appearance, server mode, secure Gateway connection, catalog access, and account diagnostics.' },
       { title: 'Format, Niche, and Standards', purpose: 'Defines what the channel produces and its editorial guardrails.' },
       { title: 'Styles', purpose: 'Chooses or builds the visual language used by prompts and image generation.' },
       { title: 'Performance', purpose: 'Controls how much work Story Studio prepares at once on this Mac. The Gateway still decides when each job starts.' },
@@ -394,12 +394,12 @@ export const featureGuides: Record<string, FeatureGuide> = {
   },
   usage: {
     title: 'GenStudio Credits',
-    summary: 'Your GenStudio credit balance and what recent jobs were charged, exactly as GenStudio reports them. Story Studio never works out prices itself.',
+    summary: 'Your GenStudio credit balance and what recent jobs were charged, exactly as the Gateway reports them. Story Studio never works out prices itself.',
     workflow: ['Press Refresh for the latest figures.', 'Check the balance and what is held for running jobs.', 'Look through recent jobs to see what each one was charged or refunded.'],
     topics: [
       { title: 'Available', purpose: 'Credits you can spend on new paid jobs. Free local work on your own Macs does not use them.' },
       { title: 'Held credits', purpose: 'The most a running job can cost, set aside until it finishes.' },
-      { title: 'Charged credits', purpose: 'What GenStudio actually charged once the job finished.' },
+      { title: 'Charged credits', purpose: 'What Gateway actually charged once the job finished.' },
       { title: 'Refunded credits', purpose: 'Held credits given back — unused, cancelled, or a failure that is not charged.' },
     ],
     tips: ['If the page cannot load, check the Gateway app is running, then press Try again.', 'A balance of 0 only matters for paid cloud work; jobs on your own Macs are free.'],

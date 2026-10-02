@@ -5,7 +5,7 @@
         <span class="section-kicker">Shared writing setup</span>
         <h2 id="llm-lineup-title">LLM lineup</h2>
         <p>
-          Use one ordered set of live GenStudio language models for new writing jobs across the Pipeline.
+          Use one ordered set of live Gateway language models for new writing jobs across the Pipeline.
           Per-stage policies below take precedence when enabled.
         </p>
       </div>
@@ -70,7 +70,7 @@
         <input v-model="draft.prefer_savings" type="checkbox" :disabled="loading || saving" />
         <span>
           <strong>Prefer free and discounted choices first</strong>
-          <small>GenStudio still chooses availability and validates each request at queue time. Paid choices remain allowed.</small>
+          <small>The Gateway still chooses availability and validates each request at queue time. Paid choices remain allowed.</small>
         </span>
       </label>
 
@@ -126,7 +126,7 @@ function snapshot(): LlmLineup {
 }
 const isDirty = computed(() => JSON.stringify(snapshot()) !== JSON.stringify(saved.value))
 const lineupError = computed(() => {
-  if (draft.models.some(model => !model.trim())) return 'Choose a live GenStudio model for every slot.'
+  if (draft.models.some(model => !model.trim())) return 'Choose a live Gateway model for every slot.'
   const savedModelIds = new Set(saved.value.models.map(normalizeLlmModelId))
   if (draft.enabled && draft.models.some((model, index) => {
     // A saved product may be temporarily depleted or retired. Keep that

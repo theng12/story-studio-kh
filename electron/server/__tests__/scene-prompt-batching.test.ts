@@ -14,7 +14,7 @@ import {
 } from '../services/scene-prompt-batching.js'
 
 describe('adaptive scene prompt batching', () => {
-  test('uses the live GenStudio output allowance, not legacy provider tiers', () => {
+  test('uses the live Gateway output allowance, not legacy provider tiers', () => {
     assert.equal(maxSafeScenePromptPackSize(4_096), 10)
     assert.equal(maxSafeScenePromptPackSize(8_192), 20)
     assert.equal(maxSafeScenePromptPackSize(16_384), 40)

@@ -77,9 +77,9 @@ export function describeTranscriptionRate(model: PriceTruth & {
   return {
     text,
     basis: 'rate',
-    title: `GenStudio publishes ${formatCredits(rate)} per second for ${model.display_name || 'this transcription model'}`
+    title: `The Gateway publishes ${formatCredits(rate)} per second for ${model.display_name || 'this transcription model'}`
       + (floor === null ? '.' : `, with a minimum of ${formatCredits(floor)} per request.`)
-      + ' The final charge depends on the audio submitted and is reported by GenStudio on the finished job.',
+      + ' The final charge depends on the audio submitted and is reported by the Gateway on the finished job.',
   }
 }
 
@@ -156,9 +156,9 @@ export function useGenStudioTranscriptionModels() {
         : 'Available for transcription.',
       disabled: !catalogIsUsable.value || !model.available || model.locked === true,
       disabledReason: catalogCache.loading.value
-        ? 'Refreshing the current GenStudio catalog before new work can start.'
+        ? 'Refreshing the current Gateway catalog before new work can start.'
         : catalogIsStale.value
-          ? 'Last-known catalog only. Refresh GenStudio before starting paid transcription.'
+          ? 'Last-known catalog only. Refresh the Gateway before starting paid transcription.'
           : genStudioModelLockReason(model) || (model.available ? undefined : 'This transcription model is temporarily unavailable.'),
       badges: [
         ...(catalogIsStale.value ? [{ label: 'last known', tone: 'warning' as const }] : []),
@@ -187,7 +187,7 @@ export function useGenStudioTranscriptionModels() {
       return 'The transcription model catalog is too old to trust — refresh before starting new work.'
     }
     if (catalogIsStale.value) {
-      return 'Showing the last-known transcription catalog. Refresh GenStudio before starting new work.'
+      return 'Showing the last-known transcription catalog. Refresh the Gateway before starting new work.'
     }
     if (catalogCache.loaded.value && !models.value.length) {
       return 'No transcription models are available right now.'

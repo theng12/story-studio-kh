@@ -68,7 +68,7 @@ function assertNoCredential(snapshot: unknown, label: string): void {
   }
 }
 
-describe('GenStudio request preview — credential safety', () => {
+describe('Gateway request preview — credential safety', () => {
   test('a key registered at runtime is scrubbed out of every captured string', () => {
     registerSecretForRedaction(LIVE_KEY)
     const preview = buildGenStudioRequestPreview({
@@ -137,7 +137,7 @@ describe('GenStudio request preview — credential safety', () => {
   })
 })
 
-describe('GenStudio request preview — bounded size', () => {
+describe('Gateway request preview — bounded size', () => {
   test('a long prompt is truncated with an explicit marker and its true length', () => {
     const prompt = 'A'.repeat(50_000)
     const preview = buildGenStudioRequestPreview({
@@ -256,7 +256,7 @@ describe('GenStudio request preview — bounded size', () => {
   })
 })
 
-describe('GenStudio request preview — pending evidence id', () => {
+describe('Gateway request preview — pending evidence id', () => {
   test('the pending id is deterministic and recognisable', () => {
     const id = pendingGenStudioEntryId('story-tts-abc')
     assert.equal(id, pendingGenStudioEntryId('story-tts-abc'))
@@ -281,8 +281,8 @@ describe('job-queue adopts the pre-submit preview', () => {
     await cleanup()
   })
 
-  test('the real GenStudio id takes over the pending entry and keeps its preview', async () => {
-    const project = await pm.createProject({ name: 'GenStudio Request Preview' })
+  test('the real Gateway id takes over the pending entry and keeps its preview', async () => {
+    const project = await pm.createProject({ name: 'Gateway Request Preview' })
     const preview = buildGenStudioRequestPreview({
       path: '/v1/chat/completions',
       modelId: 'story-writer-1',
@@ -411,7 +411,7 @@ describe('job-queue adopts the pre-submit preview', () => {
   })
 
   test('a failed durable preview write prevents the paid POST', async () => {
-    const project = await pm.createProject({ name: 'GenStudio Preview Persistence Failure' })
+    const project = await pm.createProject({ name: 'Gateway Preview Persistence Failure' })
     const originalFetch = globalThis.fetch
     clearGenStudioCatalogCache()
     let posts = 0

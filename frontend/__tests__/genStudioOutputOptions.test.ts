@@ -30,7 +30,7 @@ const ONE_K_1_1 = { resolution: '1K', aspect_ratio: '1:1', width: 1024, height: 
 const TWO_K_16_9 = { resolution: '2K', aspect_ratio: '16:9', width: 2560, height: 1440, is_default: false, credits_per_image: 9 }
 
 const model = {
-  display_name: 'GenStudio Image Fast',
+  display_name: 'Gateway Image Fast',
   default_resolution: '1K',
   default_aspect_ratio: '16:9',
   output_options: [ONE_K_16_9, ONE_K_1_1, TWO_K_16_9],
@@ -82,7 +82,7 @@ test('a model switch keeps a pair the new model publishes, silently', () => {
 
 test('a model switch that drops the pair falls back to the default AND says so', () => {
   const narrower = {
-    display_name: 'GenStudio Image Wide',
+    display_name: 'Gateway Image Wide',
     default_resolution: '1K',
     default_aspect_ratio: '16:9',
     output_options: [ONE_K_16_9],
@@ -229,14 +229,14 @@ test('a batch total is labelled an estimate and keeps the unit rate visible', ()
   assert.equal(display.basis, 'estimate')
   assert.match(display.text, /Estimate 100 credits/)
   assert.match(display.text, /4 credits \/ image × 25/)
-  assert.match(display.title, /estimate, not a charge GenStudio has quoted/)
+  assert.match(display.title, /estimate, not a charge the Gateway has quoted/)
   // No published price means no estimate to derive from it either.
   assert.equal(describeImageBatchEstimate({ chargeable: true, credits_per_image: null }, null, 25).basis, 'unpublished')
 })
 
 test('chat shows a rate and refuses to invent a total', () => {
   const chat = {
-    display_name: 'GenStudio Writer',
+    display_name: 'Gateway Writer',
     chargeable: true,
     input_credits_per_million_tokens: 30,
     output_credits_per_million_tokens: 150,
@@ -323,8 +323,8 @@ test('a narration submitted as several jobs is a SUM OF QUOTES, never an estimat
   // The figure is the plain sum of GenStudio's answers — nothing derived.
   assert.match(display.text, /Quoted 92\.5 credits/)
   // The reader is told it is several jobs, and how many.
-  assert.match(display.text, /sum of 3 GenStudio quotes/)
-  assert.match(display.title, /3 separate GenStudio jobs/)
+  assert.match(display.text, /sum of 3 the Gateway quotes/)
+  assert.match(display.title, /3 separate Gateway jobs/)
   assert.match(display.title, /per-job/)
   assert.match(display.title, /not an estimate/)
   // The vocabulary must not blur into the estimate wording used for batches.
@@ -337,7 +337,7 @@ test('a narration submitted as several jobs is a SUM OF QUOTES, never an estimat
   assert.equal(describeQuotedTotal([]).basis, 'unpublished')
 })
 
-test('a job GenStudio did not price makes the TOTAL unavailable — it never counts as free', () => {
+test('a job the Gateway did not price makes the TOTAL unavailable — it never counts as free', () => {
   // The S1 defect class in its display form. A part whose `credits` GenStudio
   // did not publish used to contribute 0 to a figure labelled "sum of N
   // GenStudio quotes": a total that was quietly too low while still claiming

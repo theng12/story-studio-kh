@@ -2,7 +2,7 @@
   <div v-if="options.length" class="output-options">
     <div class="output-head">
       <span class="output-label">Output size</span>
-      <span class="output-sub">Published by {{ modelName }} — each row is one size GenStudio renders, at its own price.</span>
+      <span class="output-sub">Published by {{ modelName }} — each row is one size Gateway renders, at its own price.</span>
     </div>
     <div class="output-grid" role="radiogroup" aria-label="Published output size">
       <button

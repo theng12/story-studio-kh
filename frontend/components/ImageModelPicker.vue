@@ -11,7 +11,7 @@
       aria-label="Image model options"
       @update:model-value="select"
     />
-    <!-- Price of the CURRENT selection, in GenStudio's published terms. A
+    <!-- Price of the CURRENT selection, in the Gateway's published terms. A
          computed, so switching model re-prices immediately. -->
     <p v-if="selectedModel" class="notice notice-cost" :class="`basis-${unitCost.basis}`" :title="unitCost.title">
       {{ CREDIT_BASIS_LABEL[unitCost.basis] }}: {{ unitCost.text }} <PriceDetails :cost="unitCost" />
@@ -72,9 +72,9 @@ const options = computed(() => {
       priceTitle: rate.title,
       disabled: !isUsable.value || !model.available || model.locked === true,
       disabledReason: !isUsable.value
-        ? 'Last-known catalog only. Refresh GenStudio before starting new image work.'
+        ? 'Last-known catalog only. Refresh the Gateway before starting new image work.'
         : genStudioModelLockReason(model) || (!model.available
-          ? 'This model is currently unavailable in GenStudio.'
+          ? 'This model is currently unavailable in the Gateway.'
           : ''),
       badges: !isUsable.value ? [{ label: 'last known', tone: 'warning' as const }] : [],
       costTier: model.cost_tier,
@@ -142,7 +142,7 @@ const referenceUnsupportedNotice = computed(() => {
   const selected = selectedModel.value
   if (!selected || selected.supports_reference_images !== false) return ''
   return `${selected.display_name} publishes no support for reference images, so attaching one would be ignored. `
-    + "That is the model's published capability in GenStudio, not a Story Studio restriction. "
+    + "That is the model's published capability in the Gateway, not a Story Studio restriction. "
     + 'Choose a reference-capable model to render from references.'
 })
 
@@ -151,7 +151,7 @@ const seedNotice = computed(() => {
   const selected = selectedModel.value
   if (!selected || selected.supports_seed !== false) return ''
   return `${selected.display_name} publishes no seed support, so the seed control is hidden and no seed is sent. `
-    + "That is the model's published capability in GenStudio, not a Story Studio restriction."
+    + "That is the model's published capability in the Gateway, not a Story Studio restriction."
 })
 
 /** Set when the picker replaced the selection itself; cleared on a manual pick. */

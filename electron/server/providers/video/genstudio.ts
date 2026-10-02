@@ -94,17 +94,17 @@ async function resolveRequestedVariant(
   const model = findGenStudioProduct(catalog, modelId)
   if (!model || !model.available || !supportsGenStudioVideoMode(model)) {
     throw new Error(
-      `GenStudio does not currently publish an available image-to-video model with id "${modelId}".`,
+      `The Gateway does not currently publish an available image-to-video model with id "${modelId}".`,
     )
   }
   const operation = providerParams?.operation
   if (operation !== STORY_STUDIO_VIDEO_MODE) {
-    throw new Error(`GenStudio video requests must include the published ${STORY_STUDIO_VIDEO_MODE} operation.`)
+    throw new Error(`Gateway video requests must include the published ${STORY_STUDIO_VIDEO_MODE} operation.`)
   }
   const published = variantsForGenStudioVideoOperation(model.variants, operation)
   if (!published.length) {
     throw new Error(
-      `GenStudio publishes no priced duration/resolution variant for "${model.display_name}", `
+      `The Gateway publishes no priced duration/resolution variant for "${model.display_name}", `
       + 'so Story Studio cannot submit a clip for it.',
     )
   }
@@ -144,7 +144,7 @@ async function resolveRequestedVariant(
 
   throw new Error(
     `"${model.display_name}" does not publish a ${duration}s at ${resolution} option. `
-    + `GenStudio publishes: ${published.map(describeGenStudioVideoVariant).join(', ')}. `
+    + `The Gateway publishes: ${published.map(describeGenStudioVideoVariant).join(', ')}. `
     + 'Story Studio will not substitute a different length or resolution for the one requested.',
   )
 }
@@ -172,7 +172,7 @@ export function aspectRatioForResolvedVariant(
 const genstudioVideoProvider: VideoProvider = {
   meta: {
     id: 'genstudio-video',
-    name: 'GenStudio KH',
+    name: 'Gateway',
     apiKeyField: 'genstudio_api_key',
     providerId: 'genstudio',
   },
@@ -191,7 +191,7 @@ const genstudioVideoProvider: VideoProvider = {
 
   async generateVideo(request: VideoGenerationRequest): Promise<VideoGenerationResult> {
     if (request.mode !== 'frames' || !request.startImagePath) {
-      throw new Error('GenStudio video generation requires an approved source image.')
+      throw new Error('Gateway video generation requires an approved source image.')
     }
     const modelId = request.modelId.startsWith(PREFIX)
       ? request.modelId.slice(PREFIX.length)

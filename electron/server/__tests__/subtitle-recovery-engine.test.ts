@@ -152,7 +152,7 @@ test('bulk repair never replaces an old task unavailable to this account', async
   f.originalMissing()
   await assert.rejects(f.run('Chapter_01', {
     pipelineRepair: { actionId: 'bulk-repair-account', isResultUsable: () => true },
-  } as any), /not found with the current GenStudio connection\/account/)
+  } as any), /not found with the current Gateway connection\/account/)
   assert.equal(f.confirmations.length, 0)
 })
 
@@ -636,7 +636,7 @@ test('quote expiry HTTP 410 retries for free while Off, with a persisted renewed
   assert.equal(Object.values(state.plans).flatMap((p: any) => p.attempts).length, 0)
 })
 
-test('the exact GenStudio HTTP 422 confirm expiry renews only the uncreated request', async t => {
+test('the exact Gateway HTTP 422 confirm expiry renews only the uncreated request', async t => {
   const f = await fixture(t)
   await fs.unlink(path.join(f.outDir, '.task-manifest.json'))
   let expired = false
@@ -671,10 +671,10 @@ test('a non-exact HTTP 422 expiry detail at confirm does not mint a fresh reques
   assert.equal(f.confirmations.length, 1)
 })
 
-test('a saved transcription task missing from GenStudio offers an explicit fresh section rerun without submitting', async t => {
+test('a saved transcription task missing from the Gateway offers an explicit fresh section rerun without submitting', async t => {
   const f = await fixture(t)
   f.originalMissing()
-  await assert.rejects(f.run(), /not found with the current GenStudio connection\/account/i)
+  await assert.rejects(f.run(), /not found with the current Gateway connection\/account/i)
   assert.equal(f.calls.some(call => call.startsWith('POST ')), false)
   assert.equal((f.job.params.subtitle_recovery as any).sections.Chapter_01.manual_action, 'rerun_subtitle_section')
 })

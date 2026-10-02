@@ -9,7 +9,7 @@
  */
 
 export const GENSTUDIO_VISION_UNAVAILABLE =
-  'Image analysis is temporarily unavailable. GenStudio KH must publish and qualify an image-input LLM route before this feature can be enabled.'
+  'Image analysis is temporarily unavailable. The Gateway must publish and qualify an image-input LLM route before this feature can be enabled.'
 
 export const VISION_CAPABLE_MODELS = new Set<string>()
 

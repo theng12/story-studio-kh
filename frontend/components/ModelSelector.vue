@@ -2,7 +2,7 @@
   <div class="form-group">
     <label>
       {{ label || 'LLM model' }}
-      <span v-if="loading" class="loading">Loading GenStudio catalog…</span>
+      <span v-if="loading" class="loading">Loading Gateway catalog…</span>
     </label>
     <ModelMenu
       :model-value="modelValue"
@@ -21,7 +21,7 @@
     />
     <p v-if="loadError" class="catalog-message">{{ loadError }}</p>
     <p v-if="emptyCatalogNeedsSetup" class="catalog-message">
-      No GenStudio API key is configured, so LLM models cannot load.
+      No Gateway key is configured, so LLM models cannot load.
       <button type="button" class="catalog-action" @click="appSettingsModal.open('connections')">Open connection settings</button>
     </p>
     <!-- The saved product is gone from the catalogue. Body text in the flow,
@@ -169,7 +169,7 @@ const emptyCatalogState = ref<EmptyCatalogState>('')
 const appSettingsModal = useAppSettingsModal()
 const emptyCatalogNeedsSetup = computed(() => emptyCatalogState.value === 'setup')
 const emptyCatalogLabel = computed(() => {
-  if (emptyCatalogState.value === 'setup') return 'Add a GenStudio API key in Settings to load LLM models.'
+  if (emptyCatalogState.value === 'setup') return 'Add a Gateway key in Settings to load LLM models.'
   return allModels.value.length === 0 && !loading.value ? 'No LLM models are currently available.' : ''
 })
 /**
@@ -258,7 +258,7 @@ const menuOptions = computed(() => {
       disabledReason: genStudioModelLockReason(model)
         || describeGenStudioAvailability(model)
         || model.disabled_reason
-        || (props.requireVision && !model.supports_vision ? 'This GenStudio model does not publish image-input support.' : ''),
+        || (props.requireVision && !model.supports_vision ? 'This Gateway model does not publish image-input support.' : ''),
       // Scannable in the list, before anything is opened. The sentence itself
       // is rendered in full beneath the selector once the model is chosen — a
       // badge is a signpost, never the disclosure.
@@ -267,7 +267,7 @@ const menuOptions = computed(() => {
           ? [{ label: 'Paid', tone: 'warning' as const, title: 'This writing model may cost money (the gateway marks it paid).' }]
           : []),
         ...(model.discount === true
-          ? [{ label: 'Data notice', tone: 'warning' as const, title: model.discount_disclaimer || 'This model carries a data notice from GenStudio.' }]
+          ? [{ label: 'Data notice', tone: 'warning' as const, title: model.discount_disclaimer || 'This model carries a data notice from the Gateway.' }]
           : []),
         // Visible while scanning the list, before any row is opened. The date
         // and the countdown ride along as the title; the full sentence is
@@ -385,7 +385,7 @@ async function loadModels(force = false): Promise<void> {
     syncModelSelection()
   } catch (error: any) {
     allModels.value = []
-    loadError.value = error?.data?.detail || error?.message || 'GenStudio catalog unavailable.'
+    loadError.value = error?.data?.detail || error?.message || 'Gateway catalog unavailable.'
   } finally {
     loading.value = false
   }

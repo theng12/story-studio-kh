@@ -95,7 +95,7 @@ test('a batch generator stops claiming items after the first credit refusal', as
     }
 
     await assert.rejects(generateAiVideo(job), error => isGenStudioInsufficientCredits(error))
-    assert.equal(videoPosts, 3, 'only the three already-admitted requests may reach GenStudio; the fourth stays local')
+    assert.equal(videoPosts, 3, 'only the three already-admitted requests may reach the Gateway; the fourth stays local')
     assert.equal(job.output_lines.some((line: string) => line.includes('Failed:')), false)
     const saved = await fs.readdir(paths.video_dir)
     assert.equal(saved.filter(filename => filename.endsWith('.mp4')).length, 2, 'already accepted siblings must settle and save before the batch ends')

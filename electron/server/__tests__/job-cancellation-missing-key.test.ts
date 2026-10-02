@@ -33,7 +33,7 @@ import { sleep, waitFor } from './_timing.js'
 const RECONCILE_INTERVAL_MS = 5_000
 /** The packet requires at least three whole retry intervals. */
 const OBSERVED_INTERVALS = 3
-const WAITING_LINE = /Cancellation is waiting for the GenStudio API key/
+const WAITING_LINE = /Cancellation is waiting for the Gateway key/
 
 let cleanup: () => Promise<void>
 let tempDir: string

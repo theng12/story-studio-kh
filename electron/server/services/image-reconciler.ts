@@ -134,7 +134,7 @@ async function recoverOne(
       return {
         filename: expected.filename,
         status: 'error',
-        reason: 'The saved GenStudio API key is unavailable.',
+        reason: 'The saved Gateway key is unavailable.',
         task_id: entry.task_id,
       }
     }
@@ -150,7 +150,7 @@ async function recoverOne(
       return {
         filename: expected.filename,
         status: 'error',
-        reason: error?.message || 'GenStudio image recovery failed.',
+        reason: error?.message || 'Gateway image recovery failed.',
         task_id: entry.task_id,
       }
     }
@@ -160,7 +160,7 @@ async function recoverOne(
     filename: expected.filename,
     status: 'error',
     reason: 'Legacy task evidence was preserved, but Story Studio no longer contacts the route that produced it. ' +
-      'Use a deliberate GenStudio Retry for a new image.',
+      'Use a deliberate Gateway Retry for a new image.',
     task_id: entry.task_id,
   }
 }

@@ -358,7 +358,7 @@ export async function runExpressionMarkupJob(job: Job): Promise<void> {
     const { getApiKey } = await import('./app-secrets-store.js')
     const { resolveChosenChatModel } = await import('./genstudio-default-model.js')
     const apiKey = await getApiKey('genstudio').catch(() => '')
-    if (!apiKey) throw new Error('No GenStudio API key configured. Add it in Settings → This Mac before generating expression markup.')
+    if (!apiKey) throw new Error('No Gateway key configured. Add it in Settings → This Mac before generating expression markup.')
     const saved = typeof (config as any)?.prompt_model === 'string' ? (config as any).prompt_model : null
     model = await resolveChosenChatModel(apiKey, saved, 'the Audio Generator page (Expression tags)')
   }
