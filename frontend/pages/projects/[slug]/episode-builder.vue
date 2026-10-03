@@ -750,7 +750,7 @@ onMounted(async () => {
 .eb-btnhint { display: flex; flex-direction: column; gap: 4px; max-width: 260px; }
 .eb-wide { flex-basis: 100%; }
 .eb-warn { color: color-mix(in srgb, var(--warning) 70%, var(--text-primary)); font-size: 12px; margin-top: 6px; }
-.eb-pool { margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 11px; border: 1px solid var(--border); color: var(--text-secondary); }
+.eb-pool { margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: var(--font-xs); border: 1px solid var(--border); color: var(--text-secondary); }
 .eb-episode-bar { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
 .eb-episode-select { min-width: 280px; max-width: 460px; }
 .eb-new { display: flex; gap: 8px; flex: 1 1 360px; }
@@ -777,15 +777,15 @@ onMounted(async () => {
 .eb-check small { color: var(--text-muted); }
 .eb-tl { position: relative; margin-top: 16px; }
 .eb-tl-scenes, .eb-tl-songs { display: flex; }
-.eb-tl-scene { height: 64px; padding: 0; border: 0; border-right: 2px solid var(--bg-secondary); background: var(--bg-tertiary) center / cover no-repeat; cursor: pointer; color: var(--text-muted); font-size: 11px; overflow: hidden; }
+.eb-tl-scene { height: 64px; padding: 0; border: 0; border-right: 2px solid var(--bg-secondary); background: var(--bg-tertiary) center / cover no-repeat; cursor: pointer; color: var(--text-muted); font-size: var(--font-xs); overflow: hidden; }
 .eb-tl-scene.sel { outline: 2px solid var(--accent); outline-offset: -2px; position: relative; z-index: 1; }
-.eb-tl-song { height: 28px; border-right: 2px solid var(--bg-secondary); background: color-mix(in srgb, var(--accent) 16%, var(--bg-tertiary)); font-size: 11px; padding: 4px 5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-secondary); }
+.eb-tl-song { height: 28px; border-right: 2px solid var(--bg-secondary); background: color-mix(in srgb, var(--accent) 16%, var(--bg-tertiary)); font-size: var(--font-xs); padding: 4px 5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-secondary); }
 .eb-tl-song.lock { background: color-mix(in srgb, var(--info) 22%, var(--bg-tertiary)); }
 .eb-tl-song.sel { background: color-mix(in srgb, var(--accent) 38%, var(--bg-tertiary)); color: var(--text-primary); }
 .eb-tl-target { position: absolute; top: -6px; bottom: 18px; border-left: 2px dashed var(--warning); }
-.eb-tl-target span { position: absolute; top: -16px; left: 4px; font-size: 11px; color: var(--warning); white-space: nowrap; }
+.eb-tl-target span { position: absolute; top: -16px; left: 4px; font-size: var(--font-xs); color: var(--warning); white-space: nowrap; }
 .eb-tl-target.label-left span { left: auto; right: 4px; }
-.eb-ruler { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.eb-ruler { display: flex; justify-content: space-between; font-size: var(--font-xs); color: var(--text-muted); margin-top: 4px; }
 .eb-empty { margin-top: 14px; color: var(--text-secondary); }
 .eb-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 520px); gap: 14px; align-items: start; }
 /* The sidebar takes ~220 px: below ~1500 px there is no room for the table beside the scene panel. */
@@ -799,7 +799,7 @@ onMounted(async () => {
 .eb-songs .num { text-align: right; font-variant-numeric: tabular-nums; }
 .eb-handle { cursor: grab; color: var(--text-muted); user-select: none; }
 .eb-lock { padding-right: 4px; font-size: 12px; }
-.eb-break { margin-left: 8px; font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
+.eb-break { margin-left: 8px; font-size: var(--font-xs); color: var(--text-secondary); white-space: nowrap; }
 .eb-actions { white-space: nowrap; text-align: right; }
 .eb-preview { aspect-ratio: 16 / 9; border-radius: var(--radius-md, 8px); overflow: hidden; background: var(--bg-tertiary); margin-bottom: 10px; }
 .eb-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -815,7 +815,7 @@ onMounted(async () => {
 /* Unscoped: the swap/add and still dialogs are teleported and carry no scope id (see Modal.vue). */
 .eb-hint { color: var(--text-muted); font-size: var(--font-xs, 12px); line-height: 1.4; }
 .eb-muted { color: var(--text-muted); font-size: 12px; }
-.eb-warn-chip { margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 11px; border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent); color: color-mix(in srgb, var(--warning) 70%, var(--text-primary)); }
+.eb-warn-chip { margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: var(--font-xs); border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent); color: color-mix(in srgb, var(--warning) 70%, var(--text-primary)); }
 .eb-pick { list-style: none; padding: 0; margin: 8px 0 0; max-height: 50vh; overflow: auto; }
 .eb-pick-row { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm, 6px); background: var(--bg-primary); margin-bottom: 6px; cursor: pointer; text-align: left; }
 .eb-pick-row:hover { background: var(--bg-hover); }
