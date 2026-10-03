@@ -1192,8 +1192,10 @@ router.post('/projects/:slug/generate/metadata', async (req, res) => {
   const readiness = await inspectYouTubeFinalizationStatus(slug, episode_id)
   if (!readiness.audio_assembly_ready) {
     return res.status(409).json({
-      code: 'YOUTUBE_FINALIZER_AUDIO_REQUIRED',
-      detail: 'Run Audio Assembly before YouTube Finalizer so chapter timestamps use the complete measured narration timeline.',
+      code: readiness.music_episode ? 'YOUTUBE_FINALIZER_MUSIC_STITCH_REQUIRED' : 'YOUTUBE_FINALIZER_AUDIO_REQUIRED',
+      detail: readiness.music_episode
+        ? readiness.warnings[0] || 'Send this music episode to Video Assembly in Episode Builder first, so its chapters come from the stitched tracklist.'
+        : 'Run Audio Assembly before YouTube Finalizer so chapter timestamps use the complete measured narration timeline.',
       warnings: readiness.warnings,
     })
   }

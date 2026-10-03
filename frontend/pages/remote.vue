@@ -271,9 +271,10 @@ async function loadProject(slug: string, epoch: number) {
   runError.value = ''
   // Format → chain.
   try {
-    const f = await get<{ visualSource?: string; sceneAlignment?: string }>(`/projects/${slug}/effective-format`)
+    const f = await get<{ visualSource?: string; sceneAlignment?: string; musicChannel?: boolean }>(`/projects/${slug}/effective-format`)
     if (!isCurrentProjectLoad(slug, epoch)) return
-    visualSource.value = normalizeVisualSource(f?.visualSource, f?.sceneAlignment)
+    // A music channel runs the music chain (Episode Builder → … → Finalizer).
+    visualSource.value = f?.musicChannel === true ? 'music' : normalizeVisualSource(f?.visualSource, f?.sceneAlignment)
   } catch {
     if (!isCurrentProjectLoad(slug, epoch)) return
     visualSource.value = 'narrated-scenes'

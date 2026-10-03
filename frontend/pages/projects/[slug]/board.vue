@@ -342,7 +342,7 @@ import {
   isEpisodeDone,
   isFlowStepApplicable,
   normalizeEpisodeVisualSource,
-  parseVisualSource,
+  visualSourceFromFormat,
   unionFlowForEpisodeSources,
   type EpisodeVisualSource,
   type FlowStep,
@@ -432,9 +432,9 @@ async function loadVisualSource() {
   formatError.value = ''
   if (!projectSlug) return
   try {
-    const f = await get<{ visualSource?: unknown }>(`/projects/${projectSlug}/effective-format`)
+    const f = await get<{ visualSource?: unknown; musicChannel?: unknown }>(`/projects/${projectSlug}/effective-format`)
     if (request !== formatRequest || projectSlug !== slug.value) return
-    const source = parseVisualSource(f?.visualSource)
+    const source = visualSourceFromFormat(f)
     if (!source) {
       formatError.value = 'The project returned an unknown production format. Refresh this project before using Board workflow actions.'
       return
@@ -452,6 +452,7 @@ function episodeVisualSource(ep: any): EpisodeVisualSource {
 }
 
 function sourceLabel(ep: any): string {
+  if (ep?.status?.music_episode !== undefined) return 'Music'
   return episodeVisualSource(ep) === 'image_pool' ? 'Image Pool' : 'Scene Plan'
 }
 

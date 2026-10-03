@@ -261,10 +261,23 @@ const STEP_CHIPS: StepChip[] = [
   { field: F['video-assembly'], label: 'Final video' },
 ]
 
+// A music channel's episode (the server sends `music_episode` only for those) has no narration:
+// its steps are the music flow's, not Script/Audio/Subtitles that can never be done.
+const MUSIC_STEP_CHIPS: StepChip[] = [
+  { field: F['episode-builder'], label: 'Episode Builder' },
+  { field: F['video-assembly'], label: 'Final video' },
+  { field: F.thumbnails, label: 'Thumbnail' },
+  { field: F.metadata, label: 'YouTube Finalizer' },
+]
+const chipSet = computed<StepChip[]>(() =>
+  selectedEp.value?.status && (selectedEp.value.status as Record<string, unknown>).music_episode !== undefined
+    ? MUSIC_STEP_CHIPS
+    : STEP_CHIPS)
+
 const stepsExpanded = ref(false)
 const togglingStep = ref('')
 const togglingStepLabel = computed(() =>
-  STEP_CHIPS.find(chip => chip.field === togglingStep.value)?.label || 'step')
+  chipSet.value.find(chip => chip.field === togglingStep.value)?.label || 'step')
 
 function overrideFor(field: string): boolean | undefined {
   const o = selectedEp.value?.status_overrides
@@ -274,7 +287,7 @@ function overrideFor(field: string): boolean | undefined {
 const visibleChips = computed(() => {
   const ep = selectedEp.value
   if (!ep) return []
-  return STEP_CHIPS.filter(c => {
+  return chipSet.value.filter(c => {
     if (!c.conditional) return true
     return ep.status?.[c.field] === true
       || overrideFor(c.field) !== undefined

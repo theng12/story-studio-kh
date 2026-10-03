@@ -26,6 +26,7 @@ import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { trackGeneration } from '../services/session-tracker.js'
 import { formatMetadataTxt } from '../services/metadata-format.js'
 import { buildDescriptionPrompt } from '../lib/metadata-prompt.js'
+import { inspectMusicStitch, musicMetadataContext } from '../services/music-episode-store.js'
 import {
   metadataFormulaPlan,
   resolveActiveMetadataFormula,
@@ -71,6 +72,10 @@ const DEFAULT_TITLE_TONE =
 
 /** Matching last-resort purpose. The shipped Format sets its own. */
 const DEFAULT_TITLE_PURPOSE = 'for an episode of this series'
+
+/** A music episode's title/tag purpose: the narration Format's wording (stories, chapters) does not fit it. */
+const MUSIC_TITLE_PURPOSE = 'for a long-form instrumental music video (original songs, no narration)'
+const MUSIC_TAGS_CONTEXT = 'for this instrumental music video (instruments, mood, use such as relaxing, studying or sleep only when it fits the music)'
 
 interface MetadataParams {
   episode_id: string
@@ -213,6 +218,15 @@ export async function generateMetadata(job: Job): Promise<void> {
   // product GenStudio hasn't published).
   // The Pipeline run's own choice for this step, otherwise the owner's choice on the page.
   const metadataPolicy = pipelinePolicyForJob(params, 'metadata')
+  // A music (Episode Builder) episode: no narration to read; the channel formula, the episode theme
+  // and the tracklist are the context. Its writing model is always the owner's pick — never resolved.
+  const musicStitch = await inspectMusicStitch(project_slug, episode_id)
+  if (musicStitch.music && !req.model?.trim() && !metadataPolicy?.assigned_model) {
+    throw Object.assign(
+      new Error('Pick the writing model for this music episode on the YouTube Finalizer page (or in the Pipeline run). Story Studio does not pick one for you.'),
+      { statusCode: 400 },
+    )
+  }
   const model = req.model?.trim() || metadataPolicy?.assigned_model || await resolveDefaultMetadataModel(config)
   const metadataCheckpoint = pipelinePolicyCheckpointStore(params, () => jq.checkpointJobState(job))
   const callMetadataAi = (
@@ -291,6 +305,9 @@ export async function generateMetadata(job: Job): Promise<void> {
   // LLM work or provider charge when measured Audio Assembly timing does not
   // exist. Subtitle verification remains warning-only in the finalizer.
   const readiness = await inspectYouTubeFinalizationStatus(project_slug, episode_id)
+  if (musicStitch.music && !readiness.audio_assembly_ready) {
+    throw Object.assign(new Error(musicStitch.reason), { statusCode: 409, code: 'YOUTUBE_FINALIZER_MUSIC_STITCH_REQUIRED' })
+  }
   if (!readiness.audio_assembly_ready) {
     throw Object.assign(
       new Error('Run Audio Assembly before YouTube Finalizer so chapter timestamps use measured narration timing.'),
@@ -309,8 +326,10 @@ export async function generateMetadata(job: Job): Promise<void> {
     && existingPackage.tags.length > 0
   )
 
-  job.output_lines.push(`Reading narration for story context…`)
-  const storyContext = await readStoryContext(project_slug, episode_id, title)
+  job.output_lines.push(musicStitch.music ? 'Reading the channel formula, episode theme and tracklist…' : `Reading narration for story context…`)
+  const storyContext = musicStitch.music
+    ? await musicMetadataContext(project_slug, episode_id)
+    : await readStoryContext(project_slug, episode_id, title)
 
   // AbortController + 500 ms watcher — same pattern as subtitles + episode.
   // Three sequential LLM calls below; a user cancel mid-batch tears down
@@ -475,7 +494,7 @@ export async function generateMetadata(job: Job): Promise<void> {
       // niches now each state their own tone, the Format carries a neutral one
       // for anything the owner adds later, and the tone is no longer a string
       // an engineer owns: it is data, editable per niche and per format.
-      const titlePurpose = fmtMeta?.purposeNote || DEFAULT_TITLE_PURPOSE
+      const titlePurpose = musicStitch.music ? MUSIC_TITLE_PURPOSE : fmtMeta?.purposeNote || DEFAULT_TITLE_PURPOSE
       const titleTone = formula?.titleGuidance || fmtMeta?.titleStyleHint || DEFAULT_TITLE_TONE
       const titlePrompt = `Generate ${title_count} SEO-optimized video title options ${titlePurpose}.
 Episode: ${episode_id} — ${title}
@@ -542,7 +561,7 @@ Requirements:
       job.output_lines.push(`Generating ${tag_count} tag(s)…`)
       // Format-aware tag prompt (v1.0.69). Mirrors routes/scripts.ts
       // /metadata/all so batch and interactive runs use identical prompts.
-      const tagsContext = formula?.tagGuidance || fmtMeta?.tagsContext || 'for this sleep story video'
+      const tagsContext = formula?.tagGuidance || (musicStitch.music ? MUSIC_TAGS_CONTEXT : fmtMeta?.tagsContext) || 'for this sleep story video'
       const broadKeywordsLine = fmtMeta?.broadKeywords?.length
         ? `\n- Broad keywords to draw from: ${fmtMeta.broadKeywords.join(', ')}.`
         : ''

@@ -43,6 +43,14 @@
       </p>
     </div>
 
+    <!-- Music (Episode Builder) episode: a scene picture, or a prompt from a scene for the model -->
+    <MusicThumbnailPanel
+      v-if="form.episode_id"
+      :project-slug="slug"
+      :episode-id="form.episode_id"
+      @changed="() => { refreshImageStatus(); onPanelRefresh(); loadThumbnailPinState() }"
+    />
+
     <div class="card workspace-section generator-settings-panel">
       <div class="grid-2">
         <div class="form-group">

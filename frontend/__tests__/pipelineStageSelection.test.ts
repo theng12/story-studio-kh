@@ -84,7 +84,7 @@ describe('Pipeline stage selection', () => {
     // writing different openings.
     assert.match(pipeline, /id: 'introduction-only',[^\n]*link: '\/introduction'/)
     assert.doesNotMatch(pipeline, /id: 'introduction-only',[^\n]*presetList/)
-    assert.match(pipeline, /NO_PRESET_STEPS = new Set<StepId>\(\['introduction-only'\]\)/)
+    assert.match(pipeline, /NO_PRESET_STEPS = new Set<StepId>\(\['introduction-only', 'music_build'\]\)/)
   })
 
   test('the page and the backend agree on which steps need no preset', () => {

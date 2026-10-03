@@ -41,6 +41,7 @@ import { getTransition } from '../models/transitions.js'
 import { inspectScenePlanCoverage, COVERAGE_FAIL_SEC } from '../services/scene-planner.js'
 import { buildAnimationFilter, resolveSceneMotionDocument, supersampleMultiplier, normalizeFrame, isZoompanAnimation } from '../lib/animation-filters.js'
 import { probeNativeSceneClip, renderNativeSceneClip, NATIVE_SCENE_CLIP_VERSION } from '../lib/native-scene-clip.js'
+import { sharpenUpscaledStills } from '../lib/upscale-sharpen.js'
 import { probeVideoStream, sceneClipCompatibilityProblems } from '../lib/scene-clip-compat.js'
 import { getAnimation } from '../models/animations.js'
 import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
@@ -552,6 +553,7 @@ export interface ScannedAssets {
   music_episode?: {
     frame_rate: number
     resolution: '720p' | '1080p'
+    upscale_sharpen: 'off' | 'light'
     scene_change: { transition: string; seconds: number }
     built_at: string | null
     songs: number
@@ -919,6 +921,7 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
       result.music_episode = {
         frame_rate: musicDoc.settings.frame_rate,
         resolution: musicDoc.settings.resolution,
+        upscale_sharpen: musicDoc.settings.upscale_sharpen,
         scene_change: musicDoc.settings.scene_change,
         built_at: musicDoc.built?.at || null,
         songs: musicDoc.songs.length,
@@ -2178,6 +2181,7 @@ export async function generateVideo(job: Job): Promise<void> {
           picks: resolvedSceneAnimation!.picks,
           ...(resolvedSceneReveals?.enabled ? { reveals: resolvedSceneReveals } : {}),
           crf: quality.crf,
+          upscaleSharpen: req.upscale_sharpen,
           // The xfade stage (planTransitionTail > 0) decodes and re-encodes every clip, which is what
           // makes a VideoToolbox clip safe to use; with hard cuts the clips are stream-copied.
           native: { enabled: planTransitionTail > 0 },
@@ -2522,6 +2526,7 @@ export async function generateVideo(job: Job): Promise<void> {
           picks: resolvedSceneAnimation!.picks,
           ...(poolReveals ? { reveals: poolReveals } : {}),
           crf: quality.crf,
+          upscaleSharpen: req.upscale_sharpen,
           native: { enabled: planTransitionTail > 0 },
         },
         sceneClipDurations,
@@ -3373,6 +3378,8 @@ export async function prepareSceneClips(
     reveals?: ResolvedSceneReveals
     /** The pace's own size, because a reveal clip is rendered at the canvas, not cropped to it. */
     crf?: number
+    /** Light sharpening of smaller stills while they are upscaled to the canvas (request `upscale_sharpen`). */
+    upscaleSharpen?: 'off' | 'light'
     /**
      * Render still scenes with the native Metal/VideoToolbox helper, falling back to FFmpeg per clip.
      *
@@ -3478,6 +3485,12 @@ export async function prepareSceneClips(
       }
     }
     job.output_lines.push(`Preflight: all ${stills.length} still image(s) decoded successfully.`)
+  }
+
+  // Optional light sharpening while upscaling smaller stills (e.g. the fleet's 720p scenes in a
+  // 1080p render). Once per still, before any clip; 'off'/absent leaves every input untouched.
+  if (animationOpts?.upscaleSharpen === 'light') {
+    scenes = await sharpenUpscaledStills(scenes, w, h, tempDir, args => runFfmpeg(args), line => job.output_lines.push(line))
   }
 
   // v1.0.515 — scenes render through a small parallel pool instead of a strict

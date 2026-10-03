@@ -1169,6 +1169,9 @@ const queues: Record<JobType, QueueState> = {
   music_video: { pending: [], running: false, executor: null },
   // Episode Builder stitch: local FFmpeg, buys nothing — same reasoning as music_video.
   music_episode_build: { pending: [], running: false, executor: null },
+  // Episode Builder "Polish Scene Prompts": one writing-model call; its own lane so a long pool wait
+  // never holds up a stitch.
+  music_scene_polish: { pending: [], running: false, executor: null },
   metadata: { pending: [], running: false, executor: null },
   video: { pending: [], running: false, executor: null },
   video_assembly: { pending: [], running: false, executor: null },

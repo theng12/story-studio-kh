@@ -46,7 +46,12 @@ import { RESEARCH_JSON_FILENAME, researchFolderName } from '../lib/research-path
  * was closed would be served from disk until some unrelated project file moved.
  * Discarding v14 rows recomputes every episode against disk once (NEW-13).
  */
-export const SCHEMA_VERSION = 15 as const
+/**
+ * v16 — a music channel's episodes carry `music_episode` (the Episode Builder's stitched mix is
+ * current), and their Scene Plan no longer needs a subtitle timeline. Discard v15 rows, which have
+ * neither, so a music episode does not read "Steps 0/7" narration steps until something moves.
+ */
+export const SCHEMA_VERSION = 16 as const
 const MAX_ENTRIES = 1000
 /**
  * Watcher-backed reads (see `trusted()`): how long an entry may be served

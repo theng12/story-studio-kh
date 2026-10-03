@@ -36,6 +36,7 @@ const STEP_LABELS: Record<string, string> = {
   motion_review: 'Motion Clips',
   video_assembly: 'Final Video',
   character_sheet: 'Character Sheet',
+  music_build: 'Build Episode',
 }
 
 /** The plain name the owner knows a Pipeline step by. */

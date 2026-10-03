@@ -48,6 +48,7 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
   music_generate: 'Music generation',
   music_video: 'Music video',
   music_episode_build: 'Music episode',
+  music_scene_polish: 'Scene prompt polish',
   // Retired ids retained so old history rows stay readable.
   'script-only': 'Script (chapters)',
   expression_markup: 'Expression markup',
@@ -258,6 +259,7 @@ export function jobWorkspaceLink(job: {
     music_generate: ['music', 'Music'],
     music_video: ['music', 'Music'],
     music_episode_build: ['episode-builder', 'Episode Builder'],
+    music_scene_polish: ['episode-builder', 'Episode Builder'],
   }
   if (!Object.hasOwn(destinations, job.type)) return null
   const destination = destinations[job.type]

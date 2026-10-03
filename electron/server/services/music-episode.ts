@@ -21,6 +21,9 @@ export type JoinStyle = 'crossfade' | 'butt' | 'silence'
 export type SceneMode = 'per-song' | 'count' | 'every-minutes' | 'manual'
 export type OrderMode = 'random' | 'smooth' | 'manual'
 export type EpisodeResolution = '720p' | '1080p'
+/** Light sharpening of each 720p scene still while it is upscaled for a 1080p render. */
+export type UpscaleSharpen = 'off' | 'light'
+export const UPSCALE_SHARPEN_OPTIONS: readonly UpscaleSharpen[] = ['off', 'light']
 
 export interface EpisodeSettings {
   /** Pool ids songs are drawn from. Empty = this channel's own pool. */
@@ -38,6 +41,10 @@ export interface EpisodeSettings {
   frame_rate: number
   /** 720p = the fleet's native still size; 1080p = upscale at render. */
   resolution: EpisodeResolution
+  /** 1080p only: sharpen each still lightly while upscaling it (SPEC §5 "lanczos plus light sharpening"). */
+  upscale_sharpen: UpscaleSharpen
+  /** No-repeat window for Image Pool stills used as scenes, in this channel's episodes. 0 = off. */
+  still_no_repeat_episodes: number
   loudness_lufs: number
   true_peak_db: number
 }
@@ -54,6 +61,8 @@ export const STARTING_EPISODE_SETTINGS: EpisodeSettings = {
   scene_change: { transition: 'crossfade', seconds: 4 },
   frame_rate: 24,
   resolution: '720p',
+  upscale_sharpen: 'light',
+  still_no_repeat_episodes: 0,
   loudness_lufs: -14,
   true_peak_db: -1,
 }
@@ -105,6 +114,8 @@ export function normalizeEpisodeSettings(raw: unknown, base: EpisodeSettings = S
     frame_rate: (FRAME_RATES as readonly number[]).includes(fps) ? fps : base.frame_rate,
     // model-drift-allow: the local FFmpeg render size (owner decision: 720p native stills or upscale to 1080p), not a model option
     resolution: oneOf(r.resolution, ['720p', '1080p'] as const, base.resolution),
+    upscale_sharpen: oneOf(r.upscale_sharpen, UPSCALE_SHARPEN_OPTIONS, base.upscale_sharpen),
+    still_no_repeat_episodes: Math.round(num(r.still_no_repeat_episodes, 0, 1000, base.still_no_repeat_episodes)),
     loudness_lufs: num(r.loudness_lufs, -40, -5, base.loudness_lufs),
     true_peak_db: num(r.true_peak_db, -9, 0, base.true_peak_db),
   }
@@ -127,6 +138,8 @@ export function settingsFromEpisodeDefaults(defaults: unknown): EpisodeSettings 
     scene_change: d.scene_change,
     frame_rate: d.frame_rate,
     resolution: d.resolution,
+    upscale_sharpen: d.upscale_sharpen,
+    still_no_repeat_episodes: d.still_no_repeat_episodes,
     loudness_lufs: d.loudness_lufs,
     true_peak_db: d.true_peak_db,
   })
@@ -506,4 +519,38 @@ export function buildScenePrompt(input: { sceneIdea?: string; title: string; the
     input.style?.trim() || '',
     'no people, no text',
   ].filter(Boolean).join(', ')
+}
+
+// ── Render settings ─────────────────────────────────────────────────────────
+
+/**
+ * Video Assembly's "Music episode" settings, server-side (Pipeline): the same values Video
+ * Assembly's "Use Music Episode Settings" button applies, on top of whatever the owner's Video
+ * Assembly preset carries (logo, grade, effects stay). No intro/outro clips, title cards, chapter
+ * titles or subtitles — a music episode has no narration to caption.
+ */
+const NARRATION_ONLY_RENDER_KEYS = ['intro', 'outro', 'timeline_clips', 'title_image', 'title_card', 'outro_card', 'chapter_titles', 'subtitles']
+
+export function musicEpisodeRenderParams(params: Record<string, unknown>, settings: EpisodeSettings): Record<string, unknown> {
+  const rest = { ...params }
+  for (const key of NARRATION_ONLY_RENDER_KEYS) delete rest[key]
+  const cut = !(settings.scene_change.seconds > 0) || settings.scene_change.transition === 'none'
+  return {
+    ...rest,
+    transition: cut ? 'none' : settings.scene_change.transition,
+    transition_duration: cut ? 0 : settings.scene_change.seconds,
+    transition_pool: [],
+    transition_randomize: 'off',
+    scene_animation: { type: 'ken-burns', zoom_start: 100, zoom_end: 106, pool: [], randomize_mode: 'off' },
+    animation_pool: [],
+    animation_randomize: 'off',
+    fps: settings.frame_rate,
+    // model-drift-allow: the local FFmpeg render size from the episode's own settings, not a model option
+    resolution: settings.resolution,
+    upscale_sharpen: settings.resolution === '1080p' ? settings.upscale_sharpen : 'off',
+    // Coordinator decision 2026-10-03: hardware encoding at ~5 Mbps (1080p) / 2.5 Mbps (720p).
+    encoding_effort: 'hardware',
+    video_bitrate_kbps: settings.resolution === '1080p' ? 5000 : 2500,
+    post_audio: { behavior: 'hard-cut' },
+  }
 }

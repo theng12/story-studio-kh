@@ -24,6 +24,8 @@ const JOB_TYPE_STATUS_FIELD: Record<string, string> = {
   scene_clips_batch: 'motion_review',
   video_assembly: 'video_assembly',
   broll_assemble: 'video_assembly',
+  // Music channels: the Episode Builder's draw + stitch is the "Episode Builder" column.
+  music_episode_build: 'music_episode',
 }
 
 export interface StepJobLike {
