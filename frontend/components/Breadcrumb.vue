@@ -50,6 +50,8 @@ function sectionLabel(path: string): string {
     settings: 'Settings',
     video: 'Video Generator',
     'video-assembly': 'Video Assembly',
+    'music-formula': 'Music Formula',
+    'song-pool': 'Song Pool',
   }
   return map[path] || path
 }

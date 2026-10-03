@@ -5851,6 +5851,8 @@ export interface GenStudioMusicRequest extends GenStudioOperationContext {
   requestIdentity?: string
   /** `m4a` asks the lane for AAC instead of WAV. Absent = native (today's behaviour). */
   outputFormat?: 'm4a'
+  /** Sent only when the caller states one (the Song Pool does, so a retake is a new seed). */
+  seed?: number
   idempotencyKey?: string
   isCancelled?: () => boolean
   onJobAccepted?: (jobId: string, idempotencyKey: string) => Promise<void> | void
@@ -5875,6 +5877,7 @@ export function buildGenStudioMusicIdempotencyKey(input: {
   modelId: string
   requestIdentity?: string
   outputFormat?: 'm4a'
+  seed?: number
 }): string {
   const digest = createHash('sha256').update(JSON.stringify({
     title: input.title.trim(),
@@ -5889,6 +5892,8 @@ export function buildGenStudioMusicIdempotencyKey(input: {
     // Only when set: a key built without it must stay byte-identical, so an in-flight
     // job (and every old caller) still replays on the key it was submitted with.
     ...(input.outputFormat ? { output_format: input.outputFormat } : {}),
+    // Only when set, for the same reason: every key minted without a seed stays byte-identical.
+    ...(input.seed !== undefined ? { seed: input.seed } : {}),
   })).digest('hex')
   return `story-music-${digest.slice(0, 44)}`
 }
@@ -6090,6 +6095,7 @@ export async function generateMusicWithGenStudio(
     modelId,
     requestIdentity: request.requestIdentity,
     outputFormat: request.outputFormat,
+    ...(request.seed !== undefined ? { seed: request.seed } : {}),
   })
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
@@ -6105,6 +6111,7 @@ export async function generateMusicWithGenStudio(
       ...(request.durationSeconds ? [['duration_seconds', request.durationSeconds] as [string, number]] : []),
       ...(request.lyrics?.trim() ? [['lyrics_characters', request.lyrics.trim().length] as [string, number]] : []),
       ...(request.outputFormat ? [['output_format', request.outputFormat] as [string, string]] : []),
+      ...(request.seed !== undefined ? [['seed', request.seed] as [string, number]] : []),
     ],
   })
   const submitted = await submitJsonWithAdmission(
@@ -6125,6 +6132,7 @@ export async function generateMusicWithGenStudio(
         ...(request.lyrics?.trim() ? { lyrics: request.lyrics.trim() } : {}),
         ...(request.durationSeconds ? { duration_seconds: request.durationSeconds } : {}),
         ...(request.outputFormat ? { output_format: request.outputFormat } : {}),
+        ...(request.seed !== undefined ? { seed: request.seed } : {}),
       }),
     },
     request,
