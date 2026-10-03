@@ -464,8 +464,11 @@ onUnmounted(() => {
 .nav-item:hover,
 .all-projects-link:hover { background: var(--bg-hover); color: var(--text-primary); }
 .nav-item.active { border-color: color-mix(in srgb, var(--accent) 34%, transparent); background: var(--accent-dim); color: var(--text-primary); }
-.nav-item.active::before { content: ''; width: 3px; height: 18px; margin-left: -5px; border-radius: 999px; background: var(--accent); }
-.nav-item.active > span:first-child { margin-right: auto; }
+/* The accent bar is positioned, not a flex item: as a flex item beside a bare
+   text label ("Pipeline", "Dashboard") `space-between` pushed the label to the
+   right edge of the active row. */
+.nav-item { position: relative; }
+.nav-item.active::before { content: ''; position: absolute; top: 50%; left: 3px; width: 3px; height: 18px; border-radius: 999px; background: var(--accent); transform: translateY(-50%); }
 .nav-item-main { display: flex; min-width: 0; align-items: center; gap: 8px; }
 .nav-item-main > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav-hint { color: var(--accent); font-size: var(--font-xs); font-weight: 750; }

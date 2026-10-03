@@ -139,7 +139,7 @@
         </div>
       </div>
       <p v-if="retryAllStatusMessage" class="jobs-control-result" role="status">{{ retryAllStatusMessage }}</p>
-      <details v-if="retryAllAttentionResults.length" class="retry-all-details">
+      <details v-if="retryAllAttentionResults.length" class="retry-all-details disclosure">
         <summary>{{ retryAllAttentionResults.length }} retry action{{ retryAllAttentionResults.length === 1 ? ' needs' : 's need' }} attention</summary>
         <ul>
           <li v-for="result in retryAllAttentionResults" :key="result.key">
@@ -240,7 +240,7 @@
 
       <!-- Per-episode failure details — expand on demand. The full error is
            kept untruncated but passes through the customer-copy boundary. -->
-      <details v-if="batchSummary.failed_episodes.length" class="bbf-details">
+      <details v-if="batchSummary.failed_episodes.length" class="bbf-details disclosure">
         <summary>Show all episodes needing attention ({{ batchSummary.failed_episodes.length }})</summary>
         <div
           v-for="fe in batchSummary.failed_episodes"
@@ -352,7 +352,7 @@
       </div>
       <p class="text-muted">Selection includes matching jobs across all filtered pages. Files and billing records stay intact. Abandoning stops local tracking; accepted provider work may still finish.</p>
       <p v-if="cleanupProgress" role="status">{{ cleanupProgress }}</p>
-      <details v-if="cleanupFailures.length">
+      <details v-if="cleanupFailures.length" class="disclosure">
         <summary>{{ cleanupFailures.length }} selected job{{ cleanupFailures.length === 1 ? ' needs' : 's need' }} attention</summary>
         <ul><li v-for="(failure, index) in cleanupFailures" :key="index"><strong>{{ failure.label }}</strong> — {{ failure.reason }}</li></ul>
       </details>
@@ -711,7 +711,7 @@
             {{ customerJobText(job.error, job) }}
           </div>
           <p v-if="paidReplacementAttemptMessage(job)" class="text-muted text-xs">{{ paidReplacementAttemptMessage(job) }}</p>
-          <details v-if="jobAttentionLinks(job).length" class="job-attention-details">
+          <details v-if="jobAttentionLinks(job).length" class="job-attention-details disclosure">
             <summary>{{ jobAttentionLinks(job).length }} affected item{{ jobAttentionLinks(job).length === 1 ? '' : 's' }} · Review affected items</summary>
             <div class="job-attention-links">
               <NuxtLink v-for="link in jobAttentionLinks(job)" :key="`${link.kind}-${link.to}-${link.label}`" :to="link.to" class="inline-link">
@@ -1100,7 +1100,7 @@
               {{ customerJobText(job.error, job) }}
             </div>
             <p v-if="paidReplacementAttemptMessage(job)" class="text-muted text-xs">{{ paidReplacementAttemptMessage(job) }}</p>
-            <details v-if="jobAttentionLinks(job).length" class="job-attention-details">
+            <details v-if="jobAttentionLinks(job).length" class="job-attention-details disclosure">
               <summary>{{ jobAttentionLinks(job).length }} affected item{{ jobAttentionLinks(job).length === 1 ? '' : 's' }} · Review affected items</summary>
               <div class="job-attention-links">
                 <NuxtLink v-for="link in jobAttentionLinks(job)" :key="`${link.kind}-${link.to}-${link.label}`" :to="link.to" class="inline-link">

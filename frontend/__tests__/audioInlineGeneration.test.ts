@@ -53,7 +53,7 @@ describe('Audio one-chapter generation', () => {
     assert.match(audioPage, /const \{ targetSections, mode \} = selectedAudioIntent\.value[\s\S]{0,100}await queueAudio\(targetSections, mode\)/)
     assert.match(audioPage, /No sections selected\. Choose rows to generate, regenerate, or create another version\./)
     assert.match(audioPage, /audioActionLabel\(effectiveSections, 'new_version', 'Create another version'\)/)
-    assert.match(audioPage, /<details class="audio-advanced">/)
+    assert.match(audioPage, /<details class="audio-advanced disclosure">/)
     assert.match(audioPage, /<summary>Delivery and request controls/)
     assert.match(audioPage, /\.audio-action-bar \{[\s\S]{0,160}position: sticky/)
     assert.match(audioPage, /@media \(max-width: 720px\)/)

@@ -27,7 +27,7 @@
 
       <!-- Manual install option -->
       <div class="ffmpeg-option mt-2" v-if="!installing && !installed">
-        <p class="text-muted" style="font-size: 12px;">Or install manually:</p>
+        <p class="hint">Or install manually:</p>
         <div class="manual-commands mt-1">
           <code v-if="isMac">brew install ffmpeg</code>
           <code v-else-if="isLinux">sudo apt install ffmpeg</code>
@@ -50,14 +50,14 @@
       <div v-if="installed" class="ffmpeg-success mt-2">
         <span style="font-size: 24px;">&#10003;</span>
         <p>FFmpeg installed successfully!</p>
-        <p class="text-muted" style="font-size: 12px;">Version: {{ installedVersion }}</p>
+        <p class="hint">Version: {{ installedVersion }}</p>
         <button class="btn btn-primary mt-2" @click="visible = false">Continue</button>
       </div>
 
       <!-- Error -->
       <div v-if="error" class="ffmpeg-error mt-2">
         <p style="color: var(--error);">{{ error }}</p>
-        <p class="text-muted" style="font-size: 12px;">Press “Download &amp; Install FFmpeg Automatically” above to try again.</p>
+        <p class="hint">Press “Download &amp; Install FFmpeg Automatically” above to try again.</p>
       </div>
     </div>
 

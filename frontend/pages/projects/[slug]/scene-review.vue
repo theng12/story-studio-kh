@@ -502,7 +502,7 @@
               >⚠ stale — re-render</span>
             </div>
             <p class="review-transcript">{{ scene.transcript_segment }}</p>
-            <details class="review-prompt-details">
+            <details class="review-prompt-details disclosure">
               <summary class="text-muted text-xs">Visual prompt</summary>
               <p class="review-prompt">{{ scene.visual_prompt }}</p>
             </details>

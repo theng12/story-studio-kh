@@ -10,7 +10,7 @@
          <AdvancedDisclosure label="Advanced options">…power controls…</AdvancedDisclosure>
          <AdvancedDisclosure label="Audio layers (…)" persist-key="audio_merge_advanced_open_<slug>">…</AdvancedDisclosure>
 
-       - `label`       — the toggle text (the ▸/▾ chevron is prepended automatically).
+       - `label`       — the toggle text (the shared .ds-chevron is prepended and turns when open).
        - `persistKey`  — optional localStorage key; when set, open/closed state is
                           remembered across reloads (pass a per-project key).
        - `defaultOpen` — initial state when there's no persisted value.
@@ -23,7 +23,7 @@
       :aria-expanded="isOpen"
       @click="toggle"
     >
-      <span class="adv-disclosure-chevron" aria-hidden="true">{{ isOpen ? '▾' : '▸' }}</span>
+      <span class="ds-chevron" aria-hidden="true" />
       <span class="adv-disclosure-label">{{ label }}</span>
       <span v-if="badge" class="adv-disclosure-badge">{{ badge }}</span>
     </button>
@@ -83,30 +83,33 @@ watch(isOpen, (v) => {
 .adv-disclosure-toggle {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
+  min-height: 36px;
   padding: 8px 12px;
   background: transparent;
-  border: 1px dashed var(--border, #2a2a2a);
-  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   text-align: left;
-  font-size: 12px;
-  color: var(--text-muted, #9a9a9a);
+  font: inherit;
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--text-secondary);
   transition: color 0.12s, border-color 0.12s;
 }
 .adv-disclosure-toggle:hover {
-  color: var(--text-primary, #e6e6e6);
-  border-color: var(--accent, #6c8fff);
+  color: var(--text-primary);
+  background: var(--bg-hover);
 }
-.adv-disclosure-chevron { flex: 0 0 auto; font-size: var(--font-xs); }
 .adv-disclosure-label { flex: 1 1 auto; }
 .adv-disclosure-badge {
   flex: 0 0 auto;
   font-size: var(--font-xs);
-  color: rgba(240, 198, 116, 0.95);
+  font-weight: 600;
+  color: var(--accent);
   padding: 1px 8px;
-  background: rgba(240, 198, 116, 0.12);
+  background: var(--accent-dim);
   border-radius: 999px;
 }
 .adv-disclosure-body { margin-top: 10px; }

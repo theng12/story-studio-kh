@@ -24,7 +24,7 @@
             rows="14"
             placeholder="Paste your first sample here.&#10;&#10;===&#10;&#10;Optional second sample.&#10;&#10;==="
           />
-          <div class="text-muted" style="font-size: var(--font-xs);">
+          <div class="hint">
             {{ sampleCount }} sample{{ sampleCount === 1 ? '' : 's' }} detected · {{ totalChars.toLocaleString() }} characters total (capped at ~12k each)
           </div>
         </div>
@@ -65,7 +65,7 @@
       <div v-if="step === 'review' && extracted" class="wiz-pane">
         <div class="review-header">
           <strong>Extracted format</strong>
-          <span class="text-muted" style="font-size: var(--font-xs);">Review the JSON below. Edit anything that looks off, then save.</span>
+          <span class="hint">Review the JSON below. Edit anything that looks off, then save.</span>
         </div>
 
         <div class="form-group">
@@ -110,7 +110,7 @@
         <div class="wiz-success">
           ✓ Saved as <code>{{ savedFormat?.id }}</code> — {{ savedFormat?.name }}
         </div>
-        <p class="text-muted" style="font-size: 12px;">
+        <p class="hint">
           The new format now appears in the Format picker (refreshed automatically). Switch any
           project to it from Project Settings → Channel Identity. The file lives at
           <code>{{ savedTo }}</code> — copy / share that file to use the format on another machine.

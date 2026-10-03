@@ -11,7 +11,7 @@
       <span class="vp-current">{{ currentVoiceName || defaultLabel }}</span>
       <span v-if="currentVoiceProviderLabel" class="vp-provider-badge">{{ currentVoiceProviderLabel }}</span>
       <span v-if="currentVoiceSaved" class="vp-star-badge" aria-label="Saved voice">★</span>
-      <span class="vp-chev" aria-hidden="true">▾</span>
+      <span class="vp-chev ds-chevron" data-dir="down" aria-hidden="true" />
     </button>
 
     <PickerDialog

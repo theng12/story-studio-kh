@@ -422,7 +422,7 @@
             :aria-expanded="otherWaysOpen"
             @click="otherWaysOpen = !otherWaysOpen"
           >
-            {{ otherWaysOpen ? '▾' : '▸' }} Add ideas another way
+            <span class="ds-chevron" :class="{ 'is-open': otherWaysOpen }" aria-hidden="true" /> Add ideas another way
           </button>
           <template v-if="otherWaysOpen">
             <button class="btn btn-secondary btn-sm" @click="openAddIdea">+ Add idea manually</button>

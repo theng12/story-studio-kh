@@ -172,7 +172,7 @@
       class="ssp-group"
     >
       <button type="button" class="ssp-group-head" @click="toggle(group.id)">
-        <span class="ssp-group-caret">{{ open[group.id] ? '▾' : '▸' }}</span>
+        <span class="ssp-group-caret ds-chevron" aria-hidden="true" :class="{ 'is-open': open[group.id] }" />
         <span class="ssp-group-title">{{ group.label }}</span>
         <span class="ssp-group-hint">{{ group.hint }}</span>
       </button>

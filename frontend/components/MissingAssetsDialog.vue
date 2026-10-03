@@ -68,7 +68,7 @@
               <li v-for="(name, i) in s.missing.slice(0, 6)" :key="name + i">
                 <code>{{ name }}</code>
               </li>
-              <li v-if="s.missing.length > 6" class="text-muted" style="font-size: var(--font-xs);">
+              <li v-if="s.missing.length > 6" class="hint">
                 + {{ s.missing.length - 6 }} more
               </li>
             </ul>

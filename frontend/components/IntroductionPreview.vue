@@ -77,7 +77,7 @@
       </div>
       <div v-else-if="!data?.introduction?.content" class="preview-empty">
         No introduction generated yet for this episode.
-        <p class="muted mt-1" style="font-size: 12px;">
+        <p class="hint mt-1">
           {{ data?.introduction_ready
             ? 'Use “Write this episode’s opening” above to create one.'
             : 'Generate a script first, then write this episode’s opening.' }}

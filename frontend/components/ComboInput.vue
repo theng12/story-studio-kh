@@ -3,7 +3,7 @@
     <div class="combo-trigger" :class="{ open }" @click="toggleOpen">
       <span v-if="modelValue" class="combo-value">{{ modelValue }}</span>
       <span v-else class="combo-placeholder">{{ placeholder || 'Select…' }}</span>
-      <span class="combo-chev" aria-hidden="true">▾</span>
+      <span class="combo-chev ds-chevron" data-dir="down" aria-hidden="true" />
     </div>
     <div v-if="open" class="combo-popover" role="listbox">
       <input

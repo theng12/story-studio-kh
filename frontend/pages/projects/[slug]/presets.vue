@@ -72,7 +72,7 @@
       </table>
     </div>
 
-    <p v-if="!loading && totalCount" class="text-muted mt-2" style="font-size: var(--font-xs);">
+    <p v-if="!loading && totalCount" class="hint mt-2">
       {{ totalCount }} preset{{ totalCount === 1 ? '' : 's' }} across {{ groupsWithItems }} group{{ groupsWithItems === 1 ? '' : 's' }}.
     </p>
   </div>

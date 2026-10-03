@@ -56,7 +56,7 @@
             {{ formatCredits(selectionTotal) }} credits the selection bar showed</template>.
           </p>
 
-          <details class="batch-breakdown" open>
+          <details class="batch-breakdown disclosure" open>
             <summary>{{ quoted.length }} {{ quoted.length === 1 ? 'pack' : 'packs' }} to buy</summary>
             <ul>
               <li v-for="item in quoted" :key="item.productId">
@@ -66,7 +66,7 @@
             </ul>
           </details>
 
-          <details v-if="skipped.length" class="batch-breakdown">
+          <details v-if="skipped.length" class="batch-breakdown disclosure">
             <summary>{{ skipped.length }} skipped, nothing will be charged for {{ skipped.length === 1 ? 'it' : 'them' }}</summary>
             <ul>
               <li v-for="item in skipped" :key="item.productId">
@@ -126,7 +126,7 @@
             <div><dt>Balance after</dt><dd>{{ formatCredits(finalBalance) }}</dd></div>
           </dl>
 
-          <details v-if="failed.length" class="batch-breakdown" open>
+          <details v-if="failed.length" class="batch-breakdown disclosure" open>
             <summary>{{ failed.length }} could not be bought</summary>
             <ul>
               <li v-for="item in failed" :key="item.productId">
@@ -136,7 +136,7 @@
             </ul>
           </details>
 
-          <details v-if="succeeded.length" class="batch-breakdown">
+          <details v-if="succeeded.length" class="batch-breakdown disclosure">
             <summary>{{ succeeded.length }} now permanently owned</summary>
             <ul>
               <li v-for="item in succeeded" :key="item.productId">

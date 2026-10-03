@@ -175,7 +175,7 @@
               :title="expandedPreviews.has(entry.n) ? 'Hide chapter preview' : 'Preview the expanded chapter content'"
               @click="togglePreview(entry.n)"
             >
-              <span class="op-preview-icon">{{ expandedPreviews.has(entry.n) ? '▾' : '▸' }}</span>
+              <span class="op-preview-icon ds-chevron" aria-hidden="true" :class="{ 'is-open': expandedPreviews.has(entry.n) }" />
               <span>{{ expandedPreviews.has(entry.n) ? 'Hide preview' : 'Preview text' }}</span>
             </button>
             <button
