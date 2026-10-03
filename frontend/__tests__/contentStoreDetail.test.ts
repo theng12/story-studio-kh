@@ -192,7 +192,7 @@ describe('Content Store proof route contract', () => {
     }
     const rendered = await mount(DetailRoute, {})
     const proof = rendered.host.querySelector<HTMLElement>('[data-test="historical-proof"]')!
-    assert.match(rendered.host.textContent || '', /Last verified for GenStudio account acct_a at https:\/\/a\.example\.test/)
+    assert.match(rendered.host.textContent || '', /Last verified for Gateway account acct_a at https:\/\/a\.example\.test/)
     assert.match(rendered.host.textContent || '', /CONTENT_STORE_UNAVAILABLE: GenStudio is offline/)
     assert.equal(proof.textContent, 'Account A Formula')
     assert.equal(proof.dataset.owned, 'false', 'historical product proof must not assert active ownership')
@@ -359,7 +359,7 @@ describe('Content Store proof route contract', () => {
     })
     const rendered = await mount(Page, {})
     assert.deepEqual(refreshCalls, [{ background: true }], 'mount asks to revalidate quietly')
-    assert.doesNotMatch(rendered.host.textContent || '', /Loading the GenStudio catalog/)
+    assert.doesNotMatch(rendered.host.textContent || '', /Loading the Gateway catalog/)
     assert.equal(rendered.host.querySelector('[data-test="request-quote"]') !== null, true, 'the cached shelf is already on screen')
     rendered.unmount()
   })
@@ -374,11 +374,11 @@ describe('Content Store proof route contract', () => {
     const rendered = await mount(Page, {})
     const text = rendered.host.textContent || ''
 
-    assert.doesNotMatch(text, /Loading the GenStudio catalog/, 'there is a catalogue to show, so there is no loading screen')
+    assert.doesNotMatch(text, /Loading the Gateway catalog/, 'there is a catalogue to show, so there is no loading screen')
     assert.equal(rendered.host.querySelector('[data-test="request-quote"]') !== null, true, 'the saved shelf is already on screen')
     assert.match(text, /Showing the published catalogue saved on this Mac/)
     assert.match(text, /buying and installing stay off until they are/)
-    assert.match(text, /Checking with GenStudio…/, 'the account strip holds its place without inventing a balance')
+    assert.match(text, /Checking with the Gateway…/, 'the account strip holds its place without inventing a balance')
     assert.doesNotMatch(text, /content_a|500 credits/, 'no account id and no balance before GenStudio answers')
 
     const tabCounts = [...rendered.host.querySelectorAll('[role="tab"] span')].map(node => node.textContent)
@@ -395,7 +395,7 @@ describe('Content Store proof route contract', () => {
       catalogFreshness: ref('unavailable'), ownershipResolved: ref(true), lastVerifiedAt: ref(null), loading: ref(true),
     })
     const rendered = await mount(Page, {})
-    assert.match(rendered.host.textContent || '', /Loading the GenStudio catalog/)
+    assert.match(rendered.host.textContent || '', /Loading the Gateway catalog/)
     rendered.unmount()
   })
 

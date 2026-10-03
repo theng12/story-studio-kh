@@ -331,7 +331,7 @@ export function contentStoreErrorPresentation(error: ContentStoreUiError): Conte
     case 'CONTENT_PURCHASE_ACCOUNT_MISMATCH':
     case 'CONTENT_PACK_OWNED_RELEASE_MISMATCH':
     case 'CONTENT_PACK_NOT_OWNED':
-    case 'not_entitled': return failure('Ownership could not be confirmed', 'Restore purchases to verify the active GenStudio account.')
+    case 'not_entitled': return failure('Ownership could not be confirmed', 'Restore purchases to verify the active Gateway account.')
     case 'download_grant_expired': return failure('The download authorization expired', 'Request the owned release again to receive a new authorization.')
     case 'archive_limit_exceeded':
     case 'CONTENT_PACK_TOO_LARGE_FOR_THIS_APP': return failure('This archive is too large to install safely', 'Choose another published release or contact the publisher.')
