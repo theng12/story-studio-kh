@@ -123,6 +123,11 @@
             <span class="eb-hint">{{ view.free_songs }} songs are free for this episode.</span>
           </div>
           <div class="eb-field">
+            <label class="eb-label" for="eb-still-window">Don't repeat a pool still for</label>
+            <div class="eb-inline"><input id="eb-still-window" v-model.number="settings.still_no_repeat_episodes" type="number" min="0" max="1000" class="input eb-num" @change="saveSettings"> episodes</div>
+            <span class="eb-hint">{{ settings.still_no_repeat_episodes ? 'Stills used as scenes in those episodes are marked in Use From Pool.' : 'Off — any Image Pool still can be used again.' }}</span>
+          </div>
+          <div class="eb-field">
             <span class="eb-label">Joins between songs</span>
             <div class="eb-inline">
               <div class="eb-seg" role="group" aria-label="Joins between songs">
@@ -142,6 +147,9 @@
             <div class="eb-seg" role="group" aria-label="Resolution">
               <button type="button" :class="{ on: settings.resolution === '720p' }" @click="settings.resolution = '720p'; saveSettings()">720p</button>
               <button type="button" :class="{ on: settings.resolution === '1080p' }" @click="settings.resolution = '1080p'; saveSettings()">Upscale to 1080p</button>
+            </div>
+            <div v-if="settings.resolution === '1080p'" class="eb-inline eb-sub">
+              <label class="eb-check"><input type="checkbox" :checked="settings.upscale_sharpen === 'light'" @change="settings.upscale_sharpen = ($event.target as HTMLInputElement).checked ? 'light' : 'off'; saveSettings()"> Light sharpening</label>
             </div>
           </div>
           <div class="eb-field">
@@ -255,6 +263,7 @@
           <div class="eb-row">
             <button v-if="promptDraft.trim() !== selectedScene.prompt" type="button" class="btn btn-secondary btn-sm" @click="savePrompt">Save Prompt</button>
             <button v-if="selectedScene.prompt_is_custom" type="button" class="btn btn-ghost btn-sm" @click="resetPrompt">Use the Song's Scene Idea</button>
+            <button type="button" class="btn btn-ghost btn-sm" :disabled="polishJobActive" @click="openPolish([selectedScene.id])">Polish This Scene…</button>
           </div>
 
           <div class="eb-row eb-top">
@@ -297,7 +306,23 @@
             </button>
             <span class="eb-hint">One picture per scene, shared across the fleet's free Macs. Each one is accepted when it arrives; regenerate any you don't like.</span>
           </div>
+          <div class="eb-btnhint">
+            <button type="button" class="btn btn-secondary" :disabled="polishJobActive" @click="openPolish([])">{{ polishJobActive ? 'Polishing Prompts…' : 'Polish Scene Prompts…' }}</button>
+            <span class="eb-hint">Optional: a writing model you pick rewrites every scene prompt to be more vivid. Nothing is drawn.</span>
+          </div>
         </div>
+        <PresetPicker
+          label="Pictures preset"
+          hint="Saves the image model above for Pipeline: its Scene Pictures step makes this channel's missing pictures with it."
+          :presets="picturePresets.presets.value"
+          :active-id="picturePresets.activeId.value"
+          @update:active-id="picturePresets.setActive"
+          @apply="picturePresets.applyActive(); success('Pictures preset applied')"
+          @overwrite="finishPreset(picturePresets.overwrite(), 'Pictures preset saved')"
+          @save-as="(n: string) => finishPreset(picturePresets.saveAs(n), 'Pictures preset saved')"
+          @rename="(n: string) => finishPreset(picturePresets.rename(n), `Renamed to ${n}`)"
+          @delete="finishPreset(picturePresets.remove(), 'Pictures preset deleted')"
+        />
       </section>
 
       <WorkspaceNotice v-if="buildJob && buildJob.status === 'done' && view.doc?.built" tone="success" title="Ready for Video Assembly">
@@ -338,11 +363,26 @@
       </select>
       <p v-if="!imagePools.length" class="eb-hint">No image pools yet. Register one in the Assets Library.</p>
       <div class="eb-stills">
-        <button v-for="clip in stills" :key="clip.filename" type="button" class="eb-still" :title="clip.filename" @click="useStill(clip.filename)">
+        <button v-for="clip in stills" :key="clip.filename" type="button" class="eb-still" :class="{ 'eb-still-used': clip.used_by }" :title="clip.used_by ? `${clip.filename} — used in ${clip.used_by}` : clip.filename" @click="useStill(clip.filename, clip.used_by)">
           <img :src="`/api/broll-pools/${encodeURIComponent(stillPoolId)}/clips/${encodeURIComponent(clip.filename)}/thumbnail`" :alt="clip.filename" loading="lazy">
+          <small v-if="clip.used_by" class="eb-warn-chip eb-still-tag">in {{ clip.used_by }}</small>
         </button>
       </div>
+      <p v-if="stillsWindow" class="eb-hint">Stills marked “in …” were used in one of this channel's last {{ stillsWindow }} episodes. You can still pick one on purpose.</p>
       <div class="eb-dialog-actions"><button type="button" class="btn btn-secondary" @click="stillPicker = false">Close</button></div>
+    </Modal>
+
+    <!-- Polish scene prompts: the writing model is picked here, at the click -->
+    <Modal :visible="!!polish" size="md" labelledby="eb-polish-title" @close="polish = null">
+      <h3 id="eb-polish-title" class="eb-dialog-title">Polish {{ polish?.sceneIds.length ? `Scene ${selectedScene?.scene_index}` : `All ${view?.scenes.length || 0} Scene` }} Prompt{{ polish?.sceneIds.length ? '' : 's' }}</h3>
+      <p class="eb-hint">The writing model you pick rewrites the prompt{{ polish?.sceneIds.length ? '' : 's' }} to be more vivid and paintable, keeping each scene's idea, the theme and “no people, no text”. Each result is saved as the scene's own prompt; “Use the Song's Scene Idea” undoes it. No picture is made.</p>
+      <div class="eb-top">
+        <ModelSelector v-model="polishForm.model" :project-slug="slug" label="Writing model" writing-step />
+      </div>
+      <div class="eb-dialog-actions">
+        <button type="button" class="btn btn-secondary" @click="polish = null">Cancel</button>
+        <button type="button" class="btn btn-primary" :disabled="!polishForm.model || polishJobActive" @click="startPolish">Polish</button>
+      </div>
     </Modal>
   </div>
 </template>
@@ -362,6 +402,7 @@ interface Settings {
   scenes: { mode: SceneMode; count: number; minutes: number }; theme: string
   join: { style: Join; seconds: number }; scene_change: { transition: string; seconds: number }
   frame_rate: number; resolution: '720p' | '1080p'; loudness_lufs: number; true_peak_db: number
+  upscale_sharpen: 'off' | 'light'; still_no_repeat_episodes: number
 }
 interface Song {
   song_key: string; key?: string; pool_id: string; id: string; title: string; duration_s: number; locked: boolean; start_sec: number
@@ -421,6 +462,7 @@ function blankSettings(): Settings {
     pools: [], target_length_s: 3900, no_repeat_episodes: 30, order: 'smooth',
     scenes: { mode: 'per-song', count: 12, minutes: 5 }, theme: '', join: { style: 'crossfade', seconds: 3 },
     scene_change: { transition: 'crossfade', seconds: 4 }, frame_rate: 24, resolution: '720p', loudness_lufs: -14, true_peak_db: -1,
+    upscale_sharpen: 'light', still_no_repeat_episodes: 0,
   }
 }
 
@@ -687,18 +729,66 @@ const { pools: brollPools, loadPools } = useBrollPools()
 const imagePools = computed(() => brollPools.value.filter((p: any) => p.media === 'image'))
 const stillPicker = ref(false)
 const stillPoolId = ref('')
-const stills = ref<Array<{ filename: string }>>([])
+const stills = ref<Array<{ filename: string; used_by?: string | null }>>([])
+const stillsWindow = ref(0)
 async function openStillPicker() { stillPicker.value = true; await loadPools().catch(() => {}) }
 async function loadStills() {
   stills.value = []
-  try { stills.value = (await get<any>(`/broll-pools/${encodeURIComponent(stillPoolId.value)}/clips`)).clips || [] } catch (e: any) { showError(e?.data?.detail || e?.message || 'Could not list stills') }
+  try {
+    const res = await get<{ stills: typeof stills.value; window_episodes: number }>(`/projects/${slug.value}/music-episodes/${code.value}/stills?pool_id=${encodeURIComponent(stillPoolId.value)}`)
+    stills.value = res.stills
+    stillsWindow.value = res.window_episodes
+  } catch (e: any) { showError(e?.data?.detail || e?.message || 'Could not list stills') }
 }
-async function useStill(filename: string) {
+async function useStill(filename: string, usedBy?: string | null) {
   const scene = selectedScene.value
   if (!scene) return
+  if (usedBy && !window.confirm(`${filename} was used in ${usedBy}, inside this channel's stills window. Use it again anyway?`)) return
   stillPicker.value = false
-  await act('Saving', () => post<View>(`/projects/${slug.value}/music-episodes/${code.value}/scenes/${scene.id}/use-still`, { pool_id: stillPoolId.value, filename }))
+  await act('Saving', () => post<View>(`/projects/${slug.value}/music-episodes/${code.value}/scenes/${scene.id}/use-still`, {
+    pool_id: stillPoolId.value, filename, ...(usedBy ? { allow_repeat: true } : {}),
+  }))
 }
+
+// Pictures preset: the image model Pipeline's Scene Pictures step uses (shared with Scene Review's presets).
+const picturePresets = usePresets<{ model: string; aspect_ratio: string; auto_approve_generated?: boolean }>({
+  slug: slug.value,
+  configKey: 'scene_review_genstudio',
+  presetType: 'scene-review',
+  snapshot: () => ({ model: imageForm.value.model, aspect_ratio: outputOption.value?.aspect_ratio || '16:9', auto_approve_generated: true }),
+  apply: (data) => { if (typeof data?.model === 'string') imageForm.value.model = data.model },
+})
+async function finishPreset(work: Promise<unknown> | unknown, message: string) {
+  try { await work; success(message) } catch (e: any) { showError(e?.data?.detail || e?.message || 'Could not save the preset') }
+}
+
+// Polish scene prompts (optional). The writing model is picked in the dialog at the click; the last
+// pick is pre-filled in this browser only, never assigned.
+const polish = ref<{ sceneIds: string[] } | null>(null)
+const polishForm = ref({ model: '' })
+useRememberedForm('episode-builder-polish', slug, polishForm)
+const polishJob = computed(() => [...jobs.value as any[]]
+  .filter(j => j.type === 'music_scene_polish' && String(j.episode_id).toUpperCase() === code.value)
+  .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0] || null)
+const polishJobActive = computed(() => !!polishJob.value && isActive(polishJob.value))
+function openPolish(sceneIds: string[]) { polish.value = { sceneIds } }
+async function startPolish() {
+  const target = polish.value
+  if (!target || !polishForm.value.model) return
+  polish.value = null
+  await act('Polishing', async () => {
+    await post(`/projects/${slug.value}/music-episodes/${code.value}/polish-prompts`, {
+      model: polishForm.value.model,
+      ...(target.sceneIds.length ? { scene_ids: target.sceneIds } : {}),
+    })
+    success(`Polishing ${target.sceneIds.length || view.value?.scenes.length || 0} scene prompt(s) — they appear here when the writing model answers.`)
+  })
+}
+watch(() => polishJob.value?.status, (now, before) => {
+  if (!before || before === now) return
+  if (now === 'done') { void loadView(); success('Scene prompts polished. Make or regenerate the pictures you want with them.') }
+  if (now === 'error') { void loadView(); showError(polishJob.value?.error || 'Polishing the prompts did not finish. See Project Jobs.') }
+})
 
 // Episodes + hand-off
 async function createEpisode() {
@@ -822,6 +912,9 @@ onMounted(async () => {
 .eb-stills { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin-top: 10px; max-height: 55vh; overflow: auto; }
 .eb-still { padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm, 6px); overflow: hidden; cursor: pointer; aspect-ratio: 16 / 9; background: var(--bg-tertiary); }
 .eb-still img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.eb-still { position: relative; }
+.eb-still-used img { opacity: 0.55; }
+.eb-still-tag { position: absolute; left: 4px; bottom: 4px; }
 .eb-dialog-title { font-size: 15px; margin: 0 0 8px; }
 .eb-dialog-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
 </style>

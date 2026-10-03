@@ -183,6 +183,17 @@
                 </div>
                 <input v-model.number="e.frame_rate" type="number" min="1" max="120" class="mp-inp" style="width: 64px" aria-label="Frames per second"> fps
               </div>
+              <template v-if="e.resolution === '1080p'">
+                <span class="mp-lbl" style="margin-top: 8px">Sharpen while upscaling</span>
+                <div class="mp-seg">
+                  <button type="button" :class="{ on: (e.upscale_sharpen || 'off') === 'off' }" @click="e.upscale_sharpen = 'off'">Off</button>
+                  <button type="button" :class="{ on: e.upscale_sharpen === 'light' }" @click="e.upscale_sharpen = 'light'">Light</button>
+                </div>
+                <p class="mp-hint">Light sharpening of each 720p picture once, as it is upscaled (about 0.15 s per picture).</p>
+              </template>
+              <span class="mp-lbl" style="margin-top: 8px">Don't repeat an Image Pool still for</span>
+              <div class="mp-row"><input v-model.number="e.still_no_repeat_episodes" type="number" min="0" class="mp-inp narrow" aria-label="Stills window in episodes"> episodes</div>
+              <p class="mp-hint">For scenes that use a still from an Image Pool. 0 = off.</p>
             </div>
             <div style="grid-column: span 2">
               <span class="mp-lbl">Starting effects look</span>

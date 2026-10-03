@@ -22,6 +22,7 @@ import { chaptersFromDurations, formatChapterTimestamps, type Chapter } from '..
 import { inspectAudioAssemblyReadiness } from './audio-workflow-readiness.js'
 import { resolveEpisodePathsByCode } from './utils.js'
 import { inspectSubtitleCompletion } from './subtitle-completion.js'
+import { inspectMusicStitch, type MusicStitchState } from './music-episode-store.js'
 
 export const CHAPTERS_BEGIN = '<!-- youtube:chapters:start -->'
 export const CHAPTERS_END = '<!-- youtube:chapters:end -->'
@@ -48,6 +49,8 @@ export interface YouTubeFinalizationStatus {
   source_count: number
   lead_in_seconds: number
   warnings: string[]
+  /** Present for an Episode Builder (music) episode: chapters come from its tracklist. */
+  music_episode?: { songs: number; tracklist_ready: boolean }
 }
 
 export interface YouTubeFinalizationResult extends YouTubeFinalizationStatus {
@@ -123,6 +126,91 @@ export function buildYouTubeChapters(options: {
   return chapters
 }
 
+/** YouTube's chapter rules: the first chapter at 0:00, at least three, each at least 10 s long. */
+export const YOUTUBE_MIN_CHAPTERS = 3
+export const YOUTUBE_MIN_CHAPTER_SEC = 10
+
+/**
+ * Chapters from an Episode Builder tracklist (`0:00 Title` / `1:02:03 Title`, one song per line).
+ * The first chapter is pinned to 0:00; a song that starts less than 10 s after the previous kept
+ * chapter (or less than 10 s before the end) is folded into its neighbour and named in `dropped`.
+ */
+export function chaptersFromTracklist(text: string, totalSec?: number | null): { chapters: Chapter[]; dropped: string[] } {
+  const rows: Array<{ title: string; start_sec: number }> = []
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const m = line.trim().match(/^(?:(\d+):)?(\d{1,2}):(\d{2})\s+(.+)$/)
+    if (!m) continue
+    rows.push({ title: m[4]!.trim(), start_sec: Number(m[1] || 0) * 3600 + Number(m[2]) * 60 + Number(m[3]) })
+  }
+  const dropped: string[] = []
+  const kept: Array<{ title: string; start_sec: number }> = []
+  for (const row of rows) {
+    if (!kept.length) { kept.push({ ...row, start_sec: 0 }); continue }
+    if (row.start_sec - kept[kept.length - 1]!.start_sec < YOUTUBE_MIN_CHAPTER_SEC) { dropped.push(row.title); continue }
+    kept.push(row)
+  }
+  const end = Number(totalSec)
+  while (kept.length > 1 && Number.isFinite(end) && end > 0 && end - kept[kept.length - 1]!.start_sec < YOUTUBE_MIN_CHAPTER_SEC) {
+    dropped.push(kept.pop()!.title)
+  }
+  const chapters = kept.map((row, i) => ({
+    title: row.title,
+    start_sec: row.start_sec,
+    end_sec: kept[i + 1]?.start_sec ?? (Number.isFinite(end) && end > 0 ? end : row.start_sec),
+  }))
+  return { chapters, dropped }
+}
+
+/**
+ * A music (Episode Builder) episode: chapters come from its tracklist, there is no narration
+ * timing and no subtitle track to verify, and the stitch must match today's song list.
+ */
+async function finalizeMusicDescription(options: {
+  slug: string
+  episodeId: string
+  description: string
+  stitch: MusicStitchState
+}): Promise<YouTubeFinalizationResult> {
+  const { stitch } = options
+  const warnings: string[] = []
+  let chapters: Chapter[] = []
+  if (!stitch.current) {
+    warnings.push(stitch.reason)
+  } else {
+    const text = await fs.readFile(stitch.tracklist_path!, 'utf-8').catch(() => '')
+    const parsed = chaptersFromTracklist(text, stitch.total_sec)
+    chapters = parsed.chapters
+    if (parsed.dropped.length) {
+      warnings.push(`${parsed.dropped.length} song(s) start less than ${YOUTUBE_MIN_CHAPTER_SEC} s after the one before (or before the end), so they share a chapter: ${parsed.dropped.slice(0, 3).join(', ')}.`)
+    }
+    if (chapters.length < YOUTUBE_MIN_CHAPTERS) {
+      warnings.push(`Only ${chapters.length} song(s) are long enough to be chapters; YouTube needs at least ${YOUTUBE_MIN_CHAPTERS}, so no chapters are added.`)
+    }
+  }
+  const description = refreshManagedBlock(
+    refreshManagedBlock(options.description, CHAPTERS_BEGIN, CHAPTERS_END, renderChapters(chapters)),
+    SOURCES_BEGIN, SOURCES_END, '',
+  )
+  const usable = chapters.length >= YOUTUBE_MIN_CHAPTERS ? chapters : []
+  return {
+    description,
+    audio_assembly_ready: stitch.current,
+    // Nothing to verify: a music episode has no narration and no subtitle track.
+    subtitle_complete: true,
+    subtitle_mode: 'none',
+    subtitle_missing_sections: [],
+    outline_title_count: 0,
+    chapter_count: usable.length,
+    source_count: 0,
+    lead_in_seconds: 0,
+    warnings,
+    music_episode: { songs: stitch.songs, tracklist_ready: stitch.current },
+    chapters: usable.map(chapter => ({ title: chapter.title, start_sec: chapter.start_sec })),
+    sources: [],
+    finalized_at: new Date().toISOString(),
+  }
+}
+
 function renderSources(sources: SelectedResearchSource[]): string {
   if (!sources.length) return ''
   return ['SOURCES & FURTHER READING', ...sources.map(source => `• ${source.title} — ${source.url}`)].join('\n')
@@ -149,6 +237,8 @@ export async function finalizeYouTubeDescription(options: {
     includeSources = true,
   } = options
   const paths = await resolveEpisodePathsByCode(slug, episodeId)
+  const stitch = await inspectMusicStitch(slug, episodeId)
+  if (stitch.music) return finalizeMusicDescription({ slug, episodeId, description: options.description, stitch })
   const warnings: string[] = []
   const audioReadiness = await inspectAudioAssemblyReadiness(slug, episodeId)
   if (!audioReadiness.audio_assembly_ready) {
@@ -280,5 +370,6 @@ export async function inspectYouTubeFinalizationStatus(
     source_count: result.source_count,
     lead_in_seconds: result.lead_in_seconds,
     warnings: result.warnings,
+    ...(result.music_episode ? { music_episode: result.music_episode } : {}),
   }
 }

@@ -275,7 +275,7 @@ import {
   isEpisodeDone,
   isFlowStepApplicable,
   normalizeEpisodeVisualSource,
-  parseVisualSource,
+  visualSourceFromFormat,
   requiredStatusFields,
   unionFlowForEpisodeSources,
   type EpisodeVisualSource,
@@ -588,9 +588,9 @@ async function loadOverview() {
     })(),
     (async () => {
       try {
-        const format = await get<{ visualSource?: unknown }>(`/projects/${requestSlug}/effective-format`)
+        const format = await get<{ visualSource?: unknown; musicChannel?: unknown }>(`/projects/${requestSlug}/effective-format`)
         if (!current()) return
-        const source = parseVisualSource(format?.visualSource)
+        const source = visualSourceFromFormat(format)
         if (!source) {
           visualSource.value = null
           formatError.value = 'The project returned an unknown production format. Refresh this project before using dashboard workflow actions.'

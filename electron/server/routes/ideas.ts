@@ -798,6 +798,13 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
           && (!needsCharacterSheet || characterSheetDone)
           && (!needsImagePool || brollPickedDone)
           && videoAssemblyDone,
+        // A music channel's episode (`music_episode` present) has no narration: its flow is Episode
+        // Builder → Video Assembly → Thumbnail → Finalizer, and only those decide.
+        ...(status.music_episode !== undefined ? {
+          video_ready: status.music_episode && sceneReviewDone && !videoAssemblyDone,
+          publishable: thumbsDone && status.music_episode && videoAssemblyDone,
+          all_done: status.music_episode && thumbsDone && metadataDone && videoAssemblyDone,
+        } : {}),
       },
       scene_images: sceneImages || { total: 0, present: 0, complete: false },
       thumbnail_images: thumbnailImages || { total: 0, present: 0, complete: false },

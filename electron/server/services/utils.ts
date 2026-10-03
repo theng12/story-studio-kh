@@ -105,6 +105,8 @@ export interface ProjectFactsCache {
    * makes the whole API unresponsive while a cold list is being built.
    */
   config?: Promise<unknown>
+  /** Whether the project's effective formula has `musicFormat` (a music channel). */
+  musicChannel?: Promise<boolean>
   /**
    * Every directory under the project's episodes root, in the exact order a
    * depth-first episode-folder search visits it.

@@ -2368,6 +2368,8 @@ export const JOB_TYPES = [
   'music_video',
   /** Episode Builder: stitch an episode's songs and hand it to Video Assembly. Spends nothing. */
   'music_episode_build',
+  /** Episode Builder: rewrite scene prompts with the writing model the owner picked at the click. */
+  'music_scene_polish',
 ] as const
 
 export type JobType = typeof JOB_TYPES[number]
@@ -3701,6 +3703,9 @@ export interface GenerateVideoRequest {
   /** Optional video bitrate cap in kbit/s (0/absent = quality-based, the long-standing behaviour).
    *  Hardware encodes target it; software encodes keep their CRF and cap peaks at it. */
   video_bitrate_kbps?: number
+  /** Light sharpening of stills smaller than the canvas while they are upscaled (e.g. 720p scenes in a
+   *  1080p render). Absent/'off' = unchanged. Once per still, never per frame. */
+  upscale_sharpen?: 'off' | 'light'
   format: 'mp4' | 'mov' | 'webm'
   title_card?: VideoTitleCard
   outro_card?: VideoOutroCard

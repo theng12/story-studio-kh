@@ -114,7 +114,7 @@
             class="step-tile"
             :class="{
               selected: stepChecked[entry.id],
-              missing: stepChecked[entry.id] && !presetNameFor(entry.id) && !noPresetStep(entry.id),
+              missing: stepChecked[entry.id] && !presetNameFor(entry.id) && !noPresetStep(entry.id) && !musicPresetOptional(entry.id),
               costly: entry.costly,
               disabled: stepDisabled(entry.id) && !stepChecked[entry.id],
               'policy-expanded': modelPolicyExpanded[entry.id],
@@ -154,7 +154,8 @@
                   class="preset-link"
                   title="Open the per-stage page to edit, save-as, rename or delete this step's presets."
                 >Manage →</NuxtLink>
-                <span v-if="!activePresetIdFor(entry.id)" class="preset-missing">⚠ no preset selected</span>
+                <span v-if="!activePresetIdFor(entry.id) && musicPresetOptional(entry.id)" class="step-preset-none">Optional — each episode renders with its own music settings; a preset only adds your logo and look.</span>
+                <span v-else-if="!activePresetIdFor(entry.id)" class="preset-missing">⚠ no preset selected</span>
               </div>
               <!-- v1.0.363 — preset-free step (e.g. Timestamp final render): runs
                    on the generator's export defaults, configurable on its page. -->
@@ -794,7 +795,7 @@
 <script setup lang="ts">
 import {
   isFlowStepApplicable,
-  parseVisualSource,
+  visualSourceFromFormat,
   type EpisodeVisualSource,
   type FlowStep,
   type VisualSource,
@@ -836,9 +837,9 @@ async function loadVisualSource(): Promise<void> {
   formatError.value = ''
   if (!projectSlug) return
   try {
-    const f = await get<{ visualSource?: unknown }>(`/projects/${projectSlug}/effective-format`)
+    const f = await get<{ visualSource?: unknown; musicChannel?: unknown }>(`/projects/${projectSlug}/effective-format`)
     if (request !== formatRequest || projectSlug !== slug.value) return
-    const source = parseVisualSource(f?.visualSource)
+    const source = visualSourceFromFormat(f)
     if (!source) {
       formatError.value = 'The project returned an unknown production format. Refresh this project before choosing batch work.'
       return
@@ -883,6 +884,8 @@ type StepId =
   // v1.0.363 — audio-paced format steps, now chained by the batch runner
   // instead of being read-only "Open page →" nodes.
   | 'subtitles' | 'scene_plan' | 'contextual_cues' | 'scene_review' | 'motion_review' | 'character_sheet'
+  // Music channels: Episode Builder's draw (when the episode has none yet) + stitch.
+  | 'music_build'
 interface StepMeta {
   id: StepId
   label: string
@@ -957,7 +960,16 @@ const stepsMeta: StepMeta[] = [
   { id: 'scene_review',      label: 'Scene Review (render)', icon: '✅', link: '/scene-review', presetList: 'scene_review_genstudio_presets', presetActive: 'scene_review_genstudio_last_preset_scene-review' },
   { id: 'motion_review',     label: 'Motion Clips (optional image to video)', icon: '🎬', link: '/motion-review', presetList: 'motion_review_presets', presetActive: 'motion_review_last_preset_motion-review', costly: true, optional: true, warning: 'Optional — skip to assemble with still images. Generates one image-to-video clip per ready scene when selected; provider charges apply' },
   { id: 'video_assembly',    label: 'Final Video',       icon: '🎞', link: '/video-assembly', presetList: 'video_bundle_presets',    presetActive: 'video_bundle_last_preset' },
+  { id: 'music_build',       label: 'Build Episode (draw + stitch)', icon: '🧩', link: '/episode-builder' },
 ]
+
+// A music channel's steps read differently: its scenes are made from Episode Builder, and Final
+// Video renders with the episode's own music settings (a Video Assembly preset only adds your look).
+const MUSIC_STEP_META: Partial<Record<StepId, Partial<StepMeta>>> = {
+  scene_review: { label: 'Scene Pictures', link: '/episode-builder' },
+  video_assembly: { label: 'Final Video (music settings)' },
+  thumb_images: { label: 'Thumbnail' },
+}
 const stepById = (id: StepId): StepMeta => stepsMeta.find(s => s.id === id)!
 
 // v1.0.363 — steps that run on the generator's built-in defaults (no saved
@@ -966,9 +978,12 @@ const stepById = (id: StepId): StepMeta => stepsMeta.find(s => s.id === id)!
 // Mirrors NO_PRESET_STEPS in electron/server/routes/pipeline.ts.
 // v1.4.73 — the Introduction joins them: its recipe is a channel setting, so
 // there is no preset to pick and never should be one.
-const NO_PRESET_STEPS = new Set<StepId>(['introduction-only'])
+const NO_PRESET_STEPS = new Set<StepId>(['introduction-only', 'music_build'])
 function noPresetStep(id: StepId): boolean { return NO_PRESET_STEPS.has(id) }
 function noPresetNote(id: StepId): string {
+  if (id === 'music_build') {
+    return 'Uses each episode\'s Episode Builder settings: draws songs from the pools when it has none yet (never makes or buys songs), then stitches the mix and tracklist.'
+  }
   return id === 'introduction-only'
     ? 'Written from this channel\'s own Introduction settings.'
     : 'Runs with built-in export defaults.'
@@ -1021,7 +1036,15 @@ const CHAIN_NARRATED_SCENES: ChainSpec = [
   'scene_plan', 'contextual_cues', { external: 'sound_design' }, 'scene_review', 'motion_review', 'video_assembly',
 ]
 
+// Music (SPEC phase 4): Build Episode → Scene Pictures → Final Video → Thumbnail → YouTube Finalizer.
+// A failed thumbnail never holds back the Finalizer: each step waits only for what it needs.
+const CHAIN_MUSIC: ChainSpec = ['music_build', 'scene_review', 'video_assembly', 'thumb_images', 'metadata']
+const isMusic = computed(() => visualSource.value === 'music')
+/** A music episode renders with its own settings, so Final Video's preset is optional there. */
+function musicPresetOptional(id: StepId): boolean { return isMusic.value && id === 'video_assembly' }
+
 const activeChainSpec = computed<ChainSpec>(() => {
+  if (isMusic.value) return CHAIN_MUSIC
   if (isTimestampDriven.value) return CHAIN_TIMESTAMP
   if (isContinuityChain.value) return CHAIN_CONTINUITY
   if (isNarratedScenes.value) return CHAIN_NARRATED_SCENES
@@ -1033,7 +1056,7 @@ const chainEntries = computed<ChainEntry[]>(() =>
   activeChainSpec.value.map((e): ChainEntry => {
     if (typeof e !== 'string') return EXTERNAL_NODES[e.external]!
     const meta = stepById(e)
-    return { kind: 'step', ...meta }
+    return { kind: 'step', ...meta, ...(isMusic.value ? MUSIC_STEP_META[e] || {} : {}) }
   }),
 )
 
@@ -1045,6 +1068,7 @@ const visibleSteps = computed<StepMeta[]>(() =>
 )
 
 const chainLabel = computed(() => {
+  if (isMusic.value) return 'Music episodes (Episode Builder → video → thumbnail → Finalizer)'
   if (isTimestampDriven.value) return 'Scenes — sentence-timed (transcript-driven)'
   if (isContinuityChain.value) return 'Continuity (character-locked, live-paced)'
   if (isNarratedScenes.value) return 'Scenes — sentence-timed (audio-paced)'
@@ -1070,6 +1094,7 @@ const stepChecked = reactive<Record<StepId, boolean>>({
   scene_review: false,
   motion_review: false,
   video_assembly: false,
+  music_build: false,
 })
 
 // The retired LLM lineup's one-time notice (2026-10-03): what Story Studio kept,
@@ -1135,6 +1160,7 @@ const modelPolicyExpanded = reactive<Record<StepId, boolean>>({
   image_prompts: false, thumb_images: false, audio: false, audio_merge: false,
   metadata: false, subtitles: false, character_sheet: false, scene_plan: false,
   contextual_cues: false, scene_review: false, motion_review: false, video_assembly: false,
+  music_build: false,
 })
 
 function modelPolicyFor(stepId: StepId): ModelPolicyDraft | null {
@@ -1414,7 +1440,7 @@ const presetSaving = reactive<Record<StepId, boolean>>({
   audio: false, audio_merge: false, video_assembly: false,
   // v1.0.363 — audio-paced format steps.
   subtitles: false, character_sheet: false, scene_plan: false, contextual_cues: false,
-  scene_review: false, motion_review: false,
+  scene_review: false, motion_review: false, music_build: false,
 })
 
 async function onPresetChange(stepId: StepMeta['id'], presetId: string) {
@@ -1897,6 +1923,7 @@ function isStepDoneForEpisode(stepId: StepId, status: Record<string, unknown> | 
     case 'motion_review':      return !!s.motion_review
     case 'character_sheet':    return !!s.character_sheet
     case 'video_assembly':     return !!s.video_assembly
+    case 'music_build':        return s.music_episode === true
   }
   return false
 }
@@ -2015,6 +2042,7 @@ function isStepManualForEpisode(stepId: StepId, ep: Episode): boolean {
     case 'motion_review':     return 'motion_review' in ov
     case 'character_sheet':   return 'character_sheet' in ov
     case 'video_assembly':    return 'video_assembly' in ov
+    case 'music_build':       return 'music_episode' in ov
   }
   return false
 }
@@ -2053,7 +2081,7 @@ const STEP_STATUS_FIELD_BY_ID: Partial<Record<StepId, string>> = {
   research: 'research', 'script-only': 'script', 'introduction-only': 'introduction',
   image_prompts: 'thumb_prompts', thumb_images: 'thumbnails', audio: 'audio', audio_merge: 'merged_audio',
   metadata: 'metadata', subtitles: 'subtitles', scene_plan: 'scene_plan', scene_review: 'scene_review',
-  motion_review: 'motion_review', video_assembly: 'video_assembly',
+  motion_review: 'motion_review', video_assembly: 'video_assembly', music_build: 'music_episode',
 }
 function stepJobState(stepId: StepId, ep: Episode): 'active' | 'failed' | null {
   const field = STEP_STATUS_FIELD_BY_ID[stepId]
@@ -2269,6 +2297,8 @@ const blockingIssues = computed<string[]>(() => {
     const policyError = modelPolicyError(step.id)
     if (policyError) issues.push(`${step.label}: ${policyError}`)
     if (noPresetStep(step.id)) continue   // runs on built-in defaults
+    // A music episode renders with its own settings; a Video Assembly preset is optional there.
+    if (musicPresetOptional(step.id)) continue
     if (!presetNameFor(step.id)) {
       issues.push(`No active preset for "${step.label}". Open that generator page, apply a preset, then come back.`)
     }

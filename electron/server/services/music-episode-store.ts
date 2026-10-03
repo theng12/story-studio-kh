@@ -67,6 +67,8 @@ export interface MusicEpisodeDoc {
   scene_breaks: string[]
   /** Scene id → the owner's own prompt. */
   prompt_overrides: Record<string, string>
+  /** Scene id → the Image Pool still it uses (`pool_id/filename`), for the stills no-repeat window. */
+  scene_stills?: Record<string, string>
   built?: MusicEpisodeBuild
   updated_at: string
 }
@@ -111,8 +113,25 @@ export async function readEpisodeDoc(slug: string, code: string): Promise<MusicE
     draw_round: Number.isInteger(raw?.draw_round) ? raw.draw_round : 0,
     scene_breaks: Array.isArray(raw?.scene_breaks) ? raw.scene_breaks.filter((k: unknown) => typeof k === 'string') : [],
     prompt_overrides: raw?.prompt_overrides && typeof raw.prompt_overrides === 'object' ? raw.prompt_overrides : {},
+    ...(raw?.scene_stills && typeof raw.scene_stills === 'object'
+      ? { scene_stills: Object.fromEntries(Object.entries(raw.scene_stills).filter(([, v]) => typeof v === 'string')) as Record<string, string> }
+      : {}),
     ...(raw?.built ? { built: raw.built } : {}),
     updated_at: typeof raw?.updated_at === 'string' ? raw.updated_at : new Date(0).toISOString(),
+  }
+}
+
+/** A new, empty episode with the channel's starting settings (nothing saved yet). */
+export async function newEpisodeDoc(slug: string, code: string): Promise<MusicEpisodeDoc> {
+  return {
+    schema_version: 1,
+    episode_code: code.toUpperCase(),
+    settings: (await channelStartingSettings(slug)).settings,
+    songs: [],
+    draw_round: 0,
+    scene_breaks: [],
+    prompt_overrides: {},
+    updated_at: new Date().toISOString(),
   }
 }
 
@@ -127,7 +146,7 @@ function historyPath(slug: string): string {
   return path.join(dir, CHANNEL_HISTORY_FILENAME)
 }
 
-interface ChannelHistory { episodes: Record<string, { songs: string[]; at: string }> }
+interface ChannelHistory { episodes: Record<string, { songs: string[]; at: string; stills?: string[] }> }
 
 async function readHistory(slug: string): Promise<ChannelHistory> {
   const file = historyPath(slug)
@@ -354,14 +373,39 @@ export async function saveEpisodeDoc(slug: string, doc: MusicEpisodeDoc, byKey: 
   await writeJsonAtomic(path.join(episodeDir, MUSIC_EPISODE_FILENAME), next)
 
   const history = historyPath(slug)
+  const plan = await writeDerivedScenePlan(slug, code, next, byKey)
+  // Stills still in use: their scene is still in the plan.
+  const sceneIds = new Set(plan.scenes.map(scene => scene.id))
+  const stills = [...new Set(Object.entries(next.scene_stills || {}).filter(([id]) => sceneIds.has(id)).map(([, still]) => still))]
   await withLock(history, async () => {
     const current = await readHistory(slug)
-    current.episodes[code] = { songs: [...keys], at: current.episodes[code]?.at || next.updated_at }
+    current.episodes[code] = {
+      songs: [...keys],
+      at: current.episodes[code]?.at || next.updated_at,
+      ...(stills.length ? { stills } : {}),
+    }
     await writeJsonAtomic(history, current)
   })
-
-  await writeDerivedScenePlan(slug, code, next, byKey)
 }
+
+/**
+ * The stills no-repeat window (owner ask, optional per channel): Image Pool stills used as scenes in
+ * this channel's last `n` episodes (drafted or rendered, in order — the same order the song window
+ * uses). Returns still key (`pool_id/filename`) → the episode code that used it. `n` = 0 → empty.
+ */
+export async function stillWindow(slug: string, code: string, n: number): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  if (n <= 0) return out
+  const history = await readHistory(slug)
+  const window = windowEpisodeCodes(draftUses(history).uses, code.toUpperCase(), n)
+  for (const windowCode of [...window].reverse()) {
+    const entry = Object.entries(history.episodes).find(([c]) => c.toUpperCase() === windowCode)?.[1]
+    for (const still of entry?.stills || []) if (!out.has(still)) out.set(still, windowCode)
+  }
+  return out
+}
+
+export const stillKey = (poolId: string, filename: string): string => `${poolId}/${filename}`
 
 export async function writeDerivedScenePlan(
   slug: string,
@@ -418,6 +462,78 @@ export async function writeDerivedScenePlan(
     await writeJsonAtomic(planPath, plan)
     return plan as ScenePlan
   })
+}
+
+export interface MusicStitchState {
+  /** The episode belongs to the Episode Builder (music_episode.json is present). */
+  music: boolean
+  /** The last stitch matches today's song list and its mix + tracklist are on disk. */
+  current: boolean
+  songs: number
+  tracklist_path: string | null
+  total_sec: number | null
+  /** Plain reason when not current; empty when current. */
+  reason: string
+}
+
+/**
+ * Is this music episode's stitched mix the one its song list describes? The Finalizer's chapters,
+ * the Production Board and Pipeline all ask this one question, so they cannot disagree.
+ */
+export async function inspectMusicStitch(slug: string, code: string): Promise<MusicStitchState> {
+  const upper = code.toUpperCase()
+  const empty = { songs: 0, tracklist_path: null, total_sec: null }
+  if (!isMusicEpisodeDir(await episodeDirFor(slug, upper))) return { music: false, current: false, ...empty, reason: '' }
+  const doc = await readEpisodeDoc(slug, upper).catch(() => null)
+  if (!doc?.songs.length) return { music: true, current: false, ...empty, reason: `${upper} has no songs yet. Draw songs in Episode Builder.` }
+  const keys = doc.songs.map(songKey).join('\n')
+  const built = doc.built
+  const base = { music: true, songs: doc.songs.length, tracklist_path: built?.tracklist_path || null, total_sec: built?.total_sec ?? null }
+  if (!built) return { ...base, current: false, reason: `${upper} is not stitched yet. Press "Send to Video Assembly" in Episode Builder.` }
+  if (built.song_keys.join('\n') !== keys) {
+    return { ...base, current: false, reason: `${upper}'s songs changed after the last stitch. Send it to Video Assembly again in Episode Builder.` }
+  }
+  if (!existsSync(built.merged_audio) || !existsSync(built.tracklist_path)) {
+    return { ...base, current: false, reason: `${upper}'s stitched mix or tracklist is missing on disk. Send it to Video Assembly again in Episode Builder.` }
+  }
+  return { ...base, current: true, reason: '' }
+}
+
+/**
+ * What the writing model reads to write a music episode's title, description and tags (SPEC phase 4):
+ * the channel's formula (ensembles, moods, textures, structures), the episode theme and its tracklist.
+ * Facts only; the model the owner picked writes the words.
+ */
+export async function musicMetadataContext(slug: string, code: string): Promise<string> {
+  const upper = code.toUpperCase()
+  const niche = await getEffectiveNiche(slug).catch(() => null) as {
+    musicFormat?: { songFormula?: Record<string, unknown> }
+  } | null
+  const project = await pm.getProject(slug).catch(() => null) as { name?: string } | null
+  const formula = niche?.musicFormat?.songFormula || {}
+  const values = (key: string): string => (Array.isArray(formula[key]) ? formula[key] as unknown[] : [])
+    .map(v => (v && typeof v === 'object' ? v as { value?: unknown; weight?: unknown } : { value: v, weight: 1 }))
+    .filter(v => typeof v.value === 'string' && v.value.trim() && Number(v.weight ?? 1) > 0)
+    .map(v => String(v.value).trim())
+    .join(', ')
+  const doc = await readEpisodeDoc(slug, upper).catch(() => null)
+  const stitch = await inspectMusicStitch(slug, upper)
+  const tracklist = stitch.current && stitch.tracklist_path
+    ? (await fs.readFile(stitch.tracklist_path, 'utf8').catch(() => '')).trim()
+    : ''
+  const minutes = stitch.total_sec ? Math.round(stitch.total_sec / 60) : null
+  const never = Array.isArray(formula.never) ? (formula.never as unknown[]).filter(v => typeof v === 'string').join(', ') : ''
+  return [
+    `This is an instrumental music episode (original songs, no narration, no vocals) on the channel "${project?.name || slug}".`,
+    values('ensembles') ? `Instruments / ensembles: ${values('ensembles')}.` : '',
+    values('moods') ? `Moods: ${values('moods')}.` : '',
+    values('textures') ? `Sound: ${values('textures')}.` : '',
+    values('structures') ? `Song forms: ${values('structures')}.` : '',
+    never ? `Never mention: ${never}.` : '',
+    doc?.settings.theme ? `Episode theme: ${doc.settings.theme}.` : '',
+    `${stitch.songs || doc?.songs.length || 0} songs${minutes ? `, about ${minutes} minutes` : ''}.`,
+    tracklist ? `Tracklist (chapters are added to the description automatically — do not write timestamps):\n${tracklist}` : '',
+  ].filter(Boolean).join('\n')
 }
 
 /** "Keep This Picture": accept the scene's current picture for its current prompt. */

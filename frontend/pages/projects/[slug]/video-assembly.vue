@@ -219,7 +219,7 @@
       >
         {{ scannedAssets.music_episode.songs }} songs, no narration or subtitles.
         The button sets {{ scannedAssets.music_episode.frame_rate }} fps,
-        {{ scannedAssets.music_episode.resolution === '1080p' ? '1080p (scenes upscaled)' : '720p' }},
+        {{ scannedAssets.music_episode.resolution === '1080p' ? `1080p (scenes upscaled${scannedAssets.music_episode.upscale_sharpen === 'light' ? ', light sharpening' : ''})` : '720p' }},
         {{ scannedAssets.music_episode.scene_change.transition }} {{ scannedAssets.music_episode.scene_change.seconds }} s between scenes,
         a slow zoom, hardware encoding at {{ scannedAssets.music_episode.resolution === '1080p' ? '5' : '2.5' }} Mbps,
         and no intro, title image, cards or subtitles. Your logo and effects stay as they are; every setting stays changeable below.
@@ -2605,6 +2605,19 @@
           </p>
         </div>
 
+        <!-- Light sharpening while upscaling smaller stills (720p scenes in a 1080p render) -->
+        <div class="form-group">
+          <label>Sharpen When Upscaling</label>
+          <select v-model="exportSettings.upscale_sharpen" class="select">
+            <option value="off">Off — upscale only</option>
+            <option value="light">Light — sharpen each smaller picture once as it is upscaled</option>
+          </select>
+          <p class="text-muted text-sm mt-1">
+            Only pictures smaller than the video (e.g. 720p scenes in a 1080p render) are touched, once each, before the
+            camera moves — about 0.15 s per picture. Grain, rain and other effects are never sharpened.
+          </p>
+        </div>
+
         <!-- Codec -->
         <div class="form-group">
           <label>Codec</label>
@@ -4544,6 +4557,8 @@ const exportSettings = reactive<{
   format: 'mp4' | 'mov' | 'webm'
   /** 0 = no cap (quality-based, as before). */
   video_bitrate_kbps: number
+  /** Light sharpening of smaller stills while they are upscaled. 'off' = as before. */
+  upscale_sharpen: 'off' | 'light'
 }>({
   resolution: '1080p',
   // 16:9 until the channel's format says otherwise (seeded below) or he picks.
@@ -4554,6 +4569,7 @@ const exportSettings = reactive<{
   codec: 'h264',
   format: 'mp4',
   video_bitrate_kbps: 0,
+  upscale_sharpen: 'off',
 })
 
 /**
@@ -4847,7 +4863,7 @@ const exportPresets = usePresets({
   configKey: 'export',
   snapshot: () => ({ ...exportSettings }),
   // A preset saved before the bitrate cap existed means "no cap", not "keep whatever is on screen".
-  apply: (data: any) => { if (data) Object.assign(exportSettings, { video_bitrate_kbps: 0 }, data) },
+  apply: (data: any) => { if (data) Object.assign(exportSettings, { video_bitrate_kbps: 0, upscale_sharpen: 'off' }, data) },
 })
 
 // --------------- Bundle preset (one-click apply across all 5 slots) ------
@@ -5026,11 +5042,12 @@ function applyMusicEpisodeSettings() {
   // 65-min 1080p rain stack takes ~16 min this way vs ~59 min / 50 Mbps in software. Both stay selectable.
   exportSettings.encoding_effort = 'hardware'
   exportSettings.video_bitrate_kbps = exportSettings.resolution === '1080p' ? 5000 : 2500
-  success(`Music episode settings applied: ${exportSettings.fps} fps, ${exportSettings.resolution}, hardware encoding at ${exportSettings.video_bitrate_kbps / 1000} Mbps, ${transition.type} ${transition.duration} s.`)
+  exportSettings.upscale_sharpen = exportSettings.resolution === '1080p' && music.upscale_sharpen === 'light' ? 'light' : 'off'
+  success(`Music episode settings applied: ${exportSettings.fps} fps, ${exportSettings.resolution}${exportSettings.upscale_sharpen === 'light' ? ' (light sharpening)' : ''}, hardware encoding at ${exportSettings.video_bitrate_kbps / 1000} Mbps, ${transition.type} ${transition.duration} s.`)
 }
 
 function snapshotExportData() { return { ...exportSettings } }
-function applyExportData(data: any) { if (data) Object.assign(exportSettings, { video_bitrate_kbps: 0 }, data) }
+function applyExportData(data: any) { if (data) Object.assign(exportSettings, { video_bitrate_kbps: 0, upscale_sharpen: 'off' }, data) }
 
 const videoBundlePresets = usePresets({
   slug: slug.value,
@@ -5515,7 +5532,7 @@ function hardwareCardTooltip(preset: QuickExportPreset): string {
 }
 
 function applyQuickPreset(preset: QuickExportPreset) {
-  Object.assign(exportSettings, { video_bitrate_kbps: 0 }, preset.settings)
+  Object.assign(exportSettings, { video_bitrate_kbps: 0, upscale_sharpen: 'off' }, preset.settings)
   // Quick presets deliberately aren't saved export presets — they're just
   // in-memory defaults. Clear any lingering active export-preset pointer so
   // the bundle preset's snapshot doesn't record a stale pointer to a

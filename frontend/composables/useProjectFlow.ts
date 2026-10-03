@@ -66,6 +66,16 @@ export function normalizeVisualSource(
  * response; callers that are about to expose source-dependent controls must
  * keep those controls unavailable until this returns a real source.
  */
+/**
+ * The project's flow from `GET /projects/:slug/effective-format`: a formula with `musicFormat`
+ * (`musicChannel: true`) is the MUSIC flow whatever its narration format says. Every page that
+ * reads the format uses this, so the sidebar, Board, Dashboard and Pipeline agree.
+ */
+export function visualSourceFromFormat(format: { visualSource?: unknown; musicChannel?: unknown } | null | undefined): VisualSource | null {
+  if (format?.musicChannel === true) return 'music'
+  return parseVisualSource(format?.visualSource)
+}
+
 export function parseVisualSource(value: unknown): VisualSource | null {
   switch (value) {
     case 'continuity-chain':
@@ -258,6 +268,8 @@ export const STEP_STATUS_FIELD: Readonly<Record<string, string>> = {
   'motion-review': 'motion_review',
   'image-pool': 'broll_picked',
   'video-assembly': 'video_assembly',
+  // Music channels: the Episode Builder's stitched mix + scene plan match its song list.
+  'episode-builder': 'music_episode',
 }
 
 /** The status fields that can hold an episode back, for this format's flow. */

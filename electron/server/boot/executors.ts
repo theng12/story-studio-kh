@@ -354,6 +354,10 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
     const { generateMusicEpisodeBuild } = await import('../generators/music-episode-build.js')
     await generateMusicEpisodeBuild(job)
   }))
+  registerExecutor('music_scene_polish', async (job) => {
+    const { generateMusicScenePolish } = await import('../generators/music-scene-polish.js')
+    await generateMusicScenePolish(job)
+  })
   registerExecutor('audio', guardMedia(generateAudio))
   registerExecutor('audio_merge', guardMedia(generateAudioMerge))
   registerExecutor('metadata', generateMetadata)

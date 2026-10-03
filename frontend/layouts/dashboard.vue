@@ -159,7 +159,7 @@
 </template>
 
 <script setup lang="ts">
-import { FLOW_PHASES, parseVisualSource, type FlowStep, type VisualSource } from '~/composables/useProjectFlow'
+import { FLOW_PHASES, visualSourceFromFormat, type FlowStep, type VisualSource } from '~/composables/useProjectFlow'
 import { useWhatsNewModal } from '~/composables/useWhatsNewModal'
 import { projectSlug } from '~/utils/project-slug'
 import ContentInstallStrip from '~/components/content-store/ContentInstallStrip.vue'
@@ -243,7 +243,7 @@ async function loadVisualSource(): Promise<void> {
     const format = await apiGet<{ visualSource?: unknown; musicChannel?: unknown }>(`/projects/${projectSlug}/effective-format`)
     if (request !== formatRequest || projectSlug !== slug.value) return
     // A Series Formula with a `musicFormat` block makes this a music channel (SPEC §1).
-    const source: VisualSource | null = format?.musicChannel === true ? 'music' : parseVisualSource(format?.visualSource)
+    const source: VisualSource | null = visualSourceFromFormat(format)
     if (!source) {
       formatError.value = 'The project returned an unknown production format. Refresh this project before choosing workflow work.'
       return
