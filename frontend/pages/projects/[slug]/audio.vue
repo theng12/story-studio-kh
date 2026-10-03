@@ -634,7 +634,7 @@
 <script setup lang="ts">
 import type { GenStudioTtsModel, GenStudioVoice, GenStudioNarrationQuote } from '~/composables/useGenStudioVoices'
 import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
-import { voiceIsGenerable } from '~/composables/useGenStudioVoices'
+import { voiceIsGenerable, voiceSourceText } from '~/composables/useGenStudioVoices'
 import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
 import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection'
 import { CREDIT_BASIS_LABEL, describeVoiceRate, describeQuotedTotal, formatCredits } from '~/utils/genstudio-credit-cost'
@@ -830,7 +830,7 @@ const selectedProviderName = computed(() => selectedTtsModel.value?.provider_nam
 const selectedVoiceProviderText = computed(() => {
   const voice = selectedVoice.value
   if (!voice) return ''
-  return [...new Set([voice.provider, voice.engine_name].filter(Boolean) as string[])].join(' · ')
+  return voiceSourceText(voice)
 })
 
 /** The model's published rate, shown before there is any text to quote. */
@@ -2119,22 +2119,16 @@ async function queueAudio(targetSections: string[], mode: AudioActionMode) {
 .required { color: var(--error); margin-left: 2px; }
 .field-hint { color: var(--text-muted); font-size: var(--font-xs); font-weight: 400; margin-left: 4px; }
 
-/* The action stays with the selection while the longer delivery controls
-   scroll. It reuses the page palette and native buttons, so it reads as the
-   working footer for this card rather than a second toolbar. */
+/* The action sits in the page flow right under the section list it acts on. It used
+   to be `position: sticky` and floated over the rows it summarises, hiding them. */
 .audio-action-bar {
-  position: sticky;
-  bottom: 10px;
-  z-index: 4;
   display: grid;
   gap: 9px;
   margin-top: 12px;
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, .18);
-  backdrop-filter: blur(12px);
+  background: var(--bg-secondary);
 }
 .audio-quality-overview {
   display: grid;
@@ -2308,7 +2302,7 @@ async function queueAudio(targetSections: string[], mode: AudioActionMode) {
   .quality-approval-facts dd { text-align: left; }
   .quality-approval-actions { align-items: stretch; flex-direction: column-reverse; }
   .quality-approval-actions .btn { justify-content: center; width: 100%; }
-  .audio-action-bar { bottom: 6px; padding: 9px; }
+  .audio-action-bar { padding: 9px; }
   .audio-action-context { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .audio-context-item:nth-child(2) { border-right: 0; }
   .audio-action-controls {

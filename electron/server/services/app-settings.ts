@@ -591,6 +591,33 @@ export async function setImageEpisodeConcurrency(value: unknown): Promise<number
   return n
 }
 
+export const AUDIO_EPISODE_CONCURRENCY_KEY = 'audio_episode_concurrency'
+
+/**
+ * Narration used to ride on the scene-image number. It now has its own, and an
+ * unset value is seeded ONCE from the current scene-image number, so nobody's
+ * narration limit changes on upgrade (and later scene-image edits do not move it).
+ */
+export async function getAudioEpisodeConcurrency(): Promise<number> {
+  const n = Math.floor(Number(await getAppSetting(AUDIO_EPISODE_CONCURRENCY_KEY)))
+  if (Number.isFinite(n) && n >= 1) return Math.min(50, n)
+  const seeded = await getImageEpisodeConcurrency()
+  await setAppSetting(AUDIO_EPISODE_CONCURRENCY_KEY, seeded)
+  return seeded
+}
+
+export async function setAudioEpisodeConcurrency(value: unknown): Promise<number> {
+  const n = Math.floor(Number(value))
+  if (!Number.isFinite(n) || n < 1 || n > 50) {
+    throw Object.assign(
+      new Error('Episodes making narration at once must be a whole number between 1 and 50.'),
+      { statusCode: 400, expose: true },
+    )
+  }
+  await setAppSetting(AUDIO_EPISODE_CONCURRENCY_KEY, n)
+  return n
+}
+
 export const THUMBNAIL_EPISODE_CONCURRENCY_KEY = 'thumbnail_episode_concurrency'
 /**
  * Thumbnails usually buy from a cloud API, not the local fleet, so this is a

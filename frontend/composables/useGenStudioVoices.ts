@@ -229,6 +229,21 @@ export function voiceIsGenerable(voice: GenStudioVoice): boolean {
   return voice.generation_enabled !== false && voice.catalog_status === 'published'
 }
 
+/** What the Gateway calls its own shared voice library (voices any cloning model can use). */
+export const GATEWAY_VOICE_LIBRARY = 'Gateway voice library'
+
+/**
+ * Where a voice really comes from, for display. A voice in the Gateway's shared library works with
+ * every cloning model, so it is shown as "Gateway voice library" and never tied to the engine it was
+ * first made with (older Gateways still publish "Studio Hub (this Mac) · Qwen3 TTS" for these).
+ * Any other voice keeps the provider and engine exactly as published.
+ */
+export function voiceSourceText(voice: Pick<GenStudioVoice, 'id' | 'provider' | 'engine_name' | 'voice_tier'>): string {
+  if (voice.provider === GATEWAY_VOICE_LIBRARY
+    || (voice.voice_tier === 'custom' && voice.id.startsWith('studio-hub-local::'))) return GATEWAY_VOICE_LIBRARY
+  return [...new Set([voice.provider, voice.engine_name].filter(Boolean) as string[])].join(' · ')
+}
+
 export function useGenStudioVoices() {
   const { get, post, del } = useApi()
 

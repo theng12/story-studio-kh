@@ -224,7 +224,7 @@
       <WorkspaceSection
         eyebrow="Activity"
         title="Recent activity"
-        description="A quick look at what has been created. Credit balances and billing live in GenStudio."
+        description="A quick look at what has been created. Credit balances and billing are on the Usage page."
       >
         <div class="pulse-grid">
           <div class="pulse-stat">

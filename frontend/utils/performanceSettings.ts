@@ -6,7 +6,7 @@
  * `recommended` is shown as a quiet marker instead of being written into every
  * option label. Server keys and clamping are unchanged (routes/app-settings.ts).
  */
-export type ThroughputKey = 'subtitleEpisodes' | 'llmJobs' | 'imageEpisodes' | 'thumbnailEpisodes' | 'imageFanout'
+export type ThroughputKey = 'subtitleEpisodes' | 'llmJobs' | 'imageEpisodes' | 'audioEpisodes' | 'thumbnailEpisodes' | 'imageFanout'
   | 'outlineHeadroom' | 'languageTimeoutMinutes' | 'languageFloorTps' | 'languagePreferredTps'
 
 export interface ThroughputField {
@@ -34,8 +34,14 @@ export const THROUGHPUT_FIELDS: ThroughputField[] = [
   },
   {
     key: 'imageEpisodes', server: 'image_episode_concurrency', label: 'Episodes making scene images',
-    hint: 'Scene Review and Image Pool, on your own Macs.',
-    help: 'Scene Review and Image Pool share this — the work that runs on locally hosted models. Thumbnails have their own number, so a few cloud thumbnails can never hold up this queue.',
+    hint: 'Scene Review and Image Pool, on your own Macs. Video clips share it.',
+    help: 'Scene Review, Image Pool and video clips share this — the work that runs on locally hosted models. Thumbnails have their own number, and so does narration, so neither can hold up this queue.',
+    recommended: 2, input: { min: 1, max: 50, step: 1 },
+  },
+  {
+    key: 'audioEpisodes', server: 'audio_episode_concurrency', label: 'Episodes making narration',
+    hint: 'A separate queue, so long narrations never hold up scene images.',
+    help: 'How many episodes record their narration at the same time. Music has its own queue, and so do scene images.',
     recommended: 2, input: { min: 1, max: 50, step: 1 },
   },
   {

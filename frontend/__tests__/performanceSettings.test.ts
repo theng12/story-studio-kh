@@ -103,7 +103,8 @@ describe('Performance & recovery', () => {
     const m = await mount()
     try {
       const rows = [...m.host.querySelectorAll('tr.perf-row')]
-      assert.equal(rows.length, 9, 'all nine numbers are reachable (four behind Advanced)')
+      assert.equal(rows.length, 10, 'all ten numbers are reachable (three behind Advanced)')
+      assert.match(m.host.querySelector<HTMLElement>('tr.perf-row[data-key="audioEpisodes"]')?.textContent || '', /Episodes making narration/)
       const scene = m.host.querySelector<HTMLElement>('tr.perf-row[data-key="imageEpisodes"]')!
       assert.match(scene.textContent || '', /Episodes making scene images/)
       assert.match(scene.textContent || '', /Recommended: 2/, 'off-recommended value offers the recommended one quietly')

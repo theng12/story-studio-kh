@@ -1482,8 +1482,8 @@ const VIDEO_EPISODE_TYPES: ReadonlySet<JobType> = new Set<JobType>([
   'video', 'scene_clip_generate', 'scene_clips_batch',
 ])
 // `music_generate` keeps its own lane, like `thumb_images`: a three-song request
-// queued behind two 2-hour narrations (the shared limit is the "Episodes making
-// scene images at once" setting) waited hours with no reason shown — Dreamlands
+// queued behind two 2-hour narrations (then limited by the scene-image setting)
+// waited hours with no reason shown — Dreamlands
 // E2E, 2026-10-03.
 const AUDIO_EPISODE_TYPES: ReadonlySet<JobType> = new Set<JobType>([
   'audio',
@@ -1559,6 +1559,8 @@ let imageEpisodeBootAdmissionHolds = 0
  * unchanged rather than surprising.
  */
 let thumbnailEpisodeConcurrency = 1
+/** Narration has its own number too (Dreamlands E2E: it used to ride on the scene-image one). */
+let audioEpisodeConcurrency = 1
 export function setLlmConcurrency(n: number): void {
   llmConcurrency = Math.max(1, Math.min(50, Math.floor(Number(n)) || 1))
 }
@@ -1595,6 +1597,14 @@ export function getThumbnailEpisodeConcurrency(): number {
   return thumbnailEpisodeConcurrency
 }
 
+export function setAudioEpisodeConcurrency(n: number): void {
+  audioEpisodeConcurrency = Math.max(1, Math.min(50, Math.floor(Number(n)) || 1))
+  for (const t of fleetEpisodeTypesFor(AUDIO_EPISODE_GROUP)) pump(t)
+}
+export function getAudioEpisodeConcurrency(): number {
+  return audioEpisodeConcurrency
+}
+
 /**
  * The owner's explicit images-per-episode override, or 0 for "follow the
  * account". Held here beside the other live concurrency values so a generator
@@ -1616,6 +1626,7 @@ function groupLimit(group: string): number {
   if (group === LOCAL_LLM_GROUP) return Number.POSITIVE_INFINITY
   if (group === SUBTITLE_TRANSCRIBE_GROUP) return subtitleTranscribeConcurrency
   if (group === THUMBNAIL_EPISODE_GROUP) return thumbnailEpisodeConcurrency
+  if (group === AUDIO_EPISODE_GROUP) return audioEpisodeConcurrency
   if (FLEET_EPISODE_GROUPS.has(group)) return imageEpisodeConcurrency
   return 1
 }

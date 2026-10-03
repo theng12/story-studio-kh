@@ -8,7 +8,7 @@
         Installing Content Packs — {{ queue.batchDone.value }} of {{ queue.batchTotal.value }} done<template v-if="queue.batchFailed.value">, {{ queue.batchFailed.value }} failed</template><template v-if="queue.activeTitle.value"> · now: {{ queue.activeTitle.value }}</template><template v-if="progressLine"> · {{ progressLine }}</template>
       </template>
       <template v-else>
-        Content Pack installs finished — {{ queue.batchInstalled.value }} installed<template v-if="queue.batchFailed.value">, {{ queue.batchFailed.value }} failed. Open the pack and try again.</template>
+        Content Pack installs finished — {{ queue.batchInstalled.value }} installed<template v-if="queue.haltReason.value"> — stopped early. {{ queue.haltReason.value }}</template><template v-else-if="queue.batchFailed.value">, {{ queue.batchFailed.value }} failed. Open the pack and try again.</template>
       </template>
     </span>
     <span class="strip-actions">

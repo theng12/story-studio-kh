@@ -1074,7 +1074,7 @@ describe('Content Store renderer contract', () => {
     // balance has to say it is still checking while `ownershipResolved` is
     // false. Nothing here may say "not owned", "0 packs" or "no installed
     // packs" on evidence nobody has yet.
-    assert.match(card, /v-if="!ownershipResolved" class="ownership-status">Checking with GenStudio/)
+    assert.match(card, /v-if="!ownershipResolved" class="ownership-status">Checking with the Gateway/)
     assert.match(card, /if \(!props\.ownershipResolved\) return 'Checking…'/)
     assert.match(card, /v-if="ownershipResolved && !product\.owned && !product\.retired/, 'no purchase action against unverified ownership')
     assert.match(card, /:data-owned="ownershipResolved \? product\.owned : undefined"/)
@@ -1116,7 +1116,7 @@ describe('Content Store renderer contract', () => {
   })
 
   test('describes account ownership and local install truth separately', () => {
-    assert.match(page, /permanently owned by your GenStudio account/)
+    assert.match(page, /permanently owned by your Gateway/)
     assert.match(card, /receiptVerification !== 'verified'/)
     assert.match(card, /restore purchases to verify on this Mac/i)
     assert.match(card, /Verified ownership · installed on this Mac/)
@@ -1129,7 +1129,7 @@ describe('Content Store renderer contract', () => {
     assert.match(card, /Ownership remains permanent/i)
     assert.match(card, /newest safe owned release/i)
     assert.match(page, /A Content Pack release was recalled/i)
-    assert.match(page, /GenStudio stopped serving that exact version/i)
+    assert.match(page, /The Gateway stopped serving that exact version/i)
     assert.doesNotMatch(page + card, /ownership (?:was|is) revoked|entitlement (?:was|is) lost/i)
     assert.doesNotMatch(page + card, /retry recalled/i)
   })

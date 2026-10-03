@@ -31,6 +31,8 @@ import {
   IMAGE_EPISODE_CONCURRENCY_KEY,
   getImageEpisodeConcurrency,
   setImageEpisodeConcurrency,
+  getAudioEpisodeConcurrency,
+  setAudioEpisodeConcurrency,
 } from '../services/app-settings.js'
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -118,7 +120,9 @@ describe('every kind of fleet work is pipelined, not just images', () => {
     const body = await read('services/job-queue.ts')
     assert.match(body, /const FLEET_EPISODE_GROUPS[\s\S]{0,200}?IMAGE_EPISODE_GROUP, THUMBNAIL_EPISODE_GROUP, VIDEO_EPISODE_GROUP, AUDIO_EPISODE_GROUP/)
     assert.match(body, /if \(FLEET_EPISODE_GROUPS\.has\(group\)\) return imageEpisodeConcurrency/,
-      'one dial, applied per kind')
+      'image and video share the scene-image dial')
+    assert.match(body, /if \(group === AUDIO_EPISODE_GROUP\) return audioEpisodeConcurrency\n\s*if \(FLEET_EPISODE_GROUPS/,
+      'narration has its own dial, read before the shared one')
   })
 
   test('local-only work is deliberately excluded', async () => {
@@ -157,6 +161,32 @@ describe('every kind of fleet work is pipelined, not just images', () => {
       2,
       'pump() and releaseSlot() must both treat it as a budgeted group',
     )
+  })
+})
+
+describe('narration has its own number', () => {
+  test('an unset narration limit is seeded once from the saved scene-image limit', async () => {
+    const isolated = await useTempDataDir()
+    try {
+      await setImageEpisodeConcurrency(5)
+      assert.equal(await getAudioEpisodeConcurrency(), 5, 'upgrade keeps the number narration was running at')
+      await setImageEpisodeConcurrency(3)
+      assert.equal(await getAudioEpisodeConcurrency(), 5, 'later scene-image edits no longer move it')
+      assert.equal(await setAudioEpisodeConcurrency(1), 1)
+      assert.equal(await getAudioEpisodeConcurrency(), 1)
+      await assert.rejects(() => setAudioEpisodeConcurrency(0), /whole number between 1 and 50/)
+    } finally {
+      await isolated.cleanup()
+    }
+  })
+
+  test('boot, route and Settings screen all carry it', async () => {
+    assert.match(await read('boot/migrations.ts'), /setAudioEpisodeConcurrency\(audio\)/)
+    const route = await read('routes/app-settings.ts')
+    assert.match(route, /audio_episode_concurrency: await getAudioEpisodeConcurrency\(\)/)
+    assert.match(route, /jq\.setAudioEpisodeConcurrency\(n\)/)
+    const fields = await readFile(path.join(SERVER, '..', '..', 'frontend', 'utils', 'performanceSettings.ts'), 'utf8')
+    assert.match(fields, /server: 'audio_episode_concurrency', label: 'Episodes making narration'/)
   })
 })
 
@@ -258,7 +288,7 @@ describe('thumbnails do not spend the local fleet\'s budget', () => {
     // cosmetic.
     assert.match(
       body,
-      /if \(group === THUMBNAIL_EPISODE_GROUP\) return thumbnailEpisodeConcurrency\n\s*if \(FLEET_EPISODE_GROUPS\.has\(group\)\) return imageEpisodeConcurrency/,
+      /if \(group === THUMBNAIL_EPISODE_GROUP\) return thumbnailEpisodeConcurrency\n(?:\s*if \(group === AUDIO_EPISODE_GROUP\) return audioEpisodeConcurrency\n)?\s*if \(FLEET_EPISODE_GROUPS\.has\(group\)\) return imageEpisodeConcurrency/,
     )
   })
 

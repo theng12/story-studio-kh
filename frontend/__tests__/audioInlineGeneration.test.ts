@@ -55,7 +55,8 @@ describe('Audio one-chapter generation', () => {
     assert.match(audioPage, /audioActionLabel\(effectiveSections, 'new_version', 'Create Another Version'\)/)
     assert.match(audioPage, /<details class="audio-advanced disclosure">/)
     assert.match(audioPage, /<summary>Delivery and request controls/)
-    assert.match(audioPage, /\.audio-action-bar \{[\s\S]{0,160}position: sticky/)
+    // Not sticky: a floating bar covered the section rows it summarises.
+    assert.doesNotMatch(audioPage, /\.audio-action-bar \{[^}]*position: sticky/)
     assert.match(audioPage, /@media \(max-width: 720px\)/)
     assert.doesNotMatch(audioPage, /generation_mode/)
   })

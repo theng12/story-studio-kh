@@ -28,7 +28,7 @@ test('makes background-music source and opening choices explicit', () => {
   assert.match(page, /music\.source === 'pool'/)
 })
 
-test('keeps merge output and the merge action in a floating bar with replace as the default', () => {
+test('keeps merge output and the merge action in an action bar (in the page flow) with replace as the default', () => {
   const topBar = page.slice(page.indexOf('<TopActionBar'), page.indexOf('</TopActionBar>'))
   const actionBarIndex = page.indexOf('class="audio-assembly-action-bar"')
   const chaptersIndex = page.indexOf('<!-- Chapter Management -->')
@@ -46,5 +46,6 @@ test('keeps merge output and the merge action in a floating bar with replace as 
   assert.doesNotMatch(presetSnapshot, /writeMode|write_mode/)
   assert.match(page, /return files\.find\([\s\S]{0,140}activeFilename\) \|\| null/)
   assert.match(page, /:disabled="!chapterAudioReady \|\| mergeStatus\.loading \|\| !!mergeStatus\.error/)
-  assert.match(page, /\.audio-assembly-action-bar \{[\s\S]{0,160}position: sticky;[\s\S]{0,80}top: 10px;/)
+  // Not sticky: a floating bar covered the chapter rows scrolling beneath it.
+  assert.doesNotMatch(page, /\.audio-assembly-action-bar \{[^}]*position: sticky/)
 })

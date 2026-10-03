@@ -137,7 +137,7 @@
  * would drift from the account it claims to describe.
  */
 import type { GenStudioVoice } from '~/composables/useGenStudioVoices'
-import { voiceIsGenerable } from '~/composables/useGenStudioVoices'
+import { voiceIsGenerable, voiceSourceText } from '~/composables/useGenStudioVoices'
 import { unverifiedSelectionLabel } from '~/utils/picker-trigger-label'
 
 const props = withDefaults(defineProps<{
@@ -274,14 +274,9 @@ const emptyStateHint = computed(() => {
 const savedVoiceRows = computed(() => visibleVoices.value.filter(voice => voice.is_saved === true))
 const otherVoiceRows = computed(() => visibleVoices.value.filter(voice => voice.is_saved !== true))
 
-/**
- * Provider identity exactly as GenStudio published it. `engine_name` is the
- * more specific fact when both are present; neither is ever reconstructed.
- */
+/** Provider identity as published; a Gateway-library voice says so and names no engine. */
 function voiceProviderText(voice: GenStudioVoice): string {
-  const parts = [voice.provider, voice.engine_name].filter(Boolean) as string[]
-  const unique = [...new Set(parts)]
-  return unique.join(' · ')
+  return voiceSourceText(voice)
 }
 
 function unavailableReason(voice: GenStudioVoice): string {

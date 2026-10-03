@@ -409,7 +409,7 @@ export const featureGuides: Record<string, FeatureGuide> = {
   },
   'content-store': {
     title: 'Content Store',
-    summary: 'Browse, buy and install Content Packs — series formulas, styles and other building blocks — that your GenStudio account owns for good.',
+    summary: 'Browse, buy and install Content Packs — series formulas, styles and other building blocks — that your Gateway keeps for you permanently.',
     workflow: ['Browse Discover, or select several packs and see their exact quotes together.', 'Confirm once to buy; each pack is charged at most once.', 'Install owned packs from the Owned tab, or Install all missing.'],
     topics: [
       { title: 'Restore purchases', purpose: 'Re-checks which packs your account owns, e.g. on a new Mac. Never charges.' },
