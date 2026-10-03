@@ -85,6 +85,6 @@ void test('an older Hub gets no pause fields, the job says so, and the seams sti
   assert.equal(bodies.length, 3, job.output_lines.join('\n'))
   for (const body of bodies) assert.equal(JSON.stringify(body).includes('pause'), false)
   assert.deepEqual(manifest.parts.map(part => part.pause_after_s), [0.3, 1, undefined])
-  assert.ok(job.output_lines.some((line: string) => /older Studio Hub/.test(line)), job.output_lines.join('\n'))
+  assert.ok(job.output_lines.some((line: string) => /older version of the Mac app/.test(line)), job.output_lines.join('\n'))
   await temp.cleanup()
 })

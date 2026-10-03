@@ -630,7 +630,7 @@ export async function generateAudio(job: Job): Promise<void> {
     job.output_lines.push(
       `Pauses inside a chapter: ${seamRule.paragraph} s at a paragraph break, ${seamRule.sentence} s after a sentence.`
       + (unsupportedPauses.length
-        ? ` ${ttsModel.display_name}'s Macs do not take a custom ${unsupportedPauses.join(' or ')} pause yet (older Studio Hub),`
+        ? ` ${ttsModel.display_name}'s Macs do not take a custom ${unsupportedPauses.join(' or ')} pause yet (an older version of the Mac app),`
           + ' so inside each part the voice keeps its own pause; where Story joins a chapter\'s parts it uses these.'
         : ''),
     )

@@ -494,7 +494,7 @@
         </div>
       </div>
       <p v-if="pausesUnsupported" class="text-muted text-xs hint-line">
-        <strong>{{ selectedTtsModel?.display_name }}</strong>'s Macs do not take a custom pause yet (older Studio Hub): inside each
+        <strong>{{ selectedTtsModel?.display_name }}</strong>'s Macs do not take a custom pause yet (an older version of the Mac app): inside each
         part the voice keeps its own pause, and Story uses yours only where it joins a long chapter's parts.
       </p>
 
