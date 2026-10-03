@@ -55,7 +55,7 @@ test('a content refusal shows the provider reason and tells the user to reword',
   // The support handle survives, because the sentence tells him to use it.
   assert.match(error.message, /req_8f2c1a9d4e7b3006/)
   // And the original settlement wording is still there, not replaced.
-  assert.match(error.message, /Gateway image generation failed/)
+  assert.match(error.message, /The Gateway could not make the image/)
   assert.equal(error.failureClass, 'content_refused')
   assert.equal(error.failureReason, MODERATION_REASON)
 })
@@ -148,7 +148,7 @@ test('with no reason and no class the message is exactly what it was before', ()
 
   assert.equal(
     error.message,
-    'Gateway image generation failed (IMAGE_CONTENT_REFUSED). '
+    'The Gateway could not make the image (IMAGE_CONTENT_REFUSED). '
     + 'GenStudio reports 20 credits released. '
     + 'This job cannot be reopened; Retry submits a new job.',
   )
@@ -207,4 +207,15 @@ test('guidance is null for everything the app cannot act on', () => {
   assert.equal(genStudioFailureGuidance('unknown', 'image'), null)
   assert.notEqual(genStudioFailureGuidance('content_refused', 'image'), null)
   assert.notEqual(genStudioFailureGuidance('provider_transient', 'image'), null)
+})
+
+test('rename leftovers read as natural English, not "Gateway <noun> failed" (audit leftovers)', async () => {
+  const fs = await import('node:fs/promises')
+  const root = new URL('../', import.meta.url)
+  const files = ['lib/genstudio-client.ts', 'services/research/genstudio.ts', 'generators/scene-clip.ts', 'generators/audio.ts', 'services/job-queue.ts', 'routes/scene-plan.ts', 'routes/scene-review.ts']
+  for (const file of files) {
+    const source = await fs.readFile(new URL(file, root), 'utf8')
+    assert.doesNotMatch(source, /['"`](Previous )?Gateway (research|image generation|video generation|music generation|transcription|image download|audio download)( failed| quote)/, file)
+    assert.doesNotMatch(source, /Previous Gateway (video )?task|checkpointed Gateway asset job|Gateway (scene-planning|motion) model is unavailable/, file)
+  }
 })

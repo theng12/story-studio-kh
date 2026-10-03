@@ -773,7 +773,7 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
           : 'Story Studio is checking what the Gateway already finished for this job; no new generation request was sent.'
       if (!job.output_lines.slice(-8).includes(line)) job.output_lines.push(line)
     } else if (job.status === 'paused') {
-      const line = 'Paused. All previously accepted Gateway work has settled; Resume will verify files and submit only missing items.'
+      const line = 'Paused. Everything already sent to the Gateway has finished; Resume checks the files and sends only what is missing.'
       if (!job.output_lines.slice(-8).includes(line)) job.output_lines.push(line)
     } else if (!job.local_execution_complete) {
       // A live generator can receive its provider success before it has
@@ -3031,7 +3031,7 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
                 ? '↻ Story Studio restarted — resuming local Video Assembly from its validated scene-clip checkpoint. Missing or invalid clips and every later stage will be rebuilt.'
                 : recoverableImageEpisode
                   ? '↻ Story Studio restarted — resuming this render. Every image the Gateway already finished will be reclaimed from its saved task id at no extra credits, and only genuinely missing scenes will be submitted.'
-                  : '↻ Story Studio restarted — resuming the checkpointed Gateway asset job automatically; the saved request identity will be reused and no direct fallback will run.')
+                  : '↻ Story Studio restarted — picking this job up where it stopped. Requests already sent are reused, so nothing is made twice.')
               queues[j.type as JobType].pending.push(j)
               resumedTypes.add(j.type as JobType)
             } else {

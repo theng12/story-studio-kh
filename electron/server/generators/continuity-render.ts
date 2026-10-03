@@ -356,7 +356,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
     throw new Error(`Image model "${model}" is not routed through the Gateway.`)
   }
   const imageProvider = registry.getImageProvider('genstudio-image')
-  if (!imageProvider) throw new Error('Gateway image provider is unavailable.')
+  if (!imageProvider) throw new Error('Image generation through the Gateway is not available right now.')
   // "Smaller files" for scene images (Settings, per-project override); undefined = native PNG.
   const sceneOutputFormat = await resolveOutputFormat(job.project_slug, 'scene_images')
 
@@ -1009,7 +1009,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   await jq.checkpointJobState(job)
                 }
                 job.output_lines.push(
-                  `Scene ${scene.scene_index}: earlier Gateway task is still generating; rejoining it without a new request.`,
+                  `Scene ${scene.scene_index}: the earlier request is still being made at the Gateway; waiting for it instead of sending a new one.`,
                 )
                 try {
                   recovery = await tryRecoverImageFromManifestEntry(

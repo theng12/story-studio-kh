@@ -528,8 +528,8 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
       : null
     if (retry.isRetry) {
       job.output_lines.push(
-        `Previous Gateway video task ${(retry.previousTaskId || '').slice(0, 12)}… is terminal; `
-        + 'submitting one fresh job under a new retry identity.',
+        `The earlier video request ${(retry.previousTaskId || '').slice(0, 12)}… has ended; `
+        + 'sending one new request.',
       )
     }
     const idempotencyKey = recoveryEntry?.idempotency_key || buildGenStudioVideoIdempotencyKey({

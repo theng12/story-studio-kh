@@ -333,7 +333,7 @@ export function useGenStudioVoices() {
     } catch (error: any) {
       voices.value = []
       voicesModelId.value = null
-      voicesError.value = error?.data?.detail || error?.message || 'The Gateway voice catalogue is unavailable.'
+      voicesError.value = error?.data?.detail || error?.message || 'Could not load voices from the Gateway.'
     } finally {
       voicesLoading.value = false
     }

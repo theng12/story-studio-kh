@@ -1712,7 +1712,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       for (const [index, recovery] of savedPromptRecoveries.entries()) {
         const checkpointIds = recovery.scene_ids.filter(id => missing.includes(id))
         if (!checkpointIds.length) continue
-        job.output_lines.push(`↻ Checking the saved Gateway prompt request before starting new paid work (${checkpointIds.length} missing scene(s)).`)
+        job.output_lines.push(`↻ Checking the earlier prompt request at the Gateway before starting new work (${checkpointIds.length} missing scene(s)).`)
         const recovered = await requestPromptPack({
           sceneIds: recovery.scene_ids,
           checkpointSceneIds: checkpointIds,

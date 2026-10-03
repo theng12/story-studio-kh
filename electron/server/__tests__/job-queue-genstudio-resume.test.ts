@@ -94,7 +94,7 @@ describe('startup recovery for explicitly checkpointed Gateway assets', () => {
       const resumed = jq.getJob(scenario.jobId)!
       assert.equal(executions, 1)
       assert.equal(resumed.status, 'done')
-      assert.match(resumed.output_lines.join('\n'), /checkpointed Gateway asset job/i)
+      assert.match(resumed.output_lines.join('\n'), /picking this job up where it stopped/i)
       assert.doesNotMatch(JSON.stringify(resumed.params), /api[_-]?key|authorization|bearer/i)
     })
   }
@@ -176,7 +176,7 @@ describe('startup recovery for explicitly checkpointed Gateway assets', () => {
       const recovered = jq.getJob('genstudio-tts-artifact-restart')!
       assert.equal(executions, 1)
       assert.equal(recovered.status, 'done')
-      assert.match(recovered.output_lines.join('\n'), /resuming the checkpointed Gateway asset job/i)
+      assert.match(recovered.output_lines.join('\n'), /picking this job up where it stopped/i)
       assert.doesNotMatch(recovered.output_lines.join('\n'), /reconciling the existing Gateway request/i)
       assert.ok((await fs.stat(outputPath)).size > 0)
       assert.ok(service.requests.every(request => request.method === 'GET'))

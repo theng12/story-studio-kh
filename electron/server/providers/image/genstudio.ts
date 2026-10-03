@@ -69,7 +69,7 @@ const genstudioImageProvider: ImageProvider = {
     // failing after the owner already waited for the batch.
     const model = findGenStudioProduct(await listImageModels(request.apiKey), modelId)
     if (!model) {
-      throw new Error('The selected Gateway image model is no longer available. Refresh the model picker and choose a current model.')
+      throw new Error('The selected image model is no longer available. Refresh the model picker and choose a current model.')
     }
 
     // Availability is checked on EVERY submit path, not only when a reference

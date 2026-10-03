@@ -185,7 +185,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
     throw new Error(`Image model "${model}" is not routed through the Gateway.`)
   }
   const imageProvider = registry.getImageProvider('genstudio-image')
-  if (!imageProvider) throw new Error('Gateway image provider is unavailable.')
+  if (!imageProvider) throw new Error('Image generation through the Gateway is not available right now.')
   // "Smaller files" for the image pool (Settings, per-project override); undefined = native PNG.
   const outputFormat = await resolveOutputFormat(job.project_slug, 'image_pool')
   const providerParams = (modelConfig as any).provider_params || {

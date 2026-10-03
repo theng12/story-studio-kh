@@ -222,7 +222,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
     try {
       model = await requireScenePlanGenStudioModel(model)
     } catch (error: any) {
-      return res.status(409).json(humanizeBackendError(error, 'Gateway scene-planning model is unavailable'))
+      return res.status(409).json(humanizeBackendError(error, 'The scene-planning model is not available right now'))
     }
   }
 
@@ -402,7 +402,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
     try {
       model = await requireScenePlanGenStudioModel(model)
     } catch (error: any) {
-      return res.status(409).json(humanizeBackendError(error, 'Gateway scene-planning model is unavailable'))
+      return res.status(409).json(humanizeBackendError(error, 'The scene-planning model is not available right now'))
     }
     const params = stampFreshGenerationAction({
       ...visualSnapshot,
@@ -450,7 +450,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-prompts', as
   try {
     model = await requireScenePlanGenStudioModel(model)
   } catch (error: any) {
-    return res.status(409).json(humanizeBackendError(error, 'Gateway scene-planning model is unavailable'))
+    return res.status(409).json(humanizeBackendError(error, 'The scene-planning model is not available right now'))
   }
 
   const detailLevel = typeof body.detail_level === 'number'
@@ -902,7 +902,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-motion-prompt', as
     try {
       model = await requireScenePlanGenStudioModel(model)
     } catch (error: any) {
-      return res.status(409).json(humanizeBackendError(error, 'Gateway scene-planning model is unavailable'))
+      return res.status(409).json(humanizeBackendError(error, 'The scene-planning model is not available right now'))
     }
     const params = stampFreshGenerationAction({
       ...motionSnapshot,
@@ -940,7 +940,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-motion-promp
   try {
     model = await requireScenePlanGenStudioModel(model)
   } catch (error: any) {
-    return res.status(409).json(humanizeBackendError(error, 'Gateway scene-planning model is unavailable'))
+    return res.status(409).json(humanizeBackendError(error, 'The scene-planning model is not available right now'))
   }
   // A batch size this server cannot honour is REPORTED, never swapped for a
   // different number. `parseScenePromptPackSetting` throws rather than falling
