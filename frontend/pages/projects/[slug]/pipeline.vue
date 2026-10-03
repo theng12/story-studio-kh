@@ -877,7 +877,7 @@ watch(slug, () => {
 // to already-generated scripts via the per-page UI). The intro step is
 // gated on the script step in this UI — see `stepDisabled` below.
 type StepId =
-  | 'research' | 'broll' | 'script-only' | 'introduction-only'
+  | 'research' | 'script-only' | 'introduction-only'
   | 'image_prompts' | 'thumb_images' | 'audio' | 'audio_merge'
   | 'metadata' | 'video_assembly'
   // v1.0.363 — audio-paced format steps, now chained by the batch runner
@@ -899,11 +899,10 @@ interface StepMeta {
   optional?: boolean
 }
 
-// v1.0.167 — External chain nodes. These are real steps in the broll /
-// timestamp-driven chains that the batch runner does NOT enqueue: either
-// they're pool-level (B-Roll fetch/assemble live on the B-Roll page). We render
-// them inline so the chain reads end-to-end, each with an "Open page →"
-// link to the page that actually runs it. They carry no checkbox, no
+// v1.0.167 — External chain nodes. These are real steps in the
+// timestamp-driven chains that the batch runner does NOT enqueue (Sound Design
+// review). We render them inline so the chain reads end-to-end, each with an
+// "Open page →" link to the page that actually runs it. They carry no checkbox, no
 // preset, and never count toward the batch.
 interface ExternalNode {
   kind: 'external'
@@ -918,13 +917,8 @@ interface ExternalNode {
 type ChainEntry = ({ kind: 'step' } & StepMeta) | ExternalNode
 
 // Character Sheet, Scene Plan, Scene Review, and Video Assembly
-// were promoted from read-only external nodes to real batchable steps. B-Roll
-// remains external because fetch/assemble lives on its pool-driven page.
+// were promoted from read-only external nodes to real batchable steps.
 const EXTERNAL_NODES: Record<string, ExternalNode> = {
-  broll: {
-    kind: 'external', key: 'broll', label: 'B-Roll Fetch + Assemble', icon: '🎞', link: '/broll',
-    note: 'Runs on the B-Roll page — fetch/pick clips from the pool, then assemble the final video there.',
-  },
   sound_design: {
     kind: 'external', key: 'sound_design', label: 'Sound Design (review)', icon: '🎵', link: '/sound-design',
     note: 'Optional manual review stage. It never blocks Scene Review; when enabled, Final Video requires an approved Sound Design timeline.',
@@ -943,7 +937,6 @@ const EXTERNAL_NODES: Record<string, ExternalNode> = {
 // list interleaved with EXTERNAL_NODES (see below).
 const stepsMeta: StepMeta[] = [
   { id: 'research',          label: 'Research (optional)', icon: '🔍', link: '/research',      presetList: 'research_presets',        presetActive: 'research_last_preset_research', optional: true },
-  { id: 'broll',             label: 'B-Roll Pick + Assemble', icon: '🎞', link: '/broll',      presetList: 'broll_presets',           presetActive: 'broll_last_preset_broll' },
   { id: 'script-only',       label: 'Script (chapters)', icon: '📝', link: '/scripts',        presetList: 'script_presets',          presetActive: 'script_last_preset_script' },
   // v1.4.73 — no preset pool: the opening's recipe belongs to the channel, and
   // the link points at the page that owns it rather than back at the Script page.
@@ -1063,7 +1056,6 @@ const stepChecked = reactive<Record<StepId, boolean>>({
   // explicit decision; shortcuts below provide safe required-only or full-chain
   // selection without reviving the old surprise "everything on" behavior.
   research: false,
-  broll: false,
   'script-only': false,
   'introduction-only': false,
   image_prompts: false,
@@ -1139,7 +1131,7 @@ const modelPolicyModelMeta = reactive<Record<EligibleModelPolicyStep, ModelPolic
   contextual_cues: null,
 })
 const modelPolicyExpanded = reactive<Record<StepId, boolean>>({
-  research: false, broll: false, 'script-only': false, 'introduction-only': false,
+  research: false, 'script-only': false, 'introduction-only': false,
   image_prompts: false, thumb_images: false, audio: false, audio_merge: false,
   metadata: false, subtitles: false, character_sheet: false, scene_plan: false,
   contextual_cues: false, scene_review: false, motion_review: false, video_assembly: false,
@@ -1328,7 +1320,6 @@ const LEGACY_ACTIVE_KEY: Partial<Record<StepId, string>> = {
 // or when the user removed the active preset without re-selecting one).
 const TYPE_FOR_STEP: Partial<Record<StepId, string>> = {
   research: 'research',
-  broll: 'broll',
   'script-only': 'script',
   // v1.0.363 — match each page's usePresets({ presetType }).
   scene_plan: 'scene-plan',
@@ -1416,7 +1407,7 @@ function presetSelectTooltip(stepId: StepMeta['id']): string {
 // while the PUT round-trips. Avoids a double-fire if the user mashes the
 // dropdown twice fast.
 const presetSaving = reactive<Record<StepId, boolean>>({
-  research: false, broll: false,
+  research: false,
   'script-only': false, 'introduction-only': false, metadata: false,
   image_prompts: false,
   thumb_images: false,
@@ -1724,13 +1715,8 @@ const searchQuery = ref('')
 // show up in the right missing-only filter.
 // v1.0.167 — CORE steps are now derived from the active format's chain
 // rather than hardcoded to the scene-images set. "Core" = every batchable
-// step in the chain EXCEPT the opt-in AI `video` clips step. For broll/timestamp the scene-only steps simply
-// aren't in visibleSteps, so they never count toward "missing core" — a
-// stock-footage episode isn't flagged pending just because it has no
-// scene images. (video_assembly stays core for scene-images; broll and
-// timestamp end on external nodes the batch can't run, so their core set
-// stops at audio_merge — correct, since the final render is a separate,
-// page-driven step.)
+// step in the chain EXCEPT the opt-in AI `video` clips step. Steps not in the active chain aren't in
+// visibleSteps, so they never count toward "missing core".
 const CORE_STEP_IDS = computed<StepId[]>(() =>
   visibleSteps.value.filter(s => !s.optional).map(s => s.id),
 )
@@ -1738,9 +1724,6 @@ const CORE_STEP_IDS = computed<StepId[]>(() =>
 function isStepApplicableForEpisode(stepId: StepId, ep: Episode): boolean {
   const source = episodeVisualSource(ep)
   if (!source) return false
-  // B-Roll selects video clips, so it belongs only to the Scene Plan branch.
-  // Keep this estimate in lockstep with the backend's Image Pool skip.
-  if (stepId === 'broll' && source === 'image_pool') return false
   // Pipeline's persisted batch ids use underscores while the shared flow
   // names the same stages with hyphens. The helper reads only `key`, keeping
   // the two source branches aligned without a second step list here.
@@ -1897,7 +1880,6 @@ function isStepDoneForEpisode(stepId: StepId, status: Record<string, unknown> | 
     // stage auto-triages what it finds, so pending claims are not work the
     // Pipeline still has to do. `pillTitle` carries that second fact in words.
     case 'research':           return !!s.research
-    case 'broll':              return !!s.video_assembly
     case 'script-only':        return !!s.script
     case 'introduction-only':  return !!s.introduction
     case 'image_prompts':      return !!s.thumb_prompts
@@ -2018,7 +2000,6 @@ function isStepManualForEpisode(stepId: StepId, ep: Episode): boolean {
   // field for the step is overridden, the pill carries the (manual) hint.
   switch (stepId) {
     case 'research':          return 'research' in ov
-    case 'broll':             return 'video_assembly' in ov
     case 'script-only':       return 'script' in ov
     case 'introduction-only': return 'introduction' in ov
     case 'image_prompts':     return 'thumb_prompts' in ov
@@ -2069,7 +2050,7 @@ function researchNote(status: Record<string, unknown> | undefined): string {
 const { jobs: queueJobs } = useJobs()
 const stepJobStates = computed(() => episodeStepJobStates(queueJobs.value || []))
 const STEP_STATUS_FIELD_BY_ID: Partial<Record<StepId, string>> = {
-  research: 'research', broll: 'video_assembly', 'script-only': 'script', 'introduction-only': 'introduction',
+  research: 'research', 'script-only': 'script', 'introduction-only': 'introduction',
   image_prompts: 'thumb_prompts', thumb_images: 'thumbnails', audio: 'audio', audio_merge: 'merged_audio',
   metadata: 'metadata', subtitles: 'subtitles', scene_plan: 'scene_plan', scene_review: 'scene_review',
   motion_review: 'motion_review', video_assembly: 'video_assembly',
@@ -3099,7 +3080,7 @@ async function submit() {
    so the styles need to be global to apply. */
 
 /* v1.0.167 — External chain node: read-only "Open page" tile for steps the
-   batch runner does not enqueue (currently B-Roll). Dashed + dimmer so it reads as
+   batch runner does not enqueue (currently Sound Design). Dashed + dimmer so it reads as
    informational, not selectable. */
 .step-tile-external {
   cursor: default;

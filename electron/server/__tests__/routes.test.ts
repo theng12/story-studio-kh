@@ -72,7 +72,7 @@ describe('System queue routes', () => {
     await jq.setQueuePaused(true)
     const queued = jq.enqueuePreparedForTest({
       project_slug: project.slug,
-      type: 'script-only',
+      type: 'chapter-only',
       episode_id: 'GQ001',
       title: 'global queue status fixture',
       params: {},

@@ -17,7 +17,6 @@ export interface JobControlLike {
  */
 export const JOB_TYPE_LABELS: Record<string, string> = {
   idea_campaign: 'Idea Campaign',
-  'script-only': 'Script (chapters)',
   'introduction-only': 'Introduction',
   'chapter-only': 'Chapter regen',
   outline_only: 'Script outline',
@@ -44,12 +43,13 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
   scene_clips_batch: 'Motion Review clips',
   continuity_render: 'Scene Review images',
   composition_generate: 'Image composition',
-  expression_markup: 'Expression markup',
   contextual_cues: 'Contextual Cues',
   image_pool_generate: 'Image pool',
   music_generate: 'Music generation',
   music_video: 'Music video',
   // Retired ids retained so old history rows stay readable.
+  'script-only': 'Script (chapters)',
+  expression_markup: 'Expression markup',
   images: 'Images (All)',
   scene_images: 'Scene Images',
   scene_images_batch: 'Scene Review Batch',
@@ -70,6 +70,9 @@ export function jobDisplayLabel(job: { type: string; params?: { mode?: unknown }
   return jobTypeLabel(job.type)
 }
 
+/** Job types with no executor any more; old rows still list but cannot be retried. Keep in step with `routes/jobs.ts`. */
+const REMOVED_JOB_TYPES = new Set(['script-only', 'expression_markup'])
+
 /**
  * The frontend half of the backend's `retryAdmissionError` legacy rules
  * (Q-06). These two shapes are always refused with a 409, so offering Retry —
@@ -78,6 +81,7 @@ export function jobDisplayLabel(job: { type: string; params?: { mode?: unknown }
  */
 export function retryAdmissionAllowed(job: { type: string; params?: { mode?: unknown } | null }): boolean {
   const mode = job.params?.mode
+  if (REMOVED_JOB_TYPES.has(job.type)) return false
   // Truthiness, not `=== undefined`: the backend's guard is
   // `job.params?.mode && job.params.mode !== 'thumbnails'`, so any falsy mode
   // (absent, null, empty string) is admitted.
@@ -213,7 +217,6 @@ export function jobWorkspaceLink(job: {
   if (!['error', 'cancelled'].includes(job.status) || !job.project_slug || job.project_slug === '_app_') return null
   const destinations: Record<string, [string, string]> = {
     idea_campaign: ['ideas', 'Ideas Generator'],
-    'script-only': ['scripts', 'Script Generator'],
     'chapter-only': ['scripts', 'Script Generator'],
     outline_only: ['scripts', 'Script Generator'],
     expand_chapters: ['scripts', 'Script Generator'],
@@ -225,7 +228,6 @@ export function jobWorkspaceLink(job: {
     composition_generate: ['character-sheet', 'Character Sheet'],
     broll_select: ['broll', 'B-Roll'],
     audio: ['audio', 'Audio Generator'],
-    expression_markup: ['audio', 'Audio Generator'],
     audio_merge: ['audio-merge', 'Audio Assembly'],
     subtitles_transcribe: ['subtitles', 'Subtitles'],
     metadata: ['metadata', 'YouTube Finalizer'],

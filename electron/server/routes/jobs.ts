@@ -177,9 +177,13 @@ function retryReplacementParams(job: Job): Record<string, any> | undefined {
   return undefined
 }
 
+/** Job types that no longer have an executor. Their old rows still list; they just cannot run again. */
+const REMOVED_JOB_TYPES = new Set(['script-only', 'expression_markup'])
+
 /** Retired jobs keep their terminal record; Retry must not replace it with the same known failure. */
 function retryAdmissionError(job: Job): string | null {
   const type = job.type as string
+  if (REMOVED_JOB_TYPES.has(type)) return 'This kind of job was removed from Story Studio, so it cannot be retried.'
   if (job.params?.jobs_replace_failed_items && !jq.canRetryManualFailedItemExactly(job)) {
     return 'This manual replacement has a confirmed provider failure. Use Replace failed items to make another deliberate attempt.'
   }

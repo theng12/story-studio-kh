@@ -2132,7 +2132,6 @@ const filterTabs = computed(() => {
   const types = [
     { type: 'all',                  label: 'All' },
     { type: 'idea_campaign',        label: 'Ideas' },
-    { type: 'script-only',          label: 'Scripts' },
     { type: 'introduction-only',    label: 'Introductions' },
     { type: 'chapter-only',         label: 'Chapter Regen' },
     { type: 'research_run',         label: 'Research' },

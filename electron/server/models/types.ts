@@ -2352,7 +2352,7 @@ export interface UpdateConfigRequest {
 // ── Jobs ────────────────────────────────────────────────────────────────────
 
 export const JOB_TYPES = [
-  'idea_campaign', 'broll_select', 'script-only', 'introduction-only', 'chapter-only',
+  'idea_campaign', 'broll_select', 'introduction-only', 'chapter-only',
   'outline_only', 'expand_chapters', 'image_prompts', 'thumb_images', 'images_repair', 'audio', 'audio_merge',
   'metadata', 'video', 'video_assembly',
   'subtitles_transcribe', 'youtube_upload', 'youtube_playlist_update',
@@ -2360,7 +2360,7 @@ export const JOB_TYPES = [
   'research_run', 'scene_plan_run',
   'scene_image_generate', 'scene_clip_generate',
   'scene_clips_batch', 'continuity_render',
-  'composition_generate', 'expression_markup', 'contextual_cues',
+  'composition_generate', 'contextual_cues',
   'image_pool_generate',
   /** v1.4.37 — top up a channel's music library from one style brief. */
   'music_generate',
@@ -2894,8 +2894,6 @@ export interface GenerateScriptRequest {
   chapters: number
   total_words?: number
   words_per_chapter?: number
-  generate_image_prompts: boolean
-  generate_youtube_desc: boolean
   /**
    * Character primitive (Phase 5): when set, the script generator passes
    * the named cast into the prompt — the LLM uses these names + descriptions
@@ -2986,10 +2984,6 @@ export interface GenerateAudioRequest {
   controls?: Record<string, number | boolean | string>
   force: boolean
   no_overwrite: boolean
-  /** Fish Audio S2-Pro only — render the saved expressive (tagged) narration. */
-  use_expression?: boolean
-  /** Fish Audio S2-Pro only — auto-insert pause tags at sentence/paragraph breaks. */
-  fish_autopace?: boolean
   /** Server-stamped, action-scoped staged candidate; public Audio requests never carry it. */
   quality_repair?: {
     action_id: string

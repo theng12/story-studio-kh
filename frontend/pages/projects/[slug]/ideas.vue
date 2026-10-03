@@ -2863,7 +2863,7 @@ async function doAccept(action: 'folders' | 'script') {
   if (!acceptCodeValid.value) return
   accepting.value = true
   try {
-    const body: any = { auto_generate_script: false }
+    const body: any = {}
     if (acceptCodeMode.value === 'custom') {
       body.override_code = resolvedCustomCode.value
     }

@@ -892,37 +892,6 @@ router.post('/projects/:slug/ideas/:ideaId/accept', async (req, res) => {
       override ? { override_code: override } : undefined,
     )
 
-    // If auto_generate_script is true, queue script generation
-    if (req.body?.auto_generate_script && req.body?.model) {
-      const config = await pm.getConfig(req.params.slug)
-      if (config?.anthropic_api_key || config?.openai_api_key || config?.kie_api_key) {
-        const suggestedMinutes = String(result.idea.suggested_length || '').match(/\d+(?:\.\d+)?/)
-        const effectiveFormat = await getEffectiveFormat(req.params.slug, { episodeId: result.episode_code })
-        await jq.enqueue({
-          project_slug: req.params.slug,
-          // M1: legacy 'script' job type was removed. Auto-script-on-accept
-          // now enqueues 'script-only' (chapters). Intro is opt-in per the
-          // architecture rule and isn't auto-queued from the ideas accept
-          // flow — users add it via the script page or the pipeline batch.
-          type: 'script-only',
-          episode_id: result.episode_code,
-          title: result.idea.title,
-          params: {
-            episode_id: result.episode_code,
-            title: result.idea.title,
-            length: suggestedMinutes
-              ? Number(suggestedMinutes[0])
-              : effectiveFormat.script.defaultLengthMinutes,
-            model: req.body.model,
-            style: 'auto',
-            chapters: result.idea.suggested_chapters,
-            generate_image_prompts: true,
-            generate_youtube_desc: true,
-          },
-        })
-      }
-    }
-
     res.json(result)
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Failed to accept idea'))

@@ -509,13 +509,6 @@
               <span class="text-muted text-xs"> · rate, not a total</span>
             </template>
           </span>
-          <button
-            type="button"
-            class="btn btn-sm btn-secondary"
-            :disabled="!quoteEligible || !form.episode_id || quoting"
-            :title="quoteEligible ? 'Ask the Gateway to price every TTS job this narration will be submitted as' : 'The Gateway does not offer a quote for this voice'"
-            @click="refreshQuote"
-          >{{ quoting ? 'Asking…' : 'Get quote' }}</button>
         </div>
 
         <!-- The parts, shown because they are real: each row is a separate
@@ -558,35 +551,6 @@
         </p>
       </div>
 
-      <!-- Auto-pacing for models that take inline pause tags. This is a Story
-           Studio TEXT transform (it rewrites the narration before submission),
-           not a provider control — provider controls are rendered above, from
-           whatever the model publishes. -->
-      <div v-if="isTagCapable" class="form-group mb-2">
-        <label>Delivery <span class="field-hint">— voice pacing</span></label>
-        <label class="checkbox-label" title="Inserts pause tags at sentence + paragraph breaks so the voice does not rush through full stops.">
-          <input type="checkbox" v-model="form.fish_autopace" />
-          <span>Auto-pause at sentence breaks <span class="field-hint">— adds breathing room</span></span>
-        </label>
-        <p class="text-muted text-xs hint-line">
-          Inserts pauses at paragraph + sentence breaks so the read isn't rushed. Works on plain narration and
-          layers on top of Expression markup (pauses won't double up).
-        </p>
-      </div>
-
-      <!-- Expression markup — tag-capable models (Fish S2-Pro + ElevenLabs v3).
-           Draft + review a tagged "expressive script" the audio renders when on;
-           untagged sections are auto-tagged at render time. -->
-      <div v-if="isTagCapable" class="form-group mb-2">
-        <label>Expression <span class="field-hint">— emotion &amp; performance tags</span></label>
-        <FishExpressionPanel
-          v-model="form.use_expression"
-          v-model:expression-model="form.expression_model"
-          :project-slug="slug"
-          :episode-id="form.episode_id || null"
-          :audio-model="form.model"
-        />
-      </div>
         </div>
       </details>
 
@@ -802,15 +766,6 @@ const form = reactive({
    * catalogue read and wiped to the new model's defaults on a model change.
    */
   controls: {} as Record<string, number | boolean | string>,
-  // Fish Audio S2-Pro only — render the saved expressive (tagged) narration.
-  use_expression: false,
-  // Kept empty until the GenStudio-only expression surface selects a live
-  // chat model. Never retain a retired direct-provider id in audio presets.
-  expression_model: '',
-  // A Story Studio TEXT transform, not a provider control: it inserts pause
-  // tags into the narration before submission. Provider controls come from the
-  // model's published `controls[]` and live in `controls` above.
-  fish_autopace: false,
 })
 
 // A section deep link belongs to the episode named in the URL. If the user
@@ -826,7 +781,7 @@ const requestedAudioSectionForEpisode = computed(() => {
 // left out of the allowlist. A restored voice that's incompatible with the
 // restored model is reconciled by VoicePicker on load.
 useRememberedForm('audio', slug, form, {
-  include: ['model', 'voice', 'speed', 'controls', 'fish_autopace', 'expression_model'],
+  include: ['model', 'voice', 'speed', 'controls'],
   // The control names are the catalogue's, not ours, so the saved map is
   // restored whole rather than merged key-by-key against a declared shape —
   // there is no declared shape. What comes back is reconciled against the
@@ -880,19 +835,6 @@ const modelRate = computed(() => describeVoiceRate(selectedTtsModel.value))
 const ttsHasUsdPrice = computed(() => hasPriceTruth(selectedTtsModel.value))
 /** A free voice (own Macs) hides every quote/credit control: there is nothing to price. */
 const ttsIsFree = computed(() => isFreeToRun(selectedTtsModel.value))
-
-/**
- * Whether the selected model takes Story Studio's inline pause/emotion tags.
- *
- * Off for every model, and it stays off until GenStudio publishes the fact:
- * a model that would read an unknown tag aloud is not something to infer from
- * a name. The two surfaces it gates (auto-pacing and the Expression panel) are
- * TEXT transforms Story Studio applies before submission, not provider
- * controls — provider controls are published per model and rendered from
- * `controls[]`.
- */
-const isTagCapable = computed(() => false)
-watch(isTagCapable, (on) => { if (!on) { form.use_expression = false; form.fish_autopace = false } })
 
 /**
  * The request boundary in force, read from the selected model's published
@@ -1668,7 +1610,7 @@ watch(() => form.episode_id, (newEp, oldEp) => {
 const { selectedEpisode, scriptReady, statusKnown, refetch: refetchEpisodeStatus } = useEpisodeStatus(
   computed(() => form.episode_id),
   slug,
-  { refetchOnJobTypes: ['script-only', 'introduction-only'] },
+  { refetchOnJobTypes: ['introduction-only'] },
 )
 
 /**

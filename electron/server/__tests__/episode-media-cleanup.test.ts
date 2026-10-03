@@ -262,7 +262,7 @@ describe('episode media cleanup preview', () => {
 
     const restore = cleanup._setMediaCleanupHooksForTests({
       getJobs: async () => [{
-        project_slug: SLUG, episode_id: 'EP0001', type: 'script-only', status: 'running',
+        project_slug: SLUG, episode_id: 'EP0001', type: 'chapter-only', status: 'running',
       } as any],
     })
     try {
@@ -271,7 +271,7 @@ describe('episode media cleanup preview', () => {
       })
       const blocked = await waitForOperation(started.operation_id)
       assert.equal(blocked.status, 'failed')
-      assert.match(blocked.error || '', /active.*script-only/i)
+      assert.match(blocked.error || '', /active.*chapter-only/i)
     } finally {
       restore()
     }

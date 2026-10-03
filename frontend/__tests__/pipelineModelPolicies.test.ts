@@ -20,7 +20,7 @@ function policyCode(): string {
 function loadPolicies() {
   let onProjectChange: (() => void) | undefined
   const source = `
-    type StepId = 'research' | 'broll' | 'script-only' | 'introduction-only' | 'image_prompts' | 'thumb_images' | 'metadata' | 'scene_plan' | 'contextual_cues' | 'scene_review' | 'motion_review' | 'character_sheet' | 'video_assembly' | 'audio' | 'audio_merge' | 'subtitles'
+    type StepId = 'research' | 'script-only' | 'introduction-only' | 'image_prompts' | 'thumb_images' | 'metadata' | 'scene_plan' | 'contextual_cues' | 'scene_review' | 'motion_review' | 'character_sheet' | 'video_assembly' | 'audio' | 'audio_merge' | 'subtitles'
     const slug = {}
     const ref = (value: any) => ({ value })
     const checkedStepsOrdered = { value: [] as Array<{ id: StepId }> }

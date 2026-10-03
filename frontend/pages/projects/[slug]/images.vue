@@ -424,7 +424,7 @@ const { selectedEpisode } = useEpisodeStatus(episodeIdRef, slug, {
   // Refetch when an upstream script job lands so the page picks up the
   // freshly-saved title without the user having to re-pick the episode
   // from the dropdown (mirrors video.vue's pattern).
-  refetchOnJobTypes: ['script-only', 'expand_chapters'],
+  refetchOnJobTypes: ['expand_chapters'],
 })
 
 // Prompt-character cap + friendly label for the selected model. Both come from

@@ -73,36 +73,8 @@ async function withExplicitActionReplay(
   })
 }
 
-// Legacy `POST /generate/script` (the coupled chapters+intro flow) was
-// removed in M1 — there's now exactly one way to generate the two halves
-// across the entire system: `/generate/script-only` then optionally
-// `/generate/introduction-only`. Pipeline batch chains them as separate
-// steps. See plan file (M1) for the full rationale.
-
-// Generate script only (chapters, no introduction)
-router.post('/projects/:slug/generate/script-only', validateBody(GenerateScriptOnlySchema), async (req, res) => {
-  const { slug } = req.params
-  const project = await pm.getProject(slug)
-  if (!project) return res.status(404).json({ detail: 'Project not found' })
-
-  const config = await pm.getConfig(slug)
-  if (!(await hasAnyTextProviderKey(config))) {
-    return res.status(400).json({ detail: 'No AI API key configured. Add one in Settings.' })
-  }
-
-  if (jq.isDuplicate(slug, req.body.episode_id, 'script-only')) {
-    return res.status(409).json({ detail: `Script generation already queued/running for ${req.body.episode_id}` })
-  }
-
-  const job = await jq.enqueue({
-    project_slug: slug,
-    type: 'script-only',
-    episode_id: req.body.episode_id,
-    title: req.body.title,
-    params: req.body,
-  })
-  res.status(201).json(job)
-})
+// Legacy `POST /generate/script` and `/generate/script-only` are gone. Scripts
+// are written outline-first (`/generate/outline-only` + `/generate/expand-chapters`).
 
 // ── Outline-first chunked flow (v1.0.72+) ────────────────────────────────
 //
@@ -116,7 +88,6 @@ router.post('/projects/:slug/generate/script-only', validateBody(GenerateScriptO
 // via expandChapters(). Optional `chapters: number[]` filter expands a
 // subset; absent = expand all pending. Refuses unless outline is approved.
 //
-// The legacy script-only path stays available; Phase 3 will retire it.
 router.post('/projects/:slug/generate/outline-only', validateBody(GenerateScriptOnlySchema), async (req, res) => {
   const { slug } = req.params
   const project = await pm.getProject(slug)
@@ -509,7 +480,7 @@ async function resolveScriptDirForImport(slug: string, episodeId: string, title:
 /** A queued, running or paused writer owns this episode's script files; an
  *  import would be overwritten by it, or overwrite what it is writing. */
 function importBlockedByActiveWriter(slug: string, episodeId: string): string {
-  const active = ['introduction-only', 'script-only', 'chapter-only', 'expand_chapters', 'outline_only']
+  const active = ['introduction-only', 'chapter-only', 'expand_chapters', 'outline_only']
     .some(type => jq.isDuplicate(slug, episodeId, type))
   return active
     ? `${episodeId} is still writing its script. Wait for that job to finish (or cancel it in Jobs), then import again.`
@@ -739,7 +710,7 @@ router.post('/projects/:slug/generate/introduction-only', validateBody(GenerateI
     if (jq.isDuplicate(slug, req.body.episode_id, 'introduction-only')) {
       return res.status(409).json({ detail: `Introduction generation already queued/running for ${req.body.episode_id}` })
     }
-    const scriptWriter = ['script-only', 'chapter-only', 'expand_chapters']
+    const scriptWriter = ['chapter-only', 'expand_chapters']
       .find(type => jq.isDuplicate(slug, req.body.episode_id, type))
     if (scriptWriter) {
       return res.status(409).json({ detail: 'Wait for this episode’s script job to finish. Resume or cancel it in Jobs if paused.' })
@@ -773,7 +744,7 @@ router.put('/projects/:slug/episodes/:episodeId/introduction-content', async (re
     const project = await pm.getProject(slug)
     if (!project) return res.status(404).json({ detail: 'Project not found' })
 
-    const activeWriter = ['introduction-only', 'script-only', 'chapter-only', 'expand_chapters']
+    const activeWriter = ['introduction-only', 'chapter-only', 'expand_chapters']
       .find(type => jq.isDuplicate(slug, episodeId, type))
     if (activeWriter) {
       return res.status(409).json({

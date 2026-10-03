@@ -69,7 +69,7 @@ const jobContext = new AsyncLocalStorage<{ jobId: string }>()
 const childrenByJob = new Map<string, Set<ChildProcess>>()
 
 /** Spawn helpers call this AFTER the child starts. Safe no-op if the call
- *  site isn't inside a job context (e.g., /debug/info probing ffmpeg). */
+ *  site isn't inside a job context. */
 export function trackChild(proc: ChildProcess): void {
   const store = jobContext.getStore()
   if (!store) return
@@ -1126,10 +1126,8 @@ export function _observeQueuePumpsForTesting(observer: (type: JobType, releasedJ
 const queues: Record<JobType, QueueState> = {
   idea_campaign: { pending: [], running: false, executor: null },
   broll_select: { pending: [], running: false, executor: null },
-  // Legacy `script` queue removed in M1 — chapters and intro now flow
-  // through `script-only` and `introduction-only` independently. The
-  // per-chapter refactor added `chapter-only` for targeted regens.
-  'script-only': { pending: [], running: false, executor: null },
+  // Chapters and intro flow through the outline-first jobs and
+  // `introduction-only`; `chapter-only` is for targeted regens.
   'introduction-only': { pending: [], running: false, executor: null },
   // ── DO NOT GIVE `chapter-only` A PARALLEL LANE ──────────────────────────
   //
@@ -1221,9 +1219,6 @@ const queues: Record<JobType, QueueState> = {
   continuity_render: { pending: [], running: false, executor: null },
   // v1.0.260: generate the composition LAYOUT template image from a prompt.
   composition_generate: { pending: [], running: false, executor: null },
-  // v1.0.386: Fish S2 expression "Tag all" — LLM markup over every section,
-  // saved incrementally so it survives the operator leaving the page.
-  expression_markup: { pending: [], running: false, executor: null },
 }
 
 /**
@@ -1253,7 +1248,7 @@ const quotaWaitTimers = new Map<string, NodeJS.Timeout>()
 const MAX_QUEUE_TIMER_DELAY_MS = 0x7fffffff
 
 const WRITING_JOB_TYPES = new Set<string>([
-  'idea_campaign', 'script-only', 'outline_only', 'expand_chapters', 'chapter-only', 'introduction-only',
+  'idea_campaign', 'outline_only', 'expand_chapters', 'chapter-only', 'introduction-only',
   'research_run', 'metadata', 'image_prompts', 'scene_plan_run', 'contextual_cues',
 ])
 
@@ -3392,7 +3387,7 @@ export async function assertAuditedCompletionOnSuccess(job: Job): Promise<void> 
 /** One success path for ordinary completions and reconciled provider outputs. */
 async function completeSuccessfulJob(job: Job): Promise<void> {
   if (job.status !== 'running') return
-  const typeMap: Record<string, 'script' | 'image' | 'audio'> = { 'script-only': 'script', 'introduction-only': 'script', 'chapter-only': 'script', images: 'image', scene_images: 'image', thumb_images: 'image', audio: 'audio', audio_merge: 'audio', video: 'image' }
+  const typeMap: Record<string, 'script' | 'image' | 'audio'> = { 'introduction-only': 'script', 'chapter-only': 'script', images: 'image', scene_images: 'image', thumb_images: 'image', audio: 'audio', audio_merge: 'audio', video: 'image' }
   const trackType = typeMap[job.type]
   if (trackType) trackGeneration(job.project_slug, trackType).catch(() => {})
 
@@ -5502,6 +5497,13 @@ export function retryTerminalJob(
       )
     }
     retryType = 'thumb_images'
+  }
+  // A type that no longer has a lane (e.g. the removed Expression markup job) cannot run again.
+  if (!queues[retryType]) {
+    throw Object.assign(
+      new Error('This kind of job was removed from Story Studio, so it cannot be retried.'),
+      { status: 409, expose: true },
+    )
   }
   // A manual Finish/Replace nonce authorizes only its original action. Generic
   // retry machinery may retain ordinary continuity behavior, but cannot copy

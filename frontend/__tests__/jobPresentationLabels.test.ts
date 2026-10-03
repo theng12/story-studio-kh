@@ -91,3 +91,14 @@ test('Q-08: a type filter with no jobs at all names the empty type', () => {
   assert.equal(copy.title, 'No Audio jobs')
   assert.match(copy.message, /All tab/)
 })
+
+test('removed job types: old rows keep a plain label, offer no Retry and no workspace link', () => {
+  // Expression markup and the legacy script-only lane were removed; rows saved by an older
+  // version still list. `routes/jobs.ts` refuses their Retry with a 409.
+  assert.equal(jobTypeLabel('expression_markup'), 'Expression markup')
+  assert.equal(jobTypeLabel('script-only'), 'Script (chapters)')
+  for (const type of ['expression_markup', 'script-only']) {
+    assert.equal(retryAdmissionAllowed({ type }), false, type)
+    assert.equal(JOB_TYPES.includes(type as never), false, `${type} is no longer a live job type`)
+  }
+})

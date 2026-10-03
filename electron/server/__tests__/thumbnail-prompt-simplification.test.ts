@@ -296,23 +296,3 @@ test('stripping the episode label leaves unrelated mentions of the episode alone
   )
   assert.match(emitted, /moment from the episode/i)
 })
-
-/**
- * The SECOND path that reaches an image model.
- *
- * `generateEpisode` writes scene and thumbnail prompts straight to disk. It
- * predates `enforceThumbnailPromptElements` and does not call it, so the fix at
- * that choke point never covered this generator -- and its instruction template
- * told the model, in as many words, to letter 'The episode title "..."' into
- * every thumbnail. Found sweeping the class on 2026-08-29, after the first fix.
- */
-test('the episode generator template does not label the drawn text as an episode title', async () => {
-  const source = await readFile(new URL('../generators/episode.ts', import.meta.url), 'utf8')
-  const drawnTextInstruction = source.slice(source.indexOf('CRITICAL FOR THUMBNAILS'))
-    .slice(0, 400)
-  assert.match(drawnTextInstruction, /is displayed in large, golden, glowing text/)
-  assert.doesNotMatch(drawnTextInstruction, /\bepisode(?:['’]s)?[\s-]+(?:title|headline)\b/i)
-  // And the model's own output is de-labelled before it is written, so a model
-  // that says it anyway cannot put the word on the artwork either.
-  assert.match(source, /imageText = stripEpisodeLabelFromDrawnText\(imageText\)/)
-})

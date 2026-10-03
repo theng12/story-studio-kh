@@ -1,5 +1,5 @@
 /**
- * The Research and B-Roll pills, PROVEN BY RENDERING.
+ * The Research and Script pills, PROVEN BY RENDERING.
  *
  * `optionalStageHonesty.test.ts` asserts on the source text, which is the right
  * shape for a mirror-drift guard: it catches the Pipeline's copy of a backend
@@ -85,7 +85,6 @@ const pillMarkup = extractPillMarkup()
 // The real step metadata rows, so the labels and icons are the page's own.
 const STEPS = [
   { id: 'research', label: 'Research (optional)', icon: '🔍', optional: true },
-  { id: 'broll', label: 'B-Roll Pick + Assemble', icon: '🎞' },
   { id: 'script-only', label: 'Script', icon: '📝' },
 ]
 
@@ -139,13 +138,13 @@ test('the Research pill renders GREY when there is no evidence', async () => {
   assert.match(pill.title, /missing/)
 })
 
-test('the B-Roll pill renders GREEN off video_assembly, the field the backend reads', async () => {
-  // routes/pipeline.ts: `case 'broll': return status.video_assembly`.
-  const html = await renderPills({ episode_code: 'EP0001', status: { video_assembly: true } })
-  assert.equal(pillFor(html, '🎞').done, true, 'video_assembly: true must light the B-Roll pill')
+test('the Script pill renders GREEN off script, the field the backend reads', async () => {
+  // routes/pipeline.ts: `case 'script-only': return status.script`.
+  const html = await renderPills({ episode_code: 'EP0001', status: { script: true } })
+  assert.equal(pillFor(html, '📝').done, true, 'script: true must light the Script pill')
 
-  const notYet = await renderPills({ episode_code: 'EP0001', status: { video_assembly: false } })
-  assert.equal(pillFor(notYet, '🎞').done, false)
+  const notYet = await renderPills({ episode_code: 'EP0001', status: { script: false } })
+  assert.equal(pillFor(notYet, '📝').done, false)
 })
 
 test('a done Research pill still says out loud when claims are un-triaged', async () => {

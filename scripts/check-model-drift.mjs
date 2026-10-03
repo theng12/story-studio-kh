@@ -181,18 +181,6 @@ const PRIVATE_ROUTING_IDENTITY = /\b(?:kie\.ai|kie|fal\.ai|fal|openrouter|genaip
 const BACKEND_PROSE = /\S+(?:\s+\S+){2,}/
 
 /**
- * The one backend file whose prose may name a provider: audio-expression.ts
- * holds the LLM SYSTEM PROMPT that teaches a model ElevenLabs v3 inline tag
- * syntax. It is sent to a model, never rendered to a customer, and the tag
- * dialect is a real published capability of a provider GenStudio publishes —
- * rewording it would break tag generation to satisfy a display rule that does
- * not apply. Every other backend file is in scope.
- */
-const BACKEND_IDENTITY_EXEMPT = new Set([
-  'electron/server/services/audio-expression.ts',
-])
-
-/**
  * Members that legitimately hang off something named `controls` — array and
  * object built-ins, plus Vue's `.value`. Anything else after `controls.` is a
  * control NAME, which belongs to the catalogue and not to this codebase.
@@ -414,7 +402,6 @@ const rules = [
     pattern: PRIVATE_ROUTING_IDENTITY,
     stringLiteralsOnly: true,
     ignore: (_match, context) => !context.file.startsWith('electron/')
-      || BACKEND_IDENTITY_EXEMPT.has(context.file)
       || !BACKEND_PROSE.test(context.enclosingString),
     describe: (match) => `the private routing identity "${match[0]}" appears in a customer-facing backend string`,
     remedy: 'This string can reach a screen — as a route detail, a thrown Error, or a job output '

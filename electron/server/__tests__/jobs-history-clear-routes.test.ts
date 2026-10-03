@@ -26,7 +26,7 @@ function historyRow(
   return {
     job_id: jobId,
     project_slug: projectSlug,
-    type: 'script-only',
+    type: 'chapter-only',
     episode_id: 'EP-CLEAR',
     title: `history ${jobId}`,
     status,

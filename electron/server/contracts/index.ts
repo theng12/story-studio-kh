@@ -516,20 +516,6 @@ export const UpdateStandardsSchema = z.union([
 
 const EpisodeId = z.string().min(1).max(40)
 
-export const GenerateScriptSchema = z.object({
-  episode_id: EpisodeId,
-  title: z.string().min(1).max(300),
-  length: z.number().positive().optional(),
-  model: z.string().min(1),
-  style: z.string().optional(),
-  chapters: z.number().int().positive().optional(),
-  total_words: z.number().int().positive().optional(),
-  words_per_chapter: z.number().int().positive().optional(),
-  generate_image_prompts: z.boolean().optional(),
-  generate_youtube_desc: z.boolean().optional(),
-}).passthrough()
-export type GenerateScriptBody = z.infer<typeof GenerateScriptSchema>
-
 export const GenerateScriptOnlySchema = z.object({
   episode_id: EpisodeId,
   title: z.string().min(1).max(300),
@@ -539,7 +525,6 @@ export const GenerateScriptOnlySchema = z.object({
   chapters: z.number().int().positive().optional(),
   total_words: z.number().int().positive().optional(),
   words_per_chapter: z.number().int().positive().optional(),
-  generate_image_prompts: z.boolean().optional(),
   // Character primitive (Phase 5): optional cast list — the LLM uses
   // these names + descriptions instead of inventing characters.
   character_ids: z.array(z.string().min(1).max(120)).optional(),
@@ -630,21 +615,16 @@ export const GenerateAudioSchema = z.object({
   controls: z.record(z.string(), z.union([z.number(), z.boolean(), z.string()])).optional(),
   force: z.boolean().optional(),
   no_overwrite: z.boolean().optional(),
-  /**
-   * Fish Audio S2-Pro only: when true, the generator swaps each section's text
-   * for its saved "expressive script" (inline [tag] markup) before chunking.
-   * Ignored by every other provider/model.
-   */
-  use_expression: z.boolean().optional(),
-  /** Fish Audio S2-Pro only: insert [short pause]/[long pause] tags at sentence
-   *  + paragraph boundaries so plain narration stops rushing through periods. */
-  fish_autopace: z.boolean().optional(),
 }).passthrough().transform((value) => {
   // Retired request/preset field. Accept old clients without breaking their
   // jobs, but discard the override before it reaches a queue or provider.
   // TTS splitting is owned exclusively by the active model inventory.
   const current = { ...value }
   delete current.max_chunk_chars
+  // Removed 2026-10: expression markup and auto-pacing. Old presets may still carry them.
+  delete current.use_expression
+  delete current.fish_autopace
+  delete current.expression_model
   return current
 })
 export type GenerateAudioBody = z.infer<typeof GenerateAudioSchema>

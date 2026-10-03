@@ -198,19 +198,19 @@ describe('enqueue() dedupe', () => {
 
     // Blocking executor keeps the first job in `running` so the second
     // enqueue hits a live duplicate.
-    jq.registerExecutor('script-only', async () => {
+    jq.registerExecutor('chapter-only', async () => {
       await new Promise(() => {}) // never resolves — we don't cancel this one
     })
 
     jq.enqueuePreparedForTest({
-      project_slug: proj.slug, type: 'script-only', episode_id: 'DEDUPE_1',
+      project_slug: proj.slug, type: 'chapter-only', episode_id: 'DEDUPE_1',
       title: 'a', params: {},
     })
     await new Promise((r) => setTimeout(r, 50))
 
     assert.throws(
       () => jq.enqueuePreparedForTest({
-        project_slug: proj.slug, type: 'script-only', episode_id: 'DEDUPE_1',
+        project_slug: proj.slug, type: 'chapter-only', episode_id: 'DEDUPE_1',
         title: 'b', params: {},
       }),
       (err: any) => {
@@ -1014,9 +1014,9 @@ describe('job route controls', () => {
     const output = path.join(tempDir, 'projects', project.slug, 'output-kept.txt')
     await fs.writeFile(output, 'generated output stays')
     await jq.setQueuePaused(true)
-    jq.registerExecutor('script-only', async () => {})
+    jq.registerExecutor('chapter-only', async () => {})
     const job = jq.enqueuePreparedForTest({
-      project_slug: project.slug, type: 'script-only', episode_id: 'DELETE_ONLY', title: 'terminal', params: {},
+      project_slug: project.slug, type: 'chapter-only', episode_id: 'DELETE_ONLY', title: 'terminal', params: {},
     })
 
     try {
@@ -1057,7 +1057,7 @@ describe('job route controls', () => {
     const project = await pm.createProject({ name: 'UniversalCancellationParity' })
     await jq.setQueuePaused(true)
     const job = jq.enqueuePreparedForTest({
-      project_slug: project.slug, type: 'script-only', episode_id: 'UNIVERSAL_DELETE', title: 'universal', params: {},
+      project_slug: project.slug, type: 'chapter-only', episode_id: 'UNIVERSAL_DELETE', title: 'universal', params: {},
     })
     try {
       const cancel = await request(app).post(`/api/jobs/all/${job.job_id}/cancel`)
@@ -1384,7 +1384,7 @@ describe('the cancelled flag is forgotten exactly when its job is', () => {
     try {
       // (1) THE CONTROL. While the row exists the flag MUST stay.
       const kept = jq.enqueuePreparedForTest({
-        project_slug: project.slug, type: 'script-only', episode_id: 'FLAG_KEPT', title: 'kept', params: {},
+        project_slug: project.slug, type: 'chapter-only', episode_id: 'FLAG_KEPT', title: 'kept', params: {},
       })
       await jq.requestJobCancellation(project.slug, kept.job_id)
       assert.equal(jq.getJob(kept.job_id)?.status, 'cancelled')
@@ -1398,7 +1398,7 @@ describe('the cancelled flag is forgotten exactly when its job is', () => {
 
       // (3) Clearing finished history retires every row it clears.
       const cleared = jq.enqueuePreparedForTest({
-        project_slug: project.slug, type: 'script-only', episode_id: 'FLAG_CLEARED', title: 'cleared', params: {},
+        project_slug: project.slug, type: 'chapter-only', episode_id: 'FLAG_CLEARED', title: 'cleared', params: {},
       })
       await jq.requestJobCancellation(project.slug, cleared.job_id)
       assert.equal(jq.isCancelled(cleared.job_id), true)
@@ -1408,7 +1408,7 @@ describe('the cancelled flag is forgotten exactly when its job is', () => {
       // (4) Retry replaces the row under a NEW id. The retired id is forgotten,
       // and the replacement — which was never cancelled — runs.
       const retried = jq.enqueuePreparedForTest({
-        project_slug: project.slug, type: 'script-only', episode_id: 'FLAG_RETRIED', title: 'retried', params: {},
+        project_slug: project.slug, type: 'chapter-only', episode_id: 'FLAG_RETRIED', title: 'retried', params: {},
       })
       await jq.requestJobCancellation(project.slug, retried.job_id)
       assert.equal(jq.isCancelled(retried.job_id), true)

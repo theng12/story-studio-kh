@@ -320,7 +320,6 @@ describe('the prose call sites are left alone', () => {
   const untouched = [
     'generators/episode.ts',              // legacy generateEpisode script + prompt paths
     'routes/scripts.ts',                  // interactive metadata routes
-    'services/audio-expression.ts',       // performance-tag markup
   ]
   for (const file of untouched) {
     test(`${file} declares no contract at all`, () => {

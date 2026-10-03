@@ -49,7 +49,7 @@ function makeJob(
   return {
     job_id: `persist-${projectSlug}-${index}`,
     project_slug: projectSlug,
-    type: 'script-only',
+    type: 'chapter-only',
     episode_id: `EP${String(index).padStart(4, '0')}`,
     title: `Persisted job ${index}`,
     status,
@@ -126,11 +126,11 @@ describe('status-aware durable job retention', () => {
     const project = await pm.createProject({ name: 'Large Durable Queue' })
     const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
     await jq.setQueuePaused(true)
-    jq.registerExecutor('script-only', async () => {})
+    jq.registerExecutor('chapter-only', async () => {})
 
     const queued = Array.from({ length: 125 }, (_, index) => jq.enqueuePreparedForTest({
       project_slug: project.slug,
-      type: 'script-only',
+      type: 'chapter-only',
       episode_id: `EP${String(index).padStart(4, '0')}`,
       title: `Queued ${index}`,
       params: { logical_index: index },
@@ -139,7 +139,7 @@ describe('status-aware durable job retention', () => {
 
     assert.equal(persisted.length, 125)
     assert.deepEqual(persisted.map(job => job.job_id), queued.map(job => job.job_id))
-    assert.equal(jq.isDuplicate(project.slug, 'EP0000', 'script-only'), true)
+    assert.equal(jq.isDuplicate(project.slug, 'EP0000', 'chapter-only'), true)
 
     await Promise.all(queued.map(job => jq.requestJobCancellation(project.slug, job.job_id)))
     await jq.setQueuePaused(false)
@@ -151,7 +151,7 @@ describe('status-aware durable job retention', () => {
     const queued = Array.from({ length: 130 }, (_, index) => makeJob(project.slug, index, 'queued'))
     await fs.writeFile(jobsFile, JSON.stringify({ jobs: queued }, null, 2))
     await jq.setQueuePaused(true)
-    jq.registerExecutor('script-only', async () => {})
+    jq.registerExecutor('chapter-only', async () => {})
 
     const restored = await jq.getJobs(project.slug)
     const restoredQueued = restored
@@ -257,10 +257,10 @@ describe('status-aware durable job retention', () => {
     assert.equal(jq.getJob(terminal.job_id)?.status, 'done')
 
     await jq.setQueuePaused(true)
-    jq.registerExecutor('script-only', async () => {})
+    jq.registerExecutor('chapter-only', async () => {})
     const queued = Array.from({ length: 120 }, (_, index) => jq.enqueuePreparedForTest({
       project_slug: project.slug,
-      type: 'script-only',
+      type: 'chapter-only',
       episode_id: `EP-CLEAR-${index}`,
       title: `Live after clear ${index}`,
       params: {},
@@ -325,7 +325,7 @@ describe('queue-origin recovery invariant', () => {
     const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
     const blockerStarted = deferred()
     const releaseBlocker = deferred()
-    jq.registerExecutor('script-only', async job => {
+    jq.registerExecutor('chapter-only', async job => {
       if (job.episode_id === 'BLOCK') {
         blockerStarted.resolve()
         await releaseBlocker.promise
@@ -334,7 +334,7 @@ describe('queue-origin recovery invariant', () => {
     await jq.setQueuePaused(false)
     jq.enqueuePreparedForTest({
       project_slug: blockerProject.slug,
-      type: 'script-only',
+      type: 'chapter-only',
       episode_id: 'BLOCK',
       title: 'occupy lane',
       params: {},
@@ -446,7 +446,7 @@ describe('queue-origin recovery invariant', () => {
       }
       return originalReadFile(file, ...args as [any])
     })
-    jq.registerExecutor('script-only', async job => {
+    jq.registerExecutor('chapter-only', async job => {
       if (job.job_id !== held.job_id) return
       executorStarted.resolve()
       await releaseExecutor.promise

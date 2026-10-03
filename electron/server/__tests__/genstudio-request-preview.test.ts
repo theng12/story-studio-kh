@@ -291,7 +291,7 @@ describe('job-queue adopts the pre-submit preview', () => {
     })
 
     let recorded: string | null = null
-    jq.registerExecutor('script-only', async (job) => {
+    jq.registerExecutor('chapter-only', async (job) => {
       recorded = job.job_id
       // 1. Captured before submission — the id does not exist yet.
       await jq.recordGenStudioJob(job.job_id, {
@@ -322,7 +322,7 @@ describe('job-queue adopts the pre-submit preview', () => {
 
     const enqueued = jq.enqueuePreparedForTest({
       project_slug: project.slug,
-      type: 'script-only',
+      type: 'chapter-only',
       episode_id: 'EP0001',
     })
     const deadline = Date.now() + 3_000
@@ -367,7 +367,7 @@ describe('job-queue adopts the pre-submit preview', () => {
         posts += 1
         return Response.json({ detail: 'Insufficient credits' }, { status: 402 })
       }
-      jq.registerExecutor('script-only', async job => {
+      jq.registerExecutor('chapter-only', async job => {
         await callChatWithGenStudio('credit-preview-key', {
           modelId: 'credit-writer', system: '', userMessage: 'Write the episode.',
           outputContract: { mode: 'json_object' },
@@ -376,7 +376,7 @@ describe('job-queue adopts the pre-submit preview', () => {
       })
       const enqueued = jq.enqueuePreparedForTest({
         project_slug: project.slug,
-        type: 'script-only',
+        type: 'chapter-only',
         episode_id: 'EP0001',
       })
       const deadline = Date.now() + 3_000
@@ -435,7 +435,7 @@ describe('job-queue adopts the pre-submit preview', () => {
         if ((init?.method || 'GET').toUpperCase() === 'POST') posts += 1
         return Response.json({ id: 'must-not-exist' })
       }
-      jq.registerExecutor('script-only', async job => {
+      jq.registerExecutor('chapter-only', async job => {
         const restore = jq._setJobFileLockProbeForTesting(operation => {
           if (operation === 'persist') throw new Error('injected preview persistence failure')
         })
@@ -452,7 +452,7 @@ describe('job-queue adopts the pre-submit preview', () => {
 
       const enqueued = jq.enqueuePreparedForTest({
         project_slug: project.slug,
-        type: 'script-only',
+        type: 'chapter-only',
         episode_id: 'EP0002',
       })
       await waitFor(() => jq.getJob(enqueued.job_id)?.status === 'error', {

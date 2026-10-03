@@ -64,7 +64,7 @@ test('Image Pool rows exclude Scene Plan stages from Pipeline counts', () => {
   assert.equal(isFlowStepApplicable(scenePlan, 'image_pool'), false)
   assert.equal(isFlowStepApplicable(common, 'image_pool'), true)
   assert.match(pipeline, /function isStepApplicableForEpisode/)
-  assert.match(pipeline, /stepId === 'broll' && source === 'image_pool'/)
+  assert.doesNotMatch(pipeline, /stepId === 'broll'/)
   assert.match(pipeline, /isFlowStepApplicable\(\{ key: stepId\.replaceAll\('_', '-'\) \} as FlowStep, source\)/)
   assert.match(pipeline, /selectedApplicableStepCount/)
   assert.match(pipeline, /steps_skipped_as_inapplicable/)

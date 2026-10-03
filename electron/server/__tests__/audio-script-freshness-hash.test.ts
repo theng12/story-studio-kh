@@ -8,10 +8,9 @@
  * disk and nothing else.
  *
  * The generator used to record `hashInput(section.text)` after transforming that
- * array in memory for the run: expression markup had swapped in tagged text, and
- * auto-pacing had appended pause tags. With either feature on, the recorded hash
- * could never match the recomputed one, so a customer who changed nothing was
- * told the script had changed. These tests pin the contract in both directions:
+ * array in memory for the run (expression markup and auto-pacing have since been
+ * removed). A transformed value could never match the recomputed one, so a
+ * customer who changed nothing was told the script had changed. These tests pin the contract in both directions:
  * the fingerprint survives an equivalent normalization, and it still changes
  * when the script really changes.
  */
@@ -25,9 +24,7 @@ import { after, before, describe, test } from 'node:test'
 
 import { parseNarrationDocx } from '../lib/docx-parser.js'
 import { normalizeForTts } from '../lib/tts-text.js'
-import { hashInput } from '../services/task-manifest.js'
 import { chapterScriptFingerprint, currentChapterScriptHash } from '../services/audio-quality.js'
-import { addSentencePacing } from '../services/audio-expression.js'
 
 const CODE = 'EP0042'
 const SCRIPT_FILE = `${CODE}_script_narration.md`
@@ -88,19 +85,7 @@ describe('the script fingerprint the freshness check recomputes', () => {
 })
 
 describe('the transformations a run applies in memory are not part of the fingerprint', () => {
-  test('auto-pacing changes the submitted text but not the recorded fingerprint', async () => {
-    const sections = await parseNarrationDocx(path.join(dir, SCRIPT_FILE))
-    const normalized = normalizeForTts(sections[0]!.text).text
-    const paced = addSentencePacing(normalized, 'fish')
-
-    assert.notEqual(paced, normalized, 'the fixture must actually be paced, or this proves nothing')
-    // The whole defect in one line: hashing the PACED text can never equal the
-    // value recomputed from the script file.
-    assert.notEqual(hashInput(paced), chapterScriptFingerprint(sections[0]!.text))
-    assert.equal(await currentChapterScriptHash(dir, CODE, sections[0]!.slug), chapterScriptFingerprint(sections[0]!.text))
-  })
-
-  test('expression markup changes the submitted text but not the recorded fingerprint', async () => {
+  test('a tagged copy of the text changes the submitted text but not the recorded fingerprint', async () => {
     const sections = await parseNarrationDocx(path.join(dir, SCRIPT_FILE))
     const tagged = `[warm] ${sections[0]!.text}`
     assert.notEqual(normalizeForTts(tagged).text, normalizeForTts(sections[0]!.text).text)
@@ -116,12 +101,10 @@ describe('the generator captures the fingerprint before it transforms anything',
 
   test('the capture sits immediately after the parse and before every transform', () => {
     const capture = source.indexOf('const scriptFingerprints = new Map(')
-    const expression = source.indexOf('v1.0.381/387/388 — inline expression markup')
     const normalization = source.indexOf('normalizeSectionsForTts(allSections)')
-    const pacing = source.indexOf('if (req.fish_autopace === true)')
 
     assert.ok(capture > 0, 'the generator must capture script fingerprints')
-    for (const [label, index] of [['expression markup', expression], ['normalization', normalization], ['auto-pacing', pacing]] as const) {
+    for (const [label, index] of [['normalization', normalization]] as const) {
       assert.ok(index > 0, `expected to find the ${label} step`)
       assert.ok(capture < index, `the fingerprint must be captured before ${label} rewrites the text`)
     }

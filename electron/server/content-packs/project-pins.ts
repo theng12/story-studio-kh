@@ -235,11 +235,11 @@ async function resolveSignedSelections(
 
 const CONSUMERS: Record<ContentPackItemKind, readonly JobType[]> = {
   'series-formula': [
-    'idea_campaign', 'script-only', 'introduction-only', 'chapter-only', 'outline_only',
+    'idea_campaign', 'introduction-only', 'chapter-only', 'outline_only',
     'expand_chapters', 'image_prompts', 'metadata', 'scene_plan_run',
   ],
   'topic-pack': [
-    'idea_campaign', 'script-only', 'introduction-only', 'chapter-only', 'outline_only',
+    'idea_campaign', 'introduction-only', 'chapter-only', 'outline_only',
     'expand_chapters', 'image_prompts', 'metadata', 'scene_plan_run',
   ],
   // Render jobs consume already-materialised prompts/reference paths, not the

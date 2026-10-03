@@ -53,12 +53,12 @@ describe('partial-failure status contract', () => {
   test('executor throws → job.status = error, job.error carries the message', async () => {
     const proj = await pm.createProject({ name: 'PF_Throws' })
 
-    jq.registerExecutor('script-only', async () => {
+    jq.registerExecutor('chapter-only', async () => {
       throw new Error('2 item(s) failed: first failure; second failure')
     })
 
     const job = jq.enqueuePreparedForTest({
-      project_slug: proj.slug, type: 'script-only', episode_id: 'PF_EP1',
+      project_slug: proj.slug, type: 'chapter-only', episode_id: 'PF_EP1',
       title: 't', params: {},
     })
 
@@ -79,13 +79,13 @@ describe('partial-failure status contract', () => {
   test('executor resolves normally → job.status = done', async () => {
     const proj = await pm.createProject({ name: 'PF_Resolves' })
 
-    jq.registerExecutor('script-only', async (j) => {
+    jq.registerExecutor('chapter-only', async (j) => {
       // Simulate a successful run that pushed output lines but never threw.
       j.output_lines.push('All items generated successfully')
     })
 
     const job = jq.enqueuePreparedForTest({
-      project_slug: proj.slug, type: 'script-only', episode_id: 'PF_EP2',
+      project_slug: proj.slug, type: 'chapter-only', episode_id: 'PF_EP2',
       title: 't', params: {},
     })
     await waitForTerminal(job.job_id, 'PF_EP2 to reach a terminal status')
@@ -107,12 +107,12 @@ describe('partial-failure status contract', () => {
     jq.jobEvents.on('update', onUpdate)
 
     try {
-      jq.registerExecutor('script-only', async () => {
+      jq.registerExecutor('chapter-only', async () => {
         throw new Error('3 clip(s) failed: clip 1; clip 2; clip 3')
       })
 
       jq.enqueuePreparedForTest({
-        project_slug: proj.slug, type: 'script-only', episode_id: 'PF_EV_1',
+        project_slug: proj.slug, type: 'chapter-only', episode_id: 'PF_EV_1',
         title: 't', params: {},
       })
       // Wait for a terminal frame of ANY kind, then assert below that the one

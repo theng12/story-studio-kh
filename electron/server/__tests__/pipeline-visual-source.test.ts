@@ -89,8 +89,8 @@ function presets() {
 describe('Pipeline episode visual source', () => {
   test('marks Scene Plan work inapplicable for Image Pool while retaining common stages', () => {
     assert.deepEqual(
-      applicablePipelineStepsForVisualSource(['metadata', 'broll', 'character_sheet', 'scene_plan', 'scene_review', 'motion_review'], 'image_pool'),
-      { applicable: ['metadata'], inapplicable: ['broll', 'character_sheet', 'scene_plan', 'scene_review', 'motion_review'] },
+      applicablePipelineStepsForVisualSource(['metadata', 'character_sheet', 'scene_plan', 'scene_review', 'motion_review'], 'image_pool'),
+      { applicable: ['metadata'], inapplicable: ['character_sheet', 'scene_plan', 'scene_review', 'motion_review'] },
     )
   })
 
