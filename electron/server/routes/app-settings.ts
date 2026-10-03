@@ -145,7 +145,7 @@ router.get('/app-settings/concurrency', async (_req, res) => {
   try {
     const {
       getSubtitleEpisodeConcurrency, getLlmConcurrency, getOutlineHeadroom,
-      getImageEpisodeConcurrency, getImageFanout, getThumbnailEpisodeConcurrency,
+      getImageEpisodeConcurrency, getImageFanout, getThumbnailEpisodeConcurrency, getAudioEpisodeConcurrency,
       getLanguageTimeoutMinutes, getLanguageFloorTps, getLanguagePreferredTps,
       SUBTITLE_EPISODE_CONCURRENCY_DEFAULT, LLM_CONCURRENCY_DEFAULT,
       OUTLINE_HEADROOM_DEFAULT, IMAGE_EPISODE_CONCURRENCY_DEFAULT,
@@ -162,6 +162,7 @@ router.get('/app-settings/concurrency', async (_req, res) => {
       // so it must have a route and a screen rather than living only in a file.
       image_episode_concurrency: await getImageEpisodeConcurrency(),
       thumbnail_episode_concurrency: await getThumbnailEpisodeConcurrency(),
+      audio_episode_concurrency: await getAudioEpisodeConcurrency(),
       image_fanout_per_episode: await getImageFanout(),
       outline_chapter_headroom: await getOutlineHeadroom(),
       // v1.4.78 — also not a concurrency number. Same reason again: it decides
@@ -187,6 +188,7 @@ router.get('/app-settings/concurrency', async (_req, res) => {
         llm_concurrency: LLM_CONCURRENCY_DEFAULT,
         image_episode_concurrency: IMAGE_EPISODE_CONCURRENCY_DEFAULT,
         thumbnail_episode_concurrency: THUMBNAIL_EPISODE_CONCURRENCY_DEFAULT,
+        audio_episode_concurrency: IMAGE_EPISODE_CONCURRENCY_DEFAULT,
         image_fanout_per_episode: 'auto',
         outline_chapter_headroom: OUTLINE_HEADROOM_DEFAULT,
         genstudio_language_timeout_minutes: LANGUAGE_TIMEOUT_MINUTES_DEFAULT,
@@ -231,6 +233,11 @@ router.put('/app-settings/concurrency', async (req, res) => {
       const n = await settings.setThumbnailEpisodeConcurrency(req.body.thumbnail_episode_concurrency)
       jq.setThumbnailEpisodeConcurrency(n)
       out.thumbnail_episode_concurrency = n
+    }
+    if (req.body?.audio_episode_concurrency !== undefined) {
+      const n = await settings.setAudioEpisodeConcurrency(req.body.audio_episode_concurrency)
+      jq.setAudioEpisodeConcurrency(n)
+      out.audio_episode_concurrency = n
     }
     if (req.body?.image_fanout_per_episode !== undefined) {
       const value = await settings.setImageFanout(req.body.image_fanout_per_episode)
