@@ -686,7 +686,8 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     ...item,
     prompt: enforceThumbnailPromptElements(String(item.prompt || ''), {
       aspectRatio: req.aspect_ratio || '16:9',
-      title,
+      // An inventing mode's words live in the row's own title, not the episode's.
+      title: headlineInvents(headlineMode) ? String(item.title || '').trim() || title : title,
       textStyle: req.thumb_text_style || 'auto',
       fontStyle: req.thumb_font_style || 'auto',
       textPosition: req.thumb_text_position || 'auto',

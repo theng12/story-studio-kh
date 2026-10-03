@@ -140,3 +140,11 @@ describe('every inventing mode keeps its own words end to end', () => {
     assert.match(src, /HEADLINE_MODE_IDS\.includes\(id\)/)
   })
 })
+
+test('the generator hands the ROW\'s hook (not the episode title) to the enforcement pass', async () => {
+  // Seen live after the first fix: title saved as "ANCIENT IRON KEY", clause still said
+  // Render the exact thumbnail hook "The Bioluminescent Glasshouse at Midnight".
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../generators/image-prompts.ts', import.meta.url), 'utf8')
+  assert.match(src, /title: headlineInvents\(headlineMode\) \? String\(item\.title \|\| ''\)\.trim\(\) \|\| title : title,\n\s+textStyle:/)
+})
