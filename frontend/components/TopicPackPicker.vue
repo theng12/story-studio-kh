@@ -1,7 +1,7 @@
 <template>
   <div class="topic-pack-picker">
     <div class="picker-heading">
-      <span>Topic Packs — reusable subject lanes</span>
+      <span>Topic Packs — reusable topics</span>
       <span class="hint">Select one or more. Campaigns rotate across their subjects and coverage angles instead of asking the model to improvise 100 variations.</span>
     </div>
 

@@ -165,8 +165,14 @@
         </div>
 
         <p v-if="audioQualityMode === 'check_and_repair'" class="audio-quality-cost-note">
-          Replacement narration estimates are advisory because the current TTS contract has no hard aggregate credit ceiling. Audio requires an action-specific verification credit ceiling; transcription is quoted after candidate audio exists, and a higher quote holds that candidate for your approval.
+          New narration made by a repair shows an estimate first. You set a credit limit for each check; if a check would cost more, the new audio waits for your OK.
         </p>
+        <details v-if="audioQualityMode === 'check_and_repair'" class="settings-tech-details">
+          <summary>Details</summary>
+          <p class="text-muted text-xs">
+            Replacement narration estimates are advisory because the current TTS contract has no hard aggregate credit ceiling. Audio requires an action-specific verification credit ceiling; transcription is quoted after candidate audio exists, and a higher quote holds that candidate for your approval.
+          </p>
+        </details>
 
         <div class="audio-quality-save-row">
           <button
@@ -209,7 +215,7 @@
           <h3>Series Formula + Topic Packs</h3>
           <p class="text-muted mt-1 mb-2">
             The Series Formula defines the recurring hook, title style, script
-            flow, and channel voice. Topic Packs supply reusable subject lanes.
+            flow, and channel voice. Topic Packs add reusable topics.
             Mix one formula with several packs to expand without duplicating the
             channel structure. The Production Path above remains independent.
           </p>
@@ -229,7 +235,7 @@
 
       <!-- ── Sub-tab 1: Project niche picker ───────────────────────── -->
       <div v-if="activeTab !== 'identity' || nicheSubTab === 'project'" class="sub-tab-body">
-        <h4 v-if="activeTab === 'identity'" class="sub-tab-section-title">Choose the formula and subject lanes this channel uses</h4>
+        <h4 v-if="activeTab === 'identity'" class="sub-tab-section-title">Choose the formula and topics this channel uses</h4>
         <section v-if="activeTab === 'identity'" class="channel-identity-summary">
           <div class="channel-identity-summary-copy">
             <span>Series Formula</span>
@@ -1132,11 +1138,17 @@
               local <code>{code}_final_video.*</code> files are cleared.
             </p>
             <p class="text-muted voice-helper-line">
-              💡 Before any final is cleared, Story Studio verifies its SHA-256
-              against the accepted upload and refreshes the current processed
-              video on the assigned YouTube channel. Unverified or legacy
-              receipts remain local. Audio + image assets are never touched.
+              💡 Before clearing a final video, Story Studio checks it is the exact file you uploaded and
+              that YouTube still has it. Anything it cannot confirm stays on this Mac. Audio and images are
+              never touched.
             </p>
+            <details class="settings-tech-details">
+              <summary>Details</summary>
+              <p class="text-muted text-xs">
+                The file's SHA-256 is compared with the accepted upload, and the current processed video on the
+                assigned YouTube channel is refreshed. Unverified or legacy upload records stay local.
+              </p>
+            </details>
           </div>
           <div class="flex gap-2">
             <button class="btn btn-secondary btn-sm" :disabled="auditLoading" @click="loadStorageAudit">
@@ -1478,8 +1490,8 @@
         </summary>
         <h4 v-else style="margin: 0 0 8px 0;">One-click install</h4>
         <p class="text-muted" style="font-size: 12px; margin: 8px 0;">
-          Downloads the same pinned FFmpeg + FFprobe release used by this app, verifies its
-          SHA-256 checksums, and installs it into the app's user-data folder as a recovery copy.
+          Downloads the same FFmpeg + FFprobe release this app ships with, checks the download is intact,
+          and installs it as a recovery copy.
         </p>
         <button
           class="btn btn-primary"
@@ -3083,7 +3095,7 @@ async function runBulkCleanup() {
   const ok = await ask({
     title: 'Verify and clear local videos?',
     message: `Verify ${uploadedFinalsCount.value} local final video file(s) (${formatBytes(uploadedFinalsTotalBytes.value)}) before clearing them?\n\n` +
-    `Story Studio will compare each file's SHA-256 with its accepted upload and refresh the current processed video on the assigned YouTube channel immediately before deletion. ` +
+    `Story Studio checks each file is the exact one you uploaded and that YouTube still has it, right before clearing it. ` +
     `Any file it cannot verify stays local and is reported below.`,
     confirmLabel: `Verify & clear ${uploadedFinalsCount.value} files`, danger: true,
   })
@@ -6599,4 +6611,6 @@ async function deleteProject() {
 .pool-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .pool-dot.on { background: var(--success, #3fb950); }
 .pool-dot.off { background: var(--danger, #e5534b); opacity: 0.6; }
+/* Technical wording kept one click away. */
+.settings-tech-details summary { cursor: pointer; color: var(--text-muted); font-size: var(--font-xs); }
 </style>
