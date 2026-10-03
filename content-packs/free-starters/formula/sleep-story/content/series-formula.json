@@ -103,11 +103,6 @@
   "default_topic_pack_ids": [
     "com.storystudio.topic.night-journeys"
   ],
-  "visual_style_hint": "soft, dreamlike, warm and luminous — gentle illustration that lulls rather than dazzles",
-  "starting_scene_seconds": [
-    20,
-    30
-  ],
   "recommended_visual_style_ids": [
     "com.storystudio.style.watercolor-storybook"
   ],

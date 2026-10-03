@@ -37,8 +37,8 @@ describe('formula starting defaults', () => {
     assert.deepEqual(legacy.startingSceneSeconds, [20, 30])
     assert.match(legacy.visualStyleHint, /soft, dreamlike/)
     for (const rel of [
-      'content-packs/free-starters/formula/sleep-story/content/series-formula.json',
-      'content-packs/sleep-history/formula/sleep-history-compilation/content/series-formula.json',
+      'content-packs/free-starters/formula/sleep-story-v1.0.1/content/series-formula.json',
+      'content-packs/sleep-history/formula/sleep-history-compilation-v1.0.1/content/series-formula.json',
     ]) {
       const doc = await readJson(rel)
       assert.deepEqual(doc.starting_scene_seconds, [20, 30], rel)
@@ -96,7 +96,7 @@ describe('formula starting defaults', () => {
 
   test('the content-pack schema accepts the range and rejects a backwards one', async () => {
     const { ContentPackDocumentSchema } = await import('../content-packs/schemas.js')
-    const doc = await readJson('content-packs/free-starters/formula/sleep-story/content/series-formula.json')
+    const doc = await readJson('content-packs/free-starters/formula/sleep-story-v1.0.1/content/series-formula.json')
     assert.doesNotThrow(() => ContentPackDocumentSchema.parse(doc))
     assert.throws(() => ContentPackDocumentSchema.parse({ ...doc, starting_scene_seconds: [30, 20] }))
   })

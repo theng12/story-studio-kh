@@ -1058,9 +1058,9 @@
       "target": {
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.formula.sleep-story",
-        "version": "1.0.0",
+        "version": "1.0.1",
         "status": "authored",
-        "source_path": "content-packs/free-starters/formula/sleep-story"
+        "source_path": "content-packs/free-starters/formula/sleep-story-v1.0.1"
       }
     },
     {

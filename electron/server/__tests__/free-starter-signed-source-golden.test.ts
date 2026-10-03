@@ -79,6 +79,7 @@ const PUBLISHED_DIRECTORY: Record<string, string> = {
   'formula/natural-world-explained': 'natural-world-explained-v1.0.2',
   'formula/pov-your-life-as': 'pov-your-life-as-v1.0.2',
   'formula/practical-motivation': 'practical-motivation-v1.0.1',
+  'formula/sleep-story': 'sleep-story-v1.0.1',
   'thumbnail/curiosity-question-cartoon': 'curiosity-question-cartoon-v1.0.1',
   'thumbnail/documentary-label-tableau': 'documentary-label-tableau-v1.0.1',
 }
