@@ -15,6 +15,14 @@
 import { LOOP_VARIANT_INFO, loopParticleCount, normalizeLoopShape, type LoopShapeField, type LoopVariant } from './effect-loops.js'
 import { COLOR_GRADE_PRESETS, OVERLAY_ANCHORS, type OverlayKind, type SceneOverlayDocument } from './scene-effects.js'
 
+/**
+ * Where each scope's effects start in the shared stack order when they carry no
+ * explicit `order` — whole episode first, then theme runs, then single scenes.
+ * One table for the render (`services/episode-effects.ts`) and the page, so the
+ * stack the owner sees is the stack that renders.
+ */
+export const EFFECT_SCOPE_ORDER_BASE = { project: -100_000, episode: 0, theme: 100_000, scene: 200_000 } as const
+
 export type ParamFormat = 'number' | 'percent' | 'share' | 'px' | 'sec' | 'deg' | 'times'
 
 export interface ParamField {
@@ -205,11 +213,13 @@ export function effectCostPerFrame(doc: SceneOverlayDocument): number {
 
 /**
  * Cores the final pass keeps busy on average with a stack of effects, measured
- * end to end (a single overlay alone parallelises far better, but a stack is a
- * chain and runs mostly in series). Calibrated against the measured stack in
- * `docs/effects-library.md`.
+ * end to end on the M2 Max (2026-10-03): the Rainy Night stack (grade, fog,
+ * rain, lightning, vignette, grain) over 60 s of 1080p24 used 0.043 CPU-s a
+ * frame at 95 fps — about 4.1 cores, adding 11.3 s of wall time per minute of
+ * video over the bare pass. A single overlay alone parallelises better; a stack
+ * is a chain. Rounded down so the estimate errs long.
  */
-export const STACK_EFFECTIVE_CORES = 3
+export const STACK_EFFECTIVE_CORES = 4
 
 /** Wall-clock minutes a stack adds to a render of `durationSec` at `w`×`h`, `fps`. */
 export function estimateStackMinutes(

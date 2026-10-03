@@ -35,8 +35,9 @@ import {
   type SceneOverlayDocument,
 } from '../contracts/scene-effects.js'
 import { isContentPackItemId } from '../contracts/content-origin.js'
-import type { BuiltInOverlay, UnavailableOverlay } from '../contracts/scene-effect-presets.js'
+import { BUILT_IN_EFFECT_STACKS, type BuiltInOverlay, type EffectStackItem, type UnavailableOverlay } from '../contracts/scene-effect-presets.js'
 import { writeJsonAtomic } from '../lib/atomic-store.js'
+import { EFFECT_SCOPE_ORDER_BASE } from '../contracts/effect-params.js'
 
 export const EPISODE_EFFECTS_FILENAME = 'scene_effects.json'
 export const EPISODE_EFFECTS_SCHEMA_VERSION = 1
@@ -54,6 +55,12 @@ export interface AppliedEffect {
   /** Fade in from the start of its window. Scene effects default to {@link DEFAULT_SCENE_FADE_SEC}. */
   fade_in_sec?: number
   fade_out_sec?: number
+  /**
+   * Position in the stack, shared across scopes so "Custom order" can place a
+   * scene's rain under the episode's fog. Absent = after everything placed so
+   * far in its own list (whole episode first, then themes, then scenes).
+   */
+  order?: number
 }
 
 export interface EpisodeEffectsFile {
@@ -102,6 +109,7 @@ function normalizeApplied(list: unknown): AppliedEffect[] {
       ...(params ? { params } : {}),
       ...(clampFade(r.fade_in_sec) !== undefined ? { fade_in_sec: clampFade(r.fade_in_sec) } : {}),
       ...(clampFade(r.fade_out_sec) !== undefined ? { fade_out_sec: clampFade(r.fade_out_sec) } : {}),
+      ...(typeof r.order === 'number' && Number.isFinite(r.order) ? { order: Math.max(-1e6, Math.min(1e6, r.order)) } : {}),
     })
     if (out.length >= MAX_PER_STACK) break
   }
@@ -172,6 +180,8 @@ export type StackScope = 'project' | 'episode' | 'theme' | 'scene'
 
 export interface ResolvedStackEntry {
   uid: string
+  /** Stack position; see `AppliedEffect.order`. */
+  order: number
   id: string
   name: string
   approximation?: string
@@ -240,7 +250,8 @@ export function resolveEpisodeEffectStack(opts: {
   const missing = (id: string) => {
     if (!unavailable.some(u => u.id === id)) unavailable.push({ id, from_content_pack: isContentPackItemId(id) })
   }
-  const push = (applied: AppliedEffect, scope: StackScope, window: { start: number; end: number | null } | null, label?: string) => {
+  const SCOPE_BASE: Record<StackScope, number> = EFFECT_SCOPE_ORDER_BASE
+  const push = (applied: AppliedEffect, scope: StackScope, window: { start: number; end: number | null } | null, label?: string, index = 0) => {
     if (!applied.enabled) return
     const resolved = resolveDocument(applied, library)
     if (!resolved) { missing(applied.id); return }
@@ -258,6 +269,7 @@ export function resolveEpisodeEffectStack(opts: {
       : { ...doc.timing, fade_in_sec: fi, fade_out_sec: fo }
     entries.push({
       uid: applied.uid,
+      order: applied.order ?? SCOPE_BASE[scope] + index,
       id: entry.id,
       name: entry.name,
       ...(entry.approximation ? { approximation: entry.approximation } : {}),
@@ -275,10 +287,10 @@ export function resolveEpisodeEffectStack(opts: {
     // Older kinds keep rendering where they always did; unknown ids are the
     // generator's existing business.
     if (!found || !LIBRARY_V1_5_KINDS.includes(found.document.kind)) continue
-    push({ uid: `project-${i + 1}`, id: item.id, enabled: true, ...(item.params ? { params: item.params } : {}) }, 'project', null)
+    push({ uid: `project-${i + 1}`, id: item.id, enabled: true, ...(item.params ? { params: item.params } : {}) }, 'project', null, undefined, i)
   }
   // 2. This episode, whole.
-  for (const applied of file.episode) push(applied, 'episode', null)
+  file.episode.forEach((applied, i) => push(applied, 'episode', null, undefined, i))
   // 3. Every scene of a theme, consecutive scenes merged into one window.
   for (const rule of file.themes) {
     const matching = windows.filter(w => (w.theme || '').trim().toLowerCase() === rule.theme.toLowerCase())
@@ -287,7 +299,7 @@ export function resolveEpisodeEffectStack(opts: {
       continue
     }
     for (const run of mergeWindows(matching)) {
-      for (const applied of rule.effects) push(applied, 'theme', { start: run.start, end: run.end }, rule.theme)
+      rule.effects.forEach((applied, i) => push(applied, 'theme', { start: run.start, end: run.end }, rule.theme, i))
     }
   }
   // 4. One scene.
@@ -297,20 +309,67 @@ export function resolveEpisodeEffectStack(opts: {
       notes.push(`Effects for scene "${stack.scene_id}" skipped: that scene is no longer in this episode's Scene Plan.`)
       continue
     }
-    for (const applied of stack.effects) push(applied, 'scene', { start: window.start_sec, end: window.end_sec }, stack.scene_id)
+    stack.effects.forEach((applied, i) => push(applied, 'scene', { start: window.start_sec, end: window.end_sec }, stack.scene_id, i))
   }
 
-  if (!file.custom_order) {
-    const rank = (group: EffectStackGroup) => EFFECT_STACK_GROUPS.indexOf(group)
-    // Stable: inside a group, the order the owner arranged wins.
-    const indexed = entries.map((entry, index) => ({ entry, index }))
-    indexed.sort((a, b) => rank(a.entry.group) - rank(b.entry.group) || a.index - b.index)
-    entries.splice(0, entries.length, ...indexed.map(i => i.entry))
-  }
+  // Layer groups first (unless Custom order), then the arranged order; stable.
+  const rank = (group: EffectStackGroup) => file.custom_order ? 0 : EFFECT_STACK_GROUPS.indexOf(group)
+  const indexed = entries.map((entry, index) => ({ entry, index }))
+  indexed.sort((a, b) => rank(a.entry.group) - rank(b.entry.group) || a.entry.order - b.entry.order || a.index - b.index)
+  entries.splice(0, entries.length, ...indexed.map(i => i.entry))
   return { entries, unavailable, notes, custom_order: file.custom_order }
 }
 
 /** Groups drawn under the classic vignette / grain / letterbox controls; the rest go over them. */
 export function isLowerStackGroup(group: EffectStackGroup): boolean {
   return group !== 'lens' && group !== 'overlays'
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// A channel's starting look
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * The effects of the named stack presets, in order: built-in stacks
+ * (`stack-rainy-night`…) and the project's saved ones (`config.effect_stack_presets`,
+ * the Effects Library's "Save as Preset"). Unknown ids are returned so the
+ * caller can say which look is gone.
+ */
+export function effectsForLook(
+  lookIds: readonly string[],
+  savedPresets: unknown,
+): { items: EffectStackItem[]; unknown: string[] } {
+  const saved = Array.isArray(savedPresets) ? savedPresets : []
+  const items: EffectStackItem[] = []
+  const unknown: string[] = []
+  for (const id of lookIds) {
+    const builtIn = BUILT_IN_EFFECT_STACKS.find(stack => stack.id === id)
+    const mine = saved.find((p: any) => p && p.id === id && Array.isArray(p.data?.effects))
+    const effects: unknown[] = builtIn ? builtIn.effects : mine ? (mine as any).data.effects : []
+    if (!builtIn && !mine) { unknown.push(id); continue }
+    for (const e of effects as any[]) {
+      if (e && typeof e.id === 'string') items.push({ id: e.id, ...(e.params && typeof e.params === 'object' ? { params: { ...e.params } } : {}) })
+    }
+  }
+  return { items, unknown }
+}
+
+/**
+ * Give a new episode its channel's look (Music Formula `episodeDefaults.effects_look`)
+ * as whole-episode effects — ONLY when the episode has no effects file yet, so
+ * a look never overwrites what the owner set, and re-building an episode never
+ * re-adds effects he removed. Returns what it did, for the caller to announce.
+ */
+export async function seedEpisodeEffectsFromLook(
+  episodeDir: string,
+  lookIds: readonly string[],
+  savedPresets: unknown,
+): Promise<{ seeded: boolean; added: number; unknown: string[] }> {
+  if (!lookIds.length || existsSync(episodeEffectsPath(episodeDir))) return { seeded: false, added: 0, unknown: [] }
+  const { items, unknown } = effectsForLook(lookIds, savedPresets)
+  if (!items.length) return { seeded: false, added: 0, unknown }
+  await writeEpisodeEffects(episodeDir, {
+    episode: items.map((item, i) => ({ uid: `${item.id}-${i + 1}`, id: item.id, enabled: true, ...(item.params ? { params: item.params } : {}) })),
+  })
+  return { seeded: true, added: items.length, unknown }
 }

@@ -36,7 +36,13 @@
       <p class="text-muted text-sm">
         Overlays composite on top of the finished picture, in the order listed.
         They are drawn before captions, so a scrim makes captions easier to read
-        instead of covering them.
+        instead of covering them. Effects chosen here go on every episode that
+        uses this Effects preset; rain, fog, grade and the other atmosphere
+        effects take their place in the layer groups (under the vignette and grain).
+      </p>
+      <p class="text-muted text-sm">
+        To put effects on one scene, see them move live, or set their order, open the
+        <NuxtLink :to="effectsLibraryLink">Effects Library</NuxtLink> — what you set there is saved with the episode and rendered here.
       </p>
 
       <div v-for="group in catalog.grouped_overlays" :key="group.category" class="effect-group mt-2">
@@ -105,10 +111,25 @@
                   @input="setParam(entry, field.key, Number(($event.target as HTMLInputElement).value))"
                 />
                 <input
-                  v-else-if="field.type === 'color'"
+                  v-else-if="field.type === 'color' || (field.type === 'nullable-color' && paramValue(entry, field.key))"
                   type="color"
                   :value="paramValue(entry, field.key)"
                   @input="setParam(entry, field.key, ($event.target as HTMLInputElement).value.toUpperCase())"
+                />
+                <button
+                  v-else-if="field.type === 'nullable-color'"
+                  type="button"
+                  class="btn btn-sm btn-ghost"
+                  @click="setParam(entry, field.key, '#8AB8FF')"
+                >Add</button>
+                <input
+                  v-else-if="field.type === 'seed'"
+                  type="number"
+                  class="input input-sm"
+                  :min="field.min"
+                  :max="field.max"
+                  :value="paramValue(entry, field.key)"
+                  @change="setParam(entry, field.key, Number(($event.target as HTMLInputElement).value))"
                 />
                 <input
                   v-else-if="field.type === 'text'"
@@ -139,6 +160,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { effectParamFields, type ParamField } from '@shared/effect-params'
 
 interface OverlayEntry {
   id: string
@@ -193,7 +215,15 @@ const GROUP_LABELS: Record<string, string> = {
   framing: 'Framing',
   title: 'Titles',
   brand: 'Branding',
+  weather: 'Weather',
+  atmosphere: 'Atmosphere',
+  grade: 'Colour grade',
 }
+
+const effectsLibraryLink = computed(() => ({
+  path: `/projects/${props.slug}/effects-library`,
+  ...(props.episodeId ? { query: { episode: props.episodeId } } : {}),
+}))
 function groupLabel(category: string): string {
   return GROUP_LABELS[category] || category
 }
@@ -258,71 +288,16 @@ function setParam(entry: OverlayEntry, key: string, value: unknown): void {
   delete previewUrls[entry.id]
 }
 
-interface Field {
-  key: string
-  label: string
-  type: 'number' | 'color' | 'text' | 'select'
-  min?: number
-  max?: number
-  step?: number
-  options?: string[]
-}
-
-const ANCHORS = [
-  'top-left', 'top-center', 'top-right',
-  'center-left', 'center', 'center-right',
-  'bottom-left', 'bottom-center', 'bottom-right',
-]
-
 /**
  * Which controls one effect shows.
  *
- * Keyed by KIND, not by effect id, so a new effect of an existing kind gets its
- * controls for free — and a new kind is the only thing that needs a line here.
+ * v1.5 — the table moved to `@shared/effect-params` so this picker and the
+ * Effects Library page show the same controls with the same ranges as the
+ * normaliser. Still keyed by KIND (and, for atmosphere loops, by variant), so a
+ * new effect of an existing kind needs no UI change.
  */
-const FIELDS_BY_KIND: Record<string, Field[]> = {
-  vignette: [
-    { key: 'intensity', label: 'Strength', type: 'number', min: 0, max: 1, step: 0.05 },
-  ],
-  'film-grain': [
-    { key: 'amount', label: 'Amount', type: 'number', min: 0, max: 100, step: 1 },
-  ],
-  'light-leak': [
-    { key: 'color_hex', label: 'Colour', type: 'color' },
-    { key: 'intensity', label: 'Strength', type: 'number', min: 0, max: 1, step: 0.05 },
-    { key: 'softness', label: 'Softness', type: 'number', min: 0, max: 1, step: 0.05 },
-    { key: 'from_anchor', label: 'Starts at', type: 'select', options: ANCHORS },
-    { key: 'to_anchor', label: 'Drifts to', type: 'select', options: ANCHORS },
-  ],
-  letterbox: [
-    { key: 'ratio', label: 'Aspect ratio', type: 'select', options: ['2.35:1', '2.00:1', '1.85:1', 'custom'] },
-    { key: 'bar_share', label: 'Bar depth (custom only)', type: 'number', min: 0, max: 0.4, step: 0.01 },
-  ],
-  'lower-third': [
-    { key: 'title', label: 'Title', type: 'text' },
-    { key: 'subtitle', label: 'Subtitle', type: 'text' },
-    { key: 'title_size_px', label: 'Title size', type: 'number', min: 8, max: 200, step: 1 },
-    { key: 'anchor', label: 'Position', type: 'select', options: ANCHORS },
-    { key: 'margin_px', label: 'Margin', type: 'number', min: 0, max: 400, step: 4 },
-  ],
-  'corner-logo': [
-    { key: 'image_path', label: 'Image path', type: 'text' },
-    { key: 'anchor', label: 'Corner', type: 'select', options: ANCHORS },
-    { key: 'width_pct', label: 'Width', type: 'number', min: 0.01, max: 1, step: 0.01 },
-    { key: 'opacity', label: 'Opacity', type: 'number', min: 0, max: 1, step: 0.05 },
-    { key: 'margin_px', label: 'Margin', type: 'number', min: 0, max: 400, step: 4 },
-  ],
-  'gradient-scrim': [
-    { key: 'edge', label: 'Edge', type: 'select', options: ['top', 'bottom', 'left', 'right'] },
-    { key: 'color_hex', label: 'Colour', type: 'color' },
-    { key: 'opacity', label: 'Strength', type: 'number', min: 0, max: 1, step: 0.05 },
-    { key: 'coverage', label: 'Reach', type: 'number', min: 0.02, max: 1, step: 0.02 },
-    { key: 'steps', label: 'Smoothness', type: 'number', min: 2, max: 64, step: 1 },
-  ],
-}
-
-function fieldsFor(entry: OverlayEntry): Field[] {
-  return FIELDS_BY_KIND[entry.document.kind] || []
+function fieldsFor(entry: OverlayEntry): ParamField[] {
+  return effectParamFields({ ...entry.document, ...(applied(entry)?.params || {}) } as any)
 }
 
 /**

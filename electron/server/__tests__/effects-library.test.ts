@@ -346,6 +346,21 @@ describe('episode stacks — whole episode, theme runs and single scenes', () =>
     assert.deepEqual(custom.entries.map(e => e.uid), ['v', 'r', 'g'])
   })
 
+  test('Custom order places a scene effect under the whole-episode stack when its order says so', () => {
+    const file = normalizeEpisodeEffects({
+      custom_order: true,
+      episode: [{ uid: 'fog', id: 'ground-mist', order: 10 }],
+      scenes: [{ scene_id: 's1', effects: [{ uid: 'rain', id: 'rain', order: 5 }] }],
+    })
+    const custom = resolveEpisodeEffectStack({ file, library, windows, duration: 300 })
+    assert.deepEqual(custom.entries.map(e => e.uid), ['rain', 'fog'])
+    // In layer groups the same orders only decide places inside a group: weather stays under mist.
+    const grouped = resolveEpisodeEffectStack({ file: { ...file, custom_order: false }, library, windows, duration: 300 })
+    assert.deepEqual(grouped.entries.map(e => e.uid), ['rain', 'fog'])
+    const swapped = normalizeEpisodeEffects({ ...file, custom_order: false, scenes: [{ scene_id: 's1', effects: [{ uid: 'rain', id: 'rain', order: 50 }] }] })
+    assert.deepEqual(resolveEpisodeEffectStack({ file: swapped, library, windows, duration: 300 }).entries.map(e => e.uid), ['rain', 'fog'])
+  })
+
   test('only the project look\'s new kinds join; a missing pack effect is reported as one', () => {
     const result = resolveEpisodeEffectStack({
       file: normalizeEpisodeEffects({ episode: [{ uid: 'p', id: 'com.example.pack.rain' }] }),

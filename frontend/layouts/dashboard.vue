@@ -105,6 +105,7 @@
               <span v-if="allActiveJobCount > 0" class="nav-badge">{{ allActiveJobCount }}</span>
             </NuxtLink>
             <NuxtLink :to="{ path: '/character-library', query: { channel: slug, project: slug } }" class="nav-item" active-class="active">Channel Characters</NuxtLink>
+            <NuxtLink :to="`/projects/${slug}/effects-library`" class="nav-item" active-class="active">Effects Library</NuxtLink>
             <NuxtLink :to="`/projects/${slug}/presets`" class="nav-item" active-class="active">Presets</NuxtLink>
             <NuxtLink :to="{ path: '/broll-library', query: { project: slug } }" class="nav-item" active-class="active">Assets Library</NuxtLink>
             <NuxtLink :to="`/projects/${slug}/image-pool`" class="nav-item" active-class="active">Image Pool</NuxtLink>

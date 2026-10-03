@@ -265,6 +265,22 @@ describe('Effects Library routes', { skip: !ffmpegAvailable && 'no bundled FFmpe
     assert.deepEqual(job.output_lines, [])
   })
 
+  test('a channel look seeds a NEW episode once, and never touches an episode that has effects', async () => {
+    const { seedEpisodeEffectsFromLook, readEpisodeEffects } = await import('../services/episode-effects.js')
+    const dir = path.join(temp.dir, 'fresh-episode')
+    await fs.mkdir(dir, { recursive: true })
+    const saved = [{ id: 'preset-mine', data: { effects: [{ id: 'snow', params: { amount: 12 } }] } }]
+    const first = await seedEpisodeEffectsFromLook(dir, ['stack-snowy-cabin', 'preset-mine', 'gone'], saved)
+    assert.equal(first.seeded, true)
+    assert.deepEqual(first.unknown, ['gone'])
+    const file = await readEpisodeEffects(dir)
+    assert.deepEqual(file.episode.map(e => e.id), ['colour-grade-look', 'snow', 'candle-flicker', 'vignette-soft', 'snow'])
+    assert.equal(file.episode[4]!.params!.amount, 12)
+    const again = await seedEpisodeEffectsFromLook(dir, ['stack-rainy-night'], saved)
+    assert.equal(again.seeded, false)
+    assert.equal((await readEpisodeEffects(dir)).episode.length, 5)
+  })
+
   test('an unreadable stack file stops the render by name instead of rendering without it', async () => {
     const { resolveEpisodeStackForRender } = await import('../generators/video.js')
     const dir = path.join(temp.dir, 'broken-episode')
