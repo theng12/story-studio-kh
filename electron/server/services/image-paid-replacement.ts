@@ -211,7 +211,8 @@ export function resolvePaidImagePublishedRate(input: {
     fail('normal work cannot use reference identity')
   }
   const model = input.models.find(candidate => candidate.id === input.modelId)
-  if (!model || !model.available || model.qualification_only || model.chargeable !== true) fail('the original image model is not currently chargeable')
+  // Availability, not price: a free model on the owner's Macs (`chargeable: false`) can be replaced too.
+  if (!model || !model.available || model.qualification_only) fail('the original image model is not currently available')
   const rows = (model.output_options || []).filter((row) => (
     row.resolution === input.original.selector.resolution
     && row.aspect_ratio === input.original.selector.aspect_ratio

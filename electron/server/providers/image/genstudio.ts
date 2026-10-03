@@ -96,7 +96,8 @@ const genstudioImageProvider: ImageProvider = {
     }
 
     const requestedReferences = (request.referenceImagePaths || []).filter(Boolean)
-    if (requestedReferences.length && (!supportsReferences || !model.chargeable)) {
+    // Capability, not price: a free model on the owner's Macs (`chargeable: false`) takes references too.
+    if (requestedReferences.length && !supportsReferences) {
       throw new Error('The selected Gateway image model does not support private reference-image generation. Choose a reference-capable model.')
     }
     // Submit as many references as the model publishes room for, not the one

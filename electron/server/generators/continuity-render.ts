@@ -189,14 +189,6 @@ export function planEpisodeReference(input: {
   availablePaths: string[]
   supportsReferences: boolean
   maxReferences: number
-  /**
-   * `providers/image/genstudio.ts` refuses a reference on a product that is
-   * not chargeable, in the same breath as one that publishes no support. Both
-   * refusals have to be anticipated HERE, because reaching the provider with a
-   * reference it will refuse does not degrade — it fails every scene in the
-   * batch.
-   */
-  chargeable: boolean
   modelName: string
 }): EpisodeReferencePlan {
   if (!input.enabled) return { sourcePath: '', note: '' }
@@ -208,10 +200,9 @@ export function planEpisodeReference(input: {
         `(${EPISODE_REFERENCE_FILENAMES.join(' or ')}). Rendering from the prompt text only.`,
     }
   }
-  if (!input.supportsReferences || input.maxReferences < 1 || !input.chargeable) {
-    const reason = input.chargeable
-      ? `publishes no reference-image support (max_reference_images: ${Math.max(0, input.maxReferences)})`
-      : 'is not chargeable, and the Gateway accepts private reference images only on chargeable products'
+  // Capability only, never price: a free model on the owner's Macs uses the anchor like a paid one.
+  if (!input.supportsReferences || input.maxReferences < 1) {
+    const reason = `publishes no reference-image support (max_reference_images: ${Math.max(0, input.maxReferences)})`
     return {
       sourcePath: '',
       note: `Episode anchor is switched on, but '${input.modelName}' ${reason}. ` +
@@ -389,7 +380,6 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
     availablePaths: availableReferences,
     supportsReferences,
     maxReferences,
-    chargeable: modelConfig.chargeable !== false,
     modelName: model,
   })
   if (referencePlan.note) job.output_lines.push(referencePlan.note)
