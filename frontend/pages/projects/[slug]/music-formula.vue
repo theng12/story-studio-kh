@@ -188,9 +188,10 @@
               <span class="mp-lbl">Starting effects look</span>
               <div class="mp-row">
                 <span v-for="(x, i) in e.effects_look" :key="x" class="mp-chip">{{ x }} <button type="button" class="mp-x" :aria-label="`Remove ${x}`" @click="e.effects_look.splice(i, 1)">×</button></span>
-                <AddChip label="+ Add Effect Preset" placeholder="Effect preset name" @add="v => addUnique(e.effects_look, v)" />
+                <button v-for="x in STACKS.filter(id => !e.effects_look.includes(id))" :key="x" type="button" class="mp-chip" @click="addUnique(e.effects_look, x)">+ {{ x.replace(/^stack-/, '').replace(/-/g, ' ') }}</button>
+                <AddChip label="+ Saved Preset…" placeholder="Saved effect stack preset id" @add="v => addUnique(e.effects_look, v)" />
               </div>
-              <p class="mp-hint">Effect presets come from the Effects Library; type a preset's name.</p>
+              <p class="mp-hint">Effect stack presets from the Effects Library, laid over a new episode once; the episode's own edits always win.</p>
             </div>
           </div>
         </section>
@@ -275,6 +276,8 @@ const saved = ref(false)
 const pickingKeys = ref(false)
 const allWorlds = ref(false)
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v))
+// The Effects Library's built-in stack presets (feat/music-effects, INTERFACES.md 2026-10-03).
+const STACKS = ['stack-rainy-night', 'stack-snowy-cabin', 'stack-summer-meadow', 'stack-firelight', 'stack-starry-night', 'stack-misty-morning']
 const f = reactive<any>(clone(STARTING_SONG_FORMULA))
 const e = reactive<any>(clone(STARTING_EPISODE_DEFAULTS))
 let snapshot = ''
