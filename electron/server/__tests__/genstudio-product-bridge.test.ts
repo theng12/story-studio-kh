@@ -17,7 +17,6 @@ import {
   outlineOutputContract,
   scenePromptPackOutputContract,
   thumbnailPromptsOutputContract,
-  videoPromptsOutputContract,
 } from '../lib/story-output-contracts.js'
 import { resolveGenStudioModelId } from '../services/genstudio-model-migration.js'
 
@@ -578,18 +577,6 @@ test('story workflow schemas accept complete output and reject partial output', 
       partial: { thumbnails: [{ title: 'First', prompt: 'A moonlit road.' }] },
     },
     {
-      contract: videoPromptsOutputContract(2),
-      valid: {
-        scenes: [
-          { number: 1, title: 'First', prompt: 'Slow dolly toward a moonlit road.' },
-          { number: 2, title: 'Second', prompt: 'Static shot inside a quiet library.' },
-        ],
-      },
-      partial: {
-        scenes: [{ number: 1, title: 'First', prompt: 'Slow dolly toward a moonlit road.' }],
-      },
-    },
-    {
       contract: scenePromptPackOutputContract(['scene-1', 'scene-2'], 'visual'),
       valid: {
         results: [
@@ -647,14 +634,9 @@ test('Gateway errors remain distinct and actionable', () => {
 })
 
 test('story generation contains no hidden language-product fallback', () => {
-  const videoPromptRoute = readFileSync(
-    new URL('../routes/ai-video.ts', import.meta.url),
-    'utf8',
-  )
   const episodeGenerator = readFileSync(
     new URL('../generators/episode.ts', import.meta.url),
     'utf8',
   )
-  assert.doesNotMatch(videoPromptRoute, /model\s*\|\|\s*['"]genstudio-chat:/)
   assert.doesNotMatch(episodeGenerator, /style\s*===\s*['"]custom['"]\s*\?\s*['"]deepseek/)
 })

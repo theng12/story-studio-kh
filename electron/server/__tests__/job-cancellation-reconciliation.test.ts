@@ -930,7 +930,7 @@ test('cold persisted cancellation reconciles outside a generation lane and retai
   }
   try {
     let unrelatedRan = false
-    jq.registerExecutor('script-only', async () => { unrelatedRan = true })
+    jq.registerExecutor('chapter-only', async () => { unrelatedRan = true })
     await jq.getJobs(project.slug)
     const deadline = Date.now() + 1_000
     while (Date.now() < deadline && jq.getJob('cold-cancel')?.remote_cancellations?.['voice.tts:provider-1']?.status !== 'requested') {
@@ -942,7 +942,7 @@ test('cold persisted cancellation reconciles outside a generation lane and retai
     assert.equal(jq.isDuplicate(project.slug, 'EP0001', 'audio'), true)
     assert.equal(jq.removeTerminalJob(project.slug, restored.job_id), false)
     assert.throws(() => jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'audio', episode_id: 'EP0001', title: 'duplicate', params: {} }))
-    const unrelated = jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'script-only', episode_id: 'EP0099', title: 'unrelated', params: {} })
+    const unrelated = jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'chapter-only', episode_id: 'EP0099', title: 'unrelated', params: {} })
     while (Date.now() < deadline && !unrelatedRan) await new Promise(resolve => setTimeout(resolve, 10))
     assert.equal(unrelatedRan, true)
     while (Date.now() < deadline && jq.getJob(unrelated.job_id)?.status === 'running') await new Promise(resolve => setTimeout(resolve, 10))

@@ -54,7 +54,7 @@
       <div v-if="ownsVoice" class="niche-owns" title="This niche provides its own complete voice, independent of the format.">
         ✓ Defines the series voice<span v-if="selected.titleShapeRules?.length"> · title style</span><span v-if="selected.narratorStyles?.length"> · narrator picker</span>
       </div>
-      <details class="niche-preview">
+      <details class="niche-preview disclosure">
         <summary>Preview formula context</summary>
         <div class="preview-grid">
           <div v-if="selected.scriptContext" class="preview-row">
@@ -80,7 +80,7 @@
     <div v-if="error" class="niche-error">
       Failed to load Series Formulas: {{ formatErr(error) }}
       <button type="button" class="btn btn-ghost btn-sm" :disabled="isLoading" @click="refresh()">
-        {{ isLoading ? 'Retrying…' : 'Try again' }}
+        {{ isLoading ? 'Retrying…' : 'Try Again' }}
       </button>
     </div>
   </div>
@@ -98,7 +98,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
-  'change': [niche: Niche | null]
 }>()
 
 const { niches, isLoading, error, find, refresh } = useNiches()
@@ -125,8 +124,6 @@ function displayName(niche: Niche): string {
 
 function onSelect(id: string) {
   emit('update:modelValue', id)
-  const n = id ? find(id) : null
-  emit('change', n ?? null)
 }
 
 function formatErr(e: any): string {

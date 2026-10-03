@@ -9,13 +9,6 @@
  * timecode/relative-time helpers the YouTube tabs need.
  */
 
-export function formatNumber(n: number): string {
-  if (!n) return '0'
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
-  if (n >= 10_000) return (n / 1_000).toFixed(0) + 'K'
-  return n.toLocaleString()
-}
-
 export function formatMinutes(m: number): string {
   if (m < 60) return `${Math.round(m)}m`
   const h = Math.floor(m / 60)

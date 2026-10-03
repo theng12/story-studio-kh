@@ -17,7 +17,7 @@
         <p>{{ activeRecipe?.description || 'Browse reusable composition systems, compare generated examples, and choose one without expanding the page.' }}</p>
       </div>
       <button type="button" class="btn btn-primary recipe-picker-browse" @click="libraryOpen = true">
-        {{ activeRecipe ? 'Change recipe' : 'Browse recipes' }}
+        {{ activeRecipe ? 'Change Recipe' : 'Browse Recipes' }}
       </button>
     </div>
 

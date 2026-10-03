@@ -32,7 +32,7 @@ describe('Scene Plan workspace', () => {
     assert.match(scenePlan, /runPromptStage\('motion', effectivePromptPackSize\)/)
     assert.match(scenePlan, /Uses the same \{\{ effectivePromptPackSize \}\}-scene request size saved for visual prompts/)
     assert.doesNotMatch(scenePlan, /effectiveMotionPromptPackSize/)
-    assert.match(scenePlan, /class="scene-advanced-batches"/)
+    assert.match(scenePlan, /class="scene-advanced-batches disclosure"/)
     assert.match(scenePlan, /<VisualTimingMotion/)
     assert.match(scenePlan, /id="visual-timing"/)
     assert.match(scenePlan, /@saved="applyVisualSettings"/)

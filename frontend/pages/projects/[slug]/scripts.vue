@@ -31,13 +31,12 @@
       </p>
     </div>
 
-    <InheritedLlmLineupNotice :project-slug="slug" />
 
     <!-- v1.0.269 — Bring your own: paste a finished script or an outline and
          inject it into this episode, skipping format-shaped generation. -->
     <section v-if="form.episode_id" class="card workspace-section byo-card">
       <button class="byo-head" @click="byoOpen = !byoOpen">
-        <span><strong>{{ byoOpen ? '▾' : '▸' }} ✍️ Bring your own</strong> — paste a script or outline</span>
+        <span><strong><span class="ds-chevron" :class="{ 'is-open': byoOpen }" aria-hidden="true" /> ✍️ Bring your own</strong> — paste a script or outline</span>
         <span class="text-muted text-xs">skip generation; inject directly into the flow</span>
       </button>
       <div v-if="byoOpen" class="byo-body mt-2">
@@ -62,7 +61,7 @@
           </span>
         </div>
         <button class="btn btn-primary btn-sm" :disabled="byoImporting || !byoText.trim()" @click="importContent">
-          {{ byoImporting ? 'Importing…' : (byoMode === 'script' ? 'Import script' : 'Import outline') }}
+          {{ byoImporting ? 'Importing…' : (byoMode === 'script' ? 'Import Script' : 'Import Outline') }}
         </button>
       </div>
     </section>
@@ -151,7 +150,7 @@
            mandatory decision on every run. -->
       <div class="grid-2 mt-2">
         <div class="form-group">
-          <ModelSelector v-model="form.model" :project-slug="slug" @model-meta="onScriptModelMeta" />
+          <ModelSelector v-model="form.model" :project-slug="slug" writing-step @model-meta="onScriptModelMeta" />
           <!-- Published rate for the SELECTED product, never a total: script
                length in tokens is unknown until the model has written it. -->
           <p v-if="selectedChatModel" class="script-rate" :class="`basis-${chatRateNote.basis}`" :title="chatRateNote.title">
@@ -187,10 +186,10 @@
             <textarea v-model="customStyleText" class="textarea style-textarea"
               placeholder="Describe the narrator's tone, perspective, and personality..." />
             <div class="flex gap-2 mt-1" v-if="form.style === 'custom'">
-              <button class="btn btn-sm btn-secondary" @click="saveCustomStyle">Save as preset</button>
+              <button class="btn btn-sm btn-secondary" @click="saveCustomStyle">Save as Preset</button>
             </div>
           </div>
-          <button v-if="narratorOverrideOpen && form.style !== 'custom' && form.style !== 'auto' && !showStyleDesc" class="btn-icon style-desc-toggle style-desc-show" @click="showStyleDesc = true">View description</button>
+          <button v-if="narratorOverrideOpen && form.style !== 'custom' && form.style !== 'auto' && !showStyleDesc" class="btn-icon style-desc-toggle style-desc-show" @click="showStyleDesc = true">View Description</button>
         </div>
 
       </div>
@@ -261,7 +260,7 @@
             class="link-btn niche-overlay-toggle"
             @click="showNicheOverlayDetail = !showNicheOverlayDetail"
           >
-            {{ showNicheOverlayDetail ? 'Hide detail' : 'See what changed' }} {{ showNicheOverlayDetail ? '↑' : '↓' }}
+            {{ showNicheOverlayDetail ? 'Hide Detail' : 'See What Changed' }} {{ showNicheOverlayDetail ? '↑' : '↓' }}
           </button>
         </div>
         <div class="niche-overlay-chips">
@@ -570,6 +569,7 @@
       :form="form"
       :refresh-key="outlineRefreshKey"
       :style-labels="narratorStyleLabels"
+      :custom-style-text="customStyleText"
       @expansion-queued="onExpansionQueued"
       @outline-loaded="onOutlineLoaded"
     />
@@ -807,7 +807,6 @@ function onOutlineLoaded(payload: {
   }
   if (payload.lengthMinutes && payload.lengthMinutes > 0) {
     form.length = payload.lengthMinutes
-    durationSelect.value = standardDurationSet.value.has(form.length) ? String(form.length) : 'custom'
   }
   if (payload.style) form.style = payload.style
   if (payload.perspective) form.perspective = payload.perspective
@@ -835,7 +834,6 @@ const wordsPerMinute = computed<number>(() => {
   const fmtWpm = formatContext.value?.defaultWordsPerMinute
   return typeof fmtWpm === 'number' && fmtWpm > 0 ? fmtWpm : LEGACY_WORDS_PER_MINUTE
 })
-const durationSelect = ref('custom')
 const showStyleDesc = ref(false)
 const customStyleText = ref('')
 const narratorOverrideOpen = ref(false)
@@ -881,14 +879,12 @@ const form = reactive({
   chapters: Number(route.query.chapters) || 0,
   total_words: 0,
   words_per_chapter: 0,
-  generate_image_prompts: false,
-  generate_youtube_desc: false,
   force: false,
   // v1.0.165 — pattern_id / pattern_subject removed with the Pattern
   // system. Title shaping now happens at idea-time via the Ideas page's
   // title-template field; the script generator reads format + niche.
   // Character primitive (Phase 5): optional cast — selected ids flow through
-  // /generate/script-only so the LLM uses these names + descriptions.
+  // /generate/outline-only so the LLM uses these names + descriptions.
   character_ids: [] as string[],
   // v1.0.297 — optional free-text producer guidance. Injected into the outline
   // + every chapter prompt: ad-hoc character names, a setting, tone notes, or
@@ -902,7 +898,7 @@ const form = reactive({
 // the idea per-episode (route query), and character_ids / force are per-run, so
 // none of those are persisted.
 useRememberedForm('scripts', slug, form, {
-  include: ['model', 'style', 'generate_image_prompts', 'generate_youtube_desc'],
+  include: ['model', 'style'],
 })
 
 // Saved model ids are only preferences. Keep every generation action disabled
@@ -1172,19 +1168,6 @@ async function clearRecencyLog() {
   }
 }
 
-// v1.0.101+ — Duration dropdown options are now format-driven.
-// For broll-narration (prayer / devotional / motivation projects) the
-// list becomes [5, 8, 10, 15, 20, 30] instead of the sleep-story
-// [15, 20, 30, 45, 60, 90]. Falls back to the legacy set when the
-// format JSON doesn't carry durationPresets (back-compat for any
-// custom user formats that haven't been updated yet).
-const LEGACY_DURATION_PRESETS = [15, 20, 30, 45, 60, 90]
-const durationOptions = computed<number[]>(() => {
-  const presets = formatContext.value?.durationPresets
-  return Array.isArray(presets) && presets.length > 0 ? presets : LEGACY_DURATION_PRESETS
-})
-const standardDurationSet = computed<Set<number>>(() => new Set(durationOptions.value))
-
 // Recommended words/chapter at the format's own default length + chapter
 // count. Shown alongside the user's current wpc so they can see at a
 // glance whether they've drifted from "what this format normally does."
@@ -1348,12 +1331,6 @@ async function applyScriptFormatDefaultsIfNoPreset(episodeId = form.episode_id, 
       chaptersPinned: chaptersFromUrl,
     })
     if (!applied) return
-    // Snap the duration dropdown back to a known option so the UI doesn't
-    // flash 'custom' when the format default matches a value in the
-    // format's own preset list. v1.0.101+: uses the format's
-    // durationPresets (via standardDurationSet computed) so broll-narration
-    // selects "10 minutes" instead of falling through to "Custom...".
-    durationSelect.value = standardDurationSet.value.has(form.length) ? String(form.length) : 'custom'
 
     // v1.0.105+ — second fetch for the niche so the overlay indicator
     // can show what the niche is overriding on top of the format. The
@@ -1482,7 +1459,7 @@ onMounted(loadCustomStyles)
 const { jobs } = useJobs()
 const seenDoneJobs = new Set<string>()
 const watchedScriptTypes = new Set<string>([
-  'script-only', 'introduction-only', 'outline_only', 'expand_chapters', 'chapter-only',
+  'introduction-only', 'outline_only', 'expand_chapters', 'chapter-only',
 ])
 
 // v1.0.115+ — per-episode "is a script-related job in flight" computed.
@@ -1650,29 +1627,6 @@ const canSubmit = computed(() => {
   })
 })
 
-// Standard duration values shown in the Duration dropdown. Used only to
-// decide whether the current form.length matches a dropdown option (vs
-// 'custom'). The old `durationRefs` table also pinned a hardcoded chapter
-// count + word count per duration — those were sleep-story-flavoured
-// (45min → 10 chapters → 5500 words) and have been removed in favour of
-// format-driven defaults seeded once in applyScriptFormatDefaultsIfNoPreset.
-// Per-episode overrides flow through the editable inputs below.
-//
-// v1.0.101+ — the old hardcoded STANDARD_DURATIONS = {15,20,30,45,60,90}
-// constant is gone. The "is this a standard preset?" check now reads
-// from `standardDurationSet` (computed from the format's
-// durationPresets), so broll-narration's 10 minute default no longer
-// flashes as "Custom..." on first paint.
-
-// Sync: Duration dropdown → total words (format-aware chapter count stays).
-// Words/chapter recomputes from the new total ÷ existing chapters so a
-// user changing duration doesn't accidentally reset the chapter count
-// they (or the format default / preset) chose.
-//
-// `fromUser=true` (the default for the dropdown's @change handler) marks
-// the sizing as touched so subsequent episode picks won't overwrite. The
-// internal callers (onEpisodeSelected) pass `false` so the auto-applied
-// suggestion doesn't lock out the next swap.
 // v1.0.168 — Sizing model. TWO inputs only: chapter count + words-per-chapter.
 // Total words + the duration estimate are DERIVED and read-only. There is no
 // cross-recalc — changing the chapter count NEVER rewrites your per-chapter
@@ -1691,10 +1645,6 @@ function recomputeDerivedSizing() {
 // Retained: tells the page the user has taken control of sizing, so format
 // defaults + episode-swap suggestions stop overwriting their numbers.
 const userTouchedSizing = ref(false)
-// Retained for back-compat with code that references primaryField; with the
-// derived model there is no longer a "primary" field, but the ref keeps
-// existing call sites (e.g. setChaptersTo* helpers) compiling.
-const primaryField = ref<'chapters' | 'words_per_chapter' | 'total_words'>('words_per_chapter')
 
 // The two inputs only flag user control — they do NOT touch each other.
 function onChaptersChange() {
@@ -1900,7 +1850,7 @@ async function submitOutline(): Promise<boolean> {
             `The total depends on how long the prompts and the written text turn out to be, ` +
             `so no up-front figure is shown. The Gateway reports the actual charge on each finished job — see Usage.\n\n`) +
         `Each chapter is written to disk as soon as it's generated, so cancel / crash / restart preserves partial work.`,
-      confirmLabel: 'Generate outline',
+      confirmLabel: 'Generate Outline',
       cancelLabel: 'Cancel',
     })
     if (!ok) return false
@@ -2028,6 +1978,8 @@ onMounted(() => { setTimeout(() => { pageReadyForAutoIntro.value = true }, 1500)
 </script>
 
 <style scoped>
+/* Writing rows stay a readable width on wide screens (they spanned ~1600 px at 1920). */
+.scripts-workspace { --workspace-max: 1360px; }
 .script-rate { margin: 6px 0 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; }
 .script-rate.basis-unpublished { color: var(--warning, #d97706); }
 .script-rate.basis-free { color: var(--success, #16a34a); }

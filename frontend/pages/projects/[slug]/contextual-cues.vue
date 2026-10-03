@@ -28,7 +28,6 @@
       />
     </div>
 
-    <InheritedLlmLineupNotice :project-slug="slug" />
 
     <section class="card cues-command">
       <div class="cue-toggle-copy">
@@ -69,7 +68,7 @@
         <p>These settings are saved in presets. The model is used only to propose labels; it never changes your Scene Plan or final approved timing.</p>
       </div>
       <div class="cue-settings-controls">
-        <ModelSelector v-model="form.model" :project-slug="slug" label="Cue proposal model" />
+        <ModelSelector v-model="form.model" :project-slug="slug" writing-step label="Cue proposal model" />
         <label>Density
           <select v-model="form.density" class="select">
             <option value="restrained">Restrained — only key orientation</option>
@@ -95,7 +94,7 @@
               type="button"
               class="btn btn-sm btn-secondary"
               @click="form.position_x_pct = null; form.position_y_pct = null"
-            >Use the corner instead</button>
+            >Use the Corner Instead</button>
           </div>
           <div
             class="cue-frame cue-frame-default"
@@ -202,7 +201,7 @@
             >Approve all {{ proposedCount }}</button>
             <!-- Not disabled when everything is saved: pressing it then must
                  confirm that rather than look broken. -->
-            <button class="btn btn-secondary btn-sm" :disabled="saving" @click="saveTimeline">Save changes</button>
+            <button class="btn btn-secondary btn-sm" :disabled="saving" @click="saveTimeline">Save Changes</button>
           </div>
         </div>
         <p v-if="cueJobActive" class="cue-job-lock" role="status">A proposal is running — edits are paused until it finishes.</p>
@@ -283,7 +282,7 @@
                 class="btn btn-sm btn-secondary"
                 title="Apply this cue's position to every other cue on this episode"
                 @click="applyPositionToAll(cue)"
-              >Use everywhere</button>
+              >Use Everywhere</button>
             </div>
           </div>
           <div class="cue-actions">
@@ -819,7 +818,7 @@ const saveState = computed<'saving' | 'error' | 'unsaved' | 'saved'>(() => {
 })
 const saveStateLabel = computed(() => {
   if (saving.value) return 'Saving…'
-  if (saveError.value) return `Not saved — ${saveError.value} Your changes are still here; Save changes tries again.`
+  if (saveError.value) return `Not saved — ${saveError.value} Your changes are still here; Save Changes tries again.`
   if (dirty.value) return 'Unsaved changes — saving in a moment'
   return savedAt.value ? `Saved at ${savedAt.value}` : 'Saved'
 })
@@ -904,7 +903,7 @@ onMounted(async () => {
 .cue-default-position-copy p { margin:.2rem 0 .45rem; }
 .cue-axis-fields { display:grid; gap:.35rem; min-width:9rem; }
 .cue-axis-fields label { display:grid; gap:.15rem; color:var(--text-muted); font-size:var(--font-xs); }
-.cue-settings { display:grid; grid-template-columns:minmax(16rem, .85fr) minmax(30rem, 1.6fr); align-items:start; gap:1.5rem; margin-bottom:1rem; padding:1.25rem 1.5rem; }.cue-settings-controls { display:grid; grid-template-columns:minmax(16rem, 1.6fr) minmax(11rem, 1fr) minmax(9rem, .8fr); gap:1rem; align-items:end; }.cue-settings-controls > label { display:grid; gap:.4rem; color:var(--text-muted); font-size:.82rem; }.cue-auto-approve { grid-column:1/-1; display:flex !important; align-items:flex-start; gap:.55rem; padding:.55rem .65rem; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:.4rem; }.cue-auto-approve input { margin-top:.14rem; accent-color:var(--accent-gold); }.cue-auto-approve strong,.cue-auto-approve small { display:block; }.cue-auto-approve small { margin-top:.15rem; color:var(--text-muted); line-height:1.35; }
+.cue-settings { display:grid; grid-template-columns:minmax(16rem, .85fr) minmax(30rem, 1.6fr); align-items:start; gap:1.5rem; margin-bottom:1rem; padding:1.25rem 1.5rem; }.cue-settings-controls { display:grid; grid-template-columns:repeat(auto-fit, minmax(16rem, 1fr)); gap:1rem; align-items:end; }.cue-settings-controls > label .select { width:100%; min-width:0; }.cue-settings-controls > label { display:grid; gap:.4rem; color:var(--text-muted); font-size:.82rem; }.cue-auto-approve { grid-column:1/-1; display:flex !important; align-items:flex-start; gap:.55rem; padding:.55rem .65rem; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:.4rem; }.cue-auto-approve input { margin-top:.14rem; accent-color:var(--accent-gold); }.cue-auto-approve strong,.cue-auto-approve small { display:block; }.cue-auto-approve small { margin-top:.15rem; color:var(--text-muted); line-height:1.35; }
 .cue-auto-approve-notice { grid-column:1/-1; margin:0; }
 .cue-rows { display:contents; }
 .cue-job-lock { margin:0 0 .75rem; padding:.5rem .7rem; color:var(--text-primary); background:var(--accent-dim); border-radius:.35rem; font-size:.82rem; }
@@ -915,7 +914,7 @@ onMounted(async () => {
 .cue-save-state[data-state="unsaved"],.cue-save-state[data-state="saving"] { color:var(--accent-gold); }
 .cue-save-state[data-state="error"] { color:var(--warning); font-weight:600; }/* The placement column is wider than the old 11rem preview: it now has to
    show WHERE a label sits, which needs frame around the label to sit in. */
-.cue-row { display:grid; grid-template-columns:7.5rem 15rem minmax(20rem,1fr) auto; gap:1rem; padding:1rem 0; border-top:1px solid var(--border-color); }.cue-row.is-approved { border-left:3px solid var(--success); padding-left:.75rem; }.cue-row.is-disabled { opacity:.55; }.cue-time { color:var(--accent-gold); font-variant-numeric:tabular-nums; font-weight:700; padding-top:.55rem; }.cue-preview { min-height:4.8rem; display:flex; flex-direction:column; justify-content:center; gap:.13rem; padding:.65rem .8rem; color:#fff; background:#111827; border:1px solid #364152; border-radius:.45rem; overflow:hidden; }.cue-preview strong { font-size:.78rem; line-height:1.15; }.cue-preview small,.cue-preview-kicker { color:#b6c0d1; font-size:.6rem; letter-spacing:.08em; text-transform:uppercase; }.cue-preview-pin { color:#f4c75d; font-size:1rem; line-height:.7; }.preview-map-pin { border-left:3px solid #f4c75d; }.preview-archival-caption { color:#f4ead1; background:#2c211b; border-color:#66513f; font-family:Georgia,serif; }.preview-chapter-plate { text-align:center; background:linear-gradient(135deg,#111827,#2b3445); }.cue-fields { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }.cue-meta { grid-column:1/-1; display:flex; gap:.55rem; align-items:center; flex-wrap:wrap; }.cue-meta label { display:flex; gap:.3rem; align-items:center; color:var(--text-muted); font-size:.78rem; }.input-time { width:5.5rem; }.cue-actions { display:flex; gap:.4rem; align-items:start; }.is-active { outline:1px solid var(--accent-gold); }
+.cue-row { display:grid; grid-template-columns:7.5rem 15rem minmax(20rem,1fr) auto; gap:1rem; padding:1rem 0; border-top:1px solid var(--border-color); }.cue-row.is-approved { border-left:3px solid var(--success); padding-left:.75rem; }.cue-row.is-disabled { opacity:.55; }.cue-time { color:var(--accent-gold); font-variant-numeric:tabular-nums; font-weight:700; padding-top:.55rem; }.cue-preview { min-height:4.8rem; display:flex; flex-direction:column; justify-content:center; gap:.13rem; padding:.65rem .8rem; color:#fff; background:#111827; border:1px solid #364152; border-radius:.45rem; overflow:hidden; }.cue-preview strong { font-size:.78rem; line-height:1.15; }.cue-preview small,.cue-preview-kicker { color:#b6c0d1; font-size:.6rem; letter-spacing:.08em; text-transform:uppercase; }.cue-preview-pin { color:#f4c75d; font-size:1rem; line-height:.7; }.preview-map-pin { border-left:3px solid #f4c75d; }.preview-archival-caption { color:#f4ead1; background:#2c211b; border-color:#66513f; font-family:Georgia,serif; }.preview-chapter-plate { text-align:center; background:linear-gradient(135deg,#111827,#2b3445); }.cue-fields { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }.cue-meta { grid-column:1/-1; display:grid; grid-template-columns:repeat(auto-fill, minmax(9.5rem, 1fr)); gap:.45rem .55rem; align-items:center; }.cue-meta .select { width:100%; min-width:0; }.cue-meta label { display:flex; gap:.3rem; align-items:center; justify-content:space-between; color:var(--text-muted); font-size:.78rem; }.cue-meta label .input-time { width:auto; flex:1; min-width:0; }.input-time { width:5.5rem; }.cue-actions { display:flex; gap:.4rem; align-items:start; }.is-active { outline:1px solid var(--accent-gold); }
 @media (max-width:980px) { .cue-settings,.cue-settings-controls { grid-template-columns:1fr; } }
 @media (max-width:1000px) { .cue-row { grid-template-columns:7.5rem 1fr auto; }.cue-preview { grid-column:2; } }
 @media (max-width:800px) { .cues-command { align-items:stretch; flex-direction:column; }.cue-row { grid-template-columns:1fr; }.cue-preview { grid-column:auto; }.cue-fields { grid-template-columns:1fr; }.cue-actions { justify-content:flex-start; } }

@@ -16,7 +16,7 @@ before(async () => {
   cleanup = temp.cleanup
   pm = await import('../services/project-manager.js')
   jq = await import('../services/job-queue.js')
-  jq.registerExecutor('script-only', async () => {})
+  jq.registerExecutor('chapter-only', async () => {})
   await jq.setQueuePaused(true)
 })
 
@@ -30,7 +30,7 @@ function makeJob(projectSlug: string, index: number, status: Job['status'] = 'qu
   return {
     job_id: `evidence-${projectSlug}-${index}`,
     project_slug: projectSlug,
-    type: 'script-only',
+    type: 'chapter-only',
     episode_id: `EP${String(index).padStart(4, '0')}`,
     title: `Evidence ${index}`,
     status,
@@ -50,7 +50,7 @@ async function readJobs(file: string): Promise<Job[]> {
 async function createQueuedJobs(projectSlug: string, count: number): Promise<Job[]> {
   const created = Array.from({ length: count }, (_, index) => jq.enqueuePreparedForTest({
     project_slug: projectSlug,
-    type: 'script-only',
+    type: 'chapter-only',
     episode_id: `BURST-${index}`,
     title: `Burst ${index}`,
     params: {},

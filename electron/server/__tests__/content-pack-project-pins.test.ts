@@ -373,7 +373,7 @@ describe('exact project Content Pack pins', () => {
     assert.equal(plan.to.version, '1.1.0')
     assert.deepEqual(plan.changed_item_ids, [FORMULA_ID, TOPIC_ID])
     assert.ok(plan.affected_generation_types.includes('idea_campaign'))
-    assert.ok(plan.affected_generation_types.includes('script-only'))
+    assert.ok(plan.affected_generation_types.includes('chapter-only'))
 
     await applyProjectContentUpgrade(project.slug, PACK_ID, '1.1.0', options)
     assert.equal((await projectManager.getProject(project.slug))?.content_pack_versions?.[PACK_ID], '1.1.0')
@@ -411,7 +411,7 @@ describe('exact project Content Pack pins', () => {
     assert.deepEqual(await snapshotProjectContentPackProvenance(project.slug, 'audio', options), [])
     assert.deepEqual(await snapshotProjectContentPackProvenance(project.slug, 'research_run', options), [])
     assert.deepEqual(await snapshotProjectContentPackProvenance(project.slug, 'contextual_cues', options), [])
-    await assert.rejects(snapshotProjectContentPackProvenance(project.slug, 'script-only', options), (error: unknown) => {
+    await assert.rejects(snapshotProjectContentPackProvenance(project.slug, 'chapter-only', options), (error: unknown) => {
       assert.ok(error instanceof ContentPackMissingError)
       assert.equal(error.requirements[0]?.version, '9.9.9')
       return true
@@ -871,7 +871,7 @@ describe('exact project Content Pack pins', () => {
       archive_sha256: installed.archive_sha256,
       item_ids: [missingFormulaId],
     }])
-    await assert.rejects(snapshotProjectContentPackProvenance(project.slug, 'script-only', options), (error: unknown) => {
+    await assert.rejects(snapshotProjectContentPackProvenance(project.slug, 'chapter-only', options), (error: unknown) => {
       assert.ok(error instanceof ContentPackMissingError)
       assert.deepEqual(error.requirements[0]?.item_ids, [missingFormulaId])
       assert.deepEqual(error.requirements[0]?.item_kinds, ['series-formula'])
@@ -892,13 +892,13 @@ describe('exact project Content Pack pins', () => {
 
     let release!: () => void
     const blocked = new Promise<void>(resolve => { release = resolve })
-    jobQueue.registerExecutor('script-only', async () => {
+    jobQueue.registerExecutor('chapter-only', async () => {
       await blocked
       await formatLoader.getEffectiveFormat(project.slug)
     })
     const queued = await jobQueue.enqueue({
       project_slug: project.slug,
-      type: 'script-only',
+      type: 'chapter-only',
       episode_id: 'EP001',
       title: 'Pinned job',
       params: {},
@@ -939,13 +939,13 @@ describe('exact project Content Pack pins', () => {
     let release!: () => void
     const blocked = new Promise<void>(resolve => { release = resolve })
     let observedFormula = ''
-    jobQueue.registerExecutor('script-only', async () => {
+    jobQueue.registerExecutor('chapter-only', async () => {
       await blocked
       observedFormula = (await nicheLoader.loadNiche(FORMULA_ID, options))?.name || ''
     })
     const queued = await jobQueue.enqueue({
       project_slug: project.slug,
-      type: 'script-only',
+      type: 'chapter-only',
       episode_id: 'EP002',
       title: 'Frozen Formula',
       params: {},

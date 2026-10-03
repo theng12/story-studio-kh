@@ -43,7 +43,7 @@ describe('loadPersistedJobs — interrupt mutation must persist to disk', () => 
     const interruptedJob = {
       job_id: 'fake-disk-interrupt',
       project_slug: proj.slug,
-      type: 'script-only',
+      type: 'chapter-only',
       episode_id: 'EP001',
       title: 'old running job',
       status: 'running',

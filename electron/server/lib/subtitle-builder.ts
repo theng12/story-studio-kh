@@ -33,27 +33,6 @@ export interface Chapter {
   end_sec: number
 }
 
-/** Convert a list of chapters into a valid SRT string. Each chapter is one
- *  cue, displayed for the full chapter window. That matches how audiobook-
- *  style sleep stories tend to use subtitles (section markers, not word-
- *  for-word captions). For word-level subtitling, use Whisper instead. */
-export function chaptersToSrt(chapters: Chapter[], opts?: { max_lines?: number; max_chars_per_line?: number }): string {
-  const max_chars = opts?.max_chars_per_line ?? 42
-  const max_lines = opts?.max_lines ?? 2
-  const parts: string[] = []
-  let idx = 1
-  for (const c of chapters) {
-    if (c.end_sec <= c.start_sec) continue
-    const wrapped = wrapText(c.title, max_chars, max_lines)
-    parts.push(String(idx))
-    parts.push(`${formatSrtTime(c.start_sec)} --> ${formatSrtTime(c.end_sec)}`)
-    parts.push(wrapped)
-    parts.push('')
-    idx++
-  }
-  return parts.join('\n')
-}
-
 /** v1.0.143+ — Cue shape used by the parser + stitcher. Mirrors what
  *  callers expect from an SRT line (timestamps in seconds, payload
  *  text already unwrapped — newlines collapsed to spaces when callers

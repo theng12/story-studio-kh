@@ -79,7 +79,7 @@
         <LoadingSpinner v-if="saving" size="sm" />
         Save publishing profile
       </button>
-      <button class="btn btn-ghost" :disabled="saving || metadataTemplateLoading || !!metadataTemplateLoadError" @click="clearTpl">Clear profile (use Formula defaults)</button>
+      <button class="btn btn-ghost" :disabled="saving || metadataTemplateLoading || !!metadataTemplateLoadError" @click="clearTpl">Clear Profile (Use Formula Defaults)</button>
       <NuxtLink :to="`/projects/${slug}/metadata`" class="text-sm ml-auto">← Back to YouTube Finalizer</NuxtLink>
     </div>
 
@@ -153,7 +153,6 @@ interface MetadataFormula {
 }
 const formulas = ref<MetadataFormula[]>([])
 const selectedFormulaId = ref('')
-const formulasLoading = ref(false)
 const formulasError = ref('')
 const selectedFormula = computed(() => formulas.value.find(f => f.id === selectedFormulaId.value) || null)
 
@@ -183,7 +182,6 @@ async function loadFormulas(): Promise<void> {
   const scope = metadataTemplateScope
   const request = ++metadataFormulaRequest
   const current = () => projectSlug === slug.value && scope === metadataTemplateScope && request === metadataFormulaRequest
-  formulasLoading.value = true
   metadataFormulasLoading.value = true
   formulasError.value = ''
   try {
@@ -200,7 +198,6 @@ async function loadFormulas(): Promise<void> {
     metadataTemplateLoadError.value = `Could not load description formulas: ${formulasError.value}`
   } finally {
     if (current()) {
-      formulasLoading.value = false
       metadataFormulasLoading.value = false
     }
   }
@@ -284,7 +281,7 @@ async function clearTpl(): Promise<void> {
     title: 'Clear the publishing profile?',
     message: 'This removes the title wrapper, recurring description blocks and recurring tags for this channel. '
       + 'Episodes then use what the Series Formula writes. It cannot be undone.',
-    confirmLabel: 'Clear profile',
+    confirmLabel: 'Clear Profile',
     danger: true,
   })
   if (!confirmed) return

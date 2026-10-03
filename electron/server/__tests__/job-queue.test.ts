@@ -139,10 +139,10 @@ describe('enqueue()', () => {
   test('creates a job with generated UUID, status=queued', async () => {
     const proj = await pm.createProject({ name: 'JQ1' })
     // Register a no-op executor so the job doesn't actually run anything
-    jq.registerExecutor('script-only', async () => {})
+    jq.registerExecutor('chapter-only', async () => {})
     const job = jq.enqueuePreparedForTest({
       project_slug: proj.slug,
-      type: 'script-only',
+      type: 'chapter-only',
       episode_id: 'EP001',
       title: 'Test script',
       params: {},
@@ -150,18 +150,18 @@ describe('enqueue()', () => {
     assert.ok(job.job_id.length > 0)
     // Status might immediately become 'running' if queue was empty
     assert.ok(['queued', 'running', 'done'].includes(job.status))
-    assert.equal(job.type, 'script-only')
+    assert.equal(job.type, 'chapter-only')
     assert.equal(job.episode_id, 'EP001')
   })
 
   test('multiple jobs with different episode IDs coexist', async () => {
     const proj = await pm.createProject({ name: 'JQ2' })
-    jq.registerExecutor('script-only', async () => {})
+    jq.registerExecutor('chapter-only', async () => {})
     const j1 = jq.enqueuePreparedForTest({
-      project_slug: proj.slug, type: 'script-only', episode_id: 'EP001', title: 'a', params: {},
+      project_slug: proj.slug, type: 'chapter-only', episode_id: 'EP001', title: 'a', params: {},
     })
     const j2 = jq.enqueuePreparedForTest({
-      project_slug: proj.slug, type: 'script-only', episode_id: 'EP002', title: 'b', params: {},
+      project_slug: proj.slug, type: 'chapter-only', episode_id: 'EP002', title: 'b', params: {},
     })
     assert.notEqual(j1.job_id, j2.job_id)
   })
@@ -170,7 +170,7 @@ describe('enqueue()', () => {
 describe('isDuplicate()', () => {
   test('returns false when no pending/running job', async () => {
     const proj = await pm.createProject({ name: 'JQDup1' })
-    const dup = jq.isDuplicate(proj.slug, 'EP999', 'script-only')
+    const dup = jq.isDuplicate(proj.slug, 'EP999', 'chapter-only')
     assert.equal(dup, false)
   })
 
@@ -179,16 +179,16 @@ describe('isDuplicate()', () => {
     // Executor that never completes — keeps the job in 'running'
     let release!: () => void
     const block = new Promise<void>((r) => { release = r })
-    jq.registerExecutor('script-only', async () => await block)
+    jq.registerExecutor('chapter-only', async () => await block)
 
     jq.enqueuePreparedForTest({
-      project_slug: proj.slug, type: 'script-only', episode_id: 'EP001', title: 't', params: {},
+      project_slug: proj.slug, type: 'chapter-only', episode_id: 'EP001', title: 't', params: {},
     })
 
     // Give the queue a tick to pick up the job
     await new Promise((r) => setTimeout(r, 50))
 
-    const dup = jq.isDuplicate(proj.slug, 'EP001', 'script-only')
+    const dup = jq.isDuplicate(proj.slug, 'EP001', 'chapter-only')
     assert.equal(dup, true)
 
     // Clean up — release the blocked executor
@@ -273,9 +273,9 @@ describe('Scene Review and Pipeline render ownership', () => {
 describe('getJobs() / getQueueStats()', () => {
   test('returns all jobs for a project', async () => {
     const proj = await pm.createProject({ name: 'JQList' })
-    jq.registerExecutor('script-only', async () => {})
-    jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'script-only', episode_id: 'EP001', title: 'a', params: {} })
-    jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'script-only', episode_id: 'EP002', title: 'b', params: {} })
+    jq.registerExecutor('chapter-only', async () => {})
+    jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'chapter-only', episode_id: 'EP001', title: 'a', params: {} })
+    jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'chapter-only', episode_id: 'EP002', title: 'b', params: {} })
 
     // Wait for sync execution
     await new Promise((r) => setTimeout(r, 50))
@@ -315,8 +315,8 @@ describe('getJobs() / getQueueStats()', () => {
 
   test('getQueueStats reports counts', async () => {
     const proj = await pm.createProject({ name: 'JQStats' })
-    jq.registerExecutor('script-only', async () => {})
-    jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'script-only', episode_id: 'EP100', title: 'a', params: {} })
+    jq.registerExecutor('chapter-only', async () => {})
+    jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'chapter-only', episode_id: 'EP100', title: 'a', params: {} })
     await new Promise((r) => setTimeout(r, 50))
 
     const stats = jq.getQueueStats(proj.slug)
@@ -409,11 +409,11 @@ describe('pipeline chain handoff failures', () => {
 
   test('persists a failed child job instead of reporting a false-success batch', async () => {
     const proj = await pm.createProject({ name: 'JQ Chain Handoff' })
-    jq.registerExecutor('script-only', async () => {})
+    jq.registerExecutor('chapter-only', async () => {})
     const batchId = 'batch-handoff-test'
     jq.enqueuePreparedForTest({
       project_slug: proj.slug,
-      type: 'script-only',
+      type: 'chapter-only',
       episode_id: 'EP001',
       title: 'chain head',
       params: {
@@ -577,12 +577,12 @@ describe('requestJobCancellation()', () => {
     // Executor that blocks forever
     let release!: () => void
     const block = new Promise<void>((r) => { release = r })
-    jq.registerExecutor('script-only', async () => await block)
+    jq.registerExecutor('chapter-only', async () => await block)
 
     // Fill the single-slot queue first
-    jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'script-only', episode_id: 'EP_HOLD', title: 'hold', params: {} })
+    jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'chapter-only', episode_id: 'EP_HOLD', title: 'hold', params: {} })
     // Second job should be queued (not running)
-    const second = jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'script-only', episode_id: 'EP_CANCEL', title: 'c', params: {} })
+    const second = jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'chapter-only', episode_id: 'EP_CANCEL', title: 'c', params: {} })
 
     const cancelled = await jq.requestJobCancellation(proj.slug, second.job_id)
     assert.equal(cancelled.status, 'cancelled')
@@ -711,7 +711,7 @@ describe('Persistence — interrupted jobs on restart', () => {
       jobs: [{
         job_id: 'fake-interrupted-job',
         project_slug: proj.slug,
-        type: 'script-only',
+        type: 'chapter-only',
         episode_id: 'EP001',
         title: 'old running job',
         status: 'running',
@@ -811,9 +811,9 @@ describe('Concurrent enqueues across different job types', () => {
 describe('recordAccountUsed()', () => {
   test('records one provider/account on a queued job and fires an update event', async () => {
     const proj = await pm.createProject({ name: 'JQ Account Use 1' })
-    jq.registerExecutor('script-only', async () => {})
+    jq.registerExecutor('chapter-only', async () => {})
     const job = jq.enqueuePreparedForTest({
-      project_slug: proj.slug, type: 'script-only', episode_id: 'EP001', title: 't', params: {},
+      project_slug: proj.slug, type: 'chapter-only', episode_id: 'EP001', title: 't', params: {},
     })
     let updates = 0
     const onUpdate = () => { updates++ }
@@ -830,9 +830,9 @@ describe('recordAccountUsed()', () => {
 
   test('same provider overwrites with the latest resolution; other providers accumulate', async () => {
     const proj = await pm.createProject({ name: 'JQ Account Use 2' })
-    jq.registerExecutor('script-only', async () => {})
+    jq.registerExecutor('chapter-only', async () => {})
     const job = jq.enqueuePreparedForTest({
-      project_slug: proj.slug, type: 'script-only', episode_id: 'EP001', title: 't', params: {},
+      project_slug: proj.slug, type: 'chapter-only', episode_id: 'EP001', title: 't', params: {},
     })
     jq.recordAccountUsed(job.job_id, 'openai', { id: 'acc-1', label: 'A' })
     jq.recordAccountUsed(job.job_id, 'openai', { id: 'acc-2', label: 'B' })

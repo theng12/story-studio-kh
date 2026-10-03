@@ -175,6 +175,12 @@ export type AnalyticsCacheState = {
   episodes: Array<{
     video_id: string
     metrics: Record<string, unknown>
+    /**
+     * Published date and length, four-state like a metric. OPTIONAL: a cache
+     * written before these were read has none and still decodes; the route
+     * reports them as not fetched.
+     */
+    facts?: Record<string, unknown>
   }>
 }
 
@@ -497,8 +503,45 @@ function oneOfState(
 /** And the only metric NAMES. A key nobody declared is corruption too. */
 const ANALYTICS_METRIC_NAMES = new Set([
   'views', 'watch_minutes', 'avg_view_seconds', 'avg_view_percentage',
-  'likes', 'comments', 'shares',
+  'likes', 'comments', 'shares', 'subscribers_gained', 'impressions', 'click_through_rate',
 ])
+const ANALYTICS_FACT_NAMES = new Set(['published', 'length'])
+
+/**
+ * One record of four-state values, validated rather than passed through. An
+ * unrecognised state is a CORRUPT file, not a fifth state: the page's renderer
+ * falls back to "Not fetched" for anything it does not know, so an unchecked
+ * value here would surface as a plausible answer instead of an error.
+ */
+function checkMetricRecord(record: Record<string, unknown>, names: Set<string>, base: string): void {
+  for (const [name, metric] of Object.entries(record)) {
+    const where = `${base}.${name}`
+    if (!names.has(name)) throw stateCorrupt(`${where} is not a metric this product has`)
+    if (!isRecord(metric)) throw stateCorrupt(`${where} is not an object`)
+    if (!METRIC_STATES.has(String(metric.state))) throw stateCorrupt(`${where} has an unknown state`)
+    // Exact keys per state, so a field nobody declared cannot ride along and a
+    // required one cannot go missing. `not_fetched` carries no timestamp
+    // because there is nothing to date; the other three must.
+    if (metric.state === 'not_fetched') {
+      exactKeys(metric, ['state'])
+    } else if (metric.state === 'value') {
+      exactKeys(metric, ['state', 'value', 'fetched_at'])
+      if (typeof metric.value !== 'number' || !Number.isFinite(metric.value)) {
+        throw stateCorrupt(`${where} claims a value but carries no number`)
+      }
+    } else if (metric.state === 'not_available') {
+      exactKeys(metric, ['state', 'reason', 'fetched_at'])
+      if (typeof metric.reason !== 'string' || !metric.reason.trim()) {
+        throw stateCorrupt(`${where} is unavailable without a reason`)
+      }
+    } else {
+      exactKeys(metric, ['state', 'fetched_at'])
+    }
+    if (metric.state !== 'not_fetched') {
+      normalizeTimestamp(metric.fetched_at, `${where}.fetched_at`)
+    }
+  }
+}
 
 function decodePageCursors(raw: unknown): Record<string, PageCursor> {
   if (!isRecord(raw)) throw stateCorrupt('page_cursors is not an object')
@@ -591,42 +634,17 @@ function decodeAnalytics(raw: unknown): AnalyticsCacheState {
     episodes: (raw.episodes as unknown[]).map((entry, i) => {
       if (!isRecord(entry)) throw stateCorrupt(`analytics.episodes[${i}] is not an object`)
       if (!isRecord(entry.metrics)) throw stateCorrupt(`analytics.episodes[${i}].metrics is not an object`)
-      // Validated, not passed through. An unrecognised state is a CORRUPT
-      // file, not a fifth state: the page's renderer falls back to "Not
-      // fetched" for anything it does not know, so an unchecked value here
-      // would surface as a plausible answer instead of an error.
-      for (const [name, metric] of Object.entries(entry.metrics)) {
-        const where = `analytics.episodes[${i}].metrics.${name}`
-        if (!ANALYTICS_METRIC_NAMES.has(name)) throw stateCorrupt(`${where} is not a metric this product has`)
-        if (!isRecord(metric)) throw stateCorrupt(`${where} is not an object`)
-        if (!METRIC_STATES.has(String(metric.state))) throw stateCorrupt(`${where} has an unknown state`)
-        // Exact keys per state, so a field nobody declared cannot ride along
-        // and a required one cannot go missing. `not_fetched` carries no
-        // timestamp because there is nothing to date; the other three must.
-        if (metric.state === 'not_fetched') {
-          exactKeys(metric, ['state'])
-        } else if (metric.state === 'value') {
-          exactKeys(metric, ['state', 'value', 'fetched_at'])
-          if (typeof metric.value !== 'number' || !Number.isFinite(metric.value)) {
-            throw stateCorrupt(`${where} claims a value but carries no number`)
-          }
-        } else if (metric.state === 'not_available') {
-          exactKeys(metric, ['state', 'reason', 'fetched_at'])
-          if (typeof metric.reason !== 'string' || !metric.reason.trim()) {
-            throw stateCorrupt(`${where} is unavailable without a reason`)
-          }
-        } else {
-          exactKeys(metric, ['state', 'fetched_at'])
-        }
-        if (metric.state !== 'not_fetched') {
-          normalizeTimestamp(metric.fetched_at, `${where}.fetched_at`)
-        }
+      checkMetricRecord(entry.metrics, ANALYTICS_METRIC_NAMES, `analytics.episodes[${i}].metrics`)
+      if (entry.facts !== undefined) {
+        if (!isRecord(entry.facts)) throw stateCorrupt(`analytics.episodes[${i}].facts is not an object`)
+        checkMetricRecord(entry.facts, ANALYTICS_FACT_NAMES, `analytics.episodes[${i}].facts`)
       }
       // A cache written before this field was dropped still carries `title`;
       // there is no exactKeys on the episode entry, so it is simply ignored.
       return {
         video_id: identifier(entry.video_id, `analytics.episodes[${i}].video_id`),
         metrics: entry.metrics,
+        ...(entry.facts !== undefined ? { facts: entry.facts as Record<string, unknown> } : {}),
       }
     }),
   }

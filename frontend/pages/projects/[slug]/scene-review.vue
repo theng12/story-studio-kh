@@ -73,7 +73,7 @@
         Subtitle timeline verification is incomplete. Review the subtitle workspace before rendering scenes.
       </template>
       <template #actions>
-        <NuxtLink :to="subtitleRepairLink" class="btn btn-sm btn-secondary">Fix subtitles</NuxtLink>
+        <NuxtLink :to="subtitleRepairLink" class="btn btn-sm btn-secondary">Fix Subtitles</NuxtLink>
       </template>
     </WorkspaceNotice>
     <WorkspaceNotice
@@ -109,10 +109,10 @@
       <strong>Check again</strong> asks for the earlier result instead of ordering it again (other scenes still missing in this job are made as usual). <strong>Replace anyway</strong> orders a new one and may charge again.
       <template #actions>
         <button class="btn btn-sm btn-secondary" :disabled="checkingUncertain || replacingUncertain" @click="checkUncertainAgain">
-          {{ checkingUncertain ? 'Checking…' : 'Check again' }}
+          {{ checkingUncertain ? 'Checking…' : 'Check Again' }}
         </button>
         <button class="btn btn-sm btn-warn" :disabled="replacingUncertain || checkingUncertain" @click="replaceUncertainImages">
-          {{ replacingUncertain ? 'Replacing…' : 'Replace anyway' }}
+          {{ replacingUncertain ? 'Replacing…' : 'Replace Anyway' }}
         </button>
       </template>
     </WorkspaceNotice>
@@ -154,7 +154,7 @@
 
       <div v-if="stats.all_approved && episodeId" class="sr-greenlight-actions" aria-label="Continue this approved episode">
         <NuxtLink :to="motionReviewLink" class="btn btn-sm btn-secondary">
-          Motion Review (optional) →
+          Motion Review (Optional) →
         </NuxtLink>
         <NuxtLink :to="videoAssemblyLink" class="btn btn-sm btn-primary">
           Open Video Assembly →
@@ -248,7 +248,7 @@
             @click="approveAll(true)"
             :title="staleCount ? `Approves every scene that has an image — including ${staleCount} drawn from an older prompt. Asks first.` : 'Approves every scene that has an image. Useful after spot-checking the first few.'"
           >
-            ✓ Approve all
+            ✓ Approve All
           </button>
           <button
             class="btn btn-sm btn-ghost"
@@ -282,7 +282,7 @@
             @click="selectAllUnapproved"
             title="Tick every not-yet-approved scene so you can trim the selection, then Regenerate selected."
           >
-            ☑ Select unapproved
+            ☑ Select Unapproved
           </button>
           <!-- Stale images were rendered from an older prompt. -->
           <button
@@ -502,7 +502,7 @@
               >⚠ stale — re-render</span>
             </div>
             <p class="review-transcript">{{ scene.transcript_segment }}</p>
-            <details class="review-prompt-details">
+            <details class="review-prompt-details disclosure">
               <summary class="text-muted text-xs">Visual prompt</summary>
               <p class="review-prompt">{{ scene.visual_prompt }}</p>
             </details>
@@ -516,7 +516,7 @@
               :title="usesImagePool ? 'Scene Review is not used for Image Pool episodes' : !form.model ? 'Pick a model in the Render settings first' : reviewJobActive ? sceneRenderBlockReason(scene) : sceneTargetsBlockReason([scene.id]) || 'Generate or regenerate this scene image with the Gateway'"
             >
               {{ regeneratingId === scene.id ? '⏳' : (scene.image_filename ? '↻' : '✦') }}
-              {{ scene.image_filename ? 'Regenerate image' : 'Generate image' }}
+              {{ scene.image_filename ? 'Regenerate Image' : 'Generate Image' }}
             </button>
             <button
               :class="['btn btn-sm', scene.approved ? 'btn-primary' : 'btn-secondary']"
@@ -592,14 +592,14 @@
             />
           </div>
           <span class="sr-lb-actions">
-            <button class="btn btn-sm btn-ghost" @click.stop="seekTo(previewScene.start_sec)" title="Jump the audio player to this scene">▶ Play from here</button>
+            <button class="btn btn-sm btn-ghost" @click.stop="seekTo(previewScene.start_sec)" title="Jump the audio player to this scene">▶ Play from Here</button>
             <button
               v-if="promptDirty"
               class="btn btn-sm btn-secondary"
               :disabled="savingPrompt || !editPrompt.trim()"
               @click.stop="savePromptOnly(previewScene)"
               title="Save the edited prompt (the image stays until you Regenerate)"
-            >{{ savingPrompt ? '⏳' : '💾 Save prompt' }}</button>
+            >{{ savingPrompt ? '⏳' : '💾 Save Prompt' }}</button>
             <button
               class="btn btn-sm btn-secondary"
               :disabled="usesImagePool || !form.model || regeneratingId === previewScene.id || reviewJobActive"
@@ -673,25 +673,6 @@ const freshSceneImageAction = useFreshGenerationAction()
 const { success, error: showError } = useToast()
 const { ask } = useConfirm()
 const { updateEpisode: updateCachedEpisode, revalidateAfterMutation } = useEpisodes(slug)
-
-// v1.0.475 — per-project duration floor for bulk animation (config-backed). The
-// backend (generate-missing-clips) reads config.animate_min_seconds; the GET
-// scene-review response echoes it so this control reflects the saved value.
-const animateMinSeconds = ref<number>(Math.max(0, Number((config.value as any)?.animate_min_seconds) || 0))
-watch(config, (c) => { animateMinSeconds.value = Math.max(0, Number((c as any)?.animate_min_seconds) || 0) })
-async function setAnimateMinSeconds(v: number) {
-  const n = Math.max(0, Math.min(60, Math.round(v) || 0))
-  const prev = animateMinSeconds.value
-  animateMinSeconds.value = n
-  try {
-    await put(`/projects/${slug.value}/settings/config`, { animate_min_seconds: n })
-    if (config.value) (config.value as any).animate_min_seconds = n
-    success(n > 0 ? `Bulk animate now skips scenes shorter than ${n}s.` : 'Bulk animate has no minimum length.')
-  } catch (e: any) {
-    animateMinSeconds.value = prev
-    showError(e?.data?.detail || e?.message || 'Could not save the setting')
-  }
-}
 
 const initialEpisodeId = typeof route.query.episode_id === 'string'
   ? route.query.episode_id
@@ -913,59 +894,6 @@ function mediaVersion(version: string | null | undefined): string {
   return encodeURIComponent(version || '0')
 }
 
-// ── v1.0.470 — image-to-video (Animate) state ───────────────────────────────
-const videoModel = ref('')
-const animatingId = ref<string | null>(null)
-const animatingAll = ref(false)
-// Project video models that support image-to-video (modes includes 'frames').
-const i2vModels = computed(() => {
-  const vm = (config.value as any)?.video_models || {}
-  return Object.entries(vm)
-    .filter(([, m]: [string, any]) => Array.isArray(m?.modes) && m.modes.includes('frames'))
-    .map(([id, m]: [string, any]) => ({ id, label: m.label || id }))
-})
-// Auto-pick the first i2v model so the Animate buttons light up without a manual step.
-watch(i2vModels, (list) => {
-  if (!videoModel.value && list.length) videoModel.value = list[0]!.id
-}, { immediate: true })
-function clipUrl(scene: ReviewScene): string {
-  return `/api/projects/${slug.value}/scene-review/${episodeId.value}/clip/${scene.id}?v=${mediaVersion(scene.clip_version)}`
-}
-
-async function animateScene(scene: ReviewScene): Promise<void> {
-  if (!videoModel.value) { showError('Pick an image-to-video model in Render settings first'); return }
-  if (!scene.image_filename) { showError('Generate the image first — there\'s nothing to animate'); return }
-  if (!scene.motion_prompt) { showError('This scene has no motion prompt. Add one on the Scene Plan page.'); return }
-  animatingId.value = scene.id
-  try {
-    await post(`/projects/${slug.value}/scene-review/${episodeId.value}/generate-clip`, {
-      scene_id: scene.id,
-      model: videoModel.value,
-      aspect_ratio: form.value.aspect_ratio,
-    })
-    success(`Animation queued for scene ${scene.scene_index} — the clip badge appears when it lands.`)
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to queue animation')
-  } finally {
-    animatingId.value = null
-  }
-}
-
-async function animateMissing(): Promise<void> {
-  if (!videoModel.value) { showError('Pick an image-to-video model first'); return }
-  animatingAll.value = true
-  try {
-    const r = await post<{ queued: number; skipped: number }>(
-      `/projects/${slug.value}/scene-review/${episodeId.value}/generate-missing-clips`,
-      { model: videoModel.value, aspect_ratio: form.value.aspect_ratio },
-    )
-    success(`Animation: queued ${r?.queued ?? 0}, skipped ${r?.skipped ?? 0}. Watch the Jobs panel.`)
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to queue animations')
-  } finally {
-    animatingAll.value = false
-  }
-}
 const regeneratingId = ref<string | null>(null)
 const approvingId = ref<string | null>(null)
 const approvingAll = ref(false)
@@ -1393,42 +1321,6 @@ async function uploadOne(scene: ReviewScene): Promise<void> {
   input.click()
 }
 
-// v1.0.475 — set a scene's animated CLIP directly from an externally-made mp4
-// (manual parity with the extension's upload-clip). Raw-binary POST because the
-// app-wide JSON limit is 10mb; the endpoint takes a 256mb raw body.
-async function uploadClipOne(scene: ReviewScene): Promise<void> {
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = 'video/mp4'
-  input.onchange = async () => {
-    const file = input.files?.[0]
-    const ep = episodeId.value
-    const project = slug.value
-    const scope = reviewScopeSequence
-    const current = () => scope === reviewScopeSequence && project === slug.value && ep === episodeId.value
-    if (!file || !ep) return
-    animatingId.value = scene.id
-    try {
-      const resp = await fetch(
-        `/api/projects/${project}/scene-review/${ep}/upload-clip/${scene.id}`,
-        { method: 'POST', headers: { 'Content-Type': 'video/mp4' }, body: file },
-      )
-      if (!resp.ok) {
-        const j = await resp.json().catch(() => ({} as any))
-        throw new Error(j.detail || `Upload failed (${resp.status})`)
-      }
-      if (!current()) return
-      success(`Uploaded clip for scene ${scene.scene_index}`)
-      await loadReview()
-    } catch (e: any) {
-      if (current()) showError(e?.message || 'Failed to upload clip')
-    } finally {
-      if (current()) animatingId.value = null
-    }
-  }
-  input.click()
-}
-
 type ManualFinishAction = { slug: string; episodeId: string; id: string }
 const finishAction = ref<ManualFinishAction | null>(null)
 const replaceAction = ref<ManualFinishAction | null>(null)
@@ -1655,7 +1547,7 @@ async function replaceUncertainImages(): Promise<void> {
   if (!await ask({
     title: 'Replace uncertain image request?',
     message: 'The Gateway did not prove whether the earlier request finished. A new request may create a second image and may charge again. Any late old result will not replace the new chosen result.',
-    confirmLabel: 'Replace anyway',
+    confirmLabel: 'Replace Anyway',
     danger: true,
   })) return
   // The dialog can outlive navigation or a queue update. Re-check that the
@@ -1869,12 +1761,12 @@ async function approveAll(approved: boolean): Promise<void> {
         message: staleCount.value
           ? `${staleCount.value} of these images were drawn from an older prompt (marked ⚠ stale). They will be approved as they are.`
           : 'Every scene that has an image will be marked approved.',
-        confirmLabel: 'Approve all',
+        confirmLabel: 'Approve All',
       }
     : {
         title: 'Un-approve every scene?',
         message: `All ${stats.value?.approved ?? 0} approved scenes go back to needs-review. No images are deleted.`,
-        confirmLabel: 'Un-approve all',
+        confirmLabel: 'Un-Approve All',
         danger: true,
       })
   if (!ok) return
@@ -1964,7 +1856,6 @@ watch([slug, episodeId], () => {
   reviewScopeSequence++
   renderedSceneLimit.value = SCENE_RENDER_BATCH
   regeneratingId.value = null
-  animatingId.value = null
   isContinuity.value = false
   // v1.4.195 — two pieces of scene-scoped state used to survive the switch.
   // The lightbox held a whole ReviewScene from the episode being left, and its
@@ -2277,12 +2168,6 @@ watch([slug, episodeId], () => {
   z-index: 2;
 }
 .review-thumb-clip:hover { background: rgba(40, 40, 56, 0.95); }
-.sr-lb-stage {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-}
 .btn-warn {
   background: color-mix(in srgb, #e0843a 22%, transparent);
   border-color: #e0843a;
@@ -2398,24 +2283,6 @@ watch([slug, episodeId], () => {
 }
 .sr-health-chip:hover { border-color: #e0a23a; background: rgba(224, 162, 58, 0.2); }
 .sr-health-why { color: var(--text-muted); }
-.sr-blocking-warning {
-  border: 1px solid rgba(232, 91, 91, 0.55);
-  border-left: 4px solid #e85b5b;
-  border-radius: 10px;
-  background: rgba(232, 91, 91, 0.09);
-  padding: 11px 13px;
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-.sr-blocking-warning strong { color: var(--text-primary); margin-right: 4px; }
-.sr-legacy-note {
-  border: 1px solid rgba(224, 162, 58, 0.35);
-  border-radius: 10px;
-  background: rgba(224, 162, 58, 0.08);
-  padding: 10px 13px;
-  color: var(--text-muted);
-  font-size: 12px;
-}
 .sr-row-problem { border-left: 3px solid #e0a23a; }
 .sr-row-flash { animation: sr-row-flash-kf 1.4s ease; }
 @keyframes sr-row-flash-kf {

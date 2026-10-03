@@ -447,9 +447,7 @@ test('every long-form workflow declares a product-derived budget', () => {
     // than taking the product's whole ceiling — see chunking-budget.test.ts.
     ['chunked narration batches', '../lib/chunked-narration.ts', /outputBudget: batchOutputBudget\(batch, params\.wordsPerChapter\)/],
     ['script chapter + intro', '../generators/episode.ts', /outputBudget: 'long'/],
-    ['audio expression markup', '../services/audio-expression.ts', /outputBudget: 'maximum'/],
     ['scene planner windows', '../services/scene-planner.ts', /outputBudget: 'maximum'/],
-    ['format extraction', '../routes/projects.ts', /outputBudget: 'long'/],
     ['metadata description', '../generators/metadata.ts', /outputBudget: 'standard'/],
     ['idea campaign', '../generators/idea-campaign.ts', /outputBudget: \{ tier: 'long'/],
     ['shared freeform ideas', '../services/freeform-idea-generation.ts', /outputBudget: \{ tier: 'long'/],

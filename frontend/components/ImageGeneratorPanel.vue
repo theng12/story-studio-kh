@@ -1,19 +1,19 @@
 <!--
-  ImageGeneratorPanel — per-tab list of visual prompts with inline
-  preview + per-row Generate/Regenerate controls. Two instances mount
-  in images.vue (one per kind: scene / thumbnail). v1.0.87+.
+  ImageGeneratorPanel — the Thumbnail board: a list of the episode's
+  thumbnail prompts with inline preview + per-row Generate/Regenerate
+  controls. Mounted once, in images.vue.
 
   Each panel:
    - Loads the prompt list from disk via /episodes/:id/image-prompts
      (same endpoint PromptReviewPanel uses).
    - Loads the rendered-image disk scan via /projects/:slug/video-editor/scan/:id
-     (same endpoint the existing Edit gallery uses) and matches by
+     (same endpoint Video Assembly uses) and matches by
      filename-parsed number so each row knows its rendered path.
    - Renders a paginated list (25 per page; matches PromptReviewPanel).
    - Owns per-row busy/error state and the cache-bust key for preview
      refresh after a successful render.
-   - Provides a bulk "Generate All N" button at the top of the panel —
-     same backend job, just no scene_number / thumb_number filter.
+   - Bulk generation lives in the page's top Generate button; this panel
+     only renders single rows (same backend job, with a thumb_number).
 
   Job lifecycle: POST /generate/images returns a queued Job; we poll
   /projects/:slug/jobs/:job_id until done/error/cancelled. Same pattern
@@ -21,36 +21,19 @@
 -->
 <template>
   <div v-if="episodeId" class="igp">
-    <!-- Header: a compact board summary and a missing-only bulk action. -->
+    <!-- Header: a compact board summary. -->
     <div class="igp-head">
       <div class="igp-title-row">
-        <h3 class="igp-title">{{ kind === 'thumbnail' ? 'Thumbnail board' : 'Scene generator' }}</h3>
+        <h3 class="igp-title">Thumbnail board</h3>
         <span class="text-muted text-xs">
           {{ renderedCount }} / {{ prompts.length }} ready
           <template v-if="missingCount"> · {{ missingCount }} missing</template>
         </span>
       </div>
-      <button
-        type="button"
-        class="btn btn-sm btn-primary"
-        :disabled="bulkDisabled || !prompts.length || (!isRegenerateMode && missingCount === 0)"
-        :title="bulkDisabled
-          ? `Render in flight — wait for it to finish or cancel via the Jobs panel`
-          : isRegenerateMode
-            ? `Re-render every ${kindLabelLower} for this episode.`
-            : `Generate only the ${kindLabelLower}s that are still missing.`"
-        @click="runBulk"
-      >
-        <LoadingSpinner v-if="bulkDisabled" size="sm" />
-        <span v-else aria-hidden="true">✨</span>
-        {{ bulkDisabled ? 'Rendering…' : bulkActionLabel }}
-      </button>
     </div>
     <p class="igp-guard" role="status">
       <template v-if="jobActiveForEpisode">A render is already in progress for this episode. </template>
-      <template v-if="isRegenerateMode">This button re-renders every {{ kindLabelLower }} and replaces the existing files{{ paid ? ' (uses credits)' : '' }}.</template>
-      <template v-else>This button renders only missing {{ kindLabelLower }}s. Completed images are preserved.</template>
-      Each row's own button renders just that one {{ kindLabelLower }}.
+      The Generate Thumbnail Images button at the top renders the whole board. Each row's own button renders just that one {{ kindLabelLower }}.
     </p>
 
     <!-- Loading / error / empty states -->
@@ -60,7 +43,7 @@
     <div v-else-if="loadError" class="igp-status igp-status-error">{{ loadError }}</div>
     <div v-else-if="!prompts.length" class="igp-status">
       No {{ kindLabelLower }} prompts found yet for {{ episodeId }}. Generate prompts on
-      the {{ kind === 'thumbnail' ? 'Thumbnail Prompts' : 'Scene Prompts' }} page first, then return here to render them.
+      the Thumbnail Prompts page first, then return here to render them.
     </div>
 
     <!-- Pagination meta (only shows when needed) -->
@@ -73,11 +56,11 @@
       <div class="igp-list">
         <ImageGeneratorRow
           v-for="row in paginatedPrompts"
-          :key="`${kind}-${row.number}`"
+          :key="row.number"
           :row="row"
           :prefix="kindLabel"
           :image-path="imageByNumber.get(row.number)?.path || null"
-          :show-pin="kind === 'thumbnail'"
+          :show-pin="true"
           :pinned-for-upload="imageByNumber.get(row.number)?.filename === pinnedFilename"
           :slug="projectSlug"
           :cache-key="cacheKey"
@@ -118,15 +101,10 @@ interface PromptRow { number: number; title: string; prompt: string }
 interface ScannedImage { filename: string; path: string; number?: number | null }
 
 const props = defineProps<{
-  /** Which side of the generator this panel drives. Determines the prompt
-   *  list endpoint shape (scenes vs thumbnails), the job-request mode, and
-   *  the user-facing copy. */
-  kind: 'scene' | 'thumbnail'
   projectSlug: string
   episodeId: string
   /** Episode title — used by the backend to resolve the on-disk folder. */
   title: string
-  generationMode?: 'skip' | 'regenerate'
   /** The page's ONE request builder (model, ratio, size, seed, reference,
    *  extra details…). Returns null when it refused or the customer cancelled.
    *  `ask` = show the page's confirmation. The panel adds only thumb_number,
@@ -134,8 +112,7 @@ const props = defineProps<{
   prepare: (force: boolean, ask: boolean) => Promise<Record<string, any> | null>
   /** Whether the selected model uses credits (unknown counts as paid). */
   paid?: boolean
-  /** Bumped by parent (e.g. on tab switch) to force a re-fetch of the
-   *  prompt list + disk scan. */
+  /** Bumped by parent to force a re-fetch of the prompt list + disk scan. */
   refreshKey?: number
   /** Soft prompt-character cap for the active image model (advisory).
    *  Passed down so each row can colour-code its char counter against the
@@ -150,8 +127,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'open-preview', path: string): void
   /** Fires whenever a per-row or bulk render successfully completes — lets
-   *  the parent invalidate any sibling caches (e.g. the Edit gallery's
-   *  scan list). */
+   *  the parent invalidate any sibling caches (e.g. its thumbnail scan). */
   (e: 'refresh'): void
   (e: 'pin-toggle', filename: string): void
 }>()
@@ -159,10 +135,9 @@ const emit = defineEmits<{
 const { get, post } = useApi()
 const { success, error: showError } = useToast()
 
-// Title-case + lowercase variants for in-template use. Saves repeated
-// .toLowerCase() / String capitalization in template expressions.
-const kindLabel = computed(() => props.kind === 'scene' ? 'Scene' : 'Thumbnail')
-const kindLabelLower = computed(() => kindLabel.value.toLowerCase())
+// Title-case + lowercase variants for in-template use.
+const kindLabel = 'Thumbnail'
+const kindLabelLower = 'thumbnail'
 
 // ── Prompt list (text from /episodes/:id/image-prompts) ────────────────────
 
@@ -176,10 +151,10 @@ async function loadPrompts(): Promise<void> {
   loadError.value = null
   try {
     const titleParam = props.title ? `?title=${encodeURIComponent(props.title)}` : ''
-    const data = await get<{ scenes?: PromptRow[]; thumbnails?: PromptRow[] }>(
+    const data = await get<{ thumbnails?: PromptRow[] }>(
       `/projects/${props.projectSlug}/episodes/${props.episodeId}/image-prompts${titleParam}`,
     )
-    const list = props.kind === 'scene' ? data?.scenes : data?.thumbnails
+    const list = data?.thumbnails
     prompts.value = Array.isArray(list)
       ? list.slice().sort((a, b) => Number(a.number) - Number(b.number))
       : []
@@ -204,10 +179,10 @@ const cacheKey = ref(0)
 async function loadScan(): Promise<void> {
   if (!props.episodeId || !props.projectSlug) return
   try {
-    const r = await get<{ scenes?: ScannedImage[]; thumbnails?: ScannedImage[] }>(
+    const r = await get<{ thumbnails?: ScannedImage[] }>(
       `/projects/${props.projectSlug}/video-editor/scan/${props.episodeId}`,
     )
-    renderedImages.value = (props.kind === 'scene' ? r?.scenes : r?.thumbnails) || []
+    renderedImages.value = r?.thumbnails || []
   } catch {
     // Best-effort — empty scan just means no images on disk. We don't want
     // a failed scan to block the prompt list rendering.
@@ -218,24 +193,18 @@ async function loadScan(): Promise<void> {
 // ── Match prompts to rendered images by number ─────────────────────────────
 //
 // The backend scan endpoint (scanEpisodeAssets) returns `{ filename, path,
-// number }` for both scenes and thumbnails — the number is extracted there
-// via extractSceneNumber. Trust that field directly; fall back to filename
-// regex only if it's missing (defensive — covers older/edited variants the
-// scanner couldn't parse). Edited variants are skipped so the row's preview
-// always tracks the canonical render.
+// number }` — the number is extracted there via extractSceneNumber. Trust
+// that field directly; fall back to filename regex only if it's missing
+// (defensive — covers files the scanner couldn't parse).
 
-const SCENE_NUMBER_REGEX = /_Scene(\d+)_v\d+/i
 const THUMB_NUMBER_REGEX = /_Thumb(\d+)_v\d+/i
-const EDITED_REGEX = /_edited_v\d+/i
 
 const imageByNumber = computed<Map<number, ScannedImage>>(() => {
   const m = new Map<number, ScannedImage>()
   for (const img of renderedImages.value) {
-    if (EDITED_REGEX.test(img.filename)) continue
     let n: number | null = typeof img.number === 'number' ? img.number : null
     if (n == null) {
-      const re = props.kind === 'scene' ? SCENE_NUMBER_REGEX : THUMB_NUMBER_REGEX
-      const match = re.exec(img.filename)
+      const match = THUMB_NUMBER_REGEX.exec(img.filename)
       if (match) n = parseInt(match[1]!, 10)
     }
     if (n == null || !Number.isFinite(n)) continue
@@ -249,15 +218,6 @@ const imageByNumber = computed<Map<number, ScannedImage>>(() => {
 // Only images that belong to a prompt on this board count as "ready".
 const renderedCount = computed(() => prompts.value.filter(row => imageByNumber.value.has(row.number)).length)
 const missingCount = computed(() => Math.max(0, prompts.value.length - renderedCount.value))
-const isRegenerateMode = computed(() => props.generationMode === 'regenerate')
-const bulkActionLabel = computed(() => {
-  if (isRegenerateMode.value) {
-    return `Regenerate ${prompts.value.length} ${kindLabelLower.value}${prompts.value.length === 1 ? '' : 's'}`
-  }
-  if (missingCount.value === 0) return `All ${kindLabelLower.value}s ready`
-  return `Generate ${missingCount.value} missing`
-})
-
 function togglePinForRow(filename: string | null): void {
   if (filename) emit('pin-toggle', filename)
 }
@@ -285,21 +245,13 @@ watch(totalPages, (tp) => {
 const JOB_POLL_INTERVAL_MS = 1500
 const busy = ref<Set<number>>(new Set())
 const errors = ref<Record<number, string>>({})
-const bulkBusy = ref(false)
 
-// v1.0.307 — also reflect a render already in flight for this episode (e.g.
-// launched from the page's TopActionBar Generate button, or surviving a page
-// reload) so the bulk button greys out consistently — not only during this
-// panel's own runBulk poll. Scene vs thumbnail are independent pools, so we
-// only watch the kind this panel owns.
+// A render already in flight for this episode (launched from the page's top
+// Generate button, or surviving a page reload) is shown above the rows.
 const { isJobActiveFor } = useJobs()
 const jobActiveForEpisode = computed(() =>
-  isJobActiveFor(
-    props.episodeId,
-    props.kind === 'thumbnail' ? ['thumb_images'] : ['scene_images'],
-  ),
+  isJobActiveFor(props.episodeId, ['thumb_images']),
 )
-const bulkDisabled = computed(() => bulkBusy.value || jobActiveForEpisode.value)
 
 const fresh = useFreshGenerationAction()
 let disposed = false
@@ -353,7 +305,7 @@ async function runOne(number: number): Promise<void> {
   try {
     // A row click always overwrites: the intent is "re-render this one".
     const job = await submit({ ...params, thumb_number: number, force: true }, `row-${number}`)
-    success(`Queued ${kindLabelLower.value} ${number} — watch progress in Jobs.`)
+    success(`Queued ${kindLabelLower} ${number} — watch progress in Jobs.`)
     const completed = await waitForJob(job.job_id)
     if (!completed || episode !== props.episodeId) return
     if (completed.status === 'error') throw new Error(jobErrorText(completed, 'Render failed (see Jobs for details)'))
@@ -366,51 +318,16 @@ async function runOne(number: number): Promise<void> {
     await loadScan()
     cacheKey.value++
     emit('refresh')
-    success(`${kindLabel.value} ${number} rendered`)
+    success(`${kindLabel} ${number} rendered`)
   } catch (e: any) {
     if (episode !== props.episodeId) return
     const msg = requestErrorText(e, 'Generation failed')
     errors.value = { ...errors.value, [number]: msg }
-    showError(`${kindLabel.value} ${number}: ${msg}`)
+    showError(`${kindLabel} ${number}: ${msg}`)
   } finally {
     const next = new Set(busy.value)
     next.delete(number)
     busy.value = next
-  }
-}
-
-async function runBulk(): Promise<void> {
-  // Guard against a double-fire: bulkBusy covers this panel's own run, and
-  // jobActiveForEpisode covers a render queued from elsewhere (TopActionBar,
-  // reload). The button is disabled in both cases — this is belt-and-braces.
-  if (bulkBusy.value || jobActiveForEpisode.value || !prompts.value.length) return
-  const episode = props.episodeId
-  // Default is missing-only. Regeneration is the sole explicit overwrite
-  // action, so recovery never re-pays for artwork already on disk. Same
-  // confirmation as the page's top button.
-  const force = props.generationMode === 'regenerate'
-  const requested = force ? `all ${prompts.value.length}` : `${missingCount.value} missing`
-  bulkBusy.value = true
-  try {
-    const params = await props.prepare(force, true)
-    if (!params || episode !== props.episodeId) return
-    const job = await submit({ ...params, force }, 'bulk')
-    success(`Queued ${requested} ${kindLabelLower.value}s — watch progress in Jobs.`)
-    const completed = await waitForJob(job.job_id)
-    if (!completed || episode !== props.episodeId) return
-    if (completed.status === 'error') throw new Error(jobErrorText(completed, 'Render failed (see Jobs for details)'))
-    if (completed.status === 'cancelled') {
-      showError('Render cancelled')
-      return
-    }
-    await loadScan()
-    cacheKey.value++
-    emit('refresh')
-    success(`${kindLabel.value} board refreshed`)
-  } catch (e: any) {
-    if (episode === props.episodeId) showError(requestErrorText(e, 'Render failed'))
-  } finally {
-    bulkBusy.value = false
   }
 }
 
@@ -421,11 +338,10 @@ async function runBulk(): Promise<void> {
 watch(() => props.episodeId, () => {
   busy.value = new Set()
   errors.value = {}
-  bulkBusy.value = false
 })
 
 watch(
-  () => [props.episodeId, props.title, props.refreshKey, props.kind],
+  () => [props.episodeId, props.title, props.refreshKey],
   () => {
     if (props.episodeId) {
       void loadPrompts()

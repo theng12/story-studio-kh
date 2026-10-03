@@ -109,7 +109,6 @@ describe('the surfaces that publish his text consult the policy', () => {
   // one.
   const surfaces: Array<[string, RegExp[]]> = [
     ['generators/metadata.ts', [/applyEmojiPolicy\(descRaw/, /applyEmojiPolicyToAll\(rawTitles/, /noEmojiDirective\(\)/]],
-    ['routes/scripts.ts', [/applyEmojiPolicy\(descRaw/, /applyEmojiPolicyToAll\(/, /noEmojiDirective\(\)/]],
     ['generators/idea-campaign.ts', [/applyEmojiPolicy\(String\(item\.title/, /NO_EMOJI_DIRECTIVE/]],
     ['generators/contextual-cues.ts', [/applyEmojiPolicy\(candidate\.title/, /noEmojiDirective\(\)/]],
   ]

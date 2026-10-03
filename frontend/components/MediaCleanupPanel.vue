@@ -1,15 +1,17 @@
 <template>
   <section id="free-up-space" class="media-cleanup" aria-labelledby="media-cleanup-heading">
     <div class="cleanup-heading">
-      <div><h3 id="media-cleanup-heading">Free up space</h3><p>For episodes already uploaded to YouTube: scene images are shrunk to smaller JPEGs, and motion clips, chapter narration and the final video move to this project’s own <code>_trash</code> folder. You do not choose a folder. Nothing is deleted — you empty <code>_trash</code> yourself, and space is freed then. Thumbnails, merged narration, subtitles, scripts and prompts stay. Episodes without a verified upload are never touched.</p></div>
-      <button class="btn btn-secondary" :disabled="busy || loading" @click="loadEpisodes">{{ loading ? 'Checking uploads…' : episodes === null ? 'Find uploaded episodes' : 'Refresh uploads' }}</button>
+      <div><h3 id="media-cleanup-heading">Free up space</h3><p>Only episodes already uploaded to YouTube are touched, and nothing is lost: files go to this project’s <code>_trash</code> folder (the space is freed when you empty it) or to a drive you choose.</p></div>
+      <button class="btn btn-secondary" :disabled="busy || loading" @click="loadEpisodes">{{ loading ? 'Checking Uploads…' : episodes === null ? 'Find Uploaded Episodes' : 'Refresh Uploads' }}</button>
     </div>
-    <p v-if="error" class="cleanup-error" role="alert">{{ error }} <button v-if="operation" class="btn btn-sm" :disabled="polling" @click="pollOperation">Check progress again</button></p>
+    <p v-if="error" class="cleanup-error" role="alert">{{ error }} <button v-if="operation" class="btn btn-sm" :disabled="polling" @click="pollOperation">Check Progress Again</button></p>
     <ul v-if="listWarnings.length" class="cleanup-warnings"><li v-for="warning in listWarnings" :key="warning">{{ warning }}</li></ul>
+    <h4 class="space-option-title">Recommended: shrink and tidy uploaded episodes</h4>
+    <p class="cleanup-hint">Scene images are re-saved as smaller JPEGs; motion clips, chapter narration and the final video move to <code>_trash</code>. Thumbnails, merged narration, subtitles, scripts and prompts stay. You see what it frees before anything changes.</p>
     <template v-if="episodes !== null">
       <p v-if="!episodes.length">No episodes have a verified ready upload for this project’s current YouTube channel. Upload or reconcile the episode first.</p>
       <template v-else>
-        <div class="cleanup-selection"><strong>{{ selected.length }} {{ selected.length === 1 ? 'episode' : 'episodes' }} selected</strong><button class="btn btn-sm" :disabled="busy" @click="selected = episodes.map(ep => ep.episode_code)">Select all uploaded</button><button class="btn btn-sm" :disabled="busy || !notArchived.length" @click="selected = notArchived">Select all uploaded and not yet freed</button><button class="btn btn-sm" :disabled="busy || !selected.length" @click="selected = []">Clear selection</button></div>
+        <div class="cleanup-selection"><strong>{{ selected.length }} {{ selected.length === 1 ? 'episode' : 'episodes' }} selected</strong><button class="btn btn-sm" :disabled="busy" @click="selected = episodes.map(ep => ep.episode_code)">Select All Uploaded</button><button class="btn btn-sm" :disabled="busy || !notArchived.length" @click="selected = notArchived">Select All Not Yet Freed</button><button class="btn btn-sm" :disabled="busy || !selected.length" @click="selected = []">Clear Selection</button></div>
         <div class="cleanup-episodes">
           <label v-for="ep in episodes" :key="ep.episode_code" class="cleanup-episode">
             <input v-model="selected" type="checkbox" :value="ep.episode_code" :disabled="busy" />
@@ -17,15 +19,18 @@
             <a :href="`https://www.youtube.com/watch?v=${encodeURIComponent(ep.video_id)}`" target="_blank" rel="noopener noreferrer">View upload</a>
           </label>
         </div>
-        <div class="cleanup-preset"><button class="btn btn-primary" :disabled="busy || !selected.length" @click="startPreview(true)">Free up space for {{ selected.length }} selected</button><p class="cleanup-hint">You will see how much space it frees and where the files go before anything changes.</p></div>
-        <details class="cleanup-advanced">
-          <summary>Advanced: pick exactly which media to review</summary>
-          <fieldset :disabled="busy" class="cleanup-categories"><legend>Media to review</legend><label v-for="item in categoryOptions" :key="item.id"><input v-model="categories" type="checkbox" :value="item.id" />{{ item.label }}</label></fieldset>
-          <p class="cleanup-hint">Active jobs and shared assets are excluded. You will review exact files before anything changes. Restoring removed media may require paid generation.</p>
-          <button class="btn btn-secondary" :disabled="busy || !selected.length || !categories.length" @click="startPreview()">Review selected files</button>
-        </details>
+        <div class="cleanup-preset"><button class="btn btn-primary" :disabled="busy || !selected.length" @click="startPreview(true)">Free Up Space for {{ selected.length }} Selected</button></div>
       </template>
     </template>
+    <h4 class="space-option-title">Other ways</h4>
+    <details v-if="episodes?.length" class="disclosure space-option">
+      <summary><strong>Choose exactly which files</strong><small>Pick kinds of media for the selected episodes. They move to <code>_trash</code>, or are copied to a folder you choose and then removed here.</small></summary>
+      <div class="space-option-body">
+        <fieldset :disabled="busy" class="cleanup-categories"><legend>Media to review</legend><label v-for="item in categoryOptions" :key="item.id"><input v-model="categories" type="checkbox" :value="item.id" />{{ item.label }}</label></fieldset>
+        <p class="cleanup-hint">Active jobs and shared assets are excluded. You review the exact files before anything changes. Restoring removed media may require paid generation.</p>
+        <div><button class="btn btn-secondary" :disabled="busy || !selected.length || !categories.length" @click="startPreview()">Review Selected Files</button></div>
+      </div>
+    </details>
     <div v-if="operation" class="cleanup-progress" role="status" aria-live="polite">
       <strong>{{ operationLabel }}</strong>
       <span v-if="operation.total">{{ operation.done }} / {{ operation.total }} {{ operation.kind === 'preview' ? 'episodes' : 'files' }}</span>
@@ -36,14 +41,14 @@
       <p v-if="operation.error" class="cleanup-error">{{ operation.error }}</p>
       <template v-if="operation.result">
         <p>{{ resultSummary }}</p>
-        <details v-if="operation.result.items?.length"><summary>View file outcomes</summary><ul class="cleanup-files"><li v-for="(item, index) in operation.result.items" :key="index"><span class="cleanup-path">{{ item.path || item.source_path || item.file }}</span> — {{ item.outcome || item.status }}<span v-if="item.reason">: {{ item.reason }}</span></li></ul></details>
+        <details v-if="operation.result.items?.length" class="disclosure"><summary>View file outcomes</summary><ul class="cleanup-files"><li v-for="(item, index) in operation.result.items" :key="index"><span class="cleanup-path">{{ item.path || item.source_path || item.file }}</span> — {{ item.outcome || item.status }}<span v-if="item.reason">: {{ item.reason }}</span></li></ul></details>
       </template>
     </div>
     <div v-if="preview" class="cleanup-review">
       <h4>Review {{ preview.files.length }} files · {{ formatBytes(preview.total_bytes) }}</h4>
       <p>Only this reviewed selection can be changed. Files are checked again before each action.</p>
       <ul v-if="previewWarnings.length" class="cleanup-warnings"><li v-for="warning in previewWarnings" :key="warning">{{ warning }}</li></ul>
-      <details v-for="ep in preview.episodes" :key="ep.episode_code" class="cleanup-file-group">
+      <details v-for="ep in preview.episodes" :key="ep.episode_code" class="cleanup-file-group disclosure">
         <summary>{{ ep.episode_code }} · {{ ep.files.length }} files · {{ formatBytes(ep.files.reduce((n, f) => n + f.bytes, 0)) }}</summary>
         <ul v-if="ep.excluded?.length" class="cleanup-warnings"><li v-for="item in ep.excluded" :key="item.path"><span class="cleanup-path">{{ item.path }}</span> — {{ item.reason }}</li></ul>
         <ul class="cleanup-files"><li v-for="file in ep.files" :key="file.path"><span class="cleanup-path">{{ file.relative_path }}</span><span>{{ formatBytes(file.bytes) }}</span></li></ul>
@@ -51,10 +56,10 @@
       <p v-if="preview.estimate && preview.preset" class="cleanup-estimate"><strong>Frees about {{ formatBytes(freedBytes) }}</strong> once you empty _trash. {{ estimateText }}</p>
       <div class="cleanup-actions">
         <p v-if="preview.preset"><strong>Free up space:</strong> images are shrunk in place, everything else listed moves to <code class="cleanup-path">{{ trashText }}</code>.</p>
-        <fieldset v-else :disabled="busy"><legend>What should happen to these files?</legend><label><input v-model="mode" type="radio" value="remove" /> Move local files to _trash (default)</label><label><input v-model="mode" type="radio" value="archive" /> Advanced: copy to another folder, then remove</label></fieldset>
-        <div v-if="!preview.preset && mode === 'archive'" class="cleanup-destination"><label for="cleanup-destination">Archive folder</label><input id="cleanup-destination" v-model="destination" class="input" :disabled="busy || picking" placeholder="Choose a folder on your external drive" /><button class="btn btn-secondary" :disabled="busy || picking" @click="browse">{{ picking ? 'Opening…' : 'Browse' }}</button></div>
+        <fieldset v-else :disabled="busy"><legend>What should happen to these files?</legend><label><input v-model="mode" type="radio" value="remove" /> Move local files to _trash (default)</label><label><input v-model="mode" type="radio" value="archive" /> Copy to a folder you choose, then remove here</label></fieldset>
+        <div v-if="!preview.preset && mode === 'archive'" class="cleanup-destination"><label for="cleanup-destination">Archive folder</label><input id="cleanup-destination" v-model="destination" class="input" :disabled="busy || picking" placeholder="Choose a folder on your external drive" /><button class="btn btn-secondary" :disabled="busy || picking" @click="browse">{{ picking ? 'Opening…' : 'Browse…' }}</button></div>
         <p>{{ preview.preset ? 'Originals go to the _trash folder on the same drive. Space is freed when you empty _trash; until then you can put anything back.' : mode === 'archive' ? 'Each copy is verified before its original is removed. Choose another drive to free space on this drive.' : `Removed files move to ${trashText} on the same drive. Nothing is deleted; space is freed when you empty _trash.` }}</p>
-        <div class="cleanup-action-buttons"><button class="btn btn-secondary" :disabled="busy" @click="dismissReview">Dismiss review</button><button class="btn btn-primary" :disabled="busy || picking || !preview.files.length || (!preview.preset && mode === 'archive' && !destination.trim())" @click="runCleanup">{{ submitting ? 'Starting…' : preview.preset ? 'Free up space' : mode === 'archive' ? 'Archive reviewed files' : 'Move reviewed files to _trash' }}</button></div>
+        <div class="cleanup-action-buttons"><button class="btn btn-secondary" :disabled="busy" @click="dismissReview">Dismiss Review</button><button class="btn btn-primary" :disabled="busy || picking || !preview.files.length || (!preview.preset && mode === 'archive' && !destination.trim())" @click="runCleanup">{{ submitting ? 'Starting…' : preview.preset ? 'Free Up Space' : mode === 'archive' ? 'Archive Reviewed Files' : 'Move Reviewed Files to _trash' }}</button></div>
       </div>
     </div>
   </section>
@@ -189,7 +194,7 @@ async function runCleanup() {
   const version = generation, slug = props.slug, reviewed = reviewed0, chosenMode = chosen0, folder = destination.value.trim()
   submitting.value = true; error.value = ''
   try {
-    const approved = await ask({ title: chosenMode === 'archive' ? 'Archive reviewed media?' : chosenMode === 'compress' ? 'Free up space?' : 'Move reviewed media to _trash?', message: `${reviewed.files.length} reviewed files (${formatBytes(reviewed.total_bytes)}) from ${reviewed.episodes.filter(ep => ep.files.length).length} episodes in ${slug}. ${chosenMode === 'archive' ? `Copy to ${folder}, verify, then remove the originals.` : chosenMode === 'compress' ? `This frees about ${formatBytes(freedBytes.value)}. Scene images are re-saved as smaller JPEGs under the same names; the originals, clips, chapter narration and final video move to ${trashText.value}.` : `These files move to ${trashText.value}; nothing is deleted.`} Upload records, scripts, prompts, subtitles and thumbnails stay. Restore from _trash if you need anything back; space is freed when you empty it.`, confirmLabel: chosenMode === 'archive' ? 'Archive files' : chosenMode === 'compress' ? 'Free up space' : 'Move to _trash', danger: false })
+    const approved = await ask({ title: chosenMode === 'archive' ? 'Archive reviewed media?' : chosenMode === 'compress' ? 'Free up space?' : 'Move reviewed media to _trash?', message: `${reviewed.files.length} reviewed files (${formatBytes(reviewed.total_bytes)}) from ${reviewed.episodes.filter(ep => ep.files.length).length} episodes in ${slug}. ${chosenMode === 'archive' ? `Copy to ${folder}, verify, then remove the originals.` : chosenMode === 'compress' ? `This frees about ${formatBytes(freedBytes.value)}. Scene images are re-saved as smaller JPEGs under the same names; the originals, clips, chapter narration and final video move to ${trashText.value}.` : `These files move to ${trashText.value}; nothing is deleted.`} Upload records, scripts, prompts, subtitles and thumbnails stay. Restore from _trash if you need anything back; space is freed when you empty it.`, confirmLabel: chosenMode === 'archive' ? 'Archive Files' : chosenMode === 'compress' ? 'Free Up Space' : 'Move to _trash', danger: false })
     if (!approved || !current(version)) return
     const result = await post<{ operation_id: string }>(`/projects/${slug}/media-cleanup/run`, { preview_id: reviewed.preview_id, mode: chosenMode, ...(chosenMode === 'archive' ? { destination: folder } : {}) })
     remember(slug, result.operation_id)
@@ -212,7 +217,7 @@ async function browse() {
   if (busy.value || picking.value) return
   const version = generation
   picking.value = true
-  try { const folder = await pickFolder({ title: 'Archive episode media', button_label: 'Use this folder' }); if (folder && current(version)) destination.value = folder }
+  try { const folder = await pickFolder({ title: 'Archive episode media', button_label: 'Use This Folder' }); if (folder && current(version)) destination.value = folder }
   catch (e) { if (current(version)) error.value = message(e) }
   finally { if (current(version)) picking.value = false }
 }
@@ -254,8 +259,11 @@ fieldset { border: 0; padding: 0; margin: 20px 0 12px; display: flex; gap: 16px;
 legend { font-weight: 600; margin-bottom: 12px; }
 fieldset label { display: inline-flex; gap: 8px; align-items: center; }
 .cleanup-hint { font-size: var(--font-sm); }
-.cleanup-advanced { margin-top: 16px; }
-.cleanup-advanced > summary { color: var(--text-secondary); font-size: var(--font-sm); }
+/* The options of the one Free Up Space card. settings.vue repeats the .space-option rules for the options it adds below this panel. */
+.space-option-title { margin: 20px 0 4px; font-size: 13px; }
+.space-option { border-top: 1px solid var(--border); padding: 12px 0; }
+.space-option > summary small { display: block; margin: 2px 0 0 18px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.space-option-body { padding: 4px 0 0 18px; }
 .cleanup-error, .cleanup-warnings { color: var(--error, #ff9696); line-height: 1.5; overflow-wrap: anywhere; }
 .cleanup-progress, .cleanup-review { border-top: 1px solid var(--border); margin-top: 22px; padding-top: 18px; }
 .cleanup-progress > span { margin-left: 12px; }

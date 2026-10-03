@@ -153,7 +153,6 @@ test('Scene Plan freezes explicit pacing and exact Next N motion targets before 
       [`/api/projects/${project.slug}/scene-plan/${code}/regenerate-prompt`, { scene_id: 'a', model: 'unused', operation_id: 'source-visual-one' }],
       [`/api/projects/${project.slug}/scene-plan/${code}/regenerate-empty-prompts`, { model: 'unused' }],
       [`/api/projects/${project.slug}/scene-plan/${code}/regenerate-motion-prompt`, { scene_id: 'a', model: 'unused', operation_id: '00000000-0000-4000-8000-000000000013' }],
-      [`/api/projects/${project.slug}/scene-plan/${code}/regenerate-empty-motion-prompts`, { model: 'unused' }],
     ] as const) {
       const response = await request(app).post(endpoint).send(body)
       assert.equal(response.status, 409, endpoint)

@@ -21,11 +21,11 @@ test('thumbnail generation keeps recovery details technical and the workflow act
   assert.doesNotMatch(page, /Specific # \(optional\)/)
 })
 
-test('thumbnail board is missing-first and pins upload selection beside the rendered asset', () => {
+test('thumbnail board has one bulk action (the top button) and pins upload selection beside the rendered asset', () => {
   assert.match(panel, /Thumbnail board/)
-  assert.match(panel, /Generate \$\{missingCount\.value\} missing/)
-  assert.match(panel, /const force = props\.generationMode === 'regenerate'/)
+  assert.doesNotMatch(panel, /runBulk|Generate \$\{missingCount\.value\} missing/)
+  assert.doesNotMatch(page, /Generate missing fresh/)
   assert.match(panel, /@pin-toggle=/)
-  assert.match(row, /Pin for upload/)
-  assert.match(row, /Pinned for upload/)
+  assert.match(row, /Pin for Upload/)
+  assert.match(row, /Pinned for Upload/)
 })

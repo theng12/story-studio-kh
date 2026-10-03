@@ -181,7 +181,7 @@ before(async () => {
 
   // Register a no-op executor so enqueued jobs complete immediately and we
   // exercise the full queued → running → done transition set in one test.
-  jq.registerExecutor('script-only', async () => {})
+  jq.registerExecutor('chapter-only', async () => {})
 
   await new Promise<void>((resolve) => {
     server = http.createServer(app).listen(0, '127.0.0.1', () => {
@@ -220,7 +220,7 @@ describe('SSE /projects/:slug/jobs/stream', () => {
     await new Promise((r) => setTimeout(r, 50))
     jq.enqueuePreparedForTest({
       project_slug: proj.slug,
-      type: 'script-only',
+      type: 'chapter-only',
       episode_id: 'SSE_EP1',
       title: 'stream probe',
       params: {},
@@ -246,7 +246,7 @@ describe('SSE /projects/:slug/jobs/stream', () => {
     // Enqueue on project B — A's subscriber must NOT see it.
     jq.enqueuePreparedForTest({
       project_slug: b.slug,
-      type: 'script-only',
+      type: 'chapter-only',
       episode_id: 'SSE_SCOPE_B1',
       title: 'should be invisible',
       params: {},
@@ -274,7 +274,7 @@ describe('SSE /projects/:slug/jobs/stream', () => {
     // duration, so the test measures what it is about.
     jq.enqueuePreparedForTest({
       project_slug: proj.slug,
-      type: 'script-only',
+      type: 'chapter-only',
       episode_id: 'SSE_CLEAR_1',
       title: 'to be cleared',
       params: {},
@@ -348,7 +348,7 @@ describe('SSE /jobs/all/stream', () => {
 
   test('retains application-scoped jobs in the universal snapshot and stream', async () => {
     const appJob = jq.enqueuePreparedForTest({
-      project_slug: '_app_', type: 'script-only', episode_id: 'APP_SCOPE', title: 'app scope', params: {},
+      project_slug: '_app_', type: 'chapter-only', episode_id: 'APP_SCOPE', title: 'app scope', params: {},
     })
 
     const appJobs = await request(app).get('/api/jobs/app').expect(200)
@@ -367,7 +367,7 @@ describe('SSE /jobs/all/stream', () => {
     const slug = 'SSE_Hidden_Durable'
     await fs.mkdir(path.join(tempDir, 'projects', slug), { recursive: true })
     await fs.writeFile(path.join(tempDir, 'projects', slug, 'jobs.json'), JSON.stringify({ jobs: [{
-      job_id: 'hidden-durable-job', project_slug: slug, type: 'script-only', episode_id: 'HIDDEN_ONLY', title: 'hidden scope',
+      job_id: 'hidden-durable-job', project_slug: slug, type: 'chapter-only', episode_id: 'HIDDEN_ONLY', title: 'hidden scope',
       status: 'done', created_at: '2026-01-01T00:00:00.000Z', started_at: '2026-01-01T00:00:00.000Z',
       finished_at: '2026-01-01T00:01:00.000Z', error: null, output_lines: [], params: {},
     }] }))
@@ -385,7 +385,7 @@ describe('SSE /jobs/all/stream', () => {
     const slug = 'SSE_Durable_Only'
     await fs.mkdir(path.join(tempDir, 'projects', slug), { recursive: true })
     await fs.writeFile(path.join(tempDir, 'projects', slug, 'jobs.json'), JSON.stringify({ jobs: [{
-      job_id: 'durable-only-job', project_slug: slug, type: 'script-only', episode_id: 'DURABLE_ONLY', title: 'durable scope',
+      job_id: 'durable-only-job', project_slug: slug, type: 'chapter-only', episode_id: 'DURABLE_ONLY', title: 'durable scope',
       status: 'done', created_at: '2026-01-01T00:00:00.000Z', started_at: '2026-01-01T00:00:00.000Z',
       finished_at: '2026-01-01T00:01:00.000Z', error: null, output_lines: [], params: {},
     }] }))
@@ -407,8 +407,8 @@ describe('SSE /jobs/all/stream', () => {
   test('initial snapshot combines jobs from every project', async () => {
     const a = await pm.createProject({ name: 'SSE_All_A' })
     const b = await pm.createProject({ name: 'SSE_All_B' })
-    jq.enqueuePreparedForTest({ project_slug: a.slug, type: 'script-only', episode_id: 'ALL_A1', title: '', params: {} })
-    jq.enqueuePreparedForTest({ project_slug: b.slug, type: 'script-only', episode_id: 'ALL_B1', title: '', params: {} })
+    jq.enqueuePreparedForTest({ project_slug: a.slug, type: 'chapter-only', episode_id: 'ALL_A1', title: '', params: {} })
+    jq.enqueuePreparedForTest({ project_slug: b.slug, type: 'chapter-only', episode_id: 'ALL_B1', title: '', params: {} })
     await new Promise((resolve) => setTimeout(resolve, 100))
 
     const frames = await collectFrames('/api/jobs/all/stream', 50, f => hasEvent(f, 'snapshot'))
@@ -424,7 +424,7 @@ describe('SSE /jobs/all/stream', () => {
     const project = await pm.createProject({ name: 'SSE_All_Update' })
     const collection = collectFrames('/api/jobs/all/stream', 50, f => hasEpisodeUpdate(f, 'ALL_LIVE_1'))
     await new Promise((resolve) => setTimeout(resolve, 50))
-    jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'script-only', episode_id: 'ALL_LIVE_1', title: '', params: {} })
+    jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'chapter-only', episode_id: 'ALL_LIVE_1', title: '', params: {} })
     const frames = await collection
     const updates = frames.filter(frame => frame.event === 'update').map(frame => JSON.parse(frame.data))
     assert.ok(updates.some(job => job.project_slug === project.slug && job.episode_id === 'ALL_LIVE_1'))
@@ -443,7 +443,7 @@ describe('SSE /jobs/all/stream', () => {
 describe('SSE /jobs/app/stream', () => {
   test('sends exactly one snapshot frame carrying application-scoped jobs', async () => {
     const appJob = jq.enqueuePreparedForTest({
-      project_slug: '_app_', type: 'script-only', episode_id: 'APP_STREAM_1', title: 'app stream', params: {},
+      project_slug: '_app_', type: 'chapter-only', episode_id: 'APP_STREAM_1', title: 'app stream', params: {},
     })
 
     const frames = await collectFrames('/api/jobs/app/stream', 50, f => hasEvent(f, 'snapshot'))

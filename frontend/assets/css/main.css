@@ -145,15 +145,18 @@ a:hover {
 .btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   padding: 10px 20px;
+  line-height: 1.25;
   border: none;
   border-radius: var(--radius-md);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color var(--motion-fast, 140ms), border-color var(--motion-fast, 140ms), color var(--motion-fast, 140ms);
   font-family: inherit;
+  text-decoration: none;
 }
 
 .btn-primary {
@@ -162,8 +165,7 @@ a:hover {
 }
 .btn-primary:hover:not(:disabled) {
   background: var(--accent-hover);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow);
+  color: var(--accent-on);
 }
 
 .btn-secondary {
@@ -200,7 +202,8 @@ a:hover {
    match nothing anywhere else. Verified against the built CSS — zero unscoped
    occurrences of any of them. Every element carrying one has been rendering as
    if the class were absent. Declared globally so the names mean what they say. */
-.input-sm {
+.input-sm,
+.select-sm {
   padding: 6px 10px;
   font-size: 13px;
 }
@@ -250,12 +253,26 @@ a:hover {
 }
 
 .btn-danger {
-  background: rgba(248, 113, 113, 0.15);
+  background: color-mix(in srgb, var(--error) 12%, transparent);
   color: var(--error);
-  border: 1px solid rgba(248, 113, 113, 0.3);
+  border: 1px solid color-mix(in srgb, var(--error) 35%, transparent);
 }
 .btn-danger:hover:not(:disabled) {
-  background: rgba(248, 113, 113, 0.25);
+  background: color-mix(in srgb, var(--error) 22%, transparent);
+}
+
+/* The quiet button: text only until hovered. For "Cancel", "Show in Finder",
+   "Type a Path" and other low-stakes actions that sit beside a real button.
+   Hierarchy: .btn-primary (one per region, accent-filled) → .btn-secondary →
+   .btn-ghost (outlined) → .btn-quiet → .btn-danger (always with a confirm). */
+.btn-quiet {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+}
+.btn-quiet:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .btn:disabled {
@@ -297,13 +314,8 @@ a:hover {
   color: var(--text-muted);
 }
 
-.select {
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%239ca3b4' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
-  padding-right: 36px;
-}
+/* The chevron, appearance and right padding for EVERY single-line <select>
+   (classed or not) live in design-system.css → "Controls". */
 
 .textarea {
   resize: vertical;
@@ -411,7 +423,8 @@ label {
 .text-right  { text-align: right; }
 .text-muted { color: var(--text-muted); }
 .text-accent { color: var(--accent); }
-.text-danger { color: var(--error); }
+.text-danger,
+.text-error { color: var(--error); }
 .text-success { color: var(--success); }
 .text-warning { color: var(--warning); }
 
@@ -429,7 +442,10 @@ label {
 .mt-1 { margin-top: 8px; }
 .mt-2 { margin-top: 16px; }
 .mt-3 { margin-top: 24px; }
+.mb-0 { margin-bottom: 0; }
 .mb-1 { margin-bottom: 8px; }
+.ml-1 { margin-left: 8px; }
+.ml-2 { margin-left: 16px; }
 .mb-2 { margin-bottom: 16px; }
 .ml-auto { margin-left: auto; }
 .mr-auto { margin-right: auto; }

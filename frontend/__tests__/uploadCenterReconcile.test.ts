@@ -87,12 +87,12 @@ describe('Upload Center Reconcile', () => {
   test('a channel that has never been listed does not read as having no matches', async () => {
     const never = await mount({ remote_listed_at: null })
     assert.match(never.text(), /have not been listed yet/)
-    assert.match(never.text(), /Refresh the channel listing first/)
+    assert.match(never.text(), /Refresh the Channel Listing first/)
     never.destroy()
 
     const listed = await mount({ local_only: ['EP0001'], youtube_only: ['video-a'] })
     assert.match(listed.text(), /Channel listed/)
-    assert.doesNotMatch(listed.text(), /Refresh the channel listing first/)
+    assert.doesNotMatch(listed.text(), /Refresh the Channel Listing first/)
     listed.destroy()
   })
 
@@ -132,7 +132,7 @@ describe('Upload Center Reconcile', () => {
 
     // Nothing is applied before the preview is asked for.
     assert.equal(button(mounted.el, 'Link 1 now'), undefined)
-    button(mounted.el, 'Preview linking them')!.click()
+    button(mounted.el, 'Preview Linking Them')!.click()
     for (let i = 0; i < 6; i++) await nextTick()
 
     const text = mounted.text()
@@ -162,13 +162,13 @@ describe('Upload Center Reconcile', () => {
 
   test('an unexpired renumber undo requires confirmation before permanent dismissal', async () => {
     const declined = await mount({ available: true, expired: false }, {}, false)
-    button(declined.el, 'Discard undo')!.click()
+    button(declined.el, 'Discard Undo')!.click()
     for (let i = 0; i < 6; i++) await nextTick()
     assert.equal(declined.calls.some(c => c.method === 'DELETE'), false)
     declined.destroy()
 
     const accepted = await mount({ available: true, expired: false })
-    button(accepted.el, 'Discard undo')!.click()
+    button(accepted.el, 'Discard Undo')!.click()
     for (let i = 0; i < 6; i++) await nextTick()
     assert.deepEqual(accepted.calls.find(c => c.method === 'DELETE'), {
       method: 'DELETE', path: '/projects/demo-project/upload/renumber-undo',
@@ -193,7 +193,7 @@ describe('Upload Center Reconcile', () => {
 
   test('setting a video aside is reversible and never reads as "no match"', async () => {
     const mounted = await mount({ youtube_only: ['video-orphan'] })
-    button(mounted.el, 'Set aside')!.click()
+    button(mounted.el, 'Set Aside')!.click()
     for (let i = 0; i < 6; i++) await nextTick()
 
     const posted = mounted.calls.find(c => c.method === 'POST')
@@ -203,7 +203,7 @@ describe('Upload Center Reconcile', () => {
 
     const withIgnored = await mount({ ignored_video_ids: ['video-orphan'] })
     assert.match(withIgnored.text(), /kept out of the way, not lost/)
-    assert.notEqual(button(withIgnored.el, 'Bring back'), undefined)
+    assert.notEqual(button(withIgnored.el, 'Bring Back'), undefined)
     withIgnored.destroy()
   })
 
@@ -215,12 +215,12 @@ describe('Upload Center Reconcile', () => {
         { decision_id: 'd3', episode_code: 'EP0003', previous_video_id: null, next_video_id: 'video-3', rolled_back_at: '2026-09-03T11:00:00.000Z' },
       ],
     })
-    assert.match(mounted.text(), /Undo \(unlink\)/)
-    assert.match(mounted.text(), /Undo \(back to video-old\)/)
+    assert.match(mounted.text(), /Undo \(Unlink\)/)
+    assert.match(mounted.text(), /Undo \(Back to video-old\)/)
     // An already-undone decision is not offered again.
     assert.doesNotMatch(mounted.text(), /EP0003/)
 
-    button(mounted.el, 'Undo (unlink)')!.click()
+    button(mounted.el, 'Undo (Unlink)')!.click()
     for (let i = 0; i < 6; i++) await nextTick()
     const posted = mounted.calls.find(c => c.path.endsWith('/rollback'))
     assert.deepEqual(posted.body, { decision_id: 'd1' })

@@ -3,11 +3,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { createRequire } from 'module'
 import * as pm from '../services/project-manager.js'
-import {
-  getGenStudioAccountSnapshot,
-  GenStudioApiError,
-  listChatModels as listGenStudioChatModels,
-} from '../lib/genstudio-client.js'
+import { listChatModels as listGenStudioChatModels } from '../lib/genstudio-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { getGenStudioUrl } from '../services/app-settings.js'
 import { getSessionStats } from '../services/session-tracker.js'
@@ -202,52 +198,6 @@ router.get('/models', async (_req, res) => {
   }
 })
 
-async function authoritativeUsage(res: any): Promise<void> {
-  const apiKey = await withGenStudioKey()
-  if (!apiKey) {
-    res.status(400).json({ detail: 'Add a Gateway key in Settings → This Mac.' })
-    return
-  }
-  try {
-    res.json(await getGenStudioAccountSnapshot(apiKey))
-  } catch (error: any) {
-    if (error instanceof GenStudioApiError && (error.status === 401 || error.status === 403)) {
-      res.status(503).json({
-        code: 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE',
-        detail: 'This key cannot read GenStudio balance or settlement history. Story Studio will not estimate them locally.',
-      })
-      return
-    }
-    res.status(502).json(humanizeBackendError(error, 'Could not load your GenStudio usage'))
-  }
-}
-
-router.get('/usage', (_req, res) => authoritativeUsage(res))
-router.get('/usage/rollup', (_req, res) => authoritativeUsage(res))
-
-router.get('/projects/:slug/health', async (req, res) => {
-  if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
-  const apiKey = await withGenStudioKey()
-  if (!apiKey) return res.json({ genstudio: { configured: false, online: false, detail: 'Add a Gateway key.' } })
-  try {
-    const models = await listGenStudioChatModels(apiKey)
-    res.json({ genstudio: { configured: true, online: true, available_chat_models: models.filter(model => model.available).length } })
-  } catch (error: any) {
-    res.json({ genstudio: { configured: true, online: false, detail: error?.message || 'Gateway unavailable' } })
-  }
-})
-
-router.get('/connectivity/precheck', async (_req, res) => {
-  const apiKey = await withGenStudioKey()
-  if (!apiKey) return res.json({ online: false, genstudio: false, detail: 'Gateway key is not configured.' })
-  try {
-    await listGenStudioChatModels(apiKey)
-    res.json({ online: true, genstudio: true })
-  } catch (error: any) {
-    res.json({ online: false, genstudio: false, detail: error?.message || 'Gateway unavailable' })
-  }
-})
-
 /**
  * Is the Gateway answering at all? The sidebar and header ask this every 20 s, so it is the cheapest
  * question there is: no key, no catalogue, just the Gateway's own unauthenticated `/health`. Any HTTP
@@ -263,30 +213,6 @@ router.get('/gateway/status', async (_req, res) => {
   } catch {
     res.json({ reachable: false, url })
   }
-})
-
-async function testGenStudioKey(apiKey: string, res: any): Promise<void> {
-  if (!apiKey) {
-    res.status(400).json({ valid: false, reachable: false, message: 'A Gateway key is required.' })
-    return
-  }
-  try {
-    const models = await listGenStudioChatModels(apiKey)
-    res.json({ valid: true, reachable: true, message: `Gateway key works · ${models.filter(model => model.available).length} chat model(s) available.` })
-  } catch (error: any) {
-    res.json({ valid: false, reachable: !(error instanceof TypeError), message: error?.message || 'Gateway key test failed.' })
-  }
-}
-
-router.post('/test-key/:provider', async (req, res) => {
-  if (req.params.provider !== 'genstudio') return res.status(410).json({ code: 'GENSTUDIO_ONLY', detail: 'Only Gateway credentials are supported.' })
-  await testGenStudioKey(typeof req.body?.apiKey === 'string' ? req.body.apiKey.trim() : '', res)
-})
-
-router.post('/projects/:slug/test-key/:provider', async (req, res) => {
-  if (req.params.provider !== 'genstudio') return res.status(410).json({ code: 'GENSTUDIO_ONLY', detail: 'Only Gateway credentials are supported.' })
-  if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
-  await testGenStudioKey(await withGenStudioKey(), res)
 })
 
 router.get('/projects/:slug/dashboard-stats', async (req, res) => {

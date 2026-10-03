@@ -108,12 +108,6 @@ describe('the JSON call sites declare their contract', () => {
       declares: 'outputContract: JSON_OBJECT_OUTPUT_CONTRACT',
     },
     {
-      what: '2 · format extraction from sample scripts',
-      file: 'routes/projects.ts',
-      anchor: "const raw = await callAiWithRetry(model, '', prompt, apiKeys, false, {",
-      declares: 'outputContract: JSON_OBJECT_OUTPUT_CONTRACT',
-    },
-    {
       what: '6 · metadata template placeholder extraction',
       file: 'generators/metadata.ts',
       // Metadata's policy-aware caller delegates to callAiWithRetry when no
@@ -155,24 +149,16 @@ describe('the JSON call sites declare their contract', () => {
     ['services/freeform-idea-generation.ts', 'ideaBatchOutputContract'],
     ['generators/idea-campaign.ts', 'ideaCampaignOutputContract'],
   ]) {
-    test(`${file}: both lineup and ordinary calls carry the same JSON contract`, () => {
+    test(`${file}: the writing call carries the JSON contract`, () => {
       const text = source(file!)
       const start = text.indexOf('const context: CallAiContext = {')
       const end = text.indexOf('const raw =', start)
       assert.ok(start >= 0 && end > start, 'shared request context must precede dispatch')
       assert.ok(text.slice(start, end).includes(`outputContract: ${contract}(`))
-      for (const caller of ['callAiWithModelPolicy', 'callAiWithRetry']) {
-        assert.match(callRegion(file!, `await ${caller}(`), /, context\)$/,
-          `${caller} must receive the context declaring the JSON contract`)
-      }
+      assert.match(callRegion(file!, 'await callAiWithRetry('), /, context\)$/,
+        'callAiWithRetry must receive the context declaring the JSON contract')
     })
   }
-
-  test('both regular route passes delegate to the shared freeform contract', () => {
-    const ideasRoute = source('routes/ideas.ts')
-    assert.match(ideasRoute, /const firstBatch = normalizeIdeas\(await generateFreeformIdeaBatch\(\{/, 'first pass bypassed the shared contract')
-    assert.match(ideasRoute, /const retryBatch = normalizeIdeas\(await generateFreeformIdeaBatch\(\{/, 'retry pass bypassed the shared contract')
-  })
 
   test('the deprecated jsonObject flag is gone from the vision call', () => {
     const region = callRegion('routes/vision.ts', 'const result = await callChatWithGenStudio(apiKey, {')
@@ -189,12 +175,6 @@ describe('each contract accepts its own payload and refuses prose', () => {
     }, JSON_OBJECT_OUTPUT_CONTRACT)
     assert.equal(parsePlannerJson(raw).scenes?.length, 1)
     assert.throws(() => validateStructuredOutput('Here are the scenes you asked for.', JSON_OBJECT_OUTPUT_CONTRACT))
-  })
-
-  test('2 · format extraction rejects a bare array as well as prose', () => {
-    assert.ok(throughContract({ id: 'my-format', name: 'My Format' }, JSON_OBJECT_OUTPUT_CONTRACT).includes('my-format'))
-    assert.throws(() => validateStructuredOutput('[1, 2]', JSON_OBJECT_OUTPUT_CONTRACT), /one JSON object/)
-    assert.throws(() => validateStructuredOutput('A format for calm history explainers.', JSON_OBJECT_OUTPUT_CONTRACT))
   })
 
   const IDEA = {
@@ -340,7 +320,6 @@ describe('the prose call sites are left alone', () => {
   const untouched = [
     'generators/episode.ts',              // legacy generateEpisode script + prompt paths
     'routes/scripts.ts',                  // interactive metadata routes
-    'services/audio-expression.ts',       // performance-tag markup
   ]
   for (const file of untouched) {
     test(`${file} declares no contract at all`, () => {

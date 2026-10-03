@@ -105,5 +105,4 @@ test('ordinary bulk repairs stay bounded while explicit paid auto-repair opts in
   assert.doesNotMatch(plan, /if \(params\.regenerate_empty_prompts\) \{[\s\S]*generatePromptsForScenes/)
   assert.doesNotMatch(plan, /if \(params\.regenerate_empty_motion_prompts\) \{[\s\S]*generateMotionPromptsForScenes/)
   assert.match(planRoute, /regenerate_empty_prompts: true,[\s\S]*prompt_pack_size: promptPackSize/)
-  assert.match(planRoute, /regenerate_empty_motion_prompts: true,[\s\S]*prompt_pack_size: promptPackSize/)
 })

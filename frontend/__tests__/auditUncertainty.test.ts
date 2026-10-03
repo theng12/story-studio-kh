@@ -82,7 +82,7 @@ test('an unmeasurable stage stays uncertain until a re-scan measures it', async 
     assert.doesNotMatch(ui.host.textContent || '', /Every expected file is on disk/)
     assert.equal(ui.host.querySelector('a'), null, 'an unknown audit result must not offer Repair')
 
-    ;[...ui.host.querySelectorAll('button')].find(button => button.textContent === 'Re-scan audit')?.click()
+    ;[...ui.host.querySelectorAll('button')].find(button => button.textContent === 'Re-Scan Audit')?.click()
     assert.equal(ui.rescans(), 1)
 
     ui.current.value = report([{
@@ -114,7 +114,7 @@ test('an active audit disables the dialog re-scan action', async () => {
     stage: 'audio', outcome: 'unmeasurable', started: false, expected: 0, present: 0, missing: [], extra: [],
   }]), true)
   try {
-    const rescan = [...ui.host.querySelectorAll('button')].find(button => button.textContent === 'Re-scan audit')
+    const rescan = [...ui.host.querySelectorAll('button')].find(button => button.textContent === 'Re-Scan Audit')
     assert.equal(rescan?.disabled, true)
     rescan?.click()
     assert.equal(ui.rescans(), 0)

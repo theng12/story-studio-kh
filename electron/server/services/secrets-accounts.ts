@@ -102,23 +102,6 @@ export async function addAccount(
   return summaryFor(providerId, maskKey(apiKey))
 }
 
-export async function updateAccount(
-  _slug: string,
-  providerId: string,
-  _accountId: string,
-  patch: { label?: string; apiKey?: string },
-): Promise<AccountSummary> {
-  assertKnownProvider(providerId)
-  if (patch.apiKey !== undefined) {
-    const trimmed = patch.apiKey.trim()
-    if (!trimmed) throw new AccountsError('API key cannot be empty', 'empty_key')
-    await setApiKey(providerId, trimmed)
-  }
-  // Label changes are a no-op now (only one implicit "Default" label).
-  const apiKey = await getApiKey(providerId)
-  return summaryFor(providerId, maskKey(apiKey))
-}
-
 /**
  * "Remove account" → clear the provider's key.
  */
@@ -129,18 +112,6 @@ export async function removeAccount(
 ): Promise<void> {
   assertKnownProvider(providerId)
   await clearApiKey(providerId)
-}
-
-/**
- * "Set default" — no-op. There's only one slot per provider now.
- */
-export async function setDefaultAccount(
-  _slug: string,
-  providerId: string,
-  _accountId: string,
-): Promise<void> {
-  assertKnownProvider(providerId)
-  // Nothing to do — kept for API compat.
 }
 
 function maskKey(k: string): string {

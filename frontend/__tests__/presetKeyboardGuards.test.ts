@@ -17,7 +17,7 @@ const systemRoutes = source('../../electron/server/routes/system.ts')
 
 describe('preset modal keyboard guards', () => {
   test('Return confirms on key release and cannot leak into the opener', () => {
-    for (const component of [presetPicker, topActionBar, settings, scripts, imagePrompts]) {
+    for (const component of [presetPicker, topActionBar, settings, scripts]) {
       assert.doesNotMatch(component, /@keydown\.enter(?:\.prevent)?="(?:confirmSaveAs|savePreset|confirmSaveCustomStyle|confirmSavePreset|saveStylePreset)"/)
       assert.match(component, /@keyup\.enter\.stop\.prevent="(?:confirmSaveAs|confirmRename|savePreset|confirmSaveCustomStyle|confirmSavePreset|saveStylePreset)"/)
     }
@@ -50,8 +50,8 @@ describe('preset modal keyboard guards', () => {
     )
   })
 
-  test('the split prompt workspace hydrates both canonical preset stores', () => {
+  test('the thumbnail prompt workspace hydrates its canonical preset store', () => {
     assert.match(imagePrompts, /thumbnailPresets\.load\(\)/)
-    assert.match(imagePrompts, /scenePresets\.load\(\)/)
+    assert.doesNotMatch(imagePrompts, /scenePresets/)
   })
 })

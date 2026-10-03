@@ -27,14 +27,14 @@
 
       <!-- Manual install option -->
       <div class="ffmpeg-option mt-2" v-if="!installing && !installed">
-        <p class="text-muted" style="font-size: 12px;">Or install manually:</p>
+        <p class="hint">Or install manually:</p>
         <div class="manual-commands mt-1">
           <code v-if="isMac">brew install ffmpeg</code>
           <code v-else-if="isLinux">sudo apt install ffmpeg</code>
           <code v-else>Download from ffmpeg.org/download.html</code>
         </div>
         <button class="btn btn-secondary btn-sm mt-1" @click="recheckFFmpeg">
-          I've installed it — check again
+          I've Installed It — Check Again
         </button>
       </div>
 
@@ -50,19 +50,19 @@
       <div v-if="installed" class="ffmpeg-success mt-2">
         <span style="font-size: 24px;">&#10003;</span>
         <p>FFmpeg installed successfully!</p>
-        <p class="text-muted" style="font-size: 12px;">Version: {{ installedVersion }}</p>
+        <p class="hint">Version: {{ installedVersion }}</p>
         <button class="btn btn-primary mt-2" @click="visible = false">Continue</button>
       </div>
 
       <!-- Error -->
       <div v-if="error" class="ffmpeg-error mt-2">
         <p style="color: var(--error);">{{ error }}</p>
-        <p class="text-muted" style="font-size: 12px;">Press “Download &amp; Install FFmpeg Automatically” above to try again.</p>
+        <p class="hint">Press “Download &amp; Install FFmpeg Automatically” above to try again.</p>
       </div>
     </div>
 
     <div v-if="!installing && !installed" class="mt-2" style="text-align: right;">
-      <button class="btn btn-secondary btn-sm" @click="dismiss">Skip for now</button>
+      <button class="btn btn-secondary btn-sm" @click="dismiss">Skip for Now</button>
     </div>
   </Modal>
 </template>

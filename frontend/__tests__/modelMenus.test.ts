@@ -29,10 +29,9 @@ const modelSurfaces = {
   sceneReview: source('../pages/projects/[slug]/scene-review.vue'),
   broll: source('../pages/projects/[slug]/broll.vue'),
   imagePrompts: source('../pages/projects/[slug]/image-prompts.vue'),
+  thumbnailVisionMenu: source('../utils/thumbnail-vision-model-menu.ts'),
   research: source('../pages/projects/[slug]/research.vue'),
-  characters: source('../pages/projects/[slug]/characters.vue'),
   channelCharacters: source('../pages/character-library.vue'),
-  formatWizard: source('../components/FormatFromSampleWizard.vue'),
 }
 
 describe('shared model menus', () => {
@@ -175,7 +174,8 @@ describe('shared model menus', () => {
     assert.match(imageGenerator, /thumbnail_reference_asset/)
     assert.match(imagePicker, /supports_reference_images/)
     assert.match(imagePicker, /max_reference_images/)
-    assert.match(imagePicker, /chargeable/)
+    // Capability, not price: a free model on the owner's Macs (`chargeable: false`) takes references too.
+    assert.doesNotMatch(imagePicker, /\.chargeable\b/)
   })
 
   test('image generation quality is automatic and never persists a manual step count', () => {
@@ -249,7 +249,7 @@ describe('shared model menus', () => {
     assert.match(voicePicker, /Clone a voice in the Gateway/)
     assert.match(appSettings, /voices\.filter\(voice => !voice\.tts_model_id \|\| voice\.tts_model_id === modelId\)/)
     assert.match(voiceLibraryBrowser, /v-if="hasMore"/)
-    assert.match(voiceLibraryBrowser, /Load more voices/)
+    assert.match(voiceLibraryBrowser, /Load More Voices/)
     assert.doesNotMatch(voiceLibraryBrowser, /vlb-tabs|selectLibrary|Previous|Next →/)
     // The saved filter survived the dialog conversion; it is now one option in
     // the All / Saved / Cloned group rather than a standalone checkbox.
@@ -271,7 +271,7 @@ describe('shared model menus', () => {
     assert.match(modelSurfaces.broll, /media-type="transcription"/)
     assert.match(modelSurfaces.sceneReview, /<ImageModelPicker/)
     assert.doesNotMatch(modelSurfaces.sceneReview, /Rewrite LLM|<ModelSelector/)
-    assert.match(modelSurfaces.imagePrompts, /title="Reference analysis model"/)
+    assert.match(modelSurfaces.imagePrompts, /title="Thumbnail reference analysis model"/)
     assert.match(modelSurfaces.channelCharacters, /title="Character vision model"/)
   })
 
@@ -281,7 +281,7 @@ describe('shared model menus', () => {
     assert.match(modelSurfaces.audio, /costTier:\s*model\.cost_tier/)
     assert.match(modelSurfaces.motion, /costTier:\s*model\.cost_tier/)
     assert.match(transcriptionCatalog, /costTier:\s*model\.cost_tier/)
-    assert.match(modelSurfaces.imagePrompts, /costTier:\s*model\.cost_tier/g)
+    assert.match(modelSurfaces.thumbnailVisionMenu, /costTier:\s*model\.cost_tier/)
     assert.match(modelSurfaces.research || '', /costTier:\s*model\.cost_tier/)
 
     for (const catalog of [imageCatalog, mediaCatalog, voiceCatalog, transcriptionCatalog]) {
@@ -307,12 +307,6 @@ describe('shared model menus', () => {
     assert.match(transcriptionCatalog, /disabled: !catalogIsUsable\.value \|\| !model\.available \|\| model\.locked === true/)
     assert.match(transcriptionCatalog, /Last-known catalog only\. Refresh the Gateway before starting paid transcription\./)
     assert.match(transcriptionCatalog, /temporarily unavailable/)
-  })
-
-test('the format wizard no longer restores a hardcoded paid model list', () => {
-    assert.match(modelSurfaces.formatWizard, /<ModelSelector/)
-    assert.doesNotMatch(modelSurfaces.formatWizard, /<option value="gpt-4o"/)
-    assert.match(modelSurfaces.formatWizard, /const model = ref\(''\)/)
   })
 })
 

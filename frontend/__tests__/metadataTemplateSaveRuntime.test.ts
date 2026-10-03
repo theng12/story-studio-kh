@@ -124,11 +124,11 @@ test('metadata save freezes the rendered fields and ignores a stale project resp
   }
 })
 
-test('Clear profile asks first, then really clears what is on disk', async () => {
+test('Clear Profile asks first, then really clears what is on disk', async () => {
   const calls: Array<{ path: string; body: any }> = []
   const mounted = await mount(async (path, body) => { calls.push({ path, body }); return { ok: true } })
   try {
-    const clear = Array.from(mounted.host.querySelectorAll('button')).find(button => button.textContent?.includes('Clear profile')) as HTMLButtonElement
+    const clear = Array.from(mounted.host.querySelectorAll('button')).find(button => button.textContent?.includes('Clear Profile')) as HTMLButtonElement
     mounted.fixture.answer = false
     clear.click()
     await flush()

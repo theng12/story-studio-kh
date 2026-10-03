@@ -25,7 +25,7 @@ test('unknown and app-wide tasks have no misleading workspace shortcut', () => {
 
 test('writing, media and upload tasks use existing work pages', () => {
   const cases = {
-    'script-only': 'scripts', 'introduction-only': 'introduction', audio_merge: 'audio-merge',
+    expand_chapters: 'scripts', 'introduction-only': 'introduction', audio_merge: 'audio-merge',
     subtitles_transcribe: 'subtitles', scene_plan_run: 'scene-plan', continuity_render: 'scene-review',
     thumb_images: 'images', scene_clips_batch: 'motion-review', video_assembly: 'video-assembly', youtube_upload: 'upload/publish',
   }

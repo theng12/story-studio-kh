@@ -18,7 +18,7 @@ test('thumbnail reference analysis shows only qualified Gateway vision models', 
   assert.match(route, /supports_structured_output/)
   assert.match(route, /thumbnail-reference\/vision-models/)
   assert.match(page, /thumbnailVisionModels/)
-  assert.match(page, /:options="visionModelMenuOptions"/)
+  assert.match(page, /:options="thumbnailVisionModelMenuOptions"/)
   const option = thumbnailVisionModelMenuOption({
     id: 'vision-priced', display_name: 'Vision priced', supported_detail_levels: ['high'],
     max_input_images: 1, accepted_image_mime_types: ['image/png'], max_image_bytes: 1,
@@ -30,7 +30,7 @@ test('thumbnail reference analysis shows only qualified Gateway vision models', 
   assert.match(option.priceTitle, /minimum of 1 credit applies/i)
   assert.match(page, /Reference-guided thumbnail/)
   assert.match(page, /Import & analyse reference/)
-  assert.match(page, /Retry vision models/)
+  assert.match(page, /Retry Vision Models/)
   assert.match(page, /:require-vision="Boolean\(form\.thumbnail\.thumb_reference_asset\)"/)
   assert.match(selector, /allModels\.value\.filter\(model => isUsableLiveGenStudioModel\(model, true\)\)/)
   assert.match(health, /supports_vision: model\.supports_vision/)

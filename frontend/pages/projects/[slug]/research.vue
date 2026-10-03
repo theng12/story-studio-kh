@@ -68,7 +68,6 @@
       </div>
     </div>
 
-    <InheritedLlmLineupNotice :project-slug="slug" />
 
     <WorkspaceSection
       eyebrow="Research brief"
@@ -201,7 +200,7 @@
               search-placeholder="Search web-research models…"
               aria-label="Web-research model options"
             />
-            <ModelSelector v-else v-model="form.source_model" :project-slug="slug" />
+            <ModelSelector v-else v-model="form.source_model" :project-slug="slug" writing-step />
             <span class="research-field-note">
               <template v-if="webMode">Only models qualified to search the web and return structured citations appear here.</template>
               <template v-else>Only published Gateway LLM models appear here. Your last choice remains selected for this project.</template>
@@ -302,7 +301,7 @@
             title="Save your Verified / Ignore decisions. That is what makes this research count as reviewed."
             @click="saveResearch"
           >
-            {{ saving ? 'Saving…' : (dirty ? 'Save review' : 'Saved') }}
+            {{ saving ? 'Saving…' : (dirty ? 'Save Review' : 'Saved') }}
           </button>
           <button
             class="btn btn-sm btn-danger"
@@ -392,9 +391,9 @@
             <span v-if="resultHasSourceUrls"><b>{{ resultSourceUrls.length }}</b> retrieved pages</span>
           </div>
           <div v-if="result.claims.length" class="research-claims-bulk">
-            <button type="button" class="btn btn-xs btn-primary" @click="bulkClaims('verified')" title="Mark every claim verified">Verify all</button>
+            <button type="button" class="btn btn-xs btn-primary" @click="bulkClaims('verified')" title="Mark every claim verified">Verify All</button>
             <button type="button" class="btn btn-xs btn-secondary" @click="bulkClaims('unreviewed')" title="Reset every claim to pending">Reset</button>
-            <button type="button" class="btn btn-xs btn-secondary" @click="bulkClaims('ignored')" title="Ignore every claim">Ignore all</button>
+            <button type="button" class="btn btn-xs btn-secondary" @click="bulkClaims('ignored')" title="Ignore every claim">Ignore All</button>
           </div>
         </div>
 
@@ -515,7 +514,7 @@
             </div>
             <div class="research-sources-bulk">
               <button type="button" class="btn btn-xs btn-secondary" @click="bulkSources('all')">All</button>
-              <button type="button" class="btn btn-xs btn-secondary" @click="bulkSources('verified')" title="Only sources cited by a verified claim">Verified only</button>
+              <button type="button" class="btn btn-xs btn-secondary" @click="bulkSources('verified')" title="Only sources cited by a verified claim">Verified Only</button>
               <button type="button" class="btn btn-xs btn-secondary" @click="bulkSources('none')">None</button>
             </div>
           </div>
@@ -556,7 +555,7 @@
             reviewed evidence set.
           </p>
           <p v-else>
-            Pick an episode to see whether it needs research and how far its claim review has got.
+            Pick an episode to see its research and how far its claim review has got.
           </p>
         </div>
       </div>
@@ -1332,7 +1331,7 @@ async function runResearch(): Promise<void> {
     const ok = await ask({
       title: `Run research again for ${ep}?`,
       message: `Your ${decided} claim decision${decided === 1 ? '' : 's'} for ${ep} will be cleared. The new claims start unreviewed.`,
-      confirmLabel: 'Run again',
+      confirmLabel: 'Run Again',
       danger: true,
     })
     if (!ok || researchScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== ep) return
@@ -1633,8 +1632,7 @@ watch(
   flex-direction: column;
   gap: 13px;
 }
-.research-brief-copy label,
-.research-advanced-grid label {
+.research-brief-copy label {
   display: block;
   margin-bottom: 6px;
   color: var(--text-primary);

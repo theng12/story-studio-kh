@@ -1992,8 +1992,24 @@ export interface AudioQualityProjectConfig {
   alternate_transcription_model?: string
 }
 
+/**
+ * What Story Studio did with a project's retired LLM lineup (2026-10-03), written once.
+ * The lineup itself stays on disk under `llm_lineup` and is never read again.
+ */
+export interface LlmLineupMigration {
+  /** The ONE writing model kept for steps that had none: a matching Gateway pool, or the lineup's first model. */
+  model: string
+  /** True when `model` is a Gateway pool whose members matched the lineup. */
+  pool: boolean
+  /** Pipeline steps whose saved preset had no writing model and now has `model`. */
+  steps: string[]
+  migrated_at: string
+  /** Set when the owner closes the one-time notice on the Pipeline page. */
+  notice_dismissed_at?: string
+}
+
 export interface ProjectConfig {
-  llm_lineup?: import('../contracts/llm-lineup.js').LlmLineup
+  llm_lineup_migration?: LlmLineupMigration
   /** Historical project files may contain retired fields; Story ignores them. */
   [key: string]: any
   genstudio_api_key?: string
@@ -2256,7 +2272,7 @@ export interface MetadataTemplate {
 }
 
 export interface SafeProjectConfig {
-  llm_lineup?: import('../contracts/llm-lineup.js').LlmLineup
+  llm_lineup_migration?: LlmLineupMigration
   has_genstudio_key: boolean
   has_google_key?: boolean
   /** @deprecated v1.0.150 — removed alongside the standalone Chatterbox provider. */
@@ -2293,7 +2309,8 @@ export interface UpdateApiKeysRequest {
 }
 
 export interface UpdateConfigRequest {
-  llm_lineup?: import('../contracts/llm-lineup.js').LlmLineup
+  /** Server-written only (the HTTP schema strips it). */
+  llm_lineup_migration?: LlmLineupMigration
   image_models?: Record<string, ImageModelConfig>
   voice_presets?: VoicePreset[]
   voice_favourites?: string[]
@@ -2335,7 +2352,7 @@ export interface UpdateConfigRequest {
 // ── Jobs ────────────────────────────────────────────────────────────────────
 
 export const JOB_TYPES = [
-  'idea_campaign', 'broll_select', 'script-only', 'introduction-only', 'chapter-only',
+  'idea_campaign', 'broll_select', 'introduction-only', 'chapter-only',
   'outline_only', 'expand_chapters', 'image_prompts', 'thumb_images', 'images_repair', 'audio', 'audio_merge',
   'metadata', 'video', 'video_assembly',
   'subtitles_transcribe', 'youtube_upload', 'youtube_playlist_update',
@@ -2343,7 +2360,7 @@ export const JOB_TYPES = [
   'research_run', 'scene_plan_run',
   'scene_image_generate', 'scene_clip_generate',
   'scene_clips_batch', 'continuity_render',
-  'composition_generate', 'expression_markup', 'contextual_cues',
+  'composition_generate', 'contextual_cues',
   'image_pool_generate',
   /** v1.4.37 — top up a channel's music library from one style brief. */
   'music_generate',
@@ -2877,8 +2894,6 @@ export interface GenerateScriptRequest {
   chapters: number
   total_words?: number
   words_per_chapter?: number
-  generate_image_prompts: boolean
-  generate_youtube_desc: boolean
   /**
    * Character primitive (Phase 5): when set, the script generator passes
    * the named cast into the prompt — the LLM uses these names + descriptions
@@ -2969,10 +2984,6 @@ export interface GenerateAudioRequest {
   controls?: Record<string, number | boolean | string>
   force: boolean
   no_overwrite: boolean
-  /** Fish Audio S2-Pro only — render the saved expressive (tagged) narration. */
-  use_expression?: boolean
-  /** Fish Audio S2-Pro only — auto-insert pause tags at sentence/paragraph breaks. */
-  fish_autopace?: boolean
   /** Server-stamped, action-scoped staged candidate; public Audio requests never carry it. */
   quality_repair?: {
     action_id: string
@@ -3777,16 +3788,6 @@ export interface GenerateVideoRequest {
 // ── Video Generation ────────────────────────────────────────────────────────
 
 export type VideoGenerationMode = 'frames'
-
-export interface GenerateVideoPromptsRequest {
-  episode_id: string
-  title: string
-  model: string  // LLM model for prompt generation
-  /** How many prompts to generate — typically matches scene count */
-  count?: number
-  /** Optional hint if the user wants a specific style (e.g. "slow dreamy camera moves") */
-  style_hint?: string
-}
 
 /**
  * The AI Video Generator's request (Veo / Sora / fal-video via GenStudio).

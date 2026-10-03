@@ -8,7 +8,7 @@
           <p class="text-muted">{{ galleryBlurb }} Applying one changes the LOOK only — it never touches which subtitle file this episode burns, or whether subtitles are on.</p>
         </div>
         <button type="button" class="btn btn-sm btn-secondary" @click="galleryOpen = !galleryOpen">
-          {{ galleryOpen ? 'Hide looks' : 'Show looks' }}
+          {{ galleryOpen ? 'Hide Looks' : 'Show Looks' }}
         </button>
       </header>
       <div v-if="galleryOpen" class="ssp-gallery-grid">
@@ -85,7 +85,7 @@
           </div>
           <div class="ssp-preview-actions">
             <button class="btn btn-sm btn-primary" :disabled="rendering" @click="renderExact">
-              {{ rendering ? 'Rendering…' : exactUrl ? 'Re-render exact preview' : 'Render exact preview' }}
+              {{ rendering ? 'Rendering…' : exactUrl ? 'Re-Render Exact Preview' : 'Render Exact Preview' }}
             </button>
             <button
               v-if="exactUrl"
@@ -172,7 +172,7 @@
       class="ssp-group"
     >
       <button type="button" class="ssp-group-head" @click="toggle(group.id)">
-        <span class="ssp-group-caret">{{ open[group.id] ? '▾' : '▸' }}</span>
+        <span class="ssp-group-caret ds-chevron" aria-hidden="true" :class="{ 'is-open': open[group.id] }" />
         <span class="ssp-group-title">{{ group.label }}</span>
         <span class="ssp-group-hint">{{ group.hint }}</span>
       </button>
@@ -324,7 +324,7 @@
                 @opacity="v => set('word','active_outline_opacity', v)"
                 hint="Recolours the spoken word's stroke — how the Neon and accent looks get their lift." />
               <button v-if="style.word.active_outline_hex !== null" class="btn btn-sm btn-secondary mt-1"
-                @click="set('word','active_outline_hex', null)">Follow the outline colour</button>
+                @click="set('word','active_outline_hex', null)">Follow the Outline Colour</button>
             </div>
             <SubtitleSliderField v-if="style.word.mode === 'pop'" label="Active word scale" unit="%" :min="100" :max="300" :value="style.word.active_scale_pct" @change="v => set('word','active_scale_pct', v)" />
             <div v-if="style.word.mode === 'highlight' || style.word.mode === 'pop'" class="form-group">
@@ -354,7 +354,7 @@
           <strong>Precise safe-area position</strong>
           <p class="text-muted">Drag the caption inside the closed box. The protected edge keeps its anchor away from cropping and player controls.</p>
         </div>
-        <button type="button" class="btn btn-sm btn-secondary" @click="resetPlacement">Bottom centre</button>
+        <button type="button" class="btn btn-sm btn-secondary" @click="resetPlacement">Bottom Centre</button>
       </div>
       <div
         ref="placementPadEl"

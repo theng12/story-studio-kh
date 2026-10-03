@@ -335,3 +335,282 @@
     scroll-behavior: auto;
   }
 }
+
+/* ═══ Controls & shared form patterns (ux/design-system, 2026-10-03) ═══════════
+   One look for every select, hint, disclosure, chip and switch. Components
+   that use these: CollapsibleCard, FolderField, HelpText, EmptyState,
+   AdvancedDisclosure. Raw markup can use the same classes.
+
+   Type: label 13/500 secondary · hint 12 muted, 1.5 line height, ≤ 72ch ·
+   control text 14 (13 for -sm). Radius: controls --radius-sm, cards
+   --radius-lg, chips capsule. */
+
+:root {
+  --prose-max: 72ch;
+  /* Background chevron for selects. Stroke is a mid grey that reads on both
+     the light and the dark field colour. */
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23858da0' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5l3 3 3-3'/%3E%3C/svg%3E");
+  /* Mask chevron (pointing right): painted with currentColor via
+     `background: currentColor; mask: var(--chevron-mask)`. */
+  --chevron-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4.5 2.75L7.75 6 4.5 9.25'/%3E%3C/svg%3E");
+}
+
+/* ── Select ────────────────────────────────────────────────────────────────
+   Every single-line <select> gets the same chevron, vertically centred, with
+   room for it on the right. The four chevron declarations are !important on
+   purpose: dozens of scoped rules restyle selects with the `background:`
+   shorthand (scene type pills, preset pickers, filters), which silently reset
+   background-image and left a bare box with no arrow at all. Nothing else here
+   is forced — scoped size, colour and border rules still win. */
+:where(select) {
+  max-width: 100%;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-md);
+  line-height: 1.35;
+  cursor: pointer;
+}
+select:not([multiple]):not([size]) {
+  -webkit-appearance: none;
+  appearance: none;
+  text-overflow: ellipsis;
+  background-image: var(--select-chevron) !important;
+  background-repeat: no-repeat !important;
+  background-position: right 10px center !important;
+  background-size: 12px 12px !important;
+  padding-right: 32px !important;
+}
+:where(select):hover:not(:disabled) { border-color: var(--border-light); }
+:where(select):focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+:where(select, .input, .textarea, .select):disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+:where(.input, .textarea):hover:not(:disabled):not(:focus) { border-color: var(--border-light); }
+:where(input[type='number']) { font-variant-numeric: tabular-nums; }
+
+/* ── Labels, hints and help ───────────────────────────────────────────────
+   `.hint` was used ~300 times but only defined inside individual components'
+   scoped styles, so wherever a page had no local rule it rendered as full-size
+   body text. Defined once here; a component's own rule still wins. */
+.hint,
+.field-hint,
+.help-text {
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  font-weight: 400;
+  line-height: 1.5;
+}
+p.hint,
+p.field-hint,
+p.help-text,
+.ds-help { max-width: var(--prose-max); }
+.ds-help-toggle {
+  font-size: inherit;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.field-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  font-weight: 500;
+}
+.field-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.muted { color: var(--text-muted); }
+.inline-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.validation-msg { color: var(--error); font-size: var(--font-xs); line-height: 1.45; }
+.error-box {
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--error) 40%, var(--border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--error) 8%, var(--bg-secondary));
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  line-height: 1.5;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ── Chips / badges ───────────────────────────────────────────────────────
+   Status chip: capsule, 12 semibold, tint fill + border, text always names
+   the state (never colour alone). */
+.ds-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.ds-chip[data-tone='info'],
+.badge-info { border-color: color-mix(in srgb, var(--info) 35%, transparent); background: color-mix(in srgb, var(--info) 12%, transparent); color: color-mix(in srgb, var(--info) 70%, var(--text-primary)); }
+.ds-chip[data-tone='success'],
+.badge-success { border-color: color-mix(in srgb, var(--success) 35%, transparent); background: color-mix(in srgb, var(--success) 12%, transparent); color: color-mix(in srgb, var(--success) 65%, var(--text-primary)); }
+.ds-chip[data-tone='warning'],
+.badge-warn { border-color: color-mix(in srgb, var(--warning) 40%, transparent); background: color-mix(in srgb, var(--warning) 13%, transparent); color: color-mix(in srgb, var(--warning) 60%, var(--text-primary)); }
+.ds-chip[data-tone='error'] { border-color: color-mix(in srgb, var(--error) 38%, transparent); background: color-mix(in srgb, var(--error) 11%, transparent); color: color-mix(in srgb, var(--error) 70%, var(--text-primary)); }
+
+/* ── Chevron + disclosures ────────────────────────────────────────────────
+   `.ds-chevron` is a 12 px chevron in the current text colour. Add
+   `.disclosure` to any <details> to swap the browser's ▶ marker (which some
+   pages pushed outside the card edge) for the same chevron, inside the
+   summary, turning when open. */
+.ds-chevron,
+details.disclosure > summary::before,
+.ds-collapsible-chevron {
+  content: '';
+  display: inline-block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  background: currentColor;
+  -webkit-mask: var(--chevron-mask) center / 12px 12px no-repeat;
+  mask: var(--chevron-mask) center / 12px 12px no-repeat;
+  opacity: 0.75;
+  transition: transform var(--motion-fast);
+}
+details.disclosure > summary {
+  display: block;
+  cursor: pointer;
+  list-style: none;
+}
+/* Inline, so a summary that mixes text and spans wraps like a sentence. A
+   summary that a page lays out as flex keeps the chevron as its first item. */
+details.disclosure > summary::before {
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+details.disclosure > summary::-webkit-details-marker { display: none; }
+details.disclosure[open] > summary::before,
+.ds-chevron.is-open,
+.ds-chevron[data-dir='down'],
+[aria-expanded='true'] > .ds-chevron { transform: rotate(90deg); }
+.ds-chevron { vertical-align: -1px; }
+details.disclosure > summary:focus-visible { border-radius: var(--radius-sm); }
+
+/* CollapsibleCard (components/CollapsibleCard.vue) — or raw
+   <details class="ds-collapsible"><summary class="ds-collapsible-header">… */
+.ds-collapsible {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+}
+.ds-collapsible + .ds-collapsible { margin-top: var(--space-3); }
+.ds-collapsible[data-variant='plain'] {
+  border-color: transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+}
+.ds-collapsible-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 52px;
+  padding: 12px 16px;
+  border-radius: inherit;
+  cursor: pointer;
+  list-style: none;
+  transition: background-color var(--motion-fast);
+}
+.ds-collapsible[data-variant='plain'] > .ds-collapsible-header { min-height: 40px; padding: 8px 10px; }
+.ds-collapsible-header::-webkit-details-marker { display: none; }
+.ds-collapsible-header::marker { content: ''; }
+.ds-collapsible-header:hover { background: var(--bg-hover); }
+.ds-collapsible-header:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ds-collapsible[open] > .ds-collapsible-header {
+  border-bottom: 1px solid var(--workspace-divider);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+.ds-collapsible[data-variant='plain'][open] > .ds-collapsible-header { border-bottom-color: transparent; }
+.ds-collapsible-text {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.ds-collapsible-title {
+  color: var(--text-primary);
+  font-size: var(--font-md);
+  font-weight: 600;
+  line-height: 1.35;
+}
+.ds-collapsible-description {
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.45;
+}
+.ds-collapsible-chevron { transform: rotate(90deg); }
+.ds-collapsible[open] > .ds-collapsible-header > .ds-collapsible-chevron { transform: rotate(-90deg); }
+.ds-collapsible-body { padding: var(--space-4); }
+.ds-collapsible[data-variant='plain'] > .ds-collapsible-body { padding: var(--space-2) 10px var(--space-3); }
+
+/* ── Switch ───────────────────────────────────────────────────────────────
+   <input type="checkbox" class="ds-switch"> — an on/off toggle for a setting
+   that applies immediately. Keep plain checkboxes for picking items. */
+input[type='checkbox'].ds-switch {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 32px;
+  height: 18px;
+  margin: 0;
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  transition: background-color var(--motion-fast), border-color var(--motion-fast);
+}
+input[type='checkbox'].ds-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  transition: transform var(--motion-fast), background-color var(--motion-fast);
+}
+input[type='checkbox'].ds-switch:checked { border-color: var(--accent); background: var(--accent); }
+input[type='checkbox'].ds-switch:checked::after { background: var(--accent-on); transform: translateX(14px); }
+input[type='checkbox'].ds-switch:disabled { opacity: 0.5; cursor: not-allowed; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-chevron,
+  details.disclosure > summary::before,
+  .ds-collapsible-chevron,
+  input[type='checkbox'].ds-switch,
+  input[type='checkbox'].ds-switch::after { transition: none; }
+}

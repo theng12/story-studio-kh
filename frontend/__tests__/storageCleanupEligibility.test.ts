@@ -5,13 +5,17 @@ import { test } from 'node:test'
 const settings = readFileSync(new URL('../pages/projects/[slug]/settings.vue', import.meta.url), 'utf8')
 
 test('Settings offers final cleanup only as a verify-and-clear candidate action', () => {
+  // v1.4.249 — one bulk "Clear uploaded final videos (verified)" option in the Free
+  // Up Space card; the per-episode table is read-only (no per-row clear).
   assert.match(settings, /e\.cleanup_eligible\s*&&\s*\(e\.bytes_final_video/)
-  assert.match(settings, /v-if="row\.cleanup_eligible && \(row\.bytes_final_video > 0 \|\| row\.bytes_external_final_video > 0\)"/)
-  assert.match(settings, /if \(!row\.cleanup_eligible\) return/)
-  const cleanupRow = settings.slice(settings.indexOf('async function cleanupRow('), settings.indexOf('// v1.0.71: chunked-sidecar'))
-  assert.ok(cleanupRow.startsWith('async function cleanupRow('))
-  assert.doesNotMatch(cleanupRow, /\bforce\s*:/)
-  assert.match(settings, /Verify & clear local video/)
+  const bulk = settings.slice(settings.indexOf('async function runBulkCleanup('), settings.indexOf('// v1.0.71: chunked-sidecar'))
+  assert.ok(bulk.startsWith('async function runBulkCleanup('))
+  assert.match(bulk, /if \(!storage\.value \|\| uploadedFinalsCount\.value === 0\) return/)
+  assert.match(bulk, /await ask\(/)
+  assert.match(bulk, /storage\/bulk-cleanup-final/)
+  assert.doesNotMatch(bulk, /\bforce\s*:/)
+  assert.doesNotMatch(settings, /async function cleanupRow\(|cleanup-final\/\$\{row/)
+  assert.match(settings, /Clear uploaded final videos \(verified\)/)
   assert.match(settings, /Verify and clear local videos\?/)
   assert.match(settings, /SHA-256/)
   assert.match(settings, /Any file it cannot verify stays local and is reported below/)
@@ -22,16 +26,15 @@ test('Settings offers final cleanup only as a verify-and-clear candidate action'
   assert.match(settings, /lastBulkCleanup\.items\.length/)
 })
 
-test('archive folder picking is visibly single-flight and reports picker failures', () => {
-  assert.match(settings, /const archivePicking = ref\(false\)/)
-  assert.match(settings, /:disabled="archiveBusy \|\| archivePicking"/)
-  assert.match(settings, /aria-label="Browse archive source folder"/)
-  assert.match(settings, /aria-label="Browse archive destination folder"/)
-  const sourcePicker = settings.slice(settings.indexOf('async function pickArchiveSource('), settings.indexOf('async function loadArchivePreview('))
-  assert.match(sourcePicker, /archivePicking\.value = true/)
-  assert.match(sourcePicker, /if \(archivePicking\.value \|\| archiveBusy\.value\) return/)
-  assert.match(sourcePicker, /showError\(pickerHelpFor\(e\)\)/)
-  assert.match(sourcePicker, /archivePicking\.value = false/)
+test('archive folders are chosen with the shared folder picker, single-flight and with failures reported', () => {
+  // v1.4.249 — folder pickers everywhere: no typed paths.
+  assert.match(settings, /<FolderField\s+v-model="archiveSource"[\s\S]{0,400}:disabled="archiveBusy"/)
+  assert.match(settings, /<FolderField\s+v-model="archiveDest"[\s\S]{0,400}:disabled="archiveBusy"/)
+  const field = readFileSync(new URL('../components/FolderField.vue', import.meta.url), 'utf8')
+  assert.match(field, /if \(picking\.value \|\| props\.disabled\) return/)
+  assert.match(field, /picking\.value = true/)
+  assert.match(field, /message\.value = /)
+  assert.match(field, /picking\.value = false/)
 })
 
 test('archive preview is treated as a background check, not a request that can silently time out', () => {
@@ -48,7 +51,7 @@ test('archive preview is treated as a background check, not a request that can s
 
 test('archive run uses its reviewed source root, not a later edit to the input', () => {
   const start = settings.slice(settings.indexOf('async function startArchive('), settings.indexOf('async function pollArchive('))
-  assert.match(start, /if \(archiveBusy\.value \|\| archivePicking\.value\) return/)
+  assert.match(start, /if \(archiveBusy\.value\) return/)
   assert.match(start, /source_root: preview\.source_root/)
 })
 
@@ -97,7 +100,7 @@ test('archive preview names only ready uploaded files and links their recorded u
 test('Free up space can clear the preview cache: shows its size, moves it to _trash, says it rebuilds', () => {
   assert.match(settings, /storage\.project_bytes_thumbnail_cache/)
   assert.match(settings, /@click="clearPreviewCache"/)
-  assert.match(settings, /Clear preview cache \(\$\{formatBytes\(storage\.project_bytes_thumbnail_cache\)\}\)/)
+  assert.match(settings, /Clear Preview Cache \(\$\{formatBytes\(storage\.project_bytes_thumbnail_cache\)\}\)/)
   const fn = settings.slice(settings.indexOf('async function clearPreviewCache('), settings.indexOf('async function runBulkCleanup('))
   assert.match(fn, /storage\/clear-preview-cache/)
   assert.match(fn, /if \(previewCacheClearing\.value\) return/)

@@ -53,8 +53,8 @@ import { readSubtitleTimelineIntegrity } from './scene-timeline-integrity.js'
 import { allowedSubtitleCueGapSec } from './scene-plan-pacing.js'
 import { inspectSubtitleCompletion, inspectSubtitleSourceFreshness } from './subtitle-completion.js'
 import { inspectExistingTranscriptSource } from './subtitle-correction.js'
-import { inspectPromptCompletion } from './prompt-completion.js'
-import { inspectMetadataCompletion } from './metadata-completion.js'
+import { inspectPromptCompletion, legacyPromptsPresent } from './prompt-completion.js'
+import { inspectMetadataCompletion, legacyMetadataPresent } from './metadata-completion.js'
 import { inspectScenePlanCoverage } from './scene-planner.js'
 import { inspectSceneReviewCompletion } from './scene-review-completion.js'
 import { normalizeContextualCueConfig, readContextualCueTimeline, validateContextualCueTimeline } from './contextual-cues.js'
@@ -79,13 +79,12 @@ async function safeReaddir(dir: string): Promise<string[]> {
  * "couldn't read folder". The status-detection compute uses the rich
  * variant for the four primary watched folders (script / scene_prompts /
  * thumb_prompts / metadata) so the cache can refuse to persist a
- * `script: false` result that came from an iCloud-truncated readdir.
+ * `script: false` result that came from a failed or truncated readdir.
  *
  * `errored` distinguishes TRANSIENT failures (EBUSY, EPERM, EACCES,
- * EIO — typically iCloud transience) from PERMANENT "not there yet"
+ * EIO — a busy, slow or disconnected drive) from PERMANENT "not there yet"
  * states (ENOENT, ENOTDIR — folder hasn't been created because the user
- * hasn't run the generator yet, or iCloud hasn't synced the episode at
- * all). The `not there yet` state is correctly a `false` we should
+ * hasn't run the generator yet). The `not there yet` state is correctly a `false` we should
  * cache — when the folder eventually appears, snapshotMtimes will see a
  * new key in the next snapshot and the cache will correctly stale.
  *
@@ -108,15 +107,28 @@ async function safeReaddirRich(dir: string): Promise<SafeReaddirResult> {
     if (code === 'ENOENT' || code === 'ENOTDIR') {
       return { files: [], errored: false }
     }
-    // Anything else (EBUSY / EPERM / EACCES / EIO / EMFILE / iCloud
-    // transient) is unreliable — the folder may exist with files, we
+    // Anything else (EBUSY / EPERM / EACCES / EIO / EMFILE, e.g. an external
+    // drive that stalls or drops) is unreliable — the folder may exist with files, we
     // just couldn't enumerate them. Don't let the cache freeze that.
     return { files: [], errored: true }
   }
 }
 
 /**
- * Users (and cloud-sync tools) sometimes prefix folders with ✅, ✔️, or other
+ * A read that failed for any reason other than "not there" (EBUSY, EIO,
+ * EACCES, a stalled external drive…) says nothing about the episode. Flag the status
+ * `_unreliable` so the cache never stores that error as "pending"; the next
+ * read recomputes. ENOENT/ENOTDIR and non-fs errors keep today's `false`.
+ */
+function flagTransientReadError(status: EpisodeStatus, error: unknown): void {
+  // Only real filesystem failures (they carry a syscall); app errors such as
+  // NARRATION_MISSING are answers, not failed reads.
+  const { code, syscall } = (error ?? {}) as { code?: unknown; syscall?: unknown }
+  if (typeof syscall === 'string' && code !== 'ENOENT' && code !== 'ENOTDIR') status._unreliable = true
+}
+
+/**
+ * Users sometimes prefix folders with ✅, ✔️, or other
  * decorative marks to signal completion. Strip them before matching the
  * episode code so detection doesn't silently flip to false.
  */
@@ -988,8 +1000,8 @@ export interface EpisodeStatus {
   /**
    * v1.0.78 — internal cache-control flag (NOT a UI-facing status field).
    * Set to `true` when one or more of the watched-folder readdirs errored
-   * during this compute (typically iCloud transience: subfolder evicted,
-   * EBUSY mid-sync, etc.). The episode-status cache reads this flag and
+   * during this compute (a busy, slow or disconnected drive: EBUSY, EIO,
+   * etc.). The episode-status cache reads this flag and
    * refuses to persist the entry, forcing a fresh recompute on the next
    * read. Underscore-prefixed so consumers know it's not a real status
    * boolean to render in the UI.
@@ -1094,48 +1106,6 @@ export async function hasFinalVideoFast(
   }
 }
 
-/**
- * Cheap byte-size lookup for the final assembled video. Mirrors the
- * project-tree + external-root paths used by `hasFinalVideoFast`, then
- * stats the matched file. Returns `undefined` when nothing was found —
- * the upload page renders that as an em-dash chip ("file not local").
- *
- * Two-path scan only (no episode_dir / sidecar / "Output" subfolder
- * walk like `computeEpisodeStatus`): the queue is paginated and runs
- * this per visible row, so we keep it tight. Anything more exotic that
- * the user produced themselves shows up as size-unknown — same UX as
- * sidecar-only uploads where the local file was deleted.
- */
-export async function getFinalVideoBytes(
-  slug: string,
-  code: string,
-  title: string,
-  cache?: ProjectFactsCache,
-): Promise<number | undefined> {
-  try {
-    const paths = await resolveEpisodePaths(slug, code, title || '', cache)
-    const localMatch = await findCanonicalFinal(paths.video_dir, code)
-    if (localMatch) {
-      const st = await fs.stat(path.join(paths.video_dir, localMatch)).catch(() => null)
-      if (st?.isFile() && st.size > 0) return st.size
-    }
-    try {
-      const { resolveExternalFinalVideoDir } = await import('./external-video-store.js')
-      const externalDir = await resolveExternalFinalVideoDir(slug, code, title || '', cache)
-      if (externalDir) {
-        const extMatch = await findCanonicalFinal(externalDir, code)
-        if (extMatch) {
-          const st = await fs.stat(path.join(externalDir, extMatch)).catch(() => null)
-          if (st?.isFile() && st.size > 0) return st.size
-        }
-      }
-    } catch { /* external store not configured → skip */ }
-    return undefined
-  } catch {
-    return undefined
-  }
-}
-
 export async function computeEpisodeStatus(
   slug: string,
   code: string,
@@ -1193,9 +1163,8 @@ export async function computeEpisodeStatus(
     authoritativePaths = paths
 
     // v1.0.78: use the rich `safeReaddirRich` variant so we can tell apart
-    // "folder is genuinely empty" from "couldn't read folder" (iCloud
-    // transience: subfolder evicted, EBUSY mid-sync, ENOENT during a
-    // just-delivered move). The four primary watched folders directly
+    // "folder is genuinely empty" from "couldn't read folder" (a busy,
+    // slow or disconnected drive: EBUSY, EIO, EACCES). The four primary watched folders directly
     // determine the boolean status fields below; an errored read on any
     // of them poisons the result and we surface that via `_unreliable`
     // so the cache can refuse to persist it.
@@ -1218,11 +1187,11 @@ export async function computeEpisodeStatus(
     status.introduction = await computeScriptFolderIntroduction(paths.script_dir, code, scriptFiles)
     status.thumb_prompts = thumbPromptCompletion.authoritative
       ? thumbPromptCompletion.complete
-      : thumbPromptFiles.some(f => f.endsWith('.docx') || f.endsWith('.md'))
+      : await legacyPromptsPresent(paths.thumb_prompts_dir, thumbPromptFiles, 'thumbnail')
     const metadataCompletion = await inspectMetadataCompletion(paths.metadata_dir, code)
     status.metadata = metadataCompletion.authoritative
       ? metadataCompletion.complete
-      : metadataFiles.some(f => f.endsWith('.txt') || (f.endsWith('.json') && !f.endsWith('.completion.json')) || f.endsWith('.md'))
+      : await legacyMetadataPresent(paths.metadata_dir, metadataFiles)
 
     // One chapter SRT is not episode completion. Compare against the audio
     // assembly manifest so partial transcription remains in Pending. Resolve
@@ -1266,8 +1235,9 @@ export async function computeEpisodeStatus(
           status.subtitles = integrity.complete
         }
       }
-    } catch {
+    } catch (error) {
       status.subtitles = false
+      flagTransientReadError(status, error)
     }
 
     // Research sidecar now lives in the "{code} - 11 Research" folder
@@ -1293,7 +1263,8 @@ export async function computeEpisodeStatus(
       if (review) status.research_reviewed_by = review.completed_by
       else delete status.research_reviewed_by
       status.research = isResearchComplete(research)
-    } catch {
+    } catch (error) {
+      flagTransientReadError(status, error)
       status.research = false
       status.research_generated = false
       status.research_reviewed = false
@@ -1396,11 +1367,14 @@ export async function computeEpisodeStatus(
         }))
         status.motion_review = status.scene_plan && motionReady.every(Boolean)
       }
-    } catch { /* unresolved / unreadable plan → leave both false */ }
+    } catch (error) {
+      // unresolved / missing plan → leave both false; a failed read is not cached
+      flagTransientReadError(status, error)
+    }
 
     // If ANY of the four primary readdirs errored, mark the entire status
     // unreliable. The cache will skip persistence and the next read will
-    // recompute — by which point iCloud has usually settled. False
+    // recompute — by which point the drive has usually settled. False
     // positives are cheap (~10 fs ops to recompute). False negatives
     // (cached `script: false` for an episode whose script lives on disk)
     // are the actual user-visible bug we're closing.
@@ -1456,13 +1430,13 @@ export async function computeEpisodeStatus(
               const completion = await inspectPromptCompletion(subPath, code, 'thumbnail')
               status.thumb_prompts = completion.authoritative
                 ? completion.complete
-                : files.some((f: string) => f.endsWith('.docx') || f.endsWith('.md'))
+                : await legacyPromptsPresent(subPath, files, 'thumbnail')
             }
             if (cleanSub.includes('metadata') || cleanSub.includes('description')) {
               const completion = await inspectMetadataCompletion(subPath, code)
               status.metadata = completion.authoritative
                 ? completion.complete
-                : files.some((f: string) => f.endsWith('.txt') || (f.endsWith('.json') && !f.endsWith('.completion.json')) || f.endsWith('.md'))
+                : await legacyMetadataPresent(subPath, files)
             }
           } catch {}
         }
@@ -1497,6 +1471,9 @@ export async function computeEpisodeStatus(
   }
 
   status.merged_audio = mergedS.status === 'fulfilled' && mergedS.value.present
+  for (const settled of [audioS, imageS, mergedS]) {
+    if (settled.status === 'rejected') flagTransientReadError(status, settled.reason)
+  }
 
   // Video-assembly completion requires the canonical final filename, usable
   // canonical/reconciled/legacy YouTube evidence, or the same canonical final
@@ -1534,8 +1511,7 @@ export async function computeEpisodeStatus(
     // app-settings, video-assembly writes finals to
     //   {root}/{slug}/Season NNN/{code} - {title}/{code}_final_video.{ext}
     // mirroring the project tree. Detection looks there too so the
-    // pipeline view sees finals that live outside the iCloud-synced
-    // project folder.
+    // pipeline view sees finals that live outside the project folder.
     let hasFinalAtExternalRoot = false
     if (!hasFinalInVideoDir && !hasUsableRemote) {
       try {

@@ -74,7 +74,7 @@
             <button
               class="btn btn-sm btn-secondary"
               @click="repickBundlePath(row)"
-            >Pick replacement…</button>
+            >Pick Replacement…</button>
           </li>
         </ul>
       </div>
@@ -151,7 +151,7 @@
                the operator's next move is "fix the backend / re-run the
                check", not "click Install FFmpeg". -->
           <span class="badge badge-warn" :title="ffmpegStatus.check_error">FFmpeg check failed</span>
-          <button class="btn btn-sm btn-secondary ml-2-tight" @click="checkFfmpeg">Retry check</button>
+          <button class="btn btn-sm btn-secondary ml-2-tight" @click="checkFfmpeg">Retry Check</button>
         </template>
         <template v-else>
           <span class="badge badge-error">FFmpeg not found</span>
@@ -206,7 +206,7 @@
           We couldn't check this episode's files. Nothing below reflects this episode until the check succeeds.
         </p>
         <p class="text-muted text-xs">Technical details: <code>{{ scanError }}</code></p>
-        <button type="button" class="btn btn-sm btn-secondary mt-1" @click="scanAssets">Retry asset check</button>
+        <button type="button" class="btn btn-sm btn-secondary mt-1" @click="scanAssets">Retry Asset Check</button>
       </div>
 
       <div v-if="scannedAssets && !scanning" class="assets-overview mt-2">
@@ -256,7 +256,7 @@
               :to="`/projects/${slug}/scene-review?episode_id=${episodeId}`"
             >Open Scene Review</NuxtLink>
             <button type="button" class="btn btn-sm btn-secondary" :disabled="scanning" @click="scanAssets">
-              {{ scanning ? 'Checking…' : 'Check again' }}
+              {{ scanning ? 'Checking…' : 'Check Again' }}
             </button>
           </div>
         </div>
@@ -307,8 +307,16 @@
               :src="getAudioPreviewUrl(scannedAssets.merged_audio[0].path)"
             />
           </template>
-          <div v-else class="validation-msg">
-            No merged audio file found. Run the <strong>Audio Assembly</strong> step first to produce a single merged track.
+          <div v-else class="validation-msg" data-testid="merged-audio-missing">
+            <template v-if="scannedAssets.audio_sections?.length">
+              Merge the chapter audio first — the video uses the merged narration.
+            </template>
+            <template v-else>
+              No merged audio file found. Run the <strong>Audio Assembly</strong> step first to produce a single merged track.
+            </template>
+            <NuxtLink :to="{ path: `/projects/${slug}/audio-merge`, query: { episode_id: episodeId } }" class="btn btn-sm btn-primary ml-2-tight">
+              Open Audio Assembly
+            </NuxtLink>
           </div>
           <p v-if="scannedAssets.skip_chapters" class="text-muted text-xs hint-line">
             Individual chapter/intro audio files are ignored — the merged track is authoritative.
@@ -385,10 +393,6 @@
               clearable
             />
           </div>
-          <label class="checkbox-label mt-1">
-            <input type="checkbox" v-model="intro.save_as_default" />
-            Set as project default
-          </label>
           <p class="text-muted text-sm mt-1">The intro video will play before the title image and scenes</p>
         </div>
       </div>
@@ -427,7 +431,7 @@
       <div class="settings-section mt-2">
         <div class="flex gap-2 items-center justify-between">
           <h4 class="m-0">Timeline Clips</h4>
-          <button class="btn btn-sm btn-secondary" @click="addTimelineClip">+ Add clip</button>
+          <button class="btn btn-sm btn-secondary" @click="addTimelineClip">+ Add Clip</button>
         </div>
         <p class="text-muted text-sm mt-1">
           Insert your own video clips at named positions in the final render — sponsor stings, credits,
@@ -668,7 +672,7 @@
         <div class="flex gap-2 items-center justify-between flex-wrap">
           <h4>Scene Transitions</h4>
           <div class="flex gap-2 items-center">
-            <button class="btn btn-sm btn-secondary" @click="transition.type = 'none'">Hard cut</button>
+            <button class="btn btn-sm btn-secondary" @click="transition.type = 'none'">Hard Cut</button>
             <PresetPicker
               v-if="transitionPresets"
               label="Transition preset"
@@ -785,7 +789,7 @@
                   We couldn't load the list of reveal looks. Rendering still works and uses the standard looks.
                 </p>
                 <p class="text-muted text-xs">{{ revealLibraryError }}</p>
-                <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadRevealLibrary">Try again</button>
+                <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadRevealLibrary">Try Again</button>
               </div>
               <div v-else-if="!revealLibrary.length" class="text-muted text-sm">Loading the reveal library…</div>
               <div v-else class="reveal-pool">
@@ -807,14 +811,14 @@
 
             <div v-if="!revealPlan" class="mt-3">
               <button class="btn btn-secondary btn-sm" :disabled="revealPlanLoading || !episodeId" @click="loadRevealPlan()">
-                {{ revealPlanLoading ? 'Planning…' : 'Show planned arrivals' }}
+                {{ revealPlanLoading ? 'Planning…' : 'Show Planned Arrivals' }}
               </button>
             </div>
             <div v-else class="mt-3">
               <div class="reveal-plan-head">
                 <strong>Planned arrivals</strong>
                 <button class="btn btn-secondary btn-sm" :disabled="revealPlanLoading" @click="loadRevealPlan()">
-                  {{ revealPlanLoading ? 'Planning…' : 'Refresh plan' }}
+                  {{ revealPlanLoading ? 'Planning…' : 'Refresh Plan' }}
                 </button>
               </div>
               <p class="text-muted text-sm">
@@ -838,7 +842,7 @@
         <div v-else-if="animationsCatalogError" class="ffmpeg-warning" role="alert">
           <p class="text-muted text-md">We couldn't load the animation list.</p>
           <p class="text-muted text-xs">{{ animationsCatalogError }}</p>
-          <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadAnimationsCatalog">Try again</button>
+          <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadAnimationsCatalog">Try Again</button>
         </div>
         <AnimationPicker
           v-else
@@ -921,7 +925,6 @@
           </template>
         </div>
         <p class="text-muted text-sm hint-line">
-          The old Target Duration control is gone — there's no padding or random range.
           {{ visualSource === 'image_pool'
             ? 'Frozen Image Pool stills cycle in order at the saved seconds-per-image setting.'
             : isSentenceTimed
@@ -1127,7 +1130,7 @@
                 class="btn btn-sm btn-secondary"
                 title="Open the project's backgrounds/ folder so you can drop a video in"
                 @click="openBackgroundsFolder"
-              >📁 Open folder</button>
+              >📁 Open Folder</button>
             </div>
           </div>
 
@@ -1487,9 +1490,9 @@
             <p class="field-hint">Use a still texture or looping video behind the framed scene. Leave empty to use the board color.</p>
             <div class="flex gap-2 items-center flex-wrap">
               <span class="text-sm flex-1">{{ frame.background_path ? frame.background_path.split('/').pop() : 'Solid color only' }}</span>
-              <button type="button" class="btn btn-sm btn-secondary" @click="openBackgroundPicker('frame')">Pick image / video</button>
+              <button type="button" class="btn btn-sm btn-secondary" @click="openBackgroundPicker('frame')">Pick Image / Video</button>
               <button v-if="frame.background_path" type="button" class="btn btn-sm btn-secondary" @click="frame.background_path = ''">Clear</button>
-              <button type="button" class="btn btn-sm btn-secondary" @click="openBackgroundsFolder">Open folder</button>
+              <button type="button" class="btn btn-sm btn-secondary" @click="openBackgroundsFolder">Open Folder</button>
             </div>
           </div>
         </div>
@@ -1599,7 +1602,7 @@
         <strong>{{ episodeId }}</strong> only. From now on the preset carries the overlay's look and each
         episode keeps its own timing, so applying it elsewhere will not re-time that episode.
         <template #actions>
-          <button class="btn btn-sm" @click="overlayTimingMigrated = []">Got it</button>
+          <button class="btn btn-sm" @click="overlayTimingMigrated = []">Got It</button>
         </template>
       </WorkspaceNotice>
 
@@ -1828,7 +1831,7 @@
             class="btn btn-sm btn-secondary"
             title="Open the project's overlays/ folder in Finder so you can drop new asset files in"
             @click="openOverlaysFolder"
-          >📁 Open overlays folder</button>
+          >📁 Open Overlays Folder</button>
           <button
             type="button"
             class="btn btn-sm btn-secondary"
@@ -1964,7 +1967,7 @@
             <label>Background image / looping video <span class="text-muted">(optional)</span></label>
             <div class="flex gap-2 items-center flex-wrap">
               <span class="text-sm flex-1">{{ titleCard.background_media_path ? titleCard.background_media_path.split('/').pop() : 'Use selected color style' }}</span>
-              <button type="button" class="btn btn-sm btn-secondary" :disabled="!titleCard.enabled" @click="openBackgroundPicker('title-card')">Pick media</button>
+              <button type="button" class="btn btn-sm btn-secondary" :disabled="!titleCard.enabled" @click="openBackgroundPicker('title-card')">Pick Media</button>
               <button v-if="titleCard.background_media_path" type="button" class="btn btn-sm btn-secondary" @click="titleCard.background_media_path = ''">Clear</button>
             </div>
           </div>
@@ -2092,7 +2095,7 @@
             <label>Background image / looping video <span class="text-muted">(optional)</span></label>
             <div class="flex gap-2 items-center flex-wrap">
               <span class="text-sm flex-1">{{ outroCard.background_media_path ? outroCard.background_media_path.split('/').pop() : 'Use solid background' }}</span>
-              <button type="button" class="btn btn-sm btn-secondary" :disabled="!outroCard.enabled" @click="openBackgroundPicker('outro-card')">Pick media</button>
+              <button type="button" class="btn btn-sm btn-secondary" :disabled="!outroCard.enabled" @click="openBackgroundPicker('outro-card')">Pick Media</button>
               <button v-if="outroCard.background_media_path" type="button" class="btn btn-sm btn-secondary" @click="outroCard.background_media_path = ''">Clear</button>
             </div>
           </div>
@@ -2250,7 +2253,7 @@
               <p v-if="burnView.pinned" class="text-muted text-sm mt-2">
                 You chose <strong>{{ burnView.burning }}</strong> for this episode.
                 <button class="btn btn-sm" :disabled="pinningSubtitle" @click="pinSubtitle('')">
-                  Back to automatic
+                  Back to Automatic
                 </button>
               </p>
               <p v-if="burnView.hidden_chapter_count" class="text-muted text-sm mt-2">
@@ -2291,7 +2294,7 @@
           <div class="flex gap-2 items-center mt-2">
             <button class="btn btn-sm btn-secondary" :disabled="preflightRunning || !episodeId"
                     @click="runSubtitlePreflight()">
-              {{ preflightRunning ? 'Rendering frames…' : subtitlePreflight ? 'Check again' : 'Check captions' }}
+              {{ preflightRunning ? 'Rendering Frames…' : subtitlePreflight ? 'Check Again' : 'Check Captions' }}
             </button>
             <span v-if="subtitlePreflight?.frames?.length" class="text-muted text-sm">
               {{ subtitlePreflight.subtitle_filename }} ·
@@ -2311,7 +2314,7 @@
             <template #actions>
               <NuxtLink :to="`/projects/${slug}/subtitles?episode_id=${encodeURIComponent(episodeId)}`" class="btn btn-sm btn-primary">Open Subtitles</NuxtLink>
               <button class="btn btn-sm" :disabled="generating" @click="preflightConfirmed = true; generateVideo()">
-                Render without captions
+                Render Without Captions
               </button>
             </template>
           </WorkspaceNotice>
@@ -2345,7 +2348,7 @@
             before reading anything into it.
             <template #actions>
               <button class="btn btn-sm btn-primary" :disabled="preflightRunning" @click="runSubtitlePreflight">
-                {{ preflightRunning ? 'Checking…' : 'Check again' }}
+                {{ preflightRunning ? 'Checking…' : 'Check Again' }}
               </button>
             </template>
           </WorkspaceNotice>
@@ -2386,7 +2389,7 @@
             moment, the timing has drifted. Either way, fix it in the Subtitles tab rather than rendering.
             <template #actions>
               <button class="btn btn-sm btn-primary" @click="preflightConfirmed = true">
-                These are right — allow rendering
+                These Are Right — Allow Rendering
               </button>
               <NuxtLink :to="`/projects/${slug}/subtitles`" class="btn btn-sm">Open Subtitles</NuxtLink>
             </template>
@@ -2415,7 +2418,7 @@
 
       <PresetPicker
         label="Export preset"
-        hint="Captures render location, resolution, quality, and format."
+        hint="Captures resolution, quality, and format."
         :presets="exportPresets.presets.value"
         :active-id="exportPresets.activeId.value"
         @update:active-id="exportPresets.setActive"
@@ -2469,15 +2472,10 @@
            Non-technical users shouldn't need to remember what CRF or
            HEVC means; the helper text explains the trade-off right
            where the choice is made. -->
+      <p class="text-muted text-sm mt-2">
+        Final FFmpeg assembly runs on this Mac and does not spend GenStudio credits.
+      </p>
       <div class="grid-2 mt-2">
-        <div class="form-group">
-          <label>Render location</label>
-          <div class="input">This Mac</div>
-          <p class="text-muted text-sm mt-1">
-            Final FFmpeg assembly runs on this Mac and does not spend GenStudio credits.
-          </p>
-        </div>
-
         <!-- Resolution -->
         <div class="form-group">
           <label>Resolution</label>
@@ -2507,7 +2505,7 @@
               This channel's format recommends {{ formatRecommendedAspect }} —
               <button type="button" class="aspect-format-link"
                       @click="exportSettings.aspect_ratio = formatRecommendedAspect">
-                use that instead
+                Use That Instead
               </button>.
             </template>
             <template v-else-if="formatRecommendedAspect">
@@ -2764,10 +2762,6 @@
             </span>
           </div>
           <div class="summary-row">
-            <span class="text-muted">Render location</span>
-            <span>This Mac</span>
-          </div>
-          <div class="summary-row">
             <span class="text-muted">Quality / Format</span>
             <span>{{ exportSettings.quality }} / {{ exportSettings.format.toUpperCase() }}</span>
           </div>
@@ -2813,7 +2807,7 @@
           Live progress from the render. You can leave this page; the render keeps running in the background.
         </p>
         <div v-else-if="activeJobStatus === 'error' || activeJobStatus === 'cancelled'" class="mt-1">
-          <button type="button" class="btn btn-sm btn-primary" @click="generateVideo">Try again</button>
+          <button type="button" class="btn btn-sm btn-primary" @click="generateVideo">Try Again</button>
         </div>
       </div>
 
@@ -2871,26 +2865,7 @@ const { success, error: showError, info } = useToast()
 const { videoAssemblyGenerating } = useGenerating()
 // v1.0.514 — no cost/duration confirmation for video assembly (free local render).
 
-// v1.0.83+: format-aware section vocabulary. Sections that show
-// "Chapter X" / "X chapter(s)" / "Per-scene chapter assignments" all
-// rebind through this composable so a reasons-explainer project sees
-// "Per-scene reason assignments", a listicle project sees "Per-scene
-// topic assignments", etc. Reactive on project meta change.
-const { project: vaProject, config: vaConfig, episodesRoot } = useProject()
-const vaFormatId = ref<string>('scenes')
-watch(vaProject, (p) => {
-  if (!p) return
-  const id = (p as any).format_id
-  if (typeof id === 'string' && id) {
-    vaFormatId.value = id
-  } else {
-    // v1.0.102+ — see scripts.vue for rationale. Defensive fallback;
-    // logs to console so the case is debuggable when it fires.
-    console.warn('[video-assembly.vue] project.format_id missing — falling back to sleep-story for section labels. Set a format in Settings → Format if this is unexpected.')
-    vaFormatId.value = 'scenes'
-  }
-}, { immediate: true })
-const sectionLabel = useSectionLabel(vaFormatId)
+const { config: vaConfig, episodesRoot } = useProject()
 
 // v1.0.354 — does this project's format time scenes from the transcript
 // (continuity / sentence-aligned) rather than recycle a uniform pool?
@@ -3150,7 +3125,6 @@ const logo = reactive({
 const intro = reactive({
   enabled: false,
   video_path: '',
-  save_as_default: false,
 })
 
 // Read-only opening mode preview; render timing comes from scene_plan.json.
@@ -3391,23 +3365,6 @@ const postAudioOptions = [
   { id: 'black-screen', label: 'Black Screen', icon: '&#9632;', description: 'Cut to black for a few seconds' },
   { id: 'hold-last-scene', label: 'Hold Last Scene', icon: '&#9634;', description: 'Freeze on the final image' },
   { id: 'hard-cut', label: 'Hard Cut', icon: '&#9724;', description: 'End the moment narration stops' },
-]
-
-const transitionTypes = [
-  { id: 'crossfade', label: 'Crossfade' },
-  { id: 'fade-black', label: 'Fade to Black' },
-  { id: 'dissolve', label: 'Dissolve' },
-  { id: 'wipe-left', label: 'Wipe Left' },
-  { id: 'wipe-right', label: 'Wipe Right' },
-  { id: 'none', label: 'Hard Cut' },
-]
-
-const sceneAnimationTypes = [
-  { id: 'ken-burns', label: 'Ken Burns', icon: '&#128269;', description: 'Slow zoom in/out' },
-  { id: 'parallax-drift', label: 'Parallax Drift', icon: '&#8596;', description: 'Slow directional pan' },
-  { id: 'breathe', label: 'Breathe', icon: '&#9711;', description: 'Gentle pulse zoom' },
-  { id: 'fade-in', label: 'Fade In', icon: '&#9728;', description: 'Scene fades from black' },
-  { id: 'none', label: 'None', icon: '&#9632;', description: 'Static image' },
 ]
 
 const logoPositions = [
@@ -3848,7 +3805,7 @@ function persistEpisodeOverlayTimings() {
   )
   if (overlayTimingSaveTimer) clearTimeout(overlayTimingSaveTimer)
   overlayTimingSaveTimer = setTimeout(() => {
-    _put(`/projects/${slug.value}/settings/config`, {
+    put(`/projects/${slug.value}/settings/config`, {
       overlay_time_ranges: overlayTimingStore.value,
     }).catch((e: any) => {
       // Loud. A window that looks saved and is not would come back as "the
@@ -4625,14 +4582,6 @@ watch(
   { flush: 'sync' },
 )
 
-/**
- * Quality-tier → CRF value. Mirrors `QUALITY_PRESETS` in the backend;
- * duplicating here so the file-size estimator can compute reactively
- * without round-trips. Kept in ONE map (not two) to prevent drift.
- */
-const QUALITY_CRF: Record<string, number> = {
-  compact: 32, fast: 28, medium: 23, high: 18,
-}
 const DEFAULT_EFFORT_FOR_QUALITY: Record<string, 'ultrafast' | 'medium' | 'slow'> = {
   compact: 'ultrafast', fast: 'ultrafast', medium: 'medium', high: 'slow',
 }
@@ -4878,7 +4827,6 @@ const exportPresets = usePresets({
 //
 // Bundles saved under the old schema (pointers only, no fallback) still
 // work — the fallback lookup is optional-chained everywhere.
-const { put: _put } = useApi()
 
 // Slot-shape helpers reused by both the slot-level presets and the bundle
 // fallback. Keeping them as named functions means the bundle snapshot
@@ -5067,7 +5015,7 @@ const videoBundlePresets = usePresets({
       // a "bundle applied" toast but no persisted selection — on reload
       // the slot dropdowns reset. Surface the failure so the user knows
       // the apply didn't stick to disk and can retry.
-      _put(`/projects/${slug.value}/settings/config`, updates).catch((e: any) => {
+      put(`/projects/${slug.value}/settings/config`, updates).catch((e: any) => {
         showError(`The bundle is applied, but your choices could not be saved, so they may reset when you reopen this page. ${e?.data?.detail || e?.message || ''}`.trim())
       })
     }
@@ -5268,7 +5216,7 @@ const lowAssetWarning = computed(() => {
   const sceneCount = activeSceneCount.value
   const cycles = estimatedCycles.value
   if (sceneCount < 1 || cycles < 8) return null
-  return `Heads up — only ${sceneCount} scene${sceneCount === 1 ? '' : 's'} will cycle ~${cycles} times to fill the narration. Viewers will notice the repetition. Add more scenes, shorten the episode, or enable shuffle.`
+  return `Heads up — only ${sceneCount} scene${sceneCount === 1 ? '' : 's'} will cycle ~${cycles} times to fill the narration. Viewers will notice the repetition. Add more scenes or shorten the episode.`
 })
 
 /**
@@ -5567,8 +5515,7 @@ const step1Valid = computed(() => {
     && visualSourceLoaded.value
     && !visualSourceError.value
     && scannedAssets.value.scenes?.length > 0
-    && (scannedAssets.value.merged_audio?.length > 0
-        || scannedAssets.value.audio_sections?.length > 0)
+    && hasMergedAudio.value // the render needs merged narration; chapter audio alone is not enough
     && unifiedTimingReady.value
 })
 
@@ -5651,19 +5598,6 @@ const postAudioSummary = computed(() => {
   if (b === 'black-screen') return `Scenes play during narration (~${formatDurationLong(narrDur)}), then ${formatDurationLong(tail)} of black`
   if (b === 'hold-last-scene') return `Scenes play during narration (~${formatDurationLong(narrDur)}), then hold the last scene for ${formatDurationLong(tail)}`
   return `Scenes play during narration (~${formatDurationLong(narrDur)}), then end on a hard cut`
-})
-
-// Transition preview backgrounds (use scene images or gradients)
-const scenePreviewBgA = computed(() => {
-  const scene = scannedAssets.value?.scenes?.[0]
-  if (scene) return { backgroundImage: `url(${getImagePreviewUrl(scene.path)})`, backgroundSize: 'cover', backgroundPosition: 'center' }
-  return { background: 'linear-gradient(135deg, #2d3436, #636e72)' }
-})
-
-const scenePreviewBgB = computed(() => {
-  const scene = scannedAssets.value?.scenes?.[1] || scannedAssets.value?.scenes?.[0]
-  if (scene) return { backgroundImage: `url(${getImagePreviewUrl(scene.path)})`, backgroundSize: 'cover', backgroundPosition: 'center' }
-  return { background: 'linear-gradient(135deg, #6c5ce7, #a29bfe)' }
 })
 
 // Effect preview computeds
@@ -5826,22 +5760,6 @@ function previewOverlayStyle(layer: OverlayLayer): CSSProperties {
 // Logo preview
 const logoLoadError = ref(false)
 
-// Show the first scene image as the preview backdrop so the user sees the
-// logo against a real frame — matches the actual render much better than a
-// flat color.
-const previewBgStyle = computed(() => {
-  const scene = scannedAssets.value?.scenes?.[0]
-  if (scene) {
-    return {
-      backgroundImage: `url("${getImagePreviewUrl(scene.path)}")`,
-      backgroundSize: 'cover',
-      backgroundPosition: 'center',
-      backgroundColor: 'var(--bg-tertiary)',
-    } as Record<string, string>
-  }
-  return { backgroundColor: 'var(--bg-tertiary)' } as Record<string, string>
-})
-
 // Logo preview for the Step 4 unified overlay canvas (effect-preview-frame).
 // Uses percentages so the preview scales with whatever size the frame ends up at,
 // unlike the old fixed 480x270 preview-canvas this replaced.
@@ -5870,45 +5788,6 @@ const logoEffectPreviewStyle = computed(() => {
       style.transform = (style.transform || '') + ' translateX(-50%)'
     } else style.right = `${marginPct}%`
   }
-  return style
-})
-
-const logoPreviewStyle = computed(() => {
-  const canvasW = 480
-  const canvasH = 270
-  const logoW = Math.round(canvasW * (logo.scale / 100))
-  const margin = Math.round(logo.margin * (canvasW / 1920))
-
-  // Don't force height — let the real image's aspect ratio take over.
-  // Fallback height is used only for the error card below it.
-  const approxH = Math.round(logoW * 0.6)
-  const style: Record<string, string> = {
-    width: `${logoW}px`,
-    height: 'auto',
-    opacity: `${logo.opacity / 100}`,
-    position: 'absolute',
-    objectFit: 'contain',
-  }
-
-  if (logo.position === 'custom') {
-    const sx = logo.custom_x * (canvasW / 1920)
-    const sy = logo.custom_y * (canvasH / 1080)
-    style.left = `${sx}px`
-    style.top = `${sy}px`
-  } else {
-    const parts = logo.position.split('-')
-    const vPos = parts[0] || 'bottom'
-    const hPos = parts[1] || 'right'
-
-    if (vPos === 'top') style.top = `${margin}px`
-    else if (vPos === 'center') style.top = `${(canvasH - approxH) / 2}px`
-    else style.bottom = `${margin}px`
-
-    if (hPos === 'left') style.left = `${margin}px`
-    else if (hPos === 'center' || !hPos) style.left = `${(canvasW - logoW) / 2}px`
-    else style.right = `${margin}px`
-  }
-
   return style
 })
 
@@ -6600,10 +6479,6 @@ onUnmounted(() => {
   color: var(--text-muted);
 }
 
-/* Hours/minutes pair inputs in the duration picker. */
-.hm-num-input { width: 60px; }
-.hm-num-suffix { line-height: 32px; }
-
 /* Italic placeholder when a list is empty. */
 .italic-empty { font-style: italic; }
 
@@ -6737,32 +6612,9 @@ onUnmounted(() => {
 .ffmpeg-inline-link { color: var(--accent); text-decoration: underline; cursor: pointer; }
 .ffmpeg-inline-link:hover { color: var(--accent-hover, var(--accent)); }
 
-
 /* Asset thumbnails */
 .thumb-grid { display: flex; flex-wrap: wrap; gap: 6px; }
 .scene-thumb-small { width: 40px; height: 40px; border-radius: 4px; background: var(--bg-tertiary); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: var(--font-xs); color: var(--text-muted); font-weight: 600; }
-.scene-source-control {
-  display: inline-grid;
-  grid-template-columns: repeat(3, minmax(110px, 1fr));
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  overflow: hidden;
-}
-.scene-source-control button {
-  min-height: 34px;
-  padding: 6px 10px;
-  border: 0;
-  border-right: 1px solid var(--border);
-  border-radius: 0;
-  background: var(--bg-primary);
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.scene-source-control button:last-child { border-right: 0; }
-.scene-source-control button:hover { background: var(--bg-tertiary); color: var(--text-primary); }
-.scene-source-control button.active { background: var(--accent-dim); color: var(--accent); }
 .scene-coverage-warning {
   padding: 14px;
   border: 1px solid color-mix(in srgb, var(--warning, #f59e0b) 55%, var(--border));
@@ -6771,21 +6623,11 @@ onUnmounted(() => {
   color: var(--text-secondary);
 }
 .scene-coverage-title,
-.scene-coverage-actions,
-.scene-coverage-ack { display: flex; align-items: center; gap: 10px; }
+.scene-coverage-actions { display: flex; align-items: center; gap: 10px; }
 .scene-coverage-title { justify-content: space-between; color: var(--warning, #fbbf24); }
 .scene-coverage-warning p { margin: 8px 0; line-height: 1.5; }
 .scene-coverage-warning code { overflow-wrap: anywhere; color: var(--text-primary); }
 .scene-coverage-actions { flex-wrap: wrap; margin-top: 10px; }
-.scene-coverage-ack {
-  align-items: flex-start;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid color-mix(in srgb, var(--warning, #f59e0b) 30%, transparent);
-  color: var(--text-primary);
-  cursor: pointer;
-}
-.scene-coverage-ack input { margin-top: 2px; }
 
 /* Thumbnail picker with image previews */
 .thumb-picker-images { display: flex; flex-wrap: wrap; gap: 10px; }
@@ -6801,14 +6643,6 @@ onUnmounted(() => {
 .title-image-preview { }
 .preview-frame { width: 480px; max-width: 100%; aspect-ratio: 16/9; border-radius: var(--radius-md); border: 1px solid var(--border); overflow: hidden; background: var(--bg-tertiary); }
 .preview-img { width: 100%; height: 100%; object-fit: cover; }
-
-/* Legacy thumbnail picker (text-only) */
-.thumb-picker { display: flex; flex-wrap: wrap; gap: 8px; }
-.thumb-card { padding: 10px 14px; border-radius: var(--radius-md); background: var(--bg-tertiary); border: 2px solid var(--border); cursor: pointer; transition: all 0.15s; display: flex; flex-direction: column; gap: 4px; align-items: center; min-width: 80px; }
-.thumb-card:hover { border-color: var(--text-secondary); }
-.thumb-card.selected { border-color: var(--accent); background: var(--accent-dim); }
-.thumb-num { font-size: 14px; font-weight: 600; color: var(--text-primary); }
-.thumb-name { font-size: var(--font-xs); color: var(--text-muted); max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Audio list */
 .merged-audio-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--bg-tertiary); border-radius: var(--radius-sm); font-size: 13px; border: 1px solid var(--border); }
@@ -6880,24 +6714,6 @@ onUnmounted(() => {
 .pos-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
 .pos-cell.active .pos-dot { background: var(--accent); }
 
-/* Preview Canvas */
-.preview-canvas { width: 480px; height: 270px; border-radius: var(--radius-md); border: 1px solid var(--border); position: relative; overflow: hidden; }
-.preview-logo-img { pointer-events: none; }
-.preview-logo-error { background: rgba(255, 0, 0, 0.2); border: 1px dashed rgba(255, 120, 120, 0.8); border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: var(--font-xs); font-weight: 600; color: #fff; letter-spacing: 0.5px; padding: 4px 8px; }
-
-/* Scene Exclude Grid */
-.scene-exclude-grid { display: flex; flex-wrap: wrap; gap: 6px; }
-.scene-exclude-card { width: 40px; height: 40px; border-radius: 4px; background: var(--bg-tertiary); border: 1px solid var(--success); display: flex; align-items: center; justify-content: center; font-size: var(--font-xs); color: var(--success); font-weight: 600; cursor: pointer; transition: all 0.15s; }
-.scene-exclude-card:hover { opacity: 0.8; }
-.scene-exclude-card.excluded { border-color: var(--error); color: var(--error); opacity: 0.4; text-decoration: line-through; }
-
-/* Music File List */
-
-/* Quick-add music */
-
-/* Optional banner */
-.optional-banner { padding: 10px 14px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 13px; color: var(--text-muted); font-style: italic; }
-
 /* Summary bar */
 .summary-bar { padding: 10px 14px; background: var(--accent-dim); border-radius: var(--radius-sm); font-size: 13px; color: var(--accent); font-weight: 500; border: 1px solid rgba(240, 198, 116, 0.2); }
 
@@ -6907,9 +6723,6 @@ onUnmounted(() => {
 .collapsible-header:hover { background: var(--bg-hover); }
 .collapsible-body { padding: 12px 16px 16px; }
 .collapse-arrow { font-size: var(--font-xs); color: var(--text-muted); }
-
-/* Preview box */
-.preview-box { padding: 8px 12px; background: var(--bg-primary); border-radius: var(--radius-sm); border: 1px dashed var(--border); }
 
 /* Estimator panel — live file-size + render-time preview for the Export
    step. Visually distinct from the summary panel below so users see it
@@ -6953,9 +6766,6 @@ onUnmounted(() => {
 .link-btn { background: transparent; border: none; color: var(--accent); cursor: pointer; font-size: var(--font-xs); padding: 0 0 0 8px; text-decoration: underline; }
 .link-btn:hover { color: var(--text-primary); }
 
-/* Generate button */
-.btn-lg { padding: 12px 40px; font-size: 16px; font-weight: 600; }
-
 /* Generating status */
 .generating-status { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; background: var(--bg-tertiary); border-radius: var(--radius-sm); border: 1px solid var(--border); }
 .gen-head { display: flex; justify-content: space-between; align-items: center; }
@@ -6975,38 +6785,16 @@ onUnmounted(() => {
 .output-line { color: var(--text-secondary); line-height: 1.6; }
 
 /* Scanning status */
-/* v1.0.412 — Image Pool source panel (Step 1). */
-.imgpool-source { padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-tertiary); }
-.imgpool-source h4 { margin: 0; }
-.imgpool-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.imgpool-select { min-width: 220px; max-width: 340px; }
-.imgpool-inline { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
-.imgpool-num { width: 80px; }
-
 .scanning-status { display: flex; flex-direction: column; gap: 4px; }
 
 /* Checkbox */
 .checkbox-label { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; color: var(--text-secondary); }
-
-/* Coming soon banner */
-.coming-soon-banner {
-  display: flex; gap: 16px; align-items: center;
-  background: var(--accent-dim); border: 1px solid rgba(240, 198, 116, 0.3);
-  border-radius: var(--radius-md); padding: 20px;
-}
-.cs-icon { font-size: 32px; }
-.coming-soon-banner p { font-size: 13px; margin-top: 4px; }
 
 /* Slider */
 .slider { width: 100%; }
 
 /* Assets overview */
 .assets-overview h4 { font-size: 15px; color: var(--text-primary); }
-
-/* Button icon */
-.btn-icon { background: none; border: none; cursor: pointer; font-size: 14px; color: var(--text-muted); padding: 4px; line-height: 1; }
-.btn-icon:hover { color: var(--text-primary); }
-.btn-icon.danger:hover { color: var(--error); }
 
 /* ===== Post-Audio Behavior Grid ===== */
 .post-audio-grid { display: flex; flex-wrap: wrap; gap: 10px; }
@@ -7016,62 +6804,6 @@ onUnmounted(() => {
 .pa-icon { font-size: 20px; opacity: 0.6; }
 .pa-name { font-size: 12px; font-weight: 600; color: var(--text-primary); }
 .pa-desc { font-size: var(--font-xs); color: var(--text-muted); }
-
-/* ===== Transition Preview Grid ===== */
-.transition-preview-grid { display: flex; flex-wrap: wrap; gap: 10px; }
-.transition-card { cursor: pointer; border: 2px solid var(--border); border-radius: var(--radius-md); padding: 6px; transition: all 0.15s; width: 160px; }
-.transition-card:hover { border-color: var(--text-secondary); }
-.transition-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.transition-preview-box { width: 100%; height: 80px; border-radius: 4px; overflow: hidden; position: relative; background: #111; }
-.tr-scene-a, .tr-scene-b { position: absolute; inset: 0; background-size: cover; background-position: center; }
-.tr-scene-b { opacity: 0; }
-.tr-label { display: block; text-align: center; font-size: var(--font-xs); font-weight: 600; color: var(--text-secondary); margin-top: 4px; }
-
-/* Transition animations — play on hover of the card */
-.transition-card:hover .tr-anim-crossfade { animation: trCrossfade 2.5s ease-in-out infinite; }
-.transition-card:hover .tr-anim-fade-black { animation: trFadeBlack 3s ease-in-out infinite; }
-.transition-card:hover .tr-anim-dissolve { animation: trDissolve 2.5s ease-in-out infinite; }
-.transition-card:hover .tr-anim-wipe-left { animation: trWipeLeft 2.5s ease-in-out infinite; }
-.transition-card:hover .tr-anim-wipe-right { animation: trWipeRight 2.5s ease-in-out infinite; }
-.transition-card:hover .tr-anim-none { animation: trHardCut 2s steps(1) infinite; }
-
-/* Active card always plays */
-.transition-card.active .tr-anim-crossfade { animation: trCrossfade 2.5s ease-in-out infinite; }
-.transition-card.active .tr-anim-fade-black { animation: trFadeBlack 3s ease-in-out infinite; }
-.transition-card.active .tr-anim-dissolve { animation: trDissolve 2.5s ease-in-out infinite; }
-.transition-card.active .tr-anim-wipe-left { animation: trWipeLeft 2.5s ease-in-out infinite; }
-.transition-card.active .tr-anim-wipe-right { animation: trWipeRight 2.5s ease-in-out infinite; }
-.transition-card.active .tr-anim-none { animation: trHardCut 2s steps(1) infinite; }
-
-@keyframes trCrossfade { 0%,30% { opacity: 0; } 70%,100% { opacity: 1; } }
-@keyframes trFadeBlack { 0%,20% { opacity: 0; background: transparent; } 35%,65% { opacity: 1; background: black; } 80%,100% { opacity: 1; background: transparent; } }
-@keyframes trDissolve { 0%,30% { opacity: 0; filter: blur(4px); } 70%,100% { opacity: 1; filter: blur(0); } }
-@keyframes trWipeLeft { 0%,30% { clip-path: inset(0 100% 0 0); opacity: 1; } 70%,100% { clip-path: inset(0 0 0 0); opacity: 1; } }
-@keyframes trWipeRight { 0%,30% { clip-path: inset(0 0 0 100%); opacity: 1; } 70%,100% { clip-path: inset(0 0 0 0); opacity: 1; } }
-@keyframes trHardCut { 0%,49% { opacity: 0; } 50%,100% { opacity: 1; } }
-
-/* ===== Scene Animation Preview Grid (Step 3) ===== */
-.animation-preview-grid { display: flex; flex-wrap: wrap; gap: 10px; }
-.animation-preview-card { cursor: pointer; border: 2px solid var(--border); border-radius: var(--radius-md); padding: 6px; transition: all 0.15s; width: 150px; }
-.animation-preview-card:hover { border-color: var(--text-secondary); }
-.animation-preview-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.anim-preview-box { width: 100%; height: 78px; border-radius: 4px; overflow: hidden; position: relative; background: #1a1a2e; }
-.anim-preview-img, .anim-preview-placeholder { width: 100%; height: 100%; object-fit: cover; will-change: transform, opacity; transform-origin: center center; }
-.anim-preview-placeholder { background: linear-gradient(135deg, #2d3436, #636e72); }
-.anim-card-label { display: block; text-align: center; font-size: var(--font-xs); font-weight: 600; color: var(--text-secondary); margin-top: 4px; }
-.anim-card-desc { display: block; text-align: center; font-size: var(--font-xs); color: var(--text-muted); }
-
-/* Animation demos — always play on active, hover on others */
-.animation-preview-card:hover .anim-demo-ken-burns,
-.animation-preview-card.active .anim-demo-ken-burns { animation: kenBurnsPreview 6s ease-in-out infinite alternate; }
-.animation-preview-card:hover .anim-demo-parallax-drift,
-.animation-preview-card.active .anim-demo-parallax-drift { animation: parallaxRightPreview 5s linear infinite alternate; transform: scale(1.08); }
-.animation-preview-card:hover .anim-demo-breathe,
-.animation-preview-card.active .anim-demo-breathe { animation: breathePreview 3s ease-in-out infinite; }
-.animation-preview-card:hover .anim-demo-fade-in,
-.animation-preview-card.active .anim-demo-fade-in { animation: fadeInPreview 2.5s ease-in infinite; }
-.animation-preview-card:hover .anim-demo-none,
-.animation-preview-card.active .anim-demo-none { /* no animation — static */ }
 
 /* ===== Step 5 Split Layout ===== */
 .effects-split-layout { display: flex; gap: 20px; align-items: flex-start; }

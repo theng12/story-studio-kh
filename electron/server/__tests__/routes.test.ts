@@ -72,7 +72,7 @@ describe('System queue routes', () => {
     await jq.setQueuePaused(true)
     const queued = jq.enqueuePreparedForTest({
       project_slug: project.slug,
-      type: 'script-only',
+      type: 'chapter-only',
       episode_id: 'GQ001',
       title: 'global queue status fixture',
       params: {},
@@ -174,12 +174,6 @@ describe('Project routes', () => {
     })
     assert.equal(res.status, 200)
     assert.equal(res.body.name, 'Updated Name')
-  })
-
-  test('GET /api/projects/templates lists available templates', async () => {
-    const res = await request(app).get('/api/projects/templates')
-    assert.equal(res.status, 200)
-    assert.ok(Array.isArray(res.body))
   })
 })
 

@@ -10,6 +10,7 @@ import {
   fetchProjectAnalytics,
   type FetchReport,
 } from '../services/youtube-analytics-cache.js'
+import { isoDurationSeconds } from '../lib/youtube-analytics.js'
 
 import { ANALYTICS_SCOPE } from '../lib/youtube-oauth.js'
 
@@ -85,6 +86,31 @@ function queueReport(fake: FakeYouTube, body: unknown): void {
   fake.respondMatching({ method: 'GET', match: REPORT_PATH, body })
 }
 
+/**
+ * Queue a FULL read: the main report, the two optional reports (subscribers;
+ * impressions + click-through rate) and one `videos.list` batch, in the order
+ * the service asks for them.
+ */
+const VIDEOS_PATH = /^\/youtube\/v3\/videos\?/
+function queueFullRead(fake: FakeYouTube, videoIds: string[], opts: {
+  values?: Record<string, number>, impressions?: { status: number, body: unknown },
+  items?: unknown[], videosStatus?: number,
+} = {}): void {
+  queueReport(fake, reportBody(videoIds, { values: opts.values }))
+  queueReport(fake, reportBody(videoIds, { columns: ['video', 'views', 'subscribersGained'], values: opts.values }))
+  fake.respondMatching({
+    method: 'GET', match: REPORT_PATH,
+    status: opts.impressions?.status ?? 200,
+    body: opts.impressions?.body ?? reportBody(videoIds, {
+      columns: ['video', 'views', 'videoThumbnailImpressions', 'videoThumbnailImpressionsClickRate'], values: opts.values,
+    }),
+  })
+  fake.respondMatching({
+    method: 'GET', match: VIDEOS_PATH, status: opts.videosStatus ?? 200,
+    body: { items: opts.items ?? videoIds.map(id => ({ id, snippet: { publishedAt: '2026-04-15T00:00:00Z' }, contentDetails: { duration: 'PT1H2M3S' } })) },
+  })
+}
+
 /** The injected seam, for the few cases that need a thrown error. */
 const failingReport = (error: unknown): FetchReport =>
   (async () => { throw error }) as FetchReport
@@ -99,7 +125,7 @@ describe('analytics fetch and cache', () => {
   test('a real zero is a value; a video YouTube has no row for is no_data', async () => {
     await temp()
     const fake = new FakeYouTube()
-    queueReport(fake, reportBody(['v1']))
+    queueFullRead(fake, ['v1'])
     __setYouTubeTransportForTests(fake.transport())
 
     const result = await fetchProjectAnalytics({ ...args(), video_ids: ['v1', 'missing'] })
@@ -226,16 +252,18 @@ describe('analytics fetch and cache', () => {
     await temp()
     const ledger = await import('../services/youtube-quota-ledger.js')
     const fake = new FakeYouTube()
-    queueReport(fake, reportBody(['v1']))
+    queueFullRead(fake, ['v1'])
     __setYouTubeTransportForTests(fake.transport())
     await fetchProjectAnalytics({ ...args(), video_ids: ['v1'] })
 
-    // Assert the recorded OUTCOME, not that a writer ran.
+    // Assert the recorded OUTCOME, not that a writer ran. Three reports (main,
+    // subscribers, impressions) are three analytics charges; the one
+    // `videos.list` batch is charged to the Data API, not to analytics.
     const snapshot = await ledger.readYouTubeQuota(currentApplicationId)
-    assert.equal(snapshot.buckets.analytics.used, 1, 'one report, one charge')
-    assert.equal(snapshot.buckets.analytics.by_channel[CHANNEL], 1)
-    assert.equal(snapshot.buckets.other_endpoints.used, 0, 'charged to its own bucket')
-    assert.equal(fake.calls.length, 1, 'and exactly one provider call was made')
+    assert.equal(snapshot.buckets.analytics.used, 3, 'three reports, three charges')
+    assert.equal(snapshot.buckets.analytics.by_channel[CHANNEL], 3)
+    assert.equal(snapshot.buckets.other_endpoints.used, 1, 'the facts batch is charged to its own bucket')
+    assert.equal(fake.calls.length, 4, 'and exactly four provider calls were made')
     __resetYouTubeTransportForTests()
   })
 
@@ -435,5 +463,114 @@ describe('the analytics cache is scoped to the channel it describes', () => {
     const state = await store.readYouTubeProjectPublishingState(created.slug)
     assert.equal(state.analytics, undefined, 'absent, not invalid')
     assert.equal(store.analyticsForChannel(state, CHANNEL), null)
+  })
+})
+
+describe('the analytics table: extra metrics and video facts (YouTube mocked)', () => {
+  test('subscribers, impressions and click-through rate are read in their own reports', async () => {
+    await temp()
+    const fake = new FakeYouTube()
+    queueFullRead(fake, ['v1'], { values: {
+      views: 900, subscribersGained: 7, videoThumbnailImpressions: 12000, videoThumbnailImpressionsClickRate: 4.2,
+    } })
+    __setYouTubeTransportForTests(fake.transport())
+
+    const result = await fetchProjectAnalytics({ ...args(), video_ids: ['v1'] })
+    const metrics = result.episodes[0]!.metrics
+    assert.deepEqual(
+      ['views', 'subscribers_gained', 'impressions', 'click_through_rate'].map(name => {
+        const m = metrics[name as keyof typeof metrics]
+        return m.state === 'value' ? m.value : m.state
+      }),
+      [900, 7, 12000, 4.2],
+    )
+    // Asked separately, so a refusal of one cannot take the main figures down.
+    const reports = fake.calls.filter(call => REPORT_PATH.test(call.path)).map(call => decodeURIComponent(call.path))
+    assert.equal(reports.length, 3)
+    assert.match(reports[1]!, /metrics=views,subscribersGained&/)
+    assert.match(reports[2]!, /metrics=views,videoThumbnailImpressions,videoThumbnailImpressionsClickRate&/)
+    __resetYouTubeTransportForTests()
+  })
+
+  test('a refused impressions report marks only those metrics not available', async () => {
+    await temp()
+    const fake = new FakeYouTube()
+    queueFullRead(fake, ['v1'], {
+      values: { views: 900, subscribersGained: 7 },
+      impressions: { status: 400, body: { error: { message: 'Unknown identifier (videoThumbnailImpressions)' } } },
+    })
+    __setYouTubeTransportForTests(fake.transport())
+
+    const result = await fetchProjectAnalytics({ ...args(), video_ids: ['v1'] })
+    const metrics = result.episodes[0]!.metrics
+    for (const name of ['impressions', 'click_through_rate'] as const) {
+      const m = metrics[name]
+      assert.equal(m.state, 'not_available', name)
+      assert.equal(m.state === 'not_available' && m.reason, 'YouTube did not provide impressions for this channel.')
+    }
+    // The main figures and the other optional report are untouched.
+    assert.equal(metrics.views.state === 'value' && metrics.views.value, 900)
+    assert.equal(metrics.subscribers_gained.state === 'value' && metrics.subscribers_gained.value, 7)
+    assert.equal(result.partial, false, 'a refused optional metric is not a partial read')
+    __resetYouTubeTransportForTests()
+  })
+
+  test('published date and length are parsed from videos.list', async () => {
+    await temp()
+    const fake = new FakeYouTube()
+    queueFullRead(fake, ['v1', 'gone'], {
+      items: [{ id: 'v1', snippet: { publishedAt: '2026-04-15T00:00:00Z' }, contentDetails: { duration: 'PT1H2M3S' } }],
+    })
+    __setYouTubeTransportForTests(fake.transport())
+
+    const result = await fetchProjectAnalytics({ ...args(), video_ids: ['v1', 'gone'] })
+    const v1 = result.episodes.find(e => e.video_id === 'v1')!.facts
+    assert.equal(v1.length.state === 'value' && v1.length.value, 3723)
+    assert.equal(v1.published.state === 'value' && v1.published.value, Date.parse('2026-04-15T00:00:00Z'))
+    const videosCall = fake.calls.find(call => VIDEOS_PATH.test(call.path))!
+    assert.match(decodeURIComponent(videosCall.path), /part=snippet,contentDetails/)
+    // A video YouTube did not return has no facts - "not available", not blank.
+    const gone = result.episodes.find(e => e.video_id === 'gone')!.facts
+    assert.equal(gone.length.state, 'not_available')
+    assert.equal(gone.published.state, 'not_available')
+    __resetYouTubeTransportForTests()
+  })
+
+  test('a failed videos.list leaves the facts not available and the metrics intact', async () => {
+    await temp()
+    const fake = new FakeYouTube()
+    queueFullRead(fake, ['v1'], { values: { views: 5 }, videosStatus: 500 })
+    __setYouTubeTransportForTests(fake.transport())
+
+    const result = await fetchProjectAnalytics({ ...args(), video_ids: ['v1'] })
+    const episode = result.episodes[0]!
+    assert.equal(episode.facts.length.state, 'not_available')
+    assert.equal(episode.facts.published.state === 'not_available' && episode.facts.published.reason.length > 0, true)
+    assert.equal(episode.metrics.views.state === 'value' && episode.metrics.views.value, 5)
+    __resetYouTubeTransportForTests()
+  })
+
+  test('videos.list is asked in batches of 50', async () => {
+    await temp()
+    const ids = Array.from({ length: 51 }, (_, i) => `v${i}`)
+    const fake = new FakeYouTube()
+    queueFullRead(fake, ids)
+    // The second batch.
+    fake.respondMatching({ method: 'GET', match: VIDEOS_PATH, body: { items: [] } })
+    __setYouTubeTransportForTests(fake.transport())
+
+    const result = await fetchProjectAnalytics({ ...args(), video_ids: ids })
+    assert.equal(fake.calls.filter(call => VIDEOS_PATH.test(call.path)).length, 2)
+    assert.equal(result.episodes.find(e => e.video_id === 'v0')!.facts.length.state, 'value')
+    __resetYouTubeTransportForTests()
+  })
+
+  test('ISO-8601 durations parse to seconds; no length is not zero', () => {
+    assert.equal(isoDurationSeconds('PT1H2M3S'), 3723)
+    assert.equal(isoDurationSeconds('PT45S'), 45)
+    assert.equal(isoDurationSeconds('P1DT1S'), 86401)
+    // "P0D" is what YouTube sends for a live or upcoming stream.
+    assert.equal(isoDurationSeconds('P0D'), null)
+    assert.equal(isoDurationSeconds('soon'), null)
   })
 })

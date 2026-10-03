@@ -50,12 +50,7 @@ import { auditSceneImageCompletion } from './scene-media-checkpoint.js'
 import type { GenStudioAdmissionSnapshot } from '../lib/genstudio-admission.js'
 import { assertQueuedVisualSource } from './video-visual-source.js'
 import { getValidVideoAssemblyCheckpoint } from '../lib/video-assembly-checkpoint.js'
-import { isLlmLineupWaitingError } from '../lib/ai-client.js'
-import {
-  pipelinePolicyForJob,
-  readPipelinePolicyAttemptCheckpoint,
-} from '../lib/pipeline-model-policy.js'
-import { snapshotLlmLineupParams, writingStageForJob } from './llm-lineup.js'
+import { clearQuotaStops, isUnchargedQuotaStop, noteQuotaStop } from '../lib/ai-client.js'
 import { pipelineStepLabels, splitChainAfterFailure } from '../lib/pipeline-continuation.js'
 
 // ── Child-process tracking (for cancel → SIGTERM) ───────────────────────────
@@ -74,7 +69,7 @@ const jobContext = new AsyncLocalStorage<{ jobId: string }>()
 const childrenByJob = new Map<string, Set<ChildProcess>>()
 
 /** Spawn helpers call this AFTER the child starts. Safe no-op if the call
- *  site isn't inside a job context (e.g., /debug/info probing ffmpeg). */
+ *  site isn't inside a job context. */
 export function trackChild(proc: ChildProcess): void {
   const store = jobContext.getStore()
   if (!store) return
@@ -773,7 +768,7 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
           : 'Story Studio is checking what the Gateway already finished for this job; no new generation request was sent.'
       if (!job.output_lines.slice(-8).includes(line)) job.output_lines.push(line)
     } else if (job.status === 'paused') {
-      const line = 'Paused. All previously accepted Gateway work has settled; Resume will verify files and submit only missing items.'
+      const line = 'Paused. Everything already sent to the Gateway has finished; Resume checks the files and sends only what is missing.'
       if (!job.output_lines.slice(-8).includes(line)) job.output_lines.push(line)
     } else if (!job.local_execution_complete) {
       // A live generator can receive its provider success before it has
@@ -1131,10 +1126,8 @@ export function _observeQueuePumpsForTesting(observer: (type: JobType, releasedJ
 const queues: Record<JobType, QueueState> = {
   idea_campaign: { pending: [], running: false, executor: null },
   broll_select: { pending: [], running: false, executor: null },
-  // Legacy `script` queue removed in M1 — chapters and intro now flow
-  // through `script-only` and `introduction-only` independently. The
-  // per-chapter refactor added `chapter-only` for targeted regens.
-  'script-only': { pending: [], running: false, executor: null },
+  // Chapters and intro flow through the outline-first jobs and
+  // `introduction-only`; `chapter-only` is for targeted regens.
   'introduction-only': { pending: [], running: false, executor: null },
   // ── DO NOT GIVE `chapter-only` A PARALLEL LANE ──────────────────────────
   //
@@ -1226,9 +1219,6 @@ const queues: Record<JobType, QueueState> = {
   continuity_render: { pending: [], running: false, executor: null },
   // v1.0.260: generate the composition LAYOUT template image from a prompt.
   composition_generate: { pending: [], running: false, executor: null },
-  // v1.0.386: Fish S2 expression "Tag all" — LLM markup over every section,
-  // saved incrementally so it survives the operator leaving the page.
-  expression_markup: { pending: [], running: false, executor: null },
 }
 
 /**
@@ -1246,16 +1236,25 @@ export function unregisteredJobTypes(): JobType[] {
   return knownJobTypes().filter(type => queues[type].executor == null)
 }
 
-// ── Shared LLM lineup availability holds ───────────────────────────────────
+// ── Writing-model quota holds ───────────────────────────────────────────────
 //
-// A temporary language-product absence is neither a failure nor local work to
-// sleep through.  Keep the durable job queued, remove it from its lane while
-// it waits, and let the timer re-admit that exact job when the published (or
-// bounded local) availability time arrives.  This deliberately uses a
-// different state from the paid-image wait: no provider request was accepted
-// for a lineup hold, and the policy executor owns the saved request keys.
-const llmLineupWaitTimers = new Map<string, NodeJS.Timeout>()
+// A writing model that answered "quota used up" — a proven stop that charged
+// nothing — is neither a failure nor local work to sleep through. Keep the
+// durable job queued, remove it from its lane while it waits, and let a timer
+// re-admit that exact job when the recheck is due (the wait doubles per stop,
+// see `noteQuotaStop`). One model only: a Gateway pool falls through its own
+// members before it ever answers "quota used up".
+const quotaWaitTimers = new Map<string, NodeJS.Timeout>()
 const MAX_QUEUE_TIMER_DELAY_MS = 0x7fffffff
+
+const WRITING_JOB_TYPES = new Set<string>([
+  'idea_campaign', 'outline_only', 'expand_chapters', 'chapter-only', 'introduction-only',
+  'research_run', 'metadata', 'image_prompts', 'scene_plan_run', 'contextual_cues',
+])
+
+function writingModelOf(job: Job): string {
+  return typeof job.params?.model === 'string' ? job.params.model : ''
+}
 
 function validRetryAtMs(value: unknown): number | null {
   if (typeof value !== 'string' || !value.trim()) return null
@@ -1263,59 +1262,38 @@ function validRetryAtMs(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
-/**
- * Trust a checkpoint wait only when this job carries the matching, enabled
- * shared-lineup policy.  A loose `retry_at` field is never enough to defer a
- * queue item, especially when it may have provider evidence from other work.
- */
-function waitingCheckpointRetryAt(job: Job): string | null {
-  if (hasUnsettledProviderEvidence(job)) return null
-  const stage = writingStageForJob(job.type)
-  if (!stage) return null
-  const policy = pipelinePolicyForJob(job.params, stage)
-  if (policy?.wait_for_availability !== true) return null
-  const checkpoints = job.params?.pipeline_model_checkpoints
-  if (!checkpoints || typeof checkpoints !== 'object' || Array.isArray(checkpoints)) return null
-  let earliest: string | null = null
-  for (const checkpoint of Object.values(checkpoints as Record<string, unknown>)) {
-    const parsed = readPipelinePolicyAttemptCheckpoint(checkpoint)
-    if (parsed?.status !== 'waiting' || validRetryAtMs(parsed.retry_at) === null) continue
-    if (!earliest || Date.parse(parsed.retry_at!) < Date.parse(earliest)) earliest = parsed.retry_at!
-  }
-  return earliest
+function isQuotaWait(job: Job, error: unknown): boolean {
+  return WRITING_JOB_TYPES.has(job.type) && !hasUnsettledProviderEvidence(job) && isUnchargedQuotaStop(error)
 }
 
-function lineupWaitRetryAt(job: Job, error?: unknown): string | null {
-  if (hasUnsettledProviderEvidence(job)) return null
-  if (isLlmLineupWaitingError(error) && validRetryAtMs(error.retryAt) !== null) return error.retryAt
-  return waitingCheckpointRetryAt(job)
-}
-
-function clearLlmLineupWaitTimer(jobId: string): void {
-  const timer = llmLineupWaitTimers.get(jobId)
+function clearQuotaWaitTimer(jobId: string): void {
+  const timer = quotaWaitTimers.get(jobId)
   if (!timer) return
   clearTimeout(timer)
-  llmLineupWaitTimers.delete(jobId)
+  quotaWaitTimers.delete(jobId)
 }
 
-function lineUpWaitingMessage(retryAt: string): string {
-  return `Waiting for model availability until ${retryAt}. No provider request was submitted while every eligible model was temporarily unavailable.`
+function quotaWaitingMessage(job: Job, retryAt: string): string {
+  const model = writingModelOf(job) || 'The writing model'
+  return `${model} has used up its allowance for now. Story Studio will try this job again at `
+    + `${new Date(retryAt).toLocaleString()} — nothing was charged and finished work is kept. `
+    + 'To fall back across several models, choose a pool from GatewayKH as this step\'s writing model.'
 }
 
-async function releaseLlmLineupWaitIfDue(jobId: string): Promise<void> {
+async function releaseQuotaWaitIfDue(jobId: string): Promise<void> {
   const job = jobs.get(jobId)
   if (!job || job.status !== 'queued' || job.force_abandoned || cancelled.has(jobId) || pauseRequested.has(jobId)) {
-    clearLlmLineupWaitTimer(jobId)
+    clearQuotaWaitTimer(jobId)
     return
   }
-  const retryAt = typeof job.params?.llm_lineup_retry_at === 'string' ? job.params.llm_lineup_retry_at : null
+  const retryAt = typeof job.params?.quota_retry_at === 'string' ? job.params.quota_retry_at : null
   const retryAtMs = validRetryAtMs(retryAt)
   if (!retryAt || retryAtMs === null) {
-    clearLlmLineupWaitTimer(jobId)
+    clearQuotaWaitTimer(jobId)
     return
   }
   if (Date.now() < retryAtMs) {
-    scheduleLlmLineupWait(job)
+    scheduleQuotaWait(job)
     return
   }
   // A global or per-job pause is authoritative over a due availability check.
@@ -1323,19 +1301,19 @@ async function releaseLlmLineupWaitIfDue(jobId: string): Promise<void> {
   // checkpoint or creating any provider identity.
   if (queuePaused || job.pause_origin || job.pause_requested) return
 
-  clearLlmLineupWaitTimer(jobId)
-  delete job.params.llm_lineup_retry_at
+  clearQuotaWaitTimer(jobId)
+  delete job.params.quota_retry_at
   job.error = null
   job.finished_at = null
-  job.output_lines.push('Model availability recheck is due — returning this saved job to its queue lane.')
+  job.output_lines.push('Writing-model recheck is due — returning this saved job to its queue lane.')
   try {
     await persistJob(job)
   } catch (error) {
     // Keep the durable hold in memory when storage is temporarily unavailable.
     // Retrying the release later is safe because no executor was admitted.
-    job.params.llm_lineup_retry_at = retryAt
-    job.error = lineUpWaitingMessage(retryAt)
-    scheduleLlmLineupWait(job, 1_000)
+    job.params.quota_retry_at = retryAt
+    job.error = quotaWaitingMessage(job, retryAt)
+    scheduleQuotaWait(job, 1_000)
     throw error
   }
   // Controls can win while the durable release write is in flight. Never put
@@ -1348,43 +1326,43 @@ async function releaseLlmLineupWaitIfDue(jobId: string): Promise<void> {
   else pump(job.type)
 }
 
-function scheduleLlmLineupWait(job: Job, minimumDelayMs = 0): boolean {
-  const retryAt = typeof job.params?.llm_lineup_retry_at === 'string' ? job.params.llm_lineup_retry_at : null
+function scheduleQuotaWait(job: Job, minimumDelayMs = 0): boolean {
+  const retryAt = typeof job.params?.quota_retry_at === 'string' ? job.params.quota_retry_at : null
   const retryAtMs = validRetryAtMs(retryAt)
   if (!retryAt || retryAtMs === null || job.status !== 'queued' || job.force_abandoned || cancelled.has(job.job_id)) {
-    clearLlmLineupWaitTimer(job.job_id)
+    clearQuotaWaitTimer(job.job_id)
     return false
   }
-  clearLlmLineupWaitTimer(job.job_id)
+  clearQuotaWaitTimer(job.job_id)
   const delayMs = Math.min(MAX_QUEUE_TIMER_DELAY_MS, Math.max(minimumDelayMs, retryAtMs - Date.now()))
   const timer = setTimeout(() => {
-    llmLineupWaitTimers.delete(job.job_id)
-    void releaseLlmLineupWaitIfDue(job.job_id).catch(error => {
-      console.warn('[job-queue] failed to release LLM lineup availability wait', {
+    quotaWaitTimers.delete(job.job_id)
+    void releaseQuotaWaitIfDue(job.job_id).catch(error => {
+      console.warn('[job-queue] failed to release writing-model quota wait', {
         job_id: job.job_id,
         error: error instanceof Error ? error.message : String(error),
       })
     })
   }, delayMs)
   timer.unref()
-  llmLineupWaitTimers.set(job.job_id, timer)
+  quotaWaitTimers.set(job.job_id, timer)
   return true
 }
 
-function parkForLlmLineupAvailability(job: Job, retryAt: string): void {
-  clearLlmLineupWaitTimer(job.job_id)
-  job.params.llm_lineup_retry_at = retryAt
+function parkForQuota(job: Job, retryAt: string): void {
+  clearQuotaWaitTimer(job.job_id)
+  job.params.quota_retry_at = retryAt
   job.status = 'queued'
   job.finished_at = null
   job.local_execution_complete = false
   job.pause_requested = false
   job.pause_origin = undefined
-  job.error = lineUpWaitingMessage(retryAt)
+  job.error = quotaWaitingMessage(job, retryAt)
   job.output_lines.push(job.error)
 }
 
-function isQueuedLlmLineupWait(job: Job): boolean {
-  return job.status === 'queued' && typeof job.params?.llm_lineup_retry_at === 'string'
+function isQueuedQuotaWait(job: Job): boolean {
+  return job.status === 'queued' && typeof job.params?.quota_retry_at === 'string'
 }
 
 // ── Concurrency groups ──────────────────────────────────────────────────────
@@ -1590,9 +1568,6 @@ export function getLlmConcurrency(): number {
 export function setSubtitleTranscribeConcurrency(n: number): void {
   subtitleTranscribeConcurrency = Math.max(1, Math.min(50, Math.floor(Number(n)) || 1))
   pump('subtitles_transcribe')
-}
-export function getSubtitleTranscribeConcurrency(): number {
-  return subtitleTranscribeConcurrency
 }
 /**
  * Starts at 1 — today's behaviour exactly — so a build that never applies the
@@ -2878,7 +2853,7 @@ async function hasManifestOnlyPaidImageCommitment(attempt: PaidImageReplacementA
 async function readPersistedJobs(projectSlug: string): Promise<void> {
   const p = jobsPath(projectSlug)
   const resumedTypes = new Set<JobType>()
-  const lineupWaitJobs: Job[] = []
+  const quotaWaitJobs: Job[] = []
   const reconciliationJobs: string[] = []
   // v1.2.6 — finished rows whose stored evidence is still non-terminal. They
   // never entered cancellation reconciliation (that path only accepts running
@@ -2905,18 +2880,16 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
               if (requiresCancellationReconciliation(j)) reconciliationJobs.push(j.job_id)
               mutated = true
             } else {
-              const queuedRetryAt = typeof j.params?.llm_lineup_retry_at === 'string'
-                ? j.params.llm_lineup_retry_at
+              const queuedRetryAt = typeof j.params?.quota_retry_at === 'string'
+                ? j.params.quota_retry_at
                 : null
               const queuedRetryAtMs = validRetryAtMs(queuedRetryAt)
               if (queuedRetryAt && queuedRetryAtMs !== null && queuedRetryAtMs > Date.now()) {
                 j.finished_at = null
-                lineupWaitJobs.push(j)
+                quotaWaitJobs.push(j)
               } else {
-                // A stale wait is ready immediately after boot. Its durable
-                // policy checkpoint stays intact and will make the executor
-                // retry the same logical request rather than minting a new one.
-                if (queuedRetryAt) delete j.params.llm_lineup_retry_at
+                // A stale wait is ready immediately after boot.
+                if (queuedRetryAt) delete j.params.quota_retry_at
                 const queue = queues[j.type as JobType]
                 if (queue?.executor) {
                   // An image job with a prior admission timestamp is recovery
@@ -3035,7 +3008,7 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
                 ? '↻ Story Studio restarted — resuming local Video Assembly from its validated scene-clip checkpoint. Missing or invalid clips and every later stage will be rebuilt.'
                 : recoverableImageEpisode
                   ? '↻ Story Studio restarted — resuming this render. Every image the Gateway already finished will be reclaimed from its saved task id at no extra credits, and only genuinely missing scenes will be submitted.'
-                  : '↻ Story Studio restarted — resuming the checkpointed Gateway asset job automatically; the saved request identity will be reused and no direct fallback will run.')
+                  : '↻ Story Studio restarted — picking this job up where it stopped. Requests already sent are reused, so nothing is made twice.')
               queues[j.type as JobType].pending.push(j)
               resumedTypes.add(j.type as JobType)
             } else {
@@ -3100,7 +3073,7 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
     }
     for (const jobId of reconciliationJobs) scheduleCancellationReconciliation(jobId)
     for (const jobId of historyRefreshJobs) scheduleHistoryEvidenceRefresh(jobId)
-    for (const job of lineupWaitJobs) scheduleLlmLineupWait(job)
+    for (const job of quotaWaitJobs) scheduleQuotaWait(job)
   } catch { /* ignore corrupt file */ }
 }
 
@@ -3337,13 +3310,13 @@ async function continueFinalizerAfterSubtitleFailure(job: Job): Promise<void> {
     if (job.params.subtitle_finalizer_dispatched === true) return
     await persistJob(job) // Derived jobs inherit the owner before any handoff side effect.
     const batchId = job.params?.pipeline_batch_id
-    const nextParams = await snapshotLlmLineupParams(job.project_slug, 'metadata', job.episode_id, {
+    const nextParams = {
       ...(nextStep.params || {}),
       episode_id: job.episode_id,
       pipeline_chain: rest,
       ...(batchId ? { pipeline_batch_id: batchId } : {}),
       subtitle_verification_warning: job.error || 'Subtitle generation did not complete.',
-    })
+    }
     await enqueueEpisodeRecoveryOnce(handoffId, {
       project_slug: job.project_slug,
       type: 'metadata',
@@ -3418,7 +3391,7 @@ export async function assertAuditedCompletionOnSuccess(job: Job): Promise<void> 
 /** One success path for ordinary completions and reconciled provider outputs. */
 async function completeSuccessfulJob(job: Job): Promise<void> {
   if (job.status !== 'running') return
-  const typeMap: Record<string, 'script' | 'image' | 'audio'> = { 'script-only': 'script', 'introduction-only': 'script', 'chapter-only': 'script', images: 'image', scene_images: 'image', thumb_images: 'image', audio: 'audio', audio_merge: 'audio', video: 'image' }
+  const typeMap: Record<string, 'script' | 'image' | 'audio'> = { 'introduction-only': 'script', 'chapter-only': 'script', images: 'image', scene_images: 'image', thumb_images: 'image', audio: 'audio', audio_merge: 'audio', video: 'image' }
   const trackType = typeMap[job.type]
   if (trackType) trackGeneration(job.project_slug, trackType).catch(() => {})
 
@@ -3469,12 +3442,12 @@ async function continuePipelineAfterFailure(job: Job): Promise<void> {
 async function dispatchChainLink(job: Job, nextStep: any, rest: unknown[]): Promise<void> {
   try {
     const batchId = job.params.pipeline_batch_id
-    const nextParams = await snapshotLlmLineupParams(job.project_slug, nextStep.type, job.episode_id, {
+    const nextParams = {
       ...(nextStep.params || {}),
       episode_id: job.episode_id,
       pipeline_chain: rest,
       ...(batchId ? { pipeline_batch_id: batchId } : {}),
-    })
+    }
     const joined = nextStep.type === 'continuity_render' && !nextParams.single_scene_id
       ? await joinActiveBulkSceneRender({
         project_slug: job.project_slug,
@@ -3628,10 +3601,9 @@ async function runJob(type: JobType, job: Job): Promise<void> {
           finalError = error
           if (cancelled.has(job.job_id)) throw error
           if (error instanceof JobPausedError || pauseRequested.has(job.job_id)) throw new JobPausedError()
-          // The policy executor has already proved every selected candidate
-          // unaccepted and written its waiting checkpoint. Do not consume a
-          // worker slot on local retry backoff; the outer lifecycle parks it.
-          if (lineupWaitRetryAt(job, error)) throw error
+          // A proven, uncharged quota stop. Do not consume a worker slot on
+          // local retry backoff; the outer lifecycle parks it.
+          if (isQuotaWait(job, error)) throw error
           if (!retryPolicy.eligible || attempt >= retryPolicy.max_attempts) break
 
           const delayMs = retryPolicy.delays_ms[attempt - 1] ?? retryPolicy.delays_ms.at(-1) ?? 2_000
@@ -3670,6 +3642,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
         job.status = 'cancelled'
       } else if (job.status === 'running') {
         await completeSuccessfulJob(job)
+        if (WRITING_JOB_TYPES.has(job.type)) clearQuotaStops(writingModelOf(job) || job.type)
       }
     } catch (e: any) {
       job.local_execution_complete = true
@@ -3688,11 +3661,10 @@ async function runJob(type: JobType, job: Job): Promise<void> {
         // Provider reconciliation above already finalized this job.
       } else if (cancelled.has(job.job_id)) {
         job.status = 'cancelled'
-      } else if (lineupWaitRetryAt(job, e)) {
-        // Do this before ordinary errors. The executor's checkpoint names a
-        // no-submit availability wait; partial files and provider identities
-        // stay exactly as the generator recorded them.
-        parkForLlmLineupAvailability(job, lineupWaitRetryAt(job, e)!)
+      } else if (isQuotaWait(job, e)) {
+        // Do this before ordinary errors. Nothing was charged; partial files
+        // and provider identities stay exactly as the generator recorded them.
+        parkForQuota(job, noteQuotaStop(writingModelOf(job) || job.type))
       } else if (hasUnsettledProviderWork(job)) {
         const isPause = e instanceof JobPausedError || pauseRequested.has(job.job_id)
         const message = e instanceof Error ? e.message : String(e)
@@ -3717,7 +3689,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
 
     // A cancellation/abandonment may retire history during an awaited audit.
     if (!jobs.has(job.job_id)) return
-    job.finished_at = isQueuedLlmLineupWait(job) || job.status === 'paused' || hasUnsettledProviderWork(job)
+    job.finished_at = isQueuedQuotaWait(job) || job.status === 'paused' || hasUnsettledProviderWork(job)
       || (job.status === 'running' && hasCancellationContext(job))
       ? null
       : new Date().toISOString()
@@ -3748,12 +3720,12 @@ async function runJob(type: JobType, job: Job): Promise<void> {
     if (job.status === 'paused' && job.pause_origin === 'stall') {
       await recoverSafelySettledStallJobs([job])
     }
-    if (isQueuedLlmLineupWait(job)) {
-      scheduleLlmLineupWait(job)
+    if (isQueuedQuotaWait(job)) {
+      scheduleQuotaWait(job)
     }
     if (TERMINAL_JOB_STATUSES.has(job.status)) {
       clearPaidImageWaitTimer(job.job_id)
-      clearLlmLineupWaitTimer(job.job_id)
+      clearQuotaWaitTimer(job.job_id)
     }
     if (
       (job.status === 'running' && hasUnsettledProviderWork(job))
@@ -3768,7 +3740,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
     if (!jobs.has(job.job_id)) {
       cancelled.delete(job.job_id)
       clearPaidImageWaitTimer(job.job_id)
-      clearLlmLineupWaitTimer(job.job_id)
+      clearQuotaWaitTimer(job.job_id)
     }
     queuePauseReleaseCheckpoints.delete(job.job_id)
     releaseSlot(type, job)
@@ -3848,12 +3820,12 @@ async function setQueuePausedUnlocked(paused: boolean): Promise<void> {
   await transitionPausedJobsToQueuedByProject([...jobs.values()].filter(job => (
     job.status === 'paused' && job.pause_origin === 'queue'
   )))
-  // A model-availability timer may have become due while the global queue was
+  // A quota-recheck timer may have become due while the global queue was
   // paused. Re-arm every durable hold here; due rows schedule a zero-delay
   // release, while future rows keep their original retry time.
   for (const job of jobs.values()) {
-    if (job.status === 'queued' && typeof job.params?.llm_lineup_retry_at === 'string') {
-      scheduleLlmLineupWait(job)
+    if (job.status === 'queued' && typeof job.params?.quota_retry_at === 'string') {
+      scheduleQuotaWait(job)
     }
   }
   // Kick every type so queued jobs that never started while held can run.
@@ -4458,11 +4430,11 @@ async function transitionPausedJobsToQueuedByProject(
       || pauseRequested.has(job.job_id)
     ) continue
     const queue = queues[job.type]
-    const lineupRetryAt = typeof job.params?.llm_lineup_retry_at === 'string'
-      ? job.params.llm_lineup_retry_at
+    const quotaRetryAt = typeof job.params?.quota_retry_at === 'string'
+      ? job.params.quota_retry_at
       : null
-    if (lineupRetryAt && validRetryAtMs(lineupRetryAt) !== null) {
-      scheduleLlmLineupWait(job)
+    if (quotaRetryAt && validRetryAtMs(quotaRetryAt) !== null) {
+      scheduleQuotaWait(job)
       emitUpdate(job)
       result.resumed.push(job)
       continue
@@ -4526,7 +4498,7 @@ async function pauseJobUnlocked(jobId: string, origin: 'manual' | 'queue' | 'sta
   const job = jobs.get(jobId)
   if (!job) return null
   clearPaidImageWaitTimer(jobId)
-  clearLlmLineupWaitTimer(jobId)
+  clearQuotaWaitTimer(jobId)
   if (job.status === 'queued') {
     const q = queues[job.type]
     q.pending = q.pending.filter(candidate => candidate.job_id !== jobId)
@@ -4990,18 +4962,11 @@ export async function enqueue(
   const safeOpts: EnqueueOptions = { ...opts, ...(opts.params ? { params: { ...opts.params } } : {}) }
   delete (safeOpts as EnqueueOptions & { paid_image_replacement?: unknown }).paid_image_replacement
   delete (safeOpts as EnqueueOptions & { genstudio_chat_recovery_preview?: unknown }).genstudio_chat_recovery_preview
-  // This marker belongs only to a queue-created availability hold. A request
+  // This marker belongs only to a queue-created quota hold. A request
   // body cannot pre-park a job or suppress its first attempt.
-  if (safeOpts.params) delete safeOpts.params.llm_lineup_retry_at
+  if (safeOpts.params) delete safeOpts.params.quota_retry_at
   const { params, ...enqueueOpts } = safeOpts
-  // Capture the shared lineup before this job crosses queue admission. The
-  // helper keeps an existing job snapshot and explicit stage policy intact.
-  const lineupParams = await snapshotLlmLineupParams(
-    opts.project_slug,
-    opts.type,
-    opts.episode_id,
-    withoutPaidImageReplacementParam(params) || {},
-  )
+  const jobParams = withoutPaidImageReplacementParam(params) || {}
   const provenance = await snapshotProjectContentPackProvenance(
     opts.project_slug,
     opts.type,
@@ -5025,7 +4990,7 @@ export async function enqueue(
     await beforeAdmission?.()
     return enqueuePrepared({
       ...enqueueOpts,
-      params: lineupParams,
+      params: jobParams,
       ...(paid_image_replacement ? { paid_image_replacement } : {}),
     }, provenance)
   })
@@ -5462,8 +5427,12 @@ export function retryTerminalJob(
   // v1.2.8 — an abandoned job is exempt. "Generate a new one in its
   // replacement" is the other half of the escape hatch, and refusing the retry
   // on evidence the owner has explicitly chosen to stop waiting for would leave
-  // him abandoned AND stuck. Retry never reuses a provider identity here: it
-  // submits fresh work, which is what he asked for and what he is paying for.
+  // him abandoned AND stuck. An abandoned job's retry submits fresh work.
+  // Otherwise the retry is NOT always fresh: a chapter chat run with unresolved
+  // batches replays its exact keys ('exact-replay'), an exact manual-replacement
+  // retry and an uncertain-audio retry carry the original `genstudio_jobs`
+  // forward, so the Gateway answers with the first outcome instead of a second
+  // charge. Only settled, released work gets a new provider identity.
   if (!original.force_abandoned && hasUnsettledProviderEvidence(original)
     && !(chatBackedRetry && chapterRetryMode === 'exact-replay') && !exactManualRetry) {
     throw Object.assign(
@@ -5532,6 +5501,13 @@ export function retryTerminalJob(
       )
     }
     retryType = 'thumb_images'
+  }
+  // A type that no longer has a lane (e.g. the removed Expression markup job) cannot run again.
+  if (!queues[retryType]) {
+    throw Object.assign(
+      new Error('This kind of job was removed from Story Studio, so it cannot be retried.'),
+      { status: 409, expose: true },
+    )
   }
   // A manual Finish/Replace nonce authorizes only its original action. Generic
   // retry machinery may retain ordinary continuity behavior, but cannot copy
@@ -5762,7 +5738,7 @@ async function cancelQueuedBeforeSubmit(job: Job): Promise<Job> {
 
 async function cancelQueuedBeforeSubmitUnlocked(job: Job): Promise<Job> {
   clearPaidImageWaitTimer(job.job_id)
-  clearLlmLineupWaitTimer(job.job_id)
+  clearQuotaWaitTimer(job.job_id)
   cancelled.add(job.job_id)
   pauseRequested.delete(job.job_id)
   if (job.status === 'queued') {
@@ -5786,7 +5762,7 @@ async function stopLocalJob(job: Job): Promise<Job> {
 
 async function stopLocalJobUnlocked(job: Job): Promise<Job> {
   clearPaidImageWaitTimer(job.job_id)
-  clearLlmLineupWaitTimer(job.job_id)
+  clearQuotaWaitTimer(job.job_id)
   cancelled.add(job.job_id)
   job.status = 'cancelled'
   job.finished_at = new Date().toISOString()
@@ -5814,7 +5790,7 @@ async function queueRemoteCancellationTargetsUnlocked(
   targets: NonNullable<JobControl['targets']>,
 ): Promise<Job> {
   clearPaidImageWaitTimer(job.job_id)
-  clearLlmLineupWaitTimer(job.job_id)
+  clearQuotaWaitTimer(job.job_id)
   const now = new Date().toISOString()
   const records = { ...(job.remote_cancellations || {}) }
   let added = 0
@@ -5978,7 +5954,7 @@ async function forceAbandonJobUnlocked(job: Job): Promise<Job> {
   ]
 
   clearPaidImageWaitTimer(job.job_id)
-  clearLlmLineupWaitTimer(job.job_id)
+  clearQuotaWaitTimer(job.job_id)
   cancelled.add(job.job_id)
   pauseRequested.delete(job.job_id)
   const queue = queues[job.type]
@@ -6019,7 +5995,7 @@ export function removeTerminalJob(projectSlug: string, jobId: string): boolean {
   if (!TERMINAL_JOB_STATUSES.has(job.status)) return false
   if (!job.force_abandoned && hasUnsettledProviderEvidence(job)) return false
   clearPaidImageWaitTimer(jobId)
-  clearLlmLineupWaitTimer(jobId)
+  clearQuotaWaitTimer(jobId)
   // A terminal status does not prove its worker has returned yet.
   if (!activeRunJobIds.has(jobId)) cancelled.delete(jobId)
   jobs.delete(jobId)
@@ -6070,7 +6046,7 @@ export async function clearFinished(projectSlug: string, status?: JobHistoryClea
   for (const [id, job] of jobs.entries()) {
     if (job.project_slug === projectSlug && matchesHistoryClearStatus(job, status) && (job.force_abandoned || !hasUnsettledProviderEvidence(job))) {
       clearPaidImageWaitTimer(id)
-      clearLlmLineupWaitTimer(id)
+      clearQuotaWaitTimer(id)
       if (!activeRunJobIds.has(id)) cancelled.delete(id)
       jobs.delete(id)
       clearedIds.push(id)

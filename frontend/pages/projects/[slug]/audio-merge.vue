@@ -65,7 +65,7 @@
           type="button"
           class="btn btn-ghost"
           @click="togglePreview(existingMergedAudio.path)"
-        >{{ playingPath === existingMergedAudio.path ? 'Stop preview' : 'Preview current' }}</button>
+        >{{ playingPath === existingMergedAudio.path ? 'Stop Preview' : 'Preview Current' }}</button>
         <button
           type="button"
           class="btn btn-primary"
@@ -133,7 +133,7 @@
         </p>
         <div class="flex gap-2 mt-2">
           <NuxtLink :to="`/projects/${slug}/audio?episode_id=${encodeURIComponent(episodeId)}`" class="btn btn-primary btn-sm">
-            Repair missing audio →
+            Repair Missing Audio →
           </NuxtLink>
           <button class="btn btn-sm btn-secondary" @click="scanAssets" :disabled="scanning">
             Re-scan
@@ -174,7 +174,7 @@
             <button
               class="btn btn-sm btn-secondary"
               @click="repickInvalidPath(row)"
-            >Pick replacement…</button>
+            >Pick Replacement…</button>
           </li>
         </ul>
       </div>
@@ -335,7 +335,7 @@
         <p class="text-muted text-sm mt-1">
           <template v-if="narrationVolume === 100">100% = original recorded level (unchanged).</template>
           <template v-else-if="narrationVolume > 100">
-            Boosting voiceover to {{ (narrationVolume / 100).toFixed(2) }}× louder.<template v-if="narrationVolume > 130 && !normalizeVolume"> <strong>⚠ Above 130% without normalization can clip</strong> — enable Volume Normalization below for a safe, even level.</template>
+            Boosting voiceover to {{ (narrationVolume / 100).toFixed(2) }}× louder.<template v-if="narrationVolume > 130 && !normalizeVolume"> <strong>⚠ Above 130% without normalization can clip</strong> — turn on Normalize above for a safe, even level.</template>
           </template>
           <template v-else>Lowering voiceover to {{ (narrationVolume / 100).toFixed(2) }}× of the recorded level.</template>
           Applied on top of normalization if that's also on.
@@ -416,7 +416,7 @@
           type="button"
           class="link-btn ppb-action"
           @click="clearPoolPick"
-        >Skip — use no music</button>
+        >Skip — Use No Music</button>
       </div>
 
       <p v-else-if="music.enabled && music.source === 'pool' && !poolPeekLoading" class="text-muted text-sm mt-2">
@@ -528,7 +528,7 @@
           <button
             :class="['btn btn-sm', backgroundNoise.mode === 'preset' ? 'btn-primary' : 'btn-secondary']"
             @click="backgroundNoise.mode = 'preset'"
-          >Built-in sounds</button>
+          >Built-in Sounds</button>
           <button
             :class="['btn btn-sm', backgroundNoise.mode === 'custom' ? 'btn-primary' : 'btn-secondary']"
             @click="backgroundNoise.mode = 'custom'"
@@ -589,7 +589,7 @@
       <p class="text-muted text-sm mt-1">
         Stack any number of ambient loops (rain, fire crackle, distant thunder, wind) — each plays
         <strong>simultaneously at its own volume</strong> alongside narration, music, and background noise.
-        Different from <em>Music Files</em> above (which concatenates files into one playlist).
+        Different from <em>Background Music</em> above (which plays its files one after another as a single bed).
         Drop sources into the project's <code>ambient/</code> folder, then click <strong>+ Add Track</strong>.
       </p>
 
@@ -658,7 +658,7 @@
           class="btn btn-sm btn-secondary"
           title="Open the project's ambient/ folder so you can drop new audio loops in"
           @click="openAmbientFolder"
-        >📁 Open ambient folder</button>
+        >📁 Open Ambient Folder</button>
         <button
           type="button"
           class="btn btn-sm btn-secondary"
@@ -794,9 +794,8 @@ const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post } = useApi()
 const { success, error: showError } = useToast()
-const { ask } = useConfirm()
 const { audioMergeGenerating } = useGenerating()
-const { project, episodesRoot } = useProject()
+const { episodesRoot } = useProject()
 
 // ── State ──
 const episodeId = ref('')
@@ -2045,16 +2044,12 @@ onUnmounted(() => {
   .audio-assembly-action-controls .btn { width: 100%; justify-content: center; }
 }
 
-.btn-lg { padding: 12px 40px; font-size: 16px; font-weight: 600; }
-
-.generating-status { display: flex; flex-direction: column; gap: 6px; }
 .gen-label { font-size: 13px; color: var(--accent); }
 .progress-bar { height: 3px; background: var(--bg-tertiary); border-radius: 2px; overflow: hidden; }
 .progress-fill { height: 100%; background: var(--accent); border-radius: 2px; animation: progressIndeterminate 1.5s ease-in-out infinite; }
 @keyframes progressIndeterminate { 0% { width: 0%; margin-left: 0; } 50% { width: 60%; margin-left: 20%; } 100% { width: 0%; margin-left: 100%; } }
 
 .scanning-status { display: flex; flex-direction: column; gap: 4px; }
-.slider { width: 100%; }
 
 /* Apply-time path check: invalid references are blocking and each row offers
    a direct replacement action. */

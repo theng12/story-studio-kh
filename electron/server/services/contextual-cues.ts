@@ -23,13 +23,6 @@ export const DEFAULT_CONTEXTUAL_CUE_CONFIG: ContextualCueProjectConfig = {
   auto_approve_cues: false,
 }
 
-export const DEFAULT_CONTEXTUAL_CUE_PROPOSAL_SETTINGS: ContextualCueProposalSettings = {
-  model: '',
-  density: 'restrained',
-  placement: 'top-right',
-  auto_approve: false,
-}
-
 export function normalizeContextualCueConfig(value: unknown): ContextualCueProjectConfig {
   const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {}
   return {
@@ -450,7 +443,16 @@ export function assertContextualCueReadiness(
   // matter of taste is how a 4.5s ceiling nobody chose came to block real work.
   const blocking = issues.filter(issue => issue.severity !== 'warning')
   if (blocking.length) {
-    throw new Error(`Contextual Cues need review: ${blocking.slice(0, 5).map(issue => issue.cue_id ? `${issue.cue_id} — ${issue.detail}` : issue.detail).join('; ')} Open Contextual Cues, resolve every proposal, then retry.`)
+    // Name each cue the way the Contextual Cues page lists it (position, title,
+    // time) — the owner has never seen a cue's internal id.
+    const cueName = (id: string) => {
+      const index = timeline?.cues.findIndex(cue => cue.id === id) ?? -1
+      const cue = index >= 0 ? timeline!.cues[index]! : null
+      if (!cue) return 'A cue'
+      const at = `${Math.floor(cue.start_sec / 60)}:${String(Math.floor(cue.start_sec % 60)).padStart(2, '0')}`
+      return `Cue ${index + 1}${cue.title?.trim() ? ` "${cue.title.trim()}"` : ''} (${at})`
+    }
+    throw new Error(`Contextual Cues need review: ${blocking.slice(0, 5).map(issue => issue.cue_id ? `${cueName(issue.cue_id)} — ${issue.detail}` : issue.detail).join('; ')} Open Contextual Cues, resolve every proposal, then retry.`)
   }
   // No timeline is no cues, not a failure — see `validateContextualCueTimeline`.
   return timeline ? timeline.cues.filter(cue => cue.status === 'approved') : []

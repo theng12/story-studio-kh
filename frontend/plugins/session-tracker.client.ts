@@ -18,8 +18,7 @@
 
 const RESTORABLE_SUBS = new Set([
   'ideas', 'pipeline', 'scripts', 'metadata', 'image-prompts', 'images',
-  'video', 'audio', 'audio-merge', 'video-assembly', 'upload',
-  'tiktok-upload', 'facebook-upload', 'presets', 'assets', 'jobs', 'settings',
+  'audio', 'audio-merge', 'video-assembly', 'upload', 'presets', 'jobs', 'settings',
 ])
 
 function parseProjectRoute(path: string): { slug: string; route: string } | null {

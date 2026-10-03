@@ -10,11 +10,7 @@
       </p>
     </div>
 
-    <div v-if="loading" class="dialog-body text-muted">
-      <LoadingSpinner size="sm" /> Loading current overrides…
-    </div>
-
-    <div v-else class="dialog-body override-grid">
+    <div class="dialog-body override-grid">
       <div v-for="field in FIELDS" :key="field.id" class="override-row">
         <div class="override-label">
           <span class="override-icon" aria-hidden="true">{{ field.icon }}</span>
@@ -48,7 +44,7 @@
         :disabled="saving || allDetect"
         title="Set every field back to Detect (clears all overrides for this episode)"
         @click="resetAll"
-      >Reset all to Detect</button>
+      >Reset All to Detect</button>
       <span class="text-muted dirty-summary">
         <template v-if="dirtyCount === 0">No changes pending</template>
         <template v-else>{{ dirtyCount }} unsaved change{{ dirtyCount === 1 ? '' : 's' }}</template>
@@ -128,7 +124,6 @@ const emit = defineEmits<{
 const { patch } = useApi()
 const { success, error: showError } = useToast()
 
-const loading = ref(false)
 const saving = ref(false)
 
 // Initialize with all-detect; populated from props.initial when the dialog

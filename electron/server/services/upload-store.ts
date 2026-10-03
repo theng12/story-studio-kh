@@ -60,27 +60,11 @@ interface SecretsV2Upload extends SecretsV2 {
 
 // ── OAuth client storage ──────────────────────────────────────────────────
 
-export async function readOAuthClient(slug: string, platform: UploadPlatform): Promise<OAuthClientCreds | null> {
-  const v2 = await readSecretsV2(slug) as SecretsV2Upload
-  const creds = v2.upload_oauth_client?.[platform]
-  if (!creds?.client_id || !creds?.client_secret) return null
-  return { client_id: creds.client_id, client_secret: creds.client_secret }
-}
-
 export async function writeOAuthClient(slug: string, platform: UploadPlatform, creds: OAuthClientCreds): Promise<void> {
   await writeSecretsV2(slug, (v2) => {
     const rich = v2 as SecretsV2Upload
     if (!rich.upload_oauth_client) rich.upload_oauth_client = {}
     rich.upload_oauth_client[platform] = { client_id: creds.client_id, client_secret: creds.client_secret }
-  })
-}
-
-export async function deleteOAuthClient(slug: string, platform: UploadPlatform): Promise<void> {
-  await writeSecretsV2(slug, (v2) => {
-    const rich = v2 as SecretsV2Upload
-    if (rich.upload_oauth_client?.[platform]) {
-      delete rich.upload_oauth_client[platform]
-    }
   })
 }
 
@@ -268,34 +252,4 @@ export async function removeAccount(slug: string, platform: UploadPlatform, acco
   // Drop tokens too.
   await deleteTokens(slug, platform, accountId)
   return true
-}
-
-/**
- * v1.0.502 — resolve a possibly-STALE account id to one that actually has
- * tokens. Projects are single-account-per-platform by design (see addAccount),
- * so when a stored reference (plan.account_id / sidecar.account_id) points at
- * an account that no longer exists — the disconnect→reconnect flow used to
- * mint a fresh id — falling back to the project's current (only) account is
- * safe and is what the user means. Returns `preferredId` unchanged when its
- * tokens exist OR when no healthier fallback is available (callers then hit
- * the friendly "No tokens" error as before).
- */
-export async function resolveUsableAccountId(
-  slug: string,
-  platform: UploadPlatform,
-  preferredId: string | null | undefined,
-): Promise<string> {
-  const preferred = preferredId || ''
-  if (preferred && await readTokens(slug, platform, preferred)) return preferred
-  const config = (await pm.getConfig(slug)) as any
-  const accounts: UploadAccount[] = Array.isArray(config?.upload_accounts?.[platform])
-    ? config.upload_accounts[platform]
-    : []
-  // Only fall back when the preferred account is GONE from the list — if it
-  // still exists but merely lost its tokens, "reconnect" is the right fix and
-  // silently rerouting could cross channels.
-  if (accounts.some(a => a.id === preferred)) return preferred
-  const currentId = (config?.upload_default_account?.[platform] as string) || accounts[0]?.id || ''
-  if (currentId && await readTokens(slug, platform, currentId)) return currentId
-  return preferred
 }

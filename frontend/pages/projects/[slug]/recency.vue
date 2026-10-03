@@ -75,7 +75,7 @@
           class="btn btn-sm btn-ghost rcy-danger"
           @click="clearAll"
         >
-          Clear entire log
+          Clear Entire Log
         </button>
       </div>
     </div>

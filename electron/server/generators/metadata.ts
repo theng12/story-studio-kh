@@ -211,7 +211,7 @@ export async function generateMetadata(job: Job): Promise<void> {
   // Metadata page; a missing model is resolved against GenStudio's live
   // catalog instead of a hardcoded external product id (never invent a
   // product GenStudio hasn't published).
-  // A Pipeline lineup supplies its own models; otherwise only the owner's choice runs.
+  // The Pipeline run's own choice for this step, otherwise the owner's choice on the page.
   const metadataPolicy = pipelinePolicyForJob(params, 'metadata')
   const model = req.model?.trim() || metadataPolicy?.assigned_model || await resolveDefaultMetadataModel(config)
   const metadataCheckpoint = pipelinePolicyCheckpointStore(params, () => jq.checkpointJobState(job))

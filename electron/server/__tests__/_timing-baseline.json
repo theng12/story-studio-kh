@@ -1,5 +1,4 @@
 {
-  "electron/server/__tests__/audio-expression-concurrency.test.ts": 2,
   "electron/server/__tests__/chapter-only-stays-serial.test.ts": 2,
   "electron/server/__tests__/content-pack-installer.test.ts": 1,
   "electron/server/__tests__/content-pack-lifecycle.test.ts": 1,

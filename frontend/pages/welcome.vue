@@ -64,7 +64,7 @@
             @click="confirm"
           >
             <LoadingSpinner v-if="creating" size="sm" />
-            {{ creating ? 'Setting up…' : (repointing ? 'Use this folder' : 'Use this folder') }}
+            {{ creating ? 'Setting up…' : 'Use this folder' }}
           </button>
         </div>
 

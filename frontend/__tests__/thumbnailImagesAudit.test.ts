@@ -70,10 +70,10 @@ function panelFixture(jobReads: Array<() => any>) {
   return fx
 }
 
-async function mountPanel(fx: any, generationMode: 'skip' | 'regenerate' = 'skip') {
+async function mountPanel(fx: any) {
   const Panel = await loadSetup('../components/ImageGeneratorPanel.vue', PANEL_SUPPORT)
   const app = createApp({ render: () => h(Panel, {
-    kind: 'thumbnail', projectSlug: 'p', episodeId: 'EP1', title: 'T', generationMode,
+    projectSlug: 'p', episodeId: 'EP1', title: 'T',
     prepare: async (force: boolean, ask: boolean) => { fx.prepares.push([force, ask]); return fx.prepareResult(force) },
   }) })
   app.mount(document.body.appendChild(document.createElement('div')))
@@ -100,31 +100,14 @@ test('a row render uses the page builder and sends a UUID operation id with forc
   } finally { app.unmount() }
 })
 
-test('the board bulk button asks like the top button and sends no operation id when not overwriting', async () => {
-  const fx = panelFixture([])
-  const app = await mountPanel(fx)
-  try {
-    await fx.state.runBulk()
-    assert.deepEqual(fx.prepares, [[false, true]], 'bulk shows the page confirmation')
-    assert.equal(fx.posts[0].force, false)
-    assert.equal('operation_id' in fx.posts[0], false)
-    assert.equal('thumb_number' in fx.posts[0], false)
-
-    fx.prepareResult = () => null // cancelled confirmation
-    await fx.state.runBulk()
-    assert.equal(fx.posts.length, 1, 'a cancelled confirmation submits nothing')
-  } finally { app.unmount() }
-})
-
-test('a regenerate-all bulk render carries its own operation id', async () => {
-  const fx = panelFixture([])
-  const app = await mountPanel(fx, 'regenerate')
-  try {
-    await fx.state.runBulk()
-    assert.deepEqual(fx.prepares, [[true, true]])
-    assert.equal(fx.posts[0].force, true)
-    assert.match(fx.posts[0].operation_id, UUID)
-  } finally { app.unmount() }
+test('the board has one bulk action, the top button — the panel only renders single rows', () => {
+  const panel = read('../components/ImageGeneratorPanel.vue')
+  const page = read('../pages/projects/[slug]/images.vue')
+  assert.doesNotMatch(panel, /runBulk|bulkActionLabel|bulkDisabled/)
+  assert.doesNotMatch(panel, /Generate \$\{missingCount\.value\} missing/)
+  assert.doesNotMatch(page, /generateMissingFresh|Generate missing fresh/)
+  assert.doesNotMatch(page, /:generation-mode=/)
+  assert.match(page, /:generate-label="generateButtonLabel"/)
 })
 
 test('a job error reaches the row through the customer-safe text', async () => {
@@ -155,12 +138,12 @@ test('Prompt review drops a slow load for an earlier episode and saves to the ep
   ;(globalThis as any).__fx = fx
   const Review = await loadSetup('../components/PromptReviewPanel.vue', REVIEW_SUPPORT)
   const { reactive } = await import('vue')
-  const props = reactive({ projectSlug: 'p', episodeId: 'EP-A', title: 'A', pool: 'thumbnails' })
+  const props = reactive({ projectSlug: 'p', episodeId: 'EP-A', title: 'A' })
   const app = createApp({ render: () => h(Review, { ...props }) })
   app.mount(document.body.appendChild(document.createElement('div')))
   await flush()
   try {
-    void fx.state.saveOne('thumbnail', 1, { title: 't', prompt: 'p' })
+    void fx.state.saveOne(1, { title: 't', prompt: 'p' })
     props.episodeId = 'EP-B'
     props.title = 'B'
     await flush()
@@ -185,7 +168,7 @@ test('Thumbnail Generator wiring: one builder, extra details per episode, honest
   assert.match(page, /thumbnailGeneratorPresets\.load\(\),[\s\S]{0,80}\]\)\s*await applyImageFormatDefaultsIfNoPreset\(\)/)
   assert.match(page, /function onOutputOptionSwitched\(notice: string\): void \{ showInfo\(notice\) \}/)
   assert.match(page, /realignOutputOption\(activeGenStudioModel\.value, outputOption\.value, ratio\)/)
-  assert.match(page, /Stop using the reference/)
+  assert.match(page, /Stop Using the Reference/)
   assert.match(page, /thumbnail_reference_asset: null/)
   assert.match(page, /:disabled="submitting \|\| imageJobActiveForEpisode"/)
   for (const jargon of ['provider history', 'submits new provider work', 'silently truncated', 'No step setting']) {
@@ -203,7 +186,7 @@ test('Thumbnail Generator wiring: one builder, extra details per episode, honest
 test('Thumbnail Prompts: explicit replace-all, honest toast, choices survive a revisit, brief stays with its episode', () => {
   const page = read('../pages/projects/[slug]/image-prompts.vue')
   assert.match(page, /fill_gaps: !replaceAll,\s*force: replaceAll,/)
-  assert.match(page, /Replace all \{\{ existingThumbNumbers\.length \}\} prompts/)
+  assert.match(page, /Replace All \{\{ existingThumbNumbers\.length \}\} Prompts/)
   assert.match(page, /async function replaceAllThumbnailPrompts\(\)[\s\S]{0,200}useConfirm\(\)\.ask\(\{[\s\S]{0,300}danger: true/)
   assert.match(page, /All \$\{thumbCt\} prompts already exist — nothing new generated/)
   assert.match(page, /@loaded="existingThumbNumbers = \$event\.thumbnails"/)
@@ -212,12 +195,12 @@ test('Thumbnail Prompts: explicit replace-all, honest toast, choices survive a r
   // Format defaults only seed keys nobody chose.
   assert.match(page, /if \(seedThumb\('aspect_ratio'\)\) form\.thumbnail\.aspect_ratio = ip\.recommendedAspect/)
   assert.match(page, /seedThumb\('thumb_count'\)/)
-  assert.match(page, /if \(seedThumb\('style_tag'\)\) \{/)
+  assert.match(page, /ip\.defaultStyleTag\.trim\(\) && seedThumb\('style_tag'\)\) \{/)
   // The click brief: never restored, never in a preset, cleared + announced on switch.
   assert.match(page, /excludeKeys: \[\.\.\.DEFAULT_EXCLUDE_KEYS, 'thumb_creative_direction'\]/)
   assert.match(page, /useRememberedForm\('image-prompts'[\s\S]{0,400}form\.thumbnail\.thumb_creative_direction = ''/)
   assert.match(page, /if \(oldEp && form\.thumbnail\.thumb_creative_direction\.trim\(\)\) \{\s*form\.thumbnail\.thumb_creative_direction = ''\s*showInfo\(/)
-  assert.match(page, /✨ Shuffle &amp; generate/)
+  assert.match(page, /✨ Shuffle &amp; Generate/)
   assert.equal((page.match(/Surprise me/g) || []).length, 0)
   assert.match(page, /while \(!pageDisposed\)/)
 })
@@ -257,6 +240,20 @@ test('Thumbnail templates: plain wording, failed load with Retry, unsaved-change
   const editor = read('../components/ThumbnailTemplateEditor.vue')
   assert.doesNotMatch(editor.slice(0, editor.indexOf('<script')), /~\/Documents|fork a copy|pristine/)
   assert.match(editor, /onBeforeRouteLeave\(/)
-  assert.match(editor, /:disabled="rendering \|\| isNew \|\| dirty"/)
-  assert.match(editor, /if \(isNew\.value\) return ''/, 'a never-saved template does not request a preview')
+  // Live preview of UNSAVED edits: drawn in the browser from the same overlay
+  // builder the server uses, never a server preview of the saved file.
+  assert.match(editor, /from '@shared\/thumbnail-overlay'/)
+  assert.match(editor, /buildOverlaySvg\(workingTemplate\.value, previewText\.value\)/)
+  assert.match(editor, /layoutTextZone\(zone, canvas, previewText\.value\)/, 'drag boxes use the shared layout')
+  assert.doesNotMatch(editor, /preview\.png/, 'no server round-trip for the editor preview')
+  assert.doesNotMatch(editor, /v-html/, 'overlay is an <img> data URL, never injected markup')
+  assert.match(editor, /gallery card may differ slightly/)
+  // The editor's text settings only draw the gallery preview card (composeThumbnail is
+  // called only from the template preview route); real headlines come from the image model.
+  assert.match(editor, /data-testid="tte-text-scope-note"[\s\S]{0,300}only shape this template's gallery preview card[\s\S]{0,120}Real thumbnails get their headline from the image model/)
+  assert.doesNotMatch(editor, /final render may differ|saved thumbnail does/)
+  const catalogPage = read('../pages/projects/[slug]/thumbnail-templates.vue')
+  assert.doesNotMatch(catalogPage, /text-free and add a crisp headline|composite the final headline/)
+  assert.match(catalogPage, /image model draws each thumbnail's headline[\s\S]{0,80}gallery preview card/)
+  assert.match(editor, /Sample title[\s\S]{0,300}Preview only — each episode puts its own title here\./)
 })

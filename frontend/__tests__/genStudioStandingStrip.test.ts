@@ -67,3 +67,14 @@ test('the strip carries its own top-bar shape instead of relying on a parent ove
 test('the sign-in page does not show account standing it cannot read before sign-in', () => {
   assert.match(defaultLayout, /signingIn = computed\(\(\) => route\.path\.replace\(\/\\\/\+\$\/, ''\) === '\/login'\)/)
 })
+
+test('the top bar job count is truthful: all Gateway jobs, not "paid", and hidden when idle', async () => {
+  const { gatewayJobsLine } = await import('../utils/genstudio-freshness.js')
+  assert.equal(gatewayJobsLine(0, 299), '', 'nothing running → nothing shown')
+  assert.equal(gatewayJobsLine(null, 299), '')
+  assert.equal(gatewayJobsLine(1, 299), '1 job running · room for 298 more')
+  assert.equal(gatewayJobsLine(3, null), '3 jobs running')
+  const component = readFileSync(componentUrl, 'utf8')
+  assert.doesNotMatch(component, /paid jobs running/)
+  assert.match(component, /gatewayJobsLine\(genstudioActiveLanes\.value, genstudioLaneLimit\.value\)/)
+})

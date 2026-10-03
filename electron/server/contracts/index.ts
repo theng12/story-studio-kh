@@ -410,13 +410,6 @@ export interface AccountSummaryResponse {
 // templates, custom_* autocomplete pools). Keep the schema permissive so
 // we reject obviously-wrong shapes without maintaining a growing denylist.
 export const UpdateConfigSchema = z.object({
-  llm_lineup: z.object({
-    enabled: z.boolean(),
-    models: z.array(z.string().trim().min(1).max(128)).max(100),
-    prefer_savings: z.boolean().default(true),
-  }).strict().refine(value => !value.enabled || value.models.length > 0, {
-    message: 'Choose at least one model before enabling the LLM lineup',
-  }).optional(),
   image_models: z.record(z.string(), z.any()).optional(),
   voice_presets: z.array(z.any()).optional(),
   style_presets: z.array(z.any()).optional(),
@@ -433,6 +426,11 @@ export const UpdateConfigSchema = z.object({
   // never let an audio_models map become executable routing configuration.
   // GenStudio is now the sole voice catalog and TTS execution boundary.
   const current = { ...value }
+  // The retired LLM lineup (2026-10-03) and its one-time migration record are
+  // Story Studio's own; an older client can no longer write either. The saved
+  // lineup stays on disk untouched.
+  delete current.llm_lineup
+  delete current.llm_lineup_migration
   delete current.audio_models
   delete current.audio_concurrency
   delete current.video_concurrency
@@ -452,7 +450,7 @@ export type UpdateConfigBody = z.infer<typeof UpdateConfigSchema>
  * serving; never add a `*_api_key` field here.
  */
 export interface SafeProjectConfigResponse {
-  llm_lineup?: import('./llm-lineup.js').LlmLineup
+  llm_lineup_migration?: import('../models/types.js').LlmLineupMigration
   has_genstudio_key: boolean
   /**
    * Multi-account listing keyed by provider id. Added in Delivery 2; the
@@ -518,20 +516,6 @@ export const UpdateStandardsSchema = z.union([
 
 const EpisodeId = z.string().min(1).max(40)
 
-export const GenerateScriptSchema = z.object({
-  episode_id: EpisodeId,
-  title: z.string().min(1).max(300),
-  length: z.number().positive().optional(),
-  model: z.string().min(1),
-  style: z.string().optional(),
-  chapters: z.number().int().positive().optional(),
-  total_words: z.number().int().positive().optional(),
-  words_per_chapter: z.number().int().positive().optional(),
-  generate_image_prompts: z.boolean().optional(),
-  generate_youtube_desc: z.boolean().optional(),
-}).passthrough()
-export type GenerateScriptBody = z.infer<typeof GenerateScriptSchema>
-
 export const GenerateScriptOnlySchema = z.object({
   episode_id: EpisodeId,
   title: z.string().min(1).max(300),
@@ -541,7 +525,6 @@ export const GenerateScriptOnlySchema = z.object({
   chapters: z.number().int().positive().optional(),
   total_words: z.number().int().positive().optional(),
   words_per_chapter: z.number().int().positive().optional(),
-  generate_image_prompts: z.boolean().optional(),
   // Character primitive (Phase 5): optional cast list — the LLM uses
   // these names + descriptions instead of inventing characters.
   character_ids: z.array(z.string().min(1).max(120)).optional(),
@@ -632,21 +615,16 @@ export const GenerateAudioSchema = z.object({
   controls: z.record(z.string(), z.union([z.number(), z.boolean(), z.string()])).optional(),
   force: z.boolean().optional(),
   no_overwrite: z.boolean().optional(),
-  /**
-   * Fish Audio S2-Pro only: when true, the generator swaps each section's text
-   * for its saved "expressive script" (inline [tag] markup) before chunking.
-   * Ignored by every other provider/model.
-   */
-  use_expression: z.boolean().optional(),
-  /** Fish Audio S2-Pro only: insert [short pause]/[long pause] tags at sentence
-   *  + paragraph boundaries so plain narration stops rushing through periods. */
-  fish_autopace: z.boolean().optional(),
 }).passthrough().transform((value) => {
   // Retired request/preset field. Accept old clients without breaking their
   // jobs, but discard the override before it reaches a queue or provider.
   // TTS splitting is owned exclusively by the active model inventory.
   const current = { ...value }
   delete current.max_chunk_chars
+  // Removed 2026-10: expression markup and auto-pacing. Old presets may still carry them.
+  delete current.use_expression
+  delete current.fish_autopace
+  delete current.expression_model
   return current
 })
 export type GenerateAudioBody = z.infer<typeof GenerateAudioSchema>

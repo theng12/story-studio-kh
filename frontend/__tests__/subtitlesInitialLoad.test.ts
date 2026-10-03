@@ -163,7 +163,7 @@ test('subtitle gap review targets source audio and clears playback on episode ch
     state.episodeId.value = 'EP0179'
     assert.equal(state.audioReview.value, null)
     assert.ok(source.includes('>Listen to {{ section.replaceAll'))
-    assert.ok(source.includes('Regenerate subtitles'))
+    assert.ok(source.includes('Regenerate Subtitles'))
   } finally { app.unmount(); container.remove() }
 })
 
@@ -179,7 +179,7 @@ test('disabled subtitle actions keep rendering while model language capabilities
   try {
     const state = (globalThis as any).__subtitlesInitialState
     assert.equal(state.canTranscribe.value, false)
-    assert.equal(state.subtitleActionLabel('Chapter_13', 'Regenerate subtitles'), 'Regenerate subtitles')
+    assert.equal(state.subtitleActionLabel('Chapter_13', 'Regenerate Subtitles'), 'Regenerate Subtitles')
     assert.equal(state.subtitleActionLabel(null, 'Transcribe chapters'), 'Transcribe chapters')
   } finally { app.unmount(); host.remove() }
 })

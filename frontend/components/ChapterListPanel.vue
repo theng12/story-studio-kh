@@ -36,8 +36,8 @@
     <div v-if="!episodeId" class="chp-empty">Select an episode to see its chapters.</div>
     <div v-else-if="loading && !chapters.length" class="chp-empty">Loading chapters…</div>
     <div v-else-if="!chapters.length" class="chp-empty">
-      No chapters yet. Generate the script (above) to create the chapter files,
-      then regenerate any individual chapter from this panel.
+      No chapters yet. Create an outline on the Outline tab and expand it to write the
+      chapters, then regenerate any individual chapter from this panel.
     </div>
 
     <ul v-else class="chp-list" role="list">
@@ -55,7 +55,7 @@
             :aria-label="expandedChapters.has(ch.number) ? 'Hide preview' : 'Show preview'"
             @click="togglePreview(ch.number)"
           >
-            <span class="chp-expand-icon">{{ expandedChapters.has(ch.number) ? '▾' : '▸' }}</span>
+            <span class="chp-expand-icon ds-chevron" aria-hidden="true" :class="{ 'is-open': expandedChapters.has(ch.number) }" />
             <span class="chp-expand-label">{{ expandedChapters.has(ch.number) ? 'Hide' : 'Preview' }}</span>
           </button>
           <div class="chp-meta">
@@ -83,11 +83,11 @@
           <button
             class="btn btn-sm btn-secondary chp-regen"
             :disabled="!scriptReady || isRegenerating(ch.number)"
-            :title="!scriptReady ? noScriptTooltip : 'Regenerate this chapter only'"
+            :title="!scriptReady ? noScriptTooltip : REGENERATE_HINT"
             @click="regenerate(ch.number)"
           >
             <LoadingSpinner v-if="isRegenerating(ch.number)" size="sm" />
-            {{ isRegenerating(ch.number) ? 'Regenerating…' : '↻ Regenerate' }}
+            {{ isRegenerating(ch.number) ? REGENERATING_LABEL : REGENERATE_LABEL }}
           </button>
         </div>
 
@@ -115,7 +115,7 @@
 </template>
 
 <script setup lang="ts">
-import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
+import { useChapterRegenerate, REGENERATE_HINT, REGENERATE_LABEL, REGENERATING_LABEL } from '~/composables/useChapterRegenerate'
 interface ChapterRow {
   number: number
   title: string
@@ -139,22 +139,17 @@ const props = defineProps<{
   refreshKey?: number
 }>()
 
-const { get, post } = useApi()
-const freshChapterAction = useFreshGenerationAction()
+const { get } = useApi()
 const { jobs } = useJobs()
-const { success, error: showError, showAction } = useToast()
+const { error: showError } = useToast()
 
 const chapters = ref<ChapterRow[]>([])
 const loading = ref(false)
-// Per-chapter in-flight set. Tracks chapter numbers whose chapter-only job
-// is queued or running. Disables that chapter's button only — siblings stay
-// clickable, so the user can queue multiple regens which run back-to-back
-// (chapter-only queue is serial server-side, but the UI no longer makes
-// the user wait on a previous job to enqueue the next). Cleared per-chapter
-// when the watcher sees the matching chapter-only job reach a terminal state.
-const regenInFlight = ref<Set<number>>(new Set())
+// Regenerate is the same shared action as the Outline tab's
+// (useChapterRegenerate): one confirm, one request, busy until its job ends.
+const chapterRegen = useChapterRegenerate()
 function isRegenerating(n: number): boolean {
-  return regenInFlight.value.has(n)
+  return !!props.episodeId && chapterRegen.isRegenerating(props.episodeId, n)
 }
 // Per-chapter words_per_chapter overrides — populated from the form's
 // global default and overridden by the user inline. Sent on the regen
@@ -269,44 +264,15 @@ async function regenerate(num: number) {
     showError(noScriptTooltip)
     return
   }
-  // Per-row words override falls back to the form default. Inline blank
-  // = use form default. Inline number = override that single chapter.
-  const inlineOverride = wordOverrides.value[num]
-  const wordTarget = (typeof inlineOverride === 'number' && Number.isFinite(inlineOverride) && inlineOverride > 0)
-    ? Math.round(inlineOverride)
-    : props.form?.words_per_chapter
-  regenInFlight.value = new Set([...regenInFlight.value, num])
-  const payload = {
-    episode_id: props.episodeId,
-    title: props.title || '',
-    chapter_number: num,
-    model: props.form?.model,
-    style: props.form?.style,
-    length: props.form?.length,
-    chapters: props.form?.chapters,
-    total_words: props.form?.total_words,
-    words_per_chapter: wordTarget,
-  }
-  const operationId = freshChapterAction.begin(payload, `chapter:${num}`)
-  try {
-    await post(`/projects/${props.projectSlug}/generate/chapter-only`, {
-      ...payload,
-      operation_id: operationId,
-    })
-    freshChapterAction.complete(operationId)
-    success(inlineOverride
-      ? `Chapter ${num} regenerate queued at ${wordTarget} words`
-      : `Chapter ${num} regenerate queued`,
-    )
-  } catch (e: any) {
-    if (e?.data?.detail) showError(e.data.detail)
-    else showAction(UNCONFIRMED_SUBMISSION, 'Retry', () => regenerate(num), 'error')
-    // Clear THIS chapter's in-flight on error. Success path leaves it set;
-    // the relevantJobsSignal watcher clears it when the job lands terminal.
-    const next = new Set(regenInFlight.value)
-    next.delete(num)
-    regenInFlight.value = next
-  }
+  // Inline blank = use the form default; a number overrides this one chapter.
+  await chapterRegen.regenerate({
+    projectSlug: props.projectSlug,
+    episodeId: props.episodeId,
+    title: props.title,
+    form: props.form,
+    chapter: num,
+    words: wordOverrides.value[num],
+  })
 }
 
 // When a chapter-only OR expand_chapters job lands for this episode,
@@ -343,21 +309,8 @@ watch(relevantJobsSignal, () => {
     if (job.type !== 'chapter-only' && job.type !== 'expand_chapters') continue
     if (!isTerminal(job.status) || handledTerminalJobs.has(terminalKey(job))) continue
     handledTerminalJobs.add(terminalKey(job))
-    // chapter-only carries the chapter number in params — use it to clear
-    // ONLY that chapter's in-flight flag. Siblings still queued/running
-    // stay flagged. expand_chapters has no chapter number; we only refresh
-    // for it.
-    const jobChapter = job.type === 'chapter-only' ? Number(job.params?.chapter_number) : NaN
-    const wasInFlight = Number.isFinite(jobChapter) && regenInFlight.value.has(jobChapter)
-    if (wasInFlight) {
-      const next = new Set(regenInFlight.value)
-      next.delete(jobChapter)
-      regenInFlight.value = next
-    }
+    // A failure is announced by the shared job toast, as on the Outline tab.
     if (job.status === 'done') landed = true
-    else if (job.status === 'error' && wasInFlight) {
-      showError(`Chapter ${jobChapter} regenerate failed — see the Jobs tab.`)
-    }
   }
   if (landed) {
     clearPreviewCache()

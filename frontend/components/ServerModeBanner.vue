@@ -13,7 +13,7 @@
         @click="onSignOut"
         title="Sign out and close this session"
       >
-        {{ signingOut ? 'Signing out…' : 'Sign Out' }}
+        {{ signingOut ? 'Signing Out…' : 'Sign Out' }}
       </button>
     </div>
   </div>

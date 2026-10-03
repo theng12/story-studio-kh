@@ -14,7 +14,7 @@
           v-if="statusCounts.accepted > 0"
           class="btn btn-secondary btn-sm"
           :disabled="compactState.opening"
-          title="Shift accepted episodes backward to fill any gaps in the numbering — e.g. after deleting TN0001-TN0007 from the start, this slides TN0008+ down to TN0001+. Reversible via the Revert banner on the Unlinked Uploads tab for 30 days afterwards."
+          title="Shift accepted episodes backward to fill any gaps in the numbering — e.g. after deleting TN0001-TN0007 from the start, this slides TN0008+ down to TN0001+. Reversible from the Match to YouTube tab in Upload Center for 30 days afterwards."
           @click="openCompactDialog"
         >
           <LoadingSpinner v-if="compactState.opening" size="sm" />
@@ -41,13 +41,6 @@
         <strong>⚠ Couldn't load project.</strong>
         {{ hydrationError.detail }}
         <button class="banner-link" @click="retryHydration">Retry</button>
-      </template>
-      <template v-else-if="hydrationError.kind === 'project-no-format'">
-        <strong>⚠ No production path is set on this project.</strong>
-        Ideas will use the app's standard settings until you choose a production path in Channel Identity.
-        <NuxtLink :to="`/projects/${slug}/settings#channel`" class="banner-link">
-          Open Channel Identity →
-        </NuxtLink>
       </template>
       <template v-else-if="hydrationError.kind === 'config-fetch'">
         <strong>⚠ Couldn't load project settings.</strong>
@@ -91,7 +84,6 @@
       </p>
     </div>
 
-    <InheritedLlmLineupNotice :project-slug="slug" />
 
     <!-- ── Workflow tab ────────────────────────────────────────────────── -->
     <div v-show="ideasTab === 'workflow'">
@@ -127,7 +119,7 @@
         <template #summary>
           <span class="context-chip">
             <span class="context-key">Production</span>
-            <strong :class="{ 'is-fallback': !projectHasExplicitFormat }">{{ formatDisplayName || formatId || 'unknown' }}</strong>
+            <strong>{{ formatDisplayName }}</strong>
           </span>
           <span class="context-dot" aria-hidden="true">·</span>
           <span class="context-chip">
@@ -144,16 +136,10 @@
         <!-- Expandable detail — the content the two old cards carried. -->
           <div class="context-detail-row">
             <span class="context-detail-label">Production path</span>
-            <strong class="context-detail-value" :class="{ 'is-fallback': !projectHasExplicitFormat }">
-              {{ formatDisplayName || formatId || 'unknown' }}
+            <strong class="context-detail-value">
+              {{ formatDisplayName }}
             </strong>
-            <span
-              v-if="activeFormat"
-              class="context-badge"
-              :class="activeFormat.builtin ? 'badge-builtin' : 'badge-custom'"
-            >{{ activeFormat.builtin ? 'Built-in' : 'Custom' }}</span>
-            <span v-if="!projectHasExplicitFormat" class="context-fallback-tag">⚠ no format set — generation falls back to defaults</span>
-            <NuxtLink :to="`/projects/${slug}/settings#channel`" class="effective-link">Open Channel Identity</NuxtLink>
+            <NuxtLink :to="`/projects/${slug}/settings#identity`" class="effective-link">Open Channel Identity</NuxtLink>
           </div>
           <p v-if="activeFormat?.description" class="context-detail-desc">{{ activeFormat.description }}</p>
           <p class="context-detail-hint text-muted text-sm">
@@ -292,15 +278,7 @@
             <div><strong>Generation settings</strong><small>Your last model is restored automatically.</small></div>
           </div>
           <div class="generation-settings-grid">
-            <!-- While the shared LLM lineup is on, the queue replaces this
-                 batch's model with the lineup's, so a picker here would do
-                 nothing. Say so instead of offering a dead control. -->
-            <div v-if="ideasLineupModelCount" class="form-group lineup-model-readonly">
-              <label>AI Model</label>
-              <div class="input text-muted">Shared LLM lineup ({{ ideasLineupModelCount }} model{{ ideasLineupModelCount === 1 ? '' : 's' }})</div>
-              <span class="text-muted text-xs">The lineup picks the model while it is on. Change it in <NuxtLink :to="`/projects/${slug}/pipeline`">Pipeline</NuxtLink>.</span>
-            </div>
-            <ModelSelector v-else-if="modelPreferenceReady" v-model="form.model" :project-slug="slug" />
+            <ModelSelector v-if="modelPreferenceReady" v-model="form.model" :project-slug="slug" writing-step />
             <div v-else class="form-group"><label>AI Model</label><div class="input text-muted">Restoring your last used model…</div></div>
             <div class="form-group">
               <label>Items or chapters per video <span class="text-muted">(optional)</span></label>
@@ -398,7 +376,7 @@
             title="Fills genre, theme, mood, audience, and keywords with random picks from the pools. Review or tweak before generating — no API cost."
             @click="randomizeForm"
           >
-            Randomize attributes
+            Randomize Attributes
           </button>
           <button
             class="btn btn-secondary"
@@ -422,12 +400,12 @@
             :aria-expanded="otherWaysOpen"
             @click="otherWaysOpen = !otherWaysOpen"
           >
-            {{ otherWaysOpen ? '▾' : '▸' }} Add ideas another way
+            <span class="ds-chevron" :class="{ 'is-open': otherWaysOpen }" aria-hidden="true" /> Add ideas another way
           </button>
           <template v-if="otherWaysOpen">
-            <button class="btn btn-secondary btn-sm" @click="openAddIdea">+ Add idea manually</button>
+            <button class="btn btn-secondary btn-sm" @click="openAddIdea">+ Add Idea Manually</button>
             <button class="btn btn-secondary btn-sm" @click="openPasteIdeas">Paste from an LLM</button>
-            <button class="btn btn-secondary btn-sm" @click="openImportFolder">Import episode folder</button>
+            <button class="btn btn-secondary btn-sm" @click="openImportFolder">Import Episode Folder</button>
           </template>
       </div>
     </div>
@@ -479,7 +457,7 @@
         :disabled="bulkMarkRunning"
         @click="bulkMarkAllImported(true)"
       >
-        {{ bulkMarkRunning ? 'Marking…' : `Mark all ${unmarkedImportedCount} as already done` }}
+        {{ bulkMarkRunning ? 'Marking…' : `Mark All ${unmarkedImportedCount} as Already Done` }}
       </button>
     </div>
 
@@ -496,7 +474,7 @@
           class="btn btn-primary btn-sm"
           :disabled="bulkMarkRunning"
           @click="bulkMarkSelected(true)"
-        >Mark selected as already done</button>
+        >Mark Selected as Already Done</button>
         <button
           class="btn btn-secondary btn-sm"
           :disabled="bulkMarkRunning"
@@ -584,7 +562,7 @@
                   :disabled="dismissingIds.has(idea.id)"
                   @click="dismiss(idea.id)"
                 >{{ dismissingIds.has(idea.id) ? 'Dismissing…' : 'Dismiss' }}</button>
-                <button v-if="idea.status === 'accepted'" class="btn btn-sm btn-secondary" @click="openRenumberDialog(idea)" title="Change this episode's code (renames folder + asset files)">Change code</button>
+                <button v-if="idea.status === 'accepted'" class="btn btn-sm btn-secondary" @click="openRenumberDialog(idea)" title="Change this episode's code (renames folder + asset files)">Change Code</button>
                 <button v-if="idea.status === 'accepted'" class="btn btn-sm btn-danger" title="Move this episode's files to the project's _trash and un-accept" @click="resetIdea(idea)">Un-accept</button>
                 <button class="btn-icon" @click="openEditIdea(idea)" aria-label="Edit idea" title="Edit idea">✎</button>
                 <button class="btn-icon danger" @click="remove(idea.id)" aria-label="Delete idea" title="Delete idea">&#10005;</button>
@@ -742,7 +720,7 @@
           :disabled="!renumberValid || renumberRunning"
           @click="doRenumber"
         >
-          {{ renumberRunning ? 'Changing…' : 'Change code' }}
+          {{ renumberRunning ? 'Changing…' : 'Change Code' }}
         </button>
       </div>
       <button class="btn btn-sm btn-secondary mt-2 w-full" @click="renumberDialogIdea = null">Cancel</button>
@@ -928,7 +906,7 @@
 
         <div class="flex gap-2 mt-3 justify-end">
           <button class="btn btn-secondary" :disabled="parentImporting" @click="importOpen = false">
-            {{ parentImporting ? 'Close after finish' : 'Cancel' }}
+            {{ parentImporting ? 'Close After Finish' : 'Cancel' }}
           </button>
           <button
             v-if="importMode === 'single'"
@@ -990,7 +968,7 @@
             <span class="paste-prompt-source-chip" :title="`This prompt uses ${activeFormulaName} and ${activeTopicPackLabel}. Change Channel Identity in Settings.`">
               Formula: <strong>{{ activeFormulaName }}</strong>
             </span>
-            <NuxtLink :to="`/projects/${slug}/settings#channel`" class="paste-prompt-source-link" title="Open Channel Identity to change the Formula, Topic Packs, or production behavior.">Channel Identity</NuxtLink>
+            <NuxtLink :to="`/projects/${slug}/settings#identity`" class="paste-prompt-source-link" title="Open Channel Identity to change the Formula, Topic Packs, or production behavior.">Channel Identity</NuxtLink>
             <span v-if="form.title_template" class="paste-prompt-source-chip" title="A title template is folded into the prompt — every generated title is shaped to it, with {X} replaced by each idea's subject. Clear it via the Title template field above.">
               Title: <strong>{{ form.title_template }}</strong>
               <button
@@ -1151,8 +1129,8 @@
     <!-- Compact / Fill Gaps modal (v1.0.40). Shows the rename plan
          before any disk renames or ideas.json patches land. Confirms
          the operation, surfaces per-rename errors after, and points
-         the user at the Revert banner on the Unlinked Uploads tab if
-         they need to roll back. -->
+         the user at the undo banner on the Match to YouTube tab (Upload
+         Center) if they need to roll back. -->
     <Teleport to="body">
       <div v-if="compactState.open" class="compact-modal-backdrop" @click="closeCompactDialog" />
       <div v-if="compactState.open" class="compact-modal" role="dialog" aria-label="Compact episode codes" @click.stop>
@@ -1176,7 +1154,7 @@
               </span>
               <br />
               Each episode's folder and the files inside it take the new code.
-              You can undo this from the Unlinked Uploads tab for 30 days.
+              You can undo this from the Match to YouTube tab in Upload Center for 30 days.
             </p>
             <div class="compact-rename-list">
               <div
@@ -1255,17 +1233,7 @@ watch(ideasTab, (v) => {
   _router.replace({ query: { ...route.query, tab: v } })
 })
 const { ask } = useConfirm()
-const { project, config: projectConfig, slug: loadedProjectSlug } = useProject()
-// Same reading as InheritedLlmLineupNotice: when the shared lineup is on, the
-// job queue replaces an Idea Campaign's model with the lineup's.
-const ideasLineupModels = computed<string[]>(() => {
-  if (loadedProjectSlug.value !== slug.value) return []
-  const lineup = (projectConfig.value as any)?.llm_lineup
-  return lineup?.enabled === true && Array.isArray(lineup.models)
-    ? lineup.models.filter((model: unknown): model is string => typeof model === 'string' && !!model.trim())
-    : []
-})
-const ideasLineupModelCount = computed(() => ideasLineupModels.value.length)
+const { project } = useProject()
 // v1.0.165 — the Pattern customization system was removed; its one
 // piece of value (the {X} title shape) is now a plain `title_template`
 // string field on the Ideas form. The pattern lookup composable,
@@ -1594,7 +1562,10 @@ const sectionLabel = useSectionLabel(formatId)
 // and to surface a "Switch" link to Settings → Format. Best-effort: if the
 // fetch fails we fall back to displaying the id.
 const formatNamesById = ref<Record<string, string>>({})
-const formatDisplayName = computed(() => formatNamesById.value[formatId.value] || formatId.value)
+// When the format list fails to load, show the id as words ("narrated-scenes"
+// → "Narrated scenes"), never the raw id.
+const humanizeFormatId = (id: string) => id ? id.replace(/[-_]+/g, ' ').replace(/^\w/, c => c.toUpperCase()) : ''
+const formatDisplayName = computed(() => formatNamesById.value[formatId.value] || humanizeFormatId(formatId.value))
 // v1.0.165 — replaced the LAST_PATTERN_KEY / LAST_SUBJECT_KEY pair with
 // a single title-template key. The old pattern preset persistence went
 // with the Pattern system removal.
@@ -1696,7 +1667,7 @@ async function loadFormatNames() {
 // `catch { }` blocks that used to swallow failures (leading to "project
 // missing" flashes and the form silently reverting to sleep-story).
 // Each error state has a specific message + an action the user can take.
-const hydrationError = ref<{ kind: 'project-missing' | 'project-fetch' | 'config-fetch' | 'project-no-format'; detail?: string } | null>(null)
+const hydrationError = ref<{ kind: 'project-missing' | 'project-fetch' | 'config-fetch'; detail?: string } | null>(null)
 
 async function retryHydration(): Promise<void> {
   if (!slug.value) return
@@ -1710,19 +1681,9 @@ async function retryHydration(): Promise<void> {
   }
 }
 
-// v1.0.93+ Effective channel state card support.
-//
-// `projectHasExplicitFormat` distinguishes "user picked sleep-story
-// deliberately" (good) from "form defaulted to sleep-story because meta
-// fetch failed or returned no format_id" (bad). The Format slot in the
-// card goes red only when the latter.
-const projectHasExplicitFormat = computed(() => {
-  return !hydrationError.value || hydrationError.value.kind !== 'project-no-format'
-})
-
-const hasEffectiveStateWarning = computed(() => {
-  return !projectHasExplicitFormat.value || !form.niche_id
-})
+// v1.0.93+ Effective channel state card support. The strip turns into a
+// warning only when no Formula is chosen.
+const hasEffectiveStateWarning = computed(() => !form.niche_id)
 
 // Sample title in the live wrap preview. Uses the niche's first example
 // topic when available so it's representative of what the user will get.
@@ -1745,7 +1706,6 @@ async function loadPatternPreferences(): Promise<boolean> {
   if (!slug.value) return false
 
   let metaNiche = ''
-  let metaFormatLoaded = false
   try {
     const meta = await get<any>(`/projects/${slug.value}`)
     if (!meta) {
@@ -1754,7 +1714,6 @@ async function loadPatternPreferences(): Promise<boolean> {
     }
     if (typeof meta?.format_id === 'string' && meta.format_id) {
       formatId.value = canonicalFormatId(meta.format_id)
-      metaFormatLoaded = true
     }
     if (typeof meta?.niche_id === 'string') metaNiche = meta.niche_id
     projectTopicPacksExplicit.value = Array.isArray(meta?.topic_pack_ids)
@@ -1770,15 +1729,6 @@ async function loadPatternPreferences(): Promise<boolean> {
   }
   projectNicheId.value = metaNiche
   form.topic_pack_ids = [...projectTopicPackIds.value]
-  // No format on the project meta → the page would silently fall back
-  // to sleep-story. Surface this loudly via the banner; the user can
-  // click through to Settings → Format to set one.
-  if (!metaFormatLoaded) {
-    hydrationError.value = { kind: 'project-no-format' }
-    // Continue hydration anyway — the form is still usable, just with
-    // sleep-story defaults that the user can see flagged in the banner
-    // and the effective-state card.
-  }
   try {
     const cfg = await get<any>(`/projects/${slug.value}/settings/config`)
     if (typeof cfg?.[LAST_TITLE_TEMPLATE_KEY] === 'string') form.title_template = cfg[LAST_TITLE_TEMPLATE_KEY]
@@ -2059,23 +2009,6 @@ function vocabSourceLabel(field: 'genre' | 'mood' | 'theme' | 'keyword'): string
   if (fromFmt) return formatDisplayName.value
   if (fromNiche) return activeNiche.value!.name
   return 'Generic'
-}
-
-/** Tooltip explaining where the dropdown's suggestions come from. Plain
- *  language ("topic" rather than the internal "niche"). */
-function vocabSourceTooltip(field: 'genre' | 'mood' | 'theme' | 'keyword'): string {
-  const fromFmt = vocabFromFormat(field)
-  const fromNiche = vocabFromNiche(field)
-  if (fromFmt && fromNiche) {
-    return `These suggestions come from the ${formatDisplayName.value} format and the ${activeNiche.value!.name} topic combined.`
-  }
-  if (fromFmt) {
-    return `These suggestions come from the ${formatDisplayName.value} format. Pick a Topic to add more subject-specific suggestions.`
-  }
-  if (fromNiche) {
-    return `These suggestions come from the ${activeNiche.value!.name} topic. The current format doesn't add its own ${field} suggestions.`
-  }
-  return `Neither the ${formatDisplayName.value} format nor the chosen Topic adds ${field} suggestions, so these are generic. You can type your own anytime.`
 }
 
 const allGenres = computed(() => Array.from(new Set([...vocabFor('genre'), ...customGenres.value])).sort())
@@ -2835,9 +2768,6 @@ async function generate() {
     // generated. Backend treats both empty strings as "no wrapping".
     body.title_prefix = titleConfig.prefix
     body.title_suffix = titleConfig.suffix
-    // With the shared lineup on, the queue assigns the lineup's model anyway;
-    // the request still has to name one, so name the lineup's first.
-    if (!body.model && ideasLineupModels.value.length) body.model = ideasLineupModels.value[0]
     // v1.0.165 — the X-Pattern-Warning header path was removed with the
     // Pattern system. The title template is a plain string that can't
     // "fail to load", so there's nothing to warn about; a normal POST
@@ -2933,7 +2863,7 @@ async function doAccept(action: 'folders' | 'script') {
   if (!acceptCodeValid.value) return
   accepting.value = true
   try {
-    const body: any = { auto_generate_script: false }
+    const body: any = {}
     if (acceptCodeMode.value === 'custom') {
       body.override_code = resolvedCustomCode.value
     }
@@ -3141,7 +3071,7 @@ async function resetIdea(idea: any) {
   const ok = await ask({
     title: `Un-accept "${idea.title}"?`,
     message,
-    confirmLabel: 'Move to _trash and un-accept',
+    confirmLabel: 'Move to _trash and Un-Accept',
     danger: true,
   })
   if (!ok) return
@@ -3178,7 +3108,7 @@ async function remove(id: string) {
     const ok = await ask({
       title: `Delete accepted episode ${code}?`,
       message: `Removes ${label} from your idea list and frees the code ${code} for a future Accept. The episode's folder and files stay where they are — nothing on disk is deleted. You'll have 10 seconds to undo.`,
-      confirmLabel: 'Delete idea',
+      confirmLabel: 'Delete Idea',
       danger: true,
     })
     if (!ok) return
@@ -3286,9 +3216,9 @@ async function confirmCompact() {
     const renamedCount = r.renamed.length
     const errorCount = r.errors.length
     if (errorCount === 0) {
-      success(`Compacted ${renamedCount} episode${renamedCount === 1 ? '' : 's'}. Reversible from the Unlinked Uploads tab for 30 days.`)
+      success(`Compacted ${renamedCount} episode${renamedCount === 1 ? '' : 's'}. Reversible from the Match to YouTube tab in Upload Center for 30 days.`)
     } else {
-      success(`${renamedCount} compacted, ${errorCount} error${errorCount === 1 ? '' : 's'} — see logs. Already-revertible from the Unlinked Uploads tab.`)
+      success(`${renamedCount} compacted, ${errorCount} error${errorCount === 1 ? '' : 's'} — see logs. Already-revertible from the Match to YouTube tab in Upload Center.`)
     }
     compactState.open = false
     compactState.preview = null
@@ -4253,7 +4183,7 @@ async function confirmCompact() {
 }
 
 /* v1.0.93+ Hydration error banners. Two kinds of failure surface here:
-   project-level (project-missing / project-fetch / project-no-format /
+   project-level (project-missing / project-fetch /
    config-fetch) and ideas-level (ideas-fetch). All render the same
    visual shape — yellow card with a strong call-out + a recovery action
    on the right. The is-project-missing variant goes red because it
@@ -4399,17 +4329,6 @@ async function confirmCompact() {
 .context-detail-value em { font-style: italic; color: var(--accent, #6c8fff); }
 .context-detail-desc { margin: 0 0 0 74px; font-size: 13px; color: var(--text-primary); line-height: 1.45; }
 .context-detail-hint { margin: 0 0 0 74px; line-height: 1.4; }
-.context-badge {
-  font-size: var(--font-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 2px 6px;
-  border-radius: 8px;
-  font-weight: 600;
-}
-.context-badge.badge-builtin { background: var(--bg-tertiary); color: var(--text-muted); border: 1px solid var(--border); }
-.context-badge.badge-custom  { background: var(--accent); color: var(--bg-primary); border: 1px solid var(--accent); }
-.context-fallback-tag,
 .context-override-tag {
   font-size: var(--font-xs);
   color: rgba(240, 198, 116, 0.95);

@@ -7,7 +7,7 @@
       :breadcrumb="false"
     >
       <template #aside>
-        <button class="btn btn-primary" @click="openCreate">+ New channel character</button>
+        <button class="btn btn-primary" @click="openCreate">+ New Channel Character</button>
       </template>
     </WorkspaceHero>
 
@@ -45,7 +45,7 @@
       :message="characters.length ? 'Try another channel or clear the search.' : 'One character can serve several channels while keeping a different voice profile for each.'"
     >
       <template #action>
-        <button v-if="!characters.length" class="btn btn-primary mt-2" @click="openCreate">+ New channel character</button>
+        <button v-if="!characters.length" class="btn btn-primary mt-2" @click="openCreate">+ New Channel Character</button>
       </template>
     </EmptyState>
 
@@ -136,16 +136,16 @@
                   <div v-else class="reference-preview-error">
                     <strong>Preview unavailable</strong>
                     <span>{{ filename }}</span>
-                    <button type="button" class="btn btn-sm btn-secondary" @click="retryReferencePreview(editing, filename)">Retry preview</button>
+                    <button type="button" class="btn btn-sm btn-secondary" @click="retryReferencePreview(editing, filename)">Retry Preview</button>
                   </div>
                   <small class="reference-filename">{{ filename }}</small>
                   <div class="reference-actions">
                     <span v-if="editing.references.images[0] === filename" class="text-xs text-muted">Portrait</span>
-                    <button v-else type="button" class="btn btn-sm btn-ghost" :disabled="referenceBusy" title="Use this image as the character's portrait" @click="makePortrait(filename)">Make portrait</button>
+                    <button v-else type="button" class="btn btn-sm btn-ghost" :disabled="referenceBusy" title="Use this image as the character's portrait" @click="makePortrait(filename)">Make Portrait</button>
                     <button type="button" class="btn btn-sm btn-ghost" :disabled="referenceBusy" :title="`Delete ${filename}`" aria-label="Delete reference image" @click="removeReference(filename)">✕</button>
                   </div>
                   <button v-if="visionModelOptions.length" type="button" class="btn btn-sm btn-secondary" :disabled="describingFrom === filename" @click="describeFromImage(filename)">
-                    {{ describingFrom === filename ? 'Describing…' : 'Describe image' }}
+                    {{ describingFrom === filename ? 'Describing…' : 'Describe Image' }}
                   </button>
                 </div>
               </div>
@@ -211,10 +211,10 @@
         </div>
 
         <footer class="editor-footer">
-          <button v-if="editing" type="button" class="btn btn-danger" @click="deleteCharacter">Delete character</button>
+          <button v-if="editing" type="button" class="btn btn-danger" @click="deleteCharacter">Delete Character</button>
           <span class="editor-spacer" />
           <button type="button" class="btn btn-secondary" @click="closeEditor">Cancel</button>
-          <button class="btn btn-primary" :disabled="saving || !canSave">{{ saving ? 'Saving…' : 'Save character' }}</button>
+          <button class="btn btn-primary" :disabled="saving || !canSave">{{ saving ? 'Saving…' : 'Save Character' }}</button>
         </footer>
       </form>
     </div>
@@ -236,7 +236,6 @@ const { success, error: showError } = useToast()
 
 const characters = ref<Character[]>([])
 const channels = ref<Array<{ slug: string; name: string }>>([])
-const channelConfigs = reactive<Record<string, any>>({})
 const loading = ref(false)
 const loadError = ref('')
 const search = ref('')
@@ -312,7 +311,6 @@ function openEdit(character: Character) {
   selectedChannels.value = new Set(character.projects || [])
   for (const slug of selectedChannels.value) {
     voiceProfiles[slug] = { ...(character.channel_profiles?.[slug]?.speech || {}) }
-    void loadChannelConfig(slug)
   }
   editorOpen.value = true
   void loadVisionCaps()
@@ -332,19 +330,12 @@ function toggleChannel(slug: string) {
   } else {
     next.add(slug)
     voiceProfiles[slug] ||= {}
-    void loadChannelConfig(slug)
   }
   selectedChannels.value = next
 }
 
 function profileFor(slug: string): CharacterSpeech {
   return (voiceProfiles[slug] ||= {})
-}
-
-async function loadChannelConfig(slug: string) {
-  if (channelConfigs[slug]) return
-  try { channelConfigs[slug] = await get<any>(`/projects/${encodeURIComponent(slug)}/settings/config`) }
-  catch { channelConfigs[slug] = {} }
 }
 
 async function saveCharacter() {
@@ -416,7 +407,7 @@ async function changeReferences(run: (target: Character) => Promise<Character>, 
 }
 
 async function removeReference(filename: string) {
-  if (!await ask({ title: `Delete ${filename}?`, message: 'The image is removed from this character for every channel. A copy is kept in the character’s _trash folder.', confirmLabel: 'Delete image', danger: true })) return
+  if (!await ask({ title: `Delete ${filename}?`, message: 'The image is removed from this character for every channel. A copy is kept in the character’s _trash folder.', confirmLabel: 'Delete Image', danger: true })) return
   await changeReferences(
     target => del<Character>(`/character-library/${encodeURIComponent(target.id)}/reference-image/${encodeURIComponent(filename)}`),
     'Reference image deleted',
@@ -436,7 +427,7 @@ async function deleteCharacter() {
   const ok = await ask({
     title: `Delete "${target.name}"?`,
     body: `This removes the shared character from every assigned channel. Existing rendered files remain, but future scripts and generation cannot resolve it.`,
-    confirmLabel: 'Delete character',
+    confirmLabel: 'Delete Character',
     danger: true,
   })
   if (!ok) return
@@ -540,7 +531,7 @@ async function describeFromImage(filename: string) {
     const ok = await ask({
       title: 'Replace the current description?',
       body: 'Vision analysis replaces the description in this editor. Nothing is permanent until you save the character.',
-      confirmLabel: 'Replace description',
+      confirmLabel: 'Replace Description',
     })
     if (!ok) return
   }

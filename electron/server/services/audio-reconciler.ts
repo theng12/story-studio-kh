@@ -483,7 +483,7 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
   for (const filename of status.missing) {
     const entry = manifest.tasks[filename]
     if (!entry) {
-      fail(filename, undefined, 'No accepted Gateway task is recorded. Retry generation; no legacy provider fallback was attempted.')
+      fail(filename, undefined, 'No request for this part reached the Gateway. Retry generation to make it.')
       continue
     }
     if (entry.provider !== 'genstudio') {
@@ -532,10 +532,4 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
     outcomes,
     logs,
   }
-}
-
-/** @deprecated Back-compat shim — repair is now provider-aware and resolves keys
- *  itself. Prefer `reconcileAudio(slug, episodeId)`. */
-export function reconcileAudioViaGenaipro(slug: string, episodeId: string, _apiKey?: string): Promise<ReconcileResult> {
-  return reconcileAudio(slug, episodeId)
 }

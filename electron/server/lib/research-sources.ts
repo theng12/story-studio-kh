@@ -17,9 +17,7 @@ import path from 'path'
 import { resolveEpisodePathsByCode } from '../services/utils.js'
 import { resolveResearchPaths } from './research-paths.js'
 import { canonicalHttpUrl } from '../services/research/urls.js'
-import type { Format, ResearchOutput } from '../models/types.js'
-
-const DIVIDER = '──────────────────────────────────────'
+import type { ResearchOutput } from '../models/types.js'
 
 export interface SourcesAppendResult {
   description: string
@@ -70,51 +68,4 @@ export function sourcesSectionEnabled(sections: unknown): boolean {
   if (!Array.isArray(sections) || sections.length === 0) return true
   const s = sections.find((x: any) => x && x.id === 'sources')
   return !!s && (s as any).enabled !== false
-}
-
-/**
- * Append the selected research sources to `description`, if research.json
- * exists for the episode. No-op (returns the input unchanged) when there's no
- * research, no included citations, or none with a URL. Never throws.
- */
-export async function appendSourcesToDescription(
-  slug: string,
-  episodeId: string,
-  description: string,
-  format: Format | null,
-  maxChars: number,
-  enabled: boolean = true,
-): Promise<SourcesAppendResult> {
-  try {
-    if (!enabled) return { description, appended: 0, dropped: 0 }
-    const cites = await readSelectedResearchSources(slug, episodeId)
-    if (!cites.length) return { description, appended: 0, dropped: 0 }
-
-    // Already has a sources block (e.g. re-running on an edited description)?
-    // Don't double-append.
-    const label = format?.metadata?.youtubeDescriptionStructure?.booksSectionLabel || '📚 SOURCES:'
-    if (description.includes(label)) return { description, appended: 0, dropped: 0 }
-
-    const header = `\n\n${DIVIDER}\n${label}\n`
-    const lines: string[] = []
-    let used = description.length + header.length
-    let appended = 0
-    let dropped = 0
-    for (const c of cites) {
-      const line = `- ${c.title} — ${c.url}\n`
-      // Keep the description within the platform/format char budget. Always
-      // emit at least one source if any fit; otherwise count the rest dropped.
-      if (used + line.length > maxChars && appended > 0) { dropped++; continue }
-      lines.push(line)
-      used += line.length
-      appended++
-    }
-    if (!appended) return { description, appended: 0, dropped: 0 }
-
-    let block = header + lines.join('')
-    if (dropped) block += `(+${dropped} more source${dropped === 1 ? '' : 's'})\n`
-    return { description: description + block, appended, dropped }
-  } catch {
-    return { description, appended: 0, dropped: 0 }
-  }
 }

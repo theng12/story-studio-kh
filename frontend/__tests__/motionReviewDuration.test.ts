@@ -339,7 +339,7 @@ describe('Motion Review duration controls', () => {
     assert.match(mounted.text(), /1 clip · Estimated total 50 credits/)
     assert.ok(mounted.el.querySelector('a[href*="scene-plan"][href$="#visual-timing"]'))
     const generateButtons = [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
-      .filter(button => /Generate clip/.test(button.textContent || ''))
+      .filter(button => /Generate Clip/.test(button.textContent || ''))
     assert.equal(generateButtons.length, 3)
     assert.equal(generateButtons[0]!.disabled, false)
     assert.equal(generateButtons[1]!.disabled, true)

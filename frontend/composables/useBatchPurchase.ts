@@ -24,7 +24,7 @@
  * Rolling seventeen good purchases back because one went stale is the worse
  * outcome. Nothing here ever reports a partial result as a complete one.
  */
-import { computed, ref } from 'vue'
+import { computed, readonly, ref } from 'vue'
 import type {
   ContentStoreProduct,
   ContentStoreUiError,
@@ -101,12 +101,28 @@ export function sumPublished<T>(rows: readonly T[], read: (row: T) => number | u
   return total
 }
 
-export function useBatchPurchase(deps: BatchPurchaseDeps) {
-  const items = ref<BatchQuoteItem[]>([])
-  const phase = ref<BatchPhase>('idle')
-  const open = ref(false)
-  const busy = ref(false)
-  const progress = ref({ done: 0, total: 0 })
+// One batch per app session, kept OUTSIDE the page: leaving the Content Store
+// mid-purchase used to orphan the running batch, and coming back showed nothing.
+// The page reopens to the same batch (its strip or dialog) and its progress.
+const items = ref<BatchQuoteItem[]>([])
+const phase = ref<BatchPhase>('idle')
+const open = ref(false)
+const busy = ref(false)
+const progress = ref({ done: 0, total: 0 })
+let currentDeps: BatchPurchaseDeps | null = null
+
+/** Read-only view of the running batch, for the app-wide strip. */
+export const batchPurchaseStatus = { phase: readonly(phase), busy: readonly(busy), progress: readonly(progress) }
+
+export function useBatchPurchase(pageDeps: BatchPurchaseDeps) {
+  // The newest page's helpers serve a batch that is still running.
+  currentDeps = pageDeps
+  const deps: BatchPurchaseDeps = {
+    quote: (...args) => currentDeps!.quote(...args),
+    confirm: (...args) => currentDeps!.confirm(...args),
+    lookup: (...args) => currentDeps!.lookup(...args),
+    lastError: () => currentDeps!.lastError(),
+  }
 
   /**
    * What is still to be bought. A pack that already succeeded keeps its quote

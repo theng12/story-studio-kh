@@ -18,7 +18,7 @@ import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
-import { findIncompleteSubtitleSections, stitchSubtitles } from '../services/subtitle-stitcher.js'
+import { findIncompleteSubtitleSections } from '../services/subtitle-stitcher.js'
 import { resolveTranscriptSrt, resolveTranscriptSrtPath, stitchedSrtPath } from '../services/subtitle-correction.js'
 import { inspectSubtitleText } from '../lib/subtitle-quality.js'
 import { readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
@@ -64,6 +64,7 @@ function scenePromptReplayFingerprint(params: Record<string, unknown>) {
     episode_id: params.episode_id,
     model,
     regenerate_prompt_scene_id: params.regenerate_prompt_scene_id,
+    regenerate_prompt_scene_ids: params.regenerate_prompt_scene_ids,
     reword_prompt: params.reword_prompt,
     detail_level: params.detail_level,
     style_prompt: params.style_prompt,
@@ -222,7 +223,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
     try {
       model = await requireScenePlanGenStudioModel(model)
     } catch (error: any) {
-      return res.status(409).json(humanizeBackendError(error, 'Gateway scene-planning model is unavailable'))
+      return res.status(409).json(humanizeBackendError(error, 'The scene-planning model is not available right now'))
     }
   }
 
@@ -339,12 +340,31 @@ router.post('/projects/:slug/scene-plan/:episodeId/replan-scene', (_req, res) =>
 // untouched — only visual_prompt is rewritten. Vastly more reliable on
 // small local models than the full Re-plan because the output is plain
 // prose, not structured JSON.
+//
+// `scene_ids` (instead of `scene_id`) is Scene Plan's "Regenerate prompts" for
+// the selected scenes: one job rewrites each chosen scene's visual_prompt in
+// turn with the page's chosen writing model. Nothing else on those scenes —
+// image, approval, timing — is touched.
+const MAX_SELECTED_PROMPT_SCENES = 1000
 router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (req, res) => {
   const { slug, episodeId } = req.params
 
   const body = req.body || {}
-  const sceneId = typeof body.scene_id === 'string' ? body.scene_id.trim() : ''
-  if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
+  let sceneIds: string[] | undefined
+  if (body.scene_ids !== undefined) {
+    if (!Array.isArray(body.scene_ids) || !body.scene_ids.length || body.scene_ids.length > MAX_SELECTED_PROMPT_SCENES
+      || body.scene_ids.some((id: unknown) => typeof id !== 'string' || !id.trim())) {
+      return res.status(400).json({ detail: `scene_ids must list 1–${MAX_SELECTED_PROMPT_SCENES} scene ids.` })
+    }
+    if (body.scene_id !== undefined) return res.status(400).json({ detail: 'Send scene_id or scene_ids, not both.' })
+    if (body.reword_prompt === true) return res.status(400).json({ detail: 'Reword works on one scene at a time.' })
+    sceneIds = [...new Set<string>(body.scene_ids.map((id: string) => id.trim()))]
+  }
+  const sceneId = sceneIds ? '' : typeof body.scene_id === 'string' ? body.scene_id.trim() : ''
+  if (!sceneIds && !sceneId) return res.status(400).json({ detail: 'scene_id is required' })
+  const target = sceneIds
+    ? { regenerate_prompt_scene_ids: sceneIds }
+    : { regenerate_prompt_scene_id: sceneId }
   const requestedModel = typeof body.model === 'string' ? body.model.trim() : ''
 
   const detailLevel = typeof body.detail_level === 'number'
@@ -374,7 +394,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
       const replay = {
         episode_id: episodeId,
         model: requestedModel,
-        regenerate_prompt_scene_id: sceneId,
+        ...target,
         reword_prompt: rewordPrompt || undefined,
         detail_level: detailLevel,
         style_prompt: stylePrompt || undefined,
@@ -393,6 +413,22 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
     catch (error: any) { return res.status(409).json({ detail: error.message }) }
     let model = requestedModel
     if (!model) return res.status(400).json({ detail: 'model is required' })
+    if (sceneIds) {
+      // Every selected scene must still be in the saved plan — a stale page
+      // selection is reported, never silently narrowed.
+      try {
+        const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+        const plan = JSON.parse(await fs.readFile(await resolveScenePlanPath(slug, episodeId, paths.episode_dir), 'utf8')) as ScenePlan
+        const known = new Set(plan.scenes.map(scene => scene.id))
+        const gone = sceneIds.filter(id => !known.has(id))
+        if (gone.length) {
+          return res.status(409).json({ detail: `${gone.length} selected scene${gone.length === 1 ? ' is' : 's are'} no longer in this episode's plan. Reload the page and select again.` })
+        }
+      } catch (error: any) {
+        if (error?.code === 'ENOENT') return res.status(404).json({ detail: 'No scene plan yet — build the timeline first.' })
+        throw error
+      }
+    }
     // v1.0.343 — scene planning/rewrite is an LLM task. Reject IMAGE models up
     // front with a clear, fast error (passing one used to time out deep in the
     // text client as "Unsupported model").
@@ -402,13 +438,13 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
     try {
       model = await requireScenePlanGenStudioModel(model)
     } catch (error: any) {
-      return res.status(409).json(humanizeBackendError(error, 'Gateway scene-planning model is unavailable'))
+      return res.status(409).json(humanizeBackendError(error, 'The scene-planning model is not available right now'))
     }
     const params = stampFreshGenerationAction({
       ...visualSnapshot,
       episode_id: episodeId,
       model,
-      regenerate_prompt_scene_id: sceneId,
+      ...target,
       reword_prompt: rewordPrompt || undefined,
       detail_level: detailLevel,
       style_prompt: stylePrompt || undefined,
@@ -424,7 +460,9 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
       project_slug: slug,
       type: 'scene_plan_run' as JobType,
       episode_id: episodeId,
-      title: `${rewordPrompt ? 'Reword' : 'Regen'} prompt — ${episodeId}`,
+      title: sceneIds
+        ? `Regenerate prompts (${sceneIds.length} scene${sceneIds.length === 1 ? '' : 's'}) — ${episodeId}`
+        : `${rewordPrompt ? 'Reword' : 'Regen'} prompt — ${episodeId}`,
       params,
     })
     return res.status(201).json(job)
@@ -450,7 +488,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-prompts', as
   try {
     model = await requireScenePlanGenStudioModel(model)
   } catch (error: any) {
-    return res.status(409).json(humanizeBackendError(error, 'Gateway scene-planning model is unavailable'))
+    return res.status(409).json(humanizeBackendError(error, 'The scene-planning model is not available right now'))
   }
 
   const detailLevel = typeof body.detail_level === 'number'
@@ -902,7 +940,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-motion-prompt', as
     try {
       model = await requireScenePlanGenStudioModel(model)
     } catch (error: any) {
-      return res.status(409).json(humanizeBackendError(error, 'Gateway scene-planning model is unavailable'))
+      return res.status(409).json(humanizeBackendError(error, 'The scene-planning model is not available right now'))
     }
     const params = stampFreshGenerationAction({
       ...motionSnapshot,
@@ -922,57 +960,6 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-motion-prompt', as
     })
     return res.status(201).json(job)
   })
-})
-
-// ── POST /scene-plan/:ep/regenerate-empty-motion-prompts ──────────────
-// Repair every missing motion prompt through the same bounded, durable
-// GenStudio packs used by normal motion generation.
-router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-motion-prompts', async (req, res) => {
-  const { slug, episodeId } = req.params
-  const body = req.body || {}
-  try { await assertScenePlanVisualSource(slug, episodeId) }
-  catch (error: any) { return res.status(409).json({ detail: error.message }) }
-  let model = typeof body.model === 'string' ? body.model.trim() : ''
-  if (!model) return res.status(400).json({ detail: 'model is required' })
-  if (/^(imagestudio|kie|fal|runware|replicate):/i.test(model)) {
-    return res.status(400).json({ detail: `"${model}" is an image model — this needs a text/LLM model. Pick one in Settings → Models.` })
-  }
-  try {
-    model = await requireScenePlanGenStudioModel(model)
-  } catch (error: any) {
-    return res.status(409).json(humanizeBackendError(error, 'Gateway scene-planning model is unavailable'))
-  }
-  // A batch size this server cannot honour is REPORTED, never swapped for a
-  // different number. `parseScenePromptPackSetting` throws rather than falling
-  // back to 'auto' — the old behaviour turned "200" into 50 in silence.
-  let promptPackSize: ScenePromptPackSetting
-  try {
-    promptPackSize = parseScenePromptPackSetting(body.prompt_pack_size)
-  } catch (error: any) {
-    return res.status(400).json({ detail: error?.message || 'Invalid prompt_pack_size' })
-  }
-
-  if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
-    return res.status(409).json({ detail: `A scene-plan job is already running for ${episodeId}` })
-  }
-  let visualSnapshot
-  try { visualSnapshot = await scenePlanVisualSnapshot(slug, episodeId, 'motion') }
-  catch (error: any) { return res.status(409).json({ detail: error.message }) }
-  const job = await jq.enqueue({
-    project_slug: slug,
-    type: 'scene_plan_run' as JobType,
-    episode_id: episodeId,
-    title: `Repair motion prompts — ${episodeId}`,
-    params: {
-      ...visualSnapshot,
-      episode_id: episodeId,
-      model,
-      regenerate_empty_motion_prompts: true,
-      motion_level: visualSnapshot.motion_level,
-      prompt_pack_size: promptPackSize,
-    },
-  })
-  res.status(201).json(job)
 })
 
 // ── GET /scene-plan/:ep ───────────────────────────────────────────────

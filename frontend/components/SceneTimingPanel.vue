@@ -47,7 +47,7 @@
       <span><i class="invalid" /> Needs repair</span>
     </div>
 
-    <details class="timing-details">
+    <details class="timing-details disclosure">
       <summary>View exact scene timestamps</summary>
       <div class="timing-table-wrap">
         <table class="timing-table">

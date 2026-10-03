@@ -149,12 +149,12 @@
             <p v-if="sections.length" class="text-muted text-xs mt-2">
               Tick chapters to (re)make just those; unticked chapters are left alone. Each ticked chapter is a new request, so the model's current price may be charged.
             </p>
-            <p v-if="subtitleSelectionUnavailable" class="validation-msg">Selected chapters could not be verified. Refresh status or <button type="button" class="btn btn-xs btn-secondary" @click="selectedSubtitleSections = []">Clear unavailable selection</button>.</p>
+            <p v-if="subtitleSelectionUnavailable" class="validation-msg">Selected chapters could not be verified. Refresh status or <button type="button" class="btn btn-xs btn-secondary" @click="selectedSubtitleSections = []">Clear Unavailable Selection</button>.</p>
             <div v-if="sections.length" class="sub-selection-actions" role="group" aria-label="Subtitle chapter selection">
               <strong aria-live="polite">{{ selectedSubtitleIds.length }} selected</strong>
               <button type="button" class="btn btn-xs btn-secondary" :disabled="transcribing || transcribeJobActive || !subtitleAttentionIds.length" @click="selectSubtitleAttention">Select needs attention ({{ subtitleAttentionIds.length }})</button>
-              <button type="button" class="btn btn-xs btn-secondary" :disabled="transcribing || transcribeJobActive || !selectedSubtitleSections.length" @click="selectedSubtitleSections = []">Clear selection</button>
-              <button type="button" class="btn btn-sm btn-primary" :disabled="!canTranscribe || !selectedSubtitleIds.length" :title="transcribeDisabledReason" @click="transcribe">{{ subtitleActionLabel(null, `Generate / regenerate selected (${selectedSubtitleIds.length})`) }}</button>
+              <button type="button" class="btn btn-xs btn-secondary" :disabled="transcribing || transcribeJobActive || !selectedSubtitleSections.length" @click="selectedSubtitleSections = []">Clear Selection</button>
+              <button type="button" class="btn btn-sm btn-primary" :disabled="!canTranscribe || !selectedSubtitleIds.length" :title="transcribeDisabledReason" @click="transcribe">{{ subtitleActionLabel(null, `Generate / Regenerate Selected (${selectedSubtitleIds.length})`) }}</button>
             </div>
             <ul v-if="sections.length" class="sub-chapter-list mt-2">
               <li v-for="s in sections" :id="`sub-section-${s.slug}`" :key="s.slug" class="sub-chapter-row" tabindex="-1">
@@ -186,7 +186,7 @@
                     :aria-label="`${chapterIsStale(s.slug) ? 'Update' : chapterHasSrt(s.slug) ? 'Regenerate' : 'Generate'} ${s.label} subtitles`"
                     :title="canTranscribe ? `Makes new subtitles for ${s.label} only (a new request at the model's current price).` : transcribeDisabledReason"
                     @click="retranscribeChapter(s.slug)"
-                  >{{ subtitleActionLabel(s.slug, chapterIsStale(s.slug) ? 'Update subtitles' : chapterHasSrt(s.slug) ? 'Regenerate subtitles' : 'Generate subtitles') }}</button>
+                  >{{ subtitleActionLabel(s.slug, chapterIsStale(s.slug) ? 'Update Subtitles' : chapterHasSrt(s.slug) ? 'Regenerate Subtitles' : 'Generate Subtitles') }}</button>
                 </div>
               </li>
             </ul>
@@ -206,7 +206,7 @@
           </div>
           <p v-else-if="genstudioModelsError" class="validation-msg text-sm">
             ⚠ {{ genstudioModelsError }}
-            <NuxtLink :to="`/projects/${slug}/settings#genstudio-settings`" class="inline-link">Open transcription settings</NuxtLink>
+            <NuxtLink :to="`/projects/${slug}/settings#connections`" class="inline-link">Open transcription settings</NuxtLink>
             or <a href="#" class="inline-link" @click.prevent="loadGenstudioModels">retry</a>.
           </p>
           <div v-else class="form-group">
@@ -391,7 +391,7 @@
             class="btn btn-sm btn-secondary"
             @click="viewSrt(stitchedSrtFile)"
           >
-            {{ previewFilename === stitchedSrtFile ? 'Hide preview' : '👁 Preview stitched' }}
+            {{ previewFilename === stitchedSrtFile ? 'Hide Preview' : '👁 Preview Stitched' }}
           </button>
         </div>
 

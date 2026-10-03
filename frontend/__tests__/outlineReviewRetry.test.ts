@@ -143,11 +143,19 @@ test('the outline hands scripts.vue its own episode direction', () => {
 })
 
 test('a failed submit says plainly that Retry is safe, and offers a Retry button', () => {
+  const shared = readFileSync(fileURLToPath(new URL('../composables/useChapterRegenerate.ts', import.meta.url)), 'utf8')
+  for (const file of [source, chapterList]) assert.doesNotMatch(file, /submission was not confirmed/)
+  assert.match(shared, /showAction\(UNCONFIRMED_SUBMISSION, 'Retry', \(\) => regenerate\(input, true\), 'error'\)/)
+  // ...which is true because the same click reuses its operation id.
+  assert.match(shared, /useFreshGenerationAction\(\)/)
+})
+
+test('Outline and Script tabs share one Regenerate: same action, confirm, wording', () => {
   for (const file of [source, chapterList]) {
-    assert.doesNotMatch(file, /submission was not confirmed/)
-    assert.match(file, /showAction\(UNCONFIRMED_SUBMISSION, 'Retry', \(\) => regenerate(One\(n\)|\(num\)), 'error'\)/)
-    // ...which is true because the same click reuses its operation id.
-    assert.match(file, /useFreshGenerationAction\(\)/)
+    assert.match(file, /useChapterRegenerate\(\)/)
+    assert.match(file, /REGENERATING_LABEL : REGENERATE_LABEL/)
+    assert.match(file, /:title="[^"]*REGENERATE_HINT"/)
+    assert.doesNotMatch(file, /post\(`[^`]*generate\/chapter-only/, 'only the shared action posts the request')
   }
 })
 
@@ -169,4 +177,14 @@ test('every outline save names the build it was made on, and a 409 drops the sta
   assert.equal(source.match(/outline_completed_at: (target\.completedAt|completedAt\.value) \|\| undefined/g)?.length, 3,
     'flush, save and approve all send it')
   assert.match(source, /if \(e\?\.status === 409\) discardAndShowCurrentOutline\(\)/)
+})
+
+test('row Expand while a run is stopped part-way resumes that run instead of dead-ending on a 409', async () => {
+  assert.match(source, /const resumingForRows = chapters !== null && resumableRun\.value/)
+  assert.match(source, /chapters === null \|\| resumingForRows \? terminalExpansionRetryJob\(\) : undefined/)
+  assert.doesNotMatch(source, /before other chapters can be expanded/)
+  const { resumeExpandNotice } = await import('../utils/outline-expand-resume.js')
+  assert.match(resumeExpandNotice([4], undefined), /only the chapters still missing, including 4/)
+  assert.match(resumeExpandNotice([4], [1, 2, 4]), /including 4/)
+  assert.match(resumeExpandNotice([7], [1, 2]), /Then press Expand on 7 again/)
 })

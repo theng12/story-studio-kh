@@ -39,7 +39,7 @@
                 : 'Open the visual editor. Changes save to your own template.'"
               @click.stop="emit('edit', t.id)"
             >
-              {{ t.builtin ? 'Edit a copy' : 'Edit' }}
+              {{ t.builtin ? 'Edit a Copy' : 'Edit' }}
             </button>
           </div>
         </div>

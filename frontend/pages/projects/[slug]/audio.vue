@@ -58,7 +58,7 @@
           title="Wipe this project's status cache and re-stat every episode folder."
           @click="onRescan"
         >
-          {{ rescanning ? 'Rescanning…' : 'Rescan from disk' }}
+          {{ rescanning ? 'Rescanning…' : 'Rescan from Disk' }}
         </button>
       </template>
     </WorkspaceNotice>
@@ -73,7 +73,7 @@
       costs a few hundred words.
       <template #actions>
         <NuxtLink :to="`/projects/${slug}/introduction`" class="btn btn-secondary btn-sm">
-          Write the opening first
+          Write the Opening First
         </NuxtLink>
       </template>
     </WorkspaceNotice>
@@ -115,8 +115,9 @@
             <template v-if="selectedTtsModel.provider_name">
               Served by <strong>{{ selectedTtsModel.provider_name }}</strong>.
             </template>
-            <span :title="modelRate.title">{{ modelRate.text }}</span><PriceDetails :cost="modelRate" /><template v-if="!ttsHasUsdPrice">,
-            minimum {{ formatCredits(selectedTtsModel.minimum_credits) }} per request</template>.
+            <template v-if="ttsIsFree">Free — runs on your own Macs.</template>
+            <template v-else><span :title="modelRate.title">{{ modelRate.text }}</span><PriceDetails :cost="modelRate" /><template v-if="!ttsHasUsdPrice">,
+            minimum {{ formatCredits(selectedTtsModel.minimum_credits) }} per request</template>.</template>
             <span v-if="modelRate.notice"> {{ modelRate.notice }}</span>
             <template v-if="selectedTtsModel.supports_voice_cloning"> Supports voice cloning.</template>
             <em v-if="ttsCatalogStaleNote" class="freshness-badge">{{ ttsCatalogStaleNote }}</em>
@@ -233,7 +234,7 @@
           </label>
         </div>
         <div class="audio-quality-overview-actions">
-          <NuxtLink :to="`/projects/${slug}/settings#production`" class="btn btn-sm btn-secondary">Change setting</NuxtLink>
+          <NuxtLink :to="`/projects/${slug}/settings#production`" class="btn btn-sm btn-secondary">Change Setting</NuxtLink>
           <button
             v-if="audioQualityMode !== 'off'"
             type="button"
@@ -361,7 +362,7 @@
             <small>Selection</small>
             <strong>{{ selectionCountLabel }}</strong>
           </span>
-          <span class="audio-context-item">
+          <span v-if="!ttsIsFree" class="audio-context-item">
             <small>{{ quotedCost ? 'Selected quote' : 'Rate' }}</small>
             <strong>{{ quotedCost?.text || modelRate.text }}</strong>
           </span>
@@ -383,11 +384,12 @@
             @click="queueSelectedAudio"
           >{{ selectedAudioIntent.label }}</button>
           <button
+            v-if="!ttsIsFree"
             type="button"
             class="btn btn-ghost"
             :disabled="!quoteEligible || quoting"
             @click="refreshQuote"
-          >{{ quoting ? 'Quoting…' : 'Get quote' }}</button>
+          >{{ quoting ? 'Quoting…' : 'Get Quote' }}</button>
           <details class="audio-more">
             <summary class="btn btn-secondary" aria-label="More audio actions">More</summary>
             <div class="audio-more-menu">
@@ -395,7 +397,7 @@
                 type="button"
                 :disabled="!effectiveSections.length || inlineGenerateDisabled"
                 @click="queueAudio(effectiveSections, 'new_version')"
-              >{{ audioActionLabel(effectiveSections, 'new_version', 'Create another version') }}</button>
+              >{{ audioActionLabel(effectiveSections, 'new_version', 'Create Another Version') }}</button>
             </div>
           </details>
         </div>
@@ -411,7 +413,7 @@
         </p>
         <p class="audio-scope-summary text-muted">
           <strong>Generate missing</strong> makes only chapters with no audio yet and never touches finished ones.
-          <strong>Get quote</strong> only asks the price; it makes nothing.
+          <template v-if="!ttsIsFree"><strong>Get quote</strong> only asks the price; it makes nothing.</template>
           <strong>More → Create another version</strong> keeps the current audio and saves a new take beside it.
           <template v-if="inlineGenerateDisabled && inlineGenerateDisabledReason"><br>Buttons are off because: {{ inlineGenerateDisabledReason }}</template>
         </p>
@@ -421,7 +423,7 @@
         </p>
       </section>
 
-      <details class="audio-advanced">
+      <details class="audio-advanced disclosure">
         <summary>Delivery and request controls <span>{{ advancedSummary }}</span></summary>
         <div class="audio-advanced-body">
       <div class="grid-3">
@@ -485,7 +487,10 @@
       <!-- Cost: the model's published rate until there is real text, then
            The Gateway's own quotes — ONE PER TTS JOB this narration will actually
            be submitted as — listed and added up. Never an estimate. -->
-      <div v-if="selectedTtsModel" class="form-group mb-2">
+      <p v-if="selectedTtsModel && ttsIsFree" class="text-muted text-xs hint-line mb-2">
+        Cost: free. This voice runs on your own Macs, so there is nothing to quote or charge.
+      </p>
+      <div v-else-if="selectedTtsModel" class="form-group mb-2">
         <label>
           Cost <span class="field-hint">— the Gateway's figures</span>
           <em v-if="ttsCatalogStaleNote" class="freshness-badge">{{ ttsCatalogStaleNote }}</em>
@@ -504,13 +509,6 @@
               <span class="text-muted text-xs"> · rate, not a total</span>
             </template>
           </span>
-          <button
-            type="button"
-            class="btn btn-sm btn-secondary"
-            :disabled="!quoteEligible || !form.episode_id || quoting"
-            :title="quoteEligible ? 'Ask the Gateway to price every TTS job this narration will be submitted as' : 'The Gateway does not offer a quote for this voice'"
-            @click="refreshQuote"
-          >{{ quoting ? 'Asking…' : 'Get quote' }}</button>
         </div>
 
         <!-- The parts, shown because they are real: each row is a separate
@@ -553,35 +551,6 @@
         </p>
       </div>
 
-      <!-- Auto-pacing for models that take inline pause tags. This is a Story
-           Studio TEXT transform (it rewrites the narration before submission),
-           not a provider control — provider controls are rendered above, from
-           whatever the model publishes. -->
-      <div v-if="isTagCapable" class="form-group mb-2">
-        <label>Delivery <span class="field-hint">— voice pacing</span></label>
-        <label class="checkbox-label" title="Inserts pause tags at sentence + paragraph breaks so the voice does not rush through full stops.">
-          <input type="checkbox" v-model="form.fish_autopace" />
-          <span>Auto-pause at sentence breaks <span class="field-hint">— adds breathing room</span></span>
-        </label>
-        <p class="text-muted text-xs hint-line">
-          Inserts pauses at paragraph + sentence breaks so the read isn't rushed. Works on plain narration and
-          layers on top of Expression markup (pauses won't double up).
-        </p>
-      </div>
-
-      <!-- Expression markup — tag-capable models (Fish S2-Pro + ElevenLabs v3).
-           Draft + review a tagged "expressive script" the audio renders when on;
-           untagged sections are auto-tagged at render time. -->
-      <div v-if="isTagCapable" class="form-group mb-2">
-        <label>Expression <span class="field-hint">— emotion &amp; performance tags</span></label>
-        <FishExpressionPanel
-          v-model="form.use_expression"
-          v-model:expression-model="form.expression_model"
-          :project-slug="slug"
-          :episode-id="form.episode_id || null"
-          :audio-model="form.model"
-        />
-      </div>
         </div>
       </details>
 
@@ -653,7 +622,7 @@
             Click <strong>Generate missing</strong> above: it makes only these and keeps the audio you already have.
           </span>
         </div>
-        <details class="mt-1">
+        <details class="disclosure mt-1">
           <summary class="repair-details-summary">Details ({{ repairResult.logs.length }} log lines)</summary>
           <pre class="repair-log">{{ repairResult.logs.join('\n') }}</pre>
         </details>
@@ -669,7 +638,7 @@ import { voiceIsGenerable } from '~/composables/useGenStudioVoices'
 import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
 import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection'
 import { CREDIT_BASIS_LABEL, describeVoiceRate, describeQuotedTotal, formatCredits } from '~/utils/genstudio-credit-cost'
-import { hasPriceTruth } from '~/utils/genstudio-price-usd'
+import { hasPriceTruth, isFreeToRun } from '~/utils/genstudio-price-usd'
 import { genstudioStaleNote } from '~/utils/genstudio-freshness'
 import {
   describeRelaxedQueueHint,
@@ -696,7 +665,7 @@ const audioRetryPending = freshAudioAction.hasPending
 const freshQualityAction = useFreshGenerationAction()
 const qualityActionPending = freshQualityAction.hasPending
 const activeQualityCheckAction = useFreshGenerationAction()
-const { project, config, refreshConfig } = useProject()
+const { config } = useProject()
 const {
   models: ttsModels,
   modelsLoading: ttsModelsLoading,
@@ -801,15 +770,6 @@ const form = reactive({
    * catalogue read and wiped to the new model's defaults on a model change.
    */
   controls: {} as Record<string, number | boolean | string>,
-  // Fish Audio S2-Pro only — render the saved expressive (tagged) narration.
-  use_expression: false,
-  // Kept empty until the GenStudio-only expression surface selects a live
-  // chat model. Never retain a retired direct-provider id in audio presets.
-  expression_model: '',
-  // A Story Studio TEXT transform, not a provider control: it inserts pause
-  // tags into the narration before submission. Provider controls come from the
-  // model's published `controls[]` and live in `controls` above.
-  fish_autopace: false,
 })
 
 // A section deep link belongs to the episode named in the URL. If the user
@@ -825,7 +785,7 @@ const requestedAudioSectionForEpisode = computed(() => {
 // left out of the allowlist. A restored voice that's incompatible with the
 // restored model is reconciled by VoicePicker on load.
 useRememberedForm('audio', slug, form, {
-  include: ['model', 'voice', 'speed', 'controls', 'fish_autopace', 'expression_model'],
+  include: ['model', 'voice', 'speed', 'controls'],
   // The control names are the catalogue's, not ours, so the saved map is
   // restored whole rather than merged key-by-key against a declared shape —
   // there is no declared shape. What comes back is reconciled against the
@@ -877,19 +837,8 @@ const selectedVoiceProviderText = computed(() => {
 const modelRate = computed(() => describeVoiceRate(selectedTtsModel.value))
 // A row with gateway price truth carries zero-valued credit shapes; its minimum is never a price.
 const ttsHasUsdPrice = computed(() => hasPriceTruth(selectedTtsModel.value))
-
-/**
- * Whether the selected model takes Story Studio's inline pause/emotion tags.
- *
- * Off for every model, and it stays off until GenStudio publishes the fact:
- * a model that would read an unknown tag aloud is not something to infer from
- * a name. The two surfaces it gates (auto-pacing and the Expression panel) are
- * TEXT transforms Story Studio applies before submission, not provider
- * controls — provider controls are published per model and rendered from
- * `controls[]`.
- */
-const isTagCapable = computed(() => false)
-watch(isTagCapable, (on) => { if (!on) { form.use_expression = false; form.fish_autopace = false } })
+/** A free voice (own Macs) hides every quote/credit control: there is nothing to price. */
+const ttsIsFree = computed(() => isFreeToRun(selectedTtsModel.value))
 
 /**
  * The request boundary in force, read from the selected model's published
@@ -1478,7 +1427,7 @@ async function runAudioQualityCheck(targetSections: string[]): Promise<void> {
       const confirmed = await ask({
         title: `Repair ${scopeSummary(targetSections)}?`,
         message: details.join('\n'),
-        confirmLabel: 'Start checked repair',
+        confirmLabel: 'Start Checked Repair',
       })
       if (!confirmed) {
         freshQualityAction.cancel('quality')
@@ -1665,7 +1614,7 @@ watch(() => form.episode_id, (newEp, oldEp) => {
 const { selectedEpisode, scriptReady, statusKnown, refetch: refetchEpisodeStatus } = useEpisodeStatus(
   computed(() => form.episode_id),
   slug,
-  { refetchOnJobTypes: ['script-only', 'introduction-only'] },
+  { refetchOnJobTypes: ['introduction-only'] },
 )
 
 /**
@@ -1682,7 +1631,6 @@ const { selectedEpisode, scriptReady, statusKnown, refetch: refetchEpisodeStatus
  * gates. It never fires for a channel that does not use openings.
  */
 const channelIntroEnabled = ref<boolean | null>(null)
-const channelIntroUnknown = computed(() => channelIntroEnabled.value === null)
 async function loadChannelIntroduction(): Promise<void> {
   try {
     const data = await get<{ segments?: Record<string, { enabled: boolean }> }>(
@@ -1807,7 +1755,6 @@ onMounted(async () => {
 
 
 // ── Voice preview ──────────────────────────────────────────────────────
-const previewing = ref(false)
 const previewAudio = ref<HTMLAudioElement | null>(null)
 
 /**
@@ -1822,7 +1769,6 @@ async function previewVoiceId(voiceId?: string) {
     return
   }
   stopPreview()
-  previewing.value = true
   try {
     // Previews play GenStudio's own stored sample; no TTS job is submitted and
     // no control is applied to it, so none are sent.
@@ -1839,8 +1785,6 @@ async function previewVoiceId(voiceId?: string) {
   } catch (e: any) {
     console.error(`[audio] voice preview failed (voice=${id}, model=${form.model}):`, e)
     showError(e.data?.detail || 'Could not play this voice sample. Check that the Gateway is connected (top right), then try again.')
-  } finally {
-    previewing.value = false
   }
 }
 
@@ -2336,8 +2280,7 @@ async function queueAudio(targetSections: string[], mode: AudioActionMode) {
 }
 .audio-advanced > summary {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   padding: 11px 13px;
   color: var(--text-primary);
   cursor: pointer;
@@ -2345,6 +2288,7 @@ async function queueAudio(targetSections: string[], mode: AudioActionMode) {
   font-weight: 650;
 }
 .audio-advanced > summary span {
+  margin-left: auto;
   color: var(--text-muted);
   font-size: var(--font-xs);
   font-weight: 400;

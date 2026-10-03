@@ -4,6 +4,65 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.249 — 2026-10-03
+
+- **Settings, redesigned.** A list of sections on the left and a **Find a setting** box that jumps straight to any
+  control. Each section shows what you change most; rarer options sit under one **Advanced**. Performance & recovery is
+  now short steppers with one-line hints, the four "buy one replacement" cards are one table, and the section has one
+  **Save**. Appearance & notifications no longer lets you scroll past the end of the page. The triangles on Writing &
+  style's cards sit inside the card.
+- **Folders are chosen, not typed.** Library folder, finished videos folder and "move to another drive" all use a
+  **Choose…** button with the Mac's own folder picker and **Show in Finder**. You can now pick where finished videos go;
+  videos you already made stay where they are and are still found.
+- **One upload schedule.** Settings → Publishing shows the channel's active upload plan by name and edits the same plan
+  as the Upload Center, so you save it once.
+- **One Free Up Space.** The four overlapping ways to free disk space are one card in Files & maintenance: the
+  recommended "shrink and tidy uploaded episodes", plus clearly labelled options to clear verified uploaded videos, move
+  uploaded videos to another drive, or choose exact files. A read-only list shows what is using space. Nothing is ever
+  deleted — files go to `_trash` or are verified at the new place first.
+- **Writing models, simpler.** The LLM lineup is retired: each writing step uses the one model (or Gateway pool) chosen
+  on its page or preset, and falling back across models is the pool's job. Your old lineups were turned into the
+  matching pool once, and the Pipeline tells you so. A writing job that hits a confirmed "quota used up" waits and tries
+  again later instead of failing.
+- **New: live thumbnail template preview.** The template editor redraws your unsaved edits instantly, with a sample
+  title box and text and font controls. It now says plainly that these text settings only shape the gallery preview
+  card — real thumbnails get their headline from the image model.
+- **New: regenerate prompts for selected scenes.** On Scene Plan, tick scenes (or shift-click a range), press
+  **Regenerate Prompts**, and only those scenes' image prompts are rewritten. Images, approvals and timings are untouched;
+  a scene that fails keeps its old prompt and stays ticked for a one-click retry.
+- **New: episode counts on Home.** Each channel card shows how many episodes it has, how many are on YouTube, how many
+  are being made now and how many need attention.
+- **New: bulk actions in the Upload Center.** On Publish, tick rows (shift-click for a range, or select all that match)
+  to queue uploads, edit planned dates, schedule on YouTube spread over days, set visibility (Public, Unlisted or
+  Private — Public warns that subscribers may be notified), re-finalize metadata, or remove waiting uploads. Every
+  action says whether it changes YouTube, confirms with the exact count and reports each row.
+- **New: Analytics table.** A sortable, searchable table with a period picker, totals and CSV export, plus subscribers
+  gained, impressions and click-through rate. Missing analytics access reads "Not available — reconnect YouTube", never
+  zero.
+- **A cleaner look everywhere.** One style for every dropdown, one turning chevron for every collapsible section,
+  primary buttons that no longer jump on hover, and **Title Case** button labels across the app.
+- **Leftovers from the last round, fixed.** Edits made while a save is running are saved right after instead of lost;
+  the Jobs page pauses its live updates while the window is hidden and catches up when you come back; Outline and Script
+  share one **Regenerate** for a chapter; Content Store purchases keep going if you leave the page; a free voice on your
+  own Macs shows "free" instead of a quote; Settings' advanced panels are in plain English with the technical wording
+  one click away under **Details**.
+- **Image references follow what a model can do.** Reference images and paid image replacement now depend on what the
+  image model supports, not on whether it is paid, so free models on your own Macs keep their reference-image features.
+- **Clean-out.** About 20,000 lines of old code are gone: retired iCloud and cloud-folder leftovers, the 1.4.3 upgrade
+  card, the old upload queue, unused server routes and components, the switched-off Expression/auto-pause narration
+  feature, the old "script only" lane, the unreachable Pipeline B-roll step, hidden blocks on the Image Prompts page,
+  Scene Review's old clip code, confirmation switches that did nothing, and the unused channel URL field. Duplicate
+  buttons on Audio ("Get quote"), Sound Design ("Add Spot Effect") and the Thumbnail Generator ("generate missing") are
+  now one each. Stale text and links that pointed at pages that no longer exist are fixed. Files on disk are never
+  touched.
+- **Heavy media on another drive is retired.** A channel that never used it no longer shows the option; a channel that
+  uses it keeps working and keeps the option. Nothing is moved.
+- **Fixes.** Video Assembly now asks for merged narration up front (chapter audio alone could not render) and links
+  to Audio Assembly; the one-off narrator style typed on Scripts now reaches chapter writing; the Research guide no
+  longer suggests research can block an episode — it never does.
+
+---
+
 ## v1.4.248 — 2026-10-03
 
 - **"Gateway" means your Gateway.** Everywhere Story Studio talked about your own Gateway connection it said "GenStudio" —

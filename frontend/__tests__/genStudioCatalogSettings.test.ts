@@ -14,7 +14,7 @@ describe('Gateway catalog diagnostics', () => {
     assert.match(source, /Connection/)
     assert.match(source, /Last refresh/)
     assert.match(source, /View catalog details/)
-    assert.match(source, /Credits &amp; settlement/)
+    assert.match(source, /Credits &amp; Settlement/)
     assert.doesNotMatch(source, /Gateway Catalog &amp; Access/)
     assert.doesNotMatch(source, /useGenStudioAccess|relaxed_concurrency|Unlimited Relaxed/)
     assert.doesNotMatch(source, /Save (?:catalog|pricing|model)/i)

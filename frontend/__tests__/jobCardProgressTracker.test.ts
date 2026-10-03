@@ -149,8 +149,8 @@ describe('the default card view carries no raw identifiers', () => {
   })
 
   test('bulk missing-item links collapse to a count, while every link remains reachable', () => {
-    const disclosures = template.match(/<details v-if="jobAttentionLinks\(job\)\.length" class="job-attention-details">[\s\S]*?<\/details>/g) || []
-    assert.equal(disclosures.length, 2, 'both active and history cards keep their affected-item lists closed by default')
+    const disclosures = template.match(/<details v-if="jobAttentionLinks\(job\)\.length" class="job-attention-details disclosure">[\s\S]*?<\/details>/g) || []
+    assert.equal(disclosures.length, 1, 'the history card keeps its affected-item list closed by default')
     for (const disclosure of disclosures) {
       assert.match(disclosure, /affected item/)
       assert.match(disclosure, /Review affected items/)
@@ -169,8 +169,8 @@ describe('the default card view carries no raw identifiers', () => {
     assert.doesNotMatch(compactAttention, /released_credits|retry_hint/)
     assert.match(compactAttention, /remote\.operation === 'chat\.response'/)
     assert.match(compactAttention, /\['failed', 'uncertain'\]/)
-    assert.equal((template.match(/job\.error && \(jobAttentionLinks\(job\)\.length \|\| hasMoreErrorLines\(job\.error\)\)/g) || []).length, 2,
-      'a compacted one-line error keeps its raw detail available in both cards')
+    assert.equal((template.match(/job\.error && \(jobAttentionLinks\(job\)\.length \|\| hasMoreErrorLines\(job\.error\)\)/g) || []).length, 1,
+      'a compacted one-line error keeps its raw detail available in the history card')
   })
 
   test('the rendered summary keeps verified counts and only promotes a current uncertain chat request', () => {
@@ -592,7 +592,7 @@ describe('exceptions', () => {
     assert.doesNotMatch(ledger, /bucket === 'active' \|\| bucket === 'failed'/)
     assert.doesNotMatch(ledger, /active or failed/i)
     assert.match(ledger, /v-if="exceptionJobs\.length"/)
-    assert.match(ledger, /Inspect \$\{exceptionJobs\.length\.toLocaleString\(\)\} failed/)
+    assert.match(ledger, /Inspect \$\{exceptionJobs\.length\.toLocaleString\(\)\} Failed/)
   })
 })
 

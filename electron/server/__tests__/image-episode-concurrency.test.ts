@@ -213,14 +213,12 @@ describe('the number is the owner\'s, not the code\'s', () => {
   })
 
   test('it has a screen — the last two settings did not, and that was the bug', async () => {
-    const panel = await readFile(
-      path.join(SERVER, '..', '..', 'frontend', 'components', 'ThisMacSettings.vue'), 'utf8')
-    assert.match(panel, /Episodes making scene images at once/, 'the owner must be able to see the setting')
-    // v1.4.44 — assert the LABEL and the request field, not the internal ref
-    // name. The 1.4.42 panel rewrite moved these to one reactive object and
-    // this assertion started matching a variable that no longer existed. The
-    // setting still worked; only the copy of the source in the test was stale.
-    assert.match(panel, /image_episode_concurrency: Number\(models\.imageEpisodes\)/,
+    // v1.4.249 — the rows live in utils/performanceSettings.ts (label + the
+    // request field it sends) and PerformanceSettings.vue sends every row.
+    const fields = await readFile(path.join(SERVER, '..', '..', 'frontend', 'utils', 'performanceSettings.ts'), 'utf8')
+    const panel = await readFile(path.join(SERVER, '..', '..', 'frontend', 'components', 'PerformanceSettings.vue'), 'utf8')
+    assert.match(fields, /server: 'image_episode_concurrency', label: 'Episodes making scene images'/, 'the owner must be able to see the setting')
+    assert.match(panel, /put<any>\('\/app-settings\/concurrency', throughputPayload\(models\)\)/,
       'and the screen must actually send it')
   })
 })
@@ -279,19 +277,18 @@ describe('thumbnails do not spend the local fleet\'s budget', () => {
     assert.match(route, /thumbnail_episode_concurrency: await getThumbnailEpisodeConcurrency\(\)/)
     assert.match(route, /jq\.setThumbnailEpisodeConcurrency\(n\)/,
       'storing it without applying it means the change does nothing until a restart')
-    const panel = await readFile(
-      path.join(SERVER, '..', '..', 'frontend', 'components', 'ThisMacSettings.vue'), 'utf8')
-    assert.match(panel, /Episodes making thumbnails at once/)
-    assert.match(panel, /thumbnail_episode_concurrency: Number\(models\.thumbnailEpisodes\)/)
+    const fields = await readFile(path.join(SERVER, '..', '..', 'frontend', 'utils', 'performanceSettings.ts'), 'utf8')
+    assert.match(fields, /server: 'thumbnail_episode_concurrency', label: 'Episodes making thumbnails'/)
+    const panel = await readFile(path.join(SERVER, '..', '..', 'frontend', 'components', 'PerformanceSettings.vue'), 'utf8')
+    assert.match(panel, /throughputPayload\(models\)/)
   })
 
   test('the two lanes are described as separate on screen, not as one', async () => {
-    const panel = await readFile(
-      path.join(SERVER, '..', '..', 'frontend', 'components', 'ThisMacSettings.vue'), 'utf8')
+    const panel = await readFile(path.join(SERVER, '..', '..', 'frontend', 'utils', 'performanceSettings.ts'), 'utf8')
     // The old help text said "Scene Review, Thumbnails and Image Pool share
     // this", which is now false and would send him to the wrong dial.
     assert.ok(!panel.includes('Scene Review, Thumbnails and Image Pool share this'))
-    assert.match(panel, /Thumbnails have their own number below/)
+    assert.match(panel, /Thumbnails have their own number/)
   })
 })
 

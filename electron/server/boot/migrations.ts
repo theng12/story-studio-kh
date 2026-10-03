@@ -38,17 +38,6 @@ async function protectedVideoAssemblyWorkDirsAtBoot(): Promise<Set<string>> {
 export function runBootMigrations(): void {
   const tasks: Promise<unknown>[] = []
 
-  // v1.4.3 — fold the four retired location settings into the Library. Reports
-  // anything still living outside it rather than moving a single file; see
-  // services/library-migration.ts for why that asymmetry is deliberate.
-  tasks.push((async () => {
-    const { migrateLegacyLocationSettings } = await import('../services/library-migration.js')
-    const notices = await migrateLegacyLocationSettings()
-    if (notices.length) {
-      console.log(`[boot] library migration: ${notices.length} notice(s) recorded for the customer`)
-    }
-  })().catch(error => console.error('[boot] library migration failed:', error?.message || error)))
-
   // v1.4.23 — apply the owner's episode-transcription concurrency.
   //
   // `job-queue.setSubtitleTranscribeConcurrency` has existed since the group

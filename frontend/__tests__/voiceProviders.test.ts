@@ -1,76 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import {
-  mergeDiscoveredVoices,
-  normalizeSavedVoice,
-  normalizeSavedVoices,
-  voiceSupportsProvider,
-} from '../utils/voice-providers.ts'
-
-test('frontend preserves legacy voice evidence without granting a removed provider route', () => {
-  assert.deepEqual(normalizeSavedVoice({ name: 'Legacy', voice_id: 'legacy' })?.providers,
-    [])
-  assert.deepEqual(normalizeSavedVoice({ name: 'Fish', voice_id: 'fish', provider: 'fishaudio' })?.providers,
-    [])
-})
-
-test('frontend strips removed provider labels from duplicate historical IDs', () => {
-  assert.deepEqual(normalizeSavedVoices([
-    { name: 'Voice', voice_id: 'id', providers: ['elevenlabs'] },
-    { name: 'Duplicate', voice_id: 'id', providers: ['fal', 'fishaudio'] },
-  ]), [{
-    name: 'Voice',
-    voice_id: 'id',
-    providers: [],
-  }])
-})
-
-test('provider filter rejects historical voices with no Gateway mapping', () => {
-  const voice = normalizeSavedVoice({ name: 'Fish', voice_id: 'fish', providers: ['fishaudio'] })!
-  assert.equal(voiceSupportsProvider(voice, 'fishaudio'), false)
-  assert.equal(voiceSupportsProvider(voice, 'genstudio'), false)
-})
-
-test('frontend retains the dedicated Gateway voice label', () => {
-  const voice = normalizeSavedVoice({
-    name: 'Ryan', voice_id: 'voice_qwen3_ryan', providers: ['genstudio'],
-  })!
-  assert.equal(voiceSupportsProvider(voice, 'genstudio'), true)
-  assert.equal(voiceSupportsProvider(voice, 'elevenlabs'), false)
-})
-
-test('discovered Gateway voices merge without replacing saved names', () => {
-  assert.deepEqual(mergeDiscoveredVoices([
-    { name: 'My Ryan', voice_id: 'voice_qwen3_ryan', providers: ['genstudio'] },
-  ], [
-    { id: 'voice_qwen3_ryan', display_name: 'Ryan' },
-    { id: 'voice_qwen3_aiden', display_name: 'Aiden' },
-    { id: '', display_name: 'Invalid' },
-  ], 'genstudio'), [
-    { name: 'My Ryan', voice_id: 'voice_qwen3_ryan', providers: ['genstudio'] },
-    { name: 'Aiden', voice_id: 'voice_qwen3_aiden', providers: ['genstudio'] },
-  ])
-})
-
-test('discovered Gateway voices preserve tier and stored-preview metadata', () => {
-  assert.deepEqual(mergeDiscoveredVoices([], [{
-    id: 'voice-premium',
-    display_name: 'Premium narrator',
-    voice_tier: 'premium',
-    preview_available: true,
-    preview_url: '/v1/voices/voice-premium/preview',
-    preview_text: 'A stored sample.',
-  }], 'genstudio'), [{
-    name: 'Premium narrator',
-    voice_id: 'voice-premium',
-    providers: ['genstudio'],
-    voice_tier: 'premium',
-    preview_available: true,
-    preview_url: '/v1/voices/voice-premium/preview',
-    preview_text: 'A stored sample.',
-  }])
-})
 
 test('Story Studio holds no local TTS product list — the model catalogue is the selector', () => {
   const audioPage = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
@@ -223,7 +153,6 @@ test('Gateway catalogs stay provider-owned across voice, image, LLM, and video s
   const imageModels = readFileSync(new URL('../composables/useGenStudioImageModels.ts', import.meta.url), 'utf8')
   const modelSelector = readFileSync(new URL('../components/ModelSelector.vue', import.meta.url), 'utf8')
   const motionReview = readFileSync(new URL('../pages/projects/[slug]/motion-review.vue', import.meta.url), 'utf8')
-  const providerGroups = readFileSync(new URL('../utils/api-provider-groups.ts', import.meta.url), 'utf8')
 
   // Speech diagnostics read the same /v1/tts/models catalogue the picker uses.
   assert.match(mediaModels, /\/app-settings\/genstudio\/tts-models/)
@@ -244,9 +173,6 @@ test('Gateway catalogs stay provider-owned across voice, image, LLM, and video s
   assert.doesNotMatch(motionReview, /Image-to-video generation through (GenStudio|the Gateway)/i)
   assert.doesNotMatch(motionReview, /local fleet|cloud fleet|execution_label/i)
   assert.doesNotMatch(motionReview, /Unavailable saved selection|migration required|Historical/)
-  assert.match(providerGroups, /category: 'mix'/)
-  assert.match(providerGroups, /sole catalog, job, and credit boundary/i)
-  assert.doesNotMatch(providerGroups, /openai|anthropic|kie|fal|elevenlabs|studio hub/i)
 })
 
 test('the cloned view asks the Gateway for the collection instead of guessing which voices are clones', () => {

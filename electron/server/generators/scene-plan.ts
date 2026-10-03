@@ -182,6 +182,9 @@ interface ScenePlanRunParams {
    * lib/image-content-guidance.ts.
    */
   reword_prompt?: boolean
+  /** Scene Plan "Regenerate prompts" for the selected scenes: rewrite only
+   *  these scenes' visual_prompt, one after another, with the chosen model. */
+  regenerate_prompt_scene_ids?: string[]
   /** Bulk-repair every missing or duplicated visual_prompt through the same
    * durable GenStudio packs as normal visual generation. Time ranges and
    * transcripts are untouched. */
@@ -753,7 +756,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   // run omits `stage`, which means a compatible timeline + required visual
   // prompts. A partial saved plan is continued after compatibility checks.
   const needsModel = requestedStage !== 'timeline' || !!(
-    params.regenerate_prompt_scene_id || params.regenerate_empty_prompts
+    params.regenerate_prompt_scene_id || params.regenerate_prompt_scene_ids?.length || params.regenerate_empty_prompts
     || params.regenerate_motion_prompt_scene_id || params.regenerate_empty_motion_prompts
     || params.replan_scene_id
   )
@@ -848,7 +851,8 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   // Resolve draft settings only for new planning. Existing saved plan timestamps
   // remain authoritative during prompt completion and missing-image repairs.
   const usesExistingPlan = requestedStage === 'visual' || requestedStage === 'motion'
-    || !!params.regenerate_prompt_scene_id || !!params.regenerate_motion_prompt_scene_id
+    || !!params.regenerate_prompt_scene_id || !!params.regenerate_prompt_scene_ids?.length
+    || !!params.regenerate_motion_prompt_scene_id
   let pacing: ScenePlanPacing | undefined
   if (!usesExistingPlan && !params.pacing) {
     pacing = (await resolveScenePlanPacing(job.project_slug, paths.episode_dir)).pacing
@@ -938,6 +942,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   // path drives every read + in-place rewrite below, so they all stay in sync.
   const isSingleSceneRepair = !!(
     params.regenerate_prompt_scene_id
+    || params.regenerate_prompt_scene_ids?.length
     || params.regenerate_motion_prompt_scene_id
     || params.replan_scene_id
   )
@@ -1712,7 +1717,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       for (const [index, recovery] of savedPromptRecoveries.entries()) {
         const checkpointIds = recovery.scene_ids.filter(id => missing.includes(id))
         if (!checkpointIds.length) continue
-        job.output_lines.push(`↻ Checking the saved Gateway prompt request before starting new paid work (${checkpointIds.length} missing scene(s)).`)
+        job.output_lines.push(`↻ Checking the earlier prompt request at the Gateway before starting new work (${checkpointIds.length} missing scene(s)).`)
         const recovered = await requestPromptPack({
           sceneIds: recovery.scene_ids,
           checkpointSceneIds: checkpointIds,
@@ -1944,20 +1949,31 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   // The salvage path for the original v1.0.286 bulk re-plan: when a local
   // model can't produce JSON but CAN produce prose, this regenerates the
   // empty prompts in place.
-  if (params.regenerate_prompt_scene_id) {
+  //
+  // `regenerate_prompt_scene_ids` (Scene Plan "Regenerate prompts" for the
+  // selected scenes) runs the same rewrite for each chosen scene in turn. Each
+  // new prompt is saved as soon as it lands; a scene that fails keeps its old
+  // prompt, is named in the job log, and is the only one a Retry rewrites.
+  const promptTargetIds = params.regenerate_prompt_scene_ids?.length
+    ? params.regenerate_prompt_scene_ids
+    : params.regenerate_prompt_scene_id ? [params.regenerate_prompt_scene_id] : null
+  if (promptTargetIds) {
+    const batch = !!params.regenerate_prompt_scene_ids?.length
     if (!existsSync(outPath)) throw new Error('No scene_plan.json to regenerate prompts for — run the full planner first.')
     const existing = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
-    const targetIdx = existing.scenes.findIndex(s => s.id === params.regenerate_prompt_scene_id)
-    if (targetIdx < 0) throw new Error(`Scene ${params.regenerate_prompt_scene_id} not found in scene_plan.json`)
-    const target = existing.scenes[targetIdx]!
-    if (!target.transcript_segment || !target.transcript_segment.trim()) {
-      throw new Error(`Scene #${target.scene_index} has no transcript_segment to base a prompt on. Edit it first or use Re-plan.`)
+    // Validate a single target before any model work (unchanged behaviour).
+    if (!batch) {
+      const only = existing.scenes.find(s => s.id === promptTargetIds[0])
+      if (!only) throw new Error(`Scene ${promptTargetIds[0]} not found in scene_plan.json`)
+      if (!only.transcript_segment || !only.transcript_segment.trim()) {
+        throw new Error(`Scene #${only.scene_index} has no transcript_segment to base a prompt on. Edit it first or use Re-plan.`)
+      }
+    } else {
+      job.output_lines.push(
+        `Regenerating the visual prompts of ${promptTargetIds.length} selected scene(s) — `
+        + 'time ranges, narration, images and approvals stay as they are; only the prompts are rewritten.',
+      )
     }
-    job.output_lines.push(
-      `${params.reword_prompt ? 'Rewording' : 'Regenerating'} visual prompt for scene #${target.scene_index} `
-      + `(${target.start_sec.toFixed(1)}–${target.end_sec.toFixed(1)}s, ${(target.end_sec - target.start_sec).toFixed(1)}s) — `
-      + `time range and transcript unchanged, only the prompt is rewritten.`,
-    )
     if (params.reword_prompt) {
       job.output_lines.push(
         'Reword: asking for a different angle on the same beat, with the difficult-subjects guidance applied. '
@@ -1983,58 +1999,100 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       true,
     )
     existing.creative_direction = creativeDirectionForRewrite
-    const newPrompt = await generateVisualPromptOnly({
-      transcript_segment: target.transcript_segment,
-      model,
-      detail_level: params.detail_level,
-      style_prompt: stylePromptForRewrite,
-      custom_instructions: params.custom_instructions,
-      creative_direction: creativeDirectionForRewrite,
-      creative_strategy: target.creative_strategy,
-      prompt_char_cap: promptCharCap,
-      avoid_legible_text: wantAvoidLegibleText,
-      // A user-invoked reword asks for a different ANGLE on the same beat with
-      // the difficult-subjects guidance applied, rather than another pass at
-      // the same framing. Nothing infers this from a failure — see
-      // lib/image-content-guidance.ts.
-      reword: params.reword_prompt === true,
-      reword_previous_prompt: params.reword_prompt === true
-        ? (target.visual_prompt ?? '')
-        : undefined,
-      apiKeys: GENSTUDIO_ONLY_LEGACY_KEY_BAG,
-      callAi: scenePlanPolicyCall,
-      request_identity: freshGenerationRequestIdentity(job, `visual-prompt-${target.id}`),
-      slug: job.project_slug,
-    })
-    if (!newPrompt || !newPrompt.trim()) {
-      throw new Error('Model returned an empty prompt. Try a stronger model or fill the prompt in manually.')
+    const failures: Array<{ item_id: string; state: 'invalid'; reason: string; label: string }> = []
+    for (const [position, sceneId] of promptTargetIds.entries()) {
+      if (batch && isCancelled(job.job_id)) throw new Error('Cancelled by user')
+      try {
+        const target = existing.scenes.find(s => s.id === sceneId)
+        if (!target) throw new Error('this scene is no longer in the plan')
+        if (!target.transcript_segment?.trim()) throw new Error('this scene has no narration text to base a prompt on')
+        job.output_lines.push(
+          `${params.reword_prompt ? 'Rewording' : 'Regenerating'} visual prompt for scene #${target.scene_index} `
+          + `(${target.start_sec.toFixed(1)}–${target.end_sec.toFixed(1)}s, ${(target.end_sec - target.start_sec).toFixed(1)}s)`
+          + (batch ? ` — ${position + 1} of ${promptTargetIds.length}.` : ' — time range and transcript unchanged, only the prompt is rewritten.'),
+        )
+        const newPrompt = await generateVisualPromptOnly({
+          transcript_segment: target.transcript_segment,
+          model,
+          detail_level: params.detail_level,
+          style_prompt: stylePromptForRewrite,
+          custom_instructions: params.custom_instructions,
+          creative_direction: creativeDirectionForRewrite,
+          creative_strategy: target.creative_strategy,
+          prompt_char_cap: promptCharCap,
+          avoid_legible_text: wantAvoidLegibleText,
+          // A user-invoked reword asks for a different ANGLE on the same beat with
+          // the difficult-subjects guidance applied, rather than another pass at
+          // the same framing. Nothing infers this from a failure — see
+          // lib/image-content-guidance.ts.
+          reword: params.reword_prompt === true,
+          reword_previous_prompt: params.reword_prompt === true
+            ? (target.visual_prompt ?? '')
+            : undefined,
+          apiKeys: GENSTUDIO_ONLY_LEGACY_KEY_BAG,
+          callAi: scenePlanPolicyCall,
+          request_identity: freshGenerationRequestIdentity(job, `visual-prompt-${target.id}`),
+          slug: job.project_slug,
+        })
+        if (!newPrompt || !newPrompt.trim()) {
+          throw new Error(batch
+            ? 'the model returned an empty prompt'
+            : 'Model returned an empty prompt. Try a stronger model or fill the prompt in manually.')
+        }
+        // The read above is separated from this write by a full LLM round-trip, so
+        // the snapshot is stale by the time the answer lands. Re-read under the lock
+        // and apply only this scene's change, instead of republishing the snapshot
+        // over whatever else was written to the episode meanwhile. Only the prompt
+        // changes: image, approval and timings are left exactly as they are.
+        await fs.mkdir(path.dirname(outPath), { recursive: true })
+        await withLock(outPath, async () => {
+          const fresh = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
+          const scene = fresh.scenes.find(item => item.id === sceneId)
+          if (!scene) throw new Error(batch ? 'this scene was removed while its prompt was being written' : `Scene ${sceneId} was removed while its prompt was being regenerated.`)
+          scene.visual_prompt = newPrompt
+          clearLegacyPlannerFallbackReasons([scene])
+          fresh.generated_at = new Date().toISOString()
+          await writeJsonAtomic(outPath, fresh)
+        })
+        const rewriteLength = readPromptLength(newPrompt, promptCharCap)
+        job.output_lines.push(
+          `✓ Prompt regenerated (${rewriteLength.characters.toLocaleString()}`
+          + `${rewriteLength.cap ? ` / ${rewriteLength.cap.toLocaleString()}` : ''} chars). Other scenes untouched.`,
+        )
+        if (rewriteLength.over_cap) {
+          job.output_lines.push(
+            `⚠ ${rewriteLength.overage.toLocaleString()} characters over the ${rewriteLength.cap!.toLocaleString()}-character limit. `
+            + 'The prompt was saved in full — shorten it, raise the limit, or render as-is.',
+          )
+        }
+      } catch (error: any) {
+        if (!batch) throw error
+        const reason = String(error?.message || error || 'failed')
+        const index = existing.scenes.find(s => s.id === sceneId)?.scene_index
+        const label = index ? `#${index}` : sceneId
+        failures.push({ item_id: sceneId, state: 'invalid', reason, label })
+        job.output_lines.push(`✗ Scene ${label}: ${reason} — its previous prompt is kept.`)
+      }
+      job.progress = 10 + Math.round(85 * (position + 1) / promptTargetIds.length)
     }
-    // The read above is separated from this write by a full LLM round-trip, so
-    // the snapshot is stale by the time the answer lands. Re-read under the lock
-    // and apply only this scene's change, instead of republishing the snapshot
-    // over whatever else was written to the episode meanwhile.
-    await fs.mkdir(path.dirname(outPath), { recursive: true })
-    await withLock(outPath, async () => {
-      const fresh = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
-      const scene = fresh.scenes.find(item => item.id === params.regenerate_prompt_scene_id)
-      if (!scene) throw new Error(`Scene ${params.regenerate_prompt_scene_id} was removed while its prompt was being regenerated.`)
-      scene.visual_prompt = newPrompt
-      clearLegacyPlannerFallbackReasons([scene])
-      fresh.generated_at = new Date().toISOString()
-      await writeJsonAtomic(outPath, fresh)
-    })
     job.output_dir = paths.episode_dir
     job.progress = 100
-    const rewriteLength = readPromptLength(newPrompt, promptCharCap)
-    job.output_lines.push(
-      `✓ Prompt regenerated (${rewriteLength.characters.toLocaleString()}`
-      + `${rewriteLength.cap ? ` / ${rewriteLength.cap.toLocaleString()}` : ''} chars). Other scenes untouched.`,
-    )
-    if (rewriteLength.over_cap) {
-      job.output_lines.push(
-        `⚠ ${rewriteLength.overage.toLocaleString()} characters over the ${rewriteLength.cap!.toLocaleString()}-character limit. `
-        + 'The prompt was saved in full — shorten it, raise the limit, or render as-is.',
-      )
+    if (batch) {
+      // Retry rewrites only the scenes that failed; finished ones are kept.
+      if (failures.length) job.params.regenerate_prompt_scene_ids = failures.map(f => f.item_id)
+      requireJobCompletion(job, {
+        label: 'Regenerate prompts for selected scenes',
+        expected: promptTargetIds.length,
+        completed: promptTargetIds.length - failures.length,
+        item_name: 'scene prompt',
+        invalid: failures.map(f => f.item_id),
+        issues: failures.map(({ item_id, state, reason }) => ({ item_id, state, reason })),
+        message: `${failures.length} of ${promptTargetIds.length} selected scene prompts could not be rewritten `
+          + `(scene${failures.length === 1 ? '' : 's'} ${failures.slice(0, 20).map(f => f.label).join(', ')}`
+          + `${failures.length > 20 ? `, +${failures.length - 20} more` : ''}) — `
+          + 'they keep their previous prompt. The others were rewritten and saved. Retry rewrites only the failed scenes.',
+      })
+      job.output_lines.push(`Done — ${promptTargetIds.length} of ${promptTargetIds.length} selected scene prompts rewritten.`)
     }
     return
   }

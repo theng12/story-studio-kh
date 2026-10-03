@@ -25,7 +25,7 @@ test('Scene Plan bulk Cancel uses the queue cancel route, never the terminal-onl
 })
 
 test('every action that reloads the plan is disabled while edits are unsaved or a plan job runs', () => {
-  for (const label of [/'✨ Prompt only' \}\}/, /'🛡 Reword' \}\}/, /'🎬 Regen motion' \}\}/]) {
+  for (const label of [/'✨ Prompt Only' \}\}/, /'🛡 Reword' \}\}/, /'🎬 Regen Motion' \}\}/]) {
     const button = buttonFor(scenePlan, label)
     assert.match(button, /\|\| dirty/, `${label} waits for Save`)
     assert.match(button, /planBusy/, `${label} waits for the running job`)
@@ -47,7 +47,7 @@ test('single-scene prompt jobs are tracked so a failure is shown at once', () =>
   assert.match(scenePlan, /showError\(customerSafeJobText\(j\.error/)
 })
 
-test('Rebuild timeline is a danger confirmation naming the safe alternative', () => {
+test('Rebuild Timeline is a danger confirmation naming the safe alternative', () => {
   assert.match(scenePlan, /title: 'Start every scene over\?'[\s\S]{0,600}Reconcile timings[\s\S]{0,200}danger: true/)
 })
 

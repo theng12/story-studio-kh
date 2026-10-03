@@ -91,7 +91,7 @@
             @click="renumberScenes"
             title="Reset every scene number to its position in the list (1-based)"
           >
-            🔢 Auto-number in order
+            🔢 Auto-Number in Order
           </button>
           <div class="map-row map-head">
             <span class="col-source">Source filename</span>
@@ -125,7 +125,7 @@
           <code>Thumb02</code>… in selection order.
         </p>
         <div v-else class="map-table">
-          <button class="btn btn-secondary btn-sm renumber-btn" @click="renumberThumbs">🔢 Auto-number in order</button>
+          <button class="btn btn-secondary btn-sm renumber-btn" @click="renumberThumbs">🔢 Auto-Number in Order</button>
           <div class="map-row map-head">
             <span class="col-source">Source</span>
             <span class="col-arrow"></span>
@@ -151,7 +151,7 @@
           <code>Video02</code>…
         </p>
         <div v-else class="map-table">
-          <button class="btn btn-secondary btn-sm renumber-btn" @click="renumberVideos">🔢 Auto-number in order</button>
+          <button class="btn btn-secondary btn-sm renumber-btn" @click="renumberVideos">🔢 Auto-Number in Order</button>
           <div class="map-row map-head">
             <span class="col-source">Source</span>
             <span class="col-arrow"></span>

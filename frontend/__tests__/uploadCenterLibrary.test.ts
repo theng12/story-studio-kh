@@ -151,7 +151,7 @@ describe('Upload Center Library', () => {
     assert.match(text, /Needs a decision/)
     assert.match(text, /Our Title/)
     assert.match(text, /Their Title/)
-    for (const label of ['Update YouTube to Story Studio’s version', 'Keep YouTube', 'Review later']) {
+    for (const label of ['Update YouTube to Story Studio’s Version', 'Keep YouTube', 'Review Later']) {
       assert.equal(
         [...mounted.el.querySelectorAll('button')].some(b => b.textContent!.trim() === label),
         true,
@@ -166,7 +166,7 @@ describe('Upload Center Library', () => {
     assert.match(mounted.text(), /Settled/)
     assert.equal([...mounted.el.querySelectorAll('.decisions button')].length, 0, 'a settled field needs no drift decision')
     assert.equal(
-      [...mounted.el.querySelectorAll('button')].some(button => button.textContent!.trim() === 'Refresh thumbnail'),
+      [...mounted.el.querySelectorAll('button')].some(button => button.textContent!.trim() === 'Refresh Thumbnail'),
       true,
       'the separate, explicit thumbnail maintenance action remains reachable',
     )
@@ -207,7 +207,7 @@ describe('Upload Center Library', () => {
         },
       })],
     })
-    const use = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Update YouTube to Story Studio’s version')!
+    const use = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Update YouTube to Story Studio’s Version')!
     use.click()
     for (let i = 0; i < 6; i++) await nextTick()
 
@@ -250,7 +250,7 @@ describe('Upload Center Library', () => {
         },
       })],
     })
-    const later = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review later')!
+    const later = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review Later')!
     later.click()
     for (let i = 0; i < 6; i++) await nextTick()
     assert.match(mounted.text(), /stays visible/)
@@ -274,7 +274,7 @@ describe('Upload Center Library', () => {
 
   test('thumbnail refresh is explicit, operation-bound, and never runs on page load', async () => {
     const mounted = await mount({ videos: [video()] })
-    const refresh = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Refresh thumbnail')!
+    const refresh = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Refresh Thumbnail')!
     assert.ok(refresh)
     assert.deepEqual(mounted.calls.map(call => call.path), ['/projects/demo-project/youtube/library'])
 
@@ -282,7 +282,7 @@ describe('Upload Center Library', () => {
     for (let i = 0; i < 6; i++) await nextTick()
 
     assert.equal(mounted.confirms.length, 1)
-    assert.equal(mounted.confirms[0].confirmLabel, 'Refresh thumbnail')
+    assert.equal(mounted.confirms[0].confirmLabel, 'Refresh Thumbnail')
     const request = mounted.calls.find(call => call.path.endsWith('/thumbnail'))
     assert.deepEqual(request, {
       method: 'POST',
@@ -295,7 +295,7 @@ describe('Upload Center Library', () => {
 
   test('declining thumbnail refresh sends no write and a backend conflict stays visible', async () => {
     const declined = await mount({ videos: [video()], confirm: false })
-    ;[...declined.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Refresh thumbnail')!.click()
+    ;[...declined.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Refresh Thumbnail')!.click()
     for (let i = 0; i < 4; i++) await nextTick()
     assert.equal(declined.calls.some(call => call.path.endsWith('/thumbnail')), false)
     declined.destroy()
@@ -304,7 +304,7 @@ describe('Upload Center Library', () => {
       videos: [video()],
       thumbnailError: { data: { detail: 'This video belongs to a different assigned channel.' } },
     })
-    ;[...conflicted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Refresh thumbnail')!.click()
+    ;[...conflicted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Refresh Thumbnail')!.click()
     for (let i = 0; i < 6; i++) await nextTick()
     assert.match(conflicted.text(), /different assigned channel/)
     conflicted.destroy()

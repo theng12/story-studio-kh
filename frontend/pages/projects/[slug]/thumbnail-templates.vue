@@ -3,7 +3,7 @@
     <WorkspaceHero
       eyebrow="Library · Thumbnail composition"
       title="Thumbnail Recipe Catalog"
-      description="Browse reusable thumbnail formats. Recipe cards can show real generated examples, direct the AI composition, and safely composite the final headline."
+      description="Browse reusable thumbnail formats. Recipe cards can show real generated examples and direct the AI composition."
     >
       <template #aside><NuxtLink :to="`/projects/${slug}/images`" class="btn btn-sm btn-secondary">Back to Thumbnails</NuxtLink></template>
     </WorkspaceHero>
@@ -25,7 +25,7 @@
             </template>
             <template v-else-if="loadError">
               <span class="text-muted">{{ loadError }}</span>
-              <button type="button" class="btn btn-sm btn-ghost" @click="loadAll">Try again</button>
+              <button type="button" class="btn btn-sm btn-ghost" @click="loadAll">Try Again</button>
             </template>
             <template v-else>
               <span class="text-muted">No template set. Pick one below — it'll become the default for this project.</span>
@@ -39,7 +39,7 @@
             :disabled="templateMutationBusy"
             @click="clearProjectOverride"
           >
-            Use the niche default
+            Use the Niche Default
           </button>
           <span class="text-muted tt-active-hint">Forgets this project's pick; no thumbnails are changed.</span>
         </div>
@@ -55,14 +55,14 @@
         class="btn btn-sm btn-primary"
         @click="onCreateTemplate"
       >
-        + New template
+        + New Template
       </button>
     </div>
     <p class="text-muted tt-section-hint">
       ★ marks templates recommended for this project's niche
       <template v-if="nicheId"> (<strong>{{ nicheId }}</strong>)</template>.
       Click any card to set it as the project default — the next thumbnail prompt and render use it automatically.
-      Recipe cards keep the generated image text-free and add a crisp headline afterward. Hit <strong>Edit</strong> on any card to change it
+      The image model draws each thumbnail's headline; a template's text settings only shape its gallery preview card. Hit <strong>Edit</strong> on any card to change it
       (built-in cards are copied to your own library on first save, the original stays), or use <strong>+ New template</strong> to start from scratch.
     </p>
 

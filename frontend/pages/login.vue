@@ -44,7 +44,7 @@
           class="btn btn-primary login-submit"
           :disabled="submitting || !username || !password"
         >
-          {{ submitting ? 'Signing in…' : 'Sign In' }}
+          {{ submitting ? 'Signing In…' : 'Sign In' }}
         </button>
       </form>
 

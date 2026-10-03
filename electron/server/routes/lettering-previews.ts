@@ -216,7 +216,7 @@ router.post('/lettering-styles/preview', validateBody(PreviewSchema), async (req
     })
     source = result.url
   } catch (e: any) {
-    return res.status(502).json({ detail: e?.message || 'Gateway image generation failed' })
+    return res.status(502).json({ detail: e?.message || 'The Gateway could not make the image' })
   }
 
   let imageBytes: Buffer

@@ -28,7 +28,7 @@ import { registry } from '../providers/registry.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { recordTask, recordTaskStrict, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
 import { tryRecoverVideoFromManifest } from '../lib/manifest-recovery.js'
-import { fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
+import { fileExistsWithContent } from '../lib/http-retry.js'
 import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
@@ -259,16 +259,6 @@ export async function generateAiVideo(job: Job): Promise<void> {
       job.output_lines.push(`Skipping ${stem} (exists)`)
       return
     }
-    // iCloud-evicted: video clips are the most expensive assets in this app
-    // ($0.50–$2 each). If the local copy was evicted we MUST not re-bill.
-    if (!req.force && await isCloudEvictedPlaceholder(path.join(videoDir, `${stem}_v1.mp4`))) {
-      job.output_lines.push(
-        `⚠ ${stem}_v1.mp4 is iCloud-evicted (right-click in Finder → Download Now). ` +
-        `Skipped to avoid re-billing for an expensive video clip.`,
-      )
-      return
-    }
-
     // Auto-recovery: before issuing a fresh (charged) submit, see if the
     // task-manifest sidecar has a stored task_id from a previous run. If
     // the provider still has the result, polling it is free; otherwise

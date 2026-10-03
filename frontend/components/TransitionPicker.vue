@@ -13,8 +13,8 @@
       </div>
       <div class="tp-selection-meta">
         <span class="tp-meta-text">{{ selectionSummary }}</span>
-        <button v-if="pool.length" class="btn btn-sm btn-secondary" @click="$emit('update:pool', [])" title="Clear selected pool">Clear pool</button>
-        <button v-if="activeCatItems.length" class="btn btn-sm btn-secondary" @click="selectAllInCat">Select all in tab</button>
+        <button v-if="pool.length" class="btn btn-sm btn-secondary" @click="$emit('update:pool', [])" title="Clear selected pool">Clear Pool</button>
+        <button v-if="activeCatItems.length" class="btn btn-sm btn-secondary" @click="selectAllInCat">Select All in Tab</button>
       </div>
     </div>
 
@@ -29,7 +29,7 @@
         :title="t.hint || t.label"
         @click="setPrimary(t.id)"
       >
-        <div class="tp-preview" ref="previewRefs">
+        <div class="tp-preview">
           <video
             v-if="previewsLoaded.has(t.id)"
             :src="previewUrl(t.id)"

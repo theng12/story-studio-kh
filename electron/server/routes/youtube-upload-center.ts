@@ -89,7 +89,7 @@ import {
   syncYouTubePublicationState,
 } from '../services/youtube-publication-status.js'
 import { registryCredentialFor } from '../lib/youtube-client.js'
-import { ANALYTICS_METRICS, fetchProjectAnalytics } from '../services/youtube-analytics-cache.js'
+import { ANALYTICS_METRICS, VIDEO_FACTS, fetchProjectAnalytics } from '../services/youtube-analytics-cache.js'
 import { cursorKey } from '../services/youtube-page-cursor.js'
 import { metricNotFetched } from '../services/youtube-analytics-value.js'
 import {
@@ -1653,6 +1653,16 @@ async function analyticsResponseFor(slug: string): Promise<Record<string, unknow
   // the previous channel's performance.
   const cached = analyticsForChannel(state, current)
   const measured = new Map((cached?.episodes ?? []).map(episode => [episode.video_id, episode]))
+  // The title is the accepted idea's, read NOW - never stored with the numbers,
+  // for the same reason the code is not (see below).
+  const titles = new Map((await im.getIdeas(slug, 'accepted').catch(() => []))
+    .filter(idea => !!idea.episode_code)
+    .map(idea => [idea.episode_code!, idea.title || '']))
+  // Every metric and fact the product has, not_fetched unless the cache says
+  // otherwise - so a cache written before a metric existed reads as "not
+  // fetched" for it, never as an absent key a renderer might print as 0.
+  const allNotFetched = (names: readonly string[]) =>
+    Object.fromEntries(names.map(name => [name, metricNotFetched()]))
 
   const episodes = Object.entries(state.episode_video_links)
     .filter(([, link]) => onCurrentChannel(current, link.channel_id))
@@ -1662,9 +1672,10 @@ async function analyticsResponseFor(slug: string): Promise<Record<string, unknow
       // videos would otherwise show each one's real numbers under the other's
       // code - both rows wrong, and wrong in a way that reads as correct.
       episode_code: episodeCode,
+      title: titles.get(episodeCode) ?? '',
       video_id: link.video_id,
-      metrics: measured.get(link.video_id)?.metrics
-        ?? Object.fromEntries(ANALYTICS_METRICS.map(metric => [metric, metricNotFetched()])),
+      metrics: { ...allNotFetched(ANALYTICS_METRICS), ...measured.get(link.video_id)?.metrics },
+      facts: { ...allNotFetched(VIDEO_FACTS), ...measured.get(link.video_id)?.facts },
     }))
 
   const unmeasured = [...new Set(
@@ -1716,10 +1727,32 @@ router.get('/projects/:slug/youtube/analytics', async (req, res) => {
   }
 })
 
+/**
+ * The period the owner asked for, or a plain sentence saying why it cannot be.
+ * Neither date given is the default (the last 90 days). Dates are UTC calendar
+ * days, as YouTube's reports are.
+ */
+function analyticsWindow(body: unknown): { start_date?: string, end_date?: string } | { error: string } {
+  const { start_date: start, end_date: end } = (body ?? {}) as Record<string, unknown>
+  if (start === undefined && end === undefined) return {}
+  const real = (value: unknown): value is string => typeof value === 'string'
+    && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value
+  if (!real(start) || !real(end)) return { error: 'Choose a real start date and end date.' }
+  if (start > end) return { error: 'The start date must be on or before the end date.' }
+  if (end > new Date().toISOString().slice(0, 10)) return { error: 'The end date cannot be in the future.' }
+  return { start_date: start, end_date: end }
+}
+
 /** The one deliberate read. Everything else here is cache-first. */
 router.post('/projects/:slug/youtube/analytics/refresh', async (req, res) => {
   try {
     const slug = req.params.slug
+    const period = analyticsWindow(req.body)
+    if ('error' in period) {
+      res.status(400).json({ code: 'ANALYTICS_PERIOD_INVALID', detail: period.error })
+      return
+    }
     // The account that signs in to the ASSIGNED channel, not merely the
     // project default — see `accountForCurrentChannel`.
     // `accountForCurrentChannel` has already refused an unassigned project and
@@ -1745,6 +1778,7 @@ router.post('/projects/:slug/youtube/analytics/refresh', async (req, res) => {
       application_id: registry.application.application_id,
       channel_id: current,
       video_ids: videoIds,
+      ...period,
     })
 
     await recordYouTubeAnalyticsCache({
@@ -2900,6 +2934,122 @@ function normalizeFutureScheduleTime(value: string): string | null {
 }
 
 /**
+ * Change one current-channel video's visibility on YouTube and record exactly
+ * what YouTube confirmed. Shared by Schedule and Set visibility (bulk Publish
+ * actions use both) so the identity, channel and receipt rules cannot drift
+ * between the two routes. `publishAt` set means a private schedule.
+ */
+type VisibilityOutcome =
+  | { status: number; error: { code: string; detail: string } }
+  | { recorded: boolean; response: Record<string, unknown> }
+
+async function applyVideoVisibility(input: {
+  slug: string
+  episodeCode: string
+  expectedChannelId: string
+  privacy: 'private' | 'public' | 'unlisted'
+  publishAt: string | null
+  requirePrivacyStatus?: 'private'
+  verb: string
+}): Promise<VisibilityOutcome> {
+  const { slug, episodeCode, expectedChannelId, privacy, publishAt, requirePrivacyStatus, verb } = input
+  const idea = (await im.getIdeas(slug, 'accepted')).find(entry => entry.episode_code === episodeCode)
+  if (!idea) {
+    return { status: 404, error: { code: 'YOUTUBE_OPERATION_NOT_FOUND', detail: 'That episode is not accepted for YouTube publishing.' } }
+  }
+  const { accountId, channelId } = await accountForCurrentChannel(slug)
+  if (expectedChannelId !== channelId) {
+    return { status: 409, error: { code: 'YOUTUBE_CHANNEL_CHANGED', detail: 'The assigned YouTube channel changed. Reload the Upload Center and confirm again.' } }
+  }
+  const [records, publishingState] = await Promise.all([
+    listYouTubeOperations(slug),
+    readYouTubeProjectPublishingState(slug),
+  ])
+  const remote = await remoteVideoFor(slug, episodeCode, idea.title || '', channelId, records, publishingState)
+  if (!remote?.video_id) {
+    return { status: 404, error: { code: 'YOUTUBE_OPERATION_NOT_FOUND', detail: `That episode has no accepted YouTube video to ${verb}.` } }
+  }
+  if (remote.other_channel || remote.channel_id !== channelId) {
+    throw new YouTubeFoundationError(
+      409, 'YOUTUBE_CHANNEL_MISMATCH',
+      'That episode belongs to a YouTube channel this project no longer publishes to.',
+    )
+  }
+  const updated = await updateVideoMetadata({
+    slug,
+    accountId,
+    videoId: remote.video_id,
+    // A schedule is always private-until-publishAt; any other visibility
+    // clears a pending publishAt, or the video would still go public then.
+    status: { privacyStatus: privacy, publishAt },
+    ...(requirePrivacyStatus ? { requirePrivacyStatus } : {}),
+  })
+  if (updated.id !== remote.video_id || updated.status?.privacyStatus !== privacy
+    || (updated.status?.publishAt ?? null) !== publishAt) {
+    throw scheduleRouteError(502, publishAt
+      ? 'YouTube did not confirm the requested private schedule. The local receipt was not changed.'
+      : `YouTube did not confirm ${episodeCode} as ${privacy}. The local receipt was not changed.`)
+  }
+  const operation = remote.source === 'operation_record'
+    ? records.find(record => record.episode_code === episodeCode
+      && record.video_id === remote.video_id && record.channel_id === channelId)
+    : undefined
+  const recorded = await (async () => {
+    if (operation) {
+      await updatePinnedYouTubeOperation({
+        project_slug: slug,
+        operation_id: operation.operation_id,
+        expected_revision: operation.revision,
+        expected_channel_id: channelId,
+        mutate(record) {
+          if (record.remote_snapshot) record.previous_remote_snapshot = record.remote_snapshot
+          record.remote_snapshot = {
+            fetched_at: new Date().toISOString(),
+            title: typeof updated.snippet?.title === 'string' ? updated.snippet.title : record.remote_snapshot?.title || '',
+            description: typeof updated.snippet?.description === 'string' ? updated.snippet.description : record.remote_snapshot?.description || '',
+            tags: Array.isArray(updated.snippet?.tags) ? updated.snippet.tags.filter((tag: unknown) => typeof tag === 'string') : record.remote_snapshot?.tags || [],
+            privacy_status: privacy,
+            scheduled_for: publishAt,
+          }
+        },
+      })
+    } else {
+      // A historical sidecar or Reconcile link has no operation record to hold
+      // provider facts. Reuse the durable reconcile identity store, then write
+      // only the fields YouTube just returned. This is a verified receipt, not
+      // a local-plan claim or a synthetic upload operation.
+      await linkYouTubeEpisodeVideo({
+        project_slug: slug,
+        episode_code: episodeCode,
+        channel_id: channelId,
+        video_id: remote.video_id,
+        source: 'reconcile',
+        decided_at: new Date().toISOString(),
+      })
+      await recordYouTubeEpisodePublication({
+        project_slug: slug,
+        episode_code: episodeCode,
+        channel_id: channelId,
+        video_id: remote.video_id,
+        verified_at: new Date().toISOString(),
+        privacy_status: privacy,
+        scheduled_for: publishAt,
+      })
+      await setScheduledFor(slug, episodeCode, idea.title || '', 'youtube', publishAt)
+    }
+    return true
+  })().catch(() => false)
+  const response = {
+    ...(operation ? { operation_id: operation.operation_id } : {}),
+    episode_code: episodeCode,
+    video_id: remote.video_id,
+    privacy_status: privacy,
+    scheduled_at: publishAt,
+  }
+  return { recorded, response }
+}
+
+/**
  * Schedule one known current-channel video without uploading any bytes.
  *
  * The identity comes from the same resolver that keeps Upload from duplicating
@@ -2934,118 +3084,79 @@ router.post('/projects/:slug/youtube/episodes/:episode_code/schedule', async (re
       res.status(400).json({ detail: 'Choose a valid future publish time.' })
       return
     }
-    const idea = (await im.getIdeas(slug, 'accepted')).find(entry => entry.episode_code === episodeCode)
-    if (!idea) {
-      res.status(404).json({
-        code: 'YOUTUBE_OPERATION_NOT_FOUND',
-        detail: 'That episode is not accepted for YouTube publishing.',
-      })
-      return
-    }
-    const { accountId, channelId } = await accountForCurrentChannel(slug)
-    if (expectedChannelId !== channelId) {
-      res.status(409).json({
-        code: 'YOUTUBE_CHANNEL_CHANGED',
-        detail: 'The assigned YouTube channel changed. Reload the Upload Center and confirm again.',
-      })
-      return
-    }
-    const [records, publishingState] = await Promise.all([
-      listYouTubeOperations(slug),
-      readYouTubeProjectPublishingState(slug),
-    ])
-    const remote = await remoteVideoFor(slug, episodeCode, idea.title || '', channelId, records, publishingState)
-    if (!remote?.video_id) {
-      res.status(404).json({
-        code: 'YOUTUBE_OPERATION_NOT_FOUND',
-        detail: 'That episode has no accepted YouTube video to schedule.',
-      })
-      return
-    }
-    if (remote.other_channel || remote.channel_id !== channelId) {
-      throw new YouTubeFoundationError(
-        409, 'YOUTUBE_CHANNEL_MISMATCH',
-        'That episode belongs to a YouTube channel this project no longer publishes to.',
-      )
-    }
-    const updated = await updateVideoMetadata({
-      slug,
-      accountId,
-      videoId: remote.video_id,
-      status: { privacyStatus: 'private', publishAt },
-      requirePrivacyStatus: 'private',
+    const outcome = await applyVideoVisibility({
+      slug, episodeCode, expectedChannelId,
+      privacy: 'private', publishAt, requirePrivacyStatus: 'private', verb: 'schedule',
     })
-    if (updated.id !== remote.video_id || updated.status?.privacyStatus !== 'private'
-      || updated.status?.publishAt !== publishAt) {
-      throw scheduleRouteError(502, 'YouTube did not confirm the requested private schedule. The local receipt was not changed.')
+    if ('error' in outcome) {
+      res.status(outcome.status).json(outcome.error)
+      return
     }
-    const operation = remote.source === 'operation_record'
-      ? records.find(record => record.episode_code === episodeCode
-        && record.video_id === remote.video_id && record.channel_id === channelId)
-      : undefined
-    const recorded = await (async () => {
-      if (operation) {
-        await updatePinnedYouTubeOperation({
-          project_slug: slug,
-          operation_id: operation.operation_id,
-          expected_revision: operation.revision,
-          expected_channel_id: channelId,
-          mutate(record) {
-            if (record.remote_snapshot) record.previous_remote_snapshot = record.remote_snapshot
-            record.remote_snapshot = {
-              fetched_at: new Date().toISOString(),
-              title: typeof updated.snippet?.title === 'string' ? updated.snippet.title : record.remote_snapshot?.title || '',
-              description: typeof updated.snippet?.description === 'string' ? updated.snippet.description : record.remote_snapshot?.description || '',
-              tags: Array.isArray(updated.snippet?.tags) ? updated.snippet.tags.filter((tag: unknown) => typeof tag === 'string') : record.remote_snapshot?.tags || [],
-              privacy_status: 'private',
-              scheduled_for: publishAt,
-            }
-          },
-        })
-      } else {
-        // A historical sidecar or Reconcile link has no operation record to hold
-        // provider facts. Reuse the durable reconcile identity store, then write
-        // only the fields YouTube just returned. This is a verified receipt, not
-        // a local-plan claim or a synthetic upload operation.
-        await linkYouTubeEpisodeVideo({
-          project_slug: slug,
-          episode_code: episodeCode,
-          channel_id: channelId,
-          video_id: remote.video_id,
-          source: 'reconcile',
-          decided_at: new Date().toISOString(),
-        })
-        await recordYouTubeEpisodePublication({
-          project_slug: slug,
-          episode_code: episodeCode,
-          channel_id: channelId,
-          video_id: remote.video_id,
-          verified_at: new Date().toISOString(),
-          privacy_status: 'private',
-          scheduled_for: publishAt,
-        })
-        await setScheduledFor(slug, episodeCode, idea.title || '', 'youtube', publishAt)
-      }
-      return true
-    })().catch(() => false)
-    const response = {
-      ...(operation ? { operation_id: operation.operation_id } : {}),
-      episode_code: episodeCode,
-      video_id: remote.video_id,
-      privacy_status: 'private',
-      scheduled_at: publishAt,
-    }
-    if (!recorded) {
+    if (!outcome.recorded) {
       res.status(503).json({
         code: 'YOUTUBE_SCHEDULE_RECEIPT_UNRECORDED',
         detail: `YouTube accepted the schedule for ${episodeCode}, but Story Studio could not save its local receipt. Retry this same date and time to reconcile it; do not choose a different time until the retry succeeds.`,
-        ...response,
+        ...outcome.response,
       })
       return
     }
-    res.json(response)
+    res.json(outcome.response)
   } catch (error) {
     fail(res, error, 'Failed to schedule that YouTube video.')
+  }
+})
+
+/**
+ * Set one current-channel video's visibility (Public / Unlisted / Private) on
+ * YouTube. Used by the Publish page's bulk "Set visibility" one row at a time,
+ * each row confirmed by the owner with the exact count first. Any visibility
+ * set here clears a pending scheduled publish time — "Private" that still goes
+ * public next Tuesday would not be private.
+ */
+router.post('/projects/:slug/youtube/episodes/:episode_code/visibility', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const episodeCode = req.params.episode_code
+    if (req.body?.confirm !== true) {
+      res.status(400).json({
+        code: 'YOUTUBE_CONFIRMATION_REQUIRED',
+        detail: 'Confirm this visibility change before sending it to YouTube.',
+      })
+      return
+    }
+    const expectedChannelId = typeof req.body?.expected_channel_id === 'string'
+      ? req.body.expected_channel_id.trim()
+      : ''
+    if (!expectedChannelId) {
+      res.status(400).json({
+        code: 'YOUTUBE_CONFIRMATION_REQUIRED',
+        detail: 'Review the YouTube channel before confirming this visibility change.',
+      })
+      return
+    }
+    const privacy = req.body?.privacy_status
+    if (privacy !== 'public' && privacy !== 'unlisted' && privacy !== 'private') {
+      res.status(400).json({ detail: 'Choose Public, Unlisted or Private.' })
+      return
+    }
+    const outcome = await applyVideoVisibility({
+      slug, episodeCode, expectedChannelId, privacy, publishAt: null, verb: 'change',
+    })
+    if ('error' in outcome) {
+      res.status(outcome.status).json(outcome.error)
+      return
+    }
+    if (!outcome.recorded) {
+      res.status(503).json({
+        code: 'YOUTUBE_VISIBILITY_RECEIPT_UNRECORDED',
+        detail: `YouTube made ${episodeCode} ${privacy}, but Story Studio could not save its local receipt. Choose the same visibility again to reconcile it.`,
+        ...outcome.response,
+      })
+      return
+    }
+    res.json(outcome.response)
+  } catch (error) {
+    fail(res, error, 'Failed to change that video’s visibility on YouTube.')
   }
 })
 

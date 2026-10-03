@@ -11,9 +11,6 @@
    5. Transitions + B-Roll volume (mute / duck / full)
    6. Repeat avoidance — within-episode always on; cross-episode lookback
    7. Generated sequence preview + "Assemble video" trigger
-
-  Phase 2 ships subscription + episode selection only; full selection
-  + render fires in Phase 3.
 -->
 <template>
   <div class="broll-page">
@@ -35,9 +32,8 @@
     />
 
     <p class="text-muted text-sm mt-2">
-      This project uses the <strong>B-Roll Narration</strong> format. Scene Prompts / Scene
-      Generator pages are hidden — the video's visual layer comes from your subscribed app-level
-      B-Roll pool instead.
+      This project uses the <strong>B-Roll Narration</strong> format. The video's pictures come
+      from your subscribed B-Roll pool instead of generated scenes.
     </p>
 
     <!-- ── Pool subscription ─────────────────────────────────────── -->
@@ -386,7 +382,7 @@
         <button
           :class="['btn btn-sm', subtitlesSource === 'upload' ? 'btn-primary' : 'btn-secondary']"
           @click="subtitlesSource = 'upload'"
-        >📂 Import .srt / .vtt</button>
+        >📂 Import .Srt / .Vtt</button>
         <button
           :class="['btn btn-sm', subtitlesSource === 'whisper' ? 'btn-primary' : 'btn-secondary']"
           @click="subtitlesSource = 'whisper'"
@@ -426,7 +422,7 @@
         <div v-if="brollGenstudioModelsLoading" class="text-muted text-sm">Loading transcription models…</div>
         <p v-else-if="brollGenstudioModelsError" class="validation-msg text-sm">
           ⚠ {{ brollGenstudioModelsError }}
-          <NuxtLink :to="`/projects/${slug}/settings#genstudio-settings`" style="color: var(--accent)">Open transcription settings</NuxtLink>
+          <NuxtLink :to="`/projects/${slug}/settings#connections`" style="color: var(--accent)">Open transcription settings</NuxtLink>
           or <a href="#" style="color: var(--accent)" @click.prevent="loadBrollGenstudioModels">retry</a>.
         </p>
         <div v-else class="form-group mt-2">
@@ -474,7 +470,7 @@
           :disabled="subtitlesGenerating || !canTranscribeBroll"
           @click="transcribeBrollWithGenStudio"
         >
-          {{ subtitlesGenerating ? 'Queuing…' : (brollHasExistingWhisperSrt && !brollWhisperForce ? 'Reuse existing transcript' : 'Transcribe now') }}
+          {{ subtitlesGenerating ? 'Queuing…' : (brollHasExistingWhisperSrt && !brollWhisperForce ? 'Reuse Existing Transcript' : 'Transcribe Now') }}
         </button>
       </div>
 
@@ -591,7 +587,7 @@
           {{ (assembling || assembleJobActive) ? 'Assembling…' : '🎞 Assemble video' }}
         </button>
         <button class="btn btn-ghost" @click="pickClips" :disabled="picking">
-          {{ form.selection_mode === 'manual' ? '↻ Save manual sequence again' : '↻ Re-pick (different shuffle)' }}
+          {{ form.selection_mode === 'manual' ? '↻ Save Manual Sequence Again' : '↻ Re-Pick (Different Shuffle)' }}
         </button>
       </div>
       <p class="hint text-sm mt-1">
@@ -1156,7 +1152,7 @@ async function saveSubscription(): Promise<void> {
   }
 }
 
-// ── Selection (Phase 3 backend) ────────────────────────────────────────
+// ── Selection ────────────────────────────────────────
 
 async function pickClips(): Promise<void> {
   if (!subscribedPoolId.value || !form.episode_id || picking.value) return
@@ -1202,7 +1198,7 @@ async function pickClips(): Promise<void> {
   }
 }
 
-// ── Assemble (Phase 3 — fires the existing video_assembly job) ────────
+// ── Assemble (fires the existing video_assembly job) ────────
 
 async function assembleVideo(): Promise<void> {
   if (!form.episode_id || assembling.value) return

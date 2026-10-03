@@ -60,10 +60,10 @@ test('1: subtitles switched off still skips the check and renders in one click',
   assert.equal(h.queued, 1)
 })
 
-test('1: the notice offers Open Subtitles for this episode and Render without captions', () => {
+test('1: the notice offers Open Subtitles for this episode and Render Without Captions', () => {
   assert.match(template, /v-if="noSubtitleFile && !preflightConfirmed"/)
   assert.match(template, /subtitles\?episode_id=\$\{encodeURIComponent\(episodeId\)\}`"[^>]*>Open Subtitles/)
-  assert.match(template, /@click="preflightConfirmed = true; generateVideo\(\)"[\s\S]*?Render without captions/)
+  assert.match(template, /@click="preflightConfirmed = true; generateVideo\(\)"[\s\S]*?Render Without Captions/)
 })
 
 test('9: bouncing from Step 6 to the caption check says why and scrolls to it', async () => {
@@ -88,19 +88,19 @@ test('2: the render panel keeps the terminal status instead of saying Finished f
   assert.match(template, /activeJobStatus === 'error'">Render failed — \{\{ activeJobErrorLine \}\}/)
   assert.match(template, /activeJobStatus === 'cancelled'">Cancelled/)
   assert.match(template, /activeJobStatus === 'done'">Done/)
-  assert.match(template, /@click="generateVideo">Try again/)
+  assert.match(template, /@click="generateVideo">Try Again/)
   assert.match(script, /const activeJobStatus = computed\(/)
 })
 
 test('5: Reveal effects loads its library and plan, and the plan can be asked for', () => {
   assert.match(script, /watch\(\(\) => sceneReveal\.enabled, \(enabled\) => \{[\s\S]*?void loadRevealLibrary\(\)[\s\S]*?void loadRevealPlan\(\)/)
   assert.match(script, /watch\(\[slug, episodeId\], \(\) => \{\s*revealPlan\.value = null/)
-  assert.match(template, /v-if="!revealPlan" class="mt-3">[\s\S]*?Show planned arrivals/)
+  assert.match(template, /v-if="!revealPlan" class="mt-3">[\s\S]*?Show Planned Arrivals/)
   assert.match(template, /revealLibraryError && !revealLibrary\.length/)
 })
 
-test('6: a failed animations load shows an error with Try again, not Loading forever', () => {
-  assert.match(template, /v-if="animationsCatalogLoading"[\s\S]*?v-else-if="animationsCatalogError"[\s\S]*?@click="loadAnimationsCatalog">Try again/)
+test('6: a failed animations load shows an error with Try Again, not Loading forever', () => {
+  assert.match(template, /v-if="animationsCatalogLoading"[\s\S]*?v-else-if="animationsCatalogError"[\s\S]*?@click="loadAnimationsCatalog">Try Again/)
   assert.doesNotMatch(template, /v-if="!animationsCatalog\.length"/)
   assert.doesNotMatch(fnSource('loadAnimationsCatalog'), /catch \{ \/\* non-fatal \*\/ \}/)
   assert.match(fnSource('loadAnimationsCatalog'), /animationsCatalogError\.value = /)

@@ -60,7 +60,7 @@
             :disabled="!visualSource"
             title="Click a pending cell to mark it done by hand (for results you imported from outside the app). Click a hand-marked cell to undo."
             @click="mode = 'mark'"
-          >✓ Mark done</button>
+          >✓ Mark Done</button>
         </div>
         <div class="board-search">
           <span class="board-search-icon" aria-hidden="true">🔎</span>
@@ -171,7 +171,7 @@
     <div v-else-if="!episodes.length && episodesError" class="board-empty">
       <p class="board-empty-title">Could not read this project's episodes</p>
       <p class="text-muted">Nothing was changed. Check that the project folder or drive is available, then try again.</p>
-      <button class="btn btn-secondary" @click="refresh()">Try again</button>
+      <button class="btn btn-secondary" @click="refresh()">Try Again</button>
     </div>
 
     <!-- Empty -->
@@ -191,7 +191,7 @@
         <template v-else-if="needsWorkOnly">Every episode is fully done. </template>
         Clear the filters to see all {{ episodes.length }}.
       </p>
-      <button class="btn btn-secondary" @click="search = ''; needsWorkOnly = false; stepFilter = null; failedOnly = false">Show all episodes</button>
+      <button class="btn btn-secondary" @click="search = ''; needsWorkOnly = false; stepFilter = null; failedOnly = false">Show All Episodes</button>
     </div>
 
     <!-- The matrix -->

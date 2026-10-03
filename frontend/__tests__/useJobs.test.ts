@@ -417,3 +417,36 @@ describe('useJobs — SSE recovery', () => {
     }
   })
 })
+
+describe('useJobs — hidden window', () => {
+  const setVisibility = (state: 'hidden' | 'visible') => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state })
+    document.dispatchEvent(new Event('visibilitychange'))
+  }
+
+  test('the project stream closes while hidden and reopens with a fresh snapshot on return', () => {
+    const { stopPolling, jobs } = useJobs()
+    reset('hidden-proj')
+    const first = FakeEventSource.last!
+    first.fire('snapshot', mkSnapshot([mkJob({ job_id: 'h1', project_slug: 'hidden-proj', status: 'running' })]))
+    try {
+      setVisibility('hidden')
+      assert.equal(first.closed, true, 'no live processing while hidden')
+      assert.equal(jobs.value[0]?.status, 'running', 'the last known list stays on screen')
+      setVisibility('visible')
+      const second = FakeEventSource.last!
+      assert.notEqual(second, first)
+      assert.equal(second.url, '/api/projects/hidden-proj/jobs/stream')
+      second.fire('snapshot', mkSnapshot([mkJob({ job_id: 'h1', project_slug: 'hidden-proj', status: 'error' })]))
+      assert.equal(jobs.value[0]?.status, 'error', 'caught up from the server')
+
+      stopPolling()
+      setVisibility('hidden')
+      setVisibility('visible')
+      assert.equal(FakeEventSource.last, second, 'a stopped page does not reopen on return')
+    } finally {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
+      stopPolling()
+    }
+  })
+})

@@ -9,6 +9,20 @@ import { transform } from 'esbuild'
 const pagePath = fileURLToPath(new URL('../pages/projects/[slug]/upload/plans.vue', import.meta.url))
 const source = readFileSync(pagePath, 'utf8')
 
+const draftUtilUrl = new URL('../utils/uploadPlanDraft.ts', import.meta.url).href
+const editorPath = fileURLToPath(new URL('../components/UploadScheduleEditor.vue', import.meta.url))
+
+/** The shared schedule editor both Settings and the Upload Center use (v1.4.249). */
+async function loadEditor(): Promise<Component> {
+  const { descriptor } = parse(readFileSync(editorPath, 'utf8'), { filename: editorPath })
+  const script = compileScript(descriptor, { id: 'uc-editor' })
+  const template = compileTemplate({ source: descriptor.template!.content, filename: editorPath, id: 'uc-editor', compilerOptions: { bindingMetadata: script.bindings } })
+  const vueUrl = await import.meta.resolve('vue')
+  const code = `${script.content.replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
+  const out = await transform(code, { loader: 'ts', format: 'esm' })
+  return (await import(`data:text/javascript;base64,${Buffer.from(out.code.replaceAll('"vue"', JSON.stringify(vueUrl)).replaceAll('"~/utils/uploadPlanDraft"', JSON.stringify(draftUtilUrl))).toString('base64')}`)).default
+}
+
 async function loadPage(): Promise<Component> {
   const { descriptor } = parse(source, { filename: pagePath })
   const script = compileScript(descriptor, { id: 'uc-plans' })
@@ -25,7 +39,7 @@ async function loadPage(): Promise<Component> {
   `
   const code = `${support}\n${script.content.replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
   const out = await transform(code, { loader: 'ts', format: 'esm' })
-  return (await import(`data:text/javascript;base64,${Buffer.from(out.code.replaceAll('"vue"', JSON.stringify(vueUrl))).toString('base64')}`)).default
+  return (await import(`data:text/javascript;base64,${Buffer.from(out.code.replaceAll('"vue"', JSON.stringify(vueUrl)).replaceAll('"~/utils/uploadPlanDraft"', JSON.stringify(draftUtilUrl))).toString('base64')}`)).default
 }
 
 interface Call { method: string; path: string; body?: any }
@@ -76,6 +90,7 @@ async function mount(input: {
   const el = document.createElement('div')
   document.body.appendChild(el)
   const app = createApp(defineComponent({ render: () => h(Page as any) }))
+  app.component('UploadScheduleEditor', await loadEditor())
   app.component('NuxtLink', defineComponent({
     props: { to: String }, setup(props, { slots }) { return () => h('a', { href: props.to }, slots.default?.()) },
   }))
@@ -103,11 +118,11 @@ function namedInput(el: HTMLElement, label: string): HTMLInputElement {
 function input(el: HTMLInputElement, value: string): void { el.value = value; el.dispatchEvent(new Event('input', { bubbles: true })) }
 
 describe('Upload Center Plans', () => {
-  test('creates a local plan from the channel cadence without applying a schedule', async () => {
+  test('creates a plan from the channel cadence without applying a schedule', async () => {
     const mounted = await mount({ config: { publish_cadence: { schedule: { weekdays: [1, 4], time_local: '09:30', timezone: 'Asia/Phnom_Penh', interval_weeks: 2 }, defaults: { privacy_status: 'private', language: 'km' } } } })
-    assert.match(mounted.text(), /local future-slot choices/)
-    assert.equal(button(mounted.el, 'New plan').disabled, false)
-    assert.equal(button(mounted.el, 'Save local plan').disabled, false)
+    assert.match(mounted.text(), /same one Settings → Publishing shows/)
+    assert.equal(button(mounted.el, 'New Plan').disabled, false)
+    assert.equal(button(mounted.el, 'Save Plan').disabled, false)
     assert.equal([...mounted.el.querySelectorAll('a')].find(link => link.textContent?.trim() === 'Return to Publish')?.getAttribute('href'), '/projects/demo/upload/publish')
     input(namedInput(mounted.el, 'Plan name'), 'Morning releases')
     mounted.el.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
@@ -118,7 +133,7 @@ describe('Upload Center Plans', () => {
     assert.equal(save.body.schedule.interval_weeks, 2)
     assert.equal(save.body.defaults.language, 'km')
     assert.equal(mounted.calls.some(call => /plan\/(apply|preview)|youtube\/upload/.test(call.path)), false)
-    assert.match(mounted.text(), /has not applied dates or changed YouTube/)
+    assert.match(mounted.text(), /No dates were applied and YouTube is unchanged/)
     mounted.destroy()
   })
 
@@ -144,10 +159,10 @@ describe('Upload Center Plans', () => {
     const first = plan()
     const second = plan({ id: 'plan-2', name: 'Weekend uploads', schedule: { weekdays: [6], time_local: '10:00', timezone: 'Asia/Phnom_Penh' } })
     const mounted = await mount({ plans: { plans: [first, second], active: { 'youtube:registry:UC-x': 'plan-1' } } })
-    button(mounted.el, 'Make active').click()
+    button(mounted.el, 'Make Active').click()
     await ticks()
     assert.deepEqual(mounted.calls.filter(call => call.method === 'PUT').map(call => call.path), ['/projects/demo/upload/plans/plan-2/active'])
-    assert.match(mounted.text(), /Weekend uploads is now the active local plan/)
+    assert.match(mounted.text(), /Weekend uploads is now the upload schedule for Channel UC-x, here and in Settings → Publishing/)
     assert.equal(mounted.calls.some(call => call.method === 'POST'), false)
     mounted.destroy()
   })
@@ -162,13 +177,13 @@ describe('Upload Center Plans', () => {
     await ticks()
     input(namedInput(mounted.el, 'Plan name'), 'Unsaved Friday')
     await ticks()
-    assert.equal(button(mounted.el, 'Make this plan active').disabled, true)
-    assert.match(mounted.text(), /Save changes before making this plan active/)
-    button(mounted.el, 'New plan').click()
+    assert.equal(button(mounted.el, 'Make This Plan Active').disabled, true)
+    assert.match(mounted.text(), /Save Changes before making this plan active/)
+    button(mounted.el, 'New Plan').click()
     await ticks()
     assert.equal(namedInput(mounted.el, 'Plan name').value, 'Unsaved Friday')
     assert.equal(mounted.confirms[0].title, 'Discard unsaved plan changes?')
-    button(mounted.el, 'Make active').click()
+    button(mounted.el, 'Make Active').click()
     await ticks()
     assert.equal(mounted.calls.some(call => call.method === 'PUT'), false)
     assert.equal(mounted.confirms[1].title, 'Make the saved plan active?')
@@ -199,7 +214,7 @@ describe('Upload Center Plans', () => {
     button(mounted.el, 'Retry').click()
     await ticks()
     assert.equal(attempts, 2)
-    assert.match(mounted.text(), /No local upload plans yet/)
+    assert.match(mounted.text(), /No upload plans yet/)
     mounted.destroy()
   })
 
@@ -216,7 +231,7 @@ describe('Upload Center Plans', () => {
     input(namedInput(mounted.el, 'Plan name'), 'No days')
     mounted.el.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     await ticks()
-    assert.match(mounted.text(), /Pick at least one weekday/)
+    assert.match(mounted.text(), /Pick at least one day/)
     assert.equal(mounted.calls.some(call => call.method === 'POST'), false)
     mounted.destroy()
   })

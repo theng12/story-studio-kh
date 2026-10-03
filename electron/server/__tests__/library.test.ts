@@ -14,8 +14,6 @@
  *   - "Never chosen" and "chosen but not there" are different states, because
  *     an unplugged drive must never render as "you have no channels" — the
  *     same failure shape as 1.4.2's silent `output_root`.
- *   - The migration MOVES NOTHING. A dead link is dropped, a live one is
- *     reported, and every file stays where it is.
  */
 
 import { test, describe, before, after, beforeEach } from 'node:test'
@@ -26,13 +24,11 @@ import path from 'path'
 import { useTempDataDir } from './_helpers.js'
 
 let lib: typeof import('../services/library.js')
-let mig: typeof import('../services/library-migration.js')
 let settings: typeof import('../services/app-settings.js')
 let tmp: { dir: string; cleanup: () => Promise<void> }
 
 before(async () => {
   lib = await import('../services/library.js')
-  mig = await import('../services/library-migration.js')
   settings = await import('../services/app-settings.js')
 })
 beforeEach(async () => {
@@ -121,203 +117,5 @@ describe('choosing a Library', () => {
     await lib.setLibraryRoot(target)
     assert.equal(await lib.assetsDir(), path.join(target, '_Project Assets'))
     assert.equal(await lib.exportsDir(), path.join(target, 'Exports'))
-  })
-})
-
-describe('retiring the old location settings', () => {
-  test('the old projects root becomes the Library, so nobody is sent to first run', async () => {
-    const legacy = path.join(tmp.dir, 'old-root')
-    await fs.mkdir(legacy, { recursive: true })
-    await settings.setAppSetting('projects_root_override', legacy)
-    await mig.migrateLegacyLocationSettings()
-    assert.equal(await settings.getAppSetting('library_root'), legacy)
-    assert.equal((await lib.describeLibrary()).configured, true)
-  })
-
-  test('dead links are dropped in silence', async () => {
-    // All five of the owner's real linked paths were iCloud folders that no
-    // longer existed, while the same channels sat healthy in Documents. A link
-    // to a folder that is gone is not information worth interrupting someone for.
-    await settings.setAppSetting('linked_project_paths', [
-      '/Users/nobody/Library/Mobile Documents/com~apple~CloudDocs/Gone A',
-      '/Users/nobody/Library/Mobile Documents/com~apple~CloudDocs/Gone B',
-    ])
-    const notices = await mig.migrateLegacyLocationSettings()
-    assert.equal(notices.some(n => n.id === 'linked-projects-retired'), false)
-    assert.deepEqual(await settings.getAppSetting('linked_project_paths'), [])
-  })
-
-  test('a link that still exists is reported and its folder left alone', async () => {
-    const outside = path.join(tmp.dir, 'outside-channel')
-    await fs.mkdir(outside, { recursive: true })
-    await fs.writeFile(path.join(outside, 'project.json'), '{"slug":"outside-channel"}')
-    await settings.setAppSetting('linked_project_paths', [outside])
-
-    const notices = await mig.migrateLegacyLocationSettings()
-    const notice = notices.find(n => n.id === 'linked-projects-retired')
-    assert.ok(notice, 'a live folder outside the Library must be reported')
-    assert.ok(notice!.paths.includes(outside), 'and named, so he can act on it')
-    // The cardinal rule: nothing was moved, copied or deleted.
-    assert.ok(existsSync(path.join(outside, 'project.json')))
-  })
-
-  test('an existing export pile is reported, never relocated', async () => {
-    // 220 GB and 191 finished videos on the real machine. Moving a fifth of a
-    // terabyte unasked is not a decision this app gets to make.
-    const exports = path.join(tmp.dir, 'YouTube Exports')
-    await fs.mkdir(exports, { recursive: true })
-    await fs.writeFile(path.join(exports, 'EP0001_final_video.mp4'), 'video bytes')
-    await settings.setAppSetting('external_final_video_root', exports)
-
-    const notices = await mig.migrateLegacyLocationSettings()
-    const notice = notices.find(n => n.id === 'exports-moved')
-    assert.ok(notice)
-    assert.ok(notice!.paths.includes(exports))
-    assert.ok(existsSync(path.join(exports, 'EP0001_final_video.mp4')), 'existing exports must not move')
-  })
-
-  test('running twice does not repeat itself', async () => {
-    const outside = path.join(tmp.dir, 'outside-twice')
-    await fs.mkdir(outside, { recursive: true })
-    await settings.setAppSetting('linked_project_paths', [outside])
-    await mig.migrateLegacyLocationSettings()
-    await mig.migrateLegacyLocationSettings()
-    const stored = await mig.listMigrationNotices()
-    assert.equal(stored.filter(n => n.id === 'linked-projects-retired').length, 1)
-  })
-
-  test('a notice can be dismissed and stays dismissed', async () => {
-    await settings.setAppSetting('external_final_video_root', tmp.dir)
-    await mig.migrateLegacyLocationSettings()
-    assert.equal((await mig.listMigrationNotices()).length, 1)
-    await mig.dismissMigrationNotice('exports-moved')
-    assert.equal((await mig.listMigrationNotices()).length, 0)
-  })
-
-  test('a clean install has nothing to say', async () => {
-    const notices = await mig.migrateLegacyLocationSettings()
-    assert.deepEqual(notices, [])
-    assert.deepEqual(await mig.listMigrationNotices(), [])
-  })
-})
-
-/**
- * v1.4.8 — "why i can't dismiss it for ever?"
- *
- * Two of the four notices were generated from a condition that stays true, and
- * regenerated on the next boot seconds after being dismissed. Only the linked-
- * projects notice went away, and only because it happened to clear the setting
- * it read; the other two never cleared anything, so "Got it" was a button that
- * did nothing lasting.
- *
- * The three shapes below are the ones a person actually hits: relaunching the
- * app, the page re-reading settings, and a downgrade followed by an upgrade.
- * The settings behind the notices must survive all three untouched — dismissing
- * a message is not permission to delete the data it describes.
- */
-describe('a dismissed upgrade notice never comes back', () => {
-  /** Raise every notice this migration can produce, then close them all. */
-  async function raiseAndDismissEverything(): Promise<{ exportRoot: string; namedRoots: string }> {
-    const exportRoot = path.join(tmp.dir, 'YouTube Exports')
-    await fs.mkdir(exportRoot, { recursive: true })
-    await settings.setAppSetting('external_final_video_root', exportRoot)
-
-    const namedRoots = path.join(tmp.dir, 'named-roots.json')
-    await fs.writeFile(namedRoots, JSON.stringify({ MY_FOLDER: path.join(tmp.dir, 'tn-assets') }))
-
-    const first = await mig.migrateLegacyLocationSettings()
-    assert.deepEqual(
-      first.map(n => n.id).sort(),
-      ['exports-moved', 'named-roots-retired'],
-      'both must appear the first time — they are correct, just not forever',
-    )
-    await mig.dismissMigrationNotice('named-roots-retired')
-    await mig.dismissMigrationNotice('exports-moved')
-    assert.deepEqual(await mig.listMigrationNotices(), [])
-    return { exportRoot, namedRoots }
-  }
-
-  test('not after a restart, even though the settings behind it are still set', async () => {
-    const { exportRoot, namedRoots } = await raiseAndDismissEverything()
-
-    // Boot again. This is the exact call that used to undo the dismissal.
-    const second = await mig.migrateLegacyLocationSettings()
-    assert.deepEqual(second, [], 'a boot must not regenerate a notice he has closed')
-    assert.deepEqual(await mig.listMigrationNotices(), [])
-
-    // And nothing of his was thrown away to achieve it.
-    assert.equal(await settings.getAppSetting('external_final_video_root'), exportRoot)
-    assert.equal(existsSync(namedRoots), true, 'named-roots.json is his file, not ours to delete')
-  })
-
-  test('not after ten restarts', async () => {
-    await raiseAndDismissEverything()
-    for (let i = 0; i < 10; i++) await mig.migrateLegacyLocationSettings()
-    assert.deepEqual(await mig.listMigrationNotices(), [])
-  })
-
-  test('not when the page re-reads the settings', async () => {
-    await raiseAndDismissEverything()
-    // The home page asks GET /library/notices on every mount; the answer must
-    // be the same on the hundredth ask as on the first.
-    assert.deepEqual(await mig.listMigrationNotices(), [])
-    assert.deepEqual(await mig.listMigrationNotices(), [])
-  })
-
-  test('not after a downgrade puts it back and an upgrade reads it again', async () => {
-    await raiseAndDismissEverything()
-
-    // A 1.4.7 build knows nothing about the acknowledgement and re-adds the
-    // notice to the stored list. Simulate exactly that write.
-    await settings.setAppSetting(mig.MIGRATION_NOTICES_KEY, [{
-      id: 'exports-moved',
-      title: 'Finished videos now go into your Library',
-      body: 'written by an older build',
-      paths: [tmp.dir],
-    }])
-
-    assert.deepEqual(
-      await mig.listMigrationNotices(), [],
-      'the acknowledgement outlives the notice list, so an old build cannot resurrect it',
-    )
-    assert.deepEqual(await mig.migrateLegacyLocationSettings(), [])
-  })
-
-  test('dismissing one leaves the others alone', async () => {
-    const exportRoot = path.join(tmp.dir, 'Exports elsewhere')
-    await fs.mkdir(exportRoot, { recursive: true })
-    await settings.setAppSetting('external_final_video_root', exportRoot)
-    await fs.writeFile(
-      path.join(tmp.dir, 'named-roots.json'),
-      JSON.stringify({ MY_FOLDER: path.join(tmp.dir, 'tn-assets') }),
-    )
-    await mig.migrateLegacyLocationSettings()
-
-    await mig.dismissMigrationNotice('exports-moved')
-    assert.deepEqual((await mig.listMigrationNotices()).map(n => n.id), ['named-roots-retired'])
-    // Still true after a restart: one answered, one still waiting.
-    await mig.migrateLegacyLocationSettings()
-    assert.deepEqual((await mig.listMigrationNotices()).map(n => n.id), ['named-roots-retired'])
-  })
-
-  test('the acknowledgement is recorded before the notice list is pruned', async () => {
-    // Dismissal writes the acknowledgement first and tidies the list second, so
-    // a crash between the two still leaves the notice gone for good.
-    await settings.setAppSetting('external_final_video_root', tmp.dir)
-    await mig.migrateLegacyLocationSettings()
-    await mig.dismissMigrationNotice('exports-moved')
-    assert.deepEqual(
-      await settings.getAppSetting(mig.MIGRATION_NOTICES_DISMISSED_KEY),
-      ['exports-moved'],
-    )
-  })
-
-  test('dismissing the same notice twice is harmless', async () => {
-    await settings.setAppSetting('external_final_video_root', tmp.dir)
-    await mig.migrateLegacyLocationSettings()
-    await mig.dismissMigrationNotice('exports-moved')
-    await mig.dismissMigrationNotice('exports-moved')
-    assert.deepEqual(await settings.getAppSetting(mig.MIGRATION_NOTICES_DISMISSED_KEY), ['exports-moved'])
-    assert.deepEqual(await mig.listMigrationNotices(), [])
   })
 })

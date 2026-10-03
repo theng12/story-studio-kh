@@ -82,7 +82,12 @@ export interface LibraryStatus {
   /** What to pre-fill a first-run picker with. */
   suggested: string
   assets_dir: string
+  /** Where finished videos go now: the chosen folder, or `<Library>/Exports`. */
   exports_dir: string
+  /** True when the owner picked a finished-videos folder of his own. */
+  exports_custom: boolean
+  /** Earlier finished-videos folders that are still searched for existing videos. */
+  exports_previous: string[]
 }
 
 /** Read the configured Library without touching the filesystem. */
@@ -125,7 +130,9 @@ export async function describeLibrary(): Promise<LibraryStatus> {
     writable: exists ? await isWritable(root) : false,
     suggested: suggestedLibraryPath(),
     assets_dir: root ? path.join(root, ASSETS_DIR_NAME) : '',
-    exports_dir: root ? path.join(root, EXPORTS_DIR_NAME) : '',
+    exports_dir: await exportsDir(),
+    exports_custom: !!(await getCustomExportsRoot()),
+    exports_previous: await previousExportsDirs(),
   }
 }
 
@@ -241,8 +248,85 @@ export async function assetsDir(): Promise<string> {
   return root ? path.join(root, ASSETS_DIR_NAME) : ''
 }
 
-/** Where finished videos go, replacing the free-floating export root. */
+/**
+ * The finished-videos folder the owner chose, or '' for the default
+ * `<Library>/Exports` (v1.4.249).
+ *
+ * The owner: *"where finished videos go — no pick, it's a long text path to
+ * type."* So the folder is choosable again, but only through
+ * `setExportsRoot`, which records the folder it replaces in
+ * `EXPORTS_HISTORY_KEY`. Videos already rendered stay where they are and are
+ * still found there (see `resolveExternalFinalVideoDir`), so changing the
+ * folder never makes a finished episode look unfinished.
+ */
+export const EXPORTS_ROOT_KEY = 'exports_root'
+export const EXPORTS_HISTORY_KEY = 'exports_root_previous'
+const EXPORTS_HISTORY_LIMIT = 8
+
+export async function getCustomExportsRoot(): Promise<string> {
+  const raw = await getAppSetting(EXPORTS_ROOT_KEY)
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : ''
+}
+
+/** Where finished videos go: the chosen folder, else `<Library>/Exports`. */
 export async function exportsDir(): Promise<string> {
+  const custom = await getCustomExportsRoot()
+  if (custom) return custom
   const root = await getLibraryRoot()
   return root ? path.join(root, EXPORTS_DIR_NAME) : ''
+}
+
+/** Earlier finished-videos folders, newest first. Read-only history. */
+export async function previousExportsDirs(): Promise<string[]> {
+  const raw = await getAppSetting(EXPORTS_HISTORY_KEY)
+  return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === 'string' && !!v.trim()) : []
+}
+
+/**
+ * Choose where NEW finished videos go. `''` (or null) means the Library's own
+ * `Exports` folder again. Nothing on disk is moved: the folder being replaced
+ * is remembered so its videos keep being found.
+ */
+export async function setExportsRoot(candidate: string | null): Promise<LibraryStatus> {
+  const before = await exportsDir()
+  const raw = String(candidate ?? '').trim()
+  let next = ''
+  if (raw) {
+    const check = await checkLibraryTarget(raw)
+    if (!check.ok) throw Object.assign(new Error(check.reason), { status: 400, expose: true })
+    const library = await getLibraryRoot()
+    if (library) {
+      const lib = path.resolve(library)
+      const rel = path.relative(check.path, lib)
+      // The Library itself, or a folder that contains it, would put
+      // `<folder>/<channel>/…` exactly where the channel's own project folder is.
+      if (check.path === lib || (!rel.startsWith('..') && !path.isAbsolute(rel))) {
+        throw Object.assign(new Error(
+          `"${check.path}" holds your Library, so finished videos would land inside your channel folders. `
+          + 'Choose a separate folder, such as one called "Finished videos".',
+        ), { status: 400, expose: true })
+      }
+      if (check.path === path.join(lib, EXPORTS_DIR_NAME)) next = ''
+      else next = check.path
+    } else {
+      next = check.path
+    }
+    if (next) {
+      const { assertWriteIsolatedInTests } = await import('../lib/test-isolation.js')
+      assertWriteIsolatedInTests(next, 'exports-root')
+      await fs.mkdir(next, { recursive: true })
+    }
+  }
+  await setAppSetting(EXPORTS_ROOT_KEY, next)
+  const after = await exportsDir()
+  if (before && path.resolve(before) !== path.resolve(after || '.')) {
+    const history = (await previousExportsDirs()).filter(p => path.resolve(p) !== path.resolve(before)
+      && (!after || path.resolve(p) !== path.resolve(after)))
+    await setAppSetting(EXPORTS_HISTORY_KEY, [before, ...history].slice(0, EXPORTS_HISTORY_LIMIT))
+  } else if (after) {
+    const history = await previousExportsDirs()
+    const pruned = history.filter(p => path.resolve(p) !== path.resolve(after))
+    if (pruned.length !== history.length) await setAppSetting(EXPORTS_HISTORY_KEY, pruned)
+  }
+  return describeLibrary()
 }

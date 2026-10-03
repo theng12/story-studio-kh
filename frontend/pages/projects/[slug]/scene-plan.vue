@@ -50,13 +50,12 @@
             :title="dirty ? 'Save your scene edits first' : `${timelineBuiltLabel}. Rebuilding starts every scene over: new scenes, cleared prompts, and existing images and approvals no longer attached. Asks for confirmation first.`"
             @click="planScenes"
           >
-            1. Rebuild timeline
+            1. Rebuild Timeline
           </button>
         </template>
       </TopActionBar>
     </div>
 
-    <InheritedLlmLineupNotice :project-slug="slug" />
 
     <EpisodeVisualSource
       v-if="episodeId"
@@ -191,7 +190,7 @@
     >
       <div class="scene-workflow-grid mt-2">
         <div class="scene-setting-card scene-setting-model">
-          <ModelSelector ref="modelSelector" v-model="form.model" :project-slug="slug" label="Visual & motion prompt model" @model-meta="selectedModelMeta = $event" />
+          <ModelSelector ref="modelSelector" v-model="form.model" :project-slug="slug" writing-step label="Visual & motion prompt model" @model-meta="selectedModelMeta = $event" />
           <!-- Published live per model. An estimate for transparency: token
                budgets are never converted into a character limit, because
                characters per token differ by language (Khmer especially). -->
@@ -269,7 +268,7 @@
                not. It warns and stops there: the batch is still sent exactly as
                chosen. -->
           <p v-if="promptBatchTimeoutWarning" class="scene-setting-warn">{{ promptBatchTimeoutWarning }}</p>
-          <details class="scene-advanced-batches">
+          <details class="scene-advanced-batches disclosure">
             <summary>Advanced batch controls</summary>
             <div class="scene-compact-fields mt-1">
               <div class="form-group">
@@ -324,7 +323,7 @@
               {{ DEFAULT_PROMPT_BATCH_SIZE }} is a speed judgement, not a token limit — a request has
               {{ languageTimeoutMinutes }} minutes to come back, and the large models’ real speed has not been
               measured yet. Raise it once it has, or give requests longer in This Mac → Throughput.
-              <button type="button" class="btn btn-ghost btn-xs" @click="resetBatchTuning">Reset to defaults</button>
+              <button type="button" class="btn btn-ghost btn-xs" @click="resetBatchTuning">Reset to Defaults</button>
             </p>
             <p v-if="hasSelectedPromptModel" class="scene-setting-help mt-1">Context: {{ selectedModelContextLabel }} · {{ hasPublishedPromptBudget ? 'Output is the response limit, so it—not context—sets the safe batch size.' : hasUnpublishedExplicitPromptBudget ? 'Your selected output allowance, not context, caps the safe batch size.' : 'No output limit is published or selected; the batch is the channel setting, not a model guarantee.' }}</p>
           </details>
@@ -520,7 +519,7 @@
                 :disabled="savingDefaultStyleBible || defaultStyleBible.trim() === savedDefaultStyleBible"
                 @click="saveDefaultStyleBible"
               >
-                {{ savingDefaultStyleBible ? 'Saving…' : 'Save channel default' }}
+                {{ savingDefaultStyleBible ? 'Saving…' : 'Save Channel Default' }}
               </button>
               <span
                 class="prompt-char-badge"
@@ -594,7 +593,7 @@
             <a href="#visual-timing">Change</a>
           </span>
           <button class="btn btn-secondary mt-2" :disabled="!canPlan || planning || planJobActive || dirty" @click="planScenes">
-            {{ plan?.scenes?.length ? 'Rebuild timeline' : 'Build timeline' }}
+            {{ plan?.scenes?.length ? 'Rebuild Timeline' : 'Build Timeline' }}
           </button>
         </div>
         <div class="stage-step">
@@ -603,20 +602,20 @@
           <span class="stage-setting">Full detail · 110–150 words per scene</span>
           <div class="flex gap-1 mt-2 flex-wrap">
             <button v-if="hasSelectedPromptModel" class="btn btn-primary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !plan || !visualPendingCount || planning || planJobActive || dirty" @click="runPromptStage('visual', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
-            <button class="btn btn-secondary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !plan || !visualPendingCount || planning || planJobActive || dirty" @click="runPromptStage('visual')">All pending</button>
+            <button class="btn btn-secondary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !plan || !visualPendingCount || planning || planJobActive || dirty" @click="runPromptStage('visual')">All Pending</button>
           </div>
           <small v-if="hasSelectedPromptModel">Sends {{ effectivePromptPackSize }} scenes per request; several requests can run at once when your account allows it.</small>
-          <small v-else>Choose a prompt model to see the Next batch size. All pending remains available after a model is selected.</small>
+          <small v-else>Choose a prompt model to see the Next batch size. All Pending remains available after a model is selected.</small>
         </div>
         <div class="stage-step" :class="{ optional: true }">
           <strong>3. Motion prompts <em>optional</em></strong>
           <span>{{ motionDoneCount }}/{{ motionTargetCount }} animated · {{ motionStillCount }} held still</span>
           <div v-if="form.generate_motion_prompts" class="flex gap-1 mt-2 flex-wrap">
             <button v-if="hasSelectedPromptModel" class="btn btn-primary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive || dirty" @click="runPromptStage('motion', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
-            <button class="btn btn-secondary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive || dirty" @click="runPromptStage('motion')">All pending</button>
+            <button class="btn btn-secondary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive || dirty" @click="runPromptStage('motion')">All Pending</button>
           </div>
           <small v-if="form.generate_motion_prompts && hasSelectedPromptModel">Uses the same {{ effectivePromptPackSize }}-scene request size saved for visual prompts. Held-still scenes stay valid in final assembly without an image-to-video render.</small>
-          <small v-else-if="form.generate_motion_prompts">Choose a prompt model to see a model-backed Next batch size. All pending remains available after a model is selected.</small>
+          <small v-else-if="form.generate_motion_prompts">Choose a prompt model to see a model-backed Next batch size. All Pending remains available after a model is selected.</small>
           <small v-else>Skipped for this project. Still images remain valid through assembly.</small>
         </div>
       </div>
@@ -666,13 +665,13 @@
                 : dirty ? 'Save your edits first' : 'Split abnormal long scenes against current subtitle cues; then generate only the new pending prompts.'"
               @click="repairLongScenes"
             >
-              {{ repairingLongScenes ? 'Repairing…' : `✂ Repair ${overlongSceneCount} out-of-range scene${overlongSceneCount === 1 ? '' : 's'}` }}
+              {{ repairingLongScenes ? 'Repairing…' : `✂ Repair ${overlongSceneCount} Out-of-Range Scene${overlongSceneCount === 1 ? '' : 's'}` }}
             </button>
             <template #content>
               <div class="popover-title">Repair out-of-range scenes</div>
               <p><strong>Use when:</strong> one or more scenes exceed the selected continuity pacing maximum, when explicitly applying a new pace from Visual timing & motion.</p>
               <p><strong>What it does:</strong> splits only those ranges against the verified subtitle text at safe word boundaries. No LLM is used and unaffected prompts, images, and approvals stay in place.</p>
-              <p><strong>Next:</strong> run Visual prompts → All pending, then generate the new missing images in Scene Review.</p>
+              <p><strong>Next:</strong> run Visual prompts → All Pending, then generate the new missing images in Scene Review.</p>
             </template>
           </Popover>
           <Popover placement="top">
@@ -682,7 +681,7 @@
               :title="dirty ? 'Save your edits first' : 'Restore narration ranges with no scene; large narrated gaps become cue-aligned pending scenes, not one frozen hold.'"
               @click="repairCoverage()"
             >
-              {{ repairingCoverage ? 'Repairing…' : '🩹 Repair coverage' }}
+              {{ repairingCoverage ? 'Repairing…' : '🩹 Repair Coverage' }}
             </button>
             <template #content>
               <div class="popover-title">Repair coverage</div>
@@ -698,7 +697,7 @@
               :title="dirty ? 'Save your edits first' : 'Line existing scenes back up with the current subtitles after the audio or subtitles changed. Keeps every image, prompt and approval.'"
               @click="reconcileTimings"
             >
-              {{ reconciling ? 'Reconciling…' : '🎯 Reconcile timings' }}
+              {{ reconciling ? 'Reconciling…' : '🎯 Reconcile Timings' }}
             </button>
             <template #content>
               <div class="popover-title">Reconcile timings</div>
@@ -713,7 +712,7 @@
             :title="planBusy || bulkReplan.active ? 'Wait for the running Scene Plan job to finish' : 'Delete this episode’s scene list. Images stay on disk.'"
             @click="deletePlan"
           >
-            {{ deleting ? 'Deleting…' : '✕ Delete plan' }}
+            {{ deleting ? 'Deleting…' : '✕ Delete Plan' }}
           </button>
         </div>
       </div>
@@ -744,7 +743,7 @@
             :disabled="repairingCoverage || !!dirty"
             @click="repairCoverage()"
           >
-            {{ repairingCoverage ? 'Repairing…' : '🩹 Repair coverage now' }}
+            {{ repairingCoverage ? 'Repairing…' : '🩹 Repair Coverage Now' }}
           </button>
         </div>
         <!-- The plan skipped the opening and recorded no reason, so this page's
@@ -770,7 +769,7 @@
             :title="dirty ? 'Save your edits first' : `Pull scene 1 back to 0:00 so its image holds for the whole ${uncreditedHeadGapLabel} opening. Every other scene keeps its timing.`"
             @click="repairCoverage(true)"
           >
-            {{ repairingCoverage ? 'Covering…' : '⏮ Cover the opening' }}
+            {{ repairingCoverage ? 'Covering…' : '⏮ Cover the Opening' }}
           </button>
         </div>
         <!-- Plan health surfaces missing prompts and timeline defects without
@@ -796,7 +795,7 @@
           </div>
 
           <!-- Bulk progress strip — visible while the loop is running. -->
-          <div v-if="bulkReplan.active" class="bulk-progress">
+          <div v-if="bulkReplan.active && !regeneratingSelected" class="bulk-progress">
             <div class="bulk-progress-bar">
               <div
                 class="bulk-progress-fill"
@@ -835,6 +834,69 @@
           </p>
         </div>
 
+        <!-- Regenerate prompts for selected scenes: tick scenes (shift-click for
+             a range), then rewrite only their image prompts with the chosen
+             writing model. Images, approvals and timings are left alone. -->
+        <div class="scene-select-bar mt-2" data-testid="scene-select-bar">
+          <div class="scene-select-row">
+            <label class="scene-select-all">
+              <input
+                type="checkbox"
+                :checked="allScenesSelected"
+                :indeterminate="selectedSceneCount > 0 && !allScenesSelected"
+                :disabled="planBusy || bulkReplan.active"
+                @change="toggleAllScenes"
+              />
+              Select all {{ plan.scenes.length }}
+            </label>
+            <span class="text-muted text-xs">{{ selectedSceneCount }} selected</span>
+            <button v-if="selectedSceneCount && !bulkReplan.active" type="button" class="link-btn" @click="clearSceneSelection">Clear</button>
+            <button
+              type="button"
+              class="btn btn-sm btn-primary"
+              :disabled="!!regenerateSelectedBlocker"
+              @click="regenerateSelectedPrompts"
+            >
+              {{ regeneratingSelected ? 'Regenerating…' : `✨ Regenerate prompts${selectedSceneCount ? ` (${selectedSceneCount})` : ''}` }}
+            </button>
+          </div>
+          <p class="scene-select-hint" :class="{ 'is-blocked': !!regenerateSelectedBlocker && selectedSceneCount > 0 }">
+            {{ regenerateSelectedBlocker || 'Rewrites only the image prompts of the ticked scenes, one by one, with the writing model chosen above. Images, approvals and timings stay as they are.' }}
+          </p>
+          <div v-if="regeneratingSelected" class="bulk-progress" role="status">
+            <div class="bulk-progress-bar">
+              <div
+                class="bulk-progress-fill"
+                :style="`width: ${bulkReplan.total > 0 ? Math.round((bulkReplan.completed / bulkReplan.total) * 100) : 0}%`"
+              ></div>
+            </div>
+            <div class="bulk-progress-text">
+              Rewriting {{ bulkReplan.total }} image prompt{{ bulkReplan.total === 1 ? '' : 's' }} ·
+              {{ bulkReplan.completed }}/{{ bulkReplan.total }} done — each one is saved as soon as it is ready.
+              <button
+                class="link-btn-danger"
+                :disabled="!bulkReplan.jobId || bulkReplan.cancelRequested"
+                @click="cancelBulkReplan"
+              >{{ bulkReplan.cancelRequested ? 'Stopping…' : 'Stop' }}</button>
+            </div>
+          </div>
+          <div v-if="promptRegenFailures.length" class="validation-msg text-sm mt-1" role="alert" data-testid="scene-select-failures">
+            ⚠ {{ promptRegenFailures.length }} prompt{{ promptRegenFailures.length === 1 ? '' : 's' }} could not be rewritten —
+            {{ promptRegenFailures.length === 1 ? 'it keeps its' : 'they keep their' }} previous prompt and
+            {{ promptRegenFailures.length === 1 ? 'is' : 'are' }} ticked again, so you can press Regenerate prompts to try once more.
+            <div class="plan-health-list mt-1">
+              <button
+                v-for="f in promptRegenFailures"
+                :key="f.id"
+                type="button"
+                class="plan-health-chip"
+                :title="`Jump to scene ${f.label}`"
+                @click="jumpToScene(f.id)"
+              >{{ f.label }} <span class="plan-health-why">{{ f.reason }}</span></button>
+            </div>
+          </div>
+        </div>
+
         <ul class="scene-list mt-2">
           <li
             v-for="(scene, i) in renderedScenes"
@@ -844,6 +906,15 @@
             :class="{ 'scene-row-problem': problemIds.has(scene.id) }"
           >
             <div class="scene-row-head">
+              <input
+                type="checkbox"
+                class="scene-select-box"
+                :checked="selectedSceneIds.has(scene.id)"
+                :disabled="planBusy || bulkReplan.active"
+                :aria-label="`Select scene ${i + 1}`"
+                title="Tick to include in Regenerate prompts. Shift-click to tick a range."
+                @click="toggleSceneSelection(i, $event)"
+              />
               <strong>#{{ i + 1 }}</strong>
               <span class="text-muted text-xs">
                 {{ scene.start_sec.toFixed(1) }}s → {{ scene.end_sec.toFixed(1) }}s
@@ -939,7 +1010,7 @@
                     ? 'Write the visual prompt first — the motion prompt animates that image'
                     : 'Write a new motion prompt for this scene (picture prompt and timing stay the same)'"
                 @click="regenMotionPrompt(scene)"
-              >{{ regenMotionId === scene.id ? '⏳ Motion…' : '🎬 Regen motion' }}</button>
+              >{{ regenMotionId === scene.id ? '⏳ Motion…' : '🎬 Regen Motion' }}</button>
             </div>
             <div class="scene-row-actions mt-1">
               <NuxtLink
@@ -947,7 +1018,7 @@
                 :to="subtitleLink(missingSubtitleSectionForScene(scene))"
                 class="btn-icon"
                 title="This scene crosses audio with no subtitles. Transcribe the named chapters and stitch again before repairing it."
-              >Fix subtitles first</NuxtLink>
+              >Fix Subtitles First</NuxtLink>
               <button
                 class="btn-icon"
                 :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || regenPromptId === scene.id || planBusy || bulkReplan.active || dirty || !scene.transcript_segment?.trim()"
@@ -959,7 +1030,7 @@
                     ? 'This scene has no narration text — fill in the transcript first'
                     : 'Regenerate only the visual prompt; the deterministic time range and transcript stay unchanged.'"
                 @click="regenerateScenePrompt(scene)"
-              >{{ regenPromptId === scene.id && !rewordingPrompt ? '⏳ Regenerating…' : '✨ Prompt only' }}</button>
+              >{{ regenPromptId === scene.id && !rewordingPrompt ? '⏳ Regenerating…' : '✨ Prompt Only' }}</button>
               <button
                 class="btn-icon"
                 :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || regenPromptId === scene.id || planBusy || bulkReplan.active || dirty || !scene.transcript_segment?.trim() || !scene.visual_prompt?.trim()"
@@ -975,7 +1046,7 @@
                 :disabled="i === 0 || planBusy"
                 title="Merge into previous scene (keeps the previous scene’s picture prompt)"
                 @click="mergeScene(i)"
-              >▲ Merge up</button>
+              >▲ Merge Up</button>
               <button
                 class="btn-icon"
                 :disabled="planBusy || sceneOverlapsMissingSubtitles(scene) || (scene.end_sec - scene.start_sec) < 6"
@@ -1033,7 +1104,7 @@
         :disabled="!canPlan || planning || planJobActive"
         @click="planScenes"
       >
-        Build the plan
+        Build the Plan
       </button>
     </section>
 
@@ -2366,7 +2437,7 @@ async function planScenes(): Promise<void> {
       title: 'Start every scene over?',
       message: `${timelineBuiltLabel.value}. Rebuilding replaces all ${plan.value.scenes.length} scenes with new ones: every visual and motion prompt is cleared, and the images and approvals you already have will no longer be attached to any scene (the image files stay on disk). `
         + 'If the audio or subtitles only shifted, use 🎯 Reconcile timings instead — it keeps every image, prompt and approval.',
-      confirmLabel: 'Rebuild and start over',
+      confirmLabel: 'Rebuild and Start Over',
       danger: true,
     })
     if (!ok) return
@@ -2557,6 +2628,124 @@ async function regenerateScenePrompt(scene: ScenePlanEntry, opts: { reword?: boo
   } finally {
     regenPromptId.value = null
     rewordingPrompt.value = false
+  }
+}
+
+// ── Regenerate prompts for selected scenes ───────────────────────────────
+// One job rewrites the ticked scenes' visual prompts in turn with the page's
+// chosen writing model. Never picks a model itself; images, approvals and
+// timings are untouched (only `visual_prompt` changes on the server).
+const CHOOSE_WRITING_MODEL = 'Choose a writing model in “Visual & motion prompt model” above first.'
+const selectedSceneIds = ref<Set<string>>(new Set())
+let lastToggledSceneIndex: number | null = null
+const regeneratingSelected = ref(false)
+const promptRegenFailures = ref<Array<{ id: string; label: string; reason: string }>>([])
+const selectedPlanScenes = computed(() => (plan.value?.scenes || []).filter(scene => selectedSceneIds.value.has(scene.id)))
+const selectedSceneCount = computed(() => selectedPlanScenes.value.length)
+const allScenesSelected = computed(() => !!plan.value?.scenes.length && selectedSceneCount.value === plan.value.scenes.length)
+const regenerateSelectedBlocker = computed(() => {
+  if (regeneratingSelected.value) return ''
+  if (scenePlanGenerationUnavailable.value) return 'This episode uses Image Pool, so it has no Scene Plan prompts to rewrite.'
+  if (planBusy.value || bulkReplan.value.active) return 'Wait for the running Scene Plan job to finish.'
+  if (!selectedSceneCount.value) return 'Tick the scenes whose image prompts you want rewritten — shift-click a box to tick a range. Images, approvals and timings stay as they are.'
+  if (dirty.value) return 'Save your scene edits first — regenerating reloads the plan and would discard them.'
+  if (!subtitleTimelineComplete.value) return 'Complete and stitch every subtitle chapter first.'
+  if (!form.value.model) return CHOOSE_WRITING_MODEL
+  return ''
+})
+
+function toggleSceneSelection(index: number, event: MouseEvent): void {
+  const scenes = plan.value?.scenes || []
+  const scene = scenes[index]
+  if (!scene) return
+  const next = new Set(selectedSceneIds.value)
+  const tick = !next.has(scene.id)
+  const anchor = event.shiftKey && lastToggledSceneIndex !== null ? lastToggledSceneIndex : index
+  for (let at = Math.min(anchor, index); at <= Math.max(anchor, index); at++) {
+    const id = scenes[at]?.id
+    if (!id) continue
+    if (tick) next.add(id)
+    else next.delete(id)
+  }
+  selectedSceneIds.value = next
+  lastToggledSceneIndex = index
+}
+
+function toggleAllScenes(): void {
+  selectedSceneIds.value = allScenesSelected.value
+    ? new Set()
+    : new Set((plan.value?.scenes || []).map(scene => scene.id))
+  lastToggledSceneIndex = null
+}
+
+function clearSceneSelection(): void {
+  selectedSceneIds.value = new Set()
+  lastToggledSceneIndex = null
+}
+
+async function regenerateSelectedPrompts(): Promise<void> {
+  if (regenerateSelectedBlocker.value) { showError(regenerateSelectedBlocker.value); return }
+  const chosen = selectedPlanScenes.value
+  const eligible = chosen.filter(scene => scene.transcript_segment?.trim())
+  const skipped = chosen.length - eligible.length
+  if (!eligible.length) { showError('None of the ticked scenes has narration text to write a prompt from.'); return }
+  const n = eligible.length
+  const ok = await ask({
+    title: `Regenerate ${n} image prompt${n === 1 ? '' : 's'}?`,
+    message: `Rewrites the image prompts of ${n} scene${n === 1 ? '' : 's'}. Their current images stay until you regenerate them.`
+      + (skipped ? ` ${skipped} ticked scene${skipped === 1 ? ' has' : 's have'} no narration text and will be skipped.` : ''),
+    confirmLabel: `Regenerate ${n}`,
+  })
+  if (!ok) return
+  const ep = episodeId.value
+  const payload = {
+    scene_ids: eligible.map(scene => scene.id),
+    model: form.value.model,
+    detail_level: 4,
+    prompt_char_cap: effectivePromptCharCap.value || undefined,
+    creative_direction: creativeDirectionPayload.value,
+    custom_instructions: composeScenePlanGuidance(form.value.custom_instructions, form.value.reusable_guidance),
+    avoid_legible_text: form.value.avoid_legible_text,
+  }
+  const operationId = freshScenePromptAction.begin(payload, 'visual:selected')
+  promptRegenFailures.value = []
+  regeneratingSelected.value = true
+  bulkReplan.value = { active: true, completed: 0, total: n, currentSceneIndex: null, cancelRequested: false, jobId: null }
+  try {
+    const job = await post<{ job_id?: string }>(`/projects/${slug.value}/scene-plan/${ep}/regenerate-prompt`, {
+      ...payload,
+      operation_id: operationId,
+    })
+    freshScenePromptAction.complete(operationId)
+    const jobId = job?.job_id || null
+    bulkReplan.value.jobId = jobId
+    const finalStatus = await pollUntilPlanLanded(ep, { timeoutMs: 3_600_000, trackJobId: jobId })
+    if (pageUnmounted || episodeId.value !== ep) return
+    if (finalStatus === 'done') {
+      clearSceneSelection()
+      success(`Rewrote ${n} image prompt${n === 1 ? '' : 's'}. Regenerate their images in Scene Review when you are ready.`)
+      return
+    }
+    if (!jobId || (finalStatus !== 'error' && finalStatus !== 'cancelled')) return
+    const finished = await get<{ result?: { completion?: { issues?: Array<{ item_id: string; reason?: string }> } } }>(
+      `/projects/${slug.value}/jobs/${jobId}`,
+    ).catch(() => null)
+    if (episodeId.value !== ep) return
+    const issues = finished?.result?.completion?.issues || []
+    const indexById = new Map((plan.value?.scenes || []).map((scene, at) => [scene.id, at + 1]))
+    promptRegenFailures.value = issues.map(issue => ({
+      id: issue.item_id,
+      label: indexById.has(issue.item_id) ? `#${indexById.get(issue.item_id)}` : issue.item_id,
+      reason: issue.reason || 'failed',
+    }))
+    // Failed scenes stay ticked so one click retries just those.
+    if (issues.length) selectedSceneIds.value = new Set(issues.map(issue => issue.item_id))
+    if (finalStatus === 'cancelled') success('Stopped. Prompts already rewritten are saved; the rest keep their previous prompt.')
+  } catch (e: any) {
+    await reportGenerationError(e, 'Could not start rewriting the selected prompts')
+  } finally {
+    regeneratingSelected.value = false
+    bulkReplan.value = { active: false, completed: 0, total: 0, currentSceneIndex: null, cancelRequested: false, jobId: null }
   }
 }
 
@@ -2764,7 +2953,7 @@ async function repairLongScenes(): Promise<void> {
   const ok = await ask({
     title: `Repair ${overlongSceneCount.value} out-of-range scene${overlongSceneCount.value === 1 ? '' : 's'}?`,
     message: `Uses the subtitle text to split only scenes beyond their saved plan pacing. Plans without saved pacing use the existing repair threshold. No LLM is used. Every unaffected scene, prompt, image, and approval stays in place; newly uncovered scenes will need visual prompts and images.`,
-    confirmLabel: 'Repair scenes',
+    confirmLabel: 'Repair Scenes',
   })
   if (!ok) return
   repairingLongScenes.value = true
@@ -3075,6 +3264,10 @@ watch([slug, episodeId], () => {
     ? 'Episode-specific guidance was cleared because the episode changed. Reusable guidance was kept.'
     : ''
   form.value.custom_instructions = ''
+  // Ticked scenes and their failure list belong to the episode they were made on.
+  selectedSceneIds.value = new Set()
+  lastToggledSceneIndex = null
+  promptRegenFailures.value = []
   status.value = null
   plan.value = null
   dirty.value = false
@@ -3633,6 +3826,17 @@ watch(slug, () => { void refreshMeasuredOpening() }, { immediate: true })
 .plan-health-chip:hover { border-color: #e0a23a; background: rgba(224, 162, 58, 0.2); }
 .plan-health-why { color: var(--text-muted); }
 .scene-row-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.scene-select-box { align-self: center; margin: 0; cursor: pointer; }
+.scene-select-bar {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-secondary);
+}
+.scene-select-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.scene-select-all { display: inline-flex; gap: 6px; align-items: center; font-size: var(--font-sm); cursor: pointer; }
+.scene-select-hint { margin: 4px 0 0; font-size: var(--font-xs); color: var(--text-muted); }
+.scene-select-hint.is-blocked { color: var(--warning); }
 .scene-boundary-reason { font-style: italic; }
 /* v1.0.336 — per-scene type picker (continuity). Colour-tinted so the cast
    mix is scannable down the list at a glance. */

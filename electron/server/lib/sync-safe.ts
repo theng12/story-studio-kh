@@ -26,9 +26,9 @@ import path from 'path'
 
 /**
  * Write `data` to `dest` via a sibling .tmp file and atomic rename.
- * Creates parent directories as needed. Use for any file that a cloud
- * sync daemon might mirror — the rename is the only operation the
- * watcher observes, so it never sees partial content.
+ * Creates parent directories as needed. Use for any file a reader or a
+ * file watcher might see mid-write — the rename is the only operation
+ * they observe, so they never see partial content.
  *
  * Accepts Buffer so callers can write JSON, text, or binary blobs.
  */

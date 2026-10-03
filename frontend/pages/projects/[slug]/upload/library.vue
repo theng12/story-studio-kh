@@ -51,11 +51,11 @@
 
                   <span v-if="decidable(field)" class="decisions">
                     <button class="btn btn-ghost btn-sm" type="button" :disabled="busy !== ''"
-                      @click="decide(video, field.field, 'use_story_studio')">Update YouTube to Story Studio’s version</button>
+                      @click="decide(video, field.field, 'use_story_studio')">Update YouTube to Story Studio’s Version</button>
                     <button class="btn btn-ghost btn-sm" type="button" :disabled="busy !== ''"
                       @click="decide(video, field.field, 'keep_youtube')">Keep YouTube</button>
                     <button class="btn btn-ghost btn-sm" type="button" :disabled="busy !== ''"
-                      @click="decide(video, field.field, 'review_later')">Review later</button>
+                      @click="decide(video, field.field, 'review_later')">Review Later</button>
                   </span>
                 </dd>
               </div>
@@ -69,7 +69,7 @@
                 :disabled="busy !== ''"
                 @click="refreshThumbnail(video)"
               >
-                {{ busy === `${video.operation_id}:thumbnail` ? 'Queueing…' : 'Refresh thumbnail' }}
+                {{ busy === `${video.operation_id}:thumbnail` ? 'Queueing…' : 'Refresh Thumbnail' }}
               </button>
               <span class="hint">Uses Story Studio’s current thumbnail for this exact video. It never runs on its own.</span>
             </div>
@@ -259,7 +259,7 @@ async function retryPlaylist(video: Video, playlistId: string): Promise<void> {
     const confirmed = await ask({
       title: `Add ${video.episode_code} to playlist ${playlistId}?`,
       message: `This retry adds one accepted video. Estimated YouTube quota: ${preview.estimated_quota_units} units.`,
-      confirmLabel: 'Add to playlist',
+      confirmLabel: 'Add to Playlist',
     })
     if (!confirmed) return
 
@@ -290,7 +290,7 @@ async function refreshThumbnail(video: Video): Promise<void> {
   const confirmed = await ask({
     title: `Refresh ${video.episode_code} thumbnail on YouTube?`,
     message: 'Story Studio will queue the current local thumbnail for this exact accepted video on its assigned channel.',
-    confirmLabel: 'Refresh thumbnail',
+    confirmLabel: 'Refresh Thumbnail',
   })
   if (!confirmed) return
 

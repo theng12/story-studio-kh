@@ -33,14 +33,6 @@ import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import * as pm from './project-manager.js'
 import { projectMetaOnce, type ProjectFactsCache } from './utils.js'
-import { getAppSetting, setAppSetting } from './app-settings.js'
-
-/**
- * The old app-settings key. Retired in v1.4.3 and kept here only so the
- * upgrade notice can read what it used to say and tell the owner where his
- * existing exports still are. Nothing writes it any more.
- */
-export const RETIRED_EXTERNAL_ROOT_KEY = 'external_final_video_root'
 
 /**
  * Where finished videos go. Always `<Library>/Exports`.
@@ -52,23 +44,6 @@ export const RETIRED_EXTERNAL_ROOT_KEY = 'external_final_video_root'
 export async function getExternalFinalVideoRoot(): Promise<string> {
   const { exportsDir } = await import('./library.js')
   return exportsDir()
-}
-
-/**
- * What the retired setting used to point at, for the one-time upgrade notice.
- * Read-only: 1.4.3 deliberately does NOT move an existing export pile, because
- * on the owner's machine that is 220 GB and 191 finished videos, and moving a
- * fifth of a terabyte without being asked is not a decision this app makes.
- */
-export async function getRetiredExternalRoot(): Promise<string> {
-  const raw = await getAppSetting(RETIRED_EXTERNAL_ROOT_KEY)
-  if (typeof raw !== 'string' || !raw.trim()) return ''
-  let resolved = raw.trim()
-  if (resolved.startsWith('~')) {
-    const home = process.env.HOME || process.env.USERPROFILE || ''
-    if (home) resolved = path.join(home, resolved.slice(1))
-  }
-  return resolved
 }
 
 /**
@@ -90,6 +65,7 @@ export async function resolveExternalFinalVideoDir(
   code: string,
   title: string,
   cache?: ProjectFactsCache,
+  options: { forWrite?: boolean } = {},
 ): Promise<string | null> {
   const root = cache
     ? await (cache.externalFinalVideoRoot ??= getExternalFinalVideoRoot().catch((error: unknown) => {
@@ -123,7 +99,25 @@ export async function resolveExternalFinalVideoDir(
     .replace('{code}', code)
     .replace('{title}', title || code)
 
-  return path.join(root, slug, episodeRel)
+  const current = path.join(root, slug, episodeRel)
+  // v1.4.249 — the finished-videos folder can be changed. A video rendered
+  // before the change is still where it was, so when this episode has nothing
+  // in the current folder, look in the folders it replaced. Writers pass
+  // `forWrite` and always get the current folder.
+  if (options.forWrite || existsSync(current)) return current
+  const previous = cache
+    ? await (cache.previousExportRoots ??= previousExportRootsOrEmpty())
+    : await previousExportRootsOrEmpty()
+  for (const earlier of previous) {
+    const candidate = path.join(earlier, slug, episodeRel)
+    if (existsSync(candidate)) return candidate
+  }
+  return current
+}
+
+async function previousExportRootsOrEmpty(): Promise<string[]> {
+  const { previousExportsDirs } = await import('./library.js')
+  return previousExportsDirs().catch(() => [])
 }
 
 /**
@@ -136,7 +130,7 @@ export async function ensureExternalFinalVideoDir(
   code: string,
   title: string,
 ): Promise<string | null> {
-  const dir = await resolveExternalFinalVideoDir(slug, code, title)
+  const dir = await resolveExternalFinalVideoDir(slug, code, title, undefined, { forWrite: true })
   if (!dir) return null
   await fs.mkdir(dir, { recursive: true })
   return dir

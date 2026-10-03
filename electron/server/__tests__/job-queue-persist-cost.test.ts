@@ -26,7 +26,7 @@ before(async () => {
   cleanup = temp.cleanup
   pm = await import('../services/project-manager.js')
   jq = await import('../services/job-queue.js')
-  jq.registerExecutor('script-only', async () => {})
+  jq.registerExecutor('chapter-only', async () => {})
   await jq.setQueuePaused(true)
 })
 after(async () => {
@@ -37,7 +37,7 @@ after(async () => {
 test('a write after 40 jobs are held costs a handful of redactions, not 40 per write', async () => {
   const project = await pm.createProject({ name: 'Persist Cost' })
   const created = Array.from({ length: 40 }, (_, index) => jq.enqueuePreparedForTest({
-    project_slug: project.slug, type: 'script-only', episode_id: `COST-${index}`, title: `Cost ${index}`, params: {},
+    project_slug: project.slug, type: 'chapter-only', episode_id: `COST-${index}`, title: `Cost ${index}`, params: {},
   }) as Job)
   await Promise.all(created.map(job => jq.checkpointJobState(job)))
   await jq._waitForJobPersistenceForTesting()
@@ -65,10 +65,10 @@ test('a write after 40 jobs are held costs a handful of redactions, not 40 per w
 test('a secret in a held job is still redacted on disk after later writes', async () => {
   const project = await pm.createProject({ name: 'Persist Redaction' })
   const job = jq.enqueuePreparedForTest({
-    project_slug: project.slug, type: 'script-only', episode_id: 'SECRET-1', title: 'Secret', params: { api_key: 'sk-abcdefghijklmnop', note: 'Bearer abcdefghijklmnopqrstuv' },
+    project_slug: project.slug, type: 'chapter-only', episode_id: 'SECRET-1', title: 'Secret', params: { api_key: 'sk-abcdefghijklmnop', note: 'Bearer abcdefghijklmnopqrstuv' },
   }) as Job
   await jq.checkpointJobState(job)
-  const other = jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'script-only', episode_id: 'SECRET-2', title: 'Other', params: {} }) as Job
+  const other = jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'chapter-only', episode_id: 'SECRET-2', title: 'Other', params: {} }) as Job
   await jq.checkpointJobState(other)
   await jq.recordGenStudioJob(other.job_id, { id: 'child', operation: 'image.generation', state: 'running', updated_at: new Date().toISOString() })
   await jq._waitForJobPersistenceForTesting()
@@ -81,7 +81,7 @@ test('a finished job keeps only its last 500 log lines on disk', async () => {
   const project = await pm.createProject({ name: 'Log Cap' })
   const lines = Array.from({ length: 1200 }, (_, i) => `line ${i}`)
   const base = (id: string, status: Job['status']): Job => ({
-    job_id: id, project_slug: project.slug, type: 'script-only', episode_id: 'EP0001', title: id, status,
+    job_id: id, project_slug: project.slug, type: 'chapter-only', episode_id: 'EP0001', title: id, status,
     created_at: new Date().toISOString(), started_at: new Date().toISOString(),
     finished_at: status === 'done' ? new Date().toISOString() : null, error: null, output_lines: [...lines], params: {},
   })

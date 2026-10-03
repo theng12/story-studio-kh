@@ -51,7 +51,7 @@
       </div>
       <div v-if="loadError && activeItems.length" class="identity-catalog-error" role="alert">
         Library refresh failed: {{ loadError }}
-        <button type="button" class="btn btn-ghost btn-sm" @click="refreshCatalogs">Try again</button>
+        <button type="button" class="btn btn-ghost btn-sm" @click="refreshCatalogs">Try Again</button>
       </div>
 
       <div class="identity-workspace">
@@ -62,7 +62,7 @@
           <div v-else-if="loadError && !activeItems.length" class="identity-state identity-error" role="alert">
             <strong>The Channel Identity library is unavailable</strong>
             <span>{{ loadError }}</span>
-            <button type="button" class="btn btn-secondary btn-sm" @click="refreshCatalogs">Try again</button>
+            <button type="button" class="btn btn-secondary btn-sm" @click="refreshCatalogs">Try Again</button>
           </div>
 
           <template v-else-if="activeShelf === 'formula'">
@@ -88,7 +88,7 @@
                   <span v-if="draftFormulaId === formula.id" class="identity-selected-label">Selected</span>
                 </div>
                 <div class="identity-card-actions">
-                  <button type="button" class="btn btn-ghost btn-sm" @click="focusFormula(formula, $event)">View details</button>
+                  <button type="button" class="btn btn-ghost btn-sm" @click="focusFormula(formula, $event)">View Details</button>
                   <button type="button" class="btn btn-secondary btn-sm" :disabled="saving || isUnavailable(formula)" @click="selectFormula(formula.id)">
                     {{ draftFormulaId === formula.id ? 'Selected' : 'Choose Formula' }}
                   </button>
@@ -102,9 +102,9 @@
             <div class="topic-scope-row">
               <div class="identity-segmented" role="group" aria-label="Topic Pack compatibility filter">
                 <button type="button" :class="{ active: topicScope === 'compatible' }" @click="topicScope = 'compatible'">Compatible</button>
-                <button type="button" :class="{ active: topicScope === 'all' }" @click="topicScope = 'all'">All library</button>
+                <button type="button" :class="{ active: topicScope === 'all' }" @click="topicScope = 'all'">All Library</button>
               </div>
-              <button type="button" class="btn btn-ghost btn-sm" :disabled="saving || !draftTopicIds.length" @click="draftTopicIds = []">Choose no Topic Packs</button>
+              <button type="button" class="btn btn-ghost btn-sm" :disabled="saving || !draftTopicIds.length" @click="draftTopicIds = []">Choose No Topic Packs</button>
             </div>
             <div class="identity-card-list" role="list" aria-label="Topic Packs">
               <article
@@ -126,7 +126,7 @@
                 <span v-if="!draftFormulaId" class="identity-reason">Choose a Formula before adding Topic Packs.</span>
                 <span v-else-if="!isCompatible(pack)" class="identity-reason">Compatible with {{ compatibleFormulaNames(pack).join(', ') || 'another Formula' }}</span>
                 <div class="identity-card-actions">
-                  <button type="button" class="btn btn-ghost btn-sm" @click="focusTopic(pack, $event)">View details</button>
+                  <button type="button" class="btn btn-ghost btn-sm" @click="focusTopic(pack, $event)">View Details</button>
                   <button
                     type="button"
                     class="btn btn-secondary btn-sm"
@@ -144,7 +144,7 @@
         </section>
 
         <aside ref="detailPanel" class="identity-detail" tabindex="-1" aria-live="polite">
-          <button type="button" class="identity-back btn btn-ghost btn-sm" @click="returnToChoices">← Back to choices</button>
+          <button type="button" class="identity-back btn btn-ghost btn-sm" @click="returnToChoices">← Back to Choices</button>
           <template v-if="activeShelf === 'formula' && focusedFormula">
             <div class="identity-detail-head"><div><span>{{ focusedFormula.formulaFamily || 'Formula' }}</span><h3>{{ formulaName(focusedFormula) }}</h3></div><span class="identity-source">{{ sourceLabel(focusedFormula) }}</span></div>
             <p>{{ focusedFormula.description }}</p>

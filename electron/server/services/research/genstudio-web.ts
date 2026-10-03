@@ -33,8 +33,8 @@
 import { getApiKey } from '../app-secrets-store.js'
 import { noWritingModelChosenMessage } from '../genstudio-default-model.js'
 import { callChatWithGenStudio, GenStudioChatCapabilityUnavailableError, GenStudioChatProductUnavailableError, listChatModels, type GenStudioChatModel } from '../../lib/genstudio-client.js'
-import { executePipelineModelPolicy, llmLineupAttemptRequestIdentity, llmLineupAvailabilityScope, resolveLivePipelineModel } from '../../lib/ai-client.js'
-import { pipelinePolicyInputFingerprint, rankedPipelineModelCandidates, readPipelinePolicyAttemptCheckpoint } from '../../lib/pipeline-model-policy.js'
+import { executePipelineModelPolicy, resolveLivePipelineModel } from '../../lib/ai-client.js'
+import { pipelinePolicyInputFingerprint } from '../../lib/pipeline-model-policy.js'
 import { JSON_OBJECT_OUTPUT_CONTRACT } from '../../lib/json-output-contract.js'
 import type { ResearchAdapter } from './types.js'
 import type { ResearchOutput, ResearchRunOptions, ResearchWebRunReport } from '../../models/types.js'
@@ -67,26 +67,19 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
     if (!apiKey) {
       throw new Error('No Gateway key configured. Add it in Settings → This Mac before running research.')
     }
-    const availabilityScope = llmLineupAvailabilityScope(apiKey)
-
     const policy = opts.pipeline_model_policy
-    // Policy candidates are checked only before a fresh POST. A saved key is
+    // The Pipeline's model is checked only before a fresh POST. A saved key is
     // a read of already-submitted work, so it must not depend on today's
     // catalogue being reachable or still publishing the historical product.
     const policyCheckpointKey = opts.pipeline_policy_checkpoint_key || opts.request_identity || 'research'
-    const policySaved = policy && opts.pipeline_policy_checkpoint
-      ? readPipelinePolicyAttemptCheckpoint(opts.pipeline_policy_checkpoint.read(policyCheckpointKey))
-      : null
-    const policyCatalogue = policy && !policySaved ? await listChatModels(apiKey) : []
     const qualified = policy ? [] : selectWebResearchModels(await listChatModels(apiKey))
-    const policyCandidateOrder = policy ? rankedPipelineModelCandidates(policy, policyCatalogue) : undefined
     if (!qualified.length && !policy) throw new Error(WEB_MODE_UNAVAILABLE_REASON)
 
     // An explicitly requested model is honoured only if it still qualifies.
     // Healing to a different product would change what the user is charged
     // for without telling them, so an unqualified request is refused by name.
     const requested = opts.model?.trim() || ''
-    // Never picked for the owner (2026-10-03): no choice and no Pipeline lineup is a plain stop.
+    // Never picked for the owner (2026-10-03): no choice on the page or for the Pipeline run is a plain stop.
     if (!requested && !policy) throw new Error(noWritingModelChosenMessage('the Research page (web research model)'))
     let product = qualified[0]!
     if (requested && !policy) {
@@ -99,9 +92,7 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
       }
       product = match
     }
-    // For an explicit policy, candidates are validated inside the bounded
-    // executor so an unavailable primary can advance to the next authorized
-    // product.
+    // A Pipeline run's model is validated just before its own submission below.
     if (!policy && !isWebResearchQualified(product)) throw new Error(WEB_MODE_UNAVAILABLE_REASON)
 
     let actualProduct: GenStudioChatModel | null = policy ? null : product
@@ -113,14 +104,8 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
       recovery?: { idempotencyKey: string },
       checkpointAccepted?: (idempotencyKey: string) => Promise<void>,
       checkpointPrepared?: (idempotencyKey: string) => Promise<void>,
-      retryEpoch = 0,
     ) => {
-      const requestIdentity = llmLineupAttemptRequestIdentity(
-        opts.request_identity,
-        policyCheckpointKey,
-        candidateId,
-        retryEpoch,
-      )
+      const requestIdentity = opts.request_identity
       if (recovery) {
         // Recovery is a GET by a server-owned key. Keep the run's persisted
         // options for its result record, but do not build a new request from
@@ -145,17 +130,13 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
           recoverByIdempotencyKey: true,
           idempotencyKey: recovery.idempotencyKey,
           allowedRecoveryKeys: [recovery.idempotencyKey],
-          policyOwnsFallback: policy?.wait_for_availability === true,
         })
       }
       // The preflight catalogue is only a selection snapshot. Re-read the
       // exact product immediately before each fresh submission so a capability
       // withdrawal (or account lock) cannot turn a web request into a plain
       // chat request after the policy was accepted.
-      const liveCandidate = resolveLivePipelineModel(candidateId, await listChatModels(apiKey), {
-        accountId: availabilityScope,
-        shareTemporaryAvailability: policy?.wait_for_availability === true,
-      })
+      const liveCandidate = resolveLivePipelineModel(candidateId, await listChatModels(apiKey))
       if (liveCandidate.locked === true) throw new GenStudioChatProductUnavailableError(candidateId)
       if (!isWebResearchQualified(liveCandidate)) {
         const failed = failedWebResearchConditions(liveCandidate)
@@ -184,7 +165,6 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
         outputBudget: 'long',
         webSearch,
         requestIdentity,
-        policyOwnsFallback: policy?.wait_for_availability === true,
         ...(checkpointAccepted ? { onJobAccepted: (_jobId: string, idempotencyKey: string) => checkpointAccepted(idempotencyKey) } : {}),
         ...(checkpointPrepared ? { onRequestPrepared: checkpointPrepared } : {}),
       })
@@ -196,7 +176,6 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
           opts.pipeline_policy_checkpoint,
           policyCheckpointKey,
           pipelinePolicyInputFingerprint({ topic: opts.topic, specific_questions: opts.specific_questions, max_sources: opts.max_sources, web_search: opts.web_search }),
-          { candidates: policyCandidateOrder, availabilityScope },
         )
       : runProduct(product!.id)).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)

@@ -561,10 +561,6 @@ export async function saveSidecarForScan(folderPath: string, sidecar: Sidecar): 
 
 // ── Misc helpers ────────────────────────────────────────────────────────
 
-export function computeFileSha256(buf: Buffer): string {
-  return createHash('sha256').update(buf).digest('hex').slice(0, 32)
-}
-
 /** Streaming sha256 — for clips that may be hundreds of MB we never want
  *  to load the entire file into memory just to hash it. Reads in 1MB
  *  chunks; takes ~150ms for a 100MB file on M2 SSD. */

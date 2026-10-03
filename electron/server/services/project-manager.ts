@@ -22,7 +22,6 @@ import type {
   SafeProjectConfig, UpdateApiKeysRequest, UpdateConfigRequest, UpdateProjectRequest,
 } from '../models/types.js'
 import { resolveGenStudioModelId } from './genstudio-model-migration.js'
-import { normalizeLlmLineup } from '../contracts/llm-lineup.js'
 import { buildManifest, writeManifestCache, getMachineLabel } from './manifest.js'
 import { sanitizeProjectSlug } from './slug.js'
 import { getSoftDeletedSlugSet, forgetSoftDeletedProject } from './soft-delete.js'
@@ -203,11 +202,6 @@ function invalidateProjectsRootCache(): void {
 // sense the comments throughout this file are protecting.
 onAppSettingWritten(invalidateProjectsRootCache)
 
-/** Exported for tests and for any caller that edits app-settings.json out of band. */
-export function refreshProjectsRoot(): void {
-  invalidateProjectsRootCache()
-}
-
 function resolveProjectsRoot(): string {
   // Test override — highest priority so tests don't touch real data, and
   // deliberately ahead of the cache: it is free, it changes between tests in one
@@ -229,9 +223,8 @@ function readProjectsRootFromDisk(): string {
   const library = readSettingSync('library_root')
   if (library) return library
 
-  // Legacy: `projects_root_override` from before the Library existed. Read so
-  // an upgrading install keeps working in the window before the boot migration
-  // copies it across; `migrateLegacyLocationSettings` then retires the key.
+  // Legacy: `projects_root_override` from before the Library existed (<= 1.4.2),
+  // read so an install that still carries it keeps its folder.
   const legacy = readSettingSync('projects_root_override')
   if (legacy) return legacy
 
@@ -1220,7 +1213,9 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
   const accountsByProvider = await listAllAccounts(slug).catch(() => ({}))
 
   const safe: any = {
-    llm_lineup: normalizeLlmLineup(config.llm_lineup),
+    // The retired LLM lineup's one-time record (what was kept, and whether the
+    // Pipeline notice was closed). The lineup itself is never served again.
+    llm_lineup_migration: config.llm_lineup_migration,
     has_genstudio_key: !!config.genstudio_api_key,
     has_google_key: !!(config as any).google_api_key,
     // v1.0.150 — Chatterbox standalone provider removed. The
@@ -1483,9 +1478,7 @@ function applyConfigRequest(data: Record<string, any>, req: UpdateConfigRequest)
   const PROJECT_LEVEL_EXCLUDES = ['image_models', 'voice_presets', 'voice_favourites', 'audio_models', 'video_models', 'models']
   for (const key of Object.keys(req)) {
     if (!PROJECT_LEVEL_EXCLUDES.includes(key)) {
-      const requested = key === 'llm_lineup'
-        ? normalizeLlmLineup(req.llm_lineup)
-        : key === 'audio_generator_presets'
+      const requested = key === 'audio_generator_presets'
         ? sanitizeAudioGeneratorPresets((req as any)[key])
         : (req as any)[key]
       ;(data as any)[key] = migratePresetField(key, requested)
@@ -1627,28 +1620,3 @@ export async function getProjectOutputRoot(slug: string): Promise<string | null>
   return resolveOutputRoot(projectDir).path
 }
 
-export async function getTemplates(): Promise<Array<{ id: string; name: string; description: string }>> {
-  const templates: Array<{ id: string; name: string; description: string }> = []
-  let entries: string[] = []
-  try { entries = await fs.readdir(TEMPLATES_ROOT) } catch { return templates }
-  for (const name of entries.sort()) {
-    const dir = path.join(TEMPLATES_ROOT, name)
-    const stat = await fs.stat(dir)
-    if (!stat.isDirectory()) continue
-    // Don't let a single malformed template shipping in the bundle blow up
-    // the whole wizard — skip it with a warning and show the others.
-    let meta: any
-    try {
-      meta = await readJson(path.join(dir, 'project.json'))
-    } catch (e: any) {
-      console.warn(`[projects] getTemplates: skipping '${name}' — ${e.message}`)
-      continue
-    }
-    templates.push({
-      id: name,
-      name: meta.name || name.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()),
-      description: meta.description || '',
-    })
-  }
-  return templates
-}

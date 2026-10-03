@@ -29,7 +29,6 @@ import {
   deleteResumeSidecar,
   sessionUrlHash,
 } from '../services/upload-resume-sidecar.js'
-import { truncateChars } from './well-formed-text.js'
 import { assertPublishableMetadata } from './metadata-scaffold.js'
 
 /**
@@ -1081,46 +1080,6 @@ export async function listPlaylists(slug: string, accountId: string): Promise<Pl
     pageToken = data.nextPageToken
   }
   return out
-}
-
-export async function createPlaylist(opts: {
-  slug: string
-  accountId: string
-  title: string
-  description?: string
-  privacyStatus?: 'public' | 'unlisted' | 'private'
-}): Promise<Playlist> {
-  const body = {
-    snippet: {
-      title: truncateChars(opts.title, 150),          // YouTube playlist title cap
-      description: truncateChars(opts.description || '', 5000),
-    },
-    status: { privacyStatus: opts.privacyStatus || 'private' },
-  }
-  const resp = await fetchWithAuthRetry(opts.slug, opts.accountId, (accessToken) =>
-    youtubeFetch(`${PLAYLISTS_URL}?part=snippet,status`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    }),
-    'playlists_insert',
-  )
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '')
-    const quotaMsg = friendlyQuotaErrorMessage(resp.status, text)
-    throw new Error(quotaMsg || `playlists.insert failed (${resp.status}): ${text.slice(0, 300)}`)
-  }
-  const pl = await resp.json() as any
-  return {
-    id: pl.id,
-    title: pl.snippet?.title || opts.title,
-    description: pl.snippet?.description || '',
-    privacyStatus: pl.status?.privacyStatus || (opts.privacyStatus || 'private'),
-    itemCount: 0,
-  }
 }
 
 export async function addVideoToPlaylist(opts: {

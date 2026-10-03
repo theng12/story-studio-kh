@@ -38,24 +38,32 @@ export function useAutoSave(opts: UseAutoSaveOptions) {
   const savedAt = ref<number | null>(null)
   const errorMessage = ref('')
   let timer: ReturnType<typeof setTimeout> | null = null
-  let pending = false
+  // One save at a time. A save requested while one is in flight is not
+  // dropped: it runs again right after, with the newest data.
+  let inflight: Promise<void> | null = null
+  let again = false
 
-  async function doSave() {
-    if (pending) return // coalesce
-    pending = true
-    state.value = 'saving'
-    errorMessage.value = ''
-    try {
-      await opts.save()
-      state.value = 'saved'
-      savedAt.value = Date.now()
-    } catch (e: any) {
-      state.value = 'error'
-      errorMessage.value = e?.data?.detail || e?.message || 'Save failed'
-      opts.onError?.(e)
-    } finally {
-      pending = false
-    }
+  async function run() {
+    do {
+      again = false
+      state.value = 'saving'
+      errorMessage.value = ''
+      try {
+        await opts.save()
+        savedAt.value = Date.now()
+        state.value = timer ? 'dirty' : 'saved'
+      } catch (e: any) {
+        state.value = 'error'
+        errorMessage.value = e?.data?.detail || e?.message || 'Save failed'
+        opts.onError?.(e)
+      }
+    } while (again)
+  }
+
+  function doSave(): Promise<void> {
+    if (inflight) { again = true; return inflight }
+    inflight = run().finally(() => { inflight = null })
+    return inflight
   }
 
   function scheduleSave() {

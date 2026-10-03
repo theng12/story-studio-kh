@@ -21,7 +21,7 @@
     </div>
 
     <div class="repair-toolbar">
-      <span v-if="lastRunAt" class="text-muted" style="font-size: 12px;">Last scan: {{ lastRunAt }}</span>
+      <span v-if="lastRunAt" class="hint">Last scan: {{ lastRunAt }}</span>
       <span v-if="repairableCounts.total > 0" class="repair-summary">
         <span class="repair-chip">Audio: {{ repairableCounts.audio }}</span>
         <span class="repair-chip">Images: {{ repairableCounts.images }}</span>
@@ -79,7 +79,7 @@
       <div v-for="row in repairableRows" :key="row.episode_id" class="repair-row">
         <div class="repair-ep">
           <strong>{{ row.episode_id }}</strong>
-          <div class="text-muted" style="font-size: var(--font-xs);">{{ row.title }}</div>
+          <div class="hint">{{ row.title }}</div>
         </div>
         <span class="repair-gap" :class="row.audio.missing > 0 ? 'gap-missing' : 'gap-ok'">
           {{ row.audio.missing > 0 ? `${row.audio.missing} missing` : '✓' }}
@@ -117,13 +117,13 @@
 
 <script setup lang="ts">
 /**
- * Repair dialog — re-pulls provider-completed jobs (images / video / audio)
+ * Repair dialog — re-pulls provider-completed jobs (audio and images)
  * that finished on the provider's side but never persisted locally (app crash,
  * network blip, timeout). Relocated from the retired per-project Assets tab
  * (v1.0.481): the audit *matrix* that page also carried is now redundant with
  * the Production Board, but Repair is the unique, valuable capability — it
  * lives here, reachable from the board, and is the only place that calls
- * /assets/repair-all + the per-episode images/video/audio repair endpoints.
+ * /assets/repair-all + the per-episode audio and image repair endpoints.
  *
  * Still uses GET /assets-audit to compute what's missing (that endpoint feeds
  * the gap counts below); only the on-page audit *visualisation* was dropped.

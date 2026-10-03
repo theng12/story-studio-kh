@@ -972,10 +972,10 @@ export async function migrateMediaToExternal(
   try {
     mediaRootAbs = resolveAssetPath(String(mediaRootRaw).trim(), outputRoot)
   } catch (e: any) {
-    throw new Error(`Media root ${mediaRootRaw} can't be resolved on this machine — define it in Settings → Named Roots. ${e?.message || ''}`.trim(), { cause: e })
+    throw new Error(`Media root ${mediaRootRaw} can't be resolved on this Mac — change or clear it in Settings → Project files & behavior → Advanced. ${e?.message || ''}`.trim(), { cause: e })
   }
   if (!mediaRootAbs || /^\$\{/.test(mediaRootAbs)) {
-    throw new Error(`Media root ${mediaRootRaw} can't be resolved on this machine — define it in Settings → Named Roots.`)
+    throw new Error(`Media root ${mediaRootRaw} can't be resolved on this Mac — change or clear it in Settings → Project files & behavior → Advanced.`)
   }
 
   const { findEpisodeDir, findSubfolder } = await import('../lib/folder-resolver.js')

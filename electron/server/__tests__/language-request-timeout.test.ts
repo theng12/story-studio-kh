@@ -133,11 +133,10 @@ describe('the dial is reachable from a screen, not only from a file', () => {
     assert.match(route, /setLanguagePreferredTps\(req\.body\.language_preferred_tokens_per_second\)/)
     // And a screen that offers it.
     const panel = await fs.readFile(
-      url.fileURLToPath(new URL('../../../frontend/components/ThisMacSettings.vue', import.meta.url)),
+      url.fileURLToPath(new URL('../../../frontend/utils/performanceSettings.ts', import.meta.url)),
       'utf8',
     )
-    assert.match(panel, /How long one writing request may run/)
-    assert.match(panel, /genstudio_language_timeout_minutes: Number\(models\.languageTimeoutMinutes\)/)
+    assert.match(panel, /server: 'genstudio_language_timeout_minutes', label: 'Time limit for one writing request'/)
   })
 })
 

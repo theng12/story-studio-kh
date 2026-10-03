@@ -330,26 +330,6 @@ router.post('/broll-pools/:id/clips/:filename/normalize', async (req, res) => {
   }
 })
 
-// ── Auto-tag (vision-LLM) ─────────────────────────────────────────────
-
-router.post('/broll-pools/:id/clips/:filename/autotag', (_req, res) => {
-  res.status(501).json({
-    code: 'GENSTUDIO_CAPABILITY_UNAVAILABLE',
-    detail: 'Visual auto-tagging is unavailable until the Gateway publishes a qualified image-input LLM route.',
-  })
-})
-
-// Bulk auto-tag: queue jobs for every clip whose `tags` array is empty
-// (or every clip if force=true). Skips clips that already have at least
-// one tag so re-running the bulk button doesn't burn vision credits on
-// already-curated clips. Caller can force with body.force=true.
-router.post('/broll-pools/:id/autotag-untagged', (_req, res) => {
-  res.status(501).json({
-    code: 'GENSTUDIO_CAPABILITY_UNAVAILABLE',
-    detail: 'Visual auto-tagging is unavailable until the Gateway publishes a qualified image-input LLM route.',
-  })
-})
-
 router.post('/broll-pools/:id/normalize-all', async (req, res) => {
   try {
     const pool = await bp.getPool(req.params.id)

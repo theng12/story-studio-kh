@@ -26,7 +26,7 @@
           <h1 id="home-title">Your channels</h1>
           <p>Open a channel to continue production, or create a clean workspace for a new series.</p>
         </div>
-        <button type="button" class="btn btn-primary home-create" @click="openCreate">New channel</button>
+        <button type="button" class="btn btn-primary home-create" @click="openCreate">New Channel</button>
       </section>
 
       <section v-if="loading && projects.length === 0" class="home-state" aria-live="polite">
@@ -58,7 +58,7 @@
                move, and re-pointing while it is merely unplugged is how someone
                loses track of where their work actually is. -->
           <NuxtLink v-if="libraryMissing" to="/welcome" class="btn btn-secondary">
-            Choose a different folder…
+            Choose a Different Folder…
           </NuxtLink>
         </div>
       </section>
@@ -67,29 +67,8 @@
         <span class="state-kicker">Start here</span>
         <h2>Create your first channel</h2>
         <p>Choose a name and optional Series Formula. Story Studio will create the continuity workflow and take you straight to its dashboard.</p>
-        <button type="button" class="btn btn-primary" @click="openCreate">Create channel</button>
+        <button type="button" class="btn btn-primary" @click="openCreate">Create Channel</button>
       </section>
-
-      <!-- v1.4.3 — one-time upgrade messages. Every one names folders that are
-           still exactly where they were: this release moved no files. -->
-      <section v-if="migrationNotices.length" class="migration-notices" aria-label="Upgrade notes">
-        <article v-for="n in migrationNotices" :key="n.id" class="migration-notice">
-          <h3>{{ n.title }}</h3>
-          <p>{{ n.body }}</p>
-          <ul v-if="n.paths?.length">
-            <li v-for="(pth, i) in n.paths" :key="i"><code>{{ pth }}</code></li>
-          </ul>
-          <button
-            type="button"
-            class="btn btn-sm"
-            :disabled="dismissingId === n.id"
-            @click="dismissNotice(n.id)"
-          >{{ dismissingId === n.id ? 'Saving…' : 'Got it' }}</button>
-          <p v-if="dismissErrors[n.id]" class="notice-error" role="alert">{{ dismissErrors[n.id] }}</p>
-        </article>
-      </section>
-
-      <p v-if="noticesError" class="notice-error" role="status">{{ noticesError }}</p>
 
       <section v-if="projects.length" aria-labelledby="channels-heading">
         <div class="channel-list-header">
@@ -105,14 +84,14 @@
           <span>{{ projectsLoadError }} Showing the channels from your last visit until Story Studio answers.</span>
           <span class="channel-stale-actions">
             <button type="button" class="btn btn-sm" :disabled="projectsRetrying" @click="retryLoadProjects">
-              {{ projectsRetrying ? 'Checking…' : 'Try again' }}
+              {{ projectsRetrying ? 'Checking…' : 'Try Again' }}
             </button>
             <!-- The same way out the blank-state branch offers. Without it,
                  having a remembered list would COST the user the escape hatch
                  that a first-time visitor gets — the cache is meant to add a
                  painted list, never to take away a route out of a stuck app. -->
             <NuxtLink v-if="libraryMissing" to="/welcome" class="btn btn-sm btn-secondary">
-              Choose a different folder…
+              Choose a Different Folder…
             </NuxtLink>
           </span>
         </p>
@@ -155,7 +134,18 @@
                   Episodes folder not found:
                   <code>{{ project.output_root }}</code>
                 </span>
-                <span v-else>Episode codes: {{ project.episode_prefix || 'EP' }}… · Created {{ formatDate(project.created_at) }}</span>
+                <template v-else>
+                  <span>Episode codes: {{ project.episode_prefix || 'EP' }}… · Created {{ formatDate(project.created_at) }}</span>
+                  <!-- Counts come from a cheap per-channel read (no episode folders
+                       are scanned) and arrive after the list, so each card says what
+                       it is doing instead of showing a number that might be a guess. -->
+                  <span v-if="countsView(project)" class="project-counts" aria-live="polite">
+                    <template v-for="(part, i) in countsView(project)!.parts" :key="i">
+                      <span v-if="i > 0" aria-hidden="true"> · </span>
+                      <span :class="{ 'project-counts-warn': part.warn }">{{ part.text }}</span>
+                    </template>
+                  </span>
+                </template>
               </span>
               <span class="project-open" aria-hidden="true">Open channel <span>→</span></span>
             </NuxtLink>
@@ -187,7 +177,7 @@
             @click="showHidden = !showHidden"
           >
             🗑️ Hidden channels ({{ hiddenProjects.items.value.length }})
-            <span aria-hidden="true">{{ showHidden ? '▾' : '▸' }}</span>
+            <span class="ds-chevron" aria-hidden="true" :class="{ 'is-open': showHidden }" />
           </button>
           <div v-if="showHidden && hiddenProjects.items.value.length" class="hidden-projects-list">
             <p class="hidden-projects-note">
@@ -242,7 +232,7 @@
 
         <NichePicker v-model="form.niche_id" :disabled="creating" />
 
-        <details class="naming-options">
+        <details class="naming-options disclosure">
           <summary>Episode naming options</summary>
           <div class="naming-grid">
             <div class="form-group">
@@ -280,7 +270,7 @@ import { readLastKnownList, writeLastKnownList } from '~/utils/last-known-list'
 
 useAppTitle()
 
-const { get, post, del } = useApi()
+const { get, post } = useApi()
 const appSettingsModal = useAppSettingsModal()
 
 /**
@@ -301,68 +291,17 @@ const appSettingsModal = useAppSettingsModal()
 const LAST_KNOWN_CHANNELS = 'channels'
 const cachedChannels = readLastKnownList<any>(LAST_KNOWN_CHANNELS)
 const projects = ref<any[]>(cachedChannels)
-// The server answers `status: 'downloading'` for a folder whose read timed out
-// (it still lists the row). Only an explicit non-ready status counts: a list
+// A channel folder whose read timed out is still listed, with a status other
+// than 'ready'. Only an explicit non-ready status counts: a list
 // cached by an older version has no status at all and must not read as broken.
 function isFolderUnreadable(project: { status?: string }): boolean {
   return !!project.status && project.status !== 'ready'
 }
-/** True while what is on screen came from the cache and has not been confirmed. */
-const servingCachedChannels = ref(cachedChannels.length > 0)
 const loading = ref(true)
 const projectsLoadError = ref('')
 const projectsRetrying = ref(false)
 const libraryMissing = ref(false)
 const libraryMissingPath = ref('')
-
-// v1.4.3 — one-time messages from the location-settings migration.
-interface MigrationNotice { id: string; title: string; body: string; paths?: string[] }
-const migrationNotices = ref<MigrationNotice[]>([])
-const noticesError = ref('')
-
-async function loadMigrationNotices() {
-  try {
-    const r = await get<{ notices: MigrationNotice[] }>('/library/notices')
-    migrationNotices.value = Array.isArray(r?.notices) ? r.notices : []
-    noticesError.value = ''
-  } catch (error: any) {
-    // Never fatal — these are informational — but not silent either.
-    noticesError.value = errorMessage(error, 'Could not check for upgrade notes.')
-  }
-}
-
-const dismissingId = ref('')
-const dismissErrors = ref<Record<string, string>>({})
-
-/**
- * "Got it" removes the notice only once the server has agreed to remember it.
- *
- * The previous version removed it locally first and swallowed any failure. On
- * screen that was indistinguishable from success, and the notice then came back
- * on the next load with no explanation — the app knowing something and not
- * saying it. Waiting for the round trip costs a moment; being quietly wrong
- * costs the customer's trust in the button.
- */
-async function dismissNotice(id: string) {
-  dismissingId.value = id
-  const { [id]: _cleared, ...rest } = dismissErrors.value
-  dismissErrors.value = rest
-  try {
-    await del(`/library/notices/${id}`)
-    migrationNotices.value = migrationNotices.value.filter(n => n.id !== id)
-  } catch (error: any) {
-    // What it means to him comes first; the server's reason follows as the
-    // cause. The raw detail alone is a temp-file path, which answers a question
-    // he did not ask and not the one he did.
-    const reason = errorMessage(error, '')
-    dismissErrors.value = {
-      ...dismissErrors.value,
-      [id]: `Could not save that, so this note will still be here next time.${reason ? ` (${reason})` : ''}`,
-    }
-  } finally {
-    dismissingId.value = ''
-  }
-}
 
 // v1.4.2 — hidden channels. `useSoftDeletedProjects` and its backend routes
 // survived the 2026-08-08 home-page collapse with their tests; only the UI that
@@ -423,11 +362,11 @@ async function loadProjects(): Promise<void> {
   try {
     const fresh = await get<any[]>('/projects', { cache: 'no-store' })
     projects.value = fresh
+    void loadChannelCounts(fresh)
     // Reconciled, not merged. Whatever the server just said is the whole truth
     // about which channels exist — a channel deleted elsewhere must disappear
     // here, so the cache is REPLACED rather than added to.
     writeLastKnownList(LAST_KNOWN_CHANNELS, fresh)
-    servingCachedChannels.value = false
     projectsLoadError.value = ''
     libraryMissing.value = false
     libraryMissingPath.value = ''
@@ -458,6 +397,49 @@ async function retryLoadProjects(): Promise<void> {
   } finally {
     projectsRetrying.value = false
   }
+}
+
+// Episode counts per channel card. A card's entry exists only while that channel
+// is on screen and healthy, so nothing leaks between cards or outlives a refresh.
+interface ChannelCounts { episodes: number; on_youtube: number | null; in_progress: number; needs_attention: number }
+type CountsEntry = { state: 'loading' } | { state: 'error' } | { state: 'ok'; counts: ChannelCounts }
+const channelCounts = ref<Record<string, CountsEntry>>({})
+let countsRun = 0
+
+function hasReadableFolder(project: { status?: string; output_root_exists?: boolean }): boolean {
+  return !isFolderUnreadable(project) && project.output_root_exists !== false
+}
+
+async function loadChannelCounts(list: any[]): Promise<void> {
+  const run = ++countsRun
+  const slugs = list.filter(hasReadableFolder).map(project => projectSlug(project?.slug)).filter(Boolean)
+  channelCounts.value = Object.fromEntries(slugs.map(slug => [slug, { state: 'loading' } as CountsEntry]))
+  await Promise.all(slugs.map(async (slug) => {
+    let entry: CountsEntry
+    try {
+      entry = { state: 'ok', counts: await get<ChannelCounts>(`/projects/${slug}/channel-counts`, { cache: 'no-store' }) }
+    } catch {
+      entry = { state: 'error' }
+    }
+    // A newer list replaced this one while the read was in flight: drop the answer.
+    if (run === countsRun) channelCounts.value = { ...channelCounts.value, [slug]: entry }
+  }))
+}
+
+function countsView(project: any): { parts: Array<{ text: string; warn?: boolean }> } | null {
+  const entry = channelCounts.value[projectSlug(project?.slug)]
+  if (!entry) return null
+  if (entry.state === 'loading') return { parts: [{ text: 'Counting episodes…' }] }
+  if (entry.state === 'error') return { parts: [{ text: 'Episode counts unavailable right now' }] }
+  const c = entry.counts
+  if (c.episodes === 0) return { parts: [{ text: 'No episodes yet' }] }
+  const parts: Array<{ text: string; warn?: boolean }> = [
+    { text: `${c.episodes} ${c.episodes === 1 ? 'episode' : 'episodes'}` },
+    { text: c.on_youtube === null ? 'YouTube count unavailable' : `${c.on_youtube} on YouTube` },
+  ]
+  if (c.in_progress > 0) parts.push({ text: `${c.in_progress} being made now` })
+  if (c.needs_attention > 0) parts.push({ text: `${c.needs_attention} ${c.needs_attention === 1 ? 'needs' : 'need'} attention`, warn: true })
+  return { parts }
 }
 
 function projectHref(project: { slug?: unknown }): string {
@@ -528,7 +510,6 @@ onMounted(async () => {
   await loadProjects()
   // Never fatal: a failure here must not stop the channel list rendering.
   await hiddenProjects.refresh().catch(() => {})
-  await loadMigrationNotices()
 })
 </script>
 
@@ -722,25 +703,15 @@ onMounted(async () => {
 .hidden-project-name code { color: var(--text-secondary); overflow-wrap: anywhere; }
 .hidden-project-name em { color: var(--warning); font-style: normal; }
 
-/* v1.4.3 — one-time upgrade notes. */
 .home-state-path { margin-top: 8px; }
 .home-state-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 .home-state-path code { font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
-.migration-notices { display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; }
-.migration-notice {
-  background: var(--bg-secondary);
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
-  border-radius: var(--radius-md);
-  padding: 16px 20px;
-}
-.migration-notice h3 { margin-bottom: 6px; }
-.migration-notice p { color: var(--text-secondary); }
-.migration-notice ul { margin: 10px 0; padding-left: 18px; }
-.migration-notice li code { overflow-wrap: anywhere; }
 .notice-error { margin-top: 10px; padding: 10px 12px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--error) 11%, transparent); color: var(--error); }
 .project-copy { gap: 4px; }
 .project-copy strong { overflow-wrap: anywhere; font-size: var(--font-xl); }
 .project-copy span { color: var(--text-secondary); font-size: var(--font-sm); }
+.project-copy .project-counts { margin-top: 4px; overflow-wrap: anywhere; }
+.project-copy .project-counts .project-counts-warn { color: var(--warning); font-weight: 650; }
 .project-open { display: flex; justify-content: space-between; color: var(--accent); font-size: var(--font-sm); font-weight: 650; }
 .project-card-disabled { justify-content: center; opacity: .7; }
 

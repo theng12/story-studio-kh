@@ -19,7 +19,7 @@
       <details class="preset-more">
         <summary class="btn btn-sm btn-secondary" aria-label="More preset actions">More</summary>
         <div class="preset-more-menu" role="group" aria-label="More preset actions">
-          <button type="button" class="preset-menu-item" @click="openSaveAs">Save as…</button>
+          <button type="button" class="preset-menu-item" @click="openSaveAs">Save As…</button>
           <button
             type="button"
             class="preset-menu-item"
@@ -37,7 +37,7 @@
         </div>
       </details>
     </div>
-    <p v-if="hint" class="text-muted mt-1" style="font-size: 12px;">{{ hint }}</p>
+    <p v-if="hint" class="hint mt-1">{{ hint }}</p>
 
     <!-- Save-as modal — uses the shared Modal primitive for overlay + trap. -->
     <Modal
@@ -47,7 +47,7 @@
       @close="showSaveAs = false"
     >
       <h3 id="preset-save-as-title">Save preset as…</h3>
-      <p class="text-muted mt-1 mb-2" style="font-size:12px">
+      <p class="hint mt-1 mb-2">
         Saves these settings as a local preset for this project so you can reuse them here and in Pipeline.
       </p>
       <input
@@ -73,7 +73,7 @@
       @close="showRename = false"
     >
       <h3 id="preset-rename-title">Rename preset</h3>
-      <p class="text-muted mt-1 mb-2" style="font-size:12px">
+      <p class="hint mt-1 mb-2">
         Only the label changes. The preset's settings stay exactly the same everywhere it is used.
       </p>
       <input
@@ -187,7 +187,7 @@ async function confirmDelete() {
   const ok = await ask({
     title: `Delete preset "${p.name}"?`,
     message: 'The preset is removed from this project. Content saved using it stays on disk.',
-    confirmLabel: 'Delete preset',
+    confirmLabel: 'Delete Preset',
     danger: true,
   })
   if (!ok) return

@@ -820,7 +820,7 @@ describe('durable paid image waits across boot', () => {
     const terminal: Job = {
       job_id: `terminal-${++fixtureId}`,
       project_slug: terminalProject.slug,
-      type: 'script-only',
+      type: 'chapter-only',
       episode_id: 'EP0001',
       title: 'Interrupted local work',
       status: 'running',
@@ -854,7 +854,7 @@ describe('durable paid image waits across boot', () => {
         await recoveryRelease.promise
       })
       jq.registerExecutor('audio', async () => {})
-      jq.registerExecutor('script-only', async () => {})
+      jq.registerExecutor('chapter-only', async () => {})
       await jq.resumeInterruptedJobsAtBoot()
       await recoveryStarted.promise
 

@@ -38,10 +38,10 @@
            exception; the affordance now appears only when there is a real one
            to inspect. -->
       <button v-if="exceptionJobs.length" type="button" class="link-btn" @click="toggleExceptions">
-        {{ showingExceptions ? 'Show all ledger' : `Inspect ${exceptionJobs.length.toLocaleString()} failed` }}
+        {{ showingExceptions ? 'Show All Ledger' : `Inspect ${exceptionJobs.length.toLocaleString()} Failed` }}
       </button>
       <button type="button" class="link-btn" @click="toggleLedger">
-        {{ ledgerOpen ? 'Hide item ledger' : `Show item ledger (${remoteJobs.length.toLocaleString()})` }}
+        {{ ledgerOpen ? 'Hide Item Ledger' : `Show Item Ledger (${remoteJobs.length.toLocaleString()})` }}
       </button>
     </div>
 

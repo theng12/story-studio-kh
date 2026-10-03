@@ -72,7 +72,7 @@
       </table>
     </div>
 
-    <p v-if="!loading && totalCount" class="text-muted mt-2" style="font-size: var(--font-xs);">
+    <p v-if="!loading && totalCount" class="hint mt-2">
       {{ totalCount }} preset{{ totalCount === 1 ? '' : 's' }} across {{ groupsWithItems }} group{{ groupsWithItems === 1 ? '' : 's' }}.
     </p>
   </div>
@@ -324,14 +324,6 @@ const groupsMeta: Omit<PresetGroup, 'items'>[] = [
     configKey: 'animation',
     editLink: '/video-assembly',
   },
-  {
-    key: 'llm_lineup',
-    label: 'LLM Lineup',
-    icon: '🧠',
-    hint: 'Which language models a Pipeline run may use, in order.',
-    configKey: 'llm_lineup',
-    editLink: '/pipeline',
-  },
 ]
 
 const groups = ref<PresetGroup[]>(groupsMeta.map(g => ({ ...g, items: [] })))
@@ -494,7 +486,7 @@ async function remove(groupKey: string, p: PresetRecord) {
   const ok = await ask({
     title: `Delete preset "${p.name}"?`,
     message: `This removes the preset from the project. Any content you generated using it stays on disk.`,
-    confirmLabel: 'Delete preset',
+    confirmLabel: 'Delete Preset',
     danger: true,
   })
   if (!ok) return

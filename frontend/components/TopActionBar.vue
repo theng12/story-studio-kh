@@ -73,7 +73,7 @@
               :class="['preset-menu-item', { 'preset-action-success': presetActionSuccess === 'save-as' }]"
               :disabled="presetActionBusy"
               @click="openSaveAs"
-            >{{ presetActionLabel('save-as', 'Save as…', 'Saving…', '✓ Saved') }}</button>
+            >{{ presetActionLabel('save-as', 'Save As…', 'Saving…', '✓ Saved') }}</button>
             <button
               type="button"
               :class="['preset-menu-item', { 'preset-action-success': presetActionSuccess === 'rename' }]"
@@ -177,7 +177,7 @@
       @close="showSaveAs = false"
     >
       <h3 id="top-action-preset-save-title">Save preset as…</h3>
-      <p class="text-muted mt-1 mb-2" style="font-size:12px">
+      <p class="hint mt-1 mb-2">
         Snapshots the current settings on this page so you can reuse them later.
       </p>
       <input
@@ -203,7 +203,7 @@
       @close="showRename = false"
     >
       <h3 id="top-action-preset-rename-title">Rename preset</h3>
-      <p class="text-muted mt-1 mb-2" style="font-size:12px">
+      <p class="hint mt-1 mb-2">
         This changes only the preset name. Its saved settings stay exactly the same.
       </p>
       <input
@@ -445,7 +445,7 @@ async function onDelete() {
   const ok = await ask({
     title: `Delete preset "${p.name}"?`,
     message: 'The preset is removed from this project. Any content previously generated with it is untouched.',
-    confirmLabel: 'Delete preset',
+    confirmLabel: 'Delete Preset',
     danger: true,
   })
   if (!ok) return

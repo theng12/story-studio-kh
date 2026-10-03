@@ -116,7 +116,7 @@
         <footer class="sidebar-credits" aria-label="Story Studio status">
           <nav class="sidebar-utilities" aria-label="Application utilities">
             <NuxtLink to="/content-store" class="sidebar-utility" active-class="active">Content Store</NuxtLink>
-            <NuxtLink v-if="slug" :to="`/projects/${slug}/settings#free-up-space`" class="sidebar-utility">Free up space</NuxtLink>
+            <NuxtLink v-if="slug" :to="`/projects/${slug}/settings#free-up-space`" class="sidebar-utility">Free Up Space</NuxtLink>
             <NuxtLink v-if="slug" :to="`/projects/${slug}/settings`" class="sidebar-utility" active-class="active">Settings</NuxtLink>
             <button v-else type="button" class="sidebar-utility" @click="appSettingsModal.open()">Settings</button>
           </nav>
@@ -149,6 +149,8 @@
           {{ projectLoadError }}
         </WorkspaceNotice>
         <NicheMissingBanner v-if="slug && project" :key="slug" :slug="slug" :niche-id="project.niche_id" />
+        <!-- Content Pack installs / purchases keep running after the Store is left: show them here too. -->
+        <ContentInstallStrip class="dashboard-install-strip" />
         <slot />
       </main>
     </div>
@@ -159,6 +161,7 @@
 import { FLOW_PHASES, parseVisualSource, type FlowStep, type VisualSource } from '~/composables/useProjectFlow'
 import { useWhatsNewModal } from '~/composables/useWhatsNewModal'
 import { projectSlug } from '~/utils/project-slug'
+import ContentInstallStrip from '~/components/content-store/ContentInstallStrip.vue'
 
 const route = useRoute()
 const slug = computed(() => (
@@ -464,8 +467,11 @@ onUnmounted(() => {
 .nav-item:hover,
 .all-projects-link:hover { background: var(--bg-hover); color: var(--text-primary); }
 .nav-item.active { border-color: color-mix(in srgb, var(--accent) 34%, transparent); background: var(--accent-dim); color: var(--text-primary); }
-.nav-item.active::before { content: ''; width: 3px; height: 18px; margin-left: -5px; border-radius: 999px; background: var(--accent); }
-.nav-item.active > span:first-child { margin-right: auto; }
+/* The accent bar is positioned, not a flex item: as a flex item beside a bare
+   text label ("Pipeline", "Dashboard") `space-between` pushed the label to the
+   right edge of the active row. */
+.nav-item { position: relative; }
+.nav-item.active::before { content: ''; position: absolute; top: 50%; left: 3px; width: 3px; height: 18px; border-radius: 999px; background: var(--accent); transform: translateY(-50%); }
 .nav-item-main { display: flex; min-width: 0; align-items: center; gap: 8px; }
 .nav-item-main > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav-hint { color: var(--accent); font-size: var(--font-xs); font-weight: 750; }
@@ -564,4 +570,5 @@ onUnmounted(() => {
 @media (prefers-reduced-motion: reduce) {
   .sidebar { transition: none; }
 }
+.dashboard-install-strip { margin-bottom: 12px; }
 </style>

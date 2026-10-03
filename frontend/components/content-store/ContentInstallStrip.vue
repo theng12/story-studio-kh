@@ -1,7 +1,10 @@
 <template>
   <div v-if="visible" class="content-install-strip" role="status" aria-live="polite">
     <span class="strip-text">
-      <template v-if="queue.running.value">
+      <template v-if="buying">
+        Buying Content Packs — {{ batch.progress.value.done }} of {{ batch.progress.value.total }} done. It keeps going while you work.
+      </template>
+      <template v-else-if="queue.running.value">
         Installing Content Packs — {{ queue.batchDone.value }} of {{ queue.batchTotal.value }} done<template v-if="queue.batchFailed.value">, {{ queue.batchFailed.value }} failed</template><template v-if="queue.activeTitle.value"> · now: {{ queue.activeTitle.value }}</template><template v-if="progressLine"> · {{ progressLine }}</template>
       </template>
       <template v-else>
@@ -10,7 +13,7 @@
     </span>
     <span class="strip-actions">
       <NuxtLink v-if="!onStore" to="/content-store" class="strip-link">Open Content Store</NuxtLink>
-      <button v-if="!queue.running.value" type="button" class="strip-link" @click="queue.clearFinished()">Dismiss</button>
+      <button v-if="!queue.running.value && !buying" type="button" class="strip-link" @click="queue.clearFinished()">Dismiss</button>
     </span>
   </div>
 </template>
@@ -24,11 +27,14 @@
  */
 import { computed } from 'vue'
 import { useContentInstallQueue } from '~/composables/useContentInstallQueue'
+import { batchPurchaseStatus as batch } from '~/composables/useBatchPurchase'
 
 const queue = useContentInstallQueue()
 const route = useRoute()
 const onStore = computed(() => route.path.startsWith('/content-store'))
-const visible = computed(() => queue.running.value || queue.finished.value)
+// A purchase in progress shows here only away from the Store (the Store has its own strip).
+const buying = computed(() => batch.busy.value && batch.phase.value === 'settling' && !onStore.value)
+const visible = computed(() => buying.value || queue.running.value || queue.finished.value)
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   const units = ['KB', 'MB', 'GB']

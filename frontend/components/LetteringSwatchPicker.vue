@@ -25,7 +25,7 @@
         <button
           v-if="missingCount" type="button" class="btn btn-secondary btn-sm"
           :disabled="busy" @click="generateMissing"
-        >{{ busy ? `Rendering ${done}/${total}…` : `Show me ${missingCount}` }}</button>
+        >{{ busy ? `Rendering ${done}/${total}…` : `Show Me ${missingCount}` }}</button>
       </div>
 
       <div class="swatch-grid" role="radiogroup" :aria-label="title">
@@ -69,7 +69,7 @@ interface SwatchStyle {
   preview: { hash: string; url: string } | null
 }
 
-const props = defineProps<{ kind: 'font' | 'text'; modelValue: string; model?: string; aspectRatio?: string; caption: string; title: string }>()
+const props = defineProps<{ kind: 'font' | 'text'; modelValue: string; aspectRatio?: string; caption: string; title: string }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const open = ref(false)
 /**

@@ -22,7 +22,7 @@
     <p v-if="loadError" class="catalog-message">{{ loadError }}</p>
     <p v-if="emptyCatalogNeedsSetup" class="catalog-message">
       No Gateway key is configured, so LLM models cannot load.
-      <button type="button" class="catalog-action" @click="appSettingsModal.open('connections')">Open connection settings</button>
+      <button type="button" class="catalog-action" @click="appSettingsModal.open('connections')">Open Connection Settings</button>
     </p>
     <!-- The saved product is gone from the catalogue. Body text in the flow,
          like the disclosure and retirement notices below it: this is the only
@@ -67,6 +67,7 @@ import {
 import { describeModelRetirement, isRetiring } from '../utils/genstudio-model-retirement.js'
 import { describeGenStudioAvailability } from '../utils/genstudio-availability.js'
 import { unverifiedSelectionLabel as unverifiedLabel } from '../utils/picker-trigger-label.js'
+import { isGatewayPoolId, poolsFirst, POOL_GROUP_LABEL, POOL_HINT } from '../utils/gateway-pool.js'
 
 interface LlmModelRow {
   id: string
@@ -153,6 +154,11 @@ const props = defineProps<{
   projectSlug: string
   label?: string
   requireVision?: boolean
+  /**
+   * A page's own writing model. When it has none and this project moved off the
+   * retired LLM lineup, the model kept for it then is filled in (owner, 2026-10-03).
+   */
+  writingStep?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -237,19 +243,22 @@ const menuOptions = computed(() => {
   // The gateway is named once by the group heading. A creator/provider is a
   // separate published fact and appears on the row only when GenStudio sends
   // `provider_name`; it is never reconstructed from an id or display name.
-  const rows = eligibleModels.map((model) => {
+  // Pools first: one choice that already falls back across several models.
+  const rows = poolsFirst(eligibleModels).map((model) => {
     const rate = describeChatRate({ ...model, display_name: model.label })
+    const pool = isGatewayPoolId(model.id)
     return {
       id: model.id,
       label: model.label,
       // Two shelves, and `queue_class` decides which. A catalogue with no
       // relaxed products yields one group with the heading it has always had.
-      group: queueClassGroupLabel(model, 'Language models'),
+      // Pools get their own section, listed first.
+      group: pool ? POOL_GROUP_LABEL : queueClassGroupLabel(model, 'Language models'),
       // Sent on every relaxed row, rendered once for the section — see
       // `ModelMenu`'s `groupNote`. Empty for a direct row, and empty for a
       // relaxed row on a GenStudio that publishes no hint, which shows the
       // section with no note rather than a note this app made up.
-      groupNote: isRelaxedQueue(model) ? describeRelaxedQueueHint(model.relaxed_queue_hint) : '',
+      groupNote: pool ? POOL_HINT : isRelaxedQueue(model) ? describeRelaxedQueueHint(model.relaxed_queue_hint) : '',
       provider: model.provider_name || '',
       price: rate.text,
       priceTitle: rate.title,
@@ -351,6 +360,19 @@ function syncModelSelection(): void {
   emit('model-meta', selected)
 }
 
+/**
+ * A writing page with no model of its own gets the one kept when this project's
+ * LLM lineup was retired — the owner's own earlier choice, never one Story picks.
+ */
+async function fillRetiredLineupChoice(): Promise<void> {
+  if (!props.writingStep || props.modelValue.trim()) return
+  try {
+    const config = await get<{ llm_lineup_migration?: { model?: string } }>(`/projects/${props.projectSlug}/settings/config`)
+    const kept = config?.llm_lineup_migration?.model
+    if (kept && !props.modelValue.trim()) selectModel(kept)
+  } catch { /* nothing kept; the page asks for a choice as usual */ }
+}
+
 async function identifyEmptyCatalog(): Promise<void> {
   emptyCatalogState.value = ''
   try {
@@ -383,6 +405,7 @@ async function loadModels(force = false): Promise<void> {
     // back on the next time this read fails.
     rememberedNames.remember(models)
     syncModelSelection()
+    await fillRetiredLineupChoice()
   } catch (error: any) {
     allModels.value = []
     loadError.value = error?.data?.detail || error?.message || 'Gateway catalog unavailable.'

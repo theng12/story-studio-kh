@@ -20,7 +20,8 @@ test('each visible fresh action retains one caller operation id until its submit
     source('frontend/pages/projects/[slug]/subtitles.vue'),
     source('frontend/pages/projects/[slug]/scripts.vue'),
     source('frontend/pages/projects/[slug]/introduction.vue'),
-    source('frontend/components/ChapterListPanel.vue'),
+    // ChapterListPanel and OutlineReviewPanel share this one Regenerate action.
+    source('frontend/composables/useChapterRegenerate.ts'),
     source('frontend/components/OutlineReviewPanel.vue'),
     source('frontend/pages/projects/[slug]/image-prompts.vue'),
     source('frontend/components/PromptReviewPanel.vue'),
@@ -68,7 +69,7 @@ test('thumbnail prompt default preserves completed prompts while force is a fres
   // Default is fill-gaps; the only overwrite is the confirmed "Replace all" action.
   assert.match(page, /fill_gaps:\s*!replaceAll/)
   assert.match(page, /force:\s*replaceAll/)
-  assert.match(page, /await runGenerate\('thumbnails', true\)/)
+  assert.match(page, /await runGenerate\(true\)/)
   assert.match(page, /freshImagePromptsAction\.begin\(payload\)/)
   assert.match(page, /operation_id:\s*operationId/)
 })

@@ -79,7 +79,7 @@
       </div>
       <div class="ip-actions mt-3">
         <button class="btn btn-primary" :disabled="pickingImages || !selectedPool?.online" @click="pickImagesForEpisode">
-          {{ pickingImages ? 'Picking…' : '🖼 Use these images for this episode' }}
+          {{ pickingImages ? 'Picking…' : '🖼 Use These Images for This Episode' }}
         </button>
         <span v-if="lastLoad" class="text-muted text-sm">
           ✓ Saved {{ lastLoad.count }} image(s) (~{{ Math.round(lastLoad.target_duration) }}s of narration).
@@ -97,7 +97,7 @@
     <section v-if="poolId" class="card mt-3">
       <h3 class="ip-grow-head" @click="showGrow = !showGrow">
         <span>3. Grow this pool — generate images (optional)</span>
-        <span class="text-muted text-sm">{{ showGrow ? '▾' : '▸' }}</span>
+        <span class="text-muted text-sm ds-chevron" aria-hidden="true" :class="{ 'is-open': showGrow }" />
       </h3>
       <template v-if="showGrow">
         <p class="text-muted text-sm mt-1">
@@ -131,7 +131,6 @@
             <ImageModelPicker
               v-model="genModel"
               :project-slug="slug"
-              :image-models="config?.image_models || {}"
               image-mode="text2img"
               default-label="Pick an image model…"
             />
@@ -168,7 +167,7 @@
         </p>
         <div class="ip-actions mt-3">
           <button class="btn btn-primary" :disabled="generating || !genModel || !promptLines.length || !selectedPool?.online" @click="generateIntoPool">
-            {{ generating ? 'Queuing…' : `✨ Generate ${promptLines.length * genVariants || ''} into pool` }}
+            {{ generating ? 'Queuing…' : `✨ Generate ${promptLines.length * genVariants || ''} into Pool` }}
           </button>
           <span class="text-muted text-sm">
             Runs in the background — images land in the pool and the count above updates when it finishes. Watch the
@@ -190,7 +189,7 @@ useAppTitle('Image Pool')
 
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
-const { get, post, put } = useApi()
+const { post, put } = useApi()
 const { success, error: showError, info: showInfo } = useToast()
 const broll = useBrollPools()
 const { config, refreshConfig } = useProject()
@@ -306,7 +305,7 @@ async function pickImagesForEpisode(): Promise<void> {
   if (!await ask({
     title: `Pick new images for ${episodeId.value}?`,
     message: `This saves a new random set from ${selectedPool.value?.name || 'this pool'}, replacing any images picked earlier for ${episodeId.value}, and switches its Video Assembly visuals to Image Pool (instead of scene images).`,
-    confirmLabel: 'Use these images',
+    confirmLabel: 'Use These Images',
   })) return
   const request = ++imagePoolScopeSequence
   const project = slug.value
@@ -443,7 +442,6 @@ onMounted(async () => {
 .ip-num { width: 80px; }
 .ip-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .ip-warn { color: #c97a4a; font-size: 13px; }
-.ip-warn-list { margin: 0; padding-left: 18px; color: #c97a4a; font-size: 12px; }
 .text-accent { color: var(--accent); }
 /* Grow-pool panel */
 .ip-grow-head { display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; margin: 0; }

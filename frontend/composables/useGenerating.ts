@@ -25,7 +25,6 @@ export function useGenerating() {
   const videoAssemblyGenerating = useState('videoAssemblyGenerating', () => false)
 
   // Direct-API generating states (managed manually by pages)
-  const promptGenerating = useState('promptGenerating', () => false)
   const thumbPromptGenerating = useState('thumbPromptGenerating', () => false)
   const metaGenerating = useState('metaGenerating', () => false)
 
@@ -47,7 +46,7 @@ export function useGenerating() {
     // (queued/running) flip to done/error/cancelled cause the signal
     // to mutate; output_lines pushes don't.
     const TRACKED = new Set([
-      'script-only', 'introduction-only', 'chapter-only', 'outline_only', 'expand_chapters',
+      'introduction-only', 'chapter-only', 'outline_only', 'expand_chapters',
       'images', 'scene_images', 'thumb_images', 'images_repair',
       'audio', 'audio_merge',
       'video', 'video_assembly',
@@ -65,7 +64,7 @@ export function useGenerating() {
 
       // Turn OFF when no active jobs of that type remain
       // (Pages turn ON on submit — we only auto-reset here)
-      if (scriptGenerating.value && !hasActive('script', 'script-only', 'outline_only', 'expand_chapters', 'chapter-only')) {
+      if (scriptGenerating.value && !hasActive('script', 'outline_only', 'expand_chapters', 'chapter-only')) {
         scriptGenerating.value = false
       }
       if (imageGenerating.value && !hasActive('images', 'scene_images')) {
@@ -91,7 +90,6 @@ export function useGenerating() {
 
   return {
     scriptGenerating,
-    promptGenerating,
     thumbPromptGenerating,
     imageGenerating,
     thumbImageGenerating,

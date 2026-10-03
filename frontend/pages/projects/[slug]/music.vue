@@ -142,7 +142,7 @@
 
       <div class="ml-actions mt-2">
         <button class="btn btn-primary" :disabled="!brief.trim() || !validCount || generating" @click="topUp">
-          {{ generating ? 'Starting…' : `Add ${count} song(s)` }}
+          {{ generating ? 'Starting…' : `Add ${count} Song(s)` }}
         </button>
         <span class="text-muted text-sm">{{ !brief.trim() ? 'Describe the sound first.' : !validCount ? 'Choose between 1 and 100 songs.' : 'Runs as a job — watch it on the Jobs page.' }}</span>
       </div>
@@ -182,14 +182,14 @@
 
       <div class="ml-actions mt-2">
         <button class="btn" :disabled="previewing" @click="preview">
-          {{ previewing ? 'Checking…' : 'Preview the tracklist' }}
+          {{ previewing ? 'Checking…' : 'Preview the Tracklist' }}
         </button>
         <button
           class="btn btn-primary"
           :disabled="!episodeId.trim() || !backgroundPath.trim() || rendering"
           @click="render"
         >
-          {{ rendering ? 'Starting…' : 'Build the video' }}
+          {{ rendering ? 'Starting…' : 'Build the Video' }}
         </button>
         <span v-if="!episodeId.trim() || !backgroundPath.trim()" class="text-muted text-sm">
           {{ !episodeId.trim() ? 'Type the episode code first.' : 'Choose a background first.' }}

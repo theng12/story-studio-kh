@@ -17,7 +17,6 @@
  */
 
 import { randomUUID } from 'crypto'
-import path from 'path'
 import { Router } from 'express'
 import { z } from 'zod'
 import { validateBody } from '../lib/validate.js'
@@ -151,7 +150,7 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
     })
     source = result.url
   } catch (e: any) {
-    return res.status(502).json({ detail: e?.message || 'Gateway image generation failed' })
+    return res.status(502).json({ detail: e?.message || 'The Gateway could not make the image' })
   }
 
   let imageBytes: Buffer
@@ -576,93 +575,5 @@ router.get('/projects/:slug/style-presets/:id/preview', async (req, res) => {
     streamTo(res, stream)
   } catch (e: any) {
     res.status(500).json({ detail: e?.message || 'Failed to serve preset preview' })
-  }
-})
-
-/**
- * Save a cached style preview into a specific episode's scene-images
- * folder. The global cache stays untouched — this is a COPY into the
- * episode dir so the user has a permanent reference alongside their
- * actual scene renders (handy when reviewing in Finder later).
- *
- *   POST /api/projects/:slug/episodes/:id/style-preview-save
- *     body: { hash, title?, kind? }
- *     200 : { filename, path }
- *
- * Filename encodes (episode, kind, model, aspect, tier) so the file is
- * self-describing and multiple saves don't collide across iterations.
- */
-const StylePreviewSaveSchema = z.object({
-  hash: z.string().regex(/^[0-9a-f]{16}$/, 'hash must be 16 hex chars'),
-  title: z.string().optional(),
-  kind: z.enum(['scene', 'thumbnail']).optional(),
-})
-
-router.post('/projects/:slug/episodes/:id/style-preview-save', validateBody(StylePreviewSaveSchema), async (req, res) => {
-  const { slug, id: episodeId } = req.params
-  try {
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
-    const { hash, title = '', kind = 'scene' } = req.body as { hash: string; title?: string; kind?: 'scene' | 'thumbnail' }
-
-    // Resolve the cached preview's absolute path. Same hex regex the GET
-    // serve route uses — defensive against path traversal in case the
-    // body bypasses the schema validator.
-    const cachedAbs = await pathForStylePreviewHash(hash)
-    if (!cachedAbs) return res.status(404).json({ detail: 'Preview not in cache — re-render before saving.' })
-
-    // Read the cache entry's metadata so the saved filename can encode
-    // the model + aspect + tier that produced the image. Avoids "what
-    // model was this?" guessing when the user opens the folder later.
-    const idx = await (await import('../services/style-preview-cache.js')).getCachedStylePreviewByHash(hash)
-
-    // Pick the destination folder. Scene-tab previews land in the
-    // scene-images folder so they sit next to the actual scene renders;
-    // thumbnail-tab previews land in the thumbnails folder for the same
-    // reason. Both folders are resolved through the same path resolver
-    // every other generator uses (handles iCloud relocations, folder-
-    // rename edge cases, etc).
-    const { resolveEpisodePaths } = await import('../services/utils.js')
-    const paths = await resolveEpisodePaths(slug, episodeId, title || '')
-    // `bg_dir` is the historical name for the scene-images folder in
-    // resolveEpisodePaths — the property name predates the
-    // scene/thumbnail split rename. Kept stable across the codebase.
-    const destDir = kind === 'thumbnail' ? paths.thumb_dir : paths.bg_dir
-    const fsMod = await import('fs')
-    const fsp = await import('fs/promises')
-    const pathMod = await import('path')
-
-    if (!fsMod.existsSync(destDir)) {
-      await fsp.mkdir(destDir, { recursive: true })
-    }
-
-    // Filename encodes everything a future viewer would need to make
-    // sense of the file without opening the cache index:
-    //   EP0001_StylePreview_Scene_gpt-image-2_16-9_1k_v1.png
-    const code = episodeId.toUpperCase()
-    const kindLabel = kind === 'thumbnail' ? 'Thumbnail' : 'Scene'
-    const modelSafe = (idx?.model_id || 'unknown').replace(/[^a-zA-Z0-9-]/g, '-')
-    const aspectSafe = (idx?.aspect_ratio || '').replace(/[^a-zA-Z0-9-]/g, '-')
-    const tierSafe = (idx?.tier || '').replace(/[^a-zA-Z0-9-]/g, '-')
-    const base = `${code}_StylePreview_${kindLabel}_${modelSafe}` +
-      (aspectSafe ? `_${aspectSafe}` : '') +
-      (tierSafe ? `_${tierSafe}` : '')
-
-    // Bump the version suffix if a previous save with identical
-    // metadata exists — the user has been iterating on the same model
-    // combo and we don't want to silently overwrite their earlier save.
-    const existing = await fsp.readdir(destDir).catch(() => []) as string[]
-    let version = 1
-    const re = new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}_v(\\d+)\\.png$`)
-    for (const f of existing) {
-      const m = re.exec(f)
-      if (m) version = Math.max(version, parseInt(m[1]!, 10) + 1)
-    }
-    const filename = `${base}_v${version}.png`
-    const destPath = pathMod.join(destDir, filename)
-
-    await fsp.copyFile(cachedAbs, destPath)
-    res.json({ filename, path: destPath })
-  } catch (e: any) {
-    res.status(500).json({ detail: e?.message || 'Failed to save preview to episode folder' })
   }
 })

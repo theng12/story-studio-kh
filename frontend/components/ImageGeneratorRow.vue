@@ -1,7 +1,7 @@
 <!--
   Single row inside ImageGeneratorPanel. Renders one image-prompt as:
    - A small preview thumbnail (or "not rendered yet" placeholder)
-   - Numbered title + prefix ("Scene 03", "Thumbnail 01")
+   - Numbered title + prefix ("Thumbnail 01")
    - Generate (when no image on disk) / Regenerate (when one exists) button
    - Optional expandable prompt text for review
 
@@ -19,7 +19,7 @@
       <!-- Preview thumbnail. Renders an <img> when an imagePath is
            provided; placeholder dashed box otherwise. Click opens a
            full-size lightbox (delegated via emit so the parent can
-           plug into the existing ImageEditDialog / lightbox flow). -->
+           open its lightbox). -->
       <button
         v-if="imagePath"
         type="button"
@@ -50,7 +50,7 @@
         :title="expanded ? 'Hide prompt text' : 'Show full prompt text'"
         @click="expanded = !expanded"
       >
-        <span class="igr-toggle-icon" aria-hidden="true">{{ expanded ? '▾' : '▸' }}</span>
+        <span class="igr-toggle-icon ds-chevron" aria-hidden="true" :class="{ 'is-open': expanded }" />
         <span class="igr-num">{{ String(row.number).padStart(2, '0') }}</span>
         <span class="igr-title">{{ prefix }} — {{ row.title || '(no title)' }}</span>
         <span :class="['igr-chars', charStatusClass]" :title="charBadgeTooltip">
@@ -79,7 +79,7 @@
           : 'Use this thumbnail for the next YouTube upload.'"
         @click="$emit('pin-toggle')"
       >
-        {{ pinnedForUpload ? 'Pinned for upload' : 'Pin for upload' }}
+        {{ pinnedForUpload ? 'Pinned for Upload' : 'Pin for Upload' }}
       </button>
     </div>
 
@@ -94,14 +94,14 @@ import { ref, computed } from 'vue'
 interface PromptRowData { number: number; title: string; prompt: string }
 const props = defineProps<{
   row: PromptRowData
-  /** "Scene" or "Thumbnail" — drives the title prefix + button copy. */
+  /** "Thumbnail" — drives the title prefix + button copy. */
   prefix: string
   /** Path to the rendered image on disk, or null if not yet generated.
    *  Drives the thumbnail vs. placeholder branch + Generate vs. Regenerate
    *  button copy. */
   imagePath: string | null
   /** Thumbnail selection belongs beside the generated artwork, not in a
-   *  separate gallery. Scene rows never receive this control. */
+   *  separate gallery. */
   showPin?: boolean
   pinnedForUpload?: boolean
   /** Slug + cache-bust key used to assemble the preview URL. Centralised
@@ -128,10 +128,9 @@ defineEmits<{
 
 const expanded = ref(false)
 
-// Stable per-row preview URL. Reuses the same /video-editor/preview-image
-// endpoint the existing Edit gallery uses (images.vue:1188) — wired
-// through the same on-disk path so a row's thumbnail tracks whatever
-// the executor wrote.
+// Stable per-row preview URL. Uses the /video-editor/preview-image endpoint,
+// wired through the on-disk path so a row's thumbnail tracks whatever the
+// executor wrote.
 const thumbUrl = computed(() => {
   if (!props.imagePath) return ''
   return `/api/projects/${props.slug}/video-editor/preview-image?path=${encodeURIComponent(props.imagePath)}&k=${props.cacheKey}`

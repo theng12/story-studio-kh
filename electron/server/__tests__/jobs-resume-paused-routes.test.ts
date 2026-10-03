@@ -82,7 +82,7 @@ before(async () => {
   app.use(express.json())
   app.use('/api', router)
 
-  jq.registerExecutor('script-only', async () => {})
+  jq.registerExecutor('chapter-only', async () => {})
   jq.registerExecutor('audio', async () => {})
   jq.registerExecutor('subtitles_transcribe', async () => {})
   await jq.setQueuePaused(true)
@@ -94,8 +94,8 @@ describe('scoped bulk paused-job Resume routes', () => {
   test('project route validates exact input before mutation and cannot cross its slug', async () => {
     const project = await pm.createProject({ name: 'Bulk Project Scope A' })
     const other = await pm.createProject({ name: 'Bulk Project Scope B' })
-    const target = pausedJob(project.slug, 'script-only', 'manual')
-    const outside = pausedJob(other.slug, 'script-only', 'stall')
+    const target = pausedJob(project.slug, 'chapter-only', 'manual')
+    const outside = pausedJob(other.slug, 'chapter-only', 'stall')
     await seedJobs(project.slug, [target])
     await seedJobs(other.slug, [outside])
 
@@ -116,7 +116,7 @@ describe('scoped bulk paused-job Resume routes', () => {
 
     const response = await request(app)
       .post(`/api/projects/${project.slug}/jobs/resume-paused`)
-      .send({ type: 'script-only' })
+      .send({ type: 'chapter-only' })
       .expect(202)
     assert.deepEqual(response.body, { requested: 1, resumed: 1, skipped: 0 })
     assert.equal(jq.getJob(target.job_id)?.status, 'queued')
@@ -131,9 +131,9 @@ describe('scoped bulk paused-job Resume routes', () => {
   test('universal route supports concrete, _app_, type, and all-project server-owned scopes', async () => {
     const first = await pm.createProject({ name: 'Bulk Universal A' })
     const second = await pm.createProject({ name: 'Bulk Universal B' })
-    const firstScript = pausedJob(first.slug, 'script-only', 'manual')
+    const firstScript = pausedJob(first.slug, 'chapter-only', 'manual')
     const firstAudio = pausedJob(first.slug, 'audio', 'queue')
-    const secondScript = pausedJob(second.slug, 'script-only', 'manual', { pause_origin: undefined })
+    const secondScript = pausedJob(second.slug, 'chapter-only', 'manual', { pause_origin: undefined })
     const appJob = pausedJob('_app_', 'audio', 'stall')
     await seedJobs(first.slug, [firstScript, firstAudio])
     await seedJobs(second.slug, [secondScript])
@@ -254,7 +254,7 @@ describe('queue-level scoped paused-job Resume', () => {
     const successful = await pm.createProject({ name: 'Bulk Atomic Success' })
     const failed = await pm.createProject({ name: 'Bulk Atomic Failure' })
     const noExecutor = await pm.createProject({ name: 'Bulk No Executor' })
-    const identity = pausedJob(successful.slug, 'script-only', 'manual', {
+    const identity = pausedJob(successful.slug, 'chapter-only', 'manual', {
       params: { output_path: '/isolated/output', task_manifest: { scene: 'scene-07', task_id: 'provider-task-7' } },
       output_dir: '/isolated/output',
       content_pack_provenance: [{
@@ -271,11 +271,11 @@ describe('queue-level scoped paused-job Resume', () => {
         updated_at: '2026-08-31T00:02:00.000Z',
       }],
     })
-    const sameLane = pausedJob(successful.slug, 'script-only', 'queue')
+    const sameLane = pausedJob(successful.slug, 'chapter-only', 'queue')
     const otherLane = pausedJob(successful.slug, 'audio', 'stall')
-    const terminal = pausedJob(successful.slug, 'script-only', 'manual', { status: 'done' })
+    const terminal = pausedJob(successful.slug, 'chapter-only', 'manual', { status: 'done' })
     const alreadyQueued = pausedJob(successful.slug, 'audio', 'manual', { status: 'queued', pause_origin: undefined })
-    const failedA = pausedJob(failed.slug, 'script-only', 'manual')
+    const failedA = pausedJob(failed.slug, 'chapter-only', 'manual')
     const failedB = pausedJob(failed.slug, 'audio', 'stall')
     const missingExecutor = pausedJob(noExecutor.slug, 'music_video', 'manual')
     const retiredType = pausedJob(noExecutor.slug, 'retired_job_type' as JobType, 'manual')
@@ -328,7 +328,7 @@ describe('queue-level scoped paused-job Resume', () => {
     aggregateOnly(result)
     assert.equal(writes.get(path.resolve(successfulPath)), 1)
     assert.equal(writes.get(path.resolve(failedPath)), 1)
-    assert.deepEqual(pumps.sort(), ['audio', 'script-only'])
+    assert.deepEqual(pumps.sort(), ['audio', 'chapter-only'])
 
     assert.equal(jq.getJob(identity.job_id)?.status, 'queued')
     assert.equal(jq.getJob(identity.job_id)?.started_at, null)

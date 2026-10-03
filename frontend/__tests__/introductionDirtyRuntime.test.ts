@@ -107,7 +107,7 @@ async function mount(jobs: any[] = []) {
   const slot = defineComponent({ setup(_, { slots }) { return () => h('section', slots.default?.()) } })
   const empty = defineComponent({ setup: () => () => h('span') })
   for (const name of ['WorkspaceHero', 'WorkspaceNotice', 'NuxtLink']) app.component(name, slot)
-  for (const name of ['InheritedLlmLineupNotice', 'ModelSelector']) app.component(name, empty)
+  for (const name of ['ModelSelector']) app.component(name, empty)
   app.component('TopActionBar', defineComponent({
     props: ['episodeId'],
     emits: ['update:episodeId', 'generate'],
@@ -136,7 +136,7 @@ async function mount(jobs: any[] = []) {
 let page: Component
 
 const saveButton = (host: HTMLElement) => Array.from(host.querySelectorAll('button'))
-  .find(button => button.textContent?.includes('Save for this channel')) as HTMLButtonElement
+  .find(button => button.textContent?.includes('Save for This Channel')) as HTMLButtonElement
 
 test('no unsaved changes right after load, after an edit there are, and none again after Save', async () => {
   page = await loadPage()

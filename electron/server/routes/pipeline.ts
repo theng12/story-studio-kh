@@ -13,7 +13,6 @@ import { createHash, randomUUID } from 'crypto'
 import * as pm from '../services/project-manager.js'
 import * as im from '../services/idea-manager.js'
 import * as jq from '../services/job-queue.js'
-import * as bp from '../services/broll-pool-manager.js'
 import type { ContinuityConfig, Format, JobType, ProjectMeta } from '../models/types.js'
 import { computeEpisodeStatus, type EpisodeStatus } from '../services/asset-status.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
@@ -46,8 +45,6 @@ import {
   type EstimateStep,
 } from '../lib/disk.js'
 import { getApiKey } from '../services/app-secrets-store.js'
-import { lineupModelPolicies, applyLlmLineupSnapshot } from '../services/llm-lineup.js'
-import { normalizeLlmLineup } from '../contracts/llm-lineup.js'
 import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
 import { listChatModels, listTranscriptionModels, publishedVideoControls } from '../lib/genstudio-client.js'
 import { resolveTranscriptionLanguage } from '../generators/subtitles.js'
@@ -114,7 +111,6 @@ export const router = Router()
 // to match what the Scripts page actually runs by hand.
 type BatchStep =
   | 'research'
-  | 'broll'
   | 'script-only'
   | 'introduction-only'
   | 'image_prompts'
@@ -133,7 +129,7 @@ type BatchStep =
 // legacy unified `images` job type can still exist in old job history, but
 // run-batch no longer accepts it as a step because it can merge scenes and
 // thumbnails into one provider run.
-export const VALID_STEPS: BatchStep[] = ['research', 'broll', 'script-only', 'introduction-only', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'metadata', 'subtitles', 'scene_plan', 'contextual_cues', 'scene_review', 'motion_review', 'character_sheet', 'video_assembly']
+export const VALID_STEPS: BatchStep[] = ['research', 'script-only', 'introduction-only', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'metadata', 'subtitles', 'scene_plan', 'contextual_cues', 'scene_review', 'motion_review', 'character_sheet', 'video_assembly']
 
 // A few Pipeline step ids don't equal their generator's JobType (the id the
 // job queue keys its lane + executor on). Any step NOT listed here enqueues
@@ -144,7 +140,6 @@ export const VALID_STEPS: BatchStep[] = ['research', 'broll', 'script-only', 'in
 // GenStudio-owned image batch.)
 export const STEP_JOB_TYPE: Partial<Record<BatchStep, JobType>> = {
   research: 'research_run',
-  broll: 'broll_select',
   subtitles: 'subtitles_transcribe',
   scene_plan: 'scene_plan_run',
   contextual_cues: 'contextual_cues',
@@ -188,9 +183,8 @@ export const NO_PRESET_STEP_IDS: readonly BatchStep[] = [...NO_PRESET_STEPS]
 //
 // Steps that don't use typed presets (every step except the future
 // script-only / introduction-only) just have a single-element list.
-const PRESET_KEYS: Record<BatchStep, { list: string | string[]; activeKeys: string[] }> = {
+export const PRESET_KEYS: Record<BatchStep, { list: string | string[]; activeKeys: string[] }> = {
   research:            { list: 'research_presets',         activeKeys: ['research_last_preset_research', 'research_last_preset'] },
-  broll:               { list: 'broll_presets',            activeKeys: ['broll_last_preset_broll', 'broll_last_preset'] },
   // Both script-only and introduction-only share the 'script' configKey
   // (both live on scripts.vue). They use typed-preset keys per
   // usePresets({ presetType }), with a fallback to the legacy untyped
@@ -348,7 +342,7 @@ export function applicablePipelineStepsForVisualSource(
   source: VideoVisualSource,
 ): { applicable: BatchStep[]; inapplicable: BatchStep[] } {
   const inapplicable = source === 'image_pool'
-    ? steps.filter(step => SCENE_PLAN_ONLY_STEPS.has(step) || step === 'broll')
+    ? steps.filter(step => SCENE_PLAN_ONLY_STEPS.has(step))
     : []
   const skipped = new Set(inapplicable)
   return { applicable: steps.filter(step => !skipped.has(step)), inapplicable }
@@ -465,7 +459,6 @@ function addMissingPresetIssue(
 }
 
 const STEP_PREREQUISITES: Partial<Record<BatchStep, BatchStep[]>> = {
-  broll: ['audio_merge'],
   'introduction-only': ['script-only'],
   // Finalization needs the script plus measured Audio Assembly timing.
   // Subtitles sit before it in the canonical chain but are warning-only:
@@ -513,8 +506,6 @@ export function prerequisitesForStep(step: BatchStep, cueReviewPending = false):
 const CHAIN_LINK_STEP: Record<string, BatchStep> = {
   outline_only: 'script-only',
   expand_chapters: 'script-only',
-  broll_select: 'broll',
-  broll_assemble: 'broll',
   ...Object.fromEntries(Object.entries(STEP_JOB_TYPE).map(([step, type]) => [type, step as BatchStep])),
 }
 
@@ -656,9 +647,6 @@ async function preflightBatch(
         })
       }
     }
-    if (step === 'broll' && (result.preset.data?.form?.selection_mode ?? result.preset.form?.selection_mode) === 'manual') {
-      issues.push({ code: 'invalid_preset', step, message: 'B-Roll Pipeline cannot use a manual-selection preset. Choose random, tagged, or themed selection.' })
-    }
     for (const missingPath of collectMissingLocalAssets(result.preset.data ?? result.preset)) {
       issues.push({
         code: 'missing_local_asset',
@@ -676,16 +664,6 @@ async function preflightBatch(
       issues.push({ code: 'missing_voice', step: 'audio', message: 'Audio preset has no voice selected.' })
     }
   }
-  if (requiredSteps.has('broll')) {
-    const poolId = (config as any).broll_pool_id
-    const pool = poolId ? await bp.getPool(poolId) : null
-    if (!poolId || !pool) {
-      issues.push({ code: 'invalid_preset', step: 'broll', message: 'No B-Roll pool is subscribed to this project.' })
-    } else if (!existsSync(pool.folder_path)) {
-      issues.push({ code: 'missing_local_asset', step: 'broll', path: pool.folder_path, message: `B-Roll pool is offline: ${pool.folder_path}` })
-    }
-  }
-
   for (const episodeId of episodeIds) {
     const visualSettings = visualSettingsByEpisode.get(episodeId)
     if (!ideaByCode.has(episodeId) || !visualSettings) continue
@@ -790,7 +768,6 @@ export function resolveScriptSideChatModel(config: Record<string, unknown>): str
  */
 const TYPE_FALLBACK: Partial<Record<BatchStep, string>> = {
   research: 'research',
-  broll: 'broll',
   'script-only': 'script',
   'introduction-only': 'introduction',
   // v1.0.363 — typed presets on the audio-paced format pages.
@@ -815,7 +792,6 @@ export function isStepAlreadyDone(status: EpisodeStatus, step: BatchStep, format
     // Research is done once evidence exists. Pipeline still auto-triages an
     // explicitly selected Research stage so its provenance stays honest.
     case 'research':          return status.research
-    case 'broll':             return status.video_assembly
     case 'script-only':       return status.script
     case 'introduction-only': return status.introduction
     case 'image_prompts':     return status.thumb_prompts
@@ -929,13 +905,6 @@ export function resolveStepParams(
   // genuinely has no preset to pick. Reading `.data` off `undefined` threw an
   // "Internal server error" for the whole batch.
   const data = (preset?.data || preset || {}) as Record<string, any>
-  if (step === 'broll') {
-    const form = data.form || data
-    if (form.selection_mode === 'manual') {
-      throw new Error('Manual B-Roll selection cannot run unattended. Save a random, tagged, or themed preset for Pipeline.')
-    }
-    return { ...form, episode_id: episodeId, title: title || '' }
-  }
   if (step === 'research') {
     const form = data.form || data
     // A preset saved before web search existed carries no mode, and its
@@ -1163,7 +1132,7 @@ export function resolveStepParams(
     // preset→params transform with no catalog access, so it never invents
     // a literal external model id here — it passes the saved value through
     // (or '' when absent). The run-batch handler skips a step with no model
-    // (and no Pipeline lineup) with a plain reason — Story never picks one.
+    // with a plain reason — Story never picks one.
     //
     // Format-aware defaults (v1.0.69+): pull description size, title count,
     // title length, and tag count from the project's effective Format
@@ -1733,37 +1702,19 @@ async function validatePipelinePoliciesAgainstCatalogue(policies: PipelineModelP
   } catch {
     return 'model_policies could not be checked against the Gateway’s live language-model catalogue. Nothing was started; retry when the catalogue is reachable.'
   }
-  const explicit = Object.fromEntries(Object.entries(policies).filter(([, policy]) => !policy?.wait_for_availability))
-  const errors = validatePipelineModelCatalogue(explicit, catalogue)
+  const errors = validatePipelineModelCatalogue(policies, catalogue)
   const structuredStages = new Set<PipelineModelPolicyStage>(['research', 'image_prompts', 'scene_plan', 'contextual_cues'])
   for (const [stage, policy] of Object.entries(policies) as Array<[PipelineModelPolicyStage, PipelineModelPolicies[PipelineModelPolicyStage]]>) {
     if (!policy) continue
-    if (policy.wait_for_availability) {
-      // A lineup never follows a successor on its own (owner, 2026-10-03): a choice the
-      // Gateway no longer lists is named so the owner picks its replacement.
-      for (const modelId of policy.models) {
-        const retired = `${modelId} was retired — choose a replacement in the LLM lineup on the Pipeline page.`
-        if (!findGenStudioProduct(catalogue, modelId) && !errors.includes(retired)) errors.push(retired)
-      }
-      const eligible = policy.models.some(modelId => {
-        const model = findGenStudioProduct(catalogue, modelId)
-        return model && !model.locked && !model.qualification_only
-          && (!model.available || (model.max_output_tokens > 0
-            && (!structuredStages.has(stage) || (model.supports_structured_output && model.structured_output_mode !== 'none'))))
-      })
-      if (!eligible) errors.push(`LLM lineup has no published model compatible with ${stage}. Update the lineup before starting this stage.`)
-      continue
-    }
     for (const modelId of policy.models) {
       const model = findGenStudioProduct(catalogue, modelId)
       if (!model) continue
       if (model.locked === true) {
         errors.push(`model_policies.${stage}: product "${modelId}" is locked for this account`)
       }
-      // An unavailable row is retained as an explicit backup candidate: no
-      // request will be sent to it now, and GenStudio may publish its limits
-      // again before a later retry. Validate submission capabilities only for
-      // products that are currently usable.
+      // A temporarily unavailable row is still the owner's choice: it is
+      // re-checked before its own request. Validate submission capabilities
+      // only for products that are currently usable.
       if (model.available !== false && (!Number.isInteger(model.max_output_tokens) || model.max_output_tokens < 1)) {
         errors.push(`model_policies.${stage}: product "${modelId}" publishes no usable max_output_tokens for this workflow`)
       }
@@ -1774,18 +1725,6 @@ async function validatePipelinePoliciesAgainstCatalogue(policies: PipelineModelP
     }
   }
   return errors.length ? errors.join('; ') : null
-}
-
-async function inheritSavedPipelineLineup(slug: string, parsed: ReturnType<typeof parseBatchRequest>) {
-  const lineup = normalizeLlmLineup((await pm.getConfig(slug))?.llm_lineup)
-  const inherited = lineupModelPolicies(lineup)
-  const stages = new Set<string>(parsed.steps)
-  if (stages.has('script-only')) stages.add('introduction-only')
-  parsed.modelPolicies = {
-    ...Object.fromEntries(Object.entries(inherited).filter(([stage]) => stages.has(stage))),
-    ...parsed.modelPolicies,
-  }
-  return lineup
 }
 
 function stableJson(value: unknown): string {
@@ -1885,7 +1824,6 @@ router.post('/projects/:slug/pipeline/preflight', async (req, res) => {
   const { slug } = req.params
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   const parsed = parseBatchRequest(req.body)
-  await inheritSavedPipelineLineup(slug, parsed)
   const { episodeIds, steps: requestedSteps, force } = parsed
   const requestError = repairRequestError(parsed)
   if (requestError) return res.status(400).json({ detail: requestError })
@@ -1920,7 +1858,6 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   const parsed = parseBatchRequest(req.body)
-  const lineup = await inheritSavedPipelineLineup(slug, parsed)
   const { episodeIds: episode_ids, steps: requestedSteps, force, repairMissing, actionId, operationId, modelPolicies } = parsed
   const requestError = repairRequestError(parsed)
   if (requestError) return res.status(400).json({ detail: requestError })
@@ -2157,21 +2094,11 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     let pausedForCueReview = false
     for (const step of effectiveSteps) {
       if (step === 'character_sheet') continue
-      if (step === 'broll') {
-        const brollParams = resolveStepParams('broll', episodeId, idea.title || '', presetByStep.broll, effectiveFormat)
-        chain.push({ type: 'broll_select', title: `Pipeline: B-Roll selection — ${episodeId}`, params: brollParams })
-        chain.push({
-          type: 'broll_assemble',
-          title: `Pipeline: B-Roll assembly — ${episodeId}`,
-          params: { episode_id: episodeId, title: idea.title || '', broll_volume: brollParams.broll_volume || 0 },
-        })
-        continue
-      }
       if (step === 'script-only') {
         const outlineParams = resolveStepParams('script-only', episodeId, idea.title || '', presetByStep['script-only'], effectiveFormat)
         const scriptPolicy = modelPolicies['script-only']
         const assignedScriptPolicy = scriptPolicy
-          ? assignedPipelinePolicy('script-only', episodeId, scriptPolicy)
+          ? assignedPipelinePolicy(scriptPolicy)
           : null
         if (assignedScriptPolicy) {
           outlineParams.model = assignedScriptPolicy.assigned_model
@@ -2208,7 +2135,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       const policyStage = step as PipelineModelPolicyStage
       const stepPolicy = modelPolicies[policyStage]
       if (stepPolicy) {
-        const assigned = assignedPipelinePolicy(policyStage, episodeId, stepPolicy)
+        const assigned = assignedPipelinePolicy(stepPolicy)
         params.model = assigned.assigned_model
         params.pipeline_model_policy = { [policyStage]: assigned }
       }
@@ -2323,9 +2250,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     }
 
     // Freeze the complete run before any asynchronous handoff or config edit.
-    const [first, ...rest] = chain.map(step => ({
-      ...step, params: applyLlmLineupSnapshot(step.type, episodeId, step.params, lineup),
-    }))
+    const [first, ...rest] = chain
 
     // Scene Review and Pipeline share one episode-wide render owner. If the
     // user already started images from Scene Review, join this Pipeline's

@@ -19,6 +19,10 @@ const jobsStale = computed(() => refreshFailures.value >= 3)
 const isLoading = ref(false)
 let stateRevision = 0
 let hasInitialSnapshot = false
+// Hidden window: the stream is closed. Back on screen, one snapshot catches
+// up and every failure that happened while away still gets its toast.
+let pausedWhileHidden = false
+let awaySince: number | null = null
 const pendingUpdates = new Map<string, Job>()
 const pendingRemovals = new Set<string>()
 
@@ -59,6 +63,8 @@ function applySnapshot(snapshot: JobListResponse) {
  * but must leave the incomplete-list warning visible until this succeeds.
  */
 function completeSnapshot(snapshot: JobListResponse) {
+  if (awaySince !== null) announceFailuresWhileAway(snapshot.jobs, awaySince)
+  awaySince = null
   applySnapshot(hasInitialSnapshot ? snapshot : reconcileInitialSnapshot(snapshot))
   if (!hasInitialSnapshot) {
     hasInitialSnapshot = true
@@ -66,6 +72,30 @@ function completeSnapshot(snapshot: JobListResponse) {
     pendingRemovals.clear()
   }
   refreshed()
+}
+
+function announceFailuresWhileAway(next: Job[], since: number) {
+  const before = new Map(jobs.value.map(job => [job.job_id, job.status]))
+  for (const job of next) {
+    if (job.status !== 'error' || isWatchingProject(job.project_slug)) continue
+    const prev = before.get(job.job_id)
+    const failedNow = prev === 'running' || prev === 'queued'
+    const failedUnseen = !prev && Date.parse(job.finished_at || '') >= since
+    if (failedNow || failedUnseen) announceJobFailure(job)
+  }
+}
+
+function onVisibilityChange() {
+  if (typeof document === 'undefined' || subscribers === 0) return
+  if (document.visibilityState === 'hidden') {
+    if (pausedWhileHidden) return
+    pausedWhileHidden = true
+    awaySince = Date.now()
+    stopTransport()
+  } else if (pausedWhileHidden) {
+    pausedWhileHidden = false
+    startTransport()
+  }
 }
 
 function reconcileInitialSnapshot(snapshot: JobListResponse): JobListResponse {
@@ -206,13 +236,20 @@ export function useAllJobs() {
     subscribers++
     if (subscribers === 1) {
       isLoading.value = true
+      pausedWhileHidden = false
+      if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibilityChange)
       startTransport()
     }
   }
 
   function stop() {
     subscribers = Math.max(0, subscribers - 1)
-    if (subscribers === 0) stopTransport()
+    if (subscribers === 0) {
+      stopTransport()
+      pausedWhileHidden = false
+      awaySince = null
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }
 
   return {

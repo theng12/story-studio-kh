@@ -63,7 +63,7 @@ export interface ListCommentThreadsOptions {
    * YouTube's ranking - so the option is gone rather than left as a setting
    * nothing sets.
    */
-  order?: 'time' | 'relevance'
+  order?: 'time'
   /** Total threads to return across all pages. Caps at 500 (5 pages × 100). */
   maxResults?: number
   /** Per-page size. API hard-caps at 100; we default to 100 to minimize

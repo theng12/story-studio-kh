@@ -68,7 +68,7 @@
               <li v-for="(name, i) in s.missing.slice(0, 6)" :key="name + i">
                 <code>{{ name }}</code>
               </li>
-              <li v-if="s.missing.length > 6" class="text-muted" style="font-size: var(--font-xs);">
+              <li v-if="s.missing.length > 6" class="hint">
                 + {{ s.missing.length - 6 }} more
               </li>
             </ul>
@@ -85,7 +85,7 @@
 
     <div class="dialog-actions">
       <button class="btn btn-secondary" @click="emit('close')">Close</button>
-      <button v-if="hasUnmeasurable" class="btn btn-secondary" :disabled="busy" @click="emit('rescan')">Re-scan audit</button>
+      <button v-if="hasUnmeasurable" class="btn btn-secondary" :disabled="busy" @click="emit('rescan')">Re-Scan Audit</button>
       <NuxtLink
         v-if="hasRepairableMissing"
         class="btn btn-primary"
@@ -174,7 +174,7 @@ function stageLabel(s: AuditStage): string { return STAGE_LABELS[s] || s }
 function jumpTo(code: string, stage: AuditStage): string {
   switch (stage) {
     case 'audio': return `/projects/${props.slug}/audio?episode_id=${encodeURIComponent(code)}`
-    case 'scenes': return `/projects/${props.slug}/images?episode_id=${encodeURIComponent(code)}`
+    case 'scenes': return `/projects/${props.slug}/scene-review?episode_id=${encodeURIComponent(code)}`
     case 'thumbnails': return `/projects/${props.slug}/images?episode_id=${encodeURIComponent(code)}`
     case 'video': return `/projects/${props.slug}/motion-review?episode_id=${encodeURIComponent(code)}`
     case 'merged_audio': return `/projects/${props.slug}/audio-merge?episode_id=${encodeURIComponent(code)}`

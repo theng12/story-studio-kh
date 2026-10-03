@@ -3,7 +3,7 @@
     <div class="combo-trigger" :class="{ open }" @click="toggleOpen">
       <span v-if="modelValue" class="combo-value">{{ modelValue }}</span>
       <span v-else class="combo-placeholder">{{ placeholder || 'Select…' }}</span>
-      <span class="combo-chev" aria-hidden="true">▾</span>
+      <span class="combo-chev ds-chevron" data-dir="down" aria-hidden="true" />
     </div>
     <div v-if="open" class="combo-popover" role="listbox">
       <input
@@ -11,7 +11,7 @@
         ref="searchEl"
         v-model="query"
         class="combo-search"
-        :placeholder="searchPlaceholder || 'Search or type to add…'"
+        placeholder="Search or type to add…"
         @keydown.enter.prevent="onEnter"
         @keydown.escape.prevent="open = false"
       />
@@ -47,7 +47,6 @@ const props = defineProps<{
   modelValue: string
   options: string[]
   placeholder?: string
-  searchPlaceholder?: string
   searchable?: boolean
   allowCustom?: boolean
 }>()

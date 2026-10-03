@@ -350,3 +350,26 @@ describe('a purchase whose answer never arrived (shell audit 2026-10-03)', () =>
     assert.equal(batch.items.value.find(item => item.productId === 'b')?.outcome, 'owned')
   })
 })
+
+describe('a batch purchase survives leaving the Content Store (audit leftovers)', () => {
+  test('a second page instance sees the same running batch and its progress', async () => {
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const product = { productId: 'p1', title: 'One', free: false, owned: false, retired: false, compatible: true, currentRelease: { releaseId: 'r1' }, creditPrice: 10 } as any
+    const deps = {
+      quote: async () => { await gate; return { quote_id: 'q1', quoted_credits: 10 } as any },
+      confirm: async () => ({ credits_charged: 10 }) as any,
+      lookup: () => product,
+      lastError: () => null,
+    }
+    const first = useBatchPurchase(deps)
+    const running = first.start([product])
+    first.dismiss() // he hides it and leaves the page
+    const second = useBatchPurchase(deps) // he comes back: a new page instance
+    assert.equal(second.items.value.length, 1, 'the batch is still there')
+    assert.equal(second.busy.value, true)
+    release(); await running
+    assert.equal(second.phase.value, 'review')
+    second.close()
+  })
+})

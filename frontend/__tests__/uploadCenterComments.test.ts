@@ -158,7 +158,7 @@ describe('Upload Center Comments', () => {
 
   test('banning is confirmed by name and goes to its own single-author route', async () => {
     const mounted = await mount({ comments: [comment({ author: 'Rude Person' })] })
-    button(mounted.el, 'Reject and ban')!.click()
+    button(mounted.el, 'Reject and Ban')!.click()
     for (let i = 0; i < 6; i++) await nextTick()
 
     assert.equal(mounted.confirms.length, 1)
@@ -172,7 +172,7 @@ describe('Upload Center Comments', () => {
 
   test('a declined ban does nothing at all', async () => {
     const mounted = await mount({ comments: [comment()] }, {}, false)
-    button(mounted.el, 'Reject and ban')!.click()
+    button(mounted.el, 'Reject and Ban')!.click()
     for (let i = 0; i < 6; i++) await nextTick()
     assert.equal(mounted.calls.some(c => c.method === 'POST'), false)
     mounted.destroy()
@@ -283,7 +283,7 @@ describe('Upload Center Comments', () => {
     for (let i = 0; i < 4; i++) await nextTick()
     assert.match(mounted.text(), /2 selected/)
 
-    button(mounted.el, 'Preview rejecting')!.click()
+    button(mounted.el, 'Preview Rejecting')!.click()
     for (let i = 0; i < 6; i++) await nextTick()
     assert.match(mounted.text(), /2.*will change/)
     assert.match(mounted.text(), /1.*already that way/)
@@ -350,13 +350,13 @@ test('an unassigned project is told why, and cannot start a fetch it would lose'
   // already on screen reads "needs reply" with no explanation.
   const unassigned = await mount({ channel_assigned: false })
   assert.match(unassigned.text(), /No YouTube channel is assigned/)
-  assert.equal(button(unassigned.el, 'Fetch comments')!.disabled, true)
+  assert.equal(button(unassigned.el, 'Fetch Comments')!.disabled, true)
   unassigned.destroy()
 
   // Control: with a channel, neither the notice nor the block is there.
   const assigned = await mount({})
   assert.doesNotMatch(assigned.text(), /No YouTube channel is assigned/)
-  assert.equal(button(assigned.el, 'Fetch comments')!.disabled, false)
+  assert.equal(button(assigned.el, 'Fetch Comments')!.disabled, false)
   assigned.destroy()
 })
 

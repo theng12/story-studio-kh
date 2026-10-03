@@ -93,7 +93,7 @@ test('manual action appears only for authoritative eligibility and double click 
   const app = createApp(await component(), { job })
   app.mount(host)
   try {
-    assert.match(host.textContent!, /Buy missing subtitles now/)
+    assert.match(host.textContent!, /Buy Missing Subtitles Now/)
     assert.match(host.textContent!, /1\/2 sections ready/)
     const input = host.querySelector('input')!
     input.value = '12'

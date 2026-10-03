@@ -69,11 +69,3 @@ export function aspectRatioOptions(...alsoInclude: (string | null | undefined)[]
   }
   return out
 }
-
-/** `'9:16'` → `'Vertical'`, for one-word summaries. Falls back to the ratio. */
-export function aspectRatioShortLabel(value?: string | null): string {
-  const ratio = parseAspectRatio(value)
-  if (!ratio) return DEFAULT_ASPECT_RATIO
-  if (ratio.w === ratio.h) return 'Square'
-  return ratio.w > ratio.h ? 'Landscape' : 'Vertical'
-}

@@ -224,3 +224,15 @@ export function estimateBatchUsd(steps: EstimateStep[]): BatchEstimate {
   }
   return out
 }
+
+/**
+ * A model that costs nothing to run, so quote/credit UI is noise. The gateway
+ * says `chargeable: false` for free chat; media rows from the owner's own Studio
+ * Hub fleet still say `chargeable: true`, so a published `studio-hub*` provider
+ * or `price_source: "local"` also counts as free. Display only, never dispatch.
+ */
+export function isFreeToRun(model: (PriceTruth & { chargeable?: boolean; provider_id?: string; provider?: string }) | null | undefined): boolean {
+  if (!model) return false
+  if (model.chargeable === false || model.price_source === 'local') return true
+  return [model.provider_id, model.provider].some(id => typeof id === 'string' && id.startsWith('studio-hub'))
+}

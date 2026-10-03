@@ -17,7 +17,6 @@ import {
   quoteGenStudioTranscription,
 } from '../lib/genstudio-client.js'
 import { unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
-import { resolveChosenChatModel } from '../services/genstudio-default-model.js'
 import { resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 import { inspectSubtitleSourceFreshness } from '../services/subtitle-completion.js'
 import { findFreshActionJob, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
@@ -28,21 +27,6 @@ import { readSubtitleSourceModels } from '../services/subtitle-recovery.js'
 import { stageActiveAudioQualityCheck } from '../services/audio-quality-transcription.js'
 
 export const router = Router()
-
-/**
- * Resolve the default text model for an expression-markup run when the
- * caller didn't specify one. Never falls back to a hardcoded external
- * product id — GenStudio owns the catalog, so this asks it directly and
- * prefers the project's saved `prompt_model` preference when still usable.
- */
-async function resolveExpressionDefaultModel(config: any): Promise<string> {
-  const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) {
-    throw new Error('No Gateway key configured. Add it in Settings → This Mac before generating expression markup.')
-  }
-  const saved = typeof config?.prompt_model === 'string' ? config.prompt_model : null
-  return resolveChosenChatModel(apiKey, saved, 'the Audio Generator page (Expression tags)')
-}
 
 router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema), async (req, res) => {
   const { slug } = req.params
@@ -175,12 +159,6 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
     res.status(502).json(humanizeBackendError(e, 'Voice preview failed'))
   }
 })
-
-// ── Fish S2 expression markup (the "expressive script" sidecar) ───────────
-// Tagged narration for Fish Audio S2-Pro: an LLM pass inserts inline [tags]
-// (whispering, excited, long pause, …) that the Audio Generator swaps in at
-// render time when "Use expression" is on. Stored per section slug so the real
-// narration always stays the authoritative source of section structure.
 
 /** Resolve the narration path or send a 404. Returns null after responding. */
 async function resolveNarrationOr404(slug: string, code: string, res: any): Promise<string | null> {
@@ -355,137 +333,6 @@ router.post('/projects/:slug/episodes/:code/tts-quote', async (req, res) => {
     })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(e, 'Could not get the Gateway quotes for this narration'))
-  }
-})
-
-// Load each section's original text + any saved tagged version.
-router.get('/projects/:slug/episodes/:code/expression', async (req, res) => {
-  const { slug, code } = req.params
-  try {
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
-    const narrationPath = await resolveNarrationOr404(slug, code, res)
-    if (!narrationPath) return
-    const { parseNarrationDocx } = await import('../lib/docx-parser.js')
-    const { readExpression } = await import('../services/audio-expression.js')
-    const parsed = await parseNarrationDocx(narrationPath)
-    const expr = await readExpression(narrationPath)
-    const sections = parsed.map(s => ({
-      slug: s.slug, label: s.label, original: s.text, expressive: expr?.sections?.[s.slug] || '',
-    }))
-    // job_active = a background "Tag all" is queued/running for this episode, so
-    // the panel knows to keep polling for progress even across navigations.
-    const jobActive = jq.isDuplicate(slug, code, 'expression_markup')
-    res.json({ model: expr?.model || null, dialect: expr?.dialect || null, generated_at: expr?.generated_at || null, sections, job_active: jobActive })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to load expression markup'))
-  }
-})
-
-// Background "Tag all" — enqueue the markup job so it keeps running after the
-// operator leaves the page (saves the sidecar after each section).
-router.post('/projects/:slug/episodes/:code/expression/generate-all', async (req, res) => {
-  const { slug, code } = req.params
-  const requestedModel = typeof req.body?.model === 'string' ? req.body.model.trim() : ''
-  try {
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
-    const narrationPath = await resolveNarrationOr404(slug, code, res)
-    if (!narrationPath) return
-    const config = await pm.getConfig(slug)
-    const model = requestedModel || await resolveExpressionDefaultModel(config)
-    const { dialectForModel } = await import('../services/audio-expression.js')
-    const dialect = dialectForModel(req.body?.audio_model) || 'fish'
-    if (jq.isDuplicate(slug, code, 'expression_markup')) {
-      return res.status(409).json({ detail: 'Expression tagging is already running for this episode.' })
-    }
-    const job = await jq.enqueue({
-      project_slug: slug,
-      type: 'expression_markup',
-      episode_id: code,
-      title: `Expression markup — ${code}`,
-      params: { episode_id: code, model, dialect },
-    })
-    res.status(201).json({ job_id: job.job_id })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to start expression markup'))
-  }
-})
-
-// Run the LLM markup pass for some/all sections and persist the result.
-router.post('/projects/:slug/episodes/:code/expression/generate', async (req, res) => {
-  const { slug, code } = req.params
-  const requestedSlugs: string[] | null = Array.isArray(req.body?.slugs)
-    ? req.body.slugs.filter((x: any) => typeof x === 'string') : null
-  const requestedModel = typeof req.body?.model === 'string' ? req.body.model.trim() : ''
-  try {
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
-    const config = await pm.getConfig(slug)
-    if (!config) return res.status(404).json({ detail: 'Project config not found' })
-    const narrationPath = await resolveNarrationOr404(slug, code, res)
-    if (!narrationPath) return
-    const model = requestedModel || await resolveExpressionDefaultModel(config)
-    const { parseNarrationDocx } = await import('../lib/docx-parser.js')
-    const {
-      readExpression, writeExpression, markupSectionText, dialectForModel,
-      expressionTagConcurrency, mapExpressionConcurrent,
-    } = await import('../services/audio-expression.js')
-    const dialect = dialectForModel(req.body?.audio_model) || 'fish'
-    const parsed = await parseNarrationDocx(narrationPath)
-    const targets = requestedSlugs && requestedSlugs.length
-      ? parsed.filter(s => requestedSlugs.includes(s.slug)) : parsed
-    if (!targets.length) return res.status(400).json({ detail: 'No matching sections to mark up.' })
-
-    const apiKeys = {
-      anthropic_api_key: (config as any).anthropic_api_key,
-      openai_api_key: (config as any).openai_api_key,
-      kie_api_key: (config as any).kie_api_key,
-    }
-    const existing = await readExpression(narrationPath)
-    // Drop tags from a different dialect so Fish + ElevenLabs tags never mix.
-    const reusable = existing && (existing.dialect ?? 'fish') === dialect
-    const sectionsOut: Record<string, string> = { ...(reusable ? existing!.sections : {}) }
-    const concurrency = await expressionTagConcurrency(model, targets.length)
-    await mapExpressionConcurrent(targets, concurrency, async (s) => {
-      sectionsOut[s.slug] = await markupSectionText(model, s.text, apiKeys, slug, dialect)
-    })
-    const generated_at = new Date().toISOString()
-    await writeExpression(narrationPath, { schema_version: 1, model, dialect, generated_at, sections: sectionsOut })
-    const sections = parsed.map(s => ({ slug: s.slug, label: s.label, original: s.text, expressive: sectionsOut[s.slug] || '' }))
-    // Synchronous route: no job log exists, so the substitution travels back
-    // with the result instead of being dropped on the floor.
-    res.json({ model, generated_at, sections })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to generate expression markup'))
-  }
-})
-
-// Save manual edits / toolbar inserts. Empty text for a slug clears it (that
-// section falls back to the plain narration at render time).
-router.put('/projects/:slug/episodes/:code/expression', async (req, res) => {
-  const { slug, code } = req.params
-  const incoming = req.body?.sections
-  if (!incoming || typeof incoming !== 'object') return res.status(400).json({ detail: 'sections object required' })
-  try {
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
-    const narrationPath = await resolveNarrationOr404(slug, code, res)
-    if (!narrationPath) return
-    const { parseNarrationDocx } = await import('../lib/docx-parser.js')
-    const { readExpression, writeExpression } = await import('../services/audio-expression.js')
-    const parsed = await parseNarrationDocx(narrationPath)
-    const validSlugs = new Set(parsed.map(s => s.slug))
-    const existing = await readExpression(narrationPath)
-    const sectionsOut: Record<string, string> = { ...(existing?.sections || {}) }
-    for (const [k, v] of Object.entries(incoming)) {
-      if (!validSlugs.has(k)) continue
-      const text = typeof v === 'string' ? v : ''
-      if (text.trim()) sectionsOut[k] = text
-      else delete sectionsOut[k]
-    }
-    const generated_at = new Date().toISOString()
-    await writeExpression(narrationPath, { schema_version: 1, model: existing?.model, dialect: existing?.dialect, generated_at, sections: sectionsOut })
-    const sections = parsed.map(s => ({ slug: s.slug, label: s.label, original: s.text, expressive: sectionsOut[s.slug] || '' }))
-    res.json({ model: existing?.model || null, generated_at, sections })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to save expression markup'))
   }
 })
 

@@ -56,10 +56,15 @@
             Enable on next launch
           </span>
           <span class="ssm-field-hint">
-            When enabled, the next launch binds <code>{{ state.bind }}:{{ state.port }}</code> instead
-            of localhost. Restart the app to apply.
+            After the next restart, your other computers can open Story Studio here. Restart the app to apply.
           </span>
         </label>
+        <details class="ssm-details disclosure">
+          <summary>Details — port and network address</summary>
+          <p class="ssm-field-hint">
+            When enabled, the next launch listens on <code>{{ state.bind }}:{{ state.port }}</code> instead of
+            localhost.
+          </p>
         <div class="ssm-inline-fields">
           <label class="ssm-field">
             <span class="ssm-field-label">Port</span>
@@ -85,6 +90,7 @@
         <span class="ssm-field-hint ssm-network-hint">
           <code>0.0.0.0</code> allows your private network; <code>127.0.0.1</code> keeps access local.
         </span>
+        </details>
       </fieldset>
 
       <!-- v1.0.109 — credentials are editable from anywhere. Typo-lockout is
@@ -168,7 +174,7 @@
         <!-- the credentials PUT). Only meaningful when credentials are    -->
         <!-- already configured. -->
         <label v-if="state.has_credentials" class="ssm-field ssm-field-rate-limit">
-          <span class="ssm-field-label">Login attempts per minute (per IP)</span>
+          <span class="ssm-field-label">Sign-in tries allowed per minute (per computer)</span>
           <input
             v-model.number="rateLimitInput"
             type="number"
@@ -215,21 +221,23 @@
             </span>
           </div>
           <div class="ssm-diag-row" v-if="diag.session_ttl_hours">
-            <span class="ssm-diag-label">Session TTL</span>
+            <span class="ssm-diag-label">Stay signed in for</span>
             <span class="ssm-diag-value">{{ diag.session_ttl_hours }} h ({{ Math.round(diag.session_ttl_hours / 24) }} days)</span>
           </div>
-          <div class="ssm-diag-row">
-            <span class="ssm-diag-label">Platform</span>
-            <code class="ssm-diag-value">{{ diag.platform }} · node {{ diag.node_version }}</code>
-          </div>
         </div>
+        <details class="ssm-details disclosure">
+          <summary>Details</summary>
+          <p class="ssm-field-hint">
+            System: <code>{{ diag.platform }} · node {{ diag.node_version }}</code>.
+            Read from <code>/api/server-info</code>, which needs no sign-in and only says whether a password is set — never the password itself.
+          </p>
+        </details>
         <div class="ssm-diag-refresh">
           <button class="btn btn-ghost btn-sm" :disabled="diagLoading" @click="loadDiag">
             {{ diagLoading ? 'Refreshing…' : '↻ Refresh' }}
           </button>
           <span class="ssm-field-hint">
-            Polls <code>/api/server-info</code>. Updates uptime; reflects credential changes
-            immediately. No auth required (it only returns boolean for credentials, never the hash).
+            Shows whether remote access is running right now.
           </span>
         </div>
       </fieldset>
@@ -422,7 +430,7 @@ async function onDisableAndRestart() {
   if (!await ask({
     title: 'Disable server mode?',
     message: 'The app will restart as a desktop-only window and will no longer be reachable from this browser. Re-enabling requires access to the Mac mini.',
-    confirmLabel: 'Disable and restart',
+    confirmLabel: 'Disable and Restart',
     danger: true,
   })) return
 
@@ -487,7 +495,7 @@ async function onSaveCredentials() {
 
 async function onRotateSessions() {
   if (saving.value) return
-  if (!await ask({ title: 'Sign out every browser?', message: 'Invalidate every signed-in browser session? You will need to log in again everywhere.', confirmLabel: 'Invalidate sessions', danger: true })) return
+  if (!await ask({ title: 'Sign out every browser?', message: 'Invalidate every signed-in browser session? You will need to log in again everywhere.', confirmLabel: 'Invalidate Sessions', danger: true })) return
   saving.value = 'rotate'
   message.value = null
   try {
@@ -651,4 +659,6 @@ defineExpose({ reload: load })
   .ssm-buttons .btn { width: 100%; }
   .ssm-input-narrow { max-width: none; }
 }
+/* Technical detail stays one click away. */
+.ssm-details summary { cursor: pointer; color: var(--text-muted); font-size: var(--font-xs); }
 </style>

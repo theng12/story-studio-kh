@@ -7,9 +7,9 @@
  * grep across app.ts.
  */
 
-import { initializeQueuePauseState, registerExecutor, resumeInterruptedJobsAtBoot, unregisteredJobTypes } from '../services/job-queue.js'
+import { initializeQueuePauseState, jobEvents, registerExecutor, resumeInterruptedJobsAtBoot, unregisteredJobTypes } from '../services/job-queue.js'
 import {
-  generateScriptOnly, generateIntroductionOnly, generateChapterOnly,
+  generateIntroductionOnly, generateChapterOnly,
   generateOutlineOnly, generateExpandChapters,
 } from '../generators/episode.js'
 import { generateImages } from '../generators/images.js'
@@ -22,6 +22,7 @@ import { generateAudioMerge } from '../generators/audio-merge.js'
 import { generateMetadata } from '../generators/metadata.js'
 import { generateSubtitlesTranscribe } from '../generators/subtitles.js'
 import { startEpisodeRecovery } from '../services/episode-recovery.js'
+import { invalidateForFinishedJob } from '../services/episode-status-cache.js'
 import { generateYoutubeUpload } from '../generators/youtube-upload.js'
 import { generateYoutubePlaylistUpdate } from '../generators/youtube-playlist-update.js'
 import { generateThumbnailRefresh } from '../generators/youtube-thumbnail-refresh.js'
@@ -37,7 +38,6 @@ import { generateSceneImageJob } from '../generators/scene-image.js'
 import { generateSceneClipJob, generateSceneClipsBatchJob } from '../generators/scene-clip.js'
 import { runContinuityRenderJob } from '../generators/continuity-render.js'
 import { generateCompositionTemplateJob } from '../generators/composition-template.js'
-import { runExpressionMarkupJob } from '../services/audio-expression.js'
 import { generateIdeaCampaign } from '../generators/idea-campaign.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { registerJobCancellationAuditor } from '../services/job-cancellation-auditors.js'
@@ -114,7 +114,7 @@ export async function auditScenePlanOutput(job: any): Promise<'complete' | 'repa
   // timeline: real, forward-running scene timings and the record that a timeline
   // was built.
   const timelineOnly = params.stage === 'timeline'
-    && !params.regenerate_prompt_scene_id && !params.regenerate_empty_prompts
+    && !params.regenerate_prompt_scene_id && !params.regenerate_prompt_scene_ids?.length && !params.regenerate_empty_prompts
     && !params.regenerate_motion_prompt_scene_id && !params.regenerate_empty_motion_prompts
     && !params.replan_scene_id
   if (timelineOnly) {
@@ -134,7 +134,10 @@ export async function auditScenePlanOutput(job: any): Promise<'complete' | 'repa
   const singleId = stage === 'motion'
     ? params.regenerate_motion_prompt_scene_id
     : params.regenerate_prompt_scene_id || params.replan_scene_id
-  const ids = motionSnapshotIds ?? (singleId
+  const selectedIds = stage === 'visual' && Array.isArray(params.regenerate_prompt_scene_ids) && params.regenerate_prompt_scene_ids.length
+    ? params.regenerate_prompt_scene_ids.map(String)
+    : undefined
+  const ids = motionSnapshotIds ?? selectedIds ?? (singleId
     ? [String(singleId)]
     : (Array.isArray(plan?.scenes) ? plan.scenes : [])
       .filter((scene: any) => stage === 'visual' || (!!scene?.visual_prompt?.trim() && scene?.motion_mode !== 'still'))
@@ -302,17 +305,13 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
     return await fn(job) as import('../services/job-queue.js').JobExecutorResult
   }
   registerExecutor('idea_campaign', generateIdeaCampaign)
-  // Legacy `'script'` executor (the coupled generateEpisode) was removed
-  // in M1. Script and introduction are now two independent job types.
-  registerExecutor('script-only', generateScriptOnly)
   registerExecutor('introduction-only', generateIntroductionOnly)
   registerExecutor('chapter-only', generateChapterOnly)
   // v1.0.72+: outline-first chunked flow. outline_only builds the outline
   // and persists the sidecar with outline_approved_at: null (or set when
   // auto_approve: true is on the params). expand_chapters reads the
   // approved sidecar and expands all-or-selected chapters with per-entry
-  // word-count overrides. The legacy script-only path stays for now —
-  // Phase 3 of the refactor will route it through these instead.
+  // word-count overrides.
   registerExecutor('outline_only', generateOutlineOnly)
   registerExecutor('expand_chapters', generateExpandChapters)
   registerExecutor('image_prompts', generateImagePrompts)
@@ -376,14 +375,14 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
   registerExecutor('continuity_render', runContinuityRenderJob)
   // v1.0.260 — generate the composition LAYOUT template image from a prompt.
   registerExecutor('composition_generate', generateCompositionTemplateJob)
-  // v1.0.386 — Fish S2 expression "Tag all" — background LLM markup over every
-  // section (survives leaving the Audio Generator page).
-  registerExecutor('expression_markup', runExpressionMarkupJob)
 
   const missingExecutors = unregisteredJobTypes()
   if (missingExecutors.length) {
     throw new Error(`Job executor registration incomplete: ${missingExecutors.join(', ')}`)
   }
+
+  // A finished job refreshes its episode's status right away (Board, lists).
+  if (!jobEvents.listeners('update').includes(invalidateForFinishedJob)) jobEvents.on('update', invalidateForFinishedJob)
 
   if (options.loadSettings !== false) {
     void initializeQueuePauseState()

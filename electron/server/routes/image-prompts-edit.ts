@@ -2,12 +2,12 @@
  * Per-prompt Regenerate route for the Image Prompts page's review panel.
  *
  *   POST /api/projects/:slug/episodes/:episodeId/image-prompts/regenerate
- *     body: { kind: 'scene' | 'thumbnail', number, model?, style_tag? }
+ *     body: { kind: 'thumbnail', number, model?, style_tag? }
  *     200 : { number, title, prompt }
  *
  * Synchronous (no job queue) — single LLM call, ≤2s, fits the
  * click-and-wait UX on the Prompt Review panel. Reads the existing
- * scene_prompts.docx / thumbnail_prompts.docx, regenerates ONE entry
+ * thumbnail_prompts.docx, regenerates ONE entry
  * via callAi (passing the surrounding prompts as context so the new
  * one fits), and writes the docx back with the entry replaced.
  */
@@ -57,7 +57,7 @@ interface PromptRegenerationActions {
 
 const RegenerateSchema = z.object({
   operation_id: z.string().uuid(),
-  kind: z.enum(['scene', 'thumbnail']),
+  kind: z.literal('thumbnail'),
   number: z.number().int().min(1).max(999),
   /** LLM model. Defaults to gpt-4o (matches the bulk generator's default). */
   model: z.string().optional(),
@@ -98,7 +98,7 @@ const RegenerateSchema = z.object({
 })
 
 const UpdatePromptSchema = z.object({
-  kind: z.enum(['scene', 'thumbnail']),
+  kind: z.literal('thumbnail'),
   number: z.number().int().min(1).max(999),
   title: z.string().trim().min(1).max(300),
   prompt: z.string().trim().min(10).max(12000),
@@ -109,7 +109,7 @@ router.post(
   validateBody(RegenerateSchema),
   async (req, res) => {
     const { slug, episodeId } = req.params
-    const { kind, number } = req.body as { kind: 'scene' | 'thumbnail'; number: number }
+    const { kind, number } = req.body as { kind: 'thumbnail'; number: number }
     let operationId: string
     return withLock(`image-prompt-row:${slug}:${episodeId}:${kind}:${number}`, async () => {
     try {
@@ -136,7 +136,7 @@ router.post(
       })()
 
       const paths = await resolveEpisodePaths(slug, episodeId, titleParam)
-      const promptsConstant = kind === 'scene' ? paths.scene_prompts_docx : paths.thumb_prompts_docx
+      const promptsConstant = paths.thumb_prompts_docx
       // Read the existing file (prefer .md, accept a legacy .docx); always
       // WRITE back as .md so editing a legacy episode upgrades it.
       const readPath = promptsConstant ? resolveReadPath(promptsConstant) : ''
@@ -151,7 +151,7 @@ router.post(
       // (b) thread surrounding prompts as context for cohesion, (c)
       // re-write the file with the regenerated entry replacing the old.
       const parsed = await parseImagePromptsDocx(readPath)
-      const list = kind === 'scene' ? parsed.scenes : parsed.thumbnails
+      const list = parsed.thumbnails
       const targetIdx = list.findIndex(p => p.number === number)
       if (targetIdx < 0) {
         return res.status(404).json({
@@ -177,7 +177,7 @@ router.post(
       const peers = list.map(p => ({ number: p.number, title: p.title }))
       const windowed = list
         .filter(p => Math.abs(p.number - number) <= 2 && p.number !== number)
-        .map(p => `${kind === 'scene' ? 'Scene' : 'Thumbnail'} ${p.number}: ${p.prompt}`)
+        .map(p => `Thumbnail ${p.number}: ${p.prompt}`)
 
       const llmPrompt = buildRegenPrompt({
         kind,
@@ -273,7 +273,7 @@ router.post(
       const publication = await withLock(writePath, async () => {
         _clearImagePromptsParseCache()
         const latest = await parseImagePromptsDocx(resolveReadPath(promptsConstant))
-        const latestList = kind === 'scene' ? latest.scenes : latest.thumbnails
+        const latestList = latest.thumbnails
         const latestTarget = latestList.findIndex(prompt => prompt.number === number)
         if (latestTarget < 0) throw new Error(`${kind} ${number} was removed while it was being regenerated.`)
         const current = latestList[latestTarget]!
@@ -286,12 +286,11 @@ router.post(
           ? { number: prompt.number, title: result!.title || prompt.title, prompt: result!.prompt }
           : prompt
         ))
-        const serialised = serialiseList(kind, updatedList)
+        const serialised = serialiseList(updatedList)
         await buildImagePromptsDocx(serialised, episodeId, project.name || episodeId, writePath)
         _clearImagePromptsParseCache()
         const persisted = await parseImagePromptsDocx(resolveReadPath(promptsConstant))
-        const persistedRow = (kind === 'scene' ? persisted.scenes : persisted.thumbnails)
-          .find(prompt => prompt.number === number)
+        const persistedRow = persisted.thumbnails.find(prompt => prompt.number === number)
         if (!persistedRow) throw new Error(`${kind} ${number} was not present after regeneration was saved.`)
         return promptRowFingerprint(persistedRow.title, persistedRow.prompt)
       })
@@ -410,7 +409,7 @@ router.put(
       if (!project) return res.status(404).json({ detail: 'Project not found' })
 
       const paths = await resolveEpisodePaths(slug, episodeId, titleParam)
-      const promptsConstant = kind === 'scene' ? paths.scene_prompts_docx : paths.thumb_prompts_docx
+      const promptsConstant = paths.thumb_prompts_docx
       const readPath = promptsConstant ? resolveReadPath(promptsConstant) : ''
       if (!readPath || !existsSync(readPath)) {
         return res.status(404).json({
@@ -419,7 +418,7 @@ router.put(
       }
       const writePath = toMdPath(promptsConstant)
       const parsed = await parseImagePromptsDocx(readPath)
-      const list = kind === 'scene' ? parsed.scenes : parsed.thumbnails
+      const list = parsed.thumbnails
       const targetIdx = list.findIndex(p => p.number === number)
       if (targetIdx < 0) {
         return res.status(404).json({
@@ -431,7 +430,7 @@ router.put(
         ? { number, title, prompt }
         : p
       ))
-      const serialised = serialiseList(kind, updatedList)
+      const serialised = serialiseList(updatedList)
       await buildImagePromptsDocx(serialised, episodeId, project.name || episodeId, writePath)
       _clearImagePromptsParseCache()
 
@@ -457,7 +456,7 @@ function extractStyleTag(prompt: string): string | null {
 }
 
 function buildRegenPrompt(opts: {
-  kind: 'scene' | 'thumbnail'
+  kind: 'thumbnail'
   number: number
   target: { number: number; title: string; prompt: string }
   peers: { number: number; title: string }[]
@@ -474,7 +473,7 @@ function buildRegenPrompt(opts: {
    */
   reword?: boolean
 }): string {
-  const kindLabel = opts.kind === 'scene' ? 'scene' : 'thumbnail'
+  const kindLabel = opts.kind
   const peerList = opts.peers
     .map(p => `  ${p.number}. ${p.title}`)
     .join('\n')
@@ -488,9 +487,7 @@ function buildRegenPrompt(opts: {
   // length to reach. Empty when no limit is in force.
   const charCapInstruction = buildPromptCharCapInstruction(opts.promptCharCap)
   const charCapRequirement = charCapInstruction ? `\n${charCapInstruction}` : ''
-  const kindSpecific = opts.kind === 'thumbnail'
-    ? `\n5. This is a THUMBNAIL brief, not a scene still. Make it feel like a professional YouTube cover: clear hero subject, emotional hook, negative space, title-safe composition, premium readability, and strong click appeal.\n6. If title text belongs in the image, explain how the composition, contrast, and lighting support it. If the current prompt implies a clean text-safe zone instead, preserve that deliberate layout.${headlineInvents(opts.headlineMode) ? '\n7. Keep the current title as the thumbnail’s short hook. Render that exact hook inside the image; do not replace it with the full episode title.' : ''}`
-    : ''
+  const kindSpecific = `\n5. This is a THUMBNAIL brief, not a scene still. Make it feel like a professional YouTube cover: clear hero subject, emotional hook, negative space, title-safe composition, premium readability, and strong click appeal.\n6. If title text belongs in the image, explain how the composition, contrast, and lighting support it. If the current prompt implies a clean text-safe zone instead, preserve that deliberate layout.${headlineInvents(opts.headlineMode) ? '\n7. Keep the current title as the thumbnail’s short hook. Render that exact hook inside the image; do not replace it with the full episode title.' : ''}`
 
   return `Regenerate a single image ${kindLabel} prompt for an episode.
 
@@ -509,7 +506,7 @@ REQUIREMENTS:
 3. Match the visual voice of the surrounding ${kindLabel}s — same style language, same image quality.
 4. End with this exact style tag: "${opts.styleTag || '(retain the style from the original prompt)'}"
 ${kindSpecific}
-${opts.kind === 'thumbnail' ? (headlineInvents(opts.headlineMode) ? '8' : '7') : '5'}. Do NOT change the ${kindLabel} number. Title may stay or be lightly improved.${charCapRequirement}
+${headlineInvents(opts.headlineMode) ? '8' : '7'}. Do NOT change the ${kindLabel} number. Title may stay or be lightly improved.${charCapRequirement}
 
 FORMAT — return ONLY a JSON object:
 { "title": "Brief Title", "prompt": "Full prompt text..." }
@@ -543,14 +540,11 @@ export function parseSinglePromptResponse(
 }
 
 function serialiseList(
-  kind: 'scene' | 'thumbnail',
   list: { number: number; title: string; prompt: string }[],
 ): string {
-  const header = kind === 'scene' ? '# Scene Prompts' : '# Thumbnail Prompts'
-  const label = kind === 'scene' ? 'Scene' : 'Thumbnail'
-  let out = `${header}\n\n`
+  let out = `# Thumbnail Prompts\n\n`
   for (const p of list) {
-    out += `## ${label} ${p.number}: ${p.title}\n\n${p.prompt}\n\n`
+    out += `## Thumbnail ${p.number}: ${p.title}\n\n${p.prompt}\n\n`
   }
   return out
 }

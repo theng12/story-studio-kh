@@ -87,3 +87,20 @@ export async function inspectPromptCompletion(
     return { authoritative: true, complete: false, expected, present: 0, missing: Array.from({ length: expected }, (_, i) => i + 1) }
   }
 }
+
+/**
+ * Prompt folders written before completion manifests existed. A stray file is
+ * not proof: done only when a prompt document in the folder really holds at
+ * least one prompt of this kind.
+ */
+export async function legacyPromptsPresent(dir: string, files: string[], kind: PromptCompletionKind): Promise<boolean> {
+  for (const name of files) {
+    if (!/\.(md|docx)$/i.test(name)) continue
+    try {
+      const parsed = await parseImagePromptsDocx(path.join(dir, name))
+      const items = kind === 'scene' ? parsed.scenes : parsed.thumbnails
+      if (items.some(item => item.prompt?.trim())) return true
+    } catch { /* unreadable document is not output */ }
+  }
+  return false
+}

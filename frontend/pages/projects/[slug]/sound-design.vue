@@ -15,7 +15,7 @@
         v-model:episode-id="episodeId"
         filter-field="scene_plan"
         :presets="presets"
-        generate-label="Add spot effect"
+        generate-label="Add Spot Effect"
         :generate-disabled="!config.enabled || !episodeId"
         :generate-status="actionStatus"
         @generate="addSpot"
@@ -77,7 +77,7 @@
       <WorkspaceNotice v-else-if="timeline" tone="success" title="Sound Design ready">{{ approvedCount }} approved cue{{ approvedCount === 1 ? '' : 's' }} will be mixed into Final Video. Excluded cues will not be used.</WorkspaceNotice>
 
       <section v-if="timeline" class="card sound-timeline">
-        <div class="timeline-heading"><div><span class="section-kicker">Reviewed timeline</span><h2>{{ timeline.cues.length }} cue{{ timeline.cues.length === 1 ? '' : 's' }}</h2></div><div class="timeline-actions"><button class="btn btn-secondary btn-sm" @click="addBed">+ Ambient bed</button><button class="btn btn-secondary btn-sm" @click="addSpot">+ Spot effect</button><button class="btn btn-primary btn-sm" :disabled="saving || !dirty" @click="saveTimeline()">{{ saving ? 'Saving…' : 'Save Sound Design' }}</button></div></div>
+        <div class="timeline-heading"><div><span class="section-kicker">Reviewed timeline</span><h2>{{ timeline.cues.length }} cue{{ timeline.cues.length === 1 ? '' : 's' }}</h2></div><div class="timeline-actions"><button class="btn btn-secondary btn-sm" @click="addBed">+ Ambient Bed</button><button class="btn btn-primary btn-sm" :disabled="saving || !dirty" @click="saveTimeline()">{{ saving ? 'Saving…' : 'Save Sound Design' }}</button></div></div>
         <p v-if="!timeline.cues.length" class="text-muted">No sound cues yet. Silence is valid; add only the moments that improve the episode.</p>
         <p v-if="!candidates.length" class="text-muted text-sm">No sound files found. Add a folder of sound effects as an SFX pool in the <NuxtLink to="/broll-library">B-Roll Library</NuxtLink>, then reload this page.</p>
         <article v-for="cue in timeline.cues" :key="cue.id" class="sound-cue" :class="`is-${cue.status}`">

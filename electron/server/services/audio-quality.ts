@@ -84,9 +84,8 @@ async function activeChapters(episodeDir: string): Promise<AudioChapter[]> {
  * one recomputed from the script file later, so BOTH sides must describe the
  * SCRIPT ON DISK and nothing else. The generator used to record
  * `hashInput(section.text)` AFTER it had transformed that text in memory for
- * the run — expression tags were swapped in and auto-pacing tags were appended —
- * so any run with those features learned at quality-check time that "the script
- * changed" when the customer had changed nothing.
+ * the run (expression and pause tags, since removed), so such a run learned at
+ * quality-check time that "the script changed" when the customer had changed nothing.
  *
  * The recomputation trims before normalizing (`currentScript()` returns a
  * trimmed string), so this does too: the two must be byte-identical inputs.

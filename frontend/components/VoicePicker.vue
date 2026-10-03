@@ -11,7 +11,7 @@
       <span class="vp-current">{{ currentVoiceName || defaultLabel }}</span>
       <span v-if="currentVoiceProviderLabel" class="vp-provider-badge">{{ currentVoiceProviderLabel }}</span>
       <span v-if="currentVoiceSaved" class="vp-star-badge" aria-label="Saved voice">★</span>
-      <span class="vp-chev" aria-hidden="true">▾</span>
+      <span class="vp-chev ds-chevron" data-dir="down" aria-hidden="true" />
     </button>
 
     <PickerDialog
@@ -29,7 +29,7 @@
           type="button"
           class="btn btn-sm btn-secondary"
           @click="libraryOpen = !libraryOpen"
-        >{{ libraryOpen ? 'Close library' : `Browse ${compatibleLibrary.label} library` }}</button>
+        >{{ libraryOpen ? 'Close Library' : `Browse ${compatibleLibrary.label} Library` }}</button>
       </template>
 
       <div v-if="libraryOpen && compatibleLibrary" class="vp-add-panel">
@@ -481,7 +481,7 @@ function onListKeydown(event: KeyboardEvent) {
 }
 function goToGenStudioSettings() {
   close()
-  void router.push(`/projects/${props.projectSlug}/settings#genstudio-settings`)
+  void router.push(`/projects/${props.projectSlug}/settings#connections`)
 }
 
 // Escape, backdrop dismissal and focus restoration all come from Modal via

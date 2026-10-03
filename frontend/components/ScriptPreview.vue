@@ -38,8 +38,8 @@
       </div>
       <div v-else-if="!data?.script?.content" class="preview-empty">
         No script generated yet for this episode.
-        <p class="muted mt-1" style="font-size: 12px;">
-          Configure settings above and click "Generate Script (Chapters)" to create one.
+        <p class="hint mt-1">
+          On the Outline tab, click "Create outline", then "Expand all" to write the chapters.
         </p>
       </div>
       <pre v-else class="preview-content">{{ data.script.content }}</pre>
@@ -55,10 +55,6 @@ const props = defineProps<{
   refreshKey?: number
 }>()
 
-const emit = defineEmits<{
-  'has-content': [hasContent: boolean]
-}>()
-
 const { get } = useApi()
 const data = ref<any>(null)
 const loading = ref(false)
@@ -70,7 +66,6 @@ async function load() {
   const { projectSlug, episodeId, title } = props
   if (!episodeId) {
     data.value = null
-    emit('has-content', false)
     return
   }
   loading.value = true
@@ -79,11 +74,9 @@ async function load() {
     const loaded = await get(`/projects/${projectSlug}/episodes/${episodeId}/script-content${titleParam}`)
     if (requestSequence !== loadSequence || props.projectSlug !== projectSlug || props.episodeId !== episodeId || props.title !== title) return
     data.value = loaded
-    emit('has-content', !!data.value?.script?.content)
   } catch (e) {
     if (requestSequence !== loadSequence || props.projectSlug !== projectSlug || props.episodeId !== episodeId || props.title !== title) return
     data.value = null
-    emit('has-content', false)
   } finally {
     if (requestSequence === loadSequence && props.projectSlug === projectSlug && props.episodeId === episodeId && props.title === title) loading.value = false
   }

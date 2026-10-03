@@ -112,31 +112,6 @@ export interface Format {
   productionStandardsAddendum?: string
 }
 
-/**
- * v1.0.280+ — a short, user-facing "how it's built" line derived from a
- * format's PRESENTATION fields (visualSource + sceneAlignment + chapters
- * independence). Format answers HOW the video is assembled; the niche answers
- * WHAT it says. Used by the format pickers so users choose a production
- * pipeline, not a voice. Pure function — accepts the minimal shape so both the
- * full Format and the lighter picker DTO can call it.
- */
-export function formatBuildLine(f: {
-  visualSource?: string | null
-  sceneAlignment?: string | null
-  script?: { chaptersIndependent?: boolean }
-}): string {
-  const vs = f.visualSource || 'narrated-scenes'
-  if (vs === 'continuity-chain') {
-    return 'One locked character rendered scene-by-scene (img2img), timed to the narration.'
-  }
-  // Every AI-scene format now uses the narration-timed planner. Listicle
-  // remains a useful script structure, not a separate legacy visual pipeline.
-  if (f.script?.chaptersIndependent) {
-    return 'Numbered independent topics with narration-timed AI scenes.'
-  }
-  return 'AI-generated scenes timed to the narration transcript.'
-}
-
 /** Normalize saved format ids before a picker mounts. */
 export function canonicalFormatId(id?: string | null): string {
   void id

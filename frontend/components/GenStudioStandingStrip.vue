@@ -30,7 +30,7 @@
     type="button"
     class="genstudio-standing-strip"
     :class="`standing-strip-${variant}`"
-    aria-label="Connect your Gateway"
+    aria-label="Connect Your Gateway"
     @click="appSettingsModal.open('connections')"
   >
     <!-- No key yet: this is the Gateway connection, not the paid GenStudio cloud service. -->
@@ -43,7 +43,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from 'vue'
-import { genstudioStaleNote } from '../utils/genstudio-freshness.js'
+import { gatewayJobsLine, genstudioStaleNote } from '../utils/genstudio-freshness.js'
 
 /**
  * `stacked` is the sidebar/band shape: the tier and lane line wraps onto its
@@ -93,10 +93,8 @@ const stalenessNote = computed(() => (
 const standingSummary = computed(() => {
   const facts: string[] = []
   if (genstudioTier.value) facts.push(genstudioTier.value.current.display_name)
-  if (genstudioActiveLanes.value !== null && genstudioLaneLimit.value !== null) {
-    // The Gateway counts every running job here (free fleet work included), not only paid ones.
-    facts.push(`${genstudioActiveLanes.value} of ${genstudioLaneLimit.value} jobs running`)
-  }
+  const jobs = gatewayJobsLine(genstudioActiveLanes.value, genstudioLaneLimit.value)
+  if (jobs) facts.push(jobs)
   return facts.join(' · ')
 })
 

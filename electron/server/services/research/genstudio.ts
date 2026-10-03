@@ -31,7 +31,7 @@ class GenStudioResearchAdapter implements ResearchAdapter {
     // A missing model is resolved against GenStudio's live catalog rather
     // than a hardcoded external product id — GenStudio owns the catalog and
     // a retired/renamed literal must never be submitted blind.
-    // A Pipeline lineup brings its own models; otherwise only the owner's choice runs.
+    // The page's choice, or the one the Pipeline run chose for this step.
     const model = requestedModel || opts.pipeline_model_policy?.assigned_model || ''
     if (!model) throw new Error(noWritingModelChosenMessage('the Research page'))
     const { system, user } = buildResearchPrompt(opts, 'llm-only')
@@ -60,7 +60,7 @@ class GenStudioResearchAdapter implements ResearchAdapter {
       requestIdentity: opts.request_identity,
     })).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)
-      throw new Error(`Gateway research failed: ${message}`)
+      throw new Error(`Research through the Gateway did not work: ${message}`)
     })
 
     return assembleOutput(raw, [], {

@@ -14,12 +14,9 @@ import {
   checkLibraryTarget,
   describeLibrary,
   getLibraryRoot,
+  setExportsRoot,
   setLibraryRoot,
 } from '../services/library.js'
-import {
-  dismissMigrationNotice,
-  listMigrationNotices,
-} from '../services/library-migration.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import path from 'path'
 import os from 'os'
@@ -115,26 +112,17 @@ router.put('/library', async (req, res) => {
 })
 
 /**
- * One-time messages from the 1.4.3 upgrade.
- *
- * Kept separate from `GET /library` because they are not the Library's state —
- * they are things that happened to the settings around it, and they need to
- * survive until someone has actually read them.
+ * Choose where NEW finished videos go (v1.4.249). `{ path: '' }` returns to
+ * the Library's own Exports folder. Moves nothing: videos already rendered
+ * stay put and are still found in the folder they were made in.
  */
-router.get('/library/notices', async (_req, res) => {
+router.put('/library/exports', async (req, res) => {
   try {
-    res.json({ notices: await listMigrationNotices() })
+    const target = typeof req.body?.path === 'string' ? req.body.path : ''
+    res.json(await setExportsRoot(target))
   } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Could not read upgrade notices'))
-  }
-})
-
-router.delete('/library/notices/:id', async (req, res) => {
-  try {
-    await dismissMigrationNotice(req.params.id)
-    res.json({ ok: true, notices: await listMigrationNotices() })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Could not dismiss that notice'))
+    const status = e?.status === 400 ? 400 : 500
+    res.status(status).json(humanizeBackendError(e, 'Could not set the finished videos folder'))
   }
 })
 

@@ -43,7 +43,7 @@
             :disabled="!canRun"
             title="Recover saved provider results first, then repair only missing output in the selected stages."
             @click="openRepairConfirm"
-          >Repair selected gaps</button>
+          >Repair Selected Gaps</button>
         </template>
       </TopActionBar>
       <p class="pipeline-command-copy">
@@ -60,7 +60,14 @@
       </WorkspaceNotice>
     </div>
 
-    <LlmLineupEditor :key="slug" :project-slug="slug" @loaded="onLlmLineupLoaded" @saved="onLlmLineupSaved" />
+    <WorkspaceNotice v-if="lineupNotice" tone="info" title="The LLM lineup is gone" class="lineup-retired-notice">
+      Each step now uses one writing model. We kept “{{ lineupNotice.model }}” for
+      {{ lineupNotice.steps.length ? `these steps: ${lineupNotice.steps.join(', ')}` : 'any step with no writing model of its own' }}.
+      To fall back across several models, make a pool in GatewayKH → Providers → Pools and pick it here.
+      <template #actions>
+        <button type="button" class="btn btn-sm btn-secondary" @click="dismissLineupNotice">Got It</button>
+      </template>
+    </WorkspaceNotice>
 
     <!-- ── Steps to run ─────────────────────────────────────────────────── -->
     <WorkspaceSection
@@ -77,14 +84,14 @@
             :disabled="!visualSource"
             title="Select every required stage in the current production chain. Optional Research and paid Motion Clips stay off. An Introduction is not a choice here — it follows what the channel says."
             @click="selectRequiredSteps"
-          >Required stages</button>
+          >Required Stages</button>
           <button
             type="button"
             class="btn btn-sm btn-secondary"
             :disabled="!visualSource"
             title="Select every available stage in the current production chain, including optional and paid stages."
             @click="selectAllSteps"
-          >Select all</button>
+          >Select All</button>
           <button
             type="button"
             class="btn btn-sm btn-ghost"
@@ -160,7 +167,7 @@
                 >Tune →</NuxtLink>
               </div>
               <div v-if="modelPolicyFor(entry.id)" class="step-model-policy" @click.stop>
-                <details @toggle="setModelPolicyExpanded(entry.id, ($event.target as HTMLDetailsElement).open)">
+                <details class="disclosure" @toggle="setModelPolicyExpanded(entry.id, ($event.target as HTMLDetailsElement).open)">
                   <summary>
                     Models for this run
                     <span class="step-model-policy-summary">{{ modelPolicySummary(entry.id) }}</span>
@@ -172,50 +179,23 @@
                         :checked="modelPolicyFor(entry.id)!.enabled"
                         @change="setModelPolicyEnabled(entry.id, ($event.target as HTMLInputElement).checked)"
                       />
-                      Choose exact model{{ modelPolicyFor(entry.id)!.mode === 'single' ? '' : 's' }} for this run
+                      Use a different writing model for this run
                     </label>
                     <template v-if="modelPolicyFor(entry.id)!.enabled">
-                      <fieldset class="step-model-policy-fields">
-                        <legend>Run policy</legend>
-                        <label v-for="mode in modelPolicyModes" :key="mode.value" class="step-model-policy-mode">
-                          <input
-                            type="radio"
-                            :name="`model-policy-${entry.id}`"
-                            :checked="modelPolicyFor(entry.id)!.mode === mode.value"
-                            @change="setModelPolicyMode(entry.id, mode.value)"
-                          />
-                          <span><strong>{{ mode.label }}</strong> — {{ mode.detail }}</span>
-                        </label>
-                      </fieldset>
                       <div class="step-model-policy-candidates">
-                        <div
-                          v-for="(_, index) in modelPolicyFor(entry.id)!.models"
-                          :key="`${entry.id}-${index}`"
-                          class="step-model-policy-candidate"
-                        >
+                        <div class="step-model-policy-candidate">
                           <ModelSelector
-                            :model-value="modelPolicyFor(entry.id)!.models[index] || ''"
+                            :model-value="modelPolicyFor(entry.id)!.model"
                             :project-slug="slug"
-                            :label="modelCandidateLabel(entry.id, index)"
-                            @update:model-value="setModelPolicyModel(entry.id, index, $event)"
-                            @model-meta="setModelPolicyModelMeta(entry.id, index, $event)"
+                            label="Writing model"
+                            @update:model-value="setModelPolicyModel(entry.id, $event)"
+                            @model-meta="setModelPolicyModelMeta(entry.id, $event)"
                           />
-                          <p v-if="modelPolicyLimits(entry.id, index)" class="step-model-policy-limits">
-                            {{ modelPolicyLimits(entry.id, index) }}
+                          <p v-if="modelPolicyLimits(entry.id)" class="step-model-policy-limits">
+                            {{ modelPolicyLimits(entry.id) }}
                           </p>
-                          <div v-if="modelPolicyFor(entry.id)!.mode !== 'single'" class="step-model-policy-candidate-actions">
-                            <button type="button" class="btn btn-xs btn-ghost" :disabled="index === 0" @click="moveModelPolicyCandidate(entry.id, index, -1)">Earlier</button>
-                            <button type="button" class="btn btn-xs btn-ghost" :disabled="index === modelPolicyFor(entry.id)!.models.length - 1" @click="moveModelPolicyCandidate(entry.id, index, 1)">Later</button>
-                            <button type="button" class="btn btn-xs btn-ghost" @click="removeModelPolicyCandidate(entry.id, index)">Remove</button>
-                          </div>
                         </div>
                       </div>
-                      <button
-                        v-if="modelPolicyFor(entry.id)!.mode !== 'single'"
-                        type="button"
-                        class="btn btn-xs btn-secondary"
-                        @click="addModelPolicyCandidate(entry.id)"
-                      >Add {{ modelPolicyFor(entry.id)!.mode === 'backup' ? 'backup' : 'model' }}</button>
                       <p v-if="modelPolicyError(entry.id)" class="step-model-policy-error" role="status">{{ modelPolicyError(entry.id) }}</p>
                     </template>
                   </div>
@@ -287,7 +267,7 @@
           <strong>{{ blocked.episode_id }}</strong> — {{ blocked.reason }}
         </span>
         <NuxtLink v-if="batchHasJobs" :to="`/projects/${slug}/jobs`" class="btn btn-sm btn-secondary mt-2">
-          View queued jobs
+          View Queued Jobs
         </NuxtLink>
       </WorkspaceNotice>
     </WorkspaceSection>
@@ -312,7 +292,7 @@
               :title="`Mark all ${selectedEpisodes.size} selected episode(s) as already done. Asks for confirmation. Reversible.`"
               @click="bulkMarkSelected(true)"
             >
-              {{ bulkMarking ? 'Working…' : `✓ Mark ${selectedEpisodes.size} as done` }}
+              {{ bulkMarking ? 'Working…' : `✓ Mark ${selectedEpisodes.size} as Done` }}
             </button>
             <button
               class="btn btn-sm btn-secondary"
@@ -326,8 +306,8 @@
           </template>
 
           <!-- Global selection (across all pages, respects current filter) -->
-          <button class="btn btn-sm btn-secondary" :title="selectButtonTitle" @click="selectAllPending">Select all pending</button>
-          <button class="btn btn-sm btn-secondary" :title="selectAllTitle" @click="selectAll">Select all</button>
+          <button class="btn btn-sm btn-secondary" :title="selectButtonTitle" @click="selectAllPending">Select All Pending</button>
+          <button class="btn btn-sm btn-secondary" :title="selectAllTitle" @click="selectAll">Select All</button>
 
           <span class="ep-actions-divider" aria-hidden="true" />
 
@@ -337,12 +317,12 @@
             class="btn btn-sm btn-secondary"
             title="Select only the episodes visible on this page (respects current sort + filter)."
             @click="selectAllOnPage"
-          >Select page</button>
+          >Select Page</button>
           <button
             class="btn btn-sm btn-secondary"
             title="Select only this page's episodes that still need at least one core step. Adds to the existing selection."
             @click="selectAllPendingOnPage"
-          >Select pending on page</button>
+          >Select Pending on Page</button>
 
           <span class="ep-actions-divider" aria-hidden="true" />
 
@@ -660,7 +640,7 @@
       <template #actions>
         <div class="pipeline-quality-actions">
           <NuxtLink :to="`/projects/${slug}/settings#production`" class="btn btn-sm btn-secondary">
-            Quality setting
+            Quality Setting
           </NuxtLink>
           <button
             type="button"
@@ -897,7 +877,7 @@ watch(slug, () => {
 // to already-generated scripts via the per-page UI). The intro step is
 // gated on the script step in this UI — see `stepDisabled` below.
 type StepId =
-  | 'research' | 'broll' | 'script-only' | 'introduction-only'
+  | 'research' | 'script-only' | 'introduction-only'
   | 'image_prompts' | 'thumb_images' | 'audio' | 'audio_merge'
   | 'metadata' | 'video_assembly'
   // v1.0.363 — audio-paced format steps, now chained by the batch runner
@@ -919,11 +899,10 @@ interface StepMeta {
   optional?: boolean
 }
 
-// v1.0.167 — External chain nodes. These are real steps in the broll /
-// timestamp-driven chains that the batch runner does NOT enqueue: either
-// they're pool-level (B-Roll fetch/assemble live on the B-Roll page). We render
-// them inline so the chain reads end-to-end, each with an "Open page →"
-// link to the page that actually runs it. They carry no checkbox, no
+// v1.0.167 — External chain nodes. These are real steps in the
+// timestamp-driven chains that the batch runner does NOT enqueue (Sound Design
+// review). We render them inline so the chain reads end-to-end, each with an
+// "Open page →" link to the page that actually runs it. They carry no checkbox, no
 // preset, and never count toward the batch.
 interface ExternalNode {
   kind: 'external'
@@ -938,13 +917,8 @@ interface ExternalNode {
 type ChainEntry = ({ kind: 'step' } & StepMeta) | ExternalNode
 
 // Character Sheet, Scene Plan, Scene Review, and Video Assembly
-// were promoted from read-only external nodes to real batchable steps. B-Roll
-// remains external because fetch/assemble lives on its pool-driven page.
+// were promoted from read-only external nodes to real batchable steps.
 const EXTERNAL_NODES: Record<string, ExternalNode> = {
-  broll: {
-    kind: 'external', key: 'broll', label: 'B-Roll Fetch + Assemble', icon: '🎞', link: '/broll',
-    note: 'Runs on the B-Roll page — fetch/pick clips from the pool, then assemble the final video there.',
-  },
   sound_design: {
     kind: 'external', key: 'sound_design', label: 'Sound Design (review)', icon: '🎵', link: '/sound-design',
     note: 'Optional manual review stage. It never blocks Scene Review; when enabled, Final Video requires an approved Sound Design timeline.',
@@ -963,7 +937,6 @@ const EXTERNAL_NODES: Record<string, ExternalNode> = {
 // list interleaved with EXTERNAL_NODES (see below).
 const stepsMeta: StepMeta[] = [
   { id: 'research',          label: 'Research (optional)', icon: '🔍', link: '/research',      presetList: 'research_presets',        presetActive: 'research_last_preset_research', optional: true },
-  { id: 'broll',             label: 'B-Roll Pick + Assemble', icon: '🎞', link: '/broll',      presetList: 'broll_presets',           presetActive: 'broll_last_preset_broll' },
   { id: 'script-only',       label: 'Script (chapters)', icon: '📝', link: '/scripts',        presetList: 'script_presets',          presetActive: 'script_last_preset_script' },
   // v1.4.73 — no preset pool: the opening's recipe belongs to the channel, and
   // the link points at the page that owns it rather than back at the Script page.
@@ -1078,16 +1051,11 @@ const chainLabel = computed(() => {
   return 'production flow unavailable'
 })
 const hasExternalNodes = computed(() => chainEntries.value.some(e => e.kind === 'external'))
-// Human-readable chain order for the page header — built from the active
-// format's chain so it always matches what's actually shown below.
-const chainSentence = computed(() => chainEntries.value.map(e => e.label).join(' → '))
-
 const stepChecked = reactive<Record<StepId, boolean>>({
   // Pipeline always opens with an empty stage selection. Starting work is an
   // explicit decision; shortcuts below provide safe required-only or full-chain
   // selection without reviving the old surprise "everything on" behavior.
   research: false,
-  broll: false,
   'script-only': false,
   'introduction-only': false,
   image_prompts: false,
@@ -1104,22 +1072,35 @@ const stepChecked = reactive<Record<StepId, boolean>>({
   video_assembly: false,
 })
 
-interface SavedLlmLineup {
-  enabled: boolean
-  models: string[]
-  prefer_savings: boolean
+// The retired LLM lineup's one-time notice (2026-10-03): what Story Studio kept,
+// shown until the owner closes it. Model names come from this browser's catalogue memory.
+const modelNames = useGenStudioModelDisplay()
+modelNames.hydrate()
+const chatModels = useGenStudioChatModels()
+const lineupNoticeClosed = ref(false)
+watch(slug, () => { lineupNoticeClosed.value = false })
+const lineupNotice = computed(() => {
+  const record = (config.value as any)?.llm_lineup_migration
+  if (!record?.model || record.notice_dismissed_at || lineupNoticeClosed.value) return null
+  return {
+    model: chatModels.find(record.model)?.display_name || modelNames.knownName(record.model) || record.model,
+    steps: Array.isArray(record.steps) ? record.steps as string[] : [],
+  }
+})
+watch(() => (config.value as any)?.llm_lineup_migration?.model, model => { if (model) void chatModels.refresh() }, { immediate: true })
+async function dismissLineupNotice(): Promise<void> {
+  lineupNoticeClosed.value = true
+  try {
+    await post(`/projects/${slug.value}/settings/llm-lineup-notice/dismiss`, {})
+  } catch { /* closed for this visit; it comes back next time if the save failed */ }
 }
-const savedLlmLineup = ref<SavedLlmLineup>({ enabled: false, models: [], prefer_savings: true })
-function onLlmLineupLoaded(lineup: SavedLlmLineup): void { savedLlmLineup.value = { ...lineup, models: [...lineup.models] } }
-function onLlmLineupSaved(lineup: SavedLlmLineup): void { savedLlmLineup.value = { ...lineup, models: [...lineup.models] } }
 
 type EligibleModelPolicyStep = Extract<StepId,
   'script-only' | 'introduction-only' | 'research' | 'metadata' | 'image_prompts' | 'scene_plan' | 'contextual_cues'>
-type ModelPolicyMode = 'single' | 'distribute' | 'backup'
+/** One writing model per step for this run (a Gateway pool counts as one). */
 interface ModelPolicyDraft {
   enabled: boolean
-  mode: ModelPolicyMode
-  models: string[]
+  model: string
 }
 interface ModelPolicyModelMeta {
   id: string
@@ -1131,31 +1112,26 @@ interface ModelPolicyModelMeta {
 const MODEL_POLICY_STEPS = new Set<EligibleModelPolicyStep>([
   'script-only', 'introduction-only', 'research', 'metadata', 'image_prompts', 'scene_plan', 'contextual_cues',
 ])
-const modelPolicyModes: Array<{ value: ModelPolicyMode; label: string; detail: string }> = [
-  { value: 'single', label: 'Single', detail: 'Use this exact product for every episode.' },
-  { value: 'distribute', label: 'Distribute', detail: 'Use the chosen products across independent episodes.' },
-  { value: 'backup', label: 'Primary + backups', detail: 'Try backups only after a proven terminal, unaccepted failure.' },
-]
 const modelPolicies = reactive<Record<EligibleModelPolicyStep, ModelPolicyDraft>>({
-  research: { enabled: false, mode: 'single', models: [''] },
-  'script-only': { enabled: false, mode: 'single', models: [''] },
-  'introduction-only': { enabled: false, mode: 'single', models: [''] },
-  image_prompts: { enabled: false, mode: 'single', models: [''] },
-  metadata: { enabled: false, mode: 'single', models: [''] },
-  scene_plan: { enabled: false, mode: 'single', models: [''] },
-  contextual_cues: { enabled: false, mode: 'single', models: [''] },
+  research: { enabled: false, model: '' },
+  'script-only': { enabled: false, model: '' },
+  'introduction-only': { enabled: false, model: '' },
+  image_prompts: { enabled: false, model: '' },
+  metadata: { enabled: false, model: '' },
+  scene_plan: { enabled: false, model: '' },
+  contextual_cues: { enabled: false, model: '' },
 })
-const modelPolicyModelMeta = reactive<Record<EligibleModelPolicyStep, Array<ModelPolicyModelMeta | null>>>({
-  research: [null],
-  'script-only': [null],
-  'introduction-only': [null],
-  image_prompts: [null],
-  metadata: [null],
-  scene_plan: [null],
-  contextual_cues: [null],
+const modelPolicyModelMeta = reactive<Record<EligibleModelPolicyStep, ModelPolicyModelMeta | null>>({
+  research: null,
+  'script-only': null,
+  'introduction-only': null,
+  image_prompts: null,
+  metadata: null,
+  scene_plan: null,
+  contextual_cues: null,
 })
 const modelPolicyExpanded = reactive<Record<StepId, boolean>>({
-  research: false, broll: false, 'script-only': false, 'introduction-only': false,
+  research: false, 'script-only': false, 'introduction-only': false,
   image_prompts: false, thumb_images: false, audio: false, audio_merge: false,
   metadata: false, subtitles: false, character_sheet: false, scene_plan: false,
   contextual_cues: false, scene_review: false, motion_review: false, video_assembly: false,
@@ -1169,9 +1145,8 @@ function modelPolicyFor(stepId: StepId): ModelPolicyDraft | null {
 function resetModelPolicies(): void {
   for (const stepId of MODEL_POLICY_STEPS) {
     modelPolicies[stepId].enabled = false
-    modelPolicies[stepId].mode = 'single'
-    modelPolicies[stepId].models = ['']
-    modelPolicyModelMeta[stepId] = [null]
+    modelPolicies[stepId].model = ''
+    modelPolicyModelMeta[stepId] = null
     modelPolicyExpanded[stepId] = false
   }
 }
@@ -1182,33 +1157,21 @@ function setModelPolicyEnabled(stepId: StepId, enabled: boolean): void {
 function setModelPolicyExpanded(stepId: StepId, expanded: boolean): void {
   modelPolicyExpanded[stepId] = expanded
 }
-function setModelPolicyMode(stepId: StepId, mode: ModelPolicyMode): void {
+function setModelPolicyModel(stepId: StepId, modelId: string): void {
   const policy = modelPolicyFor(stepId)
   if (!policy) return
-  policy.mode = mode
-  if (mode === 'single') {
-    policy.models = [policy.models[0] || '']
-    modelPolicyModelMeta[stepId as EligibleModelPolicyStep] = [modelPolicyModelMeta[stepId as EligibleModelPolicyStep][0] || null]
-  } else if (policy.models.length < 2) {
-    policy.models.push('')
-    modelPolicyModelMeta[stepId as EligibleModelPolicyStep].push(null)
+  policy.model = modelId
+  modelPolicyModelMeta[stepId as EligibleModelPolicyStep] = null
+}
+function setModelPolicyModelMeta(stepId: StepId, model: ModelPolicyModelMeta | null): void {
+  const policy = modelPolicyFor(stepId)
+  if (policy && model?.id === policy.model) {
+    modelPolicyModelMeta[stepId as EligibleModelPolicyStep] = model
   }
 }
-function setModelPolicyModel(stepId: StepId, index: number, modelId: string): void {
-  const policy = modelPolicyFor(stepId)
-  if (!policy) return
-  policy.models[index] = modelId
-  modelPolicyModelMeta[stepId as EligibleModelPolicyStep][index] = null
-}
-function setModelPolicyModelMeta(stepId: StepId, index: number, model: ModelPolicyModelMeta | null): void {
-  const policy = modelPolicyFor(stepId)
-  if (policy && model?.id === policy.models[index]) {
-    modelPolicyModelMeta[stepId as EligibleModelPolicyStep][index] = model
-  }
-}
-function modelPolicyLimits(stepId: StepId, index: number): string {
-  const model = modelPolicyModelMeta[stepId as EligibleModelPolicyStep]?.[index]
-  if (!model || model.id !== modelPolicyFor(stepId)?.models[index]) return ''
+function modelPolicyLimits(stepId: StepId): string {
+  const model = modelPolicyModelMeta[stepId as EligibleModelPolicyStep]
+  if (!model || model.id !== modelPolicyFor(stepId)?.model) return ''
   const context = model.context_window_tokens ?? model.context_limit_tokens
   const output = model.max_output_tokens
   const facts: string[] = []
@@ -1219,86 +1182,32 @@ function modelPolicyLimits(stepId: StepId, index: number): string {
   }
   return facts.join(' ')
 }
-function addModelPolicyCandidate(stepId: StepId): void {
-  const policy = modelPolicyFor(stepId)
-  if (policy && policy.mode !== 'single') {
-    policy.models.push('')
-    modelPolicyModelMeta[stepId as EligibleModelPolicyStep].push(null)
-  }
-}
-function removeModelPolicyCandidate(stepId: StepId, index: number): void {
-  const policy = modelPolicyFor(stepId)
-  if (policy && policy.mode !== 'single') {
-    policy.models.splice(index, 1)
-    modelPolicyModelMeta[stepId as EligibleModelPolicyStep].splice(index, 1)
-  }
-}
-function moveModelPolicyCandidate(stepId: StepId, index: number, direction: -1 | 1): void {
-  const policy = modelPolicyFor(stepId)
-  const target = index + direction
-  if (!policy || policy.mode === 'single' || target < 0 || target >= policy.models.length) return
-  ;[policy.models[index], policy.models[target]] = [policy.models[target], policy.models[index]]
-  const meta = modelPolicyModelMeta[stepId as EligibleModelPolicyStep]
-  ;[meta[index], meta[target]] = [meta[target], meta[index]]
-}
 function modelPolicyError(stepId: StepId): string {
   const policy = modelPolicyFor(stepId)
-  if (!policy?.enabled) return ''
-  const models = policy.models.filter(Boolean)
-  if (models.length !== policy.models.length) return 'Choose a published Gateway product for every model slot.'
-  if (new Set(models).size !== models.length) return 'Choose each product once.'
-  if (policy.mode === 'single' && models.length !== 1) return 'Single mode needs one product.'
-  if ((policy.mode === 'distribute' || policy.mode === 'backup') && models.length < 2) {
-    return `${policy.mode === 'backup' ? 'Primary + backups' : 'Distribute'} needs at least two products.`
-  }
-  return ''
+  return policy?.enabled && !policy.model ? 'Choose a writing model, or untick this to use the preset\'s model.' : ''
 }
 function modelPolicySummary(stepId: StepId): string {
   const policy = modelPolicyFor(stepId)
-  if (!policy?.enabled) return 'Preset default'
-  const count = policy.models.filter(Boolean).length
-  if (policy.mode === 'single') return count ? 'One exact model' : 'Choose a model'
-  return count ? `${policy.mode === 'backup' ? 'Primary + backups' : 'Distribute'} · ${count} models` : 'Choose models'
+  if (!policy?.enabled) return 'Preset\'s model'
+  return policy.model ? 'Different model for this run' : 'Choose a model'
 }
-function modelCandidateLabel(stepId: StepId, index: number): string {
-  const policy = modelPolicyFor(stepId)
-  if (policy?.mode === 'backup') return index === 0 ? 'Primary model' : `Backup ${index}`
-  return policy?.mode === 'distribute' ? `Model ${index + 1}` : 'Model'
-}
-type RunModelPolicy = { mode: ModelPolicyMode; models: string[]; wait_for_availability?: true; prefer_savings?: boolean }
+type RunModelPolicy = { mode: 'single'; models: string[] }
 function modelPoliciesForRun(): Partial<Record<EligibleModelPolicyStep, RunModelPolicy>> {
   const result: Partial<Record<EligibleModelPolicyStep, RunModelPolicy>> = {}
   for (const step of checkedStepsOrdered.value) {
     const policy = modelPolicyFor(step.id)
-    if (policy?.enabled && !modelPolicyError(step.id)) {
-      result[step.id as EligibleModelPolicyStep] = {
-        mode: policy.mode,
-        models: [...policy.models],
-      }
-    } else if (policy && savedLlmLineup.value.enabled && savedLlmLineup.value.models.length) {
-      result[step.id as EligibleModelPolicyStep] = {
-        mode: savedLlmLineup.value.models.length >= 2 ? 'backup' : 'single',
-        models: [...savedLlmLineup.value.models],
-        wait_for_availability: true,
-        prefer_savings: savedLlmLineup.value.prefer_savings,
-      }
+    if (policy?.enabled && policy.model) {
+      result[step.id as EligibleModelPolicyStep] = { mode: 'single', models: [policy.model] }
     }
   }
   return result
 }
-const modelPolicyRunSummary = computed(() => Object.entries(modelPoliciesForRun()).map(([stepId, policy]) => {
-  const label = stepById(stepId as StepId).label
-  if (policy.mode === 'distribute') return `${label} will distribute independent episodes across ${policy.models.length} selected products.`
-  if (policy.mode === 'backup') return `${label} uses its selected backups only after a proven terminal, unaccepted failure; uncertain or accepted requests reconnect instead.`
-  return `${label} uses its selected product for this run.`
-}))
+const modelPolicyRunSummary = computed(() => Object.keys(modelPoliciesForRun()).map(stepId =>
+  `${stepById(stepId as StepId).label} uses the writing model chosen above for this run.`))
 
 // These choices apply only to the current batch. A project change must never
 // carry one channel's explicit products into another channel's request.
-watch(slug, () => {
-  resetModelPolicies()
-  savedLlmLineup.value = { enabled: false, models: [], prefer_savings: true }
-})
+watch(slug, resetModelPolicies)
 
 // Tri-state (E-03): true = the channel opens with an Introduction, false = it
 // does not, null = the read failed. Encoding "could not check" as `false` used
@@ -1411,7 +1320,6 @@ const LEGACY_ACTIVE_KEY: Partial<Record<StepId, string>> = {
 // or when the user removed the active preset without re-selecting one).
 const TYPE_FOR_STEP: Partial<Record<StepId, string>> = {
   research: 'research',
-  broll: 'broll',
   'script-only': 'script',
   // v1.0.363 — match each page's usePresets({ presetType }).
   scene_plan: 'scene-plan',
@@ -1499,7 +1407,7 @@ function presetSelectTooltip(stepId: StepMeta['id']): string {
 // while the PUT round-trips. Avoids a double-fire if the user mashes the
 // dropdown twice fast.
 const presetSaving = reactive<Record<StepId, boolean>>({
-  research: false, broll: false,
+  research: false,
   'script-only': false, 'introduction-only': false, metadata: false,
   image_prompts: false,
   thumb_images: false,
@@ -1594,7 +1502,6 @@ watch(epError, (e) => {
   if (e) showError((e as any)?.data?.detail || (e as any)?.message || 'Failed to load episodes')
 })
 
-async function loadEpisodes() { await refreshEpisodes() }
 
 async function onRefreshClick(e: MouseEvent) {
   if (e.shiftKey) await rescanEpisodes()
@@ -1808,13 +1715,8 @@ const searchQuery = ref('')
 // show up in the right missing-only filter.
 // v1.0.167 — CORE steps are now derived from the active format's chain
 // rather than hardcoded to the scene-images set. "Core" = every batchable
-// step in the chain EXCEPT the opt-in AI `video` clips step. For broll/timestamp the scene-only steps simply
-// aren't in visibleSteps, so they never count toward "missing core" — a
-// stock-footage episode isn't flagged pending just because it has no
-// scene images. (video_assembly stays core for scene-images; broll and
-// timestamp end on external nodes the batch can't run, so their core set
-// stops at audio_merge — correct, since the final render is a separate,
-// page-driven step.)
+// step in the chain EXCEPT the opt-in AI `video` clips step. Steps not in the active chain aren't in
+// visibleSteps, so they never count toward "missing core".
 const CORE_STEP_IDS = computed<StepId[]>(() =>
   visibleSteps.value.filter(s => !s.optional).map(s => s.id),
 )
@@ -1822,9 +1724,6 @@ const CORE_STEP_IDS = computed<StepId[]>(() =>
 function isStepApplicableForEpisode(stepId: StepId, ep: Episode): boolean {
   const source = episodeVisualSource(ep)
   if (!source) return false
-  // B-Roll selects video clips, so it belongs only to the Scene Plan branch.
-  // Keep this estimate in lockstep with the backend's Image Pool skip.
-  if (stepId === 'broll' && source === 'image_pool') return false
   // Pipeline's persisted batch ids use underscores while the shared flow
   // names the same stages with hyphens. The helper reads only `key`, keeping
   // the two source branches aligned without a second step list here.
@@ -1981,7 +1880,6 @@ function isStepDoneForEpisode(stepId: StepId, status: Record<string, unknown> | 
     // stage auto-triages what it finds, so pending claims are not work the
     // Pipeline still has to do. `pillTitle` carries that second fact in words.
     case 'research':           return !!s.research
-    case 'broll':              return !!s.video_assembly
     case 'script-only':        return !!s.script
     case 'introduction-only':  return !!s.introduction
     case 'image_prompts':      return !!s.thumb_prompts
@@ -2102,7 +2000,6 @@ function isStepManualForEpisode(stepId: StepId, ep: Episode): boolean {
   // field for the step is overridden, the pill carries the (manual) hint.
   switch (stepId) {
     case 'research':          return 'research' in ov
-    case 'broll':             return 'video_assembly' in ov
     case 'script-only':       return 'script' in ov
     case 'introduction-only': return 'introduction' in ov
     case 'image_prompts':     return 'thumb_prompts' in ov
@@ -2153,7 +2050,7 @@ function researchNote(status: Record<string, unknown> | undefined): string {
 const { jobs: queueJobs } = useJobs()
 const stepJobStates = computed(() => episodeStepJobStates(queueJobs.value || []))
 const STEP_STATUS_FIELD_BY_ID: Partial<Record<StepId, string>> = {
-  research: 'research', broll: 'video_assembly', 'script-only': 'script', 'introduction-only': 'introduction',
+  research: 'research', 'script-only': 'script', 'introduction-only': 'introduction',
   image_prompts: 'thumb_prompts', thumb_images: 'thumbnails', audio: 'audio', audio_merge: 'merged_audio',
   metadata: 'metadata', subtitles: 'subtitles', scene_plan: 'scene_plan', scene_review: 'scene_review',
   motion_review: 'motion_review', video_assembly: 'video_assembly',
@@ -2803,19 +2700,14 @@ async function submit() {
 .step-model-policy summary { color: var(--text-secondary); cursor: pointer; }
 .step-model-policy-summary { color: var(--text-muted); margin-left: 4px; }
 .step-model-policy-body { display: grid; gap: 8px; margin-top: 8px; }
-.step-model-policy-toggle,
-.step-model-policy-mode { display: flex; align-items: flex-start; gap: 6px; color: var(--text-secondary); }
-.step-model-policy-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 5px 12px; margin: 0; padding: 7px 8px; border: 1px solid var(--border); border-radius: 4px; }
-.step-model-policy-fields legend { padding: 0 3px; color: var(--text-muted); }
+.step-model-policy-toggle { display: flex; align-items: flex-start; gap: 6px; color: var(--text-secondary); }
 .step-model-policy-candidates { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
 .step-model-policy-candidate { display: grid; gap: 4px; }
 .step-model-policy-candidate :deep(.form-group) { margin: 0; }
 .step-model-policy-limits { margin: 0; color: var(--text-muted); line-height: 1.4; }
-.step-model-policy-candidate-actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .step-model-policy-error { margin: 0; color: rgb(180, 83, 9); }
 
 @media (max-width: 560px) {
-  .step-model-policy-fields,
   .step-model-policy-candidates { grid-template-columns: minmax(0, 1fr); }
 }
 
@@ -3188,7 +3080,7 @@ async function submit() {
    so the styles need to be global to apply. */
 
 /* v1.0.167 — External chain node: read-only "Open page" tile for steps the
-   batch runner does not enqueue (currently B-Roll). Dashed + dimmer so it reads as
+   batch runner does not enqueue (currently Sound Design). Dashed + dimmer so it reads as
    informational, not selectable. */
 .step-tile-external {
   cursor: default;

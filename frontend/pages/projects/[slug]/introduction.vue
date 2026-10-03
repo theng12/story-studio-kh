@@ -71,7 +71,6 @@
       </p>
     </div>
 
-    <InheritedLlmLineupNotice :project-slug="slug" />
 
     <!-- The setting was inferred rather than chosen. Say so, and ask. -->
     <WorkspaceNotice v-if="segment.inferred_at" tone="warning" title="This was worked out from your existing episodes">
@@ -108,8 +107,8 @@
       hand on the Script page is still kept — this setting decides what the app writes, not what you write.
     </WorkspaceNotice>
     <WorkspaceNotice v-else tone="success" title="Every episode this channel writes will get an opening">
-      That includes unattended batch runs. There is no separate box to tick on the Pipeline any more —
-      it follows this setting, so an opening can no longer be missed by forgetting to ask for one.
+      That includes unattended batch runs, which follow this setting, so an opening cannot be missed by
+      forgetting to ask for one.
     </WorkspaceNotice>
 
     <section class="card intro-recipe">
@@ -139,7 +138,7 @@
           </p>
         </div>
         <button class="btn btn-primary" :disabled="saving || (!dirty && !segment.inferred_at)" @click="save">
-          {{ saving ? 'Saving…' : 'Save for this channel' }}
+          {{ saving ? 'Saving…' : 'Save for This Channel' }}
         </button>
       </div>
 
@@ -239,7 +238,7 @@
               :class="{ 'has-custom': !!beat.custom_text?.trim() }"
               :title="beat.custom_text?.trim() ? 'Wording set — click to edit' : 'Say what this beat should cover'"
               @click="toggleExpanded(beat.id)"
-            >{{ expanded.has(beat.id) ? '▾' : '▸' }}</button>
+            ><span class="ds-chevron" :class="{ 'is-open': expanded.has(beat.id) }" aria-hidden="true" /></button>
             <button class="btn-icon danger" title="Remove" @click="removeBeat(i)">✕</button>
           </div>
           <!--
@@ -291,7 +290,7 @@
           @keydown.enter.prevent="addBeat"
         />
         <button class="btn btn-sm btn-secondary" :disabled="!newBeatLabel.trim()" @click="addBeat">
-          + Add beat
+          + Add Beat
         </button>
       </div>
     </section>
@@ -671,7 +670,7 @@ async function generateForEpisode(): Promise<void> {
 const { jobs } = useJobs()
 // Reuse job updates to unlock the action when this episode's chapters finish.
 const scriptJobs = computed(() => jobs.value.filter(job => job.project_slug === slug.value && job.episode_id === episodeId.value
-  && ['script-only', 'chapter-only', 'expand_chapters'].includes(job.type)))
+  && ['chapter-only', 'expand_chapters'].includes(job.type)))
 const scriptWriting = computed(() => scriptJobs.value.some(job => ['queued', 'running', 'paused'].includes(job.status)))
 watch(() => scriptJobs.value.map(job => `${job.job_id}:${job.status}`).join('|'), () => { previewRefreshKey.value += 1 })
 // Only jobs this page has SEEN queued or running can settle. Openings that
@@ -764,6 +763,8 @@ onMounted(async () => {
 
 .recipe-heading { display: flex; justify-content: space-between; align-items: start; gap: 1.5rem; margin-bottom: 1.25rem; }
 .recipe-heading p { margin: .25rem 0 0; color: var(--text-muted); max-width: 48rem; }
+/* The Save button never wraps onto two lines (it did at 1280 px). */
+.recipe-heading > .btn { flex-shrink: 0; white-space: nowrap; }
 /* Where the recipe came from. Quiet, but always present — it is a fact about
    the settings below, not a notification. */
 .recipe-provenance {

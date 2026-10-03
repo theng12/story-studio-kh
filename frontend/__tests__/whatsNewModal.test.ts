@@ -12,8 +12,8 @@ test("What's New keeps the current release fully readable and expands older long
   assert.match(source, /size="xxl"/)
   assert.match(source, /dialog-class="whats-new-dialog"/)
   assert.match(source, /entry\.version === currentVersion\.value/)
-  assert.match(source, /View full release/)
-  assert.match(source, /Show less/)
+  assert.match(source, /View Full Release/)
+  assert.match(source, /Show Less/)
   assert.match(source, /View all releases/)
   // It loads the next page, whose size it does not know; it never promised "500 more" honestly.
   assert.match(source, /View older releases/)

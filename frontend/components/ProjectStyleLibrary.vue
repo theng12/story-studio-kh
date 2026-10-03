@@ -73,7 +73,7 @@
           :title="!previewModel ? 'Pick a Gateway image model first' : 'Render one balanced scene that tests the complete visual style'"
           @click="generateAllSamples"
         >
-          {{ renderingAll ? 'Rendering style proof…' : 'Generate style proof' }}
+          {{ renderingAll ? 'Rendering Style Proof…' : 'Generate Style Proof' }}
         </button>
         <button
           class="btn btn-primary btn-sm"
@@ -83,7 +83,7 @@
             : 'Save this style into the project library. If live samples exist, they are saved too.'"
           @click="saveStyle"
         >
-          {{ saving ? 'Saving…' : (editingPresetId ? 'Update saved style' : 'Save style to project') }}
+          {{ saving ? 'Saving…' : (editingPresetId ? 'Update Saved Style' : 'Save Style to Project') }}
         </button>
         <button
           v-if="editingPresetId"
@@ -92,7 +92,7 @@
           :title="'Fork this into a new saved style instead of overwriting the current one.'"
           @click="saveAsNewStyle"
         >
-          {{ saving ? 'Saving…' : 'Save as new style' }}
+          {{ saving ? 'Saving…' : 'Save as New Style' }}
         </button>
         <button
           v-if="showApply"
@@ -143,7 +143,7 @@
               :title="sample.url ? 'Spend one image credit to create a new version of this sample' : 'Generate only this sample'"
               @click="generateSample(sample.variant_id, !!sample.url)"
             >
-              {{ sample.loading ? 'Rendering…' : (sample.url ? 'Regenerate this sample' : 'Generate this sample') }}
+              {{ sample.loading ? 'Rendering…' : (sample.url ? 'Regenerate This Sample' : 'Generate This Sample') }}
             </button>
             <button
               v-if="sample.url"
@@ -151,7 +151,7 @@
               :class="{ 'psl-gallery-toggle-active': sample.included }"
               @click="toggleSampleIncluded(sample.variant_id)"
             >
-              {{ sample.included ? 'Included in gallery' : 'Add to gallery' }}
+              {{ sample.included ? 'Included in Gallery' : 'Add to Gallery' }}
             </button>
           </div>
           <p class="psl-sample-copy">{{ sample.scene_hint }}</p>

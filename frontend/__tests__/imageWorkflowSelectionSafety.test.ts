@@ -10,18 +10,15 @@ const imagePrompts = source('../pages/projects/[slug]/image-prompts.vue')
 const characterSheet = source('../pages/projects/[slug]/character-sheet.vue')
 const sceneReview = source('../pages/projects/[slug]/scene-review.vue')
 const imagePool = source('../pages/projects/[slug]/image-pool.vue')
-const referencesCard = source('../components/Img2ImgReferencesCard.vue')
 
 test('retired scene-generator handoffs lead to Scene Plan instead of a canonicalized thumbnail route', () => {
   assert.doesNotMatch(images, /image-prompts\?tab=scenes/)
-  assert.doesNotMatch(referencesCard, /image-prompts\?tab=scenes/)
-  assert.match(referencesCard, /projects\/\$\{projectSlug\}\/scene-plan/)
 })
 
 test('Thumbnail Prompts ignores a completed job after the selected episode or run changes', () => {
   assert.match(
     imagePrompts,
-    /async function runGenerate\(mode: PromptMode, replaceAll = false\) \{[\s\S]*?const ep = form\.episode_id[\s\S]*?const requestSequence = \+\+promptGenerationSequence[\s\S]*?waitForJob\(generationSlug, job\.job_id\)[\s\S]*?form\.episode_id !== ep[\s\S]*?episodes\/\$\{ep\}\/image-prompts[\s\S]*?form\.episode_id !== ep/,
+    /async function runGenerate\(replaceAll = false\) \{[\s\S]*?const ep = form\.episode_id[\s\S]*?const requestSequence = \+\+promptGenerationSequence[\s\S]*?waitForJob\(generationSlug, job\.job_id\)[\s\S]*?form\.episode_id !== ep[\s\S]*?episodes\/\$\{ep\}\/image-prompts[\s\S]*?form\.episode_id !== ep/,
   )
   assert.match(
     imagePrompts,
@@ -60,7 +57,6 @@ test('the retired scene half of the Thumbnail Generator stays gone', () => {
 
 test('Scene Review uploads retain the episode selected when the file was chosen', () => {
   assert.match(sceneReview, /async function uploadOne[\s\S]*?const ep = episodeId\.value[\s\S]*?await fileToBase64[\s\S]*?scene-review\/\$\{ep\}\/upload-image/)
-  assert.match(sceneReview, /async function uploadClipOne[\s\S]*?const ep = episodeId\.value[\s\S]*?scene-review\/\$\{ep\}\/upload-clip/)
 })
 
 test('image workflows pin project scope as well as episode scope across same-code project switches', () => {
@@ -90,7 +86,7 @@ test('a free-form custom lettering choice is sent with the run, not left in the 
   // the payload used to send only the `custom` id — so the run fell back to the
   // built-in serif/gold and the words the customer typed were ignored.
   const payload = imagePrompts.slice(
-    imagePrompts.indexOf('async function runGenerate(mode: PromptMode'),
+    imagePrompts.indexOf('async function runGenerate('),
     imagePrompts.indexOf('const operationId = payload.force'),
   )
   assert.match(
@@ -103,4 +99,8 @@ test('a free-form custom lettering choice is sent with the run, not left in the 
     /thumb_font_style_custom: form\.thumbnail\.thumb_font_style === 'custom'[\s\S]{0,120}form\.thumbnail\.thumb_font_style_custom/,
     'and the typed font description with it',
   )
+})
+
+test('Scene Review carries no dead animate code (clips belong to Motion Review)', () => {
+  assert.doesNotMatch(sceneReview, /animateScene|animateMissing|uploadClipOne|animateMinSeconds|i2vModels|animatingId/)
 })

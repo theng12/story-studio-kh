@@ -18,7 +18,7 @@ const source = readFileSync(fileURLToPath(new URL('../pages/projects/[slug]/scen
 describe('Scene Review media freshness', () => {
   test('every media URL carries its own asset version, not a page-wide timestamp', () => {
     assert.match(source, /scene-review\/\$\{episodeId\.value\}\/image\/\$\{scene\.id\}\?v=\$\{mediaVersion\(scene\.image_version\)\}/)
-    assert.match(source, /scene-review\/\$\{episodeId\.value\}\/clip\/\$\{scene\.id\}\?v=\$\{mediaVersion\(scene\.clip_version\)\}/)
+    // Clip URLs live in Motion Review; Scene Review's unused clip URL was removed with its dead animate code.
     assert.match(source, /scene-review\/\$\{episodeId\.value\}\/audio\?v=\$\{mediaVersion\(audioVersion\.value\)\}/)
     assert.doesNotMatch(source, /cacheBuster/)
     assert.doesNotMatch(source, /\?t=\$\{Date\.now\(\)\}/)

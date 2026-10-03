@@ -36,10 +36,10 @@
             :disabled="renumberUndoBusy"
             @click="revertRenumber"
           >
-            {{ renumberUndoBusy ? 'Undoing…' : 'Undo the renumber' }}
+            {{ renumberUndoBusy ? 'Undoing…' : 'Undo the Renumber' }}
           </button>
           <button class="btn btn-ghost btn-sm" type="button" :disabled="renumberUndoBusy" @click="dismissUndo">
-            {{ renumberUndo.expired ? 'Dismiss' : 'Discard undo' }}
+            {{ renumberUndo.expired ? 'Dismiss' : 'Discard Undo' }}
           </button>
         </div>
       </section>
@@ -70,7 +70,7 @@
             :disabled="reseasonUndoBusy"
             @click="revertReseason"
           >
-            {{ reseasonUndoBusy ? 'Undoing…' : 'Undo the rebalance' }}
+            {{ reseasonUndoBusy ? 'Undoing…' : 'Undo the Rebalance' }}
           </button>
         </div>
       </section>
@@ -86,7 +86,7 @@
         </div>
         <div class="field-row">
           <button class="btn btn-sm" type="button" :disabled="busy !== ''" @click="refreshRemote">
-            {{ busy === 'refresh' ? 'Listing videos…' : 'Refresh the channel listing' }}
+            {{ busy === 'refresh' ? 'Listing Videos…' : 'Refresh the Channel Listing' }}
           </button>
         </div>
       </section>
@@ -108,7 +108,7 @@
           </p>
           <div class="field-row">
             <button class="btn btn-sm" type="button" :disabled="busy !== ''" @click="previewBulk">
-              {{ busy === 'preview' ? 'Checking…' : 'Preview linking them' }}
+              {{ busy === 'preview' ? 'Checking…' : 'Preview Linking Them' }}
             </button>
           </div>
           <!-- No bulk action without exact counts and a confirm. -->
@@ -183,7 +183,7 @@
           <li v-for="videoId in youtubeOnly" :key="videoId">
             <code class="muted">{{ videoId }}</code>
             <button class="btn btn-ghost btn-sm" type="button" :disabled="busy !== ''" @click="setAside(videoId, true)">
-              Set aside
+              Set Aside
             </button>
           </li>
         </ul>
@@ -194,7 +194,7 @@
           <li v-for="videoId in ignored" :key="videoId">
             <code class="muted">{{ videoId }}</code>
             <button class="btn btn-ghost btn-sm" type="button" :disabled="busy !== ''" @click="setAside(videoId, false)">
-              Bring back
+              Bring Back
             </button>
           </li>
         </ul>
@@ -210,7 +210,7 @@
           <li v-for="decision in undoable" :key="decision.decision_id">
             <span>{{ decision.episode_code }} → {{ decision.next_video_id }}</span>
             <button class="btn btn-ghost btn-sm" type="button" :disabled="busy !== ''" @click="undo(decision)">
-              {{ decision.previous_video_id ? `Undo (back to ${decision.previous_video_id})` : 'Undo (unlink)' }}
+              {{ decision.previous_video_id ? `Undo (Back to ${decision.previous_video_id})` : 'Undo (Unlink)' }}
             </button>
           </li>
         </ul>
@@ -281,7 +281,7 @@ const listedCopy = computed(() => {
  * never listed, listed but nothing unlinked, listed and everything unmatched.
  */
 const nothingToSuggestCopy = computed(() => {
-  if (!listedAt.value) return 'Refresh the channel listing first — Story Studio has not seen this channel’s videos yet.'
+  if (!listedAt.value) return 'Refresh the Channel Listing first — Story Studio has not seen this channel’s videos yet.'
   if (!localOnly.value.length && !youtubeOnly.value.length) return 'Every episode and every video is already linked.'
   return 'Nothing here matches anything else well enough to suggest. The unmatched items are listed below.'
 })
@@ -333,7 +333,7 @@ async function dismissUndo(): Promise<void> {
     const confirmed = await ask({
       title: 'Discard this renumber undo?',
       message: 'This permanently removes the 30-day recovery record. This renumber can no longer be undone.',
-      confirmLabel: 'Discard undo',
+      confirmLabel: 'Discard Undo',
     })
     if (!confirmed) return
   }

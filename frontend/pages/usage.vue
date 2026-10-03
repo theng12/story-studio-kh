@@ -7,7 +7,7 @@
         <p>Every value on this page comes from the Gateway. Story Studio does not calculate rates or balances.</p>
       </div>
       <div class="usage-actions">
-        <NuxtLink to="/" class="btn btn-secondary btn-sm">← Back to projects</NuxtLink>
+        <NuxtLink to="/" class="btn btn-secondary btn-sm">← Back to Projects</NuxtLink>
         <div v-if="snapshot" class="billing-action">
           <a
             v-if="snapshot.overview.app_links.billing"
@@ -15,8 +15,8 @@
             :href="snapshot.overview.app_links.billing"
             target="_blank"
             rel="noopener noreferrer"
-          >Buy credits in GenStudio</a>
-          <button v-else class="btn btn-secondary btn-sm" disabled>Buy credits in GenStudio</button>
+          >Buy Credits in GenStudio</a>
+          <button v-else class="btn btn-secondary btn-sm" disabled>Buy Credits in GenStudio</button>
           <small v-if="!snapshot.overview.app_links.billing">Billing is not available on this GenStudio deployment.</small>
         </div>
         <button class="btn btn-secondary btn-sm" :disabled="loading" @click="load">{{ loading ? 'Refreshing…' : 'Refresh' }}</button>
@@ -28,9 +28,9 @@
     <WorkspaceNotice v-if="error" tone="warning" title="Credit balance unavailable">
       {{ gatewayDown ? connection.hint : error }}
       <template #actions>
-        <button type="button" class="btn btn-sm btn-secondary" :disabled="loading" @click="load">Try again</button>
+        <button type="button" class="btn btn-sm btn-secondary" :disabled="loading" @click="load">Try Again</button>
         <button type="button" class="btn btn-sm btn-secondary" @click="appSettingsModal.open('connections')">
-          {{ usageErrorCode === 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE' ? 'Review the Gateway connection' : error === 'Add a Gateway key first.' ? 'Connect your Gateway' : 'Open connection settings' }}
+          {{ usageErrorCode === 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE' ? 'Review the Gateway Connection' : error === 'Add a Gateway key first.' ? 'Connect Your Gateway' : 'Open Connection Settings' }}
         </button>
       </template>
     </WorkspaceNotice>
@@ -49,7 +49,7 @@
           <h2>{{ tierHeading(snapshot.overview.service_tier.current) }}</h2>
           <p>
             {{ snapshot.overview.paid_active_jobs.toLocaleString() }} of
-            {{ snapshot.overview.paid_concurrency_limit.toLocaleString() }} paid jobs running ·
+            {{ snapshot.overview.paid_concurrency_limit.toLocaleString() }} jobs running at once (free and paid) ·
             {{ snapshot.overview.paid_queued_jobs.toLocaleString() }} queued.
           </p>
           <p v-if="snapshot.overview.service_tier.overridden">
