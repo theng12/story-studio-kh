@@ -20,7 +20,8 @@ test('each visible fresh action retains one caller operation id until its submit
     source('frontend/pages/projects/[slug]/subtitles.vue'),
     source('frontend/pages/projects/[slug]/scripts.vue'),
     source('frontend/pages/projects/[slug]/introduction.vue'),
-    source('frontend/components/ChapterListPanel.vue'),
+    // ChapterListPanel and OutlineReviewPanel share this one Regenerate action.
+    source('frontend/composables/useChapterRegenerate.ts'),
     source('frontend/components/OutlineReviewPanel.vue'),
     source('frontend/pages/projects/[slug]/image-prompts.vue'),
     source('frontend/components/PromptReviewPanel.vue'),

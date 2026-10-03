@@ -150,7 +150,7 @@ async function recoverOne(
       return {
         filename: expected.filename,
         status: 'error',
-        reason: error?.message || 'Gateway image recovery failed.',
+        reason: error?.message || 'Could not recover the image from the Gateway.',
         task_id: entry.task_id,
       }
     }

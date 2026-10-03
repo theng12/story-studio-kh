@@ -101,6 +101,26 @@ describe('asset-status verified completion', () => {
     cacheMod.episodeStatusCache.clear()
   })
 
+  test('no manifest: a stray file does not mark Thumbnail Prompts or the Finalizer done; real output does', async () => {
+    const { episodeDir, thumbPromptsDir } = await makeProject()
+    const metadataDir = path.join(episodeDir, `${CODE} - 02 Metadata`)
+    await fs.mkdir(metadataDir, { recursive: true })
+    await fs.writeFile(path.join(thumbPromptsDir, 'notes.md'), 'just some notes\n')
+    await fs.writeFile(path.join(metadataDir, 'scratch.json'), '{}')
+    await fs.writeFile(path.join(metadataDir, `${CODE}_Metadata.txt`), '   \n')
+    let status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
+    assert.equal(status.thumb_prompts, false, 'a file with no thumbnail prompt is not done')
+    assert.equal(status.metadata, false, 'an empty package is not done')
+
+    await fs.writeFile(path.join(thumbPromptsDir, `${CODE}_Thumbnail_Prompts.md`),
+      '# Thumbnail Prompts\n\n1. Moonlit lake\nA quiet lake under the moon.\n')
+    await fs.writeFile(path.join(metadataDir, `${CODE}_Metadata.json`),
+      JSON.stringify({ title_options: ['A title'], description: 'A real description.', tags: [] }))
+    status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
+    assert.equal(status.thumb_prompts, true, 'a legacy prompt document with a real prompt counts')
+    assert.equal(status.metadata, true, 'a legacy package with a description counts')
+  })
+
   test('empty episode (no files, no prompts) → mode "all", no buckets', async () => {
     await makeProject()
     const result = await assetStatus.getImageStatus(SLUG, CODE)

@@ -115,8 +115,9 @@
             <template v-if="selectedTtsModel.provider_name">
               Served by <strong>{{ selectedTtsModel.provider_name }}</strong>.
             </template>
-            <span :title="modelRate.title">{{ modelRate.text }}</span><PriceDetails :cost="modelRate" /><template v-if="!ttsHasUsdPrice">,
-            minimum {{ formatCredits(selectedTtsModel.minimum_credits) }} per request</template>.
+            <template v-if="ttsIsFree">Free — runs on your own Macs.</template>
+            <template v-else><span :title="modelRate.title">{{ modelRate.text }}</span><PriceDetails :cost="modelRate" /><template v-if="!ttsHasUsdPrice">,
+            minimum {{ formatCredits(selectedTtsModel.minimum_credits) }} per request</template>.</template>
             <span v-if="modelRate.notice"> {{ modelRate.notice }}</span>
             <template v-if="selectedTtsModel.supports_voice_cloning"> Supports voice cloning.</template>
             <em v-if="ttsCatalogStaleNote" class="freshness-badge">{{ ttsCatalogStaleNote }}</em>
@@ -361,7 +362,7 @@
             <small>Selection</small>
             <strong>{{ selectionCountLabel }}</strong>
           </span>
-          <span class="audio-context-item">
+          <span v-if="!ttsIsFree" class="audio-context-item">
             <small>{{ quotedCost ? 'Selected quote' : 'Rate' }}</small>
             <strong>{{ quotedCost?.text || modelRate.text }}</strong>
           </span>
@@ -383,6 +384,7 @@
             @click="queueSelectedAudio"
           >{{ selectedAudioIntent.label }}</button>
           <button
+            v-if="!ttsIsFree"
             type="button"
             class="btn btn-ghost"
             :disabled="!quoteEligible || quoting"
@@ -411,7 +413,7 @@
         </p>
         <p class="audio-scope-summary text-muted">
           <strong>Generate missing</strong> makes only chapters with no audio yet and never touches finished ones.
-          <strong>Get quote</strong> only asks the price; it makes nothing.
+          <template v-if="!ttsIsFree"><strong>Get quote</strong> only asks the price; it makes nothing.</template>
           <strong>More → Create another version</strong> keeps the current audio and saves a new take beside it.
           <template v-if="inlineGenerateDisabled && inlineGenerateDisabledReason"><br>Buttons are off because: {{ inlineGenerateDisabledReason }}</template>
         </p>
@@ -485,7 +487,10 @@
       <!-- Cost: the model's published rate until there is real text, then
            The Gateway's own quotes — ONE PER TTS JOB this narration will actually
            be submitted as — listed and added up. Never an estimate. -->
-      <div v-if="selectedTtsModel" class="form-group mb-2">
+      <p v-if="selectedTtsModel && ttsIsFree" class="text-muted text-xs hint-line mb-2">
+        Cost: free. This voice runs on your own Macs, so there is nothing to quote or charge.
+      </p>
+      <div v-else-if="selectedTtsModel" class="form-group mb-2">
         <label>
           Cost <span class="field-hint">— the Gateway's figures</span>
           <em v-if="ttsCatalogStaleNote" class="freshness-badge">{{ ttsCatalogStaleNote }}</em>
@@ -665,7 +670,7 @@ import { voiceIsGenerable } from '~/composables/useGenStudioVoices'
 import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
 import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection'
 import { CREDIT_BASIS_LABEL, describeVoiceRate, describeQuotedTotal, formatCredits } from '~/utils/genstudio-credit-cost'
-import { hasPriceTruth } from '~/utils/genstudio-price-usd'
+import { hasPriceTruth, isFreeToRun } from '~/utils/genstudio-price-usd'
 import { genstudioStaleNote } from '~/utils/genstudio-freshness'
 import {
   describeRelaxedQueueHint,
@@ -873,6 +878,8 @@ const selectedVoiceProviderText = computed(() => {
 const modelRate = computed(() => describeVoiceRate(selectedTtsModel.value))
 // A row with gateway price truth carries zero-valued credit shapes; its minimum is never a price.
 const ttsHasUsdPrice = computed(() => hasPriceTruth(selectedTtsModel.value))
+/** A free voice (own Macs) hides every quote/credit control: there is nothing to price. */
+const ttsIsFree = computed(() => isFreeToRun(selectedTtsModel.value))
 
 /**
  * Whether the selected model takes Story Studio's inline pause/emotion tags.

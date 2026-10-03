@@ -160,7 +160,7 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     throw new Error(`Image model "${model}" is not routed through the Gateway.`)
   }
   const imageProvider = registry.getImageProvider('genstudio-image')
-  if (!imageProvider) throw new Error('Gateway image provider is unavailable.')
+  if (!imageProvider) throw new Error('Image generation through the Gateway is not available right now.')
 
   const providerParams = (modelConfig as any).provider_params || {
     endpoint: modelConfig.endpoint,

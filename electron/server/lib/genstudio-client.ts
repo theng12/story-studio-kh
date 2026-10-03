@@ -662,9 +662,9 @@ export class GenStudioImageTerminalFailureError extends GenStudioTerminalFailure
       'image',
       job,
       job.cancelled === true
-        ? `Gateway image job ${job.id} was cancelled${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
+        ? `The image job ${job.id} was cancelled at the Gateway${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
           + `${releasedCreditSettlement(job)} Retry submits a new job.`
-        : `Gateway image generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
+        : `The Gateway could not make the image${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
           + `${releasedCreditSettlement(job)} This job cannot be reopened; Retry submits a new job.`,
     )
     this.name = 'GenStudioImageTerminalFailureError'
@@ -677,9 +677,9 @@ export class GenStudioVideoTerminalFailureError extends GenStudioTerminalFailure
       'video',
       job,
       job.cancelled === true
-        ? `Gateway video job ${job.id} was cancelled. `
+        ? `The video job ${job.id} was cancelled at the Gateway. `
           + `${releasedCreditSettlement(job)} Retry submits a new job. No legacy fallback was attempted.`
-        : `Gateway video generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
+        : `The Gateway could not make the video${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
           + `${releasedCreditSettlement(job)} This job cannot be reopened; Retry submits a new job. `
           + 'No legacy fallback was attempted.',
     )
@@ -702,9 +702,9 @@ export class GenStudioMusicTerminalFailureError extends GenStudioTerminalFailure
       'music',
       job,
       job.cancelled === true
-        ? `Gateway music job ${job.id} was cancelled. `
+        ? `The music job ${job.id} was cancelled at the Gateway. `
           + `${releasedCreditSettlement(job)} Retry submits a new job. No legacy fallback was attempted.`
-        : `Gateway music generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
+        : `The Gateway could not make the music${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
           + `${releasedCreditSettlement(job)} This job cannot be reopened; Retry submits a new job. `
           + 'No legacy fallback was attempted.',
     )
@@ -718,7 +718,7 @@ export class GenStudioTtsTerminalFailureError extends GenStudioTerminalFailureEr
       'tts',
       job,
       job.cancelled === true
-        ? `Gateway TTS job ${job.id} was cancelled${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
+        ? `The narration job ${job.id} was cancelled at the Gateway${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
           + `${releasedCreditSettlement(job)} Retry submits a new job. No fallback route was attempted.`
         : `Gateway generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
           + `${releasedCreditSettlement(job)} No fallback route was attempted.`,
@@ -733,10 +733,10 @@ export class GenStudioTranscriptionTerminalFailureError extends GenStudioTermina
       'transcription',
       job,
       job.cancelled === true
-        ? `Gateway transcription job ${job.id} was cancelled${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
+        ? `The transcription job ${job.id} was cancelled at the Gateway${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
           + `${releasedCreditSettlement(job)} Retry submits a new job. `
           + 'No fallback route was attempted.'
-        : `Gateway transcription failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
+        : `The Gateway could not transcribe the audio${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
           + `${releasedCreditSettlement(job)} No fallback route was attempted.`,
     )
     this.name = 'GenStudioTranscriptionTerminalFailureError'
@@ -865,7 +865,7 @@ export class GenStudioImageArtifactUnavailableError extends GenStudioArtifactUna
       'image',
       jobId,
       status,
-      `Gateway image download failed${status ? ` (HTTP ${status})` : ''}`
+      `Could not download the image from the Gateway${status ? ` (HTTP ${status})` : ''}`
       + `${detail ? ` — ${detail}` : ''}: job ${jobId} no longer serves its artifact. `
       + 'Retry submits a new job; check the original job in the Gateway for its settlement status.',
     )
@@ -880,7 +880,7 @@ export class GenStudioTtsArtifactUnavailableError extends GenStudioArtifactUnava
       jobId,
       status,
       status
-        ? `Gateway audio download failed (HTTP ${status})${detail ? ` — ${detail}` : ''}: `
+        ? `Could not download the audio from the Gateway (HTTP ${status})${detail ? ` — ${detail}` : ''}: `
           + `job ${jobId} no longer serves its artifact. Retry submits a new job.`
         : `Gateway job completed without an audio download URL: job ${jobId} `
           + 'no longer serves its artifact. Retry submits a new job.',
@@ -898,7 +898,7 @@ export class GenStudioTranscriptionArtifactUnavailableError extends GenStudioArt
       status
         ? `Gateway SRT download failed (HTTP ${status})${detail ? ` — ${detail}` : ''}: `
           + `job ${jobId} no longer serves its artifact. Retry submits a new job.`
-        : `Gateway transcription completed without an SRT download URL: job ${jobId} `
+        : `The Gateway finished transcribing but sent no subtitle file: job ${jobId} `
           + 'no longer serves its artifact. Retry submits a new job.',
     )
     this.name = 'GenStudioTranscriptionArtifactUnavailableError'
@@ -1522,7 +1522,7 @@ export async function quoteGenStudioTranscription(
   const quote = await submitJsonWithAdmission(apiKey, `${apiBase(baseUrl)}/v1/audio/transcriptions/quotes`, {
     method: 'POST', headers: { ...authorization(apiKey), 'Idempotency-Key': idempotencyKey }, body,
   }, {}, deadline, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS) as GenStudioTranscriptionQuote
-  if (!quote.id) throw new Error('Gateway transcription quote returned no quote id.')
+  if (!quote.id) throw new Error('The Gateway did not return a price for this transcription.')
   return { quote, idempotencyKey, fileSha256 }
 }
 
@@ -4934,7 +4934,7 @@ export async function setGenStudioVoiceSaved(
   saved: boolean,
 ): Promise<void> {
   const id = voiceId.trim()
-  if (!id) throw new Error('A Gateway voice id is required to change its saved state.')
+  if (!id) throw new Error('A voice is needed to save this change.')
   const baseUrl = await getGenStudioUrl()
   const response = await fetch(`${apiBase(baseUrl)}/v1/voices/${encodeURIComponent(id)}/save`, {
     method: saved ? 'POST' : 'DELETE',
@@ -5128,7 +5128,7 @@ export async function downloadVoicePreview(
   }
   const mediaType = (response.headers.get('content-type') || 'audio/mpeg').split(';')[0]!.trim()
   if (!mediaType.startsWith('audio/')) {
-    throw new Error('Gateway voice preview did not return audio')
+    throw new Error('The Gateway sent no audio for this voice preview')
   }
   return {
     bytes: Buffer.from(await response.arrayBuffer()),
@@ -5601,7 +5601,7 @@ async function waitForVideoJob(
     if (request.isCancelled?.() || request.signal?.aborted) {
       throw new Error('Cancelled by user')
     }
-    if (Date.now() >= deadline) throw new Error('Gateway video job timed out while waiting for completion.')
+    if (Date.now() >= deadline) throw new Error('The video was not ready at the Gateway in time.')
     await poller.wait(deadline, request, current)
     current = await requestJsonWithRetry(
       `${apiBase(baseUrl)}/v1/videos/${encodeURIComponent(current.id)}`,
@@ -5931,7 +5931,7 @@ async function waitForMusicJob(
   while (!poller.settled(current)) {
     await submitQueuedRemoteCancellation('music.generation', baseUrl, apiKey, current.id, deadline)
     if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
-    if (Date.now() >= deadline) throw new Error('Gateway music job timed out while waiting for completion.')
+    if (Date.now() >= deadline) throw new Error('The music was not ready at the Gateway in time.')
     await poller.wait(deadline, request, current)
     current = await requestJsonWithRetry(
       `${apiBase(baseUrl)}/v1/music/jobs/${encodeURIComponent(current.id)}`,
@@ -5972,7 +5972,7 @@ function musicResult(
       ),
     }))
   if (!tracks.length) {
-    throw new Error(`Gateway music job ${completed.id} succeeded but returned no tracks.`)
+    throw new Error(`The Gateway finished music job ${completed.id} but sent no tracks.`)
   }
   return {
     tracks,
@@ -6089,8 +6089,8 @@ export async function generateMusicWithGenStudio(
   const title = request.title.trim()
   const prompt = request.prompt.trim()
   const modelId = request.modelId.trim()
-  if (!title) throw new Error('Gateway music requests need a title.')
-  if (!prompt) throw new Error('Gateway music requests need a creative direction.')
+  if (!title) throw new Error('Music needs a title.')
+  if (!prompt) throw new Error('Music needs a creative direction.')
   if (!modelId) throw new Error('Select a Gateway music model.')
   // A caller that checkpointed its key before this call is authoritative: that
   // persisted key is exactly what makes a lost submit response replay instead
@@ -8289,7 +8289,7 @@ async function waitForImageJob(
     if (request.isCancelled?.() || request.signal?.aborted) {
       throw new Error('Cancelled by user')
     }
-    if (Date.now() >= deadline) throw new Error('Gateway image job timed out while waiting for completion')
+    if (Date.now() >= deadline) throw new Error('The image was not ready at the Gateway in time')
     await poller.wait(deadline, request, current)
     current = await requestJsonWithRetry(
       `${apiBase(baseUrl)}/v1/images/${encodeURIComponent(current.id)}`,
@@ -8332,7 +8332,7 @@ async function downloadImageArtifact(
         if (response.status === 404 || response.status === 410) {
           throw new GenStudioImageArtifactUnavailableError(completed.id, response.status)
         }
-        const error = new Error(`Gateway image download failed (HTTP ${response.status})`)
+        const error = new Error(`Could not download the image from the Gateway (HTTP ${response.status})`)
         if (!retryableStatus(response.status)) throw error
         lastError = error
       } else {
@@ -8350,7 +8350,7 @@ async function downloadImageArtifact(
     }
     if (attempt < NETWORK_RETRY_ATTEMPTS) await retryDelay(attempt, request, deadline)
   }
-  throw lastError instanceof Error ? lastError : new Error('Gateway image download failed')
+  throw lastError instanceof Error ? lastError : new Error('Could not download the image from the Gateway')
 }
 
 /** The gateway relays each provider's own format, so accept what the bytes say they are. */
@@ -9126,7 +9126,7 @@ async function transcribeWithGenStudioAdmitted(
     }
     throw error
   }) as GenStudioTranscriptionQuote
-  if (!quote.id) throw new Error('Gateway transcription quote returned no quote id.')
+  if (!quote.id) throw new Error('The Gateway did not return a price for this transcription.')
   const confirmIdempotencyKey = `${idempotencyKey}-confirm`
   const submitted = await submitJsonWithAdmission(
     apiKey,
@@ -9206,7 +9206,7 @@ async function waitForJob(
       throw new Error('Cancelled by user')
     }
     if (Date.now() >= deadline) {
-      throw new Error('Gateway TTS job timed out while waiting for completion')
+      throw new Error('The narration was not ready at the Gateway in time')
     }
     await poller.wait(deadline, request, current)
     current = await requestJsonWithRetry(
@@ -9256,12 +9256,12 @@ async function completeTtsJobToFile(
           if (audioResponse.status === 404 || audioResponse.status === 410) {
             throw new GenStudioTtsArtifactUnavailableError(completed.id, audioResponse.status)
           }
-          const error = new Error(`Gateway audio download failed (HTTP ${audioResponse.status})`)
+          const error = new Error(`Could not download the audio from the Gateway (HTTP ${audioResponse.status})`)
           if (!retryableStatus(audioResponse.status)) throw error
           downloadError = error
         } else {
           const body = audioResponse.body as ReadableStream<Uint8Array> | null
-          if (!body) throw new Error('Gateway audio download returned no body')
+          if (!body) throw new Error('The Gateway sent an empty audio download')
           const file = await fs.open(tempPath, 'w')
           let received = 0
           try {
@@ -9290,7 +9290,7 @@ async function completeTtsJobToFile(
         await retryDelay(attempt, request, deadline)
       }
     }
-    if (!downloaded) throw downloadError instanceof Error ? downloadError : new Error('Gateway audio download failed')
+    if (!downloaded) throw downloadError instanceof Error ? downloadError : new Error('Could not download the audio from the Gateway')
     await fs.mkdir(path.dirname(outPath), { recursive: true })
     // Cloud providers already deliver MP3 (the Hub delivers WAV): re-encoding one to 96 kbps MP3 is a
     // second lossy pass and a few seconds of CPU per chunk for nothing, so keep its bytes as they are.

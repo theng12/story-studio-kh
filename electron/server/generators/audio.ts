@@ -993,7 +993,7 @@ export async function generateAudio(job: Job): Promise<void> {
 
       if (announceRecoveryFromTerminal) {
         job.output_lines.push(
-          `  Previous Gateway task failed terminally; submitting a new recovery task for ${chunkFilename}.`,
+          `  The earlier request for ${chunkFilename} failed for good; sending a new one.`,
         )
       }
       // The identity above is derived ONCE per attempt, then persisted below

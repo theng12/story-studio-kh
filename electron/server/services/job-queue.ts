@@ -773,7 +773,7 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
           : 'Story Studio is checking what the Gateway already finished for this job; no new generation request was sent.'
       if (!job.output_lines.slice(-8).includes(line)) job.output_lines.push(line)
     } else if (job.status === 'paused') {
-      const line = 'Paused. All previously accepted Gateway work has settled; Resume will verify files and submit only missing items.'
+      const line = 'Paused. Everything already sent to the Gateway has finished; Resume checks the files and sends only what is missing.'
       if (!job.output_lines.slice(-8).includes(line)) job.output_lines.push(line)
     } else if (!job.local_execution_complete) {
       // A live generator can receive its provider success before it has
@@ -3031,7 +3031,7 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
                 ? '↻ Story Studio restarted — resuming local Video Assembly from its validated scene-clip checkpoint. Missing or invalid clips and every later stage will be rebuilt.'
                 : recoverableImageEpisode
                   ? '↻ Story Studio restarted — resuming this render. Every image the Gateway already finished will be reclaimed from its saved task id at no extra credits, and only genuinely missing scenes will be submitted.'
-                  : '↻ Story Studio restarted — resuming the checkpointed Gateway asset job automatically; the saved request identity will be reused and no direct fallback will run.')
+                  : '↻ Story Studio restarted — picking this job up where it stopped. Requests already sent are reused, so nothing is made twice.')
               queues[j.type as JobType].pending.push(j)
               resumedTypes.add(j.type as JobType)
             } else {
@@ -5458,8 +5458,12 @@ export function retryTerminalJob(
   // v1.2.8 — an abandoned job is exempt. "Generate a new one in its
   // replacement" is the other half of the escape hatch, and refusing the retry
   // on evidence the owner has explicitly chosen to stop waiting for would leave
-  // him abandoned AND stuck. Retry never reuses a provider identity here: it
-  // submits fresh work, which is what he asked for and what he is paying for.
+  // him abandoned AND stuck. An abandoned job's retry submits fresh work.
+  // Otherwise the retry is NOT always fresh: a chapter chat run with unresolved
+  // batches replays its exact keys ('exact-replay'), an exact manual-replacement
+  // retry and an uncertain-audio retry carry the original `genstudio_jobs`
+  // forward, so the Gateway answers with the first outcome instead of a second
+  // charge. Only settled, released work gets a new provider identity.
   if (!original.force_abandoned && hasUnsettledProviderEvidence(original)
     && !(chatBackedRetry && chapterRetryMode === 'exact-replay') && !exactManualRetry) {
     throw Object.assign(

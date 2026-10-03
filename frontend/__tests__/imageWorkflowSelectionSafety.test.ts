@@ -60,7 +60,6 @@ test('the retired scene half of the Thumbnail Generator stays gone', () => {
 
 test('Scene Review uploads retain the episode selected when the file was chosen', () => {
   assert.match(sceneReview, /async function uploadOne[\s\S]*?const ep = episodeId\.value[\s\S]*?await fileToBase64[\s\S]*?scene-review\/\$\{ep\}\/upload-image/)
-  assert.match(sceneReview, /async function uploadClipOne[\s\S]*?const ep = episodeId\.value[\s\S]*?scene-review\/\$\{ep\}\/upload-clip/)
 })
 
 test('image workflows pin project scope as well as episode scope across same-code project switches', () => {
@@ -103,4 +102,8 @@ test('a free-form custom lettering choice is sent with the run, not left in the 
     /thumb_font_style_custom: form\.thumbnail\.thumb_font_style === 'custom'[\s\S]{0,120}form\.thumbnail\.thumb_font_style_custom/,
     'and the typed font description with it',
   )
+})
+
+test('Scene Review carries no dead animate code (clips belong to Motion Review)', () => {
+  assert.doesNotMatch(sceneReview, /animateScene|animateMissing|uploadClipOne|animateMinSeconds|i2vModels|animatingId/)
 })

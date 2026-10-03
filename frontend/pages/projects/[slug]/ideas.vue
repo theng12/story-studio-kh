@@ -127,7 +127,7 @@
         <template #summary>
           <span class="context-chip">
             <span class="context-key">Production</span>
-            <strong :class="{ 'is-fallback': !projectHasExplicitFormat }">{{ formatDisplayName || formatId || 'unknown' }}</strong>
+            <strong :class="{ 'is-fallback': !projectHasExplicitFormat }">{{ formatDisplayName || 'Not chosen yet' }}</strong>
           </span>
           <span class="context-dot" aria-hidden="true">·</span>
           <span class="context-chip">
@@ -145,7 +145,7 @@
           <div class="context-detail-row">
             <span class="context-detail-label">Production path</span>
             <strong class="context-detail-value" :class="{ 'is-fallback': !projectHasExplicitFormat }">
-              {{ formatDisplayName || formatId || 'unknown' }}
+              {{ formatDisplayName || 'Not chosen yet' }}
             </strong>
             <span
               v-if="activeFormat"
@@ -1594,7 +1594,10 @@ const sectionLabel = useSectionLabel(formatId)
 // and to surface a "Switch" link to Settings → Format. Best-effort: if the
 // fetch fails we fall back to displaying the id.
 const formatNamesById = ref<Record<string, string>>({})
-const formatDisplayName = computed(() => formatNamesById.value[formatId.value] || formatId.value)
+// When the format list fails to load, show the id as words ("narrated-scenes"
+// → "Narrated scenes"), never the raw id.
+const humanizeFormatId = (id: string) => id ? id.replace(/[-_]+/g, ' ').replace(/^\w/, c => c.toUpperCase()) : ''
+const formatDisplayName = computed(() => formatNamesById.value[formatId.value] || humanizeFormatId(formatId.value))
 // v1.0.165 — replaced the LAST_PATTERN_KEY / LAST_SUBJECT_KEY pair with
 // a single title-template key. The old pattern preset persistence went
 // with the Pattern system removal.

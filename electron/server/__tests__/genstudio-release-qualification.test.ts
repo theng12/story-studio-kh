@@ -391,7 +391,7 @@ void test('deterministic zero-spend Gateway release qualification', async (suite
           aspectRatio: '16:9',
           requestIdentity: 'qualification:image:expired',
         }),
-        /image download failed \(HTTP 404\)/,
+        /download the image from the Gateway \(HTTP 404\)/,
       )
 
       service.queueScenario('transcription', {

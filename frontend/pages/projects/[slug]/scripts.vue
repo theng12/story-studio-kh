@@ -2022,6 +2022,8 @@ onMounted(() => { setTimeout(() => { pageReadyForAutoIntro.value = true }, 1500)
 </script>
 
 <style scoped>
+/* Writing rows stay a readable width on wide screens (they spanned ~1600 px at 1920). */
+.scripts-workspace { --workspace-max: 1360px; }
 .script-rate { margin: 6px 0 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; }
 .script-rate.basis-unpublished { color: var(--warning, #d97706); }
 .script-rate.basis-free { color: var(--success, #16a34a); }

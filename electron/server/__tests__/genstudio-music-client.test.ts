@@ -136,7 +136,7 @@ describe('every track a job returned is kept', () => {
 
   test('a succeeded job with no tracks is refused, not returned empty', async () => {
     const body = await readFile(CLIENT, 'utf8')
-    assert.match(body, /succeeded but returned no tracks/,
+    assert.match(body, /but sent no tracks/,
       'an empty result would look to a caller exactly like a song deliberately not kept')
   })
 

@@ -674,25 +674,6 @@ const { success, error: showError } = useToast()
 const { ask } = useConfirm()
 const { updateEpisode: updateCachedEpisode, revalidateAfterMutation } = useEpisodes(slug)
 
-// v1.0.475 — per-project duration floor for bulk animation (config-backed). The
-// backend (generate-missing-clips) reads config.animate_min_seconds; the GET
-// scene-review response echoes it so this control reflects the saved value.
-const animateMinSeconds = ref<number>(Math.max(0, Number((config.value as any)?.animate_min_seconds) || 0))
-watch(config, (c) => { animateMinSeconds.value = Math.max(0, Number((c as any)?.animate_min_seconds) || 0) })
-async function setAnimateMinSeconds(v: number) {
-  const n = Math.max(0, Math.min(60, Math.round(v) || 0))
-  const prev = animateMinSeconds.value
-  animateMinSeconds.value = n
-  try {
-    await put(`/projects/${slug.value}/settings/config`, { animate_min_seconds: n })
-    if (config.value) (config.value as any).animate_min_seconds = n
-    success(n > 0 ? `Bulk animate now skips scenes shorter than ${n}s.` : 'Bulk animate has no minimum length.')
-  } catch (e: any) {
-    animateMinSeconds.value = prev
-    showError(e?.data?.detail || e?.message || 'Could not save the setting')
-  }
-}
-
 const initialEpisodeId = typeof route.query.episode_id === 'string'
   ? route.query.episode_id
   : typeof route.query.episode === 'string'
@@ -913,59 +894,6 @@ function mediaVersion(version: string | null | undefined): string {
   return encodeURIComponent(version || '0')
 }
 
-// ── v1.0.470 — image-to-video (Animate) state ───────────────────────────────
-const videoModel = ref('')
-const animatingId = ref<string | null>(null)
-const animatingAll = ref(false)
-// Project video models that support image-to-video (modes includes 'frames').
-const i2vModels = computed(() => {
-  const vm = (config.value as any)?.video_models || {}
-  return Object.entries(vm)
-    .filter(([, m]: [string, any]) => Array.isArray(m?.modes) && m.modes.includes('frames'))
-    .map(([id, m]: [string, any]) => ({ id, label: m.label || id }))
-})
-// Auto-pick the first i2v model so the Animate buttons light up without a manual step.
-watch(i2vModels, (list) => {
-  if (!videoModel.value && list.length) videoModel.value = list[0]!.id
-}, { immediate: true })
-function clipUrl(scene: ReviewScene): string {
-  return `/api/projects/${slug.value}/scene-review/${episodeId.value}/clip/${scene.id}?v=${mediaVersion(scene.clip_version)}`
-}
-
-async function animateScene(scene: ReviewScene): Promise<void> {
-  if (!videoModel.value) { showError('Pick an image-to-video model in Render settings first'); return }
-  if (!scene.image_filename) { showError('Generate the image first — there\'s nothing to animate'); return }
-  if (!scene.motion_prompt) { showError('This scene has no motion prompt. Add one on the Scene Plan page.'); return }
-  animatingId.value = scene.id
-  try {
-    await post(`/projects/${slug.value}/scene-review/${episodeId.value}/generate-clip`, {
-      scene_id: scene.id,
-      model: videoModel.value,
-      aspect_ratio: form.value.aspect_ratio,
-    })
-    success(`Animation queued for scene ${scene.scene_index} — the clip badge appears when it lands.`)
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to queue animation')
-  } finally {
-    animatingId.value = null
-  }
-}
-
-async function animateMissing(): Promise<void> {
-  if (!videoModel.value) { showError('Pick an image-to-video model first'); return }
-  animatingAll.value = true
-  try {
-    const r = await post<{ queued: number; skipped: number }>(
-      `/projects/${slug.value}/scene-review/${episodeId.value}/generate-missing-clips`,
-      { model: videoModel.value, aspect_ratio: form.value.aspect_ratio },
-    )
-    success(`Animation: queued ${r?.queued ?? 0}, skipped ${r?.skipped ?? 0}. Watch the Jobs panel.`)
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to queue animations')
-  } finally {
-    animatingAll.value = false
-  }
-}
 const regeneratingId = ref<string | null>(null)
 const approvingId = ref<string | null>(null)
 const approvingAll = ref(false)
@@ -1388,42 +1316,6 @@ async function uploadOne(scene: ReviewScene): Promise<void> {
       if (current()) showError(e?.data?.detail || e?.message || 'Failed to upload image')
     } finally {
       if (current()) regeneratingId.value = null
-    }
-  }
-  input.click()
-}
-
-// v1.0.475 — set a scene's animated CLIP directly from an externally-made mp4
-// (manual parity with the extension's upload-clip). Raw-binary POST because the
-// app-wide JSON limit is 10mb; the endpoint takes a 256mb raw body.
-async function uploadClipOne(scene: ReviewScene): Promise<void> {
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = 'video/mp4'
-  input.onchange = async () => {
-    const file = input.files?.[0]
-    const ep = episodeId.value
-    const project = slug.value
-    const scope = reviewScopeSequence
-    const current = () => scope === reviewScopeSequence && project === slug.value && ep === episodeId.value
-    if (!file || !ep) return
-    animatingId.value = scene.id
-    try {
-      const resp = await fetch(
-        `/api/projects/${project}/scene-review/${ep}/upload-clip/${scene.id}`,
-        { method: 'POST', headers: { 'Content-Type': 'video/mp4' }, body: file },
-      )
-      if (!resp.ok) {
-        const j = await resp.json().catch(() => ({} as any))
-        throw new Error(j.detail || `Upload failed (${resp.status})`)
-      }
-      if (!current()) return
-      success(`Uploaded clip for scene ${scene.scene_index}`)
-      await loadReview()
-    } catch (e: any) {
-      if (current()) showError(e?.message || 'Failed to upload clip')
-    } finally {
-      if (current()) animatingId.value = null
     }
   }
   input.click()
@@ -1964,7 +1856,6 @@ watch([slug, episodeId], () => {
   reviewScopeSequence++
   renderedSceneLimit.value = SCENE_RENDER_BATCH
   regeneratingId.value = null
-  animatingId.value = null
   isContinuity.value = false
   // v1.4.195 — two pieces of scene-scoped state used to survive the switch.
   // The lightbox held a whole ReviewScene from the episode being left, and its

@@ -138,3 +138,27 @@ describe('useAutoSave', () => {
     assert.equal(maxInFlight, 1, 'pending guard must prevent overlapping save invocations')
   })
 })
+
+describe('useAutoSave — edit made while a save is in flight', () => {
+  // Driven by hand-released saves, not sleeps, so it holds under a loaded machine.
+  test('a save requested during an in-flight save runs right after it with the newest data', async () => {
+    let value = 'a'
+    const saved: string[] = []
+    const pending: Array<() => void> = []
+    const { state, flush } = useAutoSave({
+      debounceMs: 1000,
+      save: () => new Promise<void>(resolve => { const v = value; pending.push(() => { saved.push(v); resolve() }) }),
+    })
+    const first = flush() // 'a' is in flight
+    value = 'b'
+    const second = flush() // the old code returned here and 'b' was never written
+    assert.equal(pending.length, 1, 'never two saves at once')
+    pending.shift()!()
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(pending.length, 1, 'the newer edit is being saved')
+    pending.shift()!()
+    await Promise.all([first, second])
+    assert.deepEqual(saved, ['a', 'b'])
+    assert.equal(state.value, 'saved')
+  })
+})

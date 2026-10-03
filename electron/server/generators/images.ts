@@ -383,7 +383,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     throw new Error(`Image model "${modelName}" is not routed through the Gateway.`)
   }
   const imageProvider = registry.getImageProvider('genstudio-image')
-  if (!imageProvider) throw new Error('Gateway image provider is unavailable.')
+  if (!imageProvider) throw new Error('Image generation through the Gateway is not available right now.')
   // The owner's "smaller files" choice per asset type (Settings, per-project override). Undefined =
   // field omitted = today's PNG. Resolved once per run; the sharp fallback below covers old nodes.
   const sceneOutputFormat = await resolveOutputFormat(project_slug, 'scene_images')

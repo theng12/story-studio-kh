@@ -60,7 +60,7 @@ class GenStudioResearchAdapter implements ResearchAdapter {
       requestIdentity: opts.request_identity,
     })).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)
-      throw new Error(`Gateway research failed: ${message}`)
+      throw new Error(`Research through the Gateway did not work: ${message}`)
     })
 
     return assembleOutput(raw, [], {

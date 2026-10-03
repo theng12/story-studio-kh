@@ -149,6 +149,8 @@
           {{ projectLoadError }}
         </WorkspaceNotice>
         <NicheMissingBanner v-if="slug && project" :key="slug" :slug="slug" :niche-id="project.niche_id" />
+        <!-- Content Pack installs / purchases keep running after the Store is left: show them here too. -->
+        <ContentInstallStrip class="dashboard-install-strip" />
         <slot />
       </main>
     </div>
@@ -159,6 +161,7 @@
 import { FLOW_PHASES, parseVisualSource, type FlowStep, type VisualSource } from '~/composables/useProjectFlow'
 import { useWhatsNewModal } from '~/composables/useWhatsNewModal'
 import { projectSlug } from '~/utils/project-slug'
+import ContentInstallStrip from '~/components/content-store/ContentInstallStrip.vue'
 
 const route = useRoute()
 const slug = computed(() => (
@@ -567,4 +570,5 @@ onUnmounted(() => {
 @media (prefers-reduced-motion: reduce) {
   .sidebar { transition: none; }
 }
+.dashboard-install-strip { margin-bottom: 12px; }
 </style>

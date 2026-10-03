@@ -37,7 +37,7 @@ test('image recovery cannot poll a legacy provider or silently resubmit', async 
 
   await assert.rejects(
     tryRecoverImageFromManifest(legacyEntry, 'scoped-genstudio-key', modelConfig),
-    /predates GenStudio-only operation/i,
+    /comes from an older version of Story Studio/i,
   )
   assert.equal(await tryRecoverImageFromManifest(null, 'scoped-genstudio-key', modelConfig), null)
 })

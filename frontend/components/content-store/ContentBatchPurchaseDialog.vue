@@ -25,28 +25,28 @@
         <!-- Quoting ------------------------------------------------------ -->
         <template v-if="phase === 'quoting'">
           <p class="batch-progress" role="status" aria-live="polite">
-            Asking GenStudio for an exact quote on each pack — {{ progress.done }} of {{ progress.total }}.
+            Asking GenStudio for the price of each pack — {{ progress.done }} of {{ progress.total }}.
           </p>
           <p class="ceiling-note">Nothing is charged while quotes are gathered.</p>
         </template>
 
         <!-- Review: one total, one confirmation --------------------------- -->
         <template v-else-if="phase === 'review'">
-          <p class="ownership-statement">Permanent ownership for this GenStudio account</p>
+          <p class="ownership-statement">Yours to keep on this account</p>
 
           <dl class="quote-grid">
             <div><dt>Base price</dt><dd>{{ formatCredits(totals.base) }} credits</dd></div>
-            <div v-if="totals.componentDiscount !== null && totals.componentDiscount > 0"><dt>Owned-content discount</dt><dd>−{{ formatCredits(totals.componentDiscount) }} credits</dd></div>
-            <div v-if="totals.operatorDiscount !== null && totals.operatorDiscount > 0"><dt>Operator discount</dt><dd>−{{ formatCredits(totals.operatorDiscount) }} credits</dd></div>
-            <div class="quote-total"><dt>Maximum deduction for {{ quoted.length }} {{ quoted.length === 1 ? 'pack' : 'packs' }}</dt><dd>{{ formatCredits(totals.quoted) }} credits</dd></div>
-            <div><dt>Content-spendable balance</dt><dd>{{ formatCredits(balanceBefore) }} credits</dd></div>
+            <div v-if="totals.componentDiscount !== null && totals.componentDiscount > 0"><dt>Discount for content you already own</dt><dd>−{{ formatCredits(totals.componentDiscount) }} credits</dd></div>
+            <div v-if="totals.operatorDiscount !== null && totals.operatorDiscount > 0"><dt>Store discount</dt><dd>−{{ formatCredits(totals.operatorDiscount) }} credits</dd></div>
+            <div class="quote-total"><dt>The most it can cost for {{ quoted.length }} {{ quoted.length === 1 ? 'pack' : 'packs' }}</dt><dd>{{ formatCredits(totals.quoted) }} credits</dd></div>
+            <div><dt>Credits you can spend</dt><dd>{{ formatCredits(balanceBefore) }} credits</dd></div>
             <div><dt>After buying all</dt><dd>{{ formatCredits(balanceAfter) }} credits</dd></div>
-            <div><dt>First quote expires</dt><dd>{{ formatExpiry(earliestExpiry) }}</dd></div>
+            <div><dt>Prices held until</dt><dd>{{ formatExpiry(earliestExpiry) }}</dd></div>
           </dl>
 
           <p class="ceiling-note">
-            This is the maximum deduction for the whole selection. Each pack is settled on its own, so the
-            final charge may be lower when GenStudio settles them.
+            This is the most the whole selection can cost. Each pack is bought on its own, so the final
+            charge may be lower.
           </p>
 
           <!-- Why the dialog total may differ from the selection bar -->
@@ -89,7 +89,7 @@
               <p>The total for this selection is unknown, so it cannot be bought as one batch. Refresh the Store, or clear the unpriced packs and buy the rest.</p>
             </div>
             <div v-else-if="spendBlocker === 'balance-unknown'">
-              <strong>Your content-spendable balance is not known right now</strong>
+              <strong>Your credit balance is not known right now</strong>
               <p>This is not a statement that you are short of credits — GenStudio has not published the balance, so buying stays off until it does.</p>
               <NuxtLink to="/usage">View credits</NuxtLink>
             </div>
@@ -137,7 +137,7 @@
           </details>
 
           <details v-if="succeeded.length" class="batch-breakdown disclosure">
-            <summary>{{ succeeded.length }} now permanently owned</summary>
+            <summary>{{ succeeded.length }} now yours</summary>
             <ul>
               <li v-for="item in succeeded" :key="item.productId">
                 <span class="item-title">{{ item.title }}</span>
@@ -296,7 +296,7 @@ const earliestExpiry = computed(() => quoted.value
   .filter(Boolean)
   .sort()[0] ?? '')
 
-const phaseLabel = computed(() => props.phase === 'result' ? 'GenStudio settled each pack' : 'Exact GenStudio quotes')
+const phaseLabel = computed(() => props.phase === 'result' ? 'Purchase finished' : 'Prices from GenStudio')
 const heading = computed(() => {
   if (props.phase === 'quoting') return `Quoting ${props.progress.total} packs`
   if (props.phase === 'settling') return `Buying ${props.progress.total} packs`
@@ -305,7 +305,7 @@ const heading = computed(() => {
 })
 const resultHeadline = computed(() => failed.value.length
   ? `${succeeded.value.length} bought · ${failed.value.length} not bought`
-  : `${succeeded.value.length} ${succeeded.value.length === 1 ? 'pack' : 'packs'} permanently owned`)
+  : `${succeeded.value.length} ${succeeded.value.length === 1 ? 'pack is' : 'packs are'} yours`)
 
 /**
  * While GenStudio is still quoting or settling, Close hides the dialog and the

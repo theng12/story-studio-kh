@@ -275,7 +275,7 @@ describe('Content Store proof route contract', () => {
     assert.equal(document.activeElement?.getAttribute('aria-label'), 'Close purchase dialog')
     assert.match(rendered.host.textContent || '', /Quote expired/)
     assert.equal(rendered.host.querySelector('strong strong'), null, 'server detail is rendered as text, not HTML')
-    assert.equal(rendered.host.querySelector('[role="status"]')?.textContent?.includes('quote can no longer be used'), true)
+    assert.equal(rendered.host.querySelector('[role="status"]')?.textContent?.includes('This price has expired'), true)
     rendered.unmount()
   })
 
@@ -297,9 +297,10 @@ describe('Content Store proof route contract', () => {
     })
     const proof = rendered.host.textContent || ''
     assert.match(proof, /Base price[\s\S]*2,000/)
-    assert.match(proof, /Owned-component discount[\s\S]*400/)
-    assert.match(proof, /Operator discount[\s\S]*90%[\s\S]*cdsc_archival_launch/)
-    assert.match(proof, /Operator discount credits[\s\S]*1,440/)
+    assert.match(proof, /Discount for parts you already own[\s\S]*400/)
+    assert.match(proof, /Store discount[\s\S]*90% off[\s\S]*Ends 2026-12-31/)
+    assert.doesNotMatch(proof, /cdsc_archival_launch|Asia\/Phnom_Penh/, 'internal discount ids are not shown')
+    assert.match(proof, /Store discount[\s\S]*1,440/)
     assert.match(proof, /Credits charged[\s\S]*160/)
     assert.match(proof, /Balance before[\s\S]*2,000[\s\S]*Balance after[\s\S]*1,840/)
     assert.match(proof, /Ends 2026-12-31/)
@@ -310,8 +311,8 @@ describe('Content Store proof route contract', () => {
   test('does not offer exact-attempt retry for terminal or refetch-required refusals', async () => {
     const Dialog = await loadComponent('../components/content-store/ContentPurchaseDialog.vue')
     for (const [code, recovery] of [
-      ['quote_expired', /request a new exact quote/i],
-      ['quote_rejected', /request a new exact quote/i],
+      ['quote_expired', /ask for a new price/i],
+      ['quote_rejected', /ask for a new price/i],
       ['already_owned', /refresh the Content Store/i],
     ] as const) {
       const rendered = await mount(Dialog, {
