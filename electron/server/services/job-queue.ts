@@ -1167,6 +1167,8 @@ const queues: Record<JobType, QueueState> = {
   // Assembly is local FFmpeg work that buys nothing, so it shares no lane with
   // anything that spends money and cannot be starved by a paid queue.
   music_video: { pending: [], running: false, executor: null },
+  // Episode Builder stitch: local FFmpeg, buys nothing — same reasoning as music_video.
+  music_episode_build: { pending: [], running: false, executor: null },
   metadata: { pending: [], running: false, executor: null },
   video: { pending: [], running: false, executor: null },
   video_assembly: { pending: [], running: false, executor: null },

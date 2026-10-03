@@ -522,6 +522,15 @@ export interface ScannedAssets {
   }>
   scene_sources?: { classic: number; scene_plan: number; image_pool?: number }
   visual_source?: VideoVisualSource
+  /** Episode Builder (music) episode: the render settings it was planned with,
+   *  so Video Assembly can offer its "Music episode" settings in one click. */
+  music_episode?: {
+    frame_rate: number
+    resolution: '720p' | '1080p'
+    scene_change: { transition: string; seconds: number }
+    built_at: string | null
+    songs: number
+  }
   image_pool?: {
     pool_id: string
     selected_images: Array<{ filename: string; sha256: string; target_duration: number }>
@@ -596,6 +605,16 @@ export interface ScannedAssets {
 
 // Re-export checkFfmpeg for routes that import from this module
 export { checkFfmpeg } from '../lib/ffmpeg-utils.js'
+
+/** Episode Builder episodes: a finished render is what counts as a play (SPEC §3). */
+async function recordMusicEpisodePlays(job: Job, slug: string, code: string): Promise<void> {
+  try {
+    const { recordRenderedMusicEpisode } = await import('../services/music-episode-store.js')
+    await recordRenderedMusicEpisode(slug, code, line => job.output_lines.push(line))
+  } catch (e: any) {
+    job.output_lines.push(`Warning: song plays were not recorded (${e?.message || e}). The video is fine.`)
+  }
+}
 
 // ── Scan Episode Assets ────────────────────────────────────────────────────
 
@@ -864,6 +883,20 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
       mergedDurationSec: entry.duration,
       episodeDir,
     })
+  }
+
+  const { isMusicEpisodeDir, readEpisodeDoc } = await import('../services/music-episode-store.js')
+  if (isMusicEpisodeDir(episodeDir)) {
+    const musicDoc = await readEpisodeDoc(slug, code).catch(() => null)
+    if (musicDoc) {
+      result.music_episode = {
+        frame_rate: musicDoc.settings.frame_rate,
+        resolution: musicDoc.settings.resolution,
+        scene_change: musicDoc.settings.scene_change,
+        built_at: musicDoc.built?.at || null,
+        songs: musicDoc.songs.length,
+      }
+    }
   }
 
   if (visualSource === 'image_pool') {
@@ -1930,6 +1963,7 @@ export async function generateVideo(job: Job): Promise<void> {
       } catch { /* best-effort */ }
 
       await autoScheduleFinishedEpisode(job, project_slug, code)
+      await recordMusicEpisodePlays(job, project_slug, code)
 
       succeeded = true
       return  // skip the standard scene-clip pipeline below
@@ -2852,6 +2886,7 @@ export async function generateVideo(job: Job): Promise<void> {
     } catch { /* best-effort — not worth failing the job over */ }
 
     await autoScheduleFinishedEpisode(job, project_slug, code)
+    await recordMusicEpisodePlays(job, project_slug, code)
 
     succeeded = true
 

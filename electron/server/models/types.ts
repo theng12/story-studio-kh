@@ -2366,6 +2366,8 @@ export const JOB_TYPES = [
   'music_generate',
   /** v1.4.37 — assemble one music video from the library. Spends nothing. */
   'music_video',
+  /** Episode Builder: stitch an episode's songs and hand it to Video Assembly. Spends nothing. */
+  'music_episode_build',
 ] as const
 
 export type JobType = typeof JOB_TYPES[number]

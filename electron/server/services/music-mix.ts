@@ -73,7 +73,7 @@ export interface MixPlan {
  * the same running order every time. A rebuild after a crash must not silently
  * reorder a video whose tracklist is already in a published description.
  */
-function seededOrder<T>(items: T[], seed: string): T[] {
+export function seededOrder<T>(items: T[], seed: string): T[] {
   let h = 2166136261
   for (const ch of seed) {
     h ^= ch.charCodeAt(0)

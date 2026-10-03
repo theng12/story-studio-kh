@@ -1,10 +1,12 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
+import path from 'path'
 import { findIncompleteSubtitleSections } from './subtitle-stitcher.js'
 import { stitchedSrtPath } from './subtitle-correction.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
 import { stampFromCues } from '../lib/scene-plan-timeline.js'
 import { inspectSubtitleSourceFreshness } from './subtitle-completion.js'
+import { MUSIC_EPISODE_FILENAME } from './music-episode.js'
 
 export interface SubtitleTimelineIntegrity {
   complete: boolean
@@ -145,6 +147,9 @@ export async function assertSubtitleTimelineComplete(
   episodeCode: string,
   source?: { episodeDir: string; audioDir: string },
 ): Promise<void> {
+  // An Episode Builder (music) episode has no narration, so there is no subtitle
+  // timeline to wait for; its scene times come from the stitched songs.
+  if (source && existsSync(path.join(source.episodeDir, MUSIC_EPISODE_FILENAME))) return
   const integrity = await readSubtitleTimelineIntegrity(subtitlesDir, episodeCode)
   if (!integrity.complete) {
     throw new Error(
