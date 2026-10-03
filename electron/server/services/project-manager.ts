@@ -22,7 +22,6 @@ import type {
   SafeProjectConfig, UpdateApiKeysRequest, UpdateConfigRequest, UpdateProjectRequest,
 } from '../models/types.js'
 import { resolveGenStudioModelId } from './genstudio-model-migration.js'
-import { normalizeLlmLineup } from '../contracts/llm-lineup.js'
 import { buildManifest, writeManifestCache, getMachineLabel } from './manifest.js'
 import { sanitizeProjectSlug } from './slug.js'
 import { getSoftDeletedSlugSet, forgetSoftDeletedProject } from './soft-delete.js'
@@ -1220,7 +1219,9 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
   const accountsByProvider = await listAllAccounts(slug).catch(() => ({}))
 
   const safe: any = {
-    llm_lineup: normalizeLlmLineup(config.llm_lineup),
+    // The retired LLM lineup's one-time record (what was kept, and whether the
+    // Pipeline notice was closed). The lineup itself is never served again.
+    llm_lineup_migration: config.llm_lineup_migration,
     has_genstudio_key: !!config.genstudio_api_key,
     has_google_key: !!(config as any).google_api_key,
     // v1.0.150 — Chatterbox standalone provider removed. The
@@ -1483,9 +1484,7 @@ function applyConfigRequest(data: Record<string, any>, req: UpdateConfigRequest)
   const PROJECT_LEVEL_EXCLUDES = ['image_models', 'voice_presets', 'voice_favourites', 'audio_models', 'video_models', 'models']
   for (const key of Object.keys(req)) {
     if (!PROJECT_LEVEL_EXCLUDES.includes(key)) {
-      const requested = key === 'llm_lineup'
-        ? normalizeLlmLineup(req.llm_lineup)
-        : key === 'audio_generator_presets'
+      const requested = key === 'audio_generator_presets'
         ? sanitizeAudioGeneratorPresets((req as any)[key])
         : (req as any)[key]
       ;(data as any)[key] = migratePresetField(key, requested)

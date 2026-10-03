@@ -186,8 +186,6 @@ export type GenStudioQueueState =
 interface GenStudioOperationContext {
   /** Internal automatic replacement cap; only sent after a fresh server support check. */
   replacementChargeLimit?: number
-  /** Server-owned Pipeline lineup executes its own bounded fallback and wait policy. */
-  policyOwnsFallback?: boolean
   /** Called after admission/waits and immediately before each physical POST. */
   beforePost?: () => void | Promise<void>
   /** Optional per-attempt gate around the physical submission, not its retry wait. */
@@ -7377,11 +7375,6 @@ async function replaceConfirmedGeneration<T>(
   submit: (key: string, cap: number, hooks: GenStudioOperationContext) => Promise<T>,
   quoteMaximum?: () => Promise<number | null>,
 ): Promise<T> {
-  // A shared lineup owns this exact fallback decision. In particular, a
-  // proved provider quota stop must return to its durable candidate ledger so
-  // it can advance or park; the legacy paid replacement would resubmit this
-  // same product before that evidence can be acted on.
-  if (request.policyOwnsFallback === true) throw error
   if (!(error instanceof GenStudioTerminalFailureError)
     || error.failureClass !== 'provider_transient' || error.cancelled
     || isUncertainGenerationCode(error.failureCode)

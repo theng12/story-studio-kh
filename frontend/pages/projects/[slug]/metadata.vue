@@ -38,7 +38,6 @@
       <NuxtLink :to="`/projects/${slug}/scripts?episode_id=${encodeURIComponent(episodeId)}`" class="btn btn-secondary btn-sm">Open Script Generator</NuxtLink>
     </p>
 
-    <InheritedLlmLineupNotice :project-slug="slug" />
 
     <!-- v1.0.298 — persistent generation feedback. The button spinner covers
          "is it running"; this row covers "is it done, and did it work" AFTER
@@ -130,7 +129,7 @@
         <span class="text-muted text-xs font-normal">used by all sections below</span>
       </div>
       <div class="form-group shared-settings-control">
-        <ModelSelector v-model="model" :project-slug="slug" />
+        <ModelSelector v-model="model" :project-slug="slug" writing-step />
       </div>
     </div>
 

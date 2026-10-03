@@ -31,7 +31,6 @@
       </p>
     </div>
 
-    <InheritedLlmLineupNotice :project-slug="slug" />
 
     <!-- v1.0.269 — Bring your own: paste a finished script or an outline and
          inject it into this episode, skipping format-shaped generation. -->
@@ -151,7 +150,7 @@
            mandatory decision on every run. -->
       <div class="grid-2 mt-2">
         <div class="form-group">
-          <ModelSelector v-model="form.model" :project-slug="slug" @model-meta="onScriptModelMeta" />
+          <ModelSelector v-model="form.model" :project-slug="slug" writing-step @model-meta="onScriptModelMeta" />
           <!-- Published rate for the SELECTED product, never a total: script
                length in tokens is unknown until the model has written it. -->
           <p v-if="selectedChatModel" class="script-rate" :class="`basis-${chatRateNote.basis}`" :title="chatRateNote.title">

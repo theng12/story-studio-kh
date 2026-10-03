@@ -155,16 +155,14 @@ describe('the JSON call sites declare their contract', () => {
     ['services/freeform-idea-generation.ts', 'ideaBatchOutputContract'],
     ['generators/idea-campaign.ts', 'ideaCampaignOutputContract'],
   ]) {
-    test(`${file}: both lineup and ordinary calls carry the same JSON contract`, () => {
+    test(`${file}: the writing call carries the JSON contract`, () => {
       const text = source(file!)
       const start = text.indexOf('const context: CallAiContext = {')
       const end = text.indexOf('const raw =', start)
       assert.ok(start >= 0 && end > start, 'shared request context must precede dispatch')
       assert.ok(text.slice(start, end).includes(`outputContract: ${contract}(`))
-      for (const caller of ['callAiWithModelPolicy', 'callAiWithRetry']) {
-        assert.match(callRegion(file!, `await ${caller}(`), /, context\)$/,
-          `${caller} must receive the context declaring the JSON contract`)
-      }
+      assert.match(callRegion(file!, 'await callAiWithRetry('), /, context\)$/,
+        'callAiWithRetry must receive the context declaring the JSON contract')
     })
   }
 

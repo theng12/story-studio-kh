@@ -107,7 +107,7 @@ async function mount(jobs: any[] = []) {
   const slot = defineComponent({ setup(_, { slots }) { return () => h('section', slots.default?.()) } })
   const empty = defineComponent({ setup: () => () => h('span') })
   for (const name of ['WorkspaceHero', 'WorkspaceNotice', 'NuxtLink']) app.component(name, slot)
-  for (const name of ['InheritedLlmLineupNotice', 'ModelSelector']) app.component(name, empty)
+  for (const name of ['ModelSelector']) app.component(name, empty)
   app.component('TopActionBar', defineComponent({
     props: ['episodeId'],
     emits: ['update:episodeId', 'generate'],

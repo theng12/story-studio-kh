@@ -30,7 +30,6 @@
       </p>
     </div>
 
-    <InheritedLlmLineupNotice :project-slug="slug" />
 
     <!-- v1.0.296 — inline rescan-from-disk affordance, parity with audio.vue.
          Surfaces only once we KNOW the script is missing (statusKnown && !scriptReady),
@@ -639,6 +638,7 @@
           <ModelSelector
             v-model="form.thumbnail.model"
             :project-slug="slug"
+            writing-step
             label="Prompt model"
             :require-vision="Boolean(form.thumbnail.thumb_reference_asset)"
           />

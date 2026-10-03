@@ -129,12 +129,12 @@ for (const [label, chargeable, expectedPosts] of [
   })
 }
 
-test('a free model\'s held replay is redone fresh even under a caller-supplied key (Retry of a lineup step)', async () => {
+test('a free model\'s held replay is redone fresh even under a caller-supplied key (Retry of a Pipeline step)', async () => {
   clearGenStudioCatalogCache()
   const s = stub((_key, n) => n === 1 ? held : { id: 'job_fresh', state: 'accepted' }, ok, [{ ...catalog[0], chargeable: false }])
   try {
-    const result = await callChatWithGenStudio('k', { ...request, idempotencyKey: 'lineup-checkpoint-key' })
+    const result = await callChatWithGenStudio('k', { ...request, idempotencyKey: 'pipeline-checkpoint-key' })
     assert.deepEqual(JSON.parse(result.text), { ok: true })
   } finally { s.restore() }
-  assert.deepEqual(s.keys, ['lineup-checkpoint-key', chatKeyAfterFailedReplay('lineup-checkpoint-key', 'job_held')])
+  assert.deepEqual(s.keys, ['pipeline-checkpoint-key', chatKeyAfterFailedReplay('pipeline-checkpoint-key', 'job_held')])
 })

@@ -48,8 +48,8 @@ import { existsSync, statSync } from 'fs'
 import path from 'path'
 import { isLocalTextModel } from '../services/job-retry-policy.js'
 import { createHash } from 'crypto'
-import { assertPipelineModelRequestCapabilities, callAi, callAiWithRetry, executePipelineModelPolicy, llmLineupAttemptRequestIdentity, llmLineupAvailabilityScope, parseStructuredJson, resolveLivePipelineModel } from './ai-client.js'
-import { pipelinePolicyInputFingerprint, rankedPipelineModelCandidates, readPipelinePolicyAttemptCheckpoint, type AssignedPipelineModelPolicy, type PipelinePolicyCheckpointStore } from './pipeline-model-policy.js'
+import { assertPipelineModelRequestCapabilities, callAi, callAiWithRetry, executePipelineModelPolicy, parseStructuredJson, resolveLivePipelineModel } from './ai-client.js'
+import { pipelinePolicyInputFingerprint, type AssignedPipelineModelPolicy, type PipelinePolicyCheckpointStore } from './pipeline-model-policy.js'
 import { freshGenerationRequestIdentity } from './fresh-generation-action.js'
 import { GenStudioChatIncompleteError, isGenStudioInsufficientCredits, listChatModels } from './genstudio-client.js'
 import { stripGenStudioModelPrefix } from '../services/genstudio-model-migration.js'
@@ -680,7 +680,7 @@ export interface ChunkedNarrationParams {
   generationParams?: GenerationParams
   /** Explicit Pipeline policy for this writing stage. */
   pipelineModelPolicy?: AssignedPipelineModelPolicy
-  /** Durable per-request ledger used by explicit backup policies. */
+  /** Durable per-request ledger so a restarted Pipeline request reconnects instead of resubmitting. */
   pipelinePolicyCheckpoint?: PipelinePolicyCheckpointStore
   /** Server-owned preview proving one explicitly authorized not-created retry. */
   genstudioChatRecoveryPreview?: GenStudioRequestPreview
@@ -1036,7 +1036,7 @@ export function estimateBatchCount(pending: number, mode: ChunkedMode): number {
 // catalogue happens to be unreachable.
 
 /**
- * Run one language-product call with the model the owner chose, or through his Pipeline lineup.
+ * Run one language-product call with the model the owner chose (on its page, or for this Pipeline run).
  * A model GenStudio no longer offers stops the run with `GenStudioChatProductUnavailableError`
  * (thrown before any submission, so nothing was charged) — it is never replaced by another model.
  */
@@ -1048,36 +1048,22 @@ async function withChosenModel<T>(
     recovery?: { idempotencyKey: string },
     checkpointAccepted?: (idempotencyKey: string) => Promise<void>,
     checkpointPrepared?: (idempotencyKey: string) => Promise<void>,
-    retryEpoch?: number,
   ) => Promise<T>,
   policyRequest?: { key: string; inputFingerprint: string },
 ): Promise<T> {
   if (params.pipelineModelPolicy) {
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const apiKey = await getApiKey('genstudio').catch(() => '')
-    const availabilityScope = apiKey ? llmLineupAvailabilityScope(apiKey) : undefined
-    const checkpointKey = policyRequest?.key || `${job.job_id}:chunked`
-    const saved = params.pipelinePolicyCheckpoint
-      ? readPipelinePolicyAttemptCheckpoint(params.pipelinePolicyCheckpoint.read(checkpointKey))
-      : null
-    const catalogue = apiKey && !saved ? await listChatModels(apiKey) : []
-    const candidateOrder = rankedPipelineModelCandidates(params.pipelineModelPolicy, catalogue)
     return executePipelineModelPolicy(
       params.pipelineModelPolicy,
-      async (model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch) => {
-        if (!recovery?.idempotencyKey) {
-          resolveLivePipelineModel(model, apiKey ? await listChatModels(apiKey) : [], {
-            accountId: availabilityScope,
-            shareTemporaryAvailability: params.pipelineModelPolicy?.wait_for_availability === true,
-          })
-        }
+      async (model, recovery, checkpointAccepted, checkpointPrepared) => {
+        if (!recovery?.idempotencyKey) resolveLivePipelineModel(model, apiKey ? await listChatModels(apiKey) : [])
         job.output_lines.push(`[pipeline] script using Gateway product "${model}".`)
-        return attempt(model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch)
+        return attempt(model, recovery, checkpointAccepted, checkpointPrepared)
       },
       params.pipelinePolicyCheckpoint,
-      checkpointKey,
+      policyRequest?.key || `${job.job_id}:chunked`,
       policyRequest?.inputFingerprint || pipelinePolicyInputFingerprint({ episode_id: params.episode_id, model: params.model }),
-      { candidates: candidateOrder, availabilityScope },
     )
   }
   // The owner's chosen model, or a plain stop. An unavailable model is never swapped for another
@@ -1090,10 +1076,6 @@ function pipelineAttemptContext<T extends Record<string, any>>(
   recovery?: { idempotencyKey: string },
   checkpointAccepted?: (idempotencyKey: string) => Promise<void>,
   checkpointPrepared?: (idempotencyKey: string) => Promise<void>,
-  retryEpoch = 0,
-  checkpointKey = '',
-  model = '',
-  policyOwnsFallback = false,
 ): T & Record<string, any> {
   return {
     ...context,
@@ -1106,10 +1088,6 @@ function pipelineAttemptContext<T extends Record<string, any>>(
       onJobAccepted: async (_jobId: string, idempotencyKey: string) => checkpointAccepted(idempotencyKey),
     } : {}),
     ...(checkpointPrepared ? { onRequestPrepared: checkpointPrepared } : {}),
-    ...(policyOwnsFallback ? { policyOwnsFallback: true } : {}),
-          ...((retryEpoch || 0) > 0 ? {
-      requestIdentity: llmLineupAttemptRequestIdentity(context.requestIdentity, checkpointKey, model, retryEpoch),
-    } : {}),
   }
 }
 
@@ -1203,9 +1181,9 @@ async function buildOutline(
   const maxChapters = Math.max(params.totalChapters, Math.floor(params.totalChapters * headroom))
   const outlineContract = outlineOutputContract(params.totalChapters, maxChapters)
   const outlineCheckpointKey = `${job.project_slug}:${params.episode_id}:script:outline`
-  const arr = await withChosenModel(job, params, (model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch) => callForJsonArray(
+  const arr = await withChosenModel(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) => callForJsonArray(
     model, params.systemPrompt, prompt, params.apiKeys,
-    pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared, retryEpoch, outlineCheckpointKey, model, params.pipelineModelPolicy?.wait_for_availability === true),
+    pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared),
     outlineContract,
     params.pipelineModelPolicy !== undefined,
   ), {
@@ -1453,14 +1431,12 @@ async function expandNarrativeSequential(
         chapters: repairBatch.map(entry => entry.n), system: params.systemPrompt,
         generation_params: params.generationParams,
       })
-      const recoveredRepairText = await withChosenModel(job, params, (model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch) => callAiWithRetry(
+      const recoveredRepairText = await withChosenModel(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) => callAiWithRetry(
         model, params.systemPrompt, repairPrompt, params.apiKeys, true, {
-          ...pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared, retryEpoch, repairCheckpointKey, model, params.pipelineModelPolicy?.wait_for_availability === true),
-          ...((retryEpoch || 0) > 0 ? {} : {
-            recoverByIdempotencyKey: true,
-            idempotencyKey: recovery?.idempotencyKey || job.genstudio_chat_recovery_key,
-            allowedRecoveryKeys: recovery ? [recovery.idempotencyKey] : job.genstudio_chat_recovery_keys,
-          }),
+          ...pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared),
+          recoverByIdempotencyKey: true,
+          idempotencyKey: recovery?.idempotencyKey || job.genstudio_chat_recovery_key,
+          allowedRecoveryKeys: recovery ? [recovery.idempotencyKey] : job.genstudio_chat_recovery_keys,
         },
       ), {
         key: repairCheckpointKey,
@@ -1479,9 +1455,9 @@ async function expandNarrativeSequential(
     let wrote: number[] = []
     let incomplete: GenStudioChatIncompleteError | null = null
     try {
-      const text = await withChosenModel(job, params, (model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch) =>
+      const text = await withChosenModel(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) =>
         callAiWithRetry(model, params.systemPrompt, prompt, params.apiKeys, true, {
-          ...pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared, retryEpoch, chapterCheckpointKey, model, params.pipelineModelPolicy?.wait_for_availability === true),
+          ...pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared),
           ...uncreatedBatchRecovery,
         }), {
           key: chapterCheckpointKey,
@@ -1551,9 +1527,9 @@ async function expandNarrativeSequential(
         chapters: repairBatch.map(entry => entry.n), system: params.systemPrompt,
         generation_params: params.generationParams,
       })
-      const repairText = await withChosenModel(job, params, (model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch) => callAiWithRetry(
+      const repairText = await withChosenModel(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) => callAiWithRetry(
         model, params.systemPrompt, repairPrompt, params.apiKeys, true, {
-          ...pipelineAttemptContext(repairCtx, recovery, checkpointAccepted, checkpointPrepared, retryEpoch, repairCheckpointKey, model, params.pipelineModelPolicy?.wait_for_availability === true),
+          ...pipelineAttemptContext(repairCtx, recovery, checkpointAccepted, checkpointPrepared),
         },
       ), {
         key: repairCheckpointKey,
@@ -1730,9 +1706,9 @@ async function expandListicleParallel(
           recoverByIdempotencyKey: job.genstudio_chat_recovery === true,
           allowedRecoveryKeys: job.genstudio_chat_recovery_keys,
         }
-        const text = await withChosenModel(job, params, (model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch) =>
+        const text = await withChosenModel(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) =>
           callAiWithRetry(model, params.systemPrompt, prompt, params.apiKeys, true, {
-            ...pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared, retryEpoch, chapterCheckpointKey, model, params.pipelineModelPolicy?.wait_for_availability === true),
+            ...pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared),
           }), {
             key: chapterCheckpointKey,
             inputFingerprint: pipelinePolicyInputFingerprint({ system: params.systemPrompt, user: prompt }),
@@ -2147,9 +2123,8 @@ async function callForJsonArray(
   retries = 2,
 ): Promise<any[]> {
   // This is the direct policy executor path rather than callAiWithModelPolicy.
-  // Re-read the exact candidate before the POST so a structured outline can
-  // advance to an authorized backup when the assigned model has lost JSON
-  // capability. The output contract and long budget below are the actual
+  // Re-read the exact model before the POST so a structured outline stops
+  // plainly when the chosen model has lost JSON capability. The output contract and long budget below are the actual
   // request values, never an inferred script-wide default.
   if (validatePipelineCandidate && (!ctx.recoverByIdempotencyKey || !ctx.idempotencyKey)) {
     const { getApiKey } = await import('../services/app-secrets-store.js')

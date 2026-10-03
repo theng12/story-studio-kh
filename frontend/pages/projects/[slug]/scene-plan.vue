@@ -56,7 +56,6 @@
       </TopActionBar>
     </div>
 
-    <InheritedLlmLineupNotice :project-slug="slug" />
 
     <EpisodeVisualSource
       v-if="episodeId"
@@ -191,7 +190,7 @@
     >
       <div class="scene-workflow-grid mt-2">
         <div class="scene-setting-card scene-setting-model">
-          <ModelSelector ref="modelSelector" v-model="form.model" :project-slug="slug" label="Visual & motion prompt model" @model-meta="selectedModelMeta = $event" />
+          <ModelSelector ref="modelSelector" v-model="form.model" :project-slug="slug" writing-step label="Visual & motion prompt model" @model-meta="selectedModelMeta = $event" />
           <!-- Published live per model. An estimate for transparency: token
                budgets are never converted into a character limit, because
                characters per token differ by language (Khmer especially). -->

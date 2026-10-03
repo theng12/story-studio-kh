@@ -86,13 +86,13 @@ test('Jobs distinguishes local handoff and Gateway admission without inventing a
   assert.match(jobs, /remote\.queue_eta_seconds/)
 })
 
-test('Jobs shows a local lineup availability wait and clears it once work resumes', () => {
-  const params = { llm_lineup_retry_at: '2026-09-15T08:00:00Z' }
+test('Jobs shows a writing-model quota wait in plain words and clears it once work resumes', () => {
+  const params = { quota_retry_at: '2026-09-15T08:00:00Z' }
   const job = { status: 'queued', params, genstudio_jobs: [{ state: 'failed' }] }
-  assert.match(queueDetail(job), /Waiting for model availability/)
-  assert.match(queueDetail(job), /Completed work is kept/)
+  assert.match(queueDetail(job), /used up its allowance for now/)
+  assert.match(queueDetail(job), /Nothing was charged and finished work is kept/)
   assert.equal(queueDetail({ ...job, status: 'running' }), '')
-  assert.equal(queueDetail({ ...job, params: { llm_lineup_retry_at: 'invalid' } }), '')
+  assert.equal(queueDetail({ ...job, params: { quota_retry_at: 'invalid' } }), '')
 })
 
 /**

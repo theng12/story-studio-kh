@@ -46,8 +46,6 @@ import {
   type EstimateStep,
 } from '../lib/disk.js'
 import { getApiKey } from '../services/app-secrets-store.js'
-import { lineupModelPolicies, applyLlmLineupSnapshot } from '../services/llm-lineup.js'
-import { normalizeLlmLineup } from '../contracts/llm-lineup.js'
 import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
 import { listChatModels, listTranscriptionModels, publishedVideoControls } from '../lib/genstudio-client.js'
 import { resolveTranscriptionLanguage } from '../generators/subtitles.js'
@@ -188,7 +186,7 @@ export const NO_PRESET_STEP_IDS: readonly BatchStep[] = [...NO_PRESET_STEPS]
 //
 // Steps that don't use typed presets (every step except the future
 // script-only / introduction-only) just have a single-element list.
-const PRESET_KEYS: Record<BatchStep, { list: string | string[]; activeKeys: string[] }> = {
+export const PRESET_KEYS: Record<BatchStep, { list: string | string[]; activeKeys: string[] }> = {
   research:            { list: 'research_presets',         activeKeys: ['research_last_preset_research', 'research_last_preset'] },
   broll:               { list: 'broll_presets',            activeKeys: ['broll_last_preset_broll', 'broll_last_preset'] },
   // Both script-only and introduction-only share the 'script' configKey
@@ -1163,7 +1161,7 @@ export function resolveStepParams(
     // preset→params transform with no catalog access, so it never invents
     // a literal external model id here — it passes the saved value through
     // (or '' when absent). The run-batch handler skips a step with no model
-    // (and no Pipeline lineup) with a plain reason — Story never picks one.
+    // with a plain reason — Story never picks one.
     //
     // Format-aware defaults (v1.0.69+): pull description size, title count,
     // title length, and tag count from the project's effective Format
@@ -1733,37 +1731,19 @@ async function validatePipelinePoliciesAgainstCatalogue(policies: PipelineModelP
   } catch {
     return 'model_policies could not be checked against the Gateway’s live language-model catalogue. Nothing was started; retry when the catalogue is reachable.'
   }
-  const explicit = Object.fromEntries(Object.entries(policies).filter(([, policy]) => !policy?.wait_for_availability))
-  const errors = validatePipelineModelCatalogue(explicit, catalogue)
+  const errors = validatePipelineModelCatalogue(policies, catalogue)
   const structuredStages = new Set<PipelineModelPolicyStage>(['research', 'image_prompts', 'scene_plan', 'contextual_cues'])
   for (const [stage, policy] of Object.entries(policies) as Array<[PipelineModelPolicyStage, PipelineModelPolicies[PipelineModelPolicyStage]]>) {
     if (!policy) continue
-    if (policy.wait_for_availability) {
-      // A lineup never follows a successor on its own (owner, 2026-10-03): a choice the
-      // Gateway no longer lists is named so the owner picks its replacement.
-      for (const modelId of policy.models) {
-        const retired = `${modelId} was retired — choose a replacement in the LLM lineup on the Pipeline page.`
-        if (!findGenStudioProduct(catalogue, modelId) && !errors.includes(retired)) errors.push(retired)
-      }
-      const eligible = policy.models.some(modelId => {
-        const model = findGenStudioProduct(catalogue, modelId)
-        return model && !model.locked && !model.qualification_only
-          && (!model.available || (model.max_output_tokens > 0
-            && (!structuredStages.has(stage) || (model.supports_structured_output && model.structured_output_mode !== 'none'))))
-      })
-      if (!eligible) errors.push(`LLM lineup has no published model compatible with ${stage}. Update the lineup before starting this stage.`)
-      continue
-    }
     for (const modelId of policy.models) {
       const model = findGenStudioProduct(catalogue, modelId)
       if (!model) continue
       if (model.locked === true) {
         errors.push(`model_policies.${stage}: product "${modelId}" is locked for this account`)
       }
-      // An unavailable row is retained as an explicit backup candidate: no
-      // request will be sent to it now, and GenStudio may publish its limits
-      // again before a later retry. Validate submission capabilities only for
-      // products that are currently usable.
+      // A temporarily unavailable row is still the owner's choice: it is
+      // re-checked before its own request. Validate submission capabilities
+      // only for products that are currently usable.
       if (model.available !== false && (!Number.isInteger(model.max_output_tokens) || model.max_output_tokens < 1)) {
         errors.push(`model_policies.${stage}: product "${modelId}" publishes no usable max_output_tokens for this workflow`)
       }
@@ -1774,18 +1754,6 @@ async function validatePipelinePoliciesAgainstCatalogue(policies: PipelineModelP
     }
   }
   return errors.length ? errors.join('; ') : null
-}
-
-async function inheritSavedPipelineLineup(slug: string, parsed: ReturnType<typeof parseBatchRequest>) {
-  const lineup = normalizeLlmLineup((await pm.getConfig(slug))?.llm_lineup)
-  const inherited = lineupModelPolicies(lineup)
-  const stages = new Set<string>(parsed.steps)
-  if (stages.has('script-only')) stages.add('introduction-only')
-  parsed.modelPolicies = {
-    ...Object.fromEntries(Object.entries(inherited).filter(([stage]) => stages.has(stage))),
-    ...parsed.modelPolicies,
-  }
-  return lineup
 }
 
 function stableJson(value: unknown): string {
@@ -1885,7 +1853,6 @@ router.post('/projects/:slug/pipeline/preflight', async (req, res) => {
   const { slug } = req.params
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   const parsed = parseBatchRequest(req.body)
-  await inheritSavedPipelineLineup(slug, parsed)
   const { episodeIds, steps: requestedSteps, force } = parsed
   const requestError = repairRequestError(parsed)
   if (requestError) return res.status(400).json({ detail: requestError })
@@ -1920,7 +1887,6 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   const parsed = parseBatchRequest(req.body)
-  const lineup = await inheritSavedPipelineLineup(slug, parsed)
   const { episodeIds: episode_ids, steps: requestedSteps, force, repairMissing, actionId, operationId, modelPolicies } = parsed
   const requestError = repairRequestError(parsed)
   if (requestError) return res.status(400).json({ detail: requestError })
@@ -2171,7 +2137,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
         const outlineParams = resolveStepParams('script-only', episodeId, idea.title || '', presetByStep['script-only'], effectiveFormat)
         const scriptPolicy = modelPolicies['script-only']
         const assignedScriptPolicy = scriptPolicy
-          ? assignedPipelinePolicy('script-only', episodeId, scriptPolicy)
+          ? assignedPipelinePolicy(scriptPolicy)
           : null
         if (assignedScriptPolicy) {
           outlineParams.model = assignedScriptPolicy.assigned_model
@@ -2208,7 +2174,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       const policyStage = step as PipelineModelPolicyStage
       const stepPolicy = modelPolicies[policyStage]
       if (stepPolicy) {
-        const assigned = assignedPipelinePolicy(policyStage, episodeId, stepPolicy)
+        const assigned = assignedPipelinePolicy(stepPolicy)
         params.model = assigned.assigned_model
         params.pipeline_model_policy = { [policyStage]: assigned }
       }
@@ -2323,9 +2289,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     }
 
     // Freeze the complete run before any asynchronous handoff or config edit.
-    const [first, ...rest] = chain.map(step => ({
-      ...step, params: applyLlmLineupSnapshot(step.type, episodeId, step.params, lineup),
-    }))
+    const [first, ...rest] = chain
 
     // Scene Review and Pipeline share one episode-wide render owner. If the
     // user already started images from Scene Review, join this Pipeline's

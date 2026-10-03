@@ -410,13 +410,6 @@ export interface AccountSummaryResponse {
 // templates, custom_* autocomplete pools). Keep the schema permissive so
 // we reject obviously-wrong shapes without maintaining a growing denylist.
 export const UpdateConfigSchema = z.object({
-  llm_lineup: z.object({
-    enabled: z.boolean(),
-    models: z.array(z.string().trim().min(1).max(128)).max(100),
-    prefer_savings: z.boolean().default(true),
-  }).strict().refine(value => !value.enabled || value.models.length > 0, {
-    message: 'Choose at least one model before enabling the LLM lineup',
-  }).optional(),
   image_models: z.record(z.string(), z.any()).optional(),
   voice_presets: z.array(z.any()).optional(),
   style_presets: z.array(z.any()).optional(),
@@ -433,6 +426,11 @@ export const UpdateConfigSchema = z.object({
   // never let an audio_models map become executable routing configuration.
   // GenStudio is now the sole voice catalog and TTS execution boundary.
   const current = { ...value }
+  // The retired LLM lineup (2026-10-03) and its one-time migration record are
+  // Story Studio's own; an older client can no longer write either. The saved
+  // lineup stays on disk untouched.
+  delete current.llm_lineup
+  delete current.llm_lineup_migration
   delete current.audio_models
   delete current.audio_concurrency
   delete current.video_concurrency
@@ -452,7 +450,7 @@ export type UpdateConfigBody = z.infer<typeof UpdateConfigSchema>
  * serving; never add a `*_api_key` field here.
  */
 export interface SafeProjectConfigResponse {
-  llm_lineup?: import('./llm-lineup.js').LlmLineup
+  llm_lineup_migration?: import('../models/types.js').LlmLineupMigration
   has_genstudio_key: boolean
   /**
    * Multi-account listing keyed by provider id. Added in Delivery 2; the

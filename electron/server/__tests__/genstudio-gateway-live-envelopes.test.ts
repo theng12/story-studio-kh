@@ -146,7 +146,7 @@ describe('a job the gateway holds as an unknown outcome is never read as a settl
     }
   })
 
-  test('a held chat job never advances the model lineup as if it were proven uncharged', () => {
+  test('a held chat job is never treated as proven uncharged', () => {
     // 0/0/0 settlement is what the gateway publishes on every failure, so it proves nothing.
     assert.equal(isSafePipelineModelAdvance(new GenStudioChatTerminalFailureError(held)), false)
     assert.equal(isSafePipelineModelAdvance(new GenStudioChatTerminalFailureError(plain)), true)
