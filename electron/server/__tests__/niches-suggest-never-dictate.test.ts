@@ -68,7 +68,7 @@ test('a Formula still owns everything that is genuinely its own', () => {
   // LAYOUT and the human-facing hint are the Formula's job; only the rendering
   // look moved out. If this ever fails, the fence above cut too deep.
   const sleep = read('sleep.json')
-  assert.ok(sleep.visualStyleHint, 'the descriptive one-liner stays — it never reaches a prompt')
+  assert.ok(sleep.visualStyleHint, 'the descriptive one-liner stays — it is never folded into a prompt; a NEW channel copies it once into its own editable style')
   const business = read('business-economics.json')
   assert.equal(business.thumbnailProfile?.layout, 'annotated-collage')
   assert.match(String(business.thumbnailProfile?.conceptGuidance), /annotated ownership-economics cover/i)

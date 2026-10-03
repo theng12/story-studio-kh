@@ -189,6 +189,7 @@ export function contentPackDocumentToNiche(document: FormulaDocument): Niche {
     metadataTitleHookRules: document.metadata_title_hook_rules ? [...document.metadata_title_hook_rules] : undefined,
     metadataTagsHookRules: document.metadata_tags_hook_rules ? [...document.metadata_tags_hook_rules] : undefined,
     visualStyleHint: document.visual_style_hint,
+    startingSceneSeconds: document.starting_scene_seconds ? [...document.starting_scene_seconds] : undefined,
     narratorStyles: document.narrator_styles?.map(style => ({ ...style })),
     defaultNarratorStyleId: document.default_narrator_style_id,
     titleShapeRules: document.title_shape_rules ? [...document.title_shape_rules] : undefined,

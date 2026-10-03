@@ -87,6 +87,20 @@
           @apply="applyThumbnailVisualStyle"
         />
       </div>
+      <div class="form-group mt-2">
+        <label for="thumbnail-style-text">Style text</label>
+        <textarea
+          id="thumbnail-style-text"
+          v-model="form.thumbnail.style_tag"
+          class="textarea"
+          rows="3"
+          placeholder="Describe the look of your thumbnails…"
+          @input="form.thumbnail.style_preset = 'custom'"
+        />
+        <p class="text-muted text-xs hint-line">
+          This is the look every thumbnail prompt is written in. Edit it freely — it is remembered for this channel.
+        </p>
+      </div>
 
       <!-- Rare on purpose: importing a reference is something he does now and
            again, and it was sitting between the art style and the lettering,
@@ -717,7 +731,7 @@ const promptPresets = computed(() => thumbnailPresets)
  * Per-format JSON keys consumed:
  *   imagePrompts.defaultThumbnails   → form.thumbnail.thumb_count
  *   imagePrompts.recommendedAspect   → form.thumbnail.aspect_ratio
- *   imagePrompts.defaultStyleTag     → form.thumbnail.style_tag (style_preset = 'custom')
+ *   channel default style, else imagePrompts.defaultStyleTag → form.thumbnail.style_tag (style_preset = 'custom')
  */
 async function applyFormatDefaultsIfNoPreset() {
   // A remembered value or an active preset is the customer's choice. Seed only
@@ -728,15 +742,20 @@ async function applyFormatDefaultsIfNoPreset() {
     const f = await get<any>(`/projects/${slug.value}/effective-format`)
     const ip = f?.imagePrompts
     if (!ip) return
+    // The channel's own look (copied from its Series Formula when the channel
+    // was made, editable in Scene Plan) comes before the shared format default.
+    const channelConfig = await get<any>(`/projects/${slug.value}/settings/config`).catch(() => null)
+    const channelStyle = typeof channelConfig?.default_style_bible === 'string' ? channelConfig.default_style_bible.trim() : ''
     if (typeof ip.defaultThumbnails === 'number' && ip.defaultThumbnails > 0 && seedThumb('thumb_count')) {
       form.thumbnail.thumb_count = ip.defaultThumbnails
     }
     if (typeof ip.recommendedAspect === 'string' && ip.recommendedAspect) {
       if (seedThumb('aspect_ratio')) form.thumbnail.aspect_ratio = ip.recommendedAspect
     }
-    if (typeof ip.defaultStyleTag === 'string' && ip.defaultStyleTag.trim() && seedThumb('style_tag')) {
+    const startingStyle = channelStyle || (typeof ip.defaultStyleTag === 'string' ? ip.defaultStyleTag.trim() : '')
+    if (startingStyle && seedThumb('style_tag')) {
       form.thumbnail.style_preset = 'custom'
-      form.thumbnail.style_tag = ip.defaultStyleTag
+      form.thumbnail.style_tag = startingStyle
     }
   } catch {
     // Format endpoint unavailable / project missing — keep the legacy
