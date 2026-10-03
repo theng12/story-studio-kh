@@ -13,15 +13,15 @@ export type { ChapterSectionQuality }
 
 /** One request's `section_quality` → its counts, or null when nothing usable was reported. */
 export function summarizeSectionQuality(raw: unknown): Pick<ChapterSectionQuality, 'sections' | 'remade'> | null {
-  const rows = raw && typeof raw === 'object' && Array.isArray((raw as any).sections) ? (raw as any).sections as unknown[] : null
-  if (!rows) return null
+  const rows = raw && typeof raw === 'object' ? (raw as { sections?: unknown }).sections : null
+  if (!Array.isArray(rows)) return null
   const sections = new Set<number>()
   let remade = 0
-  for (const row of rows) {
+  for (const row of rows as Array<Record<string, unknown> | null>) {
     if (!row || typeof row !== 'object') continue
-    const section = Number((row as any).section)
+    const section = Number(row.section)
     if (Number.isFinite(section)) sections.add(section)
-    if ((row as any).accepted === false) remade++
+    if (row.accepted === false) remade++
   }
   return sections.size ? { sections: sections.size, remade } : null
 }

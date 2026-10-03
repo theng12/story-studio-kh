@@ -113,7 +113,7 @@ export async function annotateGapAudio(
   episodeCode: string,
 ): Promise<void> {
   if (!gaps?.length) return
-  let sections: Array<{ slug?: unknown; source_file?: unknown; source_files?: unknown }> = []
+  let sections: Array<{ slug?: unknown; source_file?: unknown; source_files?: unknown }>
   try {
     const sidecar = JSON.parse(await fs.readFile(path.join(episodeDir, 'audio_chapters.json'), 'utf8'))
     sections = Array.isArray(sidecar?.sections) ? sidecar.sections : []
