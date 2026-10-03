@@ -31,6 +31,8 @@ export interface LiveGenStudioModel {
   public_model_id?: string | null
   legacy_ids?: readonly string[]
   cost_tier?: GenStudioCostTier | GenStudioLlmCostTier
+  /** Gateway 0.2.82+: where the row's price comes from; `local` = the owner's own Macs (free). */
+  price_source?: string
 }
 
 export function isUsableLiveGenStudioModel(
@@ -92,10 +94,17 @@ export function selectLiveGenStudioModel<T extends LiveGenStudioModel>(
   // model economy / free, so "the first usable one" could be a paid provider. The picker stays
   // empty and says so; the owner's choice is then remembered as usual.
   if (hasLanguageTier) return null
+  // The same rule for images, voices and music: the gateway lists paid cloud
+  // models first and tags them "economy", so "first usable" filled the
+  // Thumbnail Generator with an OpenAI model (Dreamlands E2E, 2026-10-03).
+  // When rows say where their price comes from, only a free fleet model may be
+  // chosen for the owner; otherwise the picker stays empty.
+  const priced = models.some(model => typeof model.price_source === 'string')
+  const defaultable = (model: T): boolean => usable(model) && (!priced || model.price_source === 'local')
   if (!isCompleteTierCatalog(tieredModels)) {
-    return models.find(usable) || null
+    return models.find(defaultable) || null
   }
-  return models.find(model => model.cost_tier === 'economy' && usable(model)) || null
+  return models.find(model => model.cost_tier === 'economy' && defaultable(model)) || null
 }
 
 /**
