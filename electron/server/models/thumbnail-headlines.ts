@@ -129,6 +129,11 @@ export function headlineMode(id: string | undefined): HeadlineMode {
     || HEADLINE_MODES.find(mode => mode.id === DEFAULT_HEADLINE_MODE)!
 }
 
+/** True when the model writes its own words (a hook) rather than the episode title. */
+export function headlineInvents(id: string | undefined): boolean {
+  return headlineMode(id).invents
+}
+
 export function headlineInstruction(id: string | undefined, title: string): string {
   return headlineMode(id).instruction.replace('{{TITLE}}', title)
 }

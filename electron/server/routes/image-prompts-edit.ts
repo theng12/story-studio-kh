@@ -27,6 +27,7 @@ import { resolveReadPath, toMdPath } from '../lib/episode-artifacts.js'
 import { parseImagePromptsDocx, _clearImagePromptsParseCache } from '../lib/docx-parser.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { enforceThumbnailPromptElements } from '../generators/image-prompts.js'
+import { HEADLINE_MODE_IDS, headlineInvents } from '../models/thumbnail-headlines.js'
 import { buildPromptCharCapInstruction, parsePromptCharCap } from '../services/prompt-char-cap.js'
 import { imagePromptGuidanceBlock } from '../lib/image-content-guidance.js'
 import { freshActionFingerprint, readOperationId } from '../lib/fresh-generation-action.js'
@@ -72,7 +73,9 @@ const RegenerateSchema = z.object({
    *  ratio and ready-to-use title enforcement the bulk generator applies. */
   aspect_ratio: z.string().optional(),
   /** Recipe-owned copy strategy; short hooks are re-rendered as hooks, not full titles. */
-  headline_mode: z.enum(['episode-title', 'curiosity-hook']).optional(),
+  // Every published mode. This used to accept only two, so "Reprompt" on a
+  // thumbnail in the page's default mode (two or three words) failed validation.
+  headline_mode: z.string().refine(id => HEADLINE_MODE_IDS.includes(id), 'Unknown headline mode').optional(),
   /**
    * NEW-10 — the lettering the workspace currently has selected. Without these
    * the enforced ratio/title clause a regenerated row receives said "a font
@@ -184,7 +187,7 @@ router.post(
         windowed,
         styleTag,
         notes,
-        headlineMode: req.body.headline_mode as 'episode-title' | 'curiosity-hook' | undefined,
+        headlineMode: req.body.headline_mode as string | undefined,
         promptCharCap: parsePromptCharCap(req.body.prompt_char_cap),
         reword: req.body.reword === true,
       })
@@ -241,8 +244,8 @@ router.post(
         if (kind === 'thumbnail') {
           next.prompt = enforceThumbnailPromptElements(next.prompt, {
             aspectRatio: (req.body.aspect_ratio as string | undefined) || '16:9',
-            title: req.body.headline_mode === 'curiosity-hook' ? next.title || currentTitle : titleParam || currentTitle,
-            headlineMode: req.body.headline_mode as 'episode-title' | 'curiosity-hook' | undefined,
+            title: headlineInvents(req.body.headline_mode) ? next.title || currentTitle : titleParam || currentTitle,
+            headlineMode: req.body.headline_mode as string | undefined,
             // NEW-10 — the workspace's current lettering, when it sent any, so a
             // single-row regeneration states the same style the bulk run would.
             fontStyle: typeof req.body.thumb_font_style === 'string' ? req.body.thumb_font_style : undefined,
@@ -461,7 +464,7 @@ function buildRegenPrompt(opts: {
   windowed: string[]
   styleTag: string
   notes?: string
-  headlineMode?: 'episode-title' | 'curiosity-hook'
+  headlineMode?: string
   /** Published image-model ceiling, or absent for "no limit in force". */
   promptCharCap?: number
   /**
@@ -486,7 +489,7 @@ function buildRegenPrompt(opts: {
   const charCapInstruction = buildPromptCharCapInstruction(opts.promptCharCap)
   const charCapRequirement = charCapInstruction ? `\n${charCapInstruction}` : ''
   const kindSpecific = opts.kind === 'thumbnail'
-    ? `\n5. This is a THUMBNAIL brief, not a scene still. Make it feel like a professional YouTube cover: clear hero subject, emotional hook, negative space, title-safe composition, premium readability, and strong click appeal.\n6. If title text belongs in the image, explain how the composition, contrast, and lighting support it. If the current prompt implies a clean text-safe zone instead, preserve that deliberate layout.${opts.headlineMode === 'curiosity-hook' ? '\n7. Keep the current title as a truthful 1–4 word thumbnail hook. Render that exact hook inside the image; do not replace it with the full episode title.' : ''}`
+    ? `\n5. This is a THUMBNAIL brief, not a scene still. Make it feel like a professional YouTube cover: clear hero subject, emotional hook, negative space, title-safe composition, premium readability, and strong click appeal.\n6. If title text belongs in the image, explain how the composition, contrast, and lighting support it. If the current prompt implies a clean text-safe zone instead, preserve that deliberate layout.${headlineInvents(opts.headlineMode) ? '\n7. Keep the current title as the thumbnail’s short hook. Render that exact hook inside the image; do not replace it with the full episode title.' : ''}`
     : ''
 
   return `Regenerate a single image ${kindLabel} prompt for an episode.
@@ -506,7 +509,7 @@ REQUIREMENTS:
 3. Match the visual voice of the surrounding ${kindLabel}s — same style language, same image quality.
 4. End with this exact style tag: "${opts.styleTag || '(retain the style from the original prompt)'}"
 ${kindSpecific}
-${opts.kind === 'thumbnail' ? (opts.headlineMode === 'curiosity-hook' ? '8' : '7') : '5'}. Do NOT change the ${kindLabel} number. Title may stay or be lightly improved.${charCapRequirement}
+${opts.kind === 'thumbnail' ? (headlineInvents(opts.headlineMode) ? '8' : '7') : '5'}. Do NOT change the ${kindLabel} number. Title may stay or be lightly improved.${charCapRequirement}
 
 FORMAT — return ONLY a JSON object:
 { "title": "Brief Title", "prompt": "Full prompt text..." }

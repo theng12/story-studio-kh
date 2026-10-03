@@ -102,3 +102,41 @@ describe('the customer chooses, not the recipe', () => {
     assert.doesNotMatch(instruction, /\{\{TITLE\}\}/)
   })
 })
+
+// Dreamlands E2E (2026-10-03): the page's default "two or three words" mode got
+// "…typography reading \"STARLIT CLOUD LINEN\"" from the model and then a bolted-on
+// "Render the exact title \"Weaving the Starlit Cloud Linen\"" — two texts in one image.
+describe('every inventing mode keeps its own words end to end', () => {
+  test('the enforcement clause never asks for the full title on an inventing mode', async () => {
+    const { enforceThumbnailPromptElements } = await import('../generators/image-prompts.js')
+    for (const mode of HEADLINE_MODES.filter(m => m.invents)) {
+      const out = enforceThumbnailPromptElements('A weaver at a loom, 16:9 thumbnail, text "STARLIT LINEN".', {
+        aspectRatio: '16:9', title: 'STARLIT LINEN', headlineMode: mode.id,
+      })
+      assert.doesNotMatch(out, /Render the exact title/, `${mode.id} was told to render the full title`)
+    }
+  })
+
+  test('"no text at all" gets no title clause bolted on', async () => {
+    const { enforceThumbnailPromptElements } = await import('../generators/image-prompts.js')
+    const out = enforceThumbnailPromptElements('A quiet loom at dusk, 16:9 thumbnail.', {
+      aspectRatio: '16:9', title: 'Weaving the Starlit Cloud Linen', headlineMode: 'none',
+    })
+    assert.doesNotMatch(out, /Render the exact/)
+  })
+
+  test('the authoring brief asks inventing modes for their own words, not the episode title', async () => {
+    const { buildThumbnailPrompt } = await import('../generators/image-prompts.js')
+    const base = { episodeId: 'EP0001', title: 'Weaving the Starlit Cloud Linen', storyContext: 'x', castBlock: '', count: 3, styleTag: '', aspectRatio: '16:9', thumbnailDirective: '', targetNumbers: [1, 2, 3] }
+    assert.doesNotMatch(buildThumbnailPrompt({ ...base, headlineMode: 'short-hook' }), /4\. Render the exact episode title/)
+    assert.match(buildThumbnailPrompt({ ...base, headlineMode: 'episode-title' }), /4\. Render the exact episode title/)
+    assert.match(buildThumbnailPrompt({ ...base, headlineMode: 'none' }), /4\. Render no words/)
+  })
+
+  test('the single-row reprompt route accepts every published mode', async () => {
+    const { readFileSync } = await import('node:fs')
+    const src = readFileSync(new URL('../routes/image-prompts-edit.ts', import.meta.url), 'utf8')
+    assert.doesNotMatch(src, /headline_mode: z\.enum\(\['episode-title', 'curiosity-hook'\]\)/)
+    assert.match(src, /HEADLINE_MODE_IDS\.includes\(id\)/)
+  })
+})
