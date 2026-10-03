@@ -38,8 +38,10 @@ describe('encoder PID ledger', () => {
     let release!: () => void
     const done = new Promise<void>(resolve => { release = resolve })
     let childPid = 0
+    let child!: ReturnType<typeof spawn>
     jq.registerExecutor('chapter-only', async () => {
-      const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 200)'])
+      // Lives until the test closes its stdin — no timer decides when it exits.
+      child = spawn(process.execPath, ['-e', 'process.stdin.resume()'], { stdio: ['pipe', 'ignore', 'ignore'] })
       childPid = child.pid!
       jq.trackChild(child)
       await new Promise(resolve => child.once('exit', resolve))
@@ -50,6 +52,7 @@ describe('encoder PID ledger', () => {
     const whileRunning = reaper.readChildLedger()
     assert.ok(whileRunning.some(row => row.pid === childPid && row.bin === process.execPath),
       `ledger must hold the running child: ${JSON.stringify(whileRunning)}`)
+    child.stdin!.end()
     await done
     await waitFor(() => !reaper.readChildLedger().some(row => row.pid === childPid), { label: 'ledger to forget the exited child' })
     await jq._waitForJobPersistenceForTesting()
@@ -84,8 +87,7 @@ describe('encoder PID ledger', () => {
         ps: async () => '999001     1 /opt/homebrew/bin/ffmpeg -i a.mp4 b.mp4\n',
       })
       assert.deepEqual(reaped.map(o => o.pid), [999_001])
-      await new Promise(resolve => setTimeout(resolve, 20))
-      assert.ok(killed.includes(999_001))
+      assert.ok(killed.includes(999_001), 'SIGTERM goes out at once')
     } finally {
       ;(process as any).kill = realKill
     }
@@ -96,8 +98,8 @@ describe('encoder PID ledger', () => {
 describe('fresh temp dir per render attempt', () => {
   test('saved scene clips move into the new attempt folder; the old folder is not reused', async () => {
     const oldDir = await workTemp.getWorkTempDir('ledger-proj', 'EP0002')
-    await new Promise(resolve => setTimeout(resolve, 5))
-    const newDir = await workTemp.getWorkTempDir('ledger-proj', 'EP0002')
+    const newDir = path.join(path.dirname(oldDir), '.tmp_1')
+    await fs.mkdir(newDir, { recursive: true })
     const clip = path.join(oldDir, 'scene_0000.mp4')
     await fs.writeFile(clip, 'clip')
     await fs.writeFile(path.join(oldDir, 'scenes_xfaded_03.mp4'), 'orphan output')
