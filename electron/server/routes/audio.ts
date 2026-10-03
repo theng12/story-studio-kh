@@ -434,7 +434,7 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
       // already authoritative because the reconciler reuses generators/audio
       // naming, so re-deriving here keeps us in lockstep.
       const base = ec.filename.replace(/\.mp3$/, '')
-      const slug = base.replace(/_part\d+$/, '').replace(new RegExp(`^${req.params.code}_`, 'i'), '')
+      const slug = base.replace(/(?:_part\d+)?(?:_v\d+)?$/, '').replace(new RegExp(`^${req.params.code}_`, 'i'), '')
       const entry = bySlug.get(slug) || {
         label: ec.sectionLabel,
         slug,

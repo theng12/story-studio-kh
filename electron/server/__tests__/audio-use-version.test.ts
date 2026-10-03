@@ -87,6 +87,8 @@ describe('narration takes', () => {
     const route = await fs.readFile(new URL('../routes/audio.ts', import.meta.url), 'utf8')
     assert.match(route, /audio-sections\/:section\/use-version/)
     assert.match(route, /takes_count: groupChapterTakes\(/)
+    // An active `_vN` take still belongs to its chapter row (was listed as "Chapter_12_v2").
+    assert.ok(route.includes("const slug = base.replace(/(?:_part\\d+)?(?:_v\\d+)?$/, '')"))
     const selector = await fs.readFile(new URL('../../../frontend/components/AudioChapterSelector.vue', import.meta.url), 'utf8')
     assert.match(selector, />Use This Version<\/button>/)
     assert.match(selector, /v-if="\(s\.takes_count \|\| 0\) > 1"/)
