@@ -10,6 +10,8 @@ import { readSubtitleSourceAudioHashes } from './subtitle-recovery.js'
 
 export interface SubtitleCompletion {
   complete: boolean
+  /** Per-section mode only: chapters whose transcript exists but skips speech. */
+  coverage_gaps?: PipelineSubtitleRepairReadiness['coverage_gaps']
   mode: 'per-section' | 'full-track' | 'none'
   expected_sections: string[]
   completed_sections: string[]
@@ -26,6 +28,8 @@ export interface PipelineSubtitleRepairReadiness {
   expected_sections: string[]
   completed_sections: string[]
   affected_sections: string[]
+  /** Affected sections that DO have cues but skip speech somewhere inside. */
+  coverage_gaps: Array<{ slug: string; gaps: SectionCueGap[] }>
 }
 
 const BURNABLE = /\.(srt|ass|vtt)$/i
@@ -235,12 +239,32 @@ async function stitchedCoverage(
   }
 }
 
+/** Speech the transcript skipped inside one chapter (chapter-local seconds). */
+export interface SectionCueGap {
+  start_sec: number
+  gap_sec: number
+}
+
+/**
+ * Stretches longer than the Scene Plan cue-gap limit with no subtitle cue.
+ * `null` means the transcript has no usable cues at all (a missing chapter),
+ * which is a different problem from a chapter with gaps.
+ */
+export function findSubtitleCueGaps(raw: string): SectionCueGap[] | null {
+  const cues = parseSrt(raw).filter(cue => cue.text.trim() && cue.end_sec > cue.start_sec)
+  if (!cues.length) return null
+  const maxGap = allowedSubtitleCueGapSec()
+  const gaps: SectionCueGap[] = []
+  for (let index = 1; index < cues.length; index++) {
+    const gap = cues[index]!.start_sec - cues[index - 1]!.end_sec
+    if (gap > maxGap) gaps.push({ start_sec: cues[index - 1]!.end_sec, gap_sec: gap })
+  }
+  return gaps
+}
+
 /** A replacement must close the same cue-gap contract that blocks Scene Plan. */
 export function isPipelineRepairTranscriptUsable(raw: string): boolean {
-  const cues = parseSrt(raw).filter(cue => cue.text.trim() && cue.end_sec > cue.start_sec)
-  if (!cues.length) return false
-  const maxGap = allowedSubtitleCueGapSec()
-  return cues.every((cue, index) => index === 0 || cue.start_sec - cues[index - 1]!.end_sec <= maxGap)
+  return findSubtitleCueGaps(raw)?.length === 0
 }
 
 /**
@@ -255,14 +279,18 @@ export async function inspectPipelineSubtitleRepairReadiness(
   episodeCode: string,
 ): Promise<PipelineSubtitleRepairReadiness> {
   const stitch = await readStitchPlan(episodeDir, subtitlesDir, episodeCode)
-  if (!stitch.ok) return { expected_sections: [], completed_sections: [], affected_sections: [] }
+  if (!stitch.ok) return { expected_sections: [], completed_sections: [], affected_sections: [], coverage_gaps: [] }
   const expected = stitch.sections.map(section => section.slug)
   const unusable = new Set<string>()
+  const gapsBySection = new Map<string, SectionCueGap[]>()
   await Promise.all(stitch.matched.map(async section => {
     const raw = section.source_srt
       ? await fs.readFile(path.join(subtitlesDir, section.source_srt), 'utf8').catch(() => '')
       : ''
-    if (!isPipelineRepairTranscriptUsable(raw)) unusable.add(normalize(section.slug))
+    const gaps = findSubtitleCueGaps(raw)
+    if (gaps?.length === 0) return
+    unusable.add(normalize(section.slug))
+    if (gaps) gapsBySection.set(normalize(section.slug), gaps)
   }))
 
   const affected = expected.filter(section => unusable.has(normalize(section)))
@@ -271,6 +299,9 @@ export async function inspectPipelineSubtitleRepairReadiness(
     expected_sections: expected,
     completed_sections: expected.filter(section => !affectedSet.has(normalize(section))),
     affected_sections: affected,
+    coverage_gaps: affected
+      .filter(section => gapsBySection.has(normalize(section)))
+      .map(slug => ({ slug, gaps: gapsBySection.get(normalize(slug))! })),
   }
 }
 
@@ -296,6 +327,7 @@ export async function inspectSubtitleCompletion(
       expected_sections: strict.expected_sections,
       completed_sections: completed,
       missing_sections: missing,
+      coverage_gaps: strict.coverage_gaps,
     }
   }
   const [expected, files, pinned] = await Promise.all([
