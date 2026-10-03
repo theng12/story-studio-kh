@@ -40,7 +40,7 @@ async function loadComponent(name: SfcName): Promise<Component> {
     const ContentBatchPurchaseDialog = { render: () => null }
     const NuxtPage = { render: () => null }
     const useAppSettingsModal = () => ({ open: () => undefined })
-    const useContentInstallQueue = () => ({ statusOf: () => 'idle', enqueue: () => undefined, enqueueAll: () => undefined, clearFinished: () => undefined, running: ref(false), finished: ref(false), batchDone: ref(0), batchTotal: ref(0), batchFailed: ref(0), activeTitle: ref(''), batchInstalled: ref(0), failures: ref([]) })
+    const useContentInstallQueue = () => ({ statusOf: () => 'idle', enqueue: () => undefined, enqueueAll: () => undefined, clearFinished: () => undefined, running: ref(false), finished: ref(false), batchDone: ref(0), batchTotal: ref(0), batchFailed: ref(0), haltReason: ref(''), activeTitle: ref(''), batchInstalled: ref(0), failures: ref([]) })
     const useBatchPurchase = () => ({ busy: ref(false), phase: ref('idle'), progress: ref({ done: 0, total: 0 }), items: ref([]), open: ref(false), start: () => undefined, confirmAll: async () => [], dismiss: () => undefined, close: () => undefined, show: () => undefined, retryFailed: () => undefined })
     const batchSkipReason = () => null
     const sumPublished = (items, price) => items.every(item => typeof price(item) === 'number') ? items.reduce((total, item) => total + price(item), 0) : null

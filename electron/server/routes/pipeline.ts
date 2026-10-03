@@ -17,6 +17,7 @@ import type { ContinuityConfig, Format, JobType, ProjectMeta } from '../models/t
 import { computeEpisodeStatus, type EpisodeStatus } from '../services/asset-status.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { buildContinuityConfig, defaultContinuityConfig, writeContinuityConfig } from './continuity.js'
+import { readProjectStartingPacing } from '../services/formula-starting-defaults.js'
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
@@ -374,7 +375,7 @@ async function pipelineVisualSettingsSnapshot(
       throw new Error(`continuity.json is malformed: ${error?.message || error}`)
     }
   }
-  snapshot.pacing = parseScenePacing(config.pacing)
+  snapshot.pacing = parseScenePacing(config.pacing === undefined ? await readProjectStartingPacing(slug) : config.pacing)
   const motion = await readEpisodeMotionScope(slug, episodeId, source.episode_dir)
   snapshot.motion_scope = motion.motion_scope
   snapshot.motion_level = motion.motion_level
@@ -394,12 +395,13 @@ type ContinuityMode = NonNullable<ProjectMeta['continuity_mode']>
 async function readPipelineContinuityConfig(
   episodeDir: string,
   mode: ContinuityMode,
+  startingPacing?: ScenePacing,
 ): Promise<ContinuityConfig> {
   let raw: string
   try {
     raw = await fs.readFile(path.join(episodeDir, 'continuity.json'), 'utf8')
   } catch (error: any) {
-    if (error?.code === 'ENOENT') return defaultContinuityConfig(mode)
+    if (error?.code === 'ENOENT') return defaultContinuityConfig(mode, startingPacing)
     throw error
   }
   let value: unknown
@@ -2060,6 +2062,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
         const currentConfig = await readPipelineContinuityConfig(
           episodePaths.episode_dir,
           continuityMode,
+          await readProjectStartingPacing(slug),
         )
         await writeContinuityConfig(
           slug,

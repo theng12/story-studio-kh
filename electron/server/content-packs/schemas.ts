@@ -246,6 +246,7 @@ const SeriesFormulaDocumentSchema = z.object({
   }).strict().optional(),
   intro_defaults: IntroDefaultsSchema.optional(),
   visual_style_hint: safeText(1000).optional(),
+  starting_scene_seconds: boundedRange(1, 120).optional(),
   metadata_profile: MetadataProfileSchema.optional(),
   production_kit: ProductionKitSchema.optional(),
   narrative_rules: textList(60),

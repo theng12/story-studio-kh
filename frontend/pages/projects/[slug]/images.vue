@@ -1016,9 +1016,14 @@ async function prepareGeneration(forceOverride?: boolean, ask = true): Promise<a
     return null
   }
   if (!ask) return params
+  // Same Model + price rows the Audio page's confirm shows ("Free — your fleet" for a local model).
+  const details = [
+    { label: 'Model', value: activeModelLabel.value || 'Unavailable' },
+    { label: 'Cost per image', value: imageUnitCost.value.text },
+  ]
   const confirmed = await confirmGeneration(slug.value, 'thumb_images', params, params.force
-    ? { action: regenerateAllAction.value, always: true }
-    : undefined)
+    ? { action: regenerateAllAction.value, details, always: true }
+    : { action: 'Start Thumbnail Images?', details })
   if (!confirmed) return null
   // Never replace a confirmed choice with a new model/ratio behind the dialog.
   if (activeForm.value.model !== params.model

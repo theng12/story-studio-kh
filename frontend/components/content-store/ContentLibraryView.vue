@@ -26,11 +26,12 @@
           :disabled="networkUnavailable || installManyRunning"
           @click="startInstallAll"
         >{{ installManyLabel }}</button>
-        <p v-if="installManyFailedCount" class="install-all-status">{{ installManyFailedCount }} install{{ installManyFailedCount === 1 ? '' : 's' }} failed. Open the pack and try again.</p>
+        <p v-if="haltReason" class="install-all-status">Stopped early. {{ haltReason }}</p>
+        <p v-else-if="installManyFailedCount" class="install-all-status">{{ installManyFailedCount }} install{{ installManyFailedCount === 1 ? '' : 's' }} failed. Open the pack and try again.</p>
       </div>
     </div>
 
-    <div v-if="!ownershipResolved" class="library-empty" role="status" aria-live="polite"><h3>Not checked yet</h3><p>Story Studio is asking GenStudio what this account owns and what is installed on this Mac. This list appears as soon as it answers.</p></div>
+    <div v-if="!ownershipResolved" class="library-empty" role="status" aria-live="polite"><h3>Not checked yet</h3><p>Story Studio is asking the Gateway what this account owns and what is installed on this Mac. This list appears as soon as it answers.</p></div>
     <template v-else-if="visibleGroups.length">
       <section v-for="group in visibleGroups" :key="group.kind" class="library-group" :aria-label="group.label">
         <h3 class="group-heading">{{ group.label }}<span>{{ group.products.length }}</span></h3>
@@ -88,6 +89,8 @@ const props = withDefaults(defineProps<{
   selectable?: boolean
   selectedProductIds?: readonly string[]
   queueStatus?: (releaseId: string) => InstallQueueStatus
+  /** Why the install queue stopped early (a failure every pack would share), or ''. */
+  haltReason?: string
 }>(), { ownershipResolved: true, showInstallAll: false, selectable: false, selectedProductIds: () => [] })
 
 const emit = defineEmits<{

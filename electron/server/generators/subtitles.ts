@@ -20,6 +20,7 @@ import {
   hashSubtitleAudioSources,
   isPipelineRepairTranscriptUsable,
 } from '../services/subtitle-completion.js'
+import { describeSubtitleGaps } from '../contracts/subtitle-gaps.js'
 import { readSubtitleSourceAudioHashes, recordSubtitleSourceEvidence } from '../services/subtitle-recovery.js'
 import { readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
 import { scanEpisodeAssets } from './video.js'
@@ -960,12 +961,25 @@ async function transcribePerChapter(
 
   if (!scopeComplete || (!explicitlyScoped && !episodeComplete)) {
     const incompleteSlugs = explicitlyScoped ? scopeFailedSlugs : failedSlugs
-    const missingLabel = incompleteSlugs.length
-      ? incompleteSlugs.join(', ')
+    // A chapter whose fresh SRT exists but skips speech is not "missing":
+    // name the gap so the owner knows to listen there and re-transcribe it.
+    const failedNow = new Set(failures.map(failure => failure.slug.toLowerCase()))
+    const gapEntries = (coverage.coverage_gaps || []).filter(entry =>
+      incompleteSlugs.some(slug => slug.toLowerCase() === entry.slug.toLowerCase())
+      && !failedNow.has(entry.slug.toLowerCase()))
+    const gapKeys = new Set(gapEntries.map(entry => entry.slug.toLowerCase()))
+    const missingSlugs = incompleteSlugs.filter(slug => !gapKeys.has(slug.toLowerCase()))
+    const gapSentence = `${gapEntries.length === 1 ? 'has a gap' : 'have gaps'} where speech was not transcribed ` +
+      `(${describeSubtitleGaps(gapEntries.flatMap(entry => entry.gaps.map(gap => ({ slug: entry.slug, ...gap }))))}). Open Subtitles to re-transcribe ${gapEntries.length === 1 ? 'it' : 'them'}.`
+    const missingLabel = missingSlugs.length
+      ? missingSlugs.join(', ')
       : 'coverage could not be verified; run Audio Assembly to rebuild audio_chapters.json'
-    const message =
-      `Transcription incomplete: ${readySections.length}/${coverage.expected_sections.length} sections ready. ` +
-      `Missing: ${missingLabel}. Successful chapter files were saved; Retry fills only the missing sections.`
+    const message = gapEntries.length && !missingSlugs.length
+      ? `Subtitles made for all ${explicitlyScoped ? sections.length : coverage.expected_sections.length} ` +
+        `${explicitlyScoped ? 'requested ' : ''}chapters, but ${gapEntries.length} ${gapSentence}`
+      : `Transcription incomplete: ${readySections.length}/${coverage.expected_sections.length} sections ready. ` +
+        `Missing: ${missingLabel}. Successful chapter files were saved; Retry fills only the missing sections.` +
+        (gapEntries.length ? ` Also, ${gapEntries.length} chapter${gapEntries.length === 1 ? '' : 's'} ${gapSentence}` : '')
     job.output_lines.push(`✗ INCOMPLETE — ${message}`)
     throw new Error(message)
   }

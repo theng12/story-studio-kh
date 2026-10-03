@@ -25,6 +25,7 @@ import {
 } from '../services/formula-production-kit.js'
 import { truncateChars } from '../lib/well-formed-text.js'
 import { applyEmojiPolicy, NO_EMOJI_DIRECTIVE } from '../lib/emoji-policy.js'
+import { recentCharacterNamesAvoidance } from '../services/recent-character-names.js'
 import { buildFreeformIdeaPrompt, generateFreeformIdeaBatch, rewriteLeadingCount, type AvoidItem } from '../services/freeform-idea-generation.js'
 
 interface IdeaCampaignParams extends GenerateIdeasRequest {
@@ -57,6 +58,11 @@ function examples(format: Format): string {
     .slice(0, 20)
     .map(example => `- ${example.title}`)
     .join('\n')
+}
+
+/** Ideas should not star the same main character as recent episodes. */
+function withNamesAvoidance(prompt: string, line: string): string {
+  return line ? `${prompt}\n\n${line}` : prompt
 }
 
 function campaignPrompt(options: {
@@ -337,6 +343,7 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     }
   }
 
+  const namesAvoidance = await recentCharacterNamesAvoidance(job.project_slug)
   const created: im.StoredIdea[] = []
   const batchSize = 10
   const maxCalls = Math.max(4, Math.ceil(remaining / batchSize) * 4)
@@ -364,10 +371,10 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
         const avoid: AvoidItem[] = similarityPool.map(item => ({
           title: item.title, mood: item.mood, themes: item.themes,
         }))
-        let prompt = buildFreeformIdeaPrompt(
+        let prompt = withNamesAvoidance(buildFreeformIdeaPrompt(
           requestForBatch, format, standards, avoid, undefined,
           request.title_template, undefined,
-        )
+        ), namesAvoidance)
         const responseItems = await generateFreeformIdeaBatch({
           request: requestForBatch, format, standards, avoid, apiKeys,
           slug: job.project_slug, jobId: job.job_id, signal: controller.signal,
@@ -386,9 +393,9 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
       } else {
         const assignments = assignmentPool.splice(0, count)
         job.output_lines.push('Generating coverage batch ' + calls + ': ' + assignments.length + ' reserved idea(s)…')
-        const prompt = campaignPrompt({
+        const prompt = withNamesAvoidance(campaignPrompt({
           request, format, niche: plannerNiche, assignments, avoid: similarityPool, standards,
-        })
+        }), namesAvoidance)
         const context: CallAiContext = {
           slug: job.project_slug,
           jobId: job.job_id,

@@ -133,6 +133,13 @@
                   class="btn btn-sm btn-secondary"
                 >Open Scene Plan</NuxtLink>
                 <div v-for="section in gapActionSections" :key="section" class="sub-gap-actions">
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-primary"
+                    :disabled="!canTranscribe || transcribing"
+                    :title="canTranscribe ? `Makes new subtitles for ${section.replaceAll('_', ' ')} only, then stitch again.` : transcribeDisabledReason"
+                    @click="retranscribeChapter(section)"
+                  >{{ subtitleActionLabel(section, `Re-transcribe ${section.replaceAll('_', ' ')}`) }}</button>
                   <button type="button" class="btn btn-sm btn-secondary" @click="reviewChapterAudio(section, true)">Listen to {{ section.replaceAll('_', ' ') }}</button>
                   <NuxtLink :to="audioSectionLink(section)" class="btn btn-sm btn-secondary">Open Audio Generator · {{ section.replaceAll('_', ' ') }}</NuxtLink>
                   <NuxtLink :to="subtitleSectionLink(section)" class="inline-link">Review subtitles</NuxtLink>
@@ -147,7 +154,7 @@
               />
             </div>
             <p v-if="sections.length" class="text-muted text-xs mt-2">
-              Tick chapters to (re)make just those; unticked chapters are left alone. Each ticked chapter is a new request, so the model's current price may be charged.
+              Tick chapters to (re)make just those; unticked chapters are left alone. Each ticked chapter is a new request<template v-if="!isFreeToRun(genstudioSelectedModel)">, so the model's current price may be charged</template>.
             </p>
             <p v-if="subtitleSelectionUnavailable" class="validation-msg">Selected chapters could not be verified. Refresh status or <button type="button" class="btn btn-xs btn-secondary" @click="selectedSubtitleSections = []">Clear Unavailable Selection</button>.</p>
             <div v-if="sections.length" class="sub-selection-actions" role="group" aria-label="Subtitle chapter selection">
@@ -426,6 +433,7 @@ import {
 } from '~/utils/transcription-language'
 import type { SubtitleQualityReport } from '~/types/subtitle-quality'
 import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
+import { isFreeToRun } from '~/utils/genstudio-price-usd'
 import { hasQualityFindings } from '~/types/subtitle-quality'
 import { audioQualityLabel, audioQualityTone, type AudioQualityEvidence } from '~/types/audio-quality'
 

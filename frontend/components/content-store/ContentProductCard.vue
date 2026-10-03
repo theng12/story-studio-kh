@@ -10,12 +10,12 @@
       </div>
     </NuxtLink>
 
-    <p v-if="!ownershipResolved" class="ownership-status">Checking with GenStudio what this account owns, what is installed here, and whether this works with this version.</p>
+    <p v-if="!ownershipResolved" class="ownership-status">Checking with the Gateway what this account owns, what is installed here, and whether this works with this version.</p>
     <p v-else-if="!product.compatible" class="compatibility-message" role="status"><strong>Not compatible with this Story Studio version.</strong>{{ product.compatibilityReason }}</p>
     <p v-else-if="product.owned" class="ownership-status">{{ ownedStatus }}</p>
     <p v-else-if="product.retired" class="ownership-status">No longer available for new ownership.</p>
     <p v-else class="ownership-status">GenStudio supplies the exact quote before any purchase.</p>
-    <section v-if="ownership?.recalledReleaseVersions.length" class="recall-message" role="status"><strong>Recalled {{ ownership.recalledReleaseVersions.join(', ') }}</strong><p>GenStudio stopped serving those versions. Ownership remains permanent.</p><p v-if="ownership.currentRelease">The newest safe owned release is {{ ownership.currentRelease.version }}.</p></section>
+    <section v-if="ownership?.recalledReleaseVersions.length" class="recall-message" role="status"><strong>Recalled {{ ownership.recalledReleaseVersions.join(', ') }}</strong><p>The Gateway stopped serving those versions. Ownership remains permanent.</p><p v-if="ownership.currentRelease">The newest safe owned release is {{ ownership.currentRelease.version }}.</p></section>
     <section v-if="ownership?.installState === 'incomplete'" class="closure-message" role="status"><strong>Installed files are incomplete</strong><p v-if="ownership.missingDependencies.length">{{ closureSummary }}</p><p v-else>Story Studio could not verify the installed pack. Install the published release explicitly to repair it.</p></section>
 
     <div class="product-action">

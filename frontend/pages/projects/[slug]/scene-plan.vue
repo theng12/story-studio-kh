@@ -40,6 +40,7 @@
         :generate-loading="planning || planJobActive"
         :generate-disabled="headerPrimaryDisabled"
         :generate-status="headerPrimaryStatus"
+        :generate-status-link="headerPrimaryStatus === subtitleTimelineBlocker ? subtitleTimelineBlockerLink : undefined"
         @generate="runHeaderPrimaryAction"
       >
         <template #actions>
@@ -144,9 +145,7 @@
         </div>
         <div v-else-if="blockingSubtitleCueGaps.length" class="validation-msg validation-msg-strong text-sm mt-2">
           ⚠ <strong>Do not rebuild or re-plan yet.</strong>
-          The stitched timeline has an interval with no subtitle cues
-          <template v-if="blockingSubtitleGapSections.length">in <strong>{{ blockingSubtitleGapSections.join(', ') }}</strong>.</template>
-          <template v-else>in an unmapped section (such as an Intro).</template>
+          Subtitles skip speech in <strong>{{ subtitleGapSummary }}</strong>.
           <NuxtLink :to="subtitleLink(blockingSubtitleGapSections[0])" class="inline-link">Open Subtitles</NuxtLink>,
           then transcribe or correct it and stitch again.
         </div>
@@ -1154,6 +1153,7 @@ import { customerSafeJobText } from '../../../utils/job-presentation.js'
 import { DEFAULT_EXCLUDE_KEYS } from '~/composables/usePresets'
 import { useVisualStyleCatalog } from '~/composables/useVisualStyleCatalog'
 import { pacingBandAt, type ScenePacing } from '@shared/pacing'
+import { describeSubtitleGaps } from '@shared/subtitle-gaps'
 import { resolveMotionScope, type MotionScope } from '@shared/motion-scope'
 import type { ContinuityConfig } from '~/composables/useContinuityConfig'
 import type { SubtitleQualityReport } from '~/types/subtitle-quality'
@@ -1439,6 +1439,7 @@ interface ScenePlanStatus {
       previous_end_sec: number
       next_start_sec: number
       gap_sec: number
+      section_local_start_sec?: number
     }>
   } | null
   scene_plan: ScenePlan | null
@@ -1585,6 +1586,12 @@ const blockingSubtitleCueGaps = computed(() => status.value?.timeline_integrity?
 const blockingSubtitleGapSections = computed(() => Array.from(new Set(
   blockingSubtitleCueGaps.value.flatMap(gap => gap.section_slugs),
 )))
+/** Same wording as the subtitles job message: chapter, length, chapter time. */
+const subtitleGapSummary = computed(() => describeSubtitleGaps(blockingSubtitleCueGaps.value.map(gap => ({
+  slug: gap.section_slugs.length === 1 ? gap.section_slugs[0] : '',
+  start_sec: gap.section_local_start_sec,
+  gap_sec: gap.gap_sec,
+})), 2))
 const subtitleTimelineComplete = computed(() =>
   !!status.value?.stitched_srt
   && missingSubtitleSections.value.length === 0
@@ -2248,9 +2255,15 @@ const subtitleTimelineBlocker = computed(() => {
   if (!status.value?.audio_merged) return 'Generate and assemble audio first'
   if (!status.value?.stitched_srt) return 'Stitch subtitles first (step 1)'
   if (subtitleTimelineComplete.value) return ''
-  return missingSubtitleSections.value.length
-    ? `Transcribe missing subtitles: ${missingSubtitleSections.value.join(', ')}`
-    : 'Repair and re-stitch the subtitle timeline first'
+  if (missingSubtitleSections.value.length) return `Transcribe missing subtitles: ${missingSubtitleSections.value.join(', ')}`
+  if (blockingSubtitleCueGaps.value.length) return `Subtitles skip speech in ${subtitleGapSummary.value}.`
+  return 'Repair and re-stitch the subtitle timeline first'
+})
+/** Where the blocker above is fixed, shown as a link beside the disabled button. */
+const subtitleTimelineBlockerLink = computed(() => {
+  if (!subtitleTimelineBlocker.value || !status.value?.stitched_srt || subtitleTimelineComplete.value) return undefined
+  const section = missingSubtitleSections.value[0] || blockingSubtitleGapSections.value[0]
+  return { to: subtitleLink(section), label: 'Fix in Subtitles' }
 })
 const canPlan = computed(() => {
   if (!episodeId.value || episodeVisualSource.value !== 'scene_plan' || visualSettingsError.value) return false

@@ -27,7 +27,11 @@ export interface InstallQueue {
   clearFinished: () => void
 }
 
-export function useInstallQueue(install: (releaseId: string) => Promise<unknown>): InstallQueue {
+export function useInstallQueue(
+  install: (releaseId: string) => Promise<unknown>,
+  /** Checked after a failure: true drops everything still waiting (a failure every pack would share). */
+  shouldStop?: () => boolean,
+): InstallQueue {
   const waiting = ref<string[]>([])
   const active = ref('')
   const finished = ref(new Map<string, 'installed' | 'failed'>())
@@ -80,6 +84,7 @@ export function useInstallQueue(install: (releaseId: string) => Promise<unknown>
           // one did not install and to keep going, so one bad pack cannot
           // strand the rest of the batch.
           finished.value = new Map(finished.value).set(next, 'failed')
+          if (shouldStop?.()) waiting.value = []
         } finally {
           active.value = ''
         }

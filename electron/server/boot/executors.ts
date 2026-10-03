@@ -23,6 +23,7 @@ import { generateMetadata } from '../generators/metadata.js'
 import { generateSubtitlesTranscribe } from '../generators/subtitles.js'
 import { startEpisodeRecovery } from '../services/episode-recovery.js'
 import { invalidateForFinishedJob } from '../services/episode-status-cache.js'
+import { settleAfterSuccess } from '../services/stale-failures.js'
 import { generateYoutubeUpload } from '../generators/youtube-upload.js'
 import { generateYoutubePlaylistUpdate } from '../generators/youtube-playlist-update.js'
 import { generateThumbnailRefresh } from '../generators/youtube-thumbnail-refresh.js'
@@ -392,6 +393,8 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
 
   // A finished job refreshes its episode's status right away (Board, lists).
   if (!jobEvents.listeners('update').includes(invalidateForFinishedJob)) jobEvents.on('update', invalidateForFinishedJob)
+  // …and settles older failed rows whose files that run has now made.
+  if (!jobEvents.listeners('update').includes(settleAfterSuccess)) jobEvents.on('update', settleAfterSuccess)
 
   if (options.loadSettings !== false) {
     void initializeQueuePauseState()

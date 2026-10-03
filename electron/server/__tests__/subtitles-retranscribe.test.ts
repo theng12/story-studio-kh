@@ -145,6 +145,38 @@ test('an explicitly selected subtitle failure still fails the scoped job', async
 })
 
 
+// Dreamlands EP0001: every chapter SRT existed, but the job said
+// "Missing: Chapter_03, …" because those transcripts skipped >30 s of speech.
+test('a chapter whose transcript skips speech is reported as a gap with its time, not as missing', async t => {
+  const fixture = await createScopedSubtitleFixture(t)
+  const { paths, code } = fixture
+  await fs.writeFile(path.join(paths.episode_dir, 'audio_chapters.json'), JSON.stringify({
+    gap_duration_s: 1,
+    sections: fixture.sections.map((slug, index) => ({ slug, duration_s: [2, 90, 2][index], source_file: `${code}_${slug}.mp3` })),
+  }))
+  await writeValidMergedAudio(paths.merged_audio_dir, code, 96)
+  const good = '1\n00:00:00,000 --> 00:00:01,000\nGood chapter.\n'
+  await fs.writeFile(path.join(paths.subtitles_dir, `${code}_Chapter_01.srt`), good)
+  await fs.writeFile(path.join(paths.subtitles_dir, `${code}_Chapter_02.srt`),
+    '1\n00:00:00,000 --> 00:00:01,000\nBefore gap.\n\n2\n00:00:38,580 --> 00:00:39,000\nAfter gap.\n')
+  await fs.writeFile(path.join(paths.subtitles_dir, `${code}_Chapter_03.srt`), good)
+  const job = fixture.makeJob('gap-not-missing', { force: false, sections: undefined })
+
+  await assert.rejects(
+    fixture.generateSubtitlesTranscribe(job),
+    (error: Error) => {
+      assert.equal(
+        error.message,
+        'Subtitles made for all 3 chapters, but 1 has a gap where speech was not transcribed '
+          + '(Chapter 2: 38 s at 0:01). Open Subtitles to re-transcribe it.',
+      )
+      return true
+    },
+  )
+  assert.deepEqual(job.result?.missing_sections, ['Chapter_02'], 'Retry and recovery still target the gap chapter')
+})
+
+
 describe('re-transcribing one chapter does not re-charge the episode', () => {
   const sections = [
     { slug: 'Introduction' },

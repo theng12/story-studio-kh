@@ -131,7 +131,8 @@ describe('Character Sheet workspace', () => {
 describe('Continuity Engine default scene pacing — single source of truth', () => {
   test('routes/continuity.ts imports the shared default instead of hardcoding it', () => {
     assert.match(continuityRoute, /import \{[^}]*\bDEFAULT_SCENE_PACING\b[^}]*\} from '\.\.\/contracts\/pacing\.js'/)
-    assert.match(continuityRoute, /pacing: \{ \.\.\.DEFAULT_SCENE_PACING \}/)
+    // A channel's Formula may set a slower starting pacing; otherwise the shared default.
+    assert.match(continuityRoute, /pacing: startingPacing \? \{ \.\.\.startingPacing \} : \{ \.\.\.DEFAULT_SCENE_PACING \}/)
     // The PUT coercion fallback (an omitted min_sec/max_sec) must fall back
     // to the SAME default, not a second hardcoded number -- this is the
     // "coercion fallback of the form `|| 4`" instance of the bug.
@@ -142,7 +143,7 @@ describe('Continuity Engine default scene pacing — single source of truth', ()
 
   test('Scene Plan resolves the shared default through its readiness pacing service', () => {
     assert.match(scenePlanPacing, /import \{[^}]*\bDEFAULT_SCENE_PACING\b[^}]*\} from '\.\.\/contracts\/pacing\.js'/)
-    assert.match(scenePlanPacing, /pacing: ScenePlanPacing = \{ \.\.\.DEFAULT_SCENE_PACING, mode: 'live' \}/)
+    assert.match(scenePlanPacing, /pacing: ScenePlanPacing = scenePlanPacing\(await readProjectStartingPacing\(slug\) \?\? \{ \.\.\.DEFAULT_SCENE_PACING \}\)/)
     assert.match(scenePlanGenerator, /import \{ allowedSubtitleCueGapSec, resolveScenePlanPacing/)
     assert.match(scenePlanGenerator, /await resolveScenePlanPacing\(job\.project_slug, paths\.episode_dir\)/)
     assert.doesNotMatch(scenePlanGenerator, /pacing\s*=\s*\{\s*min_sec:\s*\d+,\s*max_sec:\s*\d+/)

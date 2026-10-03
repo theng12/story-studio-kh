@@ -11,6 +11,7 @@ import {
 } from '../contracts/pacing.js'
 import type { SceneMotionProfile } from '../models/types.js'
 import { getEffectiveFormat } from './format-loader.js'
+import { readProjectStartingPacing } from './formula-starting-defaults.js'
 
 export interface ScenePlanPacing {
   min_sec: number
@@ -72,7 +73,9 @@ export async function resolveScenePlanPacing(
   const formula_motion_profile = format?.script.motionProfile
   if (format?.visualSource !== 'continuity-chain') return { formula_motion_profile }
 
-  let pacing: ScenePlanPacing = { ...DEFAULT_SCENE_PACING, mode: 'live' }
+  // No saved episode pacing: the channel's starting pacing (set from its
+  // Formula at creation), else the one app-wide default.
+  let pacing: ScenePlanPacing = scenePlanPacing(await readProjectStartingPacing(slug) ?? { ...DEFAULT_SCENE_PACING })
   const continuityPath = path.join(episodeDir, 'continuity.json')
   if (existsSync(continuityPath)) {
     try {

@@ -75,15 +75,18 @@ export function runBootMigrations(): void {
   // were running. Image episodes ran ONE AT A TIME because every lane outside
   // the LLM and subtitle groups gets a single boolean slot.
   tasks.push((async () => {
-    const { getImageEpisodeConcurrency, getThumbnailEpisodeConcurrency } = await import('../services/app-settings.js')
-    const { setImageEpisodeConcurrency, setThumbnailEpisodeConcurrency } = await import('../services/job-queue.js')
+    const { getImageEpisodeConcurrency, getThumbnailEpisodeConcurrency, getAudioEpisodeConcurrency: getAudioSetting } = await import('../services/app-settings.js')
+    const { setImageEpisodeConcurrency, setThumbnailEpisodeConcurrency, setAudioEpisodeConcurrency } = await import('../services/job-queue.js')
     const n = await getImageEpisodeConcurrency()
     setImageEpisodeConcurrency(n)
     // Thumbnails have their own lane: they usually buy from a cloud API while
     // Scene Review buys from the local fleet, so one must not block the other.
     const thumbs = await getThumbnailEpisodeConcurrency()
     setThumbnailEpisodeConcurrency(thumbs)
-    console.log(`[boot] episodes generating images at once: ${n} (thumbnails: ${thumbs})`)
+    // Narration: its own number, seeded from the image one on first read.
+    const audio = await getAudioSetting()
+    setAudioEpisodeConcurrency(audio)
+    console.log(`[boot] episodes generating images at once: ${n} (thumbnails: ${thumbs}, narration: ${audio})`)
   })().catch(error => console.error('[boot] image concurrency load failed:', error?.message || error)))
 
   // v1.4.41 — the owner's images-per-episode override. 'auto' follows the

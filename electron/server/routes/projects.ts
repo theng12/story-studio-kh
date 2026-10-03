@@ -13,6 +13,8 @@ import { humanizeBackendError, respondWithError } from '../lib/humanize-backend-
 import type { ProjectMeta } from '../models/types.js'
 import type { JobType } from '../models/types.js'
 import { createProjectWithContentSelections } from '../content-packs/project-pins.js'
+import { loadNiche } from '../services/niche-loader.js'
+import { seedFormulaStartingDefaults } from '../services/formula-starting-defaults.js'
 import { getIdeas } from '../services/idea-manager.js'
 import { readYouTubeProjectPublishingState } from '../services/youtube-project-publishing-store.js'
 import { episodeStepJobStates } from '../contracts/episode-step-jobs.js'
@@ -273,6 +275,13 @@ router.post('/projects/:slug/assets/repair-all', async (req, res) => {
 router.post('/projects', validateBody(CreateProjectSchema), async (req, res) => {
   try {
     const project = await createProjectWithContentSelections(req.body)
+    // A new channel starts with its Formula's look and scene length (editable
+    // afterwards). Never blocks creation: without them it simply starts plain.
+    if (req.body.niche_id) {
+      await loadNiche(req.body.niche_id, req.app.locals.contentPackOptions || {})
+        .then(niche => seedFormulaStartingDefaults(project.slug, niche))
+        .catch(() => { /* non-fatal */ })
+    }
     res.status(201).json(project)
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Project creation failed'))

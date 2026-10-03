@@ -53,7 +53,7 @@ describe('force-abandon on the Jobs page', () => {
     assert.equal(retryButtons.length, 1, 'only the history list offers Retry: the active list never holds failed jobs')
     const eligibility = jobsPage.slice(jobsPage.indexOf('function canRetryJob('), jobsPage.indexOf('function customerJobText('))
     assert.match(eligibility, /\['error', 'cancelled'\]\.includes\(job\.status\)/)
-    assert.match(eligibility, /isVerifiedRecoveredSubtitleJob\(job\)/)
+    assert.match(eligibility, /isRecoveredFailure\(job\)/)
     assert.match(eligibility, /isTerminalContinuityRender\(job\)/)
     assert.match(eligibility, /auto_repair_missing_prompts === true\) return false/)
     assert.equal((jobsPage.match(/v-if="isTerminalContinuityRender\(job\)"/g) || []).length, 1,

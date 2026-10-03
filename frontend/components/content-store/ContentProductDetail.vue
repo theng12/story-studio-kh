@@ -6,7 +6,7 @@
       <div class="detail-copy"><p class="detail-kind">{{ kindLabel }}</p><h1>{{ product.title }}</h1><p class="detail-promise">{{ product.summary }}</p><p v-if="product.description" class="detail-description">{{ product.description }}</p><div class="detail-status" role="status">{{ status }}</div></div>
     </header>
 
-    <p v-if="!ownershipResolved" class="detail-pending" role="status" aria-live="polite">Checking with GenStudio what this account owns, what is installed on this Mac, and whether this release works with this Story Studio version.</p>
+    <p v-if="!ownershipResolved" class="detail-pending" role="status" aria-live="polite">Checking with the Gateway what this account owns, what is installed on this Mac, and whether this release works with this Story Studio version.</p>
     <p v-else-if="!product.compatible" class="detail-warning" role="status"><strong>Not compatible with this Story Studio version.</strong>{{ product.compatibilityReason }}</p>
 
     <section v-if="showcaseVideos.length" class="detail-section" aria-labelledby="showcase-heading">
@@ -19,7 +19,7 @@
 
     <section v-if="dependencies.length || product.bundleComponents.length || componentSummary.length" class="detail-section" aria-labelledby="components-heading"><h2 id="components-heading">Included components</h2><ul v-if="dependencies.length" class="component-list"><li v-for="dependency in dependencies" :key="dependency.releaseId"><span><strong>{{ dependency.title }}</strong><small>{{ dependency.version }}</small></span><span>{{ dependency.states.map(stateLabel).join(' · ') }}</span></li></ul><p v-else-if="product.bundleComponents.length" class="dependency-pending">Request an exact quote to see the signed included versions and dependency states.</p><dl v-if="componentSummary.length" class="summary-grid"><div v-for="fact in componentSummary" :key="fact.label"><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd></div></dl></section>
 
-    <section v-if="ownership?.recalledReleaseVersions.length" class="detail-warning" role="status"><strong>Recalled {{ ownership.recalledReleaseVersions.join(', ') }}</strong><span>Ownership remains permanent. GenStudio stopped serving these exact versions.</span></section>
+    <section v-if="ownership?.recalledReleaseVersions.length" class="detail-warning" role="status"><strong>Recalled {{ ownership.recalledReleaseVersions.join(', ') }}</strong><span>Ownership remains permanent. The Gateway stopped serving these exact versions.</span></section>
 
     <footer class="detail-actions"><NuxtLink to="/content-store" class="back-to-store">Back to Content Store</NuxtLink><button v-if="ownershipResolved && !product.owned && !product.retired && product.compatible && release" type="button" class="btn btn-primary" :disabled="networkUnavailable" :aria-busy="busy ? 'true' : undefined" @click="$emit('quote', product)">{{ busy ? 'Requesting Quote…' : product.free ? 'Get Free' : 'See Exact Quote' }}</button><button v-else-if="canInstall" type="button" class="btn btn-primary" :disabled="installBusy || networkUnavailable" :aria-busy="installBusy ? 'true' : undefined" @click="$emit('install', release!.releaseId)">{{ installLabel }}</button><span v-else-if="queueStatus === 'installed'" class="detail-pending" role="status">Installed just now</span></footer>
   </article>

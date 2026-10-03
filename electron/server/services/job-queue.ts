@@ -1484,8 +1484,8 @@ const VIDEO_EPISODE_TYPES: ReadonlySet<JobType> = new Set<JobType>([
   'video', 'scene_clip_generate', 'scene_clips_batch',
 ])
 // `music_generate` keeps its own lane, like `thumb_images`: a three-song request
-// queued behind two 2-hour narrations (the shared limit is the "Episodes making
-// scene images at once" setting) waited hours with no reason shown — Dreamlands
+// queued behind two 2-hour narrations (then limited by the scene-image setting)
+// waited hours with no reason shown — Dreamlands
 // E2E, 2026-10-03.
 const AUDIO_EPISODE_TYPES: ReadonlySet<JobType> = new Set<JobType>([
   'audio',
@@ -1561,6 +1561,8 @@ let imageEpisodeBootAdmissionHolds = 0
  * unchanged rather than surprising.
  */
 let thumbnailEpisodeConcurrency = 1
+/** Narration has its own number too (Dreamlands E2E: it used to ride on the scene-image one). */
+let audioEpisodeConcurrency = 1
 export function setLlmConcurrency(n: number): void {
   llmConcurrency = Math.max(1, Math.min(50, Math.floor(Number(n)) || 1))
 }
@@ -1597,6 +1599,14 @@ export function getThumbnailEpisodeConcurrency(): number {
   return thumbnailEpisodeConcurrency
 }
 
+export function setAudioEpisodeConcurrency(n: number): void {
+  audioEpisodeConcurrency = Math.max(1, Math.min(50, Math.floor(Number(n)) || 1))
+  for (const t of fleetEpisodeTypesFor(AUDIO_EPISODE_GROUP)) pump(t)
+}
+export function getAudioEpisodeConcurrency(): number {
+  return audioEpisodeConcurrency
+}
+
 /**
  * The owner's explicit images-per-episode override, or 0 for "follow the
  * account". Held here beside the other live concurrency values so a generator
@@ -1618,6 +1628,7 @@ function groupLimit(group: string): number {
   if (group === LOCAL_LLM_GROUP) return Number.POSITIVE_INFINITY
   if (group === SUBTITLE_TRANSCRIBE_GROUP) return subtitleTranscribeConcurrency
   if (group === THUMBNAIL_EPISODE_GROUP) return thumbnailEpisodeConcurrency
+  if (group === AUDIO_EPISODE_GROUP) return audioEpisodeConcurrency
   if (FLEET_EPISODE_GROUPS.has(group)) return imageEpisodeConcurrency
   return 1
 }
@@ -3517,6 +3528,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       max_attempts: retryPolicy.max_attempts,
     }
     job.status = 'running'
+    delete job.resolved
     job.local_execution_complete = false
     job.pause_requested = false
     job.started_at ||= new Date().toISOString()
@@ -6021,6 +6033,30 @@ export function removeTerminalJob(projectSlug: string, jobId: string): boolean {
  */
 export type JobHistoryClearStatus = 'finished' | 'failed'
 
+/** A failed row whose work was finished later: history, not something that needs attention. */
+export function isRecoveredFailure(job: Job): boolean {
+  return job.status === 'error' && (!!job.resolved || isVerifiedRecoveredSubtitleJob(job))
+}
+
+/**
+ * Add lines to a finished job's own log and, when `resolveReason` is given,
+ * mark a failed row as resolved. Never changes status or starts anything —
+ * this is how a repair or a later run settles the row it was about.
+ */
+export async function noteOnFinishedJob(
+  projectSlug: string, jobId: string, lines: string[], resolveReason?: string,
+): Promise<Job | null> {
+  const job = jobs.get(jobId)
+  if (!job || job.project_slug !== projectSlug || !isFinishedStatus(job.status)) return null
+  job.output_lines.push(...lines)
+  if (resolveReason && job.status === 'error' && !job.resolved) {
+    job.resolved = { at: new Date().toISOString(), reason: resolveReason }
+  }
+  await persistJob(job)
+  emitPublicUpdate(job)
+  return serializeJob(job)
+}
+
 /** Match the Jobs page's display-only Recovered state for a failed subtitle attempt. */
 function isVerifiedRecoveredSubtitleJob(job: Job): boolean {
   if (job.type !== 'subtitles_transcribe' || job.status !== 'error'
@@ -6042,8 +6078,8 @@ function isVerifiedRecoveredSubtitleJob(job: Job): boolean {
 function matchesHistoryClearStatus(job: Job, status: JobHistoryClearStatus | undefined): boolean {
   if (!isFinishedStatus(job.status)) return false
   if (!status) return true
-  if (status === 'finished') return job.status !== 'error' || isVerifiedRecoveredSubtitleJob(job)
-  return job.status === 'error' && !isVerifiedRecoveredSubtitleJob(job)
+  if (status === 'finished') return job.status !== 'error' || isRecoveredFailure(job)
+  return job.status === 'error' && !isRecoveredFailure(job)
 }
 
 export async function clearFinished(projectSlug: string, status?: JobHistoryClearStatus): Promise<number> {
@@ -6083,7 +6119,7 @@ export function getQueueStats(projectSlug?: string): JobStats {
     queued: jobList.filter(j => j.status === 'queued').length,
     paused: jobList.filter(j => j.status === 'paused').length,
     done: jobList.filter(j => j.status === 'done').length,
-    error: jobList.filter(j => j.status === 'error').length,
+    error: jobList.filter(j => j.status === 'error' && !isRecoveredFailure(j)).length,
     total: jobList.length,
   }
 }

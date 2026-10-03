@@ -406,7 +406,7 @@ async function activeKey(): Promise<string> {
     throw new ContentStoreLocalError(
       400,
       'CONTENT_STORE_KEY_REQUIRED',
-      'Save a GenStudio API key with content:read access before opening the Content Store.',
+      'Save your Gateway key in Settings → This Mac before opening the Content Store.',
     )
   }
   return apiKey
