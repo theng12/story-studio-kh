@@ -88,7 +88,9 @@ describe('customer-facing capacity wording (v1.4.82)', () => {
     const values = customerVisibleStrings(source)
     assert.ok(values.length >= 3, `expected several customer-visible strings, found ${values.length}`)
     assert.ok(
-      values.some(v => /high demand right now/i.test(v)),
+      // 1.4.249: the reason itself moved into lib/genstudio-fleet-busy.ts (fleetBusyRetryPlan); the
+      // log line that carries it stays here.
+      values.some(v => /the clip was never started/i.test(v)),
       'the rephrased capacity reason must be among the strings the guard inspects',
     )
   })

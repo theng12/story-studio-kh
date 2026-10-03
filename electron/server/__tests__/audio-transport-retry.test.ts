@@ -189,7 +189,7 @@ test('the audio generator keeps its identity on a dropped connection, and derive
 
   // The transport class is retryable at all.
   assert.match(source, /const transportFailure = isTransportFailure\(e\)/)
-  assert.match(source, /const worthRetrying = isGenStudioRouteExhausted\(e\) \|\| isFleetBusyFailure\(e, 'tts'\)\s*\n\s*\|\| transportFailure/)
+  assert.match(source, /\|\| \(\(isGenStudioRouteExhausted\(e\) \|\| transportFailure\) && routeAttempt < TTS_ROUTE_RETRY_MAX_ATTEMPTS\)/)
 
   // And the safety half: the derived identity is reached ONLY on the
   // settled-failure branch. If these two ever swap, one chapter is billed

@@ -43,7 +43,7 @@ import {
   listChatModels,
   type GenStudioChatModel,
 } from '../lib/genstudio-client.js'
-import { FLEET_BUSY_RETRY_DELAYS_MS, isFleetBusyFailure } from '../lib/genstudio-fleet-busy.js'
+import { fleetBusyRetryPlan, freeMacWaitLine, isFleetBusyFailure, type FleetBusyRetryPlan } from '../lib/genstudio-fleet-busy.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveGenStudioModelId } from '../services/genstudio-model-migration.js'
 import { truncateChars } from '../lib/well-formed-text.js'
@@ -179,11 +179,9 @@ export const CONTEXTUAL_CUE_GENSTUDIO_MODALITY = 'chat'
 export function contextualCueFleetBusyRetryPlan(
   error: unknown,
   retriesUsed: number,
-): { waitMs: number; reason: string } | null {
+): FleetBusyRetryPlan | null {
   if (!isFleetBusyFailure(error, CONTEXTUAL_CUE_GENSTUDIO_MODALITY)) return null
-  const waitMs: number | undefined = FLEET_BUSY_RETRY_DELAYS_MS[retriesUsed]
-  if (waitMs === undefined) return null
-  return { waitMs, reason: 'High demand right now' }
+  return fleetBusyRetryPlan(error, CONTEXTUAL_CUE_GENSTUDIO_MODALITY, retriesUsed)
 }
 
 /**
@@ -502,14 +500,14 @@ export async function generateContextualCues(job: Job): Promise<void> {
           }
           await writeContextualCueProgress(planPath, progress)
           fleetBusyRetries++
-          maxAttempts = Math.max(maxAttempts, attemptNum + 1 + (FLEET_BUSY_RETRY_DELAYS_MS.length - fleetBusyRetries))
-          job.output_lines.push(
+          maxAttempts = Math.max(maxAttempts, attemptNum + 1 + (fleetBusyPlan.maxAttempts - 1 - fleetBusyRetries))
+          job.output_lines.push(fleetBusyPlan.free ? freeMacWaitLine(`Batch ${index + 1}`, error, fleetBusyPlan.waitMs) :
             `Batch ${index + 1}: ${fleetBusyPlan.reason.toLowerCase()} — the request never reached one, `
             + 'so nothing was charged and the credits were returned whole. '
             + `Waiting ${Math.round(fleetBusyPlan.waitMs / 1000)}s and asking again `
             + `(attempt ${attemptNum + 1} of ${maxAttempts}).`,
           )
-          job.item_progress.active = [{ label: `Batch ${index + 1}`, key: `batch-${index}`, state: 'waiting_retry', attempt: attemptNum, max_attempts: maxAttempts, retry_at: new Date(Date.now() + fleetBusyPlan.waitMs).toISOString(), reason: 'high demand right now' }]
+          job.item_progress.active = [{ label: `Batch ${index + 1}`, key: `batch-${index}`, state: 'waiting_retry', attempt: attemptNum, max_attempts: maxAttempts, retry_at: new Date(Date.now() + fleetBusyPlan.waitMs).toISOString(), reason: fleetBusyPlan.reason }]
           await waitForFleetCapacity(job.job_id, fleetBusyPlan.waitMs)
           // Re-read after the wait. Minutes passed, and a Cancel or a Pause
           // pressed during them is the owner's last word — the batch then fails

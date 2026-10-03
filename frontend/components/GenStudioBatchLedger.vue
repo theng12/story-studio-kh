@@ -7,12 +7,27 @@
            "50 items · 450 on hold" looks like 450 items on hold. They are
            credits, and one of them (`on hold`) already carried the unit on the
            jobs page while the other two did not — one fact, three spellings. -->
-      <strong>{{ remoteJobs.length.toLocaleString() }} items</strong>
+      <!-- With item counts, the header says what the ITEMS are doing — the same derivation as the
+           job card (useJobEta.summariseJobItems) — so the two can never disagree. Gateway requests
+           (a retried item has more than one) are listed in the ledger below. -->
+      <strong v-if="items">{{ items.total.toLocaleString() }} items</strong>
+      <strong v-else>{{ remoteJobs.length.toLocaleString() }} items</strong>
+      <template v-if="!free">
       <span v-if="chargedCredits > 0" class="gs-batch-credit">{{ chargedCredits.toLocaleString() }} credits charged</span>
       <span v-if="heldCredits > 0" class="gs-batch-credit held">{{ heldCredits.toLocaleString() }} credits on hold</span>
       <span v-if="returnedCredits > 0" class="gs-batch-credit returned">{{ returnedCredits.toLocaleString() }} credits returned</span>
       <span v-if="chargedCredits === 0 && heldCredits === 0 && returnedCredits === 0 && unresolvedCount > 0" class="gs-batch-credit muted">Awaiting settlement</span>
+      </template>
     </div>
+
+    <div v-if="items" class="gs-batch-statuses" aria-label="Item status">
+      <span v-if="items.finished" class="settled">{{ items.finished.toLocaleString() }} done</span>
+      <span v-if="items.inFlight" class="active">{{ items.inFlight.toLocaleString() }} generating</span>
+      <span v-if="items.waiting" class="queued">{{ items.waiting.toLocaleString() }} {{ items.waitingForMac ? 'waiting for a free Mac' : 'waiting to try again' }}</span>
+      <span v-if="items.queued" class="queued">{{ items.queued.toLocaleString() }} not sent yet</span>
+      <span v-if="items.failed" class="failed">{{ items.failed.toLocaleString() }} failed</span>
+    </div>
+    <template v-else>
 
     <div class="gs-batch-progress" aria-label="Remote item status distribution">
       <span v-if="settledCount" class="settled" :style="segmentStyle(settledCount)" :title="`${settledCount} settled`" />
@@ -30,6 +45,7 @@
       <span v-if="cancelledCount" class="cancelled">{{ cancelledCount.toLocaleString() }} cancelled</span>
       <span v-if="failedCount" class="failed">{{ failedCount.toLocaleString() }} failed</span>
     </div>
+    </template>
 
     <div class="gs-batch-actions">
       <!-- v1.4.82 — this counted every in-flight item as an exception too, so
@@ -37,11 +53,12 @@
            inspect forty of them. An item the provider is working on is not an
            exception; the affordance now appears only when there is a real one
            to inspect. -->
-      <button v-if="exceptionJobs.length" type="button" class="link-btn" @click="toggleExceptions">
+      <!-- A failed Gateway request whose item is being tried again is not a failed item. -->
+      <button v-if="exceptionJobs.length && (!items || items.failed)" type="button" class="link-btn" @click="toggleExceptions">
         {{ showingExceptions ? 'Show all ledger' : `Inspect ${exceptionJobs.length.toLocaleString()} failed` }}
       </button>
       <button type="button" class="link-btn" @click="toggleLedger">
-        {{ ledgerOpen ? 'Hide item ledger' : `Show item ledger (${remoteJobs.length.toLocaleString()})` }}
+        {{ ledgerOpen ? 'Hide Gateway requests' : `Show Gateway requests (${remoteJobs.length.toLocaleString()})` }}
       </button>
     </div>
 
@@ -58,7 +75,7 @@
       </template>
     </p>
 
-    <GenStudioCreditSettlementHint :remote-jobs="remoteJobs" />
+    <GenStudioCreditSettlementHint v-if="!free" :remote-jobs="remoteJobs" />
 
     <div v-if="ledgerOpen" class="gs-batch-ledger">
       <div class="gs-batch-ledger-head">
@@ -100,6 +117,7 @@
 import { computed, ref, watch } from 'vue'
 import { effectiveGenStudioTaskState } from '@shared/provider-task-state'
 import { describeJobCostUsd } from '../utils/genstudio-price-usd.js'
+import type { JobItemCounts } from '../composables/useJobEta'
 
 type RemoteJob = {
   id: string
@@ -122,7 +140,13 @@ type RemoteJob = {
   updated_at?: string
 }
 
-const props = defineProps<{ remoteJobs: readonly RemoteJob[] }>()
+const props = defineProps<{
+  remoteJobs: readonly RemoteJob[]
+  /** The job's item counts (useJobEta.summariseJobItems), when it works through a list. */
+  items?: Pick<JobItemCounts, 'total' | 'finished' | 'inFlight' | 'waiting' | 'waitingForMac' | 'queued' | 'failed'> | null
+  /** Free fleet work: no credit figures at all. */
+  free?: boolean
+}>()
 
 const PAGE_SIZE = 25
 const ledgerOpen = ref(false)

@@ -267,6 +267,7 @@
 </template>
 
 <script setup lang="ts">
+import { FREE_MAC_WAIT_REASON } from '@shared/provider-task-state'
 import type { Job } from '~/composables/useJobs'
 import {
   audioQualityLabel,
@@ -600,6 +601,9 @@ function secondsUntil(iso?: string): number {
 function activeText(a: LiveAttempt): string {
   if (a.state !== 'waiting_retry') return `${prettyLabel(a.label)} — generating`
   const remaining = secondsUntil(a.retry_at)
+  if (a.reason === FREE_MAC_WAIT_REASON) {
+    return `${prettyLabel(a.label)} — waiting for a free Mac, next try${remaining ? ` in ${remaining}s` : ' now'}`
+  }
   return `${prettyLabel(a.label)} — busy, trying again`
     + `${remaining ? ` in ${remaining}s` : ' now'}`
     + ` (attempt ${a.attempt + 1} of ${a.max_attempts})`

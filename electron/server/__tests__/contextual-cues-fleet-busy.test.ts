@@ -165,8 +165,8 @@ describe('Contextual Cues: the backpressure ladder is untouched', () => {
       'the backpressure ladder must still count only its own retries')
     has('waitWhileActive(job.job_id, CONTEXTUAL_CUE_BACKPRESSURE_COOLDOWN_MS)',
       'and still wait its own fifteen seconds, not a fleet-sized wait')
-    has('FLEET_BUSY_RETRY_DELAYS_MS[retriesUsed]',
-      'while the fleet ladder reads its own escalating schedule')
+    has('fleetBusyRetryPlan(error, CONTEXTUAL_CUE_GENSTUDIO_MODALITY, retriesUsed)',
+      'while the fleet ladder reads the shared escalating schedule')
   })
 })
 

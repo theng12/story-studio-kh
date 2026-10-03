@@ -24,7 +24,7 @@ import {
   resolveGenStudioTtsSpeed,
   refreshGenStudioAdmission,
 } from '../lib/genstudio-client.js'
-import { isFleetBusyFailure } from '../lib/genstudio-fleet-busy.js'
+import { fleetBusyRetryPlan, freeMacWaitLine } from '../lib/genstudio-fleet-busy.js'
 import {
   delayUnlessAborted,
   nextTtsRouteRetryIdentity,
@@ -1011,7 +1011,6 @@ export async function generateAudio(job: Job): Promise<void> {
         ...(recoveryEntry?.task_id ? { job_id: recoveryEntry.task_id } : {}),
         state: (recoveryEntry?.last_state || 'prepared') as GenStudioRecoveryState,
       })
-      job.output_lines.push(`  Gateway request: ${task.sectionLabel} -> ${idempotencyKey}`)
       const request = {
         text: task.chunkText,
         voiceId: effectiveVoice,
@@ -1057,7 +1056,7 @@ export async function generateAudio(job: Job): Promise<void> {
             job_id: providerJobId,
             state: 'accepted',
           })
-          job.output_lines.push(`  Gateway task: ${task.sectionLabel} -> ${providerJobId}`)
+          job.output_lines.push(`  ${task.sectionLabel} sent to the Gateway.`)
         },
         onState: async (state: GenStudioRecoveryState, providerJobId: string) => {
           await recordTaskStrict(audioDir, chunkFilename, {
@@ -1178,6 +1177,8 @@ export async function generateAudio(job: Job): Promise<void> {
       max_attempts: TTS_ROUTE_RETRY_MAX_ATTEMPTS,
     })
     publishProgress()
+    let fleetBusyRetries = 0
+    let maxAttempts = TTS_ROUTE_RETRY_MAX_ATTEMPTS
     try {
       for (let attempt = 1; ; attempt++) {
         try {
@@ -1249,9 +1250,14 @@ export async function generateAudio(job: Job): Promise<void> {
           //     nowhere near a GenStudio restart, which is when whole batches
           //     were lost. This ladder is minutes, which is the right scale.
           const transportFailure = isTransportFailure(e)
-          const worthRetrying = isGenStudioRouteExhausted(e) || isFleetBusyFailure(e, 'tts')
-            || transportFailure
-          if (!worthRetrying || attempt >= TTS_ROUTE_RETRY_MAX_ATTEMPTS) {
+          // A busy, offline or slow Mac waits on the shared fleet ladder (and, for free fleet work,
+          // keeps waiting while the Gateway would) — it is never counted as a failed chapter.
+          const fleetPlan = fleetBusyRetryPlan(e, 'tts', fleetBusyRetries)
+          // Route/transport retries keep their own count, so a long wait for a Mac never uses them up.
+          const routeAttempt = attempt - fleetBusyRetries
+          const worthRetrying = !!fleetPlan
+            || ((isGenStudioRouteExhausted(e) || transportFailure) && routeAttempt < TTS_ROUTE_RETRY_MAX_ATTEMPTS)
+          if (!worthRetrying) {
             failedTasks++
             // Settled-pool semantics: one chunk failure doesn't kill the
             // batch. The queue stamps status='error' after the loop if
@@ -1261,25 +1267,28 @@ export async function generateAudio(job: Job): Promise<void> {
             return
           }
 
-          const waitMs = ttsRouteRetryDelayMs(attempt - 1)
-          const reason = transportFailure
+          if (fleetPlan) fleetBusyRetries++
+          const waitMs = fleetPlan ? fleetPlan.waitMs : ttsRouteRetryDelayMs(routeAttempt - 1)
+          maxAttempts = fleetPlan ? fleetPlan.maxAttempts : TTS_ROUTE_RETRY_MAX_ATTEMPTS
+          const reason = fleetPlan
+            ? fleetPlan.reason
+            : transportFailure
             ? `Could not reach ${genStudioProviderLabel}`
-            : isFleetBusyFailure(e, 'tts')
-            ? 'High demand right now'
             : `No ${genStudioProviderLabel} route would accept this request`
           activeTasks.set(chunkFilename, {
             label: task.sectionLabel,
             key: task.sectionSlug,
             state: 'waiting_retry',
             attempt,
-            max_attempts: TTS_ROUTE_RETRY_MAX_ATTEMPTS,
+            max_attempts: maxAttempts,
             retry_at: new Date(Date.now() + waitMs).toISOString(),
             reason,
           })
           publishProgress()
-          job.output_lines.push(
-            `  ${task.sectionLabel}: ${reason.toLowerCase()} — nothing was charged.`
-            + ` Retrying in ${Math.round(waitMs / 1000)}s (attempt ${attempt + 1} of ${TTS_ROUTE_RETRY_MAX_ATTEMPTS}).`,
+          job.output_lines.push(fleetPlan?.free
+            ? `  ${freeMacWaitLine(task.sectionLabel, e, waitMs)}`
+            : `  ${task.sectionLabel}: ${reason.toLowerCase()} — nothing was charged.`
+              + ` Retrying in ${Math.round(waitMs / 1000)}s (attempt ${attempt + 1} of ${maxAttempts}).`,
           )
           if (transportFailure) {
             // THE IDENTITY MUST NOT MOVE. A settled failure is dead — its key
@@ -1313,7 +1322,7 @@ export async function generateAudio(job: Job): Promise<void> {
             key: task.sectionSlug,
             state: 'running',
             attempt: attempt + 1,
-            max_attempts: TTS_ROUTE_RETRY_MAX_ATTEMPTS,
+            max_attempts: maxAttempts,
           })
           publishProgress()
         }

@@ -33,3 +33,22 @@ export function reconciledGenStudioQueueState(providerState: unknown) {
   if (state === 'validating' || state === 'reconciling') return 'completing'
   return 'running'
 }
+
+/**
+ * Work on the owner's own Studio Hub fleet. The Gateway publishes every fleet model under the
+ * `studio-hub::` namespace (`catalog_encode` → `fleet.publish_id`), on the catalogue and on every job
+ * envelope's `model_id`, and that work costs nothing. Free work is never described in credits, and a
+ * Mac that is busy, offline or slow to answer is a wait, not a failure (owner, 2026-10-03).
+ * Display and wait policy only — never a routing choice.
+ */
+export function isFreeFleetModelId(modelId: unknown): boolean {
+  return typeof modelId === 'string' && /^studio-hub(?:-[\w-]+)?::/.test(modelId)
+}
+
+/** Every remote request of a job ran on the owner's fleet (and there was at least one). */
+export function isFreeFleetWork(remotes: ReadonlyArray<{ model_id?: unknown }> | null | undefined): boolean {
+  return !!remotes?.length && remotes.every(remote => isFreeFleetModelId(remote.model_id))
+}
+
+/** The one wording for an item that is waiting because no Mac could take it yet. */
+export const FREE_MAC_WAIT_REASON = 'Waiting for a free Mac'
