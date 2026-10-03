@@ -276,6 +276,57 @@ async function fetchVideoMetadata(
   return out
 }
 
+/** ISO-8601 duration ("PT1H2M3S") in seconds; null for anything else or zero. */
+export function isoDurationSeconds(text: string): number | null {
+  const match = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(text)
+  if (!match) return null
+  const [, d, h, m, sec] = match.map(part => Number(part ?? 0))
+  const total = d! * 86400 + h! * 3600 + m! * 60 + sec!
+  // "P0D" is what YouTube sends for a live or upcoming stream: no length yet,
+  // which is an absence, not a zero-second video.
+  return total > 0 ? total : null
+}
+
+/**
+ * Published date and length per video, for the Analytics table.
+ *
+ * `videos.list part=snippet,contentDetails` in batches of 50 through the same
+ * transport seam. A batch that fails leaves its ids ABSENT, and so does a video
+ * YouTube did not return; the caller turns absence into `not_available`, never
+ * into a blank or a zero. A field YouTube sent but we cannot read is `null`.
+ */
+export async function fetchVideoFacts(
+  slug: string,
+  accountId: string,
+  videoIds: string[],
+): Promise<Record<string, { published_ms: number | null; duration_seconds: number | null }>> {
+  const out: Record<string, { published_ms: number | null; duration_seconds: number | null }> = {}
+  const unique = [...new Set(videoIds.filter(Boolean))]
+  for (let i = 0; i < unique.length; i += 50) {
+    const url = new URL('https://www.googleapis.com/youtube/v3/videos')
+    url.searchParams.set('part', 'snippet,contentDetails')
+    url.searchParams.set('fields', 'items(id,snippet/publishedAt,contentDetails/duration)')
+    url.searchParams.set('id', unique.slice(i, i + 50).join(','))
+    try {
+      const resp = await fetchWithAuthRetry(slug, accountId, (accessToken) =>
+        youtubeTransport(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } }),
+        'videos_list',
+      )
+      if (!resp.ok) continue
+      const data = await resp.json() as any
+      for (const item of (data.items || [])) {
+        if (!item?.id) continue
+        const published = Date.parse(String(item.snippet?.publishedAt ?? ''))
+        out[item.id] = {
+          published_ms: Number.isFinite(published) ? published : null,
+          duration_seconds: isoDurationSeconds(String(item.contentDetails?.duration ?? '')),
+        }
+      }
+    } catch { /* this batch's ids stay absent: "not available", with the reason */ }
+  }
+  return out
+}
+
 // ── Two-tier cache (memory + disk) ─────────────────────────────────────────
 //
 // Keyed by `${slug}::${accountId}::${start}::${end}::${maxResults}`. TTL

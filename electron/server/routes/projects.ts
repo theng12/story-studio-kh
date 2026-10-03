@@ -22,6 +22,8 @@ import type { ProjectMeta } from '../models/types.js'
 import type { JobType } from '../models/types.js'
 import { createProjectWithContentSelections } from '../content-packs/project-pins.js'
 import { getIdeas } from '../services/idea-manager.js'
+import { readYouTubeProjectPublishingState } from '../services/youtube-project-publishing-store.js'
+import { episodeStepJobStates } from '../contracts/episode-step-jobs.js'
 
 export const router = Router()
 
@@ -220,6 +222,54 @@ router.delete('/formats/custom/:id', async (req, res) => {
     res.json({ ok: true, id })
   } catch (e: any) {
     respondWithError(res, e, 'Failed to delete')
+  }
+})
+
+// Episode counts for the home channel card. Cheap on purpose: the idea list, one
+// small publishing-state file and the in-memory job list - no episode folder is
+// opened and nothing leaves this Mac.
+//
+//   episodes         accepted ideas
+//   on_youtube       accepted episodes with a saved YouTube video link; null when
+//                    that file cannot be read (unknown is not "none")
+//   in_progress      distinct accepted episodes whose latest job for some step is
+//                    queued or running
+//   needs_attention  distinct accepted episodes whose latest attempt at some step
+//                    failed (the Production Board's rule, episodeStepJobStates)
+router.get('/projects/:slug/channel-counts', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const codes = new Set<string>()
+    let episodes = 0
+    for (const idea of await getIdeas(slug, 'accepted')) {
+      episodes++
+      if (idea.episode_code) codes.add(idea.episode_code)
+    }
+
+    let onYouTube: number | null = null
+    try {
+      const links = (await readYouTubeProjectPublishingState(slug)).episode_video_links
+      onYouTube = [...codes].filter(code => Object.hasOwn(links, code)).length
+    } catch (e: any) {
+      console.warn(`[channel-counts] ${slug}: publishing state unreadable: ${e?.message || e}`)
+    }
+
+    const inProgress = new Set<string>()
+    const needsAttention = new Set<string>()
+    for (const [key, state] of episodeStepJobStates(await jq.getJobs(slug))) {
+      const code = key.slice(0, key.lastIndexOf(':'))
+      if (!codes.has(code)) continue
+      ;(state.state === 'active' ? inProgress : needsAttention).add(code)
+    }
+    res.json({
+      episodes,
+      on_youtube: onYouTube,
+      in_progress: inProgress.size,
+      needs_attention: needsAttention.size,
+    })
+  } catch (e: any) {
+    respondWithError(res, e, 'Could not count episodes')
   }
 })
 

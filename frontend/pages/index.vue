@@ -155,7 +155,18 @@
                   Episodes folder not found:
                   <code>{{ project.output_root }}</code>
                 </span>
-                <span v-else>Episode codes: {{ project.episode_prefix || 'EP' }}… · Created {{ formatDate(project.created_at) }}</span>
+                <template v-else>
+                  <span>Episode codes: {{ project.episode_prefix || 'EP' }}… · Created {{ formatDate(project.created_at) }}</span>
+                  <!-- Counts come from a cheap per-channel read (no episode folders
+                       are scanned) and arrive after the list, so each card says what
+                       it is doing instead of showing a number that might be a guess. -->
+                  <span v-if="countsView(project)" class="project-counts" aria-live="polite">
+                    <template v-for="(part, i) in countsView(project)!.parts" :key="i">
+                      <span v-if="i > 0" aria-hidden="true"> · </span>
+                      <span :class="{ 'project-counts-warn': part.warn }">{{ part.text }}</span>
+                    </template>
+                  </span>
+                </template>
               </span>
               <span class="project-open" aria-hidden="true">Open channel <span>→</span></span>
             </NuxtLink>
@@ -423,6 +434,7 @@ async function loadProjects(): Promise<void> {
   try {
     const fresh = await get<any[]>('/projects', { cache: 'no-store' })
     projects.value = fresh
+    void loadChannelCounts(fresh)
     // Reconciled, not merged. Whatever the server just said is the whole truth
     // about which channels exist — a channel deleted elsewhere must disappear
     // here, so the cache is REPLACED rather than added to.
@@ -458,6 +470,49 @@ async function retryLoadProjects(): Promise<void> {
   } finally {
     projectsRetrying.value = false
   }
+}
+
+// Episode counts per channel card. A card's entry exists only while that channel
+// is on screen and healthy, so nothing leaks between cards or outlives a refresh.
+interface ChannelCounts { episodes: number; on_youtube: number | null; in_progress: number; needs_attention: number }
+type CountsEntry = { state: 'loading' } | { state: 'error' } | { state: 'ok'; counts: ChannelCounts }
+const channelCounts = ref<Record<string, CountsEntry>>({})
+let countsRun = 0
+
+function hasReadableFolder(project: { status?: string; output_root_exists?: boolean }): boolean {
+  return !isFolderUnreadable(project) && project.output_root_exists !== false
+}
+
+async function loadChannelCounts(list: any[]): Promise<void> {
+  const run = ++countsRun
+  const slugs = list.filter(hasReadableFolder).map(project => projectSlug(project?.slug)).filter(Boolean)
+  channelCounts.value = Object.fromEntries(slugs.map(slug => [slug, { state: 'loading' } as CountsEntry]))
+  await Promise.all(slugs.map(async (slug) => {
+    let entry: CountsEntry
+    try {
+      entry = { state: 'ok', counts: await get<ChannelCounts>(`/projects/${slug}/channel-counts`, { cache: 'no-store' }) }
+    } catch {
+      entry = { state: 'error' }
+    }
+    // A newer list replaced this one while the read was in flight: drop the answer.
+    if (run === countsRun) channelCounts.value = { ...channelCounts.value, [slug]: entry }
+  }))
+}
+
+function countsView(project: any): { parts: Array<{ text: string; warn?: boolean }> } | null {
+  const entry = channelCounts.value[projectSlug(project?.slug)]
+  if (!entry) return null
+  if (entry.state === 'loading') return { parts: [{ text: 'Counting episodes…' }] }
+  if (entry.state === 'error') return { parts: [{ text: 'Episode counts unavailable right now' }] }
+  const c = entry.counts
+  if (c.episodes === 0) return { parts: [{ text: 'No episodes yet' }] }
+  const parts: Array<{ text: string; warn?: boolean }> = [
+    { text: `${c.episodes} ${c.episodes === 1 ? 'episode' : 'episodes'}` },
+    { text: c.on_youtube === null ? 'YouTube count unavailable' : `${c.on_youtube} on YouTube` },
+  ]
+  if (c.in_progress > 0) parts.push({ text: `${c.in_progress} being made now` })
+  if (c.needs_attention > 0) parts.push({ text: `${c.needs_attention} ${c.needs_attention === 1 ? 'needs' : 'need'} attention`, warn: true })
+  return { parts }
 }
 
 function projectHref(project: { slug?: unknown }): string {
@@ -741,6 +796,8 @@ onMounted(async () => {
 .project-copy { gap: 4px; }
 .project-copy strong { overflow-wrap: anywhere; font-size: var(--font-xl); }
 .project-copy span { color: var(--text-secondary); font-size: var(--font-sm); }
+.project-copy .project-counts { margin-top: 4px; overflow-wrap: anywhere; }
+.project-copy .project-counts .project-counts-warn { color: var(--warning); font-weight: 650; }
 .project-open { display: flex; justify-content: space-between; color: var(--accent); font-size: var(--font-sm); font-weight: 650; }
 .project-card-disabled { justify-content: center; opacity: .7; }
 

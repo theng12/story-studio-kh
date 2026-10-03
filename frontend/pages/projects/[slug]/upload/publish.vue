@@ -30,33 +30,11 @@
             <span v-if="episodes.length" class="visible-count" aria-live="polite">{{ sortedEpisodes.length }} shown</span>
             <button
               v-if="episodes.length" class="btn btn-ghost btn-sm" type="button"
-              :disabled="busy !== '' || !visibleUploadCandidates.length"
-              @click="toggleVisibleSelection"
-            >
-              {{ allVisibleUploadCandidatesSelected ? 'Clear visible selection' : `Select visible eligible (${visibleUploadCandidates.length})` }}
-            </button>
-            <button
-              v-if="episodes.length" class="btn btn-primary btn-sm" type="button"
-              :disabled="busy !== '' || !selectedUploadEpisodes.length"
-              @click="reviewSelectedUploads($event)"
-            >
-              {{ busy === 'bulk-preview' ? 'Reviewing…' : `Review selected uploads (${selectedUploadEpisodes.length})` }}
-            </button>
-            <button
-              v-if="episodes.length" class="btn btn-ghost btn-sm" type="button"
               :disabled="busy !== '' || !planCandidates.length || !!planBlocked"
               :title="planBlocked || (!planCandidates.length ? 'No visible video needs a planned date.' : '')"
               @click="planUnscheduledVideos()"
             >
               {{ busy === 'plan-batch' ? 'Planning…' : `${planCandidates.some(hasMissedPlan) ? 'Plan missing or missed dates' : 'Plan unscheduled videos'} (${planCandidates.length})` }}
-            </button>
-            <button
-              v-if="episodes.length" class="btn btn-ghost btn-sm" type="button"
-              :disabled="busy !== '' || !selectedUploadEpisodes.length || !!planBlocked"
-              :title="planBlocked || (!selectedUploadEpisodes.length ? 'Select videos to re-date.' : 'Re-lay the planned dates of the selected videos from a start date using the active plan\'s cadence.')"
-              @click="openRelayout($event)"
-            >
-              Edit planned dates ({{ selectedUploadEpisodes.length }})
             </button>
             <button class="btn btn-ghost btn-sm" type="button" :disabled="refreshingList" @click="refreshList">
               {{ refreshingList ? 'Refreshing…' : 'Refresh list' }}
@@ -115,6 +93,64 @@
           </button>
         </div>
 
+        <!--
+          Bulk actions. Always on screen (disabled with the reason when nothing
+          fits), never hidden behind a selection, and each one says whether it
+          changes YouTube or only Story Studio. They act only on selected rows
+          the filters are showing: a row hidden by a filter is never touched.
+        -->
+        <section v-if="episodes.length" class="bulk-panel" aria-labelledby="bulk-panel-title">
+          <div class="bulk-selection">
+            <h4 id="bulk-panel-title">Bulk actions</h4>
+            <span class="bulk-count" aria-live="polite">{{ selectionSummary }}</span>
+            <button
+              class="btn btn-ghost btn-sm" type="button"
+              :disabled="busy !== '' || !sortedEpisodes.length"
+              @click="toggleAllMatching"
+            >
+              {{ allMatchingSelected ? `Unselect these ${sortedEpisodes.length}` : `Select all matching (${sortedEpisodes.length})` }}
+            </button>
+            <button v-if="selectedCodes.length" class="btn btn-ghost btn-sm" type="button" :disabled="busy !== ''" @click="clearSelection">
+              Clear selection
+            </button>
+          </div>
+          <p class="hint">
+            Tick rows, or Shift-click a second row to tick everything between. “Select all matching” ticks every row the
+            search and status filters are showing. Each action asks first and names the exact number of videos.
+          </p>
+          <p v-if="hiddenSelectedCount" class="hint tone-warn" role="status">
+            {{ hiddenSelectedCount }} selected row{{ hiddenSelectedCount === 1 ? ' is' : 's are' }} hidden by the filters and will be left alone.
+          </p>
+          <ul class="bulk-actions">
+            <li v-for="action in bulkActions" :key="action.key" class="bulk-action">
+              <div class="bulk-action-head">
+                <button
+                  :class="['btn', 'btn-sm', action.key === 'upload' ? 'btn-primary' : 'btn-ghost']" type="button"
+                  :disabled="busy !== '' || !!action.why"
+                  @click="runBulkAction(action.key, $event)"
+                >
+                  {{ action.key === 'upload' && busy === 'bulk-preview' ? 'Reviewing…' : action.label }}
+                </button>
+                <span :class="['bulk-where', action.youtube ? 'tone-info' : 'tone-muted']">{{ action.youtube ? 'Changes YouTube' : 'Story Studio only' }}</span>
+              </div>
+              <small>{{ action.hint }}</small>
+              <small v-if="action.why" class="bulk-why">{{ action.why }}</small>
+            </li>
+          </ul>
+          <div v-if="bulkRun" class="bulk-progress" role="status" aria-live="polite">
+            <p>
+              <strong>{{ bulkRun.label }}:</strong>
+              {{ bulkRun.done }} of {{ bulkRun.total }} done<template v-if="bulkRun.failed"> · {{ bulkRun.failed }} could not be done (the reason is on each row)</template><template v-if="bulkRun.stopped"> · stopped before the rest</template>.
+              {{ bulkRun.note }}
+            </p>
+            <button
+              v-if="!bulkRun.finished && bulkRun.stoppable" class="btn btn-ghost btn-sm" type="button"
+              :disabled="bulkRun.stopRequested" @click="bulkRun.stopRequested = true"
+            >{{ bulkRun.stopRequested ? 'Stopping after this row…' : 'Stop after this row' }}</button>
+            <button v-else-if="bulkRun.finished" class="btn btn-ghost btn-sm" type="button" @click="bulkRun = null">Dismiss</button>
+          </div>
+        </section>
+
         <p v-if="total && !sortedEpisodes.length" class="empty-filter" role="status">
           No episodes match these filters. <button type="button" class="inline-action" @click="clearFilters">Clear filters</button>
         </p>
@@ -124,12 +160,12 @@
         <ul v-if="sortedEpisodes.length" class="op-list">
           <li v-for="ep in sortedEpisodes" :key="ep.episode_code" class="op" :data-episode-code="ep.episode_code">
             <div class="op-id">
-              <label v-if="isUploadEligible(ep)" class="episode-select">
+              <label class="row-select" :title="`Select ${ep.episode_code}. Shift-click selects every row between this one and the last one you clicked.`">
                 <input
-                  type="checkbox" :checked="selectedUploadCodes.includes(ep.episode_code)"
-                  :disabled="busy !== ''" @change="toggleEpisodeSelection(ep.episode_code)"
+                  type="checkbox" :checked="selectedCodes.includes(ep.episode_code)"
+                  :disabled="busy !== ''" @click="onRowSelect(ep.episode_code, $event)"
                 />
-                <span>Select {{ ep.episode_code }} for upload review</span>
+                <span>Select {{ ep.episode_code }}</span>
               </label>
               <strong>{{ ep.episode_code }}</strong>
               <span class="episode-title">{{ ep.title }}</span>
@@ -548,6 +584,78 @@
         </section>
       </Modal>
 
+      <Modal :visible="bulkScheduleOpen" size="lg" labelledby="bulk-schedule-title" dialog-class="modal-flush" @close="bulkScheduleOpen = false">
+        <section class="relayout-review">
+          <header class="review-head">
+            <div>
+              <h2 id="bulk-schedule-title" tabindex="-1">Schedule {{ scheduleRows.length }} video{{ scheduleRows.length === 1 ? '' : 's' }} on YouTube</h2>
+              <p>Changes YouTube · each video stays private until its time, then YouTube makes it public</p>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" @click="bulkScheduleOpen = false">Close</button>
+          </header>
+          <div class="review-body">
+            <p class="hint">
+              Only uploaded private videos without a publish time are included, in episode order.
+              Times are in this computer’s time zone ({{ deviceTimezone }}). Nothing else about the videos changes.
+            </p>
+            <div class="schedule-fields">
+              <label for="bulk-schedule-first">First video goes public
+                <input id="bulk-schedule-first" v-model="bulkScheduleFirst" class="input" type="datetime-local" :min="bulkScheduleMin" />
+              </label>
+              <label for="bulk-schedule-every">then one every
+                <span class="every-row">
+                  <input id="bulk-schedule-every" v-model.number="bulkScheduleEvery" class="input every-input" type="number" min="1" max="30" step="1" />
+                  day{{ bulkScheduleEvery === 1 ? '' : 's' }}
+                </span>
+              </label>
+            </div>
+            <p v-if="bulkScheduleError" class="row-result err" role="alert">{{ bulkScheduleError }}</p>
+            <table v-else-if="bulkSchedulePlan.length" class="relayout-table">
+              <caption class="relayout-caption">Publish times YouTube will receive</caption>
+              <thead><tr><th scope="col">Episode</th><th scope="col">Goes public</th></tr></thead>
+              <tbody>
+                <tr v-for="item in bulkSchedulePlan" :key="item.episode_code">
+                  <td><strong>{{ item.episode_code }}</strong></td>
+                  <td>{{ formatZonedWhen(item.publish_at) }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="field-row upload-row">
+              <button class="btn btn-primary" type="button" :disabled="busy !== '' || !!bulkScheduleError || !bulkSchedulePlan.length" @click="confirmBulkSchedule">
+                Schedule {{ bulkSchedulePlan.length }} video{{ bulkSchedulePlan.length === 1 ? '' : 's' }} on YouTube
+              </button>
+            </div>
+          </div>
+        </section>
+      </Modal>
+
+      <Modal :visible="bulkVisibilityOpen" size="md" labelledby="bulk-visibility-title" dialog-class="modal-flush" @close="bulkVisibilityOpen = false">
+        <section class="relayout-review">
+          <header class="review-head">
+            <div>
+              <h2 id="bulk-visibility-title" tabindex="-1">Set visibility for {{ visibilityRows.length }} video{{ visibilityRows.length === 1 ? '' : 's' }}</h2>
+              <p>Changes YouTube · {{ visibilityRows.map(ep => ep.episode_code).join(', ') }}</p>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" @click="bulkVisibilityOpen = false">Close</button>
+          </header>
+          <div class="review-body">
+            <fieldset class="visibility-choices">
+              <legend>Make them</legend>
+              <label v-for="choice in VISIBILITY_CHOICES" :key="choice.value" class="visibility-choice">
+                <input v-model="bulkVisibility" type="radio" name="bulk-visibility" :value="choice.value" />
+                <span><strong>{{ choice.label }}</strong><small>{{ choice.hint }}</small></span>
+              </label>
+            </fieldset>
+            <p class="hint">Any scheduled publish time on these videos is cleared. Titles, descriptions and thumbnails are not changed.</p>
+            <div class="field-row upload-row">
+              <button class="btn btn-primary" type="button" :disabled="busy !== '' || !bulkVisibility" @click="confirmBulkVisibility">
+                {{ bulkVisibility ? `Make ${visibilityRows.length} video${visibilityRows.length === 1 ? '' : 's'} ${visibilityLabel(bulkVisibility)} on YouTube` : 'Choose a visibility' }}
+              </button>
+            </div>
+          </div>
+        </section>
+      </Modal>
+
       <Modal :visible="bulkReviewOpen" size="lg" labelledby="bulk-upload-review-title" dialog-class="modal-flush" @close="closeBulkReview">
         <section class="bulk-upload-review">
           <header class="review-head">
@@ -647,6 +755,8 @@
 </template>
 
 <script setup lang="ts">
+import { applyRowSelection, spreadPublishTimes } from '~/utils/upload-bulk'
+
 interface Channel { channel_id: string; title: string; status: string }
 
 interface Operation {
@@ -751,7 +861,7 @@ const statusFilter = ref<StatusFilter>('all')
 const sort = ref<SortMode>('episode_newest')
 const rowResults = reactive<Record<string, { kind: 'ok' | 'warn' | 'info' | 'err'; message: string }>>({})
 const planResult = ref<{ kind: 'ok' | 'warn' | 'err'; message: string } | null>(null)
-const selectedUploadCodes = ref<string[]>([])
+const selectedCodes = ref<string[]>([])
 const bulkReviewOpen = ref(false)
 const bulkReviewHeading = ref<HTMLElement | null>(null)
 const bulkReviewOpener = ref<HTMLElement | null>(null)
@@ -1400,7 +1510,7 @@ async function applyRelayout(): Promise<void> {
     relayoutOpen.value = false
     relayoutPreview.value = null
     relayoutRequest.value = null
-    selectedUploadCodes.value = []
+    selectedCodes.value = []
     await load()
   } catch (error: any) {
     relayoutError.value = error?.data?.detail || error?.message || 'Could not save those dates.'
@@ -1444,23 +1554,305 @@ function uploadEligibilityReason(ep: PublishableEpisode): string {
 }
 function isUploadEligible(ep: PublishableEpisode): boolean { return uploadEligibilityReason(ep) === '' }
 
-const visibleUploadCandidates = computed(() => sortedEpisodes.value.filter(isUploadEligible))
-const selectedUploadEpisodes = computed(() => selectedUploadCodes.value
-  .map(code => episodes.value.find(ep => ep.episode_code === code))
-  .filter((ep): ep is PublishableEpisode => !!ep && isUploadEligible(ep)))
-const allVisibleUploadCandidatesSelected = computed(() => visibleUploadCandidates.value.length > 0
-  && visibleUploadCandidates.value.every(ep => selectedUploadCodes.value.includes(ep.episode_code)))
-function toggleEpisodeSelection(episodeCode: string): void {
-  selectedUploadCodes.value = selectedUploadCodes.value.includes(episodeCode)
-    ? selectedUploadCodes.value.filter(code => code !== episodeCode)
-    : [...selectedUploadCodes.value, episodeCode]
+// ── Selection and bulk actions ────────────────────────────────────────────
+//
+// Any row can be selected; each bulk action then counts the selected rows it
+// applies to. Only rows the filters are SHOWING are ever acted on — a row that
+// a search or status filter hides stays selected (and the panel says so) but
+// is never touched, so nothing happens to a video the owner cannot see.
+
+/** Selected rows that are on screen, in on-screen order. */
+const actionableSelection = computed(() => sortedEpisodes.value.filter(ep => selectedCodes.value.includes(ep.episode_code)))
+const hiddenSelectedCount = computed(() => selectedCodes.value.length - actionableSelection.value.length)
+const selectedUploadEpisodes = computed(() => actionableSelection.value.filter(isUploadEligible))
+const allMatchingSelected = computed(() => sortedEpisodes.value.length > 0
+  && sortedEpisodes.value.every(ep => selectedCodes.value.includes(ep.episode_code)))
+const selectionSummary = computed(() => {
+  const shown = actionableSelection.value.length
+  return shown ? `${shown} selected` : 'Nothing selected'
+})
+let selectionAnchor: string | null = null
+function onRowSelect(episodeCode: string, event: MouseEvent): void {
+  const checked = (event.target as HTMLInputElement).checked
+  selectedCodes.value = applyRowSelection(
+    selectedCodes.value, sortedEpisodes.value.map(ep => ep.episode_code),
+    event.shiftKey ? selectionAnchor : null, episodeCode, checked,
+  )
+  selectionAnchor = episodeCode
 }
-function toggleVisibleSelection(): void {
-  const visibleCodes = visibleUploadCandidates.value.map(ep => ep.episode_code)
-  if (allVisibleUploadCandidatesSelected.value) {
-    selectedUploadCodes.value = selectedUploadCodes.value.filter(code => !visibleCodes.includes(code))
-  } else {
-    selectedUploadCodes.value = [...new Set([...selectedUploadCodes.value, ...visibleCodes])]
+function toggleAllMatching(): void {
+  const codes = sortedEpisodes.value.map(ep => ep.episode_code)
+  selectedCodes.value = allMatchingSelected.value
+    ? selectedCodes.value.filter(code => !codes.includes(code))
+    : [...new Set([...selectedCodes.value, ...codes])]
+  selectionAnchor = null
+}
+function clearSelection(): void { selectedCodes.value = []; selectionAnchor = null }
+
+/** Uploaded videos on this channel that YouTube can be asked to change. */
+function isOnYouTube(ep: PublishableEpisode): boolean {
+  return !!associatedVideoId(ep) && ['uploaded', 'scheduled', 'published'].includes(publicationState(ep))
+}
+/** An upload waiting in the queue: cancelling it sends nothing to YouTube. */
+function queuedUploadJob(ep: PublishableEpisode): any | null {
+  const live = liveUploadJob(ep)
+  return live?.status === 'queued' ? live : null
+}
+const scheduleRows = computed(() => actionableSelection.value.filter(canScheduleExisting)
+  .sort((a, b) => episodeNumber(a) - episodeNumber(b)))
+const visibilityRows = computed(() => actionableSelection.value.filter(isOnYouTube))
+const dequeueRows = computed(() => actionableSelection.value.filter(ep => !!queuedUploadJob(ep)))
+
+type BulkKey = 'upload' | 'relayout' | 'schedule' | 'visibility' | 'refinalize' | 'dequeue'
+const bulkActions = computed(() => {
+  const nothing = actionableSelection.value.length ? '' : 'Select rows first.'
+  const why = (blocked: string, count: number, none: string) => blocked || nothing || (count ? '' : none)
+  const upload = selectedUploadEpisodes.value.length
+  const relayout = selectedUploadEpisodes.value.length
+  const all = actionableSelection.value.length
+  return [
+    {
+      key: 'upload' as BulkKey, youtube: true, label: `Review selected uploads (${upload})`,
+      hint: 'Shows each video’s exact file, thumbnail and metadata, then queues them as private uploads. Nothing is sent until you press Queue.',
+      why: why(uploadBlocked.value, upload, 'None of the selected rows can be uploaded: each needs a finished video and no upload yet.'),
+    },
+    {
+      key: 'relayout' as BulkKey, youtube: false, label: `Edit planned dates (${relayout})`,
+      hint: 'Spreads the planned dates of videos not on YouTube yet from a start date, on the active plan’s cadence.',
+      why: why(planBlocked.value, relayout, 'None of the selected rows can be re-dated: they are already on YouTube or uploading.'),
+    },
+    {
+      key: 'schedule' as BulkKey, youtube: true, label: `Schedule on YouTube (${scheduleRows.value.length})`,
+      hint: 'Gives uploaded private videos a publish time, spread over the days you choose. They stay private until then.',
+      why: why(scheduleBlocked.value, scheduleRows.value.length, 'None of the selected rows is an uploaded private video without a publish time.'),
+    },
+    {
+      key: 'visibility' as BulkKey, youtube: true, label: `Set visibility (${visibilityRows.value.length})`,
+      hint: 'Makes videos already on YouTube Public, Unlisted or Private, and clears any scheduled time.',
+      why: why(scheduleBlocked.value, visibilityRows.value.length, 'None of the selected rows is on YouTube yet.'),
+    },
+    {
+      key: 'refinalize' as BulkKey, youtube: false, label: `Re-finalize metadata (${all})`,
+      hint: 'Writes a new title, description and tags with this channel’s YouTube Finalizer preset. Earlier versions are kept.',
+      why: why('', all, ''),
+    },
+    {
+      key: 'dequeue' as BulkKey, youtube: false, label: `Remove from upload queue (${dequeueRows.value.length})`,
+      hint: 'Cancels uploads still waiting to start. Nothing has reached YouTube for these, and they can be queued again.',
+      why: why('', dequeueRows.value.length, 'None of the selected rows has an upload waiting in the queue.'),
+    },
+  ]
+})
+
+function runBulkAction(key: BulkKey, event: Event): void {
+  if (key === 'upload') void reviewSelectedUploads(event)
+  else if (key === 'relayout') void openRelayout(event)
+  else if (key === 'schedule') openBulkSchedule()
+  else if (key === 'visibility') openBulkVisibility()
+  else if (key === 'refinalize') void refinalizeSelected()
+  else void removeSelectedFromQueue()
+}
+
+interface BulkRun {
+  label: string
+  total: number
+  done: number
+  failed: number
+  note: string
+  stoppable: boolean
+  stopRequested: boolean
+  stopped: boolean
+  finished: boolean
+}
+const bulkRun = ref<BulkRun | null>(null)
+
+/**
+ * One request per row, in order, each row's outcome on the row itself.
+ *
+ * Leaving the page stops the loop before the next row (onUnmounted moves the
+ * action revision on). That is safe for every action using this loop: each
+ * row is one complete request, so nothing is ever left half-changed — rows
+ * already done stay done and the rest are simply not started. The note on
+ * screen says exactly that.
+ */
+async function runPerRow(
+  label: string,
+  rows: PublishableEpisode[],
+  work: (ep: PublishableEpisode, slug: string) => Promise<string>,
+): Promise<void> {
+  const action = beginAction('bulk-run')
+  const run: BulkRun = {
+    label, total: rows.length, done: 0, failed: 0, stoppable: true, stopRequested: false, stopped: false, finished: false,
+    note: 'Leaving this page stops after the row in progress. Rows already done stay done; nothing is left half-changed.',
+  }
+  bulkRun.value = run
+  const live = bulkRun.value
+  for (const ep of rows) {
+    if (!actionIsCurrent(action)) return
+    if (live.stopRequested) { live.stopped = true; break }
+    try {
+      const message = await work(ep, action.slug)
+      if (!actionIsCurrent(action)) return
+      rowResults[ep.episode_code] = { kind: 'ok', message }
+      live.done += 1
+    } catch (error: any) {
+      if (!actionIsCurrent(action)) return
+      rowResults[ep.episode_code] = { kind: 'err', message: `${ep.episode_code}: ${error?.data?.detail || error?.message || 'This row could not be done.'}` }
+      live.failed += 1
+    }
+  }
+  live.finished = true
+  live.note = ''
+  if (actionIsCurrent(action)) {
+    busy.value = ''
+    await load()
+  }
+}
+
+// Schedule on YouTube — spread over days.
+const bulkScheduleOpen = ref(false)
+const bulkScheduleFirst = ref('')
+const bulkScheduleEvery = ref(1)
+const bulkScheduleMin = computed(() => localDateTimeValue(new Date(Math.max(planClock.value, Date.now()) + 60_000)))
+const bulkSchedulePlan = computed(() => {
+  const times = spreadPublishTimes(bulkScheduleFirst.value, scheduleRows.value.length, Number(bulkScheduleEvery.value))
+  return times.length ? scheduleRows.value.map((ep, index) => ({ episode_code: ep.episode_code, publish_at: times[index]! })) : []
+})
+const bulkScheduleError = computed(() => {
+  if (!bulkScheduleFirst.value) return 'Choose when the first video goes public.'
+  const every = Number(bulkScheduleEvery.value)
+  if (!Number.isInteger(every) || every < 1 || every > 30) return 'Choose a whole number of days between 1 and 30.'
+  if (!bulkSchedulePlan.value.length) return 'Choose a valid date and time.'
+  if (!isFutureIso(bulkSchedulePlan.value[0]!.publish_at)) return 'Choose a time in the future. Story Studio never turns a past time into an immediate publish.'
+  return ''
+})
+function openBulkSchedule(): void {
+  const tomorrow = new Date(Date.now() + 86_400_000)
+  tomorrow.setHours(18, 0, 0, 0)
+  bulkScheduleFirst.value = localDateTimeValue(tomorrow)
+  bulkScheduleEvery.value = 1
+  bulkScheduleOpen.value = true
+  void nextTick(() => document.getElementById('bulk-schedule-title')?.focus())
+}
+async function confirmBulkSchedule(): Promise<void> {
+  const channelId = assignedChannel.value?.channel_id
+  const plan = [...bulkSchedulePlan.value]
+  if (!channelId || bulkScheduleError.value || !plan.length) return
+  bulkScheduleOpen.value = false
+  const times = new Map(plan.map(item => [item.episode_code, item.publish_at]))
+  const rows = scheduleRows.value.filter(ep => times.has(ep.episode_code))
+  await runPerRow('Schedule on YouTube', rows, async (ep, requestSlug) => {
+    const publishAt = times.get(ep.episode_code)!
+    await post(`/projects/${requestSlug}/youtube/episodes/${encodeURIComponent(ep.episode_code)}/schedule`, {
+      publish_at: publishAt, confirm: true, expected_channel_id: channelId,
+    })
+    return `${ep.episode_code} is scheduled on YouTube for ${formatZonedWhen(publishAt)}. It stays private until then.`
+  })
+}
+
+// Set visibility on YouTube.
+type Visibility = 'public' | 'unlisted' | 'private'
+const VISIBILITY_CHOICES: Array<{ value: Visibility; label: string; hint: string }> = [
+  { value: 'public', label: 'Public', hint: 'Everyone can find and watch them. YouTube may notify subscribers, which cannot be taken back.' },
+  { value: 'unlisted', label: 'Unlisted', hint: 'Anyone with the link can watch; they do not appear on the channel or in search.' },
+  { value: 'private', label: 'Private', hint: 'Only you can watch them.' },
+]
+function visibilityLabel(value: Visibility): string { return VISIBILITY_CHOICES.find(choice => choice.value === value)!.label }
+const bulkVisibilityOpen = ref(false)
+const bulkVisibility = ref<Visibility | ''>('')
+function openBulkVisibility(): void {
+  bulkVisibility.value = ''
+  bulkVisibilityOpen.value = true
+  void nextTick(() => document.getElementById('bulk-visibility-title')?.focus())
+}
+async function confirmBulkVisibility(): Promise<void> {
+  const channelId = assignedChannel.value?.channel_id
+  const visibility = bulkVisibility.value
+  const rows = [...visibilityRows.value]
+  if (!channelId || !visibility || !rows.length) return
+  bulkVisibilityOpen.value = false
+  await runPerRow(`Set visibility to ${visibilityLabel(visibility)}`, rows, async (ep, requestSlug) => {
+    await post(`/projects/${requestSlug}/youtube/episodes/${encodeURIComponent(ep.episode_code)}/visibility`, {
+      privacy_status: visibility, confirm: true, expected_channel_id: channelId,
+    })
+    return `${ep.episode_code} is now ${visibilityLabel(visibility)} on YouTube.`
+  })
+}
+
+// Remove waiting uploads from the queue.
+async function removeSelectedFromQueue(): Promise<void> {
+  const rows = [...dequeueRows.value]
+  if (busy.value || !rows.length) return
+  const count = `${rows.length} upload${rows.length === 1 ? '' : 's'}`
+  const confirmed = await ask({
+    title: `Remove ${count} from the upload queue?`,
+    message: `${rows.map(ep => ep.episode_code).join(', ')}. These uploads have not started, so nothing has reached YouTube. `
+      + 'The videos stay on this computer and can be queued again later. Uploads that start before their turn here are left running.',
+    confirmLabel: `Remove ${count}`,
+    danger: true,
+  })
+  if (!confirmed) return
+  await runPerRow('Remove from upload queue', rows, async (ep, requestSlug) => {
+    const job = queuedUploadJob(ep)
+    if (!job) throw new Error('This upload has already started, so it was left running. Stop it in Jobs if you need to.')
+    await post(`/projects/${requestSlug}/jobs/${encodeURIComponent(job.job_id)}/cancel`, {})
+    queuedUploadCodes.delete(ep.episode_code)
+    return `${ep.episode_code} was removed from the upload queue. Nothing was sent to YouTube.`
+  })
+}
+
+// Re-finalize metadata through the Pipeline's YouTube Finalizer step.
+async function refinalizeSelected(): Promise<void> {
+  const rows = [...actionableSelection.value]
+  if (busy.value || !rows.length) return
+  const count = `${rows.length} episode${rows.length === 1 ? '' : 's'}`
+  const confirmed = await ask({
+    title: `Re-finalize metadata for ${count}?`,
+    message: `${rows.map(ep => ep.episode_code).join(', ')}. Story Studio writes a new title, description and tags for each with this `
+      + 'channel’s YouTube Finalizer preset and metadata template. Earlier versions are kept. YouTube is not changed — '
+      + 'send a new version from Library with “Update YouTube”. The work runs as jobs and keeps going if you leave this page.',
+    confirmLabel: `Re-finalize ${count}`,
+  })
+  if (!confirmed) return
+  const action = beginAction('bulk-run')
+  const run: BulkRun = {
+    label: 'Re-finalize metadata', total: rows.length, done: 0, failed: 0, stoppable: false, stopRequested: false, stopped: false, finished: false,
+    note: 'Queueing… the jobs keep running in Jobs even if you leave this page.',
+  }
+  bulkRun.value = run
+  const live = bulkRun.value
+  const settle = (episodeId: string, kind: 'ok' | 'err', message: string) => {
+    rowResults[episodeId] = { kind, message }
+    if (kind === 'ok') live.done += 1
+    else live.failed += 1
+  }
+  try {
+    const result = await post<{
+      jobs?: Array<{ episode_id: string }>
+      reused_jobs?: Array<{ episode_id: string }>
+      skipped?: Array<{ episode_id: string; reason: string }>
+      blocked?: Array<{ episode_id: string; reason: string }>
+    }>(`/projects/${action.slug}/pipeline/run-batch`, {
+      episode_ids: rows.map(ep => ep.episode_code),
+      steps: ['metadata'],
+      force: true,
+      operation_id: crypto.randomUUID(),
+    })
+    if (!actionIsCurrent(action)) return
+    for (const job of [...(result.jobs || []), ...(result.reused_jobs || [])]) {
+      settle(job.episode_id, 'ok', `${job.episode_id}: YouTube Finalizer queued. Follow it in Jobs; the new version appears in YouTube Finalizer.`)
+    }
+    for (const item of [...(result.skipped || []), ...(result.blocked || [])]) settle(item.episode_id, 'err', `${item.episode_id}: ${item.reason}`)
+    live.note = 'Queued work continues in Jobs.'
+  } catch (error: any) {
+    if (!actionIsCurrent(action)) return
+    const blocked: Array<{ episode_id: string; reason: string }> = error?.data?.blocked || []
+    for (const item of blocked) settle(item.episode_id, 'err', `${item.episode_id}: ${item.reason}`)
+    const detail = error?.data?.detail || error?.message || 'The YouTube Finalizer could not be queued.'
+    live.note = /nothing was started/i.test(detail) ? detail : `Nothing was started. ${detail}`
+  } finally {
+    live.finished = true
+    if (actionIsCurrent(action)) busy.value = ''
   }
 }
 
@@ -1568,10 +1960,9 @@ async function load(): Promise<void> {
       quotaExhausted.value = false
       uploadQuotaExhausted.value = false
     }
-    selectedUploadCodes.value = selectedUploadCodes.value.filter(code => {
-      const episode = episodes.value.find(ep => ep.episode_code === code)
-      return !!episode && isUploadEligible(episode)
-    })
+    // A row that left the list leaves the selection; every other selected row
+    // stays, and each bulk action re-checks whether it still applies.
+    selectedCodes.value = selectedCodes.value.filter(code => episodes.value.some(ep => ep.episode_code === code))
   } catch (error: any) {
     loadError.value = error?.data?.detail || error?.message || 'Could not load this project’s uploads.'
   } finally {
@@ -1957,7 +2348,7 @@ async function queueReviewedUploads(): Promise<void> {
   }
   if (actionIsCurrent(action)) {
     busy.value = ''
-    selectedUploadCodes.value = selectedUploadCodes.value.filter(code =>
+    selectedCodes.value = selectedCodes.value.filter(code =>
       !bulkReviews.value.some(item => item.episode_code === code && item.state === 'queued'))
     if (bulkReviewDismissedWhileQueueing.value && !bulkQueueWasStopped.value) {
       // The owner already left this review and every reviewed row was queued;
@@ -2164,7 +2555,11 @@ watch(slug, () => {
   relayoutPreview.value = null
   relayoutRequest.value = null
   relayoutError.value = ''
-  selectedUploadCodes.value = []
+  selectedCodes.value = []
+  selectionAnchor = null
+  bulkRun.value = null
+  bulkScheduleOpen.value = false
+  bulkVisibilityOpen.value = false
   bulkReviewOpen.value = false
   bulkReviews.value = []
   bulkReviewOpener.value = null
@@ -2244,9 +2639,9 @@ watch(slug, () => {
 .op > * { min-width: 0; }
 .op-id, .fact { display: grid; gap: 3px; }
 .fact { position: relative; }
-.episode-select { display: flex; align-items: center; gap: 6px; width: fit-content; color: var(--text-muted); font-size: var(--font-xs); cursor: pointer; }
-.episode-select input { margin: 0; accent-color: var(--accent); }
-.episode-select:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.row-select { display: flex; align-items: center; gap: 6px; width: fit-content; color: var(--text-muted); font-size: var(--font-xs); cursor: pointer; }
+.row-select input { margin: 0; accent-color: var(--accent); }
+.row-select:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .episode-title { color: var(--text-secondary); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
 .fact-label {
   position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0);
@@ -2290,6 +2685,29 @@ watch(slug, () => {
 .bulk-upload-review > .hint, .bulk-upload-review > .bulk-review-list { margin-inline: var(--uc-dialog-pad); }
 .bulk-upload-review > .hint { margin-top: 12px; }
 .bulk-upload-review > .bulk-review-list { margin-top: 12px; }
+.bulk-panel { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary); min-width: 0; }
+.bulk-selection { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.bulk-selection h4 { margin: 0; font-size: var(--font-sm); }
+.bulk-count { color: var(--text-secondary); font-size: var(--font-xs); font-variant-numeric: tabular-nums; }
+.bulk-panel .hint { margin: 0; }
+.tone-warn { color: var(--warning, #d97706); }
+.bulk-actions { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.bulk-action { display: grid; align-content: start; gap: 4px; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-secondary); }
+.bulk-action-head { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.bulk-action small { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; }
+.bulk-action .bulk-why { color: var(--text-secondary); font-style: italic; }
+.bulk-where { font-size: var(--font-xs); font-weight: 700; white-space: nowrap; }
+.bulk-progress { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 8px 10px; border-left: 3px solid var(--accent); background: var(--bg-secondary); }
+.bulk-progress p { margin: 0; font-size: var(--font-xs); }
+.schedule-fields { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 16px; }
+.schedule-fields label { display: grid; gap: 4px; color: var(--text-muted); font-size: var(--font-xs); }
+.every-row { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); }
+.every-input { width: 72px; }
+.visibility-choices { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; }
+.visibility-choices legend { margin-bottom: 6px; color: var(--text-muted); font-size: var(--font-xs); }
+.visibility-choice { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+.visibility-choice span { display: grid; gap: 2px; }
+.visibility-choice small { color: var(--text-muted); font-size: var(--font-xs); }
 .bulk-background { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px 14px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary); }
 .bulk-background p { margin: 0; font-size: 13px; }
 .bulk-background-actions { display: flex; gap: 8px; }

@@ -26,7 +26,7 @@ async function loadPage(): Promise<Component> {
     const useConfirm = () => ({ ask: async (o) => globalThis.__ucConfirm(o) })
     const useJobs = () => ({ jobs: globalThis.__ucJobsRef, jobsStale: globalThis.__ucJobsStaleRef })
   `
-  const code = `${support}\n${script.content.replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
+  const code = `${support}\n${script.content.replace('export default', 'const __sfc__ =').replace("'~/utils/upload-bulk'", JSON.stringify(new URL('../utils/upload-bulk.ts', import.meta.url).href))}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
   const out = await transform(code, { loader: 'ts', format: 'esm' })
   return (await import(`data:text/javascript;base64,${Buffer.from(
     out.code.replaceAll('"vue"', JSON.stringify(vueUrl)),
@@ -197,6 +197,16 @@ async function mount(input: {
 }
 
 const READY_OP = { operation_id: 'op-1', episode_code: 'EP0001', lifecycle: 'ready', video_id: 'vid-1', processing: { checked_at: '2026-09-02T10:00:00.000Z', provider_status: 'processed' } }
+
+
+/** Ticks one row's checkbox and reads how many uploads the bulk action would review. */
+async function uploadCountAfterSelecting(el: HTMLElement, code: string): Promise<string> {
+  const box = el.querySelector<HTMLInputElement>(`[data-episode-code="${code}"] .row-select input`)!
+  if (!box.checked) box.click()
+  await nextTick()
+  const review = [...el.querySelectorAll<HTMLButtonElement>('button')].find(b => /Review selected uploads/.test(b.textContent || ''))!
+  return review.textContent || ''
+}
 
 describe('Upload Center Publish', () => {
   test('shows YouTube’s own refusal reason rather than a generic failure', async () => {
@@ -1058,12 +1068,12 @@ describe('Upload Center Publish', () => {
     await nextTick()
 
     const selectVisible = [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find(button => button.textContent!.includes('Select visible eligible'))!
+      .find(button => button.textContent!.includes('Select all matching'))!
     assert.match(selectVisible.textContent || '', /\(1\)/)
     selectVisible.click()
     await nextTick()
 
-    assert.equal(mounted.el.querySelectorAll<HTMLInputElement>('.episode-select input:checked').length, 1)
+    assert.equal(mounted.el.querySelectorAll<HTMLInputElement>('.row-select input:checked').length, 1)
     assert.match(
       [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
         .find(button => button.textContent!.includes('Review selected uploads'))?.textContent || '',
@@ -1097,7 +1107,7 @@ describe('Upload Center Publish', () => {
       }),
     })
     ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find(button => button.textContent!.includes('Select visible eligible'))!.click()
+      .find(button => button.textContent!.includes('Select all matching'))!.click()
     await nextTick()
     const review = [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
       .find(button => button.textContent!.includes('Review selected uploads'))!
@@ -1169,7 +1179,7 @@ describe('Upload Center Publish', () => {
       },
     })
     ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find(button => button.textContent!.includes('Select visible eligible'))!.click()
+      .find(button => button.textContent!.includes('Select all matching'))!.click()
     await nextTick()
     ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
       .find(button => button.textContent!.includes('Review selected uploads'))!.click()
@@ -1206,7 +1216,7 @@ describe('Upload Center Publish', () => {
       },
     })
     ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find(button => button.textContent!.includes('Select visible eligible'))!.click()
+      .find(button => button.textContent!.includes('Select all matching'))!.click()
     await nextTick()
     ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
       .find(button => button.textContent!.includes('Review selected uploads'))!.click()
@@ -1238,7 +1248,7 @@ describe('Upload Center Publish', () => {
       },
     })
     ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find(button => button.textContent!.includes('Select visible eligible'))!.click()
+      .find(button => button.textContent!.includes('Select all matching'))!.click()
     await nextTick()
     ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
       .find(button => button.textContent!.includes('Review selected uploads'))!.click()
@@ -1383,7 +1393,8 @@ describe('Upload Center Publish', () => {
     for (let i = 0; i < 3; i++) await nextTick()
     const row = mounted.el.querySelector('[data-episode-code="EP0001"]')!
     assert.match(row.textContent || '', /Uploading EP0001 to UC-x\. Progress appears in Jobs\./)
-    assert.equal(row.querySelector('.episode-select'), null, 'a queued episode cannot be selected for another upload')
+    // Any row can be selected for bulk actions, but a queued episode is never counted for another upload.
+    assert.match(await uploadCountAfterSelecting(mounted.el, 'EP0001'), /\(0\)/, 'a queued episode cannot be selected for another upload')
     // Review stays open to read, but Upload is withheld until the reload confirms the job.
     const reopen = [...row.querySelectorAll('button')].find(b => /Review upload details/.test(b.textContent || '')) as HTMLButtonElement
     assert.equal(reopen.disabled, false)
@@ -1399,7 +1410,7 @@ describe('Upload Center Publish', () => {
     // changed) keeps the marker: the server has no queue-time duplicate guard.
     resolveReload({ episodes: [NEVER_UPLOADED], total: 1 })
     for (let i = 0; i < 6; i++) await nextTick()
-    assert.equal(mounted.el.querySelector('[data-episode-code="EP0001"] .episode-select'), null, 'an unconfirmed reload does not re-offer the upload')
+    assert.match(await uploadCountAfterSelecting(mounted.el, 'EP0001'), /\(0\)/, 'an unconfirmed reload does not re-offer the upload')
     assert.equal(mounted.calls.filter(call => call.path.endsWith('/youtube/upload')).length, 1)
     mounted.destroy()
 
@@ -1441,7 +1452,7 @@ describe('Upload Center Publish', () => {
         return new Promise(resolve => { gates.push(resolve) })
       },
     })
-    for (const box of mounted.el.querySelectorAll<HTMLInputElement>('.episode-select input')) box.click()
+    for (const box of mounted.el.querySelectorAll<HTMLInputElement>('.row-select input')) box.click()
     await nextTick()
     ;[...mounted.el.querySelectorAll('button')].find(b => /Review selected uploads/.test(b.textContent || ''))!.click()
     for (let i = 0; i < 12; i++) await nextTick()
@@ -1909,7 +1920,7 @@ describe('Upload Center Publish', () => {
 
   /** Select every row, then open the re-lay dialog. */
   async function openRelayoutDialog(mounted: Awaited<ReturnType<typeof mount>>): Promise<void> {
-    const selectAll = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Select visible eligible'))!
+    const selectAll = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Select all matching'))!
     selectAll.click()
     for (let i = 0; i < 4; i++) await nextTick()
     const open = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Edit planned dates'))!
@@ -2130,4 +2141,177 @@ test('Jobs deep links reveal the requested upload episode without starting work'
     assert.doesNotMatch(mounted.text(), /EP0002/)
     assert.equal(mounted.calls.filter(call => call.method === 'POST').length, 0)
   } finally { mounted.destroy() }
+})
+
+describe('Upload Center Publish bulk actions', () => {
+  const ROW = (code: string, extra: Record<string, unknown> = {}) => ({
+    episode_code: code, title: `Story ${code}`, has_video: true,
+    local: { render: { state: 'ready' }, upload: { state: 'none' } }, publication: { state: 'unpublished' }, ...extra,
+  })
+  const ON_YOUTUBE = (code: string, state = 'uploaded') => ROW(code, {
+    has_remote_video: true, remote_video_id: `vid-${code}`, can_schedule_existing: state === 'uploaded',
+    operation: { operation_id: `op-${code}`, episode_code: code, lifecycle: 'ready', video_id: `vid-${code}` },
+    local: { render: { state: 'ready' }, upload: { state: 'succeeded' } },
+    publication: { state, visibility: state === 'published' ? 'public' : 'private' },
+  })
+  const flush = async () => { for (let i = 0; i < 10; i++) await nextTick() }
+  const button = (el: HTMLElement, pattern: RegExp) =>
+    [...el.querySelectorAll<HTMLButtonElement>('button')].find(b => pattern.test(b.textContent || ''))!
+  const box = (el: HTMLElement, code: string) => el.querySelector<HTMLInputElement>(`[data-episode-code="${code}"] .row-select input`)!
+  function shiftClick(input: HTMLInputElement): void {
+    // A dispatched click toggles the box itself, as a real click does.
+    input.dispatchEvent(new MouseEvent('click', { shiftKey: true, bubbles: true, cancelable: true }))
+  }
+
+  test('every action stays on screen, disabled with its reason, until rows are selected', async () => {
+    const mounted = await mount({ episodes: [ROW('EP0001')] })
+    const panel = mounted.el.querySelector('.bulk-panel')!
+    for (const label of [/Review selected uploads/, /Edit planned dates/, /Schedule on YouTube \(/, /Set visibility/, /Re-finalize metadata/, /Remove from upload queue/]) {
+      assert.equal(button(panel as HTMLElement, label).disabled, true, `${label} is disabled with nothing selected`)
+    }
+    assert.match(panel.textContent || '', /Select rows first\./)
+    assert.match(panel.textContent || '', /Changes YouTube/)
+    assert.match(panel.textContent || '', /Story Studio only/)
+    mounted.destroy()
+  })
+
+  test('shift-click ticks the on-screen range, and rows hidden by a filter are never acted on', async () => {
+    const mounted = await mount({ episodes: ['EP0001', 'EP0002', 'EP0003', 'EP0004'].map(code => ROW(code)) })
+    // Newest first on screen: EP0004, EP0003, EP0002, EP0001.
+    box(mounted.el, 'EP0004').click()
+    await nextTick()
+    shiftClick(box(mounted.el, 'EP0002'))
+    await nextTick()
+    assert.deepEqual(
+      [...mounted.el.querySelectorAll<HTMLInputElement>('.row-select input')].map(input => input.checked),
+      [true, true, true, false],
+    )
+    mounted.destroy()
+
+    // Rows hidden by a filter stay selected, are reported, and are never sent.
+
+    const filtered = await mount({
+      episodes: ['EP0001', 'EP0002', 'EP0003'].map(code => ROW(code)),
+      postOverride: (path: string) => path.endsWith('/pipeline/run-batch') ? { jobs: [{ episode_id: 'EP0002', job_id: 'j2' }], skipped: [], blocked: [] } : undefined,
+    })
+    button(filtered.el, /Select all matching \(3\)/).click()
+    await nextTick()
+    const searchBox = filtered.el.querySelector<HTMLInputElement>('input[aria-label="Filter episodes by code or title"]')!
+    searchBox.value = 'EP0002'
+    searchBox.dispatchEvent(new Event('input'))
+    await flush()
+    assert.match(filtered.text(), /2 selected rows are hidden by the filters and will be left alone/)
+    button(filtered.el, /Re-finalize metadata \(1\)/).click()
+    await flush()
+    const run = filtered.calls.find(call => call.path.endsWith('/pipeline/run-batch'))!
+    assert.deepEqual(run.body.episode_ids, ['EP0002'], 'only the row on screen is sent')
+    filtered.destroy()
+  })
+
+  test('set visibility names the count, changes each row on YouTube in turn, and keeps per-row results', async () => {
+    const mounted = await mount({
+      episodes: [ON_YOUTUBE('EP0001'), ON_YOUTUBE('EP0002', 'scheduled'), ROW('EP0003')],
+      postOverride: (path: string) => {
+        if (path.includes('/EP0002/visibility')) throw { data: { detail: 'YouTube refused this change.' } }
+        if (path.endsWith('/visibility')) return { privacy_status: 'public' }
+        return undefined
+      },
+    })
+    button(mounted.el, /Select all matching/).click()
+    await nextTick()
+    button(mounted.el, /Set visibility \(2\)/).click()
+    await flush()
+    const dialog = mounted.el.querySelector('[aria-labelledby="bulk-visibility-title"]')!
+    assert.match(dialog.textContent || '', /Set visibility for 2 videos/)
+    assert.equal(button(dialog as HTMLElement, /Choose a visibility/).disabled, true, 'nothing is chosen for him')
+    dialog.querySelector<HTMLInputElement>('input[value="public"]')!.click()
+    await nextTick()
+    button(dialog as HTMLElement, /Make 2 videos Public on YouTube/).click()
+    await flush()
+    const sent = mounted.calls.filter(call => call.path.endsWith('/visibility'))
+    assert.deepEqual(sent.map(call => call.path.split('/').at(-2)), ['EP0002', 'EP0001'])
+    assert.ok(sent.every(call => call.body.privacy_status === 'public' && call.body.confirm === true && call.body.expected_channel_id === 'UC-x'))
+    assert.match(mounted.el.querySelector('[data-episode-code="EP0001"]')!.textContent || '', /EP0001 is now Public on YouTube/)
+    assert.match(mounted.el.querySelector('[data-episode-code="EP0002"]')!.textContent || '', /YouTube refused this change/)
+    assert.match(mounted.el.querySelector('.bulk-progress')!.textContent || '', /1 of 2 done · 1 could not be done/)
+    mounted.destroy()
+  })
+
+  test('schedule spreads publish times over the chosen days, one confirmed request per video', async () => {
+    const mounted = await mount({
+      episodes: [ON_YOUTUBE('EP0001'), ON_YOUTUBE('EP0002')],
+      scheduleResponse: { privacy_status: 'private' },
+    })
+    button(mounted.el, /Select all matching/).click()
+    await nextTick()
+    button(mounted.el, /Schedule on YouTube \(2\)/).click()
+    await flush()
+    const first = mounted.el.querySelector<HTMLInputElement>('#bulk-schedule-first')!
+    first.value = '2099-05-01T18:00'
+    first.dispatchEvent(new Event('input'))
+    const every = mounted.el.querySelector<HTMLInputElement>('#bulk-schedule-every')!
+    every.value = '2'
+    every.dispatchEvent(new Event('input'))
+    await flush()
+    button(mounted.el, /Schedule 2 videos on YouTube/).click()
+    await flush()
+    const sent = mounted.calls.filter(call => call.path.endsWith('/schedule'))
+    assert.deepEqual(sent.map(call => call.path.split('/').at(-2)), ['EP0001', 'EP0002'], 'episode order')
+    const [a, b] = sent.map(call => Date.parse(call.body.publish_at))
+    assert.equal(b! - a!, 2 * 86_400_000)
+    assert.equal(new Date(a!).getHours(), 18)
+    mounted.destroy()
+  })
+
+  test('remove from queue cancels only waiting uploads, after a confirm that says YouTube is untouched', async () => {
+    const queued = ROW('EP0001', { local: { render: { state: 'ready' }, upload: { state: 'queued', job_id: 'job-q' } } })
+    const running = ROW('EP0002', { local: { render: { state: 'ready' }, upload: { state: 'running', job_id: 'job-r' } } })
+    const jobs = [
+      { job_id: 'job-q', type: 'youtube_upload', status: 'queued', episode_id: 'EP0001' },
+      { job_id: 'job-r', type: 'youtube_upload', status: 'running', episode_id: 'EP0002' },
+    ]
+    const declined = await mount({ episodes: [queued, running], jobs, confirmAnswer: false })
+    button(declined.el, /Select all matching/).click()
+    await nextTick()
+    button(declined.el, /Remove from upload queue \(1\)/).click()
+    await flush()
+    assert.match(declined.confirms[0].title, /Remove 1 upload from the upload queue/)
+    assert.match(declined.confirms[0].message, /nothing has reached YouTube/)
+    assert.equal(declined.calls.filter(call => call.method === 'POST').length, 0, 'declining sends nothing')
+    declined.destroy()
+
+    const mounted = await mount({
+      episodes: [queued, running], jobs,
+      postOverride: (path: string) => path.endsWith('/cancel') ? { ok: true } : undefined,
+    })
+    button(mounted.el, /Select all matching/).click()
+    await nextTick()
+    button(mounted.el, /Remove from upload queue \(1\)/).click()
+    await flush()
+    assert.deepEqual(mounted.calls.filter(call => call.method === 'POST').map(call => call.path), ['/projects/demo-project/jobs/job-q/cancel'])
+    assert.match(mounted.text(), /EP0001 was removed from the upload queue\. Nothing was sent to YouTube\./)
+    mounted.destroy()
+  })
+
+  test('re-finalize runs the YouTube Finalizer step as a fresh Pipeline run and reports skipped rows on the row', async () => {
+    const mounted = await mount({
+      episodes: [ROW('EP0001'), ROW('EP0002')],
+      postOverride: (path: string) => path.endsWith('/pipeline/run-batch')
+        ? { jobs: [{ episode_id: 'EP0001', job_id: 'j1' }], skipped: [], blocked: [{ episode_id: 'EP0002', reason: 'YouTube Finalizer needs Audio Assembly first.' }] }
+        : undefined,
+    })
+    button(mounted.el, /Select all matching/).click()
+    await nextTick()
+    button(mounted.el, /Re-finalize metadata \(2\)/).click()
+    await flush()
+    assert.match(mounted.confirms[0].message, /Earlier versions are kept\. YouTube is not changed/)
+    const run = mounted.calls.find(call => call.path.endsWith('/pipeline/run-batch'))!
+    assert.deepEqual(run.body.steps, ['metadata'])
+    assert.equal(run.body.force, true)
+    assert.match(run.body.operation_id, /^[0-9a-f-]{36}$/)
+    assert.match(mounted.el.querySelector('[data-episode-code="EP0001"]')!.textContent || '', /YouTube Finalizer queued/)
+    assert.match(mounted.el.querySelector('[data-episode-code="EP0002"]')!.textContent || '', /needs Audio Assembly first/)
+    assert.match(mounted.el.querySelector('.bulk-progress')!.textContent || '', /1 of 2 done/)
+    mounted.destroy()
+  })
 })

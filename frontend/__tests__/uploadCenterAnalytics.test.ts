@@ -49,13 +49,21 @@ const BASE = {
 
 const metric = (state: string, extra: Record<string, unknown> = {}) => ({ state, fetched_at: AT, ...extra })
 
-const ALL_METRICS = ['views', 'watch_minutes', 'avg_view_seconds', 'avg_view_percentage', 'likes', 'comments', 'shares']
+const ALL_METRICS = [
+  'views', 'watch_minutes', 'avg_view_seconds', 'avg_view_percentage', 'likes', 'comments', 'shares',
+  'subscribers_gained', 'impressions', 'click_through_rate',
+]
 
 function episode(metrics: Record<string, unknown>, overrides: Record<string, unknown> = {}) {
   return {
     episode_code: 'EP0001',
+    title: 'The Lantern Keeper',
     video_id: 'v1',
     metrics: Object.fromEntries(ALL_METRICS.map(id => [id, metrics[id] ?? metric('value', { value: 0 })])),
+    facts: {
+      published: metric('value', { value: Date.parse('2026-04-15T00:00:00Z') }),
+      length: metric('value', { value: 3723 }),
+    },
     ...overrides,
   }
 }
@@ -77,6 +85,11 @@ async function mount(view: Record<string, any>, posts: Record<string, any> = {},
   const Page = await loadPage()
   const el = document.createElement('div')
   const app = createApp(defineComponent({ render: () => h(Page as any) }))
+  // Nuxt's link, as the anchor it renders.
+  app.component('NuxtLink', defineComponent({
+    props: { to: { type: String, required: true } },
+    setup: (props, { slots }) => () => h('a', { href: props.to }, slots.default?.()),
+  }))
   app.mount(el)
   for (let i = 0; i < 6; i++) await nextTick()
   return { el, text: () => el.textContent || '', calls, destroy: () => app.unmount() }
@@ -85,13 +98,39 @@ async function mount(view: Record<string, any>, posts: Record<string, any> = {},
 const button = (el: HTMLElement, label: string) =>
   [...el.querySelectorAll('button')].find(b => b.textContent!.trim().startsWith(label))
 
-/** Every metric cell, with the state the DOM itself declares. */
+/**
+ * Every metric cell, with the state the DOM itself declares. The detail (what
+ * the cell means and when it was checked) lives in `title` and in
+ * visually-hidden text; both are asserted to carry the same words.
+ */
 const metricCells = (el: HTMLElement) =>
-  [...el.querySelectorAll('.metric')].map(node => ({
-    state: node.getAttribute('data-state'),
-    text: node.querySelector('strong')?.textContent?.trim() ?? '',
-    detail: node.querySelector('.hint')?.textContent?.trim() ?? '',
+  [...el.querySelectorAll('td.metric')].map(node => {
+    const detail = node.getAttribute('title') ?? ''
+    assert.equal(node.querySelector('.sr-only')?.textContent?.trim(), detail, 'the hidden text matches the title')
+    return {
+      state: node.getAttribute('data-state'),
+      text: node.querySelector('.cell-text')?.textContent?.trim() ?? '',
+      detail,
+    }
+  })
+
+/** The body rows as [code, ...cell texts], in screen order. */
+const bodyRows = (el: HTMLElement) =>
+  [...el.querySelectorAll('tbody tr')].map(tr => ({
+    code: tr.querySelector('th .code')?.textContent?.trim() ?? '',
+    cells: Object.fromEntries([...tr.querySelectorAll('td')].map((td, i) => [
+      [...el.querySelectorAll('thead th')][i + 1]!.textContent!.replace(/[▲▼]/g, '').trim(),
+      td.querySelector('.cell-text')?.textContent?.trim() ?? '',
+    ])),
   }))
+
+const settle = async () => { for (let i = 0; i < 6; i++) await nextTick() }
+
+const headerButton = (el: HTMLElement, label: string) =>
+  [...el.querySelectorAll('thead button')].find(b => b.textContent!.replace(/[▲▼]/g, '').trim() === label) as HTMLButtonElement
+
+const views = (value: number | null, extra: Record<string, unknown> = {}) =>
+  value === null ? metric('no_data', extra) : metric('value', { value, ...extra })
 
 describe('Upload Center Analytics', () => {
   test('the inspiration card reads typed analytics and distinguishes unavailable data from no data', () => {
@@ -183,11 +222,11 @@ describe('Upload Center Analytics', () => {
   test('an unassigned project is told why and cannot start a fetch', async () => {
     const mounted = await mount({ empty_reason: 'no_channel_assigned', never_fetched: true, fetched_at: null })
     assert.match(mounted.text(), /No YouTube channel is assigned/)
-    assert.equal(button(mounted.el, 'Fetch analytics')!.disabled, true)
+    assert.equal(button(mounted.el, 'Fetch for this period')!.disabled, true)
     mounted.destroy()
 
     const assigned = await mount({})
-    assert.equal(button(assigned.el, 'Fetch analytics')!.disabled, false)
+    assert.equal(button(assigned.el, 'Fetch for this period')!.disabled, false)
     assigned.destroy()
   })
 
@@ -220,7 +259,7 @@ describe('Upload Center Analytics', () => {
     unavailable.destroy()
 
     const refresh = await mount({}, {}, { post: { data: { detail: 'Today’s analytics allowance is exhausted.' } } })
-    button(refresh.el, 'Fetch analytics')!.click()
+    button(refresh.el, 'Fetch for this period')!.click()
     for (let i = 0; i < 6; i++) await nextTick()
     assert.match(refresh.text(), /analytics allowance is exhausted/)
     refresh.destroy()
@@ -299,7 +338,26 @@ describe('Upload Center Analytics', () => {
     assert.match(text, /Reconnect the channel/)
     assert.doesNotMatch(text, /allowance/i)
     assert.doesNotMatch(text, /Fetch(ing)? again/i)
+    // The banner leads to the screen that fixes it.
+    assert.ok(mounted.el.querySelector('a[href="/projects/demo-project/settings#youtube"]'))
     mounted.destroy()
+
+    // Every unmeasured metric cell names the permission, not a forgotten fetch;
+    // a figure measured before the grant was lost still shows as a figure.
+    const cells = await mount({
+      partial: true, partial_reason: 'scope_missing',
+      episodes: [episode(Object.fromEntries(ALL_METRICS.map(id => [id, metric('not_fetched')])), {
+        metrics: { ...Object.fromEntries(ALL_METRICS.map(id => [id, { state: 'not_fetched' }])), views: metric('value', { value: 12 }) },
+      })],
+    })
+    const rendered = metricCells(cells.el)
+    assert.equal(rendered.find(c => c.state === 'value')!.text, '12')
+    const unmeasured = rendered.filter(c => c.state === 'not_fetched')
+    assert.equal(unmeasured.length, ALL_METRICS.length - 1)
+    for (const cell of unmeasured) {
+      assert.equal(cell.text, 'Not available — reconnect YouTube with analytics access')
+    }
+    cells.destroy()
   })
 
   test('an unmeasured state still says when it was checked', async () => {
@@ -320,6 +378,146 @@ describe('Upload Center Analytics', () => {
     assert.doesNotMatch(
       metricCells(nothing.el).find(c => c.state === 'not_fetched')!.detail, /checked/)
     nothing.destroy()
+    mounted.destroy()
+  })
+
+  // ── The table ─────────────────────────────────────────────────────────────
+  const TABLE = {
+    episodes: [
+      episode({ views: views(100), likes: metric('value', { value: 5 }) }, { episode_code: 'EP0001', video_id: 'v1' }),
+      episode({ views: views(300) }, { episode_code: 'EP0002', video_id: 'v2', title: '=HYPERLINK("evil")' }),
+      episode({ views: views(null) }, { episode_code: 'EP0003', video_id: 'v3', title: 'Quiet one' }),
+      episode({ views: views(50) }, { episode_code: 'EP0010', video_id: 'v10', title: 'Ghost Ship' }),
+    ],
+  }
+
+  test('a header click sorts, again reverses, and a row with no figure stays last both ways', async () => {
+    const mounted = await mount(TABLE)
+    assert.deepEqual(bodyRows(mounted.el).map(r => r.code), ['EP0001', 'EP0002', 'EP0003', 'EP0010'])
+
+    headerButton(mounted.el, 'Views').click()
+    await settle()
+    assert.deepEqual(bodyRows(mounted.el).map(r => r.code), ['EP0002', 'EP0001', 'EP0010', 'EP0003'])
+    const viewsHeader = headerButton(mounted.el, 'Views').closest('th')!
+    assert.equal(viewsHeader.getAttribute('aria-sort'), 'descending')
+
+    headerButton(mounted.el, 'Views').click()
+    await settle()
+    assert.deepEqual(bodyRows(mounted.el).map(r => r.code), ['EP0010', 'EP0001', 'EP0002', 'EP0003'])
+    assert.equal(viewsHeader.getAttribute('aria-sort'), 'ascending')
+    assert.equal(headerButton(mounted.el, 'Episode').closest('th')!.getAttribute('aria-sort'), 'none')
+    mounted.destroy()
+  })
+
+  test('the search filters by code or title, and the totals follow it', async () => {
+    const mounted = await mount(TABLE)
+    const footer = () => [...mounted.el.querySelectorAll('tfoot th, tfoot td')].map(n => n.textContent!.trim())
+    const headers = [...mounted.el.querySelectorAll('thead th')].map(n => n.textContent!.replace(/[▲▼]/g, '').trim())
+    const totalOf = (label: string) => footer()[headers.indexOf(label)]
+
+    // A non-zero sum over the measured rows only; the no-data row is counted
+    // as shown but not as measured, and contributes nothing.
+    assert.equal(footer()[0], 'Totals of 3 measured rows of 4 shown')
+    assert.equal(totalOf('Views'), '450')
+    assert.equal(totalOf('Likes'), '5')
+    // Averages and rates are never added up, and the page says why.
+    assert.equal(totalOf('Avg % viewed'), 'No total')
+    assert.equal(totalOf('Click-through rate'), 'No total')
+    assert.match(mounted.text(), /Averages, rates, dates and lengths have no total/)
+
+    const search = mounted.el.querySelector('input[type="search"]') as HTMLInputElement
+    search.value = 'ghost'
+    search.dispatchEvent(new Event('input'))
+    await settle()
+    assert.deepEqual(bodyRows(mounted.el).map(r => r.code), ['EP0010'])
+    assert.equal(footer()[0], 'Totals of 1 measured rows of 1 shown')
+    assert.equal(totalOf('Views'), '50')
+
+    search.value = 'ep0003'
+    search.dispatchEvent(new Event('input'))
+    await settle()
+    // Nothing measured: "No figures", never a 0 standing in for none.
+    assert.equal(totalOf('Views'), 'No figures')
+    mounted.destroy()
+  })
+
+  test('each episode links to its Publish row, with its live title beside it', async () => {
+    const mounted = await mount(TABLE)
+    const first = mounted.el.querySelector('tbody tr th')!
+    assert.equal(first.querySelector('a')!.getAttribute('href'), '/projects/demo-project/upload/publish?episode_id=EP0001')
+    assert.match(first.textContent!, /The Lantern Keeper/)
+    // Published and length are formatted for reading.
+    const row = bodyRows(mounted.el)[0]!
+    assert.equal(row.cells.Published, '2026-04-15')
+    assert.equal(row.cells.Length, '1:02:03')
+    mounted.destroy()
+  })
+
+  test('the CSV is exactly the rows shown, in order, with totals, words for gaps and no formulas', async () => {
+    const mounted = await mount(TABLE)
+    headerButton(mounted.el, 'Views').click()
+    await settle()
+
+    let blob: Blob | null = null
+    let filename = ''
+    const realCreate = URL.createObjectURL
+    const realRevoke = URL.revokeObjectURL
+    const realClick = HTMLAnchorElement.prototype.click
+    URL.createObjectURL = ((b: Blob) => { blob = b; return 'blob:analytics' }) as typeof URL.createObjectURL
+    URL.revokeObjectURL = () => {}
+    HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) { filename = this.download }
+    try {
+      button(mounted.el, 'Export CSV')!.click()
+    } finally {
+      URL.createObjectURL = realCreate
+      URL.revokeObjectURL = realRevoke
+      HTMLAnchorElement.prototype.click = realClick
+    }
+    assert.equal(filename, 'analytics-demo-project-2026-06-05-to-2026-09-03.csv')
+    const lines = (await blob!.text()).split('\n')
+    assert.equal(lines[0], 'Episode,Title,Video ID,Published,Length (seconds),Views,Watch time (minutes),Avg view duration (seconds),Avg % viewed,Impressions,Click-through rate (%),Likes,Comments,Shares,Subscribers gained')
+    assert.deepEqual(lines.slice(1, 5).map(line => line.split(',')[0]), ['EP0002', 'EP0001', 'EP0010', 'EP0003'])
+    // A title a spreadsheet would run as a formula is written as text.
+    assert.match(lines[1]!, /^EP0002,"'=HYPERLINK\(""evil""\)",v2,2026-04-15,3723,300,/)
+    // A gap is its word, never 0.
+    assert.match(lines[4]!, /^EP0003,Quiet one,v3,2026-04-15,3723,No data yet,/)
+    assert.match(lines[5]!, /^Totals of 3 measured rows of 4 shown,,,No total,No total,450,/)
+    assert.equal(lines.length, 6)
+    mounted.destroy()
+  })
+
+  test('the period is chosen on screen, sent with the fetch, and a mismatch is said out loud', async () => {
+    const mounted = await mount(TABLE)
+    // The saved window (2026-06-05 to 2026-09-03) is not the last 90 days any more.
+    assert.match(mounted.text(), /The table still shows 2026-06-05 to 2026-09-03/)
+
+    button(mounted.el, 'Fetch for this period')!.click()
+    await settle()
+    const today = new Date().toISOString().slice(0, 10)
+    const first = mounted.calls.find(c => c.method === 'POST')!
+    assert.equal(first.body.end_date, today)
+    assert.match(first.body.start_date, /^\d{4}-\d{2}-\d{2}$/)
+
+    const select = mounted.el.querySelector('select') as HTMLSelectElement
+    select.value = 'custom'
+    select.dispatchEvent(new Event('change'))
+    await settle()
+    const [from, to] = [...mounted.el.querySelectorAll('input[type="date"]')] as HTMLInputElement[]
+    from!.value = '2026-03-02'
+    from!.dispatchEvent(new Event('input'))
+    to!.value = '2026-03-01'
+    to!.dispatchEvent(new Event('input'))
+    await settle()
+    assert.equal(button(mounted.el, 'Fetch for this period')!.disabled, true)
+    assert.match(mounted.text(), /start date must be on or before the end date/)
+
+    from!.value = '2026-02-01'
+    from!.dispatchEvent(new Event('input'))
+    await settle()
+    button(mounted.el, 'Fetch for this period')!.click()
+    await settle()
+    const custom = mounted.calls.filter(c => c.method === 'POST').at(-1)!
+    assert.deepEqual(custom.body, { start_date: '2026-02-01', end_date: '2026-03-01' })
     mounted.destroy()
   })
 })
