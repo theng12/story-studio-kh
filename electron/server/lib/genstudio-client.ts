@@ -1025,6 +1025,12 @@ export interface GenStudioTtsRequest extends GenStudioOperationContext {
    * its MP3 chapter from whatever arrives). Absent = native WAV, today's behaviour.
    */
   outputFormat?: 'm4a'
+  /**
+   * The join pauses (seconds) the lane inserts where it splits this request's text: at a
+   * paragraph break and after a sentence. Sent only when the selected model publishes them
+   * (`pause_parameters`), already clamped to its range. Absent = the model's own pauses.
+   */
+  pauses?: TtsPauseValues
   /** Stable Story asset identity, such as project + episode + output file. */
   requestIdentity?: string
   /** Called with the finished job's `section_quality` when the Gateway passed one through. */
@@ -1552,8 +1558,52 @@ export interface GenStudioSubmission {
     controls?: TtsControlValues
     /** Present ONLY when the owner asked for compressed narration (`m4a`). */
     output_format?: 'm4a'
+    /** Present ONLY when set and the selected model publishes it (`pause_parameters`). */
+    paragraph_pause_sec?: number
+    sentence_pause_sec?: number
   }
   idempotencyKey: string
+}
+
+/** Join pauses for one TTS request, by the name the Gateway publishes. */
+export type TtsPauseValues = { paragraph_pause_sec?: number; sentence_pause_sec?: number }
+
+/** `TTSModelResponse.pause_parameters[]`: a join pause this model takes, with its own bounds. */
+export interface GenStudioTtsPauseParameter {
+  name: 'paragraph_pause_sec' | 'sentence_pause_sec'
+  minimum: number | null
+  maximum: number | null
+  default: number | null
+}
+
+function parseTtsPauseParameters(value: unknown): GenStudioTtsPauseParameter[] {
+  if (!Array.isArray(value)) return []
+  const number = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+  return value.flatMap((row: any): GenStudioTtsPauseParameter[] =>
+    row?.name === 'paragraph_pause_sec' || row?.name === 'sentence_pause_sec'
+      ? [{ name: row.name, minimum: number(row.minimum), maximum: number(row.maximum), default: number(row.default) }]
+      : [])
+}
+
+/**
+ * The pauses to send: each wanted value the model publishes, clamped to its published range.
+ * A pause the model does not publish is not sent (the Gateway would only drop it).
+ */
+export function resolveTtsPauses(
+  published: GenStudioTtsPauseParameter[] | undefined,
+  wanted: { paragraph?: number | null; sentence?: number | null },
+): { pauses: TtsPauseValues; unsupported: Array<'paragraph' | 'sentence'> } {
+  const pauses: TtsPauseValues = {}
+  const unsupported: Array<'paragraph' | 'sentence'> = []
+  for (const boundary of ['paragraph', 'sentence'] as const) {
+    const value = wanted[boundary]
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) continue
+    const parameter = (published || []).find(p => p.name === `${boundary}_pause_sec`)
+    if (!parameter) { unsupported.push(boundary); continue }
+    const clamped = Math.min(parameter.maximum ?? value, Math.max(parameter.minimum ?? 0, value))
+    pauses[`${boundary}_pause_sec`] = Math.round(clamped * 1000) / 1000
+  }
+  return { pauses, unsupported }
 }
 
 /**
@@ -1631,6 +1681,8 @@ export interface GenStudioTtsModel extends GenStudioCatalogLock, GenStudioPriceT
    * list means this model takes no controls, and none are shown or sent.
    */
   controls: GenStudioTtsControl[]
+  /** `TTSModelResponse.pause_parameters[]`; empty = this model takes no join-pause request. */
+  pause_parameters?: GenStudioTtsPauseParameter[]
 }
 
 /** `GET /v1/music/models` — an account-visible music product published by GenStudio. */
@@ -3426,6 +3478,9 @@ export function buildGenStudioSubmission(request: GenStudioTtsRequest): GenStudi
     // Same conditional-spread rule as `controls`: absent for the native WAV so every existing
     // key (and in-flight recovery) is unchanged, present so the two formats never share a replay.
     ...(request.outputFormat ? { output_format: request.outputFormat } : {}),
+    // Same rule again: absent unless set, so every key minted without a pause is unchanged.
+    ...(request.pauses?.paragraph_pause_sec !== undefined ? { paragraph_pause_sec: request.pauses.paragraph_pause_sec } : {}),
+    ...(request.pauses?.sentence_pause_sec !== undefined ? { sentence_pause_sec: request.pauses.sentence_pause_sec } : {}),
   }
   const digest = createHash('sha256').update(JSON.stringify({
     ...body,
@@ -4834,6 +4889,7 @@ export async function listTtsModelsSnapshot(
         // Carried through exactly as published. An absent or empty list means
         // this model takes no controls — never a reason to supply some.
         controls: parseTtsControls(value?.controls),
+        pause_parameters: parseTtsPauseParameters(value?.pause_parameters),
       }]
     })
   }, { ...options, baseUrl, apiKey })
@@ -9380,6 +9436,9 @@ async function generateTtsToFileAdmitted(
       ['speed', submission.body.speed],
       ['characters', Array.from(String(submission.body.text ?? '').normalize('NFC')).length],
       ...(submission.body.output_format ? [['output_format', submission.body.output_format] as [string, unknown]] : []),
+      ...(['paragraph_pause_sec', 'sentence_pause_sec'] as const)
+        .filter(name => submission.body[name] !== undefined)
+        .map(name => [name, submission.body[name]] as [string, unknown]),
       // Recorded only when the model published controls, so the operator can
       // see which settings a job went out under. The names are GenStudio's.
       ...(submission.body.controls

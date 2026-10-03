@@ -11,7 +11,9 @@
  *
  * The join follows the text, like the Hub's own long-form joiner: each part's
  * own leading/trailing silence is trimmed, then exactly 0.3 s goes after a
- * sentence end, 0.6 s at a paragraph break (0.18 s mid-sentence). Each part is
+ * sentence end, 0.6 s at a paragraph break (0.18 s mid-sentence) — or the
+ * channel's own sentence / paragraph pause (Series Formula, Audio Generator;
+ * Sleep: 1.0 s at a paragraph break), the same one the Hub is asked for. Each part is
  * gain-matched to the chapter's median integrated loudness (one linear gain per
  * part, no limiter), lowered together only if a peak would pass -1 dBTP, and
  * gets a 5 ms fade at each edge so no seam clicks.
@@ -36,6 +38,15 @@ export const MANIFEST_NAME = 'manifest.json'
 
 /** The Hub's text-led join pauses (studio-hub long_form_policy.py). */
 export const SEAM_PAUSE_S = { sentence: 0.3, paragraph: 0.6, soft: 0.18 } as const
+export type SeamPauseRule = { sentence: number; paragraph: number; soft: number }
+const MAX_PAUSE_S = 3
+
+/** The seam pauses for a chapter: the asked-for sentence / paragraph pause (0–3 s), else the Hub's. */
+export function seamPauseRule(wanted: { paragraph?: number | null; sentence?: number | null } = {}): SeamPauseRule {
+  const pick = (value: number | null | undefined, fallback: number) =>
+    typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.min(value, MAX_PAUSE_S) : fallback
+  return { sentence: pick(wanted.sentence, SEAM_PAUSE_S.sentence), paragraph: pick(wanted.paragraph, SEAM_PAUSE_S.paragraph), soft: SEAM_PAUSE_S.soft }
+}
 const SENTENCE_ENDINGS = new Set('.!?。！？')
 const TRAILING_CLOSERS = new Set('"\'”’»）】〕〉')
 const SILENCE_DB = -50
@@ -46,7 +57,7 @@ const BITRATE = '96k'
 export interface PartText { text: string; start: number; end: number }
 
 /** Where each part sits in the section text, and the pause each seam needs. */
-export function planSeams(sectionText: string, parts: string[]): { ranges: PartText[]; pauses: number[] } {
+export function planSeams(sectionText: string, parts: string[], rule: SeamPauseRule = SEAM_PAUSE_S): { ranges: PartText[]; pauses: number[] } {
   const ranges: PartText[] = []
   const pauses: number[] = []
   let cursor = 0
@@ -61,9 +72,9 @@ export function planSeams(sectionText: string, parts: string[]): { ranges: PartT
     const separator = next >= 0 ? sectionText.slice(end, next) : ''
     let visible = parts[i]!.trimEnd()
     while (visible && TRAILING_CLOSERS.has(visible.at(-1)!)) visible = visible.slice(0, -1).trimEnd()
-    pauses.push((separator.match(/\n/g)?.length ?? 0) >= 2 ? SEAM_PAUSE_S.paragraph
-      : visible && SENTENCE_ENDINGS.has(visible.at(-1)!) ? SEAM_PAUSE_S.sentence
-      : SEAM_PAUSE_S.soft)
+    pauses.push((separator.match(/\n/g)?.length ?? 0) >= 2 ? rule.paragraph
+      : visible && SENTENCE_ENDINGS.has(visible.at(-1)!) ? rule.sentence
+      : rule.soft)
   }
   return { ranges, pauses }
 }
@@ -149,7 +160,7 @@ export interface PartsManifest {
   stitched_sha256: string
   stitched_at: string
   target_lufs: number | null
-  pause_rule: typeof SEAM_PAUSE_S
+  pause_rule: SeamPauseRule
   model_id?: string
   voice_id?: string
   settings?: Record<string, unknown>
@@ -221,6 +232,8 @@ export interface ConsolidateInput {
   /** Limit to these chapters (slugs, any case). */
   only?: string[]
   settings?: Record<string, unknown>
+  /** The channel's sentence / paragraph pause (`seamPauseRule`); absent = the Hub's 0.3 / 0.6 s. */
+  pauseRule?: SeamPauseRule
   log?: (line: string) => void
 }
 
@@ -318,8 +331,9 @@ export async function consolidateChapterParts(input: ConsolidateInput): Promise<
 
       if (!texts && input.loadTexts) texts = await input.loadTexts().catch(() => new Map())
       const known = texts && [...texts.entries()].find(([s]) => s.toLowerCase() === key)?.[1]
-      const plan = known && known.parts.length === files.length ? planSeams(known.sectionText, known.parts) : null
-      const pauses = plan?.pauses ?? files.slice(1).map(() => SEAM_PAUSE_S.sentence)
+      const rule = input.pauseRule ?? SEAM_PAUSE_S
+      const plan = known && known.parts.length === files.length ? planSeams(known.sectionText, known.parts, rule) : null
+      const pauses = plan?.pauses ?? files.slice(1).map(() => rule.sentence)
 
       // 1. Join into a hidden temp file, then 2. move an older take aside, 3. rename.
       const temp = path.join(input.audioDir, `.${stem}.joined.mp3`)
@@ -343,7 +357,7 @@ export async function consolidateChapterParts(input: ConsolidateInput): Promise<
         stitched_sha256: stitchedSha,
         stitched_at: new Date().toISOString(),
         target_lufs: result.target_lufs,
-        pause_rule: SEAM_PAUSE_S,
+        pause_rule: rule,
         ...(chapter?.tts?.model_id ? { model_id: chapter.tts.model_id } : {}),
         ...(chapter?.tts?.voice_id ? { voice_id: chapter.tts.voice_id } : {}),
         ...(input.settings ? { settings: input.settings } : {}),
@@ -443,9 +457,13 @@ export async function consolidateEpisodeParts(slug: string, code: string, log: (
     const { resolveEpisodePathsByCodeWithSidecar, projectDirFor } = await import('./utils.js')
     const paths = await resolveEpisodePathsByCodeWithSidecar(slug, code, 'audio_chapters.json')
     if (!existsSync(paths.audio_dir)) return []
+    // The channel's pauses (Series Formula), as the narration run would have used them.
+    const { getEffectiveFormat } = await import('./format-loader.js')
+    const pauses = await getEffectiveFormat(slug).then(format => format?.script.narrationPauses).catch(() => undefined)
     return await consolidateChapterParts({
       projectDir: projectDirFor(slug), episodeDir: paths.episode_dir, audioDir: paths.audio_dir,
       code: code.toUpperCase(), loadTexts: () => loadPartTexts(slug, code, paths.episode_dir), log,
+      pauseRule: seamPauseRule({ paragraph: pauses?.paragraphSec, sentence: pauses?.sentenceSec }),
     })
   } catch (error: any) {
     log(`Chapter parts were left as separate files (joining them failed: ${error?.message || error}).`)

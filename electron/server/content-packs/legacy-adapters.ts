@@ -191,6 +191,8 @@ export function contentPackDocumentToNiche(document: FormulaDocument): Niche {
     visualStyleHint: document.visual_style_hint,
     startingSceneSeconds: document.starting_scene_seconds ? [...document.starting_scene_seconds] : undefined,
     chapterPauseSec: document.chapter_pause_sec,
+    paragraphPauseSec: document.paragraph_pause_sec,
+    sentencePauseSec: document.sentence_pause_sec,
     narratorStyles: document.narrator_styles?.map(style => ({ ...style })),
     defaultNarratorStyleId: document.default_narrator_style_id,
     titleShapeRules: document.title_shape_rules ? [...document.title_shape_rules] : undefined,

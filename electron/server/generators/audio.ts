@@ -22,6 +22,7 @@ import {
   listTtsModels as listGenStudioTtsModels,
   listVoices as listGenStudioVoices,
   resolveGenStudioTtsSpeed,
+  resolveTtsPauses,
   refreshGenStudioAdmission,
 } from '../lib/genstudio-client.js'
 import { fleetBusyRetryPlan, freeMacWaitLine } from '../lib/genstudio-fleet-busy.js'
@@ -58,7 +59,7 @@ import { resolveOutputFormat } from '../services/generation-compression.js'
 import { AudioQualityVerificationCreditCeilingError, verifyAudioQualityCandidateRawTranscript } from '../services/audio-quality-transcription.js'
 import { promoteAudioQualityCandidate, readAudioQualityProvenance, updateAudioQualityProvenance } from '../services/audio-quality-store.js'
 import { readAudioTtsModelRecord, writeAudioTtsModelRecord, type AudioTtsModelRecord } from '../services/audio-tts-model-record.js'
-import { consolidateChapterParts, keptPartPath, partsDir } from '../services/chapter-parts.js'
+import { consolidateChapterParts, keptPartPath, partsDir, seamPauseRule } from '../services/chapter-parts.js'
 import type {
   GenerateAudioRequest, Job, AudioModelConfig, JobItemAttempt,
 } from '../models/types.js'
@@ -517,12 +518,18 @@ export async function generateAudio(job: Job): Promise<void> {
   // which controls exist, and what they accept, is published per model and
   // read live (lib/tts-controls.ts). A format naming one would be Story Studio
   // asserting a capability GenStudio did not publish.
+  //
+  // The pauses inside a chapter follow the same precedence: the Audio page's
+  // values, else the Series Formula's (Sleep: 1.0 s at a paragraph break).
   try {
     const fmt = await getEffectiveFormat(project_slug)
     const fmtAudio = fmt?.script.audioDefaults
     if (fmtAudio) {
       if (typeof fmtAudio.speed === 'number' && req.speed === undefined) req.speed = fmtAudio.speed
     }
+    const pauses = fmt?.script.narrationPauses
+    if (typeof pauses?.paragraphSec === 'number' && req.paragraph_pause_sec === undefined) req.paragraph_pause_sec = pauses.paragraphSec
+    if (typeof pauses?.sentenceSec === 'number' && req.sentence_pause_sec === undefined) req.sentence_pause_sec = pauses.sentenceSec
   } catch { /* format layer must never break audio generation */ }
 
   // Phase-wide download metrics (TTS streaming + fal/genaipro download).
@@ -613,6 +620,21 @@ export async function generateAudio(job: Job): Promise<void> {
   // "Smaller files" for narration (Settings, per-project override): ask for AAC on the wire.
   // Transport only — the chapter is still written as Story's 96 kbps MP3 either way.
   const narrationOutputFormat = await resolveOutputFormat(project_slug, 'narration')
+  // Pauses inside a chapter: sent to the Mac only where this model publishes
+  // them (clamped to its range); Story's own part seams use them either way.
+  const wantedPauses = { paragraph: req.paragraph_pause_sec, sentence: req.sentence_pause_sec }
+  const { pauses: requestPauses, unsupported: unsupportedPauses } = resolveTtsPauses(ttsModel.pause_parameters, wantedPauses)
+  const pauseRequest = Object.keys(requestPauses).length ? { pauses: requestPauses } : {}
+  const seamRule = seamPauseRule(wantedPauses)
+  if (wantedPauses.paragraph !== undefined || wantedPauses.sentence !== undefined) {
+    job.output_lines.push(
+      `Pauses inside a chapter: ${seamRule.paragraph} s at a paragraph break, ${seamRule.sentence} s after a sentence.`
+      + (unsupportedPauses.length
+        ? ` ${ttsModel.display_name}'s Macs do not take a custom ${unsupportedPauses.join(' or ')} pause yet (older Studio Hub),`
+          + ' so inside each part the voice keeps its own pause; where Story joins a chapter\'s parts it uses these.'
+        : ''),
+    )
+  }
   if (Object.keys(requestControls).length) {
     job.output_lines.push(
       `Model controls: ${Object.entries(requestControls).map(([name, value]) => `${name}=${value}`).join(', ')}`
@@ -723,6 +745,7 @@ export async function generateAudio(job: Job): Promise<void> {
       ...(priorBudget ? { texts: new Map(planGenStudioTtsRequests(allSections, priorBudget).map(({ section, parts }) => [section.slug, {
         sectionText: section.text, parts,
       }])) } : {}),
+      pauseRule: seamRule,
       log: line => job.output_lines.push(line),
     }).catch((error: any) => job.output_lines.push(`Chapter parts were left as separate files (${error?.message || error}).`))
   }
@@ -945,6 +968,7 @@ export async function generateAudio(job: Job): Promise<void> {
         // never of a clock — so replaying an attempt replays its job.
         requestIdentity: submissionIdentity,
         ...(narrationOutputFormat ? { outputFormat: narrationOutputFormat } : {}),
+        ...pauseRequest,
       })
       const idempotencyKey = recoveryEntry?.idempotency_key || prepared.idempotencyKey
       const submittedAt = recoveryEntry?.submitted_at || new Date().toISOString()
@@ -1001,6 +1025,7 @@ export async function generateAudio(job: Job): Promise<void> {
         // key again the moment `idempotencyKey` was ever absent.
         requestIdentity: submissionIdentity,
         ...(narrationOutputFormat ? { outputFormat: narrationOutputFormat } : {}),
+        ...pauseRequest,
         idempotencyKey,
         signal: controller.signal,
         isCancelled,
@@ -1078,6 +1103,8 @@ export async function generateAudio(job: Job): Promise<void> {
       // existing manifest entry stays reusable across this upgrade instead of
       // being resubmitted (and recharged) for a request that has not changed.
       ...(Object.keys(requestControls).length ? { controls: requestControls } : {}),
+      // Same rule: absent unless sent, so an existing manifest entry stays reusable.
+      ...pauseRequest,
     }))
     const legacyTextHash = hashInput(task.chunkText)
     const reusableEntry = manifestEntry?.provider === 'genstudio'
@@ -1135,6 +1162,7 @@ export async function generateAudio(job: Job): Promise<void> {
         controls: requestControls, maxInputCharacters: genStudioMaxCharacters,
         requestIdentity: `${requestIdentity}:regenerate:${generationActionId || job.job_id}`,
         ...(outputFormat ? { outputFormat } : {}),
+        ...pauseRequest,
       }).idempotencyKey)
     let recoveryEntry = terminalFailure || (explicitRegeneration && !actionOwnedRecovery) ? null : reusableEntry
 
@@ -1489,7 +1517,8 @@ export async function generateAudio(job: Job): Promise<void> {
         texts: new Map(sections.map((section, index) => [section.slug, {
           sectionText: section.text, parts: genStudioRequestPlan[index]!.parts,
         }])),
-        settings: { speed: genStudioSpeed, ...(Object.keys(requestControls).length ? { controls: requestControls } : {}) },
+        settings: { speed: genStudioSpeed, ...(Object.keys(requestControls).length ? { controls: requestControls } : {}), ...pauseRequest },
+        pauseRule: seamRule,
         log: line => job.output_lines.push(line),
       }).catch((error: any) => job.output_lines.push(`Chapter parts were left as separate files (${error?.message || error}).`))
     }

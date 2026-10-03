@@ -435,6 +435,13 @@ export interface ScriptFormat {
     speed?: number
   }
 
+  /** Narration pauses inside a chapter, seconds, from the Series Formula (Audio Generator's
+   *  "Pause at a paragraph break"). Absent = the voice model's own pauses. */
+  narrationPauses?: {
+    paragraphSec?: number
+    sentenceSec?: number
+  }
+
   /**
    * Per-format defaults for the Audio Merge page. Sleep-story rarely
    * needs loudness normalization (the calm-narration pipeline already
@@ -1026,6 +1033,10 @@ export interface Niche {
   /** Default "Pause between chapters" in Audio Assembly (seconds). Sleep
    *  formulas want a longer, calm gap; the customer can still change it. */
   chapterPauseSec?: number
+  /** Default narration pause (seconds) at a paragraph break / after a sentence inside a chapter
+   *  (Audio Generator; Sleep: 1.0 / 0.3). Absent = the voice model's own pauses. */
+  paragraphPauseSec?: number
+  sentencePauseSec?: number
   /** Visual styles this channel type SUGGESTS, best first. Carried through
    *  from a signed pack's `recommended_visual_style_ids`. A suggestion is
    *  surfaced in Settings with a one-click "Use this style" — it is never
@@ -3014,6 +3025,9 @@ export interface GenerateAudioRequest {
   }
   /** Re-narrate: once the narration is saved, re-make these chapters' subtitles (generators/audio.ts). */
   then_subtitles?: boolean
+  /** Join pauses inside a chapter, seconds (Audio Generator; default from the Series Formula). */
+  paragraph_pause_sec?: number
+  sentence_pause_sec?: number
   /** Server-only raw alternate-ASR check over selected active audio. */
   quality_check?: {
     action_id: string

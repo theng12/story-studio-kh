@@ -14,7 +14,7 @@ import { useTempDataDir } from './_helpers.js'
 const temp = await useTempDataDir()
 const { runFfmpeg } = await import('../lib/ffmpeg-utils.js')
 const {
-  planSeams, stitchParts, consolidateChapterParts, readPartsManifest, trashEpisodeParts, SEAM_PAUSE_S,
+  planSeams, stitchParts, consolidateChapterParts, readPartsManifest, trashEpisodeParts, SEAM_PAUSE_S, seamPauseRule,
 } = await import('../services/chapter-parts.js')
 const { hashSubtitleAudioSources } = await import('../services/subtitle-completion.js')
 const { readAudioQualityProvenance, writeAudioQualityProvenance } = await import('../services/audio-quality-store.js')
@@ -273,4 +273,27 @@ void test('after the final render the kept parts move to the project _trash', as
   assert.ok(existsSync(path.join(fx.projectDir, '_trash', 'episodes', 'EP001 - Test', 'EP001 - 07 Audio Assets', '.parts', 'EP001_Chapter_02', 'part1.mp3')))
   assert.equal(trashEpisodeParts(fx.projectDir, fx.audioDir), false, 'nothing left to move')
   assert.ok(existsSync(path.join(fx.audioDir, 'EP001_Chapter_02.mp3')))
+})
+
+void test('the channel\'s own pauses (Sleep: 1.0 s at a paragraph break) set the seams; bad values fall back', () => {
+  const sleep = seamPauseRule({ paragraph: 1, sentence: 0.3 })
+  assert.deepEqual(sleep, { sentence: 0.3, paragraph: 1, soft: SEAM_PAUSE_S.soft })
+  const text = 'One ends. Two ends.\n\nThree runs on and'
+  assert.deepEqual(planSeams(text + ' four.', ['One ends.', 'Two ends.', 'Three runs on and', 'four.'], sleep).pauses, [0.3, 1, SEAM_PAUSE_S.soft])
+  assert.deepEqual(seamPauseRule(), SEAM_PAUSE_S)
+  assert.deepEqual(seamPauseRule({ paragraph: -1, sentence: Number.NaN }), SEAM_PAUSE_S)
+  assert.equal(seamPauseRule({ paragraph: 9 }).paragraph, 3)
+})
+
+void test('a chapter joined at the Sleep paragraph pause has a 1.0 s gap there and records the rule', async () => {
+  const fx = await episodeFixture('sleep-pause', { selector: false, oldTake: false })
+  const pauseRule = seamPauseRule({ paragraph: 1, sentence: 0.3 })
+  assert.deepEqual(await consolidateChapterParts({ ...fx, pauseRule }), ['Chapter_02'])
+  const manifest = (await readPartsManifest(fx.audioDir, 'EP001_Chapter_02'))!
+  assert.deepEqual(manifest.parts.map(part => part.pause_after_s), [1, 0.3, undefined])
+  assert.deepEqual(manifest.pause_rule, pauseRule)
+  const gaps = (await silences(path.join(fx.audioDir, 'EP001_Chapter_02.mp3'))).filter(([s, e]) => e !== Infinity && s > 0.05)
+  assert.equal(gaps.length, 2, JSON.stringify(gaps))
+  assert.ok(Math.abs((gaps[0]![1] - gaps[0]![0]) - 1) <= 0.03, `paragraph seam ${gaps[0]![1] - gaps[0]![0]}`)
+  assert.ok(Math.abs((gaps[1]![1] - gaps[1]![0]) - 0.3) <= 0.03, `sentence seam ${gaps[1]![1] - gaps[1]![0]}`)
 })
