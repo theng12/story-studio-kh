@@ -682,72 +682,13 @@ export async function generateAudio(job: Job): Promise<void> {
   }
   // X-01 — capture each section's durable script fingerprint HERE, while the
   // text is still exactly what the script file holds. Everything below
-  // transforms this array in memory for the run: expression markup swaps in
-  // tagged text, normalization cleans it, auto-pacing appends pause tags. The
+  // transforms this array in memory for the run (normalization cleans it). The
   // freshness check later recomputes the fingerprint from the script file, so
-  // recording a transformed value made a run with expression or auto-pacing
-  // report "the script changed" the moment a customer changed nothing.
+  // recording a transformed value would report "the script changed" the moment
+  // a customer changed nothing.
   const scriptFingerprints = new Map(
     allSections.map(section => [section.slug, chapterScriptFingerprint(section.text)]),
   )
-
-  // v1.0.381/387/388 — inline expression markup. When the operator enabled the
-  // expressive script, swap each section's spoken text for its tagged version
-  // (matched by slug), auto-generating any un-tagged section so a Pipeline /
-  // cockpit run is fully hands-off. Runs BEFORE normalization so the inline
-  // [tags] get the same punctuation cleanup (normalizeForTts leaves square
-  // brackets untouched). Gated to tag-capable models via dialectForModel —
-  // Fish S2-Pro (fish dialect) and ElevenLabs v3 (elevenlabs dialect) — and the
-  // tags are generated/reused in THAT model's dialect so Fish tags never reach
-  // ElevenLabs (or vice versa), which would otherwise be read aloud.
-  if (req.use_expression === true) {
-    const {
-      dialectForModel, readExpression, writeExpression, markupSectionText,
-      expressionTagConcurrency, mapExpressionConcurrent,
-    } = await import('../services/audio-expression.js')
-    const exprDialect = dialectForModel(req.model)
-    if (exprDialect) {
-      const expr = await readExpression(narrationPath)
-      // Only reuse saved tags if they were written in THIS model's dialect.
-      const reusable = expr && (expr.dialect ?? 'fish') === exprDialect
-      const sectionsOut: Record<string, string> = { ...(reusable ? expr!.sections : {}) }
-      const markupModel = (typeof (req as any).expression_model === 'string' && (req as any).expression_model.trim())
-        ? (req as any).expression_model.trim() : 'deepseek-v4-flash'
-      const apiKeys = {
-        anthropic_api_key: (config as any).anthropic_api_key,
-        openai_api_key: (config as any).openai_api_key,
-        kie_api_key: (config as any).kie_api_key,
-      }
-      let applied = 0
-      let generated = 0
-      const missing = allSections.filter(s => !(typeof sectionsOut[s.slug] === 'string' && sectionsOut[s.slug].trim()))
-      const concurrency = await expressionTagConcurrency(markupModel, missing.length)
-      if (missing.length) {
-        job.output_lines.push(`Expression (${exprDialect}): tagging ${missing.length} section(s) at concurrency ${concurrency}.`)
-      }
-      await mapExpressionConcurrent(missing, concurrency, async (s) => {
-        try {
-          job.output_lines.push(`Expression (${exprDialect}): auto-tagging "${s.label}" with ${markupModel}…`)
-          sectionsOut[s.slug] = await markupSectionText(markupModel, s.text, apiKeys, project_slug, exprDialect)
-          generated++
-        } catch (e: any) {
-          if (isGenStudioInsufficientCredits(e)) throw e
-          job.output_lines.push(`  ⚠ auto-tag failed for ${s.label} (${e?.message || e}) — using plain text`)
-        }
-      })
-      for (const s of allSections) {
-        let tagged = sectionsOut[s.slug]
-        if (typeof tagged === 'string' && tagged.trim()) { s.text = tagged; applied++ }
-      }
-      if (generated > 0) {
-        await writeExpression(narrationPath, {
-          schema_version: 1, model: markupModel, dialect: exprDialect, generated_at: new Date().toISOString(), sections: sectionsOut,
-        }).catch(() => { /* sidecar persistence is best-effort */ })
-        job.output_lines.push(`Expression (${exprDialect}): auto-generated markup for ${generated} new section(s).`)
-      }
-      job.output_lines.push(`Expression (${exprDialect}): applied tagged narration to ${applied}/${allSections.length} section(s).`)
-    }
-  }
 
   // v1.0.215+ — TTS-friendly normalization (the deterministic safeguard).
   // LLM narration often carries em dashes, smart quotes, ellipses, semicolons
@@ -765,21 +706,6 @@ export async function generateAudio(job: Job): Promise<void> {
       job.output_lines.push(
         `Prepared ${totalFixed} TTS text item(s) (spoken numbers and punctuation) for natural delivery.`,
       )
-    }
-  }
-
-  // v1.0.383/388 — auto-pacing. When enabled, deterministically insert pause
-  // tags at sentence + paragraph boundaries so the read gets breathing room.
-  // Runs AFTER normalization (keys off cleaned punctuation) and composes with
-  // the expression pass (the dedup inside addSentencePacing prevents stacked
-  // pauses). Gated to tag-capable models; the dialect picks the right tokens
-  // (Fish: [short/long pause]; ElevenLabs: [pause] at paragraphs).
-  if (req.fish_autopace === true) {
-    const { dialectForModel, addSentencePacing } = await import('../services/audio-expression.js')
-    const paceDialect = dialectForModel(req.model)
-    if (paceDialect) {
-      for (const s of allSections) s.text = addSentencePacing(s.text, paceDialect)
-      job.output_lines.push(`Auto-pacing (${paceDialect}): inserted pause tags.`)
     }
   }
 
@@ -1446,7 +1372,7 @@ export async function generateAudio(job: Job): Promise<void> {
         for (const update of updates) {
           existing.chapters[update.slug] = {
             normalized_script_hash: update.scriptHash,
-            normalization: req.fish_autopace ? 'tts-v1+expression-pacing' : 'tts-v1',
+            normalization: 'tts-v1',
             source_audio_hash: update.sourceAudioHash,
             source_files: update.sourceFiles,
             recorded_at: new Date().toISOString(),

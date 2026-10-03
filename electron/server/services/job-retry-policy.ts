@@ -74,14 +74,12 @@ export function isProvenLocalStopCapableJob(job: Pick<Job, 'type' | 'params'>): 
 }
 
 const TEXT_MODEL_TYPES = new Set<JobType>([
-  'script-only',
   'introduction-only',
   'chapter-only',
   'outline_only',
   'expand_chapters',
   'image_prompts',
   'metadata',
-  'expression_markup',
   ])
 
 const IMAGE_MODEL_TYPES = new Set<JobType>([

@@ -811,12 +811,21 @@ describe('every pipeline step maps to a real job-queue lane', () => {
     for (const step of VALID_STEPS) {
       // character_sheet is applied inline (continuity.json write), never enqueued.
       if (step === 'character_sheet') continue
+      // script-only expands into outline_only → expand_chapters (there is no script-only job type).
+      if (step === 'script-only') continue
       const jobType = jobTypeForStep(step)
       assert.ok(
         lanes.has(jobType),
         `step '${step}' → jobType '${jobType}' has no queue lane (jq.enqueue would throw)`,
       )
     }
+  })
+
+  test('the script step expands into lanes that exist', () => {
+    const lanes = new Set<string>(knownJobTypes())
+    assert.ok(lanes.has('outline_only'))
+    assert.ok(lanes.has('expand_chapters'))
+    assert.ok(!lanes.has('script-only'))
   })
 
   test('the mismatched modern steps map to their generator job types', () => {

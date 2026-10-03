@@ -278,7 +278,7 @@ const model = ref('')
 // when a script-only job lands so the page enables itself live without a
 // reload.
 const { selectedEpisode, scriptReady, statusKnown } = useEpisodeStatus(episodeId, slug, {
-  refetchOnJobTypes: ['script-only', 'audio_merge', 'subtitles_transcribe'],
+  refetchOnJobTypes: ['audio_merge', 'subtitles_transcribe'],
 })
 const noScriptTooltip = "No finished script yet — finish this episode's script in Script Generator first."
 // v1.0.296 — gate copy distinguishes "still checking" from "confirmed missing".

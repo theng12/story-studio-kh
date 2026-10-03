@@ -134,7 +134,7 @@ function makeJob(scriptDir: string): Job {
   return {
     job_id: 'test-job',
     project_slug: 'test-slug',
-    type: 'script-only' as any,
+    type: 'chapter-only' as any,
     status: 'running',
     output_lines: [],
     params: {} as any,

@@ -46,7 +46,7 @@ describe('killAllTrackedChildren()', () => {
     let resolved: () => void = () => {}
     const exited = new Promise<void>((r) => { resolved = r })
 
-    jq.registerExecutor('script-only', async () => {
+    jq.registerExecutor('chapter-only', async () => {
       const child = spawn('node', ['-e', 'setInterval(() => {}, 1000)'])
       jq.trackChild(child)
       child.on('exit', (_code, signal) => {
@@ -64,7 +64,7 @@ describe('killAllTrackedChildren()', () => {
     })
 
     const job = jq.enqueuePreparedForTest({
-      project_slug: proj.slug, type: 'script-only', episode_id: 'KILL_ALL_1',
+      project_slug: proj.slug, type: 'chapter-only', episode_id: 'KILL_ALL_1',
       title: 't', params: {},
     })
 

@@ -54,7 +54,7 @@ function makeJob(
   return {
     job_id: `cost-${projectSlug}-${index}`,
     project_slug: projectSlug,
-    type: 'script-only',
+    type: 'chapter-only',
     episode_id: `EP${String(index % 10_000).padStart(4, '0')}`,
     title: `Cost probe ${index}`,
     status,

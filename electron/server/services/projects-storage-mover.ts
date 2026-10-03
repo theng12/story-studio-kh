@@ -56,7 +56,7 @@ export interface MigrationResult {
  * (caller fix-able) without conflating them with 500 (transient fs
  * problems).
  */
-export function validateMigrationTarget(target: string, source: string): { ok: true } {
+function validateMigrationTarget(target: string, source: string): { ok: true } {
   if (!target || typeof target !== 'string') {
     const e: any = new Error('target_path is required')
     e.statusCode = 400; throw e

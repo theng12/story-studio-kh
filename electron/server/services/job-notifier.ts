@@ -206,10 +206,11 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   contextual_cues: 'Contextual cues',
   scene_image_generate: 'Scene image', scene_images_batch: 'Scene images (batch)', scene_clips_batch: 'Motion clips', continuity_render: 'Scene render',
   composition_generate: 'Composition',
-  expression_markup: 'Expression markup',
   research_run: 'Research',
   broll_normalize: 'B-roll normalize', broll_assemble: 'B-roll assembly',
   broll_autotag: 'B-roll auto-tag',
+  // Retired job types: kept so old rows in Jobs still read plainly.
+  expression_markup: 'Expression markup',
   youtube_upload: 'YouTube upload', youtube_playlist_update: 'YouTube playlist',
   youtube_thumbnail_refresh: 'Thumbnail backfill',
 }

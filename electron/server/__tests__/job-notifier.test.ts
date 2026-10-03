@@ -49,7 +49,7 @@ function mkJob(overrides: Partial<Job> & Pick<Job, 'status'>): Job {
   return {
     job_id: overrides.job_id || Math.random().toString(36).slice(2, 8),
     project_slug: 'p',
-    type: overrides.type || 'script-only',
+    type: overrides.type || 'chapter-only',
     episode_id: overrides.episode_id || 'EP001',
     title: overrides.title || 't',
     status: overrides.status,

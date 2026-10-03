@@ -146,11 +146,11 @@ describe('Content Store commerce routes', () => {
     const { project } = await setupPinnedOwnedPack()
     await fs.rm(contentStoreAnchorsPath())
     forgetVerifiedContentPackVersions()
-    jobQueue.registerExecutor('script-only', async () => {})
+    jobQueue.registerExecutor('chapter-only', async () => {})
     const restoreRequestsBefore = mock.requests.filter(row => row.path === '/v1/content/receipts').length
 
     const jobs = await Promise.all(['EP001', 'EP002'].map(episode_id => jobQueue.enqueue({
-      project_slug: project.slug, type: 'script-only', episode_id, params: {},
+      project_slug: project.slug, type: 'chapter-only', episode_id, params: {},
     })))
 
     assert.equal(jobs.length, 2)
@@ -167,7 +167,7 @@ describe('Content Store commerce routes', () => {
     const before = await jobQueue.getJobs(project.slug)
 
     await assert.rejects(jobQueue.enqueue({
-      project_slug: project.slug, type: 'script-only', episode_id: 'EP003', params: {},
+      project_slug: project.slug, type: 'chapter-only', episode_id: 'EP003', params: {},
     }), (error: any) => {
       assert.equal(error.statusCode, 409)
       assert.equal(error.code, 'content-store-revalidation-required')
@@ -186,7 +186,7 @@ describe('Content Store commerce routes', () => {
     await setGenStudioUrl('http://127.0.0.1:9')
 
     await assert.rejects(jobQueue.enqueue({
-      project_slug: project.slug, type: 'script-only', episode_id: 'EP004', params: {},
+      project_slug: project.slug, type: 'chapter-only', episode_id: 'EP004', params: {},
     }), (error: any) => {
       assert.equal(error.status, 409)
       assert.equal(error.code, 'CONTENT_STORE_ORIGIN_MISMATCH')
@@ -206,7 +206,7 @@ describe('Content Store commerce routes', () => {
     const downloadsBefore = mock.contentDownloadPostCount
 
     await assert.rejects(jobQueue.enqueue({
-      project_slug: project.slug, type: 'script-only', episode_id: 'EP005', params: {},
+      project_slug: project.slug, type: 'chapter-only', episode_id: 'EP005', params: {},
     }), (error: any) => {
       assert.equal(error.status, 409)
       assert.equal(error.code, 'CONTENT_STORE_ACCOUNT_MISMATCH')
@@ -227,7 +227,7 @@ describe('Content Store commerce routes', () => {
     const jobsBefore = await jobQueue.getJobs(project.slug)
 
     await assert.rejects(jobQueue.enqueue({
-      project_slug: project.slug, type: 'script-only', episode_id: 'EP006', params: {},
+      project_slug: project.slug, type: 'chapter-only', episode_id: 'EP006', params: {},
     }), /undecryptable|malformed|tampered/i)
     assert.equal(mock.requests.length, requestsBefore)
     assert.deepEqual(await jobQueue.getJobs(project.slug), jobsBefore)
@@ -243,7 +243,7 @@ describe('Content Store commerce routes', () => {
     const purchasesBefore = mock.contentPurchasePostCount
 
     await assert.rejects(jobQueue.enqueue({
-      project_slug: project.slug, type: 'script-only', episode_id: 'EP007', params: {},
+      project_slug: project.slug, type: 'chapter-only', episode_id: 'EP007', params: {},
     }), (error: any) => {
       assert.notEqual(error.code, 'content-store-revalidation-required')
       assert.match(error.message, /signature/i)
@@ -273,7 +273,7 @@ describe('Content Store commerce routes', () => {
     const jobsBefore = await jobQueue.getJobs(project.slug)
     try {
       const pending = jobQueue.enqueue({
-        project_slug: project.slug, type: 'script-only', episode_id: 'EP008', params: {},
+        project_slug: project.slug, type: 'chapter-only', episode_id: 'EP008', params: {},
       })
       await receiptsStarted
       await setApiKey('genstudio', KEY_A_ROTATED)
@@ -343,7 +343,7 @@ describe('Content Store commerce routes', () => {
     const jobsBefore = await jobQueue.getJobs(project.slug)
     try {
       const pending = jobQueue.enqueue({
-        project_slug: project.slug, type: 'script-only', episode_id: 'EP009', params: {},
+        project_slug: project.slug, type: 'chapter-only', episode_id: 'EP009', params: {},
       })
       await receiptsReturned
       await waitFor(() => commerceLockReads > 0, {

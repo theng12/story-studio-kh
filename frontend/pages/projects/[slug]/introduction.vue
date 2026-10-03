@@ -670,7 +670,7 @@ async function generateForEpisode(): Promise<void> {
 const { jobs } = useJobs()
 // Reuse job updates to unlock the action when this episode's chapters finish.
 const scriptJobs = computed(() => jobs.value.filter(job => job.project_slug === slug.value && job.episode_id === episodeId.value
-  && ['script-only', 'chapter-only', 'expand_chapters'].includes(job.type)))
+  && ['chapter-only', 'expand_chapters'].includes(job.type)))
 const scriptWriting = computed(() => scriptJobs.value.some(job => ['queued', 'running', 'paused'].includes(job.status)))
 watch(() => scriptJobs.value.map(job => `${job.job_id}:${job.status}`).join('|'), () => { previewRefreshKey.value += 1 })
 // Only jobs this page has SEEN queued or running can settle. Openings that

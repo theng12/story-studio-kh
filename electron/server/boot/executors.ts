@@ -9,7 +9,7 @@
 
 import { initializeQueuePauseState, jobEvents, registerExecutor, resumeInterruptedJobsAtBoot, unregisteredJobTypes } from '../services/job-queue.js'
 import {
-  generateScriptOnly, generateIntroductionOnly, generateChapterOnly,
+  generateIntroductionOnly, generateChapterOnly,
   generateOutlineOnly, generateExpandChapters,
 } from '../generators/episode.js'
 import { generateImages } from '../generators/images.js'
@@ -38,7 +38,6 @@ import { generateSceneImageJob } from '../generators/scene-image.js'
 import { generateSceneClipJob, generateSceneClipsBatchJob } from '../generators/scene-clip.js'
 import { runContinuityRenderJob } from '../generators/continuity-render.js'
 import { generateCompositionTemplateJob } from '../generators/composition-template.js'
-import { runExpressionMarkupJob } from '../services/audio-expression.js'
 import { generateIdeaCampaign } from '../generators/idea-campaign.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { registerJobCancellationAuditor } from '../services/job-cancellation-auditors.js'
@@ -306,17 +305,13 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
     return await fn(job) as import('../services/job-queue.js').JobExecutorResult
   }
   registerExecutor('idea_campaign', generateIdeaCampaign)
-  // Legacy `'script'` executor (the coupled generateEpisode) was removed
-  // in M1. Script and introduction are now two independent job types.
-  registerExecutor('script-only', generateScriptOnly)
   registerExecutor('introduction-only', generateIntroductionOnly)
   registerExecutor('chapter-only', generateChapterOnly)
   // v1.0.72+: outline-first chunked flow. outline_only builds the outline
   // and persists the sidecar with outline_approved_at: null (or set when
   // auto_approve: true is on the params). expand_chapters reads the
   // approved sidecar and expands all-or-selected chapters with per-entry
-  // word-count overrides. The legacy script-only path stays for now —
-  // Phase 3 of the refactor will route it through these instead.
+  // word-count overrides.
   registerExecutor('outline_only', generateOutlineOnly)
   registerExecutor('expand_chapters', generateExpandChapters)
   registerExecutor('image_prompts', generateImagePrompts)
@@ -380,9 +375,6 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
   registerExecutor('continuity_render', runContinuityRenderJob)
   // v1.0.260 — generate the composition LAYOUT template image from a prompt.
   registerExecutor('composition_generate', generateCompositionTemplateJob)
-  // v1.0.386 — Fish S2 expression "Tag all" — background LLM markup over every
-  // section (survives leaving the Audio Generator page).
-  registerExecutor('expression_markup', runExpressionMarkupJob)
 
   const missingExecutors = unregisteredJobTypes()
   if (missingExecutors.length) {

@@ -613,10 +613,10 @@ describe('image episode admission fairness', () => {
     const project = await pm.createProject({ name: 'Adaptive single non-image Resume' })
     const jobsFile = path.join(process.env.STORY_STUDIO_DATA_DIR!, 'projects', project.slug, 'jobs.json')
     await jq.setQueuePaused(true)
-    jq.registerExecutor('script-only', async () => {})
+    jq.registerExecutor('chapter-only', async () => {})
     const job = jq.enqueuePreparedForTest({
       project_slug: project.slug,
-      type: 'script-only',
+      type: 'chapter-only',
       episode_id: 'script:single-resume',
       title: 'single non-image resume',
       params: {},

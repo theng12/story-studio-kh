@@ -286,7 +286,7 @@ describe('asking for a channel opening', () => {
     try {
       const writer = jq.enqueuePreparedForTest({
         project_slug: slug,
-        type: 'script-only',
+        type: 'chapter-only',
         episode_id: episodeId,
         title: '',
         params: {},

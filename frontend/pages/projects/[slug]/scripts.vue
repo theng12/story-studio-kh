@@ -878,14 +878,12 @@ const form = reactive({
   chapters: Number(route.query.chapters) || 0,
   total_words: 0,
   words_per_chapter: 0,
-  generate_image_prompts: false,
-  generate_youtube_desc: false,
   force: false,
   // v1.0.165 — pattern_id / pattern_subject removed with the Pattern
   // system. Title shaping now happens at idea-time via the Ideas page's
   // title-template field; the script generator reads format + niche.
   // Character primitive (Phase 5): optional cast — selected ids flow through
-  // /generate/script-only so the LLM uses these names + descriptions.
+  // /generate/outline-only so the LLM uses these names + descriptions.
   character_ids: [] as string[],
   // v1.0.297 — optional free-text producer guidance. Injected into the outline
   // + every chapter prompt: ad-hoc character names, a setting, tone notes, or
@@ -899,7 +897,7 @@ const form = reactive({
 // the idea per-episode (route query), and character_ids / force are per-run, so
 // none of those are persisted.
 useRememberedForm('scripts', slug, form, {
-  include: ['model', 'style', 'generate_image_prompts', 'generate_youtube_desc'],
+  include: ['model', 'style'],
 })
 
 // Saved model ids are only preferences. Keep every generation action disabled
@@ -1460,7 +1458,7 @@ onMounted(loadCustomStyles)
 const { jobs } = useJobs()
 const seenDoneJobs = new Set<string>()
 const watchedScriptTypes = new Set<string>([
-  'script-only', 'introduction-only', 'outline_only', 'expand_chapters', 'chapter-only',
+  'introduction-only', 'outline_only', 'expand_chapters', 'chapter-only',
 ])
 
 // v1.0.115+ — per-episode "is a script-related job in flight" computed.
