@@ -1483,11 +1483,20 @@ export async function scanEpisodeAudioAssets(
   // Scan chapter audio files
   if (audioDir) {
     const files = await safeReaddir(audioDir)
+    // The active source map (audio_chapters.json) owns which bytes a chapter uses. A
+    // regenerate under a new request boundary leaves the old single file beside the new
+    // `_partN` files; listing both put Chapter 12 into the merge twice (Dreamlands E2E,
+    // 2026-10-03). Chapters the map does not name keep the plain directory scan.
+    const { resolveActiveSubtitleChapterSources } = await import('./subtitles.js')
+    const activeSources = await resolveActiveSubtitleChapterSources(episodeDir, audioDir).catch(() => null)
+    const activeBySlug = new Map((activeSources || []).map(source => [source.slug.toLowerCase(), new Set(source.files)]))
     for (const file of files) {
       if (!/\.mp3$/i.test(file)) continue
 
       // Skip files that look like full/merged narration and explicit alternates.
       if (/full|merged|narration_only/i.test(file) || !isActiveChapterAudioFilename(file)) continue
+      const active = activeBySlug.get(chapterKeyOf(file, code).toLowerCase())
+      if (active && !active.has(file)) continue
 
       const filePath = path.join(audioDir, file)
       const duration = await getAudioDuration(filePath)
