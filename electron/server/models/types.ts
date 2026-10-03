@@ -1016,9 +1016,13 @@ export interface Niche {
   /** Metadata tag hook rules (replaces format.metadata.tagsHookRules). */
   metadataTagsHookRules?: string[]
   /** Human-facing one-line visual style hint shown in the picker / override
-   *  editor (replaces format.imagePrompts.visualStyleHint). Descriptive only:
-   *  it is never folded into a generated prompt. */
+   *  editor (replaces format.imagePrompts.visualStyleHint). Never folded into a
+   *  generated prompt; a NEW channel gets it copied into its own editable
+   *  "Channel default style" once (services/formula-starting-defaults.ts). */
   visualStyleHint?: string
+  /** Scene length (seconds, [min, max]) a NEW channel of this type starts with
+   *  — copied into the channel's own editable settings at creation. */
+  startingSceneSeconds?: [number, number]
   /** Visual styles this channel type SUGGESTS, best first. Carried through
    *  from a signed pack's `recommended_visual_style_ids`. A suggestion is
    *  surfaced in Settings with a one-click "Use this style" — it is never

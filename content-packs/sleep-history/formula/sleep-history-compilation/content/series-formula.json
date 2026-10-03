@@ -65,6 +65,10 @@
     ]
   },
   "visual_style_hint": "old-master painted stills — one hero object or one anonymous period figure, dark ground, single window light, warm and quiet",
+  "starting_scene_seconds": [
+    20,
+    30
+  ],
   "metadata_profile": {
     "id": "calm-history",
     "label": "Calm history package",

@@ -27,6 +27,7 @@
  */
 
 import * as pm from './project-manager.js'
+import { recentCharacterNamesAvoidance } from './recent-character-names.js'
 import { getEffectiveNiche } from './niche-loader.js'
 import { resolveRecencyStrategy, type RecencyStrategy } from './recency-strategies.js'
 import { applyFormulaEpisodeProfile, resolveFormulaEpisodeDimensions } from './formula-production-kit.js'
@@ -235,25 +236,30 @@ export async function recordUsage(
  *   - the niche has no recencyAvoidance config (most niches today), or
  *   - the niche's rule doesn't apply to the 'script' scope, or
  *   - the project's recency_log is empty for this kind (first episode)
+ *   (and, separately, a "fresh main character names" rule is added whenever
+ *   recent episodes already used some — see recent-character-names.ts)
  *
  * Callers should immediately use the returned format for subsequent
  * prompt builds. Does NOT mutate the input format.
  */
 export async function applyRecencyToFormat(format: Format, slug: string, episodeId?: string): Promise<Format> {
-  let niche: Niche | null
+  let niche: Niche | null = null
   try {
     niche = await effectiveNicheForEpisode(slug, episodeId)
   } catch {
-    return format
+    // No niche rule; the character-name line below does not depend on one.
   }
-  if (!ruleAppliesToScope(niche, 'script')) return format
-  const text = await buildAvoidanceInstruction(slug, niche)
-  if (!text) return format
+  const rules = [
+    ruleAppliesToScope(niche, 'script') ? await buildAvoidanceInstruction(slug, niche) : '',
+    // Fresh main-character names for this channel (skipped for Character Continuity).
+    await recentCharacterNamesAvoidance(slug, episodeId),
+  ].filter(Boolean)
+  if (!rules.length) return format
   return {
     ...format,
     script: {
       ...format.script,
-      additionalRules: [...format.script.additionalRules, text],
+      additionalRules: [...format.script.additionalRules, ...rules],
     },
   }
 }

@@ -347,6 +347,10 @@
   ],
   "structuralVariety": "vary-all",
   "visualStyleHint": "soft, dreamlike, warm and luminous — gentle illustration that lulls rather than dazzles",
+  "startingSceneSeconds": [
+    20,
+    30
+  ],
   "metadataTitleStyleHint": "calm and literary — a quiet, evocative noun phrase that signals a relaxing bedtime story, never clickbait",
   "metadataTitleHookRules": [
     "Signal the calm up front — words like 'sleep story', 'bedtime', 'relaxing', or the gentle subject itself.",

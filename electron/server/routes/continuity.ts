@@ -28,6 +28,7 @@ import {
 import { normalizeMotionScope } from '../contracts/motion-scope.js'
 import type { ContinuityConfig, ProjectMeta } from '../models/types.js'
 import { truncateChars } from '../lib/well-formed-text.js'
+import { readProjectStartingPacing } from '../services/formula-starting-defaults.js'
 
 export const router = Router()
 
@@ -38,7 +39,10 @@ type ContinuityMode = NonNullable<ProjectMeta['continuity_mode']>
 /** One Continuity Engine supports three safe starting behaviours. The selected
  * project mode is only a default: an episode's saved Character Sheet can
  * still opt into different references without changing its channel. */
-export function defaultContinuityConfig(mode: ContinuityMode = 'independent-stills'): ContinuityConfig {
+export function defaultContinuityConfig(
+  mode: ContinuityMode = 'independent-stills',
+  startingPacing?: ContinuityConfig['pacing'],
+): ContinuityConfig {
   const characterChain = mode === 'character-continuity'
   return {
     schema_version: 1,
@@ -48,7 +52,9 @@ export function defaultContinuityConfig(mode: ContinuityMode = 'independent-stil
     // fallback, and a project that creates a continuity config must not
     // silently get different pacing from one that has not. See
     // contracts/pacing.ts for why this used to drift.
-    pacing: { ...DEFAULT_SCENE_PACING },
+    // A channel may start slower than the app default (set from its Formula
+    // when it was created); an episode's saved pacing always wins.
+    pacing: startingPacing ? { ...startingPacing } : { ...DEFAULT_SCENE_PACING },
     motion_scope: { mode: 'off' },
     motion_level: 2,
     references: {
@@ -87,7 +93,7 @@ router.get('/projects/:slug/continuity/:episodeId', async (req, res) => {
       })
     } catch (e: any) {
       if (e?.code === 'ENOENT') {
-        return res.json({ exists: false, config: defaultContinuityConfig(project.continuity_mode || 'independent-stills') })
+        return res.json({ exists: false, config: defaultContinuityConfig(project.continuity_mode || 'independent-stills', await readProjectStartingPacing(slug)) })
       }
       throw e
     }
