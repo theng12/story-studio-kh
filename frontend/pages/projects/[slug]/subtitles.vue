@@ -133,6 +133,13 @@
                   class="btn btn-sm btn-secondary"
                 >Open Scene Plan</NuxtLink>
                 <div v-for="section in gapActionSections" :key="section" class="sub-gap-actions">
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-primary"
+                    :disabled="!canTranscribe || transcribing"
+                    :title="canTranscribe ? `Makes new subtitles for ${section.replaceAll('_', ' ')} only, then stitch again.` : transcribeDisabledReason"
+                    @click="retranscribeChapter(section)"
+                  >{{ subtitleActionLabel(section, `Re-transcribe ${section.replaceAll('_', ' ')}`) }}</button>
                   <button type="button" class="btn btn-sm btn-secondary" @click="reviewChapterAudio(section, true)">Listen to {{ section.replaceAll('_', ' ') }}</button>
                   <NuxtLink :to="audioSectionLink(section)" class="btn btn-sm btn-secondary">Open Audio Generator · {{ section.replaceAll('_', ' ') }}</NuxtLink>
                   <NuxtLink :to="subtitleSectionLink(section)" class="inline-link">Review subtitles</NuxtLink>

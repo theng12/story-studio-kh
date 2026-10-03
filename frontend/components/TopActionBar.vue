@@ -166,7 +166,7 @@
         class="generate-status"
         role="status"
         aria-live="polite"
-      >{{ generateStatusSentence }}</p>
+      >{{ generateStatusSentence }}<template v-if="generateStatusLink"> <NuxtLink :to="generateStatusLink.to" class="inline-link">{{ generateStatusLink.label }}</NuxtLink></template></p>
     </div>
 
     <!-- Preset action modals use the same keyboard-safe pattern as PresetPicker. -->
@@ -270,6 +270,8 @@ const props = withDefaults(defineProps<{
   generateLoading?: boolean
   generateDisabled?: boolean
   generateStatus?: string
+  /** Optional "where to fix it" link shown after the status sentence. */
+  generateStatusLink?: { to: string; label: string }
   /** Hide the primary CTA until the page reaches the action-ready stage. */
   showGenerate?: boolean
 }>(), {
