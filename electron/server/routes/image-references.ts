@@ -94,10 +94,6 @@ async function refsDir(
   return dir
 }
 
-function sceneFilename(n: number): string {
-  return `scene-${String(n).padStart(2, '0')}.png`
-}
-
 /**
  * Store an uploaded reference, downscaled to fit the catalogue's published
  * reference ceiling.

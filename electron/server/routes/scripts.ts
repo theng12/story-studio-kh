@@ -4,40 +4,23 @@ import { existsSync } from 'fs'
 import pathMod from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
-import * as cm from '../services/character-manager.js'
-import { castImagePromptBlock } from '../lib/character-prompt-blocks.js'
-import { callAi, callAiWithRetry, hasAnyTextProviderKey } from '../lib/ai-client.js'
+import { hasAnyTextProviderKey } from '../lib/ai-client.js'
 import { resolveEpisodePaths, resolveEpisodePathsForRead, resolveEpisodeTitleByCode } from '../services/utils.js'
-import { resolveReadPath, readArtifactRawText, resolveArtifact, matchChapterFile } from '../lib/episode-artifacts.js'
+import { resolveReadPath, resolveArtifact, matchChapterFile } from '../lib/episode-artifacts.js'
 import { hasIntroductionScriptSource } from '../lib/narration-assembly.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { resolveSubfolderNames } from '../services/utils.js'
-import { trackGeneration } from '../services/session-tracker.js'
 import { formatMetadataTxt, parseMetadataTxt } from '../services/metadata-format.js'
 import { validateBody } from '../lib/validate.js'
 import { GenerateScriptOnlySchema, GenerateIntroductionOnlySchema, GenerateChapterOnlySchema } from '../schemas/index.js'
-import { buildDescriptionPrompt } from '../lib/metadata-prompt.js'
-import {
-  metadataFormulaCatalogue,
-  metadataFormulaPlan,
-  resolveActiveMetadataFormula,
-  withMetadataFormulaShape,
-} from '../services/metadata-formula-catalogue.js'
+import { metadataFormulaCatalogue } from '../services/metadata-formula-catalogue.js'
 import { stripInternalSectionLabels } from '../lib/metadata-label-leak.js'
-import { applyEmojiPolicy, applyEmojiPolicyToAll, noEmojiDirective } from '../lib/emoji-policy.js'
-import { appendSourcesToDescription, sourcesSectionEnabled } from '../lib/research-sources.js'
-import { prependAvoidanceToPrompt, recordUsageForScope } from '../services/recency-tracker.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
-import { resolveTextStyle, resolveFontStyle } from '../models/thumbnail-styles.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
-import {
-  finalizeYouTubeDescription,
-  inspectYouTubeFinalizationStatus,
-} from '../services/youtube-metadata-finalizer.js'
-import { truncateChars } from '../lib/well-formed-text.js'
+import { inspectYouTubeFinalizationStatus } from '../services/youtube-metadata-finalizer.js'
 import {
   findFreshActionJob,
   readOperationId,
@@ -1216,23 +1199,7 @@ router.post('/projects/:slug/generate/image-prompts/save', async (req, res) => {
 // METADATA GENERATOR — title (SEO) + description + tags
 // ══════════════════════════════════════════════════════════════════════════
 
-async function readStoryContext(slug: string, episode_id: string, title: string, maxChars = 2000): Promise<string> {
-  try {
-    const paths = await resolveEpisodePaths(slug, episode_id, title || '')
-    const raw = await readArtifactRawText(paths.narration_docx)
-    return raw.slice(0, maxChars)
-  } catch {
-    return `Episode: ${episode_id}, Title: ${title}`
-  }
-}
-
 function checkProvider(_model: string, _config: any): string | null { return null }
-
-function aiCreds(_config: any) { return {} }
-
-// `buildDescriptionPrompt` is imported above from lib/metadata-prompt.ts
-// — that's the single source of truth for the section→prompt mapping.
-// generators/metadata.ts also imports it.
 
 // The old page generated title, description, and tags independently before
 // narration timing existed. Keep an explicit machine-readable tombstone for
@@ -1293,350 +1260,6 @@ router.get('/projects/:slug/metadata/formulas', async (req, res) => {
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not load metadata formulas'))
-  }
-})
-
-router.post('/projects/:slug/generate/metadata/description', async (req, res) => {
-  const { slug } = req.params
-  const config = await pm.getConfig(slug)
-  if (!config) return res.status(404).json({ detail: 'Config not found' })
-
-  const { episode_id, title, model, sections, max_chars, metadata_formula_id } = req.body
-  const credErr = checkProvider(model, config)
-  if (credErr) return res.status(400).json({ detail: credErr })
-
-  const storyContext = await readStoryContext(slug, episode_id, title)
-  // Format passed through so the hashtags section can lean on
-  // format.youtubeDescriptionStructure.defaultHashtags rather than
-  // hardcoding #SleepStory examples.
-  // v1.0.102+ — char limit ALSO format-driven. Previously hardcoded 5000
-  // (sleep-story default); now reads format.metadata.defaultMaxChars so
-  // each format can pick its own (prayer / mindfulness narration is
-  // typically much shorter than a 60-min sleep story).
-  const format = await getEffectiveFormat(slug)
-  // 2026-08-27 — the metadata formula seam, the same one the queued generator
-  // uses, so a channel that picked a formula gets the same architecture from
-  // every path into metadata. Null when nothing picked one, and every line
-  // below then resolves exactly as it did before formulas existed.
-  const formulaEntry = await resolveActiveMetadataFormula({ requestedId: metadata_formula_id, config })
-  const formula = formulaEntry ? metadataFormulaPlan(formulaEntry) : null
-  // An explicit section list from the page still wins; the formula supplies
-  // the architecture when the caller has none of its own.
-  const effectiveSections = (Array.isArray(sections) && sections.length) ? sections : (formula?.sections ?? [])
-  const promptFormat = formula ? withMetadataFormulaShape(format, formula, formulaEntry!.architecture) : format
-  const effectiveMaxChars = max_chars || formula?.descriptionMaxChars || format?.metadata?.defaultMaxChars || 5000
-  // v1.0.108+ — multi-scope recency. When the niche's rule covers the
-  // 'metadata' scope (e.g. prayer's scripture refs), prepend the
-  // avoidance instruction. No-op otherwise.
-  const prompt = await prependAvoidanceToPrompt(
-    slug,
-    'metadata',
-    buildDescriptionPrompt(episode_id, title, storyContext, effectiveSections, effectiveMaxChars, promptFormat),
-    episode_id,
-  ) + await noEmojiDirective()
-
-  try {
-    // Standard: a full YouTube description. Titles/tags below stay short-form.
-    const raw = await callAiWithRetry(model, '', prompt, aiCreds(config), false, {
-      slug, outputBudget: 'standard',
-    })
-    await trackGeneration(slug, 'description')
-    // Scan the freshly-generated description for any tracked items
-    // and append to the recency log. Fail-soft analytics-style write.
-    await recordUsageForScope(slug, episode_id, 'metadata', raw).catch(() => null)
-    // v1.0.197 — append the kept research sources (deterministic, real URLs);
-    // v1.0.198 — gated on the description's Sources section being present + on.
-    const withSources = await appendSourcesToDescription(
-      slug, episode_id, stripInternalSectionLabels(raw.trim()), format, effectiveMaxChars, sourcesSectionEnabled(sections),
-    )
-    res.json({ description: withSources.description })
-  } catch (e: any) {
-    // Honour explicit statusCode (400 validation, 402 quota, …) and
-    // surface the raw error via humanizeBackendError so users see
-    // actionable detail (provider quota, missing key, etc.) rather
-    // than a flat "Generation failed: <terse>".
-    const status = typeof e?.statusCode === 'number' ? e.statusCode : 500
-    res.status(status).json(humanizeBackendError(e, 'Generation failed'))
-  }
-})
-
-// ── 2) SEO Video Titles ───────────────────────────────────────────────────
-
-router.post('/projects/:slug/generate/metadata/seo-titles', async (req, res) => {
-  const { slug } = req.params
-  const config = await pm.getConfig(slug)
-  if (!config) return res.status(404).json({ detail: 'Config not found' })
-
-  const {
-    episode_id, title, model, count, max_length, platform_preset, include_script_context,
-    title_mode, title_prefix, title_suffix, manual_title,
-    metadata_formula_id,
-  } = req.body
-  const credErr = checkProvider(model, config)
-  if (credErr) return res.status(400).json({ detail: credErr })
-
-  // v1.0.90+: every produced title can be wrapped with a channel-level
-  // prefix + suffix. Saves the user from re-typing channel boilerplate
-  // ('Morning Prayer: ', ' | Daily Prayer Channel') every episode.
-  const wrap = (s: string): string =>
-    `${title_prefix ? String(title_prefix) : ''}${s}${title_suffix ? String(title_suffix) : ''}`
-
-  // Fixed-title modes — no LLM call. Returns one title (count is ignored
-  // because the user chose the wording explicitly; nothing to compare).
-  if (title_mode === 'use_idea_title' || title_mode === 'manual') {
-    const base = title_mode === 'manual'
-      ? String(manual_title || '').trim()
-      : String(title || '').trim()
-    if (!base) {
-      return res.status(400).json({ detail: title_mode === 'manual' ? 'manual_title is required' : 'idea title is empty' })
-    }
-    return res.json({ titles: [wrap(base)] })
-  }
-
-  const storyContext = include_script_context !== false
-    ? await readStoryContext(slug, episode_id, title, 1500)
-    : ''
-
-  const platformNote = platform_preset && platform_preset !== 'custom'
-    ? `Optimized for ${platform_preset} (max ${max_length} characters).`
-    : `Maximum ${max_length} characters per title.`
-
-  const format = await getEffectiveFormat(slug)
-  // 2026-08-27 — the metadata formula seam, the same one the queued generator
-  // uses, so a channel that picked a formula gets the same architecture from
-  // every path into metadata. Null when nothing picked one, and every line
-  // below then resolves exactly as it did before formulas existed.
-  const formulaEntry = await resolveActiveMetadataFormula({ requestedId: metadata_formula_id, config })
-  const formula = formulaEntry ? metadataFormulaPlan(formulaEntry) : null
-  const hookRules = format.metadata.titleHookRules.map(r => `- ${r}`).join('\n')
-
-  const prompt = `Generate ${count || formula?.titleCount || 5} SEO-optimized YouTube/TikTok/Facebook video title options ${format.metadata.purposeNote}.
-
-Episode code: ${episode_id}
-Working title: ${title}
-${storyContext ? `\nStory context:\n${storyContext}\n` : ''}
-
-Requirements:
-- ${platformNote}
-- Tone: ${formula?.titleGuidance || format.metadata.titleStyleHint}.
-${hookRules}
-- Each on its own line. No numbering, no quotes, no commentary.
-
-Output exactly ${count || 5} title options, one per line.${await noEmojiDirective()}`
-
-  try {
-    const raw = await callAiWithRetry(model, '', prompt, aiCreds(config), false, { slug })
-    await trackGeneration(slug, 'description')
-    const rawTitles = raw
-      .split('\n')
-      .map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^["']|["']$/g, '').trim())
-      .filter(Boolean)
-      .slice(0, count || 5)
-    // Wrap LLM titles with channel prefix/suffix so paraphrase mode
-    // benefits from the same channel-consistency lock as fixed modes.
-    const clean = await applyEmojiPolicyToAll(rawTitles, [prompt])
-    const titles = (title_prefix || title_suffix) ? clean.map(wrap) : clean
-    res.json({ titles })
-  } catch (e: any) {
-    // Honour explicit statusCode (400 validation, 402 quota, …) and
-    // surface the raw error via humanizeBackendError so users see
-    // actionable detail (provider quota, missing key, etc.) rather
-    // than a flat "Generation failed: <terse>".
-    const status = typeof e?.statusCode === 'number' ? e.statusCode : 500
-    res.status(status).json(humanizeBackendError(e, 'Generation failed'))
-  }
-})
-
-// ── 3) Tags ───────────────────────────────────────────────────────────────
-
-router.post('/projects/:slug/generate/metadata/tags', async (req, res) => {
-  const { slug } = req.params
-  const config = await pm.getConfig(slug)
-  if (!config) return res.status(404).json({ detail: 'Config not found' })
-
-  const { episode_id, title, description, model, count, metadata_formula_id } = req.body
-  const credErr = checkProvider(model, config)
-  if (credErr) return res.status(400).json({ detail: credErr })
-
-  const storyContext = await readStoryContext(slug, episode_id, title, 1500)
-
-  const format = await getEffectiveFormat(slug)
-  // 2026-08-27 — the metadata formula seam, the same one the queued generator
-  // uses, so a channel that picked a formula gets the same architecture from
-  // every path into metadata. Null when nothing picked one, and every line
-  // below then resolves exactly as it did before formulas existed.
-  const formulaEntry = await resolveActiveMetadataFormula({ requestedId: metadata_formula_id, config })
-  const formula = formulaEntry ? metadataFormulaPlan(formulaEntry) : null
-  const broadKeywordsLine = format.metadata.broadKeywords.join(', ')
-  const tagRules = format.metadata.tagsHookRules.map(r => `- ${r}`).join('\n')
-
-  const prompt = `Generate ${count || formula?.tagCount || 15} YouTube tags ${formula?.tagGuidance || format.metadata.tagsContext}.
-
-Episode: ${episode_id} — ${title}
-${description ? `\nDescription excerpt:\n${truncateChars(description, 500)}\n` : ''}
-Story context:
-${storyContext}
-
-Requirements:
-- Broad keyword pool to draw from: ${broadKeywordsLine}.
-${tagRules}
-- One per line, no numbering, no commentary.
-
-Output exactly ${count || 15} tags, one per line.${await noEmojiDirective()}`
-
-  try {
-    const raw = await callAiWithRetry(model, '', prompt, aiCreds(config), false, { slug })
-    await trackGeneration(slug, 'description')
-    const tags = await applyEmojiPolicyToAll(
-      raw
-        .split('\n')
-        .map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^#/, '').replace(/^["']|["']$/g, '').trim())
-        .filter(Boolean)
-        .slice(0, count || 15),
-      [prompt],
-    )
-    res.json({ tags })
-  } catch (e: any) {
-    // Honour explicit statusCode (400 validation, 402 quota, …) and
-    // surface the raw error via humanizeBackendError so users see
-    // actionable detail (provider quota, missing key, etc.) rather
-    // than a flat "Generation failed: <terse>".
-    const status = typeof e?.statusCode === 'number' ? e.statusCode : 500
-    res.status(status).json(humanizeBackendError(e, 'Generation failed'))
-  }
-})
-
-// ── 4) Combined "Generate All" ────────────────────────────────────────────
-
-router.post('/projects/:slug/generate/metadata/all', async (req, res) => {
-  const { slug } = req.params
-  const config = await pm.getConfig(slug)
-  if (!config) return res.status(404).json({ detail: 'Config not found' })
-
-  const {
-    episode_id, title, model, sections, max_chars,
-    title_count, title_max_length, title_platform_preset,
-    title_mode, title_prefix, title_suffix, manual_title,
-    tag_count, metadata_formula_id,
-  } = req.body
-  // Channel prefix/suffix wrapper — v1.0.90+. Applies to fixed AND
-  // paraphrase modes so the channel boilerplate ('Morning Prayer: ',
-  // ' | Daily Prayer') stays consistent across every generation path.
-  const wrapAllTitle = (s: string): string =>
-    `${title_prefix ? String(title_prefix) : ''}${s}${title_suffix ? String(title_suffix) : ''}`
-  const credErr = checkProvider(model, config)
-  if (credErr) return res.status(400).json({ detail: credErr })
-
-  // Validate fixed-title modes up-front so we don't half-do the batch
-  // (description + tags) and then 400 on a missing manual title.
-  if ((title_mode === 'use_idea_title' || title_mode === 'manual')) {
-    const base = title_mode === 'manual'
-      ? String(manual_title || '').trim()
-      : String(title || '').trim()
-    if (!base) {
-      return res.status(400).json({ detail: title_mode === 'manual' ? 'manual_title is required' : 'idea title is empty' })
-    }
-  }
-
-  const storyContext = await readStoryContext(slug, episode_id, title)
-
-  try {
-    // Resolved once — used by description hashtags, the LLM title path,
-    // and the tags prompt below. Cheap (project.json read + format-
-    // defaults merge).
-    const format = await getEffectiveFormat(slug)
-    // 2026-08-27 — the metadata formula seam, the same one the queued generator
-    // uses, so a channel that picked a formula gets the same architecture from
-    // every path into metadata. Null when nothing picked one, and every line
-    // below then resolves exactly as it did before formulas existed.
-    const formulaEntry = await resolveActiveMetadataFormula({ requestedId: metadata_formula_id, config })
-    const formula = formulaEntry ? metadataFormulaPlan(formulaEntry) : null
-    // An explicit section list from the page still wins; the formula supplies
-    // the architecture when the caller has none of its own.
-    const effectiveSections = (Array.isArray(sections) && sections.length) ? sections : (formula?.sections ?? [])
-    const promptFormat = formula ? withMetadataFormulaShape(format, formula, formulaEntry!.architecture) : format
-
-    // Description (hashtags section uses format.youtubeDescriptionStructure
-    // when no explicit defaults are set on the section config).
-    // v1.0.102+ — char limit format-driven; same logic as the per-route
-    // description endpoint above.
-    const effectiveMaxChars = max_chars || formula?.descriptionMaxChars || format?.metadata?.defaultMaxChars || 5000
-    // v1.0.108+ — metadata-scope recency on the /metadata/all batch route.
-    const descPrompt = await prependAvoidanceToPrompt(
-      slug,
-      'metadata',
-      buildDescriptionPrompt(episode_id, title, storyContext, effectiveSections, effectiveMaxChars, promptFormat),
-      episode_id,
-    ) + await noEmojiDirective()
-    const descRaw = await callAiWithRetry(model, '', descPrompt, aiCreds(config), false, {
-      slug, outputBudget: 'standard',
-    })
-    const description = stripInternalSectionLabels(await applyEmojiPolicy(descRaw.trim(), [descPrompt]))
-    await recordUsageForScope(slug, episode_id, 'metadata', descRaw).catch(() => null)
-
-    // Titles — fixed modes return a single title without an LLM call.
-    let titles: string[]
-    if (title_mode === 'use_idea_title' || title_mode === 'manual') {
-      const base = title_mode === 'manual'
-        ? String(manual_title || '').trim()
-        : String(title || '').trim()
-      titles = [wrapAllTitle(base)]
-    } else {
-      const platformNote = title_platform_preset && title_platform_preset !== 'custom'
-        ? `Optimized for ${title_platform_preset} (max ${title_max_length} characters).`
-        : `Maximum ${title_max_length} characters per title.`
-      // Same "what worked" inspiration injection as the batch metadata
-      // generator. Best-effort — empty string when analytics is
-      // unavailable.
-      let topBlock = ''
-      try {
-        const { getTopPerformersForSlug } = await import('../lib/youtube-analytics.js')
-        const { formatTopPerformersBlock } = await import('../lib/top-performers.js')
-        const top = await getTopPerformersForSlug(slug, 5)
-        topBlock = formatTopPerformersBlock(top)
-      } catch { /* analytics is best-effort */ }
-      const titlePrompt = `Generate ${title_count || formula?.titleCount || 5} SEO-optimized video title options ${format.metadata.purposeNote}.
-Episode: ${episode_id} — ${title}
-Story context:
-${truncateChars(storyContext, 1500)}
-${topBlock}
-Requirements:
-- ${platformNote}
-- Tone: ${formula?.titleGuidance || format.metadata.titleStyleHint}.
-- One per line. No numbering, quotes, or commentary.${await noEmojiDirective()}`
-      const titlePromptWithAvoidance = await prependAvoidanceToPrompt(slug, 'titles', titlePrompt, episode_id)
-      const titleRaw = await callAiWithRetry(model, '', titlePromptWithAvoidance, aiCreds(config), false, { slug })
-      const rawTitles = titleRaw.split('\n').map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^["']|["']$/g, '').trim()).filter(Boolean).slice(0, title_count || formula?.titleCount || 5)
-      const cleanTitles = await applyEmojiPolicyToAll(rawTitles, [titlePromptWithAvoidance])
-      titles = (title_prefix || title_suffix) ? cleanTitles.map(wrapAllTitle) : cleanTitles
-      await recordUsageForScope(slug, episode_id, 'titles', titleRaw).catch(() => null)
-    }
-
-    // Tags
-    const tagPrompt = `Generate ${tag_count || formula?.tagCount || 15} YouTube tags ${formula?.tagGuidance || format.metadata.tagsContext}.
-Episode: ${episode_id} — ${title}
-Description excerpt:
-${truncateChars(description, 500)}
-
-Requirements:
-- 1-4 words per tag, no "#" prefix.
-- Broad keywords to draw from: ${format.metadata.broadKeywords.join(', ')}.
-- One per line, no numbering or commentary.${await noEmojiDirective()}`
-    const tagRaw = await callAiWithRetry(model, '', tagPrompt, aiCreds(config), false, { slug })
-    const tags = await applyEmojiPolicyToAll(
-      tagRaw.split('\n').map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^#/, '').replace(/^["']|["']$/g, '').trim()).filter(Boolean).slice(0, tag_count || formula?.tagCount || 15),
-      [tagPrompt],
-    )
-
-    await trackGeneration(slug, 'description')
-    res.json({ titles, description, tags })
-  } catch (e: any) {
-    // Honour explicit statusCode (400 validation, 402 quota, …) and
-    // surface the raw error via humanizeBackendError so users see
-    // actionable detail (provider quota, missing key, etc.) rather
-    // than a flat "Generation failed: <terse>".
-    const status = typeof e?.statusCode === 'number' ? e.statusCode : 500
-    res.status(status).json(humanizeBackendError(e, 'Generation failed'))
   }
 })
 
@@ -1813,29 +1436,6 @@ router.get('/projects/:slug/episodes/:episodeId/youtube-finalization-status', as
     res.json(status)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to inspect YouTube finalization readiness'))
-  }
-})
-
-router.get('/projects/:slug/episodes/:episodeId/chapter-timestamps', async (req, res) => {
-  try {
-    const { slug, episodeId } = req.params
-    // Back-compatible endpoint for old clients. It now shares the exact same
-    // measured timing + approved-title logic as the automatic finalizer.
-    const result = await finalizeYouTubeDescription({
-      slug,
-      episodeId,
-      description: '',
-      includeSources: false,
-    })
-    const chapterBlock = result.description.match(/CHAPTERS\n([\s\S]*?)\n<!-- youtube:chapters:end -->/)?.[1] || ''
-    res.json({
-      formatted: chapterBlock,
-      chapters: result.chapters,
-      warnings: result.warnings,
-      reason: result.chapters.length < 3 ? 'fewer-than-3-chapters' : undefined,
-    })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to derive chapter timestamps'))
   }
 })
 

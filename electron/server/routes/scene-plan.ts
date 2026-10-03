@@ -18,7 +18,7 @@ import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
-import { findIncompleteSubtitleSections, stitchSubtitles } from '../services/subtitle-stitcher.js'
+import { findIncompleteSubtitleSections } from '../services/subtitle-stitcher.js'
 import { resolveTranscriptSrt, resolveTranscriptSrtPath, stitchedSrtPath } from '../services/subtitle-correction.js'
 import { inspectSubtitleText } from '../lib/subtitle-quality.js'
 import { readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
@@ -922,57 +922,6 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-motion-prompt', as
     })
     return res.status(201).json(job)
   })
-})
-
-// ── POST /scene-plan/:ep/regenerate-empty-motion-prompts ──────────────
-// Repair every missing motion prompt through the same bounded, durable
-// GenStudio packs used by normal motion generation.
-router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-motion-prompts', async (req, res) => {
-  const { slug, episodeId } = req.params
-  const body = req.body || {}
-  try { await assertScenePlanVisualSource(slug, episodeId) }
-  catch (error: any) { return res.status(409).json({ detail: error.message }) }
-  let model = typeof body.model === 'string' ? body.model.trim() : ''
-  if (!model) return res.status(400).json({ detail: 'model is required' })
-  if (/^(imagestudio|kie|fal|runware|replicate):/i.test(model)) {
-    return res.status(400).json({ detail: `"${model}" is an image model — this needs a text/LLM model. Pick one in Settings → Models.` })
-  }
-  try {
-    model = await requireScenePlanGenStudioModel(model)
-  } catch (error: any) {
-    return res.status(409).json(humanizeBackendError(error, 'Gateway scene-planning model is unavailable'))
-  }
-  // A batch size this server cannot honour is REPORTED, never swapped for a
-  // different number. `parseScenePromptPackSetting` throws rather than falling
-  // back to 'auto' — the old behaviour turned "200" into 50 in silence.
-  let promptPackSize: ScenePromptPackSetting
-  try {
-    promptPackSize = parseScenePromptPackSetting(body.prompt_pack_size)
-  } catch (error: any) {
-    return res.status(400).json({ detail: error?.message || 'Invalid prompt_pack_size' })
-  }
-
-  if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
-    return res.status(409).json({ detail: `A scene-plan job is already running for ${episodeId}` })
-  }
-  let visualSnapshot
-  try { visualSnapshot = await scenePlanVisualSnapshot(slug, episodeId, 'motion') }
-  catch (error: any) { return res.status(409).json({ detail: error.message }) }
-  const job = await jq.enqueue({
-    project_slug: slug,
-    type: 'scene_plan_run' as JobType,
-    episode_id: episodeId,
-    title: `Repair motion prompts — ${episodeId}`,
-    params: {
-      ...visualSnapshot,
-      episode_id: episodeId,
-      model,
-      regenerate_empty_motion_prompts: true,
-      motion_level: visualSnapshot.motion_level,
-      prompt_pack_size: promptPackSize,
-    },
-  })
-  res.status(201).json(job)
 })
 
 // ── GET /scene-plan/:ep ───────────────────────────────────────────────

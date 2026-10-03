@@ -168,12 +168,6 @@ describe('the JSON call sites declare their contract', () => {
     })
   }
 
-  test('both regular route passes delegate to the shared freeform contract', () => {
-    const ideasRoute = source('routes/ideas.ts')
-    assert.match(ideasRoute, /const firstBatch = normalizeIdeas\(await generateFreeformIdeaBatch\(\{/, 'first pass bypassed the shared contract')
-    assert.match(ideasRoute, /const retryBatch = normalizeIdeas\(await generateFreeformIdeaBatch\(\{/, 'retry pass bypassed the shared contract')
-  })
-
   test('the deprecated jsonObject flag is gone from the vision call', () => {
     const region = callRegion('routes/vision.ts', 'const result = await callChatWithGenStudio(apiKey, {')
     assert.ok(!/jsonObject\s*:/.test(region), 'one mechanism, not two')

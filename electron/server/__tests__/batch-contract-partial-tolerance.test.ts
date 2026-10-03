@@ -1,5 +1,5 @@
 /**
- * The three batch contracts that still demanded `minItems === maxItems` after
+ * The batch contracts that still demanded `minItems === maxItems` after
  * the scene prompt pack was fixed (060ac5e) — and what each of them should do
  * about it, which is NOT the same answer three times.
  *
@@ -17,11 +17,6 @@
  *   `fill_gaps` re-requests exactly the missing slots. Also fixes a guaranteed
  *   rejection: the prompt showed the model a `"number"` key the schema forbade.
  *
- *   VIDEO PROMPTS — loosened, but only after the guard was BUILT. `number` here
- *   is model-supplied and load-bearing (it pairs a prompt with a start image and
- *   names the output file), and nothing downstream checked it.
- *   `normalizeVideoPromptScenes` is that check.
- *
  *   OUTLINE — deliberately left strict. Asserted here so it stays that way.
  *
  * ZERO paid calls. Fixtures are shaped from GenStudio's stored
@@ -37,9 +32,7 @@ import { explainJsonSchemaMismatch, validateStructuredOutput } from '../lib/json
 import {
   outlineOutputContract,
   thumbnailPromptsOutputContract,
-  videoPromptsOutputContract,
 } from '../lib/story-output-contracts.js'
-import { normalizeVideoPromptScenes } from '../routes/ai-video.js'
 import { buildThumbnailPrompt, normalizeGeneratedPromptItems } from '../generators/image-prompts.js'
 
 function source(relative: string): string {
@@ -129,86 +122,6 @@ describe('thumbnail prompt batch', () => {
   })
 })
 
-// ── 2. Video prompts ──────────────────────────────────────────────────────
-
-describe('video clip prompt batch', () => {
-  test('the envelope is accepted, so one bad row no longer voids the batch', () => {
-    const contract = videoPromptsOutputContract(4)
-    // Row 3 wrote `scene` where the contract says `number` — the EP0067 shape.
-    const raw = JSON.stringify({
-      scenes: [
-        { number: 1, title: 'Arrival', prompt: 'Slow dolly toward a lit gate.' },
-        { number: 2, title: 'Ward', prompt: 'Static shot down a hospital corridor.' },
-        { scene: 3, title: 'Harbour', prompt: 'Pan across a closed harbour.' },
-        { number: 4, title: 'Ledger', prompt: 'Push in on an open ledger.' },
-      ],
-    })
-    assert.notEqual(explainJsonSchemaMismatch(JSON.parse(raw), (contract as any).schema), null)
-    const value = validateStructuredOutput(raw, contract) as any
-    const { scenes, missing } = normalizeVideoPromptScenes(value.scenes, 4)
-    assert.deepEqual(scenes.map(s => s.number), [1, 2, 4], 'three usable prompts kept, not zero')
-    assert.deepEqual(missing, [3], 'and the one genuinely missing scene is named')
-  })
-
-  test('a prompt can only ever address a scene the request asked for', () => {
-    // This is the guarantee the exact-count check never actually provided:
-    // `generators/ai-video.ts` finds a clip's start image by scene number.
-    const { scenes, missing } = normalizeVideoPromptScenes([
-      { number: 0, title: 'Below', prompt: 'Out of range low.' },
-      { number: 7, title: 'Above', prompt: 'Out of range high.' },
-      { number: 2.5, title: 'Fractional', prompt: 'Not an integer.' },
-      { number: '2', title: 'Stringly typed', prompt: 'Coerces to 2.' },
-      { number: 1, title: 'First', prompt: 'A real one.' },
-    ], 3)
-    assert.deepEqual(scenes.map(s => s.number), [1, 2])
-    assert.deepEqual(missing, [3])
-  })
-
-  test('a duplicated scene number cannot overwrite an earlier clip', () => {
-    const { scenes, missing } = normalizeVideoPromptScenes([
-      { number: 1, title: 'First', prompt: 'The kept one.' },
-      { number: 1, title: 'Second', prompt: 'The dropped one.' },
-      { number: 2, title: 'Two', prompt: 'Fine.' },
-    ], 2)
-    assert.equal(scenes.length, 2)
-    assert.equal(scenes[0]!.prompt, 'The kept one.')
-    assert.deepEqual(missing, [])
-  })
-
-  test('rows with no usable prompt are dropped and counted as missing', () => {
-    const { scenes, missing } = normalizeVideoPromptScenes([
-      { number: 1, title: 'Blank', prompt: '   ' },
-      { number: 2, title: '', prompt: 'Real text.' },
-    ], 2)
-    assert.deepEqual(scenes.map(s => s.number), [2])
-    assert.equal(scenes[0]!.title, 'Scene 2', 'a missing title falls back, it does not void the row')
-    assert.deepEqual(missing, [1])
-  })
-
-  test('scenes come back in scene order regardless of response order', () => {
-    const { scenes } = normalizeVideoPromptScenes([
-      { number: 3, title: 'C', prompt: 'c' },
-      { number: 1, title: 'A', prompt: 'a' },
-      { number: 2, title: 'B', prompt: 'b' },
-    ], 3)
-    assert.deepEqual(scenes.map(s => s.number), [1, 2, 3])
-  })
-
-  test('an empty batch is still refused, loudly', () => {
-    assert.throws(
-      () => validateStructuredOutput('{"scenes":[]}', videoPromptsOutputContract(3)),
-      /\$\.scenes: has 0 item\(s\), minimum 1/,
-    )
-  })
-
-  test('the route rejects a batch with no addressable prompt rather than saving it', () => {
-    const route = source('routes/ai-video.ts')
-    assert.match(route, /normalizeVideoPromptScenes\(parsed\?\.scenes, nClips\)/)
-    assert.match(route, /if \(!scenes\.length\)/)
-    assert.match(route, /res\.json\(\{\s*\n\s*scenes,/)
-  })
-})
-
 // ── 3. Outline — deliberately NOT loosened ────────────────────────────────
 
 describe('outline', () => {
@@ -281,11 +194,6 @@ describe('local rejection messages', () => {
         contract: thumbnailPromptsOutputContract(2),
         raw: '{"thumbnails":[]}',
         expect: /story_thumbnail_prompts response schema — \$\.thumbnails: has 0 item\(s\), minimum 1/,
-      },
-      {
-        contract: videoPromptsOutputContract(2),
-        raw: '{"scenes":"not an array"}',
-        expect: /story_video_prompts response schema — \$\.scenes: expected array, got string/,
       },
       {
         contract: outlineOutputContract(3),

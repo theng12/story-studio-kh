@@ -1,5 +1,4 @@
 import { Router } from 'express'
-import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { validateBody } from '../lib/validate.js'
@@ -9,7 +8,6 @@ import { CreateProjectSchema, UpdateProjectSchema } from '../schemas/index.js'
 // see syncManifest() — for cross-machine project_id identity.)
 import { auditProjectAssets } from '../services/asset-status.js'
 import { auditAssets } from '../services/manifest-audit.js'
-import { getSecretsProvenanceStatus, resetSecretsForCurrentMachine } from '../services/secrets-store.js'
 import { listFormats, getEffectiveFormatFor } from '../services/format-loader.js'
 import { humanizeBackendError, respondWithError } from '../lib/humanize-backend-error.js'
 import type { ProjectMeta } from '../models/types.js'
@@ -272,45 +270,6 @@ router.delete('/projects/:slug', async (req, res) => {
     res.status(status).json(humanizeBackendError(e, 'Project cannot be removed while its jobs are still settling'))
   }
 })
-
-// ── Manifest sync (Stage 5) ───────────────────────────────────────────────
-// Detect when another machine has synced in a newer manifest while this
-// machine has the project loaded. The status endpoint is the read; the
-// sync endpoint is the reconcile.
-
-// ── Secrets-status (compat shim — provenance flow is retired) ────────────
-//
-// API keys live app-level now (`<userData>/app-secrets.json`); the
-// per-project foreign-provenance check + Clear-and-reset banner are gone
-// for good. This endpoint stays so the dashboard's old composable doesn't
-// 404, but it always reports `foreign: false` / `decryptFailed: false`.
-// `present` reflects whether ANY app-level key is configured.
-router.get('/projects/:slug/secrets-status', async (req, res) => {
-  if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
-  const status = await getSecretsProvenanceStatus(req.params.slug)
-  res.json(status)
-})
-
-// No-op kept so the legacy "Clear and reset" button in older dashboards
-// doesn't 404 mid-deploy. Individual provider keys can be cleared from
-// the app-level Settings → API Keys page.
-router.post('/projects/:slug/secrets-reset', async (req, res) => {
-  if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
-  try {
-    await resetSecretsForCurrentMachine(req.params.slug)
-    res.json({ ok: true })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Reset failed'))
-  }
-})
-
-// (Removed: legacy /projects/:slug/manifest-status + /sync-from-manifest
-// routes. The manifest-based push/pull sync was paused via a feature
-// flag and the underlying polling is gone — cloud sync now happens at
-// the OS level via Settings → Storage → Projects storage location.
-// The .story-studio-project.json manifest file is still WRITTEN on
-// every project mutation as an identity marker, but no longer read
-// for sync-state purposes.)
 
 // ── Per-episode asset importer (Part 7 of mark-done plan) ──────────────────
 //

@@ -116,50 +116,6 @@ router.put('/projects/:slug/video-editor/visual-source/:episodeId', async (req, 
   }
 })
 
-// Scan local music files in project directory
-router.get('/projects/:slug/video-editor/music-files', async (req, res) => {
-  const { slug } = req.params
-
-  try {
-    const projectDir = pm.getProjectDir(slug)
-    if (!projectDir) return res.status(404).json({ detail: 'Project directory not found' })
-
-    const musicFiles: Array<{ filename: string; path: string; duration?: number }> = []
-    const audioExtensions = /\.(mp3|wav|m4a|aac|ogg|flac)$/i
-
-    // Scan project root and music subdirectory
-    const locations = [projectDir]
-    const musicSubdir = path.join(projectDir, 'music')
-    if (existsSync(musicSubdir)) locations.push(musicSubdir)
-
-    const seenPaths = new Set<string>()
-    for (const loc of locations) {
-      try {
-        const files = await fs.readdir(loc)
-        for (const file of files) {
-          if (!audioExtensions.test(file)) continue
-          const fullPath = path.join(loc, file)
-          if (seenPaths.has(fullPath)) continue
-          seenPaths.add(fullPath)
-
-          // Quick duration probe. Previously spawned `ffprobe` by bare string,
-          // which ENOENT'd on packaged Macs without system ffprobe in PATH.
-          // `getAudioDuration()` routes through the same resolver that finds
-          // the bundled binary inside `.app/Contents/Resources/ffmpeg/`.
-          let duration: number | undefined
-          try { duration = await getAudioDuration(fullPath) } catch { /* skip */ }
-
-          musicFiles.push({ filename: file, path: fullPath, duration })
-        }
-      } catch { /* skip inaccessible directories */ }
-    }
-
-    res.json(musicFiles)
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Could not scan music files'))
-  }
-})
-
 // Scan local overlay assets in project directory.
 // Looks under `${PROJECT}/overlays/` for video/image files that the
 // Overlay Layers UI can attach as a composite layer. Mirrors the
@@ -350,35 +306,6 @@ async function findEpisodeDirForRoute(slug: string, episodeCode: string): Promis
   const { findEpisodeDir } = await import('../lib/folder-resolver.js')
   return findEpisodeDir(outputRoot, episodeCode)
 }
-
-// GET the audio_chapters.json sidecar (Workstream B). Returns the
-// parsed list of chapters in playback order so the per-scene-swap UI
-// can render a column per chapter. Empty list when sidecar is absent
-// (typical: user hasn't run Audio Merge yet).
-router.get('/projects/:slug/video-editor/audio-chapters', async (req, res) => {
-  const { slug } = req.params
-  const episodeId = String(req.query.episode_id || '').trim()
-  if (!episodeId) return res.status(400).json({ detail: 'episode_id query parameter required' })
-  try {
-    const episodeDir = await findEpisodeDirForRoute(slug, episodeId)
-    if (!episodeDir) return res.json({ sections: [], episode_dir: null, exists: false })
-    const sidecarPath = path.join(episodeDir, 'audio_chapters.json')
-    if (!existsSync(sidecarPath)) {
-      return res.json({ sections: [], episode_dir: episodeDir, exists: false })
-    }
-    const raw = await fs.readFile(sidecarPath, 'utf-8')
-    const parsed = JSON.parse(raw) as {
-      sections?: Array<{ slug: string; duration_s: number; source_file?: string }>
-    }
-    res.json({
-      sections: Array.isArray(parsed.sections) ? parsed.sections : [],
-      episode_dir: episodeDir,
-      exists: true,
-    })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Could not read audio_chapters.json'))
-  }
-})
 
 // Read-only opening preview. Kept at the historical route so old clients do not
 // break; new assembly timing is read from scene_plan.json during render.
