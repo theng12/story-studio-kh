@@ -15,7 +15,7 @@ import os from 'os'
 import path from 'path'
 import { spawn } from 'child_process'
 import * as pm from '../services/project-manager.js'
-import { checkpointJobState, trackChild } from '../services/job-queue.js'
+import { checkpointJobState, isCancelled, trackChild } from '../services/job-queue.js'
 import { withFinalVideoPathLock } from '../services/final-video-lock.js'
 import { resolveSubfolderNames, resolveScenePlanPath, resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 // v1.0.338 — episode-dir + subfolder lookups consolidated into the shared
@@ -54,6 +54,7 @@ import {
   createVideoAssemblyCheckpoint,
   findReusableVideoAssemblySceneClips,
   getValidVideoAssemblyCheckpoint,
+  moveCheckpointSceneClips,
   setVideoAssemblyCheckpoint,
   validateVideoAssemblySceneClip,
   type VideoAssemblyCheckpoint,
@@ -1767,19 +1768,24 @@ export async function generateVideo(job: Job): Promise<void> {
     ? await getValidVideoAssemblyCheckpoint(job, ['running'])
     : null
   const matchingCheckpoint = savedCheckpoint?.render_fingerprint === renderFingerprint ? savedCheckpoint : null
-  const tempDir = matchingCheckpoint?.work_dir || await getWorkTempDir(project_slug, code)
+  // Every attempt gets a FRESH temp dir: an encoder orphaned by a crash may
+  // still be writing into the old one. Verified checkpoint clips move across.
+  const tempDir = await getWorkTempDir(project_slug, code)
+  const carriedSceneClips = matchingCheckpoint
+    ? await moveCheckpointSceneClips(matchingCheckpoint, tempDir)
+    : []
   const videoAssemblyCheckpoint = renderFingerprint
     ? createVideoAssemblyCheckpoint(
         job,
         tempDir,
         renderFingerprint,
-        matchingCheckpoint?.completed_scene_clips || [],
+        carriedSceneClips,
       )
     : null
   if (videoAssemblyCheckpoint) {
     setVideoAssemblyCheckpoint(job, videoAssemblyCheckpoint)
     await checkpointJobState(job)
-    if (matchingCheckpoint) job.output_lines.push(`Recovery: validating ${matchingCheckpoint.completed_scene_clips.length} saved scene clip(s).`)
+    if (matchingCheckpoint) job.output_lines.push(`Recovery: validating ${carriedSceneClips.length} saved scene clip(s) (moved into a fresh work folder).`)
   }
   // Debug mode: when STORY_STUDIO_VIDEO_DEBUG is truthy, preserve the
   // temp dir on every run (success OR failure) so the user can replay a
@@ -3812,6 +3818,8 @@ export async function prepareSceneClips(
       while (true) {
         const i = nextIndex++
         if (i >= scenes.length) return
+        // Cancel kills the running clip encoders; the other workers must not pick up the next scene.
+        if (isCancelled(job.job_id)) throw new Error('Cancelled by user')
         try {
           await prepOne(i)
         } catch (e: any) {
@@ -6021,22 +6029,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   // The full filter chain is captured in `args` (with `[vout]` mapping)
   // and the audio map is `${audioInputIdx}:a`. Tiers 3+ use a minimal
   // re-build that bypasses filter_complex entirely.
-  type AttemptResult = { ok: true } | { ok: false; error: any }
-  type Tier = {
-    label: string
-    note?: string
-    build: () => string[]
-    /** Optional gate: only run if the previous tier failed in a way this
-     *  tier can address. For tier 2 we keep the historical libx265-EINVAL
-     *  guard so well-behaved H.265 jobs aren't quietly downgraded to H.264
-     *  on unrelated failures. */
-    shouldRun?: (prevError: any) => boolean
-    /** Human-readable description of what gets dropped at this tier. */
-    degraded?: string
-    /** True when this tier bypasses `filter_complex` entirely, so every
-     *  burned-in feature the user asked for is discarded. */
-    dropsBurnedInFeatures?: boolean
-  }
+  type Tier = EncodeTier
 
   // ── What the user actually asked to be burned in ────────────────────────
   //
@@ -6164,44 +6157,23 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   job.output_lines.push('Running final composition...')
   job.output_lines.push(`Output: ${path.basename(outputFile)}`)
 
-  let lastError: any = null
-  let succeededTier: Tier | null = null
-  for (let i = 0; i < tiers.length; i++) {
-    const tier = tiers[i]
-    if (i > 0 && tier.shouldRun && !tier.shouldRun(lastError)) continue
-
-    const args = tier.build()
-    if (i === 0) {
-      job.output_lines.push(`Codec: ${tier.label}`)
-    } else {
-      const stderrSnippet = (lastError?.stderr || '').split('\n').filter((l: string) => l.trim()).slice(-3).join(' | ')
-      job.output_lines.push(
-        `⚠ Encode tier ${i} failed (${stderrSnippet || lastError?.message || 'unknown'}). ` +
-        `Trying tier ${i + 1}: ${tier.label}` +
-        (tier.degraded ? ` — ${tier.degraded}` : '')
-      )
-    }
-    logCmd(args, tier.note)
-    const result: AttemptResult = await runEncode(args)
-      .then(() => ({ ok: true } as AttemptResult))
-      .catch(e => ({ ok: false, error: e } as AttemptResult))
-
-    if (result.ok) {
-      try {
-        await validateEncodedOutput()
-        succeededTier = tier
-        break
-      } catch (validateErr: any) {
-        lastError = validateErr
-        continue
-      }
-    }
-    lastError = result.error
-  }
+  const chain = await runEncodeTierChain(tiers, {
+    run: runEncode,
+    validate: validateEncodedOutput,
+    log: line => job.output_lines.push(line),
+    logCmd,
+    isCancelled: () => isCancelled(job.job_id),
+  })
+  const { lastError, succeededTier } = chain
 
   // The filter graph no longer needs generated ASS documents after all encode
   // attempts finish. Best-effort cleanup covers success and recovery failure.
   await Promise.all(generatedSubtitleFiles.map(file => fs.rm(file, { force: true }).catch(() => undefined)))
+
+  if (chain.cancelled) {
+    job.output_lines.push('Render cancelled — encoding stopped; no fallback encode was started.')
+    throw new Error('Cancelled by user')
+  }
 
   if (!succeededTier) {
     // All tiers failed — emit the full diagnostic trail so the user can
@@ -6225,6 +6197,76 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
       dropped: succeededTier.dropsBurnedInFeatures ? requestedBurnIns : [],
     })
   }
+}
+
+export type EncodeTier = {
+  label: string
+  note?: string
+  build: () => string[]
+  /** Optional gate: only run if the previous tier failed in a way this
+   *  tier can address. For tier 2 we keep the historical libx265-EINVAL
+   *  guard so well-behaved H.265 jobs aren't quietly downgraded to H.264
+   *  on unrelated failures. */
+  shouldRun?: (prevError: any) => boolean
+  /** Human-readable description of what gets dropped at this tier. */
+  degraded?: string
+  /** True when this tier bypasses `filter_complex` entirely, so every
+   *  burned-in feature the user asked for is discarded. */
+  dropsBurnedInFeatures?: boolean
+}
+
+/**
+ * Run the final-encode tiers in order until one produces a valid file.
+ *
+ * Cancellation is checked before every tier and after every failed attempt:
+ * Cancel kills the running encoder, and that kill must end the chain — it is
+ * not an encode failure to recover from. (Dreamlands E2E 2026-10-03: a cancelled
+ * render's SIGKILLed encoder was read as a failure and tier 4 started a
+ * subtitle-less "recovery" encode for a job already marked cancelled.)
+ */
+export async function runEncodeTierChain<T extends EncodeTier>(
+  tiers: T[],
+  io: {
+    run: (args: string[]) => Promise<void>
+    validate: () => Promise<void>
+    log: (line: string) => void
+    logCmd: (args: string[], note?: string) => void
+    isCancelled: () => boolean
+  },
+): Promise<{ succeededTier: T | null; lastError: any; cancelled: boolean }> {
+  let lastError: any = null
+  for (let i = 0; i < tiers.length; i++) {
+    if (io.isCancelled()) return { succeededTier: null, lastError, cancelled: true }
+    const tier = tiers[i]
+    if (i > 0 && tier.shouldRun && !tier.shouldRun(lastError)) continue
+
+    const args = tier.build()
+    if (i === 0) {
+      io.log(`Codec: ${tier.label}`)
+    } else {
+      const stderrSnippet = (lastError?.stderr || '').split('\n').filter((l: string) => l.trim()).slice(-3).join(' | ')
+      io.log(
+        `⚠ Encode tier ${i} failed (${stderrSnippet || lastError?.message || 'unknown'}). ` +
+        `Trying tier ${i + 1}: ${tier.label}` +
+        (tier.degraded ? ` — ${tier.degraded}` : ''),
+      )
+    }
+    io.logCmd(args, tier.note)
+    try {
+      await io.run(args)
+    } catch (error) {
+      lastError = error
+      continue
+    }
+    if (io.isCancelled()) return { succeededTier: null, lastError, cancelled: true }
+    try {
+      await io.validate()
+      return { succeededTier: tier, lastError, cancelled: false }
+    } catch (validateErr) {
+      lastError = validateErr
+    }
+  }
+  return { succeededTier: null, lastError, cancelled: io.isCancelled() }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────

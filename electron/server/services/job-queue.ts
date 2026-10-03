@@ -16,6 +16,7 @@ import type { ChildProcess } from 'child_process'
 import { randomUUID } from 'node:crypto'
 import { balancedReplacementSettlement, mergeGenerationReplacementAttempts } from './generation-paid-replacement.js'
 import { projectsRoot, getProjectDir } from './project-manager.js'
+import { reapRecordedChildren, recordChildProcess } from './orphan-reaper.js'
 import { trackGeneration } from './session-tracker.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
@@ -79,6 +80,12 @@ export function trackChild(proc: ChildProcess): void {
     childrenByJob.set(store.jobId, set)
   }
   set.add(proc)
+  recordChildProcess(proc, store.jobId)
+  // A child started after Cancel (e.g. an FFmpeg fallback for a native clip
+  // the cancel just killed) belongs to a stopped job: stop it at once.
+  if (cancelled.has(store.jobId)) {
+    try { proc.kill('SIGTERM') } catch { /* already dead */ }
+  }
   const drop = () => {
     const s = childrenByJob.get(store.jobId)
     if (s) {
@@ -3148,6 +3155,10 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
 export async function resumeInterruptedJobsAtBoot(): Promise<void> {
   imageEpisodeBootAdmissionHolds++
   try {
+    // Stop encoders a crashed previous run left behind BEFORE anything resumes
+    // into their temp dirs.
+    const reaped = await reapRecordedChildren()
+    for (const o of reaped) console.log(`[orphan-reap] Stopped leftover encoder pid=${o.pid} from a previous run: ${o.command.slice(0, 200)}`)
     const { listProjects } = await import('./project-manager.js')
     const projects = await listProjects()
     for (const project of projects as Array<{ slug?: string }>) {

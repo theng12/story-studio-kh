@@ -180,6 +180,30 @@ export function createVideoAssemblyCheckpoint(
   }
 }
 
+/**
+ * Move a checkpoint's saved scene clips into a fresh work dir and drop the old
+ * one. A resumed render never writes into the previous attempt's folder, where
+ * an encoder orphaned by a crash may still be writing. Clips that cannot be
+ * moved are simply re-rendered (the reuse check validates every clip anyway).
+ */
+export async function moveCheckpointSceneClips(
+  checkpoint: VideoAssemblyCheckpoint,
+  workDir: string,
+): Promise<VideoAssemblyCompletedSceneClip[]> {
+  const moved: VideoAssemblyCompletedSceneClip[] = []
+  if (path.resolve(checkpoint.work_dir) === path.resolve(workDir)) return checkpoint.completed_scene_clips
+  for (const clip of checkpoint.completed_scene_clips) {
+    const target = path.join(workDir, path.basename(clip.clip_path))
+    try {
+      await fs.rename(clip.clip_path, target)
+      moved.push({ ...clip, clip_path: target })
+    } catch { /* missing or unmovable: re-rendered */ }
+  }
+  // Scratch only (validated as this job's own canonical temp dir by the caller).
+  await fs.rm(checkpoint.work_dir, { recursive: true, force: true }).catch(() => {})
+  return moved
+}
+
 export function setVideoAssemblyCheckpoint(job: Job, checkpoint: VideoAssemblyCheckpoint | null): void {
   const result = { ...(job.result || {}) }
   if (checkpoint) result[CHECKPOINT_KEY] = checkpoint
