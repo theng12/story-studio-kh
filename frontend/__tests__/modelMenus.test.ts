@@ -29,6 +29,7 @@ const modelSurfaces = {
   sceneReview: source('../pages/projects/[slug]/scene-review.vue'),
   broll: source('../pages/projects/[slug]/broll.vue'),
   imagePrompts: source('../pages/projects/[slug]/image-prompts.vue'),
+  thumbnailVisionMenu: source('../utils/thumbnail-vision-model-menu.ts'),
   research: source('../pages/projects/[slug]/research.vue'),
   channelCharacters: source('../pages/character-library.vue'),
 }
@@ -270,7 +271,7 @@ describe('shared model menus', () => {
     assert.match(modelSurfaces.broll, /media-type="transcription"/)
     assert.match(modelSurfaces.sceneReview, /<ImageModelPicker/)
     assert.doesNotMatch(modelSurfaces.sceneReview, /Rewrite LLM|<ModelSelector/)
-    assert.match(modelSurfaces.imagePrompts, /title="Reference analysis model"/)
+    assert.match(modelSurfaces.imagePrompts, /title="Thumbnail reference analysis model"/)
     assert.match(modelSurfaces.channelCharacters, /title="Character vision model"/)
   })
 
@@ -280,7 +281,7 @@ describe('shared model menus', () => {
     assert.match(modelSurfaces.audio, /costTier:\s*model\.cost_tier/)
     assert.match(modelSurfaces.motion, /costTier:\s*model\.cost_tier/)
     assert.match(transcriptionCatalog, /costTier:\s*model\.cost_tier/)
-    assert.match(modelSurfaces.imagePrompts, /costTier:\s*model\.cost_tier/g)
+    assert.match(modelSurfaces.thumbnailVisionMenu, /costTier:\s*model\.cost_tier/)
     assert.match(modelSurfaces.research || '', /costTier:\s*model\.cost_tier/)
 
     for (const catalog of [imageCatalog, mediaCatalog, voiceCatalog, transcriptionCatalog]) {

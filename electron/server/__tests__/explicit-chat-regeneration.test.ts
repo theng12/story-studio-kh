@@ -69,7 +69,7 @@ test('thumbnail prompt default preserves completed prompts while force is a fres
   // Default is fill-gaps; the only overwrite is the confirmed "Replace all" action.
   assert.match(page, /fill_gaps:\s*!replaceAll/)
   assert.match(page, /force:\s*replaceAll/)
-  assert.match(page, /await runGenerate\('thumbnails', true\)/)
+  assert.match(page, /await runGenerate\(true\)/)
   assert.match(page, /freshImagePromptsAction\.begin\(payload\)/)
   assert.match(page, /operation_id:\s*operationId/)
 })

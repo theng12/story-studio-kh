@@ -18,7 +18,7 @@ test('thumbnail reference analysis shows only qualified Gateway vision models', 
   assert.match(route, /supports_structured_output/)
   assert.match(route, /thumbnail-reference\/vision-models/)
   assert.match(page, /thumbnailVisionModels/)
-  assert.match(page, /:options="visionModelMenuOptions"/)
+  assert.match(page, /:options="thumbnailVisionModelMenuOptions"/)
   const option = thumbnailVisionModelMenuOption({
     id: 'vision-priced', display_name: 'Vision priced', supported_detail_levels: ['high'],
     max_input_images: 1, accepted_image_mime_types: ['image/png'], max_image_bytes: 1,

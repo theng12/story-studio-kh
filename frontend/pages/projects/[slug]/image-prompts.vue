@@ -21,8 +21,8 @@
       :filter-field="promptFilterField"
       :generate-label="generateLabel"
       :generate-loading="generating || promptsJobActiveForEpisode"
-      :generate-disabled="!form.episode_id || (scriptGateApplies && !scriptReady)"
-      :generate-status="(generating || promptsJobActiveForEpisode) ? `Generating prompts for ${form.episode_id}…` : scriptGateReason"
+      :generate-disabled="!form.episode_id"
+      :generate-status="(generating || promptsJobActiveForEpisode) ? `Generating prompts for ${form.episode_id}…` : ''"
       @generate="generate"
       />
       <p class="workspace-command-copy">
@@ -30,607 +30,6 @@
       </p>
     </div>
 
-
-    <!-- v1.0.296 — inline rescan-from-disk affordance, parity with audio.vue.
-         Surfaces only once we KNOW the script is missing (statusKnown && !scriptReady),
-         NOT during the loading window — so a script that's actually on disk but
-         cached stale gets a one-click re-check instead of a dead end. -->
-    <div v-if="scriptGateApplies && form.episode_id && statusKnown && !scriptReady" class="rescan-hint mt-1">
-      <span class="text-muted text-xs">
-        No finished script yet for <strong>{{ form.episode_id }}</strong>. If some chapters are still unwritten, finish them
-        first; if you just wrote or copied it in, re-check:
-      </span>
-      <NuxtLink :to="`/projects/${slug}/scripts?episode_id=${encodeURIComponent(form.episode_id)}`" class="btn btn-secondary btn-xs">Open Script Generator</NuxtLink>
-      <button
-        type="button"
-        class="btn btn-link btn-xs"
-        :disabled="rescanning"
-        title="Look at every episode folder on disk again. Use this when a script you know is there isn't being picked up."
-        @click="onRescan"
-      >
-        {{ rescanning ? '↻ Rescanning…' : '↻ Rescan from disk' }}
-      </button>
-    </div>
-
-    <!-- Retained temporarily only to keep the old preset payload readable while
-         the streamlined surface below becomes the sole authoring flow. -->
-    <div v-if="false" class="card workspace-section prompt-settings-panel">
-      <!-- v1.0.179 — character references are opt-in here too (matches the
-           Script page). Off by default → the LLM describes scene subjects
-           freely. Toggle on to fold a pinned cast's names + descriptions
-           into every scene/thumbnail prompt for consistency across
-           regenerations. Turning it off clears the selection. -->
-      <div v-if="form.episode_id" class="form-group field-wide">
-        <label class="toggle-label">
-          <input type="checkbox" v-model="useCharacters" />
-          <span>Use character references</span>
-        </label>
-        <span class="text-muted text-xs hint-line">
-          Off = the AI describes characters freely per prompt. On = pin a cast
-          so every scene/thumbnail prompt reuses the same descriptions.
-        </span>
-        <div v-if="useCharacters" class="mt-2">
-          <CharacterPicker
-            v-model="activeForm.character_ids"
-            :project-slug="slug"
-            :episode-code="form.episode_id"
-          />
-        </div>
-      </div>
-
-      <!-- Style preset -->
-      <div class="grid-2">
-        <div class="form-group">
-          <label>{{ formTab === 'thumbnails' ? 'Visual Style' : 'Art Style' }}</label>
-          <select v-model="activeForm.style_preset" class="select" @change="onStyleChange">
-            <optgroup v-if="formTab === 'thumbnails'" label="Shared Style Gallery">
-              <option v-for="style in visualStyles" :key="style.id" :value="`shared:${style.id}`">
-                {{ style.name }}
-              </option>
-            </optgroup>
-            <optgroup label="Built-in Presets">
-              <option value="storybook">Storybook Illustration</option>
-              <option value="3d-render">3D Render</option>
-              <option value="watercolor">Watercolor</option>
-              <option value="anime">Anime / Manga</option>
-              <option value="photorealistic">Photorealistic</option>
-              <option value="cinematic">Cinematic</option>
-              <option value="pixel-art">Pixel Art</option>
-              <option value="oil-painting">Oil Painting</option>
-              <option value="flat-design">Flat Design / Vector</option>
-              <option value="charcoal">Charcoal / Sketch</option>
-            </optgroup>
-            <optgroup label="Custom" v-if="customStyles.length">
-              <option v-for="cs in customStyles" :key="cs.id" :value="cs.id">{{ cs.name }}</option>
-            </optgroup>
-            <option value="custom">+ Write custom style...</option>
-          </select>
-          <button
-            v-if="formTab === 'thumbnails'"
-            type="button"
-            class="btn btn-secondary btn-sm mt-1"
-            @click="showVisualStyleGallery = !showVisualStyleGallery"
-          >
-            {{ showVisualStyleGallery ? 'Hide visual style gallery' : 'Browse visual style gallery…' }}
-          </button>
-        </div>
-        <!-- Ratios come from the selected Gateway image model's published
-             `aspect_ratios`, not a hardcoded list. The old static options
-             both hid ratios a model supports and offered ones it does not,
-             so a prompt sheet could be written for a frame that would be
-             rejected (or silently substituted) at render time. -->
-        <div class="form-group">
-          <label>Aspect Ratio</label>
-          <select v-model="activeForm.aspect_ratio" class="select">
-            <option v-for="ar in aspectRatios" :key="ar.value" :value="ar.value">
-              {{ ar.value }} — {{ ar.label }}
-            </option>
-          </select>
-          <small v-if="selectedGenStudioImageModel" class="text-muted">
-            Published by {{ selectedGenStudioImageModel.display_name }}.
-          </small>
-          <small v-else class="text-muted">
-            No image model selected yet — these are the ratios Story Studio can label. The
-            render page validates against the model you pick there.
-          </small>
-        </div>
-      </div>
-
-      <div v-if="formTab === 'thumbnails' && showVisualStyleGallery" class="card workspace-section nested-workspace-section">
-        <StylePicker
-          :slug="slug"
-          :active-style-bible="form.thumbnail.style_tag"
-          @apply="applyThumbnailVisualStyle"
-        />
-      </div>
-
-      <!-- Style pill — always visible when style_tag has content. Shows
-           EXACTLY what gets sent to the LLM as the style descriptor.
-           Eliminates the "is my custom style actually being used?"
-           anxiety, $0 cost, no API calls.
-           (The image-rendering Preview button that briefly lived here
-           was moved off this page — it surfaced a kie.ai 422 because
-           prompt generation doesn't naturally know which image
-           model the user wants to test, and the right home for "render
-           a sample of this style" is the Generator page where
-           that context already exists. Pill stays here as the free
-           visibility affordance.) -->
-      <div v-if="activeForm.style_tag && activeForm.style_tag.trim()" class="style-preview-row">
-        <div class="style-preview-pill" :title="activeForm.style_tag">
-          <span class="style-preview-pill-icon" aria-hidden="true">🎨</span>
-          <span class="style-preview-pill-label">Style:</span>
-          <span class="style-preview-pill-text">{{ activeForm.style_tag.trim() }}</span>
-        </div>
-      </div>
-
-      <div class="form-group" v-if="activeForm.style_preset === 'custom' || showStyleEditor">
-        <label>Style Tag</label>
-        <textarea v-model="activeForm.style_tag" class="textarea style-tag-textarea"
-          placeholder="Describe the visual style…" />
-
-        <!-- Reference-image style extraction (pain-point #7). Upload an -->
-        <!-- image → a vision-capable Gateway model returns a style-only description that -->
-        <!-- populates the textarea above. Re-analyze lets users iterate on -->
-        <!-- the focus hint without re-picking the file. -->
-        <div v-if="visionModels.length" class="style-extract mt-2">
-          <div class="style-extract-row">
-            <button
-              type="button"
-              class="btn btn-sm btn-secondary"
-              :disabled="extracting"
-              :title="referenceImagePath ? 'Pick a different image' : 'Pick a reference image to analyse'"
-              @click="pickReferenceImage"
-            >
-              <LoadingSpinner v-if="extracting" size="sm" />
-              <span v-else aria-hidden="true">📷</span>
-              {{ referenceImagePath ? 'Change reference…' : 'Extract from reference image…' }}
-            </button>
-
-            <ModelMenu
-              v-if="thumbnailVisionModels.length"
-              v-model="visionModel"
-              class="vision-model-select"
-              :options="visionModelMenuOptions"
-              media-type="llm"
-              title="Reference analysis model"
-              search-placeholder="Search vision models…"
-              :disabled="extracting"
-            />
-
-            <button
-              v-if="referenceImagePath"
-              type="button"
-              class="btn btn-sm btn-primary"
-              :disabled="extracting"
-              title="Re-run analysis on the same reference (useful after changing the focus hint below or the vision model above)"
-              @click="extractStyle"
-            >
-              <LoadingSpinner v-if="extracting" size="sm" />
-              ⟳ Re-analyze
-            </button>
-          </div>
-
-          <!-- Optional focus hint — biases the vision model's vocabulary
-               (e.g. "lighting", "palette", "illustration"). Backend's
-               /analyze-style accepts this; UI exposes it so the user can
-               re-analyze with a different focus without re-picking the
-               reference. -->
-          <div class="style-extract-focus-row mt-1">
-            <label class="style-extract-focus-label" for="style-focus">Focus hint <span class="text-muted">(optional)</span></label>
-            <input
-              id="style-focus"
-              v-model="extractFocus"
-              type="text"
-              class="input input-sm style-extract-focus-input"
-              :disabled="extracting"
-              placeholder="e.g. lighting, illustration, painterly mood"
-              @keydown.enter.prevent="referenceImagePath && extractStyle()"
-            />
-          </div>
-
-          <div v-if="referenceImagePath" class="style-extract-preview mt-2">
-            <img
-              :src="referencePreviewUrl"
-              alt="Reference image"
-              class="style-extract-thumb"
-              :title="referenceImagePath"
-            />
-            <div class="style-extract-meta">
-              <div class="style-extract-filename">{{ referenceImageName }}</div>
-              <div v-if="lastAnalyzedAt" class="text-muted text-xs">
-                Analyzed {{ lastAnalysisModel }} · {{ lastAnalyzedAtRelative }}
-              </div>
-              <div v-else class="text-muted text-xs">
-                Hit Re-analyze to extract the style description.
-              </div>
-              <div class="flex gap-2 mt-1 flex-wrap">
-                <button
-                  type="button"
-                  class="btn btn-ghost btn-sm"
-                  :disabled="!activeForm.style_tag.trim() || savingStylePreset"
-                  :title="!activeForm.style_tag.trim() ? 'Generate or write a style description first' : 'Save the current description as a named custom style preset, reusable across episodes'"
-                  @click="openSaveStylePreset"
-                >
-                  💾 Save as preset…
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-ghost btn-sm"
-                  @click="clearReference"
-                >
-                  Remove reference
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Inline name-the-preset form. Hidden by default; flips open
-               on "Save as preset" click. Keep it inline (vs. a Modal) so
-               the user can still see the source description they're naming. -->
-          <div v-if="showSavePresetForm" class="style-save-preset-form mt-2">
-            <label class="style-save-preset-label">Name this style preset</label>
-            <div class="flex gap-2">
-              <input
-                v-model="newPresetName"
-                type="text"
-                class="input input-sm flex-1"
-                placeholder="e.g. Watercolour Sunset"
-                :disabled="savingStylePreset"
-                @keyup.enter.stop.prevent="saveStylePreset"
-                @keydown.escape="cancelSaveStylePreset"
-                ref="savePresetInputEl"
-              />
-              <button
-                type="button"
-                class="btn btn-primary btn-sm"
-                :disabled="!newPresetName.trim() || savingStylePreset"
-                @click="saveStylePreset"
-              >
-                <LoadingSpinner v-if="savingStylePreset" size="sm" />
-                {{ savingStylePreset ? 'Saving…' : 'Save' }}
-              </button>
-              <button
-                type="button"
-                class="btn btn-ghost btn-sm"
-                :disabled="savingStylePreset"
-                @click="cancelSaveStylePreset"
-              >
-                Cancel
-              </button>
-            </div>
-            <p class="text-muted text-xs mt-1">
-              Saved per-project under "Custom" in the Art Style dropdown above. Source model + reference path are recorded so you can trace later.
-            </p>
-          </div>
-
-          <p class="text-muted text-xs mt-1">
-            Tip: pick a thumbnail or scene image that matches the look you want. The vision model describes only the
-            style (medium, palette, lighting, texture) — not the subject — and drops it into the textarea above.
-            Costs a few cents per extract.
-          </p>
-        </div>
-      </div>
-
-      <!-- ── Form tabs: Thumbnail | Scene ─────────────────────────────────
-           Two separate panels for the two distinct prompt types. Thumbnail
-           is FIRST because in YouTube production the thumbnail is what you
-           sweat first (it's the CTR lever); scenes follow once the cover
-           image direction is locked. v1.0.87+. -->
-      <!-- v1.0.201 — the in-page Thumbnail/Scene switcher was removed so each
-           sidebar entry (Thumbnail Prompts / Scene Prompts) is its own focused
-           view. The mode is set by the sidebar's ?tab=; switch via the sidebar.
-           This keeps the split honest — formats that don't use scenes (broll,
-           timestamp, continuity-chain) never surface scene controls here. -->
-      <div class="generator-mode-head mt-2">
-        <span class="generator-mode-icon" aria-hidden="true">{{ formTab === 'thumbnails' ? '🖼️' : '🎬' }}</span>
-        <strong>{{ formTab === 'thumbnails' ? 'Thumbnail Prompts' : 'Scene Prompts' }}</strong>
-        <span class="text-muted text-xs">{{ formTab === 'thumbnails' ? `${safeThumbCount} thumbnail prompt(s)` : `${effectiveSceneCount} scene prompt(s)` }}</span>
-      </div>
-
-      <!-- ── Scene Prompts section ─────────────────────────────────────── -->
-      <div class="split-section mt-2" v-show="formTab === 'scenes'">
-        <div class="split-header">
-          <h3 class="split-title">🎬 Scene Prompts</h3>
-          <span class="text-muted text-xs">{{ effectiveSceneCount }} prompts will be generated</span>
-        </div>
-        <!-- v1.0.87+: three always-visible fields, multiplication-only.
-             Old layout had a dropdown locking the user into 1/2/3/4 or
-             "Custom total" mode where they typed an absolute number. That
-             felt arbitrary — reasons-explainer wants 250 scenes from 8
-             reasons (31/reason), and the dropdown's 1-4 cap forced
-             everyone into Custom mode where the chapter relationship
-             evaporated. The new flow is just: chapter count × scenes
-             per chapter = total. User edits any of the first two, total
-             follows. The third field stays read-only as the math display. -->
-        <div class="grid-3">
-          <!-- Field 1: chapter count (auto from outline, editable override). -->
-          <div class="form-group">
-            <label>
-              {{ sectionLabel.Singular }} count
-              <span v-if="actualChapterCount && form.scene.chapter_count_override === null"
-                    class="text-muted text-xs">
-                · auto from outline
-              </span>
-              <span v-else-if="actualChapterCount && form.scene.chapter_count_override !== null"
-                    class="text-muted text-xs"
-                    :title="`Outline has ${actualChapterCount} ${sectionLabel.plural}; you've overridden to ${form.scene.chapter_count_override}.`">
-                · overridden
-              </span>
-            </label>
-            <input
-              :value="form.scene.chapter_count_override ?? actualChapterCount ?? 0"
-              @input="onChapterCountInput($event)"
-              class="input"
-              type="number"
-              min="1"
-              max="200"
-            />
-          </div>
-          <!-- Field 2: scenes per chapter (free numeric input, was a 1-4
-               dropdown). Bumping to e.g. 8 multiplies cleanly against the
-               chapter count without forcing the user into a separate
-               Custom-total mode. Cap 100 is a sanity guard — 100 scenes
-               per chapter × even 10 chapters = 1000 prompts, well past
-               any reasonable single-episode budget. -->
-          <div class="form-group">
-            <label>Scenes per {{ sectionLabel.Singular }}</label>
-            <input
-              v-model.number="form.scene.scenes_per_chapter"
-              class="input"
-              type="number"
-              min="1"
-              max="100"
-            />
-          </div>
-          <!-- Field 3: total = field1 × field2, read-only display. -->
-          <div class="form-group">
-            <label>Total</label>
-            <div class="estimate-value">
-              {{ effectiveSceneCount }} prompts
-              <div class="text-muted text-xs">
-                {{ effectiveChapterCount }} {{ sectionLabel.plural }} × {{ form.scene.scenes_per_chapter || 0 }} per {{ sectionLabel.singular }}
-              </div>
-            </div>
-          </div>
-        </div>
-        <span class="text-muted text-xs scene-count-hint">
-          Start with 1 per chapter to keep costs low — you can always generate
-          more scenes for specific chapters later.
-        </span>
-      </div>
-
-      <!-- ── Thumbnail Prompts section ─────────────────────────────────── -->
-      <div class="split-section mt-2" v-show="formTab === 'thumbnails'">
-        <div class="split-header">
-          <h3 class="split-title">🖼️ Thumbnail Prompts</h3>
-          <span class="text-muted text-xs">{{ safeThumbCount }} thumbnail variations</span>
-        </div>
-        <div class="grid-2">
-          <div class="form-group">
-            <label>Thumbnail Treatment</label>
-            <select v-model="form.thumbnail.thumb_treatment_preset" class="select" @change="applyThumbnailTreatment">
-              <option v-for="t in THUMBNAIL_TREATMENTS" :key="t.id" :value="t.id">{{ t.label }}</option>
-            </select>
-            <p class="text-muted text-xs hint-line">
-              A starting recipe for composition and title treatment. Adjust the controls below freely; your Thumbnail Prompt preset saves the final mix.
-            </p>
-          </div>
-          <div class="form-group">
-            <label>Thumbnail Count</label>
-            <input v-model.number="form.thumbnail.thumb_count" class="input" type="number" min="1" max="10" />
-          </div>
-          <!-- Prompt length. Every number offered here is the Gateway's own
-               published `max_prompt_characters` — no ladder is hardcoded — and
-               it reaches the writing LLM as a ceiling, never as a length to
-               fill. Over-length prompts are counted and flagged amber on each
-               row below; nothing is ever truncated. -->
-          <div class="form-group">
-            <label>Intended image model <span class="text-muted text-xs">— writing hint</span></label>
-            <select v-model="form.thumbnail.intended_image_model" class="select">
-              <option value="">Not chosen yet — no limit</option>
-              <option
-                v-for="model in usableImageModels"
-                :key="model.id"
-                :value="model.id"
-                :title="imageModelCapHint(model)"
-              >
-                {{ model.display_name }} · {{ imageModelCapLabel(model) }}
-              </option>
-            </select>
-            <p class="text-muted text-xs hint-line">
-              Prompts are shaped to suit this model. It only sets the character limit — you can still render with a different
-              model on the Generator page, and this does not change what that page is set to.
-            </p>
-          </div>
-          <div class="form-group">
-            <label>Prompt character limit</label>
-            <select v-model="promptCharCapPickerValue" class="select">
-              <option value="auto">Auto · {{ autoPromptCharCapLabel }}</option>
-              <option value="none">No limit</option>
-              <option v-for="cap in publishedPromptCharCaps" :key="cap" :value="String(cap)">{{ cap.toLocaleString() }} characters</option>
-              <option value="custom">Custom…</option>
-            </select>
-            <input
-              v-if="promptCharCapPickerValue === 'custom'"
-              v-model.number="customPromptCharCap"
-              class="input mt-1"
-              type="number"
-              min="1"
-              step="1"
-              @change="applyCustomPromptCharCap"
-            />
-            <p v-if="promptCharCapExceedsModel" class="prompt-cap-notice">
-              ⚠ {{ effectivePromptCharCap.toLocaleString() }} characters is above the
-              {{ intendedImageModelCap.toLocaleString() }} that {{ intendedImageModel?.display_name }} publishes — prompts written to
-              this limit can still be refused at render time.
-            </p>
-            <p class="text-muted text-xs hint-line">
-              A ceiling, not a length to reach: a prompt that reads best short stays short. A smaller limit also keeps the
-              language bill for writing them down. Nothing is ever shortened for you — over-length prompts are flagged, not cut.
-            </p>
-          </div>
-          <div class="form-group">
-            <label>Text Style</label>
-            <select v-model="form.thumbnail.thumb_text_style" class="select">
-              <option v-for="p in TEXT_STYLE_PRESETS" :key="p.id" :value="p.id">{{ p.label }}</option>
-            </select>
-            <input
-              v-if="form.thumbnail.thumb_text_style === 'custom'"
-              v-model="form.thumbnail.thumb_text_style_custom"
-              class="input mt-1"
-              placeholder="e.g. holographic rainbow foil, pastel sparkles with subtle glow…"
-              maxlength="240"
-            />
-            <p v-if="form.thumbnail.thumb_text_style === 'custom'" class="text-muted text-xs hint-line">
-              Free-form description (up to 240 chars). Dropped verbatim into the LLM prompt — be specific.
-            </p>
-          </div>
-        </div>
-        <div class="grid-2 mt-2">
-          <div class="form-group">
-            <label>Creative freedom</label>
-            <select v-model="form.thumbnail.thumb_creative_mode" class="select">
-              <option value="guided">Balanced — distinctive but readable</option>
-              <option value="open">Open — let the model art-direct</option>
-              <option value="strict">Guardrails — full CTR checklist</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Concept strategy</label>
-            <select v-model="form.thumbnail.thumb_strategy" class="select">
-              <option value="auto">Model decides</option>
-              <option value="character">Character-led</option>
-              <option value="object">Symbol or object-led</option>
-              <option value="environment">Environment-led</option>
-              <option value="typographic">Typography-led</option>
-              <option value="mystery">Mystery and reveal</option>
-              <option value="documentary">Documentary evidence</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-group mt-1">
-          <label>Creative brief <span class="text-muted">(optional)</span></label>
-          <textarea v-model="form.thumbnail.thumb_creative_direction" class="textarea" rows="2" placeholder="Give the model room, or state the one idea you care about most…" />
-        </div>
-        <div class="grid-2">
-          <div class="form-group">
-            <label>Text Position</label>
-            <select v-model="form.thumbnail.thumb_text_position" class="select">
-              <option value="center">Center</option>
-              <option value="top">Top</option>
-              <option value="bottom">Bottom</option>
-              <option value="bottom-left">Bottom left</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Font Style</label>
-            <select v-model="form.thumbnail.thumb_font_style" class="select">
-              <option v-for="p in FONT_STYLE_PRESETS" :key="p.id" :value="p.id">{{ p.label }}</option>
-            </select>
-            <input
-              v-if="form.thumbnail.thumb_font_style === 'custom'"
-              v-model="form.thumbnail.thumb_font_style_custom"
-              class="input mt-1"
-              placeholder="e.g. bold slab serif with rounded corners, art-deco inspired…"
-              maxlength="240"
-            />
-          </div>
-        </div>
-
-        <div class="form-group mt-2">
-          <label>{{ thumbnailHeadlineInvents ? 'Thumbnail hook' : 'Title text' }}</label>
-          <p class="text-muted text-xs hint-line">
-            <template v-if="thumbnailHeadlineInvents">
-              This recipe generates a short, truthful curiosity hook for each variation. Review and edit the hook with its prompt before rendering; your full YouTube title stays unchanged.
-            </template>
-            <template v-else>
-              Your selected image model renders the exact episode title directly in the thumbnail using the text, font, and position controls above.
-            </template>
-          </p>
-        </div>
-
-        <div class="form-group mt-2">
-          <label>Art direction <span class="text-muted">(optional — overrides the format + best-practice defaults)</span></label>
-          <textarea
-            v-model="form.thumbnail.thumb_art_direction"
-            class="textarea"
-            rows="2"
-            placeholder="e.g. extreme close-up on a shocked face, neon-on-black palette, bold arrow + circle highlight…"
-          />
-        </div>
-
-        <div class="form-group mt-1">
-          <label>Replicate a reference thumbnail <span class="text-muted">(optional)</span></label>
-          <div class="flex gap-2 items-center flex-wrap">
-            <button
-              v-if="visionModels.length"
-              type="button"
-              class="btn btn-sm btn-secondary"
-              :disabled="extractingThumbRef"
-              title="Pick a thumbnail you want to emulate — a vision model extracts its look and the prompt replicates it."
-              @click="extractThumbReferenceStyle"
-            >
-              <LoadingSpinner v-if="extractingThumbRef" size="sm" />
-              <span v-else aria-hidden="true">📷</span>
-              {{ form.thumbnail.thumb_reference_asset ? 'Change reference thumbnail…' : 'Analyse a reference thumbnail…' }}
-            </button>
-            <button
-              v-if="form.thumbnail.thumb_reference_asset"
-              type="button"
-              class="btn btn-sm btn-secondary"
-              title="Clear the saved reference and its composition brief"
-              @click="clearThumbnailReference"
-            >
-              ✕ Clear
-            </button>
-          </div>
-          <textarea
-            v-if="form.thumbnail.thumb_reference_asset"
-            v-model="form.thumbnail.thumb_reference_style"
-            class="textarea mt-1"
-            rows="3"
-            placeholder="Extracted reference style (editable)…"
-          />
-          <p v-if="form.thumbnail.thumb_reference_asset" class="text-muted text-xs hint-line">
-            {{ form.thumbnail.thumb_reference_asset.filename }} · analysed by {{ form.thumbnail.thumb_reference_asset.analysis_model_name }}. Saved with this project for presets and Pipeline runs.
-          </p>
-        </div>
-
-        <!-- Randomize + Surprise Me: full-size like the Ideas generator's -->
-        <!-- action cluster so these feel like first-class actions, not -->
-        <!-- afterthoughts (pain-point from test feedback). -->
-        <div class="flex gap-2 mt-2 items-center flex-wrap">
-          <button
-            type="button"
-            class="btn btn-secondary"
-            title="Picks a random style + font preset (skips 'custom' to avoid blank fields)."
-            @click="randomizeThumbStyles"
-          >
-            🎲 Randomize Styles
-          </button>
-          <button
-            type="button"
-            class="btn btn-secondary"
-            :disabled="!form.episode_id || generating"
-            :title="'Randomize style + font, then generate thumbnails immediately.'"
-            @click="surpriseMeThumb"
-          >
-            ✨ Surprise Me
-          </button>
-        </div>
-      </div>
-
-      <div class="flex items-center gap-2 mt-2">
-        <label class="checkbox-label">
-          <input type="checkbox" v-model="activeForm.force" />
-          Force regenerate (overwrite existing)
-        </label>
-      </div>
-      <!-- Progress bar -->
-      <div v-if="generating" class="progress-bar mt-1">
-        <div class="progress-fill" />
-      </div>
-    </div>
 
     <div class="card workspace-section prompt-settings-panel">
       <div class="grid-2">
@@ -875,30 +274,6 @@
       </div>
     </div>
 
-    <!-- ── Per-prompt review ─────────────────────────────────────────────
-         Reads whatever prompts are already on disk for the selected
-         episode and lets the user fire a single-prompt regen for any
-         row they don't like. Same docx is re-saved with that one
-         entry replaced. v1 is regen-only (no in-place edit) per
-         the AskUserQuestion answer; edit can be added later.
-
-         Per-prompt char counter (advisory): each row renders a coloured
-         badge against the documented prompt-character cap of whichever
-         image model the user has configured below. Pass a different
-         model id from the dropdown to recolour the badges for that cap. -->
-    <div v-if="false && form.episode_id" class="cap-preview-row">
-      <label class="cap-preview-label">Char-count colours against image model:</label>
-      <ModelMenu
-        v-model="capPreviewModel"
-        class="cap-preview-select"
-        :options="capPreviewMenuOptions"
-        media-type="image"
-        title="Prompt compatibility model"
-        search-placeholder="Search image models…"
-        aria-label="Image model for prompt length checks"
-      />
-      <button type="button" class="cap-link" @click="showCapsTable = true">View all caps →</button>
-    </div>
     <PromptReviewPanel
       v-if="form.episode_id"
       :project-slug="slug"
@@ -913,177 +288,28 @@
       :thumbnail-text-style="form.thumbnail.thumb_text_style"
       :thumbnail-font-style-custom="form.thumbnail.thumb_font_style_custom"
       :thumbnail-text-style-custom="form.thumbnail.thumb_text_style_custom"
-      pool="thumbnails"
       @loaded="existingThumbNumbers = $event.thumbnails"
     />
-
-    <!-- Provider prompt-cap reference table. Same modal shape as the
-         Generator page so users see a consistent surface. -->
-    <div v-if="false && showCapsTable" class="modal-overlay" @click.self="showCapsTable = false">
-      <div class="caps-modal">
-        <div class="caps-modal-head">
-          <h3>Image model prompt-character caps</h3>
-          <button type="button" class="caps-modal-close" @click="showCapsTable = false" title="Close">×</button>
-        </div>
-        <p class="text-muted text-sm caps-modal-intro">
-          Approximate per-prompt character limits published for each model. Prompts longer than the
-          cap are typically rejected outright or silently truncated — wasting credits either way.
-          Keep generated prompts under the cap of whichever model you plan to render with.
-        </p>
-        <div class="caps-table-wrap">
-          <table class="caps-table">
-            <thead>
-              <tr>
-                <th>Model</th>
-                <th class="caps-th-right">Prompt cap</th>
-                <th class="caps-th-right">Credits / image</th>
-                <!-- No Provider column: the image catalogue publishes none,
-                     and the only other candidate was Story Studio's transport
-                     key, which is private routing detail. Removed rather than
-                     blanked — same call as the table on the Generator page. -->
-                <th>Refs?</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in allModelCaps" :key="row.id"
-                  :class="{ 'caps-row-active': row.id === capPreviewModel }">
-                <td>{{ row.label }}</td>
-                <td class="caps-td-right">
-                  <template v-if="row.cap">~{{ row.cap.toLocaleString() }}</template>
-                  <span v-else class="text-muted">—</span>
-                </td>
-                <td class="caps-td-right">
-                  <template v-if="row.credits != null">{{ row.credits }}</template>
-                  <span v-else class="text-muted">—</span>
-                </td>
-                <td>
-                  <span v-if="row.supportsRefs" title="Supports reference / img2img images">✓</span>
-                  <span v-else class="text-muted">—</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- Tabs: Current / History -->
-    <div v-if="false && (generatedPrompts || history.length > 0)" class="mt-3">
-      <div class="tabs">
-        <button :class="['tab', { active: activeTab === 'current' }]" @click="activeTab = 'current'">
-          Current {{ generatedPrompts ? `(${formTab === 'thumbnails' ? generatedPrompts.thumbnails.length : generatedPrompts.scenes.length})` : '' }}
-        </button>
-        <button :class="['tab', { active: activeTab === 'history' }]" @click="activeTab = 'history'">
-          History ({{ history.length }})
-        </button>
-      </div>
-
-      <!-- Current tab -->
-      <div v-if="activeTab === 'current' && generatedPrompts" class="card workspace-section prompt-result-panel">
-        <div class="card-header">
-          <h3>Review &amp; Edit</h3>
-          <div class="flex gap-2">
-            <button class="btn btn-sm btn-secondary" @click="saveToFile">Re-save edits</button>
-            <button class="btn btn-sm btn-primary" @click="navigateTo(`/projects/${slug}/images`)">
-              Generate Images →
-            </button>
-          </div>
-        </div>
-
-        <!-- v1.0.209 — only show the active pool so the split is honest:
-             Scene-Prompts page shows scene results, Thumbnail-Prompts shows
-             thumbnails. (Both are still on disk; this is just the view.) -->
-        <template v-if="formTab === 'scenes'">
-          <h3 class="mt-2">Scene Prompts ({{ generatedPrompts.scenes.length }})</h3>
-          <div class="prompt-list mt-1">
-            <div v-for="(scene, i) in generatedPrompts.scenes" :key="i" class="prompt-item">
-              <div class="prompt-header">
-                <strong>Scene {{ scene.number }}: {{ scene.title }}</strong>
-                <button class="btn-icon" @click="removePrompt('scenes', Number(i))">✕</button>
-              </div>
-              <textarea v-model="scene.prompt" class="textarea prompt-edit" />
-            </div>
-          </div>
-        </template>
-
-        <template v-if="formTab === 'thumbnails'">
-          <h3 class="mt-2">Thumbnail Prompts ({{ generatedPrompts.thumbnails.length }})</h3>
-          <div class="prompt-list mt-1">
-            <div v-for="(thumb, i) in generatedPrompts.thumbnails" :key="i" class="prompt-item">
-              <div class="prompt-header">
-                <strong>Thumbnail {{ thumb.number }}: {{ thumb.title }}</strong>
-                <button class="btn-icon" @click="removePrompt('thumbnails', Number(i))">✕</button>
-              </div>
-              <textarea v-model="thumb.prompt" class="textarea prompt-edit" />
-            </div>
-          </div>
-        </template>
-      </div>
-
-      <EmptyState
-        v-if="activeTab === 'current' && !generatedPrompts"
-        class="mt-1"
-        icon="🎨"
-        title="No prompts generated yet"
-        message="Configure your style, scene count, and thumbnail settings above — then click Generate."
-      />
-
-      <!-- History tab -->
-      <div v-if="activeTab === 'history'" class="card workspace-section prompt-history-panel">
-        <EmptyState v-if="history.length === 0" icon="🕘" title="No history yet" message="Past prompt generations in this session will appear here." />
-        <table v-else class="history-table">
-          <thead>
-            <tr>
-              <th>Episode</th>
-              <th>Style</th>
-              <th>Ratio</th>
-              <th>Scenes</th>
-              <th>Thumbs</th>
-              <th>Time</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(entry, i) in history" :key="i">
-              <td class="td-code">{{ entry.episode_id }}</td>
-              <td>{{ entry.style_preset }}</td>
-              <td>{{ entry.aspect_ratio }}</td>
-              <td>{{ entry.prompts.scenes.length }}</td>
-              <td>{{ entry.prompts.thumbnails.length }}</td>
-              <td class="text-muted">{{ formatTime(entry.generated_at) }}</td>
-              <td>
-                <button class="btn btn-sm btn-secondary" @click="loadFromHistory(entry)">Load</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
 
   </div>
 </template>
 
 <script setup lang="ts">
-import { useVisualStyleCatalog } from '~/composables/useVisualStyleCatalog'
 import { DEFAULT_EXCLUDE_KEYS } from '~/composables/usePresets'
 import {
   normalizePromptCharCapSetting,
-  promptCharCapAboveModel,
-  promptCharCapOptions,
   publishedPromptCharCap,
   resolvePromptCharCap,
   type PromptCharCapSetting,
 } from '~/utils/prompt-char-cap'
 import { readRememberedImageModelId } from '~/utils/project-image-model'
 import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
-import type { GenStudioLlmCostTier } from '~/utils/genstudio-cost-tier'
 import { thumbnailVisionModelMenuOption, type ThumbnailVisionModel } from '~/utils/thumbnail-vision-model-menu'
 definePageMeta({ layout: 'dashboard' })
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put } = useApi()
 const freshImagePromptsAction = useFreshGenerationAction()
-const { styles: visualStyles, refresh: refreshVisualStyles } = useVisualStyleCatalog()
 const { success, info: showInfo, error: showError } = useToast()
 
 const generating = ref(false)
@@ -1128,153 +354,17 @@ function probeRememberedKeys<K extends string>(
 // PromptReviewPanel re-fetches the freshly-saved docx and the user
 // sees their just-generated prompts in the regen panel.
 const reviewRefreshKey = ref(0)
-const showStyleEditor = ref(false)
-
-// v1.0.179 — character references opt-in (mirrors the Script page). Default
-// OFF; toggle reveals the picker. Off clears the selection so a stale cast
-// never leaks into a prompt run. Auto-on when the active form already carries
-// characters (editing an episode that was set up with a cast).
-const useCharacters = ref(false)
-// NOTE: the watches that sync `useCharacters` ↔ `activeForm.character_ids` live
-// *after* the `activeForm` computed is declared (below), because watch() runs
-// its source getter once during setup — referencing activeForm up here threw
-// "Cannot access 'activeForm' before initialization" under SSR (nuxt dev).
-const generatedPrompts = ref<any>(null)
-const activeTab = ref('current')
-
-// Image-model picker for the per-prompt char-counter colour-coding. This
-// page generates prompts via an LLM but doesn't render images itself —
-// the user picks the image model on the Generator page later. The
-// dropdown here is purely a preview: select the model you plan to use
-// downstream and each row's char counter colours against THAT model's cap.
-const capPreviewModel = ref<string>('')
-const showCapsTable = ref(false)
-const allModelCaps = computed(() => {
-  const models = (config.value as any)?.image_models || {}
-  return Object.entries(models).map(([id, raw]) => {
-    const m = raw as any
-    return {
-      id,
-      label: (m?.label as string) || id,
-      // No provider. This row is built from `ImageModelConfig`, whose
-      // `provider` field holds Story Studio's own transport key rather than a
-      // vendor GenStudio publishes — the image catalogue publishes no provider
-      // at all. The old fallback defaulted every model without one to the
-      // upstream aggregator's id, which then rendered as its name in the
-      // picker: an invented fallback AND a private routing identity on screen.
-      // Nothing true can go here, so nothing goes here.
-      cap: typeof m?.prompt_char_cap === 'number' ? m.prompt_char_cap : null,
-      credits: typeof m?.credits_per_image === 'number' ? m.credits_per_image : null,
-      supportsRefs: !!m?.supports_reference_images,
-    }
-  }).sort((a, b) => {
-    if (a.cap == null && b.cap == null) return a.label.localeCompare(b.label)
-    if (a.cap == null) return 1
-    if (b.cap == null) return -1
-    return a.cap - b.cap
-  })
-})
-const capPreviewOptions = computed(() => allModelCaps.value)
-const capPreviewMenuOptions = computed(() => [
-  {
-    id: '',
-    label: 'Raw character counts only',
-    group: 'Prompt checking',
-    meta: 'Do not compare prompts against a model-specific limit.',
-  },
-  ...capPreviewOptions.value.map(model => ({
-    id: model.id,
-    label: model.label,
-    // One neutral heading, and no `provider` line: the image catalogue
-    // publishes no provider, so ModelMenu has nothing to show under the
-    // selected model and invents nothing to fill it.
-    group: 'Image models',
-    meta: model.cap ? `${model.cap.toLocaleString()} character prompt cap` : 'No documented prompt cap',
-    badges: model.supportsRefs ? [{ label: 'References', tone: 'info' as const }] : [],
-  })),
-])
-const capPreviewInfo = computed(() => {
-  const id = capPreviewModel.value
-  if (!id) return { cap: null as number | null, label: '' }
-  const found = allModelCaps.value.find(m => m.id === id)
-  return { cap: found?.cap ?? null, label: found?.label || '' }
-})
-
-// v1.0.87+: form section tab selector. The two prompt-type form panels
-// (Thumbnail Prompts, Scene Prompts) used to render stacked — at full
-// width they pushed the Generate buttons way off-screen and made the
-// "which one am I tuning?" question ambiguous. Now they're tabs, with
-// Thumbnail first because in YouTube production the cover image direction
-// gets locked before the scene list (cover is the CTR lever; scenes
-// follow from the cover's visual register).
-//
-// v1.0.88+: tab state syncs with the route's ?tab= query param so the
-// sidebar's split "Thumbnail Prompts" / "Scene Prompts" entries land on
-// the right tab AND browser back/forward navigation Just Works. Default
-// is 'thumbnails' when the query is missing or invalid.
-const formTab = ref<'thumbnails' | 'scenes'>('thumbnails')
-const promptPageTitle = computed(() => formTab.value === 'thumbnails' ? 'Thumbnail Prompts' : 'Scene Prompts')
-useAppTitle(promptPageTitle)
-// v1.0.304 — the "Pending only" episode filter must reflect the ACTIVE pool.
-// The two pools have independent asset status (scene_prompts vs thumb_prompts);
-// the legacy `prompts` field is just an alias of scene_prompts, so using it on
-// the Thumbnail tab marked an episode "done" based on SCENE prompts — an episode
-// with thumbnails generated but no scenes still showed as pending here. Bind the
-// filter to the pool that matches the tab.
+useAppTitle('Thumbnail Prompts')
+// The Pending-only episode filter follows the thumbnail prompt status.
 const promptFilterField = computed(() => 'thumb_prompts')
-// Top action-bar label reflects the active pool (the button only generates
-// that pool now — see generate()).
-const generateLabel = computed(() =>
-  formTab.value === 'thumbnails' ? 'Generate Thumbnail Prompts' : 'Generate Scene Prompts',
-)
-// Push the query when the user clicks the inline tabs, so the URL
-// reflects the visible state and the sidebar's active-state highlight
-// follows. Uses replace so the back button doesn't accumulate every
-// tab toggle.
+const generateLabel = 'Generate Thumbnail Prompts'
+// Old `?tab=scenes` links land on the one remaining tab.
 const _router = useRouter()
 if (route.query.tab === 'scenes') {
   void _router.replace({ query: { ...route.query, tab: 'thumbnails' } })
 }
 
-// User-saved style presets (Gap A from audit pain-point #7).
-// Sourced reactively from the project config so a save flows back into
-// the dropdown without a manual refresh. Tolerates `style_presets` being
-// absent on older configs by treating undefined as an empty array.
-interface StylePresetMeta {
-  id: string
-  name: string
-  description: string
-  source_model?: string
-  source_reference?: string
-  created_at: string
-}
-const { project, config, refreshConfig, episodesRoot } = useProject()
-
-// v1.0.83+: format-aware section label ("Chapter"/"Reason"/"Topic").
-// Watches the project meta so swapping format in Settings live-updates
-// the labels here without a full reload.
-const projectFormatId = ref<string>('scenes')
-watch(project, (p) => {
-  if (!p) return
-  const id = (p as any).format_id
-  if (typeof id === 'string' && id) {
-    projectFormatId.value = id
-  } else {
-    // v1.0.102+ — see scripts.vue for rationale. Defensive fallback;
-    // logs to console so the case is debuggable when it fires.
-    console.warn('[image-prompts.vue] project.format_id missing — falling back to sleep-story for section labels. Set a format in Settings → Format if this is unexpected.')
-    projectFormatId.value = 'scenes'
-  }
-}, { immediate: true })
-const sectionLabel = useSectionLabel(projectFormatId)
-const customStyles = computed<StylePresetMeta[]>(
-  () => Array.isArray((config.value as any)?.style_presets)
-    ? (config.value as any).style_presets
-    : [],
-)
-
-// ── Reference-image style extraction (pain-point #7) ─────────────────────
-interface VisionModelCap { id: string; available: boolean; cost_tier?: GenStudioLlmCostTier }
+// ── Thumbnail reference (analysed by a Gateway vision model) ─────────────
 interface ThumbnailReferenceAsset {
   id: string
   filename: string
@@ -1284,26 +374,6 @@ interface ThumbnailReferenceAsset {
   analyzed_at: string
   [key: string]: any
 }
-const extracting = ref(false)
-const referenceImagePath = ref<string | null>(null)
-const lastAnalyzedAt = ref<string | null>(null)
-const lastAnalysisModel = ref<string | null>(null)
-const visionModels = ref<VisionModelCap[]>([])
-// Vision analysis is unavailable until GenStudio publishes image-input chat.
-// Keep this empty so an old direct-provider id cannot be revived if that
-// capability returns later.
-const visionModel = ref<string>('')
-const visionModelMenuOptions = computed(() => visionModels.value.map(model => ({
-  id: model.id,
-  label: model.id,
-  // Gateway named once, by the group heading. The chat catalogue publishes no
-  // provider for these products, so no `provider` is set.
-  group: 'Gateway',
-  disabled: !model.available,
-  disabledReason: model.available ? undefined : 'This Gateway model is currently unavailable.',
-  badges: [{ label: 'Vision', tone: 'info' as const }],
-  costTier: model.cost_tier,
-})))
 const thumbnailVisionModels = ref<ThumbnailVisionModel[]>([])
 const thumbnailVisionModel = ref('')
 const thumbnailVisionLoading = ref(false)
@@ -1313,41 +383,10 @@ const thumbnailVisionLoadError = ref('')
 const thumbnailVisionModelMenuOptions = computed(() => thumbnailVisionModels.value.map(model => thumbnailVisionModelMenuOption(model)))
 const selectedThumbnailVisionModel = computed(() => thumbnailVisionModels.value.find(model => model.id === thumbnailVisionModel.value) || null)
 
-// Session history
-interface HistoryEntry {
-  episode_id: string
-  style_preset: string
-  aspect_ratio: string
-  // Which independent prompt pool this entry captured.
-  mode: 'scenes' | 'thumbnails'
-  prompts: any
-  generated_at: string
-}
-const history = ref<HistoryEntry[]>([])
+// Lights the Thumbnail Prompts nav pulse while a run is going.
+const { thumbPromptGenerating } = useGenerating()
 
-// v1.0.304 — the sidebar pulse must match the pool actually generating:
-// `promptGenerating` drives the "Scene Prompts" nav entry, `thumbPromptGenerating`
-// drives "Thumbnail Prompts". Previously a thumbnail-only run set promptGenerating,
-// so the SCENE Prompts entry pulsed during a thumbnail generation. Light only the
-// flag(s) for the mode being run.
-const { promptGenerating, thumbPromptGenerating } = useGenerating()
-function setPromptPulse(mode: PromptMode, on: boolean) {
-  if (mode === 'scenes') promptGenerating.value = on
-  if (mode === 'thumbnails') thumbPromptGenerating.value = on
-}
-
-const STYLE_PRESETS: Record<string, string> = {
-  'storybook': 'Storybook 2D illustration style, flat design, bold outlines, warm and luminous colour palette, bright golden and shiny accent details, soft cel-shaded depth, dreamlike and cosy atmosphere.',
-  '3d-render': 'High-quality 3D rendered scene, soft ambient lighting, smooth materials, subtle depth of field, warm color grading, cinematic composition.',
-  'watercolor': 'Delicate watercolor painting style, soft wet-on-wet washes, visible paper texture, gentle bleeding edges, pastel and muted tones, dreamy and ethereal atmosphere.',
-  'anime': 'Japanese anime illustration style, clean linework, vibrant colors, expressive characters, dynamic composition, detailed backgrounds, Studio Ghibli inspired warmth.',
-  'photorealistic': 'Photorealistic digital art, natural lighting, detailed textures, shallow depth of field, professional photography composition, atmospheric perspective.',
-  'cinematic': 'Cinematic wide-angle shot, dramatic volumetric lighting, film grain, anamorphic lens flare, moody color grading, epic scale and atmosphere.',
-  'pixel-art': 'Detailed pixel art style, limited color palette, clean pixels, retro game aesthetic, charming and nostalgic, warm tones.',
-  'oil-painting': 'Classical oil painting style, visible brushstrokes, rich impasto texture, warm golden-hour lighting, Renaissance-inspired composition, deep saturated colors.',
-  'flat-design': 'Modern flat design illustration, geometric shapes, bold solid colors, minimal shadows, clean vector aesthetic, contemporary and playful.',
-  'charcoal': 'Charcoal drawing style, dramatic contrast, rough paper texture, expressive gestural strokes, moody atmosphere, monochrome with subtle warm tints.',
-}
+const DEFAULT_STYLE_TAG = 'Storybook 2D illustration style, flat design, bold outlines, warm and luminous colour palette, bright golden and shiny accent details, soft cel-shaded depth, dreamlike and cosy atmosphere.'
 
 // Thumbnail text + font preset catalogs. Ids must match the backend maps
 // in `electron/server/models/thumbnail-styles.ts` — when the user picks an
@@ -1396,21 +435,9 @@ const FONT_STYLE_PRESETS: StylePreset[] = [
   { id: 'custom',       label: 'Custom (describe it…)' },
 ]
 
-// v1.0.88+: form split into two completely independent per-kind sub-objects
-// (form.thumbnail + form.scene). Each carries its own model, style,
-// aspect ratio, character cast, and force flag — plus its own kind-
-// specific fields (thumb_count + text/font styling for thumbnails;
-// scenes_per_chapter + chapter_count_override for scenes). The `episode_id`
-// stays at the top level because picking an episode applies to both
-// kinds within the page.
-//
-// `activeForm` below is a computed proxy that returns the sub-object
-// matching the active tab — template bindings on shared-field controls
-// (model, style picker, aspect ratio) bind to this so editing the
-// visible control updates the active kind's state only. Tab-specific
-// controls (already gated by v-show) bind directly to
-// `form.thumbnail.*` or `form.scene.*` so they don't accidentally read
-// the wrong sub-form when the user is on the other tab.
+// The form keeps its thumbnail settings under `form.thumbnail`; `episode_id`
+// stays at the top level. Stored forms may still carry an old `scene` object,
+// which is simply never read.
 type SharedFormFields = {
   model: string
   style_preset: string
@@ -1422,7 +449,6 @@ type SharedFormFields = {
 type ThumbnailForm = SharedFormFields & {
   thumbnail_template_id: string
   thumb_count: number
-  thumb_treatment_preset: string
   thumb_text_style: string
   thumb_text_style_custom: string
   thumb_text_position: string
@@ -1441,25 +467,17 @@ type ThumbnailForm = SharedFormFields & {
   intended_image_model: string
   prompt_char_cap: PromptCharCapSetting
 }
-type SceneForm = SharedFormFields & {
-  scenes_per_chapter: number
-  total_scenes: number
-  // null = "use whatever the sidecar reports (actualChapterCount)".
-  // See the per-kind seeding code further down for details.
-  chapter_count_override: number | null
-}
 const form = reactive({
   episode_id: '',
   thumbnail: {
     model: '',
     style_preset: 'storybook',
-    style_tag: STYLE_PRESETS['storybook'],
+    style_tag: DEFAULT_STYLE_TAG,
     aspect_ratio: '16:9',
     character_ids: [] as string[],
     force: false,
     thumbnail_template_id: '',
     thumb_count: 3,
-    thumb_treatment_preset: 'custom',
     thumb_text_style: 'auto',
     thumb_text_style_custom: '',
     thumb_text_position: 'auto',
@@ -1482,17 +500,6 @@ const form = reactive({
     intended_image_model: '',
     prompt_char_cap: 'auto' as PromptCharCapSetting,
   } as ThumbnailForm,
-  scene: {
-    model: '',
-    style_preset: 'storybook',
-    style_tag: STYLE_PRESETS['storybook'],
-    aspect_ratio: '16:9',
-    character_ids: [] as string[],
-    force: false,
-    scenes_per_chapter: 1,
-    total_scenes: 10,
-    chapter_count_override: null as number | null,
-  } as SceneForm,
 })
 
 // ── Prompt character ceiling ────────────────────────────────────────────────
@@ -1509,62 +516,9 @@ const intendedImageModel = computed(() =>
   usableImageModels.value.find(model => model.id === form.thumbnail.intended_image_model) || null,
 )
 const intendedImageModelCap = computed(() => publishedPromptCharCap(intendedImageModel.value))
-/** Derived from the DISTINCT caps usable models publish — never a fixed ladder. */
-const publishedPromptCharCaps = computed(() => promptCharCapOptions(usableImageModels.value))
-const customPromptCharCap = ref(2000)
-function setPromptCharCapSetting(value: unknown): void {
-  const normalized = normalizePromptCharCapSetting(value)
-  form.thumbnail.prompt_char_cap = normalized
-  if (typeof normalized === 'number' && !publishedPromptCharCaps.value.includes(normalized)) {
-    customPromptCharCap.value = normalized
-  }
-}
-const promptCharCapPickerValue = computed<string>({
-  get: () => {
-    const value = normalizePromptCharCapSetting(form.thumbnail.prompt_char_cap)
-    if (value === 'auto' || value === 'none') return value
-    return publishedPromptCharCaps.value.includes(value) ? String(value) : 'custom'
-  },
-  set: (value) => {
-    if (value === 'custom') {
-      setPromptCharCapSetting(customPromptCharCap.value)
-      return
-    }
-    setPromptCharCapSetting(value)
-  },
-})
-function applyCustomPromptCharCap(): void {
-  setPromptCharCapSetting(customPromptCharCap.value)
-}
 /** The number in force. 0 = no ceiling, so no instruction and no warning. */
 const effectivePromptCharCap = computed(() =>
   resolvePromptCharCap(normalizePromptCharCapSetting(form.thumbnail.prompt_char_cap), intendedImageModelCap.value),
-)
-/**
- * What one image model publishes, shown AT THE POINT OF CHOOSING so models can
- * be compared at a glance — a longer limit means room for more detailed (and
- * more expensive to write) prompts. A model that publishes nothing says so;
- * no default is ever displayed as if the model had stated it.
- */
-function imageModelCapLabel(model: { max_prompt_characters?: number }): string {
-  const cap = publishedPromptCharCap(model)
-  return cap ? `up to ${cap.toLocaleString()} characters` : 'prompt limit not published'
-}
-function imageModelCapHint(model: { display_name?: string; max_prompt_characters?: number }): string {
-  const cap = publishedPromptCharCap(model)
-  const name = model.display_name || 'This model'
-  return cap
-    ? `${name} accepts prompts up to ${cap.toLocaleString()} characters. Picking it sets the Auto limit to that figure.`
-    : `${name} publishes no prompt-character limit, so Auto leaves prompts unlimited. The Gateway still validates every render.`
-}
-const autoPromptCharCapLabel = computed(() => {
-  if (!form.thumbnail.intended_image_model) return 'no image model chosen — no limit'
-  if (!intendedImageModelCap.value) return `${intendedImageModel.value?.display_name || 'this model'} publishes no limit`
-  return `${intendedImageModelCap.value.toLocaleString()} characters`
-})
-/** The one combination that still ends in a render-time refusal. */
-const promptCharCapExceedsModel = computed(() =>
-  promptCharCapAboveModel(effectivePromptCharCap.value, intendedImageModelCap.value),
 )
 // Auto has to follow SOMETHING, so the intended model is seeded from whatever
 // this project already renders images with. Seeding only — never written back.
@@ -1574,20 +528,9 @@ if (!form.thumbnail.intended_image_model && typeof window !== 'undefined') {
 // The catalogue refresh already runs on mount further down; the ceiling reads
 // the same snapshot rather than fetching it a second time.
 
-const showVisualStyleGallery = ref(false)
-const THUMBNAIL_TREATMENTS = [
-  { id: 'custom', label: 'Custom mix' },
-  { id: 'bold-explainer', label: 'Bold Explainer' },
-  { id: 'cinematic-minimal', label: 'Cinematic Minimal' },
-  { id: 'cozy-story', label: 'Cozy Story' },
-  { id: 'documentary-impact', label: 'Documentary Impact' },
-] as const
-
 function applyThumbnailVisualStyle(data: { style_bible: string; negative_prompt: string }): void {
   form.thumbnail.style_preset = 'custom'
   form.thumbnail.style_tag = data.style_bible || ''
-  showStyleEditor.value = true
-  showVisualStyleGallery.value = false
   success('Visual style applied to Thumbnail Prompts')
 }
 
@@ -1620,43 +563,7 @@ async function applyThumbnailRecipe(template: SelectedThumbnailRecipe): Promise<
   }
 }
 
-function applyThumbnailTreatment(): void {
-  const id = form.thumbnail.thumb_treatment_preset
-  if (id === 'custom') return
-  const treatments: Record<string, Partial<ThumbnailForm>> = {
-    'bold-explainer': {
-      thumb_title_mode: 'ai',
-      thumb_text_style: 'comic',
-      thumb_font_style: 'display',
-      thumb_text_position: 'center',
-      thumb_art_direction: 'One dominant hero subject at large scale, immediate emotional readability, bold foreground/background separation, high contrast, clean title-safe negative space, energetic YouTube explainer composition.',
-    },
-    'cinematic-minimal': {
-      thumb_title_mode: 'ai',
-      thumb_text_style: 'white',
-      thumb_font_style: 'condensed',
-      thumb_text_position: 'bottom',
-      thumb_art_direction: 'Premium cinematic key art with one unmistakable focal subject, controlled negative space, restrained palette, dramatic directional light, minimal clutter, sophisticated high-contrast title placement.',
-    },
-    'cozy-story': {
-      thumb_title_mode: 'ai',
-      thumb_text_style: 'pastel',
-      thumb_font_style: 'playful',
-      thumb_text_position: 'top',
-      thumb_art_direction: 'Warm inviting storybook thumbnail, friendly expressive focal character, soft depth layers, comforting light, gentle color contrast, uncluttered composition and generous title-safe space.',
-    },
-    'documentary-impact': {
-      thumb_title_mode: 'ai',
-      thumb_text_style: 'shadow',
-      thumb_font_style: 'bold',
-      thumb_text_position: 'bottom',
-      thumb_art_direction: 'High-impact documentary cover with a strong factual focal image, clear visual stakes, dramatic but credible lighting, restrained annotation energy, sharp silhouette separation and mobile-readable hierarchy.',
-    },
-  }
-  Object.assign(form.thumbnail, treatments[id] || {})
-}
-
-// v1.0.259 — remember each tab's prompt settings (model / style / aspect /
+// v1.0.259 — remember the prompt settings (model / style / aspect /
 // art-direction / cast) across reloads. `force` is a per-run regenerate flag,
 // so reset it to false after the restore so a remembered run can't silently
 // re-overwrite on the next visit.
@@ -1668,10 +575,9 @@ function applyThumbnailTreatment(): void {
 // is never overwritten on the next visit.
 const SEEDABLE_KEYS = {
   thumbnail: ['thumb_headline_mode', 'style_tag', 'style_preset', 'thumb_count', 'aspect_ratio'],
-  scene: ['style_tag', 'style_preset', 'aspect_ratio', 'scenes_per_chapter'],
 } as const
 const rememberedKeys = probeRememberedKeys(form, SEEDABLE_KEYS, () =>
-  useRememberedForm('image-prompts', slug, form, { include: ['thumbnail', 'scene'] }))
+  useRememberedForm('image-prompts', slug, form, { include: ['thumbnail'] }))
 form.thumbnail.force = false
 form.thumbnail.thumb_title_mode = 'ai'
 // The click brief describes ONE episode (AGENTS §4): never carried in from a
@@ -1684,7 +590,6 @@ const thumbnailHeadlineInvents = computed<boolean>(() =>
   headlineModes.value.find(mode => mode.id === thumbnailHeadlineMode.value)?.invents
     ?? thumbnailHeadlineMode.value !== 'episode-title',
 )
-form.scene.force = false
 
 let promptScopeSequence = 0
 // v1.0.115+ — clear the in-flight indicator on episode swap. The local
@@ -1707,27 +612,9 @@ watch([slug, () => form.episode_id], ([, newEp], [, oldEp]) => {
   }
 }, { flush: 'sync' })
 
-// The active sub-form. Template bindings on shared-field controls use
-// this so a v-model write goes to the right kind. Computed unwraps in
-// templates automatically so `activeForm.style_tag` Just Works there;
-// in script we still need `.value`.
-const activeForm = computed<ThumbnailForm | SceneForm>(() =>
-  formTab.value === 'thumbnails' ? form.thumbnail : form.scene,
-)
+// The thumbnail sub-form. Kept as a computed because the template binds to it.
+const activeForm = computed<ThumbnailForm>(() => form.thumbnail)
 
-// ── Catalogue-aware aspect ratios (same pattern as scene-review.vue) ───────
-// Labels are cosmetic; the VALUES always come from the selected model's
-// published `aspect_ratios`. The old static list both hid ratios a model
-// supports and offered ones it does not. Declared here, after `activeForm`,
-// for the TDZ reason documented below.
-const aspectRatioLabels: Record<string, string> = {
-  '16:9': 'Landscape (YouTube)',
-  '21:9': 'Ultrawide',
-  '4:3': 'Standard',
-  '3:4': 'Portrait Classic',
-  '1:1': 'Square (Instagram)',
-  '9:16': 'Portrait (Stories/TikTok)',
-}
 const selectedGenStudioImageModel = computed(() =>
   genStudioImageModels.value.find(model => model.id === activeForm.value.model),
 )
@@ -1750,13 +637,6 @@ onMounted(async () => {
   } catch { /* the select below still works; only the descriptions are missing */ }
 })
 
-const aspectRatios = computed(() => {
-  const ratios = selectedGenStudioImageModel.value?.aspect_ratios
-  if (!ratios?.length) {
-    return Object.entries(aspectRatioLabels).map(([value, label]) => ({ value, label }))
-  }
-  return ratios.map(value => ({ value, label: aspectRatioLabels[value] || 'Supported by the Gateway' }))
-})
 // Keep the form on a ratio the selected model actually publishes.
 watch(selectedGenStudioImageModel, (model) => {
   if (!model?.aspect_ratios?.length) return
@@ -1766,19 +646,6 @@ watch(selectedGenStudioImageModel, (model) => {
 })
 onMounted(() => {
   void refreshGenStudioImageModels().catch(() => {})
-  void refreshVisualStyles()
-})
-
-// v1.0.304 — moved here from the `useCharacters` declaration above: watch()
-// evaluates its source getter during setup, so `() => activeForm.value.…` must
-// run AFTER activeForm exists (the getter referencing it earlier TDZ-crashed
-// the page under SSR / nuxt dev). Character-references opt-in (mirrors the
-// Script page): toggling off clears the cast; an existing cast auto-enables it.
-watch(useCharacters, (on) => {
-  if (!on && activeForm.value.character_ids.length) activeForm.value.character_ids = []
-})
-watch(() => activeForm.value.character_ids.length, (n) => {
-  if (n > 0 && !useCharacters.value) useCharacters.value = true
 })
 
 function pickRandomPresetId(presets: StylePreset[]): string {
@@ -1804,156 +671,18 @@ async function surpriseMeThumb() {
   await generateThumbnails()
 }
 
-// Source-of-truth episode hydration. `scriptReady` is the gate for the
-// Generate buttons below — visual prompts read narration context from the
-// script docx, so generating without it would 500 on the backend. Refetch
-// when a script-only job lands so the gate enables itself live.
-const { selectedEpisode, scriptReady, statusKnown, refetch: refetchEpisodeStatus } = useEpisodeStatus(
+const { selectedEpisode } = useEpisodeStatus(
   computed(() => form.episode_id),
   slug,
-  { refetchOnJobTypes: ['script-only'] },
 )
-// v1.0.296 — distinguish "still checking" from "confirmed no script". The
-// definitive message must only show once statusKnown is true; before that the
-// gate is locked but the copy says "Checking…" (see useEpisodeStatus header).
-const noScriptTooltip = "No finished script yet — finish this episode's script in Script Generator first."
-const checkingTooltip = 'Checking script status…'
-// The reason text the gated buttons show: nothing if ready, "checking" while
-// the status is still loading, the generate-first message once we KNOW it's
-// missing. Centralised so every gated button stays consistent.
-const scriptGateReason = computed(() => {
-  // v1.0.299 — thumbnails are cover art (generated from the title/vibe; the
-  // backend already falls back to the title when no narration exists). They
-  // don't need the script, so there's no gate in thumbnail mode. Scene prompts
-  // DO read the narration, so they stay gated.
-  if (formTab.value === 'thumbnails') return ''
-  if (!form.episode_id || scriptReady.value) return ''
-  return statusKnown.value ? noScriptTooltip : checkingTooltip
-})
-// v1.0.299 — true when the script gate actually applies to the current mode.
-const scriptGateApplies = computed(() => formTab.value !== 'thumbnails')
 
 // v1.0.307 — keep Generate disabled for the WHOLE queued job, not just the
 // brief enqueue POST that flips `generating` (see useJobs.isJobActiveFor).
-// The `image_prompts` job type covers both scene and thumbnail prompt runs.
 const { isJobActiveFor } = useJobs()
 const promptsJobActiveForEpisode = computed(() => isJobActiveFor(form.episode_id, ['image_prompts']))
 
-// v1.0.296 — inline rescan-from-disk affordance, parity with audio.vue. Hits
-// /episodes?rescan=1 (wipes the project status cache + re-stats every folder),
-// then re-pulls this episode's status so the Generate buttons enable without
-// a page refresh. Covers the genuine stale-cache / changed-mtime case where the
-// script is on disk but the cached status says otherwise.
-const rescanning = ref(false)
-async function onRescan() {
-  if (rescanning.value || !form.episode_id) return
-  rescanning.value = true
-  try {
-    await get(`/projects/${slug.value}/episodes?rescan=1`)
-    await refetchEpisodeStatus()
-    if (scriptReady.value) {
-      success(`Script detected for ${form.episode_id} — you can generate prompts now.`)
-    } else {
-      showInfo(`Still no script for ${form.episode_id}. Generate it in the Scripts page first.`)
-    }
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Rescan failed')
-  } finally {
-    rescanning.value = false
-  }
-}
-
-// Authoritative chapter count for this episode comes from the chunked-progress
-// sidecar (set when outline_only / script-only built). The episode record's
-// `suggested_chapters` is only the IDEA-stage hint and goes stale the moment
-// the user regenerates an outline at a different count — e.g. the user-
-// reported case where EP0001 was generated as 7 from the idea, then expanded
-// to 20 chapters; image-prompts kept showing "~7 prompts" because it still
-// read the stale idea hint. The watcher below loads sidecar.total_chapters
-// per episode pick; the computed prefers it and only falls back to the idea
-// hint when no sidecar exists yet (pure idea-stage episode).
-const actualChapterCount = ref<number | null>(null)
-watch(
-  () => [selectedEpisode.value?.episode_code, selectedEpisode.value?.title] as [string?, string?],
-  async ([code, title]) => {
-    actualChapterCount.value = null
-    // Episode switch wipes any per-episode override. The new episode's
-    // sidecar will repopulate actualChapterCount; if the user wants to
-    // override there too they can type in the input again.
-    form.scene.chapter_count_override = null
-    if (!code || !slug.value) return
-    try {
-      const titleParam = title ? `?title=${encodeURIComponent(title)}` : ''
-      const data = await get<{ total_chapters?: number }>(
-        `/projects/${slug.value}/episodes/${code}/outline${titleParam}`,
-      )
-      if (typeof data?.total_chapters === 'number' && data.total_chapters > 0) {
-        actualChapterCount.value = data.total_chapters
-      }
-    } catch {
-      // No sidecar yet (idea-stage episode, never had a script generated)
-      // — falls back to suggested_chapters in the computed below.
-    }
-  },
-  { immediate: true },
-)
-
-// Authoritative chapter count for the form's math display + backend
-// request. Resolution order:
-//   1. User-typed override in the Chapter count input (form.scene.chapter_count_override).
-//   2. actualChapterCount loaded from the chunked-progress sidecar.
-//   3. Episode record's suggested_chapters (idea-stage hint).
-//   4. 10 fallback (last resort, only when nothing else exists).
-// User wins over auto-detection wins over idea hint wins over default.
-// All coerced + NaN-guarded so a cleared input doesn't render "NaN".
-const effectiveChapterCount = computed(() => {
-  const override = Number(form.scene.chapter_count_override)
-  if (Number.isFinite(override) && override > 0) return Math.round(override)
-  const real = Number(actualChapterCount.value)
-  if (Number.isFinite(real) && real > 0) return real
-  const suggested = Number(selectedEpisode.value?.suggested_chapters)
-  if (Number.isFinite(suggested) && suggested > 0) return suggested
-  return 10
-})
-
-// Total scene prompt count the user will see "be generated."
-// v1.0.87+: multiplication-only — chapter count × scenes-per-chapter.
-// The previous "scenes_per_chapter === 0 → use total_scenes" custom-total
-// path is gone; the form now always presents three multiplicand-style
-// fields (chapter count, scenes per chapter, total readout). If the user
-// wants 250 scenes from 8 chapters they type 32 in scenes-per-chapter
-// and the readout shows 256; the chapter relationship stays visible.
-const effectiveSceneCount = computed(() => {
-  const perChapter = Number(form.scene.scenes_per_chapter)
-  if (!Number.isFinite(perChapter) || perChapter < 1) return 0
-  const total = effectiveChapterCount.value * Math.round(perChapter)
-  return Number.isFinite(total) && total > 0 ? total : 0
-})
-
-// Back-compat alias for any older template / code that referenced
-// `estimatedScenes`. New code should use effectiveSceneCount directly.
-const estimatedScenes = effectiveSceneCount
-
-// Handler for the explicit Chapter count input. Empty input → null
-// (revert to auto-detect); typed number → override that wins. Anything
-// non-finite or <1 collapses to null so a cleared field doesn't wedge
-// the form at 0 chapters.
-function onChapterCountInput(ev: Event): void {
-  const raw = (ev.target as HTMLInputElement).value
-  if (raw === '' || raw === null || raw === undefined) {
-    form.scene.chapter_count_override = null
-    return
-  }
-  const n = Number(raw)
-  if (!Number.isFinite(n) || n < 1) {
-    form.scene.chapter_count_override = null
-    return
-  }
-  form.scene.chapter_count_override = Math.round(n)
-}
-
-// Same defensive coercion for the thumbnail variations display — clearing
-// the number input would otherwise render "NaN thumbnail variations".
+// Defensive coercion for the thumbnail variation count — a cleared number
+// input is NaN.
 const safeThumbCount = computed(() => {
   const n = Number(form.thumbnail.thumb_count)
   return Number.isFinite(n) && n > 0 ? n : 0
@@ -1965,36 +694,10 @@ const safeThumbCount = computed(() => {
 watch(() => form.thumbnail.thumb_count, (v) => {
   if (!Number.isFinite(v) || v < 1) form.thumbnail.thumb_count = 1
 })
-// v1.0.87+: form.scene.scenes_per_chapter is now a free integer input (not a
-// 1/2/3/4/Custom dropdown). Clamp to >= 1 so a cleared field doesn't
-// produce `0 prompts will be generated` confusion. Previously 0 was a
-// sentinel for Custom-total mode — that mode is gone, so 0 is just
-// invalid.
-watch(() => form.scene.scenes_per_chapter, (v) => {
-  if (!Number.isFinite(v) || v < 1) form.scene.scenes_per_chapter = 1
-})
-// Defensive: form.scene.total_scenes is no longer surfaced in the UI but the
-// reactive prop still exists in `form` for back-compat with saved
-// presets that carry it. Keep the floor watcher so a stale 0 from an
-// old preset doesn't render NaN anywhere.
-watch(() => form.scene.total_scenes, (v) => {
-  if (!Number.isFinite(v) || v < 1) form.scene.total_scenes = 1
-})
-
 // ── Presets ─────────────────────────────────────────────────────────────
 //
-// v1.0.88+: presets are SPLIT per kind. Each tab maintains its own
-// preset list (thumbnail_prompts_presets vs scene_prompts_presets) so a
-// "10-thumbnail / handwritten" preset can't accidentally overwrite the
-// scene config when you save it from the Thumbnails tab, and vice
-// versa. The TopActionBar binds to whichever preset object matches
-// the active tab via the `activePresets` computed below — preset
-// pickers in the toolbar swap their list + active id when you flip
-// the tab.
-//
-// Legacy `image_prompts_presets` is intentionally NOT migrated.
-// Existing presets stay on disk under that key but no longer surface
-// in the new UI (re-save from the new tabs to materialize them).
+// Thumbnail prompt presets live under `thumbnail_prompts_presets`. The legacy
+// `image_prompts_presets` key is not migrated.
 const thumbnailPresets = usePresets<any>({
   slug: slug.value,
   configKey: 'thumbnail_prompts',
@@ -2004,92 +707,36 @@ const thumbnailPresets = usePresets<any>({
   snapshot: () => ({ form: { ...form.thumbnail } }),
   apply: (data) => { if (data?.form) Object.assign(form.thumbnail, data.form) },
 })
-const scenePresets = usePresets<any>({
-  slug: slug.value,
-  configKey: 'scene_prompts',
-  snapshot: () => ({ form: { ...form.scene } }),
-  apply: (data) => { if (data?.form) Object.assign(form.scene, data.form) },
-})
-// Bound to TopActionBar. Switching tabs swaps the entire preset
-// surface (list, active id, save / overwrite / delete handlers).
+// Bound to TopActionBar.
 const promptPresets = computed(() => thumbnailPresets)
 
 /**
- * v1.0.71+: format-aware seeding of the form's defaults BEFORE the
- * preset loader runs. Out-of-the-box the form had hardcoded sleep-
- * story numbers (5 thumbs, 16:9 aspect, 1 scene per chapter for ~10
- * total). For listicle channels with `imagePrompts.defaultScenesTotalRange:
- * [10, 10]` and `defaultThumbnails: 3`, those defaults were wrong.
- * Pull from the project's effective Format when present; preset.load()
- * still overrides if the user has saved one.
- *
- * v1.0.87+ note on the scene-count seeding: the form is now
- * multiplication-only (chapters × scenes-per-chapter). The format's
- * `defaultScenesTotalRange[0]` (the low end) is divided by the resolved
- * chapter count to set `scenes_per_chapter`. Example: reasons-explainer
- * has range [60, 180] and an 8-chapter outline → 60/8 = 7.5 → ceil to
- * 8 scenes per chapter → 64 total prompts as the starting point.
+ * Format-aware seeding of the form's defaults. Pulls from the project's
+ * effective Format; a remembered value or an active preset still wins.
  *
  * Per-format JSON keys consumed:
- *   imagePrompts.defaultScenesTotalRange  → form.scene.scenes_per_chapter
- *                                           (= ceil(lo / chapter_count))
- *   imagePrompts.defaultThumbnails        → form.thumbnail.thumb_count
- *   imagePrompts.recommendedAspect        → activeForm.value.aspect_ratio
- *   imagePrompts.defaultStyleTag          → activeForm.value.style_tag (with style_preset = 'custom'
- *                                           so the format's tuned visual language —
- *                                           "minimalist circular badge" for listicle,
- *                                           "editorial infographic" for educational —
- *                                           lands in the textarea instead of the
- *                                           hardcoded 'storybook' fallback. The user
- *                                           can still pick a STYLE_PRESETS option to
- *                                           override.)
+ *   imagePrompts.defaultThumbnails   → form.thumbnail.thumb_count
+ *   imagePrompts.recommendedAspect   → form.thumbnail.aspect_ratio
+ *   imagePrompts.defaultStyleTag     → form.thumbnail.style_tag (style_preset = 'custom')
  */
 async function applyFormatDefaultsIfNoPreset() {
   // A remembered value or an active preset is the customer's choice. Seed only
   // the keys neither supplied.
   const seedThumb = (key: string) => !thumbnailPresets.activeId.value && !rememberedKeys.thumbnail.has(key)
-  const seedScene = (key: string) => !scenePresets.activeId.value && !rememberedKeys.scene.has(key)
-  if (!['style_tag', 'thumb_count', 'aspect_ratio'].some(seedThumb)
-    && !['style_tag', 'aspect_ratio', 'scenes_per_chapter'].some(seedScene)) return
+  if (!['style_tag', 'thumb_count', 'aspect_ratio'].some(seedThumb)) return
   try {
     const f = await get<any>(`/projects/${slug.value}/effective-format`)
     const ip = f?.imagePrompts
     if (!ip) return
-    if (Array.isArray(ip.defaultScenesTotalRange) && ip.defaultScenesTotalRange.length === 2) {
-      const [lo] = ip.defaultScenesTotalRange
-      if (typeof lo === 'number' && lo > 0) {
-        // Map the format's preferred total to scenes-per-chapter using
-        // the live chapter count (auto-detected from the outline sidecar
-        // by the watcher above). Floor at 1 so single-chapter idea-stage
-        // episodes still get a sensible default.
-        const chapters = effectiveChapterCount.value || 1
-        if (seedScene('scenes_per_chapter')) form.scene.scenes_per_chapter = Math.max(1, Math.ceil(lo / chapters))
-      }
-    }
     if (typeof ip.defaultThumbnails === 'number' && ip.defaultThumbnails > 0 && seedThumb('thumb_count')) {
       form.thumbnail.thumb_count = ip.defaultThumbnails
     }
-    // v1.0.88+: seed BOTH sub-forms from the format defaults, not just
-    // whichever tab happens to be active when this fires. Each kind
-    // starts from the same shared default; the user can then diverge
-    // them per tab after switching.
     if (typeof ip.recommendedAspect === 'string' && ip.recommendedAspect) {
       if (seedThumb('aspect_ratio')) form.thumbnail.aspect_ratio = ip.recommendedAspect
-      if (seedScene('aspect_ratio')) form.scene.aspect_ratio = ip.recommendedAspect
     }
-    if (typeof ip.defaultStyleTag === 'string' && ip.defaultStyleTag.trim()) {
-      // Switching to 'custom' opens the style editor (see onStyleChange);
-      // we set style_tag manually here instead of going through that
-      // handler so the page boots up with the editor already showing the
-      // format's text.
-      if (seedThumb('style_tag')) {
-        form.thumbnail.style_preset = 'custom'
-        form.thumbnail.style_tag = ip.defaultStyleTag
-      }
-      if (seedScene('style_tag')) {
-        form.scene.style_preset = 'custom'
-        form.scene.style_tag = ip.defaultStyleTag
-      }
+    if (typeof ip.defaultStyleTag === 'string' && ip.defaultStyleTag.trim() && seedThumb('style_tag')) {
+      form.thumbnail.style_preset = 'custom'
+      form.thumbnail.style_tag = ip.defaultStyleTag
     }
   } catch {
     // Format endpoint unavailable / project missing — keep the legacy
@@ -2098,17 +745,9 @@ async function applyFormatDefaultsIfNoPreset() {
 }
 
 onMounted(async () => {
-  // Format-aware seeding runs BEFORE preset load. If the user has an
-  // active preset for the active tab, its values override these — but
-  // the format defaults are the right starting point for projects with
-  // no saved preset yet. v1.0.88+: load BOTH per-kind preset lists so
-  // either tab can immediately use saved presets without a tab-switch
-  // first.
   // Presets load first so the format seeding below knows whether one is active.
   await Promise.all([
     thumbnailPresets.load(),
-    scenePresets.load(),
-    loadVisionCaps(),
     loadThumbnailVisionModels(),
   ])
   await applyFormatDefaultsIfNoPreset()
@@ -2129,42 +768,7 @@ onMounted(async () => {
   }
 })
 
-// ── Vision / style-extraction ──────────────────────────────────────────
-// v1.2.9 — per-visit cache key, matching every other preview-image consumer.
-// The reference is a file the user picks, so the path usually changes with
-// the picture; but re-picking the same path after editing that file would
-// otherwise show the pre-edit image, since an unchanged src is served from
-// the browser's in-memory image cache without reaching the server.
-const previewCacheKey = Date.now()
-const referencePreviewUrl = computed(() => {
-  if (!referenceImagePath.value) return ''
-  return `/api/projects/${slug.value}/video-editor/preview-image?path=${encodeURIComponent(referenceImagePath.value)}&k=${previewCacheKey}`
-})
-
-const referenceImageName = computed(() => {
-  const p = referenceImagePath.value || ''
-  return p.split('/').pop() || p
-})
-
-const lastAnalyzedAtRelative = computed(() => {
-  if (!lastAnalyzedAt.value) return ''
-  const diff = Date.now() - new Date(lastAnalyzedAt.value).getTime()
-  if (diff < 60_000) return 'just now'
-  if (diff < 3600_000) return `${Math.round(diff / 60_000)} min ago`
-  return `${Math.round(diff / 3600_000)} h ago`
-})
-
-async function loadVisionCaps() {
-  try {
-    const data = await get<{ models: VisionModelCap[]; default: string }>(
-      `/projects/${slug.value}/vision/caps`,
-    )
-    visionModels.value = data.models || []
-    const selected = selectLiveGenStudioModel(visionModel.value, visionModels.value, false, 'llm')
-    if (selected) visionModel.value = selected.id
-  } catch { /* tolerate — keep default */ }
-}
-
+// ── Thumbnail reference vision ──────────────────────────────────────────
 async function loadThumbnailVisionModels() {
   thumbnailVisionLoading.value = true
   thumbnailVisionLoadError.value = ''
@@ -2189,90 +793,9 @@ async function loadThumbnailVisionModels() {
   }
 }
 
-async function collapseToPortablePath(input: string): Promise<string> {
-  const raw = String(input || '').trim()
-  if (!raw) return ''
-  try {
-    const r = await post<{ output: string }>(`/system/resolve-asset-path`, {
-      path: raw,
-      output_root: episodesRoot.value,
-      mode: 'portable',
-    })
-    return String(r?.output || raw)
-  } catch {
-    return raw
-  }
-}
-
-async function pickReferenceImage() {
-  try {
-    const r = await post<{ path: string | null }>('/system/pick-file', {
-      title: 'Choose a reference image',
-      buttonLabel: 'Use as Reference',
-      filters: [
-        { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] },
-        { name: 'All Files', extensions: ['*'] },
-      ],
-    })
-    if (!r.path) return
-    referenceImagePath.value = await collapseToPortablePath(r.path)
-    lastAnalyzedAt.value = null
-    lastAnalysisModel.value = null
-    // Auto-extract on first pick — saves the user one click. Re-analyze is
-    // for iterating on the model/focus without re-picking.
-    await extractStyle()
-  } catch (e: any) {
-    showError(`Reference picker failed — ${e.data?.detail || e.message || 'unknown error'}`)
-  }
-}
-
-// Optional focus hint sent alongside the image+prompt on /analyze-style.
-// Backend uses it to bias the vision model's vocabulary (e.g. "lighting"
-// vs "palette" vs "illustration").
-const extractFocus = ref('')
-
-async function extractStyle() {
-  if (!referenceImagePath.value) {
-    showError('Pick a reference image first')
-    return
-  }
-  extracting.value = true
-  try {
-    const data = await post<{ style_text: string; model_used: string }>(
-      `/projects/${slug.value}/analyze-style`,
-      {
-        image_path: referenceImagePath.value,
-        model: visionModel.value,
-        // Empty string = no focus; backend tolerates either undefined or
-        // empty. Trim defensively in case the user accidentally pasted
-        // whitespace.
-        focus: extractFocus.value.trim() || undefined,
-      },
-    )
-    // Switch to custom style so the textarea is visible + editable.
-    activeForm.value.style_preset = 'custom'
-    showStyleEditor.value = true
-    activeForm.value.style_tag = data.style_text
-    lastAnalyzedAt.value = new Date().toISOString()
-    lastAnalysisModel.value = data.model_used
-    success(`Style extracted via ${data.model_used}`)
-  } catch (e: any) {
-    showError(e?.data?.detail || 'Style analysis failed')
-  } finally {
-    extracting.value = false
-  }
-}
-
-function clearReference() {
-  referenceImagePath.value = null
-  lastAnalyzedAt.value = null
-  lastAnalysisModel.value = null
-}
-
-// v1.0.224 — thumbnail-scoped reference replication. Distinct from the scene
-// style extractor above (which writes the scene style_tag): this pulls a
-// thumbnail's look into form.thumbnail.thumb_reference_style, which the
-// generator injects as the reference layer of the thumbnail art direction.
+// v1.0.224 — thumbnail-scoped reference replication: pulls a thumbnail's look
+// into form.thumbnail.thumb_reference_style, which the generator injects as the
+// reference layer of the thumbnail art direction.
 const extractingThumbRef = ref(false)
 async function extractThumbReferenceStyle() {
   try {
@@ -2311,172 +834,13 @@ async function clearThumbnailReference() {
   }
 }
 
-// ── Save-as-preset flow ─────────────────────────────────────────────────
-// Captures whatever's in activeForm.value.style_tag right now (could be a vision-
-// extracted description, a hand-written one, or a fork of an existing
-// custom preset) and persists it under a name in config.style_presets.
-const showSavePresetForm = ref(false)
-const newPresetName = ref('')
-const savingStylePreset = ref(false)
-const savePresetInputEl = ref<HTMLInputElement | null>(null)
-
-function openSaveStylePreset() {
-  if (!activeForm.value.style_tag.trim()) return
-  showSavePresetForm.value = true
-  newPresetName.value = ''
-  // Focus the input on next tick so keyboard users can type immediately
-  // without an extra Tab press.
-  nextTick(() => savePresetInputEl.value?.focus())
-}
-
-function cancelSaveStylePreset() {
-  showSavePresetForm.value = false
-  newPresetName.value = ''
-}
-
-/**
- * Generate a stable, file-system-safe id from a name. Collision with an
- * existing id is resolved by suffixing `-2`, `-3`, … so a user saving
- * "Watercolour" twice ends up with `watercolour` and `watercolour-2`
- * rather than overwriting the first silently.
- */
-function makeStylePresetId(name: string, existing: StylePresetMeta[]): string {
-  const base = name.toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40) || 'style'
-  if (!existing.some(c => c.id === base)) return base
-  for (let n = 2; n < 1000; n++) {
-    const candidate = `${base}-${n}`
-    if (!existing.some(c => c.id === candidate)) return candidate
-  }
-  return `${base}-${Date.now()}`
-}
-
-async function saveStylePreset() {
-  const name = newPresetName.value.trim()
-  if (!name || !activeForm.value.style_tag.trim() || savingStylePreset.value) return
-  savingStylePreset.value = true
-  try {
-    const existing = customStyles.value
-    const newPreset: StylePresetMeta = {
-      id: makeStylePresetId(name, existing),
-      name,
-      description: activeForm.value.style_tag.trim(),
-      source_model: lastAnalysisModel.value || undefined,
-      source_reference: referenceImagePath.value || undefined,
-      created_at: new Date().toISOString(),
-    }
-    // Persist via the existing settings/config PUT — same path voice_presets
-    // uses. The route's UpdateConfig schema passes `style_presets` through
-    // (we registered it in contracts/index.ts), so this single round-trip
-    // both saves the preset and refreshes the dropdown via the reactive
-    // config ref.
-    await put(`/projects/${slug.value}/settings/config`, {
-      style_presets: [...existing, newPreset],
-    })
-    await refreshConfig(slug.value)
-    // Switch the dropdown to the new entry so the user immediately sees
-    // their save reflected. Selecting it also re-fills the textarea (a no-op
-    // here since it already matches), keeping behaviour predictable.
-    activeForm.value.style_preset = newPreset.id
-    showSavePresetForm.value = false
-    newPresetName.value = ''
-    success(`Saved "${newPreset.name}" — pick it from the Art Style dropdown next time.`)
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to save style preset')
-  } finally {
-    savingStylePreset.value = false
-  }
-}
-
-// ── Reference path persistence (Gap C from audit pain-point #7) ──────────
-// Per-project localStorage key so project switches stay
-// remembered across reloads. Cleared explicitly via clearReference.
-const REF_PATH_LS_KEY = computed(() => `story-studio:${slug.value}:image-prompts:reference-path`)
-
-async function loadPersistedReferencePath() {
-  if (typeof window === 'undefined') return  // SSR safety, even though Nuxt runs in SPA mode here
-  try {
-    const raw = window.localStorage.getItem(REF_PATH_LS_KEY.value)
-    if (raw && typeof raw === 'string' && raw.trim()) {
-      referenceImagePath.value = await collapseToPortablePath(raw)
-    }
-  } catch { /* localStorage may be unavailable in private mode — ignore */ }
-}
-
-watch(referenceImagePath, (v) => {
-  if (typeof window === 'undefined') return
-  try {
-    if (v) window.localStorage.setItem(REF_PATH_LS_KEY.value, v)
-    else   window.localStorage.removeItem(REF_PATH_LS_KEY.value)
-  } catch { /* ignore quota / private-mode errors */ }
-})
-
-onMounted(() => { void loadPersistedReferencePath() })
-
-function onStyleChange() {
-  if (activeForm.value.style_preset.startsWith('shared:')) {
-    const id = activeForm.value.style_preset.slice('shared:'.length)
-    const style = visualStyles.value.find(item => item.id === id)
-    if (style) {
-      activeForm.value.style_tag = style.data.style_bible
-      showStyleEditor.value = true
-    }
-    return
-  }
-  if (activeForm.value.style_preset in STYLE_PRESETS) {
-    activeForm.value.style_tag = STYLE_PRESETS[activeForm.value.style_preset] || ''
-    showStyleEditor.value = false
-    return
-  }
-  if (activeForm.value.style_preset === 'custom') {
-    activeForm.value.style_tag = ''
-    showStyleEditor.value = true
-    return
-  }
-  // User-saved custom preset — id matches an entry in config.style_presets.
-  // Treat selection as "load this description and put me in editable mode"
-  // so the user can fork the preset (tweak + save under a new name) without
-  // mutating the original.
-  const saved = customStyles.value.find(cs => cs.id === activeForm.value.style_preset)
-  if (saved) {
-    activeForm.value.style_tag = saved.description
-    showStyleEditor.value = true
-  }
-}
-
-function removePrompt(type: 'scenes' | 'thumbnails', index: number) {
-  if (generatedPrompts.value) generatedPrompts.value[type].splice(index, 1)
-}
-
-function formatTime(d: string) {
-  try { return new Date(d).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) }
-  catch { return d }
-}
-
-function loadFromHistory(entry: HistoryEntry) {
-  generatedPrompts.value = JSON.parse(JSON.stringify(entry.prompts))
-  form.episode_id = entry.episode_id
-  activeTab.value = 'current'
-  success(`Loaded prompts for ${entry.episode_id}`)
-}
-
-// Generation helpers — `mode` picks which half of the payload the backend
-// returns. 'scenes' / 'thumbnails' keep the other half untouched on disk
-// (the save endpoint only writes docx files for arrays actually present
-// in the payload), so a Scene-only run never clobbers an existing thumb
-// file, and vice-versa.
-type PromptMode = 'scenes' | 'thumbnails'
-
 // v1.0.87+: image-prompts generation now runs as an enqueued background
 // job (Jobs tab visibility, per-step output_lines, retryable on error)
 // instead of a synchronous LLM call. Flow:
 //   1. POST /generate/image-prompts → returns the queued Job ({ job_id, … }).
 //   2. Poll GET /jobs/:jobId until status ∈ {done, error, cancelled}.
-//   3. On done: GET /episodes/:id/image-prompts to read the just-written
-//      docx, populate the inline-edit pane, bump the per-prompt review-
-//      panel refresh key.
+//   3. On done: GET /episodes/:id/image-prompts to count the just-written
+//      prompts for the toast, and bump the per-prompt review-panel refresh key.
 //   4. On error: surface the stored job error.
 //
 // Why poll instead of subscribing to the Jobs SSE stream: the SSE
@@ -2511,7 +875,7 @@ async function waitForJob(slug: string, jobId: string): Promise<any | null> {
   return null
 }
 
-async function runGenerate(mode: PromptMode, replaceAll = false) {
+async function runGenerate(replaceAll = false) {
   const ep = form.episode_id
   if (!ep) return
   // Fill-gaps runs write only the numbers still missing; note them up front so
@@ -2522,14 +886,12 @@ async function runGenerate(mode: PromptMode, replaceAll = false) {
   const scope = promptScopeSequence
   const requestSequence = ++promptGenerationSequence
   generating.value = true
-  setPromptPulse(mode, true)
+  thumbPromptGenerating.value = true
   const payload = {
     episode_id: ep,
     model: activeForm.value.model,
     style_tag: activeForm.value.style_tag,
     aspect_ratio: activeForm.value.aspect_ratio,
-    scenes_per_chapter: form.scene.scenes_per_chapter,
-    chapter_count: effectiveChapterCount.value,
     thumb_count: form.thumbnail.thumb_count,
     thumbnail_template_id: form.thumbnail.thumbnail_template_id || undefined,
     thumb_title_mode: 'ai',
@@ -2552,7 +914,7 @@ async function runGenerate(mode: PromptMode, replaceAll = false) {
     thumb_creative_direction: form.thumbnail.thumb_creative_direction,
     prompt_char_cap: effectivePromptCharCap.value || undefined,
     title: selectedEpisode.value?.title || '',
-    mode,
+    mode: 'thumbnails',
     character_ids: activeForm.value.character_ids,
     fill_gaps: !replaceAll,
     force: replaceAll,
@@ -2580,7 +942,7 @@ async function runGenerate(mode: PromptMode, replaceAll = false) {
     // immediately so the user knows the click registered, then poll for
     // completion. We don't block paint while the job runs — the existing
     // `generating` flag keeps the button disabled + spinner showing.
-    success(`Queued ${mode === 'scenes' ? 'scene prompts' : 'thumbnail prompts'} — watch progress in Jobs.`)
+    success('Queued thumbnail prompts — watch progress in Jobs.')
 
     const completed = await waitForJob(generationSlug, job.job_id)
     if (!completed) return
@@ -2593,8 +955,7 @@ async function runGenerate(mode: PromptMode, replaceAll = false) {
       return
     }
 
-    // Job done — executor wrote the docx to disk. Pull it back so the
-    // inline-edit pane reflects the new prompts.
+    // Job done — executor wrote the docx to disk. Read it back to count the prompts.
     const titleParam = payload.title
       ? `?title=${encodeURIComponent(payload.title)}`
       : ''
@@ -2603,65 +964,29 @@ async function runGenerate(mode: PromptMode, replaceAll = false) {
     )
     if (scope !== promptScopeSequence || slug.value !== generationSlug || form.episode_id !== ep || requestSequence !== promptGenerationSequence) return
 
-    // Merge into the inline review pane. Scene-only / thumb-only runs
-    // preserve the OTHER half from whatever was already there on disk
-    // (the executor only writes the half it generated).
-    if (!generatedPrompts.value) {
-      generatedPrompts.value = { scenes: onDisk?.scenes || [], thumbnails: onDisk?.thumbnails || [] }
-    } else {
-      generatedPrompts.value = {
-        ...generatedPrompts.value,
-        scenes: mode === 'scenes' ? (onDisk?.scenes || []) : generatedPrompts.value.scenes,
-        thumbnails: mode === 'thumbnails' ? (onDisk?.thumbnails || []) : generatedPrompts.value.thumbnails,
-      }
-    }
-
-    history.value.unshift({
-      episode_id: ep,
-      style_preset: activeForm.value.style_preset,
-      aspect_ratio: activeForm.value.aspect_ratio,
-      mode,
-      prompts: JSON.parse(JSON.stringify(generatedPrompts.value)),
-      generated_at: new Date().toISOString(),
-    })
-
-    activeTab.value = 'current'
     // Bump the review-panel refresh key so the per-prompt panel
     // re-fetches the freshly-written docx.
     reviewRefreshKey.value++
 
-    const sceneCt = onDisk?.scenes?.length || 0
     const thumbCt = onDisk?.thumbnails?.length || 0
-    if (mode === 'scenes') success(`Generated ${sceneCt} scene prompts`)
-    else if (payload.force) success(`Replaced all ${thumbCt} thumbnail prompts`)
+    if (payload.force) success(`Replaced all ${thumbCt} thumbnail prompts`)
     else if (missingBefore === 0) showInfo(`All ${thumbCt} prompts already exist — nothing new generated. Use "Replace all" to write them again.`)
     else success(`Generated ${missingBefore} new thumbnail prompt${missingBefore === 1 ? '' : 's'} (${thumbCt} in total)`)
   } catch (e: any) {
     if (scope !== promptScopeSequence || slug.value !== generationSlug || form.episode_id !== ep || requestSequence !== promptGenerationSequence) return
-    // Name the pool that failed so the toast is actionable.
-    const poolLabel = mode === 'scenes' ? 'scene prompts'
-      : 'thumbnail prompts'
-    console.error(`[image-prompts] ${poolLabel} generation failed:`, e)
-    showError(e.data?.detail || e.message || `Failed to generate ${poolLabel}`)
+    console.error('[image-prompts] thumbnail prompts generation failed:', e)
+    showError(e.data?.detail || e.message || 'Failed to generate thumbnail prompts')
   } finally {
     if (scope === promptScopeSequence && slug.value === generationSlug && form.episode_id === ep && requestSequence === promptGenerationSequence) {
       generating.value = false
-      setPromptPulse(mode, false)
+      thumbPromptGenerating.value = false
     }
   }
 }
 
-// v1.0.209 — the top action-bar button respects the active split tab so
-// the Thumbnail-Prompts page generates ONLY thumbnails and the Scene-Prompts
-// page generates ONLY scenes (it used to always run 'all', which is why a
-// thumbnail-only run still produced scene prompts).
-async function generate() {
-  await runGenerate(formTab.value === 'thumbnails' ? 'thumbnails' : 'scenes')
-}
-// generateThumbnails is still used by surpriseMeThumb (randomize → generate).
-// The legacy per-pool inline buttons were removed in v1.0.304 — the top action
-// bar generates the active tab's pool, so a separate "…Only" button was redundant.
-async function generateThumbnails() { await runGenerate('thumbnails') }
+async function generate() { await runGenerate() }
+// Used by surpriseMeThumb (randomize → generate).
+async function generateThumbnails() { await runGenerate() }
 
 /** The one explicit overwrite: asks first, then rewrites every prompt. */
 async function replaceAllThumbnailPrompts() {
@@ -2672,22 +997,9 @@ async function replaceAllThumbnailPrompts() {
     confirmLabel: 'Replace all',
     danger: true,
   })) return
-  await runGenerate('thumbnails', true)
+  await runGenerate(true)
 }
 
-async function saveToFile() {
-  if (!generatedPrompts.value) return
-  try {
-    await post(`/projects/${slug.value}/generate/image-prompts/save`, {
-      episode_id: form.episode_id,
-      title: selectedEpisode.value?.title || '',
-      prompts: generatedPrompts.value,
-    })
-    success(`${promptPageTitle.value} saved to .docx!`)
-  } catch (e: any) {
-    showError(e.data?.detail || 'Failed to save')
-  }
-}
 </script>
 
 <style scoped>
@@ -2709,15 +1021,12 @@ async function saveToFile() {
 .lettering-part-head { display: flex; align-items: baseline; gap: 8px; }
 .lettering-part-head strong { font-size: var(--font-sm); }
 .lettering-part-head span { color: var(--text-muted); font-size: var(--font-xs); }
-.lettering-auto { display: inline-flex; align-items: center; gap: 7px; color: var(--text-secondary); cursor: pointer; font-size: var(--font-sm); }
-.lettering-auto input { accent-color: var(--accent); }
 .lettering-positions { display: flex; flex-wrap: wrap; gap: 6px; }
 .position-chip { min-height: var(--control-height-sm); padding: 6px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-primary); color: var(--text-secondary); cursor: pointer; font: inherit; font-size: var(--font-sm); }
 .position-chip:hover { border-color: var(--border-light); color: var(--text-primary); }
 .position-chip.selected { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); background: var(--accent-dim); color: var(--accent); }
 .position-chip:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 @media (max-width: 560px) { .position-chip { min-height: 44px; } }
-.headline-mode-group { grid-column: 1 / -1; }
 .headline-modes { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 186px), 1fr)); gap: 7px; }
 .headline-mode { display: grid; gap: 3px; padding: 9px 11px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-primary); cursor: pointer; text-align: left; }
 .headline-mode:hover { border-color: var(--border-light); }
@@ -2746,108 +1055,11 @@ async function saveToFile() {
 </style>
 
 <style scoped>
-/* v1.0.296 — inline rescan-from-disk hint (parity with audio.vue). */
-.rescan-hint {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  background: var(--bg-tertiary);
-  border-left: 3px solid var(--accent);
-  border-radius: 4px;
-  font-size: 12px;
-}
-.rescan-hint .btn-link {
-  background: transparent;
-  border: none;
-  color: var(--accent);
-  cursor: pointer;
-  padding: 0;
-  font-size: 12px;
-  text-decoration: none;
-}
-.rescan-hint .btn-link:hover { color: var(--accent-hover); text-decoration: underline; }
-.rescan-hint .btn-link:disabled { opacity: 0.6; cursor: not-allowed; }
-
-/* v1.0.201 — focused-view header (replaces the thumbnail/scene switcher). */
-.generator-mode-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.generator-mode-head strong { font-size: 15px; }
-.generator-mode-icon { font-size: 16px; }
-
-/* Form-field width tokens (mirror scripts.vue). */
-.field-medium { max-width: 520px; }
-.field-wide   { max-width: 720px; }
-
 /* Helper line that hangs directly under an input. */
 .hint-line { margin-top: 4px; }
 
-/* Style-tag textarea — short, no monospace. */
-.style-tag-textarea { min-height: 60px; font-size: 13px; }
-
 /* Vision-model menu sits inline without truncating long model names. */
 .vision-model-select { width: min(420px, 100%); }
-
-/* Optional focus-hint row beneath the extract / re-analyze buttons.
- * Compact label-input pair so it doesn't dominate the section. */
-.style-extract-focus-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.style-extract-focus-label {
-  font-size: var(--font-xs);
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-.style-extract-focus-input { flex: 1; min-width: 200px; }
-
-/* Inline name-the-preset form. Lives under the reference preview block,
- * sized to read as a small subordinate flow (not a competing card). */
-.style-save-preset-form {
-  padding: 10px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-.style-save-preset-label {
-  display: block;
-  font-size: var(--font-xs);
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 6px;
-}
-
-/* Sub-section title for Scenes / Thumbnails split — smaller than h3. */
-.split-title { font-size: 14px; margin: 0; }
-
-/* Inline hint that appears under the "Scenes per Chapter" select. */
-.scene-count-hint { display: block; margin-top: 4px; }
-
-/* Visual separation for the per-section blocks (Scenes vs Thumbnails) */
-.split-section {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 14px 16px;
-}
-.split-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.estimate-value {
-  padding: 10px 14px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--accent);
-  font-size: 14px;
-}
 
 /* Progress bar */
 .progress-bar {
@@ -2869,102 +1081,6 @@ async function saveToFile() {
   50% { width: 60%; margin-left: 20%; }
   100% { width: 0%; margin-left: 100%; }
 }
-
-/* Tabs */
-.tabs {
-  display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--border);
-}
-
-.tab {
-  padding: 10px 18px;
-  font-size: 14px;
-  color: var(--text-muted);
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  cursor: pointer;
-  font-family: inherit;
-}
-.tab:hover { color: var(--text-primary); }
-.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-
-/* Form section tabs (Thumbnail | Scene): styles moved to
- * assets/css/main.css in v1.0.117 so ideas.vue + scripts.vue can
- * reuse them. Same visual register as the Current/History tabs above
- * so the page reads as one tabbed surface. */
-
-/* History table */
-.history-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.history-table th {
-  text-align: left;
-  font-size: 12px;
-  color: var(--text-muted);
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
-}
-.history-table td {
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
-}
-.td-code { font-weight: 600; color: var(--accent); }
-
-/* Prompts */
-.prompt-list { display: flex; flex-direction: column; gap: 12px; }
-.prompt-item { background: var(--bg-tertiary); border-radius: var(--radius-md); padding: 12px; }
-.prompt-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 14px; }
-.prompt-edit { min-height: 60px; font-size: 13px; background: var(--bg-primary); }
-.btn-icon { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 14px; padding: 4px 8px; border-radius: 4px; }
-.btn-icon:hover { color: var(--error); background: rgba(248, 113, 113, 0.1); }
-.checkbox-label { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; color: var(--text-muted); }
-
-/* Style pill — free, always-visible read-out of form.style_tag.
-   Tells the user exactly what gets sent to the LLM as the style
-   descriptor, so "is my style actually being used?" is answered just
-   by glancing at it. */
-.style-preview-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin: 8px 0;
-}
-.style-preview-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(99, 102, 241, 0.10);
-  border: 1px solid rgba(99, 102, 241, 0.28);
-  font-size: var(--font-xs);
-  color: var(--text-secondary);
-  max-width: min(640px, 100%);
-  cursor: help;
-}
-.style-preview-pill-icon { font-size: 12px; }
-.style-preview-pill-label { font-weight: 600; color: var(--text-primary); }
-.style-preview-pill-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.style-extract { padding: 10px 12px; background: var(--bg-tertiary); border-radius: var(--radius-sm); border: 1px dashed var(--border); }
-.style-extract-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.style-extract-preview { display: flex; gap: 12px; align-items: flex-start; }
-.style-extract-thumb { width: 80px; height: 80px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--border); flex-shrink: 0; }
-.style-extract-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.style-extract-filename { font-size: 12px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.style-extract-clear { align-self: flex-start; margin-top: 4px; padding: 2px 8px; font-size: var(--font-xs); color: var(--text-muted); }
-.style-extract-clear:hover { color: var(--error); }
 
 /* Thumbnail reference is deliberately a first-class card, immediately after
    recipe + art style. It must remain visible when the live vision catalog is
@@ -2999,81 +1115,4 @@ async function saveToFile() {
 @media (max-width: 640px) {
   .thumbnail-reference-card__heading { flex-direction: column; gap: 8px; }
 }
-
-/* Char-counter colour preview picker — mirrors the small inline controls
-   the images.vue page uses for its cap pill. */
-/* Amber, non-blocking prompt-ceiling notice. Matches the row char-counter:
-   the prompt is intact and the user may still render it. */
-.prompt-cap-notice {
-  margin: 6px 0 0;
-  padding: 6px 8px;
-  border: 1px solid color-mix(in srgb, var(--warning) 50%, transparent);
-  border-left-width: 3px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--warning) 12%, transparent);
-  color: var(--warning);
-  font-size: var(--font-xs);
-  line-height: 1.5;
-}
-.cap-preview-row {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  margin: 12px 0 4px;
-  font-size: 12px;
-}
-.cap-preview-label { color: var(--text-muted); }
-.cap-preview-select {
-  width: min(420px, 100%);
-}
-.cap-link {
-  font-size: var(--font-xs);
-  background: none; border: none;
-  color: var(--accent, #6c8fff);
-  cursor: pointer; padding: 0;
-  text-decoration: underline;
-}
-.cap-link:hover { color: var(--text-primary); }
-
-/* Provider caps reference modal. Same shape as the Generator
-   page's modal. */
-.caps-modal {
-  background: var(--bg-secondary);
-  border-radius: var(--radius-md, 8px);
-  border: 1px solid var(--border);
-  padding: 18px 22px;
-  max-width: 720px;
-  width: 90vw;
-  max-height: 85vh;
-  display: flex; flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.25);
-}
-.caps-modal-head {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 6px;
-}
-.caps-modal-head h3 { margin: 0; font-size: 16px; color: var(--text-primary); }
-.caps-modal-close {
-  background: none; border: none; font-size: 22px;
-  color: var(--text-muted); cursor: pointer; padding: 0 6px; line-height: 1;
-}
-.caps-modal-close:hover { color: var(--text-primary); }
-.caps-modal-intro { margin: 4px 0 12px; line-height: 1.5; }
-.caps-table-wrap { overflow: auto; flex: 1 1 auto; }
-.caps-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.caps-table th, .caps-table td {
-  padding: 6px 10px;
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-}
-.caps-table th {
-  position: sticky; top: 0;
-  background: var(--bg-secondary);
-  font-size: var(--font-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-  font-weight: 600;
-}
-.caps-th-right, .caps-td-right { text-align: right !important; font-variant-numeric: tabular-nums; }
-.caps-row-active { background: rgba(108, 143, 255, 0.08); }
-.caps-row-active td:first-child::before { content: '▸ '; color: var(--accent, #6c8fff); }
 </style>

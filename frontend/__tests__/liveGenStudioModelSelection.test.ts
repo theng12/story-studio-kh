@@ -136,8 +136,6 @@ test('generator pickers keep stale selections visible until the user replaces th
   assert.match(imagePicker, /selectLiveGenStudioModel/)
   assert.match(imagesPage, /model: '',/)
   assert.match(promptsPage, /thumbnail:\s*\{\s*model: '',/)
-  assert.match(promptsPage, /scene:\s*\{\s*model: '',/)
-  assert.match(promptsPage, /group: 'Gateway'/)
   assert.doesNotMatch(promptsPage, /claude-sonnet-4-6|gpt-4o-mini|gpt-4-turbo/)
   assert.match(metadataPage, /const model = ref\(''\)/)
   assert.match(motionPage, /selectLiveImageToVideoModel/)

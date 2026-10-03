@@ -20,8 +20,7 @@ test('TopActionBar makes generation status persistent and describes the CTA', ()
 })
 
 test('image and audio controls expose recovery reasons in readable text', () => {
-  assert.match(images, /Completed images are preserved/)
-  assert.match(images, /only missing/)
+  assert.match(images, /A render is already in progress for this episode/)
   assert.match(audio, /inlineGenerateDisabledReason/)
   assert.match(audio, /cs-inline-reason/)
 })

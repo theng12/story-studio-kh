@@ -12,8 +12,8 @@
    - Renders a paginated list (25 per page; matches PromptReviewPanel).
    - Owns per-row busy/error state and the cache-bust key for preview
      refresh after a successful render.
-   - Provides a bulk "Generate All N" button at the top of the panel —
-     same backend job, just no thumb_number filter.
+   - Bulk generation lives in the page's top Generate button; this panel
+     only renders single rows (same backend job, with a thumb_number).
 
   Job lifecycle: POST /generate/images returns a queued Job; we poll
   /projects/:slug/jobs/:job_id until done/error/cancelled. Same pattern
@@ -21,7 +21,7 @@
 -->
 <template>
   <div v-if="episodeId" class="igp">
-    <!-- Header: a compact board summary and a missing-only bulk action. -->
+    <!-- Header: a compact board summary. -->
     <div class="igp-head">
       <div class="igp-title-row">
         <h3 class="igp-title">Thumbnail board</h3>
@@ -30,27 +30,10 @@
           <template v-if="missingCount"> · {{ missingCount }} missing</template>
         </span>
       </div>
-      <button
-        type="button"
-        class="btn btn-sm btn-primary"
-        :disabled="bulkDisabled || !prompts.length || (!isRegenerateMode && missingCount === 0)"
-        :title="bulkDisabled
-          ? `Render in flight — wait for it to finish or cancel via the Jobs panel`
-          : isRegenerateMode
-            ? `Re-render every ${kindLabelLower} for this episode.`
-            : `Generate only the ${kindLabelLower}s that are still missing.`"
-        @click="runBulk"
-      >
-        <LoadingSpinner v-if="bulkDisabled" size="sm" />
-        <span v-else aria-hidden="true">✨</span>
-        {{ bulkDisabled ? 'Rendering…' : bulkActionLabel }}
-      </button>
     </div>
     <p class="igp-guard" role="status">
       <template v-if="jobActiveForEpisode">A render is already in progress for this episode. </template>
-      <template v-if="isRegenerateMode">This button re-renders every {{ kindLabelLower }} and replaces the existing files{{ paid ? ' (uses credits)' : '' }}.</template>
-      <template v-else>This button renders only missing {{ kindLabelLower }}s. Completed images are preserved.</template>
-      Each row's own button renders just that one {{ kindLabelLower }}.
+      The Generate Thumbnail Images button at the top renders the whole board. Each row's own button renders just that one {{ kindLabelLower }}.
     </p>
 
     <!-- Loading / error / empty states -->
@@ -122,7 +105,6 @@ const props = defineProps<{
   episodeId: string
   /** Episode title — used by the backend to resolve the on-disk folder. */
   title: string
-  generationMode?: 'skip' | 'regenerate'
   /** The page's ONE request builder (model, ratio, size, seed, reference,
    *  extra details…). Returns null when it refused or the customer cancelled.
    *  `ask` = show the page's confirmation. The panel adds only thumb_number,
@@ -236,15 +218,6 @@ const imageByNumber = computed<Map<number, ScannedImage>>(() => {
 // Only images that belong to a prompt on this board count as "ready".
 const renderedCount = computed(() => prompts.value.filter(row => imageByNumber.value.has(row.number)).length)
 const missingCount = computed(() => Math.max(0, prompts.value.length - renderedCount.value))
-const isRegenerateMode = computed(() => props.generationMode === 'regenerate')
-const bulkActionLabel = computed(() => {
-  if (isRegenerateMode.value) {
-    return `Regenerate ${prompts.value.length} ${kindLabelLower}${prompts.value.length === 1 ? '' : 's'}`
-  }
-  if (missingCount.value === 0) return `All ${kindLabelLower}s ready`
-  return `Generate ${missingCount.value} missing`
-})
-
 function togglePinForRow(filename: string | null): void {
   if (filename) emit('pin-toggle', filename)
 }
@@ -272,17 +245,13 @@ watch(totalPages, (tp) => {
 const JOB_POLL_INTERVAL_MS = 1500
 const busy = ref<Set<number>>(new Set())
 const errors = ref<Record<number, string>>({})
-const bulkBusy = ref(false)
 
-// v1.0.307 — also reflect a render already in flight for this episode (e.g.
-// launched from the page's TopActionBar Generate button, or surviving a page
-// reload) so the bulk button greys out consistently — not only during this
-// panel's own runBulk poll.
+// A render already in flight for this episode (launched from the page's top
+// Generate button, or surviving a page reload) is shown above the rows.
 const { isJobActiveFor } = useJobs()
 const jobActiveForEpisode = computed(() =>
   isJobActiveFor(props.episodeId, ['thumb_images']),
 )
-const bulkDisabled = computed(() => bulkBusy.value || jobActiveForEpisode.value)
 
 const fresh = useFreshGenerationAction()
 let disposed = false
@@ -362,41 +331,6 @@ async function runOne(number: number): Promise<void> {
   }
 }
 
-async function runBulk(): Promise<void> {
-  // Guard against a double-fire: bulkBusy covers this panel's own run, and
-  // jobActiveForEpisode covers a render queued from elsewhere (TopActionBar,
-  // reload). The button is disabled in both cases — this is belt-and-braces.
-  if (bulkBusy.value || jobActiveForEpisode.value || !prompts.value.length) return
-  const episode = props.episodeId
-  // Default is missing-only. Regeneration is the sole explicit overwrite
-  // action, so recovery never re-pays for artwork already on disk. Same
-  // confirmation as the page's top button.
-  const force = props.generationMode === 'regenerate'
-  const requested = force ? `all ${prompts.value.length}` : `${missingCount.value} missing`
-  bulkBusy.value = true
-  try {
-    const params = await props.prepare(force, true)
-    if (!params || episode !== props.episodeId) return
-    const job = await submit({ ...params, force }, 'bulk')
-    success(`Queued ${requested} ${kindLabelLower}s — watch progress in Jobs.`)
-    const completed = await waitForJob(job.job_id)
-    if (!completed || episode !== props.episodeId) return
-    if (completed.status === 'error') throw new Error(jobErrorText(completed, 'Render failed (see Jobs for details)'))
-    if (completed.status === 'cancelled') {
-      showError('Render cancelled')
-      return
-    }
-    await loadScan()
-    cacheKey.value++
-    emit('refresh')
-    success(`${kindLabel} board refreshed`)
-  } catch (e: any) {
-    if (episode === props.episodeId) showError(requestErrorText(e, 'Render failed'))
-  } finally {
-    bulkBusy.value = false
-  }
-}
-
 // ── Lifecycle ─────────────────────────────────────────────────────────────
 
 // Row state belongs to one episode; a running render for the old one keeps
@@ -404,7 +338,6 @@ async function runBulk(): Promise<void> {
 watch(() => props.episodeId, () => {
   busy.value = new Set()
   errors.value = {}
-  bulkBusy.value = false
 })
 
 watch(

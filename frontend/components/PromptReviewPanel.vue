@@ -1,13 +1,10 @@
 <!--
   Per-prompt Regenerate panel for /projects/:slug/image-prompts.
 
-  Read-only listing of every scene + thumbnail prompt currently on disk
-  for the selected episode, with a 🔁 Regenerate button per row that
-  re-runs THAT ONE prompt through the LLM. Mirrors the per-chapter
+  Listing of every thumbnail prompt currently on disk for the selected
+  episode, with a 🔁 Regenerate button per row that re-runs THAT ONE prompt
+  through the LLM. Mirrors the per-chapter
   Regenerate UX on the Script Generator's OutlineReviewPanel.
-
-  v1 — no in-place editing or reordering. The user picked "Regenerate
-  only" via AskUserQuestion. Edit / reorder can land in v2 if needed.
 -->
 <template>
   <div v-if="show" class="card mt-2 prp">
@@ -25,66 +22,7 @@
       {{ error }}
     </div>
     <template v-else>
-      <ul v-if="scenes.length && showScenes" class="prp-list" role="list">
-        <li class="prp-section">
-          Scenes
-          <span v-if="scenes.length > SCENES_PAGE_SIZE" class="prp-section-meta">
-            · showing {{ scenesRangeStart }}–{{ scenesRangeEnd }} of {{ scenes.length }}
-          </span>
-        </li>
-        <li v-for="row in paginatedScenes" :key="`s-${row.number}`" class="prp-row">
-          <PromptRow
-            :row="row" :prefix="'Scene'"
-            :busy="busy.has(`scene-${row.number}`)"
-            :saving="saving.has(`scene-${row.number}`)"
-            :error="errors[`scene-${row.number}`] || null"
-            :cap="scenePromptCap ?? null"
-            :model-label="sceneModelLabel"
-            @save="saveOne('scene', row.number, $event)"
-            @regenerate="regenerateOne('scene', row.number, $event)"
-          />
-        </li>
-        <!-- Pagination controls. Only render when the scenes list exceeds
-             one page; compact scene plans stay pagination-free, while long
-             narration-timed plans remain usable without one enormous list. -->
-        <li v-if="totalScenesPages > 1" class="prp-pagination" role="navigation" aria-label="Scenes pagination">
-          <button
-            type="button"
-            class="prp-page-btn"
-            :disabled="scenesPage <= 1"
-            @click="scenesPage = 1"
-            title="First page"
-          >«</button>
-          <button
-            type="button"
-            class="prp-page-btn"
-            :disabled="scenesPage <= 1"
-            @click="scenesPage -= 1"
-            title="Previous page"
-          >‹</button>
-          <span class="prp-page-label">
-            Page <strong>{{ scenesPage }}</strong> / {{ totalScenesPages }}
-          </span>
-          <button
-            type="button"
-            class="prp-page-btn"
-            :disabled="scenesPage >= totalScenesPages"
-            @click="scenesPage += 1"
-            title="Next page"
-          >›</button>
-          <button
-            type="button"
-            class="prp-page-btn"
-            :disabled="scenesPage >= totalScenesPages"
-            @click="scenesPage = totalScenesPages"
-            title="Last page"
-          >»</button>
-          <select v-model.number="scenesPage" class="prp-page-select" :title="`Jump to page (${totalScenesPages} pages)`">
-            <option v-for="n in totalScenesPages" :key="n" :value="n">Page {{ n }}</option>
-          </select>
-        </li>
-      </ul>
-      <ul v-if="thumbnails.length && showThumbs" class="prp-list" role="list">
+      <ul v-if="thumbnails.length" class="prp-list" role="list">
         <li class="prp-section">Thumbnails</li>
         <li v-for="row in thumbnails" :key="`t-${row.number}`" class="prp-row">
           <PromptRow
@@ -95,13 +33,13 @@
             :error="errors[`thumbnail-${row.number}`] || null"
             :cap="thumbnailPromptCap ?? null"
             :model-label="thumbnailModelLabel"
-            @save="saveOne('thumbnail', row.number, $event)"
-            @regenerate="regenerateOne('thumbnail', row.number, $event)"
+            @save="saveOne(row.number, $event)"
+            @regenerate="regenerateOne(row.number, $event)"
           />
         </li>
       </ul>
-      <div v-if="(showScenes && !scenes.length && pool === 'scenes') || (showThumbs && !thumbnails.length && pool === 'thumbnails') || (!scenes.length && !thumbnails.length)" class="text-muted text-md prp-status">
-        No {{ pool === 'scenes' ? 'scene' : pool === 'thumbnails' ? 'thumbnail' : '' }} prompts found yet. Click Generate above first.
+      <div v-else class="text-muted text-md prp-status">
+        No thumbnail prompts found yet. Click Generate above first.
       </div>
     </template>
   </div>
@@ -127,20 +65,12 @@ const props = defineProps<{
    *  completes) to force a re-read of the docx. */
   refreshKey?: number
   /** The published prompt-character CEILING for the image model these prompts
-   *  will feed (separate per kind in case the Scene and Thumbnail tabs target
-   *  different models — reasons-explainers do). Each row renders a
-   *  char-counter against the relevant ceiling, amber when over, so the user
-   *  spots prompts that would be refused before paying credits. Advisory only:
-   *  nothing here blocks a save, a regenerate, or a render. */
-  scenePromptCap?: number | null
+   *  will feed. Each row renders a char-counter against it, amber when over,
+   *  so the user spots prompts that would be refused before paying credits.
+   *  Advisory only: nothing here blocks a save, a regenerate, or a render. */
   thumbnailPromptCap?: number | null
-  /** Friendly model labels for the row tooltips ("Seedream", etc.). */
-  sceneModelLabel?: string
+  /** Friendly model label for the row tooltips ("Seedream", etc.). */
   thumbnailModelLabel?: string
-  /** v1.0.209 — which pool to show. The split Thumbnail-Prompts /
-   *  Scene-Prompts pages pass 'thumbnails' / 'scenes' so each only lists +
-   *  regenerates its own pool. Defaults to 'all' (both) for any other use. */
-  pool?: 'scenes' | 'thumbnails' | 'all'
   /** Recipe-owned copy strategy for thumbnail rows. */
   thumbnailHeadlineMode?: string
   /**
@@ -162,54 +92,14 @@ const emit = defineEmits<{
 
 const { get, post, put } = useApi()
 const freshPromptAction = useFreshGenerationAction()
-const { success, error: showError, show: showToast } = useToast()
+const { success, error: showError } = useToast()
 
-const showScenes = computed(() => (props.pool ?? 'all') !== 'thumbnails')
-const showThumbs = computed(() => (props.pool ?? 'all') !== 'scenes')
-
-const scenes = ref<PromptRowData[]>([])
 const thumbnails = ref<PromptRowData[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 const busy = ref<Set<string>>(new Set())
 const saving = ref<Set<string>>(new Set())
 const errors = ref<Record<string, string>>({})
-
-// v1.0.87+: scenes pagination. Reasons-explainer at sentence-aligned
-// pacing routinely lands 150-250 scenes per episode, which renders as
-// an unscrollable wall in the legacy "list every row" layout. Page
-// size 25 fits one screen and matches the chunked-batch boundary
-// (batches of 10 + thumbnail row = 25 visible) so the user can spot
-// which batch a row came from.
-const SCENES_PAGE_SIZE = 25
-const scenesPage = ref(1)
-const totalScenesPages = computed(() =>
-  Math.max(1, Math.ceil(scenes.value.length / SCENES_PAGE_SIZE)),
-)
-const paginatedScenes = computed(() => {
-  const start = (scenesPage.value - 1) * SCENES_PAGE_SIZE
-  return scenes.value.slice(start, start + SCENES_PAGE_SIZE)
-})
-const scenesRangeStart = computed(() =>
-  scenes.value.length === 0 ? 0 : (scenesPage.value - 1) * SCENES_PAGE_SIZE + 1,
-)
-const scenesRangeEnd = computed(() =>
-  Math.min(scenes.value.length, scenesPage.value * SCENES_PAGE_SIZE),
-)
-
-// Reset to page 1 whenever the scenes list changes (fresh episode load,
-// post-regenerate refresh, or a full bulk generation completing). Without
-// this, a user paged to page 8 of an old episode would land on page 8
-// of the new episode's smaller list and see blank rows.
-watch(() => scenes.value.length, () => {
-  scenesPage.value = 1
-})
-// Defensive clamp: if anything else moves scenesPage out of range, snap
-// it back into bounds rather than rendering an empty page.
-watch(totalScenesPages, (tp) => {
-  if (scenesPage.value > tp) scenesPage.value = tp
-  if (scenesPage.value < 1) scenesPage.value = 1
-})
 
 // Card visibility: only when we have an episode_id selected. Empty list
 // renders the "click Generate" hint; full lists render the rows.
@@ -223,15 +113,13 @@ async function loadPrompts(): Promise<void> {
   const sequence = ++loadSequence
   loading.value = true
   error.value = null
-  scenes.value = []
   thumbnails.value = []
   try {
     const titleParam = props.title ? `?title=${encodeURIComponent(props.title)}` : ''
-    const data = await get<{ scenes: PromptRowData[]; thumbnails: PromptRowData[] }>(
+    const data = await get<{ thumbnails: PromptRowData[] }>(
       `/projects/${props.projectSlug}/episodes/${props.episodeId}/image-prompts${titleParam}`,
     )
     if (sequence !== loadSequence) return
-    scenes.value = Array.isArray(data?.scenes) ? data.scenes : []
     thumbnails.value = Array.isArray(data?.thumbnails) ? data.thumbnails : []
     emit('loaded', { thumbnails: thumbnails.value.map(row => Number(row.number)) })
   } catch (e: any) {
@@ -239,7 +127,6 @@ async function loadPrompts(): Promise<void> {
     if (e?.status === 404) {
       // 404 = prompts not generated yet → empty card with the "click
       // Generate" hint. Not an error condition for the user.
-      scenes.value = []
       thumbnails.value = []
       error.value = null
       emit('loaded', { thumbnails: [] })
@@ -252,10 +139,10 @@ async function loadPrompts(): Promise<void> {
 }
 
 async function regenerateOne(
-  kind: 'scene' | 'thumbnail',
   number: number,
   payload: { title: string; prompt: string; notes: string; reword?: boolean },
 ): Promise<void> {
+  const kind = 'thumbnail'
   const key = `${kind}-${number}`
   if (busy.value.has(key)) return
   const episodeId = props.episodeId
@@ -268,14 +155,14 @@ async function regenerateOne(
     current_title: payload.title,
     current_prompt: payload.prompt,
     notes: payload.notes,
-    headline_mode: kind === 'thumbnail' ? props.thumbnailHeadlineMode : undefined,
+    headline_mode: props.thumbnailHeadlineMode,
     // NEW-10 — a regenerated thumbnail row keeps the workspace's lettering, so
     // the enforced clause names the chosen style instead of a generic one.
-    thumb_font_style: kind === 'thumbnail' ? props.thumbnailFontStyle : undefined,
-    thumb_text_style: kind === 'thumbnail' ? props.thumbnailTextStyle : undefined,
-    thumb_font_style_custom: kind === 'thumbnail' ? props.thumbnailFontStyleCustom : undefined,
-    thumb_text_style_custom: kind === 'thumbnail' ? props.thumbnailTextStyleCustom : undefined,
-    prompt_char_cap: (kind === 'scene' ? props.scenePromptCap : props.thumbnailPromptCap) || undefined,
+    thumb_font_style: props.thumbnailFontStyle,
+    thumb_text_style: props.thumbnailTextStyle,
+    thumb_font_style_custom: props.thumbnailFontStyleCustom,
+    thumb_text_style_custom: props.thumbnailTextStyleCustom,
+    prompt_char_cap: props.thumbnailPromptCap || undefined,
     ...(payload.reword ? { reword: true } : {}),
   }
   const operationId = freshPromptAction.begin(request, key)
@@ -297,16 +184,15 @@ async function regenerateOne(
     if (episodeId !== props.episodeId) return
     // Patch the in-memory list so the card reflects the new prompt
     // without a full reload.
-    const list = kind === 'scene' ? scenes : thumbnails
-    const idx = list.value.findIndex(p => p.number === number)
+    const idx = thumbnails.value.findIndex(p => p.number === number)
     if (idx >= 0) {
-      list.value = [
-        ...list.value.slice(0, idx),
+      thumbnails.value = [
+        ...thumbnails.value.slice(0, idx),
         { number: data.number, title: data.title, prompt: data.prompt },
-        ...list.value.slice(idx + 1),
+        ...thumbnails.value.slice(idx + 1),
       ]
     }
-    success(`${kind === 'scene' ? 'Scene' : 'Thumbnail'} ${number} ${payload.reword ? 'reworded — same idea, different angle' : 'regenerated'}`)
+    success(`Thumbnail ${number} ${payload.reword ? 'reworded — same idea, different angle' : 'regenerated'}`)
   } catch (e: any) {
     if (episodeId !== props.episodeId) return
     const msg = e?.data?.detail || e?.message || `${payload.reword ? 'Reword' : 'Regeneration'} failed`
@@ -320,10 +206,10 @@ async function regenerateOne(
 }
 
 async function saveOne(
-  kind: 'scene' | 'thumbnail',
   number: number,
   payload: { title: string; prompt: string },
 ): Promise<void> {
+  const kind = 'thumbnail'
   const key = `${kind}-${number}`
   if (saving.value.has(key)) return
   // The edit belongs to the episode it was made on, even if the picker moves.
@@ -341,20 +227,19 @@ async function saveOne(
         prompt: payload.prompt,
       },
     )
-    success(`${kind === 'scene' ? 'Scene' : 'Thumbnail'} ${number} saved for ${episodeId}`)
+    success(`Thumbnail ${number} saved for ${episodeId}`)
     if (episodeId !== props.episodeId) return
-    const list = kind === 'scene' ? scenes : thumbnails
-    const idx = list.value.findIndex(p => p.number === number)
+    const idx = thumbnails.value.findIndex(p => p.number === number)
     if (idx >= 0) {
-      list.value = [
-        ...list.value.slice(0, idx),
+      thumbnails.value = [
+        ...thumbnails.value.slice(0, idx),
         { number: data.number, title: data.title, prompt: data.prompt },
-        ...list.value.slice(idx + 1),
+        ...thumbnails.value.slice(idx + 1),
       ]
     }
   } catch (e: any) {
     if (episodeId !== props.episodeId) {
-      showError(`Could not save ${kind} ${number} for ${episodeId}: ${e?.data?.detail || e?.message || 'Save failed'}`)
+      showError(`Could not save thumbnail ${number} for ${episodeId}: ${e?.data?.detail || e?.message || 'Save failed'}`)
       return
     }
     const msg = e?.data?.detail || e?.message || 'Save failed'
@@ -398,54 +283,5 @@ watch(() => [props.episodeId, props.title, props.refreshKey], (next, prev) => {
   color: var(--text-muted);
 }
 .prp-section:first-of-type { margin-top: 0; }
-.prp-section-meta {
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--text-muted);
-}
 .prp-row { padding: 0; }
-
-/* Pagination controls — render only when scenes.length > SCENES_PAGE_SIZE.
- * Sticks to the bottom of the scenes list (same <ul>) so visual grouping
- * stays clear. Compact button row + a select for fast jumps in long
- * episodes (250 scenes = 10 pages; tap-pagination would be tedious). */
-.prp-pagination {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  padding: 8px 0 0;
-  margin-top: 8px;
-  border-top: 1px solid var(--border);
-}
-.prp-page-btn {
-  padding: 4px 10px;
-  font-size: 13px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  cursor: pointer;
-  font-family: inherit;
-  min-width: 28px;
-}
-.prp-page-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-.prp-page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.prp-page-label {
-  font-size: 12px;
-  color: var(--text-muted);
-  padding: 0 6px;
-}
-.prp-page-label strong { color: var(--text-primary); }
-.prp-page-select {
-  margin-left: auto;
-  padding: 4px 8px;
-  font-size: 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  cursor: pointer;
-}
 </style>

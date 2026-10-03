@@ -3,7 +3,7 @@
 
   Drops an Import button next to a page's Generate button and wires up the
   shared AssetImportDialog, scoped to the page's current episode + its asset
-  type (Audio page → 'audio', Scene Generator → 'scene', …).
+  type (Audio page → 'audio', Thumbnail Generator → 'thumb', …).
 
   Why this exists: the Assets page imports assets too, but it scans EVERY
   episode's assets first — several minutes on a 400+ episode channel. This

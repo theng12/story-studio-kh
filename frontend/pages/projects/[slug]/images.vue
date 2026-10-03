@@ -181,22 +181,17 @@
 
     </div>
 
-    <!-- ── Per-tab generator panel (v1.0.87+) ─────────────────────────────
-         Each panel lists the episode's prompts for ONE kind (scene or
-         thumbnail), shows the rendered image inline per row, and exposes
-         per-row Generate / Regenerate buttons plus a missing-only bulk action.
-         bulk button. Replaces the old all-or-nothing top Generate flow as
-         the PRIMARY interaction surface. Form fields above (model, aspect
-         ratio, and generation mode) flow into both panels.
-         v-show toggles based on the existing mode tabs so the panel
-         matches whichever tab is active. -->
+    <!-- ── Thumbnail board ────────────────────────────────────────────────
+         Lists the episode's thumbnail prompts, shows the rendered image
+         inline per row, and exposes per-row Generate / Regenerate buttons.
+         Bulk generation is the top Generate button; the form fields above
+         (model, aspect ratio, generation mode) flow into both. -->
     <ImageGeneratorPanel
       v-show="form.episode_id"
       kind="thumbnail"
       :project-slug="slug"
       :episode-id="form.episode_id"
       :title="selectedEpisode?.title || ''"
-      :generation-mode="form.thumbnail.generation_mode"
       :prepare="prepareGeneration"
       :paid="activeModelPaid"
       :refresh-key="igPanelRefreshKey"
@@ -217,7 +212,7 @@
       <p class="text-muted text-sm integrity-blurb">
         Check the expected {{ activePoolLabel }} against files on disk. <strong>Recover prior result(s)</strong>
         downloads thumbnails that were already made but never saved, without charging again. Missing artwork that can't
-        be recovered needs a new render; existing files are never overwritten in missing-only mode.
+        be recovered needs a new render with Generate Thumbnail Images above; existing files are never overwritten in missing-only mode.
       </p>
 
       <div v-if="imageStatus.loading" class="text-muted text-md">
@@ -251,20 +246,10 @@
           Recover prior result{{ activeRecoverableCount === 1 ? '' : 's' }} ({{ activeRecoverableCount }})
         </button>
 
-        <button
-          v-if="activeFreshCount > 0"
-          class="btn btn-sm btn-primary"
-          :disabled="submitting || imageJobActiveForEpisode"
-          :title="`Makes only the ${activeFreshCount} missing ${activePoolLabel}; existing files are kept. Paid models use credits.`"
-          @click="generateMissingFresh"
-        >
-          Generate missing fresh ({{ activeFreshCount }})
-        </button>
-
         <button class="btn btn-sm btn-ghost" :disabled="imageStatus.loading" @click="refreshImageStatus">
           Refresh
         </button>
-        <span v-if="imageJobActiveForEpisode && (activeRecoverableCount > 0 || activeFreshCount > 0)" class="text-muted text-xs">
+        <span v-if="imageJobActiveForEpisode && activeRecoverableCount > 0" class="text-muted text-xs">
           A thumbnail render for this episode is running — these buttons unlock when it finishes.
         </span>
       </div>
@@ -710,7 +695,6 @@ const repairStatus = reactive<{ thumb: RepairPoolStatus | null }>({ thumb: null 
 const activeRepairPool = computed(() => repairStatus.thumb)
 const activeRepairItems = computed(() => activeRepairPool.value?.missing_items || [])
 const activeRecoverableCount = computed(() => activeRepairPool.value?.with_manifest || 0)
-const activeFreshCount = computed(() => activeRepairPool.value?.without_manifest || 0)
 const lastRepairJobId = ref('')
 const lastRepairJob = computed(() => jobs.value.find(j => j.job_id === lastRepairJobId.value) || null)
 const lastRepairJobClass = computed(() => {
@@ -796,9 +780,6 @@ async function repairMissing() {
   }
 }
 
-async function generateMissingFresh() {
-  await queueGeneration(false, `Fresh generation queued for ${activeFreshCount.value} missing ${activePoolLabel}.`)
-}
 
 // ── On-disk thumbnail scan (feeds the lightbox) ──────────────────────────
 // Reuses the same `/video-editor/scan/{episodeId}` endpoint Video Assembly
