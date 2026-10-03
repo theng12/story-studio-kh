@@ -34,7 +34,7 @@
         </span>
         <span class="audio-context-item">
           <small>Narration</small>
-          <strong>{{ !scannedAssets || scanning ? 'Checking chapters…' : chapters.length ? `${chapters.length} chapter${chapters.length === 1 ? '' : 's'}` : 'No chapters ready' }}</strong>
+          <strong>{{ !scannedAssets || scanning ? 'Checking chapters…' : chapters.length ? `${chapterCount} chapter${chapterCount === 1 ? '' : 's'}` : 'No chapters ready' }}</strong>
         </span>
         <span class="audio-context-item">
           <small>Current merge</small>
@@ -232,9 +232,13 @@
 
       <!-- Gap Duration -->
       <div class="form-group mt-2 gap-duration-field">
-        <label>Silence Between Chapters ({{ gapDuration }}s)</label>
-        <SliderWithNumber v-model="gapDuration" :min="0" :max="30" :step="1" suffix="s" />
-        <span class="text-muted text-xs">Inserted between each chapter (Introduction → Ch1 → Ch2 → ...)</span>
+        <label>Pause between chapters ({{ gapDuration }} s)</label>
+        <SliderWithNumber v-model="gapDuration" :min="0" :max="30" :step="0.5" suffix="s" />
+        <span class="text-muted text-xs">
+          Quiet seconds after each chapter (Introduction → Chapter 1 → Chapter 2 …).
+          <template v-if="formulaGapSec !== null">Your Series Formula suggests {{ formulaGapSec }} s.</template>
+          Pauses inside a chapter follow the text on their own.
+        </span>
       </div>
 
       <!-- v1.0.317 — Per-chunk pause. Only useful when at least one chapter
@@ -725,10 +729,10 @@
         <div class="summary-grid">
           <div class="summary-row">
             <span class="text-muted">Chapters</span>
-            <span>{{ chapters.length }} ({{ formatDuration(estimatedMergedDuration) }})</span>
+            <span>{{ chapterCount }} ({{ formatDuration(estimatedMergedDuration) }})</span>
           </div>
           <div class="summary-row">
-            <span class="text-muted">Silence Gaps</span>
+            <span class="text-muted">Pause between chapters</span>
             <span>{{ gapDuration }}s between each chapter</span>
           </div>
           <div v-if="chunkTransitionsTotal" class="summary-row">
@@ -935,6 +939,8 @@ onUnmounted(() => {
 })
 
 const gapDuration = ref(5)
+/** The Series Formula's own chapter pause, shown beside the control. */
+const formulaGapSec = ref<number | null>(null)
 // v1.0.317 — per-chunk pause for cloud TTS chunked chapters. Default 0 keeps
 // the legacy back-to-back concat behaviour exactly. Surfaced only when at
 // least one chapter has multiple `_partN` files.
@@ -1157,6 +1163,8 @@ function chapterKeyFromFilename(filename: string): string {
   while (/(?:_part\d+|_v\d+)$/i.test(base)) base = base.replace(/(?:_part\d+|_v\d+)$/i, '')
   return base
 }
+/** Chapters, not files: a chapter still held as separate parts counts once. */
+const chapterCount = computed(() => new Set(chapters.value.map(chapter => chapterKeyFromFilename(chapter.filename))).size)
 const chapterTransitions = computed(() => {
   let sameChapter = 0
   let differentChapter = 0
@@ -1756,6 +1764,7 @@ async function applyMergeFormatDefaultsIfNoPreset() {
     if (typeof m.normalizeVolume === 'boolean') normalizeVolume.value = m.normalizeVolume
     if (typeof m.gapDurationSec === 'number' && m.gapDurationSec >= 0) {
       gapDuration.value = m.gapDurationSec
+      formulaGapSec.value = m.gapDurationSec
     }
   } catch {
     // Format endpoint unavailable / project missing — keep the legacy

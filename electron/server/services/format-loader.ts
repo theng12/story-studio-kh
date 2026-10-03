@@ -610,6 +610,11 @@ export function applyNicheToFormat(
     introDefaults: niche.introDefaults
       ? { ...niche.introDefaults, beats: niche.introDefaults.beats?.slice() }
       : format.script.introDefaults,
+    // The pause between chapters is a fact about the channel type (a sleep
+    // story wants a long, calm gap), so the Formula sets Audio Assembly's default.
+    ...(typeof niche.chapterPauseSec === 'number' && niche.chapterPauseSec >= 0
+      ? { audioMergeDefaults: { ...format.script.audioMergeDefaults, gapDurationSec: niche.chapterPauseSec } }
+      : {}),
   }
 
   if (niche_structure) {

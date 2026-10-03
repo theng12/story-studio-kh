@@ -1023,6 +1023,9 @@ export interface Niche {
   /** Scene length (seconds, [min, max]) a NEW channel of this type starts with
    *  — copied into the channel's own editable settings at creation. */
   startingSceneSeconds?: [number, number]
+  /** Default "Pause between chapters" in Audio Assembly (seconds). Sleep
+   *  formulas want a longer, calm gap; the customer can still change it. */
+  chapterPauseSec?: number
   /** Visual styles this channel type SUGGESTS, best first. Carried through
    *  from a signed pack's `recommended_visual_style_ids`. A suggestion is
    *  surfaced in Settings with a one-click "Use this style" — it is never

@@ -247,6 +247,8 @@ const SeriesFormulaDocumentSchema = z.object({
   intro_defaults: IntroDefaultsSchema.optional(),
   visual_style_hint: safeText(1000).optional(),
   starting_scene_seconds: boundedRange(1, 120).optional(),
+  /** Default "Pause between chapters" in Audio Assembly, seconds. */
+  chapter_pause_sec: z.number().min(0).max(10).optional(),
   metadata_profile: MetadataProfileSchema.optional(),
   production_kit: ProductionKitSchema.optional(),
   narrative_rules: textList(60),

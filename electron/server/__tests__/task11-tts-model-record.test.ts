@@ -184,7 +184,10 @@ test('a refused new model cannot replace the active boundary for valid prior aud
   assert.equal(oldRecord?.model_id, 'task11-old-voice')
   const oldStatus = await getAudioStatus(project.slug, episode)
   assert.equal(oldStatus.missing.length, 0)
-  assert.ok(oldStatus.expected.length > 1, 'the prior model must have a distinct multipart boundary')
+  // The prior model split the chapter; its parts were joined into one chapter file and kept in .parts.
+  const oldKept = (await fs.readdir(path.join(oldStatus.audio_dir, '.parts', `${episode}_Chapter_01`))).filter(file => /^part\d+\.mp3$/.test(file))
+  assert.ok(oldKept.length > 1, 'the prior model must have a distinct multipart boundary')
+  assert.deepEqual(oldStatus.expected.map(item => item.filename), [`${episode}_Chapter_01.mp3`])
   const oldBytes = new Map(await Promise.all(oldStatus.present.map(async filename => [
     filename,
     await fs.readFile(path.join(oldStatus.audio_dir, filename), 'base64'),
@@ -294,8 +297,11 @@ test('a successful replacement without audio_chapters commits its new implicit b
   ))
   assert.ok(newSubmissions.length > 1, 'the selected model must actually produce multipart replacement tasks')
   const audioDir = await resolveAudioDir(project.slug, narrationPath, episode)
-  const newPartFiles = (await fs.readdir(audioDir)).filter(file => /_part\d+\.mp3$/i.test(file)).sort()
-  assert.equal(newPartFiles.length, newSubmissions.length)
+  // Every part succeeded, so the chapter is one joined file; the parts are kept hidden.
+  assert.deepEqual((await fs.readdir(audioDir)).filter(file => /_part\d+\.mp3$/i.test(file)), [])
+  const keptParts = (await fs.readdir(path.join(audioDir, '.parts', `${episode}_Chapter_01`))).filter(file => /^part\d+\.mp3$/.test(file))
+  assert.equal(keptParts.length, newSubmissions.length)
+  const newPartFiles = [`${episode}_Chapter_01.mp3`]
   await assert.rejects(
     () => fs.stat(path.join(episodeDir, 'audio_chapters.json')),
     (error: any) => error?.code === 'ENOENT',
@@ -596,12 +602,14 @@ test('an interrupted partial replacement keeps the old active boundary and Retry
     `the resumed TTS job must settle normally: ${jq.getJob(queued.job_id)?.error || 'no recorded error'}`,
   )
 
-  const completeFiles = (await fs.readdir(oldStatus.audio_dir))
-    .filter(file => /_part\d+\.mp3$/i.test(file))
+  // Both parts succeeded: they are joined into the chapter file and kept in .parts.
+  assert.deepEqual((await fs.readdir(oldStatus.audio_dir)).filter(file => /_part\d+\.mp3$/i.test(file)), [])
+  const completeFiles = (await fs.readdir(path.join(oldStatus.audio_dir, '.parts', `${episode}_Chapter_01`)))
+    .filter(file => /^part\d+\.mp3$/.test(file))
     .sort()
   assert.equal(completeFiles.length, 2)
   const activeSidecar = JSON.parse(await fs.readFile(path.join(episodeDir, 'audio_chapters.json'), 'utf8'))
-  assert.deepEqual(activeSidecar.sections[0]?.source_files, completeFiles)
+  assert.deepEqual(activeSidecar.sections[0]?.source_files, [`${episode}_Chapter_01.mp3`])
   assert.equal((await readAudioTtsModelRecord(episodeDir))?.model_id, 'task11-partial-new')
   const firstIdentityRequests = service.submissions
     .filter(submission => submission.idempotencyKey === completedFirstSubmission.idempotencyKey)

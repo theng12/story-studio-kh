@@ -636,6 +636,24 @@ export interface ScannedAssets {
 export { checkFfmpeg } from '../lib/ffmpeg-utils.js'
 
 /** Episode Builder episodes: a finished render is what counts as a play (SPEC §3). */
+/**
+ * The final video is out, so the hidden per-chapter narration parts kept for
+ * single-part redos are no longer needed: they move to the project's `_trash`
+ * (the owner empties it). Never fails the render.
+ */
+async function trashChapterPartsAfterRender(job: Job, slug: string, code: string): Promise<void> {
+  try {
+    const { trashEpisodeParts } = await import('../services/chapter-parts.js')
+    const { resolveEpisodePathsByCodeWithSidecar, projectDirFor } = await import('../services/utils.js')
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, code, 'audio_chapters.json')
+    if (trashEpisodeParts(projectDirFor(slug), paths.audio_dir, line => job.output_lines.push(line))) {
+      job.output_lines.push('Kept narration parts moved to the project _trash (each chapter stays one file).')
+    }
+  } catch (e: any) {
+    job.output_lines.push(`Kept narration parts were left in place (${e?.message || e}).`)
+  }
+}
+
 async function recordMusicEpisodePlays(job: Job, slug: string, code: string): Promise<void> {
   try {
     const { recordRenderedMusicEpisode } = await import('../services/music-episode-store.js')
@@ -1997,6 +2015,7 @@ export async function generateVideo(job: Job): Promise<void> {
 
       await autoScheduleFinishedEpisode(job, project_slug, code)
       await recordMusicEpisodePlays(job, project_slug, code)
+      await trashChapterPartsAfterRender(job, project_slug, code)
 
       succeeded = true
       return  // skip the standard scene-clip pipeline below
@@ -2940,6 +2959,7 @@ export async function generateVideo(job: Job): Promise<void> {
 
     await autoScheduleFinishedEpisode(job, project_slug, code)
     await recordMusicEpisodePlays(job, project_slug, code)
+    await trashChapterPartsAfterRender(job, project_slug, code)
 
     succeeded = true
 

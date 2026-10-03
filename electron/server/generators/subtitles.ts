@@ -648,6 +648,12 @@ async function transcribePerChapter(
   if (!config) throw new Error('Project not found')
 
   const genstudio = await resolveGenStudioTranscription(job, req)
+  // Subtitles are timed to the chapter file: join complete split chapters
+  // first so captions are made once, for the file Audio Assembly will use.
+  if (!req.pipeline_repair) {
+    const { consolidateEpisodeParts } = await import('../services/chapter-parts.js')
+    await consolidateEpisodeParts(projectSlug, code, line => job.output_lines.push(line))
+  }
 
   // Resolve the audio dir via the reconciler (it knows the 07-folder contract),
   // then scan that dir DIRECTLY for chapter MP3s.
