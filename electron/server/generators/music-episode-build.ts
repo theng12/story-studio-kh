@@ -152,7 +152,11 @@ export async function generateMusicEpisodeBuild(job: Job): Promise<void> {
         ? `Measured "${song!.title}": ${lufs.toFixed(1)} LUFS (the pool had no measurement).`
         : `"${song!.title}" could not be measured; it is left at its own level.`)
     }
-    const gain = typeof lufs === 'number' ? Math.max(-MAX_GAIN_DB, Math.min(MAX_GAIN_DB, doc.settings.loudness_lufs - lufs)) : 0
+    const wanted = typeof lufs === 'number' ? doc.settings.loudness_lufs - lufs : 0
+    const gain = Math.max(-MAX_GAIN_DB, Math.min(MAX_GAIN_DB, wanted))
+    if (gain !== wanted) {
+      job.output_lines.push(`"${song!.title}" is ${lufs!.toFixed(1)} LUFS; it was changed by the ${MAX_GAIN_DB} dB maximum only, so it stays ${Math.abs(wanted - gain).toFixed(1)} dB away from the target.`)
+    }
     inputs.push({ path: song!.path, gain_db: gain })
     job.progress = Math.round(5 + (25 * (i + 1)) / songs.length)
   }
