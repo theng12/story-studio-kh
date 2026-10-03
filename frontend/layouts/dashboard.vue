@@ -116,7 +116,7 @@
         <footer class="sidebar-credits" aria-label="Story Studio status">
           <nav class="sidebar-utilities" aria-label="Application utilities">
             <NuxtLink to="/content-store" class="sidebar-utility" active-class="active">Content Store</NuxtLink>
-            <NuxtLink v-if="slug" :to="`/projects/${slug}/settings#free-up-space`" class="sidebar-utility">Free up space</NuxtLink>
+            <NuxtLink v-if="slug" :to="`/projects/${slug}/settings#free-up-space`" class="sidebar-utility">Free Up Space</NuxtLink>
             <NuxtLink v-if="slug" :to="`/projects/${slug}/settings`" class="sidebar-utility" active-class="active">Settings</NuxtLink>
             <button v-else type="button" class="sidebar-utility" @click="appSettingsModal.open()">Settings</button>
           </nav>

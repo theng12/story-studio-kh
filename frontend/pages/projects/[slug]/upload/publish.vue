@@ -115,7 +115,7 @@
             </button>
           </div>
           <p class="hint">
-            Tick rows, or Shift-click a second row to tick everything between. “Select all matching” ticks every row the
+            Tick rows, or Shift-click a second row to tick everything between. “Select All Matching” ticks every row the
             search and status filters are showing. Each action asks first and names the exact number of videos.
           </p>
           <p v-if="hiddenSelectedCount" class="hint tone-warn" role="status">
@@ -2691,7 +2691,7 @@ watch(slug, () => {
 .bulk-count { color: var(--text-secondary); font-size: var(--font-xs); font-variant-numeric: tabular-nums; }
 .bulk-panel .hint { margin: 0; }
 .tone-warn { color: var(--warning, #d97706); }
-.bulk-actions { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.bulk-actions { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, max(280px, calc((100% - 16px) / 3))), 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
 .bulk-action { display: grid; align-content: start; gap: 4px; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-secondary); }
 .bulk-action-head { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .bulk-action small { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; }

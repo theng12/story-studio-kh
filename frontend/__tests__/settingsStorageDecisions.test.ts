@@ -42,7 +42,7 @@ test('"What\'s using space" is read-only and no longer lives under Project files
 
 test('Free up space links land on the one card; the Upload overview button is gone, the sidebar link stays', () => {
   assert.doesNotMatch(read('../pages/projects/[slug]/upload/index.vue'), /free-up-space/)
-  assert.match(read('../layouts/dashboard.vue'), /settings#free-up-space/)
+  assert.match(read('../layouts/dashboard.vue'), /settings#free-up-space`" class="sidebar-utility">Free Up Space<\/NuxtLink>/)
   assert.match(read('../pages/projects/[slug]/upload/publish.vue'), /settings#free-up-space/)
   assert.match(panel, /<section id="free-up-space"/)
 })
