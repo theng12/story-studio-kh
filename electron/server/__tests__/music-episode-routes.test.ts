@@ -13,6 +13,7 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 
 const ffmpeg = (...args: string[]) => {
   const r = spawnSync('ffmpeg', ['-loglevel', 'error', '-y', ...args])
@@ -186,11 +187,10 @@ describe('Episode Builder', () => {
     assert.equal(queued.status, 201, JSON.stringify(queued.body))
     // Let the real render run: existing Video Assembly (camera move + crossfades) on a music episode.
     const jq = await import('../services/job-queue.js')
-    let job = jq.getJob(queued.body.job_id)
-    for (let i = 0; i < 600 && job && !['done', 'error', 'cancelled'].includes(job.status); i++) {
-      await new Promise(r => setTimeout(r, 250))
-      job = jq.getJob(queued.body.job_id)
-    }
+    await waitFor(() => ['done', 'error', 'cancelled'].includes(jq.getJob(queued.body.job_id)?.status || ''), {
+      label: 'the music episode render', timeoutMs: 150_000, maxWallClockMs: 150_000, pollMs: 250,
+    })
+    const job = jq.getJob(queued.body.job_id)
     assert.equal(job?.status, 'done', (job?.output_lines || []).slice(-15).join('\n') + (job?.error || ''))
     assert.ok(job!.output_lines.some(line => /Song plays recorded: \d+ new/.test(line)), 'the render records plays')
   })
