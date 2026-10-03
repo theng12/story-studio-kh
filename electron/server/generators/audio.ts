@@ -1055,13 +1055,16 @@ export async function generateAudio(job: Job): Promise<void> {
           return entry.id === reusableEntry.task_id || evidenceKey === reusableEntry.idempotency_key
         })
       : []
+    // The Gateway task id is the identity; a key, when the evidence carries one, must agree
+    // with it. Evidence rows written by reconcile/restart can carry the id alone — that
+    // agrees with the manifest and is NOT a contradiction. Treating it as one ended a
+    // resumed narration job ("Saved Gateway task identity does not match …") while five
+    // chapters were still being made (Dreamlands E2E, 2026-10-03, after a Story restart).
     const exactEvidence = relatedEvidence.length === 1
       && relatedEvidence[0]!.id === reusableEntry?.task_id
       && [relatedEvidence[0]!.request_key, relatedEvidence[0]!.request?.idempotency_key]
         .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
         .every(value => value.trim() === reusableEntry?.idempotency_key)
-      && [relatedEvidence[0]!.request_key, relatedEvidence[0]!.request?.idempotency_key]
-        .some(value => typeof value === 'string' && value.trim().length > 0)
     if (relatedEvidence.length && !exactEvidence) {
       throw new Error(`Saved Gateway task identity does not match ${chunkFilename}; no provider work was submitted.`)
     }

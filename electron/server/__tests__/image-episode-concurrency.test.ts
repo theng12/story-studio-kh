@@ -73,9 +73,10 @@ describe('every kind of fleet work is pipelined, not just images', () => {
     for (const type of ['video', 'scene_clip_generate', 'scene_clips_batch']) {
       assert.ok(decl('const VIDEO_EPISODE_TYPES').includes(`'${type}'`), `${type} missing from video group`)
     }
-    for (const type of ['audio', 'music_generate']) {
-      assert.ok(decl('const AUDIO_EPISODE_TYPES').includes(`'${type}'`), `${type} missing from audio group`)
-    }
+    assert.ok(decl('const AUDIO_EPISODE_TYPES').includes("'audio'"), 'audio missing from audio group')
+    // Music has its own lane: a short song request must not wait behind hours of narration.
+    assert.ok(!decl('const AUDIO_EPISODE_TYPES').includes("'music_generate'"),
+      'music_generate shares no budget with narration')
   })
 
   test('the reason scene_image_generate is excluded sits WHERE THE SET IS EDITED', async () => {

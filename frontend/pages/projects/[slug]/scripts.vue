@@ -154,7 +154,7 @@
           <!-- Published rate for the SELECTED product, never a total: script
                length in tokens is unknown until the model has written it. -->
           <p v-if="selectedChatModel" class="script-rate" :class="`basis-${chatRateNote.basis}`" :title="chatRateNote.title">
-            {{ CREDIT_BASIS_LABEL[chatRateNote.basis] }}: {{ chatRateNote.text }} <PriceDetails :cost="chatRateNote" /> — the total depends on length, and the Gateway reports the actual charge per job.
+            {{ CREDIT_BASIS_LABEL[chatRateNote.basis] }}: {{ chatRateNote.text }} <PriceDetails :cost="chatRateNote" /><template v-if="!chatRateIsFree"> — the total depends on length, and the Gateway reports the actual charge per job.</template>
           </p>
         </div>
         <div class="form-group">
@@ -1696,6 +1696,7 @@ const selectedChatModel = computed(() => genStudioChatModels.value.find(model =>
  * that selection changes. Never a total — see `describeChatRate`.
  */
 const chatRateNote = computed(() => describeChatRate(selectedChatModel.value))
+const chatRateIsFree = computed(() => chatRateNote.value.basis === 'free' || chatRateNote.value.basis === 'local')
 
 /**
  * Detect a leading count number in a title string (v1.0.70).
@@ -1830,6 +1831,7 @@ async function submitOutline(): Promise<boolean> {
   // cost — the outline build itself is a single cheap call, but the
   // user sees the full picture upfront. Skipped below threshold.
   const targetWords = (form.chapters || 0) * (form.words_per_chapter || 0)
+  let longScriptConfirmed = false
   if (targetWords > CHUNK_THRESHOLD_WORDS) {
     const estimate = estimateChunkedCalls(form.chapters || 0)
     const ok = await ask({
@@ -1842,17 +1844,21 @@ async function submitOutline(): Promise<boolean> {
         // The rate GenStudio publishes for the selected product, and an
         // explicit refusal to invent a total: script length in tokens is not
         // known until the model has written it.
-        `Rate: ${chatRateNote.value.text}.\n` +
-        `The total depends on how long the prompts and the written text turn out to be, ` +
-        `so no up-front figure is shown. The Gateway reports the actual charge on each finished job — see Usage.\n\n` +
+        (chatRateIsFree.value
+          ? `Cost: ${chatRateNote.value.text}.\n\n`
+          : `Rate: ${chatRateNote.value.text}.\n` +
+            `The total depends on how long the prompts and the written text turn out to be, ` +
+            `so no up-front figure is shown. The Gateway reports the actual charge on each finished job — see Usage.\n\n`) +
         `Each chapter is written to disk as soon as it's generated, so cancel / crash / restart preserves partial work.`,
       confirmLabel: 'Generate Outline',
       cancelLabel: 'Cancel',
     })
     if (!ok) return false
+    longScriptConfirmed = true
   }
 
-  if (!await confirmGeneration(slug.value, 'script', params)) return false
+  // The long-script dialog above already asked; a second "Start Script Generator?" is noise.
+  if (!longScriptConfirmed && !await confirmGeneration(slug.value, 'script', params)) return false
   const operationId = freshScriptAction.begin(params)
   params.operation_id = operationId
 

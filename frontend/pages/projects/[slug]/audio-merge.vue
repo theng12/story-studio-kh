@@ -964,6 +964,13 @@ const music = reactive({
   lead_in_seconds: 8,
 })
 const newMusicPath = ref('')
+// Remember the channel's music bed choice (on/off, Pool vs hand-picked, levels) per Mac, like
+// the other generator pages. Without it every visit started with Background Music OFF, so an
+// episode could be merged with no bed unless the owner remembered to switch it on each time
+// (Dreamlands E2E, 2026-10-03). Hand-picked files are per episode and are not remembered.
+useRememberedForm('audio-merge-music', slug, music, {
+  include: ['enabled', 'source', 'volume', 'post_narration_volume', 'fade_in', 'fade_out', 'lead_in_enabled', 'lead_in_seconds'],
+})
 
 // Music Pool state remains separate from hand-picked episode files. Only a
 // submitted pool pick advances the pool cursor after a successful merge.
