@@ -2888,6 +2888,7 @@ import type { CSSProperties } from 'vue'
 import { applyTitleImagePreset, snapshotTitleImagePreset } from '~/utils/video-assembly-presets'
 import { describeMergedAudioOpening } from '~/utils/merged-audio-opening'
 import { describeOpeningSync } from '~/utils/opening-sync'
+import { estimateRender, formatEstimateGb, formatEstimateTime } from '~/utils/render-estimate'
 import { LAST_USED_CONFIG_KEY, pickLastUsedSettings, recordLastUsedSettings } from '~/utils/video-assembly-last-used'
 import { aspectRatioOptions, canvasFor, parseAspectRatio, DEFAULT_ASPECT_RATIO } from '~/utils/aspect-ratios'
 import { describeSubtitleBurn } from '~/utils/subtitle-episode-selection'
@@ -5378,49 +5379,7 @@ const lowAssetWarning = computed(() => {
   return `Heads up — only ${sceneCount} scene${sceneCount === 1 ? '' : 's'} will cycle ~${cycles} times to fill the narration. Viewers will notice the repetition. Add more scenes or shorten the episode.`
 })
 
-/**
- * Rough Mbps baseline at 1080p 30fps with `medium` preset + H.264, per
- * quality tier. Calibrated from real renders: user's 3h ×1080p × fast ×
- * ultrafast previously ran ~8 Mbps (10 GB / 3h ≈ 7.4 Mbps sans grain).
- * These are the "content-complexity-neutral" baselines; actual renders
- * of still-image sleep stories tend to sit a touch below.
- */
-const BASE_MBPS_BY_QUALITY: Record<string, number> = {
-  compact: 0.8,  // CRF 32
-  fast:    1.5,  // CRF 28
-  medium:  3.0,  // CRF 23
-  high:    6.0,  // CRF 18
-}
-const RESOLUTION_FACTOR: Record<string, number> = {
-  '720p': 0.44, '1080p': 1.0, '1440p': 1.78, '4k': 4.0,
-}
-const FPS_FACTOR: Record<number, number> = {
-  24: 0.85, 25: 0.88, 30: 1.0, 60: 1.6,
-}
-const PRESET_FACTOR: Record<string, number> = {
-  // Hardware encodes are ~10-15% larger than libx264 medium at the same
-  // visual quality (Apple trades compression efficiency for speed).
-  ultrafast: 2.0, medium: 1.0, slow: 0.75, hardware: 1.15,
-}
-const CODEC_FACTOR: Record<string, number> = {
-  h264: 1.0, h265: 0.65,
-}
-
-/**
- * Rough single-thread encode-speed multiplier — how many wall-clock
- * seconds per 1 second of output, relative to medium preset. HEVC is
- * ~3× slower than H.264 at the same preset. Hardware is ~10× faster
- * than medium on M-series Macs (estimate; varies with chip generation).
- */
-const EFFORT_SPEED_FACTOR: Record<string, number> = {
-  ultrafast: 0.1, medium: 0.4, slow: 1.2, hardware: 0.04,
-}
-const CODEC_SPEED_FACTOR: Record<string, number> = {
-  h264: 1.0, h265: 3.0,
-}
-const RESOLUTION_SPEED_FACTOR: Record<string, number> = {
-  '720p': 0.5, '1080p': 1.0, '1440p': 1.8, '4k': 4.5,
-}
+// File-size and render-time math lives in utils/render-estimate.ts (calibrated from a measured render).
 
 // v1.0.354 — the only thing that extends the body past the narration is the
 // post-audio tail (fade-out / hold / black screen). Mirrors the backend
@@ -5447,31 +5406,9 @@ const estimatedDurationMin = computed(() => Math.round(estimatedDurationSec.valu
  */
 const canEstimate = computed(() => estimatedDurationSec.value >= 5)
 
-const sizeEstimateGb = computed(() => {
-  if (!canEstimate.value) return null
-  const mbps = (BASE_MBPS_BY_QUALITY[exportSettings.quality] || 3)
-    * (RESOLUTION_FACTOR[exportSettings.resolution] || 1)
-    * (FPS_FACTOR[exportSettings.fps] || 1)
-    * (PRESET_FACTOR[exportSettings.encoding_effort] || 1)
-    * (CODEC_FACTOR[exportSettings.format === 'webm' ? 'h264' : exportSettings.codec] || 1)
-  const sizeGb = (mbps * estimatedDurationSec.value) / 8 / 1024
-  return Math.max(0.1, sizeGb).toFixed(sizeGb < 1 ? 2 : 1)
-})
-
-const renderTimeEstimate = computed(() => {
-  if (!canEstimate.value) return null
-  // Baseline: 1080p medium preset H.264 takes ~0.4s per output-second
-  // on a modern Apple Silicon. Scales with effort + codec + resolution.
-  const perSec = (EFFORT_SPEED_FACTOR[exportSettings.encoding_effort] || 0.4)
-    * (CODEC_SPEED_FACTOR[exportSettings.format === 'webm' ? 'h264' : exportSettings.codec] || 1)
-    * (RESOLUTION_SPEED_FACTOR[exportSettings.resolution] || 1)
-  const secs = perSec * estimatedDurationSec.value
-  if (secs < 60) return `${Math.round(secs)}s`
-  if (secs < 3600) return `${Math.round(secs / 60)} min`
-  const h = Math.floor(secs / 3600)
-  const m = Math.round((secs % 3600) / 60)
-  return `${h}h ${m}m`
-})
+const liveRenderEstimate = computed(() => canEstimate.value ? estimateRender(exportSettings, estimatedDurationSec.value) : null)
+const sizeEstimateGb = computed(() => liveRenderEstimate.value ? formatEstimateGb(liveRenderEstimate.value.sizeGb) : null)
+const renderTimeEstimate = computed(() => liveRenderEstimate.value ? formatEstimateTime(liveRenderEstimate.value.seconds) : null)
 
 // Legacy `estimatedFileSize` consumed in the bottom Summary panel — MB number.
 // Returns 0 when duration is too short to estimate so the Summary row reads
@@ -5553,27 +5490,11 @@ const EXPORT_QUICK_PRESETS: QuickExportPreset[] = [
 ]
 
 function sizeForSettings(s: QuickExportPreset['settings']): string | null {
-  if (!canEstimate.value) return null
-  const mbps = (BASE_MBPS_BY_QUALITY[s.quality] || 3)
-    * (RESOLUTION_FACTOR[s.resolution] || 1)
-    * (FPS_FACTOR[s.fps] || 1)
-    * (PRESET_FACTOR[s.encoding_effort] || 1)
-    * (CODEC_FACTOR[s.format === 'webm' ? 'h264' : s.codec] || 1)
-  const sizeGb = (mbps * estimatedDurationSec.value) / 8 / 1024
-  return Math.max(0.1, sizeGb).toFixed(sizeGb < 1 ? 2 : 1)
+  return canEstimate.value ? formatEstimateGb(estimateRender(s, estimatedDurationSec.value).sizeGb) : null
 }
 
 function renderTimeForSettings(s: QuickExportPreset['settings']): string | null {
-  if (!canEstimate.value) return null
-  const perSec = (EFFORT_SPEED_FACTOR[s.encoding_effort] || 0.4)
-    * (CODEC_SPEED_FACTOR[s.format === 'webm' ? 'h264' : s.codec] || 1)
-    * (RESOLUTION_SPEED_FACTOR[s.resolution] || 1)
-  const secs = perSec * estimatedDurationSec.value
-  if (secs < 60) return `${Math.round(secs)}s`
-  if (secs < 3600) return `${Math.round(secs / 60)} min`
-  const h = Math.floor(secs / 3600)
-  const m = Math.round((secs % 3600) / 60)
-  return `${h}h ${m}m`
+  return canEstimate.value ? formatEstimateTime(estimateRender(s, estimatedDurationSec.value).seconds) : null
 }
 
 /**
