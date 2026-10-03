@@ -195,9 +195,20 @@ export function jobRequestIds(job: JobRequestIdentityLike): string[] {
   ].filter(Boolean)
 }
 
+/**
+ * Log lines worth showing. Older runs logged "Gateway task: Chapter 11 -> <id>" (and a matching
+ * "Gateway request:" line) for every item; with the id hidden that read "Chapter 11 -> [request
+ * hidden]", which tells the owner nothing. New runs log "Chapter 11 sent to the Gateway." once.
+ */
+export function visibleJobOutputLines(lines: readonly unknown[] | null | undefined): string[] {
+  return (lines || []).map(line => String(line ?? ''))
+    .filter(line => !/^\s*Gateway (?:task|request): .+ -> \S+\s*$/.test(line))
+}
+
 /** Remove request identities only from presentation; the source job evidence is untouched. */
 export function customerSafeJobText(value: unknown, exactIds: readonly string[] = []): string {
-  let text = String(value || '')
+  // "0 credits released" is not news; a real release (N > 0) is kept word for word.
+  let text = String(value || '').replace(/\s*GenStudio reports 0 credits released\./g, '')
   for (const id of [...new Set(exactIds.filter(id => id.length >= 6))].sort((a, b) => b.length - a.length)) {
     text = text.split(id).join('[request hidden]')
   }

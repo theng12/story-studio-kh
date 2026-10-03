@@ -41,8 +41,10 @@ import {
   listMusicModels,
 } from '../lib/genstudio-client.js'
 import {
-  FLEET_BUSY_RETRY_DELAYS_MS,
+  fleetBusyRetryPlan,
+  freeMacWaitLine,
   isFleetBusyFailure,
+  isFreeMacPlan,
   waitUnlessStopped,
 } from '../lib/genstudio-fleet-busy.js'
 import {
@@ -117,9 +119,7 @@ export function musicFleetBusyRetryPlan(
   attemptNum: number,
 ): { waitMs: number; reason: string; maxAttempts: number } | null {
   if (!isFleetBusyFailure(e, MUSIC_GENSTUDIO_MODALITY)) return null
-  const waitMs: number | undefined = FLEET_BUSY_RETRY_DELAYS_MS[attemptNum - 1]
-  if (waitMs === undefined) return null
-  return { waitMs, reason: 'High demand right now', maxAttempts: FLEET_BUSY_RETRY_DELAYS_MS.length + 1 }
+  return fleetBusyRetryPlan(e, MUSIC_GENSTUDIO_MODALITY, attemptNum - 1)
 }
 
 const PLANNER_SYSTEM = 'You are a music director planning a set of instrumental background tracks for one '
@@ -432,7 +432,7 @@ export async function generateMusicLibraryTracks(job: Job): Promise<void> {
           // A settled-failed job can never be reopened, so the next attempt
           // needs a new identity — derived from the dead job id, never a clock.
           retryScope = siblingGroupForJob(deadJobId)
-          job.output_lines.push(
+          job.output_lines.push(isFreeMacPlan(plan2) ? freeMacWaitLine(plan.title, error, plan2.waitMs) :
             `${plan.title}: ${plan2.reason.toLowerCase()} — nothing was charged and the credits came back whole. `
             + `Waiting ${Math.round(plan2.waitMs / 1000)}s and asking again `
             + `(attempt ${attemptNum + 1} of ${plan2.maxAttempts}).`,

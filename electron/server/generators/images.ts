@@ -37,7 +37,7 @@ import {
   IMAGE_ROUTE_RETRY_MAX_ATTEMPTS,
   imageRouteRetryDelayMs,
 } from '../services/image-route-retry.js'
-import { isFleetBusyFailure, FLEET_BUSY_RETRY_DELAYS_MS, waitUnlessStopped } from '../lib/genstudio-fleet-busy.js'
+import { isFleetBusyFailure, fleetBusyRetryPlan, freeMacWaitLine, isFreeMacPlan, waitUnlessStopped } from '../lib/genstudio-fleet-busy.js'
 import type { Character, JobItemAttempt } from '../models/types.js'
 import type { GenerateImagesRequest, Job, ImageModelConfig } from '../models/types.js'
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
@@ -126,9 +126,7 @@ export function imageRetryPlan(e: unknown, attemptNum: number): ImageRetryPlan |
   if (isFleetBusyFailure(e, 'image')) {
     // Bounded by the shared schedule's own length, not by the image route
     // constant, so retuning one can never silently walk off the end of the other.
-    const waitMs: number | undefined = FLEET_BUSY_RETRY_DELAYS_MS[attemptNum - 1]
-    if (waitMs === undefined) return null
-    return { waitMs, reason: 'High demand right now', maxAttempts: FLEET_BUSY_RETRY_DELAYS_MS.length + 1 }
+    return fleetBusyRetryPlan(e, 'image', attemptNum - 1)
   }
   if (isGenStudioRouteExhausted(e) && attemptNum < IMAGE_ROUTE_RETRY_MAX_ATTEMPTS) {
     return {
@@ -1104,7 +1102,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
               reason,
             })
             publishProgress()
-            job.output_lines.push(
+            job.output_lines.push(isFreeMacPlan(plan) ? `  ${freeMacWaitLine(`Scene ${scene.number}`, e, waitMs)}` :
               `  Scene ${scene.number}: ${reason.toLowerCase()} — nothing was charged.`
               + ` Retrying in ${Math.round(waitMs / 1000)}s (attempt ${attemptNum + 1} of ${maxAttempts}).`,
             )
@@ -1545,7 +1543,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
               reason,
             })
             publishProgress()
-            job.output_lines.push(
+            job.output_lines.push(isFreeMacPlan(plan) ? `  ${freeMacWaitLine(`Thumbnail ${thumb.number}`, e, waitMs)}` :
               `  Thumbnail ${thumb.number}: ${reason.toLowerCase()} — nothing was charged.`
               + ` Retrying in ${Math.round(waitMs / 1000)}s (attempt ${attemptNum + 1}${releasedZeroSettlementRetry ? '' : ` of ${maxAttempts}`}).`,
             )

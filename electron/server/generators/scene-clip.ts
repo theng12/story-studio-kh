@@ -55,7 +55,7 @@ import {
 } from '../lib/genstudio-client.js'
 import { resolveGenStudioModelId } from '../services/genstudio-model-migration.js'
 import { isRetiredVideoModelId } from '../contracts/retired-video-models.js'
-import { FLEET_BUSY_RETRY_DELAYS_MS, isFleetBusyFailure } from '../lib/genstudio-fleet-busy.js'
+import { fleetBusyRetryPlan, freeMacWaitLine, isFleetBusyFailure, isFreeMacPlan } from '../lib/genstudio-fleet-busy.js'
 
 /**
  * Local `last_state` values that mean the saved GenStudio video job can never
@@ -135,9 +135,7 @@ export interface SceneClipFleetBusyPlan {
  */
 export function sceneClipFleetBusyRetryPlan(e: unknown, attemptNum: number): SceneClipFleetBusyPlan | null {
   if (!isFleetBusyFailure(e, 'video')) return null
-  const waitMs: number | undefined = FLEET_BUSY_RETRY_DELAYS_MS[attemptNum - 1]
-  if (waitMs === undefined) return null
-  return { waitMs, reason: 'High demand right now', maxAttempts: FLEET_BUSY_RETRY_DELAYS_MS.length + 1 }
+  return fleetBusyRetryPlan(e, 'video', attemptNum - 1)
 }
 
 /**
@@ -570,7 +568,6 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
       ...(recoveryEntry?.task_id ? { job_id: recoveryEntry.task_id } : {}),
       state: preparedState,
     })
-    job.output_lines.push(`Gateway request: ${scene_id} -> ${idempotencyKey}`)
 
     const videoRequest: GenStudioVideoRequest = {
       prompt: scene.motion_prompt,
@@ -596,7 +593,7 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
           job_id: providerJobId,
           state: 'accepted',
         })
-        job.output_lines.push(`Gateway task: ${scene_id} -> ${providerJobId}`)
+        job.output_lines.push(`${scene_id} sent to the Gateway.`)
       },
       onState: async (state, providerJobId) => {
         await recordTaskStrict(outDir, manifestKey, clipManifestEntry({
@@ -664,7 +661,7 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
         // which returns the same failure forever.
         const retryPlan = sceneClipFleetBusyRetryPlan(error, attemptNum)
         if (retryPlan && failedTaskId && !jq.isCancelled(job.job_id) && !jq.isPauseRequested(job.job_id)) {
-          job.output_lines.push(
+          job.output_lines.push(isFreeMacPlan(retryPlan) ? freeMacWaitLine(`Scene ${scene.scene_index}`, error, retryPlan.waitMs) :
             `Scene ${scene.scene_index}: ${retryPlan.reason.toLowerCase()} — the clip was never started, `
             + 'so nothing was charged and the credits were returned. '
             + `Waiting ${Math.round(retryPlan.waitMs / 1000)}s and trying again `

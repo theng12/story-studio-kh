@@ -24,6 +24,7 @@ import {
 } from './genstudio-admission.js'
 import { chunkText } from './text-chunker.js'
 import { ACTIVE_GENSTUDIO_PROVIDER_STATES, isNeverCreatedProviderTask } from './provider-task-state.js'
+import { isFreeFleetModelId } from '../contracts/provider-task-state.js'
 // Every outbound JSON body is serialised through `wellFormedJson`, never
 // through bare `JSON.stringify`. GenStudio is a UTF-8 service and correctly
 // refuses a lone surrogate; this is the single boundary that guarantees it
@@ -475,6 +476,8 @@ export type GenStudioModality = 'image' | 'video' | 'tts' | 'transcription' | 'c
 export interface GenStudioSettledJobShape {
   id: string
   state?: unknown
+  /** `studio-hub::…` is the owner's free fleet (see `isFreeFleetModelId`). */
+  model_id?: string | null
   failure_code?: string | null
   reserved_credits?: number | null
   settled_credits?: number | null
@@ -584,10 +587,17 @@ export function genStudioFailureGuidance(
 }
 
 function releasedCreditSettlement(job: GenStudioSettledJobShape): string {
+  // Free fleet work has no credits to report; "0 credits released" there is noise (owner, 2026-10-03).
+  if (isFreeFleetModelId(job.model_id)) return ''
   const released = job.released_credits
   return typeof released === 'number' && Number.isFinite(released) && released >= 0
     ? `GenStudio reports ${released} credits released.`
     : 'Credit settlement is not yet published; check its Gateway status.'
+}
+
+/** A sentence about credits or fallbacks belongs to paid work only. */
+function paidOnly(job: GenStudioSettledJobShape, text: string): string {
+  return isFreeFleetModelId(job.model_id) ? '' : text
 }
 
 /**
@@ -614,6 +624,8 @@ export class GenStudioTerminalFailureError extends Error {
   readonly reservedCredits: number | null
   readonly settledCredits: number | null
   readonly releasedCredits: number | null
+  /** The model id the job envelope published; `studio-hub::…` is the owner's free fleet. */
+  readonly modelId: string | null
 
   constructor(modality: GenStudioModality, job: GenStudioSettledJobShape, message: string) {
     // Appended HERE rather than in each of the six subclasses, and rather than
@@ -628,7 +640,7 @@ export class GenStudioTerminalFailureError extends Error {
     const reason = settledFailureReason(job)
     const failureClass = settledFailureClass(job)
     super([
-      message,
+      message.replace(/\s{2,}/g, ' ').trim(),
       reason ? `Provider reason: ${reason}` : null,
       genStudioFailureGuidance(failureClass, modality),
     ].filter(Boolean).join(' '))
@@ -643,6 +655,7 @@ export class GenStudioTerminalFailureError extends Error {
     this.reservedCredits = typeof job.reserved_credits === 'number' && Number.isFinite(job.reserved_credits) ? job.reserved_credits : null
     this.settledCredits = typeof job.settled_credits === 'number' && Number.isFinite(job.settled_credits) ? job.settled_credits : null
     this.releasedCredits = typeof job.released_credits === 'number' && Number.isFinite(job.released_credits) ? job.released_credits : null
+    this.modelId = typeof job.model_id === 'string' && job.model_id ? job.model_id : null
   }
 }
 
@@ -676,10 +689,10 @@ export class GenStudioVideoTerminalFailureError extends GenStudioTerminalFailure
       job,
       job.cancelled === true
         ? `The video job ${job.id} was cancelled at the Gateway. `
-          + `${releasedCreditSettlement(job)} Retry submits a new job. No legacy fallback was attempted.`
+          + `${releasedCreditSettlement(job)} Retry submits a new job. ${paidOnly(job, 'No legacy fallback was attempted.')}`
         : `The Gateway could not make the video${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
           + `${releasedCreditSettlement(job)} This job cannot be reopened; Retry submits a new job. `
-          + 'No legacy fallback was attempted.',
+          + paidOnly(job, 'No legacy fallback was attempted.'),
     )
     this.name = 'GenStudioVideoTerminalFailureError'
   }
@@ -701,10 +714,10 @@ export class GenStudioMusicTerminalFailureError extends GenStudioTerminalFailure
       job,
       job.cancelled === true
         ? `The music job ${job.id} was cancelled at the Gateway. `
-          + `${releasedCreditSettlement(job)} Retry submits a new job. No legacy fallback was attempted.`
+          + `${releasedCreditSettlement(job)} Retry submits a new job. ${paidOnly(job, 'No legacy fallback was attempted.')}`
         : `The Gateway could not make the music${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
           + `${releasedCreditSettlement(job)} This job cannot be reopened; Retry submits a new job. `
-          + 'No legacy fallback was attempted.',
+          + paidOnly(job, 'No legacy fallback was attempted.'),
     )
     this.name = 'GenStudioMusicTerminalFailureError'
   }
@@ -717,9 +730,9 @@ export class GenStudioTtsTerminalFailureError extends GenStudioTerminalFailureEr
       job,
       job.cancelled === true
         ? `The narration job ${job.id} was cancelled at the Gateway${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
-          + `${releasedCreditSettlement(job)} Retry submits a new job. No fallback route was attempted.`
+          + `${releasedCreditSettlement(job)} Retry submits a new job. ${paidOnly(job, 'No fallback route was attempted.')}`
         : `Gateway generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
-          + `${releasedCreditSettlement(job)} No fallback route was attempted.`,
+          + `${releasedCreditSettlement(job)} ${paidOnly(job, 'No fallback route was attempted.')}`,
     )
     this.name = 'GenStudioTtsTerminalFailureError'
   }
@@ -733,9 +746,9 @@ export class GenStudioTranscriptionTerminalFailureError extends GenStudioTermina
       job.cancelled === true
         ? `The transcription job ${job.id} was cancelled at the Gateway${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
           + `${releasedCreditSettlement(job)} Retry submits a new job. `
-          + 'No fallback route was attempted.'
+          + paidOnly(job, 'No fallback route was attempted.')
         : `The Gateway could not transcribe the audio${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
-          + `${releasedCreditSettlement(job)} No fallback route was attempted.`,
+          + `${releasedCreditSettlement(job)} ${paidOnly(job, 'No fallback route was attempted.')}`,
     )
     this.name = 'GenStudioTranscriptionTerminalFailureError'
   }

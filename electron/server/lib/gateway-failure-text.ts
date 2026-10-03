@@ -110,6 +110,13 @@ export function humanGatewayText(raw: string): string {
   const pool = /^Pool '([^']+)' had no member that could answer\b/.exec(text)
   if (pool) return `None of the models in the "${pool[1]}" pool could answer.`
 
+  // `hub submit failed: timed out` (httpx's words): the Mac took the request but did not answer.
+  const submit = /^hub submit failed: ([\s\S]*?)(\s+The result is being checked; nothing was run twice\.)?$/i.exec(text)
+  if (submit) {
+    return (/timed? ?out/i.test(submit[1]!) ? 'The Mac didn\'t answer in time.' : 'The Mac could not take the request.')
+      + (submit[2] || '')
+  }
+
   const finishing = /^hub job did not finish within (\d+)s of running/i.exec(text)
   if (finishing) {
     const minutes = Math.max(1, Math.round(Number(finishing[1]) / 60))
