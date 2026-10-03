@@ -634,7 +634,7 @@
 <script setup lang="ts">
 import type { GenStudioTtsModel, GenStudioVoice, GenStudioNarrationQuote } from '~/composables/useGenStudioVoices'
 import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
-import { voiceIsGenerable } from '~/composables/useGenStudioVoices'
+import { voiceIsGenerable, voiceSourceText } from '~/composables/useGenStudioVoices'
 import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
 import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection'
 import { CREDIT_BASIS_LABEL, describeVoiceRate, describeQuotedTotal, formatCredits } from '~/utils/genstudio-credit-cost'
@@ -830,7 +830,7 @@ const selectedProviderName = computed(() => selectedTtsModel.value?.provider_nam
 const selectedVoiceProviderText = computed(() => {
   const voice = selectedVoice.value
   if (!voice) return ''
-  return [...new Set([voice.provider, voice.engine_name].filter(Boolean) as string[])].join(' · ')
+  return voiceSourceText(voice)
 })
 
 /** The model's published rate, shown before there is any text to quote. */

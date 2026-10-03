@@ -26,7 +26,7 @@ test('Audio generation receives the live Gateway voice catalog from VoicePicker'
 test('the voice picker shows the published provider identity and GenStudio-owned saved state', () => {
   const picker = readFileSync(new URL('../components/VoicePicker.vue', import.meta.url), 'utf8')
   // Provider transparency: the published identity is rendered, not stripped.
-  assert.match(picker, /voice\.provider, voice\.engine_name/)
+  assert.match(picker, /voiceSourceText\(voice\)/)
   // Saved state belongs to GenStudio; there is no local favourites list.
   assert.match(picker, /setSaved\(voice\.id, voice\.is_saved !== true\)/)
   assert.doesNotMatch(picker, /voices\/favourites/)
