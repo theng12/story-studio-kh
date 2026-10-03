@@ -62,7 +62,7 @@ async function loadStorePage(): Promise<Component> {
     const useContentInstallQueue = () => ({
       ...useInstallQueue((id) => globalThis.__contentStorePageStore.installRelease(id, { refreshOverview: false })),
       batchTotal: computed(() => 0), batchDone: computed(() => 0), batchInstalled: computed(() => 0),
-      batchFailed: computed(() => 0), activeTitle: computed(() => ''), finished: computed(() => false),
+      batchFailed: computed(() => 0), haltReason: computed(() => ''), activeTitle: computed(() => ''), finished: computed(() => false),
     })
     // Real rule, not a stub: Select All counts on it.
     const batchSkipReason = (product) => !product ? 'No longer in the catalog' : product.owned ? 'Already owned' : product.retired ? 'Retired by GenStudio' : !product.compatible ? (product.compatibilityReason || 'Not compatible') : !product.currentRelease ? 'No published release' : null
