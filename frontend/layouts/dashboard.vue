@@ -75,7 +75,7 @@
                 :title="step.optional ? `${workflowLabel(step)} is optional for this production path` : undefined"
               >
                 <span class="nav-item-main"><span aria-hidden="true">{{ step.icon }}</span>{{ workflowLabel(step) }}</span>
-                <span v-if="step.key === 'ideas'" class="nav-hint">Start here</span>
+                <span v-if="step.key === 'ideas' || step.key === 'music-formula'" class="nav-hint">Start here</span>
                 <span v-else-if="step.optional" class="nav-hint nav-hint-muted">Optional</span>
               </NuxtLink>
             </div>
@@ -208,6 +208,7 @@ const channelFormulaName = computed(() => {
   return nichesReady.value || nichesError.value ? 'Series Formula unavailable' : 'Loading Series Formula…'
 })
 const productionPathName = computed(() => {
+  if (visualSource.value === 'music') return 'Music channel formula'
   switch (project.value?.continuity_mode) {
     case 'character-continuity': return 'Character continuity'
     case 'explainer-stills': return 'Explainer boards'
@@ -238,9 +239,10 @@ async function loadVisualSource(): Promise<void> {
   formatError.value = ''
   if (!projectSlug) return
   try {
-    const format = await apiGet<{ visualSource?: unknown }>(`/projects/${projectSlug}/effective-format`)
+    const format = await apiGet<{ visualSource?: unknown; musicChannel?: unknown }>(`/projects/${projectSlug}/effective-format`)
     if (request !== formatRequest || projectSlug !== slug.value) return
-    const source = parseVisualSource(format?.visualSource)
+    // A Series Formula with a `musicFormat` block makes this a music channel (SPEC §1).
+    const source: VisualSource | null = format?.musicChannel === true ? 'music' : parseVisualSource(format?.visualSource)
     if (!source) {
       formatError.value = 'The project returned an unknown production format. Refresh this project before choosing workflow work.'
       return

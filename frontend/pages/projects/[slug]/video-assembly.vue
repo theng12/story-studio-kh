@@ -209,6 +209,24 @@
         <button type="button" class="btn btn-sm btn-secondary mt-1" @click="scanAssets">Retry Asset Check</button>
       </div>
 
+      <!-- Music channel format: an Episode Builder episode brings its own render
+           settings. Offered, never applied unasked (a preset does nothing until chosen). -->
+      <WorkspaceNotice
+        v-if="scannedAssets?.music_episode && !scanning"
+        class="mt-2"
+        tone="info"
+        title="Music episode from Episode Builder"
+      >
+        {{ scannedAssets.music_episode.songs }} songs, no narration or subtitles.
+        <strong>Use Music Episode Settings</strong> sets {{ scannedAssets.music_episode.frame_rate }} fps,
+        {{ scannedAssets.music_episode.resolution === '1080p' ? '1080p (scenes upscaled)' : '720p' }},
+        {{ scannedAssets.music_episode.scene_change.transition }} {{ scannedAssets.music_episode.scene_change.seconds }} s between scenes,
+        a slow zoom, and no intro, title image, cards or subtitles. Your logo and effects stay as they are.
+        <template #actions>
+          <button type="button" class="btn btn-sm btn-primary" @click="applyMusicEpisodeSettings">Use Music Episode Settings</button>
+        </template>
+      </WorkspaceNotice>
+
       <div v-if="scannedAssets && !scanning" class="assets-overview mt-2">
         <h4>Found Assets</h4>
 
@@ -4956,6 +4974,34 @@ function applySubtitlesData(data: any) {
   if (typeof data.enabled === 'boolean') subtitles.enabled = data.enabled
   if (data.source) subtitles.source = data.source
   if (data.style) subtitles.style = normalizeSubtitleStyle(data.style)
+}
+
+/**
+ * The "Music episode" preset: what an Episode Builder episode needs, from the
+ * settings it was built with. Applied only on the owner's click.
+ */
+function applyMusicEpisodeSettings() {
+  const music = scannedAssets.value?.music_episode
+  if (!music) return
+  intro.enabled = false
+  outro.enabled = false
+  timelineClips.value = []
+  titleImage.enabled = false
+  titleCard.enabled = false
+  chapterTitles.enabled = false
+  outroCard.enabled = false
+  subtitles.enabled = false
+  postAudio.behavior = 'hard-cut'
+  Object.assign(transition, {
+    type: music.scene_change.seconds > 0 ? music.scene_change.transition : 'none',
+    duration: music.scene_change.seconds,
+    pool: [],
+    randomize_mode: 'off',
+  })
+  Object.assign(sceneAnimation, { type: 'ken-burns', zoom_start: 100, zoom_end: 106, pool: [], randomize_mode: 'off' })
+  if ([24, 25, 30, 60].includes(music.frame_rate)) exportSettings.fps = music.frame_rate
+  exportSettings.resolution = music.resolution === '1080p' ? '1080p' : '720p'
+  success(`Music episode settings applied: ${exportSettings.fps} fps, ${exportSettings.resolution}, ${transition.type} ${transition.duration} s.`)
 }
 
 function snapshotExportData() { return { ...exportSettings } }

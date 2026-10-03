@@ -81,12 +81,20 @@ export async function episodeDirFor(slug: string, code: string): Promise<string>
 }
 
 /** The channel's starting values: code starting values ← formula `musicFormat.episodeDefaults`. */
-export async function channelStartingSettings(slug: string): Promise<{ settings: EpisodeSettings; music_channel: boolean }> {
-  const niche = await getEffectiveNiche(slug).catch(() => null) as { musicFormat?: { episodeDefaults?: unknown } } | null
+export async function channelStartingSettings(slug: string): Promise<{ settings: EpisodeSettings; music_channel: boolean; themes: string[] }> {
+  const niche = await getEffectiveNiche(slug).catch(() => null) as {
+    musicFormat?: { episodeDefaults?: { scene_themes?: unknown }; registers?: Record<string, { label?: string }> }
+  } | null
   const format = niche?.musicFormat
+  // Theme suggestions: the formula's scene themes, then its registers (SPEC §5).
+  const themes = [
+    ...(Array.isArray(format?.episodeDefaults?.scene_themes) ? format!.episodeDefaults!.scene_themes as unknown[] : []),
+    ...Object.values(format?.registers || {}).map(register => register?.label),
+  ].filter((t): t is string => typeof t === 'string' && !!t.trim())
   return {
     settings: format?.episodeDefaults ? settingsFromEpisodeDefaults(format.episodeDefaults) : { ...STARTING_EPISODE_SETTINGS },
     music_channel: !!format,
+    themes: [...new Set(themes)],
   }
 }
 
@@ -151,6 +159,8 @@ export interface EpisodeSceneView {
   prompt: string
   prompt_is_custom: boolean
   image: 'ready' | 'stale' | 'missing'
+  /** Changes whenever the picture is replaced (cache key for the preview). */
+  image_version: string | null
   approved: boolean
 }
 
@@ -159,6 +169,7 @@ export interface EpisodeView {
   music_channel: boolean
   doc: MusicEpisodeDoc | null
   channel_settings: EpisodeSettings
+  themes: string[]
   pools: PoolSummary[]
   missing_pools: string[]
   songs: Array<ResolvedPoolSong & { locked: boolean; start_sec: number; key: string; blocked_by?: string; scene_id: string }>
@@ -243,6 +254,7 @@ export async function buildEpisodeView(slug: string, code: string): Promise<Epis
     music_channel: channel.music_channel,
     doc,
     channel_settings: channel.settings,
+    themes: channel.themes,
     pools: ctx.pools,
     missing_pools: ctx.missing_pools,
     songs: [],
@@ -287,6 +299,7 @@ export async function buildEpisodeView(slug: string, code: string): Promise<Epis
       prompt: scene.prompt,
       prompt_is_custom: scene.prompt_is_custom,
       image: !hasFile ? 'missing' : stale ? 'stale' : 'ready',
+      image_version: entry?.image_version || null,
       approved: !!entry?.approved,
     }
   })
