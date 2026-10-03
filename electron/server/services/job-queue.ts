@@ -3709,6 +3709,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
 
     // A cancellation/abandonment may retire history during an awaited audit.
     if (!jobs.has(job.job_id)) return
+    if (job.status !== 'paused' && job.status !== 'running') job.resume_after_pause = false
     job.finished_at = isQueuedQuotaWait(job) || job.status === 'paused' || hasUnsettledProviderWork(job)
       || (job.status === 'running' && hasCancellationContext(job))
       ? null
@@ -3732,6 +3733,24 @@ async function runJob(type: JobType, job: Job): Promise<void> {
         allowWhileQueuePaused: true,
         requireExecutor: true,
       })
+      for (const lane of transitioned.lanes) pump(lane)
+    } else if (
+      job.status === 'paused'
+      && job.resume_after_pause === true
+      && !pauseRequested.has(job.job_id)
+    ) {
+      // The owner pressed Resume while this pause was taking effect.
+      job.resume_after_pause = false
+      job.output_lines.push('Continuing as requested: the pause checkpoint is saved, so Resume now submits only work still missing on disk.')
+      const transitioned = await transitionPausedJobsToQueuedByProject([job], {
+        allowWhileQueuePaused: true,
+        requireExecutor: true,
+      })
+      if (!transitioned.resumed.some(candidate => candidate.job_id === job.job_id)) {
+        job.output_lines.push('Could not continue automatically; the job stays paused. Press Resume.')
+        await persistJob(job)
+        emitUpdate(job)
+      }
       for (const lane of transitioned.lanes) pump(lane)
     }
     // A cooperative stall pause is safe to reconsider only after its final
@@ -4527,6 +4546,16 @@ async function pauseJobUnlocked(jobId: string, origin: 'manual' | 'queue' | 'sta
     job.pause_origin = origin
     job.finished_at = null
     job.output_lines.push('Paused before submission. No provider work was started.')
+  } else if (job.status === 'running' && job.pause_requested === true && pauseRequested.has(jobId)) {
+    // Already pausing, so the pause control is no longer offered as "ready";
+    // a repeat is idempotent. It still records who owns the pause (a manual
+    // pause supersedes a queue hold) and withdraws a pending Resume.
+    if (!job.resume_after_pause && job.pause_origin === origin) return serializeJob(job)
+    if (job.resume_after_pause) {
+      job.resume_after_pause = false
+      job.output_lines.push('Pause requested again. The job will stay paused once work already sent is saved.')
+    }
+    job.pause_origin = origin
   } else if (job.status === 'running') {
     const canPause = classifyJobControls(job, {
       remoteCancellationAudited: hasJobCancellationAuditor(job.type),
@@ -4565,6 +4594,19 @@ export async function pauseJobForStall(jobId: string, reason: string): Promise<J
  * so accepted or completed items are reclaimed rather than resubmitted. */
 export async function resumeJob(jobId: string): Promise<Job | null> {
   const job = jobs.get(jobId)
+  if (job && job.status === 'running' && job.pause_requested === true && pauseRequested.has(jobId)) {
+    // The pause is still taking effect: workers have stopped claiming items and
+    // accepted work is finishing. Undoing that mid-flight would leave the run
+    // with fewer workers (or none), so let it reach its paused checkpoint and
+    // continue from there on its own — the same audit-first path as Resume.
+    if (!job.resume_after_pause) {
+      job.resume_after_pause = true
+      job.output_lines.push('Resume requested while the pause was taking effect. Work already sent finishes and is saved first; then the job continues on its own with only what is still missing.')
+      await persistJob(job)
+      emitUpdate(job)
+    }
+    return serializeJob(job)
+  }
   if (!job || job.status !== 'paused') return null
   const transitioned = await transitionPausedJobsToQueuedByProject([job], {
     allowWhileQueuePaused: true,

@@ -337,21 +337,37 @@ function classifyProviderJobControl(
  * Neither action is allowed to impersonate the other.
  */
 export function classifyJobControls(
-  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check' | 'force_abandoned'>,
+  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check' | 'force_abandoned'>
+    & Partial<Pick<Job, 'pause_requested' | 'resume_after_pause'>>,
   capabilities: JobControlCapabilities,
 ): JobControl[] {
   const provider = classifyProviderJobControl(job, capabilities)
   const canPause = job.status === 'running' && canPauseNewSubmissions(job)
-  const pause = canPause
-    ? control(
-      'pause-submissions',
-      true,
-      'Pause new work',
-      'Stops sending new work. Anything already sent finishes and is saved, so nothing is lost or charged twice.',
-      'READY',
-      'none',
-    )
-    : null
+  // A pause that is still taking effect is not "ready to pause" again: the
+  // button would repeat a request already made, and the card would keep
+  // promising that waiting items start automatically. Say what is happening.
+  const pausing = canPause && job.pause_requested === true
+  const pause = !canPause
+    ? null
+    : pausing
+      ? control(
+        'pause-submissions',
+        false,
+        job.resume_after_pause ? 'Resuming after pause' : 'Pausing…',
+        job.resume_after_pause
+          ? 'Resume was requested while the pause was taking effect. Work already sent finishes and is saved first; then the job continues on its own with only what is still missing.'
+          : 'Nothing new is being sent. Work already sent finishes and is saved; then the job shows Paused. Press Resume to keep it going instead.',
+        'JOB_NOT_AT_SAFE_LOCAL_STOP',
+        'none',
+      )
+      : control(
+        'pause-submissions',
+        true,
+        'Pause new work',
+        'Stops sending new work. Anything already sent finishes and is saved, so nothing is lost or charged twice.',
+        'READY',
+        'none',
+      )
   const controls = !pause
     ? [provider]
     : provider.action === 'pause-submissions' ? [pause] : [pause, provider]

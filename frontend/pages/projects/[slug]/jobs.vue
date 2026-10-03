@@ -416,7 +416,7 @@
                 :aria-label="jobWorkspaceLink(job)!.ariaLabel"
               >{{ jobWorkspaceLink(job)!.label }}</NuxtLink>
             <button
-              v-if="job.status === 'paused'"
+              v-if="canResumeJob(job)"
               class="btn btn-xs btn-primary"
               :disabled="controlBusy.has(job.job_id)"
               @click="resumeJob(job)"
@@ -2795,12 +2795,23 @@ async function runJobControl(job: RJob, requestedControl?: JobControl) {
   }
 }
 
+/** Paused, or still pausing (work already sent is finishing): either way the
+ * owner can change their mind. A pausing job continues on its own once its
+ * pause checkpoint is saved. */
+function canResumeJob(job: RJob): boolean {
+  return job.status === 'paused'
+    || (job.status === 'running' && job.pause_requested === true && job.resume_after_pause !== true)
+}
+
 async function resumeJob(job: RJob) {
   if (controlBusy.value.has(job.job_id)) return
   controlBusy.value = new Set(controlBusy.value).add(job.job_id)
+  const pausing = job.status === 'running'
   try {
     await post(`${jobQueuePath(job)}/resume`, {})
-    success('Job resumed. Saved and accepted work will be reclaimed first.')
+    success(pausing
+      ? 'Resume requested. Work already sent finishes and is saved first; then the job continues on its own.'
+      : 'Job resumed. Saved and accepted work will be reclaimed first.')
   } catch (e: any) {
     showError(customerJobText(e?.data?.detail || 'Failed to resume job', job))
   } finally {

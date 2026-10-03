@@ -681,6 +681,8 @@ export interface JobEnqueuedResponse {
   pause_requested?: boolean
   controls?: JobControlResponse[]
   pause_origin?: 'manual' | 'queue' | 'stall'
+  /** Resume was pressed while a pause was still taking effect; the job continues on its own. */
+  resume_after_pause?: boolean
   created_at: string
   started_at: string | null
   finished_at: string | null
