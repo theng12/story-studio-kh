@@ -187,7 +187,7 @@
                 <template v-else>{{ visibleJobs.length }} recent</template>
               </span>
             </span>
-            <span aria-hidden="true">{{ poolJobsExpanded ? '▾' : '▸' }}</span>
+            <span class="ds-chevron" aria-hidden="true" :class="{ 'is-open': poolJobsExpanded }" />
           </button>
 
           <div v-if="poolJobsExpanded" class="pool-jobs-list">
@@ -683,7 +683,7 @@
             <span v-if="bulkRenameResult.skipped"> · {{ bulkRenameResult.skipped }} skipped</span>
             <span v-if="bulkRenameResult.errors" class="text-danger"> · {{ bulkRenameResult.errors }} errors</span>
           </div>
-          <details v-if="bulkRenameResult.errors > 0" class="bulk-rename-errors">
+          <details v-if="bulkRenameResult.errors > 0" class="bulk-rename-errors disclosure">
             <summary>View {{ bulkRenameResult.errors }} error{{ bulkRenameResult.errors === 1 ? '' : 's' }}</summary>
             <ul>
               <li v-for="row in bulkRenameResult.errorRows" :key="row.old_filename">

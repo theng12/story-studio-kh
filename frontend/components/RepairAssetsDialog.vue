@@ -21,7 +21,7 @@
     </div>
 
     <div class="repair-toolbar">
-      <span v-if="lastRunAt" class="text-muted" style="font-size: 12px;">Last scan: {{ lastRunAt }}</span>
+      <span v-if="lastRunAt" class="hint">Last scan: {{ lastRunAt }}</span>
       <span v-if="repairableCounts.total > 0" class="repair-summary">
         <span class="repair-chip">Audio: {{ repairableCounts.audio }}</span>
         <span class="repair-chip">Images: {{ repairableCounts.images }}</span>
@@ -79,7 +79,7 @@
       <div v-for="row in repairableRows" :key="row.episode_id" class="repair-row">
         <div class="repair-ep">
           <strong>{{ row.episode_id }}</strong>
-          <div class="text-muted" style="font-size: var(--font-xs);">{{ row.title }}</div>
+          <div class="hint">{{ row.title }}</div>
         </div>
         <span class="repair-gap" :class="row.audio.missing > 0 ? 'gap-missing' : 'gap-ok'">
           {{ row.audio.missing > 0 ? `${row.audio.missing} missing` : '✓' }}

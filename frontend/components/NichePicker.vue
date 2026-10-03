@@ -54,7 +54,7 @@
       <div v-if="ownsVoice" class="niche-owns" title="This niche provides its own complete voice, independent of the format.">
         ✓ Defines the series voice<span v-if="selected.titleShapeRules?.length"> · title style</span><span v-if="selected.narratorStyles?.length"> · narrator picker</span>
       </div>
-      <details class="niche-preview">
+      <details class="niche-preview disclosure">
         <summary>Preview formula context</summary>
         <div class="preview-grid">
           <div v-if="selected.scriptContext" class="preview-row">

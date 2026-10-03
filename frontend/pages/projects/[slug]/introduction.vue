@@ -239,7 +239,7 @@
               :class="{ 'has-custom': !!beat.custom_text?.trim() }"
               :title="beat.custom_text?.trim() ? 'Wording set — click to edit' : 'Say what this beat should cover'"
               @click="toggleExpanded(beat.id)"
-            >{{ expanded.has(beat.id) ? '▾' : '▸' }}</button>
+            ><span class="ds-chevron" :class="{ 'is-open': expanded.has(beat.id) }" aria-hidden="true" /></button>
             <button class="btn-icon danger" title="Remove" @click="removeBeat(i)">✕</button>
           </div>
           <!--

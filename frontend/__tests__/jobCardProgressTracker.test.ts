@@ -149,7 +149,7 @@ describe('the default card view carries no raw identifiers', () => {
   })
 
   test('bulk missing-item links collapse to a count, while every link remains reachable', () => {
-    const disclosures = template.match(/<details v-if="jobAttentionLinks\(job\)\.length" class="job-attention-details">[\s\S]*?<\/details>/g) || []
+    const disclosures = template.match(/<details v-if="jobAttentionLinks\(job\)\.length" class="job-attention-details disclosure">[\s\S]*?<\/details>/g) || []
     assert.equal(disclosures.length, 2, 'both active and history cards keep their affected-item lists closed by default')
     for (const disclosure of disclosures) {
       assert.match(disclosure, /affected item/)

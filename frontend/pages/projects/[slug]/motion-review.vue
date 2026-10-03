@@ -268,7 +268,7 @@
             ><small>Estimated cost</small><strong>{{ formatCredits(scene.duration_plan.variant.credits_per_video) }}</strong></span>
           </div>
           <p class="transcript">{{ scene.transcript_segment }}</p>
-          <details open>
+          <details class="disclosure" open>
             <summary>Motion direction</summary>
             <p class="motion-prompt">{{ scene.motion_prompt || 'No motion prompt. Add one in Scene Plan, or keep this scene as a still.' }}</p>
           </details>

@@ -55,7 +55,7 @@
             :aria-label="expandedChapters.has(ch.number) ? 'Hide preview' : 'Show preview'"
             @click="togglePreview(ch.number)"
           >
-            <span class="chp-expand-icon">{{ expandedChapters.has(ch.number) ? '▾' : '▸' }}</span>
+            <span class="chp-expand-icon ds-chevron" aria-hidden="true" :class="{ 'is-open': expandedChapters.has(ch.number) }" />
             <span class="chp-expand-label">{{ expandedChapters.has(ch.number) ? 'Hide' : 'Preview' }}</span>
           </button>
           <div class="chp-meta">

@@ -50,7 +50,7 @@
         :title="expanded ? 'Hide prompt text' : 'Show full prompt text'"
         @click="expanded = !expanded"
       >
-        <span class="igr-toggle-icon" aria-hidden="true">{{ expanded ? '▾' : '▸' }}</span>
+        <span class="igr-toggle-icon ds-chevron" aria-hidden="true" :class="{ 'is-open': expanded }" />
         <span class="igr-num">{{ String(row.number).padStart(2, '0') }}</span>
         <span class="igr-title">{{ prefix }} — {{ row.title || '(no title)' }}</span>
         <span :class="['igr-chars', charStatusClass]" :title="charBadgeTooltip">

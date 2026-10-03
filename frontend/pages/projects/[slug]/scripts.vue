@@ -37,7 +37,7 @@
          inject it into this episode, skipping format-shaped generation. -->
     <section v-if="form.episode_id" class="card workspace-section byo-card">
       <button class="byo-head" @click="byoOpen = !byoOpen">
-        <span><strong>{{ byoOpen ? '▾' : '▸' }} ✍️ Bring your own</strong> — paste a script or outline</span>
+        <span><strong><span class="ds-chevron" :class="{ 'is-open': byoOpen }" aria-hidden="true" /> ✍️ Bring your own</strong> — paste a script or outline</span>
         <span class="text-muted text-xs">skip generation; inject directly into the flow</span>
       </button>
       <div v-if="byoOpen" class="byo-body mt-2">

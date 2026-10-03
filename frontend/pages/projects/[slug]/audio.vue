@@ -421,7 +421,7 @@
         </p>
       </section>
 
-      <details class="audio-advanced">
+      <details class="audio-advanced disclosure">
         <summary>Delivery and request controls <span>{{ advancedSummary }}</span></summary>
         <div class="audio-advanced-body">
       <div class="grid-3">
@@ -649,7 +649,7 @@
             Click <strong>Generate missing</strong> above: it makes only these and keeps the audio you already have.
           </span>
         </div>
-        <details class="mt-1">
+        <details class="disclosure mt-1">
           <summary class="repair-details-summary">Details ({{ repairResult.logs.length }} log lines)</summary>
           <pre class="repair-log">{{ repairResult.logs.join('\n') }}</pre>
         </details>
@@ -2332,8 +2332,7 @@ async function queueAudio(targetSections: string[], mode: AudioActionMode) {
 }
 .audio-advanced > summary {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   padding: 11px 13px;
   color: var(--text-primary);
   cursor: pointer;
@@ -2341,6 +2340,7 @@ async function queueAudio(targetSections: string[], mode: AudioActionMode) {
   font-weight: 650;
 }
 .audio-advanced > summary span {
+  margin-left: auto;
   color: var(--text-muted);
   font-size: var(--font-xs);
   font-weight: 400;

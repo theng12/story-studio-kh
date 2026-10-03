@@ -187,7 +187,7 @@
             @click="showHidden = !showHidden"
           >
             🗑️ Hidden channels ({{ hiddenProjects.items.value.length }})
-            <span aria-hidden="true">{{ showHidden ? '▾' : '▸' }}</span>
+            <span class="ds-chevron" aria-hidden="true" :class="{ 'is-open': showHidden }" />
           </button>
           <div v-if="showHidden && hiddenProjects.items.value.length" class="hidden-projects-list">
             <p class="hidden-projects-note">
@@ -242,7 +242,7 @@
 
         <NichePicker v-model="form.niche_id" :disabled="creating" />
 
-        <details class="naming-options">
+        <details class="naming-options disclosure">
           <summary>Episode naming options</summary>
           <div class="naming-grid">
             <div class="form-group">

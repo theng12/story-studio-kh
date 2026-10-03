@@ -99,7 +99,7 @@
          the picker stays compact on every generator page. -->
     <div v-if="selectedEp" class="step-strip">
       <button type="button" class="step-summary" @click="stepsExpanded = !stepsExpanded">
-        <span class="step-summary-arrow">{{ stepsExpanded ? '▾' : '▸' }}</span>
+        <span class="step-summary-arrow ds-chevron" aria-hidden="true" :class="{ 'is-open': stepsExpanded }" />
         Steps: {{ doneChipCount }}/{{ visibleChips.length }} done
         <span v-if="manualChipCount" class="step-summary-manual">· {{ manualChipCount }} manual</span>
       </button>

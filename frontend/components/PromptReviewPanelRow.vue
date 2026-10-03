@@ -14,7 +14,7 @@
         :title="expanded ? 'Hide full prompt text' : 'Show full prompt text'"
         @click="expanded = !expanded"
       >
-        <span class="prr-toggle-icon" aria-hidden="true">{{ expanded ? '▾' : '▸' }}</span>
+        <span class="prr-toggle-icon ds-chevron" aria-hidden="true" :class="{ 'is-open': expanded }" />
         <span class="prr-num">{{ String(row.number).padStart(2, '0') }}</span>
         <span class="prr-title">{{ prefix }} — {{ row.title || '(no title)' }}</span>
       </button>

@@ -165,7 +165,7 @@
                 <template #hint>Paste, drop, or browse one image</template>
               </ReferenceDropzone>
 
-              <details class="cs-composition-generate">
+              <details class="cs-composition-generate disclosure">
                 <summary>Or describe the layout and generate it</summary>
                 <textarea
                   v-model="compositionPrompt"

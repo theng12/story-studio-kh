@@ -589,7 +589,7 @@
                     <div><dt>Publishing</dt><dd>{{ bulkTimingLabel(item) }}<small v-if="item.preview.status.publishAt">{{ item.preview.status.publishAt }}</small></dd></div>
                   </dl>
                 </div>
-                <details class="bulk-metadata">
+                <details class="bulk-metadata disclosure">
                   <summary>Review metadata</summary>
                   <dl>
                     <div><dt>Title</dt><dd>{{ item.preview.snippet.title }}</dd></div>

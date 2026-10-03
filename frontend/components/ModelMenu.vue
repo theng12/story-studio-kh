@@ -22,7 +22,7 @@
         :data-tone="badge.tone || 'neutral'"
         :title="badge.title || badge.label"
       >{{ badge.label }}</span>
-      <span class="model-menu-chevron" aria-hidden="true">▾</span>
+      <span class="model-menu-chevron ds-chevron" data-dir="down" aria-hidden="true" />
     </button>
 
     <PickerDialog

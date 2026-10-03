@@ -301,7 +301,7 @@
         </span>
       </div>
 
-      <details v-if="activeMissingList" class="missing-detail mt-2">
+      <details v-if="activeMissingList" class="missing-detail disclosure mt-2">
         <summary>Which thumbnails are missing ({{ activeMissingCount }})</summary>
         <div class="text-muted text-sm">
           Missing {{ activePoolLabel }}: {{ activeMissingList }}

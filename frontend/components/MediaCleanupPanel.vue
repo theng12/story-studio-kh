@@ -18,7 +18,7 @@
           </label>
         </div>
         <div class="cleanup-preset"><button class="btn btn-primary" :disabled="busy || !selected.length" @click="startPreview(true)">Free up space for {{ selected.length }} selected</button><p class="cleanup-hint">You will see how much space it frees and where the files go before anything changes.</p></div>
-        <details class="cleanup-advanced">
+        <details class="cleanup-advanced disclosure">
           <summary>Advanced: pick exactly which media to review</summary>
           <fieldset :disabled="busy" class="cleanup-categories"><legend>Media to review</legend><label v-for="item in categoryOptions" :key="item.id"><input v-model="categories" type="checkbox" :value="item.id" />{{ item.label }}</label></fieldset>
           <p class="cleanup-hint">Active jobs and shared assets are excluded. You will review exact files before anything changes. Restoring removed media may require paid generation.</p>
@@ -36,14 +36,14 @@
       <p v-if="operation.error" class="cleanup-error">{{ operation.error }}</p>
       <template v-if="operation.result">
         <p>{{ resultSummary }}</p>
-        <details v-if="operation.result.items?.length"><summary>View file outcomes</summary><ul class="cleanup-files"><li v-for="(item, index) in operation.result.items" :key="index"><span class="cleanup-path">{{ item.path || item.source_path || item.file }}</span> — {{ item.outcome || item.status }}<span v-if="item.reason">: {{ item.reason }}</span></li></ul></details>
+        <details v-if="operation.result.items?.length" class="disclosure"><summary>View file outcomes</summary><ul class="cleanup-files"><li v-for="(item, index) in operation.result.items" :key="index"><span class="cleanup-path">{{ item.path || item.source_path || item.file }}</span> — {{ item.outcome || item.status }}<span v-if="item.reason">: {{ item.reason }}</span></li></ul></details>
       </template>
     </div>
     <div v-if="preview" class="cleanup-review">
       <h4>Review {{ preview.files.length }} files · {{ formatBytes(preview.total_bytes) }}</h4>
       <p>Only this reviewed selection can be changed. Files are checked again before each action.</p>
       <ul v-if="previewWarnings.length" class="cleanup-warnings"><li v-for="warning in previewWarnings" :key="warning">{{ warning }}</li></ul>
-      <details v-for="ep in preview.episodes" :key="ep.episode_code" class="cleanup-file-group">
+      <details v-for="ep in preview.episodes" :key="ep.episode_code" class="cleanup-file-group disclosure">
         <summary>{{ ep.episode_code }} · {{ ep.files.length }} files · {{ formatBytes(ep.files.reduce((n, f) => n + f.bytes, 0)) }}</summary>
         <ul v-if="ep.excluded?.length" class="cleanup-warnings"><li v-for="item in ep.excluded" :key="item.path"><span class="cleanup-path">{{ item.path }}</span> — {{ item.reason }}</li></ul>
         <ul class="cleanup-files"><li v-for="file in ep.files" :key="file.path"><span class="cleanup-path">{{ file.relative_path }}</span><span>{{ formatBytes(file.bytes) }}</span></li></ul>

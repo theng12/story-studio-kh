@@ -269,7 +269,7 @@
                not. It warns and stops there: the batch is still sent exactly as
                chosen. -->
           <p v-if="promptBatchTimeoutWarning" class="scene-setting-warn">{{ promptBatchTimeoutWarning }}</p>
-          <details class="scene-advanced-batches">
+          <details class="scene-advanced-batches disclosure">
             <summary>Advanced batch controls</summary>
             <div class="scene-compact-fields mt-1">
               <div class="form-group">

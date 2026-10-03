@@ -253,7 +253,7 @@
     </ul>
 
     <div class="cs-footer">
-      <span class="text-muted" style="font-size: var(--font-xs);">
+      <span class="hint">
         {{ effectiveSelected.length }} section{{ effectiveSelected.length === 1 ? '' : 's' }} selected
       </span>
     </div>

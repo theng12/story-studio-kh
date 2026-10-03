@@ -38,7 +38,7 @@
       </div>
       <div v-else-if="!data?.script?.content" class="preview-empty">
         No script generated yet for this episode.
-        <p class="muted mt-1" style="font-size: 12px;">
+        <p class="hint mt-1">
           Configure settings above and click "Generate Script (Chapters)" to create one.
         </p>
       </div>

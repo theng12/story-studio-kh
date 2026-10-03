@@ -160,7 +160,7 @@
                 >Tune →</NuxtLink>
               </div>
               <div v-if="modelPolicyFor(entry.id)" class="step-model-policy" @click.stop>
-                <details @toggle="setModelPolicyExpanded(entry.id, ($event.target as HTMLDetailsElement).open)">
+                <details class="disclosure" @toggle="setModelPolicyExpanded(entry.id, ($event.target as HTMLDetailsElement).open)">
                   <summary>
                     Models for this run
                     <span class="step-model-policy-summary">{{ modelPolicySummary(entry.id) }}</span>
