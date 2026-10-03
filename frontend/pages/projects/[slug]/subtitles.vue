@@ -103,12 +103,16 @@
             <WorkspaceNotice
               v-if="subtitleTimelineIntegrity && !subtitleTimelineIntegrity.complete"
               tone="error"
-              :title="hasBlockingCueGaps ? 'Subtitle coverage gap' : 'Subtitle timeline verification is incomplete'"
+              :title="hasBlockingCueGaps ? (allGapsSilent ? 'The narration is missing speech' : 'Subtitles skip part of the narration') : 'Subtitle timeline verification is incomplete'"
               class="mt-2 sub-gap-notice"
             >
-              <p v-if="hasBlockingCueGaps">
-                No subtitles cover the intervals below. This does not prove the audio is wrong.
-                Listen near the gap: if the speech is clear, regenerate that chapter’s subtitles; if the audio sounds wrong, fix it in Audio Generator first. Then stitch again.
+              <p v-if="hasBlockingCueGaps && allGapsSilent">
+                The narration itself is missing speech here — re-making the chapter’s audio fixes it.
+                Re-transcribing can’t, because there is nothing to hear. Re-narrate makes the chapter’s audio again, then its subtitles automatically.
+              </p>
+              <p v-else-if="hasBlockingCueGaps">
+                This is almost always the narration: the voice skipped a sentence or hummed instead of speaking, and re-making the chapter’s audio fixes it.
+                Re-narrate makes the chapter’s audio again, then its subtitles automatically. If you listen and hear clear speech, only the subtitles missed it — re-transcribe instead.
               </p>
               <p v-else-if="planningSourceRevalidationRequired">
                 This is the uncorrected timeline. Scene Plan re-checks the corrected timeline before it makes anything.
@@ -123,6 +127,7 @@
                   </div>
                   <div v-else>The chapter audio position is unavailable; use the full episode timeline below.</div>
                   <div class="text-muted">In full episode: {{ formatSeconds(gap.previous_end_sec) }}–{{ formatSeconds(gap.next_start_sec) }} (minutes:seconds)</div>
+                  <div v-if="gap.audio" class="sub-gap-audio" :class="`is-${gap.audio}`">{{ gapAudioSentence(gap.audio) }}</div>
                 </li>
               </ul>
               <p v-if="hasBlockingCueGaps" class="text-sm">Chapter audio times start at the beginning of that chapter. Full episode times include the chapters before it. Listen starts up to two seconds before the first gap with a known chapter position.</p>
@@ -133,17 +138,23 @@
                   class="btn btn-sm btn-secondary"
                 >Open Scene Plan</NuxtLink>
                 <div v-for="section in gapActionSections" :key="section" class="sub-gap-actions">
+                  <NuxtLink
+                    v-if="gapSections.has(section)"
+                    :to="renarrateLink(slug, episodeId, section)"
+                    class="btn btn-sm btn-primary"
+                    :title="`Opens Audio Generator to make ${subtitleChapterLabel(section)}'s narration again, then its subtitles automatically.`"
+                  >Re-narrate {{ subtitleChapterLabel(section) }}</NuxtLink>
                   <button
                     type="button"
-                    class="btn btn-sm btn-primary"
+                    :class="['btn', 'btn-sm', gapSections.has(section) ? 'btn-secondary' : 'btn-primary']"
                     :disabled="!canTranscribe || transcribing"
-                    :title="canTranscribe ? `Makes new subtitles for ${section.replaceAll('_', ' ')} only, then stitch again.` : transcribeDisabledReason"
+                    :title="canTranscribe ? `Makes new subtitles for ${section.replaceAll('_', ' ')} only, from the audio as it is now, then stitch again.` : transcribeDisabledReason"
                     @click="retranscribeChapter(section)"
                   >{{ subtitleActionLabel(section, `Re-transcribe ${section.replaceAll('_', ' ')}`) }}</button>
                   <button type="button" class="btn btn-sm btn-secondary" @click="reviewChapterAudio(section, true)">Listen to {{ section.replaceAll('_', ' ') }}</button>
-                  <NuxtLink :to="audioSectionLink(section)" class="btn btn-sm btn-secondary">Open Audio Generator · {{ section.replaceAll('_', ' ') }}</NuxtLink>
                   <NuxtLink :to="subtitleSectionLink(section)" class="inline-link">Review subtitles</NuxtLink>
                 </div>
+                <p v-if="gapSections.size" class="text-xs text-muted sub-gap-hint">Re-narrate replaces the chapter’s audio with a new take. Re-transcribe only re-reads the audio you have now.</p>
               </template>
             </WorkspaceNotice>
             <div v-if="audioReview" ref="audioReviewPanel" tabindex="-1">
@@ -434,6 +445,7 @@ import {
 import type { SubtitleQualityReport } from '~/types/subtitle-quality'
 import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
 import { isFreeToRun } from '~/utils/genstudio-price-usd'
+import { gapAudioSentence, renarrateLink, subtitleChapterLabel } from '@shared/subtitle-gaps'
 import { hasQualityFindings } from '~/types/subtitle-quality'
 import { audioQualityLabel, audioQualityTone, type AudioQualityEvidence } from '~/types/audio-quality'
 
@@ -499,6 +511,8 @@ interface SubtitleStatus {
       next_start_sec: number
       gap_sec: number
       section_slugs: string[]
+      /** Is anything audible under the gap? Measured by the status route. */
+      audio?: 'silent' | 'sound'
       section_local_start_sec?: number
       section_local_end_sec?: number
     }>
@@ -716,6 +730,17 @@ const subtitleTimelineComplete = computed(() =>
 )
 const hasBlockingCueGaps = computed(() => (subtitleTimelineIntegrity.value?.blocking_cue_gaps?.length || 0) > 0)
 const normalizedSectionSlug = (section: string) => section.toLowerCase().replace(/[^a-z0-9]/g, '')
+/** Chapters with a gap inside (not missing outright): those lead with Re-narrate. */
+const gapSections = computed(() => new Set(
+  (subtitleTimelineIntegrity.value?.blocking_cue_gaps || []).flatMap(gap => gap.section_slugs)
+    .map(section => sections.value.find(row => normalizedSectionSlug(row.slug) === normalizedSectionSlug(section))?.slug)
+    .filter((section): section is string => !!section),
+))
+/** Every measured gap is silence: the voice skipped it, so say that outright. */
+const allGapsSilent = computed(() => {
+  const gaps = subtitleTimelineIntegrity.value?.blocking_cue_gaps || []
+  return gaps.length > 0 && gaps.every(gap => gap.audio === 'silent')
+})
 const gapActionSections = computed(() => {
   const known = new Map(sections.value.map(section => [normalizedSectionSlug(section.slug), section.slug]))
   const fromGaps = subtitleTimelineIntegrity.value?.blocking_cue_gaps?.flatMap(gap => gap.section_slugs) || []
@@ -1165,6 +1190,9 @@ onMounted(async () => {
 .sub-gap-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .sub-gap-list strong { display: inline; }
 .sub-gap-list { margin: 8px 0 0; padding-left: 18px; font-size: var(--font-xs); }
+.sub-gap-audio { margin-top: 2px; font-weight: 600; }
+.sub-gap-audio.is-silent { color: var(--error, var(--warning)); }
+.sub-gap-hint { flex-basis: 100%; margin: 0; }
 .sub-selection-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; position: sticky; top: 0; z-index: 2; padding: 12px 8px; background: var(--bg-secondary); border-bottom: 1px solid var(--border); }
 .sub-chapter-row { flex-wrap: wrap; }
 .sub-chapter-list, .sub-file-list { list-style: none; margin: 0; padding: 0; }

@@ -44,3 +44,20 @@ export function describeSubtitleGaps(gaps: SubtitleGapForDisplay[], limit = 5): 
   const more = chapters.length - shown.length
   return shown.join('; ') + (more > 0 ? `; and ${more} more chapter${more === 1 ? '' : 's'}` : '')
 }
+
+/**
+ * Audio Generator, opened on one chapter with "Re-narrate" ready: re-makes that
+ * chapter's narration, then its subtitles. A subtitle gap is almost always the
+ * narration (Dreamlands 2026-10-03), and re-transcribing cannot fix that.
+ */
+export function renarrateLink(projectSlug: string, episodeId: string, slug: string): string {
+  const query = new URLSearchParams({ episode_id: episodeId, section: slug, renarrate: '1' })
+  return `/projects/${encodeURIComponent(projectSlug)}/audio?${query.toString()}`
+}
+
+/** What is under one gap in the chapter audio (`audio` from the Subtitles status), in plain words. */
+export function gapAudioSentence(audio?: 'silent' | 'sound'): string {
+  if (audio === 'silent') return 'No sound here: the narration skipped this part.'
+  if (audio === 'sound') return 'There is sound here. Listen: humming or mumbling means the narration went wrong; clear speech means only the subtitles missed it.'
+  return ''
+}

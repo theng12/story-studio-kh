@@ -156,6 +156,8 @@ test('subtitle gap review targets source audio and clears playback on episode ch
     const state = (globalThis as any).__subtitlesInitialState
     await waitFor(() => state.sections.value.length === 1, { label: 'gap chapter available' })
     assert.equal(state.sections.value[0].quality.state, 'review_needed')
+    assert.deepEqual([...state.gapSections.value], ['Chapter_13'], 'a gap inside the chapter leads with Re-narrate')
+    assert.equal(state.allGapsSilent.value, false, 'unmeasured audio is not called silent')
     assert.equal(state.audioSectionLink('Chapter_13'), '/projects/task15-fixture/audio?episode_id=EP0083&section=Chapter_13')
     await state.reviewChapterAudio('Chapter_13', true)
     assert.equal(state.audioReview.value.section, 'Chapter_13')
@@ -167,6 +169,27 @@ test('subtitle gap review targets source audio and clears playback on episode ch
   } finally { app.unmount(); container.remove() }
 })
 
+
+test('a gap with no sound under it is called missing narration; a missing chapter does not lead with Re-narrate', async () => {
+  ;(globalThis as any).__subtitlesInitialRouterReplace = () => undefined
+  ;(globalThis as any).__subtitlesInitialApi = {
+    get: async (path: string) => path.endsWith('/audio-sections')
+      ? { sections: [{ label: 'Chapter 03', slug: 'Chapter_03' }, { label: 'Chapter 04', slug: 'Chapter_04' }] }
+      : { existing_srts: [], timeline_integrity: { complete: false, missing_sections: ['Chapter_04'], blocking_cue_gaps: [
+        { previous_end_sec: 312.2, next_start_sec: 347.4, gap_sec: 35.2, section_slugs: ['Chapter_03'], section_local_start_sec: 312.2, section_local_end_sec: 347.4, audio: 'silent' },
+      ] } },
+  }
+  const host = document.body.appendChild(document.createElement('div'))
+  const app = createApp(await loadPageScript())
+  app.mount(host)
+  try {
+    const state = (globalThis as any).__subtitlesInitialState
+    await waitFor(() => state.sections.value.length === 2, { label: 'gap chapters' })
+    assert.equal(state.allGapsSilent.value, true)
+    assert.deepEqual([...state.gapSections.value], ['Chapter_03'])
+    assert.deepEqual(state.gapActionSections.value, ['Chapter_03', 'Chapter_04'], 'the missing chapter keeps its Re-transcribe action')
+  } finally { app.unmount(); host.remove() }
+})
 
 test('disabled subtitle actions keep rendering while model language capabilities are unavailable', async () => {
   ;(globalThis as any).__subtitlesInitialRouterReplace = () => undefined

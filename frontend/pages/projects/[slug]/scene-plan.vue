@@ -146,8 +146,15 @@
         <div v-else-if="blockingSubtitleCueGaps.length" class="validation-msg validation-msg-strong text-sm mt-2">
           ⚠ <strong>Do not rebuild or re-plan yet.</strong>
           Subtitles skip speech in <strong>{{ subtitleGapSummary }}</strong>.
-          <NuxtLink :to="subtitleLink(blockingSubtitleGapSections[0])" class="inline-link">Open Subtitles</NuxtLink>,
-          then transcribe or correct it and stitch again.
+          <template v-if="blockingSubtitleGapSections[0]">
+            That is almost always the narration missing a sentence, so
+            <NuxtLink :to="renarrateLink(slug, episodeId, blockingSubtitleGapSections[0])" class="inline-link">re-narrate {{ subtitleChapterLabel(blockingSubtitleGapSections[0]) }}</NuxtLink>
+            (its audio is made again, then its subtitles automatically), or
+            <NuxtLink :to="subtitleLink(blockingSubtitleGapSections[0])" class="inline-link">open Subtitles</NuxtLink> to listen first.
+          </template>
+          <template v-else>
+            <NuxtLink :to="subtitleLink()" class="inline-link">Open Subtitles</NuxtLink>, then transcribe or correct it and stitch again.
+          </template>
         </div>
         <div v-else-if="status.stitched_srt?.drifts_from_current_merge" class="validation-msg text-sm mt-2">
           ⚠ The episode subtitles were joined with a different pause between chapters
@@ -1153,7 +1160,7 @@ import { customerSafeJobText } from '../../../utils/job-presentation.js'
 import { DEFAULT_EXCLUDE_KEYS } from '~/composables/usePresets'
 import { useVisualStyleCatalog } from '~/composables/useVisualStyleCatalog'
 import { pacingBandAt, type ScenePacing } from '@shared/pacing'
-import { describeSubtitleGaps } from '@shared/subtitle-gaps'
+import { describeSubtitleGaps, renarrateLink, subtitleChapterLabel } from '@shared/subtitle-gaps'
 import { resolveMotionScope, type MotionScope } from '@shared/motion-scope'
 import type { ContinuityConfig } from '~/composables/useContinuityConfig'
 import type { SubtitleQualityReport } from '~/types/subtitle-quality'
@@ -2262,6 +2269,10 @@ const subtitleTimelineBlocker = computed(() => {
 /** Where the blocker above is fixed, shown as a link beside the disabled button. */
 const subtitleTimelineBlockerLink = computed(() => {
   if (!subtitleTimelineBlocker.value || !status.value?.stitched_srt || subtitleTimelineComplete.value) return undefined
+  // A gap inside a chapter is the narration (Dreamlands 2026-10-03): lead with re-making it.
+  const gapSection = !missingSubtitleSections.value.length && blockingSubtitleCueGaps.value.length
+    ? blockingSubtitleGapSections.value[0] : undefined
+  if (gapSection) return { to: renarrateLink(slug.value, episodeId.value, gapSection), label: `Re-narrate ${subtitleChapterLabel(gapSection)}` }
   const section = missingSubtitleSections.value[0] || blockingSubtitleGapSections.value[0]
   return { to: subtitleLink(section), label: 'Fix in Subtitles' }
 })

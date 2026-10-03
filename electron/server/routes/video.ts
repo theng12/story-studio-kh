@@ -59,6 +59,7 @@ import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../s
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
 import { assertSubtitleTimelineComplete, readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
+import { annotateGapAudio } from '../services/gap-audio-check.js'
 import { allowedSubtitleCueGapSec } from '../services/scene-plan-pacing.js'
 import { listTranscriptionModels as listGenStudioTranscriptionModels } from '../lib/genstudio-client.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
@@ -1332,6 +1333,13 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
         cue_source_path: planningTranscript?.path,
       })
       : null
+    // Say whether the narration under each gap is silent or audible, so the
+    // page can tell "the voice skipped this" from "the subtitles missed it".
+    if (subtitleTimelineIntegrity?.blocking_cue_gaps?.length) {
+      await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, 'audio_chapters.json')
+        .then(paths => annotateGapAudio(subtitleTimelineIntegrity.blocking_cue_gaps, paths.episode_dir, paths.audio_dir, episodeId))
+        .catch(() => {})
+    }
 
     res.json({
       has_libass: libass,

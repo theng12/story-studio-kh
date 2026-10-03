@@ -91,6 +91,29 @@
       </template>
     </WorkspaceNotice>
 
+    <!-- Opened from a subtitle gap ("Re-narrate Chapter 3" on Subtitles / Scene Plan). -->
+    <WorkspaceNotice
+      v-if="renarrateTarget && form.episode_id"
+      tone="info"
+      :title="`Re-narrate ${renarrateTargetLabel}`"
+      class="renarrate-notice"
+    >
+      The subtitles found speech missing in {{ renarrateTargetLabel }}: the narration skipped a sentence or came out as silence or humming.
+      This makes {{ renarrateTargetLabel }}’s narration again with the voice and settings below, replacing its current audio,
+      then makes its subtitles again automatically. Other chapters are left alone.
+      <template v-if="inlineGenerateDisabledReason"><br><strong>Not ready yet:</strong> {{ inlineGenerateDisabledReason }}</template>
+      <template #actions>
+        <button
+          type="button"
+          class="btn btn-primary btn-sm"
+          :disabled="inlineGenerateDisabled"
+          :title="inlineGenerateDisabledReason || `Replaces ${renarrateTargetLabel}'s audio, then re-makes its subtitles.`"
+          @click="renarrate"
+        >Re-narrate {{ renarrateTargetLabel }}</button>
+        <button type="button" class="btn btn-secondary btn-sm" @click="dismissRenarrate">Not Now</button>
+      </template>
+    </WorkspaceNotice>
+
     <div class="card mt-3">
       <div class="grid-2">
         <div class="form-group">
@@ -189,6 +212,7 @@
         :quality-mode="audioQualityMode"
         :quality-action-disabled="qualitySectionActionDisabled"
         :quality-approval-disabled="qualityHeldApprovalDisabled"
+        :section-checks="chapterSectionChecks"
         @update:effective-selected="onEffectiveSelectionChange"
         @update:missing-sections="onMissingSectionsChange"
         @requested-section-selected="onRequestedAudioSectionSelected"
@@ -640,6 +664,8 @@ import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection
 import { CREDIT_BASIS_LABEL, describeVoiceRate, describeQuotedTotal, formatCredits } from '~/utils/genstudio-credit-cost'
 import { hasPriceTruth, isFreeToRun } from '~/utils/genstudio-price-usd'
 import { genstudioStaleNote } from '~/utils/genstudio-freshness'
+import type { ChapterSectionQuality } from '@shared/section-quality'
+import { subtitleChapterLabel } from '@shared/subtitle-gaps'
 import {
   describeRelaxedQueueHint,
   isRelaxedQueue,
@@ -1591,6 +1617,41 @@ const audioJobActiveForEpisode = computed(() => {
   )
 })
 
+/**
+ * Per chapter, what the Mac's section check found in the most recent narration
+ * run that reported it (Hub 0.6.137+; older Gateways pass nothing, so nothing shows).
+ */
+const chapterSectionChecks = computed<Record<string, ChapterSectionQuality>>(() => {
+  const checks: Record<string, ChapterSectionQuality> = {}
+  const runs = (jobs.value as any[])
+    .filter(j => j.type === 'audio' && j.project_slug === slug.value && j.episode_id === form.episode_id
+      && j.result?.section_quality && typeof j.result.section_quality === 'object')
+    .sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')))
+  for (const run of runs) Object.assign(checks, run.result.section_quality)
+  return checks
+})
+
+// "Re-narrate Chapter 3" deep link (?renarrate=1&section=Chapter_03). Kept
+// apart from the one-shot section deep link, which clears itself once selected.
+const renarrateTarget = ref(route.query.renarrate === '1' && typeof route.query.section === 'string' ? route.query.section : '')
+const renarrateTargetLabel = computed(() => subtitleChapterLabel(renarrateTarget.value))
+watch(() => form.episode_id, (episode, previous) => {
+  const linked = typeof route.query.episode_id === 'string' ? route.query.episode_id : ''
+  if (renarrateTarget.value && previous && linked && episode !== linked) renarrateTarget.value = ''
+})
+async function dismissRenarrate() {
+  renarrateTarget.value = ''
+  if (route.query.renarrate) {
+    const { renarrate: _renarrate, ...query } = route.query
+    await router.replace({ query })
+  }
+}
+async function renarrate() {
+  const section = renarrateTarget.value
+  if (!section) return
+  if (await queueAudio([section], 'regenerate', { then_subtitles: true })) await dismissRenarrate()
+}
+
 // Defensive — clear `submitting` on episode swap.
 watch(() => form.episode_id, (newEp, oldEp) => {
   if (newEp !== oldEp) {
@@ -1971,33 +2032,33 @@ function audioActionLabel(targetSections: string[], mode: AudioActionMode, label
   return freshAudioAction.isRetry(audioRequestPayload(targetSections, mode)) ? 'Retry (same request)' : label
 }
 
-async function queueAudio(targetSections: string[], mode: AudioActionMode) {
+async function queueAudio(targetSections: string[], mode: AudioActionMode, extra: { then_subtitles?: true } = {}): Promise<boolean> {
   if (!targetSections.length) {
     showError('Select at least one section. No audio was queued.')
-    return
+    return false
   }
-  if (submitting.value || audioJobActiveForEpisode.value) return
+  if (submitting.value || audioJobActiveForEpisode.value) return false
   // A voice MUST be explicitly picked — there is no default. This guards the
   // programmatic path; the Generate button is also disabled until a voice is
   // set. Prevents the silent "generated with the default voice" failure mode.
   if (!form.voice) {
     showError('Pick a voice first — audio generation needs an explicit voice (no default).')
-    return
+    return false
   }
   if (!selectedTtsModelEligible.value) {
     showError('Refresh the Gateway and choose a current voice model before starting narration work.')
-    return
+    return false
   }
   if (!selectedVoiceCompatible.value) {
     showError('The Gateway cannot currently generate with the selected voice. Pick another from the voice list.')
-    return
+    return false
   }
   const sections = targetSections.join(',')
   const force = mode !== 'generate'
   const no_overwrite = mode === 'new_version'
   // Controls are sent RESOLVED, never as the raw form: only names the selected
   // model publishes, every value inside the range it published for them.
-  const payload = audioRequestPayload(targetSections, mode)
+  const payload: Record<string, any> = { ...audioRequestPayload(targetSections, mode), ...extra }
   submitting.value = true
   try {
     // A quote is shown only while it describes this exact target. Generate
@@ -2016,8 +2077,9 @@ async function queueAudio(targetSections: string[], mode: AudioActionMode) {
         { label: 'Model', value: selectedTtsModel.value?.display_name || 'Unavailable' },
         { label: 'Voice', value: selectedVoice.value?.display_name || 'Unavailable' },
         { label: exactQuote ? 'Exact quote' : 'Published rate', value: exactQuote?.text || modelRate.value.text },
+        ...(extra.then_subtitles ? [{ label: 'Then', value: 'New subtitles for the same chapter, with the transcription model that made the old ones' }] : []),
       ],
-    })) return
+    })) return false
 
     const operationId = force || no_overwrite ? freshAudioAction.begin(payload) : null
     if (operationId) payload.operation_id = operationId
@@ -2026,12 +2088,14 @@ async function queueAudio(targetSections: string[], mode: AudioActionMode) {
     if (operationId) freshAudioAction.complete(operationId)
     const queuedAction = mode === 'new_version' ? 'Another version' : mode === 'regenerate' ? 'Regeneration' : 'Generation'
     success(`${queuedAction} queued for ${scopeSummary(targetSections)}.`)
+    return true
   } catch (e: any) {
     console.error('[audio] queue failed:', e, 'payload:', payload)
     showError(e.data?.detail || (payload.operation_id
       ? UNCONFIRMED_SUBMISSION
       : 'Could not start narration. Check that the Gateway is connected (top right), then try again.'))
     audioGenerating.value = false
+    return false
   } finally {
     submitting.value = false
   }

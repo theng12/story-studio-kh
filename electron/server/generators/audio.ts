@@ -49,6 +49,7 @@ import { unavailableLegacyModelMessage } from '../services/genstudio-model-migra
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { resolveGenStudioTtsFanout } from '../lib/genstudio-runtime.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import { addSectionQuality, plainSectionFailure, summarizeSectionQuality, type ChapterSectionQuality } from '../lib/tts-section-quality.js'
 import { hashSubtitleAudioSources } from '../services/subtitle-completion.js'
 import { formatConcatFileLine, runFfmpeg } from '../lib/ffmpeg-utils.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
@@ -719,6 +720,19 @@ export async function generateAudio(job: Job): Promise<void> {
   }
 
   const errors: string[] = []
+  /**
+   * Per chapter: how many sections the Mac re-made, and the plain reason when
+   * one failed on every try (Hub 0.6.137 section check). Shown on Audio.
+   */
+  const sectionQuality: Record<string, ChapterSectionQuality> = {}
+  const publishSectionQuality = () => { job.result = { ...job.result, section_quality: { ...sectionQuality } } }
+  function noteSectionQuality(chapter: string, raw: unknown): void {
+    const part = summarizeSectionQuality(raw)
+    if (!part) return
+    sectionQuality[chapter] = addSectionQuality(sectionQuality[chapter], part)
+    publishSectionQuality()
+    if (part.remade) job.output_lines.push(`  The Mac re-made ${part.remade} section${part.remade === 1 ? '' : 's'} of ${chapter.replaceAll('_', ' ')} that came out wrong.`)
+  }
   const code = episode_id.toUpperCase()
 
   job.output_lines.push(`Generating ${sections.length} audio section(s)...`)
@@ -966,6 +980,7 @@ export async function generateAudio(job: Job): Promise<void> {
         signal: controller.signal,
         isCancelled,
         onProgress: makeChunkCb(),
+        onSectionQuality: (raw: unknown) => noteSectionQuality(task.sectionSlug, raw),
         onJobAccepted: async (providerJobId: string, acceptedIdempotencyKey: string) => {
           await recordTaskStrict(audioDir, chunkFilename, {
             provider: 'genstudio',
@@ -1188,6 +1203,11 @@ export async function generateAudio(job: Job): Promise<void> {
             || ((isGenStudioRouteExhausted(e) || transportFailure) && routeAttempt < TTS_ROUTE_RETRY_MAX_ATTEMPTS)
           if (!worthRetrying) {
             failedTasks++
+            const sectionFailure = plainSectionFailure(String(e?.failureReason || e?.message || ''))
+            if (sectionFailure) {
+              sectionQuality[task.sectionSlug] = { ...sectionQuality[task.sectionSlug] || { sections: 0, remade: 0 }, failed: sectionFailure }
+              publishSectionQuality()
+            }
             // Settled-pool semantics: one chunk failure doesn't kill the
             // batch. The queue stamps status='error' after the loop if
             // errors.length > 0.
@@ -1623,4 +1643,46 @@ export async function generateAudio(job: Job): Promise<void> {
     ? `Staged audio-quality candidate saved to: ${audioDir}`
     : `All audio saved to: ${audioDir}`)
   job.output_dir = audioDir
+  if (req.then_subtitles === true && !isCancelled() && !qualityRepairActionId && !req.no_overwrite) {
+    await queueSubtitlesAfterNarration(job, sections.map(section => section.slug))
+  }
+}
+
+/**
+ * "Re-narrate Chapter 3" (Subtitles / Scene Plan gap notice): once the new
+ * narration is saved, make that chapter's subtitles again with the same
+ * transcription model that made the old ones. Only chapters whose subtitles
+ * are now out of date are transcribed (no `force`), so a replay never pays twice.
+ */
+export async function queueSubtitlesAfterNarration(job: Job, sectionSlugs: string[]): Promise<void> {
+  const { project_slug, episode_id } = job
+  const code = episode_id.toUpperCase()
+  const label = sectionSlugs.map(slug => slug.replaceAll('_', ' ')).join(', ')
+  const paths = await resolveEpisodePathsByCodeWithSidecar(project_slug, episode_id, 'audio_chapters.json')
+  const { readSubtitleSourceModels } = await import('../services/subtitle-recovery.js')
+  const used = await readSubtitleSourceModels(paths.subtitles_dir).catch(() => ({} as Record<string, string>))
+  const lastRun = (await jq.getJobs(project_slug))
+    .filter(other => other.type === 'subtitles_transcribe' && other.status === 'done' && typeof other.params?.model === 'string')
+    .sort((a, b) => String(b.finished_at || '').localeCompare(String(a.finished_at || '')))[0]
+  const model = sectionSlugs.map(slug => used[`${code}_${slug}.srt`]).find(Boolean) || lastRun?.params.model
+  if (!model) {
+    job.output_lines.push(`New subtitles were not started: no earlier transcription model is on record. Make ${label} subtitles on the Subtitles page.`)
+    return
+  }
+  if (jq.isDuplicate(project_slug, episode_id, 'subtitles_transcribe')) {
+    job.output_lines.push(`Subtitles for ${episode_id} are already being made; update ${label} on the Subtitles page once that finishes.`)
+    return
+  }
+  const queued = await jq.enqueue({
+    project_slug,
+    type: 'subtitles_transcribe',
+    episode_id,
+    title: `Subtitles after re-narration (${label})`,
+    params: {
+      episode_id, model, engine: 'genstudio', per_chapter: true, force: false, sections: sectionSlugs,
+      ...(typeof lastRun?.params.language === 'string' ? { language: lastRun.params.language } : {}),
+    },
+  })
+  job.result = { ...job.result, subtitles_job_id: queued.job_id }
+  job.output_lines.push(`New subtitles for ${label} queued (${queued.job_id}).`)
 }
