@@ -140,6 +140,34 @@
             @click.stop.prevent="togglePlay(s)"
           >{{ playingSlug === s.slug ? '⏸' : '▶' }}</button>
           <span v-else class="cs-play-spacer" aria-hidden="true" />
+          <button
+            v-if="(s.takes_count || 0) > 1"
+            type="button"
+            class="cs-play"
+            :aria-expanded="versionsSlug === s.slug"
+            title="This chapter has more than one narration take. See them and choose which one the episode uses."
+            @click.stop.prevent="toggleVersions(s)"
+          >Versions ({{ s.takes_count }})</button>
+        </div>
+        <div v-if="versionsSlug === s.slug" class="cs-versions">
+          <p class="cs-versions-hint">The take marked “In use” is the one Audio Assembly and the video use. “Use This Version” switches to another take; the replaced one moves to the project’s _trash folder.</p>
+          <p v-if="versionsLoading" class="cs-versions-hint">Loading versions…</p>
+          <ul v-else>
+            <li v-for="take in versions" :key="take.files.join('|')" class="cs-version-row">
+              <span class="cs-version-name">{{ takeLabel(take) }}</span>
+              <span class="cs-version-meta">{{ take.files.length === 1 ? '1 file' : `${take.files.length} parts` }} · {{ formatTakeTime(take.modified_at) }}</span>
+              <button type="button" class="cs-play" :class="{ playing: playingTake === take.files[0] }" @click="playTake(s, take)">{{ playingTake === take.files[0] ? '⏸' : '▶' }}</button>
+              <span v-if="take.active" class="cs-pill pill-generated">In use</span>
+              <button
+                v-else
+                type="button"
+                class="btn btn-sm btn-primary"
+                :disabled="switchingTake || isLiveStatus(runtimeStatus(s))"
+                :title="isLiveStatus(runtimeStatus(s)) ? 'Wait for narration of this chapter to finish.' : 'Makes this take the chapter’s narration. Audio Assembly and subtitles then need to run again for this chapter.'"
+                @click="useTake(s, take)"
+              >Use This Version</button>
+            </li>
+          </ul>
         </div>
         <p v-if="sectionChecks[s.slug]" class="cs-section-check" :class="{ failed: !!sectionChecks[s.slug]!.failed }">
           {{ describeChapterSectionQuality(sectionChecks[s.slug]!) }}
@@ -298,6 +326,8 @@ interface SectionRow {
   subtitles_stale?: boolean
   /** Optional project-scoped quality evidence for the active audio mapping. */
   quality?: AudioQualityEvidence
+  /** Narration takes of this chapter on disk; more than one offers "Use This Version". */
+  takes_count?: number
 }
 
 interface SectionAction {
@@ -353,9 +383,9 @@ const emit = defineEmits<{
   'double-check-quality': [request: { slug: string; quality: AudioQualityEvidence }]
 }>()
 
-const { get } = useApi()
+const { get, post } = useApi()
 const { jobs } = useJobs()
-const { error: showError } = useToast()
+const { error: showError, success: showSuccess } = useToast()
 
 const sections = ref<SectionRow[]>([])
 const loading = ref(false)
@@ -372,8 +402,68 @@ const playingSlug = ref<string | null>(null)
 let audioEl: HTMLAudioElement | null = null
 
 function stopPlay() {
+  playingTake.value = null
   if (audioEl) { try { audioEl.pause() } catch { /* already stopped */ } audioEl = null }
   playingSlug.value = null
+}
+
+// ── Narration takes ("Create Another Version") and "Use This Version" ──
+interface ChapterTake { files: string[]; version: number; active: boolean; bytes: number; modified_at: string | null }
+const versionsSlug = ref<string | null>(null)
+const versions = ref<ChapterTake[]>([])
+const versionsLoading = ref(false)
+const switchingTake = ref(false)
+const playingTake = ref<string | null>(null)
+function takeLabel(take: ChapterTake): string {
+  return take.version === 1 ? (take.files.length > 1 ? 'Original take (parts)' : 'Original take') : `Version ${take.version}`
+}
+function formatTakeTime(iso: string | null): string {
+  return iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : ''
+}
+async function loadVersions(slug: string): Promise<void> {
+  versionsLoading.value = true
+  try {
+    const r = await get<{ takes: ChapterTake[] }>(`/projects/${props.projectSlug}/episodes/${encodeURIComponent(props.episodeId)}/audio-sections/${encodeURIComponent(slug)}/versions`)
+    if (versionsSlug.value === slug) versions.value = r.takes || []
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Could not list this chapter’s versions.')
+  } finally {
+    versionsLoading.value = false
+  }
+}
+function toggleVersions(s: SectionRow): void {
+  if (versionsSlug.value === s.slug) { versionsSlug.value = null; return }
+  versionsSlug.value = s.slug
+  versions.value = []
+  void loadVersions(s.slug)
+}
+function playTake(s: SectionRow, take: ChapterTake): void {
+  const file = take.files[0]!
+  if (playingTake.value === file) { stopPlay(); return }
+  stopPlay()
+  const el = new Audio(`/api/projects/${props.projectSlug}/episodes/${encodeURIComponent(props.episodeId)}/audio-file?section=${encodeURIComponent(s.slug)}&file=${encodeURIComponent(file)}`)
+  audioEl = el
+  playingTake.value = file
+  el.addEventListener('ended', () => { if (audioEl === el) stopPlay() })
+  el.play().catch(() => { if (audioEl === el) stopPlay() })
+}
+async function useTake(s: SectionRow, take: ChapterTake): Promise<void> {
+  switchingTake.value = true
+  try {
+    const r = await post<{ trashed: string[] }>(
+      `/projects/${props.projectSlug}/episodes/${encodeURIComponent(props.episodeId)}/audio-sections/${encodeURIComponent(s.slug)}/use-version`,
+      { files: take.files },
+    )
+    showSuccess(`${prettyLabel(s.label)} now uses ${takeLabel(take).toLowerCase()}.`
+      + (r.trashed?.length ? ` The replaced take moved to _trash.` : '')
+      + ' Run Audio Assembly and re-make this chapter’s subtitles next.')
+    await loadVersions(s.slug)
+    await refresh()
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Could not switch to that version.')
+  } finally {
+    switchingTake.value = false
+  }
 }
 
 function togglePlay(s: SectionRow, startSeconds?: number) {
@@ -949,6 +1039,12 @@ watch(
   flex-shrink: 0;
 }
 .cs-play:hover { background: var(--accent-dim); }
+.cs-versions { margin: 6px 0 4px 26px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.cs-versions ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+.cs-versions-hint { margin: 0; font-size: var(--font-xs); color: var(--text-secondary); }
+.cs-version-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cs-version-name { font-weight: 600; font-size: var(--font-sm); }
+.cs-version-meta { color: var(--text-secondary); font-size: var(--font-xs); flex: 1; }
 .cs-play.playing { background: var(--accent-dim); border-color: var(--accent); }
 /* Keeps the pill column aligned when a row has no audio yet (no play button). */
 .cs-play-spacer { display: inline-block; width: 1px; }

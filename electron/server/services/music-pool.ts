@@ -169,6 +169,17 @@ export async function peekNext(slug: string, episode_code: string): Promise<{ tr
   const eligible = state.tracks.filter(t => t.enabled)
   if (!eligible.length) return null
 
+  // Re-merging an episode keeps the track it already has. Without this every
+  // re-assembly advanced the cursor and handed the episode the NEXT track —
+  // often another episode's (Dreamlands EP0002 re-merge took EP0001's track).
+  const cfg = await pm.getConfig(slug)
+  const ownUse = (Array.isArray(cfg?.music_pool_usage_log) ? cfg.music_pool_usage_log : [])
+    .filter(entry => entry.episode_code === episode_code)
+    .sort((a, b) => b.used_at.localeCompare(a.used_at))
+    .map(entry => eligible.find(track => track.filename === entry.filename))
+    .find((track): track is PoolTrack => !!track)
+  if (ownUse) return { track: ownUse, reason: `this episode's track (kept when re-merging)` }
+
   if (state.strategy === 'sequential') {
     const idx = state.cursor % eligible.length
     const track = eligible[idx]!
@@ -218,9 +229,9 @@ export async function peekNext(slug: string, episode_code: string): Promise<{ tr
  * sequential cursor (when applicable), appends to the usage log, and
  * trims the log to LOG_CAP entries.
  *
- * Idempotent on (filename, episode_code, day): if the same pair was
- * already recorded within the last 24 hours, we skip the cursor bump
- * but still upsert the timestamp so the UI reflects the latest use.
+ * Idempotent on (filename, episode_code): re-recording the track an
+ * episode already had (a re-merge) skips the cursor bump but still logs
+ * the use so the UI reflects it.
  */
 export async function recordPick(slug: string, episode_code: string, filename: string): Promise<{ logged: boolean }> {
   const cfg = await pm.getConfig(slug)
@@ -234,15 +245,15 @@ export async function recordPick(slug: string, episode_code: string, filename: s
 
   const log: MusicPoolUsageEntry[] = Array.isArray(cfg.music_pool_usage_log) ? [...cfg.music_pool_usage_log] : []
   const now = new Date().toISOString()
-  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-  const recentSamePair = log.some(e => e.filename === filename && e.episode_code === episode_code && e.used_at > dayAgo)
+  // A re-merge with the track this episode already had is not a new pick.
+  const episodeAlreadyHadTrack = log.some(e => e.filename === filename && e.episode_code === episode_code)
 
   log.push({ filename, episode_code, used_at: now })
   while (log.length > LOG_CAP) log.shift()
 
   const patch: Partial<ProjectConfig> = { music_pool_usage_log: log }
-  if (strategy === 'sequential' && !recentSamePair) {
-    // Advance only when this is a fresh pick (not a same-day re-record).
+  if (strategy === 'sequential' && !episodeAlreadyHadTrack) {
+    // Advance only when this is a fresh pick (not a re-merge).
     const cursor = typeof cfg.music_pool_cursor === 'number' ? cfg.music_pool_cursor : 0
     patch.music_pool_cursor = cursor + 1
   }

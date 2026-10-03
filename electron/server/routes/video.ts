@@ -2,6 +2,7 @@
  * Video editor routes — FFmpeg check, asset scanning, presets, and video generation.
  */
 
+import { inspectMissingSentences } from '../lib/script-transcript-check.js'
 import { Router } from 'express'
 import { createReadStream, existsSync, statSync } from 'fs'
 import fs from 'fs/promises'
@@ -328,21 +329,26 @@ router.get('/projects/:slug/video-editor/intro-hold', async (req, res) => {
       getAudioDuration,
     ).catch(() => 0)
     const opening_mode = measuredOpeningSec > 0 ? 'branded-opening' : 'from-start'
-    const episodeDir = await findEpisodeDirForRoute(slug, episodeId)
-    const sidecarPath = episodeDir ? path.join(episodeDir, 'audio_chapters.json') : ''
-    if (!episodeDir || !sidecarPath || !existsSync(sidecarPath)) {
-      return res.json({ skip_intro_scenes: false, opening_mode, has_intro_chapter: false, story_start_sec: 0, intro_video_sec: 0, hold_sec: 0, intro_label: null })
-    }
-    const sc = JSON.parse(await fs.readFile(sidecarPath, 'utf-8'))
-    const gap = typeof sc.gap_duration_s === 'number' ? sc.gap_duration_s : 0
     const assets = await scanEpisodeAssets(slug, episodeId).catch(() => null)
-    const merged = assets?.merged_audio?.[0]?.path || null
-    const { computeStoryStartSec } = await import('../lib/intro-lead-in.js')
-    const story = await computeStoryStartSec(merged, sc.sections || [], gap)
+    // What THIS episode's Scene Plan reserved for the opening, so the page can
+    // say before Generate whether the opening will push scenes off the narration.
+    const plan_opening_reserved_sec = assets?.scene_plan_timing
+      ? (assets.scene_plan_timing.opening_reserved_sec || 0)
+      : null
     let intro_video_sec = 0
     if (introVideoPath && existsSync(introVideoPath)) {
       intro_video_sec = (await getAudioDuration(introVideoPath).catch(() => 0)) || 0
     }
+    const episodeDir = await findEpisodeDirForRoute(slug, episodeId)
+    const sidecarPath = episodeDir ? path.join(episodeDir, 'audio_chapters.json') : ''
+    if (!episodeDir || !sidecarPath || !existsSync(sidecarPath)) {
+      return res.json({ skip_intro_scenes: false, opening_mode, has_intro_chapter: false, story_start_sec: 0, intro_video_sec, hold_sec: 0, intro_label: null, plan_opening_reserved_sec })
+    }
+    const sc = JSON.parse(await fs.readFile(sidecarPath, 'utf-8'))
+    const gap = typeof sc.gap_duration_s === 'number' ? sc.gap_duration_s : 0
+    const merged = assets?.merged_audio?.[0]?.path || null
+    const { computeStoryStartSec } = await import('../lib/intro-lead-in.js')
+    const story = await computeStoryStartSec(merged, sc.sections || [], gap)
     const story_start_sec = story?.story_start_sec || 0
     const hold_sec = Math.max(0, Math.round((story_start_sec - intro_video_sec) * 100) / 100)
     res.json({
@@ -353,6 +359,7 @@ router.get('/projects/:slug/video-editor/intro-hold', async (req, res) => {
       story_start_sec,
       intro_video_sec,
       hold_sec,
+      plan_opening_reserved_sec,
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not compute the intro title-card hold'))
@@ -1341,6 +1348,12 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
         .catch(() => {})
     }
 
+    // Script vs transcript: sentences each chapter's narration never said,
+    // including ones inside pauses too short for the cue-gap gate above.
+    const missingSentences = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, 'audio_chapters.json')
+      .then(paths => inspectMissingSentences(paths.script_dir, subtitlesDir, episodeId, subtitleFreshness.stale_sections))
+      .catch(() => [])
+
     res.json({
       has_libass: libass,
       has_merged_audio: assembly.merged_audio_ready,
@@ -1369,6 +1382,7 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
       freshness_reason: subtitleFreshness.freshness_reason,
       last_stitched_at: lastStitchedAt,
       timeline_integrity: subtitleTimelineIntegrity,
+      missing_sentences: missingSentences,
       planning_transcript_source: planningTranscript?.source ?? null,
       planning_source_revalidation_required: planningTranscript?.planning_source_revalidation_required ?? false,
       // v1.4.0 — the Scene Plan is GENERATED FROM the stitched transcript, so an

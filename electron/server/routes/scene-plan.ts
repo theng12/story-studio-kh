@@ -771,11 +771,12 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-long-scenes', async (r
           + 'each holds a single indivisible subtitle cue, or spans a silent gap with no narration to cut on. '
           + 'Shorten those holds by hand in Scene Plan, or raise the pacing maximum in Visual timing & motion.'
         : `No scenes exceed the ${repaired.hasSavedPacing ? 'saved Scene Plan pacing cap' : `selected ${repaired.repairMaxSec}-second pacing cap`}. If subtitles were just restored, stitch them again before retrying.`
-      return res.status(400).json({ detail })
+      return res.status(400).json({ detail, unsplittable_count: repaired.unsplittableCount })
     }
     await invalidateScenePlanStatus(slug, episodeId)
     res.json({
       ok: true,
+      unsplittable_count: repaired.unsplittableCount,
       repairedCount: repaired.repairedCount,
       addedCount: repaired.addedCount,
       repairedIds: repaired.repairedIds,

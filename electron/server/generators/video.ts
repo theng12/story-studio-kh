@@ -15,7 +15,7 @@ import os from 'os'
 import path from 'path'
 import { spawn } from 'child_process'
 import * as pm from '../services/project-manager.js'
-import { checkpointJobState, trackChild } from '../services/job-queue.js'
+import { checkpointJobState, isCancelled, trackChild } from '../services/job-queue.js'
 import { withFinalVideoPathLock } from '../services/final-video-lock.js'
 import { resolveSubfolderNames, resolveScenePlanPath, resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 // v1.0.338 — episode-dir + subfolder lookups consolidated into the shared
@@ -54,6 +54,7 @@ import {
   createVideoAssemblyCheckpoint,
   findReusableVideoAssemblySceneClips,
   getValidVideoAssemblyCheckpoint,
+  moveCheckpointSceneClips,
   setVideoAssemblyCheckpoint,
   validateVideoAssemblySceneClip,
   type VideoAssemblyCheckpoint,
@@ -1767,19 +1768,24 @@ export async function generateVideo(job: Job): Promise<void> {
     ? await getValidVideoAssemblyCheckpoint(job, ['running'])
     : null
   const matchingCheckpoint = savedCheckpoint?.render_fingerprint === renderFingerprint ? savedCheckpoint : null
-  const tempDir = matchingCheckpoint?.work_dir || await getWorkTempDir(project_slug, code)
+  // Every attempt gets a FRESH temp dir: an encoder orphaned by a crash may
+  // still be writing into the old one. Verified checkpoint clips move across.
+  const tempDir = await getWorkTempDir(project_slug, code)
+  const carriedSceneClips = matchingCheckpoint
+    ? await moveCheckpointSceneClips(matchingCheckpoint, tempDir)
+    : []
   const videoAssemblyCheckpoint = renderFingerprint
     ? createVideoAssemblyCheckpoint(
         job,
         tempDir,
         renderFingerprint,
-        matchingCheckpoint?.completed_scene_clips || [],
+        carriedSceneClips,
       )
     : null
   if (videoAssemblyCheckpoint) {
     setVideoAssemblyCheckpoint(job, videoAssemblyCheckpoint)
     await checkpointJobState(job)
-    if (matchingCheckpoint) job.output_lines.push(`Recovery: validating ${matchingCheckpoint.completed_scene_clips.length} saved scene clip(s).`)
+    if (matchingCheckpoint) job.output_lines.push(`Recovery: validating ${carriedSceneClips.length} saved scene clip(s) (moved into a fresh work folder).`)
   }
   // Debug mode: when STORY_STUDIO_VIDEO_DEBUG is truthy, preserve the
   // temp dir on every run (success OR failure) so the user can replay a
@@ -2631,7 +2637,32 @@ export async function generateVideo(job: Job): Promise<void> {
     // negative shift, which is equally correct: the cue follows its scene.
     const planSceneOriginSec = planCoverageScenes[0]?.start_sec ?? 0
     const sceneTimelineOffsetSec = Math.round((preSceneDuration - planSceneOriginSec) * 1000) / 1000
-    if (Math.abs(sceneTimelineOffsetSec) >= 0.05) {
+    // A title image / title card / opening still the plan did not reserve is
+    // silent picture that is NOT in the merged audio. Instead of playing the
+    // narration under it (every scene then lands that many seconds after its
+    // words — Dreamlands EP0002, 5 s), the narration and its captions start
+    // after it, so the opening leads in and the scenes stay on their narration.
+    const narrationLeadInSec = narrationLeadInForOpening({
+      planStrict,
+      sceneTimelineOffsetSec,
+      introVideoInOpening: !!introClipPath,
+    })
+    if (narrationLeadInSec > 0) {
+      job.output_lines.push(
+        `Opening sync: the ${narrationLeadInSec.toFixed(2)}s opening (title image or card) is not part of the narration, ` +
+        `so the narration${req.subtitles?.enabled ? ' and captions' : ''} start after it — every scene stays on the narration it was planned against.`,
+      )
+      if (req.subtitles?.enabled && req.subtitles.srt_path && existsSync(req.subtitles.srt_path)) {
+        const { parseSrt, formatSrtTime } = await import('../lib/subtitle-builder.js')
+        const cues = parseSrt(await fs.readFile(req.subtitles.srt_path, 'utf-8'))
+        const shiftedPath = path.join(tempDir, 'subtitles_after_opening.srt')
+        await fs.writeFile(shiftedPath, cues
+          .map((c, i) => `${i + 1}\n${formatSrtTime(c.start_sec + narrationLeadInSec)} --> ${formatSrtTime(c.end_sec + narrationLeadInSec)}\n${c.text}`)
+          .join('\n\n') + '\n', 'utf-8')
+        req.subtitles = { ...req.subtitles, srt_path: shiftedPath }
+      }
+    }
+    if (Math.abs(sceneTimelineOffsetSec) >= 0.05 && narrationLeadInSec === 0) {
       // The reverse of the guard above, and the owner's live situation: an
       // intro is enabled while the plan reserved nothing for it. Deriving the
       // offset puts the CUES back on their scenes, but it cannot put the scenes
@@ -2648,6 +2679,8 @@ export async function generateVideo(job: Job): Promise<void> {
         'To lock them together, open Scene Plan and create the timeline again — it measures your opening ' +
         `clips (${preSceneDuration.toFixed(1)}s right now) and reserves exactly that.`,
       )
+    }
+    if (Math.abs(sceneTimelineOffsetSec) >= 0.05) {
       if (req.contextual_cues?.length) {
         job.output_lines.push(
           `Contextual cues shifted ${sceneTimelineOffsetSec > 0 ? '+' : ''}${sceneTimelineOffsetSec.toFixed(2)}s ` +
@@ -2693,7 +2726,9 @@ export async function generateVideo(job: Job): Promise<void> {
     // extend the encoder's `-t` so nothing gets clipped, and both
     // contribute to the premix audio length in identical fashion.
     const tailClipsDuration = afterScenesDur + afterOutroDur
-    const totalRenderDuration = targetDuration + outroDuration + tailClipsDuration
+    // The narration lead-in pushes the narration (and its post-audio tail) later by the same amount.
+    const sceneTrackTargetDuration = targetDuration + narrationLeadInSec
+    const totalRenderDuration = sceneTrackTargetDuration + outroDuration + tailClipsDuration
     if (outroDuration > 0 || tailClipsDuration > 0) {
       const parts = [`target ${targetDuration.toFixed(1)}s`]
       if (outroDuration > 0) parts.push(`outro ${outroDuration.toFixed(1)}s`)
@@ -2755,7 +2790,7 @@ export async function generateVideo(job: Job): Promise<void> {
     // 10. Build concat list — scenes match narration duration, post-audio fills the rest
     const { listPath: concatListPath, sceneEndTime } = await buildConcatList(
       tempDir, introClipPath, titleClipPath, sceneClips,
-      targetDuration, narrationDuration, postAudio,
+      sceneTrackTargetDuration, narrationDuration, postAudio,
       req.scene_recycling, resW, resH, quality, job,
       sceneClipDurations,
       req.transition && req.transition !== 'none' ? {
@@ -2783,6 +2818,7 @@ export async function generateVideo(job: Job): Promise<void> {
       narrationPath: narrationFilePath,
       narrationDuration,
       narrationVolume: req.narration_volume ?? 1.0,
+      narrationDelaySec: narrationLeadInSec,
       musicFilePath, musicConfig: req.music,
       backgroundNoise: req.background_noise,
       targetDuration: totalRenderDuration, tempDir, job,
@@ -3812,6 +3848,8 @@ export async function prepareSceneClips(
       while (true) {
         const i = nextIndex++
         if (i >= scenes.length) return
+        // Cancel kills the running clip encoders; the other workers must not pick up the next scene.
+        if (isCancelled(job.job_id)) throw new Error('Cancelled by user')
         try {
           await prepOne(i)
         } catch (e: any) {
@@ -4908,6 +4946,8 @@ interface PremixAudioOpts {
   narrationPath: string
   narrationDuration: number
   narrationVolume: number
+  /** Seconds of silence before the narration (an unreserved title image leads in). */
+  narrationDelaySec?: number
   musicFilePath?: string
   musicConfig?: VideoMusicConfig
   backgroundNoise?: VideoBackgroundNoise
@@ -4916,12 +4956,15 @@ interface PremixAudioOpts {
   job: Job
 }
 
-async function premixAudio(opts: PremixAudioOpts): Promise<string> {
+export async function premixAudio(opts: PremixAudioOpts): Promise<string> {
   const {
-    narrationPath, narrationDuration, narrationVolume,
+    narrationPath, narrationVolume,
     musicFilePath, musicConfig, backgroundNoise,
     targetDuration, tempDir, job,
   } = opts
+  const narrationDelayMs = Math.max(0, Math.round((opts.narrationDelaySec || 0) * 1000))
+  // Where the narration ENDS on the composed timeline (music swells after it).
+  const narrationDuration = opts.narrationDuration + narrationDelayMs / 1000
 
   const outputPath = path.join(tempDir, 'premixed_audio.wav')
   const args: string[] = ['-y']
@@ -4966,7 +5009,7 @@ async function premixAudio(opts: PremixAudioOpts): Promise<string> {
   // Narration: resample, normalize, pad to target duration
   const narrVol = narrationVolume ?? 1.0
   filterParts.push(
-    `[${narrIdx}:a]aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp,volume=${narrVol},apad=whole_dur=${targetDuration}[narr]`
+    `[${narrIdx}:a]aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp,volume=${narrVol}${narrationDelayMs > 0 ? `,adelay=delays=${narrationDelayMs}:all=1` : ''},apad=whole_dur=${targetDuration}[narr]`
   )
 
   const audioStreams: string[] = ['[narr]']
@@ -6021,22 +6064,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   // The full filter chain is captured in `args` (with `[vout]` mapping)
   // and the audio map is `${audioInputIdx}:a`. Tiers 3+ use a minimal
   // re-build that bypasses filter_complex entirely.
-  type AttemptResult = { ok: true } | { ok: false; error: any }
-  type Tier = {
-    label: string
-    note?: string
-    build: () => string[]
-    /** Optional gate: only run if the previous tier failed in a way this
-     *  tier can address. For tier 2 we keep the historical libx265-EINVAL
-     *  guard so well-behaved H.265 jobs aren't quietly downgraded to H.264
-     *  on unrelated failures. */
-    shouldRun?: (prevError: any) => boolean
-    /** Human-readable description of what gets dropped at this tier. */
-    degraded?: string
-    /** True when this tier bypasses `filter_complex` entirely, so every
-     *  burned-in feature the user asked for is discarded. */
-    dropsBurnedInFeatures?: boolean
-  }
+  type Tier = EncodeTier
 
   // ── What the user actually asked to be burned in ────────────────────────
   //
@@ -6164,44 +6192,23 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   job.output_lines.push('Running final composition...')
   job.output_lines.push(`Output: ${path.basename(outputFile)}`)
 
-  let lastError: any = null
-  let succeededTier: Tier | null = null
-  for (let i = 0; i < tiers.length; i++) {
-    const tier = tiers[i]
-    if (i > 0 && tier.shouldRun && !tier.shouldRun(lastError)) continue
-
-    const args = tier.build()
-    if (i === 0) {
-      job.output_lines.push(`Codec: ${tier.label}`)
-    } else {
-      const stderrSnippet = (lastError?.stderr || '').split('\n').filter((l: string) => l.trim()).slice(-3).join(' | ')
-      job.output_lines.push(
-        `⚠ Encode tier ${i} failed (${stderrSnippet || lastError?.message || 'unknown'}). ` +
-        `Trying tier ${i + 1}: ${tier.label}` +
-        (tier.degraded ? ` — ${tier.degraded}` : '')
-      )
-    }
-    logCmd(args, tier.note)
-    const result: AttemptResult = await runEncode(args)
-      .then(() => ({ ok: true } as AttemptResult))
-      .catch(e => ({ ok: false, error: e } as AttemptResult))
-
-    if (result.ok) {
-      try {
-        await validateEncodedOutput()
-        succeededTier = tier
-        break
-      } catch (validateErr: any) {
-        lastError = validateErr
-        continue
-      }
-    }
-    lastError = result.error
-  }
+  const chain = await runEncodeTierChain(tiers, {
+    run: runEncode,
+    validate: validateEncodedOutput,
+    log: line => job.output_lines.push(line),
+    logCmd,
+    isCancelled: () => isCancelled(job.job_id),
+  })
+  const { lastError, succeededTier } = chain
 
   // The filter graph no longer needs generated ASS documents after all encode
   // attempts finish. Best-effort cleanup covers success and recovery failure.
   await Promise.all(generatedSubtitleFiles.map(file => fs.rm(file, { force: true }).catch(() => undefined)))
+
+  if (chain.cancelled) {
+    job.output_lines.push('Render cancelled — encoding stopped; no fallback encode was started.')
+    throw new Error('Cancelled by user')
+  }
 
   if (!succeededTier) {
     // All tiers failed — emit the full diagnostic trail so the user can
@@ -6225,6 +6232,94 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
       dropped: succeededTier.dropsBurnedInFeatures ? requestedBurnIns : [],
     })
   }
+}
+
+/**
+ * Seconds the narration should start after the composed opening.
+ *
+ * Only for a Scene Plan render whose opening the plan did not reserve, and
+ * only when that opening is silent picture (title image / card / stills): an
+ * intro VIDEO's sound already lives inside the merged audio (Audio Assembly),
+ * so delaying the narration there would push the intro audio under scene 1 —
+ * that case keeps the existing warning and the page warns before Generate.
+ */
+export function narrationLeadInForOpening(opts: {
+  planStrict: boolean
+  sceneTimelineOffsetSec: number
+  introVideoInOpening: boolean
+}): number {
+  if (!opts.planStrict || opts.introVideoInOpening) return 0
+  return opts.sceneTimelineOffsetSec >= 0.05 ? opts.sceneTimelineOffsetSec : 0
+}
+
+export type EncodeTier = {
+  label: string
+  note?: string
+  build: () => string[]
+  /** Optional gate: only run if the previous tier failed in a way this
+   *  tier can address. For tier 2 we keep the historical libx265-EINVAL
+   *  guard so well-behaved H.265 jobs aren't quietly downgraded to H.264
+   *  on unrelated failures. */
+  shouldRun?: (prevError: any) => boolean
+  /** Human-readable description of what gets dropped at this tier. */
+  degraded?: string
+  /** True when this tier bypasses `filter_complex` entirely, so every
+   *  burned-in feature the user asked for is discarded. */
+  dropsBurnedInFeatures?: boolean
+}
+
+/**
+ * Run the final-encode tiers in order until one produces a valid file.
+ *
+ * Cancellation is checked before every tier and after every failed attempt:
+ * Cancel kills the running encoder, and that kill must end the chain — it is
+ * not an encode failure to recover from. (Dreamlands E2E 2026-10-03: a cancelled
+ * render's SIGKILLed encoder was read as a failure and tier 4 started a
+ * subtitle-less "recovery" encode for a job already marked cancelled.)
+ */
+export async function runEncodeTierChain<T extends EncodeTier>(
+  tiers: T[],
+  io: {
+    run: (args: string[]) => Promise<void>
+    validate: () => Promise<void>
+    log: (line: string) => void
+    logCmd: (args: string[], note?: string) => void
+    isCancelled: () => boolean
+  },
+): Promise<{ succeededTier: T | null; lastError: any; cancelled: boolean }> {
+  let lastError: any = null
+  for (let i = 0; i < tiers.length; i++) {
+    if (io.isCancelled()) return { succeededTier: null, lastError, cancelled: true }
+    const tier = tiers[i]
+    if (i > 0 && tier.shouldRun && !tier.shouldRun(lastError)) continue
+
+    const args = tier.build()
+    if (i === 0) {
+      io.log(`Codec: ${tier.label}`)
+    } else {
+      const stderrSnippet = (lastError?.stderr || '').split('\n').filter((l: string) => l.trim()).slice(-3).join(' | ')
+      io.log(
+        `⚠ Encode tier ${i} failed (${stderrSnippet || lastError?.message || 'unknown'}). ` +
+        `Trying tier ${i + 1}: ${tier.label}` +
+        (tier.degraded ? ` — ${tier.degraded}` : ''),
+      )
+    }
+    io.logCmd(args, tier.note)
+    try {
+      await io.run(args)
+    } catch (error) {
+      lastError = error
+      continue
+    }
+    if (io.isCancelled()) return { succeededTier: null, lastError, cancelled: true }
+    try {
+      await io.validate()
+      return { succeededTier: tier, lastError, cancelled: false }
+    } catch (validateErr) {
+      lastError = validateErr
+    }
+  }
+  return { succeededTier: null, lastError, cancelled: io.isCancelled() }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────

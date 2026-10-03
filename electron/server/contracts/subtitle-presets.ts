@@ -67,11 +67,15 @@ export const BUILT_IN_SUBTITLE_PRESETS: BuiltInSubtitlePreset[] = [
     }),
 
   // Sleep-story channels: legible without being the brightest thing on screen.
+  // Dreamlands E2E 2026-10-03: the old 24 px, 82 %-opacity grey with a 1 px,
+  // 55 % outline was nearly unreadable at 1080p over bright scenes. Now the size
+  // of Gentle Fade with a firm outline; the softness is the warm-grey tint and
+  // the long fade, not missing contrast.
   preset('sleep-soft', 'Sleep Soft',
-    'Dim, low-contrast and small, with a long slow fade. Built for sleep stories.', {
-      typography: { font_family: 'Avenir Next', font_size_px: 24 },
-      color: { primary_hex: '#C7D0DA', primary_opacity: 0.82, outline_opacity: 0.55 },
-      edge: { outline_px: 1, blur_px: 2 },
+    'Soft warm-grey captions with a long, slow fade. Built for sleep stories.', {
+      typography: { font_family: 'Avenir Next', font_size_px: 30 },
+      color: { primary_hex: '#E6E9EE', primary_opacity: 0.95, outline_opacity: 0.85 },
+      edge: { outline_px: 2, blur_px: 1 },
       animation: { type: 'fade', in_ms: 700, out_ms: 700 },
     }),
 

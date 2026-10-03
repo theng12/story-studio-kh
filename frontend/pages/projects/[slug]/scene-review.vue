@@ -124,7 +124,7 @@
     >
       {{ failedRenderMessage }} Images that were already saved are kept.
       <template #actions>
-        <button class="btn btn-sm btn-secondary" :disabled="retryingFailedRender" title="Tries again for the images that did not finish; may use credits." @click="retryFailedRender">
+        <button class="btn btn-sm btn-secondary" :disabled="retryingFailedRender" :title="`Tries again for the images that did not finish${creditsNote}.`" @click="retryFailedRender">
           {{ retryingFailedRender ? 'Retrying…' : 'Retry' }}
         </button>
         <NuxtLink :to="`/projects/${slug}/jobs`" class="btn btn-sm btn-ghost">Open Jobs</NuxtLink>
@@ -264,7 +264,7 @@
             class="btn btn-sm btn-primary"
             :disabled="!form.model || continuityRendering || reviewJobActive"
             @click="regenerateSelected"
-            :title="reviewJobActive ? sceneRenderBlockReason({ id: '' }) : 'Re-render the selected scenes together as one image job. Replaces their current images; may use credits.'"
+            :title="reviewJobActive ? sceneRenderBlockReason({ id: '' }) : `Re-render the selected scenes together as one image job. Replaces their current images${creditsNote}.`"
           >
             Regenerate selected ({{ selectedCount }})
           </button>
@@ -298,7 +298,7 @@
             class="btn btn-sm btn-ghost"
             :disabled="!form.model || continuityRendering || reviewJobActive"
             @click="regenerateUnapproved"
-            :title="reviewJobActive ? sceneRenderBlockReason({ id: '' }) : 'Re-render every not-yet-approved scene as one image job. Replaces their current images; may use credits.'"
+            :title="reviewJobActive ? sceneRenderBlockReason({ id: '' }) : `Re-render every not-yet-approved scene as one image job. Replaces their current images${creditsNote}.`"
           >
             Regenerate all unapproved
           </button>
@@ -653,6 +653,7 @@ import { resolveActiveSceneRenderJob } from '~/utils/scene-render-job-state'
 import { customerSafeJobText, jobRequestIds } from '../../../utils/job-presentation.js'
 import { findOutputOption, publishedOutputOptions, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
 import { CREDIT_BASIS_LABEL, describeImageUnitCost } from '../../../utils/genstudio-credit-cost.js'
+import { isFreeToRun } from '../../../utils/genstudio-price-usd.js'
 import { findGenStudioProduct } from '../../../../electron/server/contracts/genstudio-product-identity'
 import { pacingBandAt, type ScenePacing } from '@shared/pacing'
 
@@ -982,9 +983,11 @@ const canBulkGenerate = computed(() => {
   if (!finishMissingInputsComplete.value) return false
   return stats.value.total_scenes > stats.value.with_image
 })
+// Free fleet models cost nothing; "may use credits" only for a model that can charge.
+const creditsNote = computed(() => (isFreeToRun(selectedGenStudioModel.value) ? '' : '; may use credits'))
 const missingCount = computed(() => Math.max(0, (stats.value?.total_scenes || 0) - (stats.value?.with_image || 0)))
 const finishMissingLabel = computed(() =>
-  `Finish ${missingCount.value} missing image${missingCount.value === 1 ? '' : 's'} · may use credits`,
+  `Finish ${missingCount.value} missing image${missingCount.value === 1 ? '' : 's'}${isFreeToRun(selectedGenStudioModel.value) ? ' · free' : ' · may use credits'}`,
 )
 const bulkStatus = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'

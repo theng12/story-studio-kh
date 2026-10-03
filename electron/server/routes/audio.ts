@@ -363,6 +363,48 @@ router.get('/projects/:slug/episodes/:code/audio-status', async (req, res) => {
 // / Chapter 2 / …) with: how many chunks the section needs, how many exist
 // on disk, and a derived overall status. The audio.vue selector uses this
 // to render status pills without users having to open the script.
+// ── Narration takes of one chapter + "Use This Version" ────────────────
+router.get('/projects/:slug/episodes/:code/audio-sections/:section/versions', async (req, res) => {
+  try {
+    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const paths = await resolveEpisodePathsByCodeWithSidecar(req.params.slug, req.params.code, 'audio_chapters.json')
+    const { listChapterTakes } = await import('../services/audio-versions.js')
+    res.json({ takes: await listChapterTakes(paths.episode_dir, paths.audio_dir, req.params.code.toUpperCase(), req.params.section) })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not list this chapter\'s narration versions'))
+  }
+})
+
+router.post('/projects/:slug/episodes/:code/audio-sections/:section/use-version', async (req, res) => {
+  const { slug, code, section } = req.params
+  try {
+    const projectDir = pm.getProjectDir(slug)
+    if (!projectDir || !await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const files = Array.isArray(req.body?.files) ? req.body.files : null
+    if (!files?.length || files.some((f: unknown) => typeof f !== 'string' || path.basename(f) !== f)) {
+      return res.status(400).json({ detail: 'Pick one version of this chapter.' })
+    }
+    const busy = [...jq.activeJobsOfType('audio'), ...jq.activeJobsOfType('audio_merge')]
+      .some(job => job.project_slug === slug && job.episode_id?.toUpperCase() === code.toUpperCase())
+    if (busy) {
+      return res.status(409).json({ detail: `Narration or Audio Assembly is running for ${code.toUpperCase()}. Switch versions when it finishes.` })
+    }
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, code, 'audio_chapters.json')
+    const { useChapterTake } = await import('../services/audio-versions.js')
+    const result = await useChapterTake({
+      projectDir, episodeDir: paths.episode_dir, audioDir: paths.audio_dir,
+      code: code.toUpperCase(), slug: section, files,
+    })
+    try {
+      const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+      episodeStatusCache.invalidate(slug, code)
+    } catch { /* cache is best-effort */ }
+    res.json({ ok: true, ...result })
+  } catch (e: any) {
+    res.status(e?.statusCode === 404 ? 404 : 500).json(humanizeBackendError(e, 'Could not switch to that version'))
+  }
+})
+
 router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => {
   try {
     if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
@@ -392,7 +434,7 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
       // already authoritative because the reconciler reuses generators/audio
       // naming, so re-deriving here keeps us in lockstep.
       const base = ec.filename.replace(/\.mp3$/, '')
-      const slug = base.replace(/_part\d+$/, '').replace(new RegExp(`^${req.params.code}_`, 'i'), '')
+      const slug = base.replace(/(?:_part\d+)?(?:_v\d+)?$/, '').replace(new RegExp(`^${req.params.code}_`, 'i'), '')
       const entry = bySlug.get(slug) || {
         label: ec.sectionLabel,
         slug,
@@ -567,9 +609,13 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
       }
     } catch { /* status remains available when no assembled subtitle source exists */ }
 
+    // How many narration takes each chapter has on disk (>1 offers "Use This Version").
+    const { groupChapterTakes } = await import('../services/audio-versions.js')
+    const audioEntries = await fs.readdir(status.audio_dir).catch(() => [] as string[])
     const sections = await Promise.all(
       Array.from(bySlug.values()).map(async s => ({
         ...s,
+        takes_count: groupChapterTakes(code.toUpperCase(), s.slug, audioEntries).length,
         // 'generated' = every chunk is on disk; 'partial' = some chunks
         // exist but the section isn't whole; 'not_generated' = nothing yet.
         status: s.present_chunks === 0 ? 'not_generated'
@@ -1112,6 +1158,12 @@ router.get('/projects/:slug/episodes/:code/audio-file', async (req, res) => {
         matches = mapped
       }
     } catch { /* Fall back to the ordinary reconciled file list. */ }
+    // One specific take of this section (the Versions list), active or not.
+    const takeFile = typeof req.query.file === 'string' ? req.query.file : ''
+    if (takeFile) {
+      if (path.basename(takeFile) !== takeFile || !re.test(takeFile)) return res.status(400).json({ detail: 'Invalid path' })
+      matches = [takeFile]
+    }
     if (!matches.length) return res.status(404).json({ detail: 'No generated audio for this section yet' })
 
     // A read-only manifest lets native chapter playback queue every chunk

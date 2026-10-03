@@ -44,6 +44,8 @@
       </TopActionBar>
     </div>
 
+    <p v-if="lastUsedNotice" class="last-used-note text-muted text-sm" role="status">{{ lastUsedNotice }}</p>
+
     <!-- Applying a preset validates every saved file reference before the
          user can generate. Missing paths remain a clear, actionable blocker. -->
     <div
@@ -627,6 +629,8 @@
             </div>
             <p class="text-muted text-xs hint-line">This image will display for {{ titleImage.duration }}s before scenes begin</p>
           </div>
+
+          <p v-if="openingSyncNote" :class="['opening-sync-note', 'mt-2', `opening-sync-note--${openingSyncNote.tone}`]" role="status">{{ openingSyncNote.text }}</p>
 
           <!-- The staged Scene Plan owns branded-opening timing. -->
           <div v-if="introHold?.opening_mode === 'branded-opening'" class="intro-hold-note mt-2">
@@ -2434,6 +2438,7 @@
     <div v-if="currentStep === 6" class="card workspace-section assembly-step-panel">
       <h3>Step 6: Export &amp; Generate</h3>
       <p class="text-muted mt-1">Review settings and generate your video</p>
+      <p v-if="openingSyncNote" :class="['opening-sync-note', 'mt-2', `opening-sync-note--${openingSyncNote.tone}`]" role="status">{{ openingSyncNote.text }}</p>
 
       <PresetPicker
         label="Export preset"
@@ -2882,6 +2887,9 @@
 import type { CSSProperties } from 'vue'
 import { applyTitleImagePreset, snapshotTitleImagePreset } from '~/utils/video-assembly-presets'
 import { describeMergedAudioOpening } from '~/utils/merged-audio-opening'
+import { describeOpeningSync } from '~/utils/opening-sync'
+import { estimateRender, formatEstimateGb, formatEstimateTime } from '~/utils/render-estimate'
+import { LAST_USED_CONFIG_KEY, pickLastUsedSettings, recordLastUsedSettings } from '~/utils/video-assembly-last-used'
 import { aspectRatioOptions, canvasFor, parseAspectRatio, DEFAULT_ASPECT_RATIO } from '~/utils/aspect-ratios'
 import { describeSubtitleBurn } from '~/utils/subtitle-episode-selection'
 import { customerSafeJobText } from '~/utils/job-presentation'
@@ -3184,6 +3192,8 @@ const introHold = ref<{
   intro_video_sec: number
   hold_sec: number
   intro_label: string | null
+  /** Seconds this episode's Scene Plan reserved for the opening; null = no plan yet. */
+  plan_opening_reserved_sec?: number | null
 } | null>(null)
 let introHoldSequence = 0
 async function loadIntroHold() {
@@ -3201,7 +3211,7 @@ async function loadIntroHold() {
     if (current()) introHold.value = result
   } catch { if (current()) introHold.value = null }
 }
-watch([() => episodeId.value, () => intro.enabled, () => intro.video_path], () => { loadIntroHold() })
+watch([() => episodeId.value, () => intro.enabled, () => intro.video_path], () => { loadIntroHold() }, { immediate: true })
 
 const outro = reactive({
   enabled: false,
@@ -4527,6 +4537,18 @@ const titleCard = reactive({
   background: 'black',
   background_media_path: '',
 })
+
+// Said before Generate: whether the opening will keep scenes on their narration.
+const openingSyncNote = computed(() => describeOpeningSync({
+  visualSource: visualSource.value,
+  planReservedSec: introHold.value ? (introHold.value.plan_opening_reserved_sec ?? null) : null,
+  introVideoOn: !!(intro.enabled && intro.video_path),
+  introVideoSec: Number(introHold.value?.intro_video_sec) || 0,
+  titleImageOn: !!(titleImage.enabled && titleImage.image_path),
+  titleImageSec: Number(titleImage.duration) || 0,
+  titleCardOn: !!(titleCard.enabled && titleCard.text?.trim()),
+  titleCardSec: Number(titleCard.duration) || 0,
+}))
 const chapterTitles = reactive({
   enabled: false,
   style: 'white' as string,
@@ -5110,6 +5132,56 @@ const videoBundlePresets = usePresets({
   },
 })
 
+// --------------- Last render's settings ---------------
+// Every submitted render records its choices for this episode and as the
+// channel's starting point; opening an episode restores its own last render,
+// else the channel's. Without this a re-render silently fell back to Ken Burns,
+// no subtitles and CRF 18 unless a preset had been saved (Dreamlands E2E).
+const lastUsedNotice = ref('')
+let lastUsedReady = false
+function snapshotAllSettings() {
+  return {
+    intro: snapshotIntroData(),
+    timeline: snapshotTimelineData(),
+    effects: snapshotEffectsData(),
+    subtitles: snapshotSubtitlesData(),
+    export: snapshotExportData(),
+  }
+}
+async function restoreLastUsedSettings(): Promise<void> {
+  const episode = episodeId.value
+  const project = slug.value
+  if (!episode) { lastUsedNotice.value = ''; return }
+  try {
+    const config = await get<any>(`/projects/${project}/settings/config`)
+    if (episode !== episodeId.value || project !== slug.value) return
+    const pick = pickLastUsedSettings(config?.[LAST_USED_CONFIG_KEY], episode)
+    if (!pick) { lastUsedNotice.value = ''; return }
+    applyIntroData(pick.settings.intro)
+    applyTimelineData(pick.settings.timeline)
+    applyEffectsData(pick.settings.effects)
+    applySubtitlesData(pick.settings.subtitles)
+    applyExportData(pick.settings.export)
+    if (pick.scope === 'channel' && selectedEpisode.value?.title) titleCard.text = selectedEpisode.value.title
+    lastUsedNotice.value = pick.scope === 'episode'
+      ? `Settings restored from ${episode}'s last render. Change anything below, or apply a preset.`
+      : `Settings start from this channel's last render (${pick.from_episode}). Change anything below, or apply a preset.`
+  } catch { /* keep the form as it is */ }
+}
+async function rememberLastUsedSettings(): Promise<void> {
+  const episode = episodeId.value
+  const project = slug.value
+  if (!episode) return
+  const settings = snapshotAllSettings()
+  try {
+    const config = await get<any>(`/projects/${project}/settings/config`)
+    await put(`/projects/${project}/settings/config`, {
+      [LAST_USED_CONFIG_KEY]: recordLastUsedSettings(config?.[LAST_USED_CONFIG_KEY], episode, settings),
+    })
+  } catch { /* the render is queued either way; next time starts from the preset */ }
+}
+watch(episodeId, () => { if (lastUsedReady) void restoreLastUsedSettings() })
+
 // --------------- v1.0.93+ Bundle path-check ---------------
 //
 // The bundle preset aggregates intro/timeline/effects/subtitles/export
@@ -5307,49 +5379,7 @@ const lowAssetWarning = computed(() => {
   return `Heads up — only ${sceneCount} scene${sceneCount === 1 ? '' : 's'} will cycle ~${cycles} times to fill the narration. Viewers will notice the repetition. Add more scenes or shorten the episode.`
 })
 
-/**
- * Rough Mbps baseline at 1080p 30fps with `medium` preset + H.264, per
- * quality tier. Calibrated from real renders: user's 3h ×1080p × fast ×
- * ultrafast previously ran ~8 Mbps (10 GB / 3h ≈ 7.4 Mbps sans grain).
- * These are the "content-complexity-neutral" baselines; actual renders
- * of still-image sleep stories tend to sit a touch below.
- */
-const BASE_MBPS_BY_QUALITY: Record<string, number> = {
-  compact: 0.8,  // CRF 32
-  fast:    1.5,  // CRF 28
-  medium:  3.0,  // CRF 23
-  high:    6.0,  // CRF 18
-}
-const RESOLUTION_FACTOR: Record<string, number> = {
-  '720p': 0.44, '1080p': 1.0, '1440p': 1.78, '4k': 4.0,
-}
-const FPS_FACTOR: Record<number, number> = {
-  24: 0.85, 25: 0.88, 30: 1.0, 60: 1.6,
-}
-const PRESET_FACTOR: Record<string, number> = {
-  // Hardware encodes are ~10-15% larger than libx264 medium at the same
-  // visual quality (Apple trades compression efficiency for speed).
-  ultrafast: 2.0, medium: 1.0, slow: 0.75, hardware: 1.15,
-}
-const CODEC_FACTOR: Record<string, number> = {
-  h264: 1.0, h265: 0.65,
-}
-
-/**
- * Rough single-thread encode-speed multiplier — how many wall-clock
- * seconds per 1 second of output, relative to medium preset. HEVC is
- * ~3× slower than H.264 at the same preset. Hardware is ~10× faster
- * than medium on M-series Macs (estimate; varies with chip generation).
- */
-const EFFORT_SPEED_FACTOR: Record<string, number> = {
-  ultrafast: 0.1, medium: 0.4, slow: 1.2, hardware: 0.04,
-}
-const CODEC_SPEED_FACTOR: Record<string, number> = {
-  h264: 1.0, h265: 3.0,
-}
-const RESOLUTION_SPEED_FACTOR: Record<string, number> = {
-  '720p': 0.5, '1080p': 1.0, '1440p': 1.8, '4k': 4.5,
-}
+// File-size and render-time math lives in utils/render-estimate.ts (calibrated from a measured render).
 
 // v1.0.354 — the only thing that extends the body past the narration is the
 // post-audio tail (fade-out / hold / black screen). Mirrors the backend
@@ -5376,31 +5406,9 @@ const estimatedDurationMin = computed(() => Math.round(estimatedDurationSec.valu
  */
 const canEstimate = computed(() => estimatedDurationSec.value >= 5)
 
-const sizeEstimateGb = computed(() => {
-  if (!canEstimate.value) return null
-  const mbps = (BASE_MBPS_BY_QUALITY[exportSettings.quality] || 3)
-    * (RESOLUTION_FACTOR[exportSettings.resolution] || 1)
-    * (FPS_FACTOR[exportSettings.fps] || 1)
-    * (PRESET_FACTOR[exportSettings.encoding_effort] || 1)
-    * (CODEC_FACTOR[exportSettings.format === 'webm' ? 'h264' : exportSettings.codec] || 1)
-  const sizeGb = (mbps * estimatedDurationSec.value) / 8 / 1024
-  return Math.max(0.1, sizeGb).toFixed(sizeGb < 1 ? 2 : 1)
-})
-
-const renderTimeEstimate = computed(() => {
-  if (!canEstimate.value) return null
-  // Baseline: 1080p medium preset H.264 takes ~0.4s per output-second
-  // on a modern Apple Silicon. Scales with effort + codec + resolution.
-  const perSec = (EFFORT_SPEED_FACTOR[exportSettings.encoding_effort] || 0.4)
-    * (CODEC_SPEED_FACTOR[exportSettings.format === 'webm' ? 'h264' : exportSettings.codec] || 1)
-    * (RESOLUTION_SPEED_FACTOR[exportSettings.resolution] || 1)
-  const secs = perSec * estimatedDurationSec.value
-  if (secs < 60) return `${Math.round(secs)}s`
-  if (secs < 3600) return `${Math.round(secs / 60)} min`
-  const h = Math.floor(secs / 3600)
-  const m = Math.round((secs % 3600) / 60)
-  return `${h}h ${m}m`
-})
+const liveRenderEstimate = computed(() => canEstimate.value ? estimateRender(exportSettings, estimatedDurationSec.value) : null)
+const sizeEstimateGb = computed(() => liveRenderEstimate.value ? formatEstimateGb(liveRenderEstimate.value.sizeGb) : null)
+const renderTimeEstimate = computed(() => liveRenderEstimate.value ? formatEstimateTime(liveRenderEstimate.value.seconds) : null)
 
 // Legacy `estimatedFileSize` consumed in the bottom Summary panel — MB number.
 // Returns 0 when duration is too short to estimate so the Summary row reads
@@ -5443,7 +5451,7 @@ const EXPORT_QUICK_PRESETS: QuickExportPreset[] = [
     id: 'youtube-fast-hw',
     label: 'YouTube — Fast (recommended)',
     icon: '⚡',
-    tagline: 'Hardware-accelerated. ~10× faster than the CPU fallback below.',
+    tagline: 'Hardware-accelerated encode — the quickest full-quality render.',
     longHint: '1080p · 30 fps · Medium (CRF 23) · H.264 · h264_videotoolbox · MP4 — uses your Mac\'s Media Engine. Routine renders finish in minutes; sleep-story-style footage shows no visible quality loss. Same final file as the Compatible (CPU) preset, just produced faster.',
     settings: { resolution: '1080p', fps: 30, quality: 'medium', encoding_effort: 'hardware', codec: 'h264', format: 'mp4' },
   },
@@ -5467,7 +5475,7 @@ const EXPORT_QUICK_PRESETS: QuickExportPreset[] = [
     id: 'fastest-render',
     label: 'Fastest CPU',
     icon: '🏎️',
-    tagline: 'Draft iteration — 5–10× faster than Medium CPU.',
+    tagline: 'Draft iteration — about 4× faster than Medium CPU.',
     longHint: '720p · 24 fps · Fast (CRF 28) · Ultrafast preset · H.264 · MP4 — for reviewing pacing before the real render.',
     settings: { resolution: '720p', fps: 24, quality: 'fast', encoding_effort: 'ultrafast', codec: 'h264', format: 'mp4' },
   },
@@ -5482,27 +5490,11 @@ const EXPORT_QUICK_PRESETS: QuickExportPreset[] = [
 ]
 
 function sizeForSettings(s: QuickExportPreset['settings']): string | null {
-  if (!canEstimate.value) return null
-  const mbps = (BASE_MBPS_BY_QUALITY[s.quality] || 3)
-    * (RESOLUTION_FACTOR[s.resolution] || 1)
-    * (FPS_FACTOR[s.fps] || 1)
-    * (PRESET_FACTOR[s.encoding_effort] || 1)
-    * (CODEC_FACTOR[s.format === 'webm' ? 'h264' : s.codec] || 1)
-  const sizeGb = (mbps * estimatedDurationSec.value) / 8 / 1024
-  return Math.max(0.1, sizeGb).toFixed(sizeGb < 1 ? 2 : 1)
+  return canEstimate.value ? formatEstimateGb(estimateRender(s, estimatedDurationSec.value).sizeGb) : null
 }
 
 function renderTimeForSettings(s: QuickExportPreset['settings']): string | null {
-  if (!canEstimate.value) return null
-  const perSec = (EFFORT_SPEED_FACTOR[s.encoding_effort] || 0.4)
-    * (CODEC_SPEED_FACTOR[s.format === 'webm' ? 'h264' : s.codec] || 1)
-    * (RESOLUTION_SPEED_FACTOR[s.resolution] || 1)
-  const secs = perSec * estimatedDurationSec.value
-  if (secs < 60) return `${Math.round(secs)}s`
-  if (secs < 3600) return `${Math.round(secs / 60)} min`
-  const h = Math.floor(secs / 3600)
-  const m = Math.round((secs % 3600) / 60)
-  return `${h}h ${m}m`
+  return canEstimate.value ? formatEstimateTime(estimateRender(s, estimatedDurationSec.value).seconds) : null
 }
 
 /**
@@ -6188,7 +6180,7 @@ async function generateVideo() {
       }
       // Subtitles off: there are no captions to review. Continue this same click.
     }
-    await runGenerateVideo({ post, videoAssemblyGenerating })
+    if (await runGenerateVideo({ post, videoAssemblyGenerating })) void rememberLastUsedSettings()
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Generate failed unexpectedly — see console for details (Cmd+Option+I).')
     console.error('[video-assembly] generateVideo threw:', e)
@@ -6418,6 +6410,10 @@ onMounted(async () => {
     exportPresets.load(),
   ])
   await videoBundlePresets.load()
+  // The last render's choices (this episode's, else the channel's) win over
+  // the remembered preset: they are the newer, deliberate choice.
+  await restoreLastUsedSettings()
+  lastUsedReady = true
   await normalizeVideoAssemblyPathsInState()
   // v1.0.93+ — `videoBundlePresets.load()` auto-applies the last-active
   // bundle. Kick off the path check so any broken links surface on first
@@ -6725,6 +6721,10 @@ onUnmounted(() => {
 .thumb-preview { width: 100%; height: 100%; object-fit: cover; }
 .thumb-label { position: absolute; bottom: 4px; left: 4px; right: 4px; background: rgba(0,0,0,0.7); color: white; font-size: var(--font-xs); font-weight: 600; padding: 2px 6px; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .thumb-check { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; background: var(--accent); color: white; font-size: 12px; font-weight: 700; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+.last-used-note { margin: var(--space-2) 0 0; }
+.opening-sync-note { font-size: 13px; line-height: 1.5; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); color: var(--text-secondary); }
+.opening-sync-note--info { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.opening-sync-note--warning { border-color: var(--warning, #d29922); background: color-mix(in srgb, var(--warning, #d29922) 12%, transparent); color: var(--text-primary); }
 .intro-hold-note { font-size: 12px; line-height: 1.5; padding: 8px 10px; border: 1px solid var(--accent); border-radius: 6px; background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--text-secondary); }
 
 /* Title image preview */

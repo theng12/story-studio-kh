@@ -157,6 +157,36 @@
                 <p v-if="gapSections.size" class="text-xs text-muted sub-gap-hint">Re-narrate replaces the chapter’s audio with a new take. Re-transcribe only re-reads the audio you have now.</p>
               </template>
             </WorkspaceNotice>
+            <WorkspaceNotice
+              v-if="missingSentenceChapters.length"
+              tone="warning"
+              title="The narration skips script sentences"
+              class="mt-2 sub-gap-notice"
+            >
+              <p>
+                These sentences are in the script but not in what the narration says — the voice skipped them or mumbled through them.
+                Listen to the chapter; if they are missing, Re-narrate makes the chapter’s audio again, then its subtitles automatically.
+              </p>
+              <ul class="sub-gap-list">
+                <li v-for="chapter in missingSentenceChapters" :key="chapter.slug">
+                  <strong>{{ subtitleChapterLabel(chapter.slug) }}</strong> — {{ chapter.sentences.length }} sentence{{ chapter.sentences.length === 1 ? '' : 's' }} not heard
+                  <ul class="sub-missing-sentences">
+                    <li v-for="(sentence, index) in chapter.sentences.slice(0, 3)" :key="index">“{{ sentence }}”</li>
+                    <li v-if="chapter.sentences.length > 3" class="text-muted">and {{ chapter.sentences.length - 3 }} more</li>
+                  </ul>
+                </li>
+              </ul>
+              <template #actions>
+                <div v-for="chapter in missingSentenceChapters" :key="chapter.slug" class="sub-gap-actions">
+                  <NuxtLink
+                    :to="renarrateLink(slug, episodeId, chapter.slug)"
+                    class="btn btn-sm btn-primary"
+                    :title="`Opens Audio Generator to make ${subtitleChapterLabel(chapter.slug)}'s narration again, then its subtitles automatically.`"
+                  >Re-narrate {{ subtitleChapterLabel(chapter.slug) }}</NuxtLink>
+                  <button type="button" class="btn btn-sm btn-secondary" @click="reviewChapterAudio(chapter.slug)">Listen to {{ subtitleChapterLabel(chapter.slug) }}</button>
+                </div>
+              </template>
+            </WorkspaceNotice>
             <div v-if="audioReview" ref="audioReviewPanel" tabindex="-1">
               <ChapterAudioPreview
                 :key="`${slug}:${episodeId}:${audioReview.section}:${audioReview.startSeconds}`"
@@ -502,6 +532,8 @@ interface SubtitleStatus {
   last_stitched_at?: string | null
   planning_transcript_source?: 'raw' | 'corrected' | null
   planning_source_revalidation_required?: boolean
+  /** Script sentences each chapter's narration never said (script vs transcript). */
+  missing_sentences?: Array<{ slug: string; sentences: string[] }>
   timeline_integrity?: {
     complete: boolean
     missing_sections: string[]
@@ -730,6 +762,13 @@ const subtitleTimelineComplete = computed(() =>
 )
 const hasBlockingCueGaps = computed(() => (subtitleTimelineIntegrity.value?.blocking_cue_gaps?.length || 0) > 0)
 const normalizedSectionSlug = (section: string) => section.toLowerCase().replace(/[^a-z0-9]/g, '')
+/** Chapters whose narration skipped script sentences, in this page's own chapter order. */
+const missingSentenceChapters = computed(() => {
+  const rows = status.value?.missing_sentences || []
+  return sections.value
+    .map(section => rows.find(row => normalizedSectionSlug(row.slug) === normalizedSectionSlug(section.slug)))
+    .filter((row): row is { slug: string; sentences: string[] } => !!row && row.sentences.length > 0)
+})
 /** Chapters with a gap inside (not missing outright): those lead with Re-narrate. */
 const gapSections = computed(() => new Set(
   (subtitleTimelineIntegrity.value?.blocking_cue_gaps || []).flatMap(gap => gap.section_slugs)
@@ -1218,4 +1257,5 @@ onMounted(async () => {
 
 /* Subtitle cue preview (v1.0.494/495) — panel styles live in SubtitleCuePreview.vue. */
 .btn-icon.active { color: var(--accent); }
+.sub-missing-sentences { margin: 4px 0 6px 18px; font-size: 12px; line-height: 1.5; }
 </style>

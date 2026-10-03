@@ -6,6 +6,8 @@
  */
 export const POOL_GROUP_LABEL = 'Pools'
 export const POOL_HINT = 'Pool — tries several models'
+/** A chargeable pool: free members first, a paid member only when every free one is out. */
+export const POOL_PAID_LAST_RESORT_LABEL = 'Free · paid only as last resort'
 
 export function isGatewayPoolId(id: string | null | undefined): boolean {
   return typeof id === 'string' && id.startsWith('pool::')

@@ -27,6 +27,7 @@ async function loadPage(): Promise<Component> {
     import { useFreshGenerationAction } from ${JSON.stringify(freshActionUrl)}
     const CREDIT_BASIS_LABEL = { fixed: 'Fixed' }
     const describeImageUnitCost = () => ({ basis: 'fixed', text: '' })
+    const isFreeToRun = () => false
     const findGenStudioProduct = () => null
     const findOutputOption = () => null
     const publishedOutputOptions = () => []

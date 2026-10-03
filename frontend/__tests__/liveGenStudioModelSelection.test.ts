@@ -150,7 +150,14 @@ test('an empty writing-model picker says the owner has to choose, visibly', () =
 
 test('a writing model the gateway marks chargeable carries a visible Paid badge', () => {
   const source = readFileSync(new URL('../components/ModelSelector.vue', import.meta.url), 'utf8')
-  assert.match(source, /model\.chargeable === true\s*\?\s*\[\{ label: 'Paid'/)
+  assert.match(source, /model\.chargeable === true\s*\?\s*\[pool\s*\?[\s\S]{0,400}: \{ label: 'Paid', tone: 'warning'/)
+})
+
+test('a chargeable pool reads "Free · paid only as last resort", not "Paid"', () => {
+  const source = readFileSync(new URL('../components/ModelSelector.vue', import.meta.url), 'utf8')
+  assert.match(source, /\? \{ label: POOL_PAID_LAST_RESORT_LABEL, tone: 'info'/)
+  const pool = readFileSync(new URL('../utils/gateway-pool.ts', import.meta.url), 'utf8')
+  assert.match(pool, /POOL_PAID_LAST_RESORT_LABEL = 'Free · paid only as last resort'/)
 })
 
 test('an empty image/voice/music picker defaults only to a free fleet model, never a paid one listed first', () => {
