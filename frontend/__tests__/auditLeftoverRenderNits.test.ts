@@ -27,9 +27,9 @@ test('Ideas never shows a raw format id when the format list fails to load', () 
   assert.equal(humanize('narrated-scenes'), 'Narrated scenes')
 })
 
-test('Settings storage: why Verify & clear is off, and why a video stays local, are visible text', () => {
+test('Settings storage: why Clear uploaded final videos is off, and why a video stays local, are visible text', () => {
   const settings = page('settings')
-  assert.match(settings, /<p v-if="storage && uploadedFinalsTotalBytes === 0 && !bulkRunning"[^>]*>\s*Verify &amp; clear is off:/)
+  assert.match(settings, /<p v-if="storage && uploadedFinalsTotalBytes === 0 && !bulkRunning"[^>]*>\s*No uploaded episode has a local final video left to clear\./)
   assert.match(settings, /<small v-if="!row\.cleanup_eligible && row\.uploaded_to_youtube" class="row-reason">/)
   assert.doesNotMatch(settings, /This receipt cannot authorize cleanup/)
 })

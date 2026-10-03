@@ -3,17 +3,20 @@
  *
  * A project MAY set `media_root` in project.json to route its HEAVY media
  * subfolders (scene images, thumbnails, audio, merged audio, final video) to a
- * separate root — typically an external SSD that is NOT iCloud-synced — while
- * the LIGHT artifacts (script, metadata, prompts, subtitles, episode-root
- * sidecars, project.json) stay in the iCloud project tree.
+ * separate root — typically an external SSD — while the LIGHT artifacts
+ * (script, metadata, prompts, subtitles, episode-root sidecars, project.json)
+ * stay in the project folder.
  *
  * Fully opt-in: when `media_root` is absent (the default) every helper here is
- * a no-op and callers fall back to the iCloud episode dir — behavior is
- * byte-for-byte unchanged. See docs/external-media-root-spec.md.
+ * a no-op and callers fall back to the episode dir — behavior is byte-for-byte
+ * unchanged. See docs/external-media-root-spec.md.
  *
- * `media_root` is stored as a portable Named-Root token (e.g. `${MEDIA}`) so
- * the iCloud-synced project.json resolves to each machine's own SSD mount via
- * Settings → Named Roots. An absolute path is also accepted.
+ * v1.4.249: retired for projects that do not use it. `PUT /projects/:slug`
+ * refuses to set one on a project without it; a project that has one keeps
+ * working and may change or clear it (Settings → Project files & behavior →
+ * Advanced). Nothing here moves data.
+ *
+ * `media_root` is an absolute path or a `${NAME}` token (e.g. `${ASSET}/Media`).
  */
 
 import { existsSync } from 'fs'
@@ -24,7 +27,7 @@ import type { ProjectFactsCache } from './utils.js'
 /**
  * Episode subfolder KEYS (matching SubfolderNames keys) whose contents are
  * large media — eligible to live under an external media_root. Everything not
- * listed here always stays in the iCloud project tree.
+ * listed here always stays in the project folder.
  */
 export const HEAVY_SUBFOLDERS: ReadonlySet<string> = new Set([
   'images', 'thumbnails', 'audio', 'merged_audio', 'video', 'video_assets',
@@ -41,13 +44,13 @@ export function isHeavySubfolder(key: string): boolean {
  *   mediaRootRaw — the project's `media_root` (a `${NAME}` token or an absolute
  *                  path). Falsy/blank ⇒ null (opt-out, the default).
  *   episodeRel   — the same relative episode path used under the episodes
- *                  folder, so the SSD layout mirrors iCloud exactly.
+ *                  folder, so the SSD layout mirrors the project folder exactly.
  *   outputRoot   — the project's ABSOLUTE episodes folder (only used to expand
  *                  a `${PROJECT}` token, which would be unusual for a media
  *                  root).
  *
  * Returns null rather than throwing when the token is undefined on this machine
- * (e.g. `${MEDIA}` not yet defined on a freshly-synced second Mac). That keeps
+ * (an unknown `${NAME}`). That keeps
  * LIGHT-only operations working everywhere; media operations gate on a separate
  * preflight (added in a later phase) that fails loud with a clear message.
  * Returns a path even when the SSD is merely unplugged — the later fs op then
@@ -74,31 +77,31 @@ export function resolveMediaBase(
 }
 
 /**
- * Media-aware drop-in for the call sites that resolved their OWN iCloud
+ * Media-aware drop-in for the call sites that resolved their OWN
  * episode dir and then did `resolveSubfolder(episodeDir, names[key])`.
  *
  *   - LIGHT subfolder, OR project has no media_root  → resolves the subfolder
- *     inside the caller's `iCloudEpisodeDir` exactly as before (so the
+ *     inside the caller's `episodeDir` exactly as before (so the
  *     drift/✅-tolerant episode dir the caller already found is preserved).
  *   - HEAVY subfolder + media_root set               → resolves the subfolder
  *     inside the mirrored media (SSD) episode dir.
  *
  * Determines the media episode dir from `resolveEpisodePathsByCode` (which is
  * itself media-aware): the parent of its heavy `bg_dir` is the media base when
- * a media_root is configured, or the iCloud episode dir when it isn't — so a
+ * a media_root is configured, or the episode dir when it isn't — so a
  * non-split project takes the unchanged path with zero behavioural difference.
  */
 /**
  * The base episode dir to use for `key`: the media (SSD) episode dir for a
  * HEAVY subfolder when media_root is configured, else the caller's already-
- * resolved iCloud episode dir (preserving its drift/✅ tolerance). For a
- * non-split project this always returns `iCloudEpisodeDir` — zero behaviour
+ * resolved episode dir (preserving its drift/✅ tolerance). For a
+ * non-split project this always returns `episodeDir` — zero behaviour
  * change on the default path.
  */
 /**
  * The mirrored media (SSD) episode dir for `code`, or null when the project has
  * no media_root configured (or it can't be resolved on this machine). Lets call
- * sites with bespoke iCloud-dir logic re-route ONLY when media is active,
+ * sites with bespoke episode-dir logic re-route ONLY when media is active,
  * preserving their default-path behavior untouched.
  */
 export async function mediaEpisodeBaseForCode(
@@ -108,7 +111,7 @@ export async function mediaEpisodeBaseForCode(
 ): Promise<string | null> {
   const { episodeNumber, projectMetaOnce, resolveEpisodePathsByCode } = await import('./utils.js')
   // No `media_root` ⇒ every heavy subfolder sits under the episode dir, so the
-  // caller's own iCloud dir is already correct. Answering that costs ONE cached
+  // caller's own episode dir is already correct. Answering that costs ONE cached
   // read of project.json; resolving the full path set instead also reads
   // ideas.json (to recover the episode title) and resolves ~15 subfolders, just
   // to compare two paths that are guaranteed equal. On the owner's 302-episode
@@ -137,7 +140,7 @@ export async function mediaEpisodeBaseForCode(
  * a `media_root` (the default). When media_root IS set, throws a clear,
  * actionable error if the root can't be resolved on this machine (`${NAME}`
  * undefined) or the resolved folder doesn't exist (drive unplugged) — so we
- * never silently write heavy media back into the iCloud tree (split-brain).
+ * never silently write heavy media back into the project folder (split-brain).
  * Light operations don't call this, so they keep working without the drive.
  */
 export async function assertMediaRootReady(slug: string): Promise<void> {
@@ -150,21 +153,21 @@ export async function assertMediaRootReady(slug: string): Promise<void> {
   try {
     abs = resolveAssetPath(String(raw).trim(), outputRoot)
   } catch {
-    throw new Error(`This project's external media root ${raw} isn't defined on this machine. Define ${raw} under Settings → Named Roots (and connect the drive) before generating or rendering media.`)
+    throw new Error(`This project's heavy-media folder ${raw} can't be found on this Mac. Connect the drive, or change or clear the folder in Settings → Project files & behavior → Advanced, before generating or rendering media.`)
   }
   if (!abs || /^\$\{/.test(abs)) {
-    throw new Error(`This project's external media root ${raw} isn't defined on this machine. Define it under Settings → Named Roots.`)
+    throw new Error(`This project's heavy-media folder ${raw} can't be found on this Mac. Change or clear it in Settings → Project files & behavior → Advanced.`)
   }
   if (!existsSync(abs)) {
-    throw new Error(`This project's external media root isn't available: ${abs}. Connect the drive (or fix ${raw} under Settings → Named Roots) before generating or rendering media.`)
+    throw new Error(`This project's heavy-media folder isn't available: ${abs}. Connect the drive (or change the folder in Settings → Project files & behavior → Advanced) before generating or rendering media.`)
   }
 }
 
 async function baseEpisodeDirForKey(
-  slug: string, code: string, key: string, iCloudEpisodeDir: string, cache?: ProjectFactsCache,
+  slug: string, code: string, key: string, episodeDir: string, cache?: ProjectFactsCache,
 ): Promise<string> {
-  if (!isHeavySubfolder(key)) return iCloudEpisodeDir
-  return (await mediaEpisodeBaseForCode(slug, code, cache)) ?? iCloudEpisodeDir
+  if (!isHeavySubfolder(key)) return episodeDir
+  return (await mediaEpisodeBaseForCode(slug, code, cache)) ?? episodeDir
 }
 
 /**
@@ -174,10 +177,10 @@ async function baseEpisodeDirForKey(
  */
 export async function resolveEpisodeSubfolderDir(
   slug: string, code: string, key: string,
-  iCloudEpisodeDir: string, subfolderName: string, createIfMissing = true,
+  episodeDir: string, subfolderName: string, createIfMissing = true,
   cache?: ProjectFactsCache,
 ): Promise<string> {
-  const base = await baseEpisodeDirForKey(slug, code, key, iCloudEpisodeDir, cache)
+  const base = await baseEpisodeDirForKey(slug, code, key, episodeDir, cache)
   const { resolveSubfolder } = await import('../lib/folder-resolver.js')
   return resolveSubfolder(base, subfolderName, createIfMissing)
 }
@@ -189,10 +192,10 @@ export async function resolveEpisodeSubfolderDir(
  */
 export async function findEpisodeSubfolderDir(
   slug: string, code: string, key: string,
-  iCloudEpisodeDir: string, subfolderName: string,
+  episodeDir: string, subfolderName: string,
   cache?: ProjectFactsCache,
 ): Promise<string | null> {
-  const base = await baseEpisodeDirForKey(slug, code, key, iCloudEpisodeDir, cache)
+  const base = await baseEpisodeDirForKey(slug, code, key, episodeDir, cache)
   const { findSubfolder } = await import('../lib/folder-resolver.js')
   return findSubfolder(base, subfolderName)
 }

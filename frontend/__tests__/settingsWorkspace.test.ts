@@ -97,7 +97,6 @@ describe('Settings workspace navigation', () => {
       episode_prefix: 'NEW',
       season_prefix: 'Volume',
       season_size: 24,
-      youtube_channel_url: 'https://youtube.com/@pending',
       category_id: 27,
       mark_as_ai_generated: false,
       active_style_preset_id: 'pending-style-must-not-travel',
@@ -109,7 +108,7 @@ describe('Settings workspace navigation', () => {
       hasPendingSeasonSize: false,
     })
     assert.deepEqual(projectSettingsSavePlan('publishing', draft, 20), {
-      project: { youtube_channel_url: 'https://youtube.com/@pending' },
+      project: null,
       config: { category_id: 27, mark_as_ai_generated: false },
       hasPendingSeasonSize: false,
     })

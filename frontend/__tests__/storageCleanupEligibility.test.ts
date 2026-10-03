@@ -5,13 +5,17 @@ import { test } from 'node:test'
 const settings = readFileSync(new URL('../pages/projects/[slug]/settings.vue', import.meta.url), 'utf8')
 
 test('Settings offers final cleanup only as a verify-and-clear candidate action', () => {
+  // v1.4.249 — one bulk "Clear uploaded final videos (verified)" option in the Free
+  // Up Space card; the per-episode table is read-only (no per-row clear).
   assert.match(settings, /e\.cleanup_eligible\s*&&\s*\(e\.bytes_final_video/)
-  assert.match(settings, /v-if="row\.cleanup_eligible && \(row\.bytes_final_video > 0 \|\| row\.bytes_external_final_video > 0\)"/)
-  assert.match(settings, /if \(!row\.cleanup_eligible\) return/)
-  const cleanupRow = settings.slice(settings.indexOf('async function cleanupRow('), settings.indexOf('// v1.0.71: chunked-sidecar'))
-  assert.ok(cleanupRow.startsWith('async function cleanupRow('))
-  assert.doesNotMatch(cleanupRow, /\bforce\s*:/)
-  assert.match(settings, /Verify & clear local video/)
+  const bulk = settings.slice(settings.indexOf('async function runBulkCleanup('), settings.indexOf('// v1.0.71: chunked-sidecar'))
+  assert.ok(bulk.startsWith('async function runBulkCleanup('))
+  assert.match(bulk, /if \(!storage\.value \|\| uploadedFinalsCount\.value === 0\) return/)
+  assert.match(bulk, /await ask\(/)
+  assert.match(bulk, /storage\/bulk-cleanup-final/)
+  assert.doesNotMatch(bulk, /\bforce\s*:/)
+  assert.doesNotMatch(settings, /async function cleanupRow\(|cleanup-final\/\$\{row/)
+  assert.match(settings, /Clear uploaded final videos \(verified\)/)
   assert.match(settings, /Verify and clear local videos\?/)
   assert.match(settings, /SHA-256/)
   assert.match(settings, /Any file it cannot verify stays local and is reported below/)
@@ -96,7 +100,7 @@ test('archive preview names only ready uploaded files and links their recorded u
 test('Free up space can clear the preview cache: shows its size, moves it to _trash, says it rebuilds', () => {
   assert.match(settings, /storage\.project_bytes_thumbnail_cache/)
   assert.match(settings, /@click="clearPreviewCache"/)
-  assert.match(settings, /Clear preview cache \(\$\{formatBytes\(storage\.project_bytes_thumbnail_cache\)\}\)/)
+  assert.match(settings, /Clear Preview Cache \(\$\{formatBytes\(storage\.project_bytes_thumbnail_cache\)\}\)/)
   const fn = settings.slice(settings.indexOf('async function clearPreviewCache('), settings.indexOf('async function runBulkCleanup('))
   assert.match(fn, /storage\/clear-preview-cache/)
   assert.match(fn, /if \(previewCacheClearing\.value\) return/)

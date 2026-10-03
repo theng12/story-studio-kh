@@ -10,7 +10,8 @@ export function projectSettingsSavePlan(
   }
   if (section === 'publishing') {
     return {
-      project: { youtube_channel_url: draft.youtube_channel_url },
+      // v1.4.249: Publishing owns no project.json field (the unused channel link is gone).
+      project: null,
       config: {
         category_id: typeof draft.category_id === 'number' && draft.category_id > 0 ? draft.category_id : undefined,
         // `undefined` is omitted by JSON.stringify, which cannot clear a

@@ -52,7 +52,7 @@ test('cleanup ignores old project responses and resets all selection on project 
     ui.props.value = { slug: 'second' }; await flush()
     response.resolve(listed); await flush()
     assert.doesNotMatch(ui.host.textContent || '', /EP0001/)
-    assert.equal(button(ui.host, 'Refresh uploads').disabled, false)
+    assert.equal(button(ui.host, 'Refresh Uploads').disabled, false)
   } finally { ui.close() }
 })
 
@@ -65,14 +65,14 @@ test('review uses selected scope, cancellation spends nothing, double confirm st
     post: async (url: string, body: any) => { calls.push({ url, body }); return { operation_id: url.endsWith('/preview') ? 'preview-op' : 'run-op' } },
   }, () => { askCount++; return askCount === 1 ? Promise.resolve(false) : confirm.promise })
   try {
-    button(ui.host, 'Select all uploaded').click(); await flush()
+    button(ui.host, 'Select All Uploaded').click(); await flush()
     const images = ui.host.querySelector<HTMLInputElement>('input[type=checkbox][value=images]')!
     change(images); await flush()
-    button(ui.host, 'Review selected files').click(); await flush(); await flush()
+    button(ui.host, 'Review Selected Files').click(); await flush(); await flush()
     assert.deepEqual(calls[0], { url: '/projects/first/media-cleanup/preview', body: { episode_codes: ['EP0001'], categories: ['images'] } })
-    button(ui.host, 'Move reviewed files to _trash').click(); await flush()
+    button(ui.host, 'Move Reviewed Files to _trash').click(); await flush()
     assert.equal(calls.length, 1, 'declined confirmation must not run cleanup')
-    const run = button(ui.host, 'Move reviewed files to _trash'); run.click(); run.click(); await flush()
+    const run = button(ui.host, 'Move Reviewed Files to _trash'); run.click(); run.click(); await flush()
     assert.equal(askCount, 2, 'one pending confirmation despite repeated click')
     confirm.resolve(true); await flush()
     assert.equal(calls.filter(c => c.url.endsWith('/run')).length, 1)
@@ -83,12 +83,12 @@ test('review uses selected scope, cancellation spends nothing, double confirm st
 test('dismissed or changed selections cannot reuse a stale reviewed file list', async () => {
   const ui = await mount({ get: async (url: string) => url.endsWith('/episodes') ? listed : { id: 'preview-op', project_slug: 'first', kind: 'preview', status: 'completed', stage: null, done: 1, total: 1, current: '', preview }, post: async () => ({ operation_id: 'preview-op' }) })
   try {
-    button(ui.host, 'Select all uploaded').click(); await flush()
+    button(ui.host, 'Select All Uploaded').click(); await flush()
     change(ui.host.querySelector<HTMLInputElement>('input[type=checkbox][value=images]')!); await flush()
-    button(ui.host, 'Review selected files').click(); await flush(); await flush()
+    button(ui.host, 'Review Selected Files').click(); await flush(); await flush()
     assert.match(ui.host.textContent || '', /Review 1 files/)
-    button(ui.host, 'Clear selection').click(); await flush()
-    assert.doesNotMatch(ui.host.textContent || '', /Move reviewed files to _trash/)
+    button(ui.host, 'Clear Selection').click(); await flush()
+    assert.doesNotMatch(ui.host.textContent || '', /Move Reviewed Files to _trash/)
   } finally { ui.close() }
 })
 
@@ -98,12 +98,12 @@ test('dismissed review stays dismissed after navigating away and returning', asy
   savedOperations.set('media-cleanup:first', 'preview-op')
   const ui = await mount(api)
   try {
-    assert.match(ui.host.textContent || '', /Move reviewed files to _trash/)
-    button(ui.host, 'Dismiss review').click(); await flush()
+    assert.match(ui.host.textContent || '', /Move Reviewed Files to _trash/)
+    button(ui.host, 'Dismiss Review').click(); await flush()
     assert.equal(savedOperations.has('media-cleanup:first'), false)
   } finally { ui.close() }
   const restored = await mount(api)
-  try { assert.doesNotMatch(restored.host.textContent || '', /Move reviewed files to _trash/) }
+  try { assert.doesNotMatch(restored.host.textContent || '', /Move Reviewed Files to _trash/) }
   finally { restored.close() }
 })
 
@@ -140,7 +140,7 @@ test('Free up space needs no folder: it loads uploads itself, shows the project 
   try {
     // No click needed to list uploads, and the not-yet-freed episode is already selected.
     assert.match(ui.host.textContent || '', /EP0002/)
-    button(ui.host, 'Free up space for 1 selected').click(); await flush(); await flush()
+    button(ui.host, 'Free Up Space for 1 Selected').click(); await flush(); await flush()
     assert.deepEqual(calls[0], { url: '/projects/first/media-cleanup/preview', body: { episode_codes: ['EP0002'], preset: 'archive_episode' } })
     const text = ui.host.textContent || ''
     assert.match(text, /412 images 490\.0 MB → ~57\.0 MB/)
@@ -150,7 +150,7 @@ test('Free up space needs no folder: it loads uploads itself, shows the project 
     assert.doesNotMatch(text, /permanent/i)
     assert.equal(ui.host.querySelector('#cleanup-destination'), null, 'no folder input on the main path')
     assert.ok(![...ui.host.querySelectorAll('button')].some(b => /browse/i.test(b.textContent || '')), 'no Browse button on the main path')
-    button(ui.host, 'Free up space').click(); await flush()
+    button(ui.host, 'Free Up Space').click(); await flush()
     assert.match(asked[0].message, /\/Library\/chan\/_trash/)
     assert.match(asked[0].message, /frees about 3\.02 GB/)
     assert.deepEqual(calls[1].body, { preview_id: 'review-1', mode: 'compress' })
@@ -165,9 +165,9 @@ test('the advanced review defaults to _trash, never to a destination folder', as
   })
   try {
     change(ui.host.querySelector<HTMLInputElement>('input[type=checkbox][value=images]')!); await flush()
-    button(ui.host, 'Review selected files').click(); await flush(); await flush()
+    button(ui.host, 'Review Selected Files').click(); await flush(); await flush()
     assert.equal(ui.host.querySelector('#cleanup-destination'), null)
-    button(ui.host, 'Move reviewed files to _trash').click(); await flush()
+    button(ui.host, 'Move Reviewed Files to _trash').click(); await flush()
     assert.deepEqual(calls[1].body, { preview_id: 'review-1', mode: 'remove' })
   } finally { ui.close() }
 })
@@ -184,14 +184,14 @@ test('one missed progress read does not freeze the operation: it keeps checking 
     post: async () => ({ operation_id: 'preview-op' }),
   })
   try {
-    button(ui.host, 'Select all uploaded').click(); await flush()
+    button(ui.host, 'Select All Uploaded').click(); await flush()
     change(ui.host.querySelector<HTMLInputElement>('input[type=checkbox][value=images]')!); await flush()
     const drain = async () => { for (let i = 0; i < 20; i++) { await Promise.resolve(); await nextTick() } }
     mock.timers.enable({ apis: ['setTimeout'] })
-    button(ui.host, 'Review selected files').click(); await drain()
+    button(ui.host, 'Review Selected Files').click(); await drain()
     assert.match(ui.host.textContent || '', /Checking again/)
     mock.timers.tick(3_000); await drain()
     assert.equal(reads, 2, 'the operation is read again after the miss')
-    assert.match(ui.host.textContent || '', /Move reviewed files to _trash/)
+    assert.match(ui.host.textContent || '', /Move Reviewed Files to _trash/)
   } finally { mock.timers.reset(); ui.close() }
 })
