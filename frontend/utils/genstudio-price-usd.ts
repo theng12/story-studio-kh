@@ -26,6 +26,8 @@ export interface PriceTruth {
   price_url?: string | null
   /** `provider_page`: a unit the page prices several ways (size / quality / tier). Never picked between. */
   price_variants?: PriceVariant[] | null
+  /** Gateway 0.2.100+: `false` means using the model cannot cost money (free lane, own Macs, or $0). */
+  chargeable?: boolean
 }
 
 export function hasPriceTruth(model: PriceTruth | null | undefined): boolean {
@@ -75,6 +77,15 @@ export function describeUsdPrice(model: (PriceTruth & { display_name?: string })
   }
   const usd = model.price_usd ?? {}
   const variants = Array.isArray(model.price_variants) ? model.price_variants : []
+  // A free lane (e.g. a Gemini free-tier pool) publishes no USD, but the Gateway states it
+  // cannot cost money. "Price not published" there reads as "might be paid".
+  if (model.chargeable === false && !Object.values(usd).some(amount => amount > 0)) {
+    return {
+      text: 'Free — no charge',
+      basis: 'free',
+      title: `The Gateway marks ${label} as free: using it cannot cost money.`,
+    }
+  }
   if (model.price_source === 'unpublished' || (!Object.keys(usd).length && !variants.length)) {
     return {
       text: 'Price not published',

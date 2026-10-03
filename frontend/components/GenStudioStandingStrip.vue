@@ -94,7 +94,8 @@ const standingSummary = computed(() => {
   const facts: string[] = []
   if (genstudioTier.value) facts.push(genstudioTier.value.current.display_name)
   if (genstudioActiveLanes.value !== null && genstudioLaneLimit.value !== null) {
-    facts.push(`${genstudioActiveLanes.value} of ${genstudioLaneLimit.value} paid jobs running`)
+    // The Gateway counts every running job here (free fleet work included), not only paid ones.
+    facts.push(`${genstudioActiveLanes.value} of ${genstudioLaneLimit.value} jobs running`)
   }
   return facts.join(' · ')
 })
