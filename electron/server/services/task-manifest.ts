@@ -74,6 +74,8 @@ export interface TaskManifestEntry {
     input_hash: string
   }>
   operation?: 'tts' | 'transcription' | 'image' | 'video'
+  /** TTS: the voice model that made these bytes, so a later run can activate a part an earlier run left behind. */
+  model_id?: string
   /** Exact GenStudio operation selected for a video task. */
   variant_operation?: string
   /**

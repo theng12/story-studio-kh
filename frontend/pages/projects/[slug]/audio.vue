@@ -664,6 +664,7 @@
         <div class="repair-summary" :class="repairResult.still_missing === 0 ? 'ok' : 'warn'">
           Recovered <strong>{{ repairResult.recovered }}</strong> /
           {{ repairResult.recovered + repairResult.still_missing }} missing file(s).
+          <span v-if="repairResult.join_job_id"> A chapter whose parts were all here is being joined.</span>
           <span v-if="repairResult.still_missing > 0">
             {{ repairResult.still_missing }} still missing — there is no finished copy left to download.
             Click <strong>Generate missing</strong> above: it makes only these and keeps the audio you already have.
@@ -1936,6 +1937,7 @@ interface RepairResult {
   still_missing: number
   outcomes: RepairOutcome[]
   logs: string[]
+  join_job_id?: string
 }
 
 const audioStatus = reactive<AudioStatusState>({
@@ -2025,8 +2027,12 @@ async function runRepair() {
     repairResult.value = r
     if (r.recovered > 0) {
       success(`Downloaded ${r.recovered} missing audio file(s) again`)
-    } else if (r.still_missing === 0) {
-      success('Nothing to repair — every audio file is already there')
+    }
+    if (r.join_job_id) {
+      success('Every part of a chapter was here but never joined — joining it now (nothing is made or charged)')
+    } else if (r.recovered === 0 && r.still_missing === 0) {
+      if (r.logs.includes('Nothing to repair.')) success('Nothing to repair — every audio file is already there')
+      else showError(r.logs[r.logs.length - 1] || 'A chapter still needs joining. Use Generate missing.')
     }
     await refreshAudioStatus()
     if (isCurrentRepairScope(requestId, targetSlug, targetEpisode)) sectionRefreshKey.value++

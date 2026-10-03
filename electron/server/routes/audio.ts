@@ -617,9 +617,11 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
         ...s,
         takes_count: groupChapterTakes(code.toUpperCase(), s.slug, audioEntries).length,
         // 'generated' = every chunk is on disk; 'partial' = some chunks
-        // exist but the section isn't whole; 'not_generated' = nothing yet.
+        // exist but the section isn't whole (or every part is here but the
+        // chapter was never joined — Generate missing joins it, buying nothing);
+        // 'not_generated' = nothing yet.
         status: s.present_chunks === 0 ? 'not_generated'
-          : s.present_chunks < s.total_chunks ? 'partial'
+          : s.present_chunks < s.total_chunks || status.awaiting_join.includes(s.slug) ? 'partial'
           : 'generated',
         // Purely informational. Front-end shows a "⚠ stale" pill so the
         // user can choose to regenerate; we do NOT auto-delete.

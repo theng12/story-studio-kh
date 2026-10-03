@@ -282,7 +282,8 @@ test('the audio generator paces, retries and reports what it is doing', () => {
 
   // The durable identity still owns the manifest hash, so a resumed run
   // recognises its own entry instead of resubmitting paid work.
-  assert.match(source, /const inputHash = hashInput\(JSON\.stringify\(\{\s*\n\s*requestIdentity,/)
+  assert.match(source, /const inputHash = chunkInputHash\(chunkFilename, task\.chunkText\)/)
+  assert.match(source, /requestIdentity: `\$\{project_slug\}:\$\{episode_id\.toUpperCase\(\)\}:audio:\$\{chunkFilename\}`,/)
 
   // Live per-item state, published on every transition including the wait.
   assert.match(source, /job\.item_progress = \{/)

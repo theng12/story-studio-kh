@@ -20,7 +20,7 @@ import { parseNarrationDocx } from '../lib/docx-parser.js'
 import { normalizeForTts } from '../lib/tts-text.js'
 import { findNarrationFile, episodeDirForNarration, resolveAudioDir } from '../generators/audio.js'
 import type { ProjectFactsCache } from './utils.js'
-import { readManifest } from './task-manifest.js'
+import { readManifest, recordTask } from './task-manifest.js'
 import { readAudioTtsModelRecord } from './audio-tts-model-record.js'
 import { readAudioQualityProvenance } from './audio-quality-store.js'
 import { hashSubtitleAudioSources } from './subtitle-completion.js'
@@ -54,6 +54,8 @@ export interface AudioStatus {
    *  GenStudio is the sole route, and recovery reads the manifest entry's own
    *  provider rather than this field. */
   provider: string
+  /** Split chapters with every part on disk but never activated or joined (see `chaptersAwaitingJoin`). */
+  awaiting_join: string[]
 }
 
 export interface ReconcileOutcome {
@@ -70,6 +72,8 @@ export interface ReconcileResult {
   still_missing: number
   outcomes: ReconcileOutcome[]
   logs: string[]
+  /** The audio job Repair queued to activate and join chapters whose parts are all on disk. */
+  join_job_id?: string
 }
 
 function isMissing(error: unknown): boolean {
@@ -444,7 +448,31 @@ export async function getAudioStatus(
   }
 
   const missing = expected.filter(e => !present.includes(e.filename)).map(e => e.filename)
-  return { audio_dir: audioDir, expected, present, missing, provider }
+  return { audio_dir: audioDir, expected, present, missing, provider, awaiting_join: await chaptersAwaitingJoin(episodeDirForNarration(narrationPath), audioDir, code, expected, missing, model) }
+}
+
+/**
+ * Split chapters whose parts are all on disk, made by `model` (task manifest),
+ * but never activated: the run that made the last part ended before the
+ * chapter became active and was joined. Generate missing / Repair finish them.
+ */
+async function chaptersAwaitingJoin(episodeDir: string, audioDir: string, code: string, expected: ExpectedChunk[], missing: string[], model: string): Promise<string[]> {
+  const partRe = new RegExp(`^${code}_(.+)_part\\d+\\.mp3$`, 'i')
+  const split = new Map<string, ExpectedChunk[]>()
+  for (const chunk of expected) {
+    const slug = chunk.totalChunks > 1 ? chunk.filename.match(partRe)?.[1] : undefined
+    if (slug) split.set(slug, [...(split.get(slug) || []), chunk])
+  }
+  const candidates = [...split].filter(([, chunks]) => chunks.every(chunk => !missing.includes(chunk.filename)))
+  if (!model || !candidates.length) return []
+  const active = (await readAudioQualityProvenance(episodeDir)).chapters
+  const tasks = (await readManifest(audioDir)).tasks
+  return candidates.filter(([slug, chunks]) => !Object.keys(active).some(key => key.toLowerCase() === slug.toLowerCase())
+    && chunks.every(chunk => {
+      const task = tasks[chunk.filename]
+      return task?.provider === 'genstudio' && task.operation === 'tts' && task.last_state === 'succeeded' && task.model_id === model
+    }))
+    .map(([slug]) => slug)
 }
 
 /**
@@ -460,13 +488,15 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
   logs.push(`Expected ${status.expected.length} chunks; ${status.present.length} present, ${status.missing.length} missing.`)
 
   if (status.missing.length === 0) {
+    const join_job_id = await queueJoin(slug, episodeId, status, logs)
     return {
       total_expected: status.expected.length,
       present_before: status.present.length,
       recovered: 0,
       still_missing: 0,
       outcomes: [],
-      logs: [...logs, 'Nothing to repair.'],
+      logs: status.awaiting_join.length ? logs : [...logs, 'Nothing to repair.'],
+      ...(join_job_id ? { join_job_id } : {}),
     }
   }
 
@@ -514,6 +544,8 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
         speed: 1,
       })
       recovered++
+      // Downloaded = the Gateway job finished: the part is now evidence a later join can activate.
+      await recordTask(status.audio_dir, filename, { ...entry, last_state: 'succeeded' })
       outcomes.push({ filename, status: 'recovered', task_id: entry.task_id })
       logs.push(`✓ ${filename}: reclaimed from the Gateway (task ${entry.task_id.slice(0, 12)}…)`)
     } catch (e: any) {
@@ -523,6 +555,7 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
 
   const still_missing = status.missing.length - recovered
   logs.push(`Done: recovered ${recovered}, still missing ${still_missing}.`)
+  const join_job_id = recovered ? await queueJoin(slug, episodeId, await getAudioStatus(slug, episodeId), logs) : null
 
   return {
     total_expected: status.expected.length,
@@ -531,5 +564,51 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
     still_missing,
     outcomes,
     logs,
+    ...(join_job_id ? { join_job_id } : {}),
   }
+}
+
+/**
+ * A split chapter with every part on disk but never activated is finished by
+ * the one path that activates audio: an ordinary audio run, here `join_only`
+ * (it refuses to make anything) with the settings of the run that made the
+ * parts. Nothing is bought; the run joins the parts and activates the chapter.
+ */
+async function queueJoin(slug: string, episodeId: string, status: AudioStatus, logs: string[]): Promise<string | null> {
+  if (!status.awaiting_join.length) return null
+  const names = status.awaiting_join.map(chapter => chapter.replaceAll('_', ' ')).join(', ')
+  const code = episodeId.toUpperCase()
+  const firstPart = status.expected.find(chunk => chunk.totalChunks > 1
+    && chunk.filename.toLowerCase().startsWith(`${code}_${status.awaiting_join[0]}_part`.toLowerCase()))
+  const model = firstPart ? (await readManifest(status.audio_dir)).tasks[firstPart.filename]?.model_id : undefined
+  const jq = await import('./job-queue.js')
+  const made = (await jq.getJobs(slug))
+    .filter(job => job.type === 'audio' && (job.episode_id || '').toUpperCase() === code
+      && job.params?.model === model && typeof job.params?.voice === 'string'
+      && !job.params.quality_repair && !job.params.quality_check)
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0]
+  if (!made) {
+    logs.push(`${names}: every part is here but the chapter is not joined yet. Generate missing joins it without making anything again.`)
+    return null
+  }
+  if (jq.isDuplicate(slug, made.episode_id, 'audio')) {
+    logs.push(`${names}: every part is here but the chapter is not joined yet. An audio job is running for this episode; press Repair again when it ends.`)
+    return null
+  }
+  const p = made.params
+  const job = await jq.enqueue({
+    project_slug: slug,
+    type: 'audio',
+    episode_id: made.episode_id,
+    title: `Audio (join ${names})`,
+    params: {
+      episode_id: made.episode_id, model: p.model, voice: p.voice, speed: p.speed,
+      ...(p.controls ? { controls: p.controls } : {}),
+      ...(p.paragraph_pause_sec !== undefined ? { paragraph_pause_sec: p.paragraph_pause_sec } : {}),
+      ...(p.sentence_pause_sec !== undefined ? { sentence_pause_sec: p.sentence_pause_sec } : {}),
+      sections: status.awaiting_join.join(','), force: false, no_overwrite: false, join_only: true,
+    },
+  })
+  logs.push(`${names}: every part is here; joining them into the chapter now (nothing is made or charged).`)
+  return job.job_id
 }

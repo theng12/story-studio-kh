@@ -3025,6 +3025,8 @@ export interface GenerateAudioRequest {
   }
   /** Re-narrate: once the narration is saved, re-make these chapters' subtitles (generators/audio.ts). */
   then_subtitles?: boolean
+  /** Server-only (Repair): activate and join chapters whose parts are all on disk; never submits TTS. */
+  join_only?: boolean
   /** Join pauses inside a chapter, seconds (Audio Generator; default from the Series Formula). */
   paragraph_pause_sec?: number
   sentence_pause_sec?: number

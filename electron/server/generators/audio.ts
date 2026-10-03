@@ -856,6 +856,11 @@ export async function generateAudio(job: Job): Promise<void> {
     }
   }
 
+  // Repair's join run only activates parts that are all on disk; it never buys one.
+  if (req.join_only && tasks.length) {
+    throw new Error(`${tasks.map(task => path.basename(task.outputPath)).join(', ')} went missing before the join; nothing was made. Use Generate missing.`)
+  }
+
   // Both live publications are advisory local staging hints. GenStudio
   // admission remains authoritative; neither value is a remote gate.
   const concurrency = resolveGenStudioTtsFanout(
@@ -992,6 +997,7 @@ export async function generateAudio(job: Job): Promise<void> {
         input_hash: inputHash,
         idempotency_key: idempotencyKey,
         operation: 'tts',
+        model_id: genStudioModelId,
         last_state: recoveryEntry?.last_state || 'prepared',
       })
       await checkpointGenStudioAsset(job, chunkFilename, {
@@ -1039,6 +1045,7 @@ export async function generateAudio(job: Job): Promise<void> {
             input_hash: inputHash,
             idempotency_key: acceptedIdempotencyKey,
             operation: 'tts',
+            model_id: genStudioModelId,
             last_state: 'accepted',
           })
           await checkpointGenStudioAsset(job, chunkFilename, {
@@ -1057,6 +1064,7 @@ export async function generateAudio(job: Job): Promise<void> {
             input_hash: inputHash,
             idempotency_key: idempotencyKey,
             operation: 'tts',
+            model_id: genStudioModelId,
             last_state: state,
           })
           await checkpointGenStudioAsset(job, chunkFilename, {
@@ -1077,6 +1085,24 @@ export async function generateAudio(job: Job): Promise<void> {
     }
   }
 
+  /** A part's durable request identity (text, voice, speed, boundary, controls, pauses) — no model; that is `model_id`. */
+  function chunkInputHash(chunkFilename: string, chunkText: string): string {
+    return hashInput(JSON.stringify({
+      requestIdentity: `${project_slug}:${episode_id.toUpperCase()}:audio:${chunkFilename}`,
+      text: chunkText,
+      voiceId: req.voice || '',
+      speed: genStudioSpeed,
+      maxInputCharacters: genStudioMaxCharacters,
+      // Spread conditionally for the same reason the idempotency digest does
+      // it: a model publishing no controls hashes exactly as before, so an
+      // existing manifest entry stays reusable across this upgrade instead of
+      // being resubmitted (and recharged) for a request that has not changed.
+      ...(Object.keys(requestControls).length ? { controls: requestControls } : {}),
+      // Same rule: absent unless sent, so an existing manifest entry stays reusable.
+      ...pauseRequest,
+    }))
+  }
+
   async function processTask(task: ChunkTask): Promise<void> {
     if (isCancelled()) return
     // Phase 6: per-task voice override for routed sections. Falls back to
@@ -1092,20 +1118,7 @@ export async function generateAudio(job: Job): Promise<void> {
     // work it had already paid for.
     const manifestEntry = audioManifest.tasks[chunkFilename]
     const requestIdentity = `${project_slug}:${episode_id.toUpperCase()}:audio:${chunkFilename}`
-    const inputHash = hashInput(JSON.stringify({
-      requestIdentity,
-      text: task.chunkText,
-      voiceId: effectiveVoice || '',
-      speed: genStudioSpeed,
-      maxInputCharacters: genStudioMaxCharacters,
-      // Spread conditionally for the same reason the idempotency digest does
-      // it: a model publishing no controls hashes exactly as before, so an
-      // existing manifest entry stays reusable across this upgrade instead of
-      // being resubmitted (and recharged) for a request that has not changed.
-      ...(Object.keys(requestControls).length ? { controls: requestControls } : {}),
-      // Same rule: absent unless sent, so an existing manifest entry stays reusable.
-      ...pauseRequest,
-    }))
+    const inputHash = chunkInputHash(chunkFilename, task.chunkText)
     const legacyTextHash = hashInput(task.chunkText)
     const reusableEntry = manifestEntry?.provider === 'genstudio'
       && (manifestEntry.input_hash === inputHash
@@ -1446,22 +1459,39 @@ export async function generateAudio(job: Job): Promise<void> {
       && job.params.genstudio_recovery.route === 'genstudio'
       ? job.params.genstudio_recovery.assets
       : {}
-    const belongsToCompletedReplacement = (file: string): boolean => {
+    const partTexts = new Map(sections.flatMap((section, index) => {
+      const parts = genStudioRequestPlan[index]!.parts
+      return parts.map((text, part) => [parts.length > 1 ? `${code}_${section.slug}_part${part + 1}.mp3` : `${code}_${section.slug}.mp3`, text] as const)
+    }))
+    const belongsToCompletedReplacement = (slug: string) => (file: string): boolean => {
       if (writtenChunkPaths.has(path.join(audioDir, file)) || restoredParts.has(file)) return true
       const task = manifest.tasks[file]
       const recovery = recoveryAssets?.[file]
-      return task?.provider === 'genstudio'
+      const succeeded = task?.provider === 'genstudio'
         && task.operation === 'tts'
         && task.last_state === 'succeeded'
         && !!task.task_id
         && !!task.idempotency_key
-        && recovery?.operation === 'tts'
+      if (!succeeded) return false
+      if (recovery?.operation === 'tts'
         && recovery.state === 'succeeded'
         && recovery.job_id === task.task_id
-        && recovery.idempotency_key === task.idempotency_key
+        && recovery.idempotency_key === task.idempotency_key) return true
+      // An earlier run made this part (same model, same request) but stopped
+      // before activating its chapter — a split chapter whose other part
+      // failed. Only a never-activated chapter: an active one keeps its
+      // selection, and an ordinary re-run over it stays a no-op.
+      const text = partTexts.get(file)
+      return !activeChapters[slug] && task.model_id === genStudioModelId
+        && text !== undefined && task.input_hash === chunkInputHash(file, text)
     }
-    const replacementSources = Object.fromEntries(updates
-      .filter(update => update.sourceFiles.every(belongsToCompletedReplacement))
+    // A chapter already active under this model with exactly these files and bytes needs no replacement.
+    const unchanged = (update: typeof updates[number]) => activeChapters[update.slug]?.tts?.model_id === genStudioModelId
+      && activeChapters[update.slug]?.source_files?.join('\n') === update.sourceFiles.join('\n')
+      && activeChapters[update.slug]?.source_audio_hash === update.sourceAudioHash
+    const pendingUpdates = updates.filter(update => !unchanged(update))
+    const replacementSources = Object.fromEntries(pendingUpdates
+      .filter(update => update.sourceFiles.every(belongsToCompletedReplacement(update.slug)))
       .map(update => [update.slug, update.sourceFiles]))
     const replacementCount = Object.keys(replacementSources).length
     if (replacementCount === 0 && writtenChunkPaths.size === 0) {
@@ -1471,12 +1501,12 @@ export async function generateAudio(job: Job): Promise<void> {
       // to activate, and do not rewrite their selection or committed model.
       job.output_lines.push('Existing audio was already present; active source selection was left unchanged.')
     } else {
-      if (updates.length !== sections.length || replacementCount !== sections.length) {
+      if (updates.length !== sections.length || replacementCount !== pendingUpdates.length) {
         throw audioActivationError('not every requested section has complete durable replacement evidence')
       }
 
       const commitProvenance = () => updateAudioQualityProvenance(episodeDir, existing => {
-        for (const update of updates) {
+        for (const update of pendingUpdates) {
           existing.chapters[update.slug] = {
             normalized_script_hash: update.scriptHash,
             normalization: 'tts-v1',
@@ -1505,7 +1535,7 @@ export async function generateAudio(job: Job): Promise<void> {
       } catch (error: any) {
         throw audioActivationError(error?.message || String(error))
       }
-      if (selectedSources !== null && selectedSources !== sections.length) {
+      if (selectedSources !== null && selectedSources !== pendingUpdates.length) {
         throw audioActivationError('the active selection did not accept every requested section')
       }
       await writeAudioTtsModelRecord(episodeDir, selectedModelRecord)
