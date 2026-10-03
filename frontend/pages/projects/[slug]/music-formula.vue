@@ -258,6 +258,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AddChip from '~/components/music/AddChip.vue'
+import { BUILT_IN_EFFECT_STACKS } from '@shared/scene-effect-presets'
 import { ALL_KEYS, STARTING_EPISODE_DEFAULTS, STARTING_SONG_FORMULA, comboCount, poolNeeds } from '../../../../electron/server/contracts/song-formula'
 
 definePageMeta({ layout: 'dashboard', key: route => String(route.params.slug || '') })
@@ -277,7 +278,8 @@ const pickingKeys = ref(false)
 const allWorlds = ref(false)
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v))
 // The Effects Library's built-in stack presets (feat/music-effects, INTERFACES.md 2026-10-03).
-const STACKS = ['stack-rainy-night', 'stack-snowy-cabin', 'stack-summer-meadow', 'stack-firelight', 'stack-starry-night', 'stack-misty-morning']
+// The built-in effect stacks come from the Effects Library, so this list can't drift from it.
+const STACKS = BUILT_IN_EFFECT_STACKS.map(stack => stack.id)
 const f = reactive<any>(clone(STARTING_SONG_FORMULA))
 const e = reactive<any>(clone(STARTING_EPISODE_DEFAULTS))
 let snapshot = ''
