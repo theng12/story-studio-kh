@@ -991,32 +991,8 @@ Output format (markdown):
 
 Output ONLY the ${sectionLowerRegen} heading + body. No commentary, no other ${sectionLowerPluralRegen}.`
 
-  const chapterPolicy = pipelinePolicyForJob(req, 'script-only')
-  const chapterCheckpoint = chapterPolicy
-    ? pipelinePolicyCheckpointStore(req, () => jq.checkpointJobState(job))
-    : undefined
-  const frozenChapterRequest = (req as any).llm_lineup_chapter_request
-  if (chapterPolicy && frozenChapterRequest !== undefined
-    && (!frozenChapterRequest || typeof frozenChapterRequest !== 'object'
-      || frozenChapterRequest.chapter_number !== chapterNumber
-      || typeof frozenChapterRequest.system !== 'string'
-      || typeof frozenChapterRequest.user !== 'string')) {
-    throw new Error('Chapter regeneration has an invalid pending lineup request; start a new regeneration.')
-  }
-  const chapterSystemPrompt = chapterPolicy && frozenChapterRequest
-    ? frozenChapterRequest.system
-    : sysPrompt
-  const chapterPrompt = chapterPolicy && frozenChapterRequest
-    ? frozenChapterRequest.user
-    : generatedChapterPrompt
-  if (chapterPolicy && !frozenChapterRequest) {
-    ;(req as any).llm_lineup_chapter_request = {
-      chapter_number: chapterNumber,
-      system: sysPrompt,
-      user: generatedChapterPrompt,
-    }
-    await jq.checkpointJobState(job)
-  }
+  const chapterSystemPrompt = sysPrompt
+  const chapterPrompt = generatedChapterPrompt
 
   job.output_lines.push(`Regenerating Chapter ${chapterNumber}…`)
   const controller = new AbortController()
@@ -1030,12 +1006,8 @@ Output ONLY the ${sectionLowerRegen} heading + body. No commentary, no other ${s
       signal: controller.signal,
       outputBudget: 'long' as const,
       requestIdentity: freshGenerationRequestIdentity(job, `chapter-${chapterNumber}`),
-      pipelinePolicyCheckpoint: chapterCheckpoint,
-      pipelinePolicyCheckpointKey: `${project_slug}:${episode_id}:chapter:${chapterNumber}`,
     }
-    const chapterText = chapterPolicy
-      ? await callAiWithModelPolicy(chapterPolicy, chapterSystemPrompt, chapterPrompt, apiKeys, true, chapterContext)
-      : await callAiWithRetry(req.model, chapterSystemPrompt, chapterPrompt, apiKeys, true, chapterContext)
+    const chapterText = await callAiWithRetry(req.model, chapterSystemPrompt, chapterPrompt, apiKeys, true, chapterContext)
 
     // Parse out the title from the heading the model produced. Fall back
     // to a synthesised title if the model omitted it.

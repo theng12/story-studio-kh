@@ -91,7 +91,6 @@
       </p>
     </div>
 
-    <InheritedLlmLineupNotice :project-slug="slug" />
 
     <!-- ── Workflow tab ────────────────────────────────────────────────── -->
     <div v-show="ideasTab === 'workflow'">
@@ -292,15 +291,7 @@
             <div><strong>Generation settings</strong><small>Your last model is restored automatically.</small></div>
           </div>
           <div class="generation-settings-grid">
-            <!-- While the shared LLM lineup is on, the queue replaces this
-                 batch's model with the lineup's, so a picker here would do
-                 nothing. Say so instead of offering a dead control. -->
-            <div v-if="ideasLineupModelCount" class="form-group lineup-model-readonly">
-              <label>AI Model</label>
-              <div class="input text-muted">Shared LLM lineup ({{ ideasLineupModelCount }} model{{ ideasLineupModelCount === 1 ? '' : 's' }})</div>
-              <span class="text-muted text-xs">The lineup picks the model while it is on. Change it in <NuxtLink :to="`/projects/${slug}/pipeline`">Pipeline</NuxtLink>.</span>
-            </div>
-            <ModelSelector v-else-if="modelPreferenceReady" v-model="form.model" :project-slug="slug" />
+            <ModelSelector v-if="modelPreferenceReady" v-model="form.model" :project-slug="slug" writing-step />
             <div v-else class="form-group"><label>AI Model</label><div class="input text-muted">Restoring your last used model…</div></div>
             <div class="form-group">
               <label>Items or chapters per video <span class="text-muted">(optional)</span></label>
@@ -1255,17 +1246,7 @@ watch(ideasTab, (v) => {
   _router.replace({ query: { ...route.query, tab: v } })
 })
 const { ask } = useConfirm()
-const { project, config: projectConfig, slug: loadedProjectSlug } = useProject()
-// Same reading as InheritedLlmLineupNotice: when the shared lineup is on, the
-// job queue replaces an Idea Campaign's model with the lineup's.
-const ideasLineupModels = computed<string[]>(() => {
-  if (loadedProjectSlug.value !== slug.value) return []
-  const lineup = (projectConfig.value as any)?.llm_lineup
-  return lineup?.enabled === true && Array.isArray(lineup.models)
-    ? lineup.models.filter((model: unknown): model is string => typeof model === 'string' && !!model.trim())
-    : []
-})
-const ideasLineupModelCount = computed(() => ideasLineupModels.value.length)
+const { project } = useProject()
 // v1.0.165 — the Pattern customization system was removed; its one
 // piece of value (the {X} title shape) is now a plain `title_template`
 // string field on the Ideas form. The pattern lookup composable,
@@ -2835,9 +2816,6 @@ async function generate() {
     // generated. Backend treats both empty strings as "no wrapping".
     body.title_prefix = titleConfig.prefix
     body.title_suffix = titleConfig.suffix
-    // With the shared lineup on, the queue assigns the lineup's model anyway;
-    // the request still has to name one, so name the lineup's first.
-    if (!body.model && ideasLineupModels.value.length) body.model = ideasLineupModels.value[0]
     // v1.0.165 — the X-Pattern-Warning header path was removed with the
     // Pattern system. The title template is a plain string that can't
     // "fail to load", so there's nothing to warn about; a normal POST

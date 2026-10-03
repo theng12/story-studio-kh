@@ -330,8 +330,8 @@ describe('Pipeline web research recovery', () => {
         ...options,
         request_identity: 'web-recovery-request',
         pipeline_model_policy: {
-          mode: 'backup',
-          models: ['historical-web-product', 'backup-web-product'],
+          mode: 'single',
+          models: ['historical-web-product'],
           assigned_model: 'historical-web-product',
         },
         pipeline_policy_checkpoint: checkpoint,

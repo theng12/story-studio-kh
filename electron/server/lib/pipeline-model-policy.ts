@@ -1,6 +1,6 @@
 import { createHash } from 'crypto'
 import { resolveGenStudioModelId } from '../services/genstudio-model-migration.js'
-import { findGenStudioProduct, type GenStudioProductIdentity } from '../contracts/genstudio-product-identity.js'
+import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
 
 export const PIPELINE_MODEL_POLICY_STAGES = [
   'ideas',
@@ -14,15 +14,12 @@ export const PIPELINE_MODEL_POLICY_STAGES = [
 ] as const
 
 export type PipelineModelPolicyStage = typeof PIPELINE_MODEL_POLICY_STAGES[number]
-export type PipelineModelPolicyMode = 'single' | 'distribute' | 'backup'
+/** One writing model per step (owner, 2026-10-03). Fallback across models is a Gateway pool. */
+export type PipelineModelPolicyMode = 'single'
 
 export interface PipelineModelPolicy {
   mode: PipelineModelPolicyMode
   models: string[]
-  /** Shared LLM lineups may wait for a published temporary availability window. */
-  wait_for_availability?: true
-  /** Shared LLM lineups rank free and discounted products from the live catalog. */
-  prefer_savings?: boolean
 }
 
 export interface AssignedPipelineModelPolicy extends PipelineModelPolicy {
@@ -37,22 +34,10 @@ export interface PipelinePolicyAttemptCheckpoint {
   candidate_model: string
   status: PipelinePolicyAttemptStatus
   idempotency_key?: string
-  /** Per-candidate replacement lineage after a proved zero-settlement quota stop. */
+  /** Written by older builds; read so their checkpoints stay valid, never written. */
   retry_epochs?: number[]
-  /** A GenStudio-published availability time, or this app's bounded local recheck time. */
   retry_at?: string
   updated_at: string
-}
-
-/** The live fields a shared LLM lineup may use to order a new logical request. */
-export interface LlmLineupCatalogModel extends GenStudioProductIdentity {
-  input_credits_per_million_tokens?: number
-  output_credits_per_million_tokens?: number
-  minimum_credits?: number
-  standard_input_credits_per_million_tokens?: number | null
-  standard_output_credits_per_million_tokens?: number | null
-  standard_minimum_credits?: number | null
-  discount?: boolean
 }
 
 export interface PipelinePolicyCheckpointStore {
@@ -63,7 +48,6 @@ export interface PipelinePolicyCheckpointStore {
 export type PipelineModelPolicies = Partial<Record<PipelineModelPolicyStage, PipelineModelPolicy>>
 
 const STAGE_SET = new Set<string>(PIPELINE_MODEL_POLICY_STAGES)
-const MODES = new Set<PipelineModelPolicyMode>(['single', 'distribute', 'backup'])
 const ATTEMPT_STATUSES = new Set<PipelinePolicyAttemptStatus>([
   'in_flight', 'accepted', 'succeeded', 'failed_unaccepted', 'failed_terminal', 'unknown', 'waiting', 'exhausted',
 ])
@@ -113,9 +97,8 @@ export function normalizePipelineModelPolicies(value: unknown): PipelineModelPol
       throw new Error(`model_policies.${stage} must contain mode and models`)
     }
     const candidate = raw as Record<string, unknown>
-    const mode = candidate.mode
-    if (typeof mode !== 'string' || !MODES.has(mode as PipelineModelPolicyMode)) {
-      throw new Error(`model_policies.${stage}.mode must be single, distribute, or backup`)
+    if (candidate.mode !== undefined && candidate.mode !== 'single') {
+      throw new Error(`model_policies.${stage} takes one writing model. To fall back across several models, make a pool in GatewayKH and choose it here.`)
     }
     if (!Array.isArray(candidate.models) || candidate.models.length === 0 ||
         candidate.models.some(model => typeof model !== 'string' || !model.trim())) {
@@ -126,43 +109,12 @@ export function normalizePipelineModelPolicies(value: unknown): PipelineModelPol
       throw new Error(`model_policies.${stage}.models contains an invalid product id`)
     }
     const normalized = models as string[]
-    if (new Set(normalized).size !== normalized.length) {
-      throw new Error(`model_policies.${stage}.models must contain distinct products`)
+    if (normalized.length !== 1) {
+      throw new Error(`model_policies.${stage} takes exactly one writing model. To fall back across several models, make a pool in GatewayKH and choose it here.`)
     }
-    if (mode === 'single' && normalized.length !== 1) {
-      throw new Error(`model_policies.${stage}.single requires exactly one product`)
-    }
-    if ((mode === 'distribute' || mode === 'backup') && normalized.length < 2) {
-      throw new Error(`model_policies.${stage}.${mode} requires at least two products`)
-    }
-    if (candidate.wait_for_availability !== undefined && candidate.wait_for_availability !== true) {
-      throw new Error(`model_policies.${stage}.wait_for_availability must be true when set`)
-    }
-    if (candidate.prefer_savings !== undefined && typeof candidate.prefer_savings !== 'boolean') {
-      throw new Error(`model_policies.${stage}.prefer_savings must be a boolean when set`)
-    }
-    result[stage as PipelineModelPolicyStage] = {
-      mode: mode as PipelineModelPolicyMode,
-      models: normalized,
-      ...(candidate.wait_for_availability === true ? { wait_for_availability: true } : {}),
-      ...(typeof candidate.prefer_savings === 'boolean' ? { prefer_savings: candidate.prefer_savings } : {}),
-    }
+    result[stage as PipelineModelPolicyStage] = { mode: 'single', models: normalized }
   }
   return result
-}
-
-/** Stable assignment for a stage/episode pair. It is independent of queue order. */
-export function assignedPipelineModel(
-  stage: PipelineModelPolicyStage,
-  episodeId: string,
-  policy: PipelineModelPolicy,
-): string {
-  // Backup order is customer-authored: the first product is always the
-  // primary. Only distribution hashes the episode into the selected pool.
-  if (policy.mode !== 'distribute') return policy.models[0]!
-  const digest = createHash('sha256').update(`${stage}:${episodeId}`).digest()
-  const index = digest.readUInt32BE(0) % policy.models.length
-  return policy.models[index]!
 }
 
 export function pipelinePolicyInputFingerprint(value: unknown): string {
@@ -187,12 +139,8 @@ export function pipelinePolicyCheckpointStore(
   }
 }
 
-export function assignedPipelinePolicy(
-  stage: PipelineModelPolicyStage,
-  episodeId: string,
-  policy: PipelineModelPolicy,
-): AssignedPipelineModelPolicy {
-  return { ...policy, assigned_model: assignedPipelineModel(stage, episodeId, policy) }
+export function assignedPipelinePolicy(policy: PipelineModelPolicy): AssignedPipelineModelPolicy {
+  return { ...policy, assigned_model: policy.models[0]! }
 }
 
 export function pipelinePolicyForJob(jobParams: unknown, stage: PipelineModelPolicyStage): AssignedPipelineModelPolicy | null {
@@ -201,64 +149,17 @@ export function pipelinePolicyForJob(jobParams: unknown, stage: PipelineModelPol
   const policy = (raw as Record<string, unknown>)[stage]
   if (!policy || typeof policy !== 'object' || Array.isArray(policy)) return null
   const candidate = policy as Record<string, unknown>
-  if (typeof candidate.assigned_model !== 'string' || !candidate.assigned_model.trim()) return null
-  try {
-    const policy = normalizePipelineModelPolicies({
-      [stage]: {
-        mode: candidate.mode,
-        models: candidate.models,
-        ...(candidate.wait_for_availability === true ? { wait_for_availability: true } : {}),
-        ...(typeof candidate.prefer_savings === 'boolean' ? { prefer_savings: candidate.prefer_savings } : {}),
-      },
-    })[stage]
-    const assignedModel = resolveGenStudioModelId('chat', candidate.assigned_model)
-    if (!policy || !assignedModel || !policy.models.includes(assignedModel)) return null
-    return { ...policy, assigned_model: assignedModel }
-  } catch {
-    return null
-  }
-}
-
-/**
- * Return the authored execution order, or its live price-aware order for a
- * shared lineup. This resolves aliases only for inspection: the saved product
- * string remains the string sent to GenStudio and folded into its request key.
- */
-export function rankedPipelineModelCandidates(
-  policy: AssignedPipelineModelPolicy,
-  catalogue: readonly LlmLineupCatalogModel[],
-): string[] {
-  const candidates = policy.mode === 'backup'
-    ? [policy.assigned_model, ...policy.models.filter(model => model !== policy.assigned_model)]
-    : [policy.assigned_model]
-  if (policy.prefer_savings !== true) return candidates
-
-  const priceGroup = (savedModelId: string): number => {
-    const product = findGenStudioProduct(catalogue, savedModelId)
-    // Price is only free when both effective token rates are published and
-    // zero. A missing rate is not a zero rate and remains in authored order.
-    if (product
-      && product.input_credits_per_million_tokens === 0
-      && product.output_credits_per_million_tokens === 0
-      && product.minimum_credits === 0) return 0
-    const promotion = !!product && (
-      (typeof product.standard_input_credits_per_million_tokens === 'number'
-        && typeof product.input_credits_per_million_tokens === 'number'
-        && product.standard_input_credits_per_million_tokens > product.input_credits_per_million_tokens)
-      || (typeof product.standard_output_credits_per_million_tokens === 'number'
-        && typeof product.output_credits_per_million_tokens === 'number'
-        && product.standard_output_credits_per_million_tokens > product.output_credits_per_million_tokens)
-      || (typeof product.standard_minimum_credits === 'number'
-        && typeof product.minimum_credits === 'number'
-        && product.standard_minimum_credits > product.minimum_credits)
-    )
-    if (product?.discount === true || promotion) return 1
-    return 2
-  }
-  return candidates
-    .map((model, index) => ({ model, index, group: priceGroup(model) }))
-    .sort((left, right) => left.group - right.group || left.index - right.index)
-    .map(item => item.model)
+  // A job queued by an older build under the retired LLM lineup already carries
+  // its model in `params.model`; it runs on that one model like any page job.
+  if (candidate.wait_for_availability === true) return null
+  const assignedModel = typeof candidate.assigned_model === 'string'
+    ? resolveGenStudioModelId('chat', candidate.assigned_model)
+    : null
+  if (!assignedModel || !Array.isArray(candidate.models)
+    || !candidate.models.some(model => typeof model === 'string' && resolveGenStudioModelId('chat', model) === assignedModel)) return null
+  // Older builds could queue several models for one step; only the one this
+  // episode was assigned ever runs now.
+  return { mode: 'single', models: [assignedModel], assigned_model: assignedModel }
 }
 
 /** Return blocking catalogue messages for an already-normalized policy. */
@@ -271,9 +172,6 @@ export function validatePipelineModelCatalogue(
     for (const modelId of policy?.models || []) {
       const model = findGenStudioProduct(catalogue, modelId)
       if (!model) errors.push(`model_policies.${stage}: product "${modelId}" is not in the live Gateway catalogue`)
-      // A temporarily unavailable row remains a valid explicit backup
-      // candidate: the shared client may switch only after GenStudio proves
-      // that this candidate made no request.
       else if (model.qualification_only) errors.push(`model_policies.${stage}: product "${modelId}" is qualification-only and cannot be selected here`)
     }
   }

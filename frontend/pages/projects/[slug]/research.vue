@@ -68,7 +68,6 @@
       </div>
     </div>
 
-    <InheritedLlmLineupNotice :project-slug="slug" />
 
     <WorkspaceSection
       eyebrow="Research brief"
@@ -201,7 +200,7 @@
               search-placeholder="Search web-research models…"
               aria-label="Web-research model options"
             />
-            <ModelSelector v-else v-model="form.source_model" :project-slug="slug" />
+            <ModelSelector v-else v-model="form.source_model" :project-slug="slug" writing-step />
             <span class="research-field-note">
               <template v-if="webMode">Only models qualified to search the web and return structured citations appear here.</template>
               <template v-else>Only published Gateway LLM models appear here. Your last choice remains selected for this project.</template>

@@ -324,14 +324,6 @@ const groupsMeta: Omit<PresetGroup, 'items'>[] = [
     configKey: 'animation',
     editLink: '/video-assembly',
   },
-  {
-    key: 'llm_lineup',
-    label: 'LLM Lineup',
-    icon: '🧠',
-    hint: 'Which language models a Pipeline run may use, in order.',
-    configKey: 'llm_lineup',
-    editLink: '/pipeline',
-  },
 ]
 
 const groups = ref<PresetGroup[]>(groupsMeta.map(g => ({ ...g, items: [] })))

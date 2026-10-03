@@ -60,7 +60,14 @@
       </WorkspaceNotice>
     </div>
 
-    <LlmLineupEditor :key="slug" :project-slug="slug" @loaded="onLlmLineupLoaded" @saved="onLlmLineupSaved" />
+    <WorkspaceNotice v-if="lineupNotice" tone="info" title="The LLM lineup is gone" class="lineup-retired-notice">
+      Each step now uses one writing model. We kept “{{ lineupNotice.model }}” for
+      {{ lineupNotice.steps.length ? `these steps: ${lineupNotice.steps.join(', ')}` : 'any step with no writing model of its own' }}.
+      To fall back across several models, make a pool in GatewayKH → Providers → Pools and pick it here.
+      <template #actions>
+        <button type="button" class="btn btn-sm btn-secondary" @click="dismissLineupNotice">Got it</button>
+      </template>
+    </WorkspaceNotice>
 
     <!-- ── Steps to run ─────────────────────────────────────────────────── -->
     <WorkspaceSection
@@ -172,50 +179,23 @@
                         :checked="modelPolicyFor(entry.id)!.enabled"
                         @change="setModelPolicyEnabled(entry.id, ($event.target as HTMLInputElement).checked)"
                       />
-                      Choose exact model{{ modelPolicyFor(entry.id)!.mode === 'single' ? '' : 's' }} for this run
+                      Use a different writing model for this run
                     </label>
                     <template v-if="modelPolicyFor(entry.id)!.enabled">
-                      <fieldset class="step-model-policy-fields">
-                        <legend>Run policy</legend>
-                        <label v-for="mode in modelPolicyModes" :key="mode.value" class="step-model-policy-mode">
-                          <input
-                            type="radio"
-                            :name="`model-policy-${entry.id}`"
-                            :checked="modelPolicyFor(entry.id)!.mode === mode.value"
-                            @change="setModelPolicyMode(entry.id, mode.value)"
-                          />
-                          <span><strong>{{ mode.label }}</strong> — {{ mode.detail }}</span>
-                        </label>
-                      </fieldset>
                       <div class="step-model-policy-candidates">
-                        <div
-                          v-for="(_, index) in modelPolicyFor(entry.id)!.models"
-                          :key="`${entry.id}-${index}`"
-                          class="step-model-policy-candidate"
-                        >
+                        <div class="step-model-policy-candidate">
                           <ModelSelector
-                            :model-value="modelPolicyFor(entry.id)!.models[index] || ''"
+                            :model-value="modelPolicyFor(entry.id)!.model"
                             :project-slug="slug"
-                            :label="modelCandidateLabel(entry.id, index)"
-                            @update:model-value="setModelPolicyModel(entry.id, index, $event)"
-                            @model-meta="setModelPolicyModelMeta(entry.id, index, $event)"
+                            label="Writing model"
+                            @update:model-value="setModelPolicyModel(entry.id, $event)"
+                            @model-meta="setModelPolicyModelMeta(entry.id, $event)"
                           />
-                          <p v-if="modelPolicyLimits(entry.id, index)" class="step-model-policy-limits">
-                            {{ modelPolicyLimits(entry.id, index) }}
+                          <p v-if="modelPolicyLimits(entry.id)" class="step-model-policy-limits">
+                            {{ modelPolicyLimits(entry.id) }}
                           </p>
-                          <div v-if="modelPolicyFor(entry.id)!.mode !== 'single'" class="step-model-policy-candidate-actions">
-                            <button type="button" class="btn btn-xs btn-ghost" :disabled="index === 0" @click="moveModelPolicyCandidate(entry.id, index, -1)">Earlier</button>
-                            <button type="button" class="btn btn-xs btn-ghost" :disabled="index === modelPolicyFor(entry.id)!.models.length - 1" @click="moveModelPolicyCandidate(entry.id, index, 1)">Later</button>
-                            <button type="button" class="btn btn-xs btn-ghost" @click="removeModelPolicyCandidate(entry.id, index)">Remove</button>
-                          </div>
                         </div>
                       </div>
-                      <button
-                        v-if="modelPolicyFor(entry.id)!.mode !== 'single'"
-                        type="button"
-                        class="btn btn-xs btn-secondary"
-                        @click="addModelPolicyCandidate(entry.id)"
-                      >Add {{ modelPolicyFor(entry.id)!.mode === 'backup' ? 'backup' : 'model' }}</button>
                       <p v-if="modelPolicyError(entry.id)" class="step-model-policy-error" role="status">{{ modelPolicyError(entry.id) }}</p>
                     </template>
                   </div>
@@ -1104,22 +1084,35 @@ const stepChecked = reactive<Record<StepId, boolean>>({
   video_assembly: false,
 })
 
-interface SavedLlmLineup {
-  enabled: boolean
-  models: string[]
-  prefer_savings: boolean
+// The retired LLM lineup's one-time notice (2026-10-03): what Story Studio kept,
+// shown until the owner closes it. Model names come from this browser's catalogue memory.
+const modelNames = useGenStudioModelDisplay()
+modelNames.hydrate()
+const chatModels = useGenStudioChatModels()
+const lineupNoticeClosed = ref(false)
+watch(slug, () => { lineupNoticeClosed.value = false })
+const lineupNotice = computed(() => {
+  const record = (config.value as any)?.llm_lineup_migration
+  if (!record?.model || record.notice_dismissed_at || lineupNoticeClosed.value) return null
+  return {
+    model: chatModels.find(record.model)?.display_name || modelNames.knownName(record.model) || record.model,
+    steps: Array.isArray(record.steps) ? record.steps as string[] : [],
+  }
+})
+watch(() => (config.value as any)?.llm_lineup_migration?.model, model => { if (model) void chatModels.refresh() }, { immediate: true })
+async function dismissLineupNotice(): Promise<void> {
+  lineupNoticeClosed.value = true
+  try {
+    await post(`/projects/${slug.value}/settings/llm-lineup-notice/dismiss`, {})
+  } catch { /* closed for this visit; it comes back next time if the save failed */ }
 }
-const savedLlmLineup = ref<SavedLlmLineup>({ enabled: false, models: [], prefer_savings: true })
-function onLlmLineupLoaded(lineup: SavedLlmLineup): void { savedLlmLineup.value = { ...lineup, models: [...lineup.models] } }
-function onLlmLineupSaved(lineup: SavedLlmLineup): void { savedLlmLineup.value = { ...lineup, models: [...lineup.models] } }
 
 type EligibleModelPolicyStep = Extract<StepId,
   'script-only' | 'introduction-only' | 'research' | 'metadata' | 'image_prompts' | 'scene_plan' | 'contextual_cues'>
-type ModelPolicyMode = 'single' | 'distribute' | 'backup'
+/** One writing model per step for this run (a Gateway pool counts as one). */
 interface ModelPolicyDraft {
   enabled: boolean
-  mode: ModelPolicyMode
-  models: string[]
+  model: string
 }
 interface ModelPolicyModelMeta {
   id: string
@@ -1131,28 +1124,23 @@ interface ModelPolicyModelMeta {
 const MODEL_POLICY_STEPS = new Set<EligibleModelPolicyStep>([
   'script-only', 'introduction-only', 'research', 'metadata', 'image_prompts', 'scene_plan', 'contextual_cues',
 ])
-const modelPolicyModes: Array<{ value: ModelPolicyMode; label: string; detail: string }> = [
-  { value: 'single', label: 'Single', detail: 'Use this exact product for every episode.' },
-  { value: 'distribute', label: 'Distribute', detail: 'Use the chosen products across independent episodes.' },
-  { value: 'backup', label: 'Primary + backups', detail: 'Try backups only after a proven terminal, unaccepted failure.' },
-]
 const modelPolicies = reactive<Record<EligibleModelPolicyStep, ModelPolicyDraft>>({
-  research: { enabled: false, mode: 'single', models: [''] },
-  'script-only': { enabled: false, mode: 'single', models: [''] },
-  'introduction-only': { enabled: false, mode: 'single', models: [''] },
-  image_prompts: { enabled: false, mode: 'single', models: [''] },
-  metadata: { enabled: false, mode: 'single', models: [''] },
-  scene_plan: { enabled: false, mode: 'single', models: [''] },
-  contextual_cues: { enabled: false, mode: 'single', models: [''] },
+  research: { enabled: false, model: '' },
+  'script-only': { enabled: false, model: '' },
+  'introduction-only': { enabled: false, model: '' },
+  image_prompts: { enabled: false, model: '' },
+  metadata: { enabled: false, model: '' },
+  scene_plan: { enabled: false, model: '' },
+  contextual_cues: { enabled: false, model: '' },
 })
-const modelPolicyModelMeta = reactive<Record<EligibleModelPolicyStep, Array<ModelPolicyModelMeta | null>>>({
-  research: [null],
-  'script-only': [null],
-  'introduction-only': [null],
-  image_prompts: [null],
-  metadata: [null],
-  scene_plan: [null],
-  contextual_cues: [null],
+const modelPolicyModelMeta = reactive<Record<EligibleModelPolicyStep, ModelPolicyModelMeta | null>>({
+  research: null,
+  'script-only': null,
+  'introduction-only': null,
+  image_prompts: null,
+  metadata: null,
+  scene_plan: null,
+  contextual_cues: null,
 })
 const modelPolicyExpanded = reactive<Record<StepId, boolean>>({
   research: false, broll: false, 'script-only': false, 'introduction-only': false,
@@ -1169,9 +1157,8 @@ function modelPolicyFor(stepId: StepId): ModelPolicyDraft | null {
 function resetModelPolicies(): void {
   for (const stepId of MODEL_POLICY_STEPS) {
     modelPolicies[stepId].enabled = false
-    modelPolicies[stepId].mode = 'single'
-    modelPolicies[stepId].models = ['']
-    modelPolicyModelMeta[stepId] = [null]
+    modelPolicies[stepId].model = ''
+    modelPolicyModelMeta[stepId] = null
     modelPolicyExpanded[stepId] = false
   }
 }
@@ -1182,33 +1169,21 @@ function setModelPolicyEnabled(stepId: StepId, enabled: boolean): void {
 function setModelPolicyExpanded(stepId: StepId, expanded: boolean): void {
   modelPolicyExpanded[stepId] = expanded
 }
-function setModelPolicyMode(stepId: StepId, mode: ModelPolicyMode): void {
+function setModelPolicyModel(stepId: StepId, modelId: string): void {
   const policy = modelPolicyFor(stepId)
   if (!policy) return
-  policy.mode = mode
-  if (mode === 'single') {
-    policy.models = [policy.models[0] || '']
-    modelPolicyModelMeta[stepId as EligibleModelPolicyStep] = [modelPolicyModelMeta[stepId as EligibleModelPolicyStep][0] || null]
-  } else if (policy.models.length < 2) {
-    policy.models.push('')
-    modelPolicyModelMeta[stepId as EligibleModelPolicyStep].push(null)
+  policy.model = modelId
+  modelPolicyModelMeta[stepId as EligibleModelPolicyStep] = null
+}
+function setModelPolicyModelMeta(stepId: StepId, model: ModelPolicyModelMeta | null): void {
+  const policy = modelPolicyFor(stepId)
+  if (policy && model?.id === policy.model) {
+    modelPolicyModelMeta[stepId as EligibleModelPolicyStep] = model
   }
 }
-function setModelPolicyModel(stepId: StepId, index: number, modelId: string): void {
-  const policy = modelPolicyFor(stepId)
-  if (!policy) return
-  policy.models[index] = modelId
-  modelPolicyModelMeta[stepId as EligibleModelPolicyStep][index] = null
-}
-function setModelPolicyModelMeta(stepId: StepId, index: number, model: ModelPolicyModelMeta | null): void {
-  const policy = modelPolicyFor(stepId)
-  if (policy && model?.id === policy.models[index]) {
-    modelPolicyModelMeta[stepId as EligibleModelPolicyStep][index] = model
-  }
-}
-function modelPolicyLimits(stepId: StepId, index: number): string {
-  const model = modelPolicyModelMeta[stepId as EligibleModelPolicyStep]?.[index]
-  if (!model || model.id !== modelPolicyFor(stepId)?.models[index]) return ''
+function modelPolicyLimits(stepId: StepId): string {
+  const model = modelPolicyModelMeta[stepId as EligibleModelPolicyStep]
+  if (!model || model.id !== modelPolicyFor(stepId)?.model) return ''
   const context = model.context_window_tokens ?? model.context_limit_tokens
   const output = model.max_output_tokens
   const facts: string[] = []
@@ -1219,86 +1194,32 @@ function modelPolicyLimits(stepId: StepId, index: number): string {
   }
   return facts.join(' ')
 }
-function addModelPolicyCandidate(stepId: StepId): void {
-  const policy = modelPolicyFor(stepId)
-  if (policy && policy.mode !== 'single') {
-    policy.models.push('')
-    modelPolicyModelMeta[stepId as EligibleModelPolicyStep].push(null)
-  }
-}
-function removeModelPolicyCandidate(stepId: StepId, index: number): void {
-  const policy = modelPolicyFor(stepId)
-  if (policy && policy.mode !== 'single') {
-    policy.models.splice(index, 1)
-    modelPolicyModelMeta[stepId as EligibleModelPolicyStep].splice(index, 1)
-  }
-}
-function moveModelPolicyCandidate(stepId: StepId, index: number, direction: -1 | 1): void {
-  const policy = modelPolicyFor(stepId)
-  const target = index + direction
-  if (!policy || policy.mode === 'single' || target < 0 || target >= policy.models.length) return
-  ;[policy.models[index], policy.models[target]] = [policy.models[target], policy.models[index]]
-  const meta = modelPolicyModelMeta[stepId as EligibleModelPolicyStep]
-  ;[meta[index], meta[target]] = [meta[target], meta[index]]
-}
 function modelPolicyError(stepId: StepId): string {
   const policy = modelPolicyFor(stepId)
-  if (!policy?.enabled) return ''
-  const models = policy.models.filter(Boolean)
-  if (models.length !== policy.models.length) return 'Choose a published Gateway product for every model slot.'
-  if (new Set(models).size !== models.length) return 'Choose each product once.'
-  if (policy.mode === 'single' && models.length !== 1) return 'Single mode needs one product.'
-  if ((policy.mode === 'distribute' || policy.mode === 'backup') && models.length < 2) {
-    return `${policy.mode === 'backup' ? 'Primary + backups' : 'Distribute'} needs at least two products.`
-  }
-  return ''
+  return policy?.enabled && !policy.model ? 'Choose a writing model, or untick this to use the preset\'s model.' : ''
 }
 function modelPolicySummary(stepId: StepId): string {
   const policy = modelPolicyFor(stepId)
-  if (!policy?.enabled) return 'Preset default'
-  const count = policy.models.filter(Boolean).length
-  if (policy.mode === 'single') return count ? 'One exact model' : 'Choose a model'
-  return count ? `${policy.mode === 'backup' ? 'Primary + backups' : 'Distribute'} · ${count} models` : 'Choose models'
+  if (!policy?.enabled) return 'Preset\'s model'
+  return policy.model ? 'Different model for this run' : 'Choose a model'
 }
-function modelCandidateLabel(stepId: StepId, index: number): string {
-  const policy = modelPolicyFor(stepId)
-  if (policy?.mode === 'backup') return index === 0 ? 'Primary model' : `Backup ${index}`
-  return policy?.mode === 'distribute' ? `Model ${index + 1}` : 'Model'
-}
-type RunModelPolicy = { mode: ModelPolicyMode; models: string[]; wait_for_availability?: true; prefer_savings?: boolean }
+type RunModelPolicy = { mode: 'single'; models: string[] }
 function modelPoliciesForRun(): Partial<Record<EligibleModelPolicyStep, RunModelPolicy>> {
   const result: Partial<Record<EligibleModelPolicyStep, RunModelPolicy>> = {}
   for (const step of checkedStepsOrdered.value) {
     const policy = modelPolicyFor(step.id)
-    if (policy?.enabled && !modelPolicyError(step.id)) {
-      result[step.id as EligibleModelPolicyStep] = {
-        mode: policy.mode,
-        models: [...policy.models],
-      }
-    } else if (policy && savedLlmLineup.value.enabled && savedLlmLineup.value.models.length) {
-      result[step.id as EligibleModelPolicyStep] = {
-        mode: savedLlmLineup.value.models.length >= 2 ? 'backup' : 'single',
-        models: [...savedLlmLineup.value.models],
-        wait_for_availability: true,
-        prefer_savings: savedLlmLineup.value.prefer_savings,
-      }
+    if (policy?.enabled && policy.model) {
+      result[step.id as EligibleModelPolicyStep] = { mode: 'single', models: [policy.model] }
     }
   }
   return result
 }
-const modelPolicyRunSummary = computed(() => Object.entries(modelPoliciesForRun()).map(([stepId, policy]) => {
-  const label = stepById(stepId as StepId).label
-  if (policy.mode === 'distribute') return `${label} will distribute independent episodes across ${policy.models.length} selected products.`
-  if (policy.mode === 'backup') return `${label} uses its selected backups only after a proven terminal, unaccepted failure; uncertain or accepted requests reconnect instead.`
-  return `${label} uses its selected product for this run.`
-}))
+const modelPolicyRunSummary = computed(() => Object.keys(modelPoliciesForRun()).map(stepId =>
+  `${stepById(stepId as StepId).label} uses the writing model chosen above for this run.`))
 
 // These choices apply only to the current batch. A project change must never
 // carry one channel's explicit products into another channel's request.
-watch(slug, () => {
-  resetModelPolicies()
-  savedLlmLineup.value = { enabled: false, models: [], prefer_savings: true }
-})
+watch(slug, resetModelPolicies)
 
 // Tri-state (E-03): true = the channel opens with an Introduction, false = it
 // does not, null = the read failed. Encoding "could not check" as `false` used
@@ -2803,19 +2724,14 @@ async function submit() {
 .step-model-policy summary { color: var(--text-secondary); cursor: pointer; }
 .step-model-policy-summary { color: var(--text-muted); margin-left: 4px; }
 .step-model-policy-body { display: grid; gap: 8px; margin-top: 8px; }
-.step-model-policy-toggle,
-.step-model-policy-mode { display: flex; align-items: flex-start; gap: 6px; color: var(--text-secondary); }
-.step-model-policy-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 5px 12px; margin: 0; padding: 7px 8px; border: 1px solid var(--border); border-radius: 4px; }
-.step-model-policy-fields legend { padding: 0 3px; color: var(--text-muted); }
+.step-model-policy-toggle { display: flex; align-items: flex-start; gap: 6px; color: var(--text-secondary); }
 .step-model-policy-candidates { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
 .step-model-policy-candidate { display: grid; gap: 4px; }
 .step-model-policy-candidate :deep(.form-group) { margin: 0; }
 .step-model-policy-limits { margin: 0; color: var(--text-muted); line-height: 1.4; }
-.step-model-policy-candidate-actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .step-model-policy-error { margin: 0; color: rgb(180, 83, 9); }
 
 @media (max-width: 560px) {
-  .step-model-policy-fields,
   .step-model-policy-candidates { grid-template-columns: minmax(0, 1fr); }
 }
 

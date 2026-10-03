@@ -1992,8 +1992,24 @@ export interface AudioQualityProjectConfig {
   alternate_transcription_model?: string
 }
 
+/**
+ * What Story Studio did with a project's retired LLM lineup (2026-10-03), written once.
+ * The lineup itself stays on disk under `llm_lineup` and is never read again.
+ */
+export interface LlmLineupMigration {
+  /** The ONE writing model kept for steps that had none: a matching Gateway pool, or the lineup's first model. */
+  model: string
+  /** True when `model` is a Gateway pool whose members matched the lineup. */
+  pool: boolean
+  /** Pipeline steps whose saved preset had no writing model and now has `model`. */
+  steps: string[]
+  migrated_at: string
+  /** Set when the owner closes the one-time notice on the Pipeline page. */
+  notice_dismissed_at?: string
+}
+
 export interface ProjectConfig {
-  llm_lineup?: import('../contracts/llm-lineup.js').LlmLineup
+  llm_lineup_migration?: LlmLineupMigration
   /** Historical project files may contain retired fields; Story ignores them. */
   [key: string]: any
   genstudio_api_key?: string
@@ -2256,7 +2272,7 @@ export interface MetadataTemplate {
 }
 
 export interface SafeProjectConfig {
-  llm_lineup?: import('../contracts/llm-lineup.js').LlmLineup
+  llm_lineup_migration?: LlmLineupMigration
   has_genstudio_key: boolean
   has_google_key?: boolean
   /** @deprecated v1.0.150 — removed alongside the standalone Chatterbox provider. */
@@ -2293,7 +2309,8 @@ export interface UpdateApiKeysRequest {
 }
 
 export interface UpdateConfigRequest {
-  llm_lineup?: import('../contracts/llm-lineup.js').LlmLineup
+  /** Server-written only (the HTTP schema strips it). */
+  llm_lineup_migration?: LlmLineupMigration
   image_models?: Record<string, ImageModelConfig>
   voice_presets?: VoicePreset[]
   voice_favourites?: string[]

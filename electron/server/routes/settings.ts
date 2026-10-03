@@ -2,6 +2,7 @@ import { Router } from 'express'
 import * as pm from '../services/project-manager.js'
 import { SUBFOLDER_LINKAGE, DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
 import { validateBody } from '../lib/validate.js'
+import { migrateRetiredLlmLineup } from '../services/llm-lineup-migration.js'
 import {
   UpdateConfigSchema, UpdateStandardsSchema,
 } from '../schemas/index.js'
@@ -13,9 +14,25 @@ import {
 export const router = Router()
 
 router.get('/projects/:slug/settings/config', async (req, res) => {
+  // One-time move off the retired LLM lineup, before anything reads a step's model.
+  await migrateRetiredLlmLineup(req.params.slug).catch(error => {
+    console.warn('[settings] LLM lineup migration skipped', { slug: req.params.slug, error: String(error) })
+  })
   const config = await pm.getSafeConfig(req.params.slug)
   if (!config) return res.status(404).json({ detail: 'Project not found' })
   res.json(config)
+})
+
+// The one-time "LLM lineup is gone" notice on the Pipeline page, closed for good.
+router.post('/projects/:slug/settings/llm-lineup-notice/dismiss', async (req, res) => {
+  const config = await pm.getConfig(req.params.slug)
+  if (!config) return res.status(404).json({ detail: 'Project not found' })
+  if (config.llm_lineup_migration && !config.llm_lineup_migration.notice_dismissed_at) {
+    await pm.updateConfig(req.params.slug, {
+      llm_lineup_migration: { ...config.llm_lineup_migration, notice_dismissed_at: new Date().toISOString() },
+    })
+  }
+  res.json({ ok: true })
 })
 
 const retiredCredentialPath = (_req: any, res: any) => res.status(410).json({

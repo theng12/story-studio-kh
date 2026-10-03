@@ -28,7 +28,6 @@
       />
     </div>
 
-    <InheritedLlmLineupNotice :project-slug="slug" />
 
     <section class="card cues-command">
       <div class="cue-toggle-copy">
@@ -69,7 +68,7 @@
         <p>These settings are saved in presets. The model is used only to propose labels; it never changes your Scene Plan or final approved timing.</p>
       </div>
       <div class="cue-settings-controls">
-        <ModelSelector v-model="form.model" :project-slug="slug" label="Cue proposal model" />
+        <ModelSelector v-model="form.model" :project-slug="slug" writing-step label="Cue proposal model" />
         <label>Density
           <select v-model="form.density" class="select">
             <option value="restrained">Restrained — only key orientation</option>

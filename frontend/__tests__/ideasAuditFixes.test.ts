@@ -67,10 +67,9 @@ test('pagination clamps and empty states are not chained to it', () => {
   assert.match(ideas, /<EmptyState\s+v-if="allIdeas\.length === 0 && !generating"/)
 })
 
-test('shared LLM lineup replaces the model picker with plain read-only text', () => {
-  assert.match(ideas, /<div v-if="ideasLineupModelCount" class="form-group lineup-model-readonly">/)
-  assert.match(ideas, /<ModelSelector v-else-if="modelPreferenceReady"/)
-  assert.match(ideas, /lineup\?\.enabled === true && Array\.isArray\(lineup\.models\)/)
+test('the Ideas model picker is always the real picker (the LLM lineup is retired)', () => {
+  assert.match(ideas, /<ModelSelector v-if="modelPreferenceReady" v-model="form\.model" :project-slug="slug" writing-step \/>/)
+  assert.doesNotMatch(ideas, /lineup/i)
 })
 
 test('controls carry a visible one-line hint and there is one Formula picker button', () => {
