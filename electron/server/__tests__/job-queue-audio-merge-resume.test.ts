@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 
 let tempDir: string
 let cleanup: () => Promise<void>
@@ -32,7 +33,7 @@ test('a running Audio Assembly is re-run after a restart, not left "Interrupted"
   const executed: string[] = []
   jq.registerExecutor('audio_merge', async job => { executed.push(job.job_id) })
   await jq.getJobs(project.slug)
-  for (let i = 0; i < 100 && jq.getJob(row.job_id)?.status !== 'done'; i++) await new Promise(r => setTimeout(r, 20))
+  await waitFor(() => jq.getJob(row.job_id)?.status === 'done', { label: 'audio merge re-run' })
   assert.deepEqual(executed, [row.job_id])
   assert.equal(jq.getJob(row.job_id)?.status, 'done')
   assert.notEqual(jq.getJob(row.job_id)?.error, 'Interrupted by app restart')
