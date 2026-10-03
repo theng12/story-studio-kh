@@ -140,13 +140,13 @@ watch(modal.isOpen, (now) => {
   if (now && !entries.value.length && !loading.value) void load()
 })
 
-async function onClose() {
-  // Persist last-seen version BEFORE closing so a refresh-during-close
-  // doesn't re-open the modal. Best-effort — failure is non-fatal.
-  try {
-    await put('/app-settings/last-seen-version', { version: currentVersion.value })
-  } catch { /* swallow — user can dismiss again next launch */ }
+function onClose() {
+  // Close at once. This used to wait for the save below, so on a busy backend
+  // (just restarted after an upgrade) the button seemed dead and needed a
+  // second click. The version is still saved; the dialog just doesn't wait.
   modal.close()
+  void put('/app-settings/last-seen-version', { version: currentVersion.value })
+    .catch(() => { /* non-fatal — it can show once more next launch */ })
 }
 
 /**

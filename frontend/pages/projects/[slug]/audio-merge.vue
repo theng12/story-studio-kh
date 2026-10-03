@@ -1814,13 +1814,10 @@ onUnmounted(() => {
 .badge-success { background: rgba(74, 222, 128, 0.15); color: var(--success); border: 1px solid rgba(74, 222, 128, 0.3); }
 .badge-error { background: rgba(239, 68, 68, 0.15); color: var(--error); border: 1px solid rgba(239, 68, 68, 0.3); }
 
-/* Keep output disposition and the primary merge action visible while the
-   longer mix form scrolls. This mirrors Audio Generator's working action bar
-   while anchoring near the top because Assembly has no selection table. */
+/* Output disposition and the primary merge action, in the page flow above the
+   mix form. It used to be `position: sticky` and floated over the chapter rows
+   scrolling beneath it, hiding them. */
 .audio-assembly-action-bar {
-  position: sticky;
-  top: 10px;
-  z-index: 4;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 8px 16px;
@@ -1828,9 +1825,7 @@ onUnmounted(() => {
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, .18);
-  backdrop-filter: blur(12px);
+  background: var(--bg-secondary);
 }
 .audio-assembly-action-context {
   display: grid;
@@ -1971,7 +1966,7 @@ onUnmounted(() => {
 .merge-output-status h4 { margin: 0 0 3px; font-size: 13px; }
 .merge-output-status p { margin: 0; }
 @media (max-width: 760px) {
-  .audio-assembly-action-bar { top: 6px; grid-template-columns: 1fr; padding: 9px; }
+  .audio-assembly-action-bar { grid-template-columns: 1fr; padding: 9px; }
   .audio-assembly-action-controls { display: grid; grid-template-columns: minmax(0, 1fr) repeat(2, auto); }
   .audio-output-choice { min-width: 0; }
   .audio-mix-card { padding: 0 14px; }
