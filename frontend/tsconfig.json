@@ -12,6 +12,7 @@
       "@shared/subtitle-style": ["../electron/server/contracts/subtitle-style.ts"],
       "@shared/subtitle-presets": ["../electron/server/contracts/subtitle-presets.ts"],
       "@shared/subtitle-gaps": ["../electron/server/contracts/subtitle-gaps.ts"],
+      "@shared/section-quality": ["../electron/server/contracts/section-quality.ts"],
       "@shared/thumbnail-overlay": ["../electron/server/contracts/thumbnail-overlay.ts"],
       "@shared/scene-effects": ["../electron/server/contracts/scene-effects.ts"],
       "@shared/scene-effect-presets": ["../electron/server/contracts/scene-effect-presets.ts"],

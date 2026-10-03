@@ -1,0 +1,54 @@
+{
+  "expected_revision": 289,
+  "coordinator": {
+    "task": "formula-starting-defaults-2026-10-03",
+    "branch": "fix/renarrate-gaps"
+  },
+  "proposal_ref": "proposal:successor:formula-starting-defaults-2026-10-03",
+  "records": [
+    {
+      "pack_id": "com.storystudio.pack.formula.sleep-story",
+      "item_id": "com.storystudio.formula.sleep-story",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/sleep-story-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.sleep-story",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.sleep-story",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.formula.sleep-history-compilation",
+      "item_id": "com.storystudio.formula.sleep-history-compilation",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/sleep-history/formula/sleep-history-compilation-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.sleep-history-compilation",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.sleep-history-compilation",
+          "status": "proposed"
+        }
+      }
+    }
+  ]
+}

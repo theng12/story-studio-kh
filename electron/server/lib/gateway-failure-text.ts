@@ -12,6 +12,8 @@
  * needs to read, and it is passed through untouched (only "machine" is spelled "Mac").
  */
 
+import { plainSectionFailure } from './tts-section-quality.js'
+
 /** What each code the Hub or Gateway attaches to a refusal means, in words the owner can act on. */
 const CODE_SENTENCES: Record<string, string> = {
   MACHINE_BUSY: 'That Mac is busy with other work.',
@@ -63,6 +65,10 @@ function jsonField(text: string, key: string): string | undefined {
 export function humanGatewayText(raw: string): string {
   let text = raw.trim()
   if (!text) return text
+
+  // The Hub's section quality gate (0.6.137): "Section 4 of 9 came out (nearly) silent or as a DC drift on all 4 attempts…"
+  const section = plainSectionFailure(text)
+  if (section) return section
 
   // Strip the gateway's "reconcile it yourself" suffix; Story and the gateway do that on their own.
   text = text.replace(/\s*Upstream outcome is unknown; reconcile the provider request before retrying; the gateway will not resubmit it automatically\.?/i,

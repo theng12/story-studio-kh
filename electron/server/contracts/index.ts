@@ -615,6 +615,8 @@ export const GenerateAudioSchema = z.object({
   controls: z.record(z.string(), z.union([z.number(), z.boolean(), z.string()])).optional(),
   force: z.boolean().optional(),
   no_overwrite: z.boolean().optional(),
+  /** Re-narrate from a subtitle gap: re-make the chapter's subtitles once its new narration is saved. */
+  then_subtitles: z.boolean().optional(),
 }).passthrough().transform((value) => {
   // Retired request/preset field. Accept old clients without breaking their
   // jobs, but discard the override before it reaches a queue or provider.

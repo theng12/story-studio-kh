@@ -141,6 +141,9 @@
           >{{ playingSlug === s.slug ? '⏸' : '▶' }}</button>
           <span v-else class="cs-play-spacer" aria-hidden="true" />
         </div>
+        <p v-if="sectionChecks[s.slug]" class="cs-section-check" :class="{ failed: !!sectionChecks[s.slug]!.failed }">
+          {{ describeChapterSectionQuality(sectionChecks[s.slug]!) }}
+        </p>
         <details
           v-if="qualityMode !== 'off' && s.quality && (s.quality.state !== 'not_checked' || s.quality.reason_code || s.quality.repair)"
           class="cs-quality-review"
@@ -268,6 +271,7 @@
 
 <script setup lang="ts">
 import { FREE_MAC_WAIT_REASON } from '@shared/provider-task-state'
+import { describeChapterSectionQuality, type ChapterSectionQuality } from '@shared/section-quality'
 import type { Job } from '~/composables/useJobs'
 import {
   audioQualityLabel,
@@ -324,8 +328,11 @@ const props = withDefaults(defineProps<{
   qualityMode?: AudioQualityMode
   qualityActionDisabled?: boolean
   qualityApprovalDisabled?: boolean
+  /** Per chapter, from the latest narration run: what the Mac's section check found and re-made. */
+  sectionChecks?: Record<string, ChapterSectionQuality>
 }>(), {
   model: '',
+  sectionChecks: () => ({}),
   inlineGenerateDisabled: false,
   inlineGenerateDisabledReason: '',
   qualityMode: 'off',
@@ -846,6 +853,17 @@ watch(
 .cs-quality-pill[data-tone="info"] { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); color: var(--accent); }
 .cs-quality-pill[data-tone="success"] { border-color: rgba(34, 197, 94, .35); color: rgb(22, 163, 74); }
 .cs-quality-pill[data-tone="warning"] { border-color: rgba(234, 179, 8, .4); color: rgb(202, 138, 4); }
+/* What the Mac's section check found for this chapter (Hub 0.6.137+). */
+.cs-section-check {
+  margin: 4px 0 0 28px;
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+}
+.cs-section-check.failed {
+  color: var(--error, var(--warning));
+  font-weight: 600;
+}
+
 .cs-quality-review {
   margin: 0 12px 10px 38px;
   border: 1px solid var(--border);

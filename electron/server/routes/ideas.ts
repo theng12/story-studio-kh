@@ -35,6 +35,7 @@ export {
   parseFreeformIdeas as parseIdeas,
 } from '../services/freeform-idea-generation.js'
 import { parseFreeformIdeas as parseIdeas } from '../services/freeform-idea-generation.js'
+import { recentCharacterNamesAvoidance } from '../services/recent-character-names.js'
 
 /**
  * Queue a durable, navigation-safe Idea Campaign.
@@ -165,6 +166,7 @@ router.post('/projects/:slug/generate/ideas/campaign', async (req, res) => {
 function buildPastePrompt(
   format: Format,
   titleTemplate?: string,
+  namesAvoidance = '',
 ): string {
   const exampleJson = format.idea.exampleIdeas?.length
     ? JSON.stringify(format.idea.exampleIdeas, null, 2)
@@ -236,7 +238,7 @@ Rules:
 - Don't invent extra keys — the importer only reads the six above.
 - If you're unsure about a field, leave the idea out rather than guessing.
 - Honour the format's voice above. Don't bring in tropes from other genres.
-${titleTemplateBlock}
+${namesAvoidance ? `- ${namesAvoidance}\n` : ''}${titleTemplateBlock}
 Produce N ideas. (Replace N with however many you want, e.g. 10.)
 
 Example of a valid response:
@@ -254,7 +256,10 @@ router.get('/projects/:slug/ideas/paste-prompt', async (req, res) => {
   const titleTemplate = typeof req.query.title_template === 'string'
     ? req.query.title_template.trim()
     : ''
-  res.type('text/plain').send(buildPastePrompt(format, titleTemplate))
+  // Same "don't reuse recent main character names" line the in-app idea
+  // generators carry, so a pasted batch doesn't bring back last week's hero.
+  const namesAvoidance = await recentCharacterNamesAvoidance(req.params.slug)
+  res.type('text/plain').send(buildPastePrompt(format, titleTemplate, namesAvoidance))
 })
 
 /**

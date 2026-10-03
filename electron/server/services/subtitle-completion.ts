@@ -124,7 +124,7 @@ export async function hashSubtitleAudioSources(sourceFiles: string[]): Promise<s
   return `sha256:${createHash('sha256').update(JSON.stringify(parts)).digest('hex')}`
 }
 
-function audioFilesForSection(
+export function audioFilesForSection(
   section: { slug?: unknown; source_file?: unknown; source_files?: unknown },
   audioDir: string,
   code: string,

@@ -12,7 +12,10 @@
 import type { Job } from '../models/types.js'
 import * as jq from './job-queue.js'
 
-const RESOLVABLE_TYPES = new Set<Job['type']>(['audio', 'thumb_images', 'images_repair'])
+const RESOLVABLE_TYPES = new Set<Job['type']>(['audio', 'thumb_images', 'images_repair', 'audio_merge', 'video_assembly'])
+
+/** Assembly rebuilds one whole file; a later successful build of it is that output. */
+const ASSEMBLY_TYPES = new Set<Job['type']>(['audio_merge', 'video_assembly'])
 
 export const RESOLVED_REASON = 'Everything this job was meant to make is now saved (finished by a later run or a repair), so it no longer needs attention.'
 
@@ -27,8 +30,17 @@ function imagePool(job: Job): ImagePool {
 
 /** Does every file this failed job was meant to make exist on disk now? */
 export async function outputsComplete(job: Job): Promise<boolean> {
+  if (!job.episode_id) return false
+  if (ASSEMBLY_TYPES.has(job.type)) {
+    // A file that was already on disk before the failure proves nothing, so
+    // only a build of the same kind that FINISHED after it counts.
+    const failedAt = Date.parse(job.finished_at || job.created_at || '')
+    return (await jq.getJobs(job.project_slug)).some(other => other.type === job.type
+      && other.episode_id === job.episode_id && other.status === 'done'
+      && Date.parse(other.finished_at || '') > failedAt)
+  }
   // A forced remake wanted NEW files; old ones on disk prove nothing.
-  if (job.params?.force === true || !job.episode_id) return false
+  if (job.params?.force === true) return false
   if (job.type === 'audio') {
     const { getAudioStatus } = await import('./audio-reconciler.js')
     const status = await getAudioStatus(job.project_slug, job.episode_id)

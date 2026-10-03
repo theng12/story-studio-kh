@@ -19,10 +19,11 @@ test('failed rows whose files were made later settle, and Repair of a job adds n
   await waitFor(() => isBootComplete(), { label: 'backend boot' })
   const wasPaused = jq.isQueuePaused()
   await jq.setQueuePaused(true)
-  const failed = async (slug: string, type: 'thumb_images' | 'images_repair' | 'audio', episode = 'EP001') => {
+  const failed = async (slug: string, type: 'thumb_images' | 'images_repair' | 'audio' | 'audio_merge' | 'video_assembly', episode = 'EP001',
+    status: 'error' | 'done' = 'error', finishedAt = new Date().toISOString()) => {
     const job = jq.enqueuePreparedForTest({ project_slug: slug, type, episode_id: episode, title: type, params: { episode_id: episode, mode: 'thumbs' } })
     await jq.mutateAuthoritativeJob(slug, job.job_id, current => ({
-      ...current, status: 'error', finished_at: new Date().toISOString(), error: 'Thumbnail generation incomplete: 1/3',
+      ...current, status, finished_at: finishedAt, error: status === 'error' ? 'Thumbnail generation incomplete: 1/3' : null,
     }))
     return job.job_id
   }
@@ -47,6 +48,18 @@ test('failed rows whose files were made later settle, and Repair of a job adds n
 
       assert.deepEqual(await settleCompletedFailures(project.slug, undefined, async () => true), [audio], 'already-settled rows are not settled twice')
       assert.equal(await jq.clearFinished(project.slug, 'failed'), 0, 'settled rows are not "failed" any more')
+    })
+
+    await t.test('a failed Audio/Video Assembly row settles once a later build of the same episode finished', async () => {
+      const project = await pm.createProject({ name: 'Assembly failures settle' })
+      const merge = await failed(project.slug, 'audio_merge', 'EP001', 'error', '2026-10-03T08:00:00.000Z')
+      const video = await failed(project.slug, 'video_assembly', 'EP001', 'error', '2026-10-03T08:00:00.000Z')
+      await failed(project.slug, 'video_assembly', 'EP001', 'done', '2026-10-03T07:00:00.000Z') // finished BEFORE the failure
+      await failed(project.slug, 'audio_merge', 'EP002', 'done', '2026-10-03T09:00:00.000Z') // another episode
+      assert.deepEqual(await settleCompletedFailures(project.slug), [], 'an older build or another episode proves nothing')
+      await failed(project.slug, 'audio_merge', 'EP001', 'done', '2026-10-03T09:00:00.000Z')
+      assert.deepEqual(await settleCompletedFailures(project.slug), [merge])
+      assert.ok(!(await jq.getJobs(project.slug)).find(job => job.job_id === video)!.resolved, 'video still needs attention')
     })
 
     await t.test('Repair on a failed thumbnail job runs on that job — no new "Image repair" row', async () => {

@@ -3005,6 +3005,8 @@ export interface GenerateAudioRequest {
     source_fingerprint: string
     verification_credit_ceiling: number
   }
+  /** Re-narrate: once the narration is saved, re-make these chapters' subtitles (generators/audio.ts). */
+  then_subtitles?: boolean
   /** Server-only raw alternate-ASR check over selected active audio. */
   quality_check?: {
     action_id: string

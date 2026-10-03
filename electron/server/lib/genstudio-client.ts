@@ -232,6 +232,8 @@ export interface GenStudioJob {
   /** See `GenStudioSettledJobShape`. Optional; absent on older APIs. */
   failure_reason?: string | null
   failure_class?: string | null
+  /** Studio Hub 0.6.137+ voice jobs: per-section check results (lib/tts-section-quality.ts). Passed through when the Gateway does. */
+  section_quality?: unknown
   price_version?: string | null
   location?: string | null
   /**
@@ -1025,6 +1027,8 @@ export interface GenStudioTtsRequest extends GenStudioOperationContext {
   outputFormat?: 'm4a'
   /** Stable Story asset identity, such as project + episode + output file. */
   requestIdentity?: string
+  /** Called with the finished job's `section_quality` when the Gateway passed one through. */
+  onSectionQuality?: (sectionQuality: unknown) => void
   /** Reuse a key already checkpointed beside the Story asset. */
   idempotencyKey?: string
   onProgress?: (received: number, total?: number) => void
@@ -9205,6 +9209,7 @@ async function completeTtsJobToFile(
   deadline: number,
 ): Promise<void> {
   const completed = await waitForJob(baseUrl, apiKey, submitted, request, deadline)
+  if (completed.section_quality) request.onSectionQuality?.(completed.section_quality)
   if (!completed.audio_url) {
     throw new GenStudioTtsArtifactUnavailableError(completed.id, 0, 'the job completed without a download URL')
   }
