@@ -531,13 +531,17 @@
             <strong>{{ jobCounts(job).remaining.toLocaleString() }}</strong>
             <span class="job-stat-label">left in this run</span>
           </span>
+          <span v-if="jobCounts(job).waiting" class="job-stat is-muted">
+            <strong>{{ jobCounts(job).waiting.toLocaleString() }}</strong>
+            <span class="job-stat-label">{{ jobCounts(job).waitingForMac ? 'waiting for a free Mac' : 'waiting to try again' }}</span>
+          </span>
           <span v-if="jobCounts(job).failed" class="job-stat is-failed">
             <strong>{{ jobCounts(job).failed.toLocaleString() }}</strong>
             <span class="job-stat-label">needs another try</span>
           </span>
           <span v-if="jobCounts(job).queued" class="job-stat is-muted">
             <strong>{{ jobCounts(job).queued.toLocaleString() }}</strong>
-            <span class="job-stat-label">waiting for capacity</span>
+            <span class="job-stat-label">not sent yet</span>
           </span>
           <span v-if="jobCounts(job).settling" class="job-stat is-muted">
             <strong>{{ jobCounts(job).settling.toLocaleString() }}</strong>
@@ -564,7 +568,7 @@
 
         <!-- Money: three figures, nothing else. The per-item ledger that used
              to sit here is in Technical details. -->
-        <template v-if="job.genstudio_jobs?.length">
+        <template v-if="job.genstudio_jobs?.length && !isFreeFleetWork(job.genstudio_jobs)">
           <template v-for="summary in [jobCreditSummary(job)]" :key="job.job_id">
             <div class="job-money">
               <span class="meta-label">Credits:</span>
@@ -628,7 +632,7 @@
           <template v-if="expanded === job.job_id">
             <p v-if="expandSummary(job)" class="technical-summary">{{ expandSummary(job) }}</p>
             <EpisodeRecoveryStatus :job="job" diagnostics-only />
-            <GenStudioBatchLedger v-if="job.genstudio_jobs?.length" :remote-jobs="settledRemoteJobs(job)" />
+            <GenStudioBatchLedger v-if="job.genstudio_jobs?.length" :remote-jobs="settledRemoteJobs(job)" :items="job.item_progress ? jobCounts(job) : null" :free="isFreeFleetWork(job.genstudio_jobs)" />
             <!--
               What the job is actually working on, item by item. A percentage
               says how far; a long-running step that reports nothing else is
@@ -639,6 +643,9 @@
             <div v-if="job.item_progress" class="job-items">
               <span class="job-items-count">
                 {{ job.item_progress.completed }} of {{ job.item_progress.total }} done
+              </span>
+              <span v-if="jobCounts(job).waiting" class="job-items-note">
+                · {{ jobCounts(job).waiting }} {{ jobCounts(job).waitingForMac ? 'waiting for a free Mac' : 'waiting to try again' }}
               </span>
               <span v-if="job.item_progress.failed" class="job-items-failed">
                 · {{ job.item_progress.failed }} failed
@@ -666,7 +673,7 @@
             </div>
             <GenStudioRequestPreview v-if="job.genstudio_jobs?.length" :remote-jobs="job.genstudio_jobs" />
             <div v-if="job.output_lines?.length" class="job-output">
-              <code v-for="(line, i) in job.output_lines" :key="i">{{ customerJobText(line, job) }}</code>
+              <code v-for="(line, i) in visibleJobOutputLines(job.output_lines)" :key="i">{{ customerJobText(line, job) }}</code>
             </div>
             <div class="job-technical-ids">
               <span v-if="getOutputDir(job)" class="meta-tag"><span class="meta-label">Output folder:</span> {{ getOutputDir(job) }}</span>
@@ -882,7 +889,7 @@
             </span>
             <span v-if="jobCounts(job).queued" class="job-stat is-muted">
               <strong>{{ jobCounts(job).queued.toLocaleString() }}</strong>
-              <span class="job-stat-label">waiting for capacity</span>
+              <span class="job-stat-label">not sent yet</span>
             </span>
             <span v-if="jobCounts(job).settling" class="job-stat is-muted">
               <strong>{{ jobCounts(job).settling.toLocaleString() }}</strong>
@@ -890,7 +897,7 @@
             </span>
           </div>
 
-          <template v-if="job.genstudio_jobs?.length">
+          <template v-if="job.genstudio_jobs?.length && !isFreeFleetWork(job.genstudio_jobs)">
             <template v-for="summary in [jobCreditSummary(job)]" :key="job.job_id">
               <div class="job-money">
                 <span class="meta-label">Credits:</span>
@@ -943,10 +950,13 @@
             <template v-if="expanded === job.job_id">
               <p v-if="expandSummary(job)" class="technical-summary">{{ expandSummary(job) }}</p>
               <EpisodeRecoveryStatus :job="job" diagnostics-only />
-              <GenStudioBatchLedger v-if="job.genstudio_jobs?.length" :remote-jobs="settledRemoteJobs(job)" />
+              <GenStudioBatchLedger v-if="job.genstudio_jobs?.length" :remote-jobs="settledRemoteJobs(job)" :items="job.item_progress ? jobCounts(job) : null" :free="isFreeFleetWork(job.genstudio_jobs)" />
               <div v-if="job.item_progress" class="job-items">
                 <span class="job-items-count">
                   {{ job.item_progress.completed }} of {{ job.item_progress.total }} done
+                </span>
+                <span v-if="jobCounts(job).waiting" class="job-items-note">
+                  · {{ jobCounts(job).waiting }} {{ jobCounts(job).waitingForMac ? 'waiting for a free Mac' : 'waiting to try again' }}
                 </span>
                 <span v-if="job.item_progress.failed" class="job-items-failed">
                   · {{ job.item_progress.failed }} failed
@@ -969,7 +979,7 @@
               </div>
               <GenStudioRequestPreview v-if="job.genstudio_jobs?.length" :remote-jobs="job.genstudio_jobs" />
               <div v-if="job.output_lines?.length" class="job-output">
-                <code v-for="(line, i) in job.output_lines" :key="i">{{ customerJobText(line, job) }}</code>
+                <code v-for="(line, i) in visibleJobOutputLines(job.output_lines)" :key="i">{{ customerJobText(line, job) }}</code>
               </div>
               <div class="job-technical-ids">
                 <span v-if="getOutputDir(job)" class="meta-tag"><span class="meta-label">Output folder:</span> {{ getOutputDir(job) }}</span>
@@ -1062,11 +1072,12 @@ import {
   primaryControl,
   retryAdmissionAllowed,
   secondaryControls,
+  visibleJobOutputLines,
 } from '~/utils/job-presentation'
 import { formatCredits } from '~/utils/genstudio-credit-cost'
 import { recoverEpisodeAssets, describeEpisodeAssetRecovery } from '~/utils/job-asset-recovery'
 import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '~/utils/episode-recovery'
-import { effectiveGenStudioTaskState } from '@shared/provider-task-state'
+import { effectiveGenStudioTaskState, FREE_MAC_WAIT_REASON, isFreeFleetWork } from '@shared/provider-task-state'
 type RJob = DeepReadonly<Job>
 
 definePageMeta({ layout: 'dashboard' })
@@ -1432,7 +1443,7 @@ watch(jobs, (list) => {
 }, { immediate: true })
 
 function jobCounts(job: RJob) {
-  return summariseJobItems(job.item_progress)
+  return summariseJobItems(job.item_progress, job.genstudio_jobs)
 }
 
 /**
@@ -1479,7 +1490,7 @@ function jobFreshness(job: RJob): string | null {
 function jobProgressStale(job: RJob): boolean {
   if (job.status !== 'running') return false
   // A job waiting for a free Mac is quiet by design; that is not a hang.
-  if (latestActiveGenStudioRequest(job)?.waiting) return false
+  if (latestActiveGenStudioRequest(job)?.waiting || jobCounts(job).waitingForMac) return false
   return isProgressStale(jobLastProgressAt(job), now.value, jobCadenceSeconds(job))
 }
 
@@ -2061,7 +2072,8 @@ watch(actionableHiddenFailureIds, restoreActionableFailures)
 
 const hiddenJobsInScope = computed(() => projectScopedJobs.value.filter(isJobHidden))
 const hiddenSettlingCount = computed(() => hiddenJobsInScope.value.filter(job =>
-  Boolean(job.genstudio_jobs?.length) && !summariseSettlement(settledRemoteJobs(job)).confirmed,
+  Boolean(job.genstudio_jobs?.length) && !isFreeFleetWork(job.genstudio_jobs)
+    && !summariseSettlement(settledRemoteJobs(job)).confirmed,
 ).length)
 const presentationScopedJobs = computed(() => showHidden.value
   ? projectScopedJobs.value
@@ -2357,6 +2369,8 @@ function itemAttemptText(item: JobItemAttempt): string {
   const remaining = item.retry_at
     ? Math.max(0, Math.round((new Date(item.retry_at).getTime() - now.value) / 1000))
     : 0
+  // A wait for a free Mac is not a numbered attempt; it ends when a Mac frees up.
+  if (item.reason === FREE_MAC_WAIT_REASON) return `${item.label}: waiting for a free Mac; next try ${remaining ? `in ${remaining}s` : 'now'}`
   return `${item.label}: ${item.reason || WAITING_FALLBACK_REASON};`
     + ` retrying${remaining ? ` in ${remaining}s` : ' now'}`
     + ` (attempt ${item.attempt + 1} of ${item.max_attempts})`

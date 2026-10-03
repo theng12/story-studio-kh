@@ -150,6 +150,14 @@ describe('the rule itself', () => {
     }
   })
 
+  test('a submit-time 503 SITE_CAPACITY_UNAVAILABLE (no job created) waits like a busy fleet', async () => {
+    const { GenStudioApiError } = await import('../lib/genstudio-client.js')
+    const offline = new GenStudioApiError(503, 'No location offering this model can take work right now — 1 location offline.', 'SITE_CAPACITY_UNAVAILABLE')
+    assert.equal(isFleetBusyFailure(offline, 'tts'), true)
+    assert.equal(isFleetBusyFailure(new GenStudioApiError(503, 'x', 'SOMETHING_ELSE'), 'tts'), false)
+    assert.equal(isFleetBusyFailure(new GenStudioApiError(500, 'x', 'SITE_CAPACITY_UNAVAILABLE'), 'tts'), false)
+  })
+
   test('modality is enforced, so one busy queue is not licence for another', () => {
     const tts = new GenStudioTtsTerminalFailureError(job({ failure_code: 'SITE_PLACEMENT_EXHAUSTED' }))
     assert.equal(isFleetBusyFailure(tts), true, 'unqualified, any modality qualifies')

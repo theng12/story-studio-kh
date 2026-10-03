@@ -217,7 +217,10 @@ describe('summariseJobItems', () => {
   test('reports total, in-flight, finished, remaining, queued and settling', () => {
     assert.deepEqual(summariseJobItems(batch), {
       total: 50,
-      inFlight: 3,
+      // A waiting item is not "generating right now" (2026-10-03).
+      inFlight: 2,
+      waiting: 1,
+      waitingForMac: false,
       finished: 30,
       remaining: 15, // 50 − 30 done − 4 failed − 1 cancelled
       queued: 9,
@@ -591,7 +594,7 @@ describe('exceptions', () => {
     assert.match(ledger, /const exceptionJobs = computed\(\(\) => props\.remoteJobs\.filter\(remote => stateBucket\(remote\) === 'failed'\)\)/)
     assert.doesNotMatch(ledger, /bucket === 'active' \|\| bucket === 'failed'/)
     assert.doesNotMatch(ledger, /active or failed/i)
-    assert.match(ledger, /v-if="exceptionJobs\.length"/)
+    assert.match(ledger, /v-if="exceptionJobs\.length && \(!items \|\| items\.failed\)"/)
     assert.match(ledger, /Inspect \$\{exceptionJobs\.length\.toLocaleString\(\)\} Failed/)
   })
 })

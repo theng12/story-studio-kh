@@ -128,5 +128,5 @@ test('a job waiting for a free Mac says so with the next try time, and is never 
     /^Waiting for a free Mac\.$/)
   // Older gateway: no `waiting`, nothing changes.
   assert.equal(queueDetail({ genstudio_jobs: [{ state: 'running', updated_at: 'now' }] }), 'The Gateway is generating.')
-  assert.match(jobs, /latestActiveGenStudioRequest\(job\)\?\.waiting\) return false/, 'is-stale colouring is suppressed while waiting')
+  assert.match(jobs, /latestActiveGenStudioRequest\(job\)\?\.waiting \|\| jobCounts\(job\)\.waitingForMac\) return false/, 'is-stale colouring is suppressed while waiting')
 })

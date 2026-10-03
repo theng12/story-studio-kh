@@ -34,7 +34,7 @@ import {
   tryRecoverImageFromManifestEntry,
 } from '../lib/manifest-recovery.js'
 import { GenStudioImageTerminalFailureError, buildGenStudioImageIdempotencyKey, isGenStudioInsufficientCredits } from '../lib/genstudio-client.js'
-import { FLEET_BUSY_RETRY_DELAYS_MS, isFleetBusyFailure } from '../lib/genstudio-fleet-busy.js'
+import { fleetBusyRetryPlan, freeMacWaitLine, isFleetBusyFailure, isFreeMacPlan } from '../lib/genstudio-fleet-busy.js'
 import { imageRouteRetryDelayMs } from '../services/image-route-retry.js'
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { getApiKey } from '../services/app-secrets-store.js'
@@ -121,9 +121,7 @@ export function imagePoolFleetBusyRetryPlan(
   attemptNum: number,
 ): ImagePoolFleetBusyPlan | null {
   if (!isFleetBusyFailure(e, IMAGE_POOL_GENSTUDIO_MODALITY)) return null
-  const waitMs: number | undefined = FLEET_BUSY_RETRY_DELAYS_MS[attemptNum - 1]
-  if (waitMs === undefined) return null
-  return { waitMs, reason: 'High demand right now', maxAttempts: FLEET_BUSY_RETRY_DELAYS_MS.length + 1 }
+  return fleetBusyRetryPlan(e, IMAGE_POOL_GENSTUDIO_MODALITY, attemptNum - 1)
 }
 
 interface ImagePoolGenerateParams {
@@ -666,7 +664,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
               ? { waitMs: imageRouteRetryDelayMs(attemptNum - 1), reason: 'The failed image was fully refunded', maxAttempts: attemptNum + 1 }
               : null)
           if (retryPlan && failedTaskId && !jq.isCancelled(job.job_id) && !jq.isPauseRequested(job.job_id)) {
-            job.output_lines.push(
+            job.output_lines.push(isFreeMacPlan(retryPlan) ? freeMacWaitLine(`item ${item.index + 1}`, e, retryPlan.waitMs) :
               `item ${item.index + 1}: ${retryPlan.reason.toLowerCase()} — nothing was charged, ` +
               'the credits came back whole. ' +
               `Waiting ${Math.round(retryPlan.waitMs / 1000)}s and asking again ` +

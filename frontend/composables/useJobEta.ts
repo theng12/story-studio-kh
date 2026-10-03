@@ -25,7 +25,7 @@
  * be unit-tested directly the way `useBatchSummary.ts` is.
  */
 
-import { effectiveGenStudioTaskState } from '@shared/provider-task-state'
+import { effectiveGenStudioTaskState, FREE_MAC_WAIT_REASON, isFreeFleetWork } from '@shared/provider-task-state'
 
 // ── Shapes ────────────────────────────────────────────────────────────────
 // Structural, not imported from the contract, so a test can hand these
@@ -55,6 +55,10 @@ export interface ItemProgressLike {
 export interface RemoteJobLike {
   id?: string
   operation?: string
+  /** `studio-hub::…` is the owner's free fleet: no credit talk (see `isFreeFleetWork`). */
+  model_id?: string
+  /** Gateway 0.2.9x+: running at the Gateway but no Mac has started it yet. */
+  waiting?: unknown
   state?: string
   queue_state?: string
   updated_at?: string
@@ -86,10 +90,25 @@ export interface JobLike {
 
 // ── 1. Counts ─────────────────────────────────────────────────────────────
 
+/**
+ * THE one derivation of what each item of a job is doing. Every surface that counts items — the
+ * stat row, the exception lines, Technical details, the Gateway panel's header — reads it, so they
+ * can never disagree (the owner once saw "10 need another try" beside "14 active" for one job).
+ *
+ *   done        produced its output
+ *   generating  a Mac (or provider) is working on it right now
+ *   waiting     will be tried again automatically — e.g. waiting for a free Mac — never "failed"
+ *   failed      gave up after its final attempt: a real failure
+ *   queued      not sent yet
+ */
 export interface JobItemCounts {
   total: number
-  /** Items the provider is working on right now. */
+  /** Items the provider is generating right now. Waiting items are NOT counted here. */
   inFlight: number
+  /** Items that will be tried again automatically (a backoff, or waiting for a free Mac). */
+  waiting: number
+  /** True when every waiting item is waiting for a free Mac — the owner's own wording applies. */
+  waitingForMac: boolean
   finished: number
   /** Neither finished, failed, nor cancelled. Never negative. */
   remaining: number
@@ -113,14 +132,25 @@ function count(value: unknown): number {
  * not six more. Clamped at zero because a provider that reports `completed`
  * and `failed` from two different polls can briefly overshoot `total`.
  */
-export function summariseJobItems(progress: ItemProgressLike | null | undefined): JobItemCounts {
+export function summariseJobItems(
+  progress: ItemProgressLike | null | undefined,
+  remoteJobs?: ReadonlyArray<RemoteJobLike> | null,
+): JobItemCounts {
   const total = count(progress?.total)
   const finished = count(progress?.completed)
   const failed = count(progress?.failed)
   const cancelled = count(progress?.cancelled)
+  const active = progress?.active || []
+  const waitingItems = active.filter(item => item.state === 'waiting_retry')
+  // A newer Gateway keeps free work queued instead of failing it and says so with `waiting`: the
+  // item is "running" to Story, but no Mac has it yet, so it is counted as waiting for a free Mac.
+  const running = active.length - waitingItems.length
+  const atGateway = Math.min(running, (remoteJobs || []).filter(remote => remote.waiting && !isSettledRemote(remote)).length)
   return {
     total,
-    inFlight: progress?.active?.length || 0,
+    inFlight: running - atGateway,
+    waiting: waitingItems.length + atGateway,
+    waitingForMac: waitingItems.length + atGateway > 0 && waitingItems.every(item => item.reason === FREE_MAC_WAIT_REASON),
     finished,
     remaining: Math.max(0, total - finished - failed - cancelled),
     queued: count(progress?.not_submitted),
@@ -439,16 +469,24 @@ export function describeJobExceptions(
   nowMs: number,
 ): JobExceptionLine[] {
   if (!job) return []
-  const counts = summariseJobItems(job.item_progress)
+  const counts = summariseJobItems(job.item_progress, job.genstudio_jobs)
   const waiting = (job.item_progress?.active || []).find(item => item.state === 'waiting_retry')
   const canContinueAutomatically = job.status !== 'paused'
   const lines: JobExceptionLine[] = []
-  if (waiting && canContinueAutomatically) {
-    const seconds = secondsUntil(waiting.retry_at, nowMs)
-    lines.push({ key: 'waiting-retry', text: seconds && seconds > 0
-      ? `Retrying automatically in ${seconds}s — no action needed.`
-      : 'Retrying automatically now — no action needed.' })
-  } else if (counts.failed > 0) {
+  if (counts.waiting && canContinueAutomatically) {
+    if (counts.waitingForMac) {
+      // Owner, 2026-10-03: "if it's waiting, it should be waiting, not failed."
+      const them = counts.waiting === 1 ? 'it' : 'them'
+      lines.push({ key: 'waiting-mac', text: `${counts.waiting.toLocaleString()} ${counts.waiting === 1 ? 'item is' : 'items are'} `
+        + `waiting for a free Mac — Story Studio will start ${them} automatically.` })
+    } else {
+      const seconds = secondsUntil(waiting?.retry_at, nowMs)
+      lines.push({ key: 'waiting-retry', text: seconds && seconds > 0
+        ? `Retrying automatically in ${seconds}s — no action needed.`
+        : 'Retrying automatically now — no action needed.' })
+    }
+  }
+  if (counts.failed > 0) {
     const contentRefused = (job.genstudio_jobs || []).some(remote =>
       remoteState(remote) === 'failed' && remote.operation === 'image.generation' && remote.failure_code === 'IMAGE_CONTENT_REFUSED')
     const noun = String(job.type || '').includes('image')
@@ -465,6 +503,8 @@ export function describeJobExceptions(
       text: `${prefix}${counts.failed.toLocaleString()} ${plural} ${counts.failed === 1 ? 'needs' : 'need'} another try.`
         + (contentRefused ? ' Review the prompt before trying again.' : ''),
     })
+  } else if (counts.waiting) {
+    // The waiting line above (or the pause) already says what happens next.
   } else if (canContinueAutomatically && counts.remaining > 0 && (counts.queued > 0
       || (job.genstudio_jobs || []).some(remote => remoteState(remote) === 'waiting_account_capacity'))) {
     lines.push({ key: 'waiting-capacity', text: 'Waiting for capacity — Story Studio will continue automatically.' })
@@ -472,7 +512,8 @@ export function describeJobExceptions(
     lines.push({ key: 'waiting-start', text: 'Waiting to start.' })
   }
   const settlement = summariseSettlement(job.genstudio_jobs)
-  if ((job.genstudio_jobs || []).length && !settlement.confirmed) {
+  // Free fleet work costs nothing, so there is no credit outcome to wait for.
+  if ((job.genstudio_jobs || []).length && !settlement.confirmed && !isFreeFleetWork(job.genstudio_jobs)) {
     const returned = settlement.returned > 0 ? `${settlement.returned.toLocaleString()} credits returned so far. ` : ''
     lines.push({ key: 'credit-pending', text: `${returned}Credit outcome pending — Story Studio is checking the Gateway.` })
   }

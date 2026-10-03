@@ -178,7 +178,7 @@ test('Jobs reports whole-batch completed, settling, cancelled, failed, and not-s
   assert.ok((jobs.match(/left in this run/g) || []).length >= 2, 'remaining is the scheduling remainder')
   assert.doesNotMatch(jobs, /<span class="job-stat-label">remaining<\/span>/)
   assert.match(jobs, /\.job-stat\.is-failed strong \{ color: var\(--error\); \}/)
-  assert.match(jobs, /summariseJobItems\(job\.item_progress\)/)
+  assert.match(jobs, /summariseJobItems\(job\.item_progress, job\.genstudio_jobs\)/)
 })
 
 test('Gateway batch ledger keeps customer cancellations neutral instead of failed', () => {

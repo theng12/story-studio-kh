@@ -62,7 +62,7 @@ import {
 } from '../services/image-paid-replacement.js'
 import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
 import { deactivateSceneRenderStatus, RENDER_STATUS_FILENAME, writeSceneRenderStatus } from '../services/scene-render-status.js'
-import { FLEET_BUSY_RETRY_DELAYS_MS, isFleetBusyFailure } from '../lib/genstudio-fleet-busy.js'
+import { fleetBusyRetryPlan, freeMacWaitLine, isFleetBusyFailure, isFreeMacPlan } from '../lib/genstudio-fleet-busy.js'
 import { imageRouteRetryDelayMs } from '../services/image-route-retry.js'
 
 interface ContinuityRenderParams {
@@ -264,9 +264,7 @@ export function continuityFleetBusyRetryPlan(e: unknown, attemptNum: number): Co
   // The modality matters: a busy TTS queue says nothing about whether THIS
   // image's credits came back.
   if (!isFleetBusyFailure(e, 'image')) return null
-  const waitMs: number | undefined = FLEET_BUSY_RETRY_DELAYS_MS[attemptNum - 1]
-  if (waitMs === undefined) return null
-  return { waitMs, reason: 'High demand right now', maxAttempts: FLEET_BUSY_RETRY_DELAYS_MS.length + 1 }
+  return fleetBusyRetryPlan(e, 'image', attemptNum - 1)
 }
 
 /** The exact scene-image directory used by Continuity execution and recovery admission. */
@@ -1450,7 +1448,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                     reason: plan.reason,
                   })
                   syncItemProgress()
-                  job.output_lines.push(
+                  job.output_lines.push(isFreeMacPlan(plan) ? freeMacWaitLine(`Scene ${scene.scene_index}`, e, plan.waitMs) :
                     `Scene ${scene.scene_index}: ${plan.reason.toLowerCase()} — nothing was charged. ` +
                     `Waiting ${Math.round(plan.waitMs / 1000)}s and trying again ` +
                     `(attempt ${attemptNum + 1}${releasedZeroSettlementRetry ? '' : ` of ${plan.maxAttempts}`}).`,

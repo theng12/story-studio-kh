@@ -219,10 +219,12 @@ test('the switch changes the idempotency key, not just the body', async () => {
     const fixture = await createClipFixture(name, { controls: [audioSwitch()], audio })
     try {
       await generateSceneClipJob(fixture.job)
-      const key = fixture.job.output_lines
-        .map((line: string) => /Gateway request: scene-switch -> (story-video-\S+)/.exec(line)?.[1])
+      // The key is read from what reached the Gateway; the job log no longer prints request keys.
+      const key = fixture.service.submissions
+        .filter(entry => entry.operation === 'video' && !entry.replay)
+        .map(entry => entry.idempotencyKey)
         .find(Boolean)
-      assert.ok(key, `the run must log the key it submitted (${fixture.job.output_lines.join(' | ')})`)
+      assert.ok(key, 'the run must submit under an idempotency key')
       return key
     } finally {
       await fixture.service.close()

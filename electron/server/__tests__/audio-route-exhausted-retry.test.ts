@@ -271,8 +271,11 @@ test('the audio generator paces, retries and reports what it is doing', () => {
   // was covered — so VOICE_TTS lost five sections to the second on 13-15 August
   // and nobody noticed, because a dropped section looks like ordinary
   // flakiness. See `lib/genstudio-fleet-busy.ts`.
-  assert.match(source, /const worthRetrying = isGenStudioRouteExhausted\(e\) \|\| isFleetBusyFailure\(e, 'tts'\)/)
-  assert.match(source, /if \(!worthRetrying \|\| attempt >= TTS_ROUTE_RETRY_MAX_ATTEMPTS\)/)
+  // Since 1.4.249 a busy fleet waits on the SHARED fleet ladder (fleetBusyRetryPlan), and the
+  // route/transport retries keep their own bounded count, so a long wait never uses them up.
+  assert.match(source, /const fleetPlan = fleetBusyRetryPlan\(e, 'tts', fleetBusyRetries\)/)
+  assert.match(source, /const worthRetrying = !!fleetPlan\s*\n\s*\|\| \(\(isGenStudioRouteExhausted\(e\) \|\| transportFailure\) && routeAttempt < TTS_ROUTE_RETRY_MAX_ATTEMPTS\)/)
+  assert.match(source, /if \(!worthRetrying\) \{/)
   assert.match(source, /nextTtsRouteRetryIdentity\(submissionIdentity, e\.jobId/)
   // The retry must not reclaim the job it is replacing.
   assert.match(source, /recoveryEntry = null/)
