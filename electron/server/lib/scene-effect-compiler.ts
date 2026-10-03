@@ -26,10 +26,14 @@
 
 import {
   SCENE_EFFECT_REFERENCE_HEIGHT,
+  atmosphereLoopShape,
+  type AtmosphereLoopOverlay,
   type OverlayAnchor,
   type SceneMotionDocument,
   type SceneOverlayDocument,
 } from '../contracts/scene-effects.js'
+import type { LoopShape } from '../contracts/effect-loops.js'
+import { buildColorGradingFilters } from './color-grade.js'
 import { escapeFilterArgValue, escapeFilterPath } from './ffmpeg-utils.js'
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -299,7 +303,36 @@ export interface OverlayCompileOpts {
    * with the overlay's own window — the intro/outro gate, in practice.
    */
   gateExpression?: string
+  /** Output frame rate. Atmosphere loops and shimmer generate frames at it. Default 24. */
+  fps?: number
+  /**
+   * The input label (e.g. `[5:v]`) carrying the baked loop for one shape, or
+   * null when it was not baked. The caller bakes every shape
+   * `overlayLoopShapes()` names and opens each as a looping input before
+   * compiling — the compiler itself never touches the filesystem.
+   */
+  loopInput?: (shape: LoopShape) => string | null
 }
+
+/**
+ * The baked loops an overlay needs, one per colour. Empty for every kind that
+ * is a plain filter.
+ */
+export function overlayLoopShapes(doc: SceneOverlayDocument): LoopShape[] {
+  if (doc.kind !== 'atmosphere-loop') return []
+  if (doc.secondary_color_hex && doc.secondary_color_hex !== doc.color_hex) {
+    return [atmosphereLoopShape(doc, 1), atmosphereLoopShape(doc, 2)]
+  }
+  return [atmosphereLoopShape(doc, 0)]
+}
+
+/** True when the overlay fades in or out of its window. */
+function hasFades(doc: SceneOverlayDocument): boolean {
+  return (doc.timing.fade_in_sec || 0) > 0 || (doc.timing.fade_out_sec || 0) > 0
+}
+
+/** Kinds that fade natively — through their own alpha or their own expression. */
+const NATIVE_FADE_KINDS = new Set<SceneOverlayDocument['kind']>(['atmosphere-loop', 'flicker', 'lightning', 'lower-third'])
 
 /**
  * Compile one overlay into filtergraph STATEMENTS.
@@ -309,6 +342,11 @@ export interface OverlayCompileOpts {
  * nothing to say, and the caller simply keeps its current label.
  */
 export function compileSceneOverlay(doc: SceneOverlayDocument, opts: OverlayCompileOpts): string[] | null {
+  // A fade on a plain filter: run the filter on a copy, fade the copy's alpha
+  // in and out across the window, and lay it back over the untouched picture.
+  // Only when a fade is asked for — every pre-fade effect compiles exactly as
+  // it always has.
+  if (hasFades(doc) && !NATIVE_FADE_KINDS.has(doc.kind)) return compileWithFadeWrapper(doc, opts)
   const { input, output, w, h } = opts
   const enable = overlayEnableSuffix(doc, opts)
 
@@ -388,7 +426,206 @@ export function compileSceneOverlay(doc: SceneOverlayDocument, opts: OverlayComp
       if (!parts.length) return null
       return [`${input}${parts.join(',')}${output}`]
     }
+
+    case 'atmosphere-loop':
+      return compileAtmosphereLoop(doc, opts)
+
+    case 'bloom': {
+      // Luma-only screen blend of the blurred highlights. Screen is an RGB idea,
+      // and in YUV it would tint the chroma planes (see light-leak); applied to
+      // the luma plane only, with the chroma opacities at zero, the glow stays
+      // neutral and needs no colour conversion.
+      if (doc.strength <= 0) return null
+      const a = opts.allocLabel(), b = opts.allocLabel(), glow = opts.allocLabel()
+      const t = Math.round(doc.threshold * 254)
+      const sigma = Math.max(0.5, scaleReferencePx(doc.radius_px, h) / 2)
+      return [
+        `${input}split=2${a}${b}`,
+        `${b}lutyuv=y=${escapeFilterArgValue(`if(gt(val,${t}),(val-${t})*255/${255 - t},0)`)}${enable},`
+          + `gblur=sigma=${sigma.toFixed(2)}:planes=1${enable}${glow}`,
+        `${a}${glow}blend=c0_mode=screen:c0_opacity=${doc.strength.toFixed(3)}:c1_opacity=0:c2_opacity=0${enable}${output}`,
+      ]
+    }
+
+    case 'flicker': {
+      if (doc.amount <= 0) return null
+      const f = (1.7 * doc.speed).toFixed(4)
+      const wave = `(0.5*sin(2*PI*${f}*t)+0.3*sin(2*PI*${f}*2.31*t+1.3)+0.2*sin(2*PI*${f}*5.17*t+2.1))`
+      const env = envelopeExpression(doc, opts)
+      const expr = `${doc.amount.toFixed(4)}*${wave}${env ? `*${env}` : ''}`
+      return [`${input}eq=brightness=${escapeFilterArgValue(expr)}:eval=frame${enable}${output}`]
+    }
+
+    case 'lightning': {
+      if (doc.strength <= 0 || doc.chance <= 0) return null
+      const env = envelopeExpression(doc, opts)
+      const expr = `${(doc.strength * 0.6).toFixed(4)}*${lightningExpression(doc.period_sec, doc.chance, doc.seed)}${env ? `*${env}` : ''}`
+      return [`${input}eq=brightness=${escapeFilterArgValue(expr)}:eval=frame${enable}${output}`]
+    }
+
+    case 'heat-shimmer':
+      return compileHeatShimmer(doc, opts)
+
+    case 'color-grade': {
+      const statements = buildColorGradingFilters(
+        { enabled: true, ...doc } as any,
+        enable,
+        { input, output, allocLabel: opts.allocLabel },
+      )
+      return statements.length ? statements : null
+    }
   }
+}
+
+// ── Fades ───────────────────────────────────────────────────────────────────
+
+/** The live window's end, with an open end bounded by the stream length. */
+function windowEnd(doc: SceneOverlayDocument, opts: OverlayCompileOpts): number {
+  return doc.timing.end_sec ?? opts.duration
+}
+
+/**
+ * A 0..1 ramp across the window — up over `fade_in_sec`, down over
+ * `fade_out_sec` — as an FFmpeg expression of `t`, or `''` when there is no
+ * fade. Used by effects whose strength is already an expression.
+ */
+export function envelopeExpression(doc: SceneOverlayDocument, opts: OverlayCompileOpts): string {
+  const fi = doc.timing.fade_in_sec || 0
+  const fo = doc.timing.fade_out_sec || 0
+  const parts: string[] = []
+  if (fi > 0) parts.push(`min(1,max(0,(t-${doc.timing.start_sec.toFixed(3)})/${fi.toFixed(3)}))`)
+  if (fo > 0) parts.push(`min(1,max(0,(${windowEnd(doc, opts).toFixed(3)}-t)/${fo.toFixed(3)}))`)
+  return parts.join('*')
+}
+
+/** `fade` filters that ramp a stream's ALPHA across the window. */
+function alphaFades(doc: SceneOverlayDocument, opts: OverlayCompileOpts): string[] {
+  const fi = doc.timing.fade_in_sec || 0
+  const fo = doc.timing.fade_out_sec || 0
+  const out: string[] = []
+  if (fi > 0) out.push(`fade=t=in:st=${doc.timing.start_sec.toFixed(3)}:d=${fi.toFixed(3)}:alpha=1`)
+  if (fo > 0) {
+    const end = windowEnd(doc, opts)
+    out.push(`fade=t=out:st=${Math.max(0, end - fo).toFixed(3)}:d=${fo.toFixed(3)}:alpha=1`)
+  }
+  return out
+}
+
+function compileWithFadeWrapper(doc: SceneOverlayDocument, opts: OverlayCompileOpts): string[] | null {
+  const dry = opts.allocLabel(), wetIn = opts.allocLabel(), wetOut = opts.allocLabel(), faded = opts.allocLabel()
+  // The copy keeps its hard window, so outside it the filter passes frames
+  // through untouched and costs almost nothing.
+  const hard = { ...doc, timing: { ...doc.timing, fade_in_sec: 0, fade_out_sec: 0 } } as SceneOverlayDocument
+  const inner = compileSceneOverlay(hard, { ...opts, input: wetIn, output: wetOut })
+  if (!inner) return null
+  const enable = overlayEnableSuffix(doc, opts)
+  return [
+    `${opts.input}split=2${dry}${wetIn}`,
+    ...inner,
+    `${wetOut}format=yuva420p,${alphaFades(doc, opts).join(',')}${faded}`,
+    `${dry}${faded}overlay=0:0${enable}${opts.output}`,
+  ]
+}
+
+// ── Atmosphere loops ────────────────────────────────────────────────────────
+
+function compileAtmosphereLoop(doc: AtmosphereLoopOverlay, opts: OverlayCompileOpts): string[] | null {
+  if (doc.opacity <= 0 && doc.darken <= 0) return null
+  const shapes = overlayLoopShapes(doc)
+  const labels = shapes.map(shape => opts.loopInput?.(shape) ?? null)
+  // Nothing baked = nothing to draw. The caller reports it.
+  if (labels.some(label => !label)) return null
+  const fps = opts.fps || 24
+  const enable = overlayEnableSuffix(doc, opts)
+  const env = envelopeExpression(doc, opts)
+  const statements: string[] = []
+  let current = opts.input
+
+  if (doc.darken > 0) {
+    const next = opts.allocLabel()
+    const k = env ? `*${env}` : ''
+    const brightness = `-${doc.darken.toFixed(4)}${k}`
+    const saturation = `1-${(doc.darken * 1.5).toFixed(4)}${k}`
+    statements.push(`${current}eq=brightness=${escapeFilterArgValue(brightness)}:saturation=${escapeFilterArgValue(saturation)}:eval=frame${enable}${next}`)
+    current = next
+  }
+
+  if (doc.opacity > 0) {
+    const colors = shapes.length === 2 ? [doc.color_hex, doc.secondary_color_hex!] : [doc.color_hex]
+    const fades = alphaFades(doc, opts)
+    shapes.forEach((_shape, i) => {
+      const mask = opts.allocLabel(), tint = opts.allocLabel(), layer = opts.allocLabel(), next = opts.allocLabel()
+      const scale = `scale=${opts.w}:${opts.h}:flags=bicubic,`
+      // A loop baked at a fraction of the frame is scaled up here; a mask at
+      // full size passes the scale untouched (FFmpeg skips a no-op scale).
+      const gain = doc.opacity < 0.999 ? `,lut=c0=${escapeFilterArgValue(`val*${doc.opacity.toFixed(4)}`)}` : ''
+      statements.push(`${labels[i]}format=gray,${scale}setsar=1${gain}${mask}`)
+      statements.push(`color=c=${ffColor(colors[i]!)}:s=${opts.w}x${opts.h}:r=${fps}${tint}`)
+      statements.push(`${tint}${mask}alphamerge${fades.length ? `,${fades.join(',')}` : ''}${layer}`)
+      const out = i === shapes.length - 1 ? opts.output : next
+      statements.push(`${current}${layer}overlay=0:0:shortest=1${enable}${out}`)
+      current = out
+    })
+  } else {
+    statements.push(`${current}null${opts.output}`)
+  }
+  return statements
+}
+
+// ── Lightning ───────────────────────────────────────────────────────────────
+
+/**
+ * `lightningLevel()` from `contracts/effect-loops.ts`, written as an FFmpeg
+ * expression. Variables: 0 = slot, 1 = strike hash, 2 = position hash,
+ * 3 = seconds since the strike. `max(…,0)` inside `exp` keeps a far-future
+ * strike from overflowing to infinity (infinity × 0 is NaN, not 0).
+ */
+export function lightningExpression(period: number, chance: number, seed: number): string {
+  const p = period.toFixed(4)
+  const s = (seed * 78.233).toFixed(4)
+  const hash = (n: string, v: number) =>
+    `st(${v},sin((${n})*12.9898+${s})*43758.5453);st(${v},ld(${v})-floor(ld(${v})))`
+  const strike = (d: string) => `gte(${d},0)*exp(-max(${d},0)*9)`
+  return `(st(0,floor(t/${p}));${hash('ld(0)', 1)};${hash('ld(0)+0.5', 2)};`
+    + `st(3,t-(ld(0)*${p}+${p}*(0.15+0.7*ld(2))));`
+    + `lt(ld(1),${chance.toFixed(4)})*min(1,${strike('ld(3)')}+0.6*${strike('ld(3)-0.18')}))`
+}
+
+// ── Heat shimmer ────────────────────────────────────────────────────────────
+
+/**
+ * Displace the picture by two drifting Perlin fields (one per axis), generated
+ * small and scaled up — the maps are soft, so a 320-wide field costs a fraction
+ * of a full-size one and looks the same.
+ *
+ * The picture is displaced in planar RGB so all three planes move together; in
+ * YUV the half-size chroma planes would be shifted by the luma map and fringe.
+ */
+function compileHeatShimmer(
+  doc: Extract<SceneOverlayDocument, { kind: 'heat-shimmer' }>,
+  opts: OverlayCompileOpts,
+): string[] | null {
+  if (doc.strength_px <= 0) return null
+  const fps = opts.fps || 24
+  const enable = overlayEnableSuffix(doc, opts)
+  const px = scaleReferencePx(doc.strength_px, opts.h)
+  // Perlin output spreads about ±64 around 128; map that onto ±px.
+  const gain = (px / 64).toFixed(4)
+  const top = doc.region_top.toFixed(3), bottom = doc.region_bottom.toFixed(3)
+  const band = `clip((Y/H-${top}+0.08)/0.16,0,1)*clip((${bottom}-Y/H+0.08)/0.16,0,1)`
+  const map = (seed: number) => `perlin=s=320x180:r=${fps}:octaves=2:persistence=0.5`
+    + `:xscale=${(6 / doc.scale).toFixed(3)}:yscale=${(3 / doc.scale).toFixed(3)}:tscale=${(0.5 * doc.speed).toFixed(3)}`
+    + `:random_mode=seed:random_seed=${seed},format=gray,`
+    + `geq=lum=${escapeFilterArgValue(`128+(lum(X,Y)-128)*${gain}*${band}`)},`
+    + `scale=${opts.w}:${opts.h}:flags=bicubic,format=gbrp`
+  const src = opts.allocLabel(), xmap = opts.allocLabel(), ymap = opts.allocLabel(), moved = opts.allocLabel()
+  return [
+    `${opts.input}format=gbrp${src}`,
+    `${map(doc.seed)}${xmap}`,
+    `${map(doc.seed + 1)}${ymap}`,
+    `${src}${xmap}${ymap}displace=edge=smear${enable}${moved}`,
+    `${moved}format=yuv420p${opts.output}`,
+  ]
 }
 
 // ── Vignette ────────────────────────────────────────────────────────────────

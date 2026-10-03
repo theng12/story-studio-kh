@@ -74,8 +74,20 @@ import {
   calculateLogoPosition,
   computeVignetteAngle,
 } from '../lib/video-effects.js'
-import { compileSceneOverlay, letterboxBarHeight } from '../lib/scene-effect-compiler.js'
+import { compileSceneOverlay, letterboxBarHeight, overlayLoopShapes } from '../lib/scene-effect-compiler.js'
 import { assertNoUnavailablePackOverlays, resolveAppliedOverlays } from '../contracts/scene-effect-presets.js'
+import { LIBRARY_V1_5_KINDS } from '../contracts/scene-effects.js'
+import { loopShapeKey } from '../contracts/effect-loops.js'
+import { bakeEffectLoop } from '../lib/effect-loop-baker.js'
+import {
+  episodeEffectsCount,
+  isLowerStackGroup,
+  readEpisodeEffects,
+  resolveEpisodeEffectStack,
+  type ResolvedEpisodeStack,
+  type ResolvedStackEntry,
+  type SceneWindow,
+} from '../services/episode-effects.js'
 import { listSceneEffectLibrary } from '../services/style-effect-loader.js'
 import { requireJobCompletion, declareJobDegraded } from '../services/job-completion.js'
 import {
@@ -581,6 +593,8 @@ export interface ScannedAssets {
       image_ready: boolean
       stale: boolean
       media_type: 'still' | 'motion'
+      /** The scene's theme when its plan names one (Episode Builder scenes); drives theme-scoped effects. */
+      theme?: string
     }>
   }
   thumbnails: Array<{ filename: string; path: string; number: number }>
@@ -973,6 +987,7 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
           image_ready: !!scanned?.still_path,
           stale,
           media_type: scanned?.media_type || 'still',
+          ...(typeof (scene as any).theme === 'string' && (scene as any).theme.trim() ? { theme: String((scene as any).theme).trim() } : {}),
         }
       }),
     }
@@ -1564,6 +1579,7 @@ export async function generateVideo(job: Job): Promise<void> {
     id: scene.id,
     start_sec: scene.start_sec,
     end_sec: scene.end_sec,
+    theme: scene.theme ?? null,
   })) || []
   const planOpeningReservedSec = authoritativeAssets.scene_plan_timing?.opening_reserved_sec || 0
   // v1.3.1 — a plan whose reserve was PROBED from the real opening clips
@@ -2752,6 +2768,22 @@ export async function generateVideo(job: Job): Promise<void> {
     // truncated `.mp4` in the user's `_video/` folder with no marker —
     // sometimes mistaken for a valid render. The finally only deletes on
     // failure; the rename below handles the happy path.
+    // Effects Library (v1.5): this episode's own stack — whole episode, theme
+    // runs and single scenes — placed on the COMPOSED timeline with the same
+    // derived offset the contextual cues use, so a scene effect lands on its scene.
+    const episodeStack = await resolveEpisodeStackForRender({
+      episodeDir,
+      sceneEffects: req.scene_effects,
+      windows: planCoverageScenes.map(scene => ({
+        scene_id: scene.id,
+        start_sec: scene.start_sec + sceneTimelineOffsetSec,
+        end_sec: scene.end_sec + sceneTimelineOffsetSec,
+        theme: scene.theme,
+      })),
+      duration: totalRenderDuration,
+      job,
+    })
+
     let encodeSucceeded = false
     try {
       await runFinalComposition({
@@ -2771,6 +2803,7 @@ export async function generateVideo(job: Job): Promise<void> {
         subtitles: req.subtitles,
         contextualCues: req.contextual_cues,
         sceneEffects: req.scene_effects,
+        episodeStack,
         excludeIntroFromEffects: req.exclude_intro_from_effects,
         preSceneDuration,
         sceneTimelineOffsetSec,
@@ -3232,13 +3265,21 @@ export interface ResolvedVideoAssemblySceneAnimation {
   picks: string[]
 }
 
+/** The camera move a still gets when the request names none: slow zoom (Ken Burns, 100 → 108 %). */
+export const DEFAULT_STILL_CAMERA_MOVE = 'ken-burns'
+
 /** Resolve the exact animation choices once so retry fingerprints and encodes agree. */
 export function resolveVideoAssemblySceneAnimation(
   req: GenerateVideoRequest,
   sceneCount: number,
 ): ResolvedVideoAssemblySceneAnimation {
+  // A request that names no camera move gets the slow zoom stills are made
+  // for (owner, 2026-10-03: "default camera move on stills = slow zoom/pan") —
+  // the same Ken Burns the Video Assembly page starts on, so a Pipeline batch
+  // with no saved timeline preset no longer renders frozen stills while the
+  // page would have zoomed. Every other move stays one click away.
   const settings: VideoSceneAnimation = req.scene_animation ?? {
-    type: 'none', zoom_start: 100, zoom_end: 108, parallax_direction: 'right', parallax_speed: 2, breathe_amplitude: 2, breathe_base_zoom: 103,
+    type: DEFAULT_STILL_CAMERA_MOVE, zoom_start: 100, zoom_end: 108, parallax_direction: 'right', parallax_speed: 2, breathe_amplitude: 2, breathe_base_zoom: 103,
   }
   const pool = Array.isArray((req as any).animation_pool) ? [...(req as any).animation_pool] : []
   const requestedMode = (req as any).animation_randomize
@@ -5003,6 +5044,42 @@ async function concatToIntermediate(
   return outputPath
 }
 
+// ── Effects Library stack for one render ─────────────────────────────────
+
+/**
+ * Read this episode's `scene_effects.json`, add the project look's v1.5-kind
+ * effects, and place everything on the composed timeline. Returns null when
+ * there is nothing to add, so a render without the Effects Library builds the
+ * exact filtergraph it always did.
+ *
+ * Fails loudly — never renders without — when the file cannot be read or a
+ * Content Pack effect it names is gone (AGENTS.md §8).
+ */
+export async function resolveEpisodeStackForRender(opts: {
+  episodeDir: string
+  sceneEffects?: import('../models/types.js').SceneEffectsConfig
+  windows: SceneWindow[]
+  duration: number
+  job: Job
+}): Promise<ResolvedEpisodeStack | null> {
+  const file = await readEpisodeEffects(opts.episodeDir)
+  const projectLook = opts.sceneEffects?.enabled && Array.isArray(opts.sceneEffects.overlays) ? opts.sceneEffects.overlays : []
+  const { overlays: library } = await listSceneEffectLibrary()
+  const lookHasNewKinds = projectLook.some(item => item?.enabled !== false
+    && LIBRARY_V1_5_KINDS.includes(library.find(entry => entry.id === item.id)?.document.kind as any))
+  if (!episodeEffectsCount(file) && !lookHasNewKinds) return null
+  const stack = resolveEpisodeEffectStack({ file, library, windows: opts.windows, projectLook, duration: opts.duration })
+  assertNoUnavailablePackOverlays(stack.unavailable)
+  for (const entry of stack.unavailable) {
+    opts.job.output_lines.push(`Effect "${entry.id}" is not in this build's library and was skipped.`)
+  }
+  for (const note of stack.notes) opts.job.output_lines.push(note)
+  opts.job.output_lines.push(
+    `Effects Library: ${stack.entries.length} effect(s), ${stack.custom_order ? 'custom order' : 'in layer groups'}.`,
+  )
+  return stack.entries.length ? stack : null
+}
+
 // ── Run Final Composition (effects + audio on single MP4) ────────────────
 
 interface CompositionOpts {
@@ -5027,6 +5104,13 @@ interface CompositionOpts {
   contextualCues?: ContextualCue[]
   /** v1.2.0 — overlays chosen from the declarative effect library. */
   sceneEffects?: import('../models/types.js').SceneEffectsConfig
+  /**
+   * v1.5 — the Effects Library stack for this episode, already placed on the
+   * composed timeline: the project look's new-kind effects, the episode file's
+   * whole-episode, theme and scene effects. Null/absent = nothing to add, and
+   * the render is byte-identical to one without the Effects Library.
+   */
+  episodeStack?: ResolvedEpisodeStack | null
   excludeIntroFromEffects?: boolean
   /** Seconds of intro+title that should be left untouched by filters when
    *  `excludeIntroFromEffects` is on. Ignored when the flag is false. */
@@ -5063,6 +5147,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     targetDuration, w, h, quality, format, outputFile,
     colorGrading, vignette, chromaKey, overlays, filmGrain, agedArchiveFilm, letterbox, frame, subtitles, contextualCues,
     sceneEffects,
+    episodeStack,
     excludeIntroFromEffects,
     preSceneDuration,
     sceneTimelineOffsetSec,
@@ -5169,6 +5254,32 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
       job.output_lines.push(`${avail.message} — using the solid frame board color`)
     }
   }
+
+  // Effects Library loops (rain, snow, fog…): baked once from the shared
+  // particle program, then opened as endless looping inputs. A loop that will
+  // not bake fails the job by name — the owner asked for that effect, and a
+  // video quietly missing it is the outcome AGENTS.md §8 forbids.
+  const stackEntries = episodeStack?.entries ?? []
+  const loopInputs = new Map<string, string>()
+  for (const entry of stackEntries) {
+    for (const shape of overlayLoopShapes(entry.document)) {
+      const key = loopShapeKey(shape)
+      if (loopInputs.has(key)) continue
+      let baked
+      try {
+        baked = await bakeEffectLoop(shape, w, h, quality.fps)
+      } catch (error: any) {
+        throw new Error(`The "${entry.name}" effect could not be prepared: ${error?.message || error}. `
+          + 'Remove it from the Effects Library stack or try again — no completed work is repeated.')
+      }
+      args.push('-stream_loop', '-1', '-i', baked.path)
+      loopInputs.set(key, `[${nextInputIdx++}:v]`)
+      job.output_lines.push(`Effect loop for "${entry.name}": ${baked.baked ? `baked in ${(baked.bake_ms / 1000).toFixed(1)}s` : 'reused'} (${baked.width}×${baked.height}, ${baked.frames} frames)`)
+    }
+  }
+  const stackGate = buildGateExpression(startSec, endSec)
+  const lowerStack = stackEntries.filter(entry => episodeStack!.custom_order || isLowerStackGroup(entry.group))
+  const upperStack = stackEntries.filter(entry => !lowerStack.includes(entry))
 
   // ═══════════════════════════════════════════════════════════════════════
   //  VIDEO FILTER CHAIN (video-only — audio is pre-mixed)
@@ -5299,6 +5410,34 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     }
   }
 
+  // 3b. Effects Library — grade, atmosphere, weather, particles and light,
+  // drawn UNDER the classic vignette, grain and letterbox so lens effects
+  // stay on top of the rain. (Custom order puts the whole stack here.)
+  const compileStack = (entries: ResolvedStackEntry[]) => {
+    for (const entry of entries) {
+      const next = vn()
+      const statements = compileSceneOverlay(entry.document, {
+        input: vLabel, output: next, allocLabel: vn, w, h,
+        duration: targetDuration, fps: quality.fps,
+        gateExpression: stackGate,
+        loopInput: shape => loopInputs.get(loopShapeKey(shape)) ?? null,
+      })
+      const where = entry.scope === 'scene' ? ` · scene ${entry.scope_label}`
+        : entry.scope === 'theme' ? ` · theme "${entry.scope_label}"`
+        : entry.scope === 'project' ? ' · project look' : ' · whole episode'
+      if (!statements) {
+        job.output_lines.push(`Effect "${entry.name}"${where} had nothing to draw and was skipped.`)
+        continue
+      }
+      filterParts.push(...statements)
+      vLabel = next
+      const t = entry.document.timing
+      job.output_lines.push(`Effect: ${entry.name}${where} (${t.start_sec.toFixed(1)}s–${t.end_sec === null ? 'end' : `${t.end_sec.toFixed(1)}s`})`
+        + `${entry.approximation ? ' (approximation — see its note)' : ''}`)
+    }
+  }
+  compileStack(lowerStack)
+
   // 4. Vignette
   //
   // FFmpeg's angle grows stronger as it approaches PI/2. Keep the calibrated
@@ -5404,6 +5543,9 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     // pack to reinstall — the Verified Completion Contract, applied to effects.
     assertNoUnavailablePackOverlays(unavailable)
     for (const overlay of resolved) {
+      // v1.5 kinds from this list were placed in the Effects Library stack
+      // above (in their layer group); older kinds keep their place here.
+      if (LIBRARY_V1_5_KINDS.includes(overlay.document.kind)) continue
       const next = vn()
       const statements = compileSceneOverlay(overlay.document, {
         input: vLabel,
@@ -5432,6 +5574,10 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
       job.output_lines.push(`Effect "${entry.id}" is not in this build's library and was skipped.`)
     }
   }
+
+  // 6a-iii. Effects Library lens and overlay groups (vignette, grain, scrims,
+  // titles from the library) — over everything above, under the captions.
+  compileStack(upperStack)
 
   // 6b. Subtitles (libass burn-in). Placed after letterbox so subtitles
   //     sit inside the safe area; placed before the logo so the logo
@@ -5864,6 +6010,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   if (hasLogo) requestedBurnIns.push('logo')
   if (subtitles?.enabled && subtitles.srt_path) requestedBurnIns.push('burned-in subtitles')
   if (contextualCues?.length) requestedBurnIns.push(`${contextualCues.length} contextual cue(s)`)
+  if (stackEntries.length) requestedBurnIns.push(`${stackEntries.length} Effects Library effect(s)`)
 
   // The "minimal" builder rebuilds argv from scratch with only the safe
   // primitives: copy video stream as-is from the intermediate, map audio,
