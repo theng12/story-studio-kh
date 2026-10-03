@@ -795,7 +795,7 @@
           </div>
 
           <!-- Bulk progress strip — visible while the loop is running. -->
-          <div v-if="bulkReplan.active" class="bulk-progress">
+          <div v-if="bulkReplan.active && !regeneratingSelected" class="bulk-progress">
             <div class="bulk-progress-bar">
               <div
                 class="bulk-progress-fill"
@@ -834,6 +834,69 @@
           </p>
         </div>
 
+        <!-- Regenerate prompts for selected scenes: tick scenes (shift-click for
+             a range), then rewrite only their image prompts with the chosen
+             writing model. Images, approvals and timings are left alone. -->
+        <div class="scene-select-bar mt-2" data-testid="scene-select-bar">
+          <div class="scene-select-row">
+            <label class="scene-select-all">
+              <input
+                type="checkbox"
+                :checked="allScenesSelected"
+                :indeterminate="selectedSceneCount > 0 && !allScenesSelected"
+                :disabled="planBusy || bulkReplan.active"
+                @change="toggleAllScenes"
+              />
+              Select all {{ plan.scenes.length }}
+            </label>
+            <span class="text-muted text-xs">{{ selectedSceneCount }} selected</span>
+            <button v-if="selectedSceneCount && !bulkReplan.active" type="button" class="link-btn" @click="clearSceneSelection">Clear</button>
+            <button
+              type="button"
+              class="btn btn-sm btn-primary"
+              :disabled="!!regenerateSelectedBlocker"
+              @click="regenerateSelectedPrompts"
+            >
+              {{ regeneratingSelected ? 'Regenerating…' : `✨ Regenerate prompts${selectedSceneCount ? ` (${selectedSceneCount})` : ''}` }}
+            </button>
+          </div>
+          <p class="scene-select-hint" :class="{ 'is-blocked': !!regenerateSelectedBlocker && selectedSceneCount > 0 }">
+            {{ regenerateSelectedBlocker || 'Rewrites only the image prompts of the ticked scenes, one by one, with the writing model chosen above. Images, approvals and timings stay as they are.' }}
+          </p>
+          <div v-if="regeneratingSelected" class="bulk-progress" role="status">
+            <div class="bulk-progress-bar">
+              <div
+                class="bulk-progress-fill"
+                :style="`width: ${bulkReplan.total > 0 ? Math.round((bulkReplan.completed / bulkReplan.total) * 100) : 0}%`"
+              ></div>
+            </div>
+            <div class="bulk-progress-text">
+              Rewriting {{ bulkReplan.total }} image prompt{{ bulkReplan.total === 1 ? '' : 's' }} ·
+              {{ bulkReplan.completed }}/{{ bulkReplan.total }} done — each one is saved as soon as it is ready.
+              <button
+                class="link-btn-danger"
+                :disabled="!bulkReplan.jobId || bulkReplan.cancelRequested"
+                @click="cancelBulkReplan"
+              >{{ bulkReplan.cancelRequested ? 'Stopping…' : 'Stop' }}</button>
+            </div>
+          </div>
+          <div v-if="promptRegenFailures.length" class="validation-msg text-sm mt-1" role="alert" data-testid="scene-select-failures">
+            ⚠ {{ promptRegenFailures.length }} prompt{{ promptRegenFailures.length === 1 ? '' : 's' }} could not be rewritten —
+            {{ promptRegenFailures.length === 1 ? 'it keeps its' : 'they keep their' }} previous prompt and
+            {{ promptRegenFailures.length === 1 ? 'is' : 'are' }} ticked again, so you can press Regenerate prompts to try once more.
+            <div class="plan-health-list mt-1">
+              <button
+                v-for="f in promptRegenFailures"
+                :key="f.id"
+                type="button"
+                class="plan-health-chip"
+                :title="`Jump to scene ${f.label}`"
+                @click="jumpToScene(f.id)"
+              >{{ f.label }} <span class="plan-health-why">{{ f.reason }}</span></button>
+            </div>
+          </div>
+        </div>
+
         <ul class="scene-list mt-2">
           <li
             v-for="(scene, i) in renderedScenes"
@@ -843,6 +906,15 @@
             :class="{ 'scene-row-problem': problemIds.has(scene.id) }"
           >
             <div class="scene-row-head">
+              <input
+                type="checkbox"
+                class="scene-select-box"
+                :checked="selectedSceneIds.has(scene.id)"
+                :disabled="planBusy || bulkReplan.active"
+                :aria-label="`Select scene ${i + 1}`"
+                title="Tick to include in Regenerate prompts. Shift-click to tick a range."
+                @click="toggleSceneSelection(i, $event)"
+              />
               <strong>#{{ i + 1 }}</strong>
               <span class="text-muted text-xs">
                 {{ scene.start_sec.toFixed(1) }}s → {{ scene.end_sec.toFixed(1) }}s
@@ -2559,6 +2631,124 @@ async function regenerateScenePrompt(scene: ScenePlanEntry, opts: { reword?: boo
   }
 }
 
+// ── Regenerate prompts for selected scenes ───────────────────────────────
+// One job rewrites the ticked scenes' visual prompts in turn with the page's
+// chosen writing model. Never picks a model itself; images, approvals and
+// timings are untouched (only `visual_prompt` changes on the server).
+const CHOOSE_WRITING_MODEL = 'Choose a writing model in “Visual & motion prompt model” above first.'
+const selectedSceneIds = ref<Set<string>>(new Set())
+let lastToggledSceneIndex: number | null = null
+const regeneratingSelected = ref(false)
+const promptRegenFailures = ref<Array<{ id: string; label: string; reason: string }>>([])
+const selectedPlanScenes = computed(() => (plan.value?.scenes || []).filter(scene => selectedSceneIds.value.has(scene.id)))
+const selectedSceneCount = computed(() => selectedPlanScenes.value.length)
+const allScenesSelected = computed(() => !!plan.value?.scenes.length && selectedSceneCount.value === plan.value.scenes.length)
+const regenerateSelectedBlocker = computed(() => {
+  if (regeneratingSelected.value) return ''
+  if (scenePlanGenerationUnavailable.value) return 'This episode uses Image Pool, so it has no Scene Plan prompts to rewrite.'
+  if (planBusy.value || bulkReplan.value.active) return 'Wait for the running Scene Plan job to finish.'
+  if (!selectedSceneCount.value) return 'Tick the scenes whose image prompts you want rewritten — shift-click a box to tick a range. Images, approvals and timings stay as they are.'
+  if (dirty.value) return 'Save your scene edits first — regenerating reloads the plan and would discard them.'
+  if (!subtitleTimelineComplete.value) return 'Complete and stitch every subtitle chapter first.'
+  if (!form.value.model) return CHOOSE_WRITING_MODEL
+  return ''
+})
+
+function toggleSceneSelection(index: number, event: MouseEvent): void {
+  const scenes = plan.value?.scenes || []
+  const scene = scenes[index]
+  if (!scene) return
+  const next = new Set(selectedSceneIds.value)
+  const tick = !next.has(scene.id)
+  const anchor = event.shiftKey && lastToggledSceneIndex !== null ? lastToggledSceneIndex : index
+  for (let at = Math.min(anchor, index); at <= Math.max(anchor, index); at++) {
+    const id = scenes[at]?.id
+    if (!id) continue
+    if (tick) next.add(id)
+    else next.delete(id)
+  }
+  selectedSceneIds.value = next
+  lastToggledSceneIndex = index
+}
+
+function toggleAllScenes(): void {
+  selectedSceneIds.value = allScenesSelected.value
+    ? new Set()
+    : new Set((plan.value?.scenes || []).map(scene => scene.id))
+  lastToggledSceneIndex = null
+}
+
+function clearSceneSelection(): void {
+  selectedSceneIds.value = new Set()
+  lastToggledSceneIndex = null
+}
+
+async function regenerateSelectedPrompts(): Promise<void> {
+  if (regenerateSelectedBlocker.value) { showError(regenerateSelectedBlocker.value); return }
+  const chosen = selectedPlanScenes.value
+  const eligible = chosen.filter(scene => scene.transcript_segment?.trim())
+  const skipped = chosen.length - eligible.length
+  if (!eligible.length) { showError('None of the ticked scenes has narration text to write a prompt from.'); return }
+  const n = eligible.length
+  const ok = await ask({
+    title: `Regenerate ${n} image prompt${n === 1 ? '' : 's'}?`,
+    message: `Rewrites the image prompts of ${n} scene${n === 1 ? '' : 's'}. Their current images stay until you regenerate them.`
+      + (skipped ? ` ${skipped} ticked scene${skipped === 1 ? ' has' : 's have'} no narration text and will be skipped.` : ''),
+    confirmLabel: `Regenerate ${n}`,
+  })
+  if (!ok) return
+  const ep = episodeId.value
+  const payload = {
+    scene_ids: eligible.map(scene => scene.id),
+    model: form.value.model,
+    detail_level: 4,
+    prompt_char_cap: effectivePromptCharCap.value || undefined,
+    creative_direction: creativeDirectionPayload.value,
+    custom_instructions: composeScenePlanGuidance(form.value.custom_instructions, form.value.reusable_guidance),
+    avoid_legible_text: form.value.avoid_legible_text,
+  }
+  const operationId = freshScenePromptAction.begin(payload, 'visual:selected')
+  promptRegenFailures.value = []
+  regeneratingSelected.value = true
+  bulkReplan.value = { active: true, completed: 0, total: n, currentSceneIndex: null, cancelRequested: false, jobId: null }
+  try {
+    const job = await post<{ job_id?: string }>(`/projects/${slug.value}/scene-plan/${ep}/regenerate-prompt`, {
+      ...payload,
+      operation_id: operationId,
+    })
+    freshScenePromptAction.complete(operationId)
+    const jobId = job?.job_id || null
+    bulkReplan.value.jobId = jobId
+    const finalStatus = await pollUntilPlanLanded(ep, { timeoutMs: 3_600_000, trackJobId: jobId })
+    if (pageUnmounted || episodeId.value !== ep) return
+    if (finalStatus === 'done') {
+      clearSceneSelection()
+      success(`Rewrote ${n} image prompt${n === 1 ? '' : 's'}. Regenerate their images in Scene Review when you are ready.`)
+      return
+    }
+    if (!jobId || (finalStatus !== 'error' && finalStatus !== 'cancelled')) return
+    const finished = await get<{ result?: { completion?: { issues?: Array<{ item_id: string; reason?: string }> } } }>(
+      `/projects/${slug.value}/jobs/${jobId}`,
+    ).catch(() => null)
+    if (episodeId.value !== ep) return
+    const issues = finished?.result?.completion?.issues || []
+    const indexById = new Map((plan.value?.scenes || []).map((scene, at) => [scene.id, at + 1]))
+    promptRegenFailures.value = issues.map(issue => ({
+      id: issue.item_id,
+      label: indexById.has(issue.item_id) ? `#${indexById.get(issue.item_id)}` : issue.item_id,
+      reason: issue.reason || 'failed',
+    }))
+    // Failed scenes stay ticked so one click retries just those.
+    if (issues.length) selectedSceneIds.value = new Set(issues.map(issue => issue.item_id))
+    if (finalStatus === 'cancelled') success('Stopped. Prompts already rewritten are saved; the rest keep their previous prompt.')
+  } catch (e: any) {
+    await reportGenerationError(e, 'Could not start rewriting the selected prompts')
+  } finally {
+    regeneratingSelected.value = false
+    bulkReplan.value = { active: false, completed: 0, total: 0, currentSceneIndex: null, cancelRequested: false, jobId: null }
+  }
+}
+
 /**
  * Manual "this prompt did not render — reword it". Rewrites this one prompt
  * from a different angle on the same narrative beat, with the difficult-
@@ -3074,6 +3264,10 @@ watch([slug, episodeId], () => {
     ? 'Episode-specific guidance was cleared because the episode changed. Reusable guidance was kept.'
     : ''
   form.value.custom_instructions = ''
+  // Ticked scenes and their failure list belong to the episode they were made on.
+  selectedSceneIds.value = new Set()
+  lastToggledSceneIndex = null
+  promptRegenFailures.value = []
   status.value = null
   plan.value = null
   dirty.value = false
@@ -3632,6 +3826,17 @@ watch(slug, () => { void refreshMeasuredOpening() }, { immediate: true })
 .plan-health-chip:hover { border-color: #e0a23a; background: rgba(224, 162, 58, 0.2); }
 .plan-health-why { color: var(--text-muted); }
 .scene-row-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.scene-select-box { align-self: center; margin: 0; cursor: pointer; }
+.scene-select-bar {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-secondary);
+}
+.scene-select-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.scene-select-all { display: inline-flex; gap: 6px; align-items: center; font-size: var(--font-sm); cursor: pointer; }
+.scene-select-hint { margin: 4px 0 0; font-size: var(--font-xs); color: var(--text-muted); }
+.scene-select-hint.is-blocked { color: var(--warning); }
 .scene-boundary-reason { font-style: italic; }
 /* v1.0.336 — per-scene type picker (continuity). Colour-tinted so the cast
    mix is scannable down the list at a glance. */
