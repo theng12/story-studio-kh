@@ -20,6 +20,8 @@ export interface MusicModelCapability {
   min_duration_seconds?: number
   max_duration_seconds?: number
   default_duration_seconds?: number
+  /** Gateway 0.2.82+: `local` = the owner's own Macs (free). */
+  price_source?: string
 }
 
 export interface MusicRequestNeeds {
@@ -44,7 +46,11 @@ export function musicModelCanServe(model: MusicModelCapability, needs: MusicRequ
 export function pickDefaultMusicModel<T extends { id?: string } & MusicModelCapability>(
   models: readonly T[], needs: MusicRequestNeeds,
 ): T | undefined {
-  const servable = models.filter(model => musicModelCanServe(model, needs))
+  const able = models.filter(model => musicModelCanServe(model, needs))
+  // The page has no model picker, so this choice IS the purchase. The Gateway lists paid
+  // cloud rows first (Suno V6, $0.06/request): prefer a free fleet model when one can serve.
+  const free = able.filter(model => model.price_source === 'local')
+  const servable = free.length ? free : able
   if (!needs.instrumental) {
     const singer = servable.find(model => model.supports_vocals === true || model.requires_lyrics === true)
     if (singer) return singer

@@ -338,6 +338,11 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
   // v1.4.37 — tops up a channel's music library. guardMedia because it writes
   // audio files into the project folder like every other media generator.
   registerExecutor('music_generate', guardMedia(async (job) => {
+    // Music format phase 1: the Song Pool's generator rides the same job type (lane, label, audit).
+    if ((job.params as any)?.song_pool === true) {
+      const { generateSongPool } = await import('../generators/song-pool-generate.js')
+      return generateSongPool(job)
+    }
     const { generateMusicLibraryTracks } = await import('../generators/music-generate.js')
     await generateMusicLibraryTracks(job)
   }))

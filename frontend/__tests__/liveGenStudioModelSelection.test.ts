@@ -152,3 +152,14 @@ test('a writing model the gateway marks chargeable carries a visible Paid badge'
   const source = readFileSync(new URL('../components/ModelSelector.vue', import.meta.url), 'utf8')
   assert.match(source, /model\.chargeable === true\s*\?\s*\[\{ label: 'Paid'/)
 })
+
+test('an empty image/voice/music picker defaults only to a free fleet model, never a paid one listed first', () => {
+  const imageRows = [
+    { id: 'openai-direct::gpt-image', available: true, cost_tier: 'economy' as const, price_source: 'provider_page' },
+    { id: 'studio-hub::klein', available: true, cost_tier: 'economy' as const, price_source: 'local' },
+  ]
+  assert.equal(selectLiveGenStudioModel('', imageRows)?.id, 'studio-hub::klein')
+  assert.equal(selectLiveGenStudioModel('', imageRows.slice(0, 1)), null)
+  // An explicit paid choice is still the owner's to make.
+  assert.equal(selectLiveGenStudioModel('openai-direct::gpt-image', imageRows)?.id, 'openai-direct::gpt-image')
+})

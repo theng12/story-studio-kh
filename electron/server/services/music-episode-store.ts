@@ -472,12 +472,13 @@ export async function recordRenderedMusicEpisode(slug: string, code: string, log
     const pool = pools.find(p => p.pool_id === poolId)
     if (!pool) { problems.push(`pool ${poolId} not found`); continue }
     try {
-      recorded += await recordEpisodeUse(pool.project_slug, ids, { code: upper, project_slug: slug, used_at: at })
+      await recordEpisodeUse(pool.project_slug, ids, { code: upper, project_slug: slug, used_at: at })
+      recorded += ids.length
     } catch (e: any) {
       problems.push(`${pool.name}: ${e?.message || e}`)
     }
   }
   await markEpisodeRendered(slug, upper, at)
-  log(`Song plays recorded: ${recorded} new for ${doc.songs.length} song(s) in ${byPool.size} pool(s).`
+  log(`Song plays recorded for ${recorded} of ${doc.songs.length} song(s) in ${byPool.size} pool(s).`
     + (problems.length ? ` Not recorded: ${problems.join('; ')}.` : ''))
 }

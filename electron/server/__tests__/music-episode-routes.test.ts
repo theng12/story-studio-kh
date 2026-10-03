@@ -203,7 +203,7 @@ describe('Episode Builder', () => {
     })
     const job = jq.getJob(queued.body.job_id)
     assert.equal(job?.status, 'done', (job?.output_lines || []).slice(-15).join('\n') + (job?.error || ''))
-    assert.ok(job!.output_lines.some(line => /Song plays recorded: \d+ new/.test(line)), 'the render records plays')
+    assert.ok(job!.output_lines.some(line => /Song plays recorded for 4 of 4 song\(s\) in 2 pool\(s\)/.test(line)), 'the render records plays')
     assert.ok(job!.output_lines.some(line => /2500 kbit\/s/.test(line)), 'the bitrate cap reaches the encoder')
   })
 
@@ -211,14 +211,14 @@ describe('Episode Builder', () => {
     const { recordRenderedMusicEpisode, readEpisodeDoc } = await import('../services/music-episode-store.js')
     const lines: string[] = []
     await recordRenderedMusicEpisode(slug, code, line => lines.push(line))
-    assert.match(lines[0]!, /recorded: 0 new/, 'the render already recorded them; recording again adds nothing')
+    assert.match(lines[0]!, /Song plays recorded for 4 of 4/)
     const doc = (await readEpisodeDoc(slug, code))!
     const pm = await import('../services/project-manager.js')
     for (const [owner, poolId] of [[slug, 'pool_cello'], [pianoSlug, 'pool_piano']] as const) {
       const pool = JSON.parse(await fs.readFile(path.join(pm.getProjectDir(owner)!, 'music-library', 'library.json'), 'utf8'))
       for (const ref of doc.songs.filter(r => r.pool_id === poolId)) {
         const song = pool.songs.find((s: any) => s.id === ref.song_id)
-        assert.deepEqual(song.episodes.map((e: any) => [e.code, e.project_slug]), [[code, slug]])
+        assert.deepEqual(song.episodes.map((e: any) => [e.code, e.project_slug]), [[code, slug]], 'recording again adds nothing')
       }
     }
   })

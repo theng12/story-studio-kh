@@ -189,3 +189,13 @@ test('E-05: AudioChapterSelector distinguishes a failed scan from "No sections f
   assert.match(loader, /loadError\.value = e\?\.data\?\.detail/, 'the scan catch must retain the failure')
   assert.match(loader, /loadError\.value = ''/, 'a successful scan must clear it')
 })
+
+// Dreamlands E2E (2026-10-03): with 4 of 12 chapters narrated, Subtitles said
+// "No chapter audio found for EP0002" and "No chapter audio — generate audio first".
+test('Subtitles says how many chapters are narrated instead of "none" while narration is still running', () => {
+  const source = page('subtitles.vue')
+  const partial = source.indexOf('chapters of {{ episodeId }} are narrated so far')
+  const none = source.indexOf('No chapter audio found for {{ episodeId }}')
+  assert.ok(partial >= 0 && partial < none, 'the partial branch precedes the "none" claim')
+  assert.match(source, /chapters narrated — finish the narration first/)
+})

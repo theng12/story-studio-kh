@@ -6,6 +6,7 @@
  *   POST   /api/niches                    → create user-custom (id from body)
  *   PUT    /api/niches/:id                → full-document replace (user-custom only)
  *   PATCH  /api/niches/:id/episode-shape  → merge chapters/length/pace/tone only
+ *   PATCH  /api/niches/:id/music-format   → merge musicFormat.songFormula / episodeDefaults only
  *   DELETE /api/niches/:id                → delete user-custom (built-ins refused)
  *   PUT    /api/projects/:slug/niche      → set/unset { niche_id: string | null }
  *   GET    /api/projects/:slug/effective-niche → resolved niche after overrides
@@ -26,11 +27,13 @@ import { respondWithError } from '../lib/humanize-backend-error.js'
 import { logLine } from '../services/logger.js'
 import { EpisodeShapePatchSchema, NicheSchema, SetProjectNicheSchema, TopicPackSchema } from '../contracts/index.js'
 import type { Niche, TopicPack } from '../models/types.js'
+import { MusicFormatPatchSchema } from '../contracts/song-formula.js'
 import { listVisualStyles } from '../services/visual-style-loader.js'
 import { updateProjectContentSelections } from '../content-packs/project-pins.js'
 import {
   forkLegacyContentForEdit,
   isUserForkId,
+  readUserFork,
   saveUserForkDocument,
 } from '../content-packs/user-forks.js'
 
@@ -361,6 +364,70 @@ router.patch('/niches/:id/episode-shape', async (req, res) => {
     res.json({ id: forkId, forked_from: isUserForkId(requestedId) ? null : requestedId, niche: next })
   } catch (e: any) {
     respondWithError(res, e, 'Failed to update the episode shape')
+  }
+})
+
+/**
+ * Save a music channel's song formula and/or episode starting values (music format, phase 1).
+ *
+ * A MERGE into `musicFormat`, like `episode-shape`: registers, worlds and every other key of the
+ * stored Formula are carried across untouched. A built-in is forked into a `user:` copy pointed
+ * at the project, so the edit lands where this project reads it.
+ */
+router.patch('/niches/:id/music-format', async (req, res) => {
+  try {
+    const requestedId = req.params.id
+    const parsed = MusicFormatPatchSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ detail: parsed.error.issues.map(i => `${i.path.join('.') || 'formula'}: ${i.message}`).join('; ') })
+    }
+    const projectSlug = typeof req.query.project_slug === 'string' && req.query.project_slug ? req.query.project_slug : undefined
+    if (!isUserForkId(requestedId) && !projectSlug) {
+      return res.status(400).json({ detail: 'Editing a built-in Formula needs the project it is being edited for, so the new copy can be pointed at that project.' })
+    }
+    const contentPackOptions = packOptionsFor(req)
+    const base = await nl.loadNiche(requestedId, contentPackOptions)
+    if (!base) return res.status(404).json({ detail: 'Formula not found' })
+    if (!(base as any).musicFormat) return res.status(400).json({ detail: 'This Formula is not a music channel (it has no music format).' })
+    const forkId = isUserForkId(requestedId)
+      ? requestedId
+      : (await forkLegacyContentForEdit({ kind: 'series-formula', legacyId: requestedId, projectSlug }, contentPackOptions)).fork_id
+    const current = await nl.loadNiche(forkId, contentPackOptions)
+    if (!current) return res.status(404).json({ detail: 'Formula not found' })
+    const next: any = { ...current, id: forkId, builtin: false, musicFormat: { ...((current as any).musicFormat || {}) } }
+    if (parsed.data.songFormula) next.musicFormat.songFormula = parsed.data.songFormula
+    if (parsed.data.episodeDefaults) next.musicFormat.episodeDefaults = parsed.data.episodeDefaults
+    await saveUserForkDocument(forkId, next, contentPackOptions)
+    nl.invalidateNicheCache(forkId)
+    res.json({ id: forkId, forked_from: isUserForkId(requestedId) ? null : requestedId, niche: next })
+  } catch (e: any) {
+    respondWithError(res, e, 'Failed to save the music formula')
+  }
+})
+
+/**
+ * "Duplicate As New Channel…" on the Music Formula page: a new, named copy of this music formula
+ * (song formula, episode values, worlds and all) that a new project can pick. Nothing points at it
+ * until the owner picks it, and the formula it was copied from is left as it is.
+ */
+router.post('/niches/:id/duplicate-music-channel', async (req, res) => {
+  try {
+    const name = String(req.body?.name || '').trim().slice(0, 120)
+    if (!name) return res.status(400).json({ detail: 'Give the new channel a name.' })
+    const contentPackOptions = packOptionsFor(req)
+    const current: any = await nl.loadNiche(req.params.id, contentPackOptions)
+    if (!current?.musicFormat) return res.status(404).json({ detail: 'That music formula was not found.' })
+    const legacyId = isUserForkId(req.params.id)
+      ? (await readUserFork(req.params.id, contentPackOptions))?.source?.legacy_id
+      : req.params.id
+    if (!legacyId) return res.status(409).json({ detail: 'This formula has no original to copy from.' })
+    const { fork_id } = await forkLegacyContentForEdit({ kind: 'series-formula', legacyId }, contentPackOptions)
+    const next = { ...current, id: fork_id, name, builtin: false }
+    await saveUserForkDocument(fork_id, next, contentPackOptions)
+    nl.invalidateNicheCache(fork_id)
+    res.status(201).json({ id: fork_id, name })
+  } catch (e: any) {
+    respondWithError(res, e, 'Failed to duplicate the music formula')
   }
 })
 

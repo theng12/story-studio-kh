@@ -136,6 +136,23 @@ void test('audio generation honors selected-model fanout and independent New ver
     await assert.rejects(generateAudio(contradictoryRetry), /Saved Gateway task identity does not match/)
     assert.equal(service.providerSubmissionCount('tts'), 1, 'contradictory task/key evidence stops before a fresh POST')
 
+    // Evidence that names the same Gateway task but carries no key (written by a
+    // reconcile after a restart) agrees with the manifest: reconnect, never "mismatch".
+    const keylessRetry = structuredClone(uncertainSource)
+    keylessRetry.job_id = 'audio-uncertain-keyless'
+    keylessRetry.output_lines = []
+    keylessRetry.genstudio_jobs = [{
+      id: uncertainSubmission.jobId,
+      operation: 'voice.tts',
+      state: 'failed',
+      failure_code: 'CLOUD_SUBMISSION_UNCERTAIN',
+      request_key: null,
+      updated_at: new Date().toISOString(),
+    }]
+    const keylessError = await generateAudio(keylessRetry).then(() => null, (e: Error) => e)
+    assert.doesNotMatch(String(keylessError?.message), /identity does not match/)
+    assert.equal(service.providerSubmissionCount('tts'), 1, 'keyless matching evidence reconnects with zero fresh POSTs')
+
     const wasPaused = jq.isQueuePaused()
     await jq.setQueuePaused(true)
     let executionRetry: any

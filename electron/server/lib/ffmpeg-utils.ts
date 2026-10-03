@@ -234,7 +234,8 @@ export function appendCappedTail(current: string, chunk: string, max = FFMPEG_LO
 
 // ── Run FFmpeg Command ──────────────────────────────────────────────────
 
-export async function runFfmpeg(args: string[], opts: { timeoutMs?: number } = {}): Promise<void> {
+/** Resolves with the (capped) stderr tail, which is where analysis filters print. */
+export async function runFfmpeg(args: string[], opts: { timeoutMs?: number } = {}): Promise<string> {
   const ffmpegBin = await getFFmpegPath()
   const { timeoutMs } = opts
   return new Promise((resolve, reject) => {
@@ -258,7 +259,7 @@ export async function runFfmpeg(args: string[], opts: { timeoutMs?: number } = {
     proc.on('close', (code, signal) => {
       watchdog?.clear()
       if (code === 0) {
-        resolve()
+        resolve(stderr)
         return
       }
       // Watchdog fired first → surface the distinct watchdog error so

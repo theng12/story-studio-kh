@@ -582,10 +582,14 @@
       <div v-else class="flex items-center gap-2 flex-wrap">
         <span
           class="integrity-pill"
-          :class="audioStatus.missing === 0 ? 'ok' : 'warn'"
+          :class="audioStatus.missing === 0 ? 'ok' : audioStatus.present === 0 ? '' : 'warn'"
         >
           <template v-if="audioStatus.missing === 0">
             ✓ All {{ audioStatus.total }} audio files present
+          </template>
+          <!-- Nothing narrated yet is not "missing": no warning, no Repair. -->
+          <template v-else-if="audioStatus.present === 0">
+            Not narrated yet — 0 of {{ audioStatus.total }} audio files
           </template>
           <template v-else>
             ⚠ {{ audioStatus.missing }} of {{ audioStatus.total }} audio files missing
@@ -593,7 +597,7 @@
         </span>
 
         <button
-          v-if="audioStatus.missing > 0"
+          v-if="audioStatus.missing > 0 && audioStatus.present > 0"
           class="btn btn-sm btn-secondary"
           :disabled="repairing"
           @click="runRepair"

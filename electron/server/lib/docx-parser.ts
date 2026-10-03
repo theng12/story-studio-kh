@@ -176,11 +176,13 @@ export async function parseImagePromptsDocx(docxPath: string): Promise<ParsedPro
         currentScene.prompt += (currentScene.prompt ? ' ' : '') + text
       }
     } else if (section === 'thumbnails') {
-      const thumbMatch = text.match(/^(\d+)\.\s+(.+)$/) || text.match(/^Thumbnail\s+(?:Option\s+)?(\d+)/i)
+      // The writer emits "## Thumbnail N: <title>" — capture the title, or every
+      // read-back renamed the row "Thumbnail N" (and a hook reprompt lettered that).
+      const thumbMatch = text.match(/^(\d+)\.\s+(.+)$/) || text.match(/^Thumbnail\s+(?:Option\s+)?(\d+)(?:\s*[:\-–—]\s*(.*))?$/i)
       if (thumbMatch || (line.level === 2 && /\d/.test(text) && text.length < 80)) {
         flushThumb()
         const num = thumbMatch ? parseInt(thumbMatch[1]) : (parsed.thumbnails.length + 1)
-        const title = thumbMatch ? (thumbMatch[2] || `Thumbnail ${num}`) : text
+        const title = thumbMatch ? (thumbMatch[2]?.trim() || `Thumbnail ${num}`) : text
         currentThumb = { number: num, title, prompt: '' }
       } else if (currentThumb) {
         currentThumb.prompt += (currentThumb.prompt ? ' ' : '') + text

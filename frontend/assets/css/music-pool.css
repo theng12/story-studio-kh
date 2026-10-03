@@ -1,0 +1,58 @@
+/* Music format (Music Formula, Song Pool, Generate Songs): small shared pieces on top of the
+   design-system tokens. Prefixed `mp-` so nothing here can reach another page. */
+.mp-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.mp-grid2 { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 18px; align-items: start; }
+.mp-grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 1360px) { .mp-grid2 { grid-template-columns: minmax(0, 1fr); } }
+.mp-lbl { font-size: 13px; font-weight: 600; margin-bottom: 4px; display: block; }
+.mp-hint { font-size: 12px; color: var(--text-muted); line-height: 1.45; margin-top: 4px; }
+.mp-btnhint { display: flex; flex-direction: column; gap: 3px; }
+.mp-btnhint .mp-hint { margin: 0; max-width: 260px; }
+.mp-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
+  border: 1px solid var(--border-light); font-size: 13px; background: var(--bg-tertiary); color: var(--text-primary);
+  cursor: pointer; font-family: inherit; line-height: 1.5;
+}
+.mp-chip.on { border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: var(--accent-dim); }
+.mp-chip em { font-style: normal; color: var(--accent); font-weight: 700; }
+.mp-chip.sm { font-size: 12px; padding: 1px 8px; cursor: default; }
+.mp-chip input { width: 34px; background: transparent; border: 0; color: var(--accent); font: inherit; font-weight: 700; padding: 0; }
+.mp-chip .mp-x { border: 0; background: none; color: var(--text-muted); cursor: pointer; padding: 0 0 0 2px; font: inherit; }
+.mp-inp {
+  background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 7px 10px; font-size: 13px; color: var(--text-primary); min-height: 34px; font-family: inherit;
+}
+.mp-inp.narrow { width: 84px; }
+.mp-seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.mp-seg button {
+  padding: 6px 12px; font-size: 13px; color: var(--text-secondary); border: 0; border-right: 1px solid var(--border);
+  background: transparent; cursor: pointer; font-family: inherit;
+}
+.mp-seg button:last-child { border-right: 0; }
+.mp-seg button.on { background: var(--accent); color: var(--accent-on); font-weight: 600; }
+.mp-meter { height: 6px; background: var(--bg-tertiary); border-radius: 999px; overflow: hidden; }
+.mp-meter > div { height: 100%; background: var(--accent); }
+.mp-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.mp-tbl th { text-align: left; font-size: 12px; color: var(--text-muted); font-weight: 600; padding: 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.mp-tbl td { padding: 8px; border-bottom: 1px solid var(--workspace-divider, var(--border)); vertical-align: middle; }
+.mp-tbl tr.sel td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.mp-num, .mp-tbl th.mp-num { text-align: right; font-variant-numeric: tabular-nums; }
+.mp-nowrap { white-space: nowrap; }
+.mp-muted { color: var(--text-muted); }
+.mp-kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.mp-kpis.k4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.mp-kpi { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px 12px; background: var(--surface-subtle, var(--bg-secondary)); }
+.mp-kpi span { display: block; font-size: 12px; color: var(--text-muted); }
+.mp-kpi b { font-size: 21px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.mp-kpi[data-tone='warning'] { border-color: color-mix(in srgb, var(--warning) 45%, var(--border)); }
+.mp-kpi[data-tone='info'] { border-color: color-mix(in srgb, var(--info) 40%, var(--border)); }
+.mp-kpi[data-tone='success'] { border-color: color-mix(in srgb, var(--success) 40%, var(--border)); }
+.mp-card h3 { font-size: 15px; margin: 0 0 4px; }
+.mp-stars button { background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0 1px; font-size: 14px; }
+.mp-stars button.off { color: var(--text-muted); opacity: .6; }
+.mp-play {
+  width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border-light); display: inline-grid;
+  place-items: center; font-size: 12px; color: var(--text-primary); background: transparent; cursor: pointer;
+}
+.mp-play.on { background: var(--accent); color: var(--accent-on); border-color: var(--accent); }
+.mp-warn { color: var(--warning); }

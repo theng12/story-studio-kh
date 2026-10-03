@@ -34,6 +34,7 @@ import { router as recencyRouter } from './recency.js'
 import { router as musicPoolRouter } from './music-pool.js'
 import { router as musicLibraryRouter } from './music-library.js'
 import { router as musicEpisodeRouter } from './music-episode.js'
+import { router as songPoolRouter } from './song-pool.js'
 import { router as libraryRouter } from './library.js'
 import { router as mediaCleanupRouter } from './media-cleanup.js'
 import { router as softDeletedProjectsRouter } from './soft-deleted-projects.js'
@@ -93,6 +94,7 @@ export function mountRoutes(app: Express): void {
   app.use('/api', musicPoolRouter)
   app.use('/api', musicLibraryRouter)
   app.use('/api', musicEpisodeRouter)
+  app.use('/api', songPoolRouter)
   app.use('/api', libraryRouter)
   app.use('/api', mediaCleanupRouter)
   app.use('/api', softDeletedProjectsRouter)

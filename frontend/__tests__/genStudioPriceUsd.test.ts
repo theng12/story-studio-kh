@@ -68,6 +68,15 @@ test('local rows read "Free — your fleet" in every picker', () => {
   }
 })
 
+test('a row the Gateway marks chargeable:false reads free even with no USD (Gemini free pool)', () => {
+  const pool = { ...ZERO_SHAPES, chargeable: false, display_name: 'Gemini Free — all', price_source: 'unpublished' as const, price_usd: null, price_as_of: null }
+  const shown = describeChatRate(pool)
+  assert.equal(shown.text, 'Free — no charge')
+  assert.equal(shown.basis, 'free')
+  // A stated positive price still wins over the flag.
+  assert.notEqual(describeChatRate({ ...pool, price_source: 'provider' as const, price_usd: { input_per_1m_tokens: 1 } }).text, 'Free — no charge')
+})
+
 test('unpublished rows say "Price not published" — not $0, not free, not credits', () => {
   const unpublished = { ...ZERO_SHAPES, display_name: 'GPT', price_source: 'unpublished' as const, price_usd: null, price_as_of: null }
   for (const shown of [
@@ -263,4 +272,11 @@ test('a step whose row only has variants is not included: price varies', () => {
   assert.equal(estimate.totalUsd, 0)
   assert.equal(estimate.free.length, 0)
   assert.equal(estimate.notIncluded[0]!.reason, 'price varies: see variants (free tier)')
+})
+
+test('Script Generator: a free model drops the "actual charge" talk, and the long-script dialog is the only confirmation', () => {
+  const src = readFileSync(new URL('../pages/projects/[slug]/scripts.vue', import.meta.url), 'utf8')
+  assert.match(src, /const chatRateIsFree = computed\(\(\) => chatRateNote\.value\.basis === 'free'/)
+  assert.match(src, /<template v-if="!chatRateIsFree"> — the total depends on length/)
+  assert.match(src, /if \(!longScriptConfirmed && !await confirmGeneration\(slug\.value, 'script', params\)\) return false/)
 })

@@ -1337,6 +1337,9 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
       has_libass: libass,
       has_merged_audio: assembly.merged_audio_ready,
       has_chapter_audio: assembly.ready,
+      // Lets the page say "4 of 12 chapters narrated" instead of "No chapter audio found".
+      chapter_audio_present: assembly.present_files.length,
+      chapter_audio_expected: assembly.expected_files.length,
       audio_assembly_ready: assembly.audio_assembly_ready,
       audio_assembly_issues: assembly.issues,
       existing_srts: existingSrts,

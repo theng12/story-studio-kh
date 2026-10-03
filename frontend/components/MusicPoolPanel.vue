@@ -215,6 +215,16 @@
         </template>
       </div>
 
+      <!-- Songs made on the Music Library page live in music-library/, not in
+           this pool's music/ folder. Offer them here so the owner never has to
+           copy files in Finder (Dreamlands E2E, 2026-10-03). -->
+      <div v-if="libraryOnly.length" class="mp-library-offer">
+        <button type="button" class="btn btn-sm btn-primary" :disabled="adding" @click="addLibrarySongs">
+          {{ adding ? 'Adding…' : `Add ${libraryOnly.length} song${libraryOnly.length === 1 ? '' : 's'} from your Music Library` }}
+        </button>
+        <span class="text-muted text-xs">Copies the songs you made on the Music Library page into this pool. The originals stay where they are.</span>
+      </div>
+
       <div class="mp-actions">
         <button type="button" class="btn btn-sm btn-secondary" :disabled="adding" @click="addTrack">
           {{ adding ? 'Adding…' : '+ Add Music…' }}
@@ -392,6 +402,13 @@ const safeTracks = computed(() => {
   return raw.filter(t => t && typeof t.path === 'string' && t.path && typeof t.filename === 'string')
 })
 
+/** Music Library songs (music-library/) not yet copied into this pool. */
+const libraryTracks = ref<Array<{ filename: string; path: string; enabled: boolean }>>([])
+const libraryOnly = computed(() => {
+  const inPool = new Set((state.value?.tracks || []).map(t => t.filename))
+  return libraryTracks.value.filter(t => t.enabled && t.path && !inPool.has(t.filename))
+})
+
 async function refresh() {
   loading.value = true
   try {
@@ -399,6 +416,10 @@ async function refresh() {
     state.value = r
     strategy.value = r.strategy
     lookbackInput.value = r.lookback
+    const lib = await get<{ tracks?: Array<{ filename: string; path: string; enabled: boolean }> }>(
+      `/projects/${props.projectSlug}/music-library`,
+    ).catch(() => ({ tracks: [] }))
+    libraryTracks.value = Array.isArray(lib.tracks) ? lib.tracks : []
   } catch (e: any) {
     toastError(e?.data?.detail || 'Could not load music pool')
   } finally {
@@ -559,6 +580,25 @@ async function addTrack() {
   }
 }
 
+async function addLibrarySongs() {
+  if (adding.value) return
+  adding.value = true
+  let added = 0
+  try {
+    for (const t of libraryOnly.value) {
+      await post(`/projects/${props.projectSlug}/music-pool/tracks`, { source_path: t.path })
+      added++
+    }
+    toastSuccess(`Added ${added} song${added === 1 ? '' : 's'} from your Music Library`)
+  } catch (e: any) {
+    toastError(e?.data?.detail || `Added ${added}; the next song could not be added`)
+  } finally {
+    adding.value = false
+    await refresh()
+    emit('pool-changed')
+  }
+}
+
 function revealFolder() {
   // Best-effort: the system pick-folder endpoint can open a folder;
   // for now we just toast the path so the user can open it manually.
@@ -683,6 +723,7 @@ defineExpose({ refresh })
 }
 
 /* Empty state */
+.mp-library-offer { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .mp-empty {
   padding: 16px;
   background: rgba(255, 255, 255, 0.02);

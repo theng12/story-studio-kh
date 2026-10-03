@@ -22,7 +22,7 @@ import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
 import type { Job, ThumbnailRecipeProfile } from '../models/types.js'
 import { resolveTextStyle, resolveFontStyle } from '../models/thumbnail-styles.js'
 import { letteringPhraseMaps, type LetteringPhraseMaps } from '../services/lettering-catalogue.js'
-import { DEFAULT_HEADLINE_MODE, HEADLINE_MODE_IDS, headlineInstruction, headlineMode as resolveHeadlineMode } from '../models/thumbnail-headlines.js'
+import { DEFAULT_HEADLINE_MODE, HEADLINE_MODE_IDS, headlineInstruction, headlineInvents, headlineMode as resolveHeadlineMode } from '../models/thumbnail-headlines.js'
 import { readArtifactRawText } from '../lib/episode-artifacts.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { writePromptCompletionManifest } from '../services/prompt-completion.js'
@@ -290,7 +290,8 @@ export function enforceThumbnailPromptElements(prompt: string, opts: {
   } else if (!/thumbnail/i.test(out)) {
     clauses.push('This is a YouTube thumbnail.')
   }
-  if (opts.title.trim() && !out.includes(opts.title.trim())) {
+  // "No text at all" must not get a title clause bolted back on.
+  if (opts.headlineMode !== 'none' && opts.title.trim() && !out.includes(opts.title.trim())) {
     const font = !opts.fontStyle || opts.fontStyle === 'auto'
       ? 'a font chosen to suit the concept'
       : (opts.fontPhrases?.[opts.fontStyle] || resolveFontStyle(opts.fontStyle, opts.fontCustomText))
@@ -303,7 +304,10 @@ export function enforceThumbnailPromptElements(prompt: string, opts: {
     // Never "episode title": this clause is an instruction to draw text, and
     // the model draws the label along with it. The title is quoted right after,
     // so the word carries no information the model needs.
-    const headlineLabel = opts.headlineMode === 'curiosity-hook' ? 'thumbnail hook' : 'title'
+    // Every inventing mode (two-three words, question, summary, …) — not only the
+    // curiosity hook — carries its own words in `title`; calling them "the title"
+    // made the image model letter the hook AND the full title.
+    const headlineLabel = headlineInvents(opts.headlineMode) ? 'thumbnail hook' : 'title'
     clauses.push(`Render the exact ${headlineLabel} "${opts.title.trim()}" inside the image as large, highly legible display text using ${font}, ${text}, positioned at ${position}. This is the finished thumbnail; do not use placeholder or gibberish lettering.`)
   }
   return clauses.length ? `${out}\n\n${clauses.join(' ')}` : out
@@ -324,11 +328,15 @@ export function buildThumbnailPrompt(args: {
   promptCharCap?: number
 }): string {
   const ratioInstruction = RATIO_DESCRIPTIONS[args.aspectRatio] || `${args.aspectRatio} format`
-  const curiosityHook = args.headlineMode === 'curiosity-hook'
-  const headlineRequirement = curiosityHook
-    ? '4. Invent a truthful 1–4 word curiosity hook for every variation. Return it in that variation\'s "title" field and render the exact same hook as legible in-image typography. Do not put the full episode title inside the artwork.'
-    : '4. Render the exact episode title as legible in-image typography.'
-  const titleExample = curiosityHook ? 'SHORT CURIOSITY HOOK' : args.title.replace(/"/g, '\\"')
+  const curiosityHook = headlineInvents(args.headlineMode)
+  const headlineRequirement = args.headlineMode === 'none'
+    ? '4. Render no words or letters anywhere in the image.'
+    : args.headlineMode === 'curiosity-hook'
+      ? '4. Invent a truthful 1–4 word curiosity hook for every variation. Return it in that variation\'s "title" field and render the exact same hook as legible in-image typography. Do not put the full episode title inside the artwork.'
+      : curiosityHook
+      ? '4. Write the headline the HEADLINE rule asks for, for every variation. Return it in that variation\'s "title" field and render the exact same words as legible in-image typography. Do not put the full episode title inside the artwork.'
+      : '4. Render the exact episode title as legible in-image typography.'
+  const titleExample = args.headlineMode === 'curiosity-hook' ? 'SHORT CURIOSITY HOOK' : curiosityHook ? 'SHORT HOOK' : args.title.replace(/"/g, '\\"')
   // A ceiling, never a length to reach: requirement 2 above still decides how
   // long a prompt should be. Empty when no limit is in force.
   const charCapInstruction = buildPromptCharCapInstruction(args.promptCharCap)
@@ -664,7 +672,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       // factual episode title elsewhere.
       ).map((item, index) => ({
         ...item,
-        title: headlineMode === 'curiosity-hook' ? String(item.title || '').trim() : title,
+        title: headlineInvents(headlineMode) ? String(item.title || '').trim() || title : title,
         number: targetNumbers[index],
       }))
       for (const item of generated) existingByNumber.set(Number(item.number), item)
@@ -678,7 +686,8 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     ...item,
     prompt: enforceThumbnailPromptElements(String(item.prompt || ''), {
       aspectRatio: req.aspect_ratio || '16:9',
-      title,
+      // An inventing mode's words live in the row's own title, not the episode's.
+      title: headlineInvents(headlineMode) ? String(item.title || '').trim() || title : title,
       textStyle: req.thumb_text_style || 'auto',
       fontStyle: req.thumb_font_style || 'auto',
       textPosition: req.thumb_text_position || 'auto',
