@@ -257,6 +257,13 @@ test('Thumbnail templates: plain wording, failed load with Retry, unsaved-change
   const editor = read('../components/ThumbnailTemplateEditor.vue')
   assert.doesNotMatch(editor.slice(0, editor.indexOf('<script')), /~\/Documents|fork a copy|pristine/)
   assert.match(editor, /onBeforeRouteLeave\(/)
-  assert.match(editor, /:disabled="rendering \|\| isNew \|\| dirty"/)
-  assert.match(editor, /if \(isNew\.value\) return ''/, 'a never-saved template does not request a preview')
+  // Live preview of UNSAVED edits: drawn in the browser from the same overlay
+  // builder the server uses, never a server preview of the saved file.
+  assert.match(editor, /from '@shared\/thumbnail-overlay'/)
+  assert.match(editor, /buildOverlaySvg\(workingTemplate\.value, previewText\.value\)/)
+  assert.match(editor, /layoutTextZone\(zone, canvas, previewText\.value\)/, 'drag boxes use the shared layout')
+  assert.doesNotMatch(editor, /preview\.png/, 'no server round-trip for the editor preview')
+  assert.doesNotMatch(editor, /v-html/, 'overlay is an <img> data URL, never injected markup')
+  assert.match(editor, /final render may differ slightly/)
+  assert.match(editor, /Sample title[\s\S]{0,300}Preview only — each episode puts its own title here\./)
 })

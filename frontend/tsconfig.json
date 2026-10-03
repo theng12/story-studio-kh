@@ -10,7 +10,8 @@
       "@shared/motion-scope": ["../electron/server/contracts/motion-scope.ts"],
       "@shared/pacing": ["../electron/server/contracts/pacing.ts"],
       "@shared/subtitle-style": ["../electron/server/contracts/subtitle-style.ts"],
-      "@shared/subtitle-presets": ["../electron/server/contracts/subtitle-presets.ts"]
+      "@shared/subtitle-presets": ["../electron/server/contracts/subtitle-presets.ts"],
+      "@shared/thumbnail-overlay": ["../electron/server/contracts/thumbnail-overlay.ts"]
     },
     "noUncheckedIndexedAccess": false,
     "noImplicitAny": false,

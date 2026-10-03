@@ -22,6 +22,7 @@ import * as pm from '../services/project-manager.js'
 import * as nl from '../services/niche-loader.js'
 import * as tl from '../services/thumbnail-template-loader.js'
 import { composeThumbnail } from '../lib/thumbnail-composer.js'
+import { THUMBNAIL_PLACEHOLDER_SVG, previewOverlayText } from '../contracts/thumbnail-overlay.js'
 import { humanizeBackendError, respondWithError } from '../lib/humanize-backend-error.js'
 import type { ThumbnailTemplate } from '../models/types.js'
 import {
@@ -237,27 +238,9 @@ async function getPlaceholderPortrait(canvasW: number, canvasH: number): Promise
       .resize(canvasW, canvasH, { fit: 'cover' })
       .toBuffer()
   }
-  // SVG with a radial gradient + a soft warmer ellipse where a head
-  // would typically sit. Pure SVG so we don't need a shipped image asset.
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
-    <defs>
-      <radialGradient id="bg" cx="50%" cy="60%" r="75%">
-        <stop offset="0%" stop-color="#3a3a52" stop-opacity="1"/>
-        <stop offset="60%" stop-color="#1c1c2a" stop-opacity="1"/>
-        <stop offset="100%" stop-color="#0a0a14" stop-opacity="1"/>
-      </radialGradient>
-      <radialGradient id="lit" cx="35%" cy="50%" r="22%">
-        <stop offset="0%" stop-color="#8b7a5e" stop-opacity="0.7"/>
-        <stop offset="100%" stop-color="#8b7a5e" stop-opacity="0"/>
-      </radialGradient>
-    </defs>
-    <rect width="1920" height="1080" fill="url(#bg)"/>
-    <ellipse cx="672" cy="540" rx="380" ry="450" fill="url(#lit)"/>
-    <text x="672" y="560" text-anchor="middle"
-          font-family="'Helvetica Neue', Arial, sans-serif"
-          font-size="34" fill="#ffffff" fill-opacity="0.32"
-          letter-spacing="6">PLACEHOLDER PORTRAIT</text>
-  </svg>`
+  // Pure SVG so we don't need a shipped image asset. Shared with the
+  // template editor's live preview so both show the same background.
+  const svg = THUMBNAIL_PLACEHOLDER_SVG
   const generated = await sharp(Buffer.from(svg, 'utf8'))
     .resize(1920, 1080)
     .png()
@@ -291,8 +274,7 @@ router.get('/thumbnail-templates/:id/preview.png', async (req, res) => {
       // template's defaultText for subtitle/brand etc; only override
       // the title with a generic example so the user knows where the
       // episode title will land.
-      textByZone: { title: 'EPISODE TITLE GOES HERE' },
-      context: { episode_title: 'EPISODE TITLE GOES HERE', niche_name: 'PREVIEW' },
+      ...previewOverlayText('EPISODE TITLE GOES HERE'),
     })
 
     res.setHeader('Content-Type', 'image/png')

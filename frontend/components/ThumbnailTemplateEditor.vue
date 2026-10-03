@@ -42,19 +42,23 @@
       Saving makes your own copy of it; the built-in stays as it is. Later edits change your copy.
     </p>
 
-    <!-- Canvas -->
+    <!-- Live preview: the browser draws the SAME overlay SVG the server -->
+    <!-- renders (contracts/thumbnail-overlay.ts), over the same placeholder -->
+    <!-- background, so it updates as you edit — no save needed. -->
+    <p v-if="workingTemplate" class="text-muted tte-preview-note">
+      <strong>Preview</strong> — final render may differ slightly. Line breaks, positions, sizes and colours are worked out
+      exactly as the saved thumbnail does; only the letter shapes are drawn by your browser instead of the app's image renderer.
+      Drag a box to move its text.
+    </p>
     <div v-if="workingTemplate" class="tte-canvas-wrap" :style="canvasWrapStyle">
-      <!-- Background preview image — same endpoint the gallery card uses, -->
-      <!-- so the editor view matches what's saved to disk. -->
+      <img :src="placeholderSrc" alt="" class="tte-canvas-bg" draggable="false" />
       <img
-        v-if="previewUrl"
-        :src="previewUrl"
-        :alt="`${workingTemplate.name} canvas`"
+        :src="overlaySrc"
+        :alt="`${workingTemplate.name} live preview`"
         class="tte-canvas-bg"
-        :style="canvasInnerStyle"
         draggable="false"
+        data-testid="tte-live-preview"
       />
-      <p v-else class="tte-canvas-empty">The picture preview appears after you save this template.</p>
       <!-- Draggable zones overlaid on top -->
       <div
         v-for="(zone, idx) in workingTemplate.textZones || []"
@@ -71,6 +75,9 @@
     </div>
 
     <!-- Properties panel for the selected zone -->
+    <p v-if="workingTemplate && !(workingTemplate.textZones || []).length" class="text-muted tte-props-hint">
+      This template has no text layers to edit — the image model writes the headline itself.
+    </p>
     <div v-if="workingTemplate && selectedZone" class="tte-props">
       <div class="tte-props-head">
         <strong>{{ selectedZone.name }} zone</strong>
@@ -79,6 +86,36 @@
         </span>
       </div>
       <div class="tte-props-grid">
+        <label v-if="zoneShowsTitle(selectedZone)" class="tte-prop tte-prop-wide">
+          <span class="tte-prop-label">Sample title</span>
+          <input v-model="sampleTitle" type="text" class="input" maxlength="200" data-testid="tte-sample-title" />
+          <span class="tte-prop-hint">Preview only — each episode puts its own title here.</span>
+        </label>
+        <label v-else class="tte-prop tte-prop-wide">
+          <span class="tte-prop-label">Text</span>
+          <input
+            type="text"
+            class="input"
+            maxlength="200"
+            :value="selectedZone.defaultText ?? ''"
+            @input="updateZone({ defaultText: ($event.target as HTMLInputElement).value })"
+          />
+          <span class="tte-prop-hint">Saved with the template. Leave empty to hide this layer.</span>
+        </label>
+        <label class="tte-prop tte-prop-wide">
+          <span class="tte-prop-label">Font</span>
+          <select
+            class="select"
+            :value="selectedZone.fontFamily"
+            @change="updateZone({ fontFamily: ($event.target as HTMLSelectElement).value })"
+          >
+            <option v-if="!FONT_CHOICES.some(f => f.value === selectedZone!.fontFamily)" :value="selectedZone.fontFamily">
+              Current: {{ selectedZone.fontFamily }}
+            </option>
+            <option v-for="f in FONT_CHOICES" :key="f.value" :value="f.value">{{ f.label }}</option>
+          </select>
+          <span class="tte-prop-hint">Fonts every Mac has, so the saved thumbnail can use them too.</span>
+        </label>
         <label class="tte-prop">
           <span class="tte-prop-label">Font size (px)</span>
           <input
@@ -149,19 +186,6 @@
             y={{ selectedZone.y }} +{{ selectedZone.yOffset ?? 0 }}
           </code>
         </div>
-        <div class="tte-live-preview-wrap">
-          <button
-            type="button"
-            class="link-btn"
-            :disabled="rendering || isNew || dirty"
-            @click="renderLivePreview"
-          >
-            {{ rendering ? 'Rendering…' : '↻ Re-render preview' }}
-          </button>
-          <p class="text-muted tte-props-hint">
-            {{ isNew || dirty ? 'Save first — the preview shows the saved version, not unsaved changes.' : 'Redraws the picture from the saved template.' }}
-          </p>
-        </div>
       </div>
     </div>
   </div>
@@ -181,10 +205,19 @@
  * `y: top|middle|bottom` + `yOffset`. Dragging the zone updates the
  * offsets while preserving the anchor (left-anchored zones stay
  * left-anchored, etc.) so the layout's intent is preserved.
+ *
+ * Live preview: the overlay SVG comes from `@shared/thumbnail-overlay`, the
+ * same builder the server's template preview uses, so every edit shows at once.
  */
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useApi } from '~/composables/useApi'
 import { useToast } from '~/composables/useToast'
+import {
+  buildOverlaySvg,
+  layoutTextZone,
+  previewOverlayText,
+  THUMBNAIL_PLACEHOLDER_SVG,
+} from '@shared/thumbnail-overlay'
 
 interface TextZone {
   name: string
@@ -240,8 +273,28 @@ const workingTemplate = ref<Template | null>(null)
 const selectedIdx = ref(0)
 const draggingIdx = ref(-1)
 const saving = ref(false)
-const rendering = ref(false)
-const cacheKey = ref(Date.now())
+const sampleTitle = ref('Your title here')
+
+/** Mac system fonts (the composer resolves font-family through the OS). */
+const FONT_CHOICES = [
+  { label: 'Impact (tall, bold)', value: "Impact, 'Arial Black', 'Helvetica Neue', sans-serif" },
+  { label: 'Arial Black (heavy, wide)', value: "'Arial Black', Arial, sans-serif" },
+  { label: 'Helvetica Neue (clean)', value: "'Helvetica Neue', Arial, sans-serif" },
+  { label: 'Arial (plain)', value: 'Arial, Helvetica, sans-serif' },
+  { label: 'Georgia (classic serif)', value: "Georgia, 'Times New Roman', serif" },
+  { label: 'Times New Roman (book serif)', value: "'Times New Roman', Times, serif" },
+]
+
+const svgSrc = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+const placeholderSrc = svgSrc(THUMBNAIL_PLACEHOLDER_SVG)
+const previewText = computed(() => previewOverlayText(sampleTitle.value))
+// An <img> data URL, never injected markup: template strings cannot run as code.
+const overlaySrc = computed(() => workingTemplate.value ? svgSrc(buildOverlaySvg(workingTemplate.value, previewText.value)) : '')
+
+/** The zone that shows the episode title — its text is a preview-only sample. */
+function zoneShowsTitle(zone: TextZone) {
+  return zone.name === 'title' || /\{episode_title\}/.test(zone.defaultText || '')
+}
 
 // Canvas display: scale 1920×1080 to fit available width (max 720px)
 const SCALE = computed(() => {
@@ -257,11 +310,6 @@ const canvasWrapStyle = computed(() => {
     height: `${h * SCALE.value}px`,
   }
 })
-
-const canvasInnerStyle = computed(() => ({
-  width: '100%',
-  height: '100%',
-}))
 
 const isFork = computed(() => workingTemplate.value && !workingTemplate.value.builtin)
 const willFork = computed(() => workingTemplate.value && workingTemplate.value.builtin)
@@ -312,46 +360,18 @@ const selectedZone = computed(() => {
   return zones[selectedIdx.value] || null
 })
 
-const previewUrl = computed(() => {
-  // Use the LIVE preview URL when we have one (after a re-render);
-  // otherwise fall back to the persisted preview (which reflects what's
-  // on disk). The re-render path is opt-in because preview generation
-  // hits the server.
-  if (livePreviewSrc.value) return livePreviewSrc.value
-  // A template that was never saved has no preview on the server yet.
-  if (isNew.value) return ''
-  return `/api/thumbnail-templates/${encodeURIComponent(props.templateId)}/preview.png?k=${cacheKey.value}`
-})
-
-const livePreviewSrc = ref('')
-
 /**
- * Convert a zone's anchor + offset to a CSS rect on the scaled canvas.
- * The "box" we draw is conceptually the zone's maxWidth × ~fontSize block.
+ * The zone's box on the scaled canvas — the block its text occupies, from the
+ * shared layout (so it sits exactly where the preview draws the text).
  */
 function zoneStyle(zone: TextZone) {
-  const w = workingTemplate.value?.canvas?.width || 1920
-  const h = workingTemplate.value?.canvas?.height || 1080
-  const xOff = zone.xOffset ?? 0
-  const yOff = zone.yOffset ?? 0
-  // Compute the box's top-left in canvas coords. boxW = maxWidth;
-  // boxH ≈ fontSize * lineHeight (use 1.1 default; we want a visible
-  // hit area, not a pixel-perfect match).
-  const boxW = zone.maxWidth || 600
-  const boxH = (zone.fontSize || 100) * (zone.lineHeight || 1.1)
-  let boxX = 0
-  if (zone.x === 'left') boxX = xOff
-  else if (zone.x === 'right') boxX = w - xOff - boxW
-  else /* center */ boxX = (w - boxW) / 2 + xOff
-  let boxY = 0
-  if (zone.y === 'top') boxY = yOff
-  else if (zone.y === 'bottom') boxY = h - yOff - boxH
-  else /* middle */ boxY = (h - boxH) / 2 + yOff
+  const canvas = workingTemplate.value?.canvas || { width: 1920, height: 1080 }
+  const { box } = layoutTextZone(zone, canvas, previewText.value)
   return {
-    left: `${boxX * SCALE.value}px`,
-    top: `${boxY * SCALE.value}px`,
-    width: `${boxW * SCALE.value}px`,
-    height: `${boxH * SCALE.value}px`,
+    left: `${box.left * SCALE.value}px`,
+    top: `${box.top * SCALE.value}px`,
+    width: `${box.width * SCALE.value}px`,
+    height: `${box.height * SCALE.value}px`,
   }
 }
 
@@ -535,22 +555,7 @@ async function cancel() {
   emit('cancelled')
 }
 
-async function renderLivePreview() {
-  if (!workingTemplate.value || rendering.value) return
-  rendering.value = true
-  try {
-    // Bump the cache key so the preview URL refetches. Note: the
-    // server-side preview reads what's on DISK, so unsaved changes
-    // won't reflect here. Re-render is most useful AFTER save.
-    cacheKey.value = Date.now()
-    livePreviewSrc.value = `/api/thumbnail-templates/${encodeURIComponent(props.templateId)}/preview.png?k=${cacheKey.value}`
-  } finally {
-    rendering.value = false
-  }
-}
-
 watch(() => props.templateId, () => {
-  livePreviewSrc.value = ''
   selectedIdx.value = 0
   void load()
 })
@@ -572,9 +577,11 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 12px;
   padding: 16px;
-  background: var(--surface, #1e1e22);
+  /* --surface is not a theme token (it fell back to a dark grey in light
+     mode, hiding the title and zone name); use the theme's own surface. */
+  background: var(--bg-secondary);
   border-radius: var(--radius-md, 8px);
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--border);
 }
 .tte-header {
   display: flex;
@@ -610,7 +617,7 @@ onBeforeUnmount(() => {
 }
 .tte-mono {
   font-family: var(--mono, ui-monospace, SFMono-Regular, monospace);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-tertiary);
   padding: 1px 5px;
   border-radius: 3px;
   font-size: var(--font-xs);
@@ -632,11 +639,10 @@ onBeforeUnmount(() => {
   color: #f5bc42;
 }
 
-.tte-canvas-empty {
-  display: flex; align-items: center; justify-content: center;
-  width: 100%; height: 100%; margin: 0;
-  color: var(--text-muted); font-size: 13px; text-align: center;
-  background: var(--bg-tertiary);
+.tte-preview-note {
+  margin: 0;
+  font-size: var(--font-xs);
+  line-height: 1.5;
 }
 .tte-fork-warn {
   padding: 10px 14px;
@@ -661,6 +667,8 @@ onBeforeUnmount(() => {
 .tte-canvas-bg {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
   display: block;
   pointer-events: none;
 }
@@ -699,7 +707,7 @@ onBeforeUnmount(() => {
 
 /* Properties panel */
 .tte-props {
-  border-top: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-top: 1px solid var(--border);
   padding-top: 12px;
 }
 .tte-props-head {
@@ -721,6 +729,13 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 3px;
+}
+.tte-prop-wide {
+  grid-column: span 2;
+}
+.tte-prop-hint {
+  font-size: var(--font-xs);
+  color: var(--text-muted, #b3b3bb);
 }
 .tte-prop-label {
   font-size: var(--font-xs);
