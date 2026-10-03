@@ -18,7 +18,6 @@ import { filterGenerated, type SimilarityCandidate } from '../services/idea-simi
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { withLock } from '../lib/atomic-store.js'
 import { findFreshActionJob, readOptionalOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
-import { invalidateProjectUploadCaches } from '../services/upload-caches.js'
 import { previewCompact, compactAcceptedEpisodes } from '../services/upload-compact.js'
 import { isLocalTextModel } from '../services/job-retry-policy.js'
 import { loadNiche } from '../services/niche-loader.js'
@@ -1164,7 +1163,6 @@ router.post('/projects/:slug/ideas/:ideaId/accept', async (req, res) => {
       }
     }
 
-    invalidateProjectUploadCaches(req.params.slug)
     res.json(result)
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Failed to accept idea'))
@@ -1212,7 +1210,6 @@ router.post('/projects/:slug/ideas/batch-accept', async (req, res) => {
     // Per-idea outcome: { accepted, skipped, failed: [{ id, title, reason }] }.
     // One bad idea no longer aborts the rest of the batch.
     const result = await im.acceptMultipleIdeas(req.params.slug, idea_ids)
-    if (result.accepted.length) invalidateProjectUploadCaches(req.params.slug)
     res.json(result)
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Batch accept failed'))
@@ -1225,12 +1222,6 @@ router.post('/projects/:slug/ideas/:ideaId/dismiss', async (req, res) => {
   if (!await im.dismissIdea(req.params.slug, req.params.ideaId)) {
     return res.status(404).json({ detail: 'Idea not found' })
   }
-  // Bust the missing-video + queue caches so the next read reflects the
-  // dismissal immediately. Without this, ↻ Refresh on the Missing Video
-  // tab would keep returning the cached pre-dismiss list for up to 5
-  // minutes — which surfaces as "the dismissed episode is still there
-  // and Refresh isn't doing anything" (reported 2026-05-04).
-  invalidateProjectUploadCaches(req.params.slug)
   res.json({ ok: true })
 })
 
@@ -1248,7 +1239,6 @@ router.get('/projects/:slug/ideas/:ideaId/reset-preview', async (req, res) => {
 router.post('/projects/:slug/ideas/:ideaId/reset', async (req, res) => {
   try {
     const result = await im.resetIdea(req.params.slug, req.params.ideaId)
-    invalidateProjectUploadCaches(req.params.slug)
     res.json({ ok: true, ...result })
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Reset failed'))
@@ -1706,7 +1696,6 @@ router.delete('/projects/:slug/ideas/:ideaId', async (req, res) => {
   if (!await im.removeIdea(req.params.slug, req.params.ideaId)) {
     return res.status(404).json({ detail: 'Idea not found' })
   }
-  invalidateProjectUploadCaches(req.params.slug)
   res.json({ ok: true })
 })
 
@@ -1733,7 +1722,6 @@ router.get('/projects/:slug/episodes/compact-preview', async (req, res) => {
 router.post('/projects/:slug/episodes/compact', async (req, res) => {
   try {
     const result = await compactAcceptedEpisodes(req.params.slug)
-    invalidateProjectUploadCaches(req.params.slug)
     res.json({ ok: true, ...result })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Compact failed'))
@@ -1768,7 +1756,6 @@ router.post('/projects/:slug/episodes/reseason', async (req, res) => {
       return res.status(400).json({ detail: 'new_size must be a positive integer ≤ 1000' })
     }
     const result = await applyReseason(req.params.slug, newSize)
-    invalidateProjectUploadCaches(req.params.slug)
     res.json({ ok: true, ...result })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Reseason failed'))
@@ -1793,7 +1780,6 @@ router.get('/projects/:slug/episodes/reseason-undo', async (req, res) => {
 router.post('/projects/:slug/episodes/reseason-undo/revert', async (req, res) => {
   try {
     const result = await revertReseason(req.params.slug)
-    invalidateProjectUploadCaches(req.params.slug)
     res.json({ ok: true, ...result })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to revert reseason'))
