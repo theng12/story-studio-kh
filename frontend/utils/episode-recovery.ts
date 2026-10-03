@@ -4,6 +4,8 @@ const AFTER_SUBTITLES = new Set<unknown>([null, 'scene_plan_run', 'contextual_cu
 interface RecoveryDisplayJob {
   type?: string
   status?: string
+  /** Set by the backend when every file this failed job was meant to make exists now. */
+  resolved?: { reason?: string } | null
   params?: {
     force?: unknown
     generation_action?: { kind?: unknown }
@@ -33,8 +35,13 @@ export function isVerifiedRecoveredSubtitleJob(job: RecoveryDisplayJob): boolean
     && AFTER_SUBTITLES.has(recovery.first_unresolved)
 }
 
+/** A failed row whose work was finished later: kept as history, no longer needs attention. */
+export function isRecoveredFailure(job: RecoveryDisplayJob): boolean {
+  return job.status === 'error' && (!!job.resolved || isVerifiedRecoveredSubtitleJob(job))
+}
+
 export function jobDisplayStatus(job: RecoveryDisplayJob): string {
-  return isVerifiedRecoveredSubtitleJob(job) ? 'recovered' : String(job.status || '')
+  return isRecoveredFailure(job) ? 'recovered' : String(job.status || '')
 }
 
 /** Send one episode intent; section identities and retry params remain server-owned. */

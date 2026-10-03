@@ -3515,6 +3515,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       max_attempts: retryPolicy.max_attempts,
     }
     job.status = 'running'
+    delete job.resolved
     job.local_execution_complete = false
     job.pause_requested = false
     job.started_at ||= new Date().toISOString()
@@ -6019,6 +6020,30 @@ export function removeTerminalJob(projectSlug: string, jobId: string): boolean {
  */
 export type JobHistoryClearStatus = 'finished' | 'failed'
 
+/** A failed row whose work was finished later: history, not something that needs attention. */
+export function isRecoveredFailure(job: Job): boolean {
+  return job.status === 'error' && (!!job.resolved || isVerifiedRecoveredSubtitleJob(job))
+}
+
+/**
+ * Add lines to a finished job's own log and, when `resolveReason` is given,
+ * mark a failed row as resolved. Never changes status or starts anything —
+ * this is how a repair or a later run settles the row it was about.
+ */
+export async function noteOnFinishedJob(
+  projectSlug: string, jobId: string, lines: string[], resolveReason?: string,
+): Promise<Job | null> {
+  const job = jobs.get(jobId)
+  if (!job || job.project_slug !== projectSlug || !isFinishedStatus(job.status)) return null
+  job.output_lines.push(...lines)
+  if (resolveReason && job.status === 'error' && !job.resolved) {
+    job.resolved = { at: new Date().toISOString(), reason: resolveReason }
+  }
+  await persistJob(job)
+  emitPublicUpdate(job)
+  return serializeJob(job)
+}
+
 /** Match the Jobs page's display-only Recovered state for a failed subtitle attempt. */
 function isVerifiedRecoveredSubtitleJob(job: Job): boolean {
   if (job.type !== 'subtitles_transcribe' || job.status !== 'error'
@@ -6040,8 +6065,8 @@ function isVerifiedRecoveredSubtitleJob(job: Job): boolean {
 function matchesHistoryClearStatus(job: Job, status: JobHistoryClearStatus | undefined): boolean {
   if (!isFinishedStatus(job.status)) return false
   if (!status) return true
-  if (status === 'finished') return job.status !== 'error' || isVerifiedRecoveredSubtitleJob(job)
-  return job.status === 'error' && !isVerifiedRecoveredSubtitleJob(job)
+  if (status === 'finished') return job.status !== 'error' || isRecoveredFailure(job)
+  return job.status === 'error' && !isRecoveredFailure(job)
 }
 
 export async function clearFinished(projectSlug: string, status?: JobHistoryClearStatus): Promise<number> {
@@ -6081,7 +6106,7 @@ export function getQueueStats(projectSlug?: string): JobStats {
     queued: jobList.filter(j => j.status === 'queued').length,
     paused: jobList.filter(j => j.status === 'paused').length,
     done: jobList.filter(j => j.status === 'done').length,
-    error: jobList.filter(j => j.status === 'error').length,
+    error: jobList.filter(j => j.status === 'error' && !isRecoveredFailure(j)).length,
     total: jobList.length,
   }
 }

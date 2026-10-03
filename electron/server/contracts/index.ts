@@ -816,6 +816,8 @@ export interface JobEnqueuedResponse {
     at: string
     detail?: string
   }
+  /** A failed job whose files were all made later — kept as history, no longer needs attention. */
+  resolved?: { at: string; reason: string }
   /** v1.2.8 — the owner stopped tracking this job without provider confirmation. */
   force_abandoned?: {
     at: string

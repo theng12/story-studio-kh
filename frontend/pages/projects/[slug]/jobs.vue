@@ -756,7 +756,7 @@
               </details>
               <!-- v1.0.114 — Repair / Retry split (mirror of expanded view above). -->
               <button
-                v-if="(job.status === 'error' || job.status === 'cancelled') && !isVerifiedRecoveredSubtitleJob(job) && jobCanBeRepaired(job) && !job.auto_retry?.eligible"
+                v-if="(job.status === 'error' || job.status === 'cancelled') && !isRecoveredFailure(job) && jobCanBeRepaired(job) && !job.auto_retry?.eligible"
                 class="btn btn-xs btn-primary"
                 :disabled="repairingJobs.has(job.job_id) || episodeRecoveryBusy(job)"
               @click="repairJobOnly(job)"
@@ -987,9 +987,10 @@
             </template>
           </AdvancedDisclosure>
 
-          <div v-if="job.status === 'error'" class="job-error-section" :class="{ 'is-original-attempt': isVerifiedRecoveredSubtitleJob(job) }">
+          <div v-if="job.status === 'error'" class="job-error-section" :class="{ 'is-original-attempt': isRecoveredFailure(job) }">
+            <p v-if="job.resolved" class="error-summary"><span class="error-label">Settled:</span> {{ job.resolved.reason }}</p>
             <div v-if="job.error" class="error-summary">
-              <span class="error-label">{{ isVerifiedRecoveredSubtitleJob(job) ? 'Original attempt:' : 'What happened:' }}</span>
+              <span class="error-label">{{ isRecoveredFailure(job) ? 'Original attempt:' : 'What happened:' }}</span>
               <span class="error-summary-text">{{ jobAttentionSummary(job) || firstErrorLine(customerJobText(job.error, job)) }}</span>
             </div>
             <button
@@ -1059,7 +1060,7 @@ import {
   triageFailedJobsForRetryAll,
   type RepairRecord,
 } from '~/utils/repair-triage'
-import { checkRunningJobsAction, redoFailedJobsAction, MORE_ACTION_HINTS } from '~/utils/job-actions-bar'
+import { checkRunningJobsAction, redoFailedJobsAction, MORE_ACTION_HINTS, providerHoldReason, classifyCheckedJob, describeCheckResult, type HoldReason } from '~/utils/job-actions-bar'
 import {
   customerSafeJobText,
   filterJobsForView,
@@ -1075,8 +1076,8 @@ import {
   visibleJobOutputLines,
 } from '~/utils/job-presentation'
 import { formatCredits } from '~/utils/genstudio-credit-cost'
-import { recoverEpisodeAssets, describeEpisodeAssetRecovery } from '~/utils/job-asset-recovery'
-import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '~/utils/episode-recovery'
+import { recoverEpisodeAssets, describeEpisodeAssetRecovery, type EpisodeAssetRecovery } from '~/utils/job-asset-recovery'
+import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isRecoveredFailure, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '~/utils/episode-recovery'
 import { effectiveGenStudioTaskState, FREE_MAC_WAIT_REASON, isFreeFleetWork } from '@shared/provider-task-state'
 type RJob = DeepReadonly<Job>
 
@@ -1684,9 +1685,9 @@ const repairingAllFailed = ref(false)
 const repairableFailedJobs = computed(() =>
   projectScopedJobs.value.filter((j: RJob) => (jobDisplayStatus(j) === 'error' || j.status === 'cancelled') && jobCanBeRepaired(j))
 )
-async function repairAllFailed(chained = false) {
+async function repairAllFailed(chained = false, only?: RJob[]) {
   if (bulkActionBusy.value && !chained) return
-  const snapshot = [...repairableFailedJobs.value]
+  const snapshot = only || [...repairableFailedJobs.value]
   if (snapshot.length === 0) return
   repairingAllFailed.value = true
   let failed = 0
@@ -1697,16 +1698,32 @@ async function repairAllFailed(chained = false) {
       while (cursor < snapshot.length) {
         const idx = cursor++
         if (idx >= snapshot.length) return
-        try { if (!await repairJobOnly(snapshot[idx]!)) failed++ }
+        try { if (await withinCheckTime(repairJobOnly(snapshot[idx]!, false)) !== true) failed++ }
         catch { failed++ }
       }
     }
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, snapshot.length) }, () => worker()))
-    bulkActionMessage.value = `Checked ${snapshot.length} job(s); ${failed} checks could not finish. Cards show each result. Retry remains a separate action.`
-    info(bulkActionMessage.value)
+    if (!chained) {
+      bulkActionMessage.value = `Checked ${snapshot.length} job(s); ${failed} checks could not finish. Cards show each result. Retry remains a separate action.`
+      info(bulkActionMessage.value)
+    }
   } finally {
     repairingAllFailed.value = false
   }
+}
+// Each step of a bulk check gets a fixed time; the work itself carries on in
+// the background and its card updates when it lands. Never an unbounded spin.
+const CHECK_STEP_TIMEOUT_MS = 45_000
+function withinCheckTime<T>(work: Promise<T>): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), CHECK_STEP_TIMEOUT_MS) })
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer))
+}
+// A repairable job the check has not got an answer for yet (no record, or the
+// last repair could not finish). Measured/inconclusive ones are settled facts.
+function needsRepairCheck(job: RJob): boolean {
+  const record = repairState.value[job.job_id]
+  return !record || record.outcome === 'failed'
 }
 
 // ── Retry all ─────────────────────────────────────────────────────────────
@@ -1764,7 +1781,7 @@ function waitsForProviderCheck(job: RJob): boolean {
 const failedJobsForRetryAll = computed(() =>
   projectScopedJobs.value.filter((j: RJob) =>
     (j.status === 'error' || j.status === 'cancelled')
-    && !isVerifiedRecoveredSubtitleJob(j)
+    && !isRecoveredFailure(j)
     && j.params?.auto_repair_missing_prompts !== true
     // Q-06 — bulk Retry must apply the same admission filter as the per-row
     // button and the backend, or it counts jobs it can only 409 on.
@@ -1773,7 +1790,7 @@ const failedJobsForRetryAll = computed(() =>
     && !waitsForProviderCheck(j))
 )
 const failedWaitingForCheck = computed(() => projectScopedJobs.value.filter((j: RJob) =>
-  (j.status === 'error' || j.status === 'cancelled') && waitsForProviderCheck(j)).length)
+  (j.status === 'error' || j.status === 'cancelled') && waitsForProviderCheck(j)))
 const retryAllTriage = computed(() => triageFailedJobsForRetryAll(
   failedJobsForRetryAll.value as RJob[],
   (j: RJob) => jobCanBeRepaired(j),
@@ -1809,18 +1826,32 @@ const retryAllStatusMessage = computed(() => {
 // a paid resubmit onto a check is what v1.0.114 removed after duplicate charges.
 const recheckingAll = ref(false)
 const checkingAll = ref(false)
-const providerCheckJobs = computed(() => projectScopedJobs.value.filter((job: RJob) =>
-  ['done', 'error', 'cancelled'].includes(job.status)
-  && jobControls(job).some(control => control.enabled && control.action === 'recheck-provider-status')))
+// Every finished job still waiting on the Gateway — including the ones whose
+// automatic check has not answered yet ('return-later'). Redo counts those as
+// "waiting for Check on running jobs", so the check must ask about them too.
+const providerCheckJobs = computed(() => projectScopedJobs.value.filter(waitsForProviderCheck))
+// Job ids the last check asked about. A job it looked at is never again told to
+// "wait for Check on running jobs" — it gets its own reason.
+const checkLookedAt = ref<Set<string>>(new Set())
 const checkAction = computed(() => checkRunningJobsAction({
   unsettled: providerCheckJobs.value.length,
-  repairable: repairableFailedJobs.value.length,
-  episodes: recoverableEpisodes.value.length,
+  repairable: repairableFailedJobs.value.filter(needsRepairCheck).length,
+  episodes: recoverableEpisodes.value.filter(job => !episodesLookedAt.value.has(episodeRecoveryKey(job))).length,
   running: projectScopedJobs.value.filter(job => job.status === 'running').length,
 }, { self: checkingAll.value, other: bulkActionBusy.value && !checkingAll.value }))
+const redoHolds = computed(() => {
+  const reasons: HoldReason[] = [
+    ...retryAllTriage.value.blocked.map(({ job, reason }) => reason === 'never_repaired' && !checkLookedAt.value.has(job.job_id)
+      ? 'waiting-for-check' as const : 'could-not-check' as const),
+    ...failedWaitingForCheck.value.map(job => providerHoldReason(job.history_evidence_check?.state, checkLookedAt.value.has(job.job_id))),
+  ]
+  return (reason: HoldReason) => reasons.filter(r => r === reason).length
+})
 const redoAction = computed(() => redoFailedJobsAction({
   redo: retryAllTriage.value.retry.length,
-  waitingForCheck: retryAllTriage.value.blocked.length + failedWaitingForCheck.value,
+  waitingForCheck: redoHolds.value('waiting-for-check'),
+  stillRunning: redoHolds.value('still-running'),
+  couldNotCheck: redoHolds.value('could-not-check'),
   alreadyComplete: retryAllTriage.value.alreadyComplete.length,
 }, {
   self: retryingAllFailed.value,
@@ -1828,9 +1859,7 @@ const redoAction = computed(() => redoFailedJobsAction({
   progress: retryingAllFailed.value ? retryAllButtonLabel.value : undefined,
 }))
 
-async function recheckAllProviderStatus(): Promise<number> {
-  const snapshot = [...providerCheckJobs.value]
-  let settled = 0
+async function recheckAllProviderStatus(snapshot: RJob[]): Promise<void> {
   recheckingAll.value = true
   try {
     let cursor = 0
@@ -1838,8 +1867,8 @@ async function recheckAllProviderStatus(): Promise<number> {
       while (cursor < snapshot.length) {
         const job = snapshot[cursor++]!
         try {
-          const response = await post<{ job?: RJob }>(`${jobQueuePath(job)}/recheck-provider-status`, {})
-          if (response?.job?.control?.action === 'clear-history') settled++
+          const response = await withinCheckTime(post<{ job?: RJob }>(`${jobQueuePath(job)}/recheck-provider-status`, {}))
+          if (response?.job) { projectQueue.applyUpdate(response.job as Job); universalQueue.applyUpdate(response.job as Job) }
         } catch (e: any) {
           console.warn('[check-all] recheck failed:', e?.data?.detail || e?.message)
         }
@@ -1847,24 +1876,53 @@ async function recheckAllProviderStatus(): Promise<number> {
     }
     await Promise.all(Array.from({ length: Math.min(3, snapshot.length) }, () => worker()))
   } finally { recheckingAll.value = false }
-  return snapshot.length ? settled : 0
 }
 
+/** Settle failed rows whose files were all made later (backend reads disk only). */
+async function settleCompletedFailures(): Promise<string[]> {
+  const projects = [...new Set(projectScopedJobs.value
+    .filter(job => job.status === 'error').map(jobProjectSlug).filter(project => project && project !== '_app_'))]
+  const resolved: string[] = []
+  for (const project of projects) {
+    try {
+      const response = await withinCheckTime(post<{ resolved?: string[] }>(`/projects/${project}/jobs/settle-completed`, {}))
+      resolved.push(...(response?.resolved || []))
+    } catch (e: any) {
+      console.warn('[check-all] settle failed:', e?.data?.detail || e?.message)
+    }
+  }
+  return resolved
+}
+
+// Collects and settles only — it never starts generation (Redo does that, and
+// chaining the two is what v1.0.114 removed after duplicate charges). It ends
+// with ONE plain line, and every job it looked at leaves the "waiting for the
+// check" pile: settled, redo-able, or held with its own reason.
 async function checkOnRunningJobs() {
   if (bulkActionBusy.value || checkAction.value.disabled) return
   checkingAll.value = true
   try {
-    const asked = providerCheckJobs.value.length
-    const settled = asked ? await recheckAllProviderStatus() : 0
-    // `chained` lets each free step run under the check's own busy flag.
-    if (repairableFailedJobs.value.length) await repairAllFailed(true)
-    if (recoverableEpisodes.value.length) await recoverAllEpisodes(true)
+    const providerJobs = [...providerCheckJobs.value]
+    const repairJobs = repairableFailedJobs.value.filter(needsRepairCheck)
+    const episodeJobs = recoverableEpisodes.value.filter(job => !episodesLookedAt.value.has(episodeRecoveryKey(job)))
+    const episodeKeys = new Set(episodeJobs.map(episodeRecoveryKey))
+    const lookedAt = new Set([
+      ...providerJobs, ...repairJobs,
+      ...projectScopedJobs.value.filter(job => canRecoverEpisode(job) && episodeKeys.has(episodeRecoveryKey(job))),
+    ].map(job => job.job_id))
+    if (providerJobs.length) await recheckAllProviderStatus(providerJobs)
+    if (repairJobs.length) await repairAllFailed(true, repairJobs)
+    const imagesQueued = episodeJobs.length ? await recoverAllEpisodes(true, episodeJobs) : 0
+    for (const id of await settleCompletedFailures()) lookedAt.add(id)
     await refreshVisibleJobs()
-    const parts = [
-      asked ? `${settled} of ${asked} unsettled job(s) confirmed finished` : '',
-      bulkActionMessage.value,
-    ].filter(Boolean)
-    bulkActionMessage.value = `Check finished. ${parts.join(' · ')} Redo failed jobs starts anything still missing.`
+    checkLookedAt.value = new Set([...checkLookedAt.value, ...lookedAt])
+    const outcomes = jobs.value.filter(job => lookedAt.has(job.job_id)).map(job => classifyCheckedJob({
+      displayStatus: jobDisplayStatus(job),
+      hold: waitsForProviderCheck(job) ? providerHoldReason(job.history_evidence_check?.state, true) : undefined,
+      repair: repairState.value[job.job_id],
+      repairable: jobCanBeRepaired(job) && (job.status === 'error' || job.status === 'cancelled'),
+    }))
+    bulkActionMessage.value = describeCheckResult(outcomes, imagesQueued)
     info(bulkActionMessage.value)
   } finally { checkingAll.value = false }
 }
@@ -2608,7 +2666,7 @@ function secondaryJobControls(job: RJob): JobControl[] {
 
 function canRetryJob(job: RJob): boolean {
   if (!['error', 'cancelled'].includes(job.status)
-    || isVerifiedRecoveredSubtitleJob(job)
+    || isRecoveredFailure(job)
     || isTerminalContinuityRender(job)
     || job.params?.auto_repair_missing_prompts === true) return false
   // Q-06 — do not offer a Retry the backend always refuses (legacy prompt/image
@@ -3008,6 +3066,9 @@ function episodeRecoveryBusy(job: RJob): boolean {
       && ((other.type === 'images_repair' && ['queued', 'running', 'paused'].includes(other.status))
         || repairingJobs.value.has(other.job_id)))
 }
+// Episodes a check (or Recover) already looked at this session — Recover is
+// free and idempotent, so re-offering it in the check count only made a loop.
+const episodesLookedAt = ref<Set<string>>(new Set())
 const recoverableEpisodes = computed(() => {
   const seen = new Set<string>()
   return projectScopedJobs.value.filter(job => {
@@ -3018,8 +3079,8 @@ const recoverableEpisodes = computed(() => {
     return true
   })
 })
-async function recoverEpisode(job: RJob, announce = true): Promise<boolean> {
-  if (!canRecoverEpisode(job) || episodeRecoveryBusy(job)) return false
+async function recoverEpisode(job: RJob, announce = true): Promise<EpisodeAssetRecovery | null> {
+  if (!canRecoverEpisode(job) || episodeRecoveryBusy(job)) return null
   const key = episodeRecoveryKey(job)
   recoveringEpisodes.value = new Set(recoveringEpisodes.value).add(key)
   const setOutcome = (text: string, kind: string) => {
@@ -3036,33 +3097,42 @@ async function recoverEpisode(job: RJob, announce = true): Promise<boolean> {
     const message = `${job.episode_id}: ${describeEpisodeAssetRecovery(result)}`
     setOutcome(message, result.audioAttempted && (!result.audio || result.audio.stillMissing > 0) ? 'warn' : 'ok')
     if (announce) info(message)
-    return true
+    return result
   } catch (error: any) {
     const message = customerJobText(error?.data?.detail || error?.message || 'Could not recover this episode’s files.', job)
     setOutcome(message, 'warn')
     if (announce) showError(message)
-    return false
+    return null
   } finally {
     const next = new Set(recoveringEpisodes.value)
     next.delete(key)
     recoveringEpisodes.value = next
+    // Looked at: "Check on running jobs" stops counting this episode (no loop).
+    episodesLookedAt.value = new Set(episodesLookedAt.value).add(key)
   }
 }
-async function recoverAllEpisodes(chained = false) {
-  if (bulkActionBusy.value && !chained) return
-  const snapshot = [...recoverableEpisodes.value]
-  if (!snapshot.length) return
+/** Returns how many free image recovery jobs were queued. */
+async function recoverAllEpisodes(chained = false, only?: RJob[]): Promise<number> {
+  if (bulkActionBusy.value && !chained) return 0
+  const snapshot = only || [...recoverableEpisodes.value]
+  if (!snapshot.length) return 0
   const scope = actionScopeLabel.value
   recoveringAllEpisodes.value = true
   let failed = 0
+  let imagesQueued = 0
   try {
     for (const [index, job] of snapshot.entries()) {
-      bulkActionMessage.value = `${scope}: checking episode ${index + 1} of ${snapshot.length}…`
-      if (!await recoverEpisode(job, false)) failed++
+      if (!chained) bulkActionMessage.value = `${scope}: checking episode ${index + 1} of ${snapshot.length}…`
+      const result = await withinCheckTime(recoverEpisode(job, false))
+      if (!result) failed++
+      else imagesQueued += result.imagesQueued
     }
-    bulkActionMessage.value = `${scope}: checked ${snapshot.length} episode(s); ${failed} could not be recovered. Each row shows its result. Queued image recovery appears in Jobs.`
-    info(bulkActionMessage.value)
+    if (!chained) {
+      bulkActionMessage.value = `${scope}: checked ${snapshot.length} episode(s); ${failed} could not be recovered. Each row shows its result.${imagesQueued ? ` Started ${imagesQueued} free image recovery job(s).` : ''}`
+      info(bulkActionMessage.value)
+    }
   } finally { recoveringAllEpisodes.value = false }
+  return imagesQueued
 }
 
 function hasPendingCancellation(job: RJob): boolean {
@@ -3075,26 +3145,25 @@ function hasPendingCancellation(job: RJob): boolean {
 // provider WITHOUT submitting any new tasks. Shared by both:
 //   • repairJobOnly() — Repair button on the Jobs page (this file)
 //   • retryJob() — the legacy combined Repair-then-Retry path
-// Sync repair returns the reconciliation result in the POST response;
-// queued repair returns a job_id we must poll until terminal before
-// considering the repair "done" (otherwise the retry races it).
-const REPAIR_ENDPOINTS: Record<string, { url: (projectSlug: string) => string; body: any; mode: 'sync' | 'queued' }> = {
+// Both return the reconciliation result in the POST response.
+const REPAIR_ENDPOINTS: Record<string, { url: (projectSlug: string) => string; body: any }> = {
   audio: {
     // Provider-aware since v1.0.504 — the route reconciles every chunk from
     // whatever gateway made it (GenAIPro / kie.ai / fal.ai) via the task-manifest
     // sidecar; no provider hint needed.
     url: projectSlug => `/projects/${projectSlug}/episodes/__EPISODE__/audio-repair`,
     body: {},
-    mode: 'sync',
   },
   // v1.4.43 — `images` and `scene_images` were removed when the scene-image
   // generator was retired in 1.4.41. Keys for job types that can no longer
   // exist made this map look like it covered the image pipeline; it covers
   // narration and thumbnails.
+  // Dreamlands 2026-10-03 — repairs THIS job inline (source_job_id): the result
+  // lands in its own log, no second "Image repair" row that fails for the same
+  // missing files, and nothing to wait for.
   thumb_images: {
     url: projectSlug => `/projects/${projectSlug}/generate/images-repair`,
-    body: { episode_id: '__EPISODE__' },
-    mode: 'queued',
+    body: { episode_id: '__EPISODE__', pool: 'thumbnails', source_job_id: '__JOB__' },
   },
 }
 
@@ -3187,7 +3256,7 @@ function autoRetryClass(job: Pick<RJob, 'status' | 'auto_retry'>): string {
  * (dismiss if everything came back, click Retry if some chunks are still
  * missing).
  */
-async function repairJobOnly(job: RJob) {
+async function repairJobOnly(job: RJob, announce = true) {
   if (repairingJobs.value.has(job.job_id) || recoveringEpisodes.value.has(episodeRecoveryKey(job))) return false
   const template = REPAIR_ENDPOINTS[job.type]
   if (!template) {
@@ -3203,25 +3272,21 @@ async function repairJobOnly(job: RJob) {
   }
   const url = template.url(projectSlug).replace('__EPISODE__', job.episode_id)
   const body = JSON.parse(
-    JSON.stringify(template.body).replace(/__EPISODE__/g, job.episode_id)
+    JSON.stringify(template.body).replace(/__EPISODE__/g, job.episode_id).replace(/__JOB__/g, job.job_id)
   )
+  // Bulk runs (Repair All, Check on running jobs) report once; each card keeps its chip.
+  const notify = announce ? { success, info } : { success: (_: string) => {}, info: (_: string) => {} }
 
   repairingJobs.value = new Set(repairingJobs.value).add(job.job_id)
-  info(`Looking for finished ${jobTypeLabel(job.type)} work for ${job.episode_id} that never arrived (no charge)…`)
+  notify.info(`Looking for finished ${jobTypeLabel(job.type)} work for ${job.episode_id} that never arrived (no charge)…`)
   repairOutcome.value = { ...repairOutcome.value, [job.job_id]: { text: 'Looking for finished work…', kind: 'busy' } }
   try {
     const resp = await post<{
-      job_id?: string
       recovered?: number
       still_missing?: number
       present_before?: number
       total_expected?: number
     }>(url, body)
-
-    if (template.mode === 'queued' && resp?.job_id) {
-      const terminal = await waitForJobTerminal(resp.job_id, 10 * 60_000, projectSlug)
-      if (terminal?.result && typeof terminal.result === 'object') Object.assign(resp, terminal.result)
-    }
 
     // v1.4.32 — read BOTH reconciler shapes. This used to look at
     // `still_missing` alone, which the image reconciler does not have: it
@@ -3243,38 +3308,38 @@ async function repairJobOnly(job: RJob) {
     let chip: { text: string; kind: string }
     if (recovered !== null && missing !== null) {
       if (missing === 0 && recovered > 0) {
-        success(
+        notify.success(
           `Recovered ${piece(recovered)}. ` +
           `Nothing is missing — you can dismiss this job now.`
         )
         chip = { text: `Recovered ${piece(recovered)}; nothing missing — dismiss`, kind: 'ok' }
       } else if (missing === 0 && recovered === 0) {
-        success(
+        notify.success(
           `Nothing was missing — everything was already saved. ` +
           `The earlier problem was temporary; you can dismiss this job.`
         )
         chip = { text: 'Nothing was missing — dismiss', kind: 'ok' }
       } else if (missing > 0 && recovered > 0) {
-        info(
+        notify.info(
           `Recovered ${piece(recovered)}. ${missing} still missing — ` +
           `Retry re-makes only those.`
         )
         chip = { text: `Recovered ${piece(recovered)}; ${missing} still missing — Retry`, kind: 'warn' }
       } else {
-        info(
+        notify.info(
           `Nothing was ready to recover; ${missing} item${missing === 1 ? '' : 's'} still missing. ` +
           `Retry re-makes only those.`
         )
         chip = { text: `Nothing to recover yet; ${missing} still missing — Retry`, kind: 'warn' }
       }
     } else {
-      success(`Finished checking ${jobTypeLabel(job.type)} for ${job.episode_id}.`)
+      notify.success(`Finished checking ${jobTypeLabel(job.type)} for ${job.episode_id}.`)
       chip = { text: 'Recovery finished', kind: 'ok' }
     }
     repairOutcome.value = { ...repairOutcome.value, [job.job_id]: chip }
     return true
   } catch (e: any) {
-    showError(customerJobText(e?.data?.detail || e?.message || 'Could not check for finished work', job))
+    if (announce) showError(customerJobText(e?.data?.detail || e?.message || 'Could not check for finished work', job))
     setRepairState(job.job_id, { outcome: 'failed' })
     repairOutcome.value = { ...repairOutcome.value, [job.job_id]: { text: 'could not check — try again', kind: 'warn' } }
     return false
@@ -3413,42 +3478,6 @@ async function autoRepairScenePrompts(job: RJob) {
     next.delete(job.job_id)
     controlBusy.value = next
   }
-}
-
-/**
- * Poll a job until it reaches a terminal state (done / error / cancelled),
- * or the timeout fires. Used to gate retry-after-repair on the actual
- * completion of a queued image-repair job since
- * their POST returns immediately after enqueue, not after the work lands.
- *
- * Polls every 2 s — fast enough that a small repair job (5-10 s) doesn't
- * delay the retry visibly, slow enough that a large repair (a few minutes
- * downloading 100+ images) doesn't hammer the backend. Throws on timeout
- * so the caller's catch surfaces it as a non-fatal warning and continues
- * to the retry.
- */
-async function waitForJobTerminal(jobId: string, timeoutMs: number, projectSlug: string): Promise<any | null> {
-  const POLL_INTERVAL_MS = 2000
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    let job: any
-    try {
-      job = await $fetch(`/api/projects/${projectSlug}/jobs/${jobId}`)
-    } catch (e: any) {
-      // 404 = job already cleared (rare — would mean another tab's
-      // "Clear finished" ran during the wait). Treat as terminal.
-      if (e?.response?.status === 404) return null
-      throw e
-    }
-    if (!job) return null
-    if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') return job
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
-  }
-  // v1.4.32 — this used to end "proceeding with retry anyway", from the
-  // combined Repair-then-Retry path removed in v1.0.114. Nothing retries after
-  // a repair any more, and a timed-out repair is exactly the state Retry all
-  // refuses to act on.
-  throw new Error(`Repair job ${jobId} did not finish within ${timeoutMs / 1000}s. Nothing was retried.`)
 }
 
 async function clearHistory(status: 'finished' | 'failed') {

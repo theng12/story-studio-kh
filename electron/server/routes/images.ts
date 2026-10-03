@@ -5,11 +5,12 @@ import { existsSync } from 'fs'
 import * as pm from '../services/project-manager.js'
 import * as im from '../services/idea-manager.js'
 import * as jq from '../services/job-queue.js'
-import type { JobType } from '../models/types.js'
+import type { Job, JobType } from '../models/types.js'
 import { validateBody } from '../lib/validate.js'
 import { GenerateImagesSchema } from '../schemas/index.js'
 import { getImageStatus } from '../services/asset-status.js'
-import { getImagesReconcileStatus } from '../services/image-reconciler.js'
+import { getImagesReconcileStatus, reconcileImages } from '../services/image-reconciler.js'
+import { settleCompletedFailures } from '../services/stale-failures.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { readSelectedThumbnail, writeSelectedThumbnail } from '../services/upload-overrides.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -188,6 +189,8 @@ router.get('/projects/:slug/episodes/:code/images-repair-status', async (req, re
 // to call: the reconciler only downloads from already-paid-for provider
 // task results. Files without a stored task id come back as
 // "needs_fresh_generation" so the user knows to click Generate for those.
+const inlineImageRepairs = new Map<string, Promise<{ result: Awaited<ReturnType<typeof reconcileImages>>; lines: string[] }>>()
+
 router.post('/projects/:slug/generate/images-repair', async (req, res) => {
   const { slug } = req.params
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
@@ -202,6 +205,40 @@ router.post('/projects/:slug/generate/images-repair', async (req, res) => {
 
   if (jq.isDuplicate(slug, episodeId, 'images_repair' as JobType)) {
     return res.status(409).json({ detail: `Image repair already queued/running for ${episodeId}` })
+  }
+
+  // Dreamlands 2026-10-03 — Repair on a failed job's own row used to queue a
+  // second job that failed for the same missing files, so one problem showed
+  // up as two "needs attention" rows. Repairing a known job now runs inline:
+  // the result is written into that job's own log, and the job settles itself
+  // if every file is now on disk. No new row, nothing to wait for.
+  const sourceJobId: unknown = req.body?.source_job_id
+  if (typeof sourceJobId === 'string' && sourceJobId) {
+    const source = (await jq.getJobs(slug)).find(job => job.job_id === sourceJobId)
+    if (!source || source.episode_id !== episodeId || !['error', 'cancelled'].includes(source.status)) {
+      return res.status(404).json({ detail: 'That failed job is no longer in the list.' })
+    }
+    try {
+      const { assertMediaRootReady } = await import('../services/media-root.js')
+      await assertMediaRootReady(slug)
+      const key = `${slug}:${episodeId}:${pool}`
+      let run = inlineImageRepairs.get(key)
+      if (!run) {
+        const scratch = { output_lines: [] as string[] } as Job
+        run = reconcileImages(slug, episodeId, scratch, pool).then(result => ({ result, lines: scratch.output_lines }))
+          .finally(() => inlineImageRepairs.delete(key))
+        inlineImageRepairs.set(key, run)
+      }
+      const { result, lines } = await run
+      if (result.total_expected === 0) {
+        return res.status(409).json({ detail: 'No expected images were found to repair. Make the image prompts first, then use Generate missing.' })
+      }
+      await jq.noteOnFinishedJob(slug, sourceJobId, ['Repair (no charge):', ...lines])
+      const resolved = await settleCompletedFailures(slug, episodeId)
+      return res.json({ ...result, still_missing: result.needs_fresh_generation + result.unrecoverable, resolved })
+    } catch (e: any) {
+      return res.status(500).json(humanizeBackendError(e, 'Repair failed'))
+    }
   }
 
   const poolTitle = pool === 'scenes' ? 'Scene Image Repair' : pool === 'thumbnails' ? 'Thumbnail Repair' : 'Image Repair'
