@@ -29,3 +29,10 @@ test('thumbnail board has one bulk action (the top button) and pins upload selec
   assert.match(row, /Pin for Upload/)
   assert.match(row, /Pinned for Upload/)
 })
+
+test('the Start Thumbnail Images confirm shows the model and its cost, like the Audio confirm', () => {
+  const call = page.slice(page.indexOf("confirmGeneration(slug.value, 'thumb_images'"))
+  assert.match(call, /action: 'Start Thumbnail Images\?', details/)
+  assert.match(page, /label: 'Model', value: activeModelLabel\.value/)
+  assert.match(page, /label: 'Cost per image', value: imageUnitCost\.value\.text/)
+})
