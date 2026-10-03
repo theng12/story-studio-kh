@@ -1,7 +1,6 @@
 <!--
-  Compact `⋯` button that opens a dropdown of menu items. Used by the
-  toolbar strip to collapse preset actions (Apply / Save / Save as / Delete)
-  into a single trigger so the bar stays one row tall.
+  Compact `⋯` button that opens a dropdown of menu items (Scene Review uses it
+  for per-scene extras such as "Upload replacement…").
 
   Items are passed as a prop so the consumer keeps full control of labels,
   disabled states, and click handlers. Closes on outside click, Escape, or

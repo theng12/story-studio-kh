@@ -1,12 +1,12 @@
 /**
  * useAppJobs — composable for the app-level job queue (currently
- * broll_normalize + broll_autotag, anything else with project_slug='_app_').
+ * broll_normalize, anything else with project_slug='_app_').
  *
  * Mirrors useJobs's SSE-with-polling-fallback shape but scoped to the
  * `/jobs/app` endpoint family. Doesn't pollute per-project jobs lists.
  * Surfaces are responsible for filtering by job type if they only care
- * about a subset (the B-Roll Library page filters by broll_normalize +
- * broll_autotag for its inline panel).
+ * about a subset (the B-Roll Library page filters by broll_normalize
+ * for its inline panel).
  */
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useApi } from './useApi.js'
@@ -161,7 +161,7 @@ export function useAppJobs() {
     /** Subscribe to terminal transitions. Returns an unsubscribe fn.
      *  Useful for pages that need to refetch some state when a relevant
      *  job lands (e.g. B-Roll Library refreshing the clip grid after
-     *  broll_normalize / broll_autotag completes). */
+     *  broll_normalize completes). */
     onJobDone,
   }
 }

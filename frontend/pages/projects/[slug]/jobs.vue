@@ -448,76 +448,15 @@
                 </p>
               </div>
             </details>
-            <!-- v1.0.114 — Repair / Retry split. Repair (left) is the safe
-                 default: polls the provider for already-completed tasks
-                 and downloads them. Never re-submits. Retry (right) is
-                 the explicit "re-run, charge me again" action. The old
-                 combined button caused duplicate provider tasks when
-                 users clicked it repeatedly to "make it work". -->
-            <button
-              v-if="(job.status === 'error' || job.status === 'cancelled') && !isVerifiedRecoveredSubtitleJob(job) && jobCanBeRepaired(job) && !job.auto_retry?.eligible"
-              class="btn btn-xs btn-primary"
-              :disabled="repairingJobs.has(job.job_id) || episodeRecoveryBusy(job)"
-              @click="repairJobOnly(job)"
-              title="SAFE — Polls the provider for tasks that were submitted but never finished downloading, and pulls them in for free. Never re-submits anything. Click this FIRST when a job timed out — the provider often finished the work on its side. If chunks are still missing afterwards, then click Retry."
-            >
-              Repair
-            </button>
             <span v-if="repairOutcome[job.job_id]" class="repair-chip" :class="`rc-${repairOutcome[job.job_id].kind}`">
               {{ repairOutcome[job.job_id].text }}
             </span>
-            <button
-              v-if="canReplaceFailedItems(job)"
-              class="btn btn-xs btn-primary"
-              :disabled="controlBusy.has(job.job_id)"
-              title="Checks the saved provider tasks first, then queues only confirmed failed audio sections or writing requests. Existing successful output stays in place; replacement work may use credits."
-              @click="replaceFailedItems(job)"
-            >{{ failedItemReplacementOutcome(job)?.state === 'checking' ? 'Checking failed items…' : 'Replace failed items' }}</button>
             <span v-if="failedItemReplacementOutcome(job)" class="repair-chip" :class="`rc-${failedItemReplacementOutcome(job)?.kind}`">
               {{ failedItemReplacementOutcome(job)?.text }}
             </span>
             <span v-if="automaticReplacementOutcome(job)" class="repair-chip" :class="`rc-${automaticReplacementOutcome(job)?.kind}`">
               {{ automaticReplacementOutcome(job)?.text }}
             </span>
-            <!-- v1.2.8 — targeted recovery for the job types the per-job
-                 Repair above does not cover. Same machinery, one episode:
-                 scanning the whole library to fix the episode you are looking
-                 at is the wrong shape, and slow enough to be unusable. -->
-            <button
-              v-if="canRecoverEpisode(job)"
-              :disabled="episodeRecoveryBusy(job)"
-              @click="recoverEpisode(job)"
-              class="btn btn-xs btn-primary"
-              title="SAFE — Checks THIS episode only for output the provider already finished but that never landed on disk, and pulls it in for free. No credits consumed, nothing re-submitted, and no other episode is scanned."
-            >
-              {{ episodeRecoveryBusy(job) ? 'Recovering…' : 'Recover this episode' }}
-            </button>
-            <button
-              v-if="(job.status === 'error' || job.status === 'cancelled') && canOfferScenePromptAutoRepair(job)"
-              class="btn btn-xs btn-primary prompt-auto-repair-btn"
-              :disabled="controlBusy.has(job.job_id)"
-              :aria-label="`Auto repair missing prompts for ${job.episode_id}; GenStudio credits may be charged`"
-              title="PAID AUTO REPAIR — Keeps every verified prompt and submits each missing or duplicated scene alone. Continues only while verified progress improves. Pause stops new requests after any accepted request settles. GenStudio credits may be charged."
-              @click="autoRepairScenePrompts(job)"
-            >{{ controlBusy.has(job.job_id) ? 'Starting…' : 'Auto repair prompts · credits' }}</button>
-            <button
-              v-if="isTerminalContinuityRender(job)"
-              class="btn btn-xs btn-primary"
-              :disabled="controlBusy.has(job.job_id)"
-              title="Queues only missing images. Existing images stay as they are; new generations may use credits."
-              @click="finishMissingImages(job)"
-            >
-              {{ controlBusy.has(job.job_id) ? 'Queuing…' : 'Finish missing images' }}
-            </button>
-            <button
-              v-if="canRetryJob(job)"
-              class="btn btn-xs btn-secondary"
-              :disabled="controlBusy.has(job.job_id) || repairingJobs.has(job.job_id) || episodeRecoveryBusy(job)"
-              @click="retryJob(job)"
-              :title="retryTooltip(job)"
-            >
-              Retry
-            </button>
           </div>
         </div>
 
@@ -677,49 +616,6 @@
         <ul v-if="jobExceptions(job).length" class="job-exceptions">
           <li v-for="line in jobExceptions(job)" :key="line.key">{{ line.text }}</li>
         </ul>
-
-        <div v-if="job.status === 'done' && job.output_lines?.length" class="job-summary">
-          <span class="summary-icon">&#10003;</span>
-          <span>{{ getSummaryLine(job) }}</span>
-          <button
-            v-if="getOutputDir(job)"
-            class="btn btn-xs btn-secondary job-open-folder-btn"
-            @click="openOutputFolder(job)"
-            :title="`Reveal in Finder: ${getOutputDir(job)}`"
-          >
-            Open in Finder
-          </button>
-        </div>
-
-        <!-- Error details -->
-        <div v-if="job.status === 'error'" class="job-error-section" :class="{ 'is-original-attempt': isVerifiedRecoveredSubtitleJob(job) }">
-          <div v-if="job.error" class="error-summary">
-            <span class="error-label">{{ isVerifiedRecoveredSubtitleJob(job) ? 'Original attempt:' : 'What happened:' }}</span>
-            <span class="error-summary-text">{{ jobAttentionSummary(job) || firstErrorLine(customerJobText(job.error, job)) }}</span>
-          </div>
-          <button
-            v-if="job.error && (jobAttentionLinks(job).length || hasMoreErrorLines(job.error))"
-            type="button"
-            class="error-toggle"
-            :aria-expanded="errorExpanded === job.job_id"
-            :aria-controls="`job-error-active-${job.job_id}`"
-            @click="errorExpanded === job.job_id ? errorExpanded = null : errorExpanded = job.job_id"
-          >
-            {{ errorExpanded === job.job_id ? 'Hide details' : 'Show details' }}
-          </button>
-          <div :id="`job-error-active-${job.job_id}`" v-if="errorExpanded === job.job_id && job.error" class="error-details">
-            {{ customerJobText(job.error, job) }}
-          </div>
-          <p v-if="paidReplacementAttemptMessage(job)" class="text-muted text-xs">{{ paidReplacementAttemptMessage(job) }}</p>
-          <details v-if="jobAttentionLinks(job).length" class="job-attention-details disclosure">
-            <summary>{{ jobAttentionLinks(job).length }} affected item{{ jobAttentionLinks(job).length === 1 ? '' : 's' }} · Review affected items</summary>
-            <div class="job-attention-links">
-              <NuxtLink v-for="link in jobAttentionLinks(job)" :key="`${link.kind}-${link.to}-${link.label}`" :to="link.to" class="inline-link">
-                {{ link.label }} →
-              </NuxtLink>
-            </div>
-          </details>
-        </div>
 
         <!-- Technical details. Diagnostic state and customer-safe output stay
              available without exposing structured request identifiers. Only
@@ -1332,31 +1228,6 @@ function jobModelTitle(job: RJob): string {
   return provider ? `${name} — served by ${provider}` : name
 }
 
-const GENSTUDIO_QUEUE_LABELS: Record<string, string> = {
-  waiting_local: 'Waiting locally',
-  submitting: 'Submitting to the Gateway',
-  accepted: 'Accepted',
-  waiting_account_capacity: 'Waiting for account capacity',
-  reserved: 'Reserved',
-  dispatched: 'Dispatched',
-  validating: 'Validating',
-  reconciling: 'Reconciling',
-  running: 'Running',
-  completing: 'Completing',
-  succeeded: 'Succeeded',
-  failed: 'Failed',
-  not_created: 'Not created',
-  waiting_credits: 'Waiting for credits',
-  cancelled: 'Cancelled',
-}
-
-function genStudioQueueLabel(
-  remote: NonNullable<RJob['genstudio_jobs']>[number],
-): string {
-  const state = effectiveGenStudioTaskState(remote) || 'unknown'
-  return GENSTUDIO_QUEUE_LABELS[state] || String(state).replace(/_/g, ' ')
-}
-
 /**
  * The one sentence a card shows about what GenStudio is doing, and when.
  *
@@ -1394,7 +1265,6 @@ function genStudioStatusDetail(job: RJob): string {
   // reports completion and the next customer action instead of remote attempts.
   const remote = latestActiveGenStudioRequest(job)
   if (!remote || !(remote.status_detail || remote.failure_detail)) return ''
-  if (!remote) return ''
   const detail = customerJobText(remote.status_detail || remote.failure_detail || '', job)
   if (remote.retry_at) return `${detail} Retry ${formatTime(remote.retry_at)}.`
   if (remote.retry_after_seconds === 0) return `${detail} Retry is available now.`
@@ -1480,15 +1350,6 @@ function paidImageReplacementAttemptText(job: RJob): string {
   return `Paid image replacement ${attempt.state}.${settled}`
 }
 
-function genStudioNumeric(value: unknown): number {
-  const number = Number(value)
-  return Number.isFinite(number) ? number : 0
-}
-
-function genStudioCreditState(remote: NonNullable<RJob['genstudio_jobs']>[number]): string {
-  return effectiveGenStudioTaskState(remote)
-}
-
 /**
  * Authoritative settlement, merged from GenStudio's own account-jobs history.
  *
@@ -1510,30 +1371,6 @@ function genStudioSettled(
     settled_credits: remote.settled_credits ?? accountJob?.settled_credits,
     ...(released !== undefined ? { released_credits: released } : {}),
   }
-}
-
-function genStudioTerminalFailure(remote: NonNullable<RJob['genstudio_jobs']>[number]): boolean {
-  const state = genStudioCreditState(remote)
-  return state === 'failed' || state === 'cancelled' || state === 'not_created'
-}
-
-function genStudioChargedCredits(remote: NonNullable<RJob['genstudio_jobs']>[number]): number {
-  return genStudioNumeric(genStudioSettled(remote).settled_credits)
-}
-
-function genStudioReturnedCredits(remote: NonNullable<RJob['genstudio_jobs']>[number]): number {
-  return genStudioNumeric(genStudioSettled(remote).released_credits)
-}
-
-/**
- * Credits genuinely on hold. Only a reservation GenStudio published counts;
- * defaulting to `credit_cost` is what made settled and failed jobs keep
- * reporting "on hold 13 credits" days after GenStudio released them.
- */
-function genStudioHeldCredits(remote: NonNullable<RJob['genstudio_jobs']>[number]): number {
-  if (genStudioChargedCredits(remote) > 0 || genStudioReturnedCredits(remote) > 0) return 0
-  if (genStudioTerminalFailure(remote)) return 0
-  return genStudioNumeric(genStudioSettled(remote).reserved_credits)
 }
 
 /**
@@ -1951,7 +1788,7 @@ const retryAllStatusMessage = computed(() => {
   const run = retryAllRun.value
   if (!retryingAllFailed.value || !run) return bulkActionMessage.value
   const current = retryAllCurrentEpisodes.value
-  return `Retry all: ${run.completed} of ${run.total} finished${current.length ? ` · working on ${current.join(', ')}.` : '.'}`
+  return `Redo failed jobs: ${run.completed} of ${run.total} finished${current.length ? ` · working on ${current.join(', ')}.` : '.'}`
 })
 
 // ── Check on running jobs ───────────────────────────────────────────────
@@ -2121,7 +1958,7 @@ async function retryAllFailed() {
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, actions.length) }, () => worker()))
     await refreshVisibleJobs()
     const { sent, alreadyComplete, needsAttention } = retryAllCounts.value
-    bulkActionMessage.value = `Retry all finished: ${sent} queued or running; ${alreadyComplete} already complete; ${needsAttention} need attention. Original failed rows may remain in history.`
+    bulkActionMessage.value = `Redo failed jobs finished: ${sent} queued or running; ${alreadyComplete} already complete; ${needsAttention} need attention. Original failed rows may remain in history.`
     if (retryAllCounts.value.needsAttention > 0) showError(bulkActionMessage.value)
     else success(bulkActionMessage.value)
     return true
@@ -2305,7 +2142,6 @@ const filterTabs = computed(() => {
     { type: 'contextual_cues',       label: 'Contextual Cues' },
     { type: 'continuity_render',    label: 'Scene Review' },
     { type: 'thumb_images',         label: 'Thumb Images' },
-    { type: 'images',               label: 'Images (All)' },
     { type: 'images_repair',        label: 'Image Repair' },
     { type: 'video',                label: 'AI Video' },
     { type: 'scene_clips_batch',    label: 'Motion Review' },
@@ -2343,16 +2179,6 @@ const emptyState = computed(() => jobsEmptyState({
 }))
 const emptyTitle = computed(() => emptyState.value.title)
 const emptyMessage = computed(() => emptyState.value.message)
-
-// Auto-select tab for most recent active type
-watch(jobs, (list) => {
-  if (activeFilter.value !== 'all') return // user has manually picked a tab
-  const activeJob = list.find(j => j.status === 'running' || j.status === 'queued')
-  if (activeJob && activeJob.type !== 'all') {
-    // Only auto-switch if there's an active job
-    // Don't auto-switch, let user control - just default to 'all'
-  }
-}, { immediate: true })
 
 // ── Sorting ─────────────────────────────────────────────────────────────
 
@@ -3295,9 +3121,6 @@ function retryTooltip(job: Pick<RJob, 'type' | 'params' | 'auto_retry'>): string
     if (mode === 'thumbnails') {
       return 'SMART RETRY — Regenerates ONLY the missing thumbnail prompts and merges them into the existing file, keeping the prompts that already succeeded. Local models: free. Cloud models: charges only for the missing thumbnails, not all prompts.'
     }
-    if (mode === 'scenes') {
-      return 'SMART RETRY — Regenerates ONLY the missing scene prompts and merges them into the existing file, keeping the prompts that already succeeded. Local models: free. Cloud models: charges only for the missing scenes, not all prompts.'
-    }
     return 'SMART RETRY — Regenerates ONLY missing scene/thumbnail prompts and merges them into the existing files, keeping prompts that already succeeded. Local models: free. Cloud models: charges only for the missing prompts.'
   }
   if (jobType === 'subtitles_transcribe') {
@@ -3308,14 +3131,6 @@ function retryTooltip(job: Pick<RJob, 'type' | 'params' | 'auto_retry'>): string
   }
   if (jobCanBeRepaired(job)) {
     return 'CHARGES MAY APPLY — Re-submits this job as a fresh request. Click Repair FIRST (free — recovers in-flight provider work). The generator skips assets already on disk, so after Repair, Retry only re-submits genuinely-missing items.'
-  }
-  if (jobType === 'continuity_render') {
-    // v1.4.43 — this said "re-runs the whole step, no repair path", which is
-    // the opposite of what the generator does: it replays the stored task
-    // manifest and pulls back every image the provider already produced for
-    // free before it submits anything. Reading the old wording, the free
-    // repair looked like the expensive option.
-    return 'FREE WHERE POSSIBLE — First pulls back every scene image the provider already produced, at no charge, using the task record saved for each one. Only scenes with no recoverable result are re-submitted, and any image already on disk is left alone.'
   }
   return 'CHARGES MAY APPLY — Re-submits this job as a fresh request. Re-runs the whole step (this job type has no partial/repair path).'
 }
@@ -3605,7 +3420,7 @@ async function waitForJobTerminal(jobId: string, timeoutMs: number, projectSlug:
   while (Date.now() < deadline) {
     let job: any
     try {
-      job = await $fetch(projectSlug === '_app_' ? `/api/jobs/app/${jobId}` : `/api/projects/${projectSlug}/jobs/${jobId}`)
+      job = await $fetch(`/api/projects/${projectSlug}/jobs/${jobId}`)
     } catch (e: any) {
       // 404 = job already cleared (rare — would mean another tab's
       // "Clear finished" ran during the wait). Treat as terminal.

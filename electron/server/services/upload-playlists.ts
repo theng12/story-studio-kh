@@ -33,18 +33,8 @@ export async function getPlaylists(slug: string, accountId: string, force = fals
   return playlists
 }
 
-export function invalidatePlaylistCache(slug: string, accountId: string): void {
-  cache.delete(cacheKey(slug, accountId))
-}
-
 export async function getDefaultPlaylist(slug: string, accountId: string): Promise<string> {
   const config = (await pm.getConfig(slug)) as any
   const map = config?.youtube_default_playlist
   return typeof map?.[accountId] === 'string' ? map[accountId] : ''
-}
-
-export async function setDefaultPlaylist(slug: string, accountId: string, playlistId: string): Promise<void> {
-  const config = (await pm.getConfig(slug)) as any
-  const next = { ...(config?.youtube_default_playlist || {}), [accountId]: playlistId }
-  await pm.updateConfig(slug, { youtube_default_playlist: next } as any)
 }

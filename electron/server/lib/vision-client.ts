@@ -11,18 +11,8 @@
 export const GENSTUDIO_VISION_UNAVAILABLE =
   'Image analysis is temporarily unavailable. The Gateway must publish and qualify an image-input LLM route before this feature can be enabled.'
 
-export const VISION_CAPABLE_MODELS = new Set<string>()
-
-export function isVisionCapable(_modelId: string | undefined | null): boolean {
-  return false
-}
-
 export function isBrollVisionModelSupported(_modelId: string | undefined | null): boolean {
   return false
-}
-
-export function resolveVisionModel(_preferred?: string | null): string {
-  return ''
 }
 
 export interface AnalyzeStyleInput {
@@ -37,13 +27,4 @@ export interface AnalyzeStyleInput {
 export interface AnalyzeStyleResult {
   style_text: string
   model_used: string
-}
-
-export async function visionKeyAvailable(): Promise<boolean> {
-  return false
-}
-
-/** Never perform direct cloud or local vision work from Story Studio. */
-export async function analyzeStyle(_input: AnalyzeStyleInput): Promise<AnalyzeStyleResult> {
-  throw new Error(GENSTUDIO_VISION_UNAVAILABLE)
 }

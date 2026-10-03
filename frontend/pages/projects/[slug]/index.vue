@@ -297,8 +297,8 @@ const { project } = useProject()
 //
 // Kept deliberately through the removal of the choosable episodes folder.
 // Taking away the ability to point a channel somewhere wrong does not make the
-// folder certain to be there — a half-synced iCloud copy, or one moved in
-// Finder, still loses it — and the whole point of the Origin Field fix was
+// folder certain to be there — a folder moved or renamed in
+// Finder, or on an unplugged drive, still goes missing — and the whole point of the Origin Field fix was
 // that the app says so instead of rendering an empty channel.
 const outputRootMissing = computed(() => project.value?.output_root_exists === false)
 // The resolved ABSOLUTE path. The `|| project.output_root` fallback that used

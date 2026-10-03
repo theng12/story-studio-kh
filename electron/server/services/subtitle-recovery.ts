@@ -196,22 +196,6 @@ export async function readSubtitleSourceModels(outDir: string): Promise<Record<s
   }
 }
 
-/** Stamp only after the caller has atomically saved a usable SRT. */
-export async function recordSubtitleSourceAudioHash(
-  outDir: string,
-  manifestKey: string,
-  sourceAudioHash: string,
-): Promise<void> {
-  const file = path.resolve(outDir, '.subtitle-recovery.json')
-  await withLock(file, async () => {
-    const ledger = await readLedger(file)
-    const section = ledger.sections[manifestKey]
-    if (!section) return
-    section.sourceAudioHash = sourceAudioHash
-    await writeJsonAtomic(file, ledger)
-  })
-}
-
 /** Save the source bytes and published ASR model only after a usable SRT write. */
 export async function recordSubtitleSourceEvidence(
   outDir: string,

@@ -30,9 +30,7 @@ const modelSurfaces = {
   broll: source('../pages/projects/[slug]/broll.vue'),
   imagePrompts: source('../pages/projects/[slug]/image-prompts.vue'),
   research: source('../pages/projects/[slug]/research.vue'),
-  characters: source('../pages/projects/[slug]/characters.vue'),
   channelCharacters: source('../pages/character-library.vue'),
-  formatWizard: source('../components/FormatFromSampleWizard.vue'),
 }
 
 describe('shared model menus', () => {
@@ -308,12 +306,6 @@ describe('shared model menus', () => {
     assert.match(transcriptionCatalog, /disabled: !catalogIsUsable\.value \|\| !model\.available \|\| model\.locked === true/)
     assert.match(transcriptionCatalog, /Last-known catalog only\. Refresh the Gateway before starting paid transcription\./)
     assert.match(transcriptionCatalog, /temporarily unavailable/)
-  })
-
-test('the format wizard no longer restores a hardcoded paid model list', () => {
-    assert.match(modelSurfaces.formatWizard, /<ModelSelector/)
-    assert.doesNotMatch(modelSurfaces.formatWizard, /<option value="gpt-4o"/)
-    assert.match(modelSurfaces.formatWizard, /const model = ref\(''\)/)
   })
 })
 

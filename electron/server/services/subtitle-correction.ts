@@ -391,13 +391,6 @@ export async function inspectExistingTranscriptSource(
   return { path: rawPath, source: 'raw', planning_source_revalidation_required: true }
 }
 
-export async function resolveExistingTranscriptSrtPath(
-  subtitlesDir: string,
-  episodeCode: string,
-): Promise<string> {
-  return (await inspectExistingTranscriptSource(subtitlesDir, episodeCode)).path
-}
-
 /**
  * Operator-facing lines describing what the correction pass did, for a job's
  * output log. A silent correction would be worse than none: the whole point is

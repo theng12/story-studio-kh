@@ -175,12 +175,6 @@ describe('Project routes', () => {
     assert.equal(res.status, 200)
     assert.equal(res.body.name, 'Updated Name')
   })
-
-  test('GET /api/projects/templates lists available templates', async () => {
-    const res = await request(app).get('/api/projects/templates')
-    assert.equal(res.status, 200)
-    assert.ok(Array.isArray(res.body))
-  })
 })
 
 describe('Project settings routes', () => {

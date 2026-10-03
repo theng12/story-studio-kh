@@ -50,15 +50,15 @@ describe('force-abandon on the Jobs page', () => {
 
   it('re-running is reachable from ordinary cancelled rows without disguising paid auto-repair as Retry', () => {
     const retryButtons = jobsPage.match(/v-if="canRetryJob\(job\)"/g) || []
-    assert.equal(retryButtons.length, 2, 'both the active and the history lists must offer Retry for ordinary jobs')
+    assert.equal(retryButtons.length, 1, 'only the history list offers Retry: the active list never holds failed jobs')
     const eligibility = jobsPage.slice(jobsPage.indexOf('function canRetryJob('), jobsPage.indexOf('function customerJobText('))
     assert.match(eligibility, /\['error', 'cancelled'\]\.includes\(job\.status\)/)
     assert.match(eligibility, /isVerifiedRecoveredSubtitleJob\(job\)/)
     assert.match(eligibility, /isTerminalContinuityRender\(job\)/)
     assert.match(eligibility, /auto_repair_missing_prompts === true\) return false/)
-    assert.equal((jobsPage.match(/v-if="isTerminalContinuityRender\(job\)"/g) || []).length, 2,
-      'both lists must offer Finish missing images for failed continuity renders')
-    assert.equal((jobsPage.match(/@click="finishMissingImages\(job\)"/g) || []).length, 2)
+    assert.equal((jobsPage.match(/v-if="isTerminalContinuityRender\(job\)"/g) || []).length, 1,
+      'the history list offers Finish missing images for failed continuity renders')
+    assert.equal((jobsPage.match(/@click="finishMissingImages\(job\)"/g) || []).length, 1)
   })
 })
 
@@ -128,10 +128,10 @@ describe('per-episode targeted recovery', () => {
     }
   })
 
-  it('recovers in place from both lists and never opens the Board repair modal', () => {
-    assert.equal((jobsPage.match(/v-if="canRecoverEpisode\(job\)"/g) || []).length, 2)
-    assert.equal((jobsPage.match(/@click="recoverEpisode\(job\)"/g) || []).length, 2)
-    assert.equal((jobsPage.match(/:disabled="episodeRecoveryBusy\(job\)"/g) || []).length, 2)
+  it('recovers in place from the history list and never opens the Board repair modal', () => {
+    assert.equal((jobsPage.match(/v-if="canRecoverEpisode\(job\)"/g) || []).length, 1)
+    assert.equal((jobsPage.match(/@click="recoverEpisode\(job\)"/g) || []).length, 1)
+    assert.equal((jobsPage.match(/:disabled="episodeRecoveryBusy\(job\)"/g) || []).length, 1)
     assert.doesNotMatch(jobsPage, /episodeRecoveryLink|board\?repair=1|Scan all for repair|RepairAssetsDialog/)
   })
 
@@ -140,15 +140,6 @@ describe('per-episode targeted recovery', () => {
     assert.match(jobsPage, /Checking this episode’s existing audio and images/)
     const directRecovery = jobsPage.slice(jobsPage.indexOf('async function recoverEpisode'), jobsPage.indexOf('async function recoverAllEpisodes'))
     assert.doesNotMatch(directRecovery, /retryJob\(|recover-episode|generate\//)
-  })
-
-  it('Retry tells the truth about Scene Review, which recovers for free', () => {
-    // The generator replays its task manifest and pulls back every image the
-    // provider already produced before it re-submits anything. The tooltip
-    // used to say the opposite — "no partial/repair path" — which made the
-    // free option read as the expensive one.
-    assert.match(jobsPage, /jobType === 'continuity_render'/)
-    assert.match(jobsPage, /FREE WHERE POSSIBLE[^']*at no charge/)
   })
 
   it('deduplicates and locks each project plus episode while recovery is in flight', () => {

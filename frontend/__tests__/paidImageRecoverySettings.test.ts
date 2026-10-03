@@ -244,7 +244,7 @@ test('This Mac keeps paid audio and writing replacement separately off until eac
 async function renderPublicPaidImageAttempt(job: Record<string, unknown>): Promise<string> {
   const jobs = readFileSync(fileURLToPath(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url)), 'utf8')
   const formatterStart = jobs.indexOf('function paidImageReplacementAttemptText')
-  const formatterEnd = jobs.indexOf('\nfunction genStudioNumeric', formatterStart)
+  const formatterEnd = jobs.indexOf('\n/**\n * Authoritative settlement', formatterStart)
   const templateStart = jobs.indexOf('<p v-if="paidImageReplacementAttemptText(job)" class="paid-image-replacement-attempt" role="status">')
   const templateEnd = jobs.indexOf('</p>', templateStart) + '</p>'.length
   assert.notEqual(formatterStart, -1)

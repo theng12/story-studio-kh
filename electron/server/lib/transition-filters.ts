@@ -12,7 +12,7 @@
  * because it's dramatically faster for the common "hard cut" case.
  */
 
-import { TRANSITIONS, getTransition, type TransitionDef } from '../models/transitions.js'
+import { getTransition, type TransitionDef } from '../models/transitions.js'
 import { mulberry32 } from './seeded-random.js'
 
 export interface TransitionPickPlan {
@@ -165,9 +165,4 @@ export function resolveXfade(id: string): string {
   if (def && def.xfade) return def.xfade
   // Unknown or "none" — default to the basic fade so the filter graph stays valid.
   return 'fade'
-}
-
-/** All registered xfade keywords — useful for validators. */
-export function knownXfadeKeywords(): string[] {
-  return TRANSITIONS.map(t => t.xfade)
 }

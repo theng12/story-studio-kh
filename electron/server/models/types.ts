@@ -3795,16 +3795,6 @@ export interface GenerateVideoRequest {
 
 export type VideoGenerationMode = 'frames'
 
-export interface GenerateVideoPromptsRequest {
-  episode_id: string
-  title: string
-  model: string  // LLM model for prompt generation
-  /** How many prompts to generate — typically matches scene count */
-  count?: number
-  /** Optional hint if the user wants a specific style (e.g. "slow dreamy camera moves") */
-  style_hint?: string
-}
-
 /**
  * The AI Video Generator's request (Veo / Sora / fal-video via GenStudio).
  *

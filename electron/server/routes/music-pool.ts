@@ -17,7 +17,6 @@
  */
 
 import { Router } from 'express'
-import * as pm from '../services/project-manager.js'
 import * as mp from '../services/music-pool.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 
@@ -117,16 +116,3 @@ router.get('/projects/:slug/music-pool/peek-next', async (req, res) => {
   }
 })
 
-router.post('/projects/:slug/music-pool/record-pick', async (req, res) => {
-  try {
-    const filename = typeof req.body?.filename === 'string' ? req.body.filename.trim() : ''
-    const episode_code = typeof req.body?.episode_code === 'string' ? req.body.episode_code.trim() : ''
-    if (!filename || !episode_code) {
-      return res.status(400).json({ detail: 'filename and episode_code are required' })
-    }
-    const result = await mp.recordPick(req.params.slug, episode_code, filename)
-    res.json({ ...result, pool: await mp.getPoolState(req.params.slug) })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to record pick'))
-  }
-})

@@ -82,10 +82,6 @@ test('Jobs and Usage resolve catalog names instead of printing dispatch ids', ()
     'utf8',
   )
   const usage = readFileSync(new URL('../pages/usage.vue', import.meta.url), 'utf8')
-  const previewRow = readFileSync(
-    new URL('../components/PreviewPromptRow.vue', import.meta.url),
-    'utf8',
-  )
   const audioRoute = readFileSync(
     new URL('../../electron/server/routes/audio.ts', import.meta.url),
     'utf8',
@@ -108,7 +104,6 @@ test('Jobs and Usage resolve catalog names instead of printing dispatch ids', ()
   assert.doesNotMatch(usage, /Current plan|Manage plan · coming soon/)
   assert.match(usage, /<NuxtLink to="\/" class="btn btn-secondary btn-sm">← Back to projects<\/NuxtLink>/)
   assert.doesNotMatch(usage, /<small>\{\{\s*job\.model_id\s*\}\}<\/small>/)
-  assert.match(previewRow, /\{\{\s*previewModelName\s*\}\}/)
   // voice_tier is published metadata carried beside the job for history —
   // taken from the SELECTED VOICE, no longer from a Story-owned tier token.
   assert.match(audioRoute, /req\.body\.tts_tier = selectedVoice\.voice_tier/)

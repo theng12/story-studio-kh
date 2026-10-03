@@ -42,7 +42,7 @@ import { getApiKey } from '../services/app-secrets-store.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
-import { fileExistsWithContent, isCloudEvictedPlaceholder, isTransportFailure } from '../lib/http-retry.js'
+import { fileExistsWithContent, isTransportFailure } from '../lib/http-retry.js'
 import { recordTask, recordTaskStrict, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
 import { checkpointGenStudioAsset, type GenStudioRecoveryState } from '../services/genstudio-recovery.js'
 import { unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
@@ -843,13 +843,6 @@ export async function generateAudio(job: Job): Promise<void> {
     for (let i = 0; i < chunks.length; i++) {
       let chunkPath = chunks.length > 1 ? savePath.replace('.mp3', `_part${i + 1}.mp3`) : savePath
 
-      // iCloud-evicted: skip regeneration to avoid re-billing.
-      if (!req.force && await isCloudEvictedPlaceholder(chunkPath)) {
-        job.output_lines.push(
-          `  ⚠ ${path.basename(chunkPath)} is iCloud-evicted (download in Finder). Skipped to avoid re-billing.`,
-        )
-        continue
-      }
       // Only skip on a non-empty existing file. A zero-byte leftover from a
       // prior failure must be regenerated, not treated as a cache hit.
       if (await fileExistsWithContent(chunkPath)) {

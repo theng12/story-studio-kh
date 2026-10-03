@@ -11,7 +11,8 @@ const source = readFileSync(pagePath, 'utf8')
 async function setupWith(models: ReturnType<typeof ref<any[]>>) {
   const { descriptor } = parse(source, { filename: pagePath.pathname })
   const setup = descriptor.scriptSetup!.content
-  const capBlockEnd = setup.indexOf('const modelTierLabel')
+  const capBlockEnd = setup.indexOf('const activeGenStudioModel')
+  assert.ok(capBlockEnd > 0, 'cap block end marker exists')
   const partial = `<script setup lang="ts">${setup.slice(0, capBlockEnd)}</script>`
   const script = compileScript(parse(partial, { filename: pagePath.pathname }).descriptor, { id: 'task13-live-image-cap' })
   const vueUrl = await import.meta.resolve('vue')

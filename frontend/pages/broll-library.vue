@@ -124,8 +124,8 @@
           </div>
         </div>
 
-        <!-- Local pool workflow: indexed files, manual import guidance, and
-             historical provenance retained for existing assets. -->
+        <!-- Local pool workflow: indexed files, plus historical provenance
+             retained for existing assets. -->
         <div class="form-tabs mt-2">
           <button
             type="button"
@@ -134,13 +134,6 @@
           >
             🎞 Clips
             <span class="text-muted text-xs ml-1">({{ clips.length }})</span>
-          </button>
-          <button
-            type="button"
-            :class="['form-tab', { active: poolTab === 'fetch' }]"
-            @click="poolTab = 'fetch'"
-          >
-            ＋ Add files
           </button>
           <button
             type="button"
@@ -170,11 +163,10 @@
         </div>
 
         <!-- ── Pool jobs panel ─────────────────────────────────────────
-             B-Roll normalize + auto-tag jobs are app-level (project_slug
-             '_app_'), so they never showed up in any project's Jobs
-             tab. v1.0.91+: inline panel here streams those jobs via
-             /api/jobs/app/stream so the user sees normalize / autotag
-             progress without leaving the page. Auto-collapses to the
+             B-Roll normalize jobs are app-level (project_slug '_app_'),
+             so they never show up in any project's Jobs tab. This inline
+             panel streams those jobs via /api/jobs/app/stream so the user
+             sees normalize progress without leaving the page. Auto-collapses to the
              count when nothing is in flight; expands to a live list
              with progress lines when work is queued. -->
         <div v-if="visibleJobs.length || activeJobsCount > 0" class="pool-jobs">
@@ -329,18 +321,6 @@
         </template>
 
         </div><!-- /Clips tab -->
-
-        <!-- ── Manual import tab ─────────────────────────────────────── -->
-        <div v-show="poolTab === 'fetch'">
-          <div class="empty">
-            <strong>Add files locally</strong><br />
-            Copy {{ isAudioPool ? 'MP3, WAV, M4A, or OGG files' : selectedPool.media === 'image' ? 'JPG, PNG, or WebP files' : 'video files' }} into
-            <code>{{ selectedPool.folder_path }}</code>, then return to <strong>Clips</strong> and click <strong>↻ Re-scan</strong>.
-            <p class="fetch-hint text-muted text-xs">
-              Searching stock-footage and sound-effect sites from here isn't available yet.
-            </p>
-          </div>
-        </div><!-- /Fetch tab -->
 
         <!-- ── Asset Log tab ──────────────────────────────────────────── -->
         <div v-show="poolTab === 'log'">
@@ -809,7 +789,7 @@ async function submitEdit(): Promise<void> {
   }
 }
 
-// Live app-level jobs (broll_normalize + broll_autotag). The standard
+// Live app-level jobs (broll_normalize). The standard
 // /projects/:slug/jobs feed filters by project_slug, so app-level
 // jobs (project_slug='_app_') never show there — this composable
 // streams them separately. v1.0.91+.
@@ -836,7 +816,7 @@ const filteredPools = computed(() =>
   poolFilter.value === 'all' ? pools.value : pools.value.filter(p => poolMediaOf(p) === poolFilter.value),
 )
 // True when the selected pool holds audio (SFX) — drives the inline <audio>
-// player + hides video-only controls (thumbnail, normalize, vision auto-tag).
+// player + hides video-only controls (thumbnail, normalize).
 const isVideoPool = computed(() => !!selectedPool.value && poolMediaOf(selectedPool.value) === 'video')
 const isAudioPool = computed(() => poolMediaOf(selectedPool.value || {}) === 'audio')
 
@@ -854,16 +834,16 @@ const unnormalizedCount = computed(() =>
 const poolJobsExpanded = ref(true)
 
 /**
- * Filter app-level jobs down to the ones relevant to THIS pool. Both
- * broll_normalize and broll_autotag stash the pool_id in their params
- * (and we also use episode_id=pool.id as a secondary handle so older
- * code that filters by episode still works). Show running + queued
+ * Filter app-level jobs down to the ones relevant to THIS pool.
+ * broll_normalize stashes the pool_id in its params (and we also use
+ * episode_id=pool.id as a secondary handle so older code that filters
+ * by episode still works). Show running + queued
  * always; show the last 6 done/error/cancelled for trail context.
  */
 const visibleJobs = computed(() => {
   if (!selectedPoolId.value) return []
   const matchesPool = (j: any) =>
-    j.type === 'broll_normalize' || j.type === 'broll_autotag'
+    j.type === 'broll_normalize'
       ? (j.params?.pool_id === selectedPoolId.value || j.episode_id === selectedPoolId.value)
       : false
   const active = appJobs.jobs.value.filter(j => matchesPool(j) && (j.status === 'queued' || j.status === 'running'))
@@ -908,15 +888,14 @@ function relativeTime(iso?: string | null): string {
   } catch { return '' }
 }
 
-// Auto-refresh the clip grid when any normalize / autotag job for the
-// selected pool transitions to done — the sidecar's normalized flag and
-// tags array have just changed and the UI should reflect it without
-// a manual ↻ click.
+// Auto-refresh the clip grid when a normalize job for the selected pool
+// transitions to done — the sidecar's normalized flag has just changed and
+// the UI should reflect it without a manual ↻ click.
 let unsubDone: (() => void) | null = null
 onMounted(() => {
   unsubDone = appJobs.onJobDone((job: any) => {
     if (job.status !== 'done') return
-    if (job.type !== 'broll_normalize' && job.type !== 'broll_autotag') return
+    if (job.type !== 'broll_normalize') return
     const poolId = job.params?.pool_id || job.episode_id
     if (poolId && poolId === selectedPoolId.value) {
       void refreshClipsAfterJob()
@@ -944,25 +923,22 @@ async function cancelPoolJob(job: any): Promise<void> {
   }
 }
 
-// ── v1.0.122+ Pool tab nav (Clips / Fetch / Asset Log) ──────────────────
+// ── Pool tab nav (Clips / Asset Log) ───────────────────────────────────
 // URL-synced via ?tab= so refresh + back/forward + deep links work.
 // Same shape as ideas.vue / scripts.vue / image-prompts.vue.
 const _route = useRoute()
 const _router = useRouter()
-const poolTab = ref<'clips' | 'fetch' | 'log'>(
-  _route.query.tab === 'fetch' ? 'fetch'
-    : _route.query.tab === 'log' ? 'log'
-    : 'clips',
-)
+// An old `?tab=fetch` link falls through to the default Clips tab.
+const poolTab = ref<'clips' | 'log'>(_route.query.tab === 'log' ? 'log' : 'clips')
 watch(() => _route.query.tab, (v) => {
-  const next = v === 'fetch' ? 'fetch' : v === 'log' ? 'log' : 'clips'
+  const next = v === 'log' ? 'log' : 'clips'
   if (next !== poolTab.value) poolTab.value = next
 })
 watch(poolTab, (v) => {
   const cur = String(_route.query.tab || 'clips')
   if (cur === v) return
   _router.replace({ query: { ..._route.query, tab: v } })
-  // Lazy-load provenance while keeping the local import tab network-free.
+  // Lazy-load provenance when the pool's tabs are shown.
   if (v === 'log' || v === 'clips') void loadProvenanceOnce()
 })
 
@@ -1577,9 +1553,6 @@ function onThumbError(e: Event): void {
 
 <style scoped>
 .broll-page { display: flex; flex-direction: column; gap: 16px; padding: 8px 0; }
-.page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.page-header h1 { margin: 0 0 4px; font-size: 20px; }
-.page-header .text-muted { font-size: 12px; line-height: 1.5; max-width: 720px; }
 .empty { padding: 24px; text-align: center; color: var(--text-muted); font-size: 13px; background: var(--bg-secondary); border-radius: 6px; }
 
 .broll-layout {
@@ -1616,8 +1589,6 @@ function onThumbError(e: Event): void {
 .pool-filter-btn.active { background: var(--accent, #6c8fff); color: #fff; border-color: var(--accent, #6c8fff); }
 .pool-filter-empty { font-size: 12px; padding: 8px 2px; }
 .link-btn { background: none; border: 0; padding: 0; color: var(--accent, #6c8fff); cursor: pointer; font: inherit; text-decoration: underline; }
-/* Compact but readable vision-model picker in the autotag toolbar. */
-.autotag-model-select { width: min(360px, 100%); }
 .pool-card.active { border-color: var(--accent, #6c8fff); background: rgba(108,143,255,0.06); }
 .pool-card-name { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
 .pool-card-meta { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: var(--font-xs); margin-bottom: 4px; }
@@ -1755,7 +1726,7 @@ function onThumbError(e: Event): void {
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 
 /* ── Pool jobs panel ──────────────────────────────────────────────────
-   Inline panel that surfaces app-level B-Roll jobs (normalize / autotag)
+   Inline panel that surfaces app-level B-Roll jobs (normalize)
    for the active pool. SSE-driven via useAppJobs; collapsible. */
 .pool-jobs {
   background: var(--bg-secondary);
@@ -1926,7 +1897,7 @@ function onThumbError(e: Event): void {
   border-radius: 3px;
 }
 
-/* ── v1.0.122+ — Fetch tab + Asset Log + clip-source pill ────────────── */
+/* ── Asset Log + clip-source pill ─────────────────────────────────────── */
 
 /* Source pill (Pexels / Pixabay / local) — used in clip cards AND the
    Asset Log table. Colour-coded so the eye can scan a mixed pool. */
@@ -1956,14 +1927,6 @@ function onThumbError(e: Event): void {
   color: var(--text-muted);
 }
 .clip-source-link:hover { color: var(--accent); }
-
-.fetch-hint {
-  font-size: 12px;
-  padding: 8px 12px;
-  background: rgba(234, 179, 8, 0.08);
-  border: 1px solid rgba(234, 179, 8, 0.3);
-  border-radius: 6px;
-}
 
 /* Asset Log table */
 .log-toolbar {

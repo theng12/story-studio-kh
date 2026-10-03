@@ -153,7 +153,6 @@ interface MetadataFormula {
 }
 const formulas = ref<MetadataFormula[]>([])
 const selectedFormulaId = ref('')
-const formulasLoading = ref(false)
 const formulasError = ref('')
 const selectedFormula = computed(() => formulas.value.find(f => f.id === selectedFormulaId.value) || null)
 
@@ -183,7 +182,6 @@ async function loadFormulas(): Promise<void> {
   const scope = metadataTemplateScope
   const request = ++metadataFormulaRequest
   const current = () => projectSlug === slug.value && scope === metadataTemplateScope && request === metadataFormulaRequest
-  formulasLoading.value = true
   metadataFormulasLoading.value = true
   formulasError.value = ''
   try {
@@ -200,7 +198,6 @@ async function loadFormulas(): Promise<void> {
     metadataTemplateLoadError.value = `Could not load description formulas: ${formulasError.value}`
   } finally {
     if (current()) {
-      formulasLoading.value = false
       metadataFormulasLoading.value = false
     }
   }

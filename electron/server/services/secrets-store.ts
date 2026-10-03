@@ -33,7 +33,6 @@
  */
 
 import fs from 'fs/promises'
-import { existsSync } from 'fs'
 import path from 'path'
 import { getProjectDir, projectsRoot } from './project-manager.js'
 import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
@@ -78,9 +77,6 @@ export class SecretsDecryptError extends Error {
     super(`Failed to decrypt secrets at ${filePath}`)
     this.name = 'SecretsDecryptError'
   }
-}
-export function isSecretsDecryptError(e: unknown): e is SecretsDecryptError {
-  return !!e && typeof e === 'object' && (e as any).__tag === 'SecretsDecryptError'
 }
 
 // ── Per-project file (OAuth/upload state only, no provider keys) ────────────
@@ -299,34 +295,6 @@ export async function resetSecretsForCurrentMachine(_slug: string): Promise<void
 }
 
 // ── Legacy config.json → app secrets one-shot migrator ──────────────────────
-
-export async function migrateSecretsFromConfig(slug: string): Promise<void> {
-  const dir = getProjectDir(slug) ?? path.join(projectsRoot(), slug)
-  const configPath = path.join(dir, 'config.json')
-  if (!existsSync(configPath)) return
-  let raw: any
-  try {
-    const text = await fs.readFile(configPath, 'utf-8')
-    raw = JSON.parse(text)
-  } catch {
-    return
-  }
-  let configMutated = false
-  await writeAppSecrets((v3) => {
-    for (const pid of SECRET_PROVIDERS) {
-      const legacyKey = `${pid}_api_key`
-      const value = raw?.[legacyKey]
-      if (typeof value === 'string' && value) {
-        if (!v3.providers[pid]?.apiKey) v3.providers[pid] = { apiKey: value }
-        raw[legacyKey] = ''
-        configMutated = true
-      }
-    }
-  })
-  if (configMutated) {
-    await writeJsonAtomic(configPath, raw)
-  }
-}
 
 // ── Redaction helper (sanitise before logging/serialisation) ────────────────
 

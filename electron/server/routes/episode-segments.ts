@@ -9,7 +9,6 @@ import { Router } from 'express'
 import {
   getChannelSegments,
   saveChannelSegment,
-  hasEverProducedSegment,
   openingFollowsFormula,
 } from '../services/channel-segments.js'
 import {
@@ -100,21 +99,3 @@ router.put('/projects/:slug/segments/:segmentId', async (req, res) => {
   }
 })
 
-/**
- * How many episodes already carry this segment, and which do not.
- *
- * The gap this whole change was found through was four episodes with no
- * opening, sitting in a list that had no way of showing it. `status.introduction`
- * has been returned per episode all along and rendered nowhere.
- */
-router.get('/projects/:slug/segments/:segmentId/coverage', async (req, res) => {
-  const { slug, segmentId } = req.params
-  if (!SEGMENT_KINDS[segmentId]) {
-    return res.status(404).json({ detail: `Unknown episode segment: ${segmentId}` })
-  }
-  try {
-    res.json({ ever_produced: await hasEverProducedSegment(slug, segmentId) })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Could not check segment coverage'))
-  }
-})

@@ -822,19 +822,6 @@ export async function setVoiceFavouritesGlobal(value: string[]): Promise<void> {
   await setAppSetting(VOICE_FAVOURITES_KEY, value)
 }
 
-/**
- * Returns true when neither key exists yet — the boot migration uses
- * this to decide whether to run the per-project merge. We require BOTH
- * to be unset so a partial migration (e.g. presets set, favourites not)
- * doesn't trigger a re-merge that would reintroduce already-removed
- * entries.
- */
-export async function voiceCurationGlobalIsUnset(): Promise<boolean> {
-  const settings = await readSettings()
-  return settings[VOICE_PRESETS_KEY] === undefined
-    && settings[VOICE_FAVOURITES_KEY] === undefined
-}
-
 // ── Server mode (headless web UI) ──────────────────────────────────────────
 //
 // Schema:

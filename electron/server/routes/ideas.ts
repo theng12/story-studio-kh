@@ -10,17 +10,10 @@ import { trackGeneration } from '../services/session-tracker.js'
 import { resolveSubfolderNames } from '../services/utils.js'
 import type { Format } from '../models/types.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
-// v1.0.165 — loadPattern + the Pattern type are no longer used here;
-// the Pattern system's {X} title shape is a plain title_template string
-// now. The full pattern-loader removal lands in the 1.0.166 backend pass.
-import type { GenerateIdeasRequest, StoryIdea } from '../models/types.js'
-import { filterGenerated, type SimilarityCandidate } from '../services/idea-similarity.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { withLock } from '../lib/atomic-store.js'
 import { findFreshActionJob, readOptionalOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
-import { invalidateProjectUploadCaches } from '../services/upload-caches.js'
 import { previewCompact, compactAcceptedEpisodes } from '../services/upload-compact.js'
-import { isLocalTextModel } from '../services/job-retry-policy.js'
 import { loadNiche } from '../services/niche-loader.js'
 import { isCompatible, loadTopicPack } from '../services/topic-pack-loader.js'
 import { readVideoVisualSource } from '../services/video-visual-source.js'
@@ -41,12 +34,7 @@ export {
   rewriteLeadingCount,
   parseFreeformIdeas as parseIdeas,
 } from '../services/freeform-idea-generation.js'
-import {
-  generateFreeformIdeaBatch,
-  parseFreeformIdeas as parseIdeas,
-  rewriteLeadingCount,
-  type AvoidItem,
-} from '../services/freeform-idea-generation.js'
+import { parseFreeformIdeas as parseIdeas } from '../services/freeform-idea-generation.js'
 
 /**
  * Queue a durable, navigation-safe Idea Campaign.
@@ -151,235 +139,6 @@ router.post('/projects/:slug/generate/ideas/campaign', async (req, res) => {
       })
     }
     return res.status(400).json(humanizeBackendError(e, 'Failed to queue Idea Campaign'))
-  }
-})
-
-router.post('/projects/:slug/generate/ideas', async (req, res) => {
-  const { slug } = req.params
-  const project = await pm.getProject(slug)
-  if (!project) return res.status(404).json({ detail: 'Project not found' })
-
-  const config = await pm.getConfig(slug)
-  if (!config) return res.status(404).json({ detail: 'Config not found' })
-
-  const body: GenerateIdeasRequest = req.body
-  const standards = await pm.getStandards(slug)
-
-  // v1.0.92+ — per-call niche override. The Ideas Generator surfaces a
-  // NichePicker that defaults to the project's saved niche_id but lets
-  // the user dial it up/down per generation. Passing the special string
-  // `'__none__'` forces "no niche" even when the project has one saved;
-  // omitting the field falls through to project.niche_id (no override).
-  const rawNiche = (req.body as any)?.niche_id
-  let nicheIdOverride: string | null | undefined
-  if (typeof rawNiche === 'string') {
-    const trimmed = rawNiche.trim()
-    if (trimmed === '__none__' || trimmed === '') nicheIdOverride = null
-    else nicheIdOverride = trimmed
-  } else {
-    nicheIdOverride = undefined
-  }
-  const format = await getEffectiveFormat(
-    slug,
-    nicheIdOverride === undefined ? undefined : { nicheIdOverride },
-  )
-
-  // Optional pattern preset — when the Ideas-page picker selected one,
-  // we load it here so the prompt assembler can inject the title-style
-  // block. Failure to load (deleted pattern, malformed file, etc.)
-  // v1.0.165+ — optional title template. A plain string the user typed
-  // on the Ideas page (e.g. "Fall asleep to {X}"). Can't "fail to load"
-  // like the old Pattern presets did, so there's no warning path —
-  // the X-Pattern-Warning header + loadPattern call were removed.
-  const titleTemplate = typeof (body as any).title_template === 'string'
-    ? (body as any).title_template.trim()
-    : ''
-
-  // Build the AVOID list from everything we already know about this project.
-  // Sort newest-first so the 30-item cap keeps the freshest signals.
-  const prior = await im.getIdeas(slug)
-  const avoid: AvoidItem[] = [...prior]
-    .sort((a, b) => (b.generated_at || '').localeCompare(a.generated_at || ''))
-    .map(i => ({ title: i.title, mood: i.mood, themes: i.themes }))
-
-  const apiKeys = {
-    anthropic_api_key: config.anthropic_api_key,
-    openai_api_key: config.openai_api_key,
-    kie_api_key: config.kie_api_key,
-  }
-
-  // Pin enforcement (v1.0.70): when the user passed items_per_listicle,
-  // every idea's suggested_chapters MUST equal that pin even if the LLM
-  // ignored the instruction. We also rewrite leading title numbers so
-  // "7 sleep mysteries" → "10 sleep mysteries" when the pin is 10. The
-  // prompt asks the LLM to do this; the post-process is the safety net.
-  const pinnedChapters = (typeof body.items_per_listicle === 'number'
-    && Number.isFinite(body.items_per_listicle)
-    && body.items_per_listicle > 0)
-    ? Math.round(body.items_per_listicle)
-    : null
-
-  // v1.0.93+ — channel-level title prefix/suffix. Mirrors the
-  // titleConfig.prefix/suffix on metadata.vue (same project-config keys:
-  // broll_channel_title_prefix / broll_channel_title_suffix), but applied
-  // at idea-generation time so the brainstorm list and the final YouTube
-  // title share the same channel framing ("Morning Prayer: ...").
-  //
-  // Override semantics: if the request body carries explicit
-  // title_prefix / title_suffix strings, they win — even when empty
-  // (empty string = "no wrapping for this batch even if the project has
-  // one saved"). Undefined falls back to the project config so existing
-  // callers (Pipeline, scheduled jobs) don't accidentally drop the
-  // channel framing.
-  const rawBodyPrefix = (req.body as any)?.title_prefix
-  const rawBodySuffix = (req.body as any)?.title_suffix
-  let titlePrefix = ''
-  let titleSuffix = ''
-  if (typeof rawBodyPrefix === 'string') {
-    titlePrefix = rawBodyPrefix
-  } else if (typeof (config as any)?.broll_channel_title_prefix === 'string') {
-    titlePrefix = (config as any).broll_channel_title_prefix
-  }
-  if (typeof rawBodySuffix === 'string') {
-    titleSuffix = rawBodySuffix
-  } else if (typeof (config as any)?.broll_channel_title_suffix === 'string') {
-    titleSuffix = (config as any).broll_channel_title_suffix
-  }
-  function wrapTitle(s: string): string {
-    if (!titlePrefix && !titleSuffix) return s
-    return `${titlePrefix}${s}${titleSuffix}`
-  }
-
-  function normalizeIdeas(raw: any[]): StoryIdea[] {
-    return raw.map((item: any) => {
-      const rawTitle: string = (item.title || 'Untitled').toString()
-      const rawChapters: number = Number(item.suggested_chapters) || 10
-      const chapters = pinnedChapters !== null ? pinnedChapters : rawChapters
-      const countAdjustedTitle = pinnedChapters !== null
-        ? rewriteLeadingCount(rawTitle, pinnedChapters)
-        : rawTitle
-      // Wrap AFTER the leading-count rewrite so "Morning Prayer: 10 Mysteries…"
-      // stays correctly wrapped when the user pinned 10 items. Wrapping
-      // before the rewrite would put the count inside the prefix and the
-      // regex would miss it.
-      const title = wrapTitle(countAdjustedTitle)
-      return {
-        title,
-        logline: item.logline || '',
-        themes: item.themes || [],
-        suggested_chapters: chapters,
-        suggested_length: item.suggested_length || '45 min',
-        mood: item.mood || '',
-      }
-    })
-  }
-
-  try {
-    // Overshoot slightly so a trim after similarity filtering usually still
-    // leaves us at body.count without a retry.
-    const wantedCount = body.count
-    const overshoot = { ...body, count: wantedCount + 3 }
-    // Pull the channel's top performers as inspiration. Best-effort —
-    // returns '' when no account / no scope / API down. The block joins
-    // the existing format + pattern guidance so the LLM picks up the
-    // channel vibe from titles that already worked.
-    const { getTopPerformersForSlug } = await import('../lib/youtube-analytics.js')
-    const { formatTopPerformersBlock } = await import('../lib/top-performers.js')
-    const topPerformers = await getTopPerformersForSlug(slug, 5)
-    const topBlock = formatTopPerformersBlock(topPerformers)
-    // v1.0.93+ — one-line effective-state log so future "why are my prayer
-    // ideas about mountains?" regressions are debuggable from a glance at
-    // server output. Captures the four signals that determine title voice.
-    const effectiveNicheId = nicheIdOverride !== undefined ? (nicheIdOverride || '(forced none)') : (project.niche_id || '(none)')
-    const tRules = format.idea.titleShapeRules?.length || 0
-    const lRules = format.idea.loglineShapeRules?.length || 0
-    const thRules = format.idea.themeShapeRules?.length || 0
-    const tLen = format.idea.titleLengthRange ? `${format.idea.titleLengthRange[0]}-${format.idea.titleLengthRange[1]}w` : '-'
-    const variety = format.idea.structuralVariety || 'free'
-    console.log(`[ideas-gen] effective: format=${project.format_id || '(fallback:sleep-story)'} niche=${effectiveNicheId} examples=${format.idea.exampleIdeas?.length || 0} title{rules=${tRules},len=${tLen}} logline{rules=${lRules}} themes{rules=${thRules}} variety=${variety} prefix=${JSON.stringify(titlePrefix || '')} suffix=${JSON.stringify(titleSuffix || '')}`)
-    const firstBatch = normalizeIdeas(await generateFreeformIdeaBatch({
-      request: overshoot,
-      format,
-      standards,
-      avoid,
-      apiKeys,
-      slug,
-      titleTemplate,
-      topPerformersBlock: topBlock,
-    }))
-    const avoidRepeatedIdeas = body.avoid_repeated_ideas !== false
-
-    // Filter against the project's history + within-batch dupes.
-    const priorCandidates: SimilarityCandidate[] = prior.map(i => ({
-      title: i.title, logline: i.logline, themes: i.themes, mood: i.mood,
-    }))
-    const firstPass = avoidRepeatedIdeas
-      ? filterGenerated<StoryIdea>(firstBatch, priorCandidates)
-      : { kept: firstBatch, rejected: [] }
-
-    let kept = firstPass.kept.slice(0, wantedCount)
-
-    // If filtering cost us too many, reprompt once for the shortfall with
-    // the rejected titles added to the avoid list.
-    if (avoidRepeatedIdeas && kept.length < wantedCount && isLocalTextModel(body.model)) {
-      const shortfall = wantedCount - kept.length
-      const rejectedTitles = firstPass.rejected
-        .map(r => r.candidate.title)
-        .filter(Boolean)
-        .join(', ')
-      const retryReq = { ...body, count: shortfall }
-      // Bake everything we've seen so far into the avoid list for the retry.
-      const retryAvoid: AvoidItem[] = [
-        ...avoid,
-        ...kept.map(k => ({ title: k.title, mood: k.mood, themes: k.themes })),
-      ]
-      try {
-        const retryBatch = normalizeIdeas(await generateFreeformIdeaBatch({
-          request: retryReq,
-          format,
-          standards,
-          avoid: retryAvoid,
-          apiKeys,
-          slug,
-          titleTemplate,
-          topPerformersBlock: topBlock,
-          extraAvoidNote: rejectedTitles,
-        }))
-        const retryPass = filterGenerated<StoryIdea>(
-          retryBatch,
-          [...priorCandidates, ...kept.map(k => ({ title: k.title, logline: k.logline, themes: k.themes, mood: k.mood }))],
-        )
-        // Never reinsert rejected candidates merely to fill the requested
-        // count. A shorter genuinely-new batch is safer than silently
-        // recycling an existing episode.
-        const retryKept = retryPass.kept.slice(0, shortfall)
-        kept = [...kept, ...retryKept]
-      } catch (e: any) {
-        console.warn('[ideas] retry generation failed:', e?.message || e)
-        // If the retry itself fails, surface what we have from the first pass.
-        // Users still get a non-empty batch.
-      }
-    }
-
-    const ideas = kept.slice(0, wantedCount)
-
-    // Persist all kept ideas
-    const stored = await im.addIdeas(slug, ideas, body.model)
-
-    // Track for session stats
-    await trackGeneration(slug, 'ideas', ideas.length)
-
-    // Surface a pattern-load failure (when one happened) via response
-    // header so the Ideas page can show a non-blocking toast. Header
-    // shape (vs body) keeps the existing array response unchanged for
-    // clients that don't care.
-    res.json(stored)
-  } catch (e: any) {
-    // Honour explicit statusCode (provider 4xx, schema 400, …) so the
-    // frontend can distinguish "bad input" from "provider down" and
-    // route through humanizeBackendError to surface actionable hints.
-    const status = typeof e?.statusCode === 'number' ? e.statusCode : 500
-    res.status(status).json(humanizeBackendError(e, 'AI generation failed'))
   }
 })
 
@@ -1164,7 +923,6 @@ router.post('/projects/:slug/ideas/:ideaId/accept', async (req, res) => {
       }
     }
 
-    invalidateProjectUploadCaches(req.params.slug)
     res.json(result)
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Failed to accept idea'))
@@ -1212,7 +970,6 @@ router.post('/projects/:slug/ideas/batch-accept', async (req, res) => {
     // Per-idea outcome: { accepted, skipped, failed: [{ id, title, reason }] }.
     // One bad idea no longer aborts the rest of the batch.
     const result = await im.acceptMultipleIdeas(req.params.slug, idea_ids)
-    if (result.accepted.length) invalidateProjectUploadCaches(req.params.slug)
     res.json(result)
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Batch accept failed'))
@@ -1225,12 +982,6 @@ router.post('/projects/:slug/ideas/:ideaId/dismiss', async (req, res) => {
   if (!await im.dismissIdea(req.params.slug, req.params.ideaId)) {
     return res.status(404).json({ detail: 'Idea not found' })
   }
-  // Bust the missing-video + queue caches so the next read reflects the
-  // dismissal immediately. Without this, ↻ Refresh on the Missing Video
-  // tab would keep returning the cached pre-dismiss list for up to 5
-  // minutes — which surfaces as "the dismissed episode is still there
-  // and Refresh isn't doing anything" (reported 2026-05-04).
-  invalidateProjectUploadCaches(req.params.slug)
   res.json({ ok: true })
 })
 
@@ -1248,7 +999,6 @@ router.get('/projects/:slug/ideas/:ideaId/reset-preview', async (req, res) => {
 router.post('/projects/:slug/ideas/:ideaId/reset', async (req, res) => {
   try {
     const result = await im.resetIdea(req.params.slug, req.params.ideaId)
-    invalidateProjectUploadCaches(req.params.slug)
     res.json({ ok: true, ...result })
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Reset failed'))
@@ -1257,201 +1007,9 @@ router.post('/projects/:slug/ideas/:ideaId/reset', async (req, res) => {
 
 // ── Delete episode folder by code (from Jobs page) ─────────────────────────
 
-router.delete('/projects/:slug/episodes/:episodeCode', async (req, res) => {
-  try {
-    const result = await im.deleteEpisodeFolder(req.params.slug, req.params.episodeCode)
-    res.json({ ok: true, ...result })
-  } catch (e: any) {
-    res.status(400).json(humanizeBackendError(e, 'Delete failed'))
-  }
-})
-
 // ── Manually tag/check an episode folder ────────────────────────────────────
 
-router.post('/projects/:slug/episodes/:episodeCode/check-status', async (req, res) => {
-  const { slug, episodeCode } = req.params
-
-  const projectDir = pm.getProjectDir(slug)
-  if (!projectDir) return res.status(404).json({ detail: 'Project not found' })
-
-  res.json({ detail: 'Status check completed (tagging removed)' })
-})
-
 // ── Migrate old episodes to new folder structure ────────────────────────────
-
-router.post('/projects/:slug/episodes/migrate', async (req, res) => {
-  const { slug } = req.params
-  const outputRoot = await pm.getProjectOutputRoot(slug)
-  if (!outputRoot) return res.status(404).json({ detail: 'Project not found' })
-
-  const fsP = await import('fs/promises')
-  const { existsSync, cpSync } = await import('fs')
-  const pathMod = await import('path')
-
-  const results: Array<{ episode: string; actions: string[] }> = []
-
-  // Recursively find all episode folders. Capped depth so a malformed
-  // / accidentally-symlinked tree can't hang the request indefinitely —
-  // matches the safety pattern dashboard-stats uses.
-  const FIND_EPISODES_DEPTH_LIMIT = 8
-  async function findEpisodeDirs(dir: string, depth = 0): Promise<string[]> {
-    if (depth > FIND_EPISODES_DEPTH_LIMIT) return []
-    const dirs: string[] = []
-    try {
-      const entries = await fsP.readdir(dir, { withFileTypes: true })
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue
-        const fp = pathMod.join(dir, entry.name)
-        const clean = entry.name
-        // Episode folders match "CODE - Title" pattern
-        if (/^[A-Z]{2,}\d{2,} - /.test(clean)) {
-          dirs.push(fp)
-        } else {
-          // Search inside any subfolder (Season, Batch, Volume, episodes, etc.)
-          dirs.push(...await findEpisodeDirs(fp, depth + 1))
-        }
-      }
-    } catch {}
-    return dirs
-  }
-
-  const episodeDirs = await findEpisodeDirs(outputRoot)
-
-  // Pre-batch the per-episode config-derived subfolder names so the loop
-  // below doesn't re-read project config N times. resolveSubfolderNames
-  // is pure config lookup; running them in parallel collapses the chain.
-  const subfolderNamesByCode = new Map<string, Awaited<ReturnType<typeof resolveSubfolderNames>>>()
-  await Promise.all(episodeDirs.map(async (epDir) => {
-    const dirName = pathMod.basename(epDir)
-    const m = dirName.match(/^([A-Z]{2}\d{3,})/)
-    if (!m) return
-    const code = m[1]
-    if (subfolderNamesByCode.has(code)) return
-    subfolderNamesByCode.set(code, await resolveSubfolderNames(slug, code))
-  }))
-
-  for (const epDir of episodeDirs) {
-    const dirName = pathMod.basename(epDir)
-    const codeMatch = dirName.match(/^([A-Z]{2}\d{3,})/)
-    if (!codeMatch) continue
-    const code = codeMatch[1]
-    const actions: string[] = []
-
-    const subs = await fsP.readdir(epDir)
-    const cleanSubs = subs.map(s => ({ original: s, clean: s }))
-
-    // Resolve configured subfolder names for this episode (pre-batched above)
-    const names = subfolderNamesByCode.get(code) || await resolveSubfolderNames(slug, code)
-
-    // 1. Create separate prompt folders if missing (migrate from combined Image Prompts)
-    const hasScenePromptsFolder = cleanSubs.some(s => s.clean.toLowerCase().includes('scene prompt'))
-    const hasThumbPromptsFolder = cleanSubs.some(s => s.clean.toLowerCase().includes('thumbnail prompt'))
-    const oldPromptsFolder = cleanSubs.find(s => s.clean.toLowerCase().includes('image prompt'))
-
-    if (!hasScenePromptsFolder) {
-      const sceneDir = pathMod.join(epDir, names.scene_prompts)
-      await fsP.mkdir(sceneDir, { recursive: true })
-      actions.push('Created Scene Prompts folder')
-
-      // Copy scene prompts from old Image Prompts or Script folder
-      if (oldPromptsFolder) {
-        try {
-          const files = await fsP.readdir(pathMod.join(epDir, oldPromptsFolder.original))
-          const sceneFile = files.find(f => f.toLowerCase().includes('scene') && f.endsWith('.docx'))
-            || files.find(f => f.toLowerCase().includes('image_prompts') && f.endsWith('.docx'))
-          if (sceneFile) {
-            await fsP.copyFile(pathMod.join(epDir, oldPromptsFolder.original, sceneFile), pathMod.join(sceneDir, `${code}_Scene_Prompts.docx`))
-            actions.push(`Copied scene prompts to Scene Prompts folder`)
-          }
-        } catch {}
-      }
-    }
-
-    if (!hasThumbPromptsFolder) {
-      const thumbDir = pathMod.join(epDir, names.thumb_prompts)
-      await fsP.mkdir(thumbDir, { recursive: true })
-      actions.push('Created Thumbnail Prompts folder')
-
-      // Copy thumb prompts from old Image Prompts folder
-      if (oldPromptsFolder) {
-        try {
-          const files = await fsP.readdir(pathMod.join(epDir, oldPromptsFolder.original))
-          const thumbFile = files.find(f => f.toLowerCase().includes('thumb') && f.endsWith('.docx'))
-            || files.find(f => f.toLowerCase().includes('image_prompts') && f.endsWith('.docx'))
-          if (thumbFile) {
-            await fsP.copyFile(pathMod.join(epDir, oldPromptsFolder.original, thumbFile), pathMod.join(thumbDir, `${code}_Thumbnail_Prompts.docx`))
-            actions.push(`Copied thumbnail prompts to Thumbnail Prompts folder`)
-          }
-        } catch {}
-      }
-    }
-
-    // 2. Create Metadata folder if missing
-    const hasMetadataFolder = cleanSubs.some(s => s.clean.toLowerCase().includes('metadata'))
-    if (!hasMetadataFolder) {
-      const metaDir = pathMod.join(epDir, names.metadata)
-      await fsP.mkdir(metaDir, { recursive: true })
-      actions.push('Created Metadata folder')
-
-      // Move legacy YouTube description txt if it sits in the Script folder
-      const scriptFolder = cleanSubs.find(s => s.clean.toLowerCase().includes('script') && !s.clean.toLowerCase().includes('prompt'))
-      if (scriptFolder) {
-        const scriptPath = pathMod.join(epDir, scriptFolder.original)
-        try {
-          const scriptFiles = await fsP.readdir(scriptPath)
-          const descFile = scriptFiles.find(f => f.toLowerCase().includes('youtube') && f.endsWith('.txt'))
-          if (descFile) {
-            await fsP.copyFile(pathMod.join(scriptPath, descFile), pathMod.join(metaDir, descFile))
-            actions.push(`Copied ${descFile} to Metadata folder`)
-          }
-        } catch {}
-      }
-    }
-
-    // 3. Create Video folder if missing
-    // v1.0.469 — exclude "Video Assets" (folder 11) from this loose match, else
-    // an episode that only has the assets folder would skip creating "10 Video
-    // Assembly Output".
-    const hasVideoFolder = cleanSubs.some(s => {
-      const n = s.clean.toLowerCase()
-      return n.includes('video') && !n.includes('video assets')
-    })
-    if (!hasVideoFolder) {
-      await fsP.mkdir(pathMod.join(epDir, names.video), { recursive: true })
-      actions.push('Created Video folder')
-    }
-
-    // 4. Create Audio Merge (08) + Subtitles (09) folders if missing — these
-    //    used to be created lazily only when those steps ran; scaffold them so
-    //    every stage's folder is visible up-front like the rest.
-    const hasMergedAudioFolder = cleanSubs.some(s => s.clean.toLowerCase().includes('audio merge'))
-    if (!hasMergedAudioFolder) {
-      await fsP.mkdir(pathMod.join(epDir, names.merged_audio), { recursive: true })
-      actions.push('Created Audio Merge Output folder')
-    }
-    const hasSubtitlesFolder = cleanSubs.some(s => s.clean.toLowerCase().includes('subtitle'))
-    if (!hasSubtitlesFolder) {
-      await fsP.mkdir(pathMod.join(epDir, names.subtitles), { recursive: true })
-      actions.push('Created Subtitles Output folder')
-    }
-    // v1.0.469 — Video Assets (11): per-scene image-to-video clips (Phase 2 of
-    //    the motion-prompt feature). Scaffolded up-front like the rest.
-    const hasVideoAssetsFolder = cleanSubs.some(s => s.clean.toLowerCase().includes('video assets'))
-    if (!hasVideoAssetsFolder) {
-      await fsP.mkdir(pathMod.join(epDir, names.video_assets), { recursive: true })
-      actions.push('Created Video Assets folder')
-    }
-
-    if (actions.length > 0) {
-      results.push({ episode: code, actions })
-    }
-  }
-
-  res.json({
-    migrated: results.length,
-    episodes: results,
-  })
-})
 
 // ── Sync folders: fix all folder issues at once ─────────────────────────────
 
@@ -1706,7 +1264,6 @@ router.delete('/projects/:slug/ideas/:ideaId', async (req, res) => {
   if (!await im.removeIdea(req.params.slug, req.params.ideaId)) {
     return res.status(404).json({ detail: 'Idea not found' })
   }
-  invalidateProjectUploadCaches(req.params.slug)
   res.json({ ok: true })
 })
 
@@ -1733,7 +1290,6 @@ router.get('/projects/:slug/episodes/compact-preview', async (req, res) => {
 router.post('/projects/:slug/episodes/compact', async (req, res) => {
   try {
     const result = await compactAcceptedEpisodes(req.params.slug)
-    invalidateProjectUploadCaches(req.params.slug)
     res.json({ ok: true, ...result })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Compact failed'))
@@ -1768,7 +1324,6 @@ router.post('/projects/:slug/episodes/reseason', async (req, res) => {
       return res.status(400).json({ detail: 'new_size must be a positive integer ≤ 1000' })
     }
     const result = await applyReseason(req.params.slug, newSize)
-    invalidateProjectUploadCaches(req.params.slug)
     res.json({ ok: true, ...result })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Reseason failed'))
@@ -1793,7 +1348,6 @@ router.get('/projects/:slug/episodes/reseason-undo', async (req, res) => {
 router.post('/projects/:slug/episodes/reseason-undo/revert', async (req, res) => {
   try {
     const result = await revertReseason(req.params.slug)
-    invalidateProjectUploadCaches(req.params.slug)
     res.json({ ok: true, ...result })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to revert reseason'))

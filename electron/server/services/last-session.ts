@@ -71,9 +71,8 @@ function runningFlagPath(): string {
 // pattern-excluded) so adding a new page is an opt-in decision.
 export const RESTORABLE_ROUTES = [
   'index', 'ideas', 'pipeline', 'scripts', 'metadata',
-  'image-prompts', 'images', 'video', 'audio', 'audio-merge',
-  'video-assembly', 'upload', 'tiktok-upload', 'facebook-upload',
-  'presets', 'assets', 'jobs', 'settings',
+  'image-prompts', 'images', 'audio', 'audio-merge',
+  'video-assembly', 'upload', 'presets', 'jobs', 'settings',
 ] as const
 
 export type LastSession = {

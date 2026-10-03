@@ -256,9 +256,6 @@ test('Gateway media and LLM discovery use provider-owned live catalogs', async (
     throw new Error(`Unexpected request: ${url}`)
   }
 
-  const capabilities = await request(app).get('/api/app-settings/genstudio/models').expect(200)
-  assert.equal(capabilities.body.models.length, 2)
-
   const chat = await request(app).get('/api/app-settings/genstudio/chat-models').expect(200)
   assert.deepEqual(chat.body.models.map((model: any) => model.id), ['chat-v1'])
 

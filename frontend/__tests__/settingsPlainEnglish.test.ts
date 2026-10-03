@@ -5,12 +5,11 @@ import test from 'node:test'
 const read = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8')
 const settings = read('../pages/projects/[slug]/settings.vue')
 const serverMode = read('../components/ServerModeSettingsPanel.vue')
-const topicPicker = read('../components/TopicPackPicker.vue')
 /** Template text outside any <details> block — what the owner reads without clicking. */
 const visible = (source: string) => source.split('<script')[0]!.replace(/<details[\s\S]*?<\/details>/g, '').replace(/<!--[\s\S]*?-->/g, '')
 
 test('Settings advanced panels speak plain English; the technical wording sits in a collapsed Details', () => {
-  for (const [name, source] of [['settings', settings], ['server mode', serverMode], ['topic picker', topicPicker]] as const) {
+  for (const [name, source] of [['settings', settings], ['server mode', serverMode]] as const) {
     const text = visible(source)
     for (const jargon of [/subject lanes?/i, /SHA-256/, /aggregate credit ceiling/, /Session TTL/, /Polls <code>/, /binds <code>/]) {
       assert.doesNotMatch(text, jargon, `${name}: ${jargon} is visible without opening Details`)

@@ -130,6 +130,7 @@ describe('missing files dialog', () => {
   test('jump links use the episode_id query the pages actually read', () => {
     assert.match(dialog, /audio\?episode_id=\$\{encodeURIComponent\(code\)\}/)
     assert.match(dialog, /images\?episode_id=/)
+    assert.match(dialog, /scene-review\?episode_id=/)
     assert.match(dialog, /motion-review\?episode_id=/)
     assert.match(dialog, /audio-merge\?episode_id=/)
     assert.doesNotMatch(dialog, /\?episode=\$\{code\}/)

@@ -481,7 +481,7 @@ function onListKeydown(event: KeyboardEvent) {
 }
 function goToGenStudioSettings() {
   close()
-  void router.push(`/projects/${props.projectSlug}/settings#genstudio-settings`)
+  void router.push(`/projects/${props.projectSlug}/settings#connections`)
 }
 
 // Escape, backdrop dismissal and focus restoration all come from Modal via

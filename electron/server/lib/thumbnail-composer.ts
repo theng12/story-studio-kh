@@ -17,7 +17,6 @@
 import sharp from 'sharp'
 import type { OverlayOptions } from 'sharp'
 import fsp from 'fs/promises'
-import path from 'path'
 import type { ThumbnailTemplate } from '../models/types.js'
 import { buildOverlaySvg } from '../contracts/thumbnail-overlay.js'
 
@@ -126,27 +125,3 @@ function resolveAnchor(
   return { left: Math.max(0, left), top: Math.max(0, top) }
 }
 
-/**
- * Pick a non-colliding output filename in the thumbnails dir. Mirrors
- * the `_v{N}` versioning convention used elsewhere so the Images-page
- * grid sorts composed files naturally alongside generated ones.
- */
-export async function pickComposedFilename(
-  thumbDir: string,
-  baseStem: string,
-): Promise<string> {
-  // Try `${baseStem}_composed_v1.png`, `_v2.png`, ... until free.
-  let n = 1
-  while (n < 999) {
-    const candidate = `${baseStem}_composed_v${n}.png`
-    const full = path.join(thumbDir, candidate)
-    try {
-      await fsp.access(full)
-      n++ // exists; try next
-    } catch {
-      return candidate
-    }
-  }
-  // Fallback — millis suffix, basically guaranteed unique.
-  return `${baseStem}_composed_${Date.now()}.png`
-}

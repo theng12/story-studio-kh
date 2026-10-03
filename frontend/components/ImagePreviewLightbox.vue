@@ -519,9 +519,6 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(255, 255, 255, 0.15);
   color: rgba(255, 255, 255, 0.85);
 }
-.ipl-edit-btn {
-  flex-shrink: 0;
-}
 .ipl-actions {
   display: flex;
   gap: 8px;

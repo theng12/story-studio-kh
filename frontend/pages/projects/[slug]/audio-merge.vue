@@ -335,7 +335,7 @@
         <p class="text-muted text-sm mt-1">
           <template v-if="narrationVolume === 100">100% = original recorded level (unchanged).</template>
           <template v-else-if="narrationVolume > 100">
-            Boosting voiceover to {{ (narrationVolume / 100).toFixed(2) }}× louder.<template v-if="narrationVolume > 130 && !normalizeVolume"> <strong>⚠ Above 130% without normalization can clip</strong> — enable Volume Normalization below for a safe, even level.</template>
+            Boosting voiceover to {{ (narrationVolume / 100).toFixed(2) }}× louder.<template v-if="narrationVolume > 130 && !normalizeVolume"> <strong>⚠ Above 130% without normalization can clip</strong> — turn on Normalize above for a safe, even level.</template>
           </template>
           <template v-else>Lowering voiceover to {{ (narrationVolume / 100).toFixed(2) }}× of the recorded level.</template>
           Applied on top of normalization if that's also on.
@@ -589,7 +589,7 @@
       <p class="text-muted text-sm mt-1">
         Stack any number of ambient loops (rain, fire crackle, distant thunder, wind) — each plays
         <strong>simultaneously at its own volume</strong> alongside narration, music, and background noise.
-        Different from <em>Music Files</em> above (which concatenates files into one playlist).
+        Different from <em>Background Music</em> above (which plays its files one after another as a single bed).
         Drop sources into the project's <code>ambient/</code> folder, then click <strong>+ Add Track</strong>.
       </p>
 
@@ -794,9 +794,8 @@ const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post } = useApi()
 const { success, error: showError } = useToast()
-const { ask } = useConfirm()
 const { audioMergeGenerating } = useGenerating()
-const { project, episodesRoot } = useProject()
+const { episodesRoot } = useProject()
 
 // ── State ──
 const episodeId = ref('')
@@ -2045,16 +2044,12 @@ onUnmounted(() => {
   .audio-assembly-action-controls .btn { width: 100%; justify-content: center; }
 }
 
-.btn-lg { padding: 12px 40px; font-size: 16px; font-weight: 600; }
-
-.generating-status { display: flex; flex-direction: column; gap: 6px; }
 .gen-label { font-size: 13px; color: var(--accent); }
 .progress-bar { height: 3px; background: var(--bg-tertiary); border-radius: 2px; overflow: hidden; }
 .progress-fill { height: 100%; background: var(--accent); border-radius: 2px; animation: progressIndeterminate 1.5s ease-in-out infinite; }
 @keyframes progressIndeterminate { 0% { width: 0%; margin-left: 0; } 50% { width: 60%; margin-left: 20%; } 100% { width: 0%; margin-left: 100%; } }
 
 .scanning-status { display: flex; flex-direction: column; gap: 4px; }
-.slider { width: 100%; }
 
 /* Apply-time path check: invalid references are blocking and each row offers
    a direct replacement action. */

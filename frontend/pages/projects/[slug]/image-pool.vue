@@ -131,7 +131,6 @@
             <ImageModelPicker
               v-model="genModel"
               :project-slug="slug"
-              :image-models="config?.image_models || {}"
               image-mode="text2img"
               default-label="Pick an image model…"
             />
@@ -190,7 +189,7 @@ useAppTitle('Image Pool')
 
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
-const { get, post, put } = useApi()
+const { post, put } = useApi()
 const { success, error: showError, info: showInfo } = useToast()
 const broll = useBrollPools()
 const { config, refreshConfig } = useProject()
@@ -443,7 +442,6 @@ onMounted(async () => {
 .ip-num { width: 80px; }
 .ip-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .ip-warn { color: #c97a4a; font-size: 13px; }
-.ip-warn-list { margin: 0; padding-left: 18px; color: #c97a4a; font-size: 12px; }
 .text-accent { color: var(--accent); }
 /* Grow-pool panel */
 .ip-grow-head { display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; margin: 0; }

@@ -22,7 +22,6 @@ import type { MotionCategory, OverlayCategory } from './scene-effects.js'
 import {
   SCENE_EFFECT_SCHEMA_VERSION,
   defaultSceneMotion,
-  defaultSceneOverlay,
   mergeSceneMotion,
   mergeSceneOverlay,
   normalizeSceneOverlay,
@@ -390,11 +389,6 @@ export function sceneEffectCatalog() {
     overlays: BUILT_IN_OVERLAYS,
     grouped_overlays: groupedOverlays(),
   }
-}
-
-/** Defaults for one overlay kind, for a UI that is building a custom instance. */
-export function overlayKindDefaults(kind: OverlayKind): SceneOverlayDocument {
-  return defaultSceneOverlay(kind)
 }
 
 /** One selected overlay, resolved against the library and ready to compile. */

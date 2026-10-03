@@ -17,13 +17,9 @@ const ASK = /useConfirm\(\)\.ask\(\{[^\n]*danger: true/
 test('destructive removals and bulk clears ask first', () => {
   assert.match(body('pages/projects/[slug]/music.vue', 'remove'), ASK)
   assert.match(body('pages/projects/[slug]/jobs.vue', 'clearHistory'), ASK)
-  for (const fn of ['removeThumbnail', 'removeMaster', 'removeScene']) {
-    assert.match(body('components/Img2ImgReferencesCard.vue', fn), ASK, fn)
-  }
   for (const fn of ['removeComposition', 'removeSheet']) {
     assert.match(body('pages/projects/[slug]/character-sheet.vue', fn), ASK, fn)
   }
-  assert.doesNotMatch(src('components/Img2ImgReferencesCard.vue'), /[^.]\bconfirm\('/, 'no native confirm()')
 })
 
 test('force-regenerate thumbnails is explicit and cannot be skipped', () => {

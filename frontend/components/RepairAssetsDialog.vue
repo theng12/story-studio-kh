@@ -117,13 +117,13 @@
 
 <script setup lang="ts">
 /**
- * Repair dialog — re-pulls provider-completed jobs (images / video / audio)
+ * Repair dialog — re-pulls provider-completed jobs (audio and images)
  * that finished on the provider's side but never persisted locally (app crash,
  * network blip, timeout). Relocated from the retired per-project Assets tab
  * (v1.0.481): the audit *matrix* that page also carried is now redundant with
  * the Production Board, but Repair is the unique, valuable capability — it
  * lives here, reachable from the board, and is the only place that calls
- * /assets/repair-all + the per-episode images/video/audio repair endpoints.
+ * /assets/repair-all + the per-episode audio and image repair endpoints.
  *
  * Still uses GET /assets-audit to compute what's missing (that endpoint feeds
  * the gap counts below); only the on-page audit *visualisation* was dropped.

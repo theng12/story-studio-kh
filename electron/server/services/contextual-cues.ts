@@ -23,13 +23,6 @@ export const DEFAULT_CONTEXTUAL_CUE_CONFIG: ContextualCueProjectConfig = {
   auto_approve_cues: false,
 }
 
-export const DEFAULT_CONTEXTUAL_CUE_PROPOSAL_SETTINGS: ContextualCueProposalSettings = {
-  model: '',
-  density: 'restrained',
-  placement: 'top-right',
-  auto_approve: false,
-}
-
 export function normalizeContextualCueConfig(value: unknown): ContextualCueProjectConfig {
   const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {}
   return {

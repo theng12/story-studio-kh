@@ -47,18 +47,9 @@
       <div class="grid-2">
         <div class="form-group">
           <label>Image Model <span class="required" aria-hidden="true">*</span></label>
-          <!-- v1.0.152+ — custom ImageModelPicker replaces the plain
-               <select>. Source-aware (☁︎ cloud vs 💻 local), live
-               catalog fetch from the Image Studio modal, capability
-               badges, search + I2I filter, open-modal-UI link. The
-               picker emits the same string model id the old select
-               did, so the watch(activeForm.value.model, …) below and
-               every downstream computed (cap, tier, label, etc.) keep
-               working unchanged. -->
           <ImageModelPicker
             v-model="activeForm.model"
             :project-slug="slug"
-            :image-models="config?.image_models || {}"
             :image-mode="thumbnailReferenceActive ? 'img2img' : 'text2img'"
           />
           <p v-if="thumbnailReferenceActive" class="reference-notice" role="status">
@@ -69,13 +60,10 @@
             </button>
           </p>
           <span v-else class="text-muted text-xs">Tip: Use a higher-quality model for eye-catching thumbnails</span>
-          <!-- Prompt-character cap indicator. Surfaces the documented limit
-               for the active model so users know how long their image
-               prompts can be before the provider rejects/silently truncates.
-               Cap values come from electron/server/models/defaults.ts and
-               are approximate. v1.4.206 — the "View all caps" reference table
-               is gone (owner decision 3): it printed copied caps and credit
-               prices as though they were current, which rule 1 forbids. -->
+          <!-- Prompt-character cap indicator. Surfaces the limit the Gateway
+               publishes for the active model so users know how long their
+               image prompts can be before the provider rejects or truncates
+               them. -->
           <span class="cap-row">
             <template v-if="activeModelCap">
               <span class="cap-pill" :title="`Approximate prompt length limit for ${activeModelLabel}. Longer prompts may be refused or cut short.`">
@@ -88,26 +76,6 @@
               </span>
             </template>
           </span>
-        </div>
-
-        <!-- Tier picker — only renders for variable-priced models that
-             carry a `tiers[]` array (resolution/speed/etc.). Flat-priced
-             models hide it entirely. Credits are quoted authoritatively by
-             The Gateway at confirmation and settlement. -->
-        <div v-if="modelTiers.length > 0" class="form-group">
-          <label>{{ modelTierLabel }}</label>
-          <div class="tier-picker">
-            <label
-              v-for="t in modelTiers"
-              :key="t.id"
-              class="tier-option"
-              :class="{ active: activeForm.tier === t.id }"
-            >
-              <input type="radio" :value="t.id" v-model="activeForm.tier" />
-              <span class="tier-option-label">{{ t.label }}</span>
-              <span class="tier-option-cost">{{ t.credits }} GenStudio credits</span>
-            </label>
-          </div>
         </div>
       </div>
 
@@ -370,15 +338,6 @@
       @pin-toggle="onLightboxPinToggle"
     />
 
-
-    <!-- Provider prompt-cap reference table. Mounts on demand from the
-         "View all caps →" link beside the model selector. Sorted strict-
-         first so the user can immediately spot the tight providers
-         (Seedream variants at ~500 chars) vs. the generous ones
-         (Nano Banana at ~5000). All numbers approximate — recorded from
-         each provider's published docs at last audit, see
-         electron/server/models/defaults.ts:prompt_char_cap. -->
-
   </div>
 </template>
 
@@ -399,18 +358,6 @@ const {
   refresh: refreshGenStudioImageModels,
 } = useGenStudioImageModels()
 
-// Image models are loaded from the live GenStudio catalog. The picker keeps
-// its catalog handling in one place as the available routes evolve.
-//
-// v1.0.152 — the legacy `imageModelGroups` computed + the
-// `formatModelOption(m)` formatter that drove the old <optgroup>
-// <select> have been removed. ImageModelPicker (introduced in 1.0.152)
-// owns the grouping, search, capability filter, and label formatting
-// internally. The picker reads `config.image_models` directly and
-// emits a model id back into activeForm.value.model — every existing
-// downstream watch / computed (cap, tier, label) continues to fire
-// unchanged because the bound value type didn't change.
-
 const { success, error: showError, info: showInfo } = useToast()
 const { thumbImageGenerating } = useGenerating()
 const { confirmGeneration } = useConfirmation()
@@ -424,15 +371,10 @@ type ImagesSubForm = {
   model: string
   aspect_ratio: string
   generation_mode: 'skip' | 'regenerate'
-  tier: string
   // v1.0.308 — LEGACY render-size scale (100 = Full, 75 = Balanced, 50 = Light)
-  // for models that DON'T expose a per-model size menu. Scales the aspect's base
-  // pixels. Superseded by render_tier when the model reports `sizes`.
+  // for local models that DON'T expose a per-model size menu. Scales the aspect's
+  // base pixels.
   render_scale: number
-  // v1.0.478 — quality tier resolved against the selected model's `sizes` menu
-  // (Image Studio). 'highest' = largest size for the AR (ultra→high→max),
-  // 'balanced' = middle/default, 'fast' = smallest. Portable across models.
-  render_tier: 'highest' | 'balanced' | 'fast'
   seed: number | null
 }
 const defaultSubForm = (): ImagesSubForm => ({
@@ -446,14 +388,8 @@ const defaultSubForm = (): ImagesSubForm => ({
   // is purely a UI consolidation. Default 'skip' matches the prior
   // default behaviour (force=false).
   generation_mode: 'skip',
-  // Catalog variant for models with selectable output sizes or qualities.
-  // Models without variants ignore it. Reset on model switch below.
-  tier: '',
   // Local render size: Full by default so existing behaviour is unchanged.
   render_scale: 100,
-  // v1.0.478 — model-menu quality tier. Balanced = a sensible default (e.g. 1080p
-  // for 16:9 on cloud models); only used when the model reports `sizes`.
-  render_tier: 'balanced',
   seed: null,
 })
 const form = reactive({
@@ -462,7 +398,7 @@ const form = reactive({
 })
 useAppTitle('Thumbnail Generator')
 
-// v1.0.259 — remember the render settings (model / aspect / tier / generation mode) across reloads.
+// v1.0.259 — remember the render settings (model / aspect / generation mode) across reloads.
 useRememberedForm('images', slug, form, { include: ['thumbnail'] })
 // The format's recommended ratio only seeds a form that remembered none.
 const aspectRatioRemembered = !!form.thumbnail.aspect_ratio
@@ -506,21 +442,8 @@ const { selectedEpisode } = useEpisodeStatus(episodeIdRef, slug, {
   refetchOnJobTypes: ['script-only', 'expand_chapters'],
 })
 
-// v1.0.152 — `formatModelOption()` was the option-row formatter for
-// the old plain <select>. The new ImageModelPicker renders its own
-// rows with structured chips (cost / capability / size / gated
-// badges), so the formatter is no longer called. Removed.
-
-// Tier helpers — exposed to the template via computeds so the picker
-// renders only when the active model has tiers.
-const modelTiers = computed<{ id: string; label: string; credits: number }[]>(() => {
-  const m = config.value?.image_models?.[activeForm.value.model] as any
-  return Array.isArray(m?.tiers) ? m.tiers : []
-})
-
-// Per-tab prompt-character cap + friendly label. Both come from the selected
-// live GenStudio row, so the advisory badge agrees with preview admission.
-// Each tab can select a different model.
+// Prompt-character cap + friendly label for the selected model. Both come from
+// the selected live GenStudio row, so the advisory badge agrees with preview admission.
 function modelInfoFor(modelId: string) {
   const m = genStudioImageModels.value.find(model => model.id === modelId)
   return {
@@ -532,33 +455,9 @@ const thumbnailModelInfo = computed(() => modelInfoFor(form.thumbnail.model))
 const activeModelCap = computed(() => thumbnailModelInfo.value.cap)
 const activeModelLabel = computed(() => thumbnailModelInfo.value.label)
 
-const modelTierLabel = computed(() => {
-  // Naming the picker by axis: "Resolution" if tier ids look like 1k/2k/4k,
-  // "Quality" for turbo/balanced/quality, generic "Tier" otherwise. Keeps
-  // the label descriptive without forcing per-model schema config.
-  const ids = modelTiers.value.map(t => t.id.toLowerCase())
-  if (ids.some(id => /^\d+k(-\d+k)?$/.test(id))) return 'Resolution'
-  if (ids.some(id => ['turbo', 'balanced', 'quality'].includes(id))) return 'Quality'
-  return 'Tier'
-})
-
 const activeGenStudioModel = computed(() =>
   genStudioImageModels.value.find(model => model.id === activeForm.value.model) || null,
 )
-// When the active model changes, snap the tier selection back to the new
-// model's default_tier (or first tier, or empty). Without this, switching
-// from gpt-image-2 (default '1k') to ideogram-v3 (default 'balanced')
-// would leave activeForm.value.tier='1k', which isn't a valid ideogram tier.
-watch(() => [activeForm.value.model, genStudioImageModels.value.length], () => {
-  const m = config.value?.image_models?.[activeForm.value.model] as any
-  const tiers = Array.isArray(m?.tiers) ? m.tiers : []
-  if (!tiers.length) {
-    activeForm.value.tier = ''
-  } else {
-    const def = tiers.find((t: any) => t.id === m.default_tier) ?? tiers[0]
-    activeForm.value.tier = def?.id || ''
-  }
-}, { immediate: true })
 
 function normalizeImageAspectRatio(target: ImagesSubForm): boolean {
   const ratios = modelArs(target.model) || []
@@ -743,10 +642,6 @@ function activeLegacyDimsLabel(scale: number): string {
   const d = legacyDimsFor(activeForm.value.aspect_ratio, scale)
   return `${d.width}×${d.height}`
 }
-// Passed down to the ImageGeneratorPanel so its bulk + per-row renders carry the same
-// pixels the form shows.
-const thumbnailRenderSize = computed(() => sizeBodyFor(form.thumbnail))
-
 const generateButtonLabel = 'Generate Thumbnail Images'
 const generatingLabel = 'Generating thumbnail images'
 const generating = computed(() => thumbImageGenerating.value)
@@ -775,10 +670,7 @@ if (route.query.tab === 'scenes') {
 interface ImageStatusState {
   loading: boolean
   error: string
-  hasAny: boolean       // whether any prompts were found
   thumbnails: { total: number; present: number; missing: number[] } | null
-  hasMissing: boolean
-  totalMissing: number
   missingThumbsList: string
 }
 // No `provider`: the repair status endpoint no longer returns one, and a
@@ -799,9 +691,8 @@ interface RepairPoolStatus {
  */
 function emptyImageStatus(): ImageStatusState {
   return {
-    loading: false, error: '', hasAny: false,
+    loading: false, error: '',
     thumbnails: null,
-    hasMissing: false, totalMissing: 0,
     missingThumbsList: '',
   }
 }
@@ -869,10 +760,7 @@ async function refreshImageStatus() {
     ])
     if (requestSequence !== imageStatusLoadSequence || !current()) return
     imageStatus.thumbnails = r.thumbnails ?? null
-    imageStatus.hasAny = !!r.thumbnails
     const missThumb = imageStatus.thumbnails?.missing.length ?? 0
-    imageStatus.hasMissing = missThumb > 0
-    imageStatus.totalMissing = missThumb
     imageStatus.missingThumbsList = missThumb > 0 ? imageStatus.thumbnails!.missing.join(', ') : ''
     repairStatus.thumb = repair.thumb
   } catch (e: any) {
@@ -912,11 +800,10 @@ async function generateMissingFresh() {
   await queueGeneration(false, `Fresh generation queued for ${activeFreshCount.value} missing ${activePoolLabel}.`)
 }
 
-// ── Edit-existing-images grid (audit pain-point #14) ─────────────────────
+// ── On-disk thumbnail scan (feeds the lightbox) ──────────────────────────
 // Reuses the same `/video-editor/scan/{episodeId}` endpoint Video Assembly
 // uses to enumerate already-on-disk images. Cheap (one read of the
-// scenes / thumbnails subfolders) so re-fetching after each accepted edit
-// is fine.
+// thumbnails subfolder) so re-fetching after each render is fine.
 //
 // IMPORTANT: declared BEFORE the episode-id watcher below. Earlier this
 // block lived after the watch, but `{ immediate: true }` fires the watch
@@ -927,21 +814,15 @@ interface ScannedImage { filename: string; path: string }
 const editThumbs = ref<ScannedImage[]>([])
 let editScanLoadSequence = 0
 
-// v1.0.87+: cache-bust key for the new ImageGeneratorPanel components.
-// Bumped after a per-row or bulk render completes inside either panel
-// so the parent Edit gallery + image-integrity card can pick up the
-// new files on the next refresh. Mirrors the pattern used by the
-// Prompts page (reviewRefreshKey for PromptReviewPanel).
-//
-// v1.2.9: this is now the page's ONE "the pixels on disk may have changed"
-// signal. It feeds the panels' `refreshKey`, the Browse grid's URLs and the
+// Cache-bust key for the ImageGeneratorPanel. The page's ONE "the pixels on
+// disk may have changed" signal. It feeds the panel's `refreshKey` and the
 // lightbox's `version`, and `loadEditScan()` bumps it, so every path that
 // re-reads the disk also re-fetches the images.
 const igPanelRefreshKey = ref(0)
 
 function onPanelRefresh() {
-  // Re-run the Edit gallery's scan so its grid + the integrity card stay
-  // in sync with whatever the panels just wrote — loadEditScan() bumps
+  // Re-run the thumbnail scan so the lightbox + the integrity card stay
+  // in sync with whatever the panel just wrote — loadEditScan() bumps
   // igPanelRefreshKey, which is what actually re-fetches the pixels.
   void loadEditScan()
   refreshImageStatus()
@@ -1085,7 +966,7 @@ watch([slug, () => form.episode_id], ([, v], old) => {
   // v1.4.196 — blank on the CHANGE, not only when the episode becomes empty.
   // `refreshImageStatus` and `loadEditScan` replace their results only on a
   // SUCCESSFUL read, so switching from one episode to another left the previous
-  // episode's integrity figures and Browse grid on screen for the whole load —
+  // episode's integrity figures and thumbnail list on screen for the whole load —
   // and permanently if the read failed (AGENTS.md §4). The old code cleared
   // these ONLY in the else branch, i.e. when there was no episode at all.
   Object.assign(imageStatus, emptyImageStatus())
@@ -1112,8 +993,6 @@ function generationParams(forceOverride?: boolean) {
     ...(extraDetails.value.trim() ? { extra_details: extraDetails.value.trim() } : {}),
     force,
   }
-  // Forward a tier only when the active model has tiers.
-  if (activeForm.value.tier) params.tier = activeForm.value.tier
   // A seed only travels when the model publishes support for one; otherwise
   // it would be dropped at the boundary without the customer being told.
   if (activeGenStudioModel.value?.supports_seed !== false
@@ -1200,18 +1079,6 @@ async function submit() {
 /* "Image integrity" card title and blurb beneath it. */
 .integrity-title { margin-bottom: 6px; }
 .integrity-blurb { margin-bottom: 10px; }
-.link-btn {
-  background: none;
-  border: none;
-  padding: 0;
-  margin: 0;
-  color: var(--accent);
-  text-decoration: underline;
-  cursor: pointer;
-  font: inherit;
-}
-.link-btn:hover { color: var(--accent-hover, var(--accent)); }
-
 .required { color: var(--error); margin-left: 2px; }
 
 /* Generation Mode (M6) — two-up radio cards. Mirror of audio.vue;
@@ -1244,30 +1111,6 @@ async function submit() {
 .generation-mode-option strong { display: block; font-size: 13px; color: var(--text-primary); }
 .generation-mode-option .text-muted { display: block; font-size: var(--font-xs); color: var(--text-muted); margin-top: 2px; }
 
-/* Tier picker — compact pill row sized to fit alongside the model dropdown. */
-.tier-picker {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.tier-option {
-  display: flex; align-items: center; gap: 6px;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-tertiary);
-  cursor: pointer;
-  font-size: 12px;
-  transition: border-color .12s, background .12s;
-}
-.tier-option:hover { border-color: var(--accent); }
-.tier-option.active {
-  border-color: var(--accent);
-  background: rgba(240, 198, 116, 0.10);
-}
-.tier-option input { margin: 0; }
-.tier-option-label { font-weight: 600; color: var(--text-primary); }
-.tier-option-cost { color: var(--text-muted); font-size: var(--font-xs); }
 .image-cost { margin: 8px 0 0; color: var(--text); font-size: var(--font-xs); line-height: 1.4; }
 .image-cost.basis-unpublished { color: var(--warning, #d97706); }
 .image-cost.basis-free { color: var(--success, #16a34a); }
@@ -1336,21 +1179,6 @@ async function submit() {
   .thumbnail-handoff { align-items: stretch; flex-direction: column; }
 }
 
-.checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  cursor: pointer;
-  color: var(--text-muted);
-}
-
-.generating-status { display: flex; flex-direction: column; gap: 4px; }
-.gen-label { font-size: 12px; color: var(--accent); }
-.progress-bar { height: 3px; background: var(--bg-tertiary); border-radius: 2px; overflow: hidden; }
-.progress-fill { height: 100%; background: var(--accent); border-radius: 2px; animation: progressIndeterminate 1.5s ease-in-out infinite; }
-@keyframes progressIndeterminate { 0% { width: 0%; margin-left: 0; } 50% { width: 60%; margin-left: 20%; } 100% { width: 0%; margin-left: 100%; } }
-
 .help-note {
   display: flex;
   gap: 10px;
@@ -1365,7 +1193,7 @@ async function submit() {
 .help-note a { color: var(--accent); }
 .help-icon { font-size: 16px; }
 
-/* Prompt-cap pill + caps reference modal. */
+/* Prompt-cap pill. */
 .cap-row {
   display: inline-flex; align-items: center; gap: 8px; margin-top: 4px;
 }

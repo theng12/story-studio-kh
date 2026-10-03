@@ -96,12 +96,6 @@ export function startDigestScheduler(dispatcher: DigestDispatcher): void {
   void tick()
 }
 
-export function stopDigestScheduler(): void {
-  if (timerHandle) clearInterval(timerHandle)
-  timerHandle = null
-  dispatcherRef = null
-}
-
 async function tick(): Promise<void> {
   if (!dispatcherRef) return
   let settings

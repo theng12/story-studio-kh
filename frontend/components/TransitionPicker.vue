@@ -29,7 +29,7 @@
         :title="t.hint || t.label"
         @click="setPrimary(t.id)"
       >
-        <div class="tp-preview" ref="previewRefs">
+        <div class="tp-preview">
           <video
             v-if="previewsLoaded.has(t.id)"
             :src="previewUrl(t.id)"

@@ -67,7 +67,5 @@ test('invalid and unfinished rows are removed', () => {
 
 test('connectivity checks never call the retired ElevenLabs voice catalog', () => {
   const healthRoute = readFileSync(new URL('../routes/health.ts', import.meta.url), 'utf8')
-  const voicesRoute = readFileSync(new URL('../routes/voices.ts', import.meta.url), 'utf8')
   assert.equal(healthRoute.includes('api.elevenlabs.io/v1/voices'), false)
-  assert.equal(voicesRoute.includes('api.elevenlabs.io/v1/voices'), false)
 })

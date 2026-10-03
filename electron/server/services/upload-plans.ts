@@ -283,23 +283,6 @@ export async function upsertPlan(slug: string, partial: Partial<UploadPlan> & { 
   return plan
 }
 
-export async function removePlan(slug: string, id: string): Promise<boolean> {
-  const plans = await listPlans(slug)
-  const next = plans.filter(p => p.id !== id)
-  if (next.length === plans.length) return false
-  await pm.updateConfig(slug, { upload_plans: next } as any)
-  // Also clear any active pointer that referenced this plan.
-  const config = (await pm.getConfig(slug)) as any
-  const activeMap: Record<string, string> = config?.upload_plan_active || {}
-  let touched = false
-  const nextActive = { ...activeMap }
-  for (const [key, val] of Object.entries(activeMap)) {
-    if (val === id) { nextActive[key] = ''; touched = true }
-  }
-  if (touched) await pm.updateConfig(slug, { upload_plan_active: nextActive } as any)
-  return true
-}
-
 // ── Schedule compute ──────────────────────────────────────────────────────
 //
 // Pure function — no I/O. Given a plan's schedule and a count N, produces

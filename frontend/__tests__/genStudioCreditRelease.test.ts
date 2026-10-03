@@ -120,29 +120,6 @@ describe('The Gateway released reservations are never shown as held', () => {
       ['stateClass'],
     )
     assert.equal(preview.stateClass(transientVoiceReference), 'is-active')
-
-    const jobsSource = read('frontend/pages/projects/[slug]/jobs.vue')
-    const declarations = [
-      'genStudioNumeric',
-      'genStudioCreditState',
-      'genStudioSettled',
-      'genStudioTerminalFailure',
-      'genStudioChargedCredits',
-      'genStudioReturnedCredits',
-      'genStudioHeldCredits',
-    ]
-      .map(name => extractFunction(jobsSource, name))
-      .map(text => text.replace(/NonNullable<RJob\['genstudio_jobs'\]>\[number\]/g, 'any'))
-    const jobs = await loadLifted(
-      [
-        'type GenStudioSettlement = { reserved_credits?: number; settled_credits?: number; released_credits?: number }',
-        'const genStudioSettlement: { value: Record<string, GenStudioSettlement> } = { value: {} }',
-      ].join('\n'),
-      declarations,
-      ['genStudioTerminalFailure', 'genStudioHeldCredits'],
-    )
-    assert.equal(jobs.genStudioTerminalFailure(transientVoiceReference), false)
-    assert.equal(jobs.genStudioHeldCredits(transientVoiceReference), 13)
   })
 
   it('shows provider states in product English when Story has not assigned a local queue state', async () => {
@@ -176,20 +153,9 @@ describe('The Gateway released reservations are never shown as held', () => {
       ['displayState'],
     )
 
-    const jobsSource = read('frontend/pages/projects/[slug]/jobs.vue')
-    const jobs = await loadLifted(
-      'type RJob = any',
-      [
-        extractObject(jobsSource, 'GENSTUDIO_QUEUE_LABELS'),
-        extractFunction(jobsSource, 'genStudioQueueLabel'),
-      ],
-      ['genStudioQueueLabel'],
-    )
-
     for (const [state, label] of cases) {
       assert.equal(preview.displayState({ state }), label)
       assert.equal(ledger.displayState({ state }), label)
-      assert.equal(jobs.genStudioQueueLabel({ state: state.toUpperCase() }), label)
     }
   })
 
@@ -216,19 +182,9 @@ describe('The Gateway released reservations are never shown as held', () => {
       ],
       ['displayState'],
     )
-    const jobsSource = read('frontend/pages/projects/[slug]/jobs.vue')
-    const jobs = await loadLifted(
-      'type RJob = any',
-      [
-        extractObject(jobsSource, 'GENSTUDIO_QUEUE_LABELS'),
-        extractFunction(jobsSource, 'genStudioQueueLabel'),
-      ],
-      ['genStudioQueueLabel'],
-    )
 
     assert.equal(preview.displayState(remote), 'Accepted')
     assert.equal(ledger.displayState(remote), 'Accepted')
-    assert.equal(jobs.genStudioQueueLabel(remote), 'Accepted')
   })
 
   it('treats provider-confirmed no-record evidence as terminal despite a stale running queue hint', async () => {
@@ -282,7 +238,7 @@ describe('The Gateway released reservations are never shown as held', () => {
     })
   })
 
-  it('does not retain no-record work as active, queued, or on hold in the Jobs page', async () => {
+  it('does not retain no-record work as the active request in the Jobs page', async () => {
     const remote = {
       id: 'missing-provider-request',
       state: 'not_created',
@@ -293,31 +249,12 @@ describe('The Gateway released reservations are never shown as held', () => {
     }
     const source = read('frontend/pages/projects/[slug]/jobs.vue')
     const jobs = await loadLifted(
-      [
-        'type RJob = any',
-        'type GenStudioSettlement = { reserved_credits?: number; settled_credits?: number; released_credits?: number }',
-        'const genStudioSettlement: { value: Record<string, GenStudioSettlement> } = { value: {} }',
-      ].join('\n'),
-      [
-        extractObject(source, 'GENSTUDIO_QUEUE_LABELS'),
-        ...[
-          'genStudioQueueLabel',
-          'latestActiveGenStudioRequest',
-          'genStudioNumeric',
-          'genStudioCreditState',
-          'genStudioSettled',
-          'genStudioTerminalFailure',
-          'genStudioChargedCredits',
-          'genStudioReturnedCredits',
-          'genStudioHeldCredits',
-        ].map(name => extractFunction(source, name)),
-      ],
-      ['genStudioQueueLabel', 'latestActiveGenStudioRequest', 'genStudioHeldCredits'],
+      'type RJob = any',
+      [extractFunction(source, 'latestActiveGenStudioRequest')],
+      ['latestActiveGenStudioRequest'],
     )
 
-    assert.equal(jobs.genStudioQueueLabel(remote), 'Not created')
     assert.equal(jobs.latestActiveGenStudioRequest({ genstudio_jobs: [remote] }), undefined)
-    assert.equal(jobs.genStudioHeldCredits(remote), 0)
   })
 
   it('labels provider-confirmed customer cancellations as Cancelled rather than Failed', async () => {
@@ -391,82 +328,6 @@ describe('The Gateway released reservations are never shown as held', () => {
 
     assert.doesNotMatch(source, /reservation.{0,3}released|reservations.{0,3}released/i)
     assert.doesNotMatch(extractFunction(source, 'chargedFor'), /credit_cost/)
-  })
-
-  it('jobs page: held credits require a published reservation', async () => {
-    const source = read('frontend/pages/projects/[slug]/jobs.vue')
-    const names = [
-      'genStudioNumeric',
-      'genStudioCreditState',
-      'genStudioSettled',
-      'genStudioTerminalFailure',
-      'genStudioChargedCredits',
-      'genStudioReturnedCredits',
-      'genStudioHeldCredits',
-    ]
-    const declarations = names
-      .map(name => extractFunction(source, name))
-      // The lifted helpers only need the runtime shape, not the page's types.
-      .map(text => text.replace(/NonNullable<RJob\['genstudio_jobs'\]>\[number\]/g, 'any'))
-    const page = await loadLifted(
-      [
-        'type GenStudioSettlement = { reserved_credits?: number; settled_credits?: number; released_credits?: number }',
-        // The lifted helpers only ever read `.value`, so a plain box stands in
-        // for the page's ref without dragging Vue into a temp module.
-        'const genStudioSettlement: { value: Record<string, GenStudioSettlement> } = { value: {} }',
-      ].join('\n'),
-      declarations,
-      [...names, 'genStudioSettlement'],
-    )
-
-    assert.equal(page.genStudioHeldCredits(FAILED_IMAGE_JOB), 0, 'the reported bug: 13 credits shown on hold')
-    assert.equal(page.genStudioChargedCredits({ ...FAILED_IMAGE_JOB, state: 'succeeded', queue_state: 'succeeded' }), 0)
-
-    // No authoritative reservation ⇒ nothing is claimed to be on hold.
-    const running = { id: 'gs-image-2', state: 'running', queue_state: 'running', credit_cost: 13 }
-    assert.equal(page.genStudioHeldCredits(running), 0)
-    assert.equal(page.genStudioHeldCredits({ ...running, reserved_credits: 13 }), 13)
-
-    // Account history fills in omitted direct fields without inventing a release.
-    page.genStudioSettlement.value = { 'gs-image-1': { reserved_credits: 13, settled_credits: 0, released_credits: 13 } }
-    assert.equal(page.genStudioReturnedCredits(FAILED_IMAGE_JOB), 13)
-    assert.equal(page.genStudioHeldCredits(FAILED_IMAGE_JOB), 0)
-  })
-
-  it('jobs page: provider-published Image and Video releases take priority without an account snapshot', async () => {
-    const source = read('frontend/pages/projects/[slug]/jobs.vue')
-    const names = [
-      'genStudioNumeric',
-      'genStudioCreditState',
-      'genStudioSettled',
-      'genStudioTerminalFailure',
-      'genStudioChargedCredits',
-      'genStudioReturnedCredits',
-      'genStudioHeldCredits',
-    ]
-    const declarations = names
-      .map(name => extractFunction(source, name))
-      .map(text => text.replace(/NonNullable<RJob\['genstudio_jobs'\]>\[number\]/g, 'any'))
-    const page = await loadLifted(
-      [
-        'type GenStudioSettlement = { reserved_credits?: number; settled_credits?: number; released_credits?: number }',
-        'const genStudioSettlement: { value: Record<string, GenStudioSettlement> } = { value: {} }',
-      ].join('\n'),
-      declarations,
-      ['genStudioReturnedCredits', 'genStudioHeldCredits'],
-    )
-
-    const cases = [
-      { id: 'gs-image-direct-release', operation: 'image.generation', released_credits: 13 },
-      { id: 'gs-video-direct-release', operation: 'video.generation', released_credits: 8 },
-    ]
-    for (const remote of cases) {
-      assert.equal(page.genStudioReturnedCredits({ ...remote, state: 'failed', queue_state: 'failed' }), remote.released_credits)
-      assert.equal(page.genStudioHeldCredits({ ...remote, state: 'failed', queue_state: 'failed' }), 0)
-    }
-
-    const omitted = { id: 'gs-image-no-release', operation: 'image.generation', state: 'failed', queue_state: 'failed' }
-    assert.equal(page.genStudioReturnedCredits(omitted), 0)
   })
 
   it('settlement hint makes no release claim without a published amount', () => {

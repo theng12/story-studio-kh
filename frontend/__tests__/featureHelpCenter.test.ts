@@ -42,7 +42,6 @@ const reachableRoutes = [
   '/projects/example/audio-merge',
   '/projects/example/subtitles',
   '/projects/example/character-sheet',
-  '/projects/example/characters',
   '/projects/example/scene-plan',
   '/projects/example/contextual-cues',
   '/projects/example/sound-design',

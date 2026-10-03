@@ -8,7 +8,7 @@
  */
 
 import { Router } from 'express'
-import { getNotifierSettings, setNotifierSettings, DEFAULT_NOTIFIER_SETTINGS } from '../services/job-notifier.js'
+import { getNotifierSettings, setNotifierSettings } from '../services/job-notifier.js'
 import {
   listProviderKeys, setApiKey, clearApiKey, getApiKey,
 } from '../services/app-secrets-store.js'
@@ -28,7 +28,6 @@ import {
 import { getGlobalCompression, setGlobalCompression, COMPRESSION_DEFAULTS } from '../services/generation-compression.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import {
-  listModelCapabilitiesSnapshot as listGenStudioCapabilities,
   listChatModelsSnapshot as listGenStudioChatModels,
   listImageModelsSnapshot as listGenStudioImageModels,
   listMusicModelsSnapshot as listGenStudioMusicModels,
@@ -469,10 +468,6 @@ router.post('/app-settings/notifications/telegram-test', async (req, res) => {
   }
 })
 
-router.get('/app-settings/notifications/defaults', (_req, res) => {
-  res.json(DEFAULT_NOTIFIER_SETTINGS)
-})
-
 // ── App-level API keys ──────────────────────────────────────────────────────
 //
 // Provider keys live in `<userData>/app-secrets.json` (see
@@ -716,17 +711,6 @@ router.get('/app-settings/genstudio/voice-libraries/:library/:publicVoiceId/prev
 // generation will actually submit — one per chunk, each separately billed —
 // instead of pricing a single request that is never sent for any narration
 // longer than the selected model's published boundary.
-
-router.get('/app-settings/genstudio/models', async (_req, res) => {
-  try {
-    const apiKey = await getApiKey('genstudio')
-    if (!apiKey) return res.status(400).json({ detail: 'Add a Gateway key first.' })
-    const snapshot = await listGenStudioCapabilities(apiKey, { displayFallback: true })
-    res.json({ models: snapshot.value, freshness: { stale: snapshot.stale, ageMs: snapshot.ageMs, loadedAt: snapshot.loadedAt } })
-  } catch (e: any) {
-    res.status(502).json(humanizeBackendError(e, 'Could not load the Gateway capability catalog'))
-  }
-})
 
 router.get('/app-settings/genstudio/chat-models', async (_req, res) => {
   try {

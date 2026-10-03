@@ -1,7 +1,5 @@
 import { after, afterEach, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import express from 'express'
-import request from 'supertest'
 import { readFile } from 'fs/promises'
 
 import { router as healthRouter } from '../routes/health.js'
@@ -36,41 +34,17 @@ function trapExternalFetch(): string[] {
   return calls
 }
 
-function mounted(router: express.Router) {
-  const app = express()
-  app.use(express.json())
-  app.use(router)
-  return app
-}
-
 describe('GenStudio-only legacy network boundary', () => {
   test('registers only one public handler for each formerly duplicated health route', () => {
     const paths = (healthRouter as any).stack
       .map((layer: any) => layer.route?.path)
       .filter(Boolean)
 
-    for (const routePath of [
-      '/models',
-      '/usage',
-      '/usage/rollup',
-      '/projects/:slug/health',
-      '/connectivity/precheck',
-      '/test-key/:provider',
-      '/projects/:slug/test-key/:provider',
-    ]) {
-      assert.equal(paths.filter((path: string) => path === routePath).length, 1, routePath)
+    assert.equal(paths.filter((path: string) => path === '/models').length, 1, '/models')
+    // The caller-less legacy duplicates are gone, not merely deduplicated.
+    for (const routePath of ['/usage', '/usage/rollup', '/projects/:slug/health', '/connectivity/precheck', '/test-key/:provider', '/projects/:slug/test-key/:provider']) {
+      assert.equal(paths.includes(routePath), false, routePath)
     }
-  })
-
-  test('rejects legacy key checks without network access', async () => {
-    const calls = trapExternalFetch()
-    const app = mounted(healthRouter)
-
-    const key = await request(app).post('/test-key/kie').send({ apiKey: 'legacy-key' })
-    assert.equal(key.status, 410)
-    assert.equal(key.body.code, 'GENSTUDIO_ONLY')
-
-    assert.deepEqual(calls, [])
   })
 
   test('boot recovery is evidence-only and provider clients are absent from recovery services', async () => {

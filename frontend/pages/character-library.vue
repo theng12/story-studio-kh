@@ -236,7 +236,6 @@ const { success, error: showError } = useToast()
 
 const characters = ref<Character[]>([])
 const channels = ref<Array<{ slug: string; name: string }>>([])
-const channelConfigs = reactive<Record<string, any>>({})
 const loading = ref(false)
 const loadError = ref('')
 const search = ref('')
@@ -312,7 +311,6 @@ function openEdit(character: Character) {
   selectedChannels.value = new Set(character.projects || [])
   for (const slug of selectedChannels.value) {
     voiceProfiles[slug] = { ...(character.channel_profiles?.[slug]?.speech || {}) }
-    void loadChannelConfig(slug)
   }
   editorOpen.value = true
   void loadVisionCaps()
@@ -332,19 +330,12 @@ function toggleChannel(slug: string) {
   } else {
     next.add(slug)
     voiceProfiles[slug] ||= {}
-    void loadChannelConfig(slug)
   }
   selectedChannels.value = next
 }
 
 function profileFor(slug: string): CharacterSpeech {
   return (voiceProfiles[slug] ||= {})
-}
-
-async function loadChannelConfig(slug: string) {
-  if (channelConfigs[slug]) return
-  try { channelConfigs[slug] = await get<any>(`/projects/${encodeURIComponent(slug)}/settings/config`) }
-  catch { channelConfigs[slug] = {} }
 }
 
 async function saveCharacter() {

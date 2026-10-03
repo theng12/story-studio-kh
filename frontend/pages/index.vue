@@ -70,27 +70,6 @@
         <button type="button" class="btn btn-primary" @click="openCreate">Create channel</button>
       </section>
 
-      <!-- v1.4.3 — one-time upgrade messages. Every one names folders that are
-           still exactly where they were: this release moved no files. -->
-      <section v-if="migrationNotices.length" class="migration-notices" aria-label="Upgrade notes">
-        <article v-for="n in migrationNotices" :key="n.id" class="migration-notice">
-          <h3>{{ n.title }}</h3>
-          <p>{{ n.body }}</p>
-          <ul v-if="n.paths?.length">
-            <li v-for="(pth, i) in n.paths" :key="i"><code>{{ pth }}</code></li>
-          </ul>
-          <button
-            type="button"
-            class="btn btn-sm"
-            :disabled="dismissingId === n.id"
-            @click="dismissNotice(n.id)"
-          >{{ dismissingId === n.id ? 'Saving…' : 'Got it' }}</button>
-          <p v-if="dismissErrors[n.id]" class="notice-error" role="alert">{{ dismissErrors[n.id] }}</p>
-        </article>
-      </section>
-
-      <p v-if="noticesError" class="notice-error" role="status">{{ noticesError }}</p>
-
       <section v-if="projects.length" aria-labelledby="channels-heading">
         <div class="channel-list-header">
           <h2 id="channels-heading">Channels</h2>
@@ -291,7 +270,7 @@ import { readLastKnownList, writeLastKnownList } from '~/utils/last-known-list'
 
 useAppTitle()
 
-const { get, post, del } = useApi()
+const { get, post } = useApi()
 const appSettingsModal = useAppSettingsModal()
 
 /**
@@ -312,68 +291,17 @@ const appSettingsModal = useAppSettingsModal()
 const LAST_KNOWN_CHANNELS = 'channels'
 const cachedChannels = readLastKnownList<any>(LAST_KNOWN_CHANNELS)
 const projects = ref<any[]>(cachedChannels)
-// The server answers `status: 'downloading'` for a folder whose read timed out
-// (it still lists the row). Only an explicit non-ready status counts: a list
+// A channel folder whose read timed out is still listed, with a status other
+// than 'ready'. Only an explicit non-ready status counts: a list
 // cached by an older version has no status at all and must not read as broken.
 function isFolderUnreadable(project: { status?: string }): boolean {
   return !!project.status && project.status !== 'ready'
 }
-/** True while what is on screen came from the cache and has not been confirmed. */
-const servingCachedChannels = ref(cachedChannels.length > 0)
 const loading = ref(true)
 const projectsLoadError = ref('')
 const projectsRetrying = ref(false)
 const libraryMissing = ref(false)
 const libraryMissingPath = ref('')
-
-// v1.4.3 — one-time messages from the location-settings migration.
-interface MigrationNotice { id: string; title: string; body: string; paths?: string[] }
-const migrationNotices = ref<MigrationNotice[]>([])
-const noticesError = ref('')
-
-async function loadMigrationNotices() {
-  try {
-    const r = await get<{ notices: MigrationNotice[] }>('/library/notices')
-    migrationNotices.value = Array.isArray(r?.notices) ? r.notices : []
-    noticesError.value = ''
-  } catch (error: any) {
-    // Never fatal — these are informational — but not silent either.
-    noticesError.value = errorMessage(error, 'Could not check for upgrade notes.')
-  }
-}
-
-const dismissingId = ref('')
-const dismissErrors = ref<Record<string, string>>({})
-
-/**
- * "Got it" removes the notice only once the server has agreed to remember it.
- *
- * The previous version removed it locally first and swallowed any failure. On
- * screen that was indistinguishable from success, and the notice then came back
- * on the next load with no explanation — the app knowing something and not
- * saying it. Waiting for the round trip costs a moment; being quietly wrong
- * costs the customer's trust in the button.
- */
-async function dismissNotice(id: string) {
-  dismissingId.value = id
-  const { [id]: _cleared, ...rest } = dismissErrors.value
-  dismissErrors.value = rest
-  try {
-    await del(`/library/notices/${id}`)
-    migrationNotices.value = migrationNotices.value.filter(n => n.id !== id)
-  } catch (error: any) {
-    // What it means to him comes first; the server's reason follows as the
-    // cause. The raw detail alone is a temp-file path, which answers a question
-    // he did not ask and not the one he did.
-    const reason = errorMessage(error, '')
-    dismissErrors.value = {
-      ...dismissErrors.value,
-      [id]: `Could not save that, so this note will still be here next time.${reason ? ` (${reason})` : ''}`,
-    }
-  } finally {
-    dismissingId.value = ''
-  }
-}
 
 // v1.4.2 — hidden channels. `useSoftDeletedProjects` and its backend routes
 // survived the 2026-08-08 home-page collapse with their tests; only the UI that
@@ -439,7 +367,6 @@ async function loadProjects(): Promise<void> {
     // about which channels exist — a channel deleted elsewhere must disappear
     // here, so the cache is REPLACED rather than added to.
     writeLastKnownList(LAST_KNOWN_CHANNELS, fresh)
-    servingCachedChannels.value = false
     projectsLoadError.value = ''
     libraryMissing.value = false
     libraryMissingPath.value = ''
@@ -583,7 +510,6 @@ onMounted(async () => {
   await loadProjects()
   // Never fatal: a failure here must not stop the channel list rendering.
   await hiddenProjects.refresh().catch(() => {})
-  await loadMigrationNotices()
 })
 </script>
 
@@ -777,21 +703,9 @@ onMounted(async () => {
 .hidden-project-name code { color: var(--text-secondary); overflow-wrap: anywhere; }
 .hidden-project-name em { color: var(--warning); font-style: normal; }
 
-/* v1.4.3 — one-time upgrade notes. */
 .home-state-path { margin-top: 8px; }
 .home-state-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 .home-state-path code { font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
-.migration-notices { display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; }
-.migration-notice {
-  background: var(--bg-secondary);
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
-  border-radius: var(--radius-md);
-  padding: 16px 20px;
-}
-.migration-notice h3 { margin-bottom: 6px; }
-.migration-notice p { color: var(--text-secondary); }
-.migration-notice ul { margin: 10px 0; padding-left: 18px; }
-.migration-notice li code { overflow-wrap: anywhere; }
 .notice-error { margin-top: 10px; padding: 10px 12px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--error) 11%, transparent); color: var(--error); }
 .project-copy { gap: 4px; }
 .project-copy strong { overflow-wrap: anywhere; font-size: var(--font-xl); }
