@@ -8,7 +8,7 @@
  * and "not available" instead of collapsing both to zero.
  */
 
-import { asKeyed, runReport } from '../lib/youtube-analytics.js'
+import { asKeyed, fetchVideoFacts, runReport } from '../lib/youtube-analytics.js'
 import { tokenHasAnalyticsScope } from '../lib/youtube-oauth.js'
 import { readYouTubeChannelTokensForServer } from './youtube-connection-store.js'
 import { registryCredentialFor } from '../lib/youtube-client.js'
@@ -19,16 +19,41 @@ import {
   type MetricValue,
 } from './youtube-analytics-value.js'
 
-/** The metrics this product shows. No monetary figure appears here, ever. */
-export const ANALYTICS_METRICS = [
+/** The metrics the MAIN report reads. Its failure is the whole read's failure. */
+const MAIN_METRICS = [
   'views', 'watch_minutes', 'avg_view_seconds', 'avg_view_percentage',
   'likes', 'comments', 'shares',
 ] as const
+
+/**
+ * Metrics read in their OWN reports, after the main one. Newer or channel-
+ * dependent metrics: a refusal of one of these must never cost the owner the
+ * main figures, so each group is asked separately and a refusal marks only
+ * that group `not_available`, with a plain reason.
+ */
+const EXTRA_REPORTS = [
+  { metrics: ['subscribers_gained'], refused: 'YouTube did not provide subscribers gained for this channel.' },
+  { metrics: ['impressions', 'click_through_rate'], refused: 'YouTube did not provide impressions for this channel.' },
+] as const
+
+/** The metrics this product shows. No monetary figure appears here, ever. */
+export const ANALYTICS_METRICS = [
+  ...MAIN_METRICS, 'subscribers_gained', 'impressions', 'click_through_rate',
+] as const
 export type AnalyticsMetric = typeof ANALYTICS_METRICS[number]
+
+/**
+ * Facts about the VIDEO, not the window, read from the Data API. Same four
+ * states as a metric. `published` is milliseconds since the epoch (UTC);
+ * `length` is seconds.
+ */
+export const VIDEO_FACTS = ['published', 'length'] as const
+export type VideoFact = typeof VIDEO_FACTS[number]
 
 export interface EpisodeMetrics {
   video_id: string
   metrics: Record<AnalyticsMetric, MetricValue>
+  facts: Record<VideoFact, MetricValue>
   // No `title`. Rows are labelled from the LIVE episode link at read time, so a
   // title stored here would be the code as it was at FETCH time - which is the
   // stale-label defect the fourth review found. Written and never read is tell
@@ -96,6 +121,9 @@ const METRIC_COLUMNS: Record<AnalyticsMetric, string> = {
   likes: 'likes',
   comments: 'comments',
   shares: 'shares',
+  subscribers_gained: 'subscribersGained',
+  impressions: 'videoThumbnailImpressions',
+  click_through_rate: 'videoThumbnailImpressionsClickRate',
 }
 
 const apiDate = (date: Date): string => date.toISOString().slice(0, 10)
@@ -130,9 +158,10 @@ function metricsFromRow(
   row: Record<string, unknown>,
   columns: Set<string>,
   fetchedAt: string,
-): Record<AnalyticsMetric, MetricValue> {
-  const out = {} as Record<AnalyticsMetric, MetricValue>
-  for (const metric of ANALYTICS_METRICS) {
+  metrics: readonly AnalyticsMetric[],
+): Partial<Record<AnalyticsMetric, MetricValue>> {
+  const out: Partial<Record<AnalyticsMetric, MetricValue>> = {}
+  for (const metric of metrics) {
     const column = METRIC_COLUMNS[metric]
     // Two different absences. YouTube not returning the COLUMN at all means it
     // does not offer this metric for this report; the column present with a
@@ -151,12 +180,32 @@ function metricsFromRow(
   return out
 }
 
-/** Every metric unknown because YouTube had nothing to say about this video. */
-function noDataFor(fetchedAt: string): Record<AnalyticsMetric, MetricValue> {
-  const out = {} as Record<AnalyticsMetric, MetricValue>
-  for (const metric of ANALYTICS_METRICS) out[metric] = metricNoData(fetchedAt)
-  return out
+/** Every listed metric unknown because YouTube had nothing to say about this video. */
+function noDataFor(fetchedAt: string, metrics: readonly AnalyticsMetric[]): Partial<Record<AnalyticsMetric, MetricValue>> {
+  return Object.fromEntries(metrics.map(metric => [metric, metricNoData(fetchedAt)]))
 }
+
+/** Every listed metric unavailable for one reason. */
+function unavailableFor(reason: string, fetchedAt: string, metrics: readonly string[]): Record<string, MetricValue> {
+  return Object.fromEntries(metrics.map(metric => [metric, metricNotAvailable(reason, fetchedAt)]))
+}
+
+/** One report's rows keyed by video id, and whether it came back full. */
+function indexReport(report: Awaited<ReturnType<FetchReport>>) {
+  const rows = new Map<string, Record<string, unknown>>()
+  for (const raw of report.rows) {
+    const keyed = asKeyed(report.columnHeaders, raw)
+    const videoId = String(keyed.video ?? '')
+    if (videoId) rows.set(videoId, keyed)
+  }
+  return {
+    rows,
+    columns: new Set(report.columnHeaders.map(header => header.name)),
+    capped: report.rows.length >= REPORT_ROW_CAP,
+  }
+}
+
+const TRUNCATED_REASON = 'YouTube\'s report ran out of room before this video.'
 
 /** Every video unreached, for a read that could not be attempted at all. */
 function nothingRead(
@@ -248,34 +297,87 @@ export async function fetchProjectAnalytics(input: {
     )
   }
 
-  const columns = new Set(report.columnHeaders.map(header => header.name))
-  const rows = new Map<string, Record<string, unknown>>()
-  for (const raw of report.rows) {
-    const keyed = asKeyed(report.columnHeaders, raw)
-    const videoId = String(keyed.video ?? '')
-    if (videoId) rows.set(videoId, keyed)
-  }
+  const main = indexReport(report)
 
   // The report is capped at REPORT_ROW_CAP rows. When it comes back full there
   // may be videos it simply did not reach, and calling those `no_data` would
   // state that YouTube had nothing to say about them - a claim we cannot make.
   // "The report ran out of room" is a PARTIAL read, not a finding.
-  const capped = report.rows.length >= REPORT_ROW_CAP
-  const unreached = capped ? videoIds.filter(id => !rows.has(id)) : []
+  const unreached = main.capped ? videoIds.filter(id => !main.rows.has(id)) : []
+  const reached = videoIds.filter(videoId => !unreached.includes(videoId))
 
-  const episodes: EpisodeMetrics[] = videoIds
-    .filter(videoId => !unreached.includes(videoId))
-    .map(videoId => {
-      const row = rows.get(videoId)
-      return {
-        video_id: videoId,
-        // "YouTube has no row for this video" and "YouTube reported 0 views"
-        // are different answers. The first is `no_data`; only the second is a
-        // number. Both are read against the WINDOW, which is why the window
-        // travels with the result.
-        metrics: row ? metricsFromRow(row, columns, fetchedAt) : noDataFor(fetchedAt),
+  // The optional reports, each on its own. Asked only after the main report
+  // succeeded, and never allowed to fail it. One at a time, like every other
+  // call here, so a token refresh is never raced.
+  const extras: Array<{ group: typeof EXTRA_REPORTS[number], report?: ReturnType<typeof indexReport>, refused?: string }> = []
+  for (const group of EXTRA_REPORTS) {
+    try {
+      const extra = await fetchReport(input.project_slug, input.account_id, {
+        ids: 'channel==MINE',
+        startDate,
+        endDate,
+        dimensions: 'video',
+        // `views` rides along only because a top-videos report must sort by
+        // a metric it returns; the value read for views is the main report's.
+        metrics: ['views', ...group.metrics.map(metric => METRIC_COLUMNS[metric])].join(','),
+        sort: '-views',
+        maxResults: String(REPORT_ROW_CAP),
+      })
+      extras.push({ group, report: indexReport(extra) })
+    } catch (error) {
+      extras.push({
+        group,
+        refused: isQuotaError(error)
+          ? 'Today\'s YouTube allowance ran out before this figure was read.'
+          : group.refused,
+      })
+    }
+  }
+
+  // Published date and length, from the Data API. Its failure leaves those
+  // cells "Not available" - never a blank that reads as zero.
+  // Tests drive this through the YouTube transport seam, like the report.
+  let facts: Awaited<ReturnType<typeof fetchVideoFacts>> = {}
+  try {
+    facts = await fetchVideoFacts(input.project_slug, input.account_id, reached)
+  } catch { /* every fact below reads not_available, with the reason */ }
+  const factsMissing = 'YouTube did not return the published date and length for this video.'
+
+  const episodes: EpisodeMetrics[] = reached.map(videoId => {
+    const row = main.rows.get(videoId)
+    // "YouTube has no row for this video" and "YouTube reported 0 views" are
+    // different answers. The first is `no_data`; only the second is a number.
+    // Both are read against the WINDOW, which is why the window travels with
+    // the result.
+    const metrics: Record<string, MetricValue> = row
+      ? metricsFromRow(row, main.columns, fetchedAt, MAIN_METRICS)
+      : noDataFor(fetchedAt, MAIN_METRICS)
+    for (const extra of extras) {
+      if (!extra.report) {
+        Object.assign(metrics, unavailableFor(extra.refused!, fetchedAt, extra.group.metrics))
+        continue
       }
-    })
+      const extraRow = extra.report.rows.get(videoId)
+      Object.assign(metrics, extraRow
+        ? metricsFromRow(extraRow, extra.report.columns, fetchedAt, extra.group.metrics)
+        : extra.report.capped
+          ? unavailableFor(TRUNCATED_REASON, fetchedAt, extra.group.metrics)
+          : noDataFor(fetchedAt, extra.group.metrics))
+    }
+    const fact = facts[videoId]
+    return {
+      video_id: videoId,
+      metrics: metrics as Record<AnalyticsMetric, MetricValue>,
+      facts: {
+        published: fact?.published_ms != null
+          ? metricValue(fact.published_ms, fetchedAt)
+          : metricNotAvailable(factsMissing, fetchedAt),
+        length: fact?.duration_seconds != null
+          ? metricValue(fact.duration_seconds, fetchedAt)
+          : metricNotAvailable(factsMissing, fetchedAt),
+      },
+    }
+  })
 
   return {
     fetched_at: fetchedAt,

@@ -26,7 +26,7 @@ async function page(): Promise<Component> {
     const useConfirm = () => ({ ask: async () => true })
     const useJobs = () => ({ jobs: globalThis.__task13Jobs, jobsStale: globalThis.__task13JobsStale })
   `
-  const code = `${support}\n${script.content.replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
+  const code = `${support}\n${script.content.replace('export default', 'const __sfc__ =').replace("'~/utils/upload-bulk'", JSON.stringify(new URL('../utils/upload-bulk.ts', import.meta.url).href))}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
   const out = await transform(code, { loader: 'ts', format: 'esm' })
   return (await import(`data:text/javascript;base64,${Buffer.from(out.code.replaceAll('"vue"', JSON.stringify(vueUrl))).toString('base64')}`)).default
 }
@@ -81,7 +81,7 @@ async function mount(deferred: Promise<unknown>) {
   app.component('ProgressBar', defineComponent({ setup() { return () => h('div') } }))
   app.mount(el)
   await ticks()
-  const select = [...el.querySelectorAll('button')].find(button => button.textContent?.includes('Select visible eligible'))!
+  const select = [...el.querySelectorAll('button')].find(button => button.textContent?.includes('Select all matching'))!
   select.click()
   await ticks()
   const open = [...el.querySelectorAll('button')].find(button => button.textContent?.includes('Edit planned dates'))!
