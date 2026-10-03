@@ -35,7 +35,7 @@
  * in v1.0.114 for exactly that reason.
  */
 
-import { GenStudioTerminalFailureError, hasFullyReleasedZeroSettlement } from './genstudio-client.js'
+import { GenStudioApiError, GenStudioTerminalFailureError, hasFullyReleasedZeroSettlement } from './genstudio-client.js'
 
 /** Codes GenStudio uses when no machine could take the job. */
 export const FLEET_BUSY_FAILURE_CODES: ReadonlySet<string> = new Set([
@@ -54,6 +54,14 @@ export const FLEET_BUSY_FAILURE_CODES: ReadonlySet<string> = new Set([
  *   a TTS job is not licence for an image generator to resubmit.
  */
 export function isFleetBusyFailure(error: unknown, modality?: string): boolean {
+  // The Gateway can also refuse at SUBMIT time — HTTP 503 SITE_CAPACITY_UNAVAILABLE, "No
+  // location offering this model can take work right now — 1 location offline" — before any
+  // job exists, so nothing can have been made or charged. Seen when the one Mac that holds a
+  // cloned voice restarted for an update: the episode's eight remaining chapters were each
+  // refused and dropped within a minute (Dreamlands E2E, 2026-10-03). Wait like a busy fleet.
+  if (error instanceof GenStudioApiError) {
+    return error.status === 503 && FLEET_BUSY_FAILURE_CODES.has(String(error.code || ''))
+  }
   if (!(error instanceof GenStudioTerminalFailureError)) return false
   if (modality !== undefined && error.modality !== modality) return false
   // Cancellation is the owner's instruction; retrying it would overrule him.
