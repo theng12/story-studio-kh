@@ -2227,6 +2227,10 @@ describe('Upload Center Publish bulk actions', () => {
     const dialog = mounted.el.querySelector('[aria-labelledby="bulk-visibility-title"]')!
     assert.match(dialog.textContent || '', /Set visibility for 2 videos/)
     assert.equal(button(dialog as HTMLElement, /Choose a visibility/).disabled, true, 'nothing is chosen for him')
+    const publicChoice = dialog.querySelector<HTMLInputElement>('input[value="public"]')!.closest('label')!
+    assert.match(publicChoice.textContent || '', /Public/)
+    assert.match(publicChoice.textContent || '', /may notify subscribers, which cannot be taken back/, 'Public carries the subscriber-notify warning')
+    assert.deepEqual([...dialog.querySelectorAll<HTMLInputElement>('input[name="bulk-visibility"]')].map(i => i.value), ['public', 'unlisted', 'private'])
     dialog.querySelector<HTMLInputElement>('input[value="public"]')!.click()
     await nextTick()
     button(dialog as HTMLElement, /Make 2 videos Public on YouTube/).click()

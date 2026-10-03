@@ -395,6 +395,8 @@ const props = defineProps<{
   /** Narrator style id → its display label (Formula styles + saved custom
    *  voices). A style id is never shown raw. */
   styleLabels?: Record<string, string>
+  /** The voice description typed on the Scripts page. It lives outside `form`. */
+  customStyleText?: string
 }>()
 
 const emit = defineEmits<{
@@ -1046,7 +1048,7 @@ async function postExpand(chapters: number[] | null): Promise<void> {
       total_words: props.form?.total_words,
       words_per_chapter: props.form?.words_per_chapter,
       character_ids: props.form?.character_ids,
-      custom_style_text: props.form?.custom_style_text,
+      custom_style_text: props.customStyleText,
     }
     if (chapters) body.chapters_to_expand = chapters
     // The full-outline Resume button references any durable chat evidence. The

@@ -569,6 +569,7 @@
       :form="form"
       :refresh-key="outlineRefreshKey"
       :style-labels="narratorStyleLabels"
+      :custom-style-text="customStyleText"
       @expansion-queued="onExpansionQueued"
       @outline-loaded="onOutlineLoaded"
     />

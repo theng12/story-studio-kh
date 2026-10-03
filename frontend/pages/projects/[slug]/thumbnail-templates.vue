@@ -3,7 +3,7 @@
     <WorkspaceHero
       eyebrow="Library · Thumbnail composition"
       title="Thumbnail Recipe Catalog"
-      description="Browse reusable thumbnail formats. Recipe cards can show real generated examples, direct the AI composition, and safely composite the final headline."
+      description="Browse reusable thumbnail formats. Recipe cards can show real generated examples and direct the AI composition."
     >
       <template #aside><NuxtLink :to="`/projects/${slug}/images`" class="btn btn-sm btn-secondary">Back to Thumbnails</NuxtLink></template>
     </WorkspaceHero>
@@ -62,7 +62,7 @@
       ★ marks templates recommended for this project's niche
       <template v-if="nicheId"> (<strong>{{ nicheId }}</strong>)</template>.
       Click any card to set it as the project default — the next thumbnail prompt and render use it automatically.
-      Recipe cards keep the generated image text-free and add a crisp headline afterward. Hit <strong>Edit</strong> on any card to change it
+      The image model draws each thumbnail's headline; a template's text settings only shape its gallery preview card. Hit <strong>Edit</strong> on any card to change it
       (built-in cards are copied to your own library on first save, the original stays), or use <strong>+ New template</strong> to start from scratch.
     </p>
 

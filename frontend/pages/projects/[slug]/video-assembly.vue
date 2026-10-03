@@ -307,8 +307,16 @@
               :src="getAudioPreviewUrl(scannedAssets.merged_audio[0].path)"
             />
           </template>
-          <div v-else class="validation-msg">
-            No merged audio file found. Run the <strong>Audio Assembly</strong> step first to produce a single merged track.
+          <div v-else class="validation-msg" data-testid="merged-audio-missing">
+            <template v-if="scannedAssets.audio_sections?.length">
+              Merge the chapter audio first — the video uses the merged narration.
+            </template>
+            <template v-else>
+              No merged audio file found. Run the <strong>Audio Assembly</strong> step first to produce a single merged track.
+            </template>
+            <NuxtLink :to="{ path: `/projects/${slug}/audio-merge`, query: { episode_id: episodeId } }" class="btn btn-sm btn-primary ml-2-tight">
+              Open Audio Assembly
+            </NuxtLink>
           </div>
           <p v-if="scannedAssets.skip_chapters" class="text-muted text-xs hint-line">
             Individual chapter/intro audio files are ignored — the merged track is authoritative.
@@ -5507,8 +5515,7 @@ const step1Valid = computed(() => {
     && visualSourceLoaded.value
     && !visualSourceError.value
     && scannedAssets.value.scenes?.length > 0
-    && (scannedAssets.value.merged_audio?.length > 0
-        || scannedAssets.value.audio_sections?.length > 0)
+    && hasMergedAudio.value // the render needs merged narration; chapter audio alone is not enough
     && unifiedTimingReady.value
 })
 

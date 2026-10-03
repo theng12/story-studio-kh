@@ -264,6 +264,13 @@ test('Thumbnail templates: plain wording, failed load with Retry, unsaved-change
   assert.match(editor, /layoutTextZone\(zone, canvas, previewText\.value\)/, 'drag boxes use the shared layout')
   assert.doesNotMatch(editor, /preview\.png/, 'no server round-trip for the editor preview')
   assert.doesNotMatch(editor, /v-html/, 'overlay is an <img> data URL, never injected markup')
-  assert.match(editor, /final render may differ slightly/)
+  assert.match(editor, /gallery card may differ slightly/)
+  // The editor's text settings only draw the gallery preview card (composeThumbnail is
+  // called only from the template preview route); real headlines come from the image model.
+  assert.match(editor, /data-testid="tte-text-scope-note"[\s\S]{0,300}only shape this template's gallery preview card[\s\S]{0,120}Real thumbnails get their headline from the image model/)
+  assert.doesNotMatch(editor, /final render may differ|saved thumbnail does/)
+  const catalogPage = read('../pages/projects/[slug]/thumbnail-templates.vue')
+  assert.doesNotMatch(catalogPage, /text-free and add a crisp headline|composite the final headline/)
+  assert.match(catalogPage, /image model draws each thumbnail's headline[\s\S]{0,80}gallery preview card/)
   assert.match(editor, /Sample title[\s\S]{0,300}Preview only — each episode puts its own title here\./)
 })
