@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { transform } from 'esbuild'
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 
 const page = readFileSync(new URL('../pages/projects/[slug]/audio-merge.vue', import.meta.url), 'utf8')
 function deferred<T>() {
@@ -39,6 +39,7 @@ async function loadSubmit() {
     backgroundNoise: reactive({ enabled: false, mode: 'preset', preset: '', custom_file: '', volume: 0, fade_in: 0, fade_out: 0 }),
     ambientTracks: reactive<any[]>([]), audioMergeGenerating: ref(false), ffmpegStatus: ref({ installed: true }),
     normalizeAudioMergePathsInState: async () => undefined, success: () => undefined, showError: () => undefined,
+    musicChoiceMissing: ref(false),
   }
   const posts: Array<ReturnType<typeof deferred<any>>> = []
   const post = () => { const request = deferred<any>(); posts.push(request); return request.promise }
@@ -93,4 +94,33 @@ test('a stale failed merge submission cannot clear a newer submission pulse', as
   posts[1]!.reject(new Error('second request failed'))
   await second
   assert.equal(state.audioMergeGenerating.value, false)
+})
+
+test('Background Music on with no track chosen is refused instead of merging without a bed', async () => {
+  // The page's own rule, evaluated against its real inputs.
+  const start = page.indexOf('const musicChoiceMissing = computed(')
+  const end = page.indexOf('\n\n', start)
+  const rule = (await transform(page.slice(start, end), { loader: 'ts', format: 'esm' })).code
+  const music = reactive({ enabled: true, source: 'manual' })
+  const hasSelectedMusic = ref(false)
+  const poolPeekLoading = ref(false)
+  const missing = new Function('computed', 'music', 'hasSelectedMusic', 'poolPeekLoading', `${rule}; return musicChoiceMissing`)(
+    computed, music, hasSelectedMusic, poolPeekLoading)
+  assert.equal(missing.value, true, '"Choose for this episode" with an empty playlist')
+  hasSelectedMusic.value = true
+  assert.equal(missing.value, false)
+  hasSelectedMusic.value = false
+  music.source = 'pool'
+  poolPeekLoading.value = true
+  assert.equal(missing.value, false, 'a pool pick still loading is not a missing choice')
+  poolPeekLoading.value = false
+  assert.equal(missing.value, true, 'a pool with nothing eligible is a missing choice too')
+  music.enabled = false
+  assert.equal(missing.value, false, 'music off is a deliberate choice')
+
+  const { state, posts, generateMergedAudio } = await loadSubmit()
+  state.music.enabled = true
+  state.musicChoiceMissing.value = true
+  await generateMergedAudio()
+  assert.equal(posts.length, 0, 'nothing is merged')
 })

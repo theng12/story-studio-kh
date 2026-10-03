@@ -338,6 +338,15 @@ export async function dispatchEpisodeRecoveryStep(
     return
   }
   if (step === 'subtitle_stitch') return
+  // Narration for this episode is still being made or replaced. Assembling now
+  // would mix old and new chapter takes and be stale the moment the narration
+  // job saves its next chapter; the 30-second recheck resumes this edge once it
+  // has finished.
+  if (step === 'audio_merge' && jobs.some(job => job.type === 'audio' && job.episode_id === plan.episode_id
+    && ['queued', 'running', 'paused'].includes(job.status))) {
+    plan.message = 'Waiting for narration to finish before Audio Assembly.'
+    return
+  }
   const node = plan.steps[step]
   const type = step === 'subtitle_sections' ? 'subtitles_transcribe' : step
   const active = jobs.find(job => job.type === type && ['queued', 'running', 'paused'].includes(job.status))

@@ -2599,6 +2599,10 @@ export interface Job {
   /** Distinguishes a user-paused job from one paused by the global queue hold.
    * Global Resume may restart only `queue` jobs; `manual` jobs stay paused. */
   pause_origin?: 'manual' | 'queue' | 'stall'
+  /** The owner pressed Resume while a pause was still taking effect (work
+   * already sent was finishing). The job continues on its own the moment its
+   * paused checkpoint is saved. Cleared by that transition or a new Pause. */
+  resume_after_pause?: boolean
   /** Executor reached a local boundary; remote cancellation settlement may now finalize this job. */
   local_execution_complete?: boolean
   /** Every server-authoritative action currently available; `control` remains the primary compatibility view. */
