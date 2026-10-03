@@ -33,6 +33,8 @@ import { router as contentStoreRouter } from './content-store.js'
 import { router as recencyRouter } from './recency.js'
 import { router as musicPoolRouter } from './music-pool.js'
 import { router as musicLibraryRouter } from './music-library.js'
+import { router as musicEpisodeRouter } from './music-episode.js'
+import { router as songPoolRouter } from './song-pool.js'
 import { router as libraryRouter } from './library.js'
 import { router as mediaCleanupRouter } from './media-cleanup.js'
 import { router as softDeletedProjectsRouter } from './soft-deleted-projects.js'
@@ -49,6 +51,7 @@ import { router as researchRouter } from './research.js'
 import { router as scenePlanRouter } from './scene-plan.js'
 import { router as sceneReviewRouter } from './scene-review.js'
 import { router as contextualCuesRouter } from './contextual-cues.js'
+import { router as effectsLibraryRouter } from './effects-library.js'
 import { router as soundDesignRouter } from './sound-design.js'
 import { router as episodeSegmentsRouter } from './episode-segments.js'
 import { router as continuityRouter } from './continuity.js'
@@ -90,6 +93,8 @@ export function mountRoutes(app: Express): void {
   app.use('/api', recencyRouter)
   app.use('/api', musicPoolRouter)
   app.use('/api', musicLibraryRouter)
+  app.use('/api', musicEpisodeRouter)
+  app.use('/api', songPoolRouter)
   app.use('/api', libraryRouter)
   app.use('/api', mediaCleanupRouter)
   app.use('/api', softDeletedProjectsRouter)
@@ -106,5 +111,6 @@ export function mountRoutes(app: Express): void {
   app.use('/api', scenePlanRouter)
   app.use('/api', sceneReviewRouter)
   app.use('/api', contextualCuesRouter)
+  app.use('/api', effectsLibraryRouter)
   app.use('/api', continuityRouter)
 }

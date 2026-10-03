@@ -13,9 +13,7 @@
  * of the starter library and were not in this release's scope.
  */
 
-import type { VideoColorGrading } from '../models/types.js'
 import { anchorOverlayPosition, letterboxBarHeight, letterboxBars, vignetteAngle } from './scene-effect-compiler.js'
-import { buildColorbalanceStatements, type GraphIo } from './grade-balance.js'
 
 /** Build the `:enable` suffix supported by FFmpeg's visual filters. */
 export function buildGateEnable(start: number, end: number): string {
@@ -102,54 +100,12 @@ export function buildAgedArchiveFilmFilters(opts: {
   ]
 }
 
-/** Keep this preset table aligned with the Video Assembly live preview. */
-export function buildColorGradingFilters(cg: VideoColorGrading, gateSuffix: string, io: GraphIo): string[] {
-  const presets: Record<string, { brightness: number; contrast: number; saturation: number; warmth: number; tint: number }> = {
-    none: { brightness: 0, contrast: 1, saturation: 1, warmth: 0, tint: 0 },
-    'warm-night': { brightness: -0.05, contrast: 1.1, saturation: 0.9, warmth: 0.15, tint: 0 },
-    'cool-moonlight': { brightness: 0.02, contrast: 1.05, saturation: 0.8, warmth: -0.15, tint: -0.05 },
-    cinematic: { brightness: -0.03, contrast: 1.2, saturation: 0.85, warmth: 0.05, tint: 0 },
-    vintage: { brightness: 0.05, contrast: 0.95, saturation: 0.7, warmth: 0.2, tint: 0.05 },
-    'dreamy-haze': { brightness: 0.08, contrast: 0.9, saturation: 0.75, warmth: 0.1, tint: 0.05 },
-    'golden-hour': { brightness: 0.03, contrast: 1.1, saturation: 1.1, warmth: 0.25, tint: 0.02 },
-    noir: { brightness: -0.1, contrast: 1.4, saturation: 0, warmth: 0, tint: 0 },
-    firelight: { brightness: -0.05, contrast: 1.15, saturation: 1, warmth: 0.3, tint: 0 },
-    'rainy-dusk': { brightness: -0.02, contrast: 1, saturation: 0.7, warmth: -0.1, tint: 0 },
-    'lavender-mist': { brightness: 0.05, contrast: 0.95, saturation: 0.85, warmth: -0.05, tint: 0.08 },
-    'forest-canopy': { brightness: -0.03, contrast: 1.1, saturation: 0.95, warmth: -0.05, tint: -0.05 },
-    'desert-twilight': { brightness: 0.02, contrast: 1.05, saturation: 1.05, warmth: 0.18, tint: 0.04 },
-    'ocean-depths': { brightness: -0.08, contrast: 1.15, saturation: 0.85, warmth: -0.2, tint: -0.03 },
-    'sepia-dream': { brightness: 0, contrast: 1.05, saturation: 0.4, warmth: 0.15, tint: 0.05 },
-    'frosted-glass': { brightness: 0.15, contrast: 0.85, saturation: 0.65, warmth: -0.05, tint: 0 },
-    'autumn-glow': { brightness: 0, contrast: 1.1, saturation: 1.15, warmth: 0.2, tint: 0.03 },
-    'starlit-night': { brightness: -0.1, contrast: 1.25, saturation: 0.6, warmth: -0.18, tint: -0.02 },
-    'misty-morning': { brightness: 0.1, contrast: 0.9, saturation: 0.7, warmth: -0.08, tint: 0.02 },
-  }
-  const base = presets[cg.preset] || presets.none
-  const brightness = base.brightness + (cg.brightness || 0)
-  const contrast = base.contrast * (cg.contrast ?? 1)
-  const saturation = base.saturation * (cg.saturation ?? 1)
-  const warmth = base.warmth + (cg.warmth || 0)
-  const tint = base.tint + (cg.tint || 0)
-  const eqParts: string[] = []
-  if (Math.abs(brightness) > 0.001) eqParts.push(`brightness=${brightness.toFixed(3)}`)
-  if (Math.abs(contrast - 1) > 0.001) eqParts.push(`contrast=${contrast.toFixed(3)}`)
-  if (Math.abs(saturation - 1) > 0.001) eqParts.push(`saturation=${saturation.toFixed(3)}`)
-
-  // Warmth and tint used to be one `colorbalance`, by far the most expensive filter in the final pass. A two-input
-  // `lut2` reproduces it from the same six amounts at under half the cost; see grade-balance.ts.
-  const afterEq = eqParts.length ? io.allocLabel() : null
-  const balance = (Math.abs(warmth) > 0.001 || Math.abs(tint) > 0.001)
-    ? buildColorbalanceStatements({
-        rs: warmth * 0.3, gs: tint * -0.2, bs: warmth * -0.3,
-        rm: warmth * 0.15, gm: tint * -0.1, bm: warmth * -0.15,
-      }, { input: afterEq ?? io.input, output: io.output, allocLabel: io.allocLabel }, gateSuffix)
-    : null
-  const eq = eqParts.length
-    ? [`${io.input}eq=${eqParts.join(':')}${gateSuffix}${balance ? afterEq : io.output}`]
-    : []
-  return [...eq, ...(balance ?? [])]
-}
+/**
+ * Colour grading moved to `lib/color-grade.ts` in v1.5 so the effect-library
+ * compiler can build the same grade per scene without importing this module
+ * (which imports the compiler). Re-exported so every caller is unchanged.
+ */
+export { buildColorGradingFilters } from './color-grade.js'
 
 /**
  * Where the logo sits, as `overlay` filter coordinates.

@@ -33,7 +33,7 @@ test('a running Audio Assembly is re-run after a restart, not left "Interrupted"
   const executed: string[] = []
   jq.registerExecutor('audio_merge', async job => { executed.push(job.job_id) })
   await jq.getJobs(project.slug)
-  await waitFor(() => jq.getJob(row.job_id)?.status === 'done', { label: 'audio merge re-run' })
+  await waitFor(() => jq.getJob(row.job_id)?.status === 'done', { label: 'resumed audio merge finishes' })
   assert.deepEqual(executed, [row.job_id])
   assert.equal(jq.getJob(row.job_id)?.status, 'done')
   assert.notEqual(jq.getJob(row.job_id)?.error, 'Interrupted by app restart')

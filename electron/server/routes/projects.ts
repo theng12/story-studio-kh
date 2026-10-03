@@ -78,7 +78,12 @@ router.get('/projects/:slug/effective-format', async (req, res) => {
       )
       if (!accepted) return res.status(404).json({ detail: `No accepted episode matches '${episodeId}' in this project` })
     }
-    res.json(await getEffectiveFormatFor(project, episodeId ? { episodeId } : undefined))
+    const format = await getEffectiveFormatFor(project, episodeId ? { episodeId } : undefined)
+    // A Series Formula with a `musicFormat` block makes the channel a music channel
+    // (SPEC §1); the sidebar then shows the MUSIC flow instead of the narration one.
+    const { getEffectiveNicheFor } = await import('../services/niche-loader.js')
+    const niche = await getEffectiveNicheFor(project).catch(() => null) as { musicFormat?: unknown } | null
+    res.json({ ...format, musicChannel: !!niche?.musicFormat })
   } catch (e: any) {
     respondWithError(res, e, 'Failed to resolve effective format')
   }

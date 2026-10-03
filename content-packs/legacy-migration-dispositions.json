@@ -1194,6 +1194,166 @@
       "closure_group": "intentional-free-baseline"
     },
     {
+      "legacy_key": "overlay:rain",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "rain"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:snow",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "snow"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:lightning-flash",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "lightning-flash"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:shimmer-ripple",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "shimmer-ripple"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:ground-mist",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "ground-mist"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:cloud-shadows",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "cloud-shadows"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:dust-motes",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "dust-motes"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:petals",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "petals"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:fireflies",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "fireflies"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:bokeh-orbs",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "bokeh-orbs"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:embers",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "embers"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:twinkling-stars",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "twinkling-stars"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:light-rays",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "light-rays"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:bloom-glow",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "bloom-glow"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:candle-flicker",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "candle-flicker"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:colour-grade-look",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "colour-grade-look"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
       "legacy_key": "prepared:com.storystudio.pack.style.dreamlike-luminous-sleep-illustration@1.0.0",
       "disposition": "authored-standalone",
       "source": "content-packs/legacy-thumbnail-restoration/style/dreamlike-luminous-sleep-illustration",
