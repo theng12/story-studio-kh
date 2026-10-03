@@ -5458,8 +5458,12 @@ export function retryTerminalJob(
   // v1.2.8 — an abandoned job is exempt. "Generate a new one in its
   // replacement" is the other half of the escape hatch, and refusing the retry
   // on evidence the owner has explicitly chosen to stop waiting for would leave
-  // him abandoned AND stuck. Retry never reuses a provider identity here: it
-  // submits fresh work, which is what he asked for and what he is paying for.
+  // him abandoned AND stuck. An abandoned job's retry submits fresh work.
+  // Otherwise the retry is NOT always fresh: a chapter chat run with unresolved
+  // batches replays its exact keys ('exact-replay'), an exact manual-replacement
+  // retry and an uncertain-audio retry carry the original `genstudio_jobs`
+  // forward, so the Gateway answers with the first outcome instead of a second
+  // charge. Only settled, released work gets a new provider identity.
   if (!original.force_abandoned && hasUnsettledProviderEvidence(original)
     && !(chatBackedRetry && chapterRetryMode === 'exact-replay') && !exactManualRetry) {
     throw Object.assign(
