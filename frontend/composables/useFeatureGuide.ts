@@ -81,7 +81,7 @@ export const featureGuides: Record<string, FeatureGuide> = {
       { title: 'Preflight blockers', purpose: 'Explains missing dependencies before any work is queued.' },
       { title: 'Run Batch', purpose: 'Creates durable local jobs in dependency order.', effect: 'The jobs are saved, so they survive a restart of Story Studio. The Gateway decides when each one starts.' },
     ],
-    tips: ['Start with a small batch when testing a new preset.', 'Research, introductions, contextual cues, sound design, and motion may be optional depending on project configuration.'],
+    tips: ['Start with a small batch when testing a new preset.', 'Research is always optional. Introductions, contextual cues, sound design, and motion may be optional depending on project configuration.'],
   },
   board: {
     title: 'Production Board',
@@ -107,7 +107,7 @@ export const featureGuides: Record<string, FeatureGuide> = {
       { title: 'Claim status', purpose: 'Verified claims may inform the script; ignored or unreviewed claims do not.' },
       { title: 'Sources for metadata', purpose: 'Controls which reviewed citations may appear in the final description.' },
     ],
-    tips: ['Research blocks completion only when the channel requires it (Settings → Channel).', 'Model knowledge is reliable on well-established facts but cites nothing, so check anything specific or recent. Web search records the sources it read for the run as a whole, not per claim.'],
+    tips: ['Research is optional. It never blocks the script, the Pipeline or finishing an episode.', 'Model knowledge is reliable on well-established facts but cites nothing, so check anything specific or recent. Web search records the sources it read for the run as a whole, not per claim.'],
   },
   introduction: {
     title: 'Introduction',

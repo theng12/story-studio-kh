@@ -555,7 +555,7 @@
             reviewed evidence set.
           </p>
           <p v-else>
-            Pick an episode to see whether it needs research and how far its claim review has got.
+            Pick an episode to see its research and how far its claim review has got.
           </p>
         </div>
       </div>

@@ -45,9 +45,13 @@
     <!-- Live preview: the browser draws the SAME overlay SVG the server -->
     <!-- renders (contracts/thumbnail-overlay.ts), over the same placeholder -->
     <!-- background, so it updates as you edit — no save needed. -->
+    <p v-if="workingTemplate" class="tte-text-scope-note" data-testid="tte-text-scope-note">
+      <strong>These text settings only shape this template's gallery preview card.</strong>
+      Real thumbnails get their headline from the image model, not from these settings.
+    </p>
     <p v-if="workingTemplate" class="text-muted tte-preview-note">
-      <strong>Preview</strong> — final render may differ slightly. Line breaks, positions, sizes and colours are worked out
-      exactly as the saved thumbnail does; only the letter shapes are drawn by your browser instead of the app's image renderer.
+      <strong>Preview</strong> — the gallery card may differ slightly. Line breaks, positions, sizes and colours are worked out
+      the same way as the card, but your browser draws the letter shapes.
       Drag a box to move its text.
     </p>
     <div v-if="workingTemplate" class="tte-canvas-wrap" :style="canvasWrapStyle">
@@ -76,7 +80,7 @@
 
     <!-- Properties panel for the selected zone -->
     <p v-if="workingTemplate && !(workingTemplate.textZones || []).length" class="text-muted tte-props-hint">
-      This template has no text layers to edit — the image model writes the headline itself.
+      This template has no text layers to edit.
     </p>
     <div v-if="workingTemplate && selectedZone" class="tte-props">
       <div class="tte-props-head">
@@ -639,6 +643,7 @@ onBeforeUnmount(() => {
   color: #f5bc42;
 }
 
+.tte-text-scope-note { margin: 0 0 6px; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-tertiary); font-size: 13px; }
 .tte-preview-note {
   margin: 0;
   font-size: var(--font-xs);
