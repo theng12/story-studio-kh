@@ -69,7 +69,7 @@
         <button
           type="button"
           class="btn btn-primary"
-          :disabled="!chapterAudioReady || mergeStatus.loading || !!mergeStatus.error || generating || mergeJobActiveForEpisode"
+          :disabled="!chapterAudioReady || mergeStatus.loading || !!mergeStatus.error || generating || mergeJobActiveForEpisode || musicChoiceMissing"
           @click="onGenerateClick"
         >{{ generating || mergeJobActiveForEpisode ? 'Merging…' : generateLabel }}</button>
       </div>
@@ -84,6 +84,10 @@
         </template>
         <template v-else-if="generating || mergeJobActiveForEpisode">
           Merging audio for {{ selectedEpisode?.title || episodeId }}…
+        </template>
+        <template v-else-if="musicChoiceMissing">
+          Background Music is on, but no track is chosen for this episode. Pick a file under Background Music,
+          switch to Music Pool, or turn music off.
         </template>
         <template v-else-if="writeMode === 'new' && existingMergedAudio">
           Keeps the current merge and writes {{ nextVersionName.split('/').pop() }} beside it.
@@ -1187,6 +1191,11 @@ const selectedMusicFiles = computed(() => {
 })
 
 const hasSelectedMusic = computed(() => selectedMusicFiles.value.length > 0)
+// Music on with nothing chosen used to merge silently WITHOUT a bed. "Choose for this episode"
+// is remembered per Mac but its files are per episode, so returning to an episode showed
+// Music on, "No music files added yet", and an enabled Replace button (Dreamlands E2E).
+const musicChoiceMissing = computed(() => music.enabled && !hasSelectedMusic.value
+  && !(music.source === 'pool' && poolPeekLoading.value))
 
 const existingMergedAudio = computed(() => {
   const files = scannedAssets.value?.merged_files || []
@@ -1647,6 +1656,10 @@ function onGenerateClick() {
 
 async function generateMergedAudio(writeMode: 'overwrite' | 'new' = 'overwrite') {
   if (!episodeId.value || generating.value || scanning.value || !chapters.value.length) return
+  if (musicChoiceMissing.value) {
+    showError('Background Music is on, but no track is chosen for this episode. Pick a file, switch to Music Pool, or turn music off.')
+    return
+  }
   const scope = audioScopeSequence
   const submit = ++mergeSubmitSequence
   generating.value = true
