@@ -37,7 +37,10 @@ export function addSectionQuality(
 const WHAT_WENT_WRONG: Array<[RegExp, string]> = [
   [/silent|DC drift/i, 'came out silent'],
   [/longer than its text|babble|humming/i, 'came out as humming or mumbling instead of speech'],
-  [/does not say its text|other words/i, 'did not say its words'],
+  // Hub 0.6.138: a long silence inside the section (TTS_SECTION_INTERNAL_SILENCE).
+  [/unnatural pause|stopped mid-text|internal silence/i, 'stopped for a long silence partway through'],
+  // Hub 0.6.138 rejects more than 3 words in a row not heard (TTS_SECTION_TEXT_MISMATCH).
+  [/does not say its text|other words|text mismatch/i, 'skipped part of the text (some words were not heard)'],
 ]
 
 /**

@@ -37,7 +37,9 @@ test('a section that failed every try reads as a plain sentence', () => {
   assert.equal(plainSectionFailure(hub), plain)
   assert.equal(humanGatewayText(hub), plain)
   assert.match(plainSectionFailure('Section 2 of 3 ran far longer than its text (babble or humming) on all 4 attempts')!, /came out as humming or mumbling instead of speech/)
-  assert.match(plainSectionFailure('Section 7 of 8 does not say its text (Whisper heard other words) on all 4 attempts')!, /did not say its words/)
+  assert.match(plainSectionFailure('Section 7 of 8 does not say its text (Whisper heard other words) on all 4 attempts')!, /^Section 7 of 8 skipped part of the text \(some words were not heard\) on all 4 tries/)
+  // Hub 0.6.138: a long silence inside a section has its own plain phrase.
+  assert.match(plainSectionFailure('Section 4 of 9 stopped mid-text for an unnatural pause on all 4 attempts, so the audio was not delivered.')!, /^Section 4 of 9 stopped for a long silence partway through on all 4 tries, so this part was not saved\. Re-narrate/)
   assert.doesNotMatch(humanGatewayText(hub), /DC drift|Whisper|delivered/)
   assert.equal(plainSectionFailure('hub submit failed: timed out'), null)
 })

@@ -50,6 +50,10 @@ router.get('/projects/:slug/audio-editor/scan/:episodeId', async (req, res) => {
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   try {
+    // First load of an episode that still holds split narration: join each
+    // complete chapter so the list shows one file per chapter.
+    const { consolidateEpisodeParts } = await import('../services/chapter-parts.js')
+    await consolidateEpisodeParts(slug, episodeId, () => {})
     const [assets, chapterAudioReadiness] = await Promise.all([
       scanEpisodeAudioAssets(slug, episodeId),
       inspectChapterAudioReadiness(slug, episodeId),
