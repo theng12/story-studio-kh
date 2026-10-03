@@ -20,7 +20,8 @@ import {
   hashSubtitleAudioSources,
   isPipelineRepairTranscriptUsable,
 } from '../services/subtitle-completion.js'
-import { describeSubtitleGaps } from '../contracts/subtitle-gaps.js'
+import { describeSubtitleGaps, subtitleChapterLabel } from '../contracts/subtitle-gaps.js'
+import { inspectMissingSentences } from '../lib/script-transcript-check.js'
 import { readSubtitleSourceAudioHashes, recordSubtitleSourceEvidence } from '../services/subtitle-recovery.js'
 import { readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
 import { scanEpisodeAssets } from './video.js'
@@ -963,6 +964,20 @@ async function transcribePerChapter(
     new_cues: totalCues,
     missing_sections: episodeMissingSlugs,
     recovery_state: 'needs_attention',
+  }
+
+  // Script vs transcript: a sentence the voice skipped inside a pause shorter
+  // than the cue-gap gate is invisible to it. Named here and on the Subtitles
+  // page with Re-narrate; never blocks (Whisper can mishear a word or a name).
+  const skippedSentences = await inspectMissingSentences(epaths.script_dir, outDir, code, unselectedStaleSections).catch(() => [])
+  if (skippedSentences.length) {
+    const total = skippedSentences.reduce((sum, chapter) => sum + chapter.sentences.length, 0)
+    job.result.missing_sentences = skippedSentences
+    job.output_lines.push(
+      `⚠ The narration seems to skip ${total} script sentence${total === 1 ? '' : 's'} — `
+      + skippedSentences.map(chapter => `${subtitleChapterLabel(chapter.slug)}: ${chapter.sentences.length}`).join(', ')
+      + `. First: "${skippedSentences[0].sentences[0].slice(0, 120)}". Open Subtitles to listen, then Re-narrate that chapter.`,
+    )
   }
 
   if (!scopeComplete || (!explicitlyScoped && !episodeComplete)) {

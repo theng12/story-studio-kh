@@ -2,6 +2,7 @@
  * Video editor routes — FFmpeg check, asset scanning, presets, and video generation.
  */
 
+import { inspectMissingSentences } from '../lib/script-transcript-check.js'
 import { Router } from 'express'
 import { createReadStream, existsSync, statSync } from 'fs'
 import fs from 'fs/promises'
@@ -1347,6 +1348,12 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
         .catch(() => {})
     }
 
+    // Script vs transcript: sentences each chapter's narration never said,
+    // including ones inside pauses too short for the cue-gap gate above.
+    const missingSentences = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, 'audio_chapters.json')
+      .then(paths => inspectMissingSentences(paths.script_dir, subtitlesDir, episodeId, subtitleFreshness.stale_sections))
+      .catch(() => [])
+
     res.json({
       has_libass: libass,
       has_merged_audio: assembly.merged_audio_ready,
@@ -1375,6 +1382,7 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
       freshness_reason: subtitleFreshness.freshness_reason,
       last_stitched_at: lastStitchedAt,
       timeline_integrity: subtitleTimelineIntegrity,
+      missing_sentences: missingSentences,
       planning_transcript_source: planningTranscript?.source ?? null,
       planning_source_revalidation_required: planningTranscript?.planning_source_revalidation_required ?? false,
       // v1.4.0 — the Scene Plan is GENERATED FROM the stitched transcript, so an
