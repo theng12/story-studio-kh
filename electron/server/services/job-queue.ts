@@ -2996,7 +2996,11 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
             const recoverableVideoAssembly = j.type === 'video_assembly'
               && !!queues.video_assembly.executor
               && !!(await getValidVideoAssemblyCheckpoint(j, ['running']))
-            if ((recoverableGenStudio || recoverableImageEpisode || recoverableVideoAssembly) && !hasCancellationContext(j)) {
+            // Audio Assembly is local FFmpeg work with no provider request: re-running it costs
+            // nothing and rebuilds the same file. Before, a restart left it "Interrupted by app
+            // restart" and the owner had to find it and press Generate again (Dreamlands E2E).
+            const recoverableLocalMerge = j.type === 'audio_merge' && !!queues.audio_merge?.executor
+            if ((recoverableGenStudio || recoverableImageEpisode || recoverableVideoAssembly || recoverableLocalMerge) && !hasCancellationContext(j)) {
               j.status = 'queued'
               // Keep the original admission timestamp so the fair image pump
               // recognises this as recovery work ahead of fresh FIFO.
@@ -3004,7 +3008,9 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
               j.finished_at = null
               j.error = null
               j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
-              j.output_lines.push(recoverableVideoAssembly
+              j.output_lines.push(recoverableLocalMerge
+                ? '↻ Story Studio restarted — running Audio Assembly again from the start (local work, nothing is charged).'
+                : recoverableVideoAssembly
                 ? '↻ Story Studio restarted — resuming local Video Assembly from its validated scene-clip checkpoint. Missing or invalid clips and every later stage will be rebuilt.'
                 : recoverableImageEpisode
                   ? '↻ Story Studio restarted — resuming this render. Every image the Gateway already finished will be reclaimed from its saved task id at no extra credits, and only genuinely missing scenes will be submitted.'
