@@ -23,3 +23,11 @@ test('Content Store account wording names the Gateway', () => {
     assert.doesNotMatch(read(file), /GenStudio account|Gateway owns for good|Checking with GenStudio/, file)
   }
 })
+
+test('Content Store asks for the Gateway key, not a "GenStudio API key"', () => {
+  for (const rel of ['../../electron/server/services/content-store.ts', '../../electron/server/services/content-store-delivery.ts']) {
+    const src = readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+    assert.doesNotMatch(src, /'Save a GenStudio API key/)
+    assert.match(src, /Save your Gateway key in Settings → This Mac/)
+  }
+})

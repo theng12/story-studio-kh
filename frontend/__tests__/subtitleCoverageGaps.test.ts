@@ -38,3 +38,8 @@ test('Subtitles gap notice offers Re-transcribe for each affected chapter', () =
   assert.match(notice, /@click="retranscribeChapter\(section\)"/)
   assert.match(notice, /Re-transcribe \$\{section\.replaceAll\('_', ' '\)\}/)
 })
+
+test('the header keeps a space between the blocker sentence and its "Fix in Subtitles" link', () => {
+  const bar = readFileSync(new URL('../components/TopActionBar.vue', import.meta.url), 'utf8')
+  assert.match(bar, /<template v-if="generateStatusLink">\{\{ ' ' \}\}<NuxtLink/)
+})

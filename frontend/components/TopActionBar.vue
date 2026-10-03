@@ -166,7 +166,7 @@
         class="generate-status"
         role="status"
         aria-live="polite"
-      >{{ generateStatusSentence }}<template v-if="generateStatusLink"> <NuxtLink :to="generateStatusLink.to" class="inline-link">{{ generateStatusLink.label }}</NuxtLink></template></p>
+      >{{ generateStatusSentence }}<template v-if="generateStatusLink">{{ ' ' }}<NuxtLink :to="generateStatusLink.to" class="inline-link">{{ generateStatusLink.label }}</NuxtLink></template></p>
     </div>
 
     <!-- Preset action modals use the same keyboard-safe pattern as PresetPicker. -->
