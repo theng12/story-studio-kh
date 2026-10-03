@@ -22,6 +22,8 @@ const CHAINS: Record<VisualSource, CockpitStep[]> = {
   'timestamp-driven': ['research', 'script-only', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'metadata', 'scene_plan', 'scene_review', 'motion_review', 'video_assembly'],
   'continuity-chain': ['research', 'script-only', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'metadata', 'character_sheet', 'scene_plan', 'scene_review', 'motion_review', 'video_assembly'],
   'narrated-scenes':  ['script-only', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'metadata', 'character_sheet', 'scene_plan', 'scene_review', 'motion_review', 'video_assembly'],
+  // Music channels have no batch chain yet (SPEC phase 4 adds the Pipeline music chain).
+  'music': [],
 }
 
 // The "Final video" steps — "Up to review" stops before these so you can eyeball

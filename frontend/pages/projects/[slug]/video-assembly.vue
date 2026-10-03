@@ -209,6 +209,25 @@
         <button type="button" class="btn btn-sm btn-secondary mt-1" @click="scanAssets">Retry Asset Check</button>
       </div>
 
+      <!-- Music channel format: an Episode Builder episode brings its own render
+           settings. Offered, never applied unasked (a preset does nothing until chosen). -->
+      <WorkspaceNotice
+        v-if="scannedAssets?.music_episode && !scanning"
+        class="mt-2"
+        tone="info"
+        title="Music episode from Episode Builder"
+      >
+        {{ scannedAssets.music_episode.songs }} songs, no narration or subtitles.
+        The button sets {{ scannedAssets.music_episode.frame_rate }} fps,
+        {{ scannedAssets.music_episode.resolution === '1080p' ? '1080p (scenes upscaled)' : '720p' }},
+        {{ scannedAssets.music_episode.scene_change.transition }} {{ scannedAssets.music_episode.scene_change.seconds }} s between scenes,
+        a slow zoom, hardware encoding at {{ scannedAssets.music_episode.resolution === '1080p' ? '5' : '2.5' }} Mbps,
+        and no intro, title image, cards or subtitles. Your logo and effects stay as they are; every setting stays changeable below.
+        <template #actions>
+          <button type="button" class="btn btn-sm btn-primary" @click="applyMusicEpisodeSettings">Use Music Episode Settings</button>
+        </template>
+      </WorkspaceNotice>
+
       <div v-if="scannedAssets && !scanning" class="assets-overview mt-2">
         <h4>Found Assets</h4>
 
@@ -253,8 +272,8 @@
           <div class="scene-coverage-actions">
             <NuxtLink
               class="btn btn-sm btn-primary"
-              :to="`/projects/${slug}/scene-review?episode_id=${episodeId}`"
-            >Open Scene Review</NuxtLink>
+              :to="`/projects/${slug}/${scannedAssets?.music_episode ? 'episode-builder' : 'scene-review'}?episode_id=${episodeId}`"
+            >{{ scannedAssets?.music_episode ? 'Open Episode Builder' : 'Open Scene Review' }}</NuxtLink>
             <button type="button" class="btn btn-sm btn-secondary" :disabled="scanning" @click="scanAssets">
               {{ scanning ? 'Checking…' : 'Check Again' }}
             </button>
@@ -2570,6 +2589,22 @@
           </p>
         </div>
 
+        <!-- Bitrate cap (optional) -->
+        <div class="form-group">
+          <label>Bitrate Cap</label>
+          <select v-model.number="exportSettings.video_bitrate_kbps" class="select" :disabled="exportSettings.format === 'webm'">
+            <option :value="0">No cap — size follows the quality setting</option>
+            <option :value="2500">2.5 Mbps — 720p music episodes</option>
+            <option :value="5000">5 Mbps — 1080p music episodes</option>
+            <option :value="8000">8 Mbps — YouTube's 1080p guidance</option>
+            <option :value="12000">12 Mbps — busy, detailed footage</option>
+          </select>
+          <p class="text-muted text-sm mt-1">
+            Hardware encoding aims at this bitrate; CPU encoding keeps its quality setting and never goes above it.
+            Rain, snow and film grain make files balloon without a cap.
+          </p>
+        </div>
+
         <!-- Codec -->
         <div class="form-group">
           <label>Codec</label>
@@ -4507,6 +4542,8 @@ const exportSettings = reactive<{
   encoding_effort: 'ultrafast' | 'medium' | 'slow' | 'hardware'
   codec: 'h264' | 'h265'
   format: 'mp4' | 'mov' | 'webm'
+  /** 0 = no cap (quality-based, as before). */
+  video_bitrate_kbps: number
 }>({
   resolution: '1080p',
   // 16:9 until the channel's format says otherwise (seeded below) or he picks.
@@ -4516,6 +4553,7 @@ const exportSettings = reactive<{
   encoding_effort: 'medium',
   codec: 'h264',
   format: 'mp4',
+  video_bitrate_kbps: 0,
 })
 
 /**
@@ -4808,7 +4846,8 @@ const exportPresets = usePresets({
   slug: slug.value,
   configKey: 'export',
   snapshot: () => ({ ...exportSettings }),
-  apply: (data: any) => { if (data) Object.assign(exportSettings, data) },
+  // A preset saved before the bitrate cap existed means "no cap", not "keep whatever is on screen".
+  apply: (data: any) => { if (data) Object.assign(exportSettings, { video_bitrate_kbps: 0 }, data) },
 })
 
 // --------------- Bundle preset (one-click apply across all 5 slots) ------
@@ -4958,8 +4997,40 @@ function applySubtitlesData(data: any) {
   if (data.style) subtitles.style = normalizeSubtitleStyle(data.style)
 }
 
+/**
+ * The "Music episode" preset: what an Episode Builder episode needs, from the
+ * settings it was built with. Applied only on the owner's click.
+ */
+function applyMusicEpisodeSettings() {
+  const music = scannedAssets.value?.music_episode
+  if (!music) return
+  intro.enabled = false
+  outro.enabled = false
+  timelineClips.value = []
+  titleImage.enabled = false
+  titleCard.enabled = false
+  chapterTitles.enabled = false
+  outroCard.enabled = false
+  subtitles.enabled = false
+  postAudio.behavior = 'hard-cut'
+  Object.assign(transition, {
+    type: music.scene_change.seconds > 0 ? music.scene_change.transition : 'none',
+    duration: music.scene_change.seconds,
+    pool: [],
+    randomize_mode: 'off',
+  })
+  Object.assign(sceneAnimation, { type: 'ken-burns', zoom_start: 100, zoom_end: 106, pool: [], randomize_mode: 'off' })
+  if ([24, 25, 30, 60].includes(music.frame_rate)) exportSettings.fps = music.frame_rate
+  exportSettings.resolution = music.resolution === '1080p' ? '1080p' : '720p'
+  // Coordinator decision 2026-10-03: hardware (VideoToolbox) at ~5 Mbps for 1080p. Measured: a
+  // 65-min 1080p rain stack takes ~16 min this way vs ~59 min / 50 Mbps in software. Both stay selectable.
+  exportSettings.encoding_effort = 'hardware'
+  exportSettings.video_bitrate_kbps = exportSettings.resolution === '1080p' ? 5000 : 2500
+  success(`Music episode settings applied: ${exportSettings.fps} fps, ${exportSettings.resolution}, hardware encoding at ${exportSettings.video_bitrate_kbps / 1000} Mbps, ${transition.type} ${transition.duration} s.`)
+}
+
 function snapshotExportData() { return { ...exportSettings } }
-function applyExportData(data: any) { if (data) Object.assign(exportSettings, data) }
+function applyExportData(data: any) { if (data) Object.assign(exportSettings, { video_bitrate_kbps: 0 }, data) }
 
 const videoBundlePresets = usePresets({
   slug: slug.value,
@@ -5444,7 +5515,7 @@ function hardwareCardTooltip(preset: QuickExportPreset): string {
 }
 
 function applyQuickPreset(preset: QuickExportPreset) {
-  Object.assign(exportSettings, preset.settings)
+  Object.assign(exportSettings, { video_bitrate_kbps: 0 }, preset.settings)
   // Quick presets deliberately aren't saved export presets — they're just
   // in-memory defaults. Clear any lingering active export-preset pointer so
   // the bundle preset's snapshot doesn't record a stale pointer to a

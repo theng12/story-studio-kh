@@ -27,16 +27,19 @@ import { useRoute } from 'vue-router'
  * Library/Jobs/Settings are intentionally NOT steps — they're tools, not
  * stages of the creation chain.
  */
-export type VisualSource = 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes'
+export type VisualSource = 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes' | 'music'
 export type EpisodeVisualSource = 'scene_plan' | 'image_pool'
 
 export type SceneAlignment = 'chapter' | 'sentence'
 
-export type FlowPhaseKey = 'story' | 'media' | 'video'
+export type FlowPhaseKey = 'story' | 'media' | 'music' | 'episode' | 'video'
 
+/** Phases in display order; a flow shows only the phases it has steps in. */
 export const FLOW_PHASES: ReadonlyArray<{ key: FlowPhaseKey; label: string }> = [
   { key: 'story', label: 'Story' },
   { key: 'media', label: 'Media' },
+  { key: 'music', label: 'Music' },
+  { key: 'episode', label: 'Episode' },
   { key: 'video', label: 'Video' },
 ]
 
@@ -120,6 +123,10 @@ const STEP = {
   motionReview: { key: 'motion-review', label: 'Motion Review', icon: '🎬', path: '/motion-review', phase: 'video', optional: true },
   imagePool:    { key: 'image-pool', label: 'Image Pool', icon: '🗂️', path: '/image-pool', phase: 'video' },
   videoAssembly:    { key: 'video-assembly',     label: 'Video Assembly',     icon: '🎞', path: '/video-assembly', phase: 'video' },
+  // Music channel format (2026-10-03): formula → song pool → episode builder → video.
+  musicFormula: { key: 'music-formula', label: 'Music Formula', icon: '🎚', path: '/music-formula', phase: 'music' },
+  songPool:     { key: 'song-pool', label: 'Song Pool', icon: '🎼', path: '/song-pool', phase: 'music' },
+  episodeBuilder: { key: 'episode-builder', label: 'Episode Builder', icon: '🧩', path: '/episode-builder', phase: 'episode' },
   // v1.0.408 — Image Pool slideshow: pick images + assemble the slideshow.
 } satisfies Record<string, FlowStep>
 const FLOW_TIMESTAMP: FlowStep[] = [
@@ -148,7 +155,16 @@ const FLOW_NARRATED_SCENES: FlowStep[] = [
   STEP.characterSheet, STEP.scenePlan, STEP.contextualCues, STEP.soundDesign, STEP.sceneReview, STEP.motionReview, STEP.videoAssembly,
 ]
 
+// A music channel: no narration, so no story steps. The thumbnail and Finalizer
+// follow the video here because they are made from the finished episode.
+const FLOW_MUSIC: FlowStep[] = [
+  STEP.musicFormula, STEP.songPool,
+  STEP.episodeBuilder,
+  STEP.videoAssembly, { ...STEP.thumbnails, phase: 'video' }, { ...STEP.metadata, phase: 'video' },
+]
+
 export function flowForVisualSource(vs: VisualSource): FlowStep[] {
+  if (vs === 'music') return FLOW_MUSIC
   if (vs === 'timestamp-driven') return FLOW_TIMESTAMP
   if (vs === 'continuity-chain') return FLOW_CONTINUITY
   if (vs === 'narrated-scenes') return FLOW_NARRATED_SCENES

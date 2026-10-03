@@ -52,6 +52,8 @@ function sectionLabel(path: string): string {
     'video-assembly': 'Video Assembly',
     'music-formula': 'Music Formula',
     'song-pool': 'Song Pool',
+    'episode-builder': 'Episode Builder',
+    'effects-library': 'Effects Library',
   }
   return map[path] || path
 }

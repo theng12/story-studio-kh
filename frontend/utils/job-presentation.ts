@@ -47,6 +47,7 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
   image_pool_generate: 'Image pool',
   music_generate: 'Music generation',
   music_video: 'Music video',
+  music_episode_build: 'Music episode',
   // Retired ids retained so old history rows stay readable.
   'script-only': 'Script (chapters)',
   expression_markup: 'Expression markup',
@@ -256,6 +257,7 @@ export function jobWorkspaceLink(job: {
     image_pool_generate: ['image-pool', 'Image Pool'],
     music_generate: ['music', 'Music'],
     music_video: ['music', 'Music'],
+    music_episode_build: ['episode-builder', 'Episode Builder'],
   }
   if (!Object.hasOwn(destinations, job.type)) return null
   const destination = destinations[job.type]

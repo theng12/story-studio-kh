@@ -354,13 +354,23 @@ export function crfToVideotoolboxQ(crf: number): number {
   return Math.max(25, Math.min(90, Math.round(raw)))
 }
 
+/** A usable bitrate cap in kbit/s, or 0 for none (quality-based encode). */
+export function videoBitrateCapKbps(value: unknown): number {
+  const kbps = Number(value)
+  return Number.isFinite(kbps) && kbps >= 500 ? Math.min(100_000, Math.round(kbps)) : 0
+}
+
 export function buildEncoderArgs(opts: {
   codec: 'h264' | 'h265'
   format: 'mp4' | 'mov' | 'webm' | string
   crf: number
   effort: string
+  /** Optional cap, kbit/s. Hardware targets it; software keeps CRF and caps peaks. */
+  bitrateKbps?: number
 }): string[] {
   const { codec, format, crf, effort } = opts
+  const cap = videoBitrateCapKbps(opts.bitrateKbps)
+  const capArgs = cap ? ['-maxrate', `${cap}k`, '-bufsize', `${cap * 2}k`] : []
   if (format === 'webm') {
     return [
       '-c:v', 'libvpx-vp9', '-crf', crf.toString(), '-b:v', '0',
@@ -383,7 +393,10 @@ export function buildEncoderArgs(opts: {
       '-c:v', 'h264_videotoolbox',
       // q:v drives quality on videotoolbox (no CRF support). The map
       // above tunes for parity with the operator's CRF expectations.
-      '-q:v', crfToVideotoolboxQ(crf).toString(),
+      // With a cap, the Media Engine targets that bitrate instead.
+      ...(cap
+        ? ['-b:v', `${cap}k`, '-maxrate', `${Math.round(cap * 1.5)}k`, '-bufsize', `${cap * 2}k`]
+        : ['-q:v', crfToVideotoolboxQ(crf).toString()]),
       // Permit ffmpeg's own software fallback if the hardware path
       // can't open the session — a second safety net beneath the
       // tier-2/3 recovery chain.
@@ -397,7 +410,7 @@ export function buildEncoderArgs(opts: {
     // HEVC. `-tag:v hvc1` makes the .mp4 playable in QuickTime/Safari —
     // without the tag it plays in VLC only.
     return [
-      '-c:v', 'libx265', '-crf', crf.toString(), '-preset', effort,
+      '-c:v', 'libx265', '-crf', crf.toString(), '-preset', effort, ...capArgs,
       '-tag:v', 'hvc1',
       '-c:a', 'aac', '-b:a', '192k',
       '-pix_fmt', 'yuv420p',
@@ -405,7 +418,7 @@ export function buildEncoderArgs(opts: {
     ]
   }
   return [
-    '-c:v', 'libx264', '-crf', crf.toString(), '-preset', effort,
+    '-c:v', 'libx264', '-crf', crf.toString(), '-preset', effort, ...capArgs,
     '-c:a', 'aac', '-b:a', '192k',
     '-pix_fmt', 'yuv420p',
     '-movflags', '+faststart',
@@ -534,6 +547,15 @@ export interface ScannedAssets {
   }>
   scene_sources?: { classic: number; scene_plan: number; image_pool?: number }
   visual_source?: VideoVisualSource
+  /** Episode Builder (music) episode: the render settings it was planned with,
+   *  so Video Assembly can offer its "Music episode" settings in one click. */
+  music_episode?: {
+    frame_rate: number
+    resolution: '720p' | '1080p'
+    scene_change: { transition: string; seconds: number }
+    built_at: string | null
+    songs: number
+  }
   image_pool?: {
     pool_id: string
     selected_images: Array<{ filename: string; sha256: string; target_duration: number }>
@@ -610,6 +632,16 @@ export interface ScannedAssets {
 
 // Re-export checkFfmpeg for routes that import from this module
 export { checkFfmpeg } from '../lib/ffmpeg-utils.js'
+
+/** Episode Builder episodes: a finished render is what counts as a play (SPEC §3). */
+async function recordMusicEpisodePlays(job: Job, slug: string, code: string): Promise<void> {
+  try {
+    const { recordRenderedMusicEpisode } = await import('../services/music-episode-store.js')
+    await recordRenderedMusicEpisode(slug, code, line => job.output_lines.push(line))
+  } catch (e: any) {
+    job.output_lines.push(`Warning: song plays were not recorded (${e?.message || e}). The video is fine.`)
+  }
+}
 
 // ── Scan Episode Assets ────────────────────────────────────────────────────
 
@@ -878,6 +910,20 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
       mergedDurationSec: entry.duration,
       episodeDir,
     })
+  }
+
+  const { isMusicEpisodeDir, readEpisodeDoc } = await import('../services/music-episode-store.js')
+  if (isMusicEpisodeDir(episodeDir)) {
+    const musicDoc = await readEpisodeDoc(slug, code).catch(() => null)
+    if (musicDoc) {
+      result.music_episode = {
+        frame_rate: musicDoc.settings.frame_rate,
+        resolution: musicDoc.settings.resolution,
+        scene_change: musicDoc.settings.scene_change,
+        built_at: musicDoc.built?.at || null,
+        songs: musicDoc.songs.length,
+      }
+    }
   }
 
   if (visualSource === 'image_pool') {
@@ -1871,6 +1917,7 @@ export async function generateVideo(job: Job): Promise<void> {
           postAudioStart: undefined,
           encodingEffort: req.encoding_effort,
           codec: req.codec,
+          videoBitrateKbps: req.video_bitrate_kbps,
           job,
         })
         compEncodeOk = true
@@ -1946,6 +1993,7 @@ export async function generateVideo(job: Job): Promise<void> {
       } catch { /* best-effort */ }
 
       await autoScheduleFinishedEpisode(job, project_slug, code)
+      await recordMusicEpisodePlays(job, project_slug, code)
 
       succeeded = true
       return  // skip the standard scene-clip pipeline below
@@ -2776,6 +2824,7 @@ export async function generateVideo(job: Job): Promise<void> {
         postAudioStart: sceneEndTime,
         encodingEffort: req.encoding_effort,
         codec: req.codec,
+        videoBitrateKbps: req.video_bitrate_kbps,
         job,
       })
       encodeSucceeded = true
@@ -2885,6 +2934,7 @@ export async function generateVideo(job: Job): Promise<void> {
     } catch { /* best-effort — not worth failing the job over */ }
 
     await autoScheduleFinishedEpisode(job, project_slug, code)
+    await recordMusicEpisodePlays(job, project_slug, code)
 
     succeeded = true
 
@@ -5103,6 +5153,8 @@ interface CompositionOpts {
    *  roughly 30–40 % smaller files at equal visual quality but requires a
    *  modern player. Webm/VP9 stays under `format=webm` instead. */
   codec?: 'h264' | 'h265'
+  /** Optional bitrate cap, kbit/s (see buildEncoderArgs). */
+  videoBitrateKbps?: number
   job: Job
 }
 
@@ -5119,6 +5171,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     postAudioStart,
     encodingEffort,
     codec,
+    videoBitrateKbps,
     job,
   } = opts
 
@@ -5738,6 +5791,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
       format,
       crf: quality.crf,
       effort: effortOverride ?? effort,
+      bitrateKbps: videoBitrateKbps,
     })
   }
 
@@ -5760,7 +5814,9 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
 
   function codecLabel(useCodec: 'h264' | 'h265'): string {
     if (format === 'webm') return `VP9 · CRF ${quality.crf}`
-    if (effort === 'hardware') return `H.264 · hardware (videotoolbox, q:v ${crfToVideotoolboxQ(quality.crf)})`
+    const cap = videoBitrateCapKbps(videoBitrateKbps)
+    if (effort === 'hardware') return cap ? `H.264 · hardware (videotoolbox, ${cap} kbit/s)` : `H.264 · hardware (videotoolbox, q:v ${crfToVideotoolboxQ(quality.crf)})`
+    if (cap && format !== 'webm') return `${useCodec === 'h265' ? 'HEVC (H.265)' : 'H.264'} · preset ${effort} · capped at ${cap} kbit/s`
     if (useCodec === 'h265') return `HEVC (H.265) · preset ${effort}`
     return `H.264 · preset ${effort}`
   }
