@@ -1423,7 +1423,9 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
       key.endsWith('_templates') ||
       key.endsWith('_last_template') ||
       key.startsWith('custom_') ||
-      key === 'script_custom_styles'
+      key === 'script_custom_styles' ||
+      // Video Assembly's last-render settings (per episode + channel starting point).
+      key === 'video_assembly_last_used'
     if (shouldPassThrough) safe[key] = migratePresetField(key, raw[key])
   }
 
