@@ -1254,6 +1254,13 @@
               Largest first. A finished video that is confirmed uploaded (same file, still on YouTube) can be cleared
               from this Mac; anything Story Studio cannot confirm stays. Audio and images are never touched.
             </p>
+            <details class="settings-tech-details disclosure">
+              <summary>Details</summary>
+              <p class="text-muted text-xs">
+                The file's SHA-256 is compared with the accepted upload, and the current processed video on the
+                assigned YouTube channel is refreshed. Unverified or legacy upload records stay local.
+              </p>
+            </details>
           </div>
           <div class="flex gap-2">
             <button class="btn btn-secondary btn-sm" :disabled="auditLoading" @click="loadStorageAudit">

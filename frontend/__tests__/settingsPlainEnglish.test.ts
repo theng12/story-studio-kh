@@ -15,7 +15,7 @@ test('Settings advanced panels speak plain English; the technical wording sits i
       assert.doesNotMatch(text, jargon, `${name}: ${jargon} is visible without opening Details`)
     }
   }
-  assert.match(settings, /<details[^>]*class="settings-tech-details">\s*<summary>Details<\/summary>[\s\S]*?aggregate credit ceiling/)
-  assert.match(settings, /<details class="settings-tech-details">\s*<summary>Details<\/summary>[\s\S]*?SHA-256 is compared/)
-  assert.match(serverMode, /<details class="ssm-details">\s*<summary>Details — port and network address<\/summary>/)
+  assert.match(settings, /<details[^>]*class="settings-tech-details disclosure">\s*<summary>Details<\/summary>[\s\S]*?aggregate credit ceiling/)
+  assert.match(settings, /<details class="settings-tech-details disclosure">\s*<summary>Details<\/summary>[\s\S]*?SHA-256 is compared/)
+  assert.match(serverMode, /<details class="ssm-details disclosure">\s*<summary>Details — port and network address<\/summary>/)
 })
