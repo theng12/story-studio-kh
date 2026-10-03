@@ -195,7 +195,7 @@ test('Thumbnail Prompts: explicit replace-all, honest toast, choices survive a r
   // Format defaults only seed keys nobody chose.
   assert.match(page, /if \(seedThumb\('aspect_ratio'\)\) form\.thumbnail\.aspect_ratio = ip\.recommendedAspect/)
   assert.match(page, /seedThumb\('thumb_count'\)/)
-  assert.match(page, /ip\.defaultStyleTag\.trim\(\) && seedThumb\('style_tag'\)\) \{/)
+  assert.match(page, /if \(startingStyle && seedThumb\('style_tag'\)\) \{/)
   // The click brief: never restored, never in a preset, cleared + announced on switch.
   assert.match(page, /excludeKeys: \[\.\.\.DEFAULT_EXCLUDE_KEYS, 'thumb_creative_direction'\]/)
   assert.match(page, /useRememberedForm\('image-prompts'[\s\S]{0,400}form\.thumbnail\.thumb_creative_direction = ''/)
