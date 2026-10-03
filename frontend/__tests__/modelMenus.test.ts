@@ -175,7 +175,8 @@ describe('shared model menus', () => {
     assert.match(imageGenerator, /thumbnail_reference_asset/)
     assert.match(imagePicker, /supports_reference_images/)
     assert.match(imagePicker, /max_reference_images/)
-    assert.match(imagePicker, /chargeable/)
+    // Capability, not price: a free model on the owner's Macs (`chargeable: false`) takes references too.
+    assert.doesNotMatch(imagePicker, /\.chargeable\b/)
   })
 
   test('image generation quality is automatic and never persists a manual step count', () => {

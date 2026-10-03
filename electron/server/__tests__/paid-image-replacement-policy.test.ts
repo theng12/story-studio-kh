@@ -169,6 +169,15 @@ void test('paid image rate resolution uses one exact output row and the selected
     assert.deepEqual(rate, { credits: 9, priceVersion: 'reference-v1', basis: 'published-rate' })
   })
 
+  await suite.test('a free model (chargeable false or unpublished) is decided by availability, not price', () => {
+    for (const chargeable of [false, undefined]) {
+      const rate = policy.resolvePaidImagePublishedRate({
+        models: [imageModel({ chargeable })], modelId: 'image-paid-v1', original: originalGuided, request: originalGuided,
+      })
+      assert.deepEqual(rate, { credits: 9, priceVersion: 'reference-v1', basis: 'published-rate' })
+    }
+  })
+
   await suite.test('uses the model reference pair only when that row omits both fields', () => {
     const rows = imageModel().output_options as Array<Record<string, unknown>>
     delete rows[0]!.reference_generation_credits
@@ -190,8 +199,7 @@ void test('paid image rate resolution uses one exact output row and the selected
     ['a missing normal pair', imageModel({ output_options: [{ ...imageModel().output_options[0], price_version: undefined }] }), originalNormal],
     ['a non-finite normal credit value', imageModel({ output_options: [{ ...imageModel().output_options[0], credits_per_image: Number.NaN }] }), originalNormal],
     ['a removed model', imageModel({ id: 'other-image' }), originalNormal],
-    ['a non-chargeable model', imageModel({ chargeable: false }), originalNormal],
-    ['a model with unpublished chargeability', imageModel({ chargeable: undefined }), originalNormal],
+    ['an unavailable model', imageModel({ available: false }), originalNormal],
   ] as const) {
     await suite.test(`blocks ${label}`, () => {
       assert.throws(() => policy.resolvePaidImagePublishedRate({

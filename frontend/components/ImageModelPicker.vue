@@ -59,7 +59,7 @@ const catalogStaleNote = computed(() => genstudioStaleNote(isStale.value, lastFe
 
 const options = computed(() => {
   const visibleModels = props.imageMode === 'img2img'
-    ? models.value.filter(model => model.available && model.supports_reference_images && model.max_reference_images >= 1 && model.chargeable)
+    ? models.value.filter(model => model.available && model.supports_reference_images && model.max_reference_images >= 1)
     : models.value
   const rows = visibleModels.map((model) => {
     const rate = describeImageModelRate(model, { referenceGuided: props.imageMode === 'img2img' })
@@ -161,14 +161,14 @@ function select(modelId: string): void {
   if (!isUsable.value) return
   switchNotice.value = ''
   const selected = models.value.find(model => model.id === modelId)
-  if (!selected?.available || (props.imageMode === 'img2img' && (!selected.supports_reference_images || selected.max_reference_images < 1 || !selected.chargeable))) return
+  if (!selected?.available || (props.imageMode === 'img2img' && (!selected.supports_reference_images || selected.max_reference_images < 1))) return
   emit('update:modelValue', modelId)
 }
 
 function syncLiveSelection(): void {
   if (!isUsable.value || !models.value.length) return
   const candidates = props.imageMode === 'img2img'
-    ? models.value.filter(model => model.available && model.supports_reference_images && model.max_reference_images >= 1 && model.chargeable)
+    ? models.value.filter(model => model.available && model.supports_reference_images && model.max_reference_images >= 1)
     : models.value
   const selected = selectLiveGenStudioModel(props.modelValue, candidates)
   if (selected && selected.id !== props.modelValue) {

@@ -64,7 +64,6 @@ test('the switch OFF is the only silent way to send no reference', () => {
     availablePaths: ['/ep/img2img-references/composition.png'],
     supportsReferences: true,
     maxReferences: 1,
-    chargeable: true,
     modelName: 'nano-banana-2',
   })
   assert.equal(off.sourcePath, '')
@@ -72,7 +71,7 @@ test('the switch OFF is the only silent way to send no reference', () => {
 })
 
 test('a model publishing zero references degrades out loud, naming the model', () => {
-  // FLUX.2 Klein's live shape: available, chargeable, and text-to-image only.
+  // FLUX.2 Klein's live shape: available and text-to-image only.
   // Failing the batch would be wrong (the render is perfectly possible) and so
   // would rendering silently (the customer asked for a reference and would be
   // told nothing). The only honest outcome is the render plus the reason.
@@ -81,7 +80,6 @@ test('a model publishing zero references degrades out loud, naming the model', (
     availablePaths: ['/ep/img2img-references/composition.png'],
     supportsReferences: false,
     maxReferences: 0,
-    chargeable: true,
     modelName: 'flux-2-klein',
   })
   assert.equal(plan.sourcePath, '', 'nothing may be attached to a 0-reference model')
@@ -92,7 +90,7 @@ test('a model publishing zero references degrades out loud, naming the model', (
 
 test('the switch on with nothing on disk says so instead of going quiet', () => {
   const plan = planEpisodeReference({
-    enabled: true, availablePaths: [], supportsReferences: true, maxReferences: 1, chargeable: true, modelName: 'nano-banana-2',
+    enabled: true, availablePaths: [], supportsReferences: true, maxReferences: 1, modelName: 'nano-banana-2',
   })
   assert.equal(plan.sourcePath, '')
   assert.match(plan.note, /composition\.png or master\.png/)
@@ -105,7 +103,6 @@ test('the generated composition template outranks the hand-uploaded anchor', () 
     availablePaths: ['/ep/img2img-references/composition.png', '/ep/img2img-references/master.png'],
     supportsReferences: true,
     maxReferences: 1,
-    chargeable: true,
     modelName: 'nano-banana-2',
   })
   assert.equal(path.basename(plan.sourcePath), 'composition.png')
@@ -319,8 +316,8 @@ const REFERENCE_CAPABLE = {
   operations: ['image.generation', 'image.edit'],
 }
 
-/** A reference-capable product that is nonetheless not chargeable. */
-const REFERENCE_CAPABLE_UNCHARGEABLE = { ...REFERENCE_CAPABLE, chargeable: false }
+/** A reference-capable product that costs nothing (a model on the owner's Macs). */
+const REFERENCE_CAPABLE_FREE = { ...REFERENCE_CAPABLE, chargeable: false }
 
 async function writeScenePrerequisites(
   paths: { scene_prompts_dir: string; subtitles_dir: string },
@@ -631,20 +628,20 @@ test('FLUX.2 Klein renders the scene and says why the anchor was not used', asyn
   assert.match(result.lines, /max_reference_images: 0/)
 })
 
-test('a reference-capable but non-chargeable product degrades instead of failing the batch', async () => {
-  // The provider refuses a reference on a non-chargeable product with the same
-  // error it uses for an unsupported one. Anticipating only the first refusal
-  // would turn one catalogue flag into a whole failed render.
+test('a reference-capable FREE product (chargeable: false) still uses the anchor', async () => {
+  // Capability decides references, never price: the Gateway publishes `chargeable: false` for a model
+  // on the owner's Macs, and that must not switch the episode anchor off.
   const result = await render({
-    name: 'Reference not chargeable',
+    name: 'Reference free model',
     continuity: { use_episode_sheet: true, references: { sheet: true } },
     references: [{ name: 'composition.png', width: 800, height: 450 }],
-    catalogOverrides: REFERENCE_CAPABLE_UNCHARGEABLE,
+    catalogOverrides: REFERENCE_CAPABLE_FREE,
   })
-  assert.equal(result.uploads, 0)
-  assert.equal(result.bodies.length, 1, 'the scene must still render')
-  assert.equal(result.bodies[0].reference_asset_ids, undefined)
-  assert.match(result.lines, /not chargeable/)
+  assert.equal(result.uploads, 1)
+  assert.equal(result.bodies.length, 1)
+  assert.equal(result.bodies[0].reference_asset_ids?.length, 1)
+  assert.match(result.lines, /Episode reference: composition\.png/)
+  assert.doesNotMatch(result.lines, /chargeable/)
 })
 
 test('a non-character scene drops the episode reference exactly as it drops the character text', async () => {
