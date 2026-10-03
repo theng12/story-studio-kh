@@ -132,12 +132,12 @@ describe('Episode Builder', () => {
     const before = (await request(app).get(`/api/projects/${slug}/music-episodes/${code}`)).body
     const redrawn = await request(app).post(`/api/projects/${slug}/music-episodes/${code}/draw`).send({})
     assert.equal(redrawn.status, 200)
-    assert.equal(redrawn.body.songs[0].key, before.songs[0].key)
+    assert.equal(redrawn.body.songs[0].song_key, before.songs[0].song_key)
     assert.equal(redrawn.body.doc.draw_round, before.doc.draw_round + 1)
-    const swap = await request(app).get(`/api/projects/${slug}/music-episodes/${code}/swap`).query({ key: before.songs[1].key })
+    const swap = await request(app).get(`/api/projects/${slug}/music-episodes/${code}/swap`).query({ song_key: before.songs[1].song_key })
     assert.equal(swap.status, 200)
-    const inEpisode = new Set(redrawn.body.songs.map((s: any) => s.key))
-    assert.ok(swap.body.candidates.every((c: any) => !inEpisode.has(c.key)))
+    const inEpisode = new Set(redrawn.body.songs.map((s: any) => s.song_key))
+    assert.ok(swap.body.candidates.every((c: any) => !inEpisode.has(c.song_key)))
   })
 
   test('the stitch: crossfaded, evened to the target, tracklist from measured lengths', async () => {
@@ -220,6 +220,8 @@ describe('Episode Builder', () => {
     assert.equal(drawn.body.songs.length, 0, 'all four songs were in the last episode')
     assert.equal(drawn.body.draw.shortfall_sec, 70)
     assert.equal(drawn.body.draw.songs_missing, 4)
+    assert.equal(drawn.body.shortfall_sec, 70, 'the view itself carries the shortfall, so it survives a reload')
+    assert.equal(drawn.body.songs_missing, 4)
     assert.deepEqual(drawn.body.window_codes, [code])
 
     const open = await request(app).post(`/api/projects/${slug}/music-episodes/${next}/draw`).send({ settings: { no_repeat_episodes: 0 } })

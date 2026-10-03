@@ -58,7 +58,7 @@ describe('Episode Builder page', () => {
   test('nothing on the page makes or buys a song; a short pool links to the Song Pool instead', () => {
     assert.ok(!/music-library\/generate|song-pool\/generate|song_pool_generate/.test(page))
     assert.match(page, /song-pool`, query: \{ generate:/)
-    assert.match(page, /Nothing was generated/)
+    assert.match(page, /nothing was generated/)
   })
 
   test('pictures go through the fleet scene renderer and are accepted as they arrive', () => {

@@ -172,11 +172,15 @@ export interface EpisodeView {
   themes: string[]
   pools: PoolSummary[]
   missing_pools: string[]
-  songs: Array<ResolvedPoolSong & { locked: boolean; start_sec: number; key: string; blocked_by?: string; scene_id: string }>
+  /** `key` is the song's musical key; `song_key` (`pool_id/song_id`) identifies it. */
+  songs: Array<ResolvedPoolSong & { locked: boolean; start_sec: number; song_key: string; blocked_by?: string; scene_id: string }>
   unresolved_songs: string[]
   scenes: EpisodeSceneView[]
   total_sec: number
   target_sec: number
+  /** Seconds still missing to reach the target, and about how many songs that is. */
+  shortfall_sec: number
+  songs_missing: number
   free_songs: number
   window_codes: string[]
   smooth_breaks: { tempo: number; keyAndEnsemble: number }
@@ -262,6 +266,8 @@ export async function buildEpisodeView(slug: string, code: string): Promise<Epis
     scenes: [],
     total_sec: 0,
     target_sec: settings.target_length_s,
+    shortfall_sec: 0,
+    songs_missing: 0,
     free_songs: ctx.songs.filter(s => s.drawable && s.duration_s > 0 && !ctx.blocked.has(songKey(s))).length,
     window_codes: ctx.window_codes,
     smooth_breaks: { tempo: 0, keyAndEnsemble: 0 },
@@ -275,7 +281,7 @@ export async function buildEpisodeView(slug: string, code: string): Promise<Epis
     if (!song) { view.unresolved_songs.push(songKey(ref)); return }
     view.songs.push({
       ...song,
-      key: songKey(ref),
+      song_key: songKey(ref),
       locked: !!ref.locked,
       start_sec: timeline.starts[i] ?? 0,
       scene_id: sceneOfKey.get(songKey(ref)) || '',
@@ -283,6 +289,10 @@ export async function buildEpisodeView(slug: string, code: string): Promise<Epis
     })
   })
   view.total_sec = Math.round(timeline.total)
+  view.shortfall_sec = Math.max(0, view.target_sec - view.total_sec)
+  const usable = ctx.songs.filter(s => s.drawable && s.duration_s > 0)
+  const average = usable.length ? usable.reduce((sum, s) => sum + s.duration_s, 0) / usable.length : 225
+  view.songs_missing = view.shortfall_sec ? Math.ceil(view.shortfall_sec / average) : 0
   view.smooth_breaks = smoothFlowBreaks(doc.songs.map(ref => ctx.byKey.get(songKey(ref))).filter((s): s is ResolvedPoolSong => !!s))
   const plan = await readScenePlan(slug, upper)
   const imagesDir = await resolveSceneImagesDir(slug, upper, await episodeDirFor(slug, upper))

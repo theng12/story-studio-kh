@@ -218,7 +218,7 @@
         title="Music episode from Episode Builder"
       >
         {{ scannedAssets.music_episode.songs }} songs, no narration or subtitles.
-        <strong>Use Music Episode Settings</strong> sets {{ scannedAssets.music_episode.frame_rate }} fps,
+        The button sets {{ scannedAssets.music_episode.frame_rate }} fps,
         {{ scannedAssets.music_episode.resolution === '1080p' ? '1080p (scenes upscaled)' : '720p' }},
         {{ scannedAssets.music_episode.scene_change.transition }} {{ scannedAssets.music_episode.scene_change.seconds }} s between scenes,
         a slow zoom, and no intro, title image, cards or subtitles. Your logo and effects stay as they are.
@@ -271,8 +271,8 @@
           <div class="scene-coverage-actions">
             <NuxtLink
               class="btn btn-sm btn-primary"
-              :to="`/projects/${slug}/scene-review?episode_id=${episodeId}`"
-            >Open Scene Review</NuxtLink>
+              :to="`/projects/${slug}/${scannedAssets?.music_episode ? 'episode-builder' : 'scene-review'}?episode_id=${episodeId}`"
+            >{{ scannedAssets?.music_episode ? 'Open Episode Builder' : 'Open Scene Review' }}</NuxtLink>
             <button type="button" class="btn btn-sm btn-secondary" :disabled="scanning" @click="scanAssets">
               {{ scanning ? 'Checking…' : 'Check Again' }}
             </button>

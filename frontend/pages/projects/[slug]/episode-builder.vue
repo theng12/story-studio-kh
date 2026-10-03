@@ -153,11 +153,11 @@
           </div>
         </div>
 
-        <WorkspaceNotice v-if="draw && draw.shortfall_sec > 0" tone="warning" title="The pools are short for this target">
-          {{ clock(draw.shortfall_sec) }} missing — about {{ draw.songs_missing }} more song{{ draw.songs_missing === 1 ? '' : 's' }}.
-          Nothing was generated; the episode uses what is free.
+        <WorkspaceNotice v-if="songs.length && view.shortfall_sec > 0" tone="warning" title="The episode is shorter than the target">
+          {{ clock(view.shortfall_sec) }} missing — about {{ view.songs_missing }} more song{{ view.songs_missing === 1 ? '' : 's' }}.
+          {{ view.free_songs > songs.length ? 'Re-draw to fill it from the free songs, or add songs by hand.' : 'Every free song is already in; nothing was generated.' }}
           <template #actions>
-            <NuxtLink class="btn btn-sm btn-secondary" :to="{ path: `/projects/${slug}/song-pool`, query: { generate: String(draw.songs_missing) } }">Generate {{ draw.songs_missing }} Songs…</NuxtLink>
+            <NuxtLink class="btn btn-sm btn-secondary" :to="{ path: `/projects/${slug}/song-pool`, query: { generate: String(view.songs_missing) } }">Generate {{ view.songs_missing }} Songs…</NuxtLink>
           </template>
         </WorkspaceNotice>
         <p v-for="note in draw?.notes || []" :key="note" class="eb-hint">{{ note }}</p>
@@ -177,12 +177,12 @@
           </div>
           <div class="eb-tl-songs">
             <div
-              v-for="(song, i) in songs" :key="song.key" class="eb-tl-song"
+              v-for="(song, i) in songs" :key="song.song_key" class="eb-tl-song"
               :class="{ lock: song.locked, sel: song.scene_id === selectedSceneId }"
               :style="{ width: pct(songLength(i)) }" :title="song.title"
             >{{ song.title }}</div>
           </div>
-          <div v-if="view.target_sec < timelineSpan" class="eb-tl-target" :style="{ left: pct(view.target_sec) }"><span>{{ clock(view.target_sec) }} target</span></div>
+          <div v-if="view.target_sec <= timelineSpan" class="eb-tl-target" :class="{ 'label-left': view.target_sec / timelineSpan > 0.85 }" :style="{ left: pct(view.target_sec) }"><span>{{ clock(view.target_sec) }} target</span></div>
           <div class="eb-ruler"><span v-for="tick in ruler" :key="tick">{{ tick }}</span></div>
         </div>
         <p v-if="songs.length" class="eb-hint">{{ orderHint }}</p>
@@ -201,7 +201,7 @@
               <thead><tr><th /><th>#</th><th>Starts</th><th>Song</th><th class="num">BPM</th><th>Key</th><th class="num">Length</th><th /></tr></thead>
               <tbody>
                 <tr
-                  v-for="(song, i) in songs" :key="song.key"
+                  v-for="(song, i) in songs" :key="song.song_key"
                   :class="{ sel: song.scene_id === selectedSceneId, dragging: dragFrom === i }"
                   draggable="true"
                   @dragstart="dragFrom = i" @dragover.prevent @drop="dropOn(i)" @dragend="dragFrom = -1"
@@ -211,18 +211,19 @@
                   <td>{{ i + 1 }}</td>
                   <td class="eb-muted">{{ clock(song.start_sec) }}</td>
                   <td>
-                    <button type="button" class="eb-lock" :aria-pressed="song.locked" :title="song.locked ? 'Locked: stays on re-draw. Click to unlock.' : 'Lock: keep this song where it is on re-draw.'" @click.stop="toggleLock(i)">{{ song.locked ? '🔒' : '🔓' }}</button>
+                    <span v-if="song.locked" class="eb-lock" title="Locked: stays where it is on re-draw">🔒</span>
                     {{ song.title }}
                     <small v-if="song.pool_id !== ownPoolId && poolName(song.pool_id)" class="eb-pool">{{ poolName(song.pool_id) }}</small>
                     <small v-if="song.blocked_by" class="eb-warn-chip" :title="`Also in ${song.blocked_by}, inside the no-repeat window`">in {{ song.blocked_by }}</small>
                     <label v-if="settings.scenes.mode === 'manual' && i > 0" class="eb-break" @click.stop>
-                      <input type="checkbox" :checked="sceneBreaks.has(song.key)" @change="toggleBreak(song.key)"> new scene
+                      <input type="checkbox" :checked="sceneBreaks.has(song.song_key)" @change="toggleBreak(song.song_key)"> new scene
                     </label>
                   </td>
                   <td class="num">{{ song.tempo_bpm || '—' }}</td>
                   <td>{{ song.key || '—' }}</td>
                   <td class="num">{{ clock(song.duration_s) }}</td>
                   <td class="eb-actions">
+                    <button type="button" class="btn btn-ghost btn-sm" :aria-pressed="song.locked" :title="song.locked ? 'Let re-draw replace this song' : 'Keep this song where it is on re-draw'" @click.stop="toggleLock(i)">{{ song.locked ? 'Unlock' : 'Lock' }}</button>
                     <button type="button" class="btn btn-ghost btn-sm" @click.stop="openSwap(i)">Swap</button>
                     <button type="button" class="btn btn-ghost btn-sm" :aria-label="`Remove ${song.title}`" title="Remove from this episode (the song stays in the pool)" @click.stop="removeSong(i)">✕</button>
                   </td>
@@ -230,7 +231,7 @@
               </tbody>
             </table>
           </div>
-          <p class="eb-hint">Drag ⋮⋮ to reorder · 🔒 keeps a song on re-draw · Swap shows the 5 closest free songs by length and mood · Chapters use these start times.</p>
+          <p class="eb-hint">Drag ⋮⋮ to reorder · Lock keeps a song (🔒) on re-draw · Swap shows the 5 closest free songs by length and mood · Chapters use these start times.</p>
         </section>
 
         <!-- Scene panel -->
@@ -312,7 +313,7 @@
       <p class="eb-hint">{{ picker?.mode === 'swap' ? 'The 5 closest free songs by length and mood.' : 'Songs not in this episode. Songs inside the no-repeat window are listed last and marked.' }}</p>
       <p v-if="pickerLoading" class="eb-muted">Loading…</p>
       <ul class="eb-pick">
-        <li v-for="cand in pickerSongs" :key="cand.key">
+        <li v-for="cand in pickerSongs" :key="cand.song_key">
           <button type="button" class="eb-pick-row" @click="pickSong(cand)">
             <strong>{{ cand.title }}</strong>
             <span class="eb-muted">{{ clock(cand.duration_s) }}{{ cand.mood ? ` · ${cand.mood}` : '' }}{{ cand.tempo_bpm ? ` · ${cand.tempo_bpm} BPM` : '' }}{{ cand.key ? ` · ${cand.key}` : '' }} · played {{ cand.plays }}×</span>
@@ -359,8 +360,8 @@ interface Settings {
   frame_rate: number; resolution: '720p' | '1080p'; loudness_lufs: number; true_peak_db: number
 }
 interface Song {
-  key: string; pool_id: string; id: string; title: string; duration_s: number; locked: boolean; start_sec: number
-  scene_id: string; tempo_bpm?: number; key_sig?: string; mood?: string; plays: number; blocked_by?: string | null
+  song_key: string; key?: string; pool_id: string; id: string; title: string; duration_s: number; locked: boolean; start_sec: number
+  scene_id: string; tempo_bpm?: number; mood?: string; plays: number; blocked_by?: string | null
   [extra: string]: any
 }
 interface Scene {
@@ -373,6 +374,7 @@ interface View {
   missing_pools: string[]; songs: Song[]; unresolved_songs: string[]; scenes: Scene[]
   total_sec: number; target_sec: number; free_songs: number; window_codes: string[]
   smooth_breaks: { tempo: number; keyAndEnsemble: number }; visual_style: string
+  shortfall_sec: number; songs_missing: number
   draw?: { shortfall_sec: number; songs_missing: number; notes: string[] }
 }
 
@@ -474,7 +476,7 @@ const ruler = computed(() => {
   const step = span > 3600 ? 600 : span > 900 ? 300 : 60
   const ticks: string[] = []
   for (let t = 0; t < span - step / 2; t += step) ticks.push(clock(t))
-  ticks.push(clock(view.value?.total_sec || 0))
+  ticks.push(clock(span))
   return ticks
 })
 
@@ -497,7 +499,7 @@ function songLength(i: number): number {
   return (next ? next.start_sec : (view.value?.total_sec || 0)) - songs.value[i]!.start_sec
 }
 function poolName(id: string): string { return allPools.value.find(p => p.pool_id === id)?.name || '' }
-function firstTitle(scene: Scene): string { return songs.value.find(s => s.key === scene.song_keys[0])?.title || '' }
+function firstTitle(scene: Scene): string { return songs.value.find(s => s.song_key === scene.song_keys[0])?.title || '' }
 function imageUrl(scene: Scene): string {
   return `/api/projects/${encodeURIComponent(slug.value)}/scene-review/${encodeURIComponent(code.value)}/image/${encodeURIComponent(scene.id)}?v=${encodeURIComponent(scene.image_version || scene.image)}`
 }
@@ -614,7 +616,7 @@ async function openSwap(i: number) {
   pickerLoading.value = true
   pickerSongs.value = []
   try {
-    pickerSongs.value = (await get<{ candidates: Song[] }>(`/projects/${slug.value}/music-episodes/${code.value}/swap?key=${encodeURIComponent(songs.value[i]!.key)}`)).candidates
+    pickerSongs.value = (await get<{ candidates: Song[] }>(`/projects/${slug.value}/music-episodes/${code.value}/swap?song_key=${encodeURIComponent(songs.value[i]!.song_key)}`)).candidates
   } catch (e: any) { showError(e?.data?.detail || e?.message || 'Could not find songs') } finally { pickerLoading.value = false }
 }
 async function loadAddable() {
@@ -776,10 +778,12 @@ onMounted(async () => {
 .eb-tl-song.sel { background: color-mix(in srgb, var(--accent) 38%, var(--bg-tertiary)); color: var(--text-primary); }
 .eb-tl-target { position: absolute; top: -6px; bottom: 18px; border-left: 2px dashed var(--warning); }
 .eb-tl-target span { position: absolute; top: -16px; left: 4px; font-size: 11px; color: var(--warning); white-space: nowrap; }
+.eb-tl-target.label-left span { left: auto; right: 4px; }
 .eb-ruler { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-top: 4px; }
 .eb-empty { margin-top: 14px; color: var(--text-secondary); }
 .eb-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 520px); gap: 14px; align-items: start; }
-@media (max-width: 1180px) { .eb-grid { grid-template-columns: minmax(0, 1fr); } }
+/* The sidebar takes ~220 px: below ~1500 px there is no room for the table beside the scene panel. */
+@media (max-width: 1500px) { .eb-grid { grid-template-columns: minmax(0, 1fr); } .eb-scene .eb-preview { max-width: 640px; } }
 .eb-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .eb-head h3 { font-size: 15px; margin: 0; }
 .eb-songs { width: 100%; }
@@ -788,7 +792,7 @@ onMounted(async () => {
 .eb-songs tr.dragging { opacity: 0.5; }
 .eb-songs .num { text-align: right; font-variant-numeric: tabular-nums; }
 .eb-handle { cursor: grab; color: var(--text-muted); user-select: none; }
-.eb-lock { background: none; border: 0; padding: 0 4px 0 0; cursor: pointer; font-size: 12px; }
+.eb-lock { padding-right: 4px; font-size: 12px; }
 .eb-break { margin-left: 8px; font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
 .eb-actions { white-space: nowrap; text-align: right; }
 .eb-preview { aspect-ratio: 16 / 9; border-radius: var(--radius-md, 8px); overflow: hidden; background: var(--bg-tertiary); margin-bottom: 10px; }

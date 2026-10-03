@@ -7,7 +7,7 @@
  *   PUT  /projects/:slug/music-episodes/:code                save settings / songs / breaks / prompts
  *   POST /projects/:slug/music-episodes/:code/draw           (re-)draw unlocked songs
  *   POST /projects/:slug/music-episodes/:code/order          re-apply the order mode
- *   GET  /projects/:slug/music-episodes/:code/swap?key=      five closest free songs
+ *   GET  /projects/:slug/music-episodes/:code/swap?song_key=      five closest free songs
  *   GET  /projects/:slug/music-episodes/:code/songs?q=       songs that can be added
  *   POST /projects/:slug/music-episodes/:code/scenes/:id/keep       keep the current picture
  *   POST /projects/:slug/music-episodes/:code/scenes/:id/use-still  use an Image Pool still
@@ -237,10 +237,10 @@ router.get('/projects/:slug/music-episodes/:code/swap', async (req, res) => {
     const doc = await readEpisodeDoc(slug, code)
     if (!doc) return res.status(409).json({ detail: 'Draw songs first.' })
     const ctx = await loadEpisodeContext(slug, code, doc.settings)
-    const target = ctx.byKey.get(String(req.query.key || ''))
+    const target = ctx.byKey.get(String(req.query.song_key || ''))
     if (!target) return res.status(404).json({ detail: 'That song is not in the selected pools any more.' })
     const inEpisode = new Set(doc.songs.map(songKey))
-    res.json({ candidates: swapCandidates(target, ctx.songs, inEpisode, ctx.blocked).map(song => ({ ...song, key: songKey(song) })) })
+    res.json({ candidates: swapCandidates(target, ctx.songs, inEpisode, ctx.blocked).map(song => ({ ...song, song_key: songKey(song) })) })
   } catch (e) {
     fail(res, e, 'Could not find songs to swap in')
   }
@@ -259,7 +259,7 @@ router.get('/projects/:slug/music-episodes/:code/songs', async (req, res) => {
       .filter(song => !q || [song.title, song.mood, song.ensemble, song.key, ...(song.tags || [])].some(v => String(v || '').toLowerCase().includes(q)))
       .sort((a, b) => Number(ctx.blocked.has(songKey(a))) - Number(ctx.blocked.has(songKey(b))) || a.plays - b.plays || a.title.localeCompare(b.title))
       .slice(0, 200)
-      .map(song => ({ ...song, key: songKey(song), blocked_by: ctx.blocked.get(songKey(song)) || null }))
+      .map(song => ({ ...song, song_key: songKey(song), blocked_by: ctx.blocked.get(songKey(song)) || null }))
     res.json({ songs })
   } catch (e) {
     fail(res, e, 'Could not list songs')
