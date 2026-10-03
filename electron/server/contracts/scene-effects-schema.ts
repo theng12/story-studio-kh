@@ -22,7 +22,9 @@
  */
 
 import { z } from 'zod'
+import { LOOP_VARIANTS } from './effect-loops.js'
 import {
+  COLOR_GRADE_PRESETS,
   LEAK_BLENDS,
   LETTERBOX_RATIOS,
   MOTION_PAN_MODES,
@@ -152,6 +154,9 @@ export const SceneMotionDocumentSchema = z.object({
 const TimingSchema = z.object({
   start_sec: z.number().min(0).max(86400),
   end_sec: z.number().min(0).max(86400).nullable(),
+  // Optional so every document written before fades existed still validates.
+  fade_in_sec: z.number().min(0).max(60).optional(),
+  fade_out_sec: z.number().min(0).max(60).optional(),
 }).strict().superRefine((timing, ctx) => {
   if (timing.end_sec !== null && timing.end_sec < timing.start_sec) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['end_sec'], message: 'must not end before it starts' })
@@ -241,6 +246,78 @@ export const GradientScrimOverlaySchema = z.object({
   steps: z.number().int().min(2).max(64),
 }).strict()
 
+const unit = z.number().min(0).max(1)
+const seed = z.number().int().min(0).max(2 ** 31 - 1)
+
+export const AtmosphereLoopOverlaySchema = z.object({
+  kind: z.literal('atmosphere-loop'),
+  ...overlayBase,
+  variant: z.enum(LOOP_VARIANTS),
+  amount: z.number().min(0).max(100),
+  size: z.number().min(0.25).max(4),
+  speed: z.number().min(0.25).max(4),
+  wind_deg: z.number().min(-45).max(45),
+  sway: unit,
+  layers: z.number().int().min(1).max(3),
+  twinkle: unit,
+  region_top: unit,
+  region_bottom: unit,
+  scale: z.number().min(0.25).max(4),
+  beam: unit,
+  seed,
+  loop_sec: z.number().min(1).max(30),
+  color_hex: hex,
+  secondary_color_hex: hex.nullable(),
+  opacity,
+  darken: z.number().min(0).max(0.5),
+}).strict()
+
+export const BloomOverlaySchema = z.object({
+  kind: z.literal('bloom'),
+  ...overlayBase,
+  threshold: unit,
+  strength: unit,
+  radius_px: z.number().min(1).max(80),
+}).strict()
+
+export const FlickerOverlaySchema = z.object({
+  kind: z.literal('flicker'),
+  ...overlayBase,
+  amount: z.number().min(0).max(0.3),
+  speed: z.number().min(0.1).max(4),
+}).strict()
+
+export const LightningOverlaySchema = z.object({
+  kind: z.literal('lightning'),
+  ...overlayBase,
+  strength: unit,
+  period_sec: z.number().min(2).max(300),
+  chance: unit,
+  seed,
+}).strict()
+
+export const HeatShimmerOverlaySchema = z.object({
+  kind: z.literal('heat-shimmer'),
+  ...overlayBase,
+  strength_px: z.number().min(0).max(16),
+  scale: z.number().min(0.25).max(4),
+  speed: z.number().min(0.25).max(4),
+  region_top: unit,
+  region_bottom: unit,
+  seed,
+}).strict()
+
+export const ColorGradeOverlaySchema = z.object({
+  kind: z.literal('color-grade'),
+  ...overlayBase,
+  preset: z.enum(COLOR_GRADE_PRESETS),
+  brightness: z.number().min(-1).max(1),
+  contrast: z.number().min(0).max(3),
+  saturation: z.number().min(0).max(3),
+  warmth: z.number().min(-1).max(1),
+  tint: z.number().min(-1).max(1),
+}).strict()
+
 export const SceneOverlayDocumentSchema = z.discriminatedUnion('kind', [
   VignetteOverlaySchema,
   FilmGrainOverlaySchema,
@@ -249,6 +326,12 @@ export const SceneOverlayDocumentSchema = z.discriminatedUnion('kind', [
   LowerThirdOverlaySchema,
   CornerLogoOverlaySchema,
   GradientScrimOverlaySchema,
+  AtmosphereLoopOverlaySchema,
+  BloomOverlaySchema,
+  FlickerOverlaySchema,
+  LightningOverlaySchema,
+  HeatShimmerOverlaySchema,
+  ColorGradeOverlaySchema,
 ])
 
 // ── Errors ──────────────────────────────────────────────────────────────────

@@ -141,10 +141,21 @@ describe('the picker covers the library it is given', () => {
     new URL('../components/SceneEffectLibrary.vue', import.meta.url), 'utf-8',
   )
 
-  test('every overlay kind the backend ships has a control group', () => {
+  test('every overlay kind the backend ships has a control group', async () => {
+    // v1.5 — the control table is shared with the Effects Library page
+    // (`@shared/effect-params`); the picker must read it, and it must cover
+    // every kind (and every atmosphere-loop variant).
+    const { effectParamFields } = await import('../../electron/server/contracts/effect-params.js')
+    const { LOOP_VARIANTS } = await import('../../electron/server/contracts/effect-loops.js')
+    assert.match(source, /effectParamFields/, 'the picker must take its controls from the shared table')
     for (const kind of OVERLAY_KINDS) {
-      assert.ok(source.includes(`  '${kind}': [`) || source.includes(`  ${kind}: [`),
-        `SceneEffectLibrary has no controls for the "${kind}" overlay kind`)
+      if (kind === 'atmosphere-loop') {
+        for (const variant of LOOP_VARIANTS) {
+          assert.ok(effectParamFields({ kind, variant } as any).length > 0, `no controls for the ${variant} loop`)
+        }
+        continue
+      }
+      assert.ok(effectParamFields({ kind } as any).length > 0, `no controls for the "${kind}" overlay kind`)
     }
   })
 

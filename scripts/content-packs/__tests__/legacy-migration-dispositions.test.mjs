@@ -231,7 +231,9 @@ test('legacy migration ledger closes every real inventory key exactly once witho
       freeBaselineKeys.filter(key => key.startsWith('scene-effect:')).length,
       freeBaselineKeys.filter(key => key.startsWith('overlay:')).length,
     ],
-    [35, 5, 16, 31, 13],
+    // Overlays: the thirteen starter overlays plus the sixteen free Effects
+    // Library built-ins added for the music format (atmosphere, weather, light).
+    [35, 5, 16, 31, 29],
   )
 
   exactSet(

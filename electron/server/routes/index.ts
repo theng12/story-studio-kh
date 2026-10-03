@@ -49,6 +49,7 @@ import { router as researchRouter } from './research.js'
 import { router as scenePlanRouter } from './scene-plan.js'
 import { router as sceneReviewRouter } from './scene-review.js'
 import { router as contextualCuesRouter } from './contextual-cues.js'
+import { router as effectsLibraryRouter } from './effects-library.js'
 import { router as soundDesignRouter } from './sound-design.js'
 import { router as episodeSegmentsRouter } from './episode-segments.js'
 import { router as continuityRouter } from './continuity.js'
@@ -106,5 +107,6 @@ export function mountRoutes(app: Express): void {
   app.use('/api', scenePlanRouter)
   app.use('/api', sceneReviewRouter)
   app.use('/api', contextualCuesRouter)
+  app.use('/api', effectsLibraryRouter)
   app.use('/api', continuityRouter)
 }

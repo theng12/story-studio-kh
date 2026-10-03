@@ -23,13 +23,16 @@ import { cacheToken, cachedFileForToken, getOrRender } from '../services/preview
 import { readManifest } from '../services/task-manifest.js'
 import { resolveAssetPath } from '../services/path-resolver.js'
 import { runFfmpeg, hasDrawtextFilter, hasLibass, getAudioDuration, stillDecoderArgs, escapeFilterPath } from '../lib/ffmpeg-utils.js'
-import { compileSceneMotion, compileSceneOverlay } from '../lib/scene-effect-compiler.js'
+import { compileSceneMotion, compileSceneOverlay, overlayLoopShapes } from '../lib/scene-effect-compiler.js'
+import { bakeEffectLoop } from '../lib/effect-loop-baker.js'
+import { renderNativeSceneClip } from '../lib/native-scene-clip.js'
+import { loopShapeKey } from '../contracts/effect-loops.js'
 import {
   listSceneEffectLibrary,
   listSubtitleStylePresets,
   type SceneEffectLibrary,
 } from '../services/style-effect-loader.js'
-import { normalizeSceneOverlay, type SceneMotionDocument, type SceneOverlayDocument } from '../contracts/scene-effects.js'
+import { EFFECT_STACK_GROUPS, normalizeSceneOverlay, overlayStackGroup, type SceneMotionDocument, type SceneOverlayDocument } from '../contracts/scene-effects.js'
 import {
   SceneEffectValidationError,
   parseSceneMotionDocument,
@@ -963,6 +966,9 @@ router.get('/projects/:slug/video-editor/subtitles/catalog', async (_req, res) =
 const EFFECT_PREVIEW_FPS = 24
 /** Long enough for a drifting light leak or a slow push to read. */
 const EFFECT_PREVIEW_DURATION = 3
+/** Render Exact Preview: the real graph at half of 1080p, long enough for rain, fog and a lightning chance. */
+export const EXACT_PREVIEW_SHORT_EDGE = 540
+export const EXACT_PREVIEW_MAX_SEC = 6
 
 /**
  * Render one motion + overlay stack over the episode's first scene, or over a
@@ -972,29 +978,62 @@ const EFFECT_PREVIEW_DURATION = 3
  * affect the image by construction — a new field cannot be forgotten here and
  * serve a stale frame.
  */
-async function renderEffectPreview(
+export async function renderEffectPreview(
   motion: SceneMotionDocument | null,
   overlays: SceneOverlayDocument[],
   backdrop: string | null,
   aspect?: string,
-): Promise<{ token: string; width: number; height: number }> {
+  size: { shortEdge?: number; durationSec?: number } = {},
+): Promise<{ token: string; width: number; height: number; duration_sec: number; render_ms: number; camera_engine: 'native' | 'ffmpeg' | 'none' }> {
   // v1.4.15 — this preview MUST follow the ratio. Corner logos, lower thirds,
   // gradient scrims and cinematic bars are all laid out against the frame, so a
   // landscape preview of an overlay bound for a portrait render is exactly the
   // "looks shipped" lie this release set out to avoid.
-  const { w: W, h: H } = canvasForShortEdge(PREVIEW_SHORT_EDGE, aspect)
-  const FPS = EFFECT_PREVIEW_FPS, DURATION = EFFECT_PREVIEW_DURATION
+  const { w: W, h: H } = canvasForShortEdge(size.shortEdge ?? PREVIEW_SHORT_EDGE, aspect)
+  const FPS = EFFECT_PREVIEW_FPS
+  const DURATION = Math.max(1, Math.min(EXACT_PREVIEW_MAX_SEC, size.durationSec ?? EFFECT_PREVIEW_DURATION))
+  // v1.5 — the cache key gained the bake version through `effect-v2`, so a
+  // preview from before atmosphere loops existed is never served for one after.
   const key = [
-    'effect-v1',
+    'effect-v2',
     backdrop || 'synthetic',
     `${W}x${H}@${DURATION}`,
     JSON.stringify(motion),
     JSON.stringify(overlays),
   ].join('|')
 
-  await getOrRender(key, 'webm', async (outPath) => {
+  // The exact preview is H.264: at 960x540 libvpx-vp9 (even "realtime") spent
+  // ~15 s on six seconds of rain where libx264 veryfast takes under half a
+  // second — measured on the M2 Max. The small picker tiles stay VP9 webm.
+  const ext = size.shortEdge && size.shortEdge > PREVIEW_SHORT_EDGE ? 'mp4' : 'webm'
+  const started = Date.now()
+  // Loops are baked BEFORE the cache lookup's render slot, at the preview's own
+  // size, so a first preview of rain costs one short bake and every later one
+  // (and every slider move that only changes colour) reuses it.
+  const loopFiles = new Map<string, string>()
+  for (const overlay of overlays) {
+    for (const shape of overlayLoopShapes(overlay)) {
+      const id = loopShapeKey(shape)
+      if (!loopFiles.has(id)) loopFiles.set(id, (await bakeEffectLoop(shape, W, H, FPS)).path)
+    }
+  }
+
+  let cameraEngine: 'native' | 'ffmpeg' | 'none' = motion ? 'ffmpeg' : 'none'
+  await getOrRender(key, ext, async (outPath) => {
     const args: string[] = ['-y']
-    if (backdrop && existsSync(backdrop)) {
+    // v1.5 — the camera move over a real still is rendered by the same native
+    // Metal helper the episode render uses, when it is installed: the exact
+    // preview then shows the exact move, in about a second instead of the
+    // fifteen FFmpeg's supersampled zoompan needs at 960x540.
+    let cameraClip: string | null = null
+    if (motion && motion.source === 'still' && backdrop && existsSync(backdrop)) {
+      const target = `${outPath}.camera.mp4`
+      const native = await renderNativeSceneClip({ imagePath: backdrop, outPath: target, document: motion, w: W, h: H, fps: FPS, duration: DURATION })
+      if (native.rendered) { cameraClip = target; cameraEngine = 'native' }
+    }
+    if (cameraClip) {
+      args.push('-i', cameraClip)
+    } else if (backdrop && existsSync(backdrop)) {
       args.push(...(await stillDecoderArgs(backdrop)), '-loop', '1', '-t', DURATION.toString(), '-i', backdrop)
     } else {
       // Supersampled so a zoom has real pixels to move into, exactly as the
@@ -1012,9 +1051,18 @@ async function renderEffectPreview(
           + `:x0=0:y0=0:x1=${W * 2}:y1=0:nb_colors=2:seed=0:speed=0:r=${FPS}`)
     }
 
+    const loopInputs = new Map<string, string>()
+    let nextInput = 1
+    for (const [id, file] of loopFiles) {
+      args.push('-stream_loop', '-1', '-i', file)
+      loopInputs.set(id, `[${nextInput++}:v]`)
+    }
+
     // The motion is a linear chain; the overlays are labelled statements that
     // may branch. One filtergraph carries both.
-    const motionChain = motion
+    const motionChain = cameraClip
+      ? ['setsar=1']
+      : motion
       ? compileSceneMotion(motion, { w: W, h: H, fps: FPS, duration: DURATION })
       : [`scale=${W}:${H}:force_original_aspect_ratio=decrease`,
          `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black`, 'setsar=1']
@@ -1027,7 +1075,8 @@ async function renderEffectPreview(
       const next = alloc()
       const compiled = compileSceneOverlay(overlay, {
         input: label, output: next, allocLabel: alloc,
-        w: W, h: H, duration: DURATION,
+        w: W, h: H, duration: DURATION, fps: FPS,
+        loopInput: shape => loopInputs.get(loopShapeKey(shape)) ?? null,
       })
       if (!compiled) continue
       statements.push(...compiled)
@@ -1046,16 +1095,22 @@ async function renderEffectPreview(
 
     args.push('-filter_complex', statements.join(';'))
     args.push('-map', '[vout]')
-    args.push('-c:v', 'libvpx-vp9', '-crf', '35', '-b:v', '0', '-deadline', 'realtime', '-row-mt', '1')
+    if (ext === 'mp4') args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-movflags', '+faststart')
+    else args.push('-c:v', 'libvpx-vp9', '-crf', '35', '-b:v', '0', '-deadline', 'realtime', '-row-mt', '1')
     args.push('-pix_fmt', 'yuv420p', '-r', FPS.toString(), '-an')
     args.push('-t', DURATION.toString())
     args.push(outPath)
     // Previews are short clips; 90s only trips on a genuine wedge (the five
     // zombie preview ffmpegs of 2026-07-05 ran 30+ minutes unbounded).
-    await runFfmpeg(args, { timeoutMs: 90_000 })
+    try {
+      await runFfmpeg(args, { timeoutMs: 90_000 })
+    } finally {
+      // The camera clip is an intermediate of this one preview; the webm is what is cached.
+      if (cameraClip) await fs.unlink(cameraClip).catch(() => {})
+    }
   })
 
-  return { token: cacheToken(key, 'webm'), width: W, height: H }
+  return { token: cacheToken(key, ext), width: W, height: H, duration_sec: DURATION, render_ms: Date.now() - started, camera_engine: cameraEngine }
 }
 
 /**
@@ -1066,20 +1121,28 @@ async function renderEffectPreview(
  * effect authored for a newer engine names its unknown field instead of quietly
  * previewing as something else.
  */
-function resolvePreviewOverlays(body: any, library: SceneEffectLibrary): SceneOverlayDocument[] {
+export function resolvePreviewOverlays(body: any, library: SceneEffectLibrary): SceneOverlayDocument[] {
   const requested: any[] = Array.isArray(body?.overlays) ? body.overlays
     : body?.overlay ? [body.overlay]
     : []
-  return requested.slice(0, 8).map((item) => {
+  const docs = requested.slice(0, 16).map((item) => {
     if (item && typeof item.id === 'string') {
       const entry = library.overlays.find(candidate => candidate.id === item.id)
       if (!entry) throw new SceneEffectValidationError([`unknown effect "${item.id}"`])
+      // The Effects Library never sends a window (a scene's window lives in
+      // the episode file, not in params), so its previews show each effect
+      // fully on; Video Assembly may preview its own `timing` patch.
       return item.params
         ? normalizeSceneOverlay({ ...entry.document, ...item.params, kind: entry.document.kind })
         : entry.document
     }
     return parseSceneOverlayDocument(item)
   })
+  if (body?.order === 'groups') {
+    const rank = (doc: SceneOverlayDocument) => EFFECT_STACK_GROUPS.indexOf(overlayStackGroup(doc))
+    return docs.map((doc, i) => ({ doc, i })).sort((a, b) => rank(a.doc) - rank(b.doc) || a.i - b.i).map(x => x.doc)
+  }
+  return docs
 }
 
 /**
@@ -1090,7 +1153,7 @@ function resolvePreviewOverlays(body: any, library: SceneEffectLibrary): SceneOv
  * differently on purpose (see MOTION_SOURCES). Searching one registry then the
  * other would have made `pan-left` silently mean the still version forever.
  */
-function resolvePreviewMotion(body: any, library: SceneEffectLibrary): SceneMotionDocument | null {
+export function resolvePreviewMotion(body: any, library: SceneEffectLibrary): SceneMotionDocument | null {
   if (body?.motion && typeof body.motion === 'object') return parseSceneMotionDocument(body.motion)
   if (typeof body?.motion_id !== 'string') return null
   const footage = body?.motion_source === 'footage'
@@ -1117,7 +1180,8 @@ router.post('/projects/:slug/video-editor/preview-effect', async (req, res) => {
     res.json({
       token: preview.token,
       url: `/api/projects/${encodeURIComponent(slug)}/video-editor/preview-effect?token=${encodeURIComponent(preview.token)}`,
-      duration_sec: EFFECT_PREVIEW_DURATION,
+      duration_sec: preview.duration_sec,
+      render_ms: preview.render_ms,
       width: preview.width,
       height: preview.height,
       approximations: overlays
@@ -1704,7 +1768,7 @@ async function renderSubtitlePreview(
 
 function streamPreview(res: any, file: string): void {
   const stat = statSync(file)
-  res.set('Content-Type', 'video/webm')
+  res.set('Content-Type', file.endsWith('.mp4') ? 'video/mp4' : 'video/webm')
   res.set('Content-Length', stat.size.toString())
   res.set('Cache-Control', 'public, max-age=86400')
   streamTo(res, createReadStream(file))

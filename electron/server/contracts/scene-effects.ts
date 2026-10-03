@@ -50,6 +50,7 @@
  */
 
 import { truncateChars } from '../lib/well-formed-text.js'
+import { LOOP_VARIANTS, normalizeLoopShape, type LoopShape, type LoopVariant } from './effect-loops.js'
 
 export const SCENE_EFFECT_SCHEMA_VERSION = 1 as const
 
@@ -235,6 +236,15 @@ export const OVERLAY_KINDS = [
   'lower-third',
   'corner-logo',
   'gradient-scrim',
+  // v1.5 effects library (music format phase 3). Atmosphere loops are baked
+  // once from `contracts/effect-loops.ts` — the same program the live preview
+  // runs — and composited; the other five are plain FFmpeg filters.
+  'atmosphere-loop',
+  'bloom',
+  'flicker',
+  'lightning',
+  'heat-shimmer',
+  'color-grade',
 ] as const
 export type OverlayKind = (typeof OVERLAY_KINDS)[number]
 
@@ -261,6 +271,13 @@ export type LeakBlend = (typeof LEAK_BLENDS)[number]
 export interface OverlayTiming {
   start_sec: number
   end_sec: number | null
+  /**
+   * Seconds to fade the effect in from its start and out before its end. 0 is
+   * a hard on/off, which is every effect written before fades existed — so an
+   * older document normalises to exactly what it always rendered.
+   */
+  fade_in_sec: number
+  fade_out_sec: number
 }
 
 export interface OverlayBase {
@@ -376,6 +393,125 @@ export interface GradientScrimOverlay extends OverlayBase {
   steps: number
 }
 
+/**
+ * Rain, snow, fireflies, fog… — a baked grey loop, tinted and composited.
+ *
+ * The shape fields (everything `LoopShape` has) decide what the loop LOOKS
+ * like and re-bake it when they change (about two seconds). Colour, opacity and
+ * the picture darkening are applied at composite time and never re-bake.
+ */
+export interface AtmosphereLoopOverlay extends OverlayBase, Omit<LoopShape, 'variant' | 'subset'> {
+  kind: 'atmosphere-loop'
+  variant: LoopVariant
+  color_hex: string
+  /** A second tint for half the particles (two-tone bokeh). `null` = one colour. */
+  secondary_color_hex: string | null
+  /** How strongly the layer shows, 0..1. */
+  opacity: number
+  /** Darken (and slightly desaturate) the picture under the layer, 0..0.5. Rain at night. */
+  darken: number
+}
+
+/** Highlights bleed a soft glow. Luma only, so it never tints the picture. */
+export interface BloomOverlay extends OverlayBase {
+  kind: 'bloom'
+  /** Brightness above which a pixel glows, 0..1. */
+  threshold: number
+  /** How much glow is added back, 0..1. */
+  strength: number
+  /** Glow radius, 1..80 px at the 1080 reference. */
+  radius_px: number
+}
+
+/** Candle / firelight: the picture's brightness wavers. */
+export interface FlickerOverlay extends OverlayBase {
+  kind: 'flicker'
+  /** Largest brightness swing, 0..0.3. */
+  amount: number
+  /** 0.1..4. 1 is a calm candle. */
+  speed: number
+}
+
+/** Seeded, rare flashes of the whole picture (no thunder — picture only). */
+export interface LightningOverlay extends OverlayBase {
+  kind: 'lightning'
+  /** Flash brightness, 0..1. */
+  strength: number
+  /** One chance of a strike every this many seconds, 2..300. */
+  period_sec: number
+  /** Probability a period strikes, 0..1. */
+  chance: number
+  seed: number
+}
+
+/** Heat haze / water ripple: the picture wobbles inside a band. */
+export interface HeatShimmerOverlay extends OverlayBase {
+  kind: 'heat-shimmer'
+  /** Largest displacement, 0..16 px at the 1080 reference. */
+  strength_px: number
+  /** Ripple size, 0.25..4. */
+  scale: number
+  speed: number
+  region_top: number
+  region_bottom: number
+  seed: number
+}
+
+/**
+ * A colour grade as a stackable, per-scene effect. The same preset table and
+ * the same filters as Video Assembly's Colour Grading control
+ * (`lib/color-grade.ts`), so a preset means the same thing in both places.
+ */
+export const COLOR_GRADE_PRESETS = [
+  'none', 'warm-night', 'cool-moonlight', 'cinematic', 'vintage', 'dreamy-haze', 'golden-hour', 'noir',
+  'firelight', 'rainy-dusk', 'lavender-mist', 'forest-canopy', 'desert-twilight', 'ocean-depths',
+  'sepia-dream', 'frosted-glass', 'autumn-glow', 'starlit-night', 'misty-morning',
+] as const
+export type ColorGradePreset = (typeof COLOR_GRADE_PRESETS)[number]
+
+/**
+ * What each grade preset does. ONE table for Video Assembly's Colour Grading
+ * control, the per-scene grade effect, and the live preview's CSS filters.
+ */
+export const COLOR_GRADE_PRESET_VALUES: Record<ColorGradePreset, {
+  brightness: number; contrast: number; saturation: number; warmth: number; tint: number
+}> = {
+  none: { brightness: 0, contrast: 1, saturation: 1, warmth: 0, tint: 0 },
+  'warm-night': { brightness: -0.05, contrast: 1.1, saturation: 0.9, warmth: 0.15, tint: 0 },
+  'cool-moonlight': { brightness: 0.02, contrast: 1.05, saturation: 0.8, warmth: -0.15, tint: -0.05 },
+  cinematic: { brightness: -0.03, contrast: 1.2, saturation: 0.85, warmth: 0.05, tint: 0 },
+  vintage: { brightness: 0.05, contrast: 0.95, saturation: 0.7, warmth: 0.2, tint: 0.05 },
+  'dreamy-haze': { brightness: 0.08, contrast: 0.9, saturation: 0.75, warmth: 0.1, tint: 0.05 },
+  'golden-hour': { brightness: 0.03, contrast: 1.1, saturation: 1.1, warmth: 0.25, tint: 0.02 },
+  noir: { brightness: -0.1, contrast: 1.4, saturation: 0, warmth: 0, tint: 0 },
+  firelight: { brightness: -0.05, contrast: 1.15, saturation: 1, warmth: 0.3, tint: 0 },
+  'rainy-dusk': { brightness: -0.02, contrast: 1, saturation: 0.7, warmth: -0.1, tint: 0 },
+  'lavender-mist': { brightness: 0.05, contrast: 0.95, saturation: 0.85, warmth: -0.05, tint: 0.08 },
+  'forest-canopy': { brightness: -0.03, contrast: 1.1, saturation: 0.95, warmth: -0.05, tint: -0.05 },
+  'desert-twilight': { brightness: 0.02, contrast: 1.05, saturation: 1.05, warmth: 0.18, tint: 0.04 },
+  'ocean-depths': { brightness: -0.08, contrast: 1.15, saturation: 0.85, warmth: -0.2, tint: -0.03 },
+  'sepia-dream': { brightness: 0, contrast: 1.05, saturation: 0.4, warmth: 0.15, tint: 0.05 },
+  'frosted-glass': { brightness: 0.15, contrast: 0.85, saturation: 0.65, warmth: -0.05, tint: 0 },
+  'autumn-glow': { brightness: 0, contrast: 1.1, saturation: 1.15, warmth: 0.2, tint: 0.03 },
+  'starlit-night': { brightness: -0.1, contrast: 1.25, saturation: 0.6, warmth: -0.18, tint: -0.02 },
+  'misty-morning': { brightness: 0.1, contrast: 0.9, saturation: 0.7, warmth: -0.08, tint: 0.02 },
+}
+
+export interface ColorGradeOverlay extends OverlayBase {
+  kind: 'color-grade'
+  preset: ColorGradePreset
+  /** Added to the preset, -1..1. */
+  brightness: number
+  /** Multiplies the preset, 0..3. */
+  contrast: number
+  /** Multiplies the preset, 0..3. */
+  saturation: number
+  /** Added to the preset, -1..1 (negative cool, positive warm). */
+  warmth: number
+  /** Added to the preset, -1..1 (negative green, positive magenta). */
+  tint: number
+}
+
 export type SceneOverlayDocument =
   | VignetteOverlay
   | FilmGrainOverlay
@@ -384,12 +520,18 @@ export type SceneOverlayDocument =
   | LowerThirdOverlay
   | CornerLogoOverlay
   | GradientScrimOverlay
+  | AtmosphereLoopOverlay
+  | BloomOverlay
+  | FlickerOverlay
+  | LightningOverlay
+  | HeatShimmerOverlay
+  | ColorGradeOverlay
 
 /** A partial overlay, as a preset or a pack expresses it. `kind` is required. */
 export type SceneOverlayPatch =
   { kind: OverlayKind } & Partial<Omit<SceneOverlayDocument, 'kind'>> & Record<string, unknown>
 
-const DEFAULT_TIMING: OverlayTiming = { start_sec: 0, end_sec: null }
+const DEFAULT_TIMING: OverlayTiming = { start_sec: 0, end_sec: null, fade_in_sec: 0, fade_out_sec: 0 }
 
 /** The shipped default for one overlay kind, before any preset patch. */
 export function defaultSceneOverlay(kind: OverlayKind): SceneOverlayDocument {
@@ -425,8 +567,99 @@ export function defaultSceneOverlay(kind: OverlayKind): SceneOverlayDocument {
         ...base, kind, edge: 'bottom', color_hex: '#000000',
         opacity: 0.75, coverage: 0.34, steps: 24,
       }
+    case 'atmosphere-loop':
+      return defaultAtmosphereLoop('rain')
+    case 'bloom':
+      return { ...base, kind, threshold: 0.7, strength: 0.35, radius_px: 24 }
+    case 'flicker':
+      return { ...base, kind, amount: 0.04, speed: 1 }
+    case 'lightning':
+      return { ...base, kind, strength: 0.6, period_sec: 25, chance: 0.5, seed: 7 }
+    case 'heat-shimmer':
+      return { ...base, kind, strength_px: 3, scale: 1, speed: 1, region_top: 0.55, region_bottom: 1, seed: 7 }
+    case 'color-grade':
+      return { ...base, kind, preset: 'cool-moonlight', brightness: 0, contrast: 1, saturation: 1, warmth: 0, tint: 0 }
   }
 }
+
+/** Starting colours per loop variant — only starting points, every one editable. */
+const LOOP_DEFAULT_COLOR: Record<LoopVariant, { color: string; opacity: number; darken: number }> = {
+  rain: { color: '#DFE8F2', opacity: 0.55, darken: 0.06 },
+  snow: { color: '#F4F8FF', opacity: 0.9, darken: 0 },
+  fireflies: { color: '#FFD27A', opacity: 0.9, darken: 0 },
+  bokeh: { color: '#FFC98A', opacity: 0.45, darken: 0 },
+  dust: { color: '#FFF1D6', opacity: 0.7, darken: 0 },
+  embers: { color: '#FF8A3C', opacity: 0.95, darken: 0 },
+  stars: { color: '#E8F0FF', opacity: 0.9, darken: 0 },
+  petals: { color: '#F4B6C8', opacity: 0.85, darken: 0 },
+  fog: { color: '#D8DEE6', opacity: 0.5, darken: 0 },
+  'cloud-shadows': { color: '#000000', opacity: 0.35, darken: 0 },
+  'light-rays': { color: '#FFE7B8', opacity: 0.3, darken: 0 },
+}
+
+/** The shipped default for one atmosphere loop variant. */
+export function defaultAtmosphereLoop(variant: LoopVariant): AtmosphereLoopOverlay {
+  const { subset: _subset, variant: _variant, ...shape } = normalizeLoopShape({}, variant)
+  const look = LOOP_DEFAULT_COLOR[variant]
+  return {
+    schema_version: SCENE_EFFECT_SCHEMA_VERSION,
+    timing: { ...DEFAULT_TIMING },
+    kind: 'atmosphere-loop',
+    variant,
+    ...shape,
+    color_hex: look.color,
+    secondary_color_hex: null,
+    opacity: look.opacity,
+    darken: look.darken,
+  }
+}
+
+/** The loop shape an atmosphere overlay bakes, for one colour half (or all). */
+export function atmosphereLoopShape(doc: AtmosphereLoopOverlay, subset: 0 | 1 | 2 = 0): LoopShape {
+  return normalizeLoopShape({ ...doc, subset }, doc.variant)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Stacking order
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Layer groups, back to front. A stack renders group by group in this order;
+ * inside a group, in the order the customer arranged. "Custom order" turns the
+ * groups off and renders the list exactly as arranged.
+ *
+ * `camera` is listed so the stacking panel can show where the camera move sits,
+ * but no overlay belongs to it — the move is applied per scene clip, before any
+ * overlay ever sees the frame.
+ */
+export const EFFECT_STACK_GROUPS = [
+  'camera', 'grade', 'far-atmosphere', 'weather', 'near-atmosphere', 'light-particles', 'light', 'lens', 'overlays',
+] as const
+export type EffectStackGroup = (typeof EFFECT_STACK_GROUPS)[number]
+
+export function overlayStackGroup(doc: SceneOverlayDocument): EffectStackGroup {
+  switch (doc.kind) {
+    case 'color-grade': return 'grade'
+    case 'heat-shimmer': return 'far-atmosphere'
+    case 'atmosphere-loop':
+      switch (doc.variant) {
+        case 'cloud-shadows': return 'far-atmosphere'
+        // Fog hugging the ground sits in front of the weather; a high fog bank behind it.
+        case 'fog': return doc.region_top >= 0.3 ? 'near-atmosphere' : 'far-atmosphere'
+        case 'rain': case 'snow': case 'petals': return 'weather'
+        case 'light-rays': return 'light'
+        default: return 'light-particles'
+      }
+    case 'bloom': case 'flicker': case 'lightning': case 'light-leak': return 'light'
+    case 'vignette': case 'film-grain': return 'lens'
+    default: return 'overlays'
+  }
+}
+
+/** The kinds this release added. Older kinds keep their pre-1.5 render position. */
+export const LIBRARY_V1_5_KINDS: readonly OverlayKind[] = [
+  'atmosphere-loop', 'bloom', 'flicker', 'lightning', 'heat-shimmer', 'color-grade',
+]
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Registry metadata
@@ -451,7 +684,7 @@ export const FOOTAGE_MOTION_CATEGORY = 'footage' as const
 export type MotionCategory = SceneMotionCategory | typeof FOOTAGE_MOTION_CATEGORY
 
 /** Picker groups for overlays. App-owned for the same reason. */
-export const OVERLAY_CATEGORIES = ['light', 'texture', 'framing', 'title', 'brand'] as const
+export const OVERLAY_CATEGORIES = ['light', 'texture', 'framing', 'title', 'brand', 'weather', 'atmosphere', 'grade'] as const
 export type OverlayCategory = (typeof OVERLAY_CATEGORIES)[number]
 
 /**
@@ -534,11 +767,15 @@ export function pickFfmpegColor(value: unknown, fallback: string): string {
 function normalizeTiming(value: any, d: OverlayTiming): OverlayTiming {
   const v = value || {}
   const start = num(v.start_sec, 0, 86400, d.start_sec)
+  const fades = {
+    fade_in_sec: num(v.fade_in_sec, 0, 60, d.fade_in_sec),
+    fade_out_sec: num(v.fade_out_sec, 0, 60, d.fade_out_sec),
+  }
   const rawEnd = v.end_sec
-  if (rawEnd === null || rawEnd === undefined) return { start_sec: start, end_sec: d.end_sec === null ? null : d.end_sec }
+  if (rawEnd === null || rawEnd === undefined) return { start_sec: start, end_sec: d.end_sec === null ? null : d.end_sec, ...fades }
   const end = num(rawEnd, 0, 86400, start)
   // An end before the start would compile to a window that never opens.
-  return { start_sec: start, end_sec: end < start ? null : end }
+  return { start_sec: start, end_sec: end < start ? null : end, ...fades }
 }
 
 /** Upgrade / clamp any stored motion document. Never throws. */
@@ -675,12 +912,70 @@ export function normalizeSceneOverlay(input: unknown): SceneOverlayDocument {
         coverage: num(s.coverage, 0.02, 1, d.coverage),
         steps: Math.round(num(s.steps, 2, 64, d.steps)),
       }
+    case 'atmosphere-loop': {
+      const variant = pickEnum(s.variant, LOOP_VARIANTS, d.variant)
+      const look = defaultAtmosphereLoop(variant)
+      const { subset: _subset, variant: _v, ...shape } = normalizeLoopShape(s, variant)
+      return {
+        ...look,
+        timing,
+        ...shape,
+        color_hex: pickHex(s.color_hex, look.color_hex),
+        secondary_color_hex: nullableHex(s.secondary_color_hex, null),
+        opacity: num(s.opacity, 0, 1, look.opacity),
+        darken: num(s.darken, 0, 0.5, look.darken),
+      }
+    }
+    case 'bloom':
+      return {
+        ...d, timing,
+        threshold: num(s.threshold, 0, 1, d.threshold),
+        strength: num(s.strength, 0, 1, d.strength),
+        radius_px: num(s.radius_px, 1, 80, d.radius_px),
+      }
+    case 'flicker':
+      return { ...d, timing, amount: num(s.amount, 0, 0.3, d.amount), speed: num(s.speed, 0.1, 4, d.speed) }
+    case 'lightning':
+      return {
+        ...d, timing,
+        strength: num(s.strength, 0, 1, d.strength),
+        period_sec: num(s.period_sec, 2, 300, d.period_sec),
+        chance: num(s.chance, 0, 1, d.chance),
+        seed: Math.round(num(s.seed, 0, 2 ** 31 - 1, d.seed)),
+      }
+    case 'heat-shimmer': {
+      const top = num(s.region_top, 0, 1, d.region_top)
+      const bottom = num(s.region_bottom, 0, 1, d.region_bottom)
+      return {
+        ...d, timing,
+        strength_px: num(s.strength_px, 0, 16, d.strength_px),
+        scale: num(s.scale, 0.25, 4, d.scale),
+        speed: num(s.speed, 0.25, 4, d.speed),
+        region_top: Math.min(top, bottom),
+        region_bottom: Math.max(top, bottom),
+        seed: Math.round(num(s.seed, 0, 2 ** 31 - 1, d.seed)),
+      }
+    }
+    case 'color-grade':
+      return {
+        ...d, timing,
+        preset: pickEnum(s.preset, COLOR_GRADE_PRESETS, d.preset),
+        brightness: num(s.brightness, -1, 1, d.brightness),
+        contrast: num(s.contrast, 0, 3, d.contrast),
+        saturation: num(s.saturation, 0, 3, d.saturation),
+        warmth: num(s.warmth, -1, 1, d.warmth),
+        tint: num(s.tint, -1, 1, d.tint),
+      }
   }
 }
 
 /** Merge a partial overlay patch onto the default for its kind. */
 export function mergeSceneOverlay(kind: OverlayKind, patch: Record<string, unknown> | null | undefined): SceneOverlayDocument {
-  const base = defaultSceneOverlay(kind)
+  // An atmosphere loop's defaults depend on its variant: fog starting from
+  // rain's two-second loop and slant would be a different effect.
+  const base = kind === 'atmosphere-loop'
+    ? defaultAtmosphereLoop(pickEnum(patch?.variant, LOOP_VARIANTS, 'rain'))
+    : defaultSceneOverlay(kind)
   if (!patch) return base
   return normalizeSceneOverlay({ ...base, ...patch, kind })
 }
