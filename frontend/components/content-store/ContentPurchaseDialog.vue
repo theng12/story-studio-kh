@@ -9,7 +9,7 @@
     <div v-if="attempt && product" class="purchase-shell">
       <header class="purchase-header">
         <div>
-          <span>{{ product.free ? 'Permanent free entitlement' : 'Exact GenStudio quote' }}</span>
+          <span>{{ product.free ? 'Free — yours to keep' : 'Price from GenStudio' }}</span>
           <h2 id="content-purchase-title">{{ product.title }}</h2>
         </div>
         <button
@@ -27,45 +27,45 @@
           <div class="outcome success" role="status">
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 12.5 4 4L19 7" /></svg>
             <div>
-              <strong>Owned in GenStudio · not installed on this Mac</strong>
-              <p>Permanent ownership is active for this GenStudio account.</p>
+              <strong>Bought — not installed on this Mac yet</strong>
+              <p>It is yours to keep on this account.</p>
             </div>
           </div>
           <dl class="purchase-ledger">
             <div><dt>Base price</dt><dd>{{ formatCredits(attempt.base_credit_price) }} credits</dd></div>
-            <div v-if="attempt.component_discount_credits !== undefined"><dt>Owned-component discount</dt><dd>−{{ formatCredits(attempt.component_discount_credits) }} credits</dd></div>
-            <div v-if="attempt.operator_discount && attempt.operator_discount_credits !== undefined"><dt>Operator discount credits</dt><dd>−{{ formatCredits(attempt.operator_discount_credits) }} credits</dd></div>
+            <div v-if="attempt.component_discount_credits !== undefined"><dt>Discount for parts you already own</dt><dd>−{{ formatCredits(attempt.component_discount_credits) }} credits</dd></div>
+            <div v-if="attempt.operator_discount && attempt.operator_discount_credits !== undefined"><dt>Store discount</dt><dd>−{{ formatCredits(attempt.operator_discount_credits) }} credits</dd></div>
             <div><dt>Credits charged</dt><dd>{{ formatCredits(attempt.credits_charged) }}</dd></div>
             <div><dt>Balance before</dt><dd>{{ formatCredits(attempt.balance_before) }}</dd></div>
             <div><dt>Balance after</dt><dd>{{ formatCredits(attempt.balance_after) }}</dd></div>
           </dl>
-          <p v-if="attempt.operator_discount" class="discount-proof"><strong>Operator discount</strong> · {{ operatorDiscountProof }}</p>
-          <p class="receipt-state">Signed receipt cached · use Restore purchases on the Owned shelf to verify and install.</p>
-          <p v-if="attempt.replayed" class="replay-state">GenStudio safely replayed the saved purchase attempt.</p>
+          <p v-if="attempt.operator_discount" class="discount-proof"><strong>Store discount</strong> · {{ operatorDiscountProof }}</p>
+          <p class="receipt-state">Saved. Install it from the Owned shelf (Restore purchases).</p>
+          <p v-if="attempt.replayed" class="replay-state">This was the same purchase as before — you were not charged twice.</p>
         </template>
 
         <template v-else>
-          <p class="ownership-statement">Permanent ownership for this GenStudio account</p>
+          <p class="ownership-statement">Yours to keep on this account</p>
 
           <dl class="quote-grid">
             <div><dt>Base price</dt><dd>{{ formatCredits(attempt.base_credit_price) }} credits</dd></div>
-            <div><dt>Owned-content discount</dt><dd>−{{ formatCredits(attempt.discount_credits) }} credits</dd></div>
-            <div v-if="attempt.operator_discount && attempt.operator_discount_credits !== undefined"><dt>Operator discount</dt><dd>−{{ formatCredits(attempt.operator_discount_credits) }} credits</dd></div>
-            <div class="quote-total"><dt>Maximum deduction</dt><dd>{{ formatCredits(attempt.quoted_credits) }} credits</dd></div>
-            <div><dt>Content-spendable balance</dt><dd>{{ formatCredits(attempt.balance_before) }} credits</dd></div>
+            <div><dt>Discount for content you already own</dt><dd>−{{ formatCredits(attempt.discount_credits) }} credits</dd></div>
+            <div v-if="attempt.operator_discount && attempt.operator_discount_credits !== undefined"><dt>Store discount</dt><dd>−{{ formatCredits(attempt.operator_discount_credits) }} credits</dd></div>
+            <div class="quote-total"><dt>The most it can cost</dt><dd>{{ formatCredits(attempt.quoted_credits) }} credits</dd></div>
+            <div><dt>Credits you can spend</dt><dd>{{ formatCredits(attempt.balance_before) }} credits</dd></div>
             <div><dt>After purchase</dt><dd>{{ formatCredits(attempt.balance_after) }} credits</dd></div>
-            <div><dt>Quote expires</dt><dd>{{ formatExpiry(attempt.expires_at) }}</dd></div>
+            <div><dt>Price held until</dt><dd>{{ formatExpiry(attempt.expires_at) }}</dd></div>
           </dl>
 
-          <p v-if="attempt.operator_discount" class="discount-proof"><strong>Operator discount</strong> · {{ operatorDiscountProof }}</p>
+          <p v-if="attempt.operator_discount" class="discount-proof"><strong>Store discount</strong> · {{ operatorDiscountProof }}</p>
 
-          <p class="ceiling-note">This is the maximum deduction. The final charge may be lower when GenStudio settles the purchase.</p>
+          <p class="ceiling-note">This is the most it can cost. The final charge may be lower.</p>
 
           <div v-if="!attempt.sufficient_credits" class="outcome warning" role="status">
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 8v5M12 17h.01M12 3l9 17H3z" /></svg>
             <div>
               <strong>{{ formatCredits(attempt.shortfall_credits) }} more credits are needed</strong>
-              <p>This quote cannot be confirmed with the current content-spendable balance.</p>
+              <p>You do not have enough credits for this right now.</p>
               <NuxtLink to="/usage">View credits</NuxtLink>
             </div>
           </div>
@@ -98,7 +98,7 @@
           class="btn btn-primary"
           :disabled="busy || !attempt.sufficient_credits || attempt.status === 'submitting'"
           @click="$emit('confirm', attempt.quote_id)"
-        >{{ busy || attempt.status === 'submitting' ? 'Submitting…' : product.free ? 'Confirm permanent ownership' : `Confirm up to ${formatCredits(attempt.quoted_credits)} credits` }}</button>
+        >{{ busy || attempt.status === 'submitting' ? 'Submitting…' : product.free ? 'Get it free' : `Buy for up to ${formatCredits(attempt.quoted_credits)} credits` }}</button>
       </footer>
     </div>
   </Modal>
@@ -147,30 +147,30 @@ const displayError = computed(() => {
   const detail = refusal?.detail || props.error?.detail || attempt?.uncertain_detail || ''
   if (attempt?.status === 'uncertain' || code === 'CONTENT_PURCHASE_OUTCOME_UNCERTAIN') {
     return {
-      tone: 'warning', title: 'GenStudio’s answer is uncertain',
-      detail: detail || 'No replacement was sent. Retry this exact purchase to reuse its saved attempt.',
+      tone: 'warning', title: 'GenStudio has not answered yet',
+      detail: detail || 'It may already be yours. Retry repeats this exact purchase, so you are never charged twice.',
       showCredits: false,
     }
   }
   if (code === 'signing_unavailable') {
     return {
       tone: 'neutral', title: 'The Content Store is not open yet',
-      detail: 'GenStudio refused before any debit or ownership change because it cannot sign purchases right now.', showCredits: false,
+      detail: 'GenStudio cannot take purchases right now. Nothing was charged and nothing changed.', showCredits: false,
     }
   }
   if (code === 'insufficient_credits') {
     return { tone: 'warning', title: 'More credits are needed', detail, showCredits: true }
   }
   if (props.error?.status === 401 || code === 'CONTENT_STORE_SCOPE_REQUIRED') {
-    return { tone: 'warning', title: 'This key needs another Content Store scope', detail, showCredits: false }
+    return { tone: 'warning', title: 'Your Gateway key is not allowed to buy content', detail, showCredits: false }
   }
   if (code === 'quote_expired' || code === 'quote_rejected') {
-    return { tone: 'warning', title: 'This quote can no longer be used', detail: `${detail} Close this quote and request a new exact quote.`, showCredits: false }
+    return { tone: 'warning', title: 'This price has expired', detail: `${detail} Close this and ask for a new price.`, showCredits: false }
   }
   if (code === 'already_owned') {
     return {
-      tone: 'neutral', title: 'Already owned in GenStudio',
-      detail: `${detail} Close this quote, then refresh the Content Store to see current ownership.`,
+      tone: 'neutral', title: 'You already own this',
+      detail: `${detail} Close this, then refresh the Content Store.`,
       showCredits: false,
     }
   }
@@ -192,7 +192,7 @@ const operatorDiscountProof = computed(() => {
   if (!discount) return ''
   const start = discount.starts_on ? ` · Starts ${discount.starts_on}` : ''
   const end = discount.ends_on ? ` · Ends ${discount.ends_on}` : ' · No published end date'
-  return `${discount.percent}% · ${discount.discount_id} v${discount.version}${start}${end} · ${discount.timezone}`
+  return `${discount.percent}% off${start}${end}`
 })
 
 /**

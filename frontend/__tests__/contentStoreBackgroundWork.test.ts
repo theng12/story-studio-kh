@@ -18,6 +18,10 @@ describe('Content Store background work', () => {
     assert.match(page, /const installQueue = useContentInstallQueue\(\)/)
     assert.doesNotMatch(page, /useInstallQueue\(/)
     assert.match(layout, /<ContentInstallStrip/)
+    // Project pages too (audit leftovers): installs and a running purchase show there.
+    assert.match(read('../layouts/dashboard.vue'), /<ContentInstallStrip class="dashboard-install-strip" \/>/)
+    const strip = read('../components/content-store/ContentInstallStrip.vue')
+    assert.match(strip, /Buying Content Packs — \{\{ batch\.progress\.value\.done \}\} of/)
     assert.match(page, /You can leave this page; installs continue\./)
   })
   test('Discover offers Select all for every purchasable pack, behind the same one-confirmation batch', () => {
