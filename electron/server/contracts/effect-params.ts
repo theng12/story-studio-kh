@@ -178,10 +178,11 @@ export function effectBadge(doc: SceneOverlayDocument): string {
 
 /**
  * CPU-seconds one 1080p frame of this effect costs in the final pass, measured
- * on the M2 Max with the bundled FFmpeg 8.1 (see the music-format study and
- * `docs/effects-library.md`). Scales with pixel count at other sizes.
+ * on the M2 Max with the bundled FFmpeg 8.1 (music-format study, 2026-10-03:
+ * per-effect figures from SPEC §12, stack calibration below). Scales with pixel
+ * count at other sizes.
  */
-const COST_BY_KIND: Record<OverlayKind, number> = {
+const CPU_SEC_PER_FRAME_BY_KIND: Record<OverlayKind, number> = {
   vignette: 0.003,
   'film-grain': 0.0024,
   'light-leak': 0.012,
@@ -198,16 +199,16 @@ const COST_BY_KIND: Record<OverlayKind, number> = {
 }
 
 /** One extra full-frame overlay, paid when a plain filter fades in or out. */
-const FADE_WRAPPER_COST = 0.011
+const FADE_WRAPPER_CPU_SEC = 0.011
 
 export function effectCostPerFrame(doc: SceneOverlayDocument): number {
-  let cost = COST_BY_KIND[doc.kind] ?? 0.005
+  let cost = CPU_SEC_PER_FRAME_BY_KIND[doc.kind] ?? 0.005
   if (doc.kind === 'atmosphere-loop') {
     const tints = doc.secondary_color_hex && doc.secondary_color_hex !== doc.color_hex ? 2 : 1
     cost = cost * tints + (doc.darken > 0 ? 0.001 : 0)
   }
   const fades = (doc.timing.fade_in_sec || 0) > 0 || (doc.timing.fade_out_sec || 0) > 0
-  if (fades && !['atmosphere-loop', 'flicker', 'lightning', 'lower-third'].includes(doc.kind)) cost += FADE_WRAPPER_COST
+  if (fades && !['atmosphere-loop', 'flicker', 'lightning', 'lower-third'].includes(doc.kind)) cost += FADE_WRAPPER_CPU_SEC
   return cost
 }
 
