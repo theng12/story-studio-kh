@@ -191,7 +191,7 @@
                     type="button"
                     :disabled="!canTranscribe || transcribing"
                     :aria-label="`${chapterIsStale(s.slug) ? 'Update' : chapterHasSrt(s.slug) ? 'Regenerate' : 'Generate'} ${s.label} subtitles`"
-                    :title="canTranscribe ? `Makes new subtitles for ${s.label} only (a new request at the model's current price).` : transcribeDisabledReason"
+                    :title="canTranscribe ? `Makes new subtitles for ${s.label} only${isFreeToRun(genstudioSelectedModel) ? '' : ' (a new request at the model\'s current price)'}.` : transcribeDisabledReason"
                     @click="retranscribeChapter(s.slug)"
                   >{{ subtitleActionLabel(s.slug, chapterIsStale(s.slug) ? 'Update Subtitles' : chapterHasSrt(s.slug) ? 'Regenerate Subtitles' : 'Generate Subtitles') }}</button>
                 </div>

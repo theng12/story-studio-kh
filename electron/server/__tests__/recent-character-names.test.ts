@@ -86,4 +86,14 @@ describe('recent main character names', () => {
     const src = await fs.readFile(new URL('../generators/idea-campaign.ts', import.meta.url), 'utf-8')
     assert.equal((src.match(/withNamesAvoidance\(/g) ?? []).length, 3, 'definition + freeform + coverage prompts')
   })
+
+  test('the paste-ideas prompt carries the same line', async () => {
+    const slug = await channelWithEpisodes('Paste Channel', 'independent-stills', { EP0001: 'Elara' })
+    const { default: request } = await import('supertest')
+    process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
+    const { app } = await import('../app.js')
+    const res = await request(app).get(`/api/projects/${slug}/ideas/paste-prompt`)
+    assert.equal(res.status, 200)
+    assert.match(res.text, /- Do not reuse these main character names from this channel's recent episodes: Elara\./)
+  })
 })
