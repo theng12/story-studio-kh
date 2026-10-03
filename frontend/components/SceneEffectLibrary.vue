@@ -44,6 +44,7 @@
         To put effects on one scene, see them move live, or set their order, open the
         <NuxtLink :to="effectsLibraryLink">Effects Library</NuxtLink> — what you set there is saved with the episode and rendered here.
       </p>
+      <p v-if="episodeStackSummary" class="text-sm effect-episode-stack">{{ episodeStackSummary }}</p>
 
       <div v-for="group in catalog.grouped_overlays" :key="group.category" class="effect-group mt-2">
         <div class="effect-group-title">{{ groupLabel(group.category) }}</div>
@@ -159,7 +160,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { effectParamFields, type ParamField } from '@shared/effect-params'
 
 interface OverlayEntry {
@@ -219,6 +220,31 @@ const GROUP_LABELS: Record<string, string> = {
   atmosphere: 'Atmosphere',
   grade: 'Colour grade',
 }
+
+/**
+ * v1.5 — say what the Effects Library adds to THIS episode, so nothing renders
+ * that the owner cannot see from Video Assembly. Read-only; re-read on every
+ * episode change and blanked first, so one episode's count never shows on another.
+ */
+const episodeStackSummary = ref('')
+async function loadEpisodeStack(): Promise<void> {
+  episodeStackSummary.value = ''
+  const episode = props.episodeId
+  if (!episode) return
+  try {
+    const data = await props.get(`/projects/${props.slug}/effects-library/${episode}`)
+    if (props.episodeId !== episode) return
+    const file = data?.file || {}
+    const whole = (file.episode || []).length
+    const scenes = (file.scenes || []).reduce((n: number, s: any) => n + (s.effects || []).length, 0)
+    const themes = (file.themes || []).reduce((n: number, t: any) => n + (t.effects || []).length, 0)
+    const total = whole + scenes + themes
+    if (!total) return
+    const parts = [whole && `${whole} on the whole episode`, scenes && `${scenes} on single scenes`, themes && `${themes} on theme scenes`].filter(Boolean)
+    episodeStackSummary.value = `This episode also has ${total} Effects Library effect${total === 1 ? '' : 's'} (${parts.join(', ')}). They render with this video.`
+  } catch { /* the Effects Library page reports its own errors */ }
+}
+watch(() => props.episodeId, loadEpisodeStack, { immediate: true })
 
 const effectsLibraryLink = computed(() => ({
   path: `/projects/${props.slug}/effects-library`,
@@ -326,6 +352,13 @@ async function preview(entry: OverlayEntry): Promise<void> {
 </script>
 
 <style scoped>
+.effect-episode-stack {
+  margin: 0.35rem 0 0;
+  padding: 0.35rem 0.5rem;
+  border-radius: 5px;
+  border-left: 2px solid var(--accent, #4fc3f7);
+  background: color-mix(in srgb, var(--accent, #4fc3f7) 10%, transparent);
+}
 .effect-group-title {
   font-size: 0.78rem;
   text-transform: uppercase;

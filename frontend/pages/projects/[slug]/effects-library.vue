@@ -85,8 +85,8 @@
           </div>
         </template>
         <div v-if="!sections.length && library.length" class="fx-empty">No effect matches “{{ search }}”.</div>
-        <div class="fx-cat">Camera</div>
-        <div class="fx-grid">
+        <div v-if="showCamera" class="fx-cat">Camera</div>
+        <div v-if="showCamera" class="fx-grid">
           <NuxtLink :to="`/projects/${slug}/video-assembly`" class="fx-card fx-camera">
             <div class="fx-im">
               <EffectThumb :doc="null" :image="sceneImage" />
@@ -341,6 +341,8 @@ const previewSceneId = ref('')
 
 // ── Library ───────────────────────────────────────────────────────────────
 const sections = computed(() => sectionFor(library.value, activeTab.value, search.value))
+const showCamera = computed(() => (activeTab.value === 'all' || activeTab.value === 'film')
+  && (!search.value.trim() || /zoom|pan|camera/i.test(search.value)))
 const themes = computed(() => [...new Set(scenes.value.map(s => s.theme).filter((t): t is string => !!t))])
 
 const COST_REF = { durationSec: 65 * 60, fps: 24, w: 1920, h: 1080 }
@@ -412,7 +414,9 @@ const editorChip = computed(() => {
 const rebakeHint = computed(() => selectedDoc.value?.kind === 'atmosphere-loop'
   ? 'Colour, brightness and darkening change instantly. Amount, size, speed, wind and the rest re-make the loop for the render (about 2 s, once).'
   : 'Every change shows instantly here; the render uses exactly these values.')
-const addHint = computed(() => currentTarget.value.kind === 'episode'
+const addHint = computed(() => !episodeId.value
+  ? 'Pick an episode above first — effects are saved with an episode.'
+  : currentTarget.value.kind === 'episode'
   ? 'Plays for the whole episode.'
   : `Plays on ${targetName.value.toLowerCase()} and fades over ${draftFades.in} s in, ${draftFades.out} s out.`)
 
@@ -582,7 +586,9 @@ const exacting = ref(false)
 const exactUrl = ref('')
 const exactInfo = ref('')
 const exactStale = ref(false)
-const exactHint = 'The real render engine at half size, over the chosen scene with the slow zoom — about 1–3 s. What you see is what the video gets.'
+const exactHint = computed(() => episodeId.value
+  ? 'The real render engine at half size, over the chosen scene with the slow zoom — about 1–3 s. What you see is what the video gets.'
+  : 'Pick an episode above first — the exact preview renders over one of its scenes.')
 
 async function renderExact(): Promise<void> {
   if (!episodeId.value) return
