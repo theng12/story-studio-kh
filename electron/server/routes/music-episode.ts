@@ -12,6 +12,11 @@
  *   POST /projects/:slug/music-episodes/:code/scenes/:id/keep       keep the current picture
  *   POST /projects/:slug/music-episodes/:code/scenes/:id/use-still  use an Image Pool still
  *   POST /projects/:slug/music-episodes/:code/build          stitch + hand to Video Assembly
+ *   GET  /projects/:slug/music-episodes/:code/stills?pool_id= an Image Pool's stills + the stills window
+ *   POST /projects/:slug/music-episodes/:code/polish-prompts  rewrite scene prompts with the picked writing model (job)
+ *   GET  /projects/:slug/music-episodes/:code/thumbnail       scenes + prompt state for the Thumbnail Generator
+ *   POST /projects/:slug/music-episodes/:code/thumbnail/use-scene   a scene picture becomes the thumbnail
+ *   POST /projects/:slug/music-episodes/:code/thumbnail/prompts     write thumbnail prompts for the image model
  *
  * Scene pictures are made through the existing Scene Review routes
  * (`continuity-render`), which fan out across the fleet.
@@ -27,7 +32,8 @@ import * as im from '../services/idea-manager.js'
 import * as bp from '../services/broll-pool-manager.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { runFfmpeg } from '../lib/ffmpeg-utils.js'
-import { resolveScenePlanPath } from '../services/utils.js'
+import { resolveEpisodePaths, resolveScenePlanPath } from '../services/utils.js'
+import { musicThumbnailScenes, useSceneAsThumbnail, writeMusicThumbnailPrompts } from '../services/music-episode-thumbnail.js'
 import { resolveSceneImagesDir } from '../generators/scene-image.js'
 import { checkpointSceneImage } from '../services/scene-media-checkpoint.js'
 import {
@@ -45,9 +51,11 @@ import {
   episodeDirFor,
   keepScenePicture,
   loadEpisodeContext,
+  newEpisodeDoc,
   readEpisodeDoc,
   saveEpisodeDoc,
-  type MusicEpisodeDoc,
+  stillKey,
+  stillWindow,
 } from '../services/music-episode-store.js'
 import { listSongPools } from '../services/music-pool-source.js'
 import { getEffectiveNiche } from '../services/niche-loader.js'
@@ -73,18 +81,7 @@ function fail(res: any, e: any, fallback: string) {
   return res.status(e?.statusCode || 500).json(humanizeBackendError(e, fallback))
 }
 
-async function emptyDoc(slug: string, code: string): Promise<MusicEpisodeDoc> {
-  return {
-    schema_version: 1,
-    episode_code: code,
-    settings: (await channelStartingSettings(slug)).settings,
-    songs: [],
-    draw_round: 0,
-    scene_breaks: [],
-    prompt_overrides: {},
-    updated_at: new Date().toISOString(),
-  }
-}
+const emptyDoc = newEpisodeDoc
 
 router.get('/projects/:slug/music-episodes', async (req, res) => {
   try {
@@ -303,6 +300,17 @@ router.post('/projects/:slug/music-episodes/:code/scenes/:sceneId/use-still', as
     if (!filename || filename !== path.basename(filename)) return res.status(400).json({ detail: 'Pick a still from the pool.' })
     const source = path.join(pool.folder_path, filename)
     if (!existsSync(source)) return res.status(404).json({ detail: `${filename} is not in ${pool.name} any more (is the drive connected?).` })
+    const doc = await readEpisodeDoc(slug, code)
+    if (!doc) return res.status(409).json({ detail: 'Draw songs first.' })
+    const key = stillKey(pool.id, filename)
+    const usedBy = (await stillWindow(slug, code, doc.settings.still_no_repeat_episodes)).get(key)
+    if (usedBy && req.body?.allow_repeat !== true) {
+      return res.status(409).json({
+        code: 'STILL_IN_WINDOW',
+        detail: `${filename} was used in ${usedBy}, inside this channel's stills window (${doc.settings.still_no_repeat_episodes} episodes). Pick another still, or use it again on purpose.`,
+        used_by: usedBy,
+      })
+    }
     const episodeDir = await episodeDirFor(slug, code)
     const planPath = await resolveScenePlanPath(slug, code, episodeDir)
     if (!existsSync(planPath)) return res.status(409).json({ detail: 'Draw songs first.' })
@@ -317,9 +325,106 @@ router.post('/projects/:slug/music-episodes/:code/scenes/:sceneId/use-still', as
     await runFfmpeg(['-hide_banner', '-nostdin', '-y', '-i', source, '-frames:v', '1', '-update', '1', tempPath])
     await fs.rename(tempPath, outPath)
     await checkpointSceneImage(planPath, sceneId, outPath, scene.visual_prompt, true)
+    // Remember which still this scene uses, for the stills no-repeat window.
+    const ctx = await loadEpisodeContext(slug, code, doc.settings)
+    await saveEpisodeDoc(slug, { ...doc, scene_stills: { ...(doc.scene_stills || {}), [sceneId]: key } }, ctx.byKey)
     res.json(await buildEpisodeView(slug, code))
   } catch (e) {
     fail(res, e, 'Could not use that still')
+  }
+})
+
+router.get('/projects/:slug/music-episodes/:code/stills', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const code = await requireEpisode(slug, req.params.code)
+    const pool = await bp.getPool(String(req.query.pool_id || ''))
+    if (!pool || bp.poolMedia(pool) !== 'image') return res.status(404).json({ detail: 'That Image Pool was not found.' })
+    const doc = (await readEpisodeDoc(slug, code)) ?? await emptyDoc(slug, code)
+    const n = doc.settings.still_no_repeat_episodes
+    const window = await stillWindow(slug, code, n)
+    const clips = await bp.listClips(pool.id, { includeMissing: false })
+    res.json({
+      window_episodes: n,
+      stills: clips.map((clip: any) => ({
+        filename: clip.filename,
+        used_by: window.get(stillKey(pool.id, clip.filename)) || null,
+      })),
+    })
+  } catch (e) {
+    fail(res, e, 'Could not list stills')
+  }
+})
+
+router.post('/projects/:slug/music-episodes/:code/polish-prompts', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const code = await requireEpisode(slug, req.params.code)
+    const model = typeof req.body?.model === 'string' ? req.body.model.trim() : ''
+    if (!model) return res.status(400).json({ detail: 'Pick the writing model that polishes the prompts. Story Studio does not pick one for you.' })
+    const doc = await readEpisodeDoc(slug, code)
+    if (!doc?.songs.length) return res.status(409).json({ detail: 'Draw songs first.' })
+    const sceneIds = Array.isArray(req.body?.scene_ids)
+      ? req.body.scene_ids.filter((id: unknown): id is string => typeof id === 'string' && /^ms-[0-9a-f]{12}$/.test(id))
+      : []
+    if (jq.isDuplicate(slug, code, 'music_scene_polish' as JobType)) {
+      return res.status(409).json({ detail: `${code}'s scene prompts are already being polished.` })
+    }
+    const job = await jq.enqueue({
+      project_slug: slug,
+      type: 'music_scene_polish' as JobType,
+      episode_id: code,
+      title: `Polish scene prompts — ${code}`,
+      params: { episode_id: code, model, ...(sceneIds.length ? { scene_ids: sceneIds } : {}) },
+    })
+    res.status(201).json(job)
+  } catch (e) {
+    fail(res, e, 'Could not start polishing the prompts')
+  }
+})
+
+router.get('/projects/:slug/music-episodes/:code/thumbnail', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const code = await requireEpisode(slug, req.params.code)
+    const scenes = await musicThumbnailScenes(slug, code)
+    const idea = (await im.getIdeas(slug, 'accepted')).find(i => (i.episode_code || '').toUpperCase() === code)
+    const paths = await resolveEpisodePaths(slug, code, idea?.title || '')
+    res.json({
+      music: scenes.length > 0,
+      headline: idea?.title || code,
+      prompts_ready: existsSync(paths.thumb_prompts_docx),
+      scenes: scenes.map(scene => ({ id: scene.id, scene_index: scene.scene_index, has_image: !!scene.image_path })),
+    })
+  } catch (e) {
+    fail(res, e, 'Could not read the episode scenes')
+  }
+})
+
+router.post('/projects/:slug/music-episodes/:code/thumbnail/use-scene', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const code = await requireEpisode(slug, req.params.code)
+    const sceneId = String(req.body?.scene_id || '')
+    if (!/^ms-[0-9a-f]{12}$/.test(sceneId)) return res.status(400).json({ detail: 'Pick a scene.' })
+    res.json(await useSceneAsThumbnail(slug, code, sceneId))
+  } catch (e) {
+    fail(res, e, 'Could not use that scene as the thumbnail')
+  }
+})
+
+router.post('/projects/:slug/music-episodes/:code/thumbnail/prompts', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const code = await requireEpisode(slug, req.params.code)
+    const sceneIds = Array.isArray(req.body?.scene_ids) ? req.body.scene_ids.filter((id: unknown): id is string => typeof id === 'string') : []
+    res.json(await writeMusicThumbnailPrompts(slug, code, {
+      sceneIds,
+      count: Number(req.body?.count) || 1,
+      overwrite: req.body?.overwrite === true,
+    }))
+  } catch (e) {
+    fail(res, e, 'Could not write the thumbnail prompts')
   }
 })
 

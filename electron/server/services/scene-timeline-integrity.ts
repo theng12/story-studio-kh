@@ -22,6 +22,8 @@ export interface SubtitleCueGap {
   section_slugs: string[]
   section_local_start_sec?: number
   section_local_end_sec?: number
+  /** Subtitles page only: is anything audible in the chapter audio under the gap? See gap-audio-check.ts. */
+  audio?: 'silent' | 'sound'
 }
 
 interface StitchSection {

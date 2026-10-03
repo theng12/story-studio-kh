@@ -550,6 +550,14 @@ export async function generateAudioMerge(job: Job): Promise<void> {
   const req = params as AudioMergeRequest
   const code = episode_id.toUpperCase()
 
+  // One file per chapter: an episode still holding split `_partN` narration
+  // gets each complete chapter joined first (a quality refresh keeps the exact
+  // files its repair selected).
+  if (!req.audio_quality_refresh) {
+    const { consolidateEpisodeParts } = await import('../services/chapter-parts.js')
+    await consolidateEpisodeParts(project_slug, code, line => job.output_lines.push(line))
+  }
+
   // Submission routes preflight this too, but Pipeline jobs can enqueue
   // internally and files may change while a job waits. Re-prove the complete
   // base set immediately before FFmpeg starts. This is read-only; the selected
@@ -1491,7 +1499,8 @@ export async function scanEpisodeAudioAssets(
     const activeSources = await resolveActiveSubtitleChapterSources(episodeDir, audioDir).catch(() => null)
     const activeBySlug = new Map((activeSources || []).map(source => [source.slug.toLowerCase(), new Set(source.files)]))
     for (const file of files) {
-      if (!/\.mp3$/i.test(file)) continue
+      // Hidden files (a join in progress) are never chapters.
+      if (!/\.mp3$/i.test(file) || file.startsWith('.')) continue
 
       // Skip files that look like full/merged narration and explicit alternates.
       if (/full|merged|narration_only/i.test(file) || !isActiveChapterAudioFilename(file)) continue

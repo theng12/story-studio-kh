@@ -25,9 +25,11 @@ import {
   resolveSubfolderNames,
   projectConfigOnce,
   projectOutputRootOnce,
+  projectFactsFor,
   type ProjectFactsCache,
   resolveScenePlanPath,
 } from './utils.js'
+import { MUSIC_EPISODE_FILENAME } from './music-episode.js'
 import type { EpisodePaths } from './utils.js'
 import { resolveReadPath, resolveArtifact, matchChapterFile, introMarkerPath } from '../lib/episode-artifacts.js'
 import { resolveEpisodeSubfolderDir } from './media-root.js'
@@ -989,6 +991,12 @@ export interface EpisodeStatus {
   // Detected only from a canonical non-empty output or confirmed upload.
   video_assembly: boolean
   /**
+   * Music channels only (absent elsewhere): the Episode Builder's stitched mix, tracklist and scene
+   * plan match today's song list. The music flow's "Episode Builder" step reads it; narration steps
+   * (script, audio, subtitles…) are not part of a music episode's flow.
+   */
+  music_episode?: boolean
+  /**
    * Size in bytes of the final assembled video file, when one was located
    * on disk. Undefined when only the YouTube sidecar (path D) flagged the
    * episode as assembled — the local file may have been deleted post-
@@ -1007,6 +1015,18 @@ export interface EpisodeStatus {
    * boolean to render in the UI.
    */
   _unreliable?: boolean
+}
+
+/** Whether this project is a music channel (its formula has `musicFormat`), read once per facts cache. */
+async function musicChannelOnce(slug: string, cache?: ProjectFactsCache): Promise<boolean> {
+  const scoped = projectFactsFor(cache, slug)
+  const read = async () => {
+    const { getEffectiveNiche } = await import('./niche-loader.js')
+    return !!(await getEffectiveNiche(slug).catch(() => null) as { musicFormat?: unknown } | null)?.musicFormat
+  }
+  if (!scoped) return read()
+  scoped.musicChannel ??= read()
+  return scoped.musicChannel
 }
 
 function emptyStatus(): EpisodeStatus {
@@ -1289,6 +1309,13 @@ export async function computeEpisodeStatus(
         const selection = JSON.parse(await fs.readFile(path.join(byCode.episode_dir, 'broll-selection.json'), 'utf-8'))
         status.broll_picked = Array.isArray(selection?.selection) && selection.selection.length > 0
       } catch { status.broll_picked = false }
+      // A music (Episode Builder) episode, or any episode of a music channel: it has no narration,
+      // so its Scene Plan needs no subtitle timeline, and its own step is the stitched mix.
+      const musicDir = existsSync(path.join(byCode.episode_dir, MUSIC_EPISODE_FILENAME))
+      if (musicDir || await musicChannelOnce(slug, cache)) {
+        const { inspectMusicStitch } = await import('./music-episode-store.js')
+        status.music_episode = (await inspectMusicStitch(slug, code)).current
+      }
       const planPath = await resolveScenePlanPath(slug, code, byCode.episode_dir, cache)
       const hasPlanFile = await fileHasContent(planPath)
       if (hasPlanFile) {
@@ -1304,7 +1331,7 @@ export async function computeEpisodeStatus(
         const coverageIntegrity = inspectScenePlanCoverage(plan)
         status.scene_plan = scenes.length > 0
           && promptIntegrity.complete
-          && subtitleIntegrity.complete
+          && (musicDir || subtitleIntegrity.complete)
           && (!coverageIntegrity.authoritative || coverageIntegrity.complete)
         // Both are OPTIONAL features. An episode that never proposed a cue has
         // nothing outstanding, so it is not pending — the same rule Video
@@ -1467,6 +1494,18 @@ export async function computeEpisodeStatus(
       total: thumbnails.total,
       present: thumbnails.present,
       complete: thumbnails.total > 0 && thumbnails.missing.length === 0,
+    }
+  }
+
+  // A music episode's thumbnail has no prompt list to complete: one picture in its thumbnail folder
+  // (a scene picture the owner chose, or one the image model drew) is a finished thumbnail.
+  if (status.music_episode !== undefined && !status.thumbnails && authoritativePaths) {
+    const files = await safeReaddir(authoritativePaths.thumb_dir)
+    for (const file of files) {
+      if (/\.(png|jpe?g|webp)$/i.test(file) && await fileHasContent(path.join(authoritativePaths.thumb_dir, file))) {
+        status.thumbnails = true
+        break
+      }
     }
   }
 
@@ -1637,6 +1676,7 @@ function allDoneStatus(detected: EpisodeStatus): EpisodeStatus {
     broll_picked: true,
     video: true,
     video_assembly: true,
+    ...(detected.music_episode !== undefined ? { music_episode: true } : {}),
   }
   return status
 }

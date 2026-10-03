@@ -100,7 +100,8 @@ describe('the app never edits anyone\'s subtitles', () => {
     assert.match(subtitlesPage, /@click="retranscribeChapter\(s\.slug\)"/)
     assert.match(subtitlesPage, /chapterHasSrt\(s\.slug\) \? 'Regenerate Subtitles' : 'Generate Subtitles'/)
     assert.match(subtitlesPage, /:aria-label="`\$\{chapterIsStale\(s\.slug\) \? 'Update' : chapterHasSrt\(s\.slug\) \? 'Regenerate' : 'Generate'\} \$\{s\.label\} subtitles`"/)
-    assert.match(subtitlesPage, /Makes new subtitles for \$\{s\.label\} only \(a new request at the model's current price\)/)
+    // The price clause is only for a model that can charge; a free (own Macs) model says nothing about price.
+    assert.match(subtitlesPage, /Makes new subtitles for \$\{s\.label\} only\$\{isFreeToRun\(genstudioSelectedModel\) \? '' : ' \(a new request at the model\\'s current price\)'\}\./)
     assert.match(subtitlesPage, /current price[^<]*may be charged/i)
   })
 

@@ -73,7 +73,8 @@ test('authoritative format reads reject unknown values instead of selecting a pl
   assert.equal(parseVisualSource(undefined), null)
   assert.equal(parseVisualSource('future-chain'), null)
   for (const page of [pipeline, board, dashboard, projectDashboard]) {
-    assert.match(page, /parseVisualSource\(/)
+    // `visualSourceFromFormat` is parseVisualSource behind the music flag (music format phase 4).
+    assert.match(page, /(?:parseVisualSource|visualSourceFromFormat)\(/)
     assert.match(page, /visualSource\.value = null/)
     assert.match(page, /formatError\.value/)
     assert.doesNotMatch(page, /visualSource\.value = 'narrated-scenes'/)

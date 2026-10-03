@@ -408,6 +408,14 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     job.output_lines.push(`Found scene prompts: ${path.basename(scenePromptsPath)}`)
   }
   if (mode === 'thumbs') {
+    // A music (Episode Builder) episode has no Thumbnail Prompts step: its prompts are written from
+    // its own scenes and theme the first time, then the owner's image model draws them as usual.
+    const { isMusicEpisodeDir, episodeDirFor } = await import('../services/music-episode-store.js')
+    if (isMusicEpisodeDir(await episodeDirFor(project_slug, episode_id))) {
+      const { writeMusicThumbnailPrompts } = await import('../services/music-episode-thumbnail.js')
+      const written = await writeMusicThumbnailPrompts(project_slug, episode_id)
+      if (written.written) job.output_lines.push(`Wrote ${written.count} thumbnail prompt(s) from this music episode's scenes and theme.`)
+    }
     thumbPromptsPath = await findThumbPromptsFile(project_slug, episode_id)
     job.output_lines.push(`Found thumbnail prompts: ${path.basename(thumbPromptsPath)}`)
   }

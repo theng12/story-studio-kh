@@ -19,12 +19,15 @@ import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { resolveEpisodePathsByCode, resolveSubfolderNames } from '../services/utils.js'
 import { findEpisodeSubfolderDir } from '../services/media-root.js'
-import { buildTimeline, renderEpisodeTracklist, songKey, type EpisodeSettings } from '../services/music-episode.js'
+import { buildTimeline, drawEpisode, isUsable, renderEpisodeTracklist, songKey, type EpisodeSettings } from '../services/music-episode.js'
 import {
   MUSIC_EPISODE_FILENAME,
   loadEpisodeContext,
+  newEpisodeDoc,
   readEpisodeDoc,
+  saveEpisodeDoc,
   writeDerivedScenePlan,
+  type MusicEpisodeDoc,
 } from '../services/music-episode-store.js'
 import { writeJsonAtomic } from '../lib/atomic-store.js'
 import type { Job } from '../models/types.js'
@@ -117,11 +120,47 @@ export async function measureLoudness(filePath: string): Promise<LoudnessMeasure
   })
 }
 
+async function drawForPipeline(job: Job, slug: string, code: string, existing: MusicEpisodeDoc | null): Promise<MusicEpisodeDoc> {
+  const doc = existing ?? await newEpisodeDoc(slug, code)
+  const ctx = await loadEpisodeContext(slug, code, doc.settings)
+  if (ctx.missing_pools.length) {
+    throw new Error(`${ctx.missing_pools.length} chosen song pool(s) were not found: ${ctx.missing_pools.join(', ')}. Pick the pools again in Episode Builder.`)
+  }
+  const result = drawEpisode({
+    songs: ctx.songs,
+    current: doc.songs,
+    targetSec: doc.settings.target_length_s,
+    seed: `${code}:${doc.draw_round}`,
+    theme: doc.settings.theme,
+    blocked: ctx.blocked,
+    order: doc.settings.order,
+    join: doc.settings.join,
+  })
+  if (result.shortfall_sec > 0 || !result.songs.length) {
+    const usable = ctx.songs.filter(isUsable)
+    const avg = usable.reduce((sum, s) => sum + s.duration_s, 0) / (usable.length || 1) || 225
+    const missing = Math.max(1, Math.ceil(result.shortfall_sec / avg))
+    throw new Error(
+      `${code}: the pool has only ${result.free_count} free song(s) for this episode — about ${missing} more are needed to reach `
+      + `${Math.round(doc.settings.target_length_s / 60)} min with none of the last ${doc.settings.no_repeat_episodes} episodes' songs. `
+      + 'Generate them on the Song Pool page (Generate Songs), then run this step again. Nothing was drawn or stitched.',
+    )
+  }
+  const next: MusicEpisodeDoc = { ...doc, songs: result.songs }
+  await saveEpisodeDoc(slug, next, ctx.byKey)
+  job.output_lines.push(`Drew ${result.songs.length} song(s) (${Math.round(result.total_sec / 60)} min) from ${ctx.pools.length} pool(s), none used in the last ${doc.settings.no_repeat_episodes} episodes.`)
+  for (const note of result.notes) job.output_lines.push(note)
+  return (await readEpisodeDoc(slug, code)) ?? next
+}
+
 export async function generateMusicEpisodeBuild(job: Job): Promise<void> {
   const code = String(job.params?.episode_id || job.episode_id || '').toUpperCase()
   if (!code) throw new Error('episode_id is required')
   const slug = job.project_slug
-  const doc = await readEpisodeDoc(slug, code)
+  let doc = await readEpisodeDoc(slug, code)
+  // Pipeline (music chain): an episode with no songs yet gets Episode Builder's first draw, seeded
+  // by its code exactly as the page's first draw is. A short pool fails here; nothing is stitched.
+  if ((!doc || !doc.songs.length) && job.params?.draw_if_empty === true) doc = await drawForPipeline(job, slug, code, doc)
   if (!doc) throw new Error(`${code} has no Episode Builder plan yet. Open Episode Builder and draw songs first.`)
   if (!doc.songs.length) throw new Error(`${code} has no songs. Draw songs in Episode Builder first.`)
 

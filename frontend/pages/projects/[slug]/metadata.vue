@@ -3,13 +3,15 @@
     <WorkspaceHero
       eyebrow="Publish · Finalize"
       title="YouTube Finalizer"
-      description="Build one upload-ready YouTube package after narration timing and subtitles are available."
+      :description="isMusic
+        ? 'Build one upload-ready YouTube package for this music episode: the writing model you pick writes the words from the channel formula, the episode theme and the tracklist; chapters come from the tracklist.'
+        : 'Build one upload-ready YouTube package after narration timing and subtitles are available.'"
     >
       <template #aside>
         <div class="workspace-metrics" aria-label="Metadata workspace context">
           <span class="workspace-metric" :data-tone="episodeId ? 'success' : 'warning'"><strong>{{ episodeId || 'No episode' }}</strong> target</span>
           <span class="workspace-metric" :data-tone="finalizationStatus?.audio_assembly_ready ? 'success' : 'warning'"><strong>{{ finalizationStatus?.audio_assembly_ready ? 'Ready' : 'Needed' }}</strong> timing</span>
-          <span class="workspace-metric" :data-tone="finalizationStatus?.subtitle_complete ? 'success' : 'warning'"><strong>{{ finalizationStatus?.subtitle_complete ? 'Verified' : 'Warning' }}</strong> subtitles</span>
+          <span v-if="!isMusic" class="workspace-metric" :data-tone="finalizationStatus?.subtitle_complete ? 'success' : 'warning'"><strong>{{ finalizationStatus?.subtitle_complete ? 'Verified' : 'Warning' }}</strong> subtitles</span>
           <span v-if="metadataBusy" class="workspace-metric" data-tone="info"><strong>Active</strong> generation</span>
         </div>
       </template>
@@ -22,18 +24,19 @@
       filter-field="metadata"
       generate-label="Finalize YouTube Package"
       :generate-loading="metadataBusy"
-      :generate-disabled="!episodeId || !scriptReady || !finalizationStatus?.audio_assembly_ready"
+      :generate-disabled="!episodeId || (!scriptReady && !isMusic) || !finalizationStatus?.audio_assembly_ready"
       :generate-status="metadataBusy ? `Finalizing the YouTube package for ${episodeId}…` : finalizerGateReason"
       @generate="generateAll"
       @episode-selected="onEpisodeSelected"
       />
       <p class="workspace-command-copy">
-        One Formula-led package: title, description, tags, approved chapter names, measured timestamps, and selected research sources.
+        <template v-if="isMusic">One package for this music episode: title, description and tags from the model you pick, plus one chapter per song from the tracklist.</template>
+        <template v-else>One Formula-led package: title, description, tags, approved chapter names, measured timestamps, and selected research sources.</template>
         <NuxtLink :to="`/projects/${slug}/metadata-template`" class="meta-template-link">Configure publishing profile →</NuxtLink>
       </p>
     </div>
 
-    <p v-if="episodeId && statusKnown && !scriptReady" class="workspace-command-copy">
+    <p v-if="episodeId && statusKnown && !scriptReady && !isMusic && !finalizationChecking" class="workspace-command-copy">
       No finished script yet for <strong>{{ episodeId }}</strong>. If some chapters are still unwritten, finish them first.
       <NuxtLink :to="`/projects/${slug}/scripts?episode_id=${encodeURIComponent(episodeId)}`" class="btn btn-secondary btn-sm">Open Script Generator</NuxtLink>
     </p>
@@ -79,9 +82,13 @@
       <div v-if="finalizationStatus" class="finalizer-readiness-grid">
         <div :data-tone="finalizationStatus.audio_assembly_ready ? 'success' : 'warning'">
           <strong>{{ finalizationStatus.audio_assembly_ready ? 'Ready' : 'Missing' }}</strong>
-          <span>Audio Assembly timing</span>
+          <span>{{ isMusic ? 'Stitched tracklist' : 'Audio Assembly timing' }}</span>
         </div>
-        <div :data-tone="finalizationStatus.subtitle_complete ? 'success' : 'warning'">
+        <div v-if="isMusic" data-tone="info">
+          <strong>{{ finalizationStatus.music_episode?.songs ?? 0 }}</strong>
+          <span>songs</span>
+        </div>
+        <div v-else :data-tone="finalizationStatus.subtitle_complete ? 'success' : 'warning'">
           <strong>{{ finalizationStatus.subtitle_complete ? 'Verified' : 'Not verified' }}</strong>
           <span>Subtitle coverage</span>
         </div>
@@ -89,12 +96,16 @@
           <strong>{{ finalizationStatus.chapter_count }}</strong>
           <span>chapter markers</span>
         </div>
-        <div data-tone="info">
+        <div v-if="!isMusic" data-tone="info">
           <strong>{{ finalizationStatus.source_count }}</strong>
           <span>selected sources</span>
         </div>
       </div>
-      <p v-if="finalizationStatus && !finalizationStatus.audio_assembly_ready" class="finalizer-warning">
+      <p v-if="isMusic && !finalizationStatus?.audio_assembly_ready" class="finalizer-warning">
+        Send this episode to Video Assembly in Episode Builder first; its chapters come from the stitched tracklist.
+        <NuxtLink :to="`/projects/${slug}/episode-builder?episode_id=${encodeURIComponent(episodeId)}`" class="meta-template-link">Open Episode Builder →</NuxtLink>
+      </p>
+      <p v-else-if="finalizationStatus && !finalizationStatus.audio_assembly_ready" class="finalizer-warning">
         Run Audio Assembly first so the final description can use measured chapter timing.
         <NuxtLink :to="`/projects/${slug}/audio-merge?episode_id=${encodeURIComponent(episodeId)}`" class="meta-template-link">Open Audio Assembly →</NuxtLink>
       </p>
@@ -104,10 +115,13 @@
           <li v-for="warning in finalizationStatus.warnings" :key="warning">{{ warning }}</li>
         </ul>
       </div>
+      <p v-else-if="finalizationStatus && isMusic" class="finalizer-ready-copy">
+        One chapter per song from the tracklist (first at 0:00, at least three, each 10 s or longer). The writing model you pick below writes the title, description and tags.
+      </p>
       <p v-else-if="finalizationStatus" class="finalizer-ready-copy">
         Audio timing and subtitle coverage agree. Finalization will use approved outline titles and the sources you selected during Research.
       </p>
-      <p v-if="finalizationStatus" class="text-muted text-xs finalizer-source-link">
+      <p v-if="finalizationStatus && !isMusic" class="text-muted text-xs finalizer-source-link">
         Source inclusion is owned by the
         <NuxtLink :to="`/projects/${slug}/research`" class="meta-template-link">Research step →</NuxtLink>
       </p>
@@ -297,19 +311,25 @@ interface FinalizationStatus {
   source_count: number
   lead_in_seconds: number
   warnings: string[]
+  music_episode?: { songs: number; tracklist_ready: boolean }
 }
 const finalizationStatus = ref<FinalizationStatus | null>(null)
+/** An Episode Builder (music) episode: no script, no narration timing, chapters from its tracklist. */
+const isMusic = computed(() => !!finalizationStatus.value?.music_episode)
 const finalizationChecking = ref(false)
 const finalizationError = ref(false)
 let finalizationLoadSequence = 0
 const finalizerGateReason = computed(() => {
-  if (scriptGateReason.value) return scriptGateReason.value
+  if (scriptGateReason.value && !isMusic.value && !finalizationChecking.value) return scriptGateReason.value
   if (!episodeId.value) return ''
   if (finalizationError.value) return "Couldn't check whether this episode is ready."
   if (finalizationChecking.value || !finalizationStatus.value) return 'Checking Audio Assembly timing…'
   if (!finalizationStatus.value.audio_assembly_ready) {
-    return 'Run Audio Assembly first (link below) so the final description can use measured chapter timing.'
+    return isMusic.value
+      ? (finalizationStatus.value.warnings[0] || 'Send this episode to Video Assembly in Episode Builder first.')
+      : 'Run Audio Assembly first (link below) so the final description can use measured chapter timing.'
   }
+  if (isMusic.value && !model.value) return 'Pick the writing model below; Story Studio does not pick one for you.'
   return finalizationStatus.value.subtitle_complete
     ? ''
     : 'Subtitle verification is incomplete. You can still finalize; Story Studio will keep the warning visible.'
@@ -947,7 +967,7 @@ function loadVersion() {
 // ── Generation ─────────────────────────────────────────────────────────────
 
 async function generateAll() {
-  if (!episodeId.value || !scriptReady.value || !finalizationStatus.value?.audio_assembly_ready) return
+  if (!episodeId.value || (!scriptReady.value && !isMusic.value) || !finalizationStatus.value?.audio_assembly_ready) return
   // Capture the episode the user kicked off — if they switch mid-job we want
   // to apply the on-disk result to the ORIGINAL episode, not whatever they
   // navigated to. The EpisodeSelector confirm dialog already prompts the

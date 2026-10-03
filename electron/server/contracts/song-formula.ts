@@ -63,6 +63,10 @@ export const EpisodeDefaultsSchema = z.object({
   frame_rate: z.number().int().min(1).max(120),
   // model-drift-allow: the episode's own output size (owner 2026-10-03: 720p, or Story's local 1080p upscale), not a model option
   resolution: z.enum(['720p', '1080p']),
+  /** 1080p: sharpen each 720p still lightly while upscaling it (feat/music-finish, optional). */
+  upscale_sharpen: z.enum(['off', 'light']).optional(),
+  /** No-repeat window for Image Pool stills used as scenes, in episodes; 0 = off (feat/music-finish, optional). */
+  still_no_repeat_episodes: z.number().int().min(0).max(10000).optional(),
   pools: z.array(z.string().trim().min(1).max(80)).max(50),
 }).strict()
 export type EpisodeDefaults = z.infer<typeof EpisodeDefaultsSchema>
@@ -111,6 +115,8 @@ export const STARTING_EPISODE_DEFAULTS: EpisodeDefaults = {
   effects_look: [],
   frame_rate: 24,
   resolution: '720p',
+  upscale_sharpen: 'light',
+  still_no_repeat_episodes: 0,
   pools: [],
 }
 

@@ -1,0 +1,13 @@
+{
+  "expected_revision": 291,
+  "coordinator": {
+    "task": "formula-starting-defaults-2026-10-03",
+    "branch": "fix/renarrate-gaps"
+  },
+  "receipt_ref": "authoring:adf725d2590d89d789c165c8b8422f43eb5637a0b8d61f2dc8e39d1dc4c03b6f",
+  "pack_id": "com.storystudio.pack.formula.sleep-history-compilation",
+  "version": "1.0.1",
+  "changes": {
+    "status": "authored"
+  }
+}

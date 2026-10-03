@@ -11,6 +11,7 @@ import {
   FLOW_PHASES,
   flowForVisualSource,
   requiredFlowSteps,
+  visualSourceFromFormat,
 } from '../composables/useProjectFlow.js'
 
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
@@ -20,8 +21,10 @@ const layout = read('../layouts/dashboard.vue')
 
 describe('MUSIC flow', () => {
   test('a formula with musicFormat selects the music flow; anything else keeps the narration flow', () => {
-    assert.match(layout, /format\?\.musicChannel === true \? 'music' : parseVisualSource\(format\?\.visualSource\)/,
-      'the sidebar reads the music flag and still refuses unknown narration sources')
+    assert.match(layout, /visualSourceFromFormat\(format\)/, 'the sidebar reads the music flag through the shared helper')
+    assert.equal(visualSourceFromFormat({ musicChannel: true, visualSource: 'narrated-scenes' }), 'music')
+    assert.equal(visualSourceFromFormat({ visualSource: 'narrated-scenes' }), 'narrated-scenes')
+    assert.equal(visualSourceFromFormat({ visualSource: 'unknown' }), null, 'unknown narration sources are still refused')
   })
 
   test('formula → song pool → episode builder → video assembly → thumbnail → finalizer, in three phases', () => {
@@ -99,6 +102,6 @@ describe('Video Assembly "Music episode" settings', () => {
 })
 
 test('an export preset saved before the bitrate cap means no cap', () => {
-  assert.equal((assembly.match(/Object\.assign\(exportSettings, \{ video_bitrate_kbps: 0 \}/g) || []).length, 3)
+  assert.equal((assembly.match(/Object\.assign\(exportSettings, \{ video_bitrate_kbps: 0, upscale_sharpen: 'off' \}/g) || []).length, 3)
   assert.match(read('../composables/useVideoAssemblyIo.ts'), /video_bitrate_kbps: s\.exportSettings\.video_bitrate_kbps/)
 })

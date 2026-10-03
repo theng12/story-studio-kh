@@ -68,7 +68,7 @@ test('a failed readiness check says so and offers Retry instead of "Checking…"
 
 test('the Audio Assembly gate links to Audio Assembly for this episode', () => {
   assert.match(page, /audio-merge\?episode_id=\$\{encodeURIComponent\(episodeId\)\}`[^>]*>Open Audio Assembly →/)
-  assert.match(page, /v-if="finalizationStatus && !finalizationStatus\.audio_assembly_ready"/)
+  assert.match(page, /v-(?:else-)?if="finalizationStatus && !finalizationStatus\.audio_assembly_ready"/)
 })
 
 test('the generation poll stops on unmount and tolerates a few network blips', () => {

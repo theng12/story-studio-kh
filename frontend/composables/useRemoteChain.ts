@@ -17,13 +17,15 @@ export type CockpitStep =
   | 'research'
   | 'audio' | 'audio_merge' | 'subtitles' | 'character_sheet'
   | 'scene_plan' | 'scene_review' | 'motion_review' | 'video_assembly'
+  | 'music_build'
 
 const CHAINS: Record<VisualSource, CockpitStep[]> = {
   'timestamp-driven': ['research', 'script-only', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'metadata', 'scene_plan', 'scene_review', 'motion_review', 'video_assembly'],
   'continuity-chain': ['research', 'script-only', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'metadata', 'character_sheet', 'scene_plan', 'scene_review', 'motion_review', 'video_assembly'],
   'narrated-scenes':  ['script-only', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'metadata', 'character_sheet', 'scene_plan', 'scene_review', 'motion_review', 'video_assembly'],
-  // Music channels have no batch chain yet (SPEC phase 4 adds the Pipeline music chain).
-  'music': [],
+  // Music channels (SPEC phase 4): Episode Builder draw + stitch → scene pictures → final video →
+  // thumbnail → YouTube Finalizer. Never makes songs; a short pool fails the build step plainly.
+  'music': ['music_build', 'scene_review', 'video_assembly', 'thumb_images', 'metadata'],
 }
 
 // The "Final video" steps — "Up to review" stops before these so you can eyeball
@@ -44,9 +46,11 @@ export const STEP_LABELS: Record<CockpitStep, string> = {
   'scene_review': 'Scene render',
   'motion_review': 'Motion clips',
   'video_assembly': 'Final video',
+  'music_build': 'Build episode',
 }
 
 export function stepLabelFor(vs: VisualSource, step: CockpitStep): string {
+  if (vs === 'music' && step === 'scene_review') return 'Scene pictures'
   return STEP_LABELS[step]
 }
 

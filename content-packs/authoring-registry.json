@@ -1,5 +1,5 @@
 {
-  "revision": 289,
+  "revision": 292,
   "batches": [
     {
       "revision": 2,
@@ -5754,6 +5754,64 @@
           }
         ]
       }
+    },
+    {
+      "revision": 290,
+      "receipt_ref": "authoring:adf725d2590d89d789c165c8b8422f43eb5637a0b8d61f2dc8e39d1dc4c03b6f",
+      "request": {
+        "expected_revision": 289,
+        "coordinator": {
+          "task": "formula-starting-defaults-2026-10-03",
+          "branch": "fix/renarrate-gaps"
+        },
+        "proposal_ref": "proposal:successor:formula-starting-defaults-2026-10-03",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.formula.sleep-story",
+            "item_id": "com.storystudio.formula.sleep-story",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/free-starters/formula/sleep-story-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.sleep-story",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.sleep-story",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.sleep-history-compilation",
+            "item_id": "com.storystudio.formula.sleep-history-compilation",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/sleep-history/formula/sleep-history-compilation-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.sleep-history-compilation",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.sleep-history-compilation",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -9894,6 +9952,40 @@
         },
         "receipt_ref": "authoring:ea24855c8babb3edd844cd337f171b476ec59ff57cf95e701de9e466ffe63582",
         "pack_id": "com.storystudio.pack.topic.backyard-plants",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 291,
+      "transition_ref": "lifecycle:6c00487c12f08877e69d892b4b934e0a6ba4d0d75480344a0e16d35330b40ce4",
+      "request": {
+        "expected_revision": 290,
+        "coordinator": {
+          "task": "formula-starting-defaults-2026-10-03",
+          "branch": "fix/renarrate-gaps"
+        },
+        "receipt_ref": "authoring:adf725d2590d89d789c165c8b8422f43eb5637a0b8d61f2dc8e39d1dc4c03b6f",
+        "pack_id": "com.storystudio.pack.formula.sleep-story",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 292,
+      "transition_ref": "lifecycle:f9f52cfa01d580492ec22efbf20e2a2c43a5c809a6a4f643b51170d9e2156951",
+      "request": {
+        "expected_revision": 291,
+        "coordinator": {
+          "task": "formula-starting-defaults-2026-10-03",
+          "branch": "fix/renarrate-gaps"
+        },
+        "receipt_ref": "authoring:adf725d2590d89d789c165c8b8422f43eb5637a0b8d61f2dc8e39d1dc4c03b6f",
+        "pack_id": "com.storystudio.pack.formula.sleep-history-compilation",
         "version": "1.0.1",
         "changes": {
           "status": "authored"
@@ -16742,6 +16834,52 @@
         },
         "sku": {
           "id": "com.storystudio.sku.topic.backyard-plants",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:adf725d2590d89d789c165c8b8422f43eb5637a0b8d61f2dc8e39d1dc4c03b6f",
+      "pack_id": "com.storystudio.pack.formula.sleep-story",
+      "item_id": "com.storystudio.formula.sleep-story",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/sleep-story-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.sleep-story",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.sleep-story",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:adf725d2590d89d789c165c8b8422f43eb5637a0b8d61f2dc8e39d1dc4c03b6f",
+      "pack_id": "com.storystudio.pack.formula.sleep-history-compilation",
+      "item_id": "com.storystudio.formula.sleep-history-compilation",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/sleep-history/formula/sleep-history-compilation-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.sleep-history-compilation",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.sleep-history-compilation",
           "status": "proposed"
         }
       }

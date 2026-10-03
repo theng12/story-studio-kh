@@ -126,11 +126,20 @@ type BatchStep =
   | 'motion_review'
   | 'character_sheet'
   | 'video_assembly'
+  // Music channels (SPEC phase 4): Episode Builder's draw (when the episode has no songs yet) + stitch.
+  | 'music_build'
 // v1.0.373+: Pipeline only exposes split scene/thumbnail image steps. The
 // legacy unified `images` job type can still exist in old job history, but
 // run-batch no longer accepts it as a step because it can merge scenes and
 // thumbnails into one provider run.
-export const VALID_STEPS: BatchStep[] = ['research', 'script-only', 'introduction-only', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'metadata', 'subtitles', 'scene_plan', 'contextual_cues', 'scene_review', 'motion_review', 'character_sheet', 'video_assembly']
+export const VALID_STEPS: BatchStep[] = ['research', 'script-only', 'introduction-only', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'metadata', 'subtitles', 'scene_plan', 'contextual_cues', 'scene_review', 'motion_review', 'character_sheet', 'video_assembly', 'music_build']
+
+/**
+ * A music channel's chain (SPEC phase 4): Episode Builder draw + stitch → scene pictures on the fleet
+ * → Video Assembly with the episode's music settings → thumbnail → YouTube Finalizer. Nothing else
+ * applies to a channel with no narration, and `music_build` applies to nothing else.
+ */
+export const MUSIC_STEPS: readonly BatchStep[] = ['music_build', 'scene_review', 'video_assembly', 'thumb_images', 'metadata']
 
 // A few Pipeline step ids don't equal their generator's JobType (the id the
 // job queue keys its lane + executor on). Any step NOT listed here enqueues
@@ -146,6 +155,7 @@ export const STEP_JOB_TYPE: Partial<Record<BatchStep, JobType>> = {
   contextual_cues: 'contextual_cues',
   scene_review: 'continuity_render',
   motion_review: 'scene_clips_batch',
+  music_build: 'music_episode_build',
 }
 
 /**
@@ -164,7 +174,8 @@ export function jobTypeForStep(step: BatchStep): JobType {
 // preset here would not merely skip the opening, it would fail the WHOLE batch
 // with "No active preset for introduction-only" for every channel that had
 // never saved one. Mirrored by NO_PRESET_STEPS in pipeline.vue.
-const NO_PRESET_STEPS = new Set<BatchStep>(['introduction-only'])
+// `music_build` is set by the episode itself (Episode Builder settings + the channel formula).
+const NO_PRESET_STEPS = new Set<BatchStep>(['introduction-only', 'music_build'])
 /** Read-only view for tests and for the page that mirrors this list. */
 export const NO_PRESET_STEP_IDS: readonly BatchStep[] = [...NO_PRESET_STEPS]
 
@@ -216,6 +227,8 @@ export const PRESET_KEYS: Record<BatchStep, { list: string | string[]; activeKey
   // Not a job — the run-batch loop writes it to continuity.json inline.
   character_sheet:     { list: 'continuity_page_presets',  activeKeys: ['continuity_page_last_preset_continuity-page', 'continuity_page_last_preset'] },
   video_assembly:      { list: 'video_bundle_presets',     activeKeys: ['video_bundle_last_preset'] },
+  // Inert: `music_build` is in NO_PRESET_STEPS (its settings live on the episode).
+  music_build:         { list: 'music_build_presets',      activeKeys: [] },
 }
 
 interface StoredPreset { id: string; name: string; data?: any; type?: string; [k: string]: any }
@@ -278,6 +291,8 @@ interface BatchPreflight {
    */
   introductionChatModel: string | null
   visualSettingsByEpisode: Map<string, PipelineVisualSettingsSnapshot>
+  /** The channel's formula has `musicFormat`: the music chain and its prerequisites apply. */
+  musicChannel: boolean
 }
 
 interface PipelineVisualSettingsSnapshot {
@@ -500,7 +515,17 @@ const STEP_PREREQUISITES: Partial<Record<BatchStep, BatchStep[]>> = {
  * this run generates them (keep the ordering honest) or the episode already has
  * something outstanding.
  */
-export function prerequisitesForStep(step: BatchStep, cueReviewPending = false): BatchStep[] {
+/** A music channel's prerequisites: everything after the stitch needs the stitch. */
+const MUSIC_STEP_PREREQUISITES: Partial<Record<BatchStep, BatchStep[]>> = {
+  music_build: [],
+  scene_review: ['music_build'],
+  video_assembly: ['scene_review', 'music_build'],
+  thumb_images: ['music_build'],
+  metadata: ['music_build'],
+}
+
+export function prerequisitesForStep(step: BatchStep, cueReviewPending = false, musicChannel = false): BatchStep[] {
+  if (musicChannel) return [...(MUSIC_STEP_PREREQUISITES[step] || [])]
   const base = [...(STEP_PREREQUISITES[step] || [])]
   return step === 'scene_review' && cueReviewPending ? [...base, 'contextual_cues'] : base
 }
@@ -523,7 +548,9 @@ export function pipelineLinkRequirements(
   step: BatchStep,
   runSteps: ReadonlySet<BatchStep>,
   visualSource: VideoVisualSource,
+  musicChannel = false,
 ): BatchStep[] {
+  if (musicChannel) return prerequisitesForStep(step, false, true)
   const required = step === 'video_assembly' && visualSource === 'image_pool'
     ? ['audio_merge' as BatchStep]
     : prerequisitesForStep(step, runSteps.has('contextual_cues'))
@@ -535,6 +562,7 @@ export function pipelineLinkRequirements(
 export function stampPipelineStepFacts(
   chain: Array<{ type: string; params: Record<string, any> }>,
   visualSource: VideoVisualSource,
+  musicChannel = false,
 ): void {
   const steps = chain.map(link => CHAIN_LINK_STEP[link.type] || link.type as BatchStep)
   const runSteps = new Set(steps)
@@ -542,7 +570,7 @@ export function stampPipelineStepFacts(
     link.params = {
       ...link.params,
       pipeline_step: steps[index],
-      pipeline_requires: pipelineLinkRequirements(steps[index], runSteps, visualSource),
+      pipeline_requires: pipelineLinkRequirements(steps[index], runSteps, visualSource, musicChannel),
     }
   })
 }
@@ -577,6 +605,17 @@ async function preflightBatch(
   const ideas = await im.getIdeas(slug, 'accepted')
   const ideaByCode = new Map(ideas.filter(i => i.episode_code).map(i => [i.episode_code!, i]))
   const effectiveFormat = await getEffectiveFormat(slug)
+  const musicChannel = await isMusicChannel(slug)
+  const foreignSteps = steps.filter(step => musicChannel ? !MUSIC_STEPS.includes(step) : step === 'music_build')
+  for (const step of foreignSteps) {
+    issues.push({
+      code: 'invalid_preset',
+      step,
+      message: musicChannel
+        ? `${pipelineStepLabel(step)} is not part of a music channel (no narration). Untick it.`
+        : `${pipelineStepLabel(step)} only runs on a music channel (a Series Formula with a music format). Untick it.`,
+    })
+  }
   const retiredMediaByEpisode = force ? new Map<string, LocalMediaCleanupStatus>()
     : await retiredUploadedMediaByEpisode(slug, episodeIds)
   const visualSettingsByEpisode = new Map<string, PipelineVisualSettingsSnapshot>()
@@ -626,12 +665,17 @@ async function preflightBatch(
   for (const step of requiredSteps) {
     if (NO_PRESET_STEPS.has(step)) continue
     const result = findActivePreset(config, step)
+    // A music episode renders with its own Episode Builder settings; a Video Assembly preset only
+    // adds the owner's look (logo, grade…) on top, so it is optional there.
+    if (!result.preset && musicChannel && step === 'video_assembly') continue
     if (!result.preset) {
       addMissingPresetIssue(
         issues,
         visualSettingsByEpisode,
         step,
-        result.missingReason || `No active preset for ${pipelineStepLabel(step)}`,
+        musicChannel && step === 'scene_review'
+          ? 'No pictures preset yet. Open Episode Builder, pick the image model under Scene pictures and save a Pictures preset; Pipeline makes the missing pictures with it.'
+          : result.missingReason || `No active preset for ${pipelineStepLabel(step)}`,
       )
       continue
     }
@@ -679,7 +723,7 @@ async function preflightBatch(
       // A single selected step is normally a targeted repair/regeneration
       // operation. Downstream Story stages still need their durable artifact:
       // Scene Plan needs Subtitles, and Scene Review needs Scene Plan.
-      if (episodeSteps.length === 1 && step !== 'metadata' && step !== 'scene_plan' && step !== 'scene_review') {
+      if (episodeSteps.length === 1 && step !== 'metadata' && step !== 'scene_plan' && step !== 'scene_review' && !musicChannel) {
         available.add(step)
         continue
       }
@@ -689,9 +733,11 @@ async function preflightBatch(
       // held back; one with an unresolved proposal still is.
       const cueReviewPending = contextualCuesEnabled
         && (episodeSteps.includes('contextual_cues') || status.contextual_cues === false)
-      const prerequisites = step === 'video_assembly' && visualSettings.visual_source === 'image_pool'
-        ? ['audio_merge' as BatchStep]
-        : prerequisitesForStep(step, cueReviewPending)
+      const prerequisites = musicChannel
+        ? prerequisitesForStep(step, false, true)
+        : step === 'video_assembly' && visualSettings.visual_source === 'image_pool'
+          ? ['audio_merge' as BatchStep]
+          : prerequisitesForStep(step, cueReviewPending)
       const missing = prerequisites.filter(required => !available.has(required))
       for (const required of missing) {
         issues.push({
@@ -737,8 +783,36 @@ async function preflightBatch(
   return {
     ok: issues.length === 0, issues, warnings, presetByStep, ideaByCode,
     effectiveFormat, estimatedBytes, freeBytes, scriptSideChatModel, introductionChatModel,
-    visualSettingsByEpisode,
+    visualSettingsByEpisode, musicChannel,
   }
+}
+
+/**
+ * A music episode's step params (SPEC phase 4). Scene pictures are approved as they arrive (the
+ * Episode Builder does the same: a picture IS its scene); Video Assembly renders with the episode's
+ * own music settings on top of the owner's Video Assembly preset (if any); the thumbnail is drawn
+ * from prompts written from the episode when it has none yet.
+ */
+export async function musicEpisodeStepParams(
+  slug: string,
+  episodeId: string,
+  step: BatchStep,
+  params: Record<string, any>,
+): Promise<{ params: Record<string, any> } | { skip: string }> {
+  if (step === 'scene_review') return { params: { ...params, auto_approve_generated: true } }
+  if (step === 'thumb_images') return { params: { ...params, music_thumbnail_prompts: true } }
+  if (step !== 'video_assembly') return { params }
+  const { readEpisodeDoc, channelStartingSettings } = await import('../services/music-episode-store.js')
+  const { musicEpisodeRenderParams } = await import('../services/music-episode.js')
+  const doc = await readEpisodeDoc(slug, episodeId).catch(() => null)
+  const settings = doc?.settings ?? (await channelStartingSettings(slug)).settings
+  return { params: musicEpisodeRenderParams(params, settings) }
+}
+
+/** Whether this project is a music channel (its effective formula carries `musicFormat`). */
+async function isMusicChannel(slug: string): Promise<boolean> {
+  const { getEffectiveNiche } = await import('../services/niche-loader.js')
+  return !!(await getEffectiveNiche(slug).catch(() => null) as { musicFormat?: unknown } | null)?.musicFormat
 }
 
 /**
@@ -814,6 +888,7 @@ export function isStepAlreadyDone(status: EpisodeStatus, step: BatchStep, format
     case 'motion_review':     return status.motion_review
     case 'character_sheet':   return status.character_sheet
     case 'video_assembly':    return status.video_assembly
+    case 'music_build':       return status.music_episode === true
   }
 }
 
@@ -1246,6 +1321,11 @@ export function resolveStepParams(
       auto_approve_generated: data.auto_approve_generated === true,
     }
   }
+  if (step === 'music_build') {
+    // Draws the episode's songs first when it has none yet (seeded by the episode code, exactly as
+    // Episode Builder's first draw), then stitches. Never makes or buys a song.
+    return { episode_id: episodeId, draw_if_empty: true }
+  }
   if (step === 'motion_review') {
     return {
       episode_id: episodeId,
@@ -1414,7 +1494,7 @@ export function flattenVideoAssemblyBundle(
   // `aspect_ratio` joined this list in 1.4.19. It shipped on the page in
   // 1.4.15 and was never added here, so every batch render was 16:9 whatever
   // the channel asked for — a one-click Short was impossible, silently.
-  for (const k of ['resolution', 'aspect_ratio', 'quality', 'fps', 'encoding_effort', 'codec', 'format']) {
+  for (const k of ['resolution', 'aspect_ratio', 'quality', 'fps', 'encoding_effort', 'codec', 'format', 'video_bitrate_kbps', 'upscale_sharpen']) {
     if (exportS[k] !== undefined) out[k] = exportS[k]
   }
   // ── Timeline slot
@@ -2197,6 +2277,14 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
         }
         params.model = resolved
       }
+      if (preflight.musicChannel) {
+        const music = await musicEpisodeStepParams(slug, episodeId, step, params)
+        if ('skip' in music) {
+          skipped.push({ episode_id: episodeId, reason: `${pipelineStepLabel(step)}: ${music.skip}` })
+          continue
+        }
+        params = music.params
+      }
       // Story Studio never picks a writing model: a metadata preset without one is skipped, said plainly.
       if (step === 'metadata' && !params.model && !params.pipeline_model_policy?.metadata) {
         skipped.push({
@@ -2223,7 +2311,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     // Every link carries the same immutable episode decision. Later settings
     // edits cannot retarget a queued chain or widen its motion work.
     for (const link of chain) link.params = { ...link.params, ...visualSettings }
-    stampPipelineStepFacts(chain, visualSettings.visual_source)
+    stampPipelineStepFacts(chain, visualSettings.visual_source, preflight.musicChannel)
 
     if (repairMissing) {
       for (const link of chain) {

@@ -1023,6 +1023,9 @@ export interface Niche {
   /** Scene length (seconds, [min, max]) a NEW channel of this type starts with
    *  — copied into the channel's own editable settings at creation. */
   startingSceneSeconds?: [number, number]
+  /** Default "Pause between chapters" in Audio Assembly (seconds). Sleep
+   *  formulas want a longer, calm gap; the customer can still change it. */
+  chapterPauseSec?: number
   /** Visual styles this channel type SUGGESTS, best first. Carried through
    *  from a signed pack's `recommended_visual_style_ids`. A suggestion is
    *  surfaced in Settings with a one-click "Use this style" — it is never
@@ -2372,6 +2375,8 @@ export const JOB_TYPES = [
   'music_video',
   /** Episode Builder: stitch an episode's songs and hand it to Video Assembly. Spends nothing. */
   'music_episode_build',
+  /** Episode Builder: rewrite scene prompts with the writing model the owner picked at the click. */
+  'music_scene_polish',
 ] as const
 
 export type JobType = typeof JOB_TYPES[number]
@@ -3007,6 +3012,8 @@ export interface GenerateAudioRequest {
     source_fingerprint: string
     verification_credit_ceiling: number
   }
+  /** Re-narrate: once the narration is saved, re-make these chapters' subtitles (generators/audio.ts). */
+  then_subtitles?: boolean
   /** Server-only raw alternate-ASR check over selected active audio. */
   quality_check?: {
     action_id: string
@@ -3716,6 +3723,9 @@ export interface GenerateVideoRequest {
   /** Optional video bitrate cap in kbit/s (0/absent = quality-based, the long-standing behaviour).
    *  Hardware encodes target it; software encodes keep their CRF and cap peaks at it. */
   video_bitrate_kbps?: number
+  /** Light sharpening of stills smaller than the canvas while they are upscaled (e.g. 720p scenes in a
+   *  1080p render). Absent/'off' = unchanged. Once per still, never per frame. */
+  upscale_sharpen?: 'off' | 'light'
   format: 'mp4' | 'mov' | 'webm'
   title_card?: VideoTitleCard
   outro_card?: VideoOutroCard
