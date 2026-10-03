@@ -44,6 +44,8 @@
       </TopActionBar>
     </div>
 
+    <p v-if="lastUsedNotice" class="last-used-note text-muted text-sm" role="status">{{ lastUsedNotice }}</p>
+
     <!-- Applying a preset validates every saved file reference before the
          user can generate. Missing paths remain a clear, actionable blocker. -->
     <div
@@ -2886,6 +2888,7 @@ import type { CSSProperties } from 'vue'
 import { applyTitleImagePreset, snapshotTitleImagePreset } from '~/utils/video-assembly-presets'
 import { describeMergedAudioOpening } from '~/utils/merged-audio-opening'
 import { describeOpeningSync } from '~/utils/opening-sync'
+import { LAST_USED_CONFIG_KEY, pickLastUsedSettings, recordLastUsedSettings } from '~/utils/video-assembly-last-used'
 import { aspectRatioOptions, canvasFor, parseAspectRatio, DEFAULT_ASPECT_RATIO } from '~/utils/aspect-ratios'
 import { describeSubtitleBurn } from '~/utils/subtitle-episode-selection'
 import { customerSafeJobText } from '~/utils/job-presentation'
@@ -5128,6 +5131,56 @@ const videoBundlePresets = usePresets({
   },
 })
 
+// --------------- Last render's settings ---------------
+// Every submitted render records its choices for this episode and as the
+// channel's starting point; opening an episode restores its own last render,
+// else the channel's. Without this a re-render silently fell back to Ken Burns,
+// no subtitles and CRF 18 unless a preset had been saved (Dreamlands E2E).
+const lastUsedNotice = ref('')
+let lastUsedReady = false
+function snapshotAllSettings() {
+  return {
+    intro: snapshotIntroData(),
+    timeline: snapshotTimelineData(),
+    effects: snapshotEffectsData(),
+    subtitles: snapshotSubtitlesData(),
+    export: snapshotExportData(),
+  }
+}
+async function restoreLastUsedSettings(): Promise<void> {
+  const episode = episodeId.value
+  const project = slug.value
+  if (!episode) { lastUsedNotice.value = ''; return }
+  try {
+    const config = await get<any>(`/projects/${project}/settings/config`)
+    if (episode !== episodeId.value || project !== slug.value) return
+    const pick = pickLastUsedSettings(config?.[LAST_USED_CONFIG_KEY], episode)
+    if (!pick) { lastUsedNotice.value = ''; return }
+    applyIntroData(pick.settings.intro)
+    applyTimelineData(pick.settings.timeline)
+    applyEffectsData(pick.settings.effects)
+    applySubtitlesData(pick.settings.subtitles)
+    applyExportData(pick.settings.export)
+    if (pick.scope === 'channel' && selectedEpisode.value?.title) titleCard.text = selectedEpisode.value.title
+    lastUsedNotice.value = pick.scope === 'episode'
+      ? `Settings restored from ${episode}'s last render. Change anything below, or apply a preset.`
+      : `Settings start from this channel's last render (${pick.from_episode}). Change anything below, or apply a preset.`
+  } catch { /* keep the form as it is */ }
+}
+async function rememberLastUsedSettings(): Promise<void> {
+  const episode = episodeId.value
+  const project = slug.value
+  if (!episode) return
+  const settings = snapshotAllSettings()
+  try {
+    const config = await get<any>(`/projects/${project}/settings/config`)
+    await put(`/projects/${project}/settings/config`, {
+      [LAST_USED_CONFIG_KEY]: recordLastUsedSettings(config?.[LAST_USED_CONFIG_KEY], episode, settings),
+    })
+  } catch { /* the render is queued either way; next time starts from the preset */ }
+}
+watch(episodeId, () => { if (lastUsedReady) void restoreLastUsedSettings() })
+
 // --------------- v1.0.93+ Bundle path-check ---------------
 //
 // The bundle preset aggregates intro/timeline/effects/subtitles/export
@@ -6206,7 +6259,7 @@ async function generateVideo() {
       }
       // Subtitles off: there are no captions to review. Continue this same click.
     }
-    await runGenerateVideo({ post, videoAssemblyGenerating })
+    if (await runGenerateVideo({ post, videoAssemblyGenerating })) void rememberLastUsedSettings()
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Generate failed unexpectedly — see console for details (Cmd+Option+I).')
     console.error('[video-assembly] generateVideo threw:', e)
@@ -6436,6 +6489,10 @@ onMounted(async () => {
     exportPresets.load(),
   ])
   await videoBundlePresets.load()
+  // The last render's choices (this episode's, else the channel's) win over
+  // the remembered preset: they are the newer, deliberate choice.
+  await restoreLastUsedSettings()
+  lastUsedReady = true
   await normalizeVideoAssemblyPathsInState()
   // v1.0.93+ — `videoBundlePresets.load()` auto-applies the last-active
   // bundle. Kick off the path check so any broken links surface on first
@@ -6743,6 +6800,7 @@ onUnmounted(() => {
 .thumb-preview { width: 100%; height: 100%; object-fit: cover; }
 .thumb-label { position: absolute; bottom: 4px; left: 4px; right: 4px; background: rgba(0,0,0,0.7); color: white; font-size: var(--font-xs); font-weight: 600; padding: 2px 6px; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .thumb-check { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; background: var(--accent); color: white; font-size: 12px; font-weight: 700; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+.last-used-note { margin: var(--space-2) 0 0; }
 .opening-sync-note { font-size: 13px; line-height: 1.5; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); color: var(--text-secondary); }
 .opening-sync-note--info { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .opening-sync-note--warning { border-color: var(--warning, #d29922); background: color-mix(in srgb, var(--warning, #d29922) 12%, transparent); color: var(--text-primary); }
