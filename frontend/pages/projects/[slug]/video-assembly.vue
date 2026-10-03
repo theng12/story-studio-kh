@@ -3211,7 +3211,7 @@ async function loadIntroHold() {
     if (current()) introHold.value = result
   } catch { if (current()) introHold.value = null }
 }
-watch([() => episodeId.value, () => intro.enabled, () => intro.video_path], () => { loadIntroHold() })
+watch([() => episodeId.value, () => intro.enabled, () => intro.video_path], () => { loadIntroHold() }, { immediate: true })
 
 const outro = reactive({
   enabled: false,
@@ -5451,7 +5451,7 @@ const EXPORT_QUICK_PRESETS: QuickExportPreset[] = [
     id: 'youtube-fast-hw',
     label: 'YouTube — Fast (recommended)',
     icon: '⚡',
-    tagline: 'Hardware-accelerated. ~10× faster than the CPU fallback below.',
+    tagline: 'Hardware-accelerated encode — the quickest full-quality render.',
     longHint: '1080p · 30 fps · Medium (CRF 23) · H.264 · h264_videotoolbox · MP4 — uses your Mac\'s Media Engine. Routine renders finish in minutes; sleep-story-style footage shows no visible quality loss. Same final file as the Compatible (CPU) preset, just produced faster.',
     settings: { resolution: '1080p', fps: 30, quality: 'medium', encoding_effort: 'hardware', codec: 'h264', format: 'mp4' },
   },
@@ -5475,7 +5475,7 @@ const EXPORT_QUICK_PRESETS: QuickExportPreset[] = [
     id: 'fastest-render',
     label: 'Fastest CPU',
     icon: '🏎️',
-    tagline: 'Draft iteration — 5–10× faster than Medium CPU.',
+    tagline: 'Draft iteration — about 4× faster than Medium CPU.',
     longHint: '720p · 24 fps · Fast (CRF 28) · Ultrafast preset · H.264 · MP4 — for reviewing pacing before the real render.',
     settings: { resolution: '720p', fps: 24, quality: 'fast', encoding_effort: 'ultrafast', codec: 'h264', format: 'mp4' },
   },

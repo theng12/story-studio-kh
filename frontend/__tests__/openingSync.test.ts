@@ -48,4 +48,6 @@ test('Video Assembly shows the note in the opening step and next to Generate', (
   const page = readFileSync(new URL('../pages/projects/[slug]/video-assembly.vue', import.meta.url), 'utf8')
   assert.equal(page.match(/v-if="openingSyncNote"/g)?.length, 2)
   assert.match(page, /plan_opening_reserved_sec/)
+  // Loaded on first paint too, not only after the episode or intro changes.
+  assert.match(page, /watch\(\[\(\) => episodeId\.value, \(\) => intro\.enabled, \(\) => intro\.video_path\], \(\) => \{ loadIntroHold\(\) \}, \{ immediate: true \}\)/)
 })
