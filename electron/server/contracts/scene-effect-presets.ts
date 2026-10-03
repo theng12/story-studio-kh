@@ -1,6 +1,7 @@
 /**
  * The built-in effect library: twenty-four scene motions, seven B-Roll
- * motions, thirteen overlays across the seven starter kinds.
+ * motions, thirteen overlays across the seven starter kinds, plus (v1.5) sixteen
+ * atmosphere, weather and light effects and six starting effect stacks.
  *
  * DATA, in one module. Not branches in the compiler — an entry is a document
  * and nothing more, which is the same thing a downloadable content pack will
@@ -21,6 +22,7 @@ import { isContentPackItemId } from './content-origin.js'
 import type { MotionCategory, OverlayCategory } from './scene-effects.js'
 import {
   SCENE_EFFECT_SCHEMA_VERSION,
+  defaultAtmosphereLoop,
   defaultSceneMotion,
   mergeSceneMotion,
   mergeSceneOverlay,
@@ -363,7 +365,172 @@ export const BUILT_IN_OVERLAYS: BuiltInOverlay[] = [
     }),
 ]
 
+// ── v1.5 effects library: atmosphere, weather and light ─────────────────────
+//
+// Appended, never interleaved: the thirteen entries above keep their order so
+// every picker and every pinned list is unchanged. Each of these is a STARTING
+// point — every field is a slider in the Effects Library.
+
+function loop(
+  id: string, name: string, category: OverlayCategory, description: string,
+  variant: Parameters<typeof defaultAtmosphereLoop>[0], patch: Record<string, unknown> = {},
+  extra?: { approximation?: string },
+): BuiltInOverlay {
+  return overlay(id, name, category, description, 'atmosphere-loop', { ...defaultAtmosphereLoop(variant), ...patch }, extra)
+}
+
+BUILT_IN_OVERLAYS.push(
+  loop('rain', 'Rain', 'weather',
+    'Falling rain in one to three depth layers, slanted by the wind. Darkens the picture a little, like a wet night.',
+    'rain'),
+  loop('snow', 'Snow', 'weather',
+    'Soft flakes that sway as they fall, near flakes larger and faster than far ones.',
+    'snow'),
+  overlay('lightning-flash', 'Lightning Flash', 'weather',
+    'Rare, seeded flashes of the whole picture with a weaker second strike. Picture only — no thunder.',
+    'lightning', {}),
+  overlay('shimmer-ripple', 'Heat Shimmer / Ripple', 'weather',
+    'The picture wavers inside a band — heat over a road, light on water.',
+    'heat-shimmer', {}, {
+      approximation: 'A displacement of the flat picture. It wobbles what is there; it cannot bend light '
+        + 'the way real glass or water refracts it.',
+    }),
+  loop('ground-mist', 'Fog / Mist', 'atmosphere',
+    'Drifting mist, heaviest near the ground. Height, density and drift are all adjustable.',
+    'fog', {}, {
+      approximation: 'A soft noise layer drawn over the picture. It does not hide distant objects more than '
+        + 'near ones — a still has no depth to read.',
+    }),
+  loop('cloud-shadows', 'Cloud Shadows', 'atmosphere',
+    'Slow shadows of passing clouds darkening parts of the scene.',
+    'cloud-shadows'),
+  loop('dust-motes', 'Dust Motes / Pollen', 'atmosphere',
+    'Specks drifting in a beam of light.',
+    'dust'),
+  loop('petals', 'Petals / Leaves', 'atmosphere',
+    'Tumbling petals or leaves. Simple soft shapes, so use them lightly.',
+    'petals', {}, {
+      approximation: 'Drawn as soft ellipses, not real petal or leaf shapes — they read as petals at a '
+        + 'distance and as shapes up close.',
+    }),
+  loop('fireflies', 'Fireflies', 'light',
+    'Small lights that wander and blink, kept to the lower part of the frame by default.',
+    'fireflies'),
+  loop('bokeh-orbs', 'Bokeh Orbs', 'light',
+    'Large out-of-focus lights drifting slowly, in one or two tints.',
+    'bokeh', { secondary_color_hex: '#8AB8FF' }),
+  loop('embers', 'Embers / Sparks', 'light',
+    'Sparks rising and flickering, brightest near the fire.',
+    'embers'),
+  loop('twinkling-stars', 'Twinkling Stars', 'light',
+    'Fixed stars that twinkle, in the sky band only.',
+    'stars'),
+  loop('light-rays', 'Light Rays / Sun Wash', 'light',
+    'Soft beams falling from the top of the frame, gently swaying.',
+    'light-rays', {}, {
+      approximation: 'A soft wash of beams laid over the picture, not volumetric light: the beams do not '
+        + 'wrap around objects in the scene.',
+    }),
+  overlay('bloom-glow', 'Bloom / Glow', 'light',
+    'Bright areas bleed a soft glow, like a lens catching lamplight.',
+    'bloom', {}),
+  overlay('candle-flicker', 'Candle / Fire Flicker', 'light',
+    'The whole picture wavers in brightness like firelight.',
+    'flicker', {}),
+  overlay('colour-grade-look', 'Colour Grade', 'grade',
+    'One of the colour-grade presets plus brightness, contrast, saturation, warmth and tint — per scene or per episode.',
+    'color-grade', {}),
+)
+
 const OVERLAYS_BY_ID = new Map(BUILT_IN_OVERLAYS.map(o => [o.id, o] as const))
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Effect stacks — starting presets
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** One effect inside a stack preset: a library id plus the fields it changes. */
+export interface EffectStackItem {
+  id: string
+  params?: Record<string, unknown>
+}
+
+/**
+ * A named stack of effects. Applying one ADDS its effects to the chosen scene
+ * or to the whole episode; it never replaces what is there and never decides
+ * anything else. Reusable look only — no scene, no episode, no time window.
+ */
+export interface EffectStackPreset {
+  id: string
+  name: string
+  description: string
+  effects: EffectStackItem[]
+  builtin?: boolean
+}
+
+export const BUILT_IN_EFFECT_STACKS: EffectStackPreset[] = [
+  {
+    id: 'stack-rainy-night', name: 'Rainy Night', builtin: true,
+    description: 'Cool moonlight grade, far fog, two layers of rain, a rare lightning flash, soft vignette and fine grain.',
+    effects: [
+      { id: 'colour-grade-look', params: { preset: 'cool-moonlight' } },
+      { id: 'ground-mist', params: { region_top: 0.1, amount: 35, opacity: 0.35 } },
+      { id: 'rain' },
+      { id: 'lightning-flash' },
+      { id: 'vignette-soft' },
+      { id: 'film-grain-fine' },
+    ],
+  },
+  {
+    id: 'stack-snowy-cabin', name: 'Snowy Cabin', builtin: true,
+    description: 'Warm night grade, gentle snow, candle flicker and a soft vignette.',
+    effects: [
+      { id: 'colour-grade-look', params: { preset: 'warm-night' } },
+      { id: 'snow' },
+      { id: 'candle-flicker', params: { amount: 0.03 } },
+      { id: 'vignette-soft' },
+    ],
+  },
+  {
+    id: 'stack-summer-meadow', name: 'Summer Meadow', builtin: true,
+    description: 'Golden-hour grade, light rays, drifting pollen and a little bloom.',
+    effects: [
+      { id: 'colour-grade-look', params: { preset: 'golden-hour' } },
+      { id: 'light-rays' },
+      { id: 'dust-motes', params: { beam: 0.2 } },
+      { id: 'bloom-glow', params: { strength: 0.25 } },
+    ],
+  },
+  {
+    id: 'stack-firelight', name: 'Firelight', builtin: true,
+    description: 'Firelight grade, rising embers, flicker and a heavy vignette.',
+    effects: [
+      { id: 'colour-grade-look', params: { preset: 'firelight' } },
+      { id: 'embers' },
+      { id: 'candle-flicker' },
+      { id: 'vignette-heavy' },
+    ],
+  },
+  {
+    id: 'stack-starry-night', name: 'Starry Night', builtin: true,
+    description: 'Starlit grade, twinkling stars, fireflies low in the frame and fine grain.',
+    effects: [
+      { id: 'colour-grade-look', params: { preset: 'starlit-night' } },
+      { id: 'twinkling-stars' },
+      { id: 'fireflies' },
+      { id: 'film-grain-fine' },
+    ],
+  },
+  {
+    id: 'stack-misty-morning', name: 'Misty Morning', builtin: true,
+    description: 'Misty-morning grade, ground mist, cloud shadows and bloom.',
+    effects: [
+      { id: 'colour-grade-look', params: { preset: 'misty-morning' } },
+      { id: 'cloud-shadows', params: { opacity: 0.25 } },
+      { id: 'ground-mist' },
+      { id: 'bloom-glow', params: { strength: 0.2 } },
+    ],
+  },
+]
 
 export function findBuiltInOverlay(id: string | null | undefined): BuiltInOverlay | undefined {
   return id ? OVERLAYS_BY_ID.get(id) : undefined
@@ -388,6 +555,7 @@ export function sceneEffectCatalog() {
     footage_motions: BUILT_IN_FOOTAGE_MOTIONS,
     overlays: BUILT_IN_OVERLAYS,
     grouped_overlays: groupedOverlays(),
+    effect_stacks: BUILT_IN_EFFECT_STACKS,
   }
 }
 
