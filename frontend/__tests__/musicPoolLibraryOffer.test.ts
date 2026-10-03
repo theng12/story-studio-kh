@@ -12,3 +12,12 @@ test('the Music Pool offers the Music Library songs it does not have yet', () =>
   assert.match(src, /post\(`\/projects\/\$\{props\.projectSlug\}\/music-pool\/tracks`, \{ source_path: t\.path \}\)/)
   assert.match(src, /from your Music Library/)
 })
+
+test('Audio Assembly remembers the music bed choice, but not the per-episode hand-picked files', () => {
+  const src = readFileSync(new URL('../pages/projects/[slug]/audio-merge.vue', import.meta.url), 'utf8')
+  const call = src.slice(src.indexOf("useRememberedForm('audio-merge-music'"), src.indexOf("useRememberedForm('audio-merge-music'") + 300)
+  assert.match(call, /include: \['enabled', 'source', 'volume'/)
+  assert.doesNotMatch(call, /'files'/)
+  // The remembered form must be declared after `slug` and `music` exist.
+  assert.ok(src.indexOf('const slug = computed') < src.indexOf("useRememberedForm('audio-merge-music'"))
+})
