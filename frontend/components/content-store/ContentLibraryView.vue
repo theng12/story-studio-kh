@@ -26,7 +26,8 @@
           :disabled="networkUnavailable || installManyRunning"
           @click="startInstallAll"
         >{{ installManyLabel }}</button>
-        <p v-if="installManyFailedCount" class="install-all-status">{{ installManyFailedCount }} install{{ installManyFailedCount === 1 ? '' : 's' }} failed. Open the pack and try again.</p>
+        <p v-if="haltReason" class="install-all-status">Stopped early. {{ haltReason }}</p>
+        <p v-else-if="installManyFailedCount" class="install-all-status">{{ installManyFailedCount }} install{{ installManyFailedCount === 1 ? '' : 's' }} failed. Open the pack and try again.</p>
       </div>
     </div>
 
@@ -88,6 +89,8 @@ const props = withDefaults(defineProps<{
   selectable?: boolean
   selectedProductIds?: readonly string[]
   queueStatus?: (releaseId: string) => InstallQueueStatus
+  /** Why the install queue stopped early (a failure every pack would share), or ''. */
+  haltReason?: string
 }>(), { ownershipResolved: true, showInstallAll: false, selectable: false, selectedProductIds: () => [] })
 
 const emit = defineEmits<{

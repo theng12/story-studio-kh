@@ -109,3 +109,29 @@ export function filterByInstallState(
   if (filter === 'installed') return products.filter(product => isInstalledHere(product, ownership))
   return products.filter(product => !isInstalledHere(product, ownership))
 }
+
+/**
+ * One plain sentence when an install failed for a reason that will hit EVERY pack
+ * (Keychain unavailable, Gateway key refused or missing, Gateway not answering,
+ * disk full), or null for a failure of that one pack. A batch stops at the first
+ * such failure: the other 167 would only fail the same way.
+ */
+export function systematicInstallFailure(
+  error: { status?: number | null; code?: string; detail?: string } | null | undefined,
+): string | null {
+  if (!error) return null
+  const code = error.code ?? ''
+  if (code === 'CONTENT_STORE_KEYCHAIN_UNAVAILABLE') {
+    return 'This Mac’s Keychain is not available, so Content Packs cannot be installed. Sign in to macOS and unlock the Keychain, restart Story Studio, then try again.'
+  }
+  if (code === 'CONTENT_STORE_SCOPE_REQUIRED' || code === 'CONTENT_STORE_KEY_REQUIRED' || error.status === 401 || error.status === 403) {
+    return 'The Gateway did not accept this Mac’s key. Open Settings, check the Gateway key, then try again.'
+  }
+  if (code === 'GATEWAY_UNREACHABLE') {
+    return 'The Gateway is not answering. Open the Gateway app, then try again.'
+  }
+  if (code === 'CONTENT_PACK_DISK_UNAVAILABLE' || /ENOSPC|no space left/i.test(error.detail ?? '')) {
+    return 'This Mac is out of disk space. Free up some space, then try again.'
+  }
+  return null
+}

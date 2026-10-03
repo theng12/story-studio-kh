@@ -313,6 +313,7 @@ export function contentStoreErrorPresentation(error: ContentStoreUiError): Conte
     case 'GATEWAY_UNREACHABLE': return failure('The Gateway is not answering', 'Open the Gateway app, then press Refresh store. Nothing was bought or changed.', true)
     case 'CONTENT_STORE_KEY_REQUIRED':
     case 'CONTENT_STORE_SCOPE_REQUIRED': return failure('Content Store access is needed', 'Open Settings and test the Content Store scope, then refresh.', true)
+    case 'CONTENT_STORE_KEYCHAIN_UNAVAILABLE': return failure('This Mac\u2019s Keychain is not available', 'Sign in to macOS and unlock the Keychain, restart Story Studio, then try again.')
     case 'CONTENT_STORE_SIGNING_KEY_MISSING': return failure('Content Store access is needed', 'GenStudio did not publish the signing key needed to verify this Content Store proof. Refresh later.')
     case 'CONTENT_PRODUCT_NOT_AVAILABLE': return failure('This product is not available', 'Refresh the Store to see currently published products.')
     case 'CONTENT_PRODUCT_ALREADY_OWNED': return failure('Already owned in GenStudio', 'Restore purchases to verify ownership on this Mac.')

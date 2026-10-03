@@ -14,6 +14,7 @@
  * eight installs so a long run still updates the Owned tab as it goes.
  */
 import { computed, ref, watch } from 'vue'
+import { systematicInstallFailure } from '~/content-store/library-organisation'
 import { useInstallQueue, type InstallQueue } from '~/composables/useInstallQueue'
 import { useContentStore, type ContentStoreInstallOperation } from '~/composables/useContentStore'
 
@@ -28,6 +29,8 @@ export interface ContentInstallQueue extends InstallQueue {
   activeTitle: import('vue').ComputedRef<string>
   /** True once a run has finished and nothing has been queued since. */
   finished: import('vue').ComputedRef<boolean>
+  /** Set when the run stopped early because every pack would fail the same way: what is wrong and what to do. */
+  haltReason: import('vue').ComputedRef<string>
   /** Why a release failed to install, in the Store's own words, or ''. */
   failureOf: (releaseId: string) => string
   /** Server-observed phase and bytes for a release, if its operation has started. */
@@ -47,6 +50,7 @@ function build(): ContentInstallQueue {
   const batch = ref<string[]>([])
   const failureReasons = ref(new Map<string, string>())
   const operations = ref(new Map<string, ContentStoreInstallOperation>())
+  const halt = ref('')
   let sinceRefresh = 0
 
   async function refreshQuietly(): Promise<void> {
@@ -72,15 +76,17 @@ function build(): ContentInstallQueue {
       const known = store.error.value
       const detail = known?.detail || (cause as { message?: string })?.message || 'This Content Pack could not be installed.'
       failureReasons.value = new Map(failureReasons.value).set(releaseId, detail)
+      halt.value = systematicInstallFailure(known) ?? ''
       throw cause
     } finally {
       sinceRefresh += 1
       if (sinceRefresh >= REFRESH_EVERY) void refreshQuietly()
     }
-  })
+  }, () => halt.value !== '')
 
   const enqueue = (releaseId: string): void => {
     const before = queue.pendingCount.value
+    if (before === 0) halt.value = ''
     queue.enqueue(releaseId)
     if (queue.pendingCount.value === before) return
     failureReasons.value.delete(releaseId)
@@ -113,7 +119,7 @@ function build(): ContentInstallQueue {
 
   const clearFinished = (): void => {
     queue.clearFinished()
-    if (!queue.running.value) { batch.value = []; failureReasons.value = new Map(); operations.value = new Map() }
+    if (!queue.running.value) { batch.value = []; failureReasons.value = new Map(); operations.value = new Map(); halt.value = '' }
   }
   const failureOf = (releaseId: string): string => failureReasons.value.get(releaseId) ?? ''
   const failures = computed(() => batch.value
@@ -135,6 +141,7 @@ function build(): ContentInstallQueue {
     batchFailed,
     activeTitle,
     finished,
+    haltReason: computed(() => halt.value),
     failureOf,
     progressOf,
     activeProgress,
