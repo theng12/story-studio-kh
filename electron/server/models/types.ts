@@ -2798,6 +2798,13 @@ export interface Job {
     detail?: string
   }
   /**
+   * A failed job whose work was finished later (a later run or a repair saved
+   * every file it was meant to make). The row stays as history but no longer
+   * needs attention. Set only by `services/stale-failures.ts`; cleared when the
+   * row runs again.
+   */
+  resolved?: { at: string; reason: string }
+  /**
    * Directory containing the job's primary output. Set by each generator
    * once it knows where its files landed (audio dir, image dir, video
    * dir, …). Used by the Jobs page's "Open in Finder" button to reveal

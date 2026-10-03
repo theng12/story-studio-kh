@@ -25,6 +25,7 @@ import { inspectAudioQualityActionScope } from '../services/audio-quality.js'
 import { readAudioQualityProvenance, updateAudioQualityProvenance } from '../services/audio-quality-store.js'
 import { readSubtitleSourceModels } from '../services/subtitle-recovery.js'
 import { stageActiveAudioQualityCheck } from '../services/audio-quality-transcription.js'
+import { settleCompletedFailures } from '../services/stale-failures.js'
 
 export const router = Router()
 
@@ -1164,7 +1165,9 @@ router.post('/projects/:slug/episodes/:code/audio-repair', async (req, res) => {
     // Recovery is deliberately GenStudio-only. Legacy provider evidence is
     // reported as non-executable and must be regenerated through GenStudio.
     const result = await reconcileAudio(req.params.slug, req.params.code)
-    res.json(result)
+    // A repair that saved the last missing chapter settles the old failed rows.
+    const resolved = await settleCompletedFailures(req.params.slug, req.params.code).catch(() => [])
+    res.json({ ...result, resolved })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Repair failed'))
   }

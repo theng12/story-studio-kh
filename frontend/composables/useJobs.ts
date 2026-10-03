@@ -23,6 +23,7 @@ import { useApi } from './useApi.js'
 import { useToast } from './useToast.js'
 import type { JobEnqueuedResponse, JobListResponse, JobStreamEvent } from '@shared/contracts'
 import { jobDisplayLabel } from '../utils/job-presentation.js'
+import { isRecoveredFailure } from '../utils/episode-recovery.js'
 
 // Types re-exported under the old names so existing importers keep working.
 export type Job = JobEnqueuedResponse
@@ -103,7 +104,7 @@ function recomputeStats(): JobStats {
     else if (j.status === 'queued') s.queued++
     else if (j.status === 'paused') s.paused++
     else if (j.status === 'done') s.done++
-    else if (j.status === 'error') s.error++
+    else if (j.status === 'error' && !isRecoveredFailure(j)) s.error++
     s.total++
   }
   return s
@@ -242,7 +243,7 @@ function reconcileInitialSnapshot(snapshot: JobListResponse): JobListResponse {
     else if (job.status === 'queued') nextStats.queued++
     else if (job.status === 'paused') nextStats.paused++
     else if (job.status === 'done') nextStats.done++
-    else if (job.status === 'error') nextStats.error++
+    else if (job.status === 'error' && !isRecoveredFailure(job)) nextStats.error++
     nextStats.total++
   }
   return { jobs: next, stats: nextStats }

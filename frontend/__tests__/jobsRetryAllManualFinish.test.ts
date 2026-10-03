@@ -6,7 +6,7 @@ import { createApp, h, nextTick, readonly, ref, type Component } from 'vue'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
 import { describeEpisodeAssetRecovery, recoverEpisodeAssets } from '../utils/job-asset-recovery'
-import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '../utils/episode-recovery'
+import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isRecoveredFailure, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '../utils/episode-recovery'
 import { customerSafeJobText, filterJobsForView, jobDisplayLabel, jobsEmptyState, jobTypeLabel, retryAdmissionAllowed } from '../utils/job-presentation'
 
 const pagePath = fileURLToPath(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url))
@@ -58,6 +58,7 @@ async function loadJobs(): Promise<Component> {
     const isEpisodeRecoveryType = globalThis.__isEpisodeRecoveryType
     const groupEpisodeRecoveryRetries = globalThis.__groupEpisodeRecoveryRetries
     const isVerifiedRecoveredSubtitleJob = globalThis.__isVerifiedRecoveredSubtitleJob
+    const isRecoveredFailure = globalThis.__isRecoveredFailure
     const jobDisplayStatus = globalThis.__jobDisplayStatus
     const jobTypeLabel = globalThis.__jobTypeLabel
     const jobDisplayLabel = globalThis.__jobDisplayLabel
@@ -151,6 +152,7 @@ async function mount(
   ;(globalThis as any).__describeEpisodeAssetRecovery = describeEpisodeAssetRecovery
   ;(globalThis as any).__groupEpisodeRecoveryRetries = groupEpisodeRecoveryRetries
   ;(globalThis as any).__isVerifiedRecoveredSubtitleJob = isVerifiedRecoveredSubtitleJob
+  ;(globalThis as any).__isRecoveredFailure = isRecoveredFailure
   ;(globalThis as any).__jobDisplayStatus = jobDisplayStatus
   ;(globalThis as any).__filterJobsForView = filterJobsForView
   ;(globalThis as any).__customerSafeJobText = customerSafeJobText
@@ -400,7 +402,7 @@ test('mounted Jobs recovers only the selected episode’s saved assets without n
     const target = mounted.state.jobs.value[0]
     assert.equal(mounted.state.canRecoverEpisode(target), true)
     assert.equal(mounted.state.canRecoverEpisode(mounted.state.jobs.value[2]), true)
-    assert.equal(await mounted.state.recoverEpisode(target), true)
+    assert.equal((await mounted.state.recoverEpisode(target))?.episodeId, 'SS0077')
     assert.deepEqual(mounted.posts, [
       { path: '/projects/fixture-project/assets/repair-all', body: { episode_codes: ['SS0077'] } },
       { path: '/projects/fixture-project/episodes/SS0077/audio-repair', body: {} },
@@ -423,10 +425,10 @@ test('mounted Jobs holds a duplicate episode click until its free recovery settl
   })
   try {
     const first = mounted.state.recoverEpisode(mounted.state.jobs.value[0])
-    assert.equal(await mounted.state.recoverEpisode(mounted.state.jobs.value[1]), false)
+    assert.equal(await mounted.state.recoverEpisode(mounted.state.jobs.value[1]), null)
     assert.equal(mounted.posts.length, 1, 'a duplicate episode row must not begin another recovery')
     settle?.({ audited_episode_codes: ['SS0077'], enqueued: [], skipped: [], audio_repair_candidates: [] })
-    assert.equal(await first, true)
+    assert.equal((await first)?.episodeId, 'SS0077')
     assert.equal(mounted.posts.length, 1)
   } finally { mounted.unmount() }
 })

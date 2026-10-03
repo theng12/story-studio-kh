@@ -8,6 +8,7 @@ import * as pm from '../services/project-manager.js'
 import { getSoftDeletedSlugSet } from '../services/soft-delete.js'
 import { JOB_TYPES, type Job, type JobType } from '../models/types.js'
 import { episodeRecoveryStep, recoverEpisode } from '../services/episode-recovery.js'
+import { settleCompletedFailures } from '../services/stale-failures.js'
 import { inspectScenePromptIntegrity } from '../services/scene-prompt-integrity.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { scenePromptPackOutputContract } from '../lib/story-output-contracts.js'
@@ -57,7 +58,7 @@ function summarizeJobs(jobsList: Job[]) {
     queued: jobsList.filter(job => job.status === 'queued').length,
     paused: jobsList.filter(job => job.status === 'paused').length,
     done: jobsList.filter(job => job.status === 'done').length,
-    error: jobsList.filter(job => job.status === 'error').length,
+    error: jobsList.filter(job => job.status === 'error' && !jq.isRecoveredFailure(job)).length,
     total: jobsList.length,
   }
 }
@@ -653,6 +654,13 @@ router.post('/projects/:slug/jobs/resume-paused', async (req, res) => {
     projectSlugs: [req.params.slug],
     type: parsed.value.type,
   }))
+})
+
+// "Check on running jobs": settle failed rows whose files were all made later.
+// Reads disk only — never starts work, never deletes history.
+router.post('/projects/:slug/jobs/settle-completed', async (req, res) => {
+  if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+  res.json({ ok: true, resolved: await settleCompletedFailures(req.params.slug) })
 })
 
 router.get('/projects/:slug/jobs/:jobId', (req, res) => {

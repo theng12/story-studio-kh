@@ -3,6 +3,7 @@ import { useApi } from './useApi.js'
 import { announceJobFailure, isWatchingProject } from './useJobs.js'
 import type { Job, JobStats } from './useJobs.js'
 import type { JobListResponse } from '@shared/contracts'
+import { isRecoveredFailure } from '../utils/episode-recovery.js'
 
 const EMPTY_STATS: JobStats = { running: 0, queued: 0, paused: 0, done: 0, error: 0, total: 0 }
 const jobs = ref<Job[]>([])
@@ -44,7 +45,7 @@ function recomputeStats() {
     else if (job.status === 'queued') next.queued++
     else if (job.status === 'paused') next.paused++
     else if (job.status === 'done') next.done++
-    else if (job.status === 'error') next.error++
+    else if (job.status === 'error' && !isRecoveredFailure(job)) next.error++
     next.total++
   }
   stats.value = next
@@ -112,7 +113,7 @@ function reconcileInitialSnapshot(snapshot: JobListResponse): JobListResponse {
     else if (job.status === 'queued') nextStats.queued++
     else if (job.status === 'paused') nextStats.paused++
     else if (job.status === 'done') nextStats.done++
-    else if (job.status === 'error') nextStats.error++
+    else if (job.status === 'error' && !isRecoveredFailure(job)) nextStats.error++
     nextStats.total++
   }
   return { jobs: next, stats: nextStats }
