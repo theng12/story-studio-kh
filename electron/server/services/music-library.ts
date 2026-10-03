@@ -1,43 +1,33 @@
 /**
- * The channel's music library (v1.4.37).
+ * The channel's music library (v1.4.37) — now a filename-keyed view of the Song Pool.
  *
  * WHAT THIS IS NOT. It is not `services/music-pool.ts`, and the two are
  * deliberately separate. That one manages the background bed that ducks under
  * narration: one track chosen per episode, from `{projectDir}/music/`. This one
  * is a channel's record collection at `{projectDir}/music-library/`, and a
- * music-mix video is BUILT FROM it — many tracks per video, chosen to fill a
- * runtime. The owner ruled both stay, each with its own page, because they are
- * different jobs. Merging the folders would put a narration bed into a mix.
+ * music-mix video is BUILT FROM it. The owner ruled both stay.
  *
- * WHY A LIBRARY AT ALL. Measured 2026-08-23: one Suno request costs 100 credits
- * ($0.06) and returns two complete tracks of about three minutes. An hour of
- * music is therefore ~10 requests, and a 200-song library is ~$6 ONCE. After
- * that, a video costs nothing to make — video #50 costs what video #2 did. That
- * is the whole economic argument for the format, and it only works if tracks are
- * durable, reusable assets rather than per-video purchases.
+ * Since the music format (phase 1) the metadata lives in the pool's own sidecar,
+ * `music-library/library.json` (`services/song-pool.ts`), because a 1,000-song
+ * pool with full episode history does not belong in `config.json` and the old
+ * 500-row usage log forgot everything after ~27 episodes. The old config rows are
+ * migrated into the sidecar on first read and left untouched. This module keeps
+ * the old filename-keyed API so the one-picture music video and the old page
+ * read and write the same songs as the Song Pool.
  *
- * DISK IS THE TRUTH, exactly as in music-pool. Files are auto-discovered, so the
- * owner can drop tracks in through Finder and they appear. Config layers
- * metadata on top and is pruned on every read, so a Finder delete cannot leave
- * an orphaned row behind.
+ * DISK IS THE TRUTH: a file dropped in through Finder appears; a file deleted
+ * through Finder is never listed (and never drawn).
  */
 
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { createHash } from 'crypto'
-import * as pm from './project-manager.js'
+import * as sp from './song-pool.js'
 import { moveToTrashSync } from '../lib/trash-move.js'
-import type {
-  MusicLibraryTrack,
-  MusicLibraryUsageEntry,
-  ProjectConfig,
-} from '../models/types.js'
+import type { MusicLibraryTrack, MusicLibraryUsageEntry } from '../models/types.js'
 
-/** Same set music-pool indexes, so a track can be moved between the two. */
-const AUDIO_EXT = /\.(mp3|wav|m4a|aac|ogg|flac)$/i
-const USAGE_LOG_CAP = 500
-export const MUSIC_LIBRARY_DIRNAME = 'music-library'
+export const MUSIC_LIBRARY_DIRNAME = sp.MUSIC_LIBRARY_DIRNAME
 
 export interface LibraryTrack extends MusicLibraryTrack {
   /** Absolute path on disk. */
@@ -53,185 +43,111 @@ export interface LibraryState {
   /** Absolute path, so the UI can offer "reveal in Finder". */
   folder: string
   /**
-   * Total playable seconds across ENABLED tracks whose length could be measured
-   * — what a mix can draw on, as far as the app can prove.
-   *
-   * v1.4.199 — read this WITH `unmeasured_enabled_tracks`. An enabled track whose
-   * duration could not be probed contributed `0` to the total while still
-   * counting as available, so the figure was silently LOW and the UI presented
-   * it as the whole answer. AGENTS.md §6: a number that cannot be measured must
-   * not be reported as a small one.
+   * Total playable seconds across ENABLED tracks whose length could be measured.
+   * Read WITH `unmeasured_enabled_tracks`: greater than zero means this is a
+   * floor, not a total (AGENTS.md §6).
    */
   available_seconds: number
-  /**
-   * Enabled tracks whose `duration_sec` is unknown. Greater than zero means
-   * `available_seconds` is a **floor**, not a total, and the UI must say so.
-   */
   unmeasured_enabled_tracks: number
   recent_usage: MusicLibraryUsageEntry[]
 }
 
 /** Resolve {projectDir}/music-library/, creating it if missing. */
 export async function getLibraryDir(slug: string): Promise<string | null> {
-  const projectDir = pm.getProjectDir(slug)
-  if (!projectDir) return null
-  const dir = path.join(projectDir, MUSIC_LIBRARY_DIRNAME)
+  const dir = sp.poolDir(slug)
+  if (!dir) return null
   if (!existsSync(dir)) await fs.mkdir(dir, { recursive: true })
   return dir
 }
 
-/**
- * A stable id for the tracks that came back from one GenStudio request.
- *
- * Derived from the job id rather than minted, so it is identical whether it is
- * computed during the run or recomputed after a crash — the same reasoning that
- * governs every retry identity in this app.
- */
+/** A stable id for the tracks that came back from one GenStudio request (derived, never minted). */
 export function siblingGroupForJob(jobId: string): string {
   return createHash('sha256').update(`music-siblings\n${jobId}`).digest('hex').slice(0, 16)
 }
 
-function usageIndex(cfg: ProjectConfig | null): Map<string, { last: string | null; count: number }> {
-  const index = new Map<string, { last: string | null; count: number }>()
-  for (const entry of cfg?.music_library_usage_log || []) {
-    const prev = index.get(entry.filename) || { last: null, count: 0 }
-    index.set(entry.filename, {
-      last: !prev.last || entry.used_at > prev.last ? entry.used_at : prev.last,
-      count: prev.count + 1,
-    })
-  }
-  return index
-}
+const listed = (s: sp.SongRecord) => s.status !== 'rejected' && !s.file_missing
 
-/**
- * Read the library: disk file list, decorated with stored metadata.
- *
- * A file with no metadata row is still a track — that is what makes a Finder
- * drop work. It gets its filename as a title and is enabled, because a track
- * the owner deliberately put in the folder should be usable without a second
- * step.
- */
 export async function listLibrary(slug: string): Promise<LibraryState> {
   const dir = await getLibraryDir(slug)
   if (!dir) return { tracks: [], folder: '', available_seconds: 0, unmeasured_enabled_tracks: 0, recent_usage: [] }
-  const cfg = await pm.getConfig(slug).catch(() => null)
-  const entries = await fs.readdir(dir).catch(() => [] as string[])
-  const files = entries.filter(f => AUDIO_EXT.test(f)).sort((a, b) => a.localeCompare(b))
-  const metaByName = new Map<string, MusicLibraryTrack>()
-  for (const m of cfg?.music_library_tracks || []) metaByName.set(m.filename, m)
-  const usage = usageIndex(cfg)
-
-  const tracks: LibraryTrack[] = files.map(filename => {
-    const meta = metaByName.get(filename)
-    const seen = usage.get(filename)
-    return {
-      filename,
-      path: path.join(dir, filename),
-      title: meta?.title?.trim() || filename.replace(AUDIO_EXT, ''),
-      enabled: meta?.enabled !== false,
-      ...(meta?.duration_sec !== undefined ? { duration_sec: meta.duration_sec } : {}),
-      ...(meta?.sibling_group ? { sibling_group: meta.sibling_group } : {}),
-      ...(meta?.sibling_index !== undefined ? { sibling_index: meta.sibling_index } : {}),
-      ...(meta?.brief_id ? { brief_id: meta.brief_id } : {}),
-      ...(meta?.tags?.length ? { tags: meta.tags } : {}),
-      ...(meta?.genstudio_job_id ? { genstudio_job_id: meta.genstudio_job_id } : {}),
-      ...(meta?.added_at ? { added_at: meta.added_at } : {}),
-      last_used_at: seen?.last ?? null,
-      times_used: seen?.count ?? 0,
-    }
-  })
-
+  const pool = await sp.readPool(slug)
+  const tracks: LibraryTrack[] = pool.songs.filter(listed)
+    .sort((a, b) => a.file.localeCompare(b.file))
+    .map(s => ({
+      filename: s.file,
+      path: path.join(dir, s.file),
+      title: s.title,
+      // An archived (rejected-but-used) song stays listed but is never drawn.
+      enabled: s.enabled && s.status === 'ready',
+      ...(s.duration_s !== undefined ? { duration_sec: s.duration_s } : {}),
+      ...(s.sibling_group ? { sibling_group: s.sibling_group } : {}),
+      ...(s.sibling_index !== undefined ? { sibling_index: s.sibling_index } : {}),
+      ...(s.batch_id ? { brief_id: s.batch_id } : {}),
+      ...(s.tags.length ? { tags: s.tags } : {}),
+      ...(s.gateway_job_id ? { genstudio_job_id: s.gateway_job_id } : {}),
+      added_at: s.created_at,
+      last_used_at: sp.lastUse(s)?.used_at ?? null,
+      times_used: s.episodes.length,
+    }))
+  const recent = pool.songs.flatMap(s => s.episodes.map(e => ({ filename: s.file, episode_code: e.code, used_at: e.used_at })))
+    .sort((a, b) => b.used_at.localeCompare(a.used_at)).slice(0, 20)
   return {
     tracks,
     folder: dir,
-    available_seconds: tracks
-      .filter(t => t.enabled)
-      .reduce((total, t) => total + (t.duration_sec || 0), 0),
-    unmeasured_enabled_tracks: tracks
-      .filter(t => t.enabled && !(Number(t.duration_sec) > 0))
-      .length,
-    recent_usage: [...(cfg?.music_library_usage_log || [])]
-      .sort((a, b) => b.used_at.localeCompare(a.used_at))
-      .slice(0, 20),
+    available_seconds: tracks.filter(t => t.enabled).reduce((total, t) => total + (t.duration_sec || 0), 0),
+    unmeasured_enabled_tracks: tracks.filter(t => t.enabled && !(Number(t.duration_sec) > 0)).length,
+    recent_usage: recent,
   }
 }
 
-/**
- * Write metadata for one track, pruning rows whose files are gone.
- *
- * Pruning on write as well as read is what stops a library that has been
- * reorganised through Finder from accumulating rows for tracks nobody has.
- */
+/** Write metadata for one track (by filename). A file that is not in the folder is ignored. */
 export async function upsertTrackMeta(
   slug: string,
   filename: string,
   patch: Partial<MusicLibraryTrack>,
 ): Promise<void> {
-  const dir = await getLibraryDir(slug)
-  if (!dir) throw new Error(`Project ${slug} has no folder on disk.`)
-  const present = new Set((await fs.readdir(dir).catch(() => [] as string[])).filter(f => AUDIO_EXT.test(f)))
-  const cfg = await pm.getConfig(slug).catch(() => null)
-  const rows = (cfg?.music_library_tracks || []).filter(r => present.has(r.filename))
-  const existing = rows.find(r => r.filename === filename)
-  if (existing) Object.assign(existing, patch, { filename })
-  else if (present.has(filename)) {
-    rows.push({
-      filename,
-      title: filename.replace(AUDIO_EXT, ''),
-      enabled: true,
-      added_at: new Date().toISOString(),
-      ...patch,
-    })
-  }
-  await pm.updateConfig(slug, { music_library_tracks: rows })
-}
-
-/** Delete a track's file and its metadata row. */
-export async function removeTrack(slug: string, filename: string): Promise<void> {
-  const dir = await getLibraryDir(slug)
-  if (!dir) throw new Error(`Project ${slug} has no folder on disk.`)
-  // Refuse anything that is not already a bare filename. Callers pass values
-  // that arrived over HTTP.
-  //
-  // The first version of this took `path.basename(filename)` and then checked
-  // the result was inside the folder. That check could never fail — basename
-  // had already stripped the traversal — so `../../config.json` was silently
-  // REWRITTEN to `config.json` and deleted from the library folder instead of
-  // being refused. Harmless here only by luck: a caller bug that pointed at the
-  // wrong file would have been carried out quietly against a same-named track.
-  // Rejecting is the behaviour that surfaces the bug.
-  if (!filename || filename !== path.basename(filename)) {
-    throw new Error(`Invalid track filename: ${filename}`)
-  }
-  // Never hard-deleted: a paid track moves to the project's `_trash` and the owner empties it himself.
-  const file = path.join(dir, filename)
-  if (existsSync(file)) moveToTrashSync(file, path.join(path.dirname(dir), '_trash', MUSIC_LIBRARY_DIRNAME, filename))
-  const cfg = await pm.getConfig(slug).catch(() => null)
-  await pm.updateConfig(slug, {
-    music_library_tracks: (cfg?.music_library_tracks || []).filter(r => r.filename !== filename),
+  await sp.updatePool(slug, pool => {
+    const song = pool.songs.find(s => s.file === filename && s.status !== 'rejected' && !s.file_missing)
+    if (!song) return
+    if (patch.title !== undefined) song.title = patch.title
+    if (patch.enabled !== undefined) song.enabled = patch.enabled
+    if (patch.duration_sec !== undefined) song.duration_s = patch.duration_sec
+    if (patch.tags !== undefined) song.tags = [...patch.tags]
+    if (patch.sibling_group !== undefined) song.sibling_group = patch.sibling_group
+    if (patch.sibling_index !== undefined) song.sibling_index = patch.sibling_index
+    if (patch.brief_id !== undefined) song.batch_id = patch.brief_id
+    if (patch.genstudio_job_id !== undefined) { song.gateway_job_id = patch.genstudio_job_id; song.source = 'generated' }
   })
 }
 
-/**
- * Record that a rendered mix used these tracks.
- *
- * Called AFTER a render succeeds, never when a mix is merely previewed — the
- * same peek/record split music-pool uses, and for the same reason: "how often
- * has this been heard" must mean heard, not considered.
- */
+/** Move a track's file to the project's `_trash` and mark it rejected (history kept). */
+export async function removeTrack(slug: string, filename: string): Promise<void> {
+  // Refuse anything that is not already a bare filename (values arrive over HTTP).
+  if (!filename || filename !== path.basename(filename)) {
+    throw new Error(`Invalid track filename: ${filename}`)
+  }
+  const dir = await getLibraryDir(slug)
+  if (!dir) throw new Error(`Project ${slug} has no folder on disk.`)
+  const pool = await sp.readPool(slug)
+  const song = pool.songs.find(s => s.file === filename && s.status !== 'rejected')
+  if (!song) return
+  // Remove means "take it away" here, even for a used song: the old page has no archive.
+  await sp.updatePool(slug, p => {
+    const s = p.songs.find(x => x.id === song.id)!
+    const file = path.join(dir, s.file)
+    if (existsSync(file)) moveToTrashSync(file, path.join(path.dirname(dir), '_trash', MUSIC_LIBRARY_DIRNAME, s.file))
+    s.status = 'rejected'
+  })
+}
+
+/** Record that a RENDERED mix used these tracks (never a preview). */
 export async function recordMixUsage(
   slug: string,
   episodeCode: string,
   filenames: string[],
 ): Promise<void> {
   if (!filenames.length) return
-  const cfg = await pm.getConfig(slug).catch(() => null)
-  const usedAt = new Date().toISOString()
-  const log = [
-    ...(cfg?.music_library_usage_log || []),
-    ...filenames.map(filename => ({ filename, episode_code: episodeCode, used_at: usedAt })),
-  ]
-  await pm.updateConfig(slug, {
-    music_library_usage_log: log.slice(Math.max(0, log.length - USAGE_LOG_CAP)),
-  })
+  const pool = await sp.readPool(slug)
+  const ids = pool.songs.filter(s => filenames.includes(s.file) && s.status !== 'rejected').map(s => s.id)
+  await sp.recordEpisodeUse(slug, ids, { code: episodeCode, project_slug: slug, used_at: new Date().toISOString() })
 }

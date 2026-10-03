@@ -83,6 +83,9 @@ const PROTECTED = new Set([
   'music-generate.ts', // 1.4.37 — the ninth. Music is the first modality where
                     //          ONE charge yields TWO paid tracks, so a dropped
                     //          request loses twice as much as it looks like.
+  'song-pool-generate.ts', // music format phase 1 — the Song Pool. Hundreds of
+                    //          songs in one batch on the fleet: a busy fleet must
+                    //          make it wait, never drop the rest of the night.
 ])
 
 /**
@@ -124,8 +127,8 @@ describe('the register of who waits for a busy fleet', () => {
 
   test('all of them are protected, and an exemption must carry its reason', async () => {
     const handling = await generatorsHandlingGenStudioFailures()
-    assert.equal(handling.length, 8,
-      `Expected the eight known Gateway generators, found ${handling.length}: ${handling.join(', ')}. `
+    assert.equal(handling.length, 9,
+      `Expected the nine known Gateway generators, found ${handling.length}: ${handling.join(', ')}. `
       + 'A new one is not a problem — add it to PROTECTED and update this count — but it must not '
       + 'arrive unnoticed.')
     assert.deepEqual([...handling].filter(f => !PROTECTED.has(f)), [],
