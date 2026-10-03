@@ -942,7 +942,7 @@ onUnmounted(() => {
   }
 })
 
-const gapDuration = ref(5)
+const gapDuration = ref(3)
 /** The Series Formula's own chapter pause, shown beside the control. */
 const formulaGapSec = ref<number | null>(null)
 // v1.0.317 — per-chunk pause for cloud TTS chunked chapters. Default 0 keeps
@@ -1761,7 +1761,7 @@ async function generateMergedAudio(writeMode: 'overwrite' | 'new' = 'overwrite')
 
 /**
  * Format-aware seeding of merge knobs BEFORE preset loaders run. The page
- * defaults `normalizeVolume=false` + `gapDuration=5` are sleep-story
+ * defaults `normalizeVolume=false` + `gapDuration=3` (the 3 s chapter pause, owner 2026-10-03) are sleep-story
  * shaped (calm narration is already loudness-consistent; long pauses
  * between chapters fit the genre). Listicle / explainer channels mix
  * delivery tones across chapters so EBU R128 normalisation matters,
@@ -1781,7 +1781,7 @@ async function applyMergeFormatDefaultsIfNoPreset() {
     }
   } catch {
     // Format endpoint unavailable / project missing — keep the legacy
-    // hardcoded values (normalizeVolume=false, gapDuration=5). Non-fatal.
+    // hardcoded values (normalizeVolume=false, gapDuration=3). Non-fatal.
   }
 }
 

@@ -473,7 +473,30 @@
             sends its neutral speed. Choose a model that publishes speed bounds to change the pace.
           </p>
         </div>
+        <div v-for="field in pauseFields" :key="field.key" class="form-group narration-pause-field">
+          <label>{{ field.label }}
+            <span class="field-hint">{{ field.value === undefined ? `default (${field.voiceDefault} s)` : `${field.value} s` }}</span>
+          </label>
+          <SliderWithNumber
+            :model-value="field.value ?? field.voiceDefault"
+            :min="field.min"
+            :max="field.max"
+            :step="0.1"
+            :decimals="1"
+            suffix="s"
+            @update:model-value="setPause(field.key, $event)"
+          />
+          <p class="text-muted text-xs hint-line">
+            Silence inside a chapter {{ field.key === 'paragraph_pause_sec' ? 'where a new paragraph starts' : 'after each sentence' }}.
+            Every voice uses {{ field.key === 'paragraph_pause_sec' ? '1.0' : '0.6' }} s unless you change it here or in the Series Formula.
+            <button v-if="field.value !== undefined" type="button" class="btn-link" @click="setPause(field.key, undefined)">Use the default</button>
+          </p>
+        </div>
       </div>
+      <p v-if="pausesUnsupported" class="text-muted text-xs hint-line">
+        <strong>{{ selectedTtsModel?.display_name }}</strong>'s Macs do not take a custom pause yet (an older version of the Mac app): inside each
+        part the voice keeps its own pause, and Story uses yours only where it joins a long chapter's parts.
+      </p>
 
       <!-- Everything else this model takes, rendered from its published
            `controls[]`. There is no list of controls in this page: a model
@@ -796,7 +819,37 @@ const form = reactive({
    * catalogue read and wiped to the new model's defaults on a model change.
    */
   controls: {} as Record<string, number | boolean | string>,
+  /**
+   * Pauses inside a chapter, seconds (Series Formula override). Undefined = the
+   * default every voice uses (1.0 s at a paragraph, 0.6 s after a sentence), and
+   * nothing is sent.
+   */
+  paragraph_pause_sec: undefined as number | undefined,
+  sentence_pause_sec: undefined as number | undefined,
 })
+
+// The join pauses, with the selected model's published bounds/default where it
+// has them. Story's own part seams use the same values on any model.
+const PAUSE_ROWS = [
+  { key: 'paragraph_pause_sec', label: 'Pause at a paragraph break', fallback: 1.0 },
+  { key: 'sentence_pause_sec', label: 'Pause after a sentence', fallback: 0.6 },
+] as const
+const pauseFields = computed(() => PAUSE_ROWS.map(row => {
+  const published = selectedTtsModel.value?.pause_parameters?.find(p => p.name === row.key)
+  return {
+    ...row,
+    published: !!published,
+    min: published?.minimum ?? 0,
+    max: published?.maximum ?? 3,
+    voiceDefault: published?.default ?? row.fallback,
+    value: form[row.key],
+  }
+}))
+const pausesUnsupported = computed(() => !!selectedTtsModel.value
+  && pauseFields.value.some(field => field.value !== undefined && !field.published))
+function setPause(key: typeof PAUSE_ROWS[number]['key'], value: number | undefined) {
+  form[key] = typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
 
 // A section deep link belongs to the episode named in the URL. If the user
 // switches the picker before its rows load, do not carry that chapter choice
@@ -1797,6 +1850,10 @@ const audioPresets = usePresets<any>({
 async function applyAudioFormatDefaultsIfNoPreset() {
   try {
     const f = await get<any>(`/projects/${slug.value}/effective-format`)
+    // The Series Formula's pauses inside a chapter, where it overrides the default.
+    const pauses = f?.script?.narrationPauses
+    if (typeof pauses?.paragraphSec === 'number') form.paragraph_pause_sec = pauses.paragraphSec
+    if (typeof pauses?.sentenceSec === 'number') form.sentence_pause_sec = pauses.sentenceSec
     const a = f?.script?.audioDefaults
     if (!a) return
     if (typeof a.speed === 'number' && a.speed > 0) form.speed = a.speed

@@ -14,14 +14,16 @@ const { applyNicheToFormat } = await import('../services/format-loader.js')
 const { parseContentPackDocument } = await import('../content-packs/schemas.js')
 const { contentPackDocumentToNiche } = await import('../content-packs/legacy-adapters.js')
 
-void test('the Sleep formula sets a 2 s pause between chapters; others keep the format default', async () => {
+void test('3 s between chapters by default and in the Sleep formula (owner 2026-10-03)', async () => {
   const shell = JSON.parse(await fs.readFile(path.join(root, 'electron/server/formats/continuity-chain.json'), 'utf8'))
   const shellDefaults = shell.script.audioMergeDefaults
-  assert.equal(shellDefaults.gapDurationSec, 1)
+  assert.equal(shellDefaults.gapDurationSec, 3)
   const sleep = JSON.parse(await fs.readFile(path.join(root, 'electron/server/niches/sleep.json'), 'utf8'))
-  assert.equal(sleep.chapterPauseSec, 2)
+  assert.equal(sleep.chapterPauseSec, 3)
   const sleepFormat = applyNicheToFormat(shell, sleep)
-  assert.deepEqual(sleepFormat.script.audioMergeDefaults, { ...shellDefaults, gapDurationSec: 2 })
+  assert.deepEqual(sleepFormat.script.audioMergeDefaults, { ...shellDefaults, gapDurationSec: 3 })
+  assert.deepEqual(applyNicheToFormat(shell, { ...sleep, chapterPauseSec: 5 }).script.audioMergeDefaults,
+    { ...shellDefaults, gapDurationSec: 5 })
   const plain = applyNicheToFormat(shell, { ...sleep, chapterPauseSec: undefined })
   assert.deepEqual(plain.script.audioMergeDefaults, shellDefaults)
 })

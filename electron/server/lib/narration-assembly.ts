@@ -24,7 +24,7 @@ import { existsSync } from 'fs'
 import { buildNarrationDocx } from './docx-builder.js'
 import { narrationDocxToMarkdown } from './docx-parser.js'
 import { matchChapterFile, resolveArtifact, resolveReadPath, readArtifactRawText } from './episode-artifacts.js'
-import { normalizeSpokenNumbers } from './tts-text.js'
+import { describeLongSentences, normalizeSpokenNumbers, splitLongSentences } from './tts-text.js'
 
 export interface NarrationParts {
   intro?: { text: string }
@@ -40,6 +40,16 @@ export interface NarrationParts {
 export interface WriteChapterFilesOptions {
   /** False only for byte-preserving legacy materialisation. New saves default true. */
   normalizeSpokenProse?: boolean
+  /** Where to report sentences the save split for narration (a job's log). */
+  log?: (line: string) => void
+}
+
+/** Saved narration prose: spoken numbers, and no sentence longer than the voice can take whole. */
+function spokenProse(text: string, where: string, options: WriteChapterFilesOptions): string {
+  if (options.normalizeSpokenProse === false) return text
+  const { text: split, reports } = splitLongSentences(normalizeSpokenNumbers(text).text)
+  for (const line of describeLongSentences(where, reports)) options.log?.(line)
+  return split
 }
 
 // ── Bulk LLM output → per-chapter parts ────────────────────────────────────
@@ -190,9 +200,7 @@ export async function writeChapterFiles(
   // The unified narration docx still gets the full title block (see
   // assembleUnifiedNarration's buildNarrationDocx call below).
   for (const ch of parts.chapters) {
-    const spokenText = options.normalizeSpokenProse === false
-      ? ch.text
-      : normalizeSpokenNumbers(ch.text).text
+    const spokenText = spokenProse(ch.text, `Chapter ${ch.number}`, options)
     const md = `## Chapter ${ch.number.toString().padStart(2, '0')}: ${ch.title}\n\n${spokenText}\n`
     await buildNarrationDocx(
       md, code, episodeTitle, chapterFilePath(scriptDir, code, ch.number),
@@ -201,9 +209,7 @@ export async function writeChapterFiles(
   }
 
   if (parts.intro) {
-    const spokenText = options.normalizeSpokenProse === false
-      ? parts.intro.text
-      : normalizeSpokenNumbers(parts.intro.text).text
+    const spokenText = spokenProse(parts.intro.text, 'Introduction', options)
     const md = `# Introduction\n\n${spokenText}\n`
     await buildNarrationDocx(
       md, code, episodeTitle, introductionFilePath(scriptDir, code),

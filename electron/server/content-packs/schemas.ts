@@ -249,6 +249,9 @@ const SeriesFormulaDocumentSchema = z.object({
   starting_scene_seconds: boundedRange(1, 120).optional(),
   /** Default "Pause between chapters" in Audio Assembly, seconds. */
   chapter_pause_sec: z.number().min(0).max(10).optional(),
+  /** Default "Pause at a paragraph break" / "after a sentence" inside a chapter, seconds. */
+  paragraph_pause_sec: z.number().min(0).max(3).optional(),
+  sentence_pause_sec: z.number().min(0).max(3).optional(),
   metadata_profile: MetadataProfileSchema.optional(),
   production_kit: ProductionKitSchema.optional(),
   narrative_rules: textList(60),

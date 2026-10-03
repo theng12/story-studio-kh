@@ -615,6 +615,13 @@ export function applyNicheToFormat(
     ...(typeof niche.chapterPauseSec === 'number' && niche.chapterPauseSec >= 0
       ? { audioMergeDefaults: { ...format.script.audioMergeDefaults, gapDurationSec: niche.chapterPauseSec } }
       : {}),
+    // Likewise the pauses inside a chapter, where a formula overrides the uniform 1.0 / 0.6 s.
+    ...(typeof niche.paragraphPauseSec === 'number' || typeof niche.sentencePauseSec === 'number'
+      ? { narrationPauses: {
+          ...(typeof niche.paragraphPauseSec === 'number' ? { paragraphSec: niche.paragraphPauseSec } : {}),
+          ...(typeof niche.sentencePauseSec === 'number' ? { sentenceSec: niche.sentencePauseSec } : {}),
+        } }
+      : {}),
   }
 
   if (niche_structure) {

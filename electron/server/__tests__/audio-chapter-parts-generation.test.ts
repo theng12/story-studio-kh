@@ -68,7 +68,7 @@ void test('split narration is joined into one chapter file; re-runs never pay ag
     const stem = chapterFile!.replace(/\.mp3$/, '')
     const manifest = (await readPartsManifest(audioDir, stem))!
     assert.equal(manifest.parts.length, 3)
-    assert.deepEqual(manifest.parts.map(part => part.pause_after_s), [0.3, 0.6, undefined], 'sentence then paragraph pause')
+    assert.deepEqual(manifest.parts.map(part => part.pause_after_s), [0.6, 1, undefined], 'sentence then paragraph pause (uniform 0.6 / 1.0 s)')
     assert.ok(manifest.parts.every(part => part.request_key && part.text_sha256 && typeof part.text_start === 'number'))
     assert.equal(manifest.model_id, 'tiny-model')
     assert.deepEqual(manifest.settings, { speed: 1 })

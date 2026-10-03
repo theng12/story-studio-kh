@@ -60,6 +60,17 @@ export interface GenStudioTtsModel extends PriceTruth {
    */
   controls?: GenStudioTtsControl[]
   /**
+   * `TTSModelResponse.pause_parameters[]` — the join pauses (at a paragraph
+   * break / after a sentence) this model takes, with its own bounds and
+   * default. Absent or empty: its Macs take none yet (an older Studio Hub).
+   */
+  pause_parameters?: Array<{
+    name: 'paragraph_pause_sec' | 'sentence_pause_sec'
+    minimum: number | null
+    maximum: number | null
+    default: number | null
+  }>
+  /**
    * NOT published by GenStudio: the budget the Story Studio backend plans this
    * model's TTS requests at — `maximum_input_characters` less its own safety
    * margin. Computed server-side from the row above on every catalogue read, so

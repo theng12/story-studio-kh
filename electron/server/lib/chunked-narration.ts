@@ -659,6 +659,8 @@ export interface ChunkedNarrationParams {
   characters?: Character[]
   /** Caller's AbortController signal — propagated to every LLM call. */
   signal?: AbortSignal
+  /** Where a chapter save reports sentences it split for narration (the job log). */
+  log?: (line: string) => void
   /** Caller's cancel-checker — polled between batches so user-cancel
    *  unwinds cleanly even if the LLM SDK doesn't abort instantly. */
   isCancelled?: () => boolean
@@ -1908,7 +1910,7 @@ async function parseAndWriteBatch(
       .filter(c => expected.has(c.number)),
   }
   if (filtered.chapters.length === 0) return []
-  await writeChapterFiles(params.scriptDir, params.episode_id, params.title, filtered)
+  await writeChapterFiles(params.scriptDir, params.episode_id, params.title, filtered, { log: params.log })
   return filtered.chapters.map(c => c.number).sort((a, b) => a - b)
 }
 

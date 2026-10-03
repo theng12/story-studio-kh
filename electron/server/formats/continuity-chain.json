@@ -77,7 +77,7 @@
     },
     "audioMergeDefaults": {
       "normalizeVolume": true,
-      "gapDurationSec": 1
+      "gapDurationSec": 3
     }
   },
   "imagePrompts": {
