@@ -44,12 +44,10 @@ import { genstudioStaleNote } from '../utils/genstudio-freshness.js'
 const props = withDefaults(defineProps<{
   modelValue: string
   projectSlug: string
-  imageModels?: Record<string, unknown>
   imageMode?: 'text2img' | 'img2img'
   defaultLabel?: string
 }>(), {
   imageMode: 'text2img',
-  imageModels: () => ({}),
   defaultLabel: 'Pick an image model…',
 })
 

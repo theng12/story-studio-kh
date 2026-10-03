@@ -30,7 +30,6 @@ const modelSurfaces = {
   broll: source('../pages/projects/[slug]/broll.vue'),
   imagePrompts: source('../pages/projects/[slug]/image-prompts.vue'),
   research: source('../pages/projects/[slug]/research.vue'),
-  characters: source('../pages/projects/[slug]/characters.vue'),
   channelCharacters: source('../pages/character-library.vue'),
 }
 

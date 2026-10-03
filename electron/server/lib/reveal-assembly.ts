@@ -15,15 +15,12 @@
 
 import {
   REVEAL_COHERENCE_MODES,
-  defaultSceneReveal,
-  normalizeSceneReveal,
   type RevealCoherence,
   type SceneRevealDocument,
 } from '../contracts/scene-reveal.js'
 import { BUILT_IN_SCENE_REVEALS, DEFAULT_REVEAL_POOL } from '../contracts/scene-reveal-presets.js'
 import { isRevealPace, planSceneHold, type RevealHoldPlan, type RevealPace } from './reveal-pacing.js'
 import { planEpisodeReveals, type RevealPlanEntry, type SceneRevealSettings } from './reveal-selection.js'
-import { listRevealPresets } from '../services/style-effect-loader.js'
 
 export interface PlannedSceneReveal {
   scene_id: string
@@ -200,33 +197,4 @@ export function plannedRevealForScene(
 ): PlannedSceneReveal | undefined {
   if (!plan?.enabled) return undefined
   return plan.scenes.find(scene => scene.scene_index === sceneIndex)
-}
-
-/**
- * The reveal document a scene renders with when nothing planned one.
- *
- * Used only to satisfy the renderer's type: a scene with reveals off never reaches the call, so a
- * caller that finds itself here has a bug, and the default document is the engine's own.
- */
-export function fallbackRevealDocument(): SceneRevealDocument {
-  return normalizeSceneReveal(defaultSceneReveal())
-}
-
-/** The preset ids an episode may choose from, with their families — for the UI's pool list. */
-export async function revealPoolChoices(
-  options: Parameters<typeof listRevealPresets>[0] = {},
-): Promise<Array<{ id: string; name: string; family: string; description: string; approximation?: string }>> {
-  const library = await listRevealPresets(options)
-  return library.map(entry => ({
-    id: entry.id,
-    name: entry.name,
-    family: entry.family,
-    description: entry.description,
-    ...(entry.approximation ? { approximation: entry.approximation } : {}),
-  }))
-}
-
-/** The built-in library's ids, so a caller can say whether a pool entry is installed. */
-export function builtInRevealIds(): string[] {
-  return BUILT_IN_SCENE_REVEALS.map(entry => entry.id)
 }

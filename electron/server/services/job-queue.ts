@@ -1587,9 +1587,6 @@ export function setSubtitleTranscribeConcurrency(n: number): void {
   subtitleTranscribeConcurrency = Math.max(1, Math.min(50, Math.floor(Number(n)) || 1))
   pump('subtitles_transcribe')
 }
-export function getSubtitleTranscribeConcurrency(): number {
-  return subtitleTranscribeConcurrency
-}
 /**
  * Starts at 1 — today's behaviour exactly — so a build that never applies the
  * owner's setting is unchanged rather than surprising. `boot` reads the stored

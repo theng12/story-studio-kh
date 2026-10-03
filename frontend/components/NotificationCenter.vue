@@ -136,7 +136,7 @@ const props = defineProps<{ slug: string }>()
 const {
   isOpen, activeTab,
   actionItems, activityItems,
-  actionBadge, activityBadge, totalBadge,
+  totalBadge,
   dismiss, refreshReadiness, markActivityRead, isActivityUnread,
   close, toggle,
 } = useNotifications()

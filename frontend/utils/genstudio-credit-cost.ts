@@ -325,24 +325,6 @@ export function describeChatRate(model: PriceTruth & {
   }
 }
 
-/** Per-variant video price. `minimum_credits` is part of the price, not a footnote. */
-export function describeVideoVariantRate(variant: {
-  label?: string
-  credits_per_video?: number | null
-  minimum_credits?: number | null
-} | null | undefined): CreditDisplay {
-  const perVideo = publishedNumber(variant?.credits_per_video)
-  if (perVideo === null) return unpublishedCost(variant?.label || 'This variant')
-  const minimum = publishedNumber(variant?.minimum_credits)
-  return {
-    text: `${formatCredits(perVideo)} / clip`,
-    basis: 'rate',
-    title: `The Gateway publishes ${formatCredits(perVideo)} per clip`
-      + (minimum !== null && minimum > 0 ? `, with a minimum of ${formatCredits(minimum)} per request` : '')
-      + '. The Gateway reports the actual charge on the finished job.',
-  }
-}
-
 /**
  * Per-clip rate summary for choosing a VIDEO MODEL before its duration and
  * resolution variant. As with image output sizes, a range is only honest when

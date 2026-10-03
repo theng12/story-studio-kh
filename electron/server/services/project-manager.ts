@@ -203,11 +203,6 @@ function invalidateProjectsRootCache(): void {
 // sense the comments throughout this file are protecting.
 onAppSettingWritten(invalidateProjectsRootCache)
 
-/** Exported for tests and for any caller that edits app-settings.json out of band. */
-export function refreshProjectsRoot(): void {
-  invalidateProjectsRootCache()
-}
-
 function resolveProjectsRoot(): string {
   // Test override — highest priority so tests don't touch real data, and
   // deliberately ahead of the cache: it is free, it changes between tests in one

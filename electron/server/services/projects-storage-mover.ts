@@ -1,27 +1,17 @@
 /**
- * Storage-location migration helper.
+ * Library move helper: copies the current Library (PROJECTS_ROOT) into a
+ * user-picked folder. Called by `PUT /library {move: true}` (routes/library.ts)
+ * when the owner chooses "Move my Library somewhere else" in Settings.
  *
- * Copies the contents of the current PROJECTS_ROOT into a user-picked
- * target directory. Designed for the "I want my projects in iCloud
- * Drive" flow:
- *
- *   1. User picks the target via the native folder picker
- *   2. App copies projects/ → {target}/   (this service)
- *   3. App writes the override path to app-settings.json
- *   4. App restarts → boot-time read picks up the new path
- *
- * The user explicitly chose "copy + keep old location" semantics — we
- * never delete the source. The user verifies the new location boots
- * cleanly + manually deletes the old folder once satisfied.
+ * Copy + keep semantics — the source is never deleted. The user verifies the
+ * new location boots cleanly, then deletes the old folder themselves.
  *
  * Validation refuses pathological targets:
  *   - same as source (no-op)
  *   - inside source (recursive copy of growing tree)
- *   - already non-empty (without explicit merge flag — not in v1)
+ *   - already non-empty (without the explicit merge flag)
  *
- * EXDEV (cross-device) is the common failure on cloud-synced volumes:
- *   fs.cp succeeds across devices natively, but native rename would
- *   fail. We use cp throughout so the cross-device case Just Works.
+ * `fs.cp` is used throughout so a move to another drive (EXDEV) just works.
  */
 
 import fs from 'fs/promises'
@@ -120,79 +110,6 @@ async function tallyDir(dir: string): Promise<{ files: number; bytes: number }> 
   }
   await walk(dir)
   return { files, bytes }
-}
-
-/**
- * Pre-flight tally — surfaces "this will copy N files (X GB)" for the
- * UI's confirmation dialog. Pure read-only.
- *
- * The external-asset breakdown that used to ride alongside this ("metadata
- * 38 MB · assets 274 GB across 2 projects") is gone with the ability to put a
- * channel's episodes anywhere. Everything a project owns is inside its own
- * folder now, so this single tally already counts all of it.
- */
-export async function previewMigration(): Promise<{
-  source_path: string
-  files: number
-  bytes: number
-}> {
-  const root = projectsRoot()
-  const t = await tallyDir(root)
-  return { source_path: root, files: t.files, bytes: t.bytes }
-}
-
-/**
- * Inspect a candidate target dir to see if it already contains Story
- * Studio projects. Used by the "Use existing folder (no copy)" flow on
- * a second machine: the user picks the iCloud-synced folder that
- * already has projects, the UI confirms how many it found, then sets
- * the override without copying anything.
- *
- * A "project" here is any immediate subdirectory containing a
- * `project.json` file. Lightweight scan — depth-1 only, no recursion
- * into episode folders.
- */
-export async function inspectTargetForExistingProjects(targetDir: string): Promise<{
-  target_path: string
-  exists: boolean
-  project_count: number
-  /** First 10 project slugs for the preview confirmation. */
-  sample_slugs: string[]
-}> {
-  if (!targetDir || typeof targetDir !== 'string' || !path.isAbsolute(targetDir)) {
-    const e: any = new Error('target_path must be an absolute path string')
-    e.statusCode = 400; throw e
-  }
-  const targetAbs = path.resolve(targetDir)
-  if (!existsSync(targetAbs)) {
-    return { target_path: targetAbs, exists: false, project_count: 0, sample_slugs: [] }
-  }
-
-  let entries: any[]
-  try {
-    entries = await fs.readdir(targetAbs, { withFileTypes: true })
-  } catch {
-    // Unreadable target — surface as 0 projects rather than 500. The
-    // override will still be settable; on restart the dashboard will
-    // be empty and the user can re-pick.
-    return { target_path: targetAbs, exists: true, project_count: 0, sample_slugs: [] }
-  }
-
-  const slugs: string[] = []
-  for (const e of entries) {
-    if (!e.isDirectory()) continue
-    if (e.name.startsWith('.')) continue   // skip dotfolders / cloud metadata dirs
-    if (existsSync(path.join(targetAbs, e.name, 'project.json'))) {
-      slugs.push(e.name)
-    }
-  }
-
-  return {
-    target_path: targetAbs,
-    exists: true,
-    project_count: slugs.length,
-    sample_slugs: slugs.slice(0, 10),
-  }
 }
 
 /**

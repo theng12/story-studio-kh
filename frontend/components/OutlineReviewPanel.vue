@@ -474,7 +474,6 @@ const previewErrors = ref<Map<number, string>>(new Map())
 interface ChapterStats { word_count: number; character_count: number; disk_title: string }
 const chapterStats = ref<Map<number, ChapterStats>>(new Map())
 
-const canExpand = computed(() => !!approvedAt.value)
 const pendingCount = computed(() =>
   outline.value.filter(e => !chaptersDone.value.includes(e.n)).length,
 )
@@ -551,15 +550,6 @@ const activeExpandJob = computed(() =>
     && j.type === 'expand_chapters'
     && (j.status === 'queued' || j.status === 'running')),
 )
-const activeChapterOnlyChapter = computed<number | null>(() => {
-  const j = jobs.value.find(j =>
-    j.episode_id === props.episodeId
-    && j.type === 'chapter-only'
-    && (j.status === 'queued' || j.status === 'running'))
-  if (!j) return null
-  const n = Number((j.params as any)?.chapter_number)
-  return Number.isFinite(n) ? n : -1
-})
 const expanding = computed(() => postingExpand.value || activeExpandJob.value)
 
 function terminalExpansionRetryJob(): any | undefined {

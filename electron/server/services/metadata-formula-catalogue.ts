@@ -168,11 +168,6 @@ async function builtIns(): Promise<MetadataFormulaEntry[]> {
   return rows
 }
 
-/** Test seam: forget the cached built-ins so a fixture directory can be read. */
-export function resetMetadataFormulaCache(): void {
-  builtinCache = null
-}
-
 function entryFor(
   document: MetadataFormulaDocument,
   source: 'built-in' | 'pack',

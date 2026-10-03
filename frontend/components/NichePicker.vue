@@ -98,7 +98,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
-  'change': [niche: Niche | null]
 }>()
 
 const { niches, isLoading, error, find, refresh } = useNiches()
@@ -125,8 +124,6 @@ function displayName(niche: Niche): string {
 
 function onSelect(id: string) {
   emit('update:modelValue', id)
-  const n = id ? find(id) : null
-  emit('change', n ?? null)
 }
 
 function formatErr(e: any): string {

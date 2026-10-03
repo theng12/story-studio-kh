@@ -32,7 +32,6 @@ describe('GenStudio credit settlement language', () => {
     const source = read('frontend/pages/projects/[slug]/jobs.vue')
 
     assert.equal((source.match(/GenStudioCreditSettlementHint/g) || []).length, 2)
-    assert.match(source, /genStudioHeldCredits/)
     assert.match(source, /on hold/)
   })
 })

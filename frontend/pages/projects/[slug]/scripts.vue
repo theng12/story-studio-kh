@@ -807,7 +807,6 @@ function onOutlineLoaded(payload: {
   }
   if (payload.lengthMinutes && payload.lengthMinutes > 0) {
     form.length = payload.lengthMinutes
-    durationSelect.value = standardDurationSet.value.has(form.length) ? String(form.length) : 'custom'
   }
   if (payload.style) form.style = payload.style
   if (payload.perspective) form.perspective = payload.perspective
@@ -835,7 +834,6 @@ const wordsPerMinute = computed<number>(() => {
   const fmtWpm = formatContext.value?.defaultWordsPerMinute
   return typeof fmtWpm === 'number' && fmtWpm > 0 ? fmtWpm : LEGACY_WORDS_PER_MINUTE
 })
-const durationSelect = ref('custom')
 const showStyleDesc = ref(false)
 const customStyleText = ref('')
 const narratorOverrideOpen = ref(false)
@@ -1172,19 +1170,6 @@ async function clearRecencyLog() {
   }
 }
 
-// v1.0.101+ — Duration dropdown options are now format-driven.
-// For broll-narration (prayer / devotional / motivation projects) the
-// list becomes [5, 8, 10, 15, 20, 30] instead of the sleep-story
-// [15, 20, 30, 45, 60, 90]. Falls back to the legacy set when the
-// format JSON doesn't carry durationPresets (back-compat for any
-// custom user formats that haven't been updated yet).
-const LEGACY_DURATION_PRESETS = [15, 20, 30, 45, 60, 90]
-const durationOptions = computed<number[]>(() => {
-  const presets = formatContext.value?.durationPresets
-  return Array.isArray(presets) && presets.length > 0 ? presets : LEGACY_DURATION_PRESETS
-})
-const standardDurationSet = computed<Set<number>>(() => new Set(durationOptions.value))
-
 // Recommended words/chapter at the format's own default length + chapter
 // count. Shown alongside the user's current wpc so they can see at a
 // glance whether they've drifted from "what this format normally does."
@@ -1348,12 +1333,6 @@ async function applyScriptFormatDefaultsIfNoPreset(episodeId = form.episode_id, 
       chaptersPinned: chaptersFromUrl,
     })
     if (!applied) return
-    // Snap the duration dropdown back to a known option so the UI doesn't
-    // flash 'custom' when the format default matches a value in the
-    // format's own preset list. v1.0.101+: uses the format's
-    // durationPresets (via standardDurationSet computed) so broll-narration
-    // selects "10 minutes" instead of falling through to "Custom...".
-    durationSelect.value = standardDurationSet.value.has(form.length) ? String(form.length) : 'custom'
 
     // v1.0.105+ — second fetch for the niche so the overlay indicator
     // can show what the niche is overriding on top of the format. The
@@ -1650,29 +1629,6 @@ const canSubmit = computed(() => {
   })
 })
 
-// Standard duration values shown in the Duration dropdown. Used only to
-// decide whether the current form.length matches a dropdown option (vs
-// 'custom'). The old `durationRefs` table also pinned a hardcoded chapter
-// count + word count per duration — those were sleep-story-flavoured
-// (45min → 10 chapters → 5500 words) and have been removed in favour of
-// format-driven defaults seeded once in applyScriptFormatDefaultsIfNoPreset.
-// Per-episode overrides flow through the editable inputs below.
-//
-// v1.0.101+ — the old hardcoded STANDARD_DURATIONS = {15,20,30,45,60,90}
-// constant is gone. The "is this a standard preset?" check now reads
-// from `standardDurationSet` (computed from the format's
-// durationPresets), so broll-narration's 10 minute default no longer
-// flashes as "Custom..." on first paint.
-
-// Sync: Duration dropdown → total words (format-aware chapter count stays).
-// Words/chapter recomputes from the new total ÷ existing chapters so a
-// user changing duration doesn't accidentally reset the chapter count
-// they (or the format default / preset) chose.
-//
-// `fromUser=true` (the default for the dropdown's @change handler) marks
-// the sizing as touched so subsequent episode picks won't overwrite. The
-// internal callers (onEpisodeSelected) pass `false` so the auto-applied
-// suggestion doesn't lock out the next swap.
 // v1.0.168 — Sizing model. TWO inputs only: chapter count + words-per-chapter.
 // Total words + the duration estimate are DERIVED and read-only. There is no
 // cross-recalc — changing the chapter count NEVER rewrites your per-chapter
@@ -1691,10 +1647,6 @@ function recomputeDerivedSizing() {
 // Retained: tells the page the user has taken control of sizing, so format
 // defaults + episode-swap suggestions stop overwriting their numbers.
 const userTouchedSizing = ref(false)
-// Retained for back-compat with code that references primaryField; with the
-// derived model there is no longer a "primary" field, but the ref keeps
-// existing call sites (e.g. setChaptersTo* helpers) compiling.
-const primaryField = ref<'chapters' | 'words_per_chapter' | 'total_words'>('words_per_chapter')
 
 // The two inputs only flag user control — they do NOT touch each other.
 function onChaptersChange() {

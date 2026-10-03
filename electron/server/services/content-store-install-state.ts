@@ -147,7 +147,3 @@ export async function resolveContentStoreInstallSnapshot(
   return { owned, installed: installed.sort((left, right) => left.packId.localeCompare(right.packId) || compareVersionStrings(left.version, right.version)) }
   }))
 }
-
-export async function resolveContentStoreInstallStates(releases: ReadonlyArray<GenStudioContentRelease | null>): Promise<ContentStoreClosureState[]> {
-  return (await resolveContentStoreInstallSnapshot(releases)).owned
-}

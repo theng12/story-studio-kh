@@ -84,7 +84,7 @@ test('terminal visual Scene Plan rows offer explicit paid prompt repair without 
   assert.match(jobs, /function canRetryJob\(job: RJob\): boolean/)
   assert.match(jobs, /if \(job\.params\?\.jobs_replace_failed_items\) return canRetryManualFailedItemExactly\(job\)/)
   assert.match(jobs, /const canReplaySavedChat = job\.type === 'outline_only' \|\| job\.type === 'expand_chapters'/)
-  assert.equal((jobs.match(/v-if="canRetryJob\(job\)"/g) || []).length, 2)
+  assert.equal((jobs.match(/v-if="canRetryJob\(job\)"/g) || []).length, 1)
   assert.match(jobs, /const failedJobsForRetryAll = computed[\s\S]*j\.params\?\.auto_repair_missing_prompts !== true/)
   const paidAction = jobs.indexOf('class="btn btn-xs btn-primary prompt-auto-repair-btn"')
   const ordinaryRetry = jobs.indexOf(':title="retryTooltip(job)"', paidAction)
@@ -106,7 +106,7 @@ test('Jobs offers the server-authorized failed-item replacement with explicit ch
   assert.match(jobs, /function canRetryManualFailedItemExactly/)
   assert.match(jobs, /CLOUD_SUBMISSION_UNCERTAIN/)
   assert.match(jobs, /\/replace-failed-items`[\s\S]*\{\}/)
-  assert.equal((jobs.match(/@click="replaceFailedItems\(job\)"/g) || []).length, 2)
+  assert.equal((jobs.match(/@click="replaceFailedItems\(job\)"/g) || []).length, 1)
 })
 
 test('History presents one safe primary control and hides alternatives under More actions', () => {

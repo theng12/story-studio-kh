@@ -692,7 +692,7 @@ const audioRetryPending = freshAudioAction.hasPending
 const freshQualityAction = useFreshGenerationAction()
 const qualityActionPending = freshQualityAction.hasPending
 const activeQualityCheckAction = useFreshGenerationAction()
-const { project, config, refreshConfig } = useProject()
+const { config } = useProject()
 const {
   models: ttsModels,
   modelsLoading: ttsModelsLoading,
@@ -1678,7 +1678,6 @@ const { selectedEpisode, scriptReady, statusKnown, refetch: refetchEpisodeStatus
  * gates. It never fires for a channel that does not use openings.
  */
 const channelIntroEnabled = ref<boolean | null>(null)
-const channelIntroUnknown = computed(() => channelIntroEnabled.value === null)
 async function loadChannelIntroduction(): Promise<void> {
   try {
     const data = await get<{ segments?: Record<string, { enabled: boolean }> }>(
@@ -1803,7 +1802,6 @@ onMounted(async () => {
 
 
 // ── Voice preview ──────────────────────────────────────────────────────
-const previewing = ref(false)
 const previewAudio = ref<HTMLAudioElement | null>(null)
 
 /**
@@ -1818,7 +1816,6 @@ async function previewVoiceId(voiceId?: string) {
     return
   }
   stopPreview()
-  previewing.value = true
   try {
     // Previews play GenStudio's own stored sample; no TTS job is submitted and
     // no control is applied to it, so none are sent.
@@ -1835,8 +1832,6 @@ async function previewVoiceId(voiceId?: string) {
   } catch (e: any) {
     console.error(`[audio] voice preview failed (voice=${id}, model=${form.model}):`, e)
     showError(e.data?.detail || 'Could not play this voice sample. Check that the Gateway is connected (top right), then try again.')
-  } finally {
-    previewing.value = false
   }
 }
 

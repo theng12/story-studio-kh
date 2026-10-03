@@ -55,8 +55,6 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
   scene_images_batch: 'Scene Review Batch',
   broll_autotag: 'B-roll tags',
   thumb_prompts: 'Thumb Prompts',
-  tiktok_upload: 'TikTok upload',
-  facebook_upload: 'Facebook upload',
 }
 
 /** A human label for any job type; an unknown id is humanized, never a raw slug. */

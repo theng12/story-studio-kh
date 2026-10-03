@@ -49,10 +49,3 @@ describe('hidden channel restore', () => {
   })
 })
 
-describe('upgrade notes read', () => {
-  test('a failed notices read is shown, not swallowed', () => {
-    assert.doesNotMatch(script, /catch \{ \/\* never fatal/)
-    assert.match(script, /noticesError\.value = errorMessage\(error/)
-    assert.match(template, /v-if="noticesError" class="notice-error"/)
-  })
-})

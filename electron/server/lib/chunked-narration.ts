@@ -1005,13 +1005,6 @@ async function runChunked(
   }
 }
 
-/** Batch count for a run whose product budget has not been read (callers that
- *  only need a rough figure). The real count comes from `batchSizeForBudget`. */
-export function estimateBatchCount(pending: number, mode: ChunkedMode): number {
-  const size = mode === 'listicle' ? LISTICLE_BATCH_SIZE : NARRATIVE_BATCH_SIZE
-  return Math.ceil(pending / size)
-}
-
 // ── Model fallback ───────────────────────────────────────────────────────
 //
 // `params.model` traces back to either the caller's live selection or a

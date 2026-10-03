@@ -58,7 +58,7 @@ import {
   BUILT_IN_OVERLAYS,
   BUILT_IN_SCENE_MOTIONS,
 } from '../contracts/scene-effect-presets.js'
-import { FOOTAGE_MOTION_CATEGORY, SCENE_EFFECT_SCHEMA_VERSION } from '../contracts/scene-effects.js'
+import { SCENE_EFFECT_SCHEMA_VERSION } from '../contracts/scene-effects.js'
 import { BUILT_IN_SCENE_REVEALS } from '../contracts/scene-reveal-presets.js'
 
 /** One pack item that did not make it into the library, and why. */
@@ -293,23 +293,4 @@ export async function listRevealPresets(
     'reveal',
     refusals,
   )
-}
-
-/** Resolve one move by id and engine, the way `preview-effect` needs it. */
-export async function findSceneEffectMotion(
-  id: string,
-  source: 'still' | 'footage',
-  options: ContentPackRegistryOptions = {},
-): Promise<PackSceneMotion | undefined> {
-  const library = await listSceneEffectLibrary(options)
-  const registry = source === FOOTAGE_MOTION_CATEGORY ? library.footage_motions : library.scene_motions
-  return registry.find(entry => entry.id === id)
-}
-
-/** Resolve one overlay by id. */
-export async function findSceneEffectOverlay(
-  id: string,
-  options: ContentPackRegistryOptions = {},
-): Promise<PackSceneOverlay | undefined> {
-  return (await listSceneEffectLibrary(options)).overlays.find(entry => entry.id === id)
 }

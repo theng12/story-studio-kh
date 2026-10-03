@@ -10,10 +10,10 @@
         v-if="state"
         type="button"
         class="link-btn mp-folder-link"
-        :title="`Open ${state.folder} in Finder`"
+        :title="`Copy ${state.folder} to the clipboard`"
         @click="revealFolder"
       >
-        Show folder in Finder ↗
+        Copy folder path
       </button>
     </div>
 

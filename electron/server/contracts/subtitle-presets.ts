@@ -187,10 +187,3 @@ export const BUILT_IN_SUBTITLE_PRESETS: BuiltInSubtitlePreset[] = [
       animation: { type: 'fade' },
     }),
 ]
-
-export function findBuiltInSubtitlePreset(id: string): BuiltInSubtitlePreset | undefined {
-  return BUILT_IN_SUBTITLE_PRESETS.find(p => p.id === id)
-}
-
-/** The default preset id — Clean Broadcast, which reproduces v1 output. */
-export const DEFAULT_SUBTITLE_PRESET_ID = 'clean-broadcast'

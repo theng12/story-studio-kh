@@ -13,8 +13,6 @@ import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 
-/** Preferred extension for NEW text artifacts. */
-export const ARTIFACT_EXT = '.md' as const
 /** Resolution order — prefer `.md`, then legacy `.docx`. */
 export const ARTIFACT_EXTS = ['.md', '.docx'] as const
 

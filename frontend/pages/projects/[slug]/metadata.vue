@@ -120,14 +120,12 @@
          data is available. -->
     <TopPerformersInspiration :slug="slug" class="mt-3" />
 
-    <!-- Shared AI model — applies to every section below. Labelled as -->
-    <!-- such so users don't wonder why moving this control changes all -->
-    <!-- three generators (consistency with image-prompts, which uses one -->
-    <!-- shared model across Scene + Thumbnail pools). -->
+    <!-- AI model used to write the title, description and tags in the one -->
+    <!-- YouTube package. -->
     <div class="card workspace-section shared-settings">
       <div class="shared-settings-label">
         <span>AI Model</span>
-        <span class="text-muted text-xs font-normal">used by all sections below</span>
+        <span class="text-muted text-xs font-normal">writes the whole YouTube package</span>
       </div>
       <div class="form-group shared-settings-control">
         <ModelSelector v-model="model" :project-slug="slug" />
@@ -141,7 +139,7 @@
           <h3>{{ formulaMetadataProfile.label }}</h3>
           <p class="text-muted">{{ formulaMetadataProfile.description }}</p>
         </div>
-        <NuxtLink :to="`/projects/${slug}/settings?tab=channel`" class="btn btn-secondary btn-sm">View Channel Identity</NuxtLink>
+        <NuxtLink :to="`/projects/${slug}/settings#identity`" class="btn btn-secondary btn-sm">View Channel Identity</NuxtLink>
       </div>
       <div class="blueprint-flow" aria-label="Formula metadata structure">
         <span v-for="(label, index) in formulaSectionLabels" :key="label" class="blueprint-step">
@@ -678,7 +676,7 @@ function migrateSections(input: Section[]): { migrated: Section[]; didMigrate: b
 
   // If presets were saved before the new sections existed, inject defaults
   // for any new section the migration didn't already produce. Order is
-  // best-effort — user can drag to reorder.
+  // best-effort.
   const have = new Set(out.map(s => s.id))
   if (!have.has('narrator') && !injectedNarrator) {
     out.push({ id: 'narrator', label: 'Narrator Credit', type: 'builtin', enabled: false, config: { name: '' } })
@@ -702,13 +700,10 @@ function migrateSections(input: Section[]): { migrated: Section[]; didMigrate: b
 
 const sections = ref<Section[]>(JSON.parse(JSON.stringify(defaultSections)))
 
-// ── v1.0.199 — section catalog (mirrors the backend registry) ──────────────
-// The list of addable section types + their default config. The "Add section"
-// menu reads this, so any built-in section composes onto any template, and a
-// future simple type is one catalog entry (with `generic` + `fields` it needs
-// no bespoke editor — rendered by the generic editor block below).
-interface CatalogField { key: string; label: string; type: 'text' | 'number' | 'textarea' }
-interface CatalogEntry { id: string; label: string; defaultConfig: () => SectionConfig; generic?: boolean; fields?: CatalogField[] }
+// ── Section catalog (mirrors the backend registry) ─────────────────────────
+// The description section types and their default config. The Formula's
+// publishing blueprint picks which of these make up the description.
+interface CatalogEntry { id: string; label: string; defaultConfig: () => SectionConfig }
 const SECTION_CATALOG: CatalogEntry[] = [
   { id: 'hook',          label: 'Hook / Intro Paragraph',        defaultConfig: () => ({ characters: 220, starting_format: '' }) },
   { id: 'narrator',      label: 'Narrator Credit',               defaultConfig: () => ({ name: '' }) },
@@ -760,99 +755,6 @@ async function loadFormulaMetadataProfile(): Promise<void> {
     // A project without a Formula remains usable with the direct YouTube fallback.
   }
 }
-// Section types not already in the current list — offered in the Add menu.
-const addableSections = computed(() => SECTION_CATALOG.filter(c => !sections.value.some(s => s.id === c.id)))
-function addSection(id: string): void {
-  const c = catalogById(id)
-  if (!c || sections.value.some(s => s.id === id)) return
-  sections.value.push({ id: c.id, label: c.label, type: 'builtin', enabled: true, config: c.defaultConfig() })
-}
-function onAddSection(e: Event): void {
-  const el = e.target as HTMLSelectElement
-  if (el.value) addSection(el.value)
-  el.value = ''
-}
-// Generic-editor support: a catalog type flagged `generic` renders its fields
-// from the registry, so a new simple section type needs no bespoke editor.
-function genericFieldsFor(id: string): CatalogField[] {
-  const c = catalogById(id)
-  return c?.generic ? (c.fields || []) : []
-}
-
-// ── v1.0.198 (M1b) — Sources section: the episode's research citations ──────
-// Mirrors the Research page's per-source include picks (source of truth is
-// research.json). Editing here persists straight back so both pages agree.
-interface SrcCitation { title: string; url: string; snippet?: string; include_in_description?: boolean }
-const researchCitations = ref<SrcCitation[]>([])
-const researchClaims = ref<Array<{ status: string; citation_indices: number[] }>>([])
-const researchLoaded = ref(false)
-const savingResearch = ref(false)
-let researchSourcesLoadSequence = 0
-
-async function loadResearchForSources(): Promise<void> {
-  const requestSequence = ++researchSourcesLoadSequence
-  const scopeEpoch = metadataScopeEpoch
-  const projectSlug = slug.value
-  const code = episodeId.value
-  researchCitations.value = []
-  researchClaims.value = []
-  researchLoaded.value = false
-  if (!code) return
-  try {
-    const r = await get<{ exists: boolean; research?: any }>(`/projects/${projectSlug}/research/${code}`)
-    if (requestSequence !== researchSourcesLoadSequence || metadataScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== code) return
-    if (r.exists && r.research) {
-      researchCitations.value = r.research.citations || []
-      researchClaims.value = r.research.claims || []
-      researchLoaded.value = true
-    }
-  } catch { /* no research for this episode — section shows the hint */ }
-}
-
-function srcIncluded(c: SrcCitation): boolean { return c.include_in_description !== false }
-const verifiedBackingSet = computed(() => {
-  const s = new Set<number>()
-  for (const cl of researchClaims.value) {
-    if (cl.status === 'verified') for (const i of cl.citation_indices || []) s.add(i)
-  }
-  return s
-})
-const includedSrcPreview = computed(() => researchCitations.value.filter(c => c.url && srcIncluded(c)))
-
-async function persistResearchIncludes(): Promise<void> {
-  if (!episodeId.value || !researchLoaded.value) return
-  const scopeEpoch = metadataScopeEpoch
-  const projectSlug = slug.value
-  const code = episodeId.value
-  const citations = researchCitations.value.map(c => c.include_in_description)
-  savingResearch.value = true
-  try {
-    // Re-read then patch only the include flags so we never clobber the
-    // claims/edits the Research page owns.
-    const r = await get<{ exists: boolean; research?: any }>(`/projects/${projectSlug}/research/${code}`)
-    if (metadataScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== code) return
-    if (!r.exists || !r.research) return
-    const fresh = r.research
-    fresh.citations = (fresh.citations || []).map((c: any, i: number) => ({
-      ...c,
-      include_in_description: citations[i],
-    }))
-    await put(`/projects/${projectSlug}/research/${code}`, fresh)
-  } catch { /* best-effort — the picks still apply for this session */ } finally {
-    savingResearch.value = false
-  }
-}
-async function setSrcIncluded(c: SrcCitation, val: boolean): Promise<void> {
-  c.include_in_description = val
-  await persistResearchIncludes()
-}
-async function bulkSrc(mode: 'all' | 'verified' | 'none'): Promise<void> {
-  researchCitations.value.forEach((c, i) => {
-    c.include_in_description = mode === 'all' ? true : mode === 'none' ? false : verifiedBackingSet.value.has(i)
-  })
-  await persistResearchIncludes()
-}
-
 // ── Unified preset wiring ──────────────────────────────────────────────────
 // Swapped off the custom youtube_templates schema onto the same usePresets
 // composable every other generator page uses. One-time migration below
@@ -941,22 +843,6 @@ const metadataPresets = usePresets<MetadataPresetSnapshot>({
 
 // ── Computed ───────────────────────────────────────────────────────────────
 
-// Live preview of the final title for fixed modes — what the generator
-// will return (idea or manual title + optional suffix). Helps the user
-// verify the suffix lands where they expect before they click Generate.
-const titlePreviewText = computed(() => {
-  if (titleConfig.mode === 'paraphrase') return ''
-  const base = titleConfig.mode === 'manual'
-    ? (titleConfig.manualTitle || '').trim()
-    : (selectedEpisode.value?.title || '').trim()
-  if (!base) {
-    return titleConfig.mode === 'manual'
-      ? '(type your title above)'
-      : '(no episode selected)'
-  }
-  return (titleConfig.prefix || '') + base + (titleConfig.suffix || '')
-})
-
 const tagsAsString = computed({
   get: () => preview.tags.join(', '),
   set: (val: string) => { preview.tags = val.split(',').map(t => t.trim()).filter(Boolean) },
@@ -966,62 +852,6 @@ const nextVersionNumber = computed(() => {
   if (!versions.value.length) return 1
   return Math.max(...versions.value.map(v => v.version)) + 1
 })
-
-// ── Preset handling ────────────────────────────────────────────────────────
-
-const PRESET_LIMITS: Record<string, number> = {
-  YouTube: 100,
-  Universal: 100,
-}
-function onTitlePresetChange() {
-  if (titleConfig.preset !== 'custom' && PRESET_LIMITS[titleConfig.preset]) {
-    titleConfig.maxLength = PRESET_LIMITS[titleConfig.preset]!
-  }
-}
-
-// ── Section reorder ────────────────────────────────────────────────────────
-
-function moveSection(i: number, dir: number) {
-  const j = i + dir
-  if (j < 0 || j >= sections.value.length) return
-  const a = sections.value[i]
-  const b = sections.value[j]
-  if (!a || !b) return
-  sections.value[i] = b
-  sections.value[j] = a
-}
-function addCustomBlock() {
-  sections.value.push({ id: `custom-${Date.now()}`, label: 'Custom Section', type: 'custom', enabled: true, config: { instructions: '' } })
-}
-
-// ── HTML5 Drag & Drop ──────────────────────────────────────────────────────
-
-const dragIndex = ref<number | null>(null)
-const dragOverIndex = ref<number | null>(null)
-
-function onDragStart(i: number, ev: DragEvent) {
-  dragIndex.value = i
-  if (ev.dataTransfer) {
-    ev.dataTransfer.effectAllowed = 'move'
-    ev.dataTransfer.setData('text/plain', String(i))
-  }
-}
-function onDragOver(i: number) {
-  if (dragIndex.value === null || dragIndex.value === i) return
-  dragOverIndex.value = i
-}
-function onDragLeave() { dragOverIndex.value = null }
-function onDrop(i: number) {
-  const from = dragIndex.value
-  if (from === null || from === i) { onDragEnd(); return }
-  const moved = sections.value.splice(from, 1)[0]
-  if (moved) sections.value.splice(i, 0, moved)
-  onDragEnd()
-}
-function onDragEnd() {
-  dragIndex.value = null
-  dragOverIndex.value = null
-}
 
 // ── Episode selection + preview load ──────────────────────────────────────
 
@@ -1415,61 +1245,6 @@ watch(selectedVersion, () => {
   sessionVersion.value = null
 })
 
-// ── YouTube-playlist picker for the Playlists section ────────────────────
-// The Playlists metadata section used to be manual {name, url} inputs the
-// user filled by copy-pasting links from YouTube. This dropdown pulls the
-// channel's actual playlists via the same /upload/playlists endpoint the
-// Upload Center uses, so the user can pick one and we prefill name + URL.
-// Errors are non-fatal — if the call fails the manual inputs still work.
-interface ChannelPlaylist {
-  id: string
-  title: string
-  itemCount?: number
-}
-const availablePlaylists = ref<ChannelPlaylist[]>([])
-const playlistsLoading = ref(false)
-const playlistsError = ref('')
-
-async function loadAvailablePlaylists(forceRefresh = false) {
-  playlistsLoading.value = true
-  playlistsError.value = ''
-  try {
-    // Backend route: /projects/:slug/upload/playlists?force=1
-    const r = await get<{ playlists: ChannelPlaylist[] }>(
-      `/projects/${slug.value}/upload/playlists${forceRefresh ? '?force=1' : ''}`,
-    )
-    availablePlaylists.value = Array.isArray(r?.playlists) ? r.playlists : []
-  } catch (e: any) {
-    // Most common reason: no YouTube account connected on this project,
-    // or quota exceeded. Either way the user can still paste URLs.
-    playlistsError.value = e?.data?.detail || e?.message || 'unknown'
-    availablePlaylists.value = []
-  } finally {
-    playlistsLoading.value = false
-  }
-}
-
-function addPlaylistFromChannel(playlistId: string) {
-  if (!playlistId) return
-  const pl = availablePlaylists.value.find(p => p.id === playlistId)
-  if (!pl) return
-  const url = `https://youtube.com/playlist?list=${pl.id}`
-  // Resolve the playlists section from the page-level `sections` ref —
-  // can't reference the v-for `section` from here. Section ids are
-  // unique within the active preset.
-  const playlistSection = sections.value.find((s: any) => s.id === 'playlists')
-  if (!playlistSection) return
-  // If the user has an empty initial row sitting there (the seeded
-  // {name:'', url:''}), fill that one rather than push a duplicate.
-  const empty = (playlistSection.config.playlists as any[]).find((p: any) => !p.name && !p.url)
-  if (empty) {
-    empty.name = pl.title
-    empty.url = url
-  } else {
-    ;(playlistSection.config.playlists as any[]).push({ name: pl.title, url })
-  }
-}
-
 /**
  * v1.0.71+: seed titleConfig / descConfig / tagConfig defaults from the
  * project's effective Format BEFORE preset.load() runs. Out-of-the-box
@@ -1569,11 +1344,6 @@ onMounted(async () => {
 .meta-result-cancelled .meta-result-icon { color: var(--warning, #f0c674); }
 .meta-result-dismiss { margin-left: auto; flex: 0 0 auto; }
 
-.combined-card {
-  background: linear-gradient(135deg, rgba(96,165,250,0.08), rgba(167,139,250,0.08));
-  border: 1px solid rgba(96,165,250,0.2);
-}
-
 .shared-settings { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 12px 16px; }
 
 .metadata-blueprint { padding: 18px 20px; border-color: rgba(240, 198, 116, .28); background: linear-gradient(120deg, rgba(240, 198, 116, .09), rgba(69, 153, 210, .04)); }
@@ -1587,50 +1357,6 @@ onMounted(async () => {
 .blueprint-active { color: var(--success, #5fb37a); font-weight: 600; }
 @media (max-width: 640px) { .blueprint-heading { flex-direction: column; } }
 
-/* v1.0.198 — starter-template picker. */
-.starter-templates { padding: 12px 16px; }
-.starter-templates-row { display: flex; flex-wrap: wrap; gap: 8px; }
-.starter-tpl-btn {
-  padding: 6px 14px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, color 0.15s;
-}
-.starter-tpl-btn:hover { border-color: var(--accent); color: var(--text-primary); }
-.starter-tpl-btn.active { border-color: var(--accent); background: var(--accent-dim); color: var(--accent); }
-.starter-tpl-reset { margin-left: auto; color: var(--text-muted); }
-.starter-tpl-reset:hover { color: var(--text-primary); }
-
-/* v1.0.200 — live section outline. */
-.section-outline { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.outline-chip {
-  font-size: var(--font-xs);
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-}
-.outline-sep { color: var(--text-muted); font-size: var(--font-xs); }
-
-/* v1.0.198 (M1b) — Sources section. */
-.sources-section { display: flex; flex-direction: column; gap: 6px; }
-.sources-bulk { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.sources-list { list-style: none; margin: 4px 0 0; padding: 0; font-size: 12px; }
-.sources-list li { display: flex; align-items: center; gap: 6px; margin: 4px 0; line-height: 1.4; flex-wrap: wrap; }
-.sources-list li.src-off { opacity: 0.5; }
-.sources-note { margin: 4px 0 0; line-height: 1.5; }
-.src-vbadge {
-  font-size: var(--font-xs);
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: rgba(91, 179, 124, 0.16);
-  color: #5bb37c;
-}
 .shared-settings-label { display: flex; flex-direction: column; gap: 2px; font-size: 13px; font-weight: 600; color: var(--text-secondary); min-width: 110px; }
 .shared-settings-control { max-width: 420px; margin: 0; }
 
@@ -1676,39 +1402,6 @@ onMounted(async () => {
   .finalizer-readiness-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-/* Inline helper line directly under an input (e.g. "soft target ±15%"). */
-.hint-line { margin-top: 4px; }
-
-/* Section helper label — a short cue above an array of inputs.
- * Used for the channels / videos / playlists / cta / support pickers
- * where "label" wouldn't apply to a single input. */
-.section-helper-label {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-  display: block;
-}
-
-/* Narrow form-field widths (used by per-section number inputs). */
-.input-narrow { max-width: 140px; }
-.narrow-field { max-width: 280px; }
-.narrow-field-wide { max-width: 200px; }
-
-/* Description "Number of tags" / "Hashtag count" use input-narrow.
- * Hashtags-section has its own width via the same class. */
-
-/* Link-row column widths — name, url, kind selector. */
-.link-row .link-input-name { flex: 1; }
-.link-row .link-input-url  { flex: 1.5; }
-.link-row .link-select-kind { max-width: 140px; }
-.link-row .support-select-kind { max-width: 170px; }
-.link-row .support-input-label { max-width: 160px; }
-
-/* Playlist picker (the "+ Add from your YouTube channel" combo row). */
-.playlist-picker-row { margin-bottom: 6px; }
-.playlist-picker-row .playlist-picker-select { flex: 2.5; }
-.playlist-picker-error { margin-bottom: 6px; }
-
 /* Description-area version history dropdown. */
 .history-picker { margin-bottom: 0; }
 .history-picker .history-label {
@@ -1719,48 +1412,6 @@ onMounted(async () => {
 
 .card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
 
-/* Title-mode picker (radio rows + dimmed downstream controls) */
-.title-mode-row {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 4px;
-}
-.title-mode-option {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  font-size: 13px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: 4px 0;
-}
-.title-mode-option input[type="radio"] {
-  margin-top: 3px;
-  accent-color: var(--accent);
-  cursor: pointer;
-}
-.controls-dimmed {
-  opacity: 0.55;
-  pointer-events: none;
-}
-
-/* Title options */
-.title-options { display: flex; flex-direction: column; gap: 6px; }
-.title-option {
-  padding: 10px 14px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: all 0.15s;
-  display: flex; justify-content: space-between; align-items: center; gap: 12px;
-}
-.title-option:hover { border-color: var(--accent); background: var(--bg-hover); }
-.title-option.selected { border-color: var(--accent); background: rgba(240, 198, 116, 0.1); }
-.title-option-text { flex: 1; font-size: 14px; }
-.title-option-count { font-size: var(--font-xs); color: var(--text-muted); font-family: 'SF Mono', monospace; white-space: nowrap; }
-
 /* Char count badge */
 .char-count {
   font-size: var(--font-xs);
@@ -1770,60 +1421,6 @@ onMounted(async () => {
   font-family: 'SF Mono', monospace;
 }
 .char-count.over-limit { color: var(--error); font-weight: 600; }
-
-/* Section list with drag & drop */
-.section-list { display: flex; flex-direction: column; gap: 8px; }
-
-.section-item {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 14px;
-  transition: opacity 0.2s, border-color 0.15s, transform 0.15s;
-  cursor: grab;
-}
-.section-item:active { cursor: grabbing; }
-.section-item.disabled { opacity: 0.4; }
-.section-item.drag-over {
-  border-color: var(--accent);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(240, 198, 116, 0.15);
-}
-
-.section-header { display: flex; justify-content: space-between; align-items: center; }
-.section-head-left { display: flex; align-items: center; gap: 8px; }
-
-.drag-handle {
-  color: var(--text-muted);
-  font-size: 18px;
-  cursor: grab;
-  user-select: none;
-  padding: 0 2px;
-  line-height: 1;
-}
-.drag-handle:hover { color: var(--text-primary); }
-
-.section-config { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
-
-.reorder-btns { display: flex; flex-direction: column; gap: 2px; }
-.reorder-btn {
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: var(--font-xs);
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
-  line-height: 1;
-  min-height: 20px;
-  min-width: 28px;
-  transition: all 0.15s;
-}
-.reorder-btn:hover:not(:disabled) { background: var(--accent-dim); color: var(--accent); border-color: rgba(240, 198, 116, 0.3); }
-.reorder-btn:disabled { opacity: 0.3; cursor: default; }
-.reorder-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-
-.config-textarea { width: 100%; min-height: 70px; font-size: 13px; line-height: 1.5; resize: vertical; }
 
 /* Preview */
 .preview-textarea {
@@ -1841,38 +1438,11 @@ onMounted(async () => {
   resize: vertical;
 }
 
-.link-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
-.meta-toggles { display: flex; gap: 20px; }
-.toggle-label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; }
-
 .btn-icon {
   background: none; border: none; color: var(--text-muted);
   cursor: pointer; font-size: 14px; padding: 4px 8px; border-radius: 4px;
 }
 .btn-icon:hover { background: var(--bg-hover); color: var(--text-primary); }
-.btn-icon.danger:hover { color: var(--error); background: rgba(248,113,113,0.1); }
-
-.checkbox-label { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; color: var(--text-muted); }
-
 .select-sm { padding: 4px 8px; font-size: 12px; }
-
-.ml-auto { margin-left: auto; }
-
-/* Save-as modal */
-.modal-overlay {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,0.6);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 2000;
-}
-.modal-small {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 24px;
-  width: 420px;
-  max-width: calc(100vw - 48px);
-}
-.modal-small h3 { font-size: 16px; font-weight: 600; }
 
 </style>

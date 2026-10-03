@@ -1094,48 +1094,6 @@ export async function hasFinalVideoFast(
   }
 }
 
-/**
- * Cheap byte-size lookup for the final assembled video. Mirrors the
- * project-tree + external-root paths used by `hasFinalVideoFast`, then
- * stats the matched file. Returns `undefined` when nothing was found —
- * the upload page renders that as an em-dash chip ("file not local").
- *
- * Two-path scan only (no episode_dir / sidecar / "Output" subfolder
- * walk like `computeEpisodeStatus`): the queue is paginated and runs
- * this per visible row, so we keep it tight. Anything more exotic that
- * the user produced themselves shows up as size-unknown — same UX as
- * sidecar-only uploads where the local file was deleted.
- */
-export async function getFinalVideoBytes(
-  slug: string,
-  code: string,
-  title: string,
-  cache?: ProjectFactsCache,
-): Promise<number | undefined> {
-  try {
-    const paths = await resolveEpisodePaths(slug, code, title || '', cache)
-    const localMatch = await findCanonicalFinal(paths.video_dir, code)
-    if (localMatch) {
-      const st = await fs.stat(path.join(paths.video_dir, localMatch)).catch(() => null)
-      if (st?.isFile() && st.size > 0) return st.size
-    }
-    try {
-      const { resolveExternalFinalVideoDir } = await import('./external-video-store.js')
-      const externalDir = await resolveExternalFinalVideoDir(slug, code, title || '', cache)
-      if (externalDir) {
-        const extMatch = await findCanonicalFinal(externalDir, code)
-        if (extMatch) {
-          const st = await fs.stat(path.join(externalDir, extMatch)).catch(() => null)
-          if (st?.isFile() && st.size > 0) return st.size
-        }
-      }
-    } catch { /* external store not configured → skip */ }
-    return undefined
-  } catch {
-    return undefined
-  }
-}
-
 export async function computeEpisodeStatus(
   slug: string,
   code: string,

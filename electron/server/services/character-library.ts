@@ -430,20 +430,6 @@ export async function unassignFromProject(characterId: string, slug: string): Pr
   return result
 }
 
-/** Replace a library character's entire assignment set. Returns null if missing. */
-export async function setProjects(characterId: string, slugs: string[]): Promise<Character | null> {
-  const file = libraryJsonPath(characterId)
-  if (!existsSync(file)) return null
-  let result: Character | null = null
-  await withLock(file, async () => {
-    const current = JSON.parse(await fs.readFile(file, 'utf-8')) as Character
-    const merged: Character = { ...current, projects: normalizeProjects(slugs) }
-    await writeJsonAtomic(file, merged)
-    result = merged
-  })
-  return result
-}
-
 /** Save a channel-specific voice/delivery profile without changing other channels. */
 export async function setChannelProfile(
   characterId: string,

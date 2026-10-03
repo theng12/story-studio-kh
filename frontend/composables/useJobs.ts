@@ -431,10 +431,9 @@ export function useJobs() {
   /**
    * `startPolling` is kept for source compatibility with existing callers,
    * but under the hood we prefer SSE and fall back to polling only on
-   * repeated connection failures. The `intervalMs` parameter is honoured
-   * for the fallback path; it's otherwise unused.
+   * repeated connection failures.
    */
-  function startPolling(slug: string, _intervalMs = 3000) {
+  function startPolling(slug: string) {
     if (currentSlug !== slug) resetJobsState()
     currentSlug = slug
     isLoading.value = true

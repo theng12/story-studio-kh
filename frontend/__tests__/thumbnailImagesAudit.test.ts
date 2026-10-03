@@ -73,7 +73,7 @@ function panelFixture(jobReads: Array<() => any>) {
 async function mountPanel(fx: any, generationMode: 'skip' | 'regenerate' = 'skip') {
   const Panel = await loadSetup('../components/ImageGeneratorPanel.vue', PANEL_SUPPORT)
   const app = createApp({ render: () => h(Panel, {
-    kind: 'thumbnail', projectSlug: 'p', episodeId: 'EP1', title: 'T', generationMode,
+    projectSlug: 'p', episodeId: 'EP1', title: 'T', generationMode,
     prepare: async (force: boolean, ask: boolean) => { fx.prepares.push([force, ask]); return fx.prepareResult(force) },
   }) })
   app.mount(document.body.appendChild(document.createElement('div')))

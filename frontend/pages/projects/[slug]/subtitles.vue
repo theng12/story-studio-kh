@@ -201,7 +201,7 @@
           </div>
           <p v-else-if="genstudioModelsError" class="validation-msg text-sm">
             ⚠ {{ genstudioModelsError }}
-            <NuxtLink :to="`/projects/${slug}/settings#genstudio-settings`" class="inline-link">Open transcription settings</NuxtLink>
+            <NuxtLink :to="`/projects/${slug}/settings#connections`" class="inline-link">Open transcription settings</NuxtLink>
             or <a href="#" class="inline-link" @click.prevent="loadGenstudioModels">retry</a>.
           </p>
           <div v-else class="form-group">

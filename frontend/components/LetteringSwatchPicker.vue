@@ -69,7 +69,7 @@ interface SwatchStyle {
   preview: { hash: string; url: string } | null
 }
 
-const props = defineProps<{ kind: 'font' | 'text'; modelValue: string; model?: string; aspectRatio?: string; caption: string; title: string }>()
+const props = defineProps<{ kind: 'font' | 'text'; modelValue: string; aspectRatio?: string; caption: string; title: string }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const open = ref(false)
 /**

@@ -108,8 +108,8 @@
       hand on the Script page is still kept — this setting decides what the app writes, not what you write.
     </WorkspaceNotice>
     <WorkspaceNotice v-else tone="success" title="Every episode this channel writes will get an opening">
-      That includes unattended batch runs. There is no separate box to tick on the Pipeline any more —
-      it follows this setting, so an opening can no longer be missed by forgetting to ask for one.
+      That includes unattended batch runs, which follow this setting, so an opening cannot be missed by
+      forgetting to ask for one.
     </WorkspaceNotice>
 
     <section class="card intro-recipe">

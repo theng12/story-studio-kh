@@ -144,19 +144,3 @@ function relativeIfInside(abs: string, base: string): string | null {
   if (abs.startsWith(baseWithSep)) return abs.slice(baseWithSep.length)
   return null
 }
-
-/**
- * Collect every `${NAME}` variable referenced by a portable path so the
- * import flow can warn the user if a required root isn't defined locally.
- * Pass any mix of portable / absolute / undefined values — non-portable
- * ones contribute nothing.
- */
-export function collectRequiredRoots(paths: Array<string | undefined | null>): string[] {
-  const names = new Set<string>()
-  for (const p of paths) {
-    if (!p) continue
-    const m = typeof p === 'string' ? p.match(VAR_RE) : null
-    if (m && m[1] !== 'PROJECT') names.add(m[1])
-  }
-  return [...names].sort()
-}

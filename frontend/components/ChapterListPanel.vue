@@ -36,8 +36,8 @@
     <div v-if="!episodeId" class="chp-empty">Select an episode to see its chapters.</div>
     <div v-else-if="loading && !chapters.length" class="chp-empty">Loading chapters…</div>
     <div v-else-if="!chapters.length" class="chp-empty">
-      No chapters yet. Generate the script (above) to create the chapter files,
-      then regenerate any individual chapter from this panel.
+      No chapters yet. Create an outline on the Outline tab and expand it to write the
+      chapters, then regenerate any individual chapter from this panel.
     </div>
 
     <ul v-else class="chp-list" role="list">

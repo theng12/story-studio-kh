@@ -110,17 +110,6 @@ export async function letteringCatalogue(
   return rows
 }
 
-/** The phrase for one style, from either source. Falls back to '' so a caller
- *  can decide what an unknown id means rather than being handed a wrong style. */
-export async function letteringPhrase(
-  axis: LetteringAxis,
-  id: string,
-  options: ContentPackRegistryOptions = {},
-): Promise<string> {
-  const rows = await letteringCatalogue(options)
-  return rows.find(row => row.axis === axis && row.id === id)?.phrase || ''
-}
-
 export interface LetteringPhraseMaps {
   font: Record<string, string>
   text: Record<string, string>

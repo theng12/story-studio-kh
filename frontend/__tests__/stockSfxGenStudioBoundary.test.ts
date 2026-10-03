@@ -10,7 +10,8 @@ function source(relative: string): string {
 describe('stock and Sound Design boundary UI', () => {
   test('assets library presents manual import without provider submission controls', () => {
     const library = source('../pages/broll-library.vue')
-    assert.match(library, /Add files locally/)
+    assert.match(library, /via Finder and click/)
+    assert.doesNotMatch(library, /Add files|Searching stock-footage/)
     assert.doesNotMatch(library, /\/broll-fetch\/search|queueSelectedFetches|runFetchSearch/)
   })
 

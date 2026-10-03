@@ -1633,8 +1633,7 @@ watch(
   flex-direction: column;
   gap: 13px;
 }
-.research-brief-copy label,
-.research-advanced-grid label {
+.research-brief-copy label {
   display: block;
   margin-bottom: 6px;
   color: var(--text-primary);

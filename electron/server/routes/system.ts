@@ -329,8 +329,7 @@ router.post('/system/validate-path', async (req, res) => {
 router.get('/system/quick-locations', async (_req, res) => {
   // Sidebar shortcuts shown in the FileBrowserModal — common starting points
   // a user is likely to want when picking a folder. Each entry is checked for
-  // existence so we don't surface broken paths (e.g. the "Mobile Documents"
-  // iCloud dir doesn't exist on a fresh install with iCloud disabled).
+  // existence so we don't surface broken paths.
   const home = process.env.HOME || process.env.USERPROFILE || ''
   const candidates: Array<{ label: string; path: string }> = []
   if (home) {
@@ -338,12 +337,6 @@ router.get('/system/quick-locations', async (_req, res) => {
     candidates.push({ label: 'Desktop', path: path.join(home, 'Desktop') })
     candidates.push({ label: 'Documents', path: path.join(home, 'Documents') })
     candidates.push({ label: 'Downloads', path: path.join(home, 'Downloads') })
-    if (process.platform === 'darwin') {
-      candidates.push({
-        label: 'iCloud Drive',
-        path: path.join(home, 'Library', 'Mobile Documents', 'com~apple~CloudDocs'),
-      })
-    }
   }
   // Always include the app's projects root — that's where most picker flows
   // want to start (e.g. choosing a subfolder of an existing project).

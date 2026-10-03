@@ -1078,10 +1078,6 @@ const chainLabel = computed(() => {
   return 'production flow unavailable'
 })
 const hasExternalNodes = computed(() => chainEntries.value.some(e => e.kind === 'external'))
-// Human-readable chain order for the page header — built from the active
-// format's chain so it always matches what's actually shown below.
-const chainSentence = computed(() => chainEntries.value.map(e => e.label).join(' → '))
-
 const stepChecked = reactive<Record<StepId, boolean>>({
   // Pipeline always opens with an empty stage selection. Starting work is an
   // explicit decision; shortcuts below provide safe required-only or full-chain
@@ -1594,7 +1590,6 @@ watch(epError, (e) => {
   if (e) showError((e as any)?.data?.detail || (e as any)?.message || 'Failed to load episodes')
 })
 
-async function loadEpisodes() { await refreshEpisodes() }
 
 async function onRefreshClick(e: MouseEvent) {
   if (e.shiftKey) await rescanEpisodes()

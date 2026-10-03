@@ -3025,23 +3025,6 @@ export async function getGenStudioJobByIdempotencyKey(
   return parseGenStudioCancellationResponse(response)
 }
 
-/** Read an already-submitted Chat response without creating or cancelling work. */
-export async function getGenStudioChatStatus(
-  baseUrl: string,
-  apiKey: string,
-  providerJobId: string,
-  idempotencyKey: string | undefined,
-  deadline: number,
-): Promise<GenStudioJob & GenStudioCancellationFields> {
-  const pending = providerJobId.startsWith('pending:')
-  if (pending && !idempotencyKey) throw new Error('Chat provider evidence has no durable idempotency key to reconcile')
-  const parsed = pending
-    ? await getGenStudioJobByIdempotencyKey('chat.response', baseUrl, apiKey, idempotencyKey!, {}, deadline)
-    : await getGenStudioCancellationStatus('chat.response', baseUrl, apiKey, providerJobId, {}, deadline)
-  if (!pending && parsed.id !== providerJobId) throw new Error('Gateway Chat status response did not match the requested provider job')
-  return parsed
-}
-
 /**
  * Ask GenStudio to cancel one accepted task and return its response untouched.
  * This intentionally has no catch or fallback: a timeout is unknown, not a
@@ -6074,14 +6057,6 @@ async function recoverMusicWithGenStudioAdmitted(
   return musicResult(baseUrl, apiKey, completed)
 }
 
-export async function recoverMusicWithGenStudio(
-  apiKey: string,
-  jobId: string,
-  request: GenStudioMusicRequest,
-): Promise<GenStudioMusicResult> {
-  return recoverMusicWithGenStudioAdmitted(apiKey, jobId, request)
-}
-
 export async function generateMusicWithGenStudio(
   apiKey: string,
   request: GenStudioMusicRequest,
@@ -7507,24 +7482,6 @@ async function replaceConfirmedGeneration<T>(
       await checkpoint({ task_id: current.id, state: current.state === 'succeeded' ? 'succeeded' : current.state === 'failed' ? 'failed' : 'submitted',
         ...(settled !== null && settled <= committed.max_credits ? { settled_credits: settled } : {}) })
     } catch { /* Unknown outcome retains its durable cap and identity. */ }
-  }
-}
-
-export async function recoverChatWithGenStudio(
-  apiKey: string,
-  jobId: string,
-  request: GenStudioChatRequest,
-): Promise<GenStudioChatResult> {
-  const prepared = await prepareChatSubmission(apiKey, request)
-  const restored = await restoreReplacementRequest('writing', apiKey, prepared.idempotencyKey, chatReplacementItemKey(prepared, request), request)
-  if (restored.key !== prepared.idempotencyKey) {
-    return callChatViaResponses(apiKey, restored.request, { ...prepared, idempotencyKey: restored.key })
-  }
-  try {
-    const completed = await recoverChatJobAdmitted(apiKey, jobId, request)
-    return finishChatJob(apiKey, request, prepared, completed)
-  } catch (error) {
-    return replaceFailedChat(apiKey, request, prepared, error)
   }
 }
 

@@ -169,10 +169,3 @@ export function parseSubtitleStyleDocument(input: unknown): SubtitleStyleDocumen
   // document and a normalised one are the same object shape.
   return normalizeSubtitleStyle(result.data)
 }
-
-/** Validate a PARTIAL document (a preset body / pack patch). */
-export function parseSubtitleStylePatch(input: unknown): z.infer<typeof SubtitleStylePatchSchema> {
-  const result = SubtitleStylePatchSchema.safeParse(input)
-  if (!result.success) throw new SubtitleStyleValidationError(describe(result.error))
-  return result.data
-}

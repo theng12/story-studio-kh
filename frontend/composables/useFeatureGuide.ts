@@ -29,33 +29,33 @@ export const featureGuides: Record<string, FeatureGuide> = {
   },
   projects: {
     title: 'Projects',
-    summary: 'Create, open, relocate, and recover Story Studio channels. Each project keeps its own episodes, presets, styles, and production files.',
+    summary: 'Create, open, and recover Story Studio channels. Each project keeps its own episodes, presets, styles, and production files.',
     workflow: ['Open an existing project, or put its folder in your projects folder for it to appear.', 'Create a project when starting a new channel.', 'Use Settings inside a project for channel-specific configuration.'],
     topics: [
       { title: 'Project card', purpose: 'Opens that channel workspace and shows whether its folder is available.', useWhen: 'Use it whenever you want to continue production for a channel.' },
       // v1.4.2 — this described a button removed on 2026-08-08. Project
       // discovery is a filesystem scan, so the honest answer is where to put the
       // folder, not which button to press.
-      { title: 'Adding a project that already exists on disk', purpose: 'Story Studio finds any folder in your projects folder that contains a project.json, so a project you copied or restored appears on its own.', useWhen: 'Use after restoring a backup or moving a project between Macs. Settings → Storage shows where your projects folder is.' },
+      { title: 'Adding a project that already exists on disk', purpose: 'Story Studio finds any folder in your projects folder that contains a project.json, so a project you copied or restored appears on its own.', useWhen: 'Use after restoring a backup or moving a project between Macs. Settings → Files & maintenance shows where your Library is.' },
       { title: 'Hidden channels', purpose: 'Lists channels removed from the list with Hide project, and restores them without touching any files.', useWhen: 'Use when a channel you hid needs to come back.' },
       { title: 'New Project', purpose: 'Creates the channel structure, production format, and initial settings.', effect: 'A new project folder and project record are created.' },
       { title: 'Usage', purpose: 'Shows your GenStudio credits: what is set aside for running jobs and what finished jobs actually cost.' },
       { title: 'Settings', purpose: 'Opens settings that belong to this Mac, including appearance, remote access, and the Gateway connection.' },
     ],
-    tips: ['Removing a project from the app is different from deleting its files. Use project controls rather than deleting folders blindly.', 'A "Folder missing" badge means the project record is safe but the episodes folder it points at is not there — the path is named on the project page so you can move the folder back or repoint it in Settings → Storage.'],
+    tips: ['Removing a project from the app is different from deleting its files. Use project controls rather than deleting folders blindly.', 'A "Folder missing" badge means the project record is safe but the episodes folder it points at is not there — the path is named on the project page so you can move the folder back or reconnect the drive it lives on.'],
   },
   dashboard: {
     title: 'Project Dashboard',
     summary: 'A channel-level command center that summarizes verified readiness, active work, finished videos, and the most useful next action.',
-    workflow: ['Review Needs Work and Ready to Render.', 'Open the suggested next action.', 'Use Production workflow for stage-by-stage coverage.'],
+    workflow: ['Review Needs work and Ready for final video.', 'Open the suggested next action.', 'Use Production workflow for stage-by-stage coverage.'],
     topics: [
-      { title: 'Needs Work', purpose: 'Counts episodes missing at least one required stage under the same completion rules used by Pipeline and Production Board.' },
-      { title: 'Ready to Render', purpose: 'Shows episodes whose required assets and approvals are complete but final video is still missing.' },
-      { title: 'Final Videos', purpose: 'Counts episodes with a verified assembled output.' },
+      { title: 'Needs work', purpose: 'Counts episodes missing at least one required stage under the same completion rules used by Pipeline and Production Board.' },
+      { title: 'Ready for final video', purpose: 'Shows episodes whose required assets and approvals are complete but final video is still missing.' },
+      { title: 'Final videos', purpose: 'Counts episodes with a verified assembled output.' },
       { title: 'Idea Library', purpose: 'Shows the size and review state of the channel idea catalog.' },
       { title: 'Focus now', purpose: 'Ranks useful next actions from verified project state instead of guessing from folder names.' },
     ],
-    tips: ['Optional stages never block readiness unless you explicitly enable them for the project.', 'Use Refresh status after importing or changing files outside Story Studio.'],
+    tips: ['Optional stages never block readiness unless you explicitly enable them for the project.', 'Use Re-check all episodes after importing or changing files outside Story Studio.'],
   },
   ideas: {
     title: 'Ideas Generator',
@@ -118,7 +118,7 @@ export const featureGuides: Record<string, FeatureGuide> = {
       'Choose an episode and write its opening once the chapters exist.',
     ],
     topics: [
-      { title: 'Channel setting', purpose: 'Decides whether every episode this channel writes gets an opening.', effect: 'Applies to this page and to unattended batch runs alike; there is no separate box on Pipeline.' },
+      { title: 'Channel setting', purpose: 'Decides whether every episode this channel writes gets an opening.', effect: 'Applies to this page and to unattended batch runs alike.' },
       { title: 'Beats', purpose: 'The ordered things the opening covers, each with a note saying what it produces.', effect: 'A beat switched off is left out of the instructions entirely rather than summarised.' },
       { title: 'Per-beat wording', purpose: 'Says in this channel\u2019s own words what a beat should cover.' },
       { title: 'Model', purpose: 'Chooses the language model that writes the opening.', effect: 'Left on the default, it follows whatever the Script Generator is set to.' },
@@ -342,7 +342,7 @@ export const featureGuides: Record<string, FeatureGuide> = {
   presets: {
     title: 'Presets',
     summary: 'Manage reusable local settings for generators, review stages, assembly, and upload without mixing episode-specific assets.',
-    workflow: ['Filter by workspace.', 'Rename, duplicate, export, or remove a preset.', 'Return to the workspace to apply it.'],
+    workflow: ['Find the preset in its group.', 'Rename, duplicate, export, or remove it.', 'Open its workspace to apply it.'],
     topics: [
       { title: 'Preset', purpose: 'Stores reusable control choices for one workspace.' },
       { title: 'Last used', purpose: 'Restores your most recent explicit choice when no preset overrides it.' },
@@ -350,19 +350,22 @@ export const featureGuides: Record<string, FeatureGuide> = {
       { title: 'Export', purpose: 'Produces a portable backup of reusable settings.' },
       { title: 'Episode-specific exclusions', purpose: 'Prevents files such as title images from leaking into another episode.' },
     ],
-    tips: ['Presets are local project configuration, not a cloud catalog.', 'Give presets outcome-based names such as Narration Safe or Remote Final Render.'],
+    tips: ['Presets are local project configuration, not a cloud catalog.', 'Give presets outcome-based names such as Narration Safe or Quick Draft.'],
   },
   settings: {
     title: 'Settings',
     summary: 'Configure what belongs to this Mac and what travels with this project. The Gateway decides which models you can use.',
-    workflow: ['Use App and Connections for this Mac.', 'Use Content and Generation for channel behavior.', 'Use Files for project paths and storage.'],
+    workflow: ['Use the This Mac sections for the Gateway, YouTube, appearance, and files on this computer.', 'Use the This Project sections for the channel’s identity, production defaults, writing, and publishing.', 'Use Project files & behavior for folders, numbering, and confirmations.'],
     topics: [
-      { title: 'App and Connections', purpose: 'Manages appearance, server mode, secure Gateway connection, catalog access, and account diagnostics.' },
-      { title: 'Format, Niche, and Standards', purpose: 'Defines what the channel produces and its editorial guardrails.' },
-      { title: 'Styles', purpose: 'Chooses or builds the visual language used by prompts and image generation.' },
-      { title: 'Performance', purpose: 'Controls how much work Story Studio prepares at once on this Mac. The Gateway still decides when each job starts.' },
-      { title: 'Folders, Storage, and Named Roots', purpose: 'Controls project file locations, portable paths, and cleanup behavior.' },
-      { title: 'Confirmations and Project', purpose: 'Controls safety prompts, project identity, relocation, and removal.' },
+      { title: 'Connections', purpose: 'Connects the Gateway and your YouTube accounts, and shows the model catalog and account health.' },
+      { title: 'Performance & recovery', purpose: 'Controls how much work Story Studio prepares at once on this Mac. The Gateway still decides when each job starts.' },
+      { title: 'Appearance & notifications', purpose: 'Sets the theme, remote access (Server Mode), text options, and alerts such as Telegram.' },
+      { title: 'Files & maintenance', purpose: 'Chooses the shared Library, frees up space from uploaded episodes, and holds FFmpeg and diagnostics.' },
+      { title: 'Channel identity', purpose: 'Chooses the Series Formula and Topic Packs that define what the channel produces.' },
+      { title: 'Production defaults', purpose: 'Sets continuity, narration quality, and episode shape for this project.' },
+      { title: 'Writing & style', purpose: 'Holds writing instructions, introductions, and the visual style used by prompts and images.' },
+      { title: 'Publishing', purpose: 'Assigns the YouTube channel and sets the publishing profile and cadence.' },
+      { title: 'Project files & behavior', purpose: 'Controls the project’s folders, storage, episode numbering, and safety confirmations.' },
     ],
     tips: ['Labels state whether a setting stays on this Mac or travels with the project.', 'Never expose the Story Studio server port publicly; use authenticated Server Mode over a private network such as Tailscale.'],
   },
@@ -453,16 +456,17 @@ export const featureGuides: Record<string, FeatureGuide> = {
     tips: ['Recipes guide composition; Thumbnail Prompts still creates episode-specific creative directions.', 'Use clearly different recipes when testing click-through performance.'],
   },
   'image-pool': {
-    title: 'Image Pool Bridge',
-    summary: 'Materialize reusable stills from an indexed image pool into the unified scene-based Video Assembly workflow.',
-    workflow: ['Choose an online image pool and episode.', 'Set the image pacing and load images as scenes.', 'Finish editing and rendering in Video Assembly.'],
+    title: 'Image Pool',
+    summary: 'Pick still images from a pool for an episode, sized to its narration, then finish the video in Video Assembly.',
+    workflow: ['Choose an image pool and an episode.', 'Set seconds per image and the no-repeat window, then pick images.', 'Open Video Assembly to add motion, effects, subtitles, and export.'],
     topics: [
-      { title: 'Pool subscription', purpose: 'Chooses the indexed still-image source used by this project.' },
-      { title: 'Seconds per image', purpose: 'Estimates how many stills are needed to cover narration.' },
-      { title: 'No-repeat window', purpose: 'Reduces reuse across recent episodes from the same pool.' },
-      { title: 'Load into Video Assembly', purpose: 'Creates standard scene assets so the unified editor can handle effects, subtitles, and export.' },
+      { title: 'Image pool', purpose: 'Chooses the indexed still-image folder used by this project.' },
+      { title: 'Seconds per image', purpose: 'Sets how many stills are picked to cover the narration.' },
+      { title: 'No-repeat window', purpose: 'Avoids reusing an image from the last few episodes.' },
+      { title: 'Use these images for this episode', purpose: 'Saves a new random set for the episode and makes Image Pool its visual source in Video Assembly.', effect: 'Replaces any images picked earlier for that episode.' },
+      { title: 'Grow this pool', purpose: 'Optionally generates new images straight into the pool.', effect: 'Paid generation; costs credits.' },
     ],
-    tips: ['This is an optional bridge for pool-based channels, not the normal AI Scene Review path.', 'Reconnect offline storage and rescan the pool before loading assets.'],
+    tips: ['This is for pool-based channels, not the normal AI Scene Review path.', 'Reconnect the pool folder and rescan it in the Assets Library before picking if it shows offline.'],
   },
   recency: {
     title: 'Recency Log',
@@ -488,16 +492,6 @@ export const featureGuides: Record<string, FeatureGuide> = {
       { title: 'Unified assembly', purpose: 'Hands the selected visual sequence to the standard effects, subtitle, and export editor.' },
     ],
     tips: ['This page is only relevant when the project format explicitly uses B-roll.', 'Check licensing and provenance in Assets Library before publishing stock footage.'],
-  },
-  'characters-redirect': {
-    title: 'Channel Characters',
-    summary: 'Project character links now open the shared Channel Characters library, filtered to the current channel.',
-    workflow: ['Wait for the shared library to open.', 'Review characters assigned to this channel.', 'Edit identity, reference image, labels, or voice profile.'],
-    topics: [
-      { title: 'Shared character record', purpose: 'Prevents separate conflicting copies of the same recurring identity.' },
-      { title: 'Channel filter', purpose: 'Shows which shared characters are available to the current project.' },
-    ],
-    tips: ['This route redirects automatically and exists for compatibility.', 'Use Channel Characters in the main navigation for global management.'],
   },
 }
 
@@ -530,7 +524,6 @@ const suffixToGuide: Record<string, string> = {
   'image-pool': 'image-pool',
   recency: 'recency',
   broll: 'broll',
-  characters: 'characters-redirect',
 }
 
 export const fallbackFeatureGuide: FeatureGuide = {

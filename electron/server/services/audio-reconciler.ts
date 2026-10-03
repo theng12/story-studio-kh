@@ -533,9 +533,3 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
     logs,
   }
 }
-
-/** @deprecated Back-compat shim — repair is now provider-aware and resolves keys
- *  itself. Prefer `reconcileAudio(slug, episodeId)`. */
-export function reconcileAudioViaGenaipro(slug: string, episodeId: string, _apiKey?: string): Promise<ReconcileResult> {
-  return reconcileAudio(slug, episodeId)
-}

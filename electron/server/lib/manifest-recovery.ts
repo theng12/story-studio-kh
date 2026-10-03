@@ -291,16 +291,6 @@ export function terminalImageManifestEntry(
   }
 }
 
-/** Old provider audio jobs are intentionally not recovered. */
-export async function tryRecoverAudioFromManifest(
-  _entry: TaskManifestEntry | null,
-  _apiKey: string,
-  _isCancelled?: () => boolean,
-  _timeoutMs?: number,
-): Promise<{ url: string; taskId: string; provider: string } | null> {
-  return null
-}
-
 /** Old provider video jobs are intentionally not recovered. */
 export async function tryRecoverVideoFromManifest(
   _entry: TaskManifestEntry | null,

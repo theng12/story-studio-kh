@@ -108,12 +108,6 @@ describe('the JSON call sites declare their contract', () => {
       declares: 'outputContract: JSON_OBJECT_OUTPUT_CONTRACT',
     },
     {
-      what: '2 · format extraction from sample scripts',
-      file: 'routes/projects.ts',
-      anchor: "const raw = await callAiWithRetry(model, '', prompt, apiKeys, false, {",
-      declares: 'outputContract: JSON_OBJECT_OUTPUT_CONTRACT',
-    },
-    {
       what: '6 · metadata template placeholder extraction',
       file: 'generators/metadata.ts',
       // Metadata's policy-aware caller delegates to callAiWithRetry when no
@@ -183,12 +177,6 @@ describe('each contract accepts its own payload and refuses prose', () => {
     }, JSON_OBJECT_OUTPUT_CONTRACT)
     assert.equal(parsePlannerJson(raw).scenes?.length, 1)
     assert.throws(() => validateStructuredOutput('Here are the scenes you asked for.', JSON_OBJECT_OUTPUT_CONTRACT))
-  })
-
-  test('2 · format extraction rejects a bare array as well as prose', () => {
-    assert.ok(throughContract({ id: 'my-format', name: 'My Format' }, JSON_OBJECT_OUTPUT_CONTRACT).includes('my-format'))
-    assert.throws(() => validateStructuredOutput('[1, 2]', JSON_OBJECT_OUTPUT_CONTRACT), /one JSON object/)
-    assert.throws(() => validateStructuredOutput('A format for calm history explainers.', JSON_OBJECT_OUTPUT_CONTRACT))
   })
 
   const IDEA = {

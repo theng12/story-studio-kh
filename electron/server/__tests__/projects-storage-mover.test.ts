@@ -9,7 +9,6 @@
  *   - merge_into_existing accepts non-empty target
  *   - .DS_Store-only target is treated as effectively empty (not blocked)
  *   - empty source produces a warning but doesn't error
- *   - previewMigration returns the same file/byte tally
  *   - a project's episodes travel with it (they are inside its own folder)
  */
 
@@ -88,14 +87,6 @@ describe('projects-storage-mover', () => {
     // Target has the same tree.
     assert.ok(existsSync(path.join(target, 'project-a', 'project.json')))
     assert.ok(existsSync(path.join(target, 'project-b', 'episodes', 'Season 001', 'TN0001 - Demo', 'episode_info.json')))
-  })
-
-  test('preview returns matching file/byte tally', async () => {
-    const seeded = await seedProjects()
-    const r = await mover.previewMigration()
-    assert.equal(r.source_path, pm.projectsRoot())
-    assert.equal(r.files, seeded.files)
-    assert.equal(r.bytes, seeded.bytes)
   })
 
   test('a project’s episodes travel with it, because they are inside it', async () => {
@@ -223,66 +214,5 @@ describe('projects-storage-mover', () => {
     assert.equal(r.copied_bytes, 0)
     assert.ok(r.warnings.some(w => /Source projects directory is empty/i.test(w)),
       `expected an empty-source warning; got: ${JSON.stringify(r.warnings)}`)
-  })
-
-  // ── inspectTargetForExistingProjects ──────────────────────────────
-  // The "use existing folder (no copy)" flow on a second machine: the
-  // iCloud-synced folder already has projects from machine A; we just
-  // need to point this app at it. The inspect helper drives the
-  // confirmation dialog ("Found N projects at this path — use it?").
-
-  test('inspect: missing target returns exists:false', async () => {
-    const r = await mover.inspectTargetForExistingProjects(path.join(tmp.dir, 'nope'))
-    assert.equal(r.exists, false)
-    assert.equal(r.project_count, 0)
-    assert.deepEqual(r.sample_slugs, [])
-  })
-
-  test('inspect: empty existing dir returns exists:true + 0 projects', async () => {
-    const dir = path.join(tmp.dir, 'empty-existing')
-    await fs.mkdir(dir, { recursive: true })
-    const r = await mover.inspectTargetForExistingProjects(dir)
-    assert.equal(r.exists, true)
-    assert.equal(r.project_count, 0)
-  })
-
-  test('inspect: counts subfolders that contain project.json', async () => {
-    // Mimic a synced cloud folder with projects already in it.
-    const dir = path.join(tmp.dir, 'has-projects')
-    await fs.mkdir(path.join(dir, 'project-a'), { recursive: true })
-    await fs.writeFile(path.join(dir, 'project-a', 'project.json'), '{}')
-    await fs.mkdir(path.join(dir, 'project-b'), { recursive: true })
-    await fs.writeFile(path.join(dir, 'project-b', 'project.json'), '{}')
-    // Decoy folder — no project.json, must be excluded.
-    await fs.mkdir(path.join(dir, 'not-a-project'), { recursive: true })
-    await fs.writeFile(path.join(dir, 'not-a-project', 'random.txt'), 'noise')
-    // Hidden dir (cloud metadata, .DS_Store dirs, etc) — must be excluded.
-    await fs.mkdir(path.join(dir, '.Trashes'), { recursive: true })
-
-    const r = await mover.inspectTargetForExistingProjects(dir)
-    assert.equal(r.project_count, 2)
-    assert.deepEqual(r.sample_slugs.sort(), ['project-a', 'project-b'])
-  })
-
-  test('inspect: caps sample_slugs at 10 even when more exist', async () => {
-    const dir = path.join(tmp.dir, 'many-projects')
-    await fs.mkdir(dir, { recursive: true })
-    for (let i = 0; i < 15; i++) {
-      const sub = path.join(dir, `project-${String(i).padStart(2, '0')}`)
-      await fs.mkdir(sub, { recursive: true })
-      await fs.writeFile(path.join(sub, 'project.json'), '{}')
-    }
-    const r = await mover.inspectTargetForExistingProjects(dir)
-    assert.equal(r.project_count, 15)
-    assert.equal(r.sample_slugs.length, 10, 'sample capped at 10')
-  })
-
-  test('inspect: rejects non-absolute target', async () => {
-    let caught: any = null
-    try {
-      await mover.inspectTargetForExistingProjects('relative/path')
-    } catch (e) { caught = e }
-    assert.ok(caught)
-    assert.equal((caught as any).statusCode, 400)
   })
 })

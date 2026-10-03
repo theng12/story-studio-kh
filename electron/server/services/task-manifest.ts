@@ -423,10 +423,6 @@ export async function recordPaidImageReplacementStrict(
   })
 }
 
-export function getTaskEntry(manifest: Manifest, filename: string): TaskManifestEntry | null {
-  return manifest.tasks[filename] || null
-}
-
 export function hashInput(input: string): string {
   // First 16 hex chars is plenty for collision detection within one episode.
   return 'sha256:' + createHash('sha256').update(input).digest('hex').slice(0, 16)

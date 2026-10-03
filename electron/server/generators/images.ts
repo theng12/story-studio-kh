@@ -18,7 +18,7 @@ import { resolveSubfolderNames } from '../services/utils.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
-import { fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
+import { fileExistsWithContent } from '../lib/http-retry.js'
 import {
   isTerminalGenStudioImageTaskFailure,
   resolveImageRetryScope,
@@ -971,20 +971,6 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
       publishProgress()
       return
     }
-    // iCloud-evicted asset: file is recoverable for free by opening it in
-    // Finder; re-billing the provider would be a waste. Skip this scene
-    // and surface a clear hint. User downloads, re-runs, no charge. Counted
-    // against `failed`, not `completed` — the final completion check below
-    // will (correctly) name this scene as missing until it is downloaded.
-    if (!force && await isCloudEvictedPlaceholder(v1Path)) {
-      job.output_lines.push(
-        `⚠ ${stem}_v1.png is iCloud-evicted (right-click in Finder → Download Now). ` +
-        `Skipped to avoid re-billing for an asset you already paid for.`,
-      )
-      failedCount++
-      publishProgress()
-      return
-    }
     // Auto-recovery: before issuing a fresh (charged) submit, see if the
     // task-manifest sidecar has a stored task_id from a previous run. If the
     // provider still has the result (succeeded / still running), reclaim it for
@@ -1196,16 +1182,6 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
       }
       job.output_lines.push(`Skipping ${stem} (exists)`)
       completedCount++
-      publishProgress()
-      return
-    }
-    // iCloud-evicted (same handling as runScene).
-    if (!force && await isCloudEvictedPlaceholder(v1Path)) {
-      job.output_lines.push(
-        `⚠ ${stem}_v1.png is iCloud-evicted (right-click in Finder → Download Now). ` +
-        `Skipped to avoid re-billing.`,
-      )
-      failedCount++
       publishProgress()
       return
     }

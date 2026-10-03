@@ -33,14 +33,6 @@ import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import * as pm from './project-manager.js'
 import { projectMetaOnce, type ProjectFactsCache } from './utils.js'
-import { getAppSetting, setAppSetting } from './app-settings.js'
-
-/**
- * The old app-settings key. Retired in v1.4.3 and kept here only so the
- * upgrade notice can read what it used to say and tell the owner where his
- * existing exports still are. Nothing writes it any more.
- */
-export const RETIRED_EXTERNAL_ROOT_KEY = 'external_final_video_root'
 
 /**
  * Where finished videos go. Always `<Library>/Exports`.
@@ -52,23 +44,6 @@ export const RETIRED_EXTERNAL_ROOT_KEY = 'external_final_video_root'
 export async function getExternalFinalVideoRoot(): Promise<string> {
   const { exportsDir } = await import('./library.js')
   return exportsDir()
-}
-
-/**
- * What the retired setting used to point at, for the one-time upgrade notice.
- * Read-only: 1.4.3 deliberately does NOT move an existing export pile, because
- * on the owner's machine that is 220 GB and 191 finished videos, and moving a
- * fifth of a terabyte without being asked is not a decision this app makes.
- */
-export async function getRetiredExternalRoot(): Promise<string> {
-  const raw = await getAppSetting(RETIRED_EXTERNAL_ROOT_KEY)
-  if (typeof raw !== 'string' || !raw.trim()) return ''
-  let resolved = raw.trim()
-  if (resolved.startsWith('~')) {
-    const home = process.env.HOME || process.env.USERPROFILE || ''
-    if (home) resolved = path.join(home, resolved.slice(1))
-  }
-  return resolved
 }
 
 /**

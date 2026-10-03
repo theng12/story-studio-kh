@@ -280,14 +280,12 @@ const appSettingsModal = useAppSettingsModal()
 const LAST_KNOWN_CHANNELS = 'channels'
 const cachedChannels = readLastKnownList<any>(LAST_KNOWN_CHANNELS)
 const projects = ref<any[]>(cachedChannels)
-// The server answers `status: 'downloading'` for a folder whose read timed out
-// (it still lists the row). Only an explicit non-ready status counts: a list
+// A channel folder whose read timed out is still listed, with a status other
+// than 'ready'. Only an explicit non-ready status counts: a list
 // cached by an older version has no status at all and must not read as broken.
 function isFolderUnreadable(project: { status?: string }): boolean {
   return !!project.status && project.status !== 'ready'
 }
-/** True while what is on screen came from the cache and has not been confirmed. */
-const servingCachedChannels = ref(cachedChannels.length > 0)
 const loading = ref(true)
 const projectsLoadError = ref('')
 const projectsRetrying = ref(false)
@@ -357,7 +355,6 @@ async function loadProjects(): Promise<void> {
     // about which channels exist — a channel deleted elsewhere must disappear
     // here, so the cache is REPLACED rather than added to.
     writeLastKnownList(LAST_KNOWN_CHANNELS, fresh)
-    servingCachedChannels.value = false
     projectsLoadError.value = ''
     libraryMissing.value = false
     libraryMissingPath.value = ''

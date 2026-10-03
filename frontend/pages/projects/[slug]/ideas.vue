@@ -14,7 +14,7 @@
           v-if="statusCounts.accepted > 0"
           class="btn btn-secondary btn-sm"
           :disabled="compactState.opening"
-          title="Shift accepted episodes backward to fill any gaps in the numbering — e.g. after deleting TN0001-TN0007 from the start, this slides TN0008+ down to TN0001+. Reversible via the Revert banner on the Unlinked Uploads tab for 30 days afterwards."
+          title="Shift accepted episodes backward to fill any gaps in the numbering — e.g. after deleting TN0001-TN0007 from the start, this slides TN0008+ down to TN0001+. Reversible from the Match to YouTube tab in Upload Center for 30 days afterwards."
           @click="openCompactDialog"
         >
           <LoadingSpinner v-if="compactState.opening" size="sm" />
@@ -41,13 +41,6 @@
         <strong>⚠ Couldn't load project.</strong>
         {{ hydrationError.detail }}
         <button class="banner-link" @click="retryHydration">Retry</button>
-      </template>
-      <template v-else-if="hydrationError.kind === 'project-no-format'">
-        <strong>⚠ No production path is set on this project.</strong>
-        Ideas will use the app's standard settings until you choose a production path in Channel Identity.
-        <NuxtLink :to="`/projects/${slug}/settings#channel`" class="banner-link">
-          Open Channel Identity →
-        </NuxtLink>
       </template>
       <template v-else-if="hydrationError.kind === 'config-fetch'">
         <strong>⚠ Couldn't load project settings.</strong>
@@ -127,7 +120,7 @@
         <template #summary>
           <span class="context-chip">
             <span class="context-key">Production</span>
-            <strong :class="{ 'is-fallback': !projectHasExplicitFormat }">{{ formatDisplayName || formatId || 'unknown' }}</strong>
+            <strong>{{ formatDisplayName || formatId || 'unknown' }}</strong>
           </span>
           <span class="context-dot" aria-hidden="true">·</span>
           <span class="context-chip">
@@ -144,16 +137,10 @@
         <!-- Expandable detail — the content the two old cards carried. -->
           <div class="context-detail-row">
             <span class="context-detail-label">Production path</span>
-            <strong class="context-detail-value" :class="{ 'is-fallback': !projectHasExplicitFormat }">
+            <strong class="context-detail-value">
               {{ formatDisplayName || formatId || 'unknown' }}
             </strong>
-            <span
-              v-if="activeFormat"
-              class="context-badge"
-              :class="activeFormat.builtin ? 'badge-builtin' : 'badge-custom'"
-            >{{ activeFormat.builtin ? 'Built-in' : 'Custom' }}</span>
-            <span v-if="!projectHasExplicitFormat" class="context-fallback-tag">⚠ no format set — generation falls back to defaults</span>
-            <NuxtLink :to="`/projects/${slug}/settings#channel`" class="effective-link">Open Channel Identity</NuxtLink>
+            <NuxtLink :to="`/projects/${slug}/settings#identity`" class="effective-link">Open Channel Identity</NuxtLink>
           </div>
           <p v-if="activeFormat?.description" class="context-detail-desc">{{ activeFormat.description }}</p>
           <p class="context-detail-hint text-muted text-sm">
@@ -990,7 +977,7 @@
             <span class="paste-prompt-source-chip" :title="`This prompt uses ${activeFormulaName} and ${activeTopicPackLabel}. Change Channel Identity in Settings.`">
               Formula: <strong>{{ activeFormulaName }}</strong>
             </span>
-            <NuxtLink :to="`/projects/${slug}/settings#channel`" class="paste-prompt-source-link" title="Open Channel Identity to change the Formula, Topic Packs, or production behavior.">Channel Identity</NuxtLink>
+            <NuxtLink :to="`/projects/${slug}/settings#identity`" class="paste-prompt-source-link" title="Open Channel Identity to change the Formula, Topic Packs, or production behavior.">Channel Identity</NuxtLink>
             <span v-if="form.title_template" class="paste-prompt-source-chip" title="A title template is folded into the prompt — every generated title is shaped to it, with {X} replaced by each idea's subject. Clear it via the Title template field above.">
               Title: <strong>{{ form.title_template }}</strong>
               <button
@@ -1151,8 +1138,8 @@
     <!-- Compact / Fill Gaps modal (v1.0.40). Shows the rename plan
          before any disk renames or ideas.json patches land. Confirms
          the operation, surfaces per-rename errors after, and points
-         the user at the Revert banner on the Unlinked Uploads tab if
-         they need to roll back. -->
+         the user at the undo banner on the Match to YouTube tab (Upload
+         Center) if they need to roll back. -->
     <Teleport to="body">
       <div v-if="compactState.open" class="compact-modal-backdrop" @click="closeCompactDialog" />
       <div v-if="compactState.open" class="compact-modal" role="dialog" aria-label="Compact episode codes" @click.stop>
@@ -1176,7 +1163,7 @@
               </span>
               <br />
               Each episode's folder and the files inside it take the new code.
-              You can undo this from the Unlinked Uploads tab for 30 days.
+              You can undo this from the Match to YouTube tab in Upload Center for 30 days.
             </p>
             <div class="compact-rename-list">
               <div
@@ -1696,7 +1683,7 @@ async function loadFormatNames() {
 // `catch { }` blocks that used to swallow failures (leading to "project
 // missing" flashes and the form silently reverting to sleep-story).
 // Each error state has a specific message + an action the user can take.
-const hydrationError = ref<{ kind: 'project-missing' | 'project-fetch' | 'config-fetch' | 'project-no-format'; detail?: string } | null>(null)
+const hydrationError = ref<{ kind: 'project-missing' | 'project-fetch' | 'config-fetch'; detail?: string } | null>(null)
 
 async function retryHydration(): Promise<void> {
   if (!slug.value) return
@@ -1710,19 +1697,9 @@ async function retryHydration(): Promise<void> {
   }
 }
 
-// v1.0.93+ Effective channel state card support.
-//
-// `projectHasExplicitFormat` distinguishes "user picked sleep-story
-// deliberately" (good) from "form defaulted to sleep-story because meta
-// fetch failed or returned no format_id" (bad). The Format slot in the
-// card goes red only when the latter.
-const projectHasExplicitFormat = computed(() => {
-  return !hydrationError.value || hydrationError.value.kind !== 'project-no-format'
-})
-
-const hasEffectiveStateWarning = computed(() => {
-  return !projectHasExplicitFormat.value || !form.niche_id
-})
+// v1.0.93+ Effective channel state card support. The strip turns into a
+// warning only when no Formula is chosen.
+const hasEffectiveStateWarning = computed(() => !form.niche_id)
 
 // Sample title in the live wrap preview. Uses the niche's first example
 // topic when available so it's representative of what the user will get.
@@ -1745,7 +1722,6 @@ async function loadPatternPreferences(): Promise<boolean> {
   if (!slug.value) return false
 
   let metaNiche = ''
-  let metaFormatLoaded = false
   try {
     const meta = await get<any>(`/projects/${slug.value}`)
     if (!meta) {
@@ -1754,7 +1730,6 @@ async function loadPatternPreferences(): Promise<boolean> {
     }
     if (typeof meta?.format_id === 'string' && meta.format_id) {
       formatId.value = canonicalFormatId(meta.format_id)
-      metaFormatLoaded = true
     }
     if (typeof meta?.niche_id === 'string') metaNiche = meta.niche_id
     projectTopicPacksExplicit.value = Array.isArray(meta?.topic_pack_ids)
@@ -1770,15 +1745,6 @@ async function loadPatternPreferences(): Promise<boolean> {
   }
   projectNicheId.value = metaNiche
   form.topic_pack_ids = [...projectTopicPackIds.value]
-  // No format on the project meta → the page would silently fall back
-  // to sleep-story. Surface this loudly via the banner; the user can
-  // click through to Settings → Format to set one.
-  if (!metaFormatLoaded) {
-    hydrationError.value = { kind: 'project-no-format' }
-    // Continue hydration anyway — the form is still usable, just with
-    // sleep-story defaults that the user can see flagged in the banner
-    // and the effective-state card.
-  }
   try {
     const cfg = await get<any>(`/projects/${slug.value}/settings/config`)
     if (typeof cfg?.[LAST_TITLE_TEMPLATE_KEY] === 'string') form.title_template = cfg[LAST_TITLE_TEMPLATE_KEY]
@@ -2059,23 +2025,6 @@ function vocabSourceLabel(field: 'genre' | 'mood' | 'theme' | 'keyword'): string
   if (fromFmt) return formatDisplayName.value
   if (fromNiche) return activeNiche.value!.name
   return 'Generic'
-}
-
-/** Tooltip explaining where the dropdown's suggestions come from. Plain
- *  language ("topic" rather than the internal "niche"). */
-function vocabSourceTooltip(field: 'genre' | 'mood' | 'theme' | 'keyword'): string {
-  const fromFmt = vocabFromFormat(field)
-  const fromNiche = vocabFromNiche(field)
-  if (fromFmt && fromNiche) {
-    return `These suggestions come from the ${formatDisplayName.value} format and the ${activeNiche.value!.name} topic combined.`
-  }
-  if (fromFmt) {
-    return `These suggestions come from the ${formatDisplayName.value} format. Pick a Topic to add more subject-specific suggestions.`
-  }
-  if (fromNiche) {
-    return `These suggestions come from the ${activeNiche.value!.name} topic. The current format doesn't add its own ${field} suggestions.`
-  }
-  return `Neither the ${formatDisplayName.value} format nor the chosen Topic adds ${field} suggestions, so these are generic. You can type your own anytime.`
 }
 
 const allGenres = computed(() => Array.from(new Set([...vocabFor('genre'), ...customGenres.value])).sort())
@@ -3286,9 +3235,9 @@ async function confirmCompact() {
     const renamedCount = r.renamed.length
     const errorCount = r.errors.length
     if (errorCount === 0) {
-      success(`Compacted ${renamedCount} episode${renamedCount === 1 ? '' : 's'}. Reversible from the Unlinked Uploads tab for 30 days.`)
+      success(`Compacted ${renamedCount} episode${renamedCount === 1 ? '' : 's'}. Reversible from the Match to YouTube tab in Upload Center for 30 days.`)
     } else {
-      success(`${renamedCount} compacted, ${errorCount} error${errorCount === 1 ? '' : 's'} — see logs. Already-revertible from the Unlinked Uploads tab.`)
+      success(`${renamedCount} compacted, ${errorCount} error${errorCount === 1 ? '' : 's'} — see logs. Already-revertible from the Match to YouTube tab in Upload Center.`)
     }
     compactState.open = false
     compactState.preview = null
@@ -4253,7 +4202,7 @@ async function confirmCompact() {
 }
 
 /* v1.0.93+ Hydration error banners. Two kinds of failure surface here:
-   project-level (project-missing / project-fetch / project-no-format /
+   project-level (project-missing / project-fetch /
    config-fetch) and ideas-level (ideas-fetch). All render the same
    visual shape — yellow card with a strong call-out + a recovery action
    on the right. The is-project-missing variant goes red because it
@@ -4399,17 +4348,6 @@ async function confirmCompact() {
 .context-detail-value em { font-style: italic; color: var(--accent, #6c8fff); }
 .context-detail-desc { margin: 0 0 0 74px; font-size: 13px; color: var(--text-primary); line-height: 1.45; }
 .context-detail-hint { margin: 0 0 0 74px; line-height: 1.4; }
-.context-badge {
-  font-size: var(--font-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 2px 6px;
-  border-radius: 8px;
-  font-weight: 600;
-}
-.context-badge.badge-builtin { background: var(--bg-tertiary); color: var(--text-muted); border: 1px solid var(--border); }
-.context-badge.badge-custom  { background: var(--accent); color: var(--bg-primary); border: 1px solid var(--accent); }
-.context-fallback-tag,
 .context-override-tag {
   font-size: var(--font-xs);
   color: rgba(240, 198, 116, 0.95);

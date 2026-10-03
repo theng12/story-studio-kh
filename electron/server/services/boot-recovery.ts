@@ -14,7 +14,7 @@ import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
 import { resolveEpisodePaths } from './utils.js'
 import { readManifest, type Manifest } from './task-manifest.js'
-import { fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
+import { fileExistsWithContent } from '../lib/http-retry.js'
 
 export interface RecoverySweepSummary {
   scannedManifests: number
@@ -125,7 +125,6 @@ async function inspectProject(
 
         const filePath = path.join(directory, filename)
         if (await fileExistsWithContent(filePath)) continue
-        if (await isCloudEvictedPlaceholder(filePath)) continue
         if (!entry?.task_id) continue
 
         if (isGenStudioProvider(entry.provider)) {
