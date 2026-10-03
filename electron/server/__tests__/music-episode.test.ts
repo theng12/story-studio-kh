@@ -253,3 +253,18 @@ test('the builder imports no provider or generation client', async () => {
     }
   }
 })
+
+describe('bitrate cap (Music episode preset: hardware, ~5 Mbps at 1080p)', () => {
+  test('hardware targets the cap; software keeps CRF and caps peaks; no cap = unchanged', async () => {
+    const { buildEncoderArgs } = await import('../generators/video.js')
+    const hw = buildEncoderArgs({ codec: 'h264', format: 'mp4', crf: 23, effort: 'hardware', bitrateKbps: 5000 })
+    assert.deepEqual(hw.slice(hw.indexOf('-b:v'), hw.indexOf('-b:v') + 6), ['-b:v', '5000k', '-maxrate', '7500k', '-bufsize', '10000k'])
+    assert.ok(!hw.includes('-q:v'))
+    const sw = buildEncoderArgs({ codec: 'h264', format: 'mp4', crf: 23, effort: 'medium', bitrateKbps: 5000 })
+    assert.ok(sw.includes('-crf') && sw.includes('-maxrate') && sw[sw.indexOf('-maxrate') + 1] === '5000k')
+    assert.deepEqual(buildEncoderArgs({ codec: 'h264', format: 'mp4', crf: 23, effort: 'hardware' }),
+      buildEncoderArgs({ codec: 'h264', format: 'mp4', crf: 23, effort: 'hardware', bitrateKbps: 0 }))
+    assert.ok(buildEncoderArgs({ codec: 'h264', format: 'mp4', crf: 23, effort: 'hardware' }).includes('-q:v'))
+    assert.ok(!buildEncoderArgs({ codec: 'h264', format: 'mp4', crf: 23, effort: 'medium', bitrateKbps: 12 }).includes('-maxrate'), 'nonsense caps are ignored')
+  })
+})

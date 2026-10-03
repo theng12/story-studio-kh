@@ -27,12 +27,16 @@ let slug = ''
 let pianoSlug = ''
 let code = ''
 
-async function musicChannel(name: string, poolId: string, songs: Array<{ id: string; hz: number; db: number; mood: string; bpm: number; scene_idea: string }>) {
+async function musicChannel(name: string, poolId: string, songs: Array<{ id: string; hz: number; db: number; mood: string; bpm: number; scene_idea: string }>, effectsLook: string[] = []) {
   const pm = await import('../services/project-manager.js')
   const project = await pm.createProject({ name, episode_prefix: 'CE', episode_digits: 4 } as any)
   const dir = pm.getProjectDir(project.slug)!
   const meta = JSON.parse(await fs.readFile(path.join(dir, 'project.json'), 'utf8'))
-  await fs.writeFile(path.join(dir, 'project.json'), JSON.stringify({ ...meta, niche_id: 'music-mix' }, null, 2))
+  await fs.writeFile(path.join(dir, 'project.json'), JSON.stringify({
+    ...meta,
+    niche_id: 'music-mix',
+    ...(effectsLook.length ? { niche_overrides: { musicFormat: { episodeDefaults: { effects_look: effectsLook } } } } : {}),
+  }, null, 2))
   const lib = path.join(dir, 'music-library')
   await fs.mkdir(lib, { recursive: true })
   for (const song of songs) {
@@ -59,7 +63,7 @@ describe('Episode Builder', () => {
       { id: 's_a', hz: 330, db: -6, mood: 'tender', bpm: 60, scene_idea: 'A lamp-lit cabin window in snow' },
       { id: 's_b', hz: 440, db: -20, mood: 'tender', bpm: 64, scene_idea: 'Lanterns along a frozen pier' },
       { id: 's_c', hz: 550, db: -12, mood: 'hopeful', bpm: 70, scene_idea: 'A kettle steaming on an old stove' },
-    ])
+    ], ['stack-rainy-night'])
     pianoSlug = await musicChannel('Piano Nights', 'pool_piano', [
       { id: 'p_a', hz: 262, db: -10, mood: 'tender', bpm: 62, scene_idea: 'Moonlight on a quiet lake' },
     ])
@@ -77,6 +81,9 @@ describe('Episode Builder', () => {
     assert.equal(created.status, 201, JSON.stringify(created.body))
     code = created.body.code
     assert.match(code, /^CE\d{4}$/)
+    assert.equal(created.body.effects.seeded, true, "the channel's effects look becomes the episode's effects")
+    assert.ok(created.body.effects.added > 0)
+    assert.deepEqual(created.body.effects.unknown, [])
 
     const list = await request(app).get(`/api/projects/${slug}/music-episodes`)
     assert.equal(list.body.music_channel, true)
@@ -108,6 +115,8 @@ describe('Episode Builder', () => {
     assert.equal(plan.scenes[0].start_sec, 0)
     for (let i = 1; i < plan.scenes.length; i++) assert.equal(plan.scenes[i].start_sec, plan.scenes[i - 1].end_sec)
     assert.equal(plan.scenes.at(-1).end_sec, plan.total_duration_sec)
+    assert.ok(plan.scenes.every((scene: any) => scene.theme === 'Cosy'), 'each scene row names its theme for theme-scoped effects')
+    assert.ok(existsSync(path.join(paths.episode_dir, 'scene_effects.json')))
     const { assertSubtitleTimelineComplete } = await import('../services/scene-timeline-integrity.js')
     await assertSubtitleTimelineComplete(paths.subtitles_dir, code, { episodeDir: paths.episode_dir, audioDir: paths.audio_dir })
   })
@@ -182,7 +191,9 @@ describe('Episode Builder', () => {
     assert.match(assets.merged_audio[0]!.filename, /_merged_audio\.m4a$/)
 
     const queued = await request(app).post(`/api/projects/${slug}/generate/video-assembly`).send({
-      episode_id: code, subtitles: { enabled: false },
+      // The Music episode settings: 720p, 24 fps, hardware encode with a bitrate cap.
+      episode_id: code, subtitles: { enabled: false }, resolution: '720p', fps: 24,
+      encoding_effort: 'hardware', video_bitrate_kbps: 2500, transition: 'crossfade', transition_duration: 4,
     })
     assert.equal(queued.status, 201, JSON.stringify(queued.body))
     // Let the real render run: existing Video Assembly (camera move + crossfades) on a music episode.
@@ -193,6 +204,7 @@ describe('Episode Builder', () => {
     const job = jq.getJob(queued.body.job_id)
     assert.equal(job?.status, 'done', (job?.output_lines || []).slice(-15).join('\n') + (job?.error || ''))
     assert.ok(job!.output_lines.some(line => /Song plays recorded: \d+ new/.test(line)), 'the render records plays')
+    assert.ok(job!.output_lines.some(line => /2500 kbit\/s/.test(line)), 'the bitrate cap reaches the encoder')
   })
 
   test('plays are recorded after a render, once, in the pool each song came from', async () => {

@@ -271,7 +271,11 @@
               <span class="eb-hint">Use it with the new prompt.</span>
             </div>
           </div>
-          <p class="eb-hint eb-top">Effects (camera move, grain, vignette, grade, overlays) are set in Video Assembly and follow the scene's crossfade.</p>
+          <p class="eb-hint eb-top">
+            Effects for this scene, every “{{ settings.theme || 'theme' }}” scene or the whole episode are set in the
+            <NuxtLink :to="{ path: `/projects/${slug}/effects-library`, query: { episode: code } }" class="inline-link">Effects Library</NuxtLink>;
+            they fade with the scene's crossfade.
+          </p>
         </section>
       </div>
 
@@ -699,11 +703,13 @@ async function useStill(filename: string) {
 // Episodes + hand-off
 async function createEpisode() {
   await act('Creating', async () => {
-    const res = await post<{ code: string }>(`/projects/${slug.value}/music-episodes`, { title: newTitle.value })
+    const res = await post<{ code: string; effects?: { seeded: boolean; added: number; unknown: string[] } }>(`/projects/${slug.value}/music-episodes`, { title: newTitle.value })
     newTitle.value = ''
     await loadList()
     code.value = res.code
-    success(`${res.code} created. Draw songs to start.`)
+    const fx = res.effects
+    success(`${res.code} created${fx?.seeded ? ` with the channel's effects look (${fx.added} effect${fx.added === 1 ? '' : 's'})` : ''}. Draw songs to start.`)
+    if (fx?.unknown.length) showError(`The channel's effects look names ${fx.unknown.length} unknown preset(s): ${fx.unknown.join(', ')}. Fix it on the Music Formula page.`)
   })
 }
 async function sendToVideoAssembly() {

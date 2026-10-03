@@ -103,6 +103,7 @@ export function normalizeEpisodeSettings(raw: unknown, base: EpisodeSettings = S
       seconds: num(change.seconds, 0, 10, base.scene_change.seconds),
     },
     frame_rate: (FRAME_RATES as readonly number[]).includes(fps) ? fps : base.frame_rate,
+    // model-drift-allow: the local FFmpeg render size (owner decision: 720p native stills or upscale to 1080p), not a model option
     resolution: oneOf(r.resolution, ['720p', '1080p'] as const, base.resolution),
     loudness_lufs: num(r.loudness_lufs, -40, -5, base.loudness_lufs),
     true_peak_db: num(r.true_peak_db, -9, 0, base.true_peak_db),
@@ -345,15 +346,15 @@ function targetEnergy(position: number, length: number): number {
   return length <= 1 ? 3 : 3 - 1.5 * (position / (length - 1))
 }
 
-function transitionCost(prev: BuilderSong | undefined, next: BuilderSong, position: number, length: number): number {
-  let cost = 0
+function flowPenalty(prev: BuilderSong | undefined, next: BuilderSong, position: number, length: number): number {
+  let penalty = 0
   if (prev?.tempo_bpm && next.tempo_bpm) {
     const step = Math.abs(prev.tempo_bpm - next.tempo_bpm)
-    cost += step > SMOOTH_MAX_BPM_STEP ? 10 + step / SMOOTH_MAX_BPM_STEP : step / (2 * SMOOTH_MAX_BPM_STEP)
+    penalty += step > SMOOTH_MAX_BPM_STEP ? 10 + step / SMOOTH_MAX_BPM_STEP : step / (2 * SMOOTH_MAX_BPM_STEP)
   }
-  if (prev && sameText(prev.key, next.key) && sameText(prev.ensemble, next.ensemble)) cost += 10
-  if (typeof next.energy === 'number') cost += Math.abs(next.energy - targetEnergy(position, length))
-  return cost
+  if (prev && sameText(prev.key, next.key) && sameText(prev.ensemble, next.ensemble)) penalty += 10
+  if (typeof next.energy === 'number') penalty += Math.abs(next.energy - targetEnergy(position, length))
+  return penalty
 }
 
 /**
@@ -369,11 +370,11 @@ function smoothFill(slots: Array<BuilderSong | null>, loose: BuilderSong[], seed
     const fixed = slots[i]
     if (fixed) { out.push(fixed); continue }
     let best = 0
-    let bestCost = Infinity
+    let bestPenalty = Infinity
     for (let c = 0; c < remaining.length; c++) {
-      const cost = transitionCost(out[i - 1], remaining[c]!, i, slots.length)
-        + (slots[i + 1] ? transitionCost(remaining[c], slots[i + 1]!, i + 1, slots.length) : 0)
-      if (cost < bestCost) { bestCost = cost; best = c }
+      const penalty = flowPenalty(out[i - 1], remaining[c]!, i, slots.length)
+        + (slots[i + 1] ? flowPenalty(remaining[c], slots[i + 1]!, i + 1, slots.length) : 0)
+      if (penalty < bestPenalty) { bestPenalty = penalty; best = c }
     }
     out.push(remaining.splice(best, 1)[0]!)
   }

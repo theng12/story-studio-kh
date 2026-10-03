@@ -3698,6 +3698,9 @@ export interface GenerateVideoRequest {
    *  requires QuickTime 10.4+ / modern browsers. Only recommended for users
    *  who control their playback environment. */
   codec?: 'h264' | 'h265'
+  /** Optional video bitrate cap in kbit/s (0/absent = quality-based, the long-standing behaviour).
+   *  Hardware encodes target it; software encodes keep their CRF and cap peaks at it. */
+  video_bitrate_kbps?: number
   format: 'mp4' | 'mov' | 'webm'
   title_card?: VideoTitleCard
   outro_card?: VideoOutroCard

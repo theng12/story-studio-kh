@@ -50,6 +50,8 @@ import {
   type MusicEpisodeDoc,
 } from '../services/music-episode-store.js'
 import { listSongPools } from '../services/music-pool-source.js'
+import { getEffectiveNiche } from '../services/niche-loader.js'
+import { seedEpisodeEffectsFromLook } from '../services/episode-effects.js'
 import type { JobType, ScenePlan } from '../models/types.js'
 
 export const router = Router()
@@ -118,7 +120,18 @@ router.post('/projects/:slug/music-episodes', async (req, res) => {
       title, logline: '', themes: [], suggested_chapters: 1, suggested_length: '', mood: '',
     }], 'episode-builder')
     const accepted = await im.acceptIdea(slug, idea!.id)
-    res.status(201).json({ code: accepted.episode_code, title })
+    // The channel's starting effects look (formula episodeDefaults.effects_look, stack preset ids) becomes
+    // this episode's whole-episode effects. Never overwrites an existing scene_effects.json.
+    const niche = await getEffectiveNiche(slug).catch(() => null) as { musicFormat?: { episodeDefaults?: { effects_look?: unknown } } } | null
+    const look = niche?.musicFormat?.episodeDefaults?.effects_look
+    const effects = Array.isArray(look) && look.length
+      ? await seedEpisodeEffectsFromLook(
+        accepted.episode_dir,
+        look.filter((id): id is string => typeof id === 'string'),
+        (await pm.getConfig(slug))?.effect_stack_presets,
+      )
+      : { seeded: false, added: 0, unknown: [] as string[] }
+    res.status(201).json({ code: accepted.episode_code, title, effects })
   } catch (e) {
     fail(res, e, 'Could not create the episode')
   }

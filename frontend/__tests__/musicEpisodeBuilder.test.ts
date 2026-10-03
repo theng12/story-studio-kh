@@ -92,6 +92,13 @@ describe('Video Assembly "Music episode" settings', () => {
     assert.match(fn, /exportSettings\.fps = music\.frame_rate/)
     assert.match(fn, /exportSettings\.resolution = music\.resolution === '1080p' \? '1080p' : '720p'/)
     assert.match(fn, /duration: music\.scene_change\.seconds/)
+    assert.match(fn, /exportSettings\.encoding_effort = 'hardware'/)
+    assert.match(fn, /exportSettings\.video_bitrate_kbps = exportSettings\.resolution === '1080p' \? 5000 : 2500/)
     assert.ok(!/logo\.|vignette\.|filmGrain\.|colorGrading\.|sceneEffects\./.test(fn), 'the channel look stays as the owner set it')
   })
+})
+
+test('an export preset saved before the bitrate cap means no cap', () => {
+  assert.equal((assembly.match(/Object\.assign\(exportSettings, \{ video_bitrate_kbps: 0 \}/g) || []).length, 3)
+  assert.match(read('../composables/useVideoAssemblyIo.ts'), /video_bitrate_kbps: s\.exportSettings\.video_bitrate_kbps/)
 })

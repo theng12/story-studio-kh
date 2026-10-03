@@ -279,6 +279,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
       fps: s.exportSettings.fps,
       encoding_effort: s.exportSettings.encoding_effort,
       codec: s.exportSettings.codec,
+      ...(s.exportSettings.video_bitrate_kbps ? { video_bitrate_kbps: s.exportSettings.video_bitrate_kbps } : {}),
       format: s.exportSettings.format,
       scene_animation: { ...s.sceneAnimation },
       animation_pool: s.sceneAnimation.pool,

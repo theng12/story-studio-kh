@@ -241,6 +241,8 @@ export function planEpisode(doc: MusicEpisodeDoc, byKey: ReadonlyMap<string, Bui
       titles: group.map(i => rows[i]?.title || doc.songs[i]!.song_id),
       prompt: custom || buildScenePrompt({ sceneIdea: firstSong?.scene_idea, title: firstSong?.title || first.song_id, theme: doc.settings.theme }),
       prompt_is_custom: !!custom,
+      // Drives "every '<theme>' scene" effects (feat/music-effects): the episode theme, else the song's.
+      theme: doc.settings.theme.trim() || firstSong?.theme?.trim() || '',
     }
   })
   return { timeline, scenes, measured: !!built }
@@ -377,7 +379,7 @@ export async function writeDerivedScenePlan(
       : null
     const byId = new Map((previous?.scenes || []).map(scene => [scene.id, scene]))
     const now = new Date().toISOString()
-    const plan: ScenePlan & { music_episode: { scene_song_keys: string[][] } } = {
+    const plan: Omit<ScenePlan, 'scenes'> & { scenes: Array<ScenePlanEntry & { theme?: string }>; music_episode: { scene_song_keys: string[][] } } = {
       ...(previous || {}),
       schema_version: 1,
       generated_at: now,
@@ -388,7 +390,7 @@ export async function writeDerivedScenePlan(
       opening_mode: 'from-start',
       opening_reserved_sec: 0,
       music_episode: { scene_song_keys: scenes.map(scene => scene.song_keys) },
-      scenes: scenes.map((scene): ScenePlanEntry => {
+      scenes: scenes.map((scene): ScenePlanEntry & { theme?: string } => {
         const prev = byId.get(scene.id)
         const keep = prev ? {
           ...(prev.image_path ? { image_path: prev.image_path } : {}),
@@ -408,12 +410,13 @@ export async function writeDerivedScenePlan(
           transcript_segment: `Music: ${scene.titles.join(' · ')}`,
           visual_prompt: scene.prompt,
           scene_type: 'environment',
+          ...(scene.theme ? { theme: scene.theme } : {}),
           ...keep,
         }
       }),
     }
     await writeJsonAtomic(planPath, plan)
-    return plan
+    return plan as ScenePlan
   })
 }
 
