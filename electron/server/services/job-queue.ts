@@ -1503,8 +1503,12 @@ const THUMBNAIL_EPISODE_TYPES: ReadonlySet<JobType> = new Set<JobType>([
 const VIDEO_EPISODE_TYPES: ReadonlySet<JobType> = new Set<JobType>([
   'video', 'scene_clip_generate', 'scene_clips_batch',
 ])
+// `music_generate` keeps its own lane, like `thumb_images`: a three-song request
+// queued behind two 2-hour narrations (the shared limit is the "Episodes making
+// scene images at once" setting) waited hours with no reason shown — Dreamlands
+// E2E, 2026-10-03.
 const AUDIO_EPISODE_TYPES: ReadonlySet<JobType> = new Set<JobType>([
-  'audio', 'music_generate',
+  'audio',
 ])
 const FLEET_EPISODE_GROUPS: ReadonlySet<string> = new Set([
   IMAGE_EPISODE_GROUP, THUMBNAIL_EPISODE_GROUP, VIDEO_EPISODE_GROUP, AUDIO_EPISODE_GROUP,
