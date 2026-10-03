@@ -114,7 +114,7 @@ export async function auditScenePlanOutput(job: any): Promise<'complete' | 'repa
   // timeline: real, forward-running scene timings and the record that a timeline
   // was built.
   const timelineOnly = params.stage === 'timeline'
-    && !params.regenerate_prompt_scene_id && !params.regenerate_empty_prompts
+    && !params.regenerate_prompt_scene_id && !params.regenerate_prompt_scene_ids?.length && !params.regenerate_empty_prompts
     && !params.regenerate_motion_prompt_scene_id && !params.regenerate_empty_motion_prompts
     && !params.replan_scene_id
   if (timelineOnly) {
@@ -134,7 +134,10 @@ export async function auditScenePlanOutput(job: any): Promise<'complete' | 'repa
   const singleId = stage === 'motion'
     ? params.regenerate_motion_prompt_scene_id
     : params.regenerate_prompt_scene_id || params.replan_scene_id
-  const ids = motionSnapshotIds ?? (singleId
+  const selectedIds = stage === 'visual' && Array.isArray(params.regenerate_prompt_scene_ids) && params.regenerate_prompt_scene_ids.length
+    ? params.regenerate_prompt_scene_ids.map(String)
+    : undefined
+  const ids = motionSnapshotIds ?? selectedIds ?? (singleId
     ? [String(singleId)]
     : (Array.isArray(plan?.scenes) ? plan.scenes : [])
       .filter((scene: any) => stage === 'visual' || (!!scene?.visual_prompt?.trim() && scene?.motion_mode !== 'still'))
