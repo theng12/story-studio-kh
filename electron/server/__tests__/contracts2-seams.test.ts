@@ -61,6 +61,13 @@ describe('music length', () => {
     assert.equal(pickDefaultMusicModel([stable, yue], { instrumental: false, hasLyrics: true })?.id, 'y')
     assert.equal(pickDefaultMusicModel([yue, stable], { instrumental: true, hasLyrics: false })?.id, 's')
   })
+  test('with no model named, a free fleet model wins over a paid row listed first (Dreamlands E2E)', () => {
+    const suno = { id: 'kie-ai-images::V6', price_source: 'provider_page' }
+    const fleet = { ...stable, price_source: 'local' }
+    assert.equal(pickDefaultMusicModel([suno, fleet], { instrumental: true, hasLyrics: false })?.id, 's')
+    // Only paid rows: still served (the page says "may cost credits"), never silently refused.
+    assert.equal(pickDefaultMusicModel([suno], { instrumental: true, hasLyrics: false })?.id, 'kie-ai-images::V6')
+  })
   test('the idempotency key moves with the length but is unchanged when none is sent', () => {
     const base = { title: 't', prompt: 'p', instrumental: true, modelId: 'm', requestIdentity: 'r' }
     assert.equal(buildGenStudioMusicIdempotencyKey(base), buildGenStudioMusicIdempotencyKey({ ...base, durationSeconds: undefined }))
