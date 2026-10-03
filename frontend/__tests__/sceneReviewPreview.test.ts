@@ -52,7 +52,10 @@ describe('Scene Review image preview', () => {
   test('legacy render modes and duplicate actions are removed at the surface', () => {
     assert.doesNotMatch(sceneReviewSource, /render_mode|form\.concurrency|Render sequentially|Render in parallel|Generate \(refs\)|🛠 Repair|⛓ From here|showLivePreview|mode === 'independent'/)
     assert.match(sceneReviewSource, /:generate-label="finishMissingLabel"/)
-    assert.match(sceneReviewSource, /`Finish \$\{missingCount\.value\} missing image\$\{missingCount\.value === 1 \? '' : 's'\} · may use credits`/)
+    // "may use credits" only for a model that can charge; a free fleet model says free (Dreamlands E2E).
+    assert.match(sceneReviewSource, /`Finish \$\{missingCount\.value\} missing image\$\{missingCount\.value === 1 \? '' : 's'\}\$\{isFreeToRun\(selectedGenStudioModel\.value\) \? ' · free' : ' · may use credits'\}`/)
+    assert.match(sceneReviewSource, /const creditsNote = computed\(\(\) => \(isFreeToRun\(selectedGenStudioModel\.value\) \? '' : '; may use credits'\)\)/)
+    assert.doesNotMatch(sceneReviewSource, /images; may use credits\.'/)
     assert.match(sceneReviewSource, /Generate Image/)
     assert.match(sceneReviewSource, /Regenerate Image/)
     assert.match(sceneReviewSource, /Upload replacement…/)

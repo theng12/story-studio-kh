@@ -67,7 +67,7 @@ import {
 import { describeModelRetirement, isRetiring } from '../utils/genstudio-model-retirement.js'
 import { describeGenStudioAvailability } from '../utils/genstudio-availability.js'
 import { unverifiedSelectionLabel as unverifiedLabel } from '../utils/picker-trigger-label.js'
-import { isGatewayPoolId, poolsFirst, POOL_GROUP_LABEL, POOL_HINT } from '../utils/gateway-pool.js'
+import { isGatewayPoolId, poolsFirst, POOL_GROUP_LABEL, POOL_HINT, POOL_PAID_LAST_RESORT_LABEL } from '../utils/gateway-pool.js'
 
 interface LlmModelRow {
   id: string
@@ -272,8 +272,13 @@ const menuOptions = computed(() => {
       // is rendered in full beneath the selector once the model is chosen — a
       // badge is a signpost, never the disclosure.
       badges: [
+        // A chargeable POOL runs on its free members; the Gateway's pool rule uses a paid
+        // member only when every free one is out for the day (Dreamlands E2E: the free
+        // writing pool read "Paid" although its paid member never fired).
         ...(model.chargeable === true
-          ? [{ label: 'Paid', tone: 'warning' as const, title: 'This writing model may cost money (the gateway marks it paid).' }]
+          ? [pool
+              ? { label: POOL_PAID_LAST_RESORT_LABEL, tone: 'info' as const, title: 'Runs on the free models first. A paid model in this pool is used only when every free one is out for the day.' }
+              : { label: 'Paid', tone: 'warning' as const, title: 'This writing model may cost money (the gateway marks it paid).' }]
           : []),
         ...(model.discount === true
           ? [{ label: 'Data notice', tone: 'warning' as const, title: model.discount_disclaimer || 'This model carries a data notice from the Gateway.' }]
