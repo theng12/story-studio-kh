@@ -381,3 +381,127 @@ export function normalizeForTts(input: string): TtsNormalizeResult {
     punctuation_changes: punctuationChanges,
   }
 }
+
+// ── Sentence length for narration (owner decision 2026-10-03) ──────────────
+//
+// Studio Hub renders every voice model in sections of at most 250 characters,
+// and a section ends at a sentence wherever one fits. A sentence longer than
+// that is the only thing that forces a cut inside a sentence (a short 0.15 s
+// soft join instead of a real pause), so narration keeps every sentence at or
+// under 220 characters: the writing prompt asks for it, and this deterministic
+// pass splits any sentence that still runs over at a natural clause boundary.
+// Nothing is ever dropped or truncated; a sentence with no usable boundary is
+// left as written and reported.
+
+export const MAX_NARRATION_SENTENCE_CHARS = 220
+/** Studio Hub's section size: a sentence past it is cut inside the sentence. */
+const HUB_SECTION_CHARS = 250
+
+/** A sentence the pass changed (or could not change), for the job log. */
+export interface LongSentenceReport {
+  /** The sentence as written. */
+  original: string
+  /** The sentences it became; a single entry means no natural break was found. */
+  pieces: string[]
+}
+
+const SENTENCE_END = /[.!?]/
+const CLOSERS = new Set(['"', "'", '”', '’', '»', ')', ']'])
+// After a comma, a clause starting with one of these reads naturally as its own sentence
+// ("…, but for now the hour belonged…" → "…. But for now the hour belonged…"), as does a
+// participle ("…, listening to the water" → "…. Listening to the water").
+const CLAUSE_STARTERS = new Set([
+  'and', 'but', 'so', 'yet', 'or', 'then', 'until', 'while', 'as', 'because', 'though',
+  'although', 'when', 'where', 'before', 'after', 'now', 'still', 'once', 'since',
+])
+// …and one starting with these would not ("…. Which still held…").
+const NEVER_STARTERS = new Set(['which', 'who', 'whom', 'whose', 'that', 'of', 'to', 'than'])
+const MIN_PIECE_CHARS = 30
+
+function sentenceSpans(line: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = []
+  let start = 0
+  for (let i = 0; i < line.length; i += 1) {
+    if (!SENTENCE_END.test(line[i]!)) continue
+    let end = i + 1
+    while (end < line.length && (SENTENCE_END.test(line[end]!) || CLOSERS.has(line[end]!))) end += 1
+    if (end < line.length && !/\s/.test(line[end]!)) continue
+    spans.push([start, end])
+    start = end
+    i = end - 1
+  }
+  if (start < line.length) spans.push([start, line.length])
+  return spans
+}
+
+function capitalise(text: string): string {
+  const index = text.search(/[A-Za-z]/)
+  return index < 0 ? text : text.slice(0, index) + text[index]!.toUpperCase() + text.slice(index + 1)
+}
+
+/** One over-long sentence → pieces of at most `max` characters where a natural break allows. */
+function splitSentence(sentence: string, max: number): string[] {
+  if (sentence.length <= max) return [sentence]
+  // Rank 0: a semicolon, colon or dash. 1: a comma before a clause starter or a participle.
+  // 2: any other comma, only for a sentence the Hub would otherwise cut mid-sentence (> 250).
+  // Never inside a phrase without punctuation, never before "which" / "who".
+  type Cut = { left: string; right: string; rank: number }
+  const cuts: Cut[] = []
+  const boundary = /\s*[;:]\s+|,\s+|\s*[—–]\s*/g
+  for (let match = boundary.exec(sentence); match; match = boundary.exec(sentence)) {
+    const left = sentence.slice(0, match.index).trimEnd()
+    const right = sentence.slice(match.index + match[0].length).trimStart()
+    if (left.length < MIN_PIECE_CHARS || right.length < MIN_PIECE_CHARS) continue
+    if (CLOSERS.has(left.at(-1)!) || /[.!?]$/.test(left)) continue
+    const firstWord = right.match(/^[A-Za-z]+/)?.[0]?.toLowerCase() ?? ''
+    if (NEVER_STARTERS.has(firstWord)) continue
+    const rank = !match[0].includes(',') ? 0
+      : CLAUSE_STARTERS.has(firstWord) || /^[a-z]{3,}ing$/.test(firstWord) ? 1 : 2
+    if (rank < 2 || sentence.length > HUB_SECTION_CHARS) cuts.push({ left, right, rank })
+  }
+  if (!cuts.length) return [sentence]
+  const rank = Math.min(...cuts.map(cut => cut.rank))
+  const middle = sentence.length / 2
+  const best = cuts.filter(cut => cut.rank === rank)
+    .reduce((a, b) => (Math.abs(b.left.length - middle) < Math.abs(a.left.length - middle) ? b : a))
+  return [
+    ...splitSentence(`${best.left}.`, max),
+    ...splitSentence(capitalise(best.right), max),
+  ]
+}
+
+/**
+ * Split every narration sentence longer than `max` characters at a natural
+ * clause boundary (a semicolon, colon or dash; else a comma before "and", "but",
+ * "so", "while"… or a participle; else another comma), nearest the middle.
+ * Paragraphs, line breaks and every word are kept. Returns the text and one
+ * report per over-long sentence.
+ */
+export function splitLongSentences(input: string, max = MAX_NARRATION_SENTENCE_CHARS): { text: string; reports: LongSentenceReport[] } {
+  const reports: LongSentenceReport[] = []
+  const text = (input ?? '').split('\n').map(line => {
+    if (line.length <= max || /^\s*#/.test(line)) return line
+    let out = ''
+    for (const [start, end] of sentenceSpans(line)) {
+      const chunk = line.slice(start, end)
+      const lead = chunk.match(/^\s*/)![0]
+      const sentence = chunk.slice(lead.length)
+      if (sentence.length <= max) { out += chunk; continue }
+      const pieces = splitSentence(sentence, max)
+      reports.push({ original: sentence, pieces })
+      out += lead + pieces.join(' ')
+    }
+    return out
+  }).join('\n')
+  return { text, reports }
+}
+
+/** One plain-English log line per over-long sentence, naming where it was. */
+export function describeLongSentences(where: string, reports: LongSentenceReport[]): string[] {
+  return reports.map(({ original, pieces }) => {
+    const opening = `${original.replace(/^["“'‘]+/, '').slice(0, 60).trimEnd()}…`
+    return pieces.length > 1
+      ? `${where}: split a ${original.length}-character sentence into ${pieces.length} so the voice never has to cut one mid-sentence ("${opening}").`
+      : `${where}: a ${original.length}-character sentence has no natural break, so it was left as written ("${opening}"). Shorten it by hand if the narration sounds rushed there.`
+  })
+}

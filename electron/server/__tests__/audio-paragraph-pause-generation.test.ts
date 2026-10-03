@@ -1,5 +1,7 @@
 /**
- * The Sleep paragraph pause end to end: the Audio Generator sends
+ * Narration pauses end to end. Without a channel override nothing is sent and
+ * every seam uses the uniform rule (owner 2026-10-03: 0.6 s after a sentence,
+ * 1.0 s at a paragraph). With one, the Audio Generator sends
  * `paragraph_pause_sec` / `sentence_pause_sec` with every narration request
  * when the model publishes them, and Story's own part seams use the same
  * pauses. With an older Hub (no `pause_parameters`) nothing is sent, the job
@@ -29,11 +31,12 @@ const MODEL = {
   preview_policy: '', generation_enabled: true, provider_submit_concurrency: 1, controls: [],
 }
 const PAUSES = [
-  { name: 'paragraph_pause_sec', minimum: 0, maximum: 3, default: 0.6 },
-  { name: 'sentence_pause_sec', minimum: 0, maximum: 3, default: 0.3 },
+  { name: 'paragraph_pause_sec', minimum: 0, maximum: 3, default: 1.0 },
+  { name: 'sentence_pause_sec', minimum: 0, maximum: 3, default: 0.6 },
 ]
 
-async function run(name: string, model: Record<string, unknown>) {
+async function run(name: string, model: Record<string, unknown>,
+  pauses: Record<string, number> = { paragraph_pause_sec: 1, sentence_pause_sec: 0.3 }) {
   const service = await startMockGenStudioService()
   try {
     await setGenStudioUrl(service.baseUrl)
@@ -52,7 +55,7 @@ async function run(name: string, model: Record<string, unknown>) {
       title: name, status: 'running', created_at: new Date().toISOString(),
       started_at: new Date().toISOString(), finished_at: null, error: null, output_lines: [],
       params: { episode_id: 'EP001', model: 'tiny-model', voice: 'mock-voice', sections: 'all', speed: 1,
-        force: false, no_overwrite: false, paragraph_pause_sec: 1, sentence_pause_sec: 0.3 },
+        force: false, no_overwrite: false, ...pauses },
     }
     await generateAudio(job)
     const bodies = service.requests
@@ -78,6 +81,13 @@ void test('a model that publishes the pauses gets them on every part; seams foll
   }
   assert.deepEqual(manifest.parts.map(part => part.pause_after_s), [0.3, 1, undefined])
   assert.ok(job.output_lines.some((line: string) => /1 s at a paragraph break, 0\.3 s after a sentence\.$/.test(line)))
+})
+
+void test('without an override nothing is sent and the seams use the uniform 0.6 s / 1.0 s', async () => {
+  const { job, bodies, manifest } = await run('pauses-default', { ...MODEL, pause_parameters: PAUSES }, {})
+  assert.equal(bodies.length, 3, job.output_lines.join('\n'))
+  for (const body of bodies) assert.equal(JSON.stringify(body).includes('pause'), false)
+  assert.deepEqual(manifest.parts.map(part => part.pause_after_s), [0.6, 1, undefined])
 })
 
 void test('an older Hub gets no pause fields, the job says so, and the seams still use them', async () => {

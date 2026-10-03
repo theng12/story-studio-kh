@@ -520,7 +520,7 @@ export async function generateAudio(job: Job): Promise<void> {
   // asserting a capability GenStudio did not publish.
   //
   // The pauses inside a chapter follow the same precedence: the Audio page's
-  // values, else the Series Formula's (Sleep: 1.0 s at a paragraph break).
+  // values, else the Series Formula's override, else the default every voice uses.
   try {
     const fmt = await getEffectiveFormat(project_slug)
     const fmtAudio = fmt?.script.audioDefaults

@@ -475,7 +475,7 @@
         </div>
         <div v-for="field in pauseFields" :key="field.key" class="form-group narration-pause-field">
           <label>{{ field.label }}
-            <span class="field-hint">{{ field.value === undefined ? `voice's own (${field.voiceDefault} s)` : `${field.value} s` }}</span>
+            <span class="field-hint">{{ field.value === undefined ? `default (${field.voiceDefault} s)` : `${field.value} s` }}</span>
           </label>
           <SliderWithNumber
             :model-value="field.value ?? field.voiceDefault"
@@ -488,8 +488,8 @@
           />
           <p class="text-muted text-xs hint-line">
             Silence inside a chapter {{ field.key === 'paragraph_pause_sec' ? 'where a new paragraph starts' : 'after each sentence' }}.
-            Sleep stories use {{ field.key === 'paragraph_pause_sec' ? '1.0' : '0.3' }} s.
-            <button v-if="field.value !== undefined" type="button" class="btn-link" @click="setPause(field.key, undefined)">Use the voice's own</button>
+            Every voice uses {{ field.key === 'paragraph_pause_sec' ? '1.0' : '0.6' }} s unless you change it here or in the Series Formula.
+            <button v-if="field.value !== undefined" type="button" class="btn-link" @click="setPause(field.key, undefined)">Use the default</button>
           </p>
         </div>
       </div>
@@ -820,8 +820,9 @@ const form = reactive({
    */
   controls: {} as Record<string, number | boolean | string>,
   /**
-   * Pauses inside a chapter, seconds (Series Formula default; Sleep: 1.0 s at a
-   * paragraph break). Undefined = the voice's own pause, and nothing is sent.
+   * Pauses inside a chapter, seconds (Series Formula override). Undefined = the
+   * default every voice uses (1.0 s at a paragraph, 0.6 s after a sentence), and
+   * nothing is sent.
    */
   paragraph_pause_sec: undefined as number | undefined,
   sentence_pause_sec: undefined as number | undefined,
@@ -830,8 +831,8 @@ const form = reactive({
 // The join pauses, with the selected model's published bounds/default where it
 // has them. Story's own part seams use the same values on any model.
 const PAUSE_ROWS = [
-  { key: 'paragraph_pause_sec', label: 'Pause at a paragraph break', fallback: 0.6 },
-  { key: 'sentence_pause_sec', label: 'Pause after a sentence', fallback: 0.3 },
+  { key: 'paragraph_pause_sec', label: 'Pause at a paragraph break', fallback: 1.0 },
+  { key: 'sentence_pause_sec', label: 'Pause after a sentence', fallback: 0.6 },
 ] as const
 const pauseFields = computed(() => PAUSE_ROWS.map(row => {
   const published = selectedTtsModel.value?.pause_parameters?.find(p => p.name === row.key)
@@ -1849,7 +1850,7 @@ const audioPresets = usePresets<any>({
 async function applyAudioFormatDefaultsIfNoPreset() {
   try {
     const f = await get<any>(`/projects/${slug.value}/effective-format`)
-    // The Series Formula's pauses inside a chapter (Sleep: 1.0 s / 0.3 s).
+    // The Series Formula's pauses inside a chapter, where it overrides the default.
     const pauses = f?.script?.narrationPauses
     if (typeof pauses?.paragraphSec === 'number') form.paragraph_pause_sec = pauses.paragraphSec
     if (typeof pauses?.sentenceSec === 'number') form.sentence_pause_sec = pauses.sentenceSec

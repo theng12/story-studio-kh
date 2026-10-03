@@ -436,7 +436,7 @@ export interface ScriptFormat {
   }
 
   /** Narration pauses inside a chapter, seconds, from the Series Formula (Audio Generator's
-   *  "Pause at a paragraph break"). Absent = the voice model's own pauses. */
+   *  "Pause at a paragraph break"). Absent = the default every voice uses (1.0 / 0.6 s). */
   narrationPauses?: {
     paragraphSec?: number
     sentenceSec?: number
@@ -1034,7 +1034,7 @@ export interface Niche {
    *  formulas want a longer, calm gap; the customer can still change it. */
   chapterPauseSec?: number
   /** Default narration pause (seconds) at a paragraph break / after a sentence inside a chapter
-   *  (Audio Generator; Sleep: 1.0 / 0.3). Absent = the voice model's own pauses. */
+   *  (Audio Generator), a per-channel override. Absent = the default every voice uses (1.0 / 0.6 s). */
   paragraphPauseSec?: number
   sentencePauseSec?: number
   /** Visual styles this channel type SUGGESTS, best first. Carried through

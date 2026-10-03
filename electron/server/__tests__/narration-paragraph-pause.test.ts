@@ -1,6 +1,7 @@
 /**
- * Pauses inside a chapter (owner 2026-10-03): the Series Formula sets the
- * pause at a paragraph break and after a sentence (Sleep: 1.0 s / 0.3 s), the
+ * Pauses inside a chapter (owner 2026-10-03): every voice uses 1.0 s at a
+ * paragraph break and 0.6 s after a sentence; a Series Formula may override
+ * them per channel, the
  * Audio Generator sends them with every narration request — only to a model
  * that publishes them, clamped to its range — and a request without them is
  * byte-for-byte what it was (same idempotency key).
@@ -18,16 +19,20 @@ const { contentPackDocumentToNiche } = await import('../content-packs/legacy-ada
 const { buildGenStudioSubmission, resolveTtsPauses } = await import('../lib/genstudio-client.js')
 
 const PUBLISHED = [
-  { name: 'paragraph_pause_sec' as const, minimum: 0, maximum: 3, default: 0.6 },
-  { name: 'sentence_pause_sec' as const, minimum: 0, maximum: 3, default: 0.3 },
+  { name: 'paragraph_pause_sec' as const, minimum: 0, maximum: 3, default: 1.0 },
+  { name: 'sentence_pause_sec' as const, minimum: 0, maximum: 3, default: 0.6 },
 ]
 
-void test('the Sleep formula pauses 1.0 s at a paragraph break and 0.3 s after a sentence; others say nothing', async () => {
+void test('no built-in formula overrides the uniform pauses (Sleep included); a formula that sets them does', async () => {
   const shell = JSON.parse(await fs.readFile(path.join(root, 'electron/server/formats/continuity-chain.json'), 'utf8'))
-  const sleep = JSON.parse(await fs.readFile(path.join(root, 'electron/server/niches/sleep.json'), 'utf8'))
-  assert.deepEqual(applyNicheToFormat(shell, sleep).script.narrationPauses, { paragraphSec: 1, sentenceSec: 0.3 })
-  const plain = applyNicheToFormat(shell, { ...sleep, paragraphPauseSec: undefined, sentencePauseSec: undefined })
-  assert.equal(plain.script.narrationPauses, undefined)
+  const nicheDir = path.join(root, 'electron/server/niches')
+  for (const file of (await fs.readdir(nicheDir)).filter(name => name.endsWith('.json'))) {
+    const niche = JSON.parse(await fs.readFile(path.join(nicheDir, file), 'utf8'))
+    assert.equal(applyNicheToFormat(shell, niche).script.narrationPauses, undefined, file)
+  }
+  const sleep = JSON.parse(await fs.readFile(path.join(nicheDir, 'sleep.json'), 'utf8'))
+  assert.deepEqual(applyNicheToFormat(shell, { ...sleep, paragraphPauseSec: 1.5, sentencePauseSec: 0.8 }).script.narrationPauses,
+    { paragraphSec: 1.5, sentenceSec: 0.8 })
 })
 
 void test('a signed formula carries paragraph_pause_sec / sentence_pause_sec (0-3 s) to the niche', async () => {

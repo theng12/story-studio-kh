@@ -50,13 +50,15 @@ async function samples(file: string): Promise<Int16Array> {
   return new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2)
 }
 
-void test('seams follow the text: 0.6 s at a paragraph break, 0.3 s after a sentence, 0.18 s mid-sentence', () => {
+void test('seams follow the text: 1.0 s at a paragraph break, 0.6 s after a sentence, 0.15 s mid-sentence', () => {
   const text = 'One sentence ends here. Another follows.\n\nA new paragraph starts, and it runs on and'
     + ' then the part ends mid-sentence and continues "quoted."\nNext line.'
   const parts = ['One sentence ends here.', 'Another follows.', 'A new paragraph starts, and it runs on and',
     'then the part ends mid-sentence and continues "quoted."', 'Next line.']
   const { pauses, ranges } = planSeams(text, parts)
   assert.deepEqual(pauses, [SEAM_PAUSE_S.sentence, SEAM_PAUSE_S.paragraph, SEAM_PAUSE_S.soft, SEAM_PAUSE_S.sentence])
+  // One rule for every voice model, the same as the Hub's joins inside a request (owner 2026-10-03).
+  assert.deepEqual(SEAM_PAUSE_S, { sentence: 0.6, paragraph: 1.0, soft: 0.15 })
   assert.equal(text.slice(ranges[2]!.start, ranges[2]!.end), parts[2])
 })
 
@@ -155,7 +157,7 @@ void test('migration: complete parts become one chapter file, parts hidden with 
   assert.deepEqual(await looseAudio(fx.audioDir), ['EP001_Chapter_01.mp3', 'EP001_Chapter_02.mp3'])
   const manifest = (await readPartsManifest(fx.audioDir, 'EP001_Chapter_02'))!
   assert.deepEqual(manifest.parts.map(part => [part.file, part.source_name, part.pause_after_s]), [
-    ['part1.mp3', fx.parts[0], 0.6], ['part2.mp3', fx.parts[1], 0.3], ['part3.mp3', fx.parts[2], undefined],
+    ['part1.mp3', fx.parts[0], 1], ['part2.mp3', fx.parts[1], 0.6], ['part3.mp3', fx.parts[2], undefined],
   ])
   assert.equal(manifest.parts[0]!.request_key, 'key-1')
   assert.equal(manifest.parts[0]!.task_id, 'task-1')
@@ -275,7 +277,7 @@ void test('after the final render the kept parts move to the project _trash', as
   assert.ok(existsSync(path.join(fx.audioDir, 'EP001_Chapter_02.mp3')))
 })
 
-void test('the channel\'s own pauses (Sleep: 1.0 s at a paragraph break) set the seams; bad values fall back', () => {
+void test('a channel\'s own pauses (Series Formula override) set the seams; bad values fall back', () => {
   const sleep = seamPauseRule({ paragraph: 1, sentence: 0.3 })
   assert.deepEqual(sleep, { sentence: 0.3, paragraph: 1, soft: SEAM_PAUSE_S.soft })
   const text = 'One ends. Two ends.\n\nThree runs on and'
@@ -285,7 +287,7 @@ void test('the channel\'s own pauses (Sleep: 1.0 s at a paragraph break) set the
   assert.equal(seamPauseRule({ paragraph: 9 }).paragraph, 3)
 })
 
-void test('a chapter joined at the Sleep paragraph pause has a 1.0 s gap there and records the rule', async () => {
+void test('a chapter joined at an overridden pause has that gap there and records the rule', async () => {
   const fx = await episodeFixture('sleep-pause', { selector: false, oldTake: false })
   const pauseRule = seamPauseRule({ paragraph: 1, sentence: 0.3 })
   assert.deepEqual(await consolidateChapterParts({ ...fx, pauseRule }), ['Chapter_02'])

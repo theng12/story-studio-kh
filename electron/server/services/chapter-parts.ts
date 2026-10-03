@@ -10,10 +10,10 @@
  * the chapter re-joined without paying for, or waiting on, the whole chapter.
  *
  * The join follows the text, like the Hub's own long-form joiner: each part's
- * own leading/trailing silence is trimmed, then exactly 0.3 s goes after a
- * sentence end, 0.6 s at a paragraph break (0.18 s mid-sentence) — or the
- * channel's own sentence / paragraph pause (Series Formula, Audio Generator;
- * Sleep: 1.0 s at a paragraph break), the same one the Hub is asked for. Each part is
+ * own leading/trailing silence is trimmed, then exactly 0.6 s goes after a
+ * sentence end, 1.0 s at a paragraph break (0.15 s mid-sentence) — one rule for
+ * every voice model (owner decision 2026-10-03) — or the channel's own sentence /
+ * paragraph pause (Series Formula, Audio Generator), the same one the Hub is asked for. Each part is
  * gain-matched to the chapter's median integrated loudness (one linear gain per
  * part, no limiter), lowered together only if a peak would pass -1 dBTP, and
  * gets a 5 ms fade at each edge so no seam clicks.
@@ -36,8 +36,9 @@ import { hashSubtitleAudioSources } from './subtitle-completion.js'
 export const PARTS_DIRNAME = '.parts'
 export const MANIFEST_NAME = 'manifest.json'
 
-/** The Hub's text-led join pauses (studio-hub long_form_policy.py). */
-export const SEAM_PAUSE_S = { sentence: 0.3, paragraph: 0.6, soft: 0.18 } as const
+/** The join pauses every voice model uses inside a request (studio-hub long_form_policy.py,
+ *  owner decision 2026-10-03), so a part seam sounds like any other join. */
+export const SEAM_PAUSE_S = { sentence: 0.6, paragraph: 1.0, soft: 0.15 } as const
 export type SeamPauseRule = { sentence: number; paragraph: number; soft: number }
 const MAX_PAUSE_S = 3
 
@@ -232,7 +233,7 @@ export interface ConsolidateInput {
   /** Limit to these chapters (slugs, any case). */
   only?: string[]
   settings?: Record<string, unknown>
-  /** The channel's sentence / paragraph pause (`seamPauseRule`); absent = the Hub's 0.3 / 0.6 s. */
+  /** The channel's sentence / paragraph pause (`seamPauseRule`); absent = the uniform 0.6 / 1.0 s. */
   pauseRule?: SeamPauseRule
   log?: (line: string) => void
 }

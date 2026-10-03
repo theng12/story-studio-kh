@@ -94,7 +94,7 @@ router.post('/projects/:slug/generate/audio-merge', async (req, res) => {
     const fmt = await getEffectiveFormat(slug)
     fmtMerge = fmt?.script.audioMergeDefaults
   } catch { /* format layer must never break the queue submit */ }
-  req.body.gap_duration = gap_duration ?? fmtMerge?.gapDurationSec ?? 5
+  req.body.gap_duration = gap_duration ?? fmtMerge?.gapDurationSec ?? 3
   req.body.normalize_volume = normalize_volume ?? fmtMerge?.normalizeVolume ?? false
 
   if (isDuplicate(slug, episode_id, 'audio_merge')) {
