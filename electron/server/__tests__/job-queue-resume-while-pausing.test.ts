@@ -8,6 +8,7 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 
 let cleanup: () => Promise<void>
 let jq: typeof import('../services/job-queue.js')
@@ -25,8 +26,7 @@ before(async () => {
 after(async () => { await cleanup() })
 
 async function until(check: () => boolean, label: string): Promise<void> {
-  const deadline = Date.now() + 3_000
-  while (Date.now() < deadline && !check()) await new Promise(resolve => setTimeout(resolve, 20))
+  await waitFor(check, { label })
   assert.ok(check(), label)
 }
 
@@ -91,7 +91,8 @@ describe('Resume while a pause is taking effect', { concurrency: 1 }, () => {
 
     release()
     await until(() => jq.getJob(job.job_id)?.status === 'paused', 'job should stop at its checkpoint')
-    await new Promise(resolve => setTimeout(resolve, 100))
+    // Let any queued re-run get its chance without a wall-clock sleep: a few event-loop turns.
+    for (let i = 0; i < 10; i++) await new Promise(resolve => setImmediate(resolve))
     assert.equal(jq.getJob(job.job_id)?.status, 'paused')
     assert.equal(runs, 1)
 
