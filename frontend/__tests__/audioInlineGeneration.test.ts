@@ -35,7 +35,7 @@ describe('Audio one-chapter generation', () => {
   })
 
   test('shares confirmation and job guards while refusing an empty batch target', () => {
-    assert.match(audioPage, /async function queueAudio\(targetSections: string\[\], mode: AudioActionMode\)/)
+    assert.match(audioPage, /async function queueAudio\(targetSections: string\[\], mode: AudioActionMode, extra: \{ then_subtitles\?: true \} = \{\}\): Promise<boolean>/)
     assert.match(audioPage, /if \(!targetSections\.length\)/)
     assert.doesNotMatch(audioPage, /: 'all'/)
     assert.match(audioPage, /if \(!await confirmGeneration\(slug\.value, 'audio', payload, \{/)

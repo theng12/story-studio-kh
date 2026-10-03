@@ -74,8 +74,10 @@ test('Subtitles surfaces the shared pacing-blocking cue gap and focuses its attr
   )
   assert.match(subtitles, /blocking_cue_gaps/)
   assert.match(subtitles, /subtitle coverage gap/i)
-  assert.match(subtitles, /regenerate that chapter’s subtitles/)
-  assert.match(subtitles, /Then stitch again/)
+  // A gap is almost always the narration (Dreamlands 2026-10-03): lead with re-making the chapter's audio.
+  assert.match(subtitles, /re-making the chapter’s audio fixes it/)
+  assert.match(subtitles, /Re-narrate makes the chapter’s audio again, then its subtitles automatically/)
+  assert.match(subtitles, /only the subtitles missed it — re-transcribe instead/)
   assert.match(subtitles, /Time without subtitles:/)
   assert.match(subtitles, /In chapter audio:/)
   assert.match(subtitles, /In full episode:/)
