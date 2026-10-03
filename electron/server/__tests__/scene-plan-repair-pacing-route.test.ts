@@ -93,3 +93,29 @@ test('saved plan pacing ignores a malformed current draft during repair and pres
     await temp.cleanup()
   }
 })
+
+test('a scene the repair cannot split is reported as a count the page can act on', async () => {
+  const temp = await useTempDataDir()
+  const previousDisableListen = process.env.STORY_STUDIO_DISABLE_LISTEN
+  process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
+  try {
+    const app = await bootApp()
+    // One 8 s scene holding a single subtitle cue, against a 5 s pacing maximum.
+    const fixture = await repairFixture('Unsplittable long scene', { mode: 'live', min_sec: 2, max_sec: 5 })
+    // A one-word cue has no word boundary to cut on.
+    const stitched = path.join(fixture.paths.subtitles_dir, `${fixture.episodeId}_stitched.srt`)
+    await fs.writeFile(stitched, '1\n00:00:00,000 --> 00:00:08,000\nHush.\n')
+    const response = await request(app)
+      .post(`/api/projects/${fixture.project.slug}/scene-plan/${fixture.episodeId}/repair-long-scenes`)
+      .send({})
+
+    assert.equal(response.status, 400, JSON.stringify(response.body))
+    assert.match(response.body.detail, /could not be split further/)
+    assert.equal(response.body.unsplittable_count, 1)
+    assert.equal(await fs.readFile(fixture.planPath, 'utf8'), fixture.planBytes)
+  } finally {
+    if (previousDisableListen === undefined) delete process.env.STORY_STUDIO_DISABLE_LISTEN
+    else process.env.STORY_STUDIO_DISABLE_LISTEN = previousDisableListen
+    await temp.cleanup()
+  }
+})

@@ -662,7 +662,11 @@
           <button class="btn btn-sm btn-primary" :disabled="saving || !dirty || planBusy" @click="savePlan">
             {{ saving ? 'Saving…' : (dirty ? 'Save' : 'Saved') }}
           </button>
-          <Popover v-if="overlongSceneCount" placement="top">
+          <span v-if="overlongSceneCount && longScenesAllUnsplittable" class="text-muted text-xs long-scenes-note" role="status">
+            {{ overlongSceneCount }} scene{{ overlongSceneCount === 1 ? ' runs' : 's run' }} past the pacing maximum but can’t be split — each is one subtitle line or a quiet pause.
+            Shorten {{ overlongSceneCount === 1 ? 'it' : 'them' }} by hand, or raise the maximum in Visual timing &amp; motion.
+          </span>
+          <Popover v-else-if="overlongSceneCount" placement="top">
             <button
               class="btn btn-sm btn-secondary"
               :disabled="repairingLongScenes || !!dirty || !subtitleTimelineComplete"
@@ -2972,6 +2976,19 @@ onUnmounted(() => {
 })
 
 const repairingLongScenes = ref(false)
+// What the server said it cannot split, tied to the plan it measured. The Repair
+// button then gives way to a plain note instead of being offered again for scenes
+// it just refused (Dreamlands E2E: 23 unsplittable scenes, button stayed).
+const unsplittableLongScenes = ref<{ key: string; count: number } | null>(null)
+const longScenePlanKey = computed(() => `${episodeId.value}:${plan.value?.generated_at || ''}:${overlongSceneCount.value}`)
+const longScenesAllUnsplittable = computed(() => !!unsplittableLongScenes.value
+  && unsplittableLongScenes.value.key === longScenePlanKey.value
+  && unsplittableLongScenes.value.count >= overlongSceneCount.value)
+function noteUnsplittable(count: unknown): void {
+  unsplittableLongScenes.value = typeof count === 'number' && count > 0
+    ? { key: longScenePlanKey.value, count }
+    : null
+}
 async function repairLongScenes(): Promise<void> {
   if (!episodeId.value || repairingLongScenes.value || !subtitleTimelineComplete.value) return
   const ok = await ask({
@@ -2982,14 +2999,16 @@ async function repairLongScenes(): Promise<void> {
   if (!ok) return
   repairingLongScenes.value = true
   try {
-    const result = await post<{ repairedCount: number; addedCount: number }>(
+    const result = await post<{ repairedCount: number; addedCount: number; unsplittable_count?: number }>(
       `/projects/${slug.value}/scene-plan/${episodeId.value}/repair-long-scenes`,
       {},
     )
     await loadStatus()
     await revalidateEpisodes()
+    noteUnsplittable(result.unsplittable_count)
     success(`Repaired ${result.repairedCount} long scene${result.repairedCount === 1 ? '' : 's'} and restored ${result.addedCount} cue-aligned scene${result.addedCount === 1 ? '' : 's'}. Generate prompts only for the new scenes.`)
   } catch (e: any) {
+    noteUnsplittable(e?.data?.unsplittable_count)
     showError(e?.data?.detail || 'Failed to repair long scenes')
   } finally {
     repairingLongScenes.value = false
