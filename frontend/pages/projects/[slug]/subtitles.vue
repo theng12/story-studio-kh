@@ -63,6 +63,11 @@
             </p>
             <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadStatus">Retry</button>
           </div>
+          <p v-else-if="!status?.has_chapter_audio && (status?.chapter_audio_present || 0) > 0" class="validation-msg text-sm mt-2">
+            ⏳ {{ status?.chapter_audio_present }} of {{ status?.chapter_audio_expected }} chapters of {{ episodeId }} are narrated so far.
+            Subtitles start once every chapter has narration and Audio Assembly has run —
+            follow the rest in the <NuxtLink :to="`/projects/${slug}/audio`" class="inline-link">Audio Generator</NuxtLink>.
+          </p>
           <p v-else-if="!status?.has_chapter_audio" class="validation-msg text-sm mt-2">
             ⚠ No chapter audio found for {{ episodeId }}. Generate audio in the
             <NuxtLink :to="`/projects/${slug}/audio`" class="inline-link">Audio Generator</NuxtLink>
@@ -466,6 +471,8 @@ interface SubtitleStatus {
   has_libass: boolean
   has_merged_audio: boolean
   has_chapter_audio: boolean
+  chapter_audio_present?: number
+  chapter_audio_expected?: number
   audio_assembly_ready: boolean
   audio_assembly_issues: string[]
   existing_srts: ExistingSrt[]
@@ -766,6 +773,9 @@ const canTranscribe = computed(() => {
 })
 const transcribeDisabledReason = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
+  if (!status.value?.has_chapter_audio && (status.value?.chapter_audio_present || 0) > 0) {
+    return `${status.value?.chapter_audio_present} of ${status.value?.chapter_audio_expected} chapters narrated — finish the narration first`
+  }
   if (!status.value?.has_chapter_audio) return 'No chapter audio — generate audio first'
   if (!status.value?.audio_assembly_ready) return 'Run Audio Assembly before transcription'
   if (status.value?.freshness_unavailable) return 'Subtitle source freshness is unavailable. Refresh status before transcribing.'
