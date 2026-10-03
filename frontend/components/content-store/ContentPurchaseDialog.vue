@@ -91,14 +91,14 @@
           class="btn btn-primary"
           :disabled="busy"
           @click="$emit('retry', attempt.quote_id)"
-        >{{ busy ? 'Retrying…' : 'Retry this purchase' }}</button>
+        >{{ busy ? 'Retrying…' : 'Retry This Purchase' }}</button>
         <button
           v-else-if="attempt.status === 'quoted' || attempt.status === 'submitting'"
           type="button"
           class="btn btn-primary"
           :disabled="busy || !attempt.sufficient_credits || attempt.status === 'submitting'"
           @click="$emit('confirm', attempt.quote_id)"
-        >{{ busy || attempt.status === 'submitting' ? 'Submitting…' : product.free ? 'Get it free' : `Buy for up to ${formatCredits(attempt.quoted_credits)} credits` }}</button>
+        >{{ busy || attempt.status === 'submitting' ? 'Submitting…' : product.free ? 'Get It Free' : `Buy for Up to ${formatCredits(attempt.quoted_credits)} Credits` }}</button>
       </footer>
     </div>
   </Modal>

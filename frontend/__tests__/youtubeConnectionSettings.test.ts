@@ -137,7 +137,7 @@ async function mount(input: {
 
 async function clickConnect(mounted: { el: HTMLElement }): Promise<void> {
   const connect = [...mounted.el.querySelectorAll('button')]
-    .find(button => button.textContent!.includes('Connect a YouTube channel'))!
+    .find(button => button.textContent!.includes('Connect a YouTube Channel'))!
   connect.click()
   for (let i = 0; i < 8; i++) await nextTick()
 }
@@ -164,7 +164,7 @@ describe('Settings → YouTube', () => {
     // The Connect action itself must not be offered — checked as a control, not
     // as a substring, so explanatory copy elsewhere cannot satisfy or break it.
     assert.equal(
-      [...mounted.el.querySelectorAll('button')].some(b => b.textContent!.includes('Connect a YouTube channel')),
+      [...mounted.el.querySelectorAll('button')].some(b => b.textContent!.includes('Connect a YouTube Channel')),
       false,
     )
     mounted.destroy()
@@ -178,7 +178,7 @@ describe('Settings → YouTube', () => {
     assert.match(mounted.el.textContent!, /no longer has an available encrypted client secret/i)
     assert.notEqual(mounted.el.querySelector('#youtube-client-secret'), null)
     assert.equal(
-      [...mounted.el.querySelectorAll('button')].some(button => button.textContent!.includes('Connect a YouTube channel')),
+      [...mounted.el.querySelectorAll('button')].some(button => button.textContent!.includes('Connect a YouTube Channel')),
       false,
     )
     const reconnect = [...mounted.el.querySelectorAll('button')]
@@ -200,7 +200,7 @@ describe('Settings → YouTube', () => {
     await nextTick()
 
     const save = [...mounted.el.querySelectorAll('button')]
-      .find(button => button.textContent!.includes('Save application'))!
+      .find(button => button.textContent!.includes('Save Application'))!
     save.click()
     await nextTick(); await nextTick(); await nextTick()
 
@@ -222,7 +222,7 @@ describe('Settings → YouTube', () => {
     assert.match(mounted.el.textContent!, /provider API keys, projects/i)
     assert.match(mounted.el.textContent!, /published-video records and history stay in place/i)
     const recover = [...mounted.el.querySelectorAll('button')]
-      .find(button => button.textContent!.includes('Remove unusable YouTube credentials'))!
+      .find(button => button.textContent!.includes('Remove Unusable YouTube Credentials'))!
     recover.click()
     await nextTick(); await nextTick(); await nextTick()
     assert.equal(mounted.confirms[0].danger, true)
@@ -239,7 +239,7 @@ describe('Settings → YouTube', () => {
       confirm: false,
     })
     const recover = [...mounted.el.querySelectorAll('button')]
-      .find(button => button.textContent!.includes('Remove unusable YouTube credentials'))!
+      .find(button => button.textContent!.includes('Remove Unusable YouTube Credentials'))!
     recover.click()
     await nextTick(); await nextTick()
     assert.equal(mounted.calls.some(call => call.method === 'DELETE'), false)
@@ -303,7 +303,7 @@ describe('Settings → YouTube', () => {
     // list was being made to mean two different things.
     const mounted = await mount({ channels: [] })
     assert.doesNotMatch(mounted.el.textContent!, /belongs to another project/)
-    assert.match(mounted.el.textContent!, /Connect a YouTube channel in step 2 first/)
+    assert.match(mounted.el.textContent!, /Connect a YouTube Channel in step 2 first/)
     mounted.destroy()
   })
 
@@ -322,7 +322,7 @@ describe('Settings → YouTube', () => {
     await nextTick()
 
     const replace = [...mounted.el.querySelectorAll('button')]
-      .find(button => button.textContent!.includes('Replace channel'))!
+      .find(button => button.textContent!.includes('Replace Channel'))!
     replace.click()
     await nextTick(); await nextTick(); await nextTick()
 
@@ -469,19 +469,19 @@ describe('Settings → YouTube boundaries', () => {
 })
 
 describe('Settings → YouTube while waiting for Google (shell audit 2026-10-03)', () => {
-  test('Stop waiting frees the page instead of locking every button for five minutes', async () => {
+  test('Stop Waiting frees the page instead of locking every button for five minutes', async () => {
     const mounted = await mount({ connectStatus: { status: 'pending' } })
     const drain = async () => { for (let i = 0; i < 20; i++) { await Promise.resolve(); await nextTick() } }
     mock.timers.enable({ apis: ['setTimeout'] })
     try {
       await clickConnect(mounted)
       await drain()
-      const stop = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Stop waiting')
+      const stop = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Stop Waiting')
       assert.ok(stop, 'a visible way out while waiting')
       stop!.click()
       mock.timers.tick(1_000)
       await drain()
-      const connect = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Connect a YouTube channel'))!
+      const connect = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Connect a YouTube Channel'))!
       assert.equal(connect.disabled, false)
       assert.match(mounted.el.textContent!, /Stopped waiting for Google/)
     } finally { mock.timers.reset(); mounted.destroy() }

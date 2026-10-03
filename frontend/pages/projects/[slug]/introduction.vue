@@ -138,7 +138,7 @@
           </p>
         </div>
         <button class="btn btn-primary" :disabled="saving || (!dirty && !segment.inferred_at)" @click="save">
-          {{ saving ? 'Saving…' : 'Save for this channel' }}
+          {{ saving ? 'Saving…' : 'Save for This Channel' }}
         </button>
       </div>
 
@@ -290,7 +290,7 @@
           @keydown.enter.prevent="addBeat"
         />
         <button class="btn btn-sm btn-secondary" :disabled="!newBeatLabel.trim()" @click="addBeat">
-          + Add beat
+          + Add Beat
         </button>
       </div>
     </section>

@@ -22,7 +22,7 @@
     <p v-if="loadError" class="catalog-message">{{ loadError }}</p>
     <p v-if="emptyCatalogNeedsSetup" class="catalog-message">
       No Gateway key is configured, so LLM models cannot load.
-      <button type="button" class="catalog-action" @click="appSettingsModal.open('connections')">Open connection settings</button>
+      <button type="button" class="catalog-action" @click="appSettingsModal.open('connections')">Open Connection Settings</button>
     </p>
     <!-- The saved product is gone from the catalogue. Body text in the flow,
          like the disclosure and retirement notices below it: this is the only

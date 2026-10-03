@@ -22,7 +22,7 @@
         </div>
         <div class="heading-actions">
           <NuxtLink :to="`/projects/${slug}/upload/publish`" class="btn btn-sm">Return to Publish</NuxtLink>
-          <button class="btn btn-sm" type="button" :disabled="saving !== ''" @click="requestNewDraft">New plan</button>
+          <button class="btn btn-sm" type="button" :disabled="saving !== ''" @click="requestNewDraft">New Plan</button>
         </div>
       </section>
 
@@ -41,7 +41,7 @@
               type="button"
               :disabled="saving !== ''"
               @click="requestActivate(plan)"
-            >{{ saving === `activate:${plan.id}` ? 'Activating…' : 'Make active' }}</button>
+            >{{ saving === `activate:${plan.id}` ? 'Activating…' : 'Make Active' }}</button>
           </div>
         </div>
       </section>
@@ -67,9 +67,9 @@
             type="button"
             :disabled="saving !== '' || dirty"
             @click="selected && requestActivate(selected)"
-          >Make this plan active</button>
+          >Make This Plan Active</button>
           <span v-else-if="draft.id && draft.id === activePlanId" class="active">This plan is active for {{ channel.title }}.</span>
-          <span v-if="draft.id && dirty" class="hint">Save changes before making this plan active.</span>
+          <span v-if="draft.id && dirty" class="hint">Save Changes before making this plan active.</span>
         </div>
       </form>
     </template>
@@ -149,7 +149,7 @@ function edit(plan: UploadPlan): void {
 }
 async function discardDraft(message: string, action = revision, actionSlug = slug.value): Promise<boolean> {
   if (!dirty.value) return true
-  const confirmed = await ask({ title: 'Discard unsaved plan changes?', message, confirmLabel: 'Discard changes' })
+  const confirmed = await ask({ title: 'Discard unsaved plan changes?', message, confirmLabel: 'Discard Changes' })
   return !!confirmed && isCurrent(action, actionSlug)
 }
 async function requestNewDraft(): Promise<void> {
@@ -228,7 +228,7 @@ async function requestActivate(plan: UploadPlan): Promise<void> {
     const confirmed = await ask({
       title: 'Make the saved plan active?',
       message: 'Your editor changes are not saved. This activates the saved version and leaves your draft unchanged.',
-      confirmLabel: 'Make saved plan active',
+      confirmLabel: 'Make Saved Plan Active',
     })
     if (!confirmed || !isCurrent(action, actionSlug)) return
   }

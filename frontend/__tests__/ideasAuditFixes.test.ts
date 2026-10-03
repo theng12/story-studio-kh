@@ -82,7 +82,7 @@ test('controls carry a visible one-line hint and there is one Formula picker but
 })
 
 test('Un-accept moves files to _trash and says so', () => {
-  assert.match(ideas, /confirmLabel: 'Move to _trash and un-accept'/)
+  assert.match(ideas, /confirmLabel: 'Move to _trash and Un-Accept'/)
   assert.doesNotMatch(ideas, /Cannot be undone\./)
   assert.match(ideas, /title="Move this episode's files to the project's _trash and un-accept"/)
 })

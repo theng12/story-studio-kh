@@ -2,12 +2,12 @@
   <section class="chapter-audio-preview" aria-label="Chapter audio preview">
     <div class="preview-heading">
       <strong>{{ section.replaceAll('_', ' ') }} · source audio</strong>
-      <button type="button" class="btn btn-xs btn-secondary" @click="$emit('close')">Close player</button>
+      <button type="button" class="btn btn-xs btn-secondary" @click="$emit('close')">Close Player</button>
     </div>
     <p v-if="loading" role="status">Loading chapter audio…</p>
     <div v-else-if="error" role="alert" class="preview-error">
       <p>{{ error }}</p>
-      <button type="button" class="btn btn-sm btn-secondary" @click="loadAudio">Retry playback</button>
+      <button type="button" class="btn btn-sm btn-secondary" @click="loadAudio">Retry Playback</button>
     </div>
     <template v-else-if="parts.length">
       <label v-if="parts.length > 1" class="part-picker">

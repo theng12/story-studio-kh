@@ -27,7 +27,7 @@ describe('force-abandon on the Jobs page', () => {
       /control\.action === 'force-abandon'[\s\S]{0,400}useConfirm\(\)[\s\S]{0,300}message: control\.reason/,
       'the abandon confirmation must be populated from control.reason, not from a second copy of the wording',
     )
-    assert.match(jobsPage, /confirmLabel: 'Abandon this job'/)
+    assert.match(jobsPage, /confirmLabel: 'Abandon This Job'/)
     // No confirmation, no request.
     assert.match(jobsPage, /\}\)\) return\n\s*\}\n\s*controlBusy\.value/)
   })
@@ -57,7 +57,7 @@ describe('force-abandon on the Jobs page', () => {
     assert.match(eligibility, /isTerminalContinuityRender\(job\)/)
     assert.match(eligibility, /auto_repair_missing_prompts === true\) return false/)
     assert.equal((jobsPage.match(/v-if="isTerminalContinuityRender\(job\)"/g) || []).length, 1,
-      'the history list offers Finish missing images for failed continuity renders')
+      'the history list offers Finish Missing Images for failed continuity renders')
     assert.equal((jobsPage.match(/@click="finishMissingImages\(job\)"/g) || []).length, 1)
   })
 })

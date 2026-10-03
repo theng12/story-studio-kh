@@ -29,7 +29,7 @@
           type="button"
           class="btn btn-sm btn-secondary"
           @click="libraryOpen = !libraryOpen"
-        >{{ libraryOpen ? 'Close library' : `Browse ${compatibleLibrary.label} library` }}</button>
+        >{{ libraryOpen ? 'Close Library' : `Browse ${compatibleLibrary.label} Library` }}</button>
       </template>
 
       <div v-if="libraryOpen && compatibleLibrary" class="vp-add-panel">

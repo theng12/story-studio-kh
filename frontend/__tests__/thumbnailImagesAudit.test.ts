@@ -168,7 +168,7 @@ test('Thumbnail Generator wiring: one builder, extra details per episode, honest
   assert.match(page, /thumbnailGeneratorPresets\.load\(\),[\s\S]{0,80}\]\)\s*await applyImageFormatDefaultsIfNoPreset\(\)/)
   assert.match(page, /function onOutputOptionSwitched\(notice: string\): void \{ showInfo\(notice\) \}/)
   assert.match(page, /realignOutputOption\(activeGenStudioModel\.value, outputOption\.value, ratio\)/)
-  assert.match(page, /Stop using the reference/)
+  assert.match(page, /Stop Using the Reference/)
   assert.match(page, /thumbnail_reference_asset: null/)
   assert.match(page, /:disabled="submitting \|\| imageJobActiveForEpisode"/)
   for (const jargon of ['provider history', 'submits new provider work', 'silently truncated', 'No step setting']) {
@@ -186,7 +186,7 @@ test('Thumbnail Generator wiring: one builder, extra details per episode, honest
 test('Thumbnail Prompts: explicit replace-all, honest toast, choices survive a revisit, brief stays with its episode', () => {
   const page = read('../pages/projects/[slug]/image-prompts.vue')
   assert.match(page, /fill_gaps: !replaceAll,\s*force: replaceAll,/)
-  assert.match(page, /Replace all \{\{ existingThumbNumbers\.length \}\} prompts/)
+  assert.match(page, /Replace All \{\{ existingThumbNumbers\.length \}\} Prompts/)
   assert.match(page, /async function replaceAllThumbnailPrompts\(\)[\s\S]{0,200}useConfirm\(\)\.ask\(\{[\s\S]{0,300}danger: true/)
   assert.match(page, /All \$\{thumbCt\} prompts already exist — nothing new generated/)
   assert.match(page, /@loaded="existingThumbNumbers = \$event\.thumbnails"/)
@@ -200,7 +200,7 @@ test('Thumbnail Prompts: explicit replace-all, honest toast, choices survive a r
   assert.match(page, /excludeKeys: \[\.\.\.DEFAULT_EXCLUDE_KEYS, 'thumb_creative_direction'\]/)
   assert.match(page, /useRememberedForm\('image-prompts'[\s\S]{0,400}form\.thumbnail\.thumb_creative_direction = ''/)
   assert.match(page, /if \(oldEp && form\.thumbnail\.thumb_creative_direction\.trim\(\)\) \{\s*form\.thumbnail\.thumb_creative_direction = ''\s*showInfo\(/)
-  assert.match(page, /✨ Shuffle &amp; generate/)
+  assert.match(page, /✨ Shuffle &amp; Generate/)
   assert.equal((page.match(/Surprise me/g) || []).length, 0)
   assert.match(page, /while \(!pageDisposed\)/)
 })

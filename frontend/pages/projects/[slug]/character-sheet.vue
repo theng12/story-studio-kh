@@ -63,7 +63,7 @@
             <h3>Visual anchors</h3>
             <p class="text-muted text-sm">Pick the recurring cast and, if useful, add one visual anchor for this episode.</p>
           </div>
-          <NuxtLink :to="{ path: '/character-library', query: { channel: slug, project: slug } }" class="btn btn-ghost btn-sm">Manage channel characters →</NuxtLink>
+          <NuxtLink :to="{ path: '/character-library', query: { channel: slug, project: slug } }" class="btn btn-ghost btn-sm">Manage Channel Characters →</NuxtLink>
         </header>
 
         <div class="cs-anchor-layout">
@@ -179,7 +179,7 @@
                   :disabled="!compositionPrompt.trim() || !compositionModel || generatingComposition"
                   @click="generateComposition"
                 >
-                  {{ generatingComposition ? 'Starting…' : 'Generate template' }}
+                  {{ generatingComposition ? 'Starting…' : 'Generate Template' }}
                 </button>
                 <p class="text-muted text-xs mt-1">Runs in the background (see the Jobs page). It appears here when finished and is switched on — then Save visual setup.</p>
               </details>

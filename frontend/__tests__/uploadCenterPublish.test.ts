@@ -204,7 +204,7 @@ async function uploadCountAfterSelecting(el: HTMLElement, code: string): Promise
   const box = el.querySelector<HTMLInputElement>(`[data-episode-code="${code}"] .row-select input`)!
   if (!box.checked) box.click()
   await nextTick()
-  const review = [...el.querySelectorAll<HTMLButtonElement>('button')].find(b => /Review selected uploads/.test(b.textContent || ''))!
+  const review = [...el.querySelectorAll<HTMLButtonElement>('button')].find(b => /Review Selected Uploads/.test(b.textContent || ''))!
   return review.textContent || ''
 }
 
@@ -262,7 +262,7 @@ describe('Upload Center Publish', () => {
         warnings: ['the scheduled publish time is in the past and YouTube will reject it'],
       },
     })
-    const preview = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review upload details')!
+    const preview = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review Upload Details')!
     preview.click()
     for (let i = 0; i < 6; i++) await nextTick()
 
@@ -426,7 +426,7 @@ describe('Upload Center Publish', () => {
   }
 
   async function previewThen(mounted: Awaited<ReturnType<typeof mount>>): Promise<HTMLButtonElement> {
-    const preview = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review upload details')!
+    const preview = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review Upload Details')!
     preview.click()
     for (let i = 0; i < 6; i++) await nextTick()
     return [...mounted.el.querySelectorAll('button')]
@@ -500,7 +500,7 @@ describe('Upload Center Publish', () => {
       assert.equal(mounted.confirms.length, 2, 'the customer is told before the second upload happens')
       assert.match(mounted.confirms[1].title, /EP0001 is already on this channel/)
       assert.match(mounted.confirms[1].message, /another-series/)
-      assert.match(mounted.confirms[1].confirmLabel, /Upload anyway/)
+      assert.match(mounted.confirms[1].confirmLabel, /Upload Anyway/)
 
       const uploads = mounted.calls.filter(call => call.path.endsWith('/youtube/upload'))
       assert.equal(uploads.length, 2, 'the warning is answered by resending, not by giving up')
@@ -586,7 +586,7 @@ describe('Upload Center Publish', () => {
     field.dispatchEvent(new Event('input'))
     await nextTick()
     const previewsBefore = mounted.calls.filter(call => call.path.endsWith('/youtube/preview')).length
-    ;([...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Review this time')) as HTMLButtonElement).click()
+    ;([...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Review This Time')) as HTMLButtonElement).click()
     await nextTick()
     assert.match(mounted.text(), /will not turn a past schedule into an immediate publish/)
     assert.equal(mounted.calls.filter(call => call.path.endsWith('/youtube/preview')).length, previewsBefore)
@@ -614,7 +614,7 @@ describe('Upload Center Publish', () => {
     field.value = localValue
     field.dispatchEvent(new Event('input'))
     await nextTick()
-    const review = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Review this time'))!
+    const review = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Review This Time'))!
     review.click()
     for (let i = 0; i < 6; i++) await nextTick()
     assert.equal(mounted.calls.filter(call => call.path.endsWith('/youtube/preview')).at(-1)?.body.publish_at, exactIso)
@@ -642,7 +642,7 @@ describe('Upload Center Publish', () => {
       planApply: { assignments, skipped_existing: [], latest_existing_claim: null },
     })
     assert.equal(mounted.calls.some(call => call.path.includes('/youtube/plan/')), false, 'mount is read-only')
-    const plan = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Plan unscheduled videos (2)'))!
+    const plan = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Plan Unscheduled Videos (2)'))!
     plan.click()
     for (let i = 0; i < 8; i++) await nextTick()
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -680,8 +680,8 @@ describe('Upload Center Publish', () => {
       planApply: { assignments, skipped_existing: [] },
     })
     assert.match(mounted.text(), /Missed plan/)
-    assert.match(mounted.text(), /Plan missing or missed dates \(1\)/)
-    const move = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Move missed date forward'))
+    assert.match(mounted.text(), /Plan Missing or Missed Dates \(1\)/)
+    const move = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Move Missed Date Forward'))
     assert.ok(move, 'a missed date has a direct action beside the date')
     move.click()
     for (let i = 0; i < 8; i++) await nextTick()
@@ -708,13 +708,13 @@ describe('Upload Center Publish', () => {
     })
     const cleared = t.mock.method(globalThis, 'clearInterval', () => {})
     const mounted = await mount({ episodes: [{ ...NEVER_UPLOADED, plan: { scheduled_at: '2030-09-14T19:00:00.000Z' } }] })
-    assert.ok(!mounted.text().includes('Move missed date forward'))
+    assert.ok(!mounted.text().includes('Move Missed Date Forward'))
     const calls = mounted.calls.length
     now += 120_000
     tick!()
     await nextTick()
     assert.match(mounted.text(), /Missed plans 1/)
-    assert.match(mounted.text(), /Move missed date forward/)
+    assert.match(mounted.text(), /Move Missed Date Forward/)
     assert.equal(mounted.calls.length, calls, 'time refresh makes no API request')
     mounted.destroy()
     assert.ok(cleared.mock.calls.some(call => call.arguments[0] === timer))
@@ -735,7 +735,7 @@ describe('Upload Center Publish', () => {
       },
       planPreview: { assignments: [{ episode_code: 'EP0001', publishAt: '2099-11-01T19:00:00.000Z' }], skipped_existing: [] },
     })
-    const moves = [...mounted.el.querySelectorAll('button')].filter(button => button.textContent!.includes('Move missed date forward'))
+    const moves = [...mounted.el.querySelectorAll('button')].filter(button => button.textContent!.includes('Move Missed Date Forward'))
     assert.equal(moves.length, 1)
     moves[0].click()
     for (let i = 0; i < 8; i++) await nextTick()
@@ -767,7 +767,7 @@ describe('Upload Center Publish', () => {
       }),
       scheduleResponse: { episode_code: 'EP0042', video_id: 'video-42', privacy_status: 'private', scheduled_at: publishAt },
     })
-    const open = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Schedule publication')!
+    const open = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Schedule Publication')!
     open.click()
     for (let i = 0; i < 6; i++) await nextTick()
     assert.match(mounted.text(), /has not confirmed this video’s visibility/)
@@ -829,7 +829,7 @@ describe('Upload Center Publish', () => {
     assert.match(mounted.text(), /EP0001/)
     assert.match(mounted.text(), /No rendered video yet/)
     assert.equal(
-      [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review upload details'),
+      [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review Upload Details'),
       undefined,
       'nothing to preview, so nothing offering to',
     )
@@ -994,7 +994,7 @@ describe('Upload Center Publish', () => {
     assert.match(text, /Publication/)
     assert.match(text, /Scheduled/)
     assert.match(text, /Asia\/Phnom_Penh/)
-    const play = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Play local video')!
+    const play = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Play Local Video')!
     play.click()
     await nextTick()
     assert.equal(mounted.el.querySelector('video')?.getAttribute('src'), '/api/projects/demo-project/episodes/EP0042/final-video')
@@ -1068,7 +1068,7 @@ describe('Upload Center Publish', () => {
     await nextTick()
 
     const selectVisible = [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find(button => button.textContent!.includes('Select all matching'))!
+      .find(button => button.textContent!.includes('Select All Matching'))!
     assert.match(selectVisible.textContent || '', /\(1\)/)
     selectVisible.click()
     await nextTick()
@@ -1076,7 +1076,7 @@ describe('Upload Center Publish', () => {
     assert.equal(mounted.el.querySelectorAll<HTMLInputElement>('.row-select input:checked').length, 1)
     assert.match(
       [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
-        .find(button => button.textContent!.includes('Review selected uploads'))?.textContent || '',
+        .find(button => button.textContent!.includes('Review Selected Uploads'))?.textContent || '',
       /\(1\)/,
     )
     mounted.destroy()
@@ -1107,10 +1107,10 @@ describe('Upload Center Publish', () => {
       }),
     })
     ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find(button => button.textContent!.includes('Select all matching'))!.click()
+      .find(button => button.textContent!.includes('Select All Matching'))!.click()
     await nextTick()
     const review = [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find(button => button.textContent!.includes('Review selected uploads'))!
+      .find(button => button.textContent!.includes('Review Selected Uploads'))!
     review.focus()
     review.click()
     for (let i = 0; i < 10; i++) await nextTick()
@@ -1140,7 +1140,7 @@ describe('Upload Center Publish', () => {
     await nextTick()
 
     const queue = [...dialog.querySelectorAll<HTMLButtonElement>('button')]
-      .find(button => button.textContent!.includes('Queue reviewed uploads'))!
+      .find(button => button.textContent!.includes('Queue Reviewed Uploads'))!
     assert.match(queue.textContent || '', /\(2\)/)
     queue.click()
     for (let i = 0; i < 14; i++) await nextTick()
@@ -1179,10 +1179,10 @@ describe('Upload Center Publish', () => {
       },
     })
     ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find(button => button.textContent!.includes('Select all matching'))!.click()
+      .find(button => button.textContent!.includes('Select All Matching'))!.click()
     await nextTick()
     ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find(button => button.textContent!.includes('Review selected uploads'))!.click()
+      .find(button => button.textContent!.includes('Review Selected Uploads'))!.click()
     for (let i = 0; i < 10; i++) await nextTick()
 
     const dialog = mounted.el.querySelector('[aria-labelledby="bulk-upload-review-title"]')!
@@ -1192,7 +1192,7 @@ describe('Upload Center Publish', () => {
     assert.match(dialog.textContent || '', /Needs attention/)
     assert.match(dialog.textContent || '', /thumbnail is selected, but its preview is unavailable/i)
     const queue = [...dialog.querySelectorAll<HTMLButtonElement>('button')]
-      .find(button => button.textContent!.includes('Queue reviewed uploads'))!
+      .find(button => button.textContent!.includes('Queue Reviewed Uploads'))!
     assert.match(queue.textContent || '', /\(0\)/)
     assert.equal(queue.disabled, true)
     assert.equal(mounted.calls.filter(call => call.path.endsWith('/youtube/upload')).length, 0)
@@ -1216,15 +1216,15 @@ describe('Upload Center Publish', () => {
       },
     })
     ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find(button => button.textContent!.includes('Select all matching'))!.click()
+      .find(button => button.textContent!.includes('Select All Matching'))!.click()
     await nextTick()
     ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find(button => button.textContent!.includes('Review selected uploads'))!.click()
+      .find(button => button.textContent!.includes('Review Selected Uploads'))!.click()
     for (let i = 0; i < 10; i++) await nextTick()
     assert.match(mounted.text(), /preview exploded/)
 
     ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find(button => button.textContent!.includes('Queue reviewed uploads'))!.click()
+      .find(button => button.textContent!.includes('Queue Reviewed Uploads'))!.click()
     for (let i = 0; i < 10; i++) await nextTick()
     assert.equal(uploadAttempts, 1)
     assert.match(mounted.text(), /rendered video changed after review/)
@@ -1248,29 +1248,29 @@ describe('Upload Center Publish', () => {
       },
     })
     ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find(button => button.textContent!.includes('Select all matching'))!.click()
+      .find(button => button.textContent!.includes('Select All Matching'))!.click()
     await nextTick()
     ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find(button => button.textContent!.includes('Review selected uploads'))!.click()
+      .find(button => button.textContent!.includes('Review Selected Uploads'))!.click()
     for (let i = 0; i < 10; i++) await nextTick()
 
     const dialog = mounted.el.querySelector('[aria-labelledby="bulk-upload-review-title"]')!
     ;[...dialog.querySelectorAll<HTMLButtonElement>('button')]
-      .find(button => button.textContent!.includes('Queue reviewed uploads'))!.click()
+      .find(button => button.textContent!.includes('Queue Reviewed Uploads'))!.click()
     await nextTick()
     const stop = [...dialog.querySelectorAll<HTMLButtonElement>('button')]
-      .find(button => button.textContent!.trim() === 'Stop queueing')!
+      .find(button => button.textContent!.trim() === 'Stop Queueing')!
     assert.equal(stop.disabled, false)
     stop.click()
     await nextTick()
-    assert.match(dialog.textContent || '', /Stopping after current/)
+    assert.match(dialog.textContent || '', /Stopping After Current/)
 
     finishFirstUpload({ job_id: 'job-1', channel_id: 'UC-x' })
     for (let i = 0; i < 12; i++) await nextTick()
 
     assert.equal(uploadAttempts, 1, 'stopping does not start the next reviewed admission')
     assert.match(dialog.textContent || '', /Already queued uploads continue/)
-    assert.match(dialog.textContent || '', /Queue reviewed uploads \(1\)/)
+    assert.match(dialog.textContent || '', /Queue Reviewed Uploads \(1\)/)
     assert.equal([...dialog.querySelectorAll('.state-text')].filter(node => node.textContent?.trim() === 'Queued').length, 1)
     assert.equal([...dialog.querySelectorAll('.state-text')].filter(node => node.textContent?.trim() === 'Reviewed').length, 1)
     mounted.destroy()
@@ -1281,7 +1281,7 @@ describe('Upload Center Publish', () => {
       episodes: [NEVER_UPLOADED],
       preview: PREVIEWED,
     })
-    const review = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review upload details')!
+    const review = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review Upload Details')!
     review.click()
     for (let i = 0; i < 6; i++) await nextTick()
 
@@ -1296,7 +1296,7 @@ describe('Upload Center Publish', () => {
     mounted.destroy()
 
     const failed = await mount({ episodes: [NEVER_UPLOADED], previewFailAfter: 0 })
-    const failedReview = [...failed.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review upload details')!
+    const failedReview = [...failed.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review Upload Details')!
     failedReview.click()
     for (let i = 0; i < 6; i++) await nextTick()
     const row = failed.el.querySelector('[data-episode-code="EP0001"]')!
@@ -1309,7 +1309,7 @@ describe('Upload Center Publish', () => {
     let resolvePreview!: (value: any) => void
     const preview = new Promise(resolve => { resolvePreview = resolve })
     const mounted = await mount({ episodes: [NEVER_UPLOADED], preview })
-    const review = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review upload details')!
+    const review = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review Upload Details')!
     review.click()
     for (let i = 0; i < 4; i++) await nextTick()
 
@@ -1340,7 +1340,7 @@ describe('Upload Center Publish', () => {
     let resolveSecond!: (value: any) => void
     const second = new Promise(resolve => { resolveSecond = resolve })
     const kept = await mount({ episodes: [NEVER_UPLOADED], preview: second })
-    ;[...kept.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review upload details')!.click()
+    ;[...kept.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review Upload Details')!.click()
     for (let i = 0; i < 4; i++) await nextTick()
     resolveSecond(PREVIEWED)
     for (let i = 0; i < 6; i++) await nextTick()
@@ -1396,7 +1396,7 @@ describe('Upload Center Publish', () => {
     // Any row can be selected for bulk actions, but a queued episode is never counted for another upload.
     assert.match(await uploadCountAfterSelecting(mounted.el, 'EP0001'), /\(0\)/, 'a queued episode cannot be selected for another upload')
     // Review stays open to read, but Upload is withheld until the reload confirms the job.
-    const reopen = [...row.querySelectorAll('button')].find(b => /Review upload details/.test(b.textContent || '')) as HTMLButtonElement
+    const reopen = [...row.querySelectorAll('button')].find(b => /Review Upload Details/.test(b.textContent || '')) as HTMLButtonElement
     assert.equal(reopen.disabled, false)
     reopen.click()
     for (let i = 0; i < 6; i++) await nextTick()
@@ -1454,10 +1454,10 @@ describe('Upload Center Publish', () => {
     })
     for (const box of mounted.el.querySelectorAll<HTMLInputElement>('.row-select input')) box.click()
     await nextTick()
-    ;[...mounted.el.querySelectorAll('button')].find(b => /Review selected uploads/.test(b.textContent || ''))!.click()
+    ;[...mounted.el.querySelectorAll('button')].find(b => /Review Selected Uploads/.test(b.textContent || ''))!.click()
     for (let i = 0; i < 12; i++) await nextTick()
     const dialog = mounted.el.querySelector('[role="dialog"]')!
-    const queue = [...dialog.querySelectorAll('button')].find(b => /Queue reviewed uploads \(3\)/.test(b.textContent || ''))!
+    const queue = [...dialog.querySelectorAll('button')].find(b => /Queue Reviewed Uploads \(3\)/.test(b.textContent || ''))!
     queue.click()
     for (let i = 0; i < 4; i++) await nextTick()
     assert.equal(gates.length, 1, 'the first upload is in flight')
@@ -1471,7 +1471,7 @@ describe('Upload Center Publish', () => {
     const strip = mounted.el.querySelector('.bulk-background')!
     assert.ok(strip, 'the page says queueing continues')
     assert.match(strip.textContent || '', /0 of 3 queued/)
-    assert.ok([...strip.querySelectorAll('button')].some(b => /Stop queueing/.test(b.textContent || '')))
+    assert.ok([...strip.querySelectorAll('button')].some(b => /Stop Queueing/.test(b.textContent || '')))
 
     gates[0]!({ job_id: 'job-1', channel_id: 'UC-x' })
     for (let i = 0; i < 6; i++) await nextTick()
@@ -1503,7 +1503,7 @@ describe('Upload Center Publish', () => {
     })
     const link = [...mounted.el.querySelectorAll('a')].find(a => a.textContent!.trim() === 'Open Video Assembly')!
     assert.equal(link.getAttribute('href'), '/projects/demo-project/video-assembly?episode_id=EP0081')
-    assert.equal([...mounted.el.querySelectorAll('button')].some(button => button.textContent!.includes('Play local video')), false)
+    assert.equal([...mounted.el.querySelectorAll('button')].some(button => button.textContent!.includes('Play Local Video')), false)
     mounted.destroy()
   })
 
@@ -1575,7 +1575,7 @@ describe('Upload Center Publish', () => {
     let resolvePreview!: (value: any) => void
     const preview = new Promise(resolve => { resolvePreview = resolve })
     const mounted = await mount({ episodes: [NEVER_UPLOADED], preview, initialSlug: 'old-project' })
-    const review = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Review upload details')!
+    const review = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Review Upload Details')!
     review.click()
     await nextTick()
     await mounted.setSlug('new-project')
@@ -1616,7 +1616,7 @@ describe('Upload Center Publish', () => {
     })
     assert.match(mounted.text(), /Local work survives/)
     assert.match(mounted.text(), /Publishing analytics is unreadable/)
-    const review = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Review upload details')!
+    const review = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Review Upload Details')!
     assert.equal(review.disabled, false, 'local metadata review stays available')
     mounted.destroy()
   })
@@ -1637,7 +1637,7 @@ describe('Upload Center Publish', () => {
       },
     })
     assert.match(mounted.text(), /Local inventory is temporarily unavailable/)
-    const retry = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Retry loading')!
+    const retry = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Retry Loading')!
     retry.click()
     for (let i = 0; i < 6; i++) await nextTick()
     assert.match(mounted.text(), /The Lighthouse at Dawn/)
@@ -1652,7 +1652,7 @@ describe('Upload Center Publish', () => {
         publication: { state: 'unpublished' },
       }],
     })
-    const play = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Play local video')!
+    const play = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Play Local Video')!
     play.click()
     await nextTick()
     mounted.el.querySelector('video')!.dispatchEvent(new Event('error'))
@@ -1790,7 +1790,7 @@ describe('Upload Center Publish', () => {
       .find(button => button.textContent!.includes('Ready to upload'))!
     assert.match(ready.textContent || '', /0/, 'local readiness alone is not readiness for a missing channel')
     assert.ok([...mounted.el.querySelectorAll<HTMLAnchorElement>('a')]
-      .some(link => link.textContent!.includes('Assign channel') && link.href.includes('/settings#youtube')))
+      .some(link => link.textContent!.includes('Assign Channel') && link.href.includes('/settings#youtube')))
     mounted.destroy()
   })
 
@@ -1802,7 +1802,7 @@ describe('Upload Center Publish', () => {
         : undefined,
     })
     const forget = [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find(button => button.textContent!.includes('I deleted this video on YouTube'))!
+      .find(button => button.textContent!.includes('I Deleted This Video on YouTube'))!
     forget.click()
     for (let i = 0; i < 8; i++) await nextTick()
 
@@ -1830,7 +1830,7 @@ describe('Upload Center Publish', () => {
         : undefined,
     })
     const forget = [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find(button => button.textContent!.includes('I deleted this video on YouTube'))!
+      .find(button => button.textContent!.includes('I Deleted This Video on YouTube'))!
     assert.ok(forget)
     forget.click()
     for (let i = 0; i < 8; i++) await nextTick()
@@ -1851,7 +1851,7 @@ describe('Upload Center Publish', () => {
         modifications: [], warnings: [],
       },
     })
-    const previewButton = () => [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review upload details')!
+    const previewButton = () => [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review Upload Details')!
     previewButton().click()
     for (let i = 0; i < 6; i++) await nextTick()
     assert.match(mounted.text(), /First Episode Title/)
@@ -1920,10 +1920,10 @@ describe('Upload Center Publish', () => {
 
   /** Select every row, then open the re-lay dialog. */
   async function openRelayoutDialog(mounted: Awaited<ReturnType<typeof mount>>): Promise<void> {
-    const selectAll = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Select all matching'))!
+    const selectAll = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Select All Matching'))!
     selectAll.click()
     for (let i = 0; i < 4; i++) await nextTick()
-    const open = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Edit planned dates'))!
+    const open = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Edit Planned Dates'))!
     open.click()
     for (let i = 0; i < 6; i++) await nextTick()
   }
@@ -1933,9 +1933,9 @@ describe('Upload Center Publish', () => {
     // already-booked videos as a side effect of the "plan what is unscheduled"
     // button — the preset-boundary defect in a new place.
     const mounted = await mount({ episodes: PLANNED_EPISODES, plans: RELAYOUT_PLANS })
-    assert.match(mounted.text(), /Plan unscheduled videos \(0\)/,
+    assert.match(mounted.text(), /Plan Unscheduled Videos \(0\)/,
       'an episode that already holds a future date is not a plan candidate')
-    const edit = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Edit planned dates'))!
+    const edit = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Edit Planned Dates'))!
     assert.equal(edit.disabled, true, 'with nothing selected there is nothing to re-date')
     mounted.destroy()
   })
@@ -1964,7 +1964,7 @@ describe('Upload Center Publish', () => {
     const start = mounted.el.querySelector('#relayout-start-date') as HTMLInputElement
     assert.equal(start.value, '2099-10-05')
 
-    const preview = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Preview dates')!
+    const preview = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Preview Dates')!
     preview.click()
     for (let i = 0; i < 8; i++) await nextTick()
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -1981,7 +1981,7 @@ describe('Upload Center Publish', () => {
     assert.match(mounted.text(), /Nov 2, 2099/)
     assert.match(mounted.text(), /Nov 3, 2099/)
 
-    const save = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Save 2 planned dates'))!
+    const save = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Save 2 Planned Dates'))!
     save.click()
     for (let i = 0; i < 8; i++) await nextTick()
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -2020,7 +2020,7 @@ describe('Upload Center Publish', () => {
       },
     })
     await openRelayoutDialog(mounted)
-    const preview = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Preview dates')!
+    const preview = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Preview Dates')!
     preview.click()
     for (let i = 0; i < 8; i++) await nextTick()
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -2030,7 +2030,7 @@ describe('Upload Center Publish', () => {
     assert.match(mounted.text(), /already exists on YouTube/)
     assert.match(mounted.text(), /already held by other episodes/, 'a stepped-over day is reported, not hidden')
 
-    const save = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Save 1 planned date'))!
+    const save = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Save 1 Planned Date'))!
     save.click()
     for (let i = 0; i < 8; i++) await nextTick()
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -2052,7 +2052,7 @@ describe('Upload Center Publish', () => {
       },
     })
     await openRelayoutDialog(mounted)
-    const preview = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Preview dates')!
+    const preview = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Preview Dates')!
     preview.click()
     for (let i = 0; i < 8; i++) await nextTick()
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -2080,7 +2080,7 @@ describe('Upload Center Publish', () => {
     })
     try {
       await openRelayoutDialog(mounted)
-      const preview = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Preview dates')!
+      const preview = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Preview Dates')!
       preview.click()
       for (let i = 0; i < 8; i++) await nextTick()
       await new Promise(resolve => setTimeout(resolve, 0))
@@ -2169,7 +2169,7 @@ describe('Upload Center Publish bulk actions', () => {
   test('every action stays on screen, disabled with its reason, until rows are selected', async () => {
     const mounted = await mount({ episodes: [ROW('EP0001')] })
     const panel = mounted.el.querySelector('.bulk-panel')!
-    for (const label of [/Review selected uploads/, /Edit planned dates/, /Schedule on YouTube \(/, /Set visibility/, /Re-finalize metadata/, /Remove from upload queue/]) {
+    for (const label of [/Review Selected Uploads/, /Edit Planned Dates/, /Schedule on YouTube \(/, /Set Visibility/, /Re-Finalize Metadata/, /Remove from Upload Queue/]) {
       assert.equal(button(panel as HTMLElement, label).disabled, true, `${label} is disabled with nothing selected`)
     }
     assert.match(panel.textContent || '', /Select rows first\./)
@@ -2197,14 +2197,14 @@ describe('Upload Center Publish bulk actions', () => {
       episodes: ['EP0001', 'EP0002', 'EP0003'].map(code => ROW(code)),
       postOverride: (path: string) => path.endsWith('/pipeline/run-batch') ? { jobs: [{ episode_id: 'EP0002', job_id: 'j2' }], skipped: [], blocked: [] } : undefined,
     })
-    button(filtered.el, /Select all matching \(3\)/).click()
+    button(filtered.el, /Select All Matching \(3\)/).click()
     await nextTick()
     const searchBox = filtered.el.querySelector<HTMLInputElement>('input[aria-label="Filter episodes by code or title"]')!
     searchBox.value = 'EP0002'
     searchBox.dispatchEvent(new Event('input'))
     await flush()
     assert.match(filtered.text(), /2 selected rows are hidden by the filters and will be left alone/)
-    button(filtered.el, /Re-finalize metadata \(1\)/).click()
+    button(filtered.el, /Re-Finalize Metadata \(1\)/).click()
     await flush()
     const run = filtered.calls.find(call => call.path.endsWith('/pipeline/run-batch'))!
     assert.deepEqual(run.body.episode_ids, ['EP0002'], 'only the row on screen is sent')
@@ -2220,13 +2220,13 @@ describe('Upload Center Publish bulk actions', () => {
         return undefined
       },
     })
-    button(mounted.el, /Select all matching/).click()
+    button(mounted.el, /Select All Matching/).click()
     await nextTick()
-    button(mounted.el, /Set visibility \(2\)/).click()
+    button(mounted.el, /Set Visibility \(2\)/).click()
     await flush()
     const dialog = mounted.el.querySelector('[aria-labelledby="bulk-visibility-title"]')!
     assert.match(dialog.textContent || '', /Set visibility for 2 videos/)
-    assert.equal(button(dialog as HTMLElement, /Choose a visibility/).disabled, true, 'nothing is chosen for him')
+    assert.equal(button(dialog as HTMLElement, /Choose a Visibility/).disabled, true, 'nothing is chosen for him')
     const publicChoice = dialog.querySelector<HTMLInputElement>('input[value="public"]')!.closest('label')!
     assert.match(publicChoice.textContent || '', /Public/)
     assert.match(publicChoice.textContent || '', /may notify subscribers, which cannot be taken back/, 'Public carries the subscriber-notify warning')
@@ -2249,7 +2249,7 @@ describe('Upload Center Publish bulk actions', () => {
       episodes: [ON_YOUTUBE('EP0001'), ON_YOUTUBE('EP0002')],
       scheduleResponse: { privacy_status: 'private' },
     })
-    button(mounted.el, /Select all matching/).click()
+    button(mounted.el, /Select All Matching/).click()
     await nextTick()
     button(mounted.el, /Schedule on YouTube \(2\)/).click()
     await flush()
@@ -2278,9 +2278,9 @@ describe('Upload Center Publish bulk actions', () => {
       { job_id: 'job-r', type: 'youtube_upload', status: 'running', episode_id: 'EP0002' },
     ]
     const declined = await mount({ episodes: [queued, running], jobs, confirmAnswer: false })
-    button(declined.el, /Select all matching/).click()
+    button(declined.el, /Select All Matching/).click()
     await nextTick()
-    button(declined.el, /Remove from upload queue \(1\)/).click()
+    button(declined.el, /Remove from Upload Queue \(1\)/).click()
     await flush()
     assert.match(declined.confirms[0].title, /Remove 1 upload from the upload queue/)
     assert.match(declined.confirms[0].message, /nothing has reached YouTube/)
@@ -2291,9 +2291,9 @@ describe('Upload Center Publish bulk actions', () => {
       episodes: [queued, running], jobs,
       postOverride: (path: string) => path.endsWith('/cancel') ? { ok: true } : undefined,
     })
-    button(mounted.el, /Select all matching/).click()
+    button(mounted.el, /Select All Matching/).click()
     await nextTick()
-    button(mounted.el, /Remove from upload queue \(1\)/).click()
+    button(mounted.el, /Remove from Upload Queue \(1\)/).click()
     await flush()
     assert.deepEqual(mounted.calls.filter(call => call.method === 'POST').map(call => call.path), ['/projects/demo-project/jobs/job-q/cancel'])
     assert.match(mounted.text(), /EP0001 was removed from the upload queue\. Nothing was sent to YouTube\./)
@@ -2307,9 +2307,9 @@ describe('Upload Center Publish bulk actions', () => {
         ? { jobs: [{ episode_id: 'EP0001', job_id: 'j1' }], skipped: [], blocked: [{ episode_id: 'EP0002', reason: 'YouTube Finalizer needs Audio Assembly first.' }] }
         : undefined,
     })
-    button(mounted.el, /Select all matching/).click()
+    button(mounted.el, /Select All Matching/).click()
     await nextTick()
-    button(mounted.el, /Re-finalize metadata \(2\)/).click()
+    button(mounted.el, /Re-Finalize Metadata \(2\)/).click()
     await flush()
     assert.match(mounted.confirms[0].message, /Earlier versions are kept\. YouTube is not changed/)
     const run = mounted.calls.find(call => call.path.endsWith('/pipeline/run-batch'))!

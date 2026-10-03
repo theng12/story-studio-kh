@@ -12,11 +12,11 @@
         <label>Additional subtitle credit ceiling
           <input v-model="ceiling" type="number" min="1" step="1" required :disabled="busy" />
         </label>
-        <button class="btn btn-xs btn-primary" type="submit" :disabled="busy">{{ busy ? 'Queueing recovery…' : 'Buy missing subtitles now' }}</button>
+        <button class="btn btn-xs btn-primary" type="submit" :disabled="busy">{{ busy ? 'Queueing Recovery…' : 'Buy Missing Subtitles Now' }}</button>
       </form>
       <div v-if="rerunSections.length && rerunHref" class="subtitle-rerun">
         <p>Recovery cannot finish the saved result. A fresh Gateway request is limited to the chapter you choose; The Gateway confirms the current quote before submission and the new request may be charged.</p>
-        <a class="btn btn-xs btn-secondary" :href="rerunHref">Open missing chapter controls</a>
+        <a class="btn btn-xs btn-secondary" :href="rerunHref">Open Missing Chapter Controls</a>
       </div>
       <p v-if="sent">Recovery queued. Existing task identities and completed sections are preserved.</p>
       <p v-if="error" role="alert">{{ error }}</p>

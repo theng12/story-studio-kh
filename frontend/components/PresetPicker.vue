@@ -19,7 +19,7 @@
       <details class="preset-more">
         <summary class="btn btn-sm btn-secondary" aria-label="More preset actions">More</summary>
         <div class="preset-more-menu" role="group" aria-label="More preset actions">
-          <button type="button" class="preset-menu-item" @click="openSaveAs">Save as…</button>
+          <button type="button" class="preset-menu-item" @click="openSaveAs">Save As…</button>
           <button
             type="button"
             class="preset-menu-item"
@@ -187,7 +187,7 @@ async function confirmDelete() {
   const ok = await ask({
     title: `Delete preset "${p.name}"?`,
     message: 'The preset is removed from this project. Content saved using it stays on disk.',
-    confirmLabel: 'Delete preset',
+    confirmLabel: 'Delete Preset',
     danger: true,
   })
   if (!ok) return

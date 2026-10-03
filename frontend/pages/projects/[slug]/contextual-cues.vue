@@ -94,7 +94,7 @@
               type="button"
               class="btn btn-sm btn-secondary"
               @click="form.position_x_pct = null; form.position_y_pct = null"
-            >Use the corner instead</button>
+            >Use the Corner Instead</button>
           </div>
           <div
             class="cue-frame cue-frame-default"
@@ -201,7 +201,7 @@
             >Approve all {{ proposedCount }}</button>
             <!-- Not disabled when everything is saved: pressing it then must
                  confirm that rather than look broken. -->
-            <button class="btn btn-secondary btn-sm" :disabled="saving" @click="saveTimeline">Save changes</button>
+            <button class="btn btn-secondary btn-sm" :disabled="saving" @click="saveTimeline">Save Changes</button>
           </div>
         </div>
         <p v-if="cueJobActive" class="cue-job-lock" role="status">A proposal is running — edits are paused until it finishes.</p>
@@ -282,7 +282,7 @@
                 class="btn btn-sm btn-secondary"
                 title="Apply this cue's position to every other cue on this episode"
                 @click="applyPositionToAll(cue)"
-              >Use everywhere</button>
+              >Use Everywhere</button>
             </div>
           </div>
           <div class="cue-actions">
@@ -818,7 +818,7 @@ const saveState = computed<'saving' | 'error' | 'unsaved' | 'saved'>(() => {
 })
 const saveStateLabel = computed(() => {
   if (saving.value) return 'Saving…'
-  if (saveError.value) return `Not saved — ${saveError.value} Your changes are still here; Save changes tries again.`
+  if (saveError.value) return `Not saved — ${saveError.value} Your changes are still here; Save Changes tries again.`
   if (dirty.value) return 'Unsaved changes — saving in a moment'
   return savedAt.value ? `Saved at ${savedAt.value}` : 'Saved'
 })

@@ -93,7 +93,7 @@ test('late previous-episode reads cannot replace playback and a failed read offe
     old.resolve({ parts: [{ part: 9, filename: 'old.mp3' }] })
     await nextTick()
     assert.equal(host.querySelector('audio'), null)
-    ;[...host.querySelectorAll('button')].find(button => button.textContent === 'Retry playback')!.click()
+    ;[...host.querySelectorAll('button')].find(button => button.textContent === 'Retry Playback')!.click()
     await waitFor(() => !!host.querySelector('audio'), { label: 'retried current audio' })
     assert.ok(host.querySelector('audio')!.src.includes('/EP0179/audio-file'))
     assert.ok(host.querySelector('audio')!.src.includes('&part=0'))

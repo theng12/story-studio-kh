@@ -61,7 +61,7 @@
           </span>
         </div>
         <button class="btn btn-primary btn-sm" :disabled="byoImporting || !byoText.trim()" @click="importContent">
-          {{ byoImporting ? 'Importing…' : (byoMode === 'script' ? 'Import script' : 'Import outline') }}
+          {{ byoImporting ? 'Importing…' : (byoMode === 'script' ? 'Import Script' : 'Import Outline') }}
         </button>
       </div>
     </section>
@@ -186,10 +186,10 @@
             <textarea v-model="customStyleText" class="textarea style-textarea"
               placeholder="Describe the narrator's tone, perspective, and personality..." />
             <div class="flex gap-2 mt-1" v-if="form.style === 'custom'">
-              <button class="btn btn-sm btn-secondary" @click="saveCustomStyle">Save as preset</button>
+              <button class="btn btn-sm btn-secondary" @click="saveCustomStyle">Save as Preset</button>
             </div>
           </div>
-          <button v-if="narratorOverrideOpen && form.style !== 'custom' && form.style !== 'auto' && !showStyleDesc" class="btn-icon style-desc-toggle style-desc-show" @click="showStyleDesc = true">View description</button>
+          <button v-if="narratorOverrideOpen && form.style !== 'custom' && form.style !== 'auto' && !showStyleDesc" class="btn-icon style-desc-toggle style-desc-show" @click="showStyleDesc = true">View Description</button>
         </div>
 
       </div>
@@ -260,7 +260,7 @@
             class="link-btn niche-overlay-toggle"
             @click="showNicheOverlayDetail = !showNicheOverlayDetail"
           >
-            {{ showNicheOverlayDetail ? 'Hide detail' : 'See what changed' }} {{ showNicheOverlayDetail ? '↑' : '↓' }}
+            {{ showNicheOverlayDetail ? 'Hide Detail' : 'See What Changed' }} {{ showNicheOverlayDetail ? '↑' : '↓' }}
           </button>
         </div>
         <div class="niche-overlay-chips">
@@ -1846,7 +1846,7 @@ async function submitOutline(): Promise<boolean> {
         `The total depends on how long the prompts and the written text turn out to be, ` +
         `so no up-front figure is shown. The Gateway reports the actual charge on each finished job — see Usage.\n\n` +
         `Each chapter is written to disk as soon as it's generated, so cancel / crash / restart preserves partial work.`,
-      confirmLabel: 'Generate outline',
+      confirmLabel: 'Generate Outline',
       cancelLabel: 'Cancel',
     })
     if (!ok) return false

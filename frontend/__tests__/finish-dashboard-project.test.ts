@@ -120,7 +120,7 @@ describe('project dashboard — truthful status', () => {
       assert.ok(!dashboard.includes(jargon), `still contains "${jargon}"`)
     }
     assert.doesNotMatch(template, /data-tone="[a-z]+">[QPA]<\/span>/, 'single-letter badges are gone')
-    for (const plain of ['Channel dashboard', 'Files check', 'Check files', 'Check again', 'Ready for final video', 'Recent activity', 'Progress by step']) {
+    for (const plain of ['Channel dashboard', 'Files check', 'Check Files', 'Check Again', 'Ready for final video', 'Recent activity', 'Progress by step']) {
       assert.ok(template.includes(plain), `missing "${plain}"`)
     }
   })

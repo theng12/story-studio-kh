@@ -125,7 +125,7 @@ test('interrupted removals identify pending outcomes separately from skipped fil
   } finally { ui.close() }
 })
 
-test('Free up space needs no folder: it loads uploads itself, shows the project _trash and the space freed, confirms, then runs as compress', async () => {
+test('Free Up Space needs no folder: it loads uploads itself, shows the project _trash and the space freed, confirms, then runs as compress', async () => {
   const calls: any[] = []
   const asked: any[] = []
   const presetPreview = { ...preview, preset: 'archive_episode', trash_roots: ['/Library/chan/_trash'], estimate: { compress_files: 412, compress_bytes_before: 490 * 1024 ** 2, compress_bytes_after: 57 * 1024 ** 2, already_jpeg_files: 0, trash_files: 3, trash_bytes: 2.6 * 1024 ** 3 } }

@@ -20,7 +20,7 @@
 
     <div class="product-action">
       <NuxtLink :to="`/content-store/${product.productId}`" class="proof-action">View proof</NuxtLink>
-      <button v-if="ownershipResolved && !product.owned && !product.retired && product.compatible && product.currentRelease" type="button" class="btn btn-primary" :disabled="networkUnavailable" :aria-busy="busy ? 'true' : undefined" @click="$emit('quote', product)">{{ busy ? 'Requesting quote…' : product.free ? 'Get free' : 'See exact quote' }}</button>
+      <button v-if="ownershipResolved && !product.owned && !product.retired && product.compatible && product.currentRelease" type="button" class="btn btn-primary" :disabled="networkUnavailable" :aria-busy="busy ? 'true' : undefined" @click="$emit('quote', product)">{{ busy ? 'Requesting Quote…' : product.free ? 'Get Free' : 'See Exact Quote' }}</button>
       <button v-else-if="canInstall" type="button" class="btn btn-primary" :disabled="installDisabled" :aria-busy="installBusy ? 'true' : undefined" @click="$emit('install', product.currentRelease!.releaseId)">{{ installLabel }}</button>
       <span v-else-if="queueStatus === 'installed'" class="queue-note">Installed just now</span>
     </div>

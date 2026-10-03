@@ -79,7 +79,7 @@
       </div>
       <div class="ip-actions mt-3">
         <button class="btn btn-primary" :disabled="pickingImages || !selectedPool?.online" @click="pickImagesForEpisode">
-          {{ pickingImages ? 'Picking…' : '🖼 Use these images for this episode' }}
+          {{ pickingImages ? 'Picking…' : '🖼 Use These Images for This Episode' }}
         </button>
         <span v-if="lastLoad" class="text-muted text-sm">
           ✓ Saved {{ lastLoad.count }} image(s) (~{{ Math.round(lastLoad.target_duration) }}s of narration).
@@ -167,7 +167,7 @@
         </p>
         <div class="ip-actions mt-3">
           <button class="btn btn-primary" :disabled="generating || !genModel || !promptLines.length || !selectedPool?.online" @click="generateIntoPool">
-            {{ generating ? 'Queuing…' : `✨ Generate ${promptLines.length * genVariants || ''} into pool` }}
+            {{ generating ? 'Queuing…' : `✨ Generate ${promptLines.length * genVariants || ''} into Pool` }}
           </button>
           <span class="text-muted text-sm">
             Runs in the background — images land in the pool and the count above updates when it finishes. Watch the
@@ -305,7 +305,7 @@ async function pickImagesForEpisode(): Promise<void> {
   if (!await ask({
     title: `Pick new images for ${episodeId.value}?`,
     message: `This saves a new random set from ${selectedPool.value?.name || 'this pool'}, replacing any images picked earlier for ${episodeId.value}, and switches its Video Assembly visuals to Image Pool (instead of scene images).`,
-    confirmLabel: 'Use these images',
+    confirmLabel: 'Use These Images',
   })) return
   const request = ++imagePoolScopeSequence
   const project = slug.value

@@ -79,7 +79,7 @@
         <LoadingSpinner v-if="saving" size="sm" />
         Save publishing profile
       </button>
-      <button class="btn btn-ghost" :disabled="saving || metadataTemplateLoading || !!metadataTemplateLoadError" @click="clearTpl">Clear profile (use Formula defaults)</button>
+      <button class="btn btn-ghost" :disabled="saving || metadataTemplateLoading || !!metadataTemplateLoadError" @click="clearTpl">Clear Profile (Use Formula Defaults)</button>
       <NuxtLink :to="`/projects/${slug}/metadata`" class="text-sm ml-auto">← Back to YouTube Finalizer</NuxtLink>
     </div>
 
@@ -281,7 +281,7 @@ async function clearTpl(): Promise<void> {
     title: 'Clear the publishing profile?',
     message: 'This removes the title wrapper, recurring description blocks and recurring tags for this channel. '
       + 'Episodes then use what the Series Formula writes. It cannot be undone.',
-    confirmLabel: 'Clear profile',
+    confirmLabel: 'Clear Profile',
     danger: true,
   })
   if (!confirmed) return

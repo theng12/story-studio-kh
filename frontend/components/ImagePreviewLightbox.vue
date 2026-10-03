@@ -50,7 +50,7 @@
           </div>
           <div v-if="loadError" class="ipl-image-error">
             <span>⚠ Couldn't load preview - the file may have moved or been deleted.</span>
-            <button type="button" class="ipl-retry-btn" @click.stop="retryPreview">↻ Retry preview</button>
+            <button type="button" class="ipl-retry-btn" @click.stop="retryPreview">↻ Retry Preview</button>
           </div>
         </div>
 
@@ -80,7 +80,7 @@
               : 'Pin this thumbnail — every upload of this episode will use it. Reversible from this same button.'"
             @click="emitPinToggle"
           >
-            {{ currentImage.is_pinned ? '📌 Pinned · Unpin' : '📌 Pin for upload' }}
+            {{ currentImage.is_pinned ? '📌 Pinned · Unpin' : '📌 Pin for Upload' }}
           </button>
         </div>
       </footer>

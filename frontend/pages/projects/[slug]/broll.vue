@@ -382,7 +382,7 @@
         <button
           :class="['btn btn-sm', subtitlesSource === 'upload' ? 'btn-primary' : 'btn-secondary']"
           @click="subtitlesSource = 'upload'"
-        >📂 Import .srt / .vtt</button>
+        >📂 Import .Srt / .Vtt</button>
         <button
           :class="['btn btn-sm', subtitlesSource === 'whisper' ? 'btn-primary' : 'btn-secondary']"
           @click="subtitlesSource = 'whisper'"
@@ -470,7 +470,7 @@
           :disabled="subtitlesGenerating || !canTranscribeBroll"
           @click="transcribeBrollWithGenStudio"
         >
-          {{ subtitlesGenerating ? 'Queuing…' : (brollHasExistingWhisperSrt && !brollWhisperForce ? 'Reuse existing transcript' : 'Transcribe now') }}
+          {{ subtitlesGenerating ? 'Queuing…' : (brollHasExistingWhisperSrt && !brollWhisperForce ? 'Reuse Existing Transcript' : 'Transcribe Now') }}
         </button>
       </div>
 
@@ -587,7 +587,7 @@
           {{ (assembling || assembleJobActive) ? 'Assembling…' : '🎞 Assemble video' }}
         </button>
         <button class="btn btn-ghost" @click="pickClips" :disabled="picking">
-          {{ form.selection_mode === 'manual' ? '↻ Save manual sequence again' : '↻ Re-pick (different shuffle)' }}
+          {{ form.selection_mode === 'manual' ? '↻ Save Manual Sequence Again' : '↻ Re-Pick (Different Shuffle)' }}
         </button>
       </div>
       <p class="hint text-sm mt-1">

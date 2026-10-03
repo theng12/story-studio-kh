@@ -59,7 +59,7 @@
           :disabled="generating || promptsJobActiveForEpisode"
           @click="replaceAllThumbnailPrompts"
         >
-          Replace all {{ existingThumbNumbers.length }} prompts
+          Replace All {{ existingThumbNumbers.length }} Prompts
         </button>
         <span class="text-muted text-xs">
           Generate only fills in missing prompts. This writes every prompt for {{ form.episode_id }} again from scratch.
@@ -128,7 +128,7 @@
               class="btn btn-ghost"
               @click="clearThumbnailReference"
             >
-              Remove reference
+              Remove Reference
             </button>
             <button
               v-if="thumbnailVisionLoadError || !thumbnailVisionModels.length"
@@ -137,7 +137,7 @@
               :disabled="thumbnailVisionLoading"
               @click="loadThumbnailVisionModels"
             >
-              {{ thumbnailVisionLoading ? 'Checking vision models…' : 'Retry vision models' }}
+              {{ thumbnailVisionLoading ? 'Checking Vision Models…' : 'Retry Vision Models' }}
             </button>
           </div>
 
@@ -186,7 +186,7 @@
       <section class="lettering-card mt-2" aria-labelledby="lettering-heading">
         <header class="lettering-head">
           <div><span class="lettering-eyebrow">Thumbnail lettering</span><h4 id="lettering-heading">What the words say, and how they look</h4></div>
-          <button type="button" class="link-btn" title="Pick a random font, text style and title location. Nothing is generated." @click="randomizeThumbStyles">🎲 Shuffle lettering</button>
+          <button type="button" class="link-btn" title="Pick a random font, text style and title location. Nothing is generated." @click="randomizeThumbStyles">🎲 Shuffle Lettering</button>
         </header>
 
         <!-- WHAT THE WORDS SAY comes before how they look, because it is the
@@ -248,7 +248,7 @@
           :disabled="!form.episode_id || generating"
           @click="surpriseMeThumb"
         >
-          ✨ Shuffle &amp; generate
+          ✨ Shuffle &amp; Generate
         </button>
         <span class="text-muted text-xs">Shuffles the lettering, then generates the missing prompts straight away.</span>
       </div>
@@ -994,7 +994,7 @@ async function replaceAllThumbnailPrompts() {
   if (!await useConfirm().ask({
     title: `Replace all ${count} thumbnail prompts?`,
     message: `Every thumbnail prompt for ${form.episode_id} is written again from scratch, including any you edited by hand. The old prompts are replaced.`,
-    confirmLabel: 'Replace all',
+    confirmLabel: 'Replace All',
     danger: true,
   })) return
   await runGenerate(true)

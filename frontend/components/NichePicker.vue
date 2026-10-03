@@ -80,7 +80,7 @@
     <div v-if="error" class="niche-error">
       Failed to load Series Formulas: {{ formatErr(error) }}
       <button type="button" class="btn btn-ghost btn-sm" :disabled="isLoading" @click="refresh()">
-        {{ isLoading ? 'Retrying…' : 'Try again' }}
+        {{ isLoading ? 'Retrying…' : 'Try Again' }}
       </button>
     </div>
   </div>

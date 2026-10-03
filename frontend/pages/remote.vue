@@ -8,7 +8,7 @@
     <div v-if="loadingProjects" class="rm-empty">Loading projects…</div>
     <div v-else-if="projectsLoadError" class="rm-empty">
       <p>{{ projectsLoadError }}</p>
-      <button type="button" class="rm-seg-btn" @click="loadProjects">Try again</button>
+      <button type="button" class="rm-seg-btn" @click="loadProjects">Try Again</button>
     </div>
     <div v-else-if="!projects.length" class="rm-empty">No projects found.</div>
 
@@ -31,8 +31,8 @@
         <p class="rm-card-title">Bulk run</p>
 
         <div class="rm-seg">
-          <button :class="['rm-seg-btn', { active: runMode === 'full' }]" @click="runMode = 'full'">Full run</button>
-          <button v-if="hasFinal" :class="['rm-seg-btn', { active: runMode === 'review' }]" @click="runMode = 'review'">Up to review</button>
+          <button :class="['rm-seg-btn', { active: runMode === 'full' }]" @click="runMode = 'full'">Full Run</button>
+          <button v-if="hasFinal" :class="['rm-seg-btn', { active: runMode === 'review' }]" @click="runMode = 'review'">Up to Review</button>
         </div>
 
         <div class="rm-steps">
@@ -396,7 +396,7 @@ async function requestEligibleControls() {
   if (!await ask({
     title: `Stop ${snapshot.length} job${snapshot.length === 1 ? '' : 's'}?`,
     message: 'Each one is stopped or cancelled where that is safe. Jobs that cannot be stopped safely yet are left running.',
-    confirmLabel: 'Stop them',
+    confirmLabel: 'Stop Them',
     danger: true,
   })) return
   const total = activeJobs.value.length

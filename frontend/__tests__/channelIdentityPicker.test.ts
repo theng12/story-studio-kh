@@ -207,7 +207,7 @@ test('same-name IDs stay distinct, show truthful sources and expose project pin 
     assert.ok(formulaCards.some(card => /Installed/.test(card.textContent || '')))
     assert.ok(formulaCards.some(card => /Built in/.test(card.textContent || '')))
     button(mounted.host, /Topic Packs/).click(); await nextTick()
-    button(mounted.host, /All library/).click(); await nextTick()
+    button(mounted.host, /All Library/).click(); await nextTick()
     button(mounted.host, /All sources/).click(); await nextTick()
     const topicCards = [...mounted.host.querySelectorAll('.identity-card')].filter(card => /Wars, Treaties & World Order/.test(card.textContent || ''))
     assert.equal(topicCards.length, 2)
@@ -216,7 +216,7 @@ test('same-name IDs stay distinct, show truthful sources and expose project pin 
     assert.match(mounted.host.textContent || '', /Up to 1 episode per subject\. Available plans depend on coverage and saved history\./)
     button(mounted.host, /Formula/).click(); await nextTick()
     const installed = [...mounted.host.querySelectorAll<HTMLElement>('.identity-card')].find(card => /Installed/.test(card.textContent || ''))!
-    button(installed, /View details/).click(); await nextTick()
+    button(installed, /View Details/).click(); await nextTick()
     assert.match(mounted.host.textContent || '', /Library has v1\.0\.1\. Project uses v1\.0\.0\./)
   } finally { mounted.unmount() }
 })
@@ -243,7 +243,7 @@ test('No Formula explicitly clears Topic Packs and blocks adding packs until a F
     assert.match(mounted.host.textContent || '', /Removed Wars, Treaties & World Order, missing-saved-pack/)
     assert.match(mounted.host.textContent || '', /0 selected/)
     button(mounted.host, /Topic Packs/).click(); await nextTick()
-    button(mounted.host, /All library/).click(); await nextTick()
+    button(mounted.host, /All Library/).click(); await nextTick()
     const addButtons = [...mounted.host.querySelectorAll<HTMLButtonElement>('button')].filter(candidate => /Add Pack/.test(candidate.textContent || ''))
     assert.ok(addButtons.length > 0)
     assert.ok(addButtons.every(candidate => candidate.disabled))
@@ -326,11 +326,11 @@ test('narrow catalogues scroll from a late card to details and back to choices',
   const mounted = await mountPicker({ formulaId: formulas[0].id, formulas })
   try {
     const lastCard = [...mounted.host.querySelectorAll<HTMLElement>('.identity-card')].at(-1)!
-    const detailTrigger = button(lastCard, /View details/)
+    const detailTrigger = button(lastCard, /View Details/)
     detailTrigger.click(); await flush()
     assert.ok(scrolled.some(value => value.includes('identity-detail')))
     assert.equal(document.activeElement, mounted.host.querySelector('.identity-detail'))
-    button(mounted.host, /Back to choices/).click(); await nextTick()
+    button(mounted.host, /Back to Choices/).click(); await nextTick()
     assert.ok(scrolled.some(value => value.includes('btn-ghost')))
     assert.equal(document.activeElement, detailTrigger)
   } finally {

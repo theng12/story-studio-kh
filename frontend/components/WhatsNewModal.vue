@@ -59,7 +59,7 @@
           class="wnm-expand"
           :aria-expanded="isExpanded(entry)"
           @click="toggleEntry(entry.version)"
-        >{{ isExpanded(entry) ? 'Show less' : 'View full release' }}</button>
+        >{{ isExpanded(entry) ? 'Show Less' : 'View Full Release' }}</button>
       </article>
       <div v-if="hasMore" class="wnm-more-releases">
         <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingMore" @click="loadMoreReleases">
@@ -69,7 +69,7 @@
     </div>
 
     <footer class="modal-footer">
-      <button type="button" class="btn btn-secondary" @click="onClose">Got it</button>
+      <button type="button" class="btn btn-secondary" @click="onClose">Got It</button>
     </footer>
   </Modal>
 </template>

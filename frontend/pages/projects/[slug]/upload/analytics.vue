@@ -46,7 +46,7 @@
             :disabled="busy || !!periodProblem || data.empty_reason === 'no_channel_assigned'"
             @click="refresh"
           >
-            {{ busy ? 'Fetching…' : 'Fetch for this period' }}
+            {{ busy ? 'Fetching…' : 'Fetch for This Period' }}
           </button>
           <p class="hint control-hint">
             {{ data.empty_reason === 'no_channel_assigned'

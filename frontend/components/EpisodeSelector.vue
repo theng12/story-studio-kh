@@ -17,8 +17,8 @@
       </span>
     </label>
     <div class="toggle-row">
-      <button :class="['toggle-btn', { active: !showAll }]" @click="showAll = false">Pending only</button>
-      <button :class="['toggle-btn', { active: showAll }]" @click="showAll = true">Show all</button>
+      <button :class="['toggle-btn', { active: !showAll }]" @click="showAll = false">Pending Only</button>
+      <button :class="['toggle-btn', { active: showAll }]" @click="showAll = true">Show All</button>
       <button
         class="toggle-btn refresh-btn"
         :disabled="loading"
@@ -589,7 +589,7 @@ async function onSelect(code: string) {
         `The job keeps running on the backend, but switching episodes hides this page's progress panel — ` +
         `come back to ${oldCode} to see when it finishes. ` +
         `(The Jobs tab also lists every running job across episodes.)`,
-      confirmLabel: 'Switch episode',
+      confirmLabel: 'Switch Episode',
     })
     if (!proceed) {
       // Force a re-render by re-emitting the old value. Without this

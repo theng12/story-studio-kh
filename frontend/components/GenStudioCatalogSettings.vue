@@ -99,7 +99,7 @@
 
     <footer class="catalog-footer">
       <div>
-        <NuxtLink class="btn btn-secondary btn-sm" to="/usage">Credits &amp; settlement</NuxtLink>
+        <NuxtLink class="btn btn-secondary btn-sm" to="/usage">Credits &amp; Settlement</NuxtLink>
       </div>
     </footer>
   </section>

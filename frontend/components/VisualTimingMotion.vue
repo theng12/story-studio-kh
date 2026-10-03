@@ -6,7 +6,7 @@
         <p class="text-muted text-sm">Set the next Scene Plan's timing and motion scope for this episode.</p>
       </div>
       <button type="button" class="btn btn-primary btn-sm" :disabled="loading || saving || !!loadError || !!validationError" @click="save">
-        {{ saving ? 'Saving…' : 'Save timing & motion' }}
+        {{ saving ? 'Saving…' : 'Save Timing & Motion' }}
       </button>
     </header>
 
@@ -56,8 +56,8 @@
           </label>
         </div>
         <div class="vtm-period-actions">
-          <button type="button" class="btn btn-secondary btn-sm" @click="addPeriod">Add period</button>
-          <button type="button" class="btn btn-ghost btn-sm" :disabled="draft.pacing.periods.length === 1" @click="removeLastPeriod">Remove last period</button>
+          <button type="button" class="btn btn-secondary btn-sm" @click="addPeriod">Add Period</button>
+          <button type="button" class="btn btn-ghost btn-sm" :disabled="draft.pacing.periods.length === 1" @click="removeLastPeriod">Remove Last Period</button>
         </div>
       </div>
     </fieldset>

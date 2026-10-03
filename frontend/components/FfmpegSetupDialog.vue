@@ -34,7 +34,7 @@
           <code v-else>Download from ffmpeg.org/download.html</code>
         </div>
         <button class="btn btn-secondary btn-sm mt-1" @click="recheckFFmpeg">
-          I've installed it — check again
+          I've Installed It — Check Again
         </button>
       </div>
 
@@ -62,7 +62,7 @@
     </div>
 
     <div v-if="!installing && !installed" class="mt-2" style="text-align: right;">
-      <button class="btn btn-secondary btn-sm" @click="dismiss">Skip for now</button>
+      <button class="btn btn-secondary btn-sm" @click="dismiss">Skip for Now</button>
     </div>
   </Modal>
 </template>

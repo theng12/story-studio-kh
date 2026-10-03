@@ -63,5 +63,5 @@ test('Sound Design keeps one Add Spot Effect button, in the top bar', () => {
   assert.match(page, /generate-label="Add Spot Effect"/)
   assert.equal((page.match(/@click="addSpot"/g) || []).length, 0)
   assert.match(page, /@generate="addSpot"/)
-  assert.match(page, /@click="addBed">\+ Ambient bed/)
+  assert.match(page, /@click="addBed">\+ Ambient Bed/)
 })

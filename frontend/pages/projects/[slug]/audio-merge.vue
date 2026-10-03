@@ -65,7 +65,7 @@
           type="button"
           class="btn btn-ghost"
           @click="togglePreview(existingMergedAudio.path)"
-        >{{ playingPath === existingMergedAudio.path ? 'Stop preview' : 'Preview current' }}</button>
+        >{{ playingPath === existingMergedAudio.path ? 'Stop Preview' : 'Preview Current' }}</button>
         <button
           type="button"
           class="btn btn-primary"
@@ -133,7 +133,7 @@
         </p>
         <div class="flex gap-2 mt-2">
           <NuxtLink :to="`/projects/${slug}/audio?episode_id=${encodeURIComponent(episodeId)}`" class="btn btn-primary btn-sm">
-            Repair missing audio →
+            Repair Missing Audio →
           </NuxtLink>
           <button class="btn btn-sm btn-secondary" @click="scanAssets" :disabled="scanning">
             Re-scan
@@ -174,7 +174,7 @@
             <button
               class="btn btn-sm btn-secondary"
               @click="repickInvalidPath(row)"
-            >Pick replacement…</button>
+            >Pick Replacement…</button>
           </li>
         </ul>
       </div>
@@ -416,7 +416,7 @@
           type="button"
           class="link-btn ppb-action"
           @click="clearPoolPick"
-        >Skip — use no music</button>
+        >Skip — Use No Music</button>
       </div>
 
       <p v-else-if="music.enabled && music.source === 'pool' && !poolPeekLoading" class="text-muted text-sm mt-2">
@@ -528,7 +528,7 @@
           <button
             :class="['btn btn-sm', backgroundNoise.mode === 'preset' ? 'btn-primary' : 'btn-secondary']"
             @click="backgroundNoise.mode = 'preset'"
-          >Built-in sounds</button>
+          >Built-in Sounds</button>
           <button
             :class="['btn btn-sm', backgroundNoise.mode === 'custom' ? 'btn-primary' : 'btn-secondary']"
             @click="backgroundNoise.mode = 'custom'"
@@ -658,7 +658,7 @@
           class="btn btn-sm btn-secondary"
           title="Open the project's ambient/ folder so you can drop new audio loops in"
           @click="openAmbientFolder"
-        >📁 Open ambient folder</button>
+        >📁 Open Ambient Folder</button>
         <button
           type="button"
           class="btn btn-sm btn-secondary"

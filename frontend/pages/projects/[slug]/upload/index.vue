@@ -35,7 +35,7 @@
           <span :class="['badge', overview.assigned_channel?.status]">{{ healthLabel }}</span>
           <span :class="['hint', freshness.stale ? 'stale' : '']">{{ syncCopy }}</span>
           <button class="btn btn-sm" type="button" :disabled="syncing || !canSync" @click="syncNow">
-            {{ syncing ? 'Checking with YouTube…' : 'Sync with YouTube now' }}
+            {{ syncing ? 'Checking with YouTube…' : 'Sync with YouTube Now' }}
           </button>
           <NuxtLink v-if="!canSync" :to="`/projects/${slug}/settings#youtube`" class="hint">
             {{ connectionAction }}

@@ -222,11 +222,11 @@ describe('Upload Center Analytics', () => {
   test('an unassigned project is told why and cannot start a fetch', async () => {
     const mounted = await mount({ empty_reason: 'no_channel_assigned', never_fetched: true, fetched_at: null })
     assert.match(mounted.text(), /No YouTube channel is assigned/)
-    assert.equal(button(mounted.el, 'Fetch for this period')!.disabled, true)
+    assert.equal(button(mounted.el, 'Fetch for This Period')!.disabled, true)
     mounted.destroy()
 
     const assigned = await mount({})
-    assert.equal(button(assigned.el, 'Fetch for this period')!.disabled, false)
+    assert.equal(button(assigned.el, 'Fetch for This Period')!.disabled, false)
     assigned.destroy()
   })
 
@@ -259,7 +259,7 @@ describe('Upload Center Analytics', () => {
     unavailable.destroy()
 
     const refresh = await mount({}, {}, { post: { data: { detail: 'Today’s analytics allowance is exhausted.' } } })
-    button(refresh.el, 'Fetch for this period')!.click()
+    button(refresh.el, 'Fetch for This Period')!.click()
     for (let i = 0; i < 6; i++) await nextTick()
     assert.match(refresh.text(), /analytics allowance is exhausted/)
     refresh.destroy()
@@ -491,7 +491,7 @@ describe('Upload Center Analytics', () => {
     // The saved window (2026-06-05 to 2026-09-03) is not the last 90 days any more.
     assert.match(mounted.text(), /The table still shows 2026-06-05 to 2026-09-03/)
 
-    button(mounted.el, 'Fetch for this period')!.click()
+    button(mounted.el, 'Fetch for This Period')!.click()
     await settle()
     const today = new Date().toISOString().slice(0, 10)
     const first = mounted.calls.find(c => c.method === 'POST')!
@@ -508,13 +508,13 @@ describe('Upload Center Analytics', () => {
     to!.value = '2026-03-01'
     to!.dispatchEvent(new Event('input'))
     await settle()
-    assert.equal(button(mounted.el, 'Fetch for this period')!.disabled, true)
+    assert.equal(button(mounted.el, 'Fetch for This Period')!.disabled, true)
     assert.match(mounted.text(), /start date must be on or before the end date/)
 
     from!.value = '2026-02-01'
     from!.dispatchEvent(new Event('input'))
     await settle()
-    button(mounted.el, 'Fetch for this period')!.click()
+    button(mounted.el, 'Fetch for This Period')!.click()
     await settle()
     const custom = mounted.calls.filter(c => c.method === 'POST').at(-1)!
     assert.deepEqual(custom.body, { start_date: '2026-02-01', end_date: '2026-03-01' })

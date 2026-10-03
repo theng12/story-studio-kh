@@ -32,9 +32,9 @@
     <div class="cs-header">
       <span class="cs-label">Narration sections</span>
       <div class="cs-actions">
-        <button type="button" class="btn btn-sm btn-ghost" @click="selectAll" :disabled="!sections.length">Select all</button>
+        <button type="button" class="btn btn-sm btn-ghost" @click="selectAll" :disabled="!sections.length">Select All</button>
         <button type="button" class="btn btn-sm btn-ghost" @click="selectNone" :disabled="!selectedSet.size">Clear</button>
-        <button type="button" class="btn btn-sm btn-ghost" @click="selectMissing" :disabled="!hasMissing">Missing only</button>
+        <button type="button" class="btn btn-sm btn-ghost" @click="selectMissing" :disabled="!hasMissing">Missing Only</button>
         <button type="button" class="btn btn-sm btn-ghost" @click="refresh" :disabled="loading" :title="`Re-scan disk`">
           <LoadingSpinner v-if="loading" size="sm" />
           ↻
@@ -208,13 +208,13 @@
               <NuxtLink
                 class="btn btn-sm btn-secondary"
                 :to="`/projects/${projectSlug}/scripts?episode_id=${encodeURIComponent(episodeId)}`"
-              >View script</NuxtLink>
+              >View Script</NuxtLink>
               <button
                 type="button"
                 class="btn btn-sm btn-primary"
                 :disabled="inlineActionDisabled(s)"
                 @click="emit('generate-section', { slug: s.slug, mode: 'regenerate' })"
-              >Regenerate audio</button>
+              >Regenerate Audio</button>
               <NuxtLink
                 class="btn btn-sm btn-secondary"
                 :to="`/projects/${projectSlug}/subtitles?episode_id=${encodeURIComponent(episodeId)}&section=${encodeURIComponent(s.slug)}`"
@@ -245,7 +245,7 @@
                 class="btn btn-sm btn-ghost"
                 :disabled="qualityActionDisabled"
                 @click="emit('check-quality', s.slug)"
-              >{{ qualityMode === 'check_and_repair' ? 'Check & repair' : 'Check again' }}</button>
+              >{{ qualityMode === 'check_and_repair' ? 'Check & Repair' : 'Check Again' }}</button>
             </div>
           </div>
         </details>

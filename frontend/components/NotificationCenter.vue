@@ -119,7 +119,7 @@
             <button type="button" class="nc-foot-btn" @click="recheck">{{ rechecking ? 'Checking…' : 'Re-check' }}</button>
           </template>
           <template v-else>
-            <button type="button" class="nc-foot-btn" :disabled="activity.length === 0" @click="markActivityRead(slug)">Mark all read</button>
+            <button type="button" class="nc-foot-btn" :disabled="activity.length === 0" @click="markActivityRead(slug)">Mark All Read</button>
             <NuxtLink :to="`/projects/${slug}/jobs`" class="nc-foot-link" @click="close()">Open Jobs &rarr;</NuxtLink>
           </template>
         </div>

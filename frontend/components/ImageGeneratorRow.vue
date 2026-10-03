@@ -79,7 +79,7 @@
           : 'Use this thumbnail for the next YouTube upload.'"
         @click="$emit('pin-toggle')"
       >
-        {{ pinnedForUpload ? 'Pinned for upload' : 'Pin for upload' }}
+        {{ pinnedForUpload ? 'Pinned for Upload' : 'Pin for Upload' }}
       </button>
     </div>
 

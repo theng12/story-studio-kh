@@ -26,7 +26,7 @@
           <h1 id="home-title">Your channels</h1>
           <p>Open a channel to continue production, or create a clean workspace for a new series.</p>
         </div>
-        <button type="button" class="btn btn-primary home-create" @click="openCreate">New channel</button>
+        <button type="button" class="btn btn-primary home-create" @click="openCreate">New Channel</button>
       </section>
 
       <section v-if="loading && projects.length === 0" class="home-state" aria-live="polite">
@@ -58,7 +58,7 @@
                move, and re-pointing while it is merely unplugged is how someone
                loses track of where their work actually is. -->
           <NuxtLink v-if="libraryMissing" to="/welcome" class="btn btn-secondary">
-            Choose a different folder…
+            Choose a Different Folder…
           </NuxtLink>
         </div>
       </section>
@@ -67,7 +67,7 @@
         <span class="state-kicker">Start here</span>
         <h2>Create your first channel</h2>
         <p>Choose a name and optional Series Formula. Story Studio will create the continuity workflow and take you straight to its dashboard.</p>
-        <button type="button" class="btn btn-primary" @click="openCreate">Create channel</button>
+        <button type="button" class="btn btn-primary" @click="openCreate">Create Channel</button>
       </section>
 
       <section v-if="projects.length" aria-labelledby="channels-heading">
@@ -84,14 +84,14 @@
           <span>{{ projectsLoadError }} Showing the channels from your last visit until Story Studio answers.</span>
           <span class="channel-stale-actions">
             <button type="button" class="btn btn-sm" :disabled="projectsRetrying" @click="retryLoadProjects">
-              {{ projectsRetrying ? 'Checking…' : 'Try again' }}
+              {{ projectsRetrying ? 'Checking…' : 'Try Again' }}
             </button>
             <!-- The same way out the blank-state branch offers. Without it,
                  having a remembered list would COST the user the escape hatch
                  that a first-time visitor gets — the cache is meant to add a
                  painted list, never to take away a route out of a stuck app. -->
             <NuxtLink v-if="libraryMissing" to="/welcome" class="btn btn-sm btn-secondary">
-              Choose a different folder…
+              Choose a Different Folder…
             </NuxtLink>
           </span>
         </p>

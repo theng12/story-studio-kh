@@ -85,7 +85,7 @@
 
     <div class="dialog-actions">
       <button class="btn btn-secondary" @click="emit('close')">Close</button>
-      <button v-if="hasUnmeasurable" class="btn btn-secondary" :disabled="busy" @click="emit('rescan')">Re-scan audit</button>
+      <button v-if="hasUnmeasurable" class="btn btn-secondary" :disabled="busy" @click="emit('rescan')">Re-Scan Audit</button>
       <NuxtLink
         v-if="hasRepairableMissing"
         class="btn btn-primary"

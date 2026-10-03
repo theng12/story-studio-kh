@@ -30,7 +30,7 @@ test('thumbnail reference analysis shows only qualified Gateway vision models', 
   assert.match(option.priceTitle, /minimum of 1 credit applies/i)
   assert.match(page, /Reference-guided thumbnail/)
   assert.match(page, /Import & analyse reference/)
-  assert.match(page, /Retry vision models/)
+  assert.match(page, /Retry Vision Models/)
   assert.match(page, /:require-vision="Boolean\(form\.thumbnail\.thumb_reference_asset\)"/)
   assert.match(selector, /allModels\.value\.filter\(model => isUsableLiveGenStudioModel\(model, true\)\)/)
   assert.match(health, /supports_vision: model\.supports_vision/)

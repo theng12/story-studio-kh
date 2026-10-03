@@ -249,7 +249,7 @@ describe('shared model menus', () => {
     assert.match(voicePicker, /Clone a voice in the Gateway/)
     assert.match(appSettings, /voices\.filter\(voice => !voice\.tts_model_id \|\| voice\.tts_model_id === modelId\)/)
     assert.match(voiceLibraryBrowser, /v-if="hasMore"/)
-    assert.match(voiceLibraryBrowser, /Load more voices/)
+    assert.match(voiceLibraryBrowser, /Load More Voices/)
     assert.doesNotMatch(voiceLibraryBrowser, /vlb-tabs|selectLibrary|Previous|Next →/)
     // The saved filter survived the dialog conversion; it is now one option in
     // the All / Saved / Cloned group rather than a standalone checkbox.

@@ -214,7 +214,7 @@
             <div class="operation-actions">
               <button v-if="hasAuditDetails" class="btn btn-sm btn-secondary" @click="showDialog = true">Details</button>
               <button class="btn btn-sm" :class="hasAuditDetails ? 'btn-primary' : 'btn-secondary'" :disabled="auditRunning" @click="runAudit">
-                {{ audit ? 'Check again' : 'Check files' }}
+                {{ audit ? 'Check Again' : 'Check Files' }}
               </button>
             </div>
           </div>

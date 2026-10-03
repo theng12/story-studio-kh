@@ -108,7 +108,7 @@ describe('finish: library — Use Story Studio changes live YouTube', () => {
     m.destroy()
   })
 
-  test('Keep YouTube and Review later still need no confirmation', async () => {
+  test('Keep YouTube and Review Later still need no confirmation', async () => {
     const m = await mount('upload/library.vue', 'f-lib', { get: () => lib([field('title', 'A', 'B')]) })
     btn(m.el, 'Keep YouTube')!.click()
     await flush()
@@ -196,12 +196,12 @@ describe('finish: reconcile', () => {
       get: (p) => p.endsWith('/upload/renumber-undo') ? { available: true, expired: false, renamed_count: 2, adopted_count: 0 } : p.endsWith('/reseason-undo') ? { available: false } : view,
       post: () => { throw Object.assign(new Error('x'), { data: { detail: 'Disk is read-only' } }) },
     })
-    btn(m.el, 'Undo the renumber')!.click()
+    btn(m.el, 'Undo the Renumber')!.click()
     await flush()
     assert.match(m.text(), /Disk is read-only/)
     // The rest of the page is still there, with its undo controls.
     assert.match(m.text(), /Channel listing/)
-    assert.ok(btn(m.el, 'Undo the renumber'))
+    assert.ok(btn(m.el, 'Undo the Renumber'))
     m.destroy()
   })
 
@@ -253,7 +253,7 @@ describe('finish: overview', () => {
       get: () => overview,
       post: () => { throw Object.assign(new Error('x'), { data: { detail: 'Quota is used up' } }) },
     })
-    btn(m.el, 'Sync with YouTube now')!.click()
+    btn(m.el, 'Sync with YouTube Now')!.click()
     await flush()
     assert.match(m.text(), /Couldn’t check with YouTube: Quota is used up/)
     m.destroy()

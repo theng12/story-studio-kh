@@ -44,7 +44,7 @@
         :disabled="saving || allDetect"
         title="Set every field back to Detect (clears all overrides for this episode)"
         @click="resetAll"
-      >Reset all to Detect</button>
+      >Reset All to Detect</button>
       <span class="text-muted dirty-summary">
         <template v-if="dirtyCount === 0">No changes pending</template>
         <template v-else>{{ dirtyCount }} unsaved change{{ dirtyCount === 1 ? '' : 's' }}</template>

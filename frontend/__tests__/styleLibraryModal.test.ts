@@ -57,7 +57,7 @@ describe('scalable Content Pack style library', () => {
   test('uses the live Gateway image catalog and one representative style proof', () => {
     assert.match(projectLibrary, /<ImageModelPicker/)
     assert.match(projectLibrary, /useGenStudioImageModels/)
-    assert.match(projectLibrary, /Generate style proof/)
+    assert.match(projectLibrary, /Generate Style Proof/)
     assert.match(projectLibrary, /id: 'style-proof'/)
     assert.doesNotMatch(projectLibrary, /Generate 5 live samples/)
     assert.doesNotMatch(projectLibrary, /props\.imageModels/)

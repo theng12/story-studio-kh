@@ -486,7 +486,7 @@ async function remove(groupKey: string, p: PresetRecord) {
   const ok = await ask({
     title: `Delete preset "${p.name}"?`,
     message: `This removes the preset from the project. Any content you generated using it stays on disk.`,
-    confirmLabel: 'Delete preset',
+    confirmLabel: 'Delete Preset',
     danger: true,
   })
   if (!ok) return

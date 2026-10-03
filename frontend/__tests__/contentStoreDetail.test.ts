@@ -34,7 +34,7 @@ async function loadStorePage(): Promise<Component> {
   const support = `
     import { computed, h, nextTick, onMounted, ref, defineComponent as _defineComponent } from "vue"
     const ContentStoreFilters = { emits: ['update:query'], setup: (props, { emit }) => () => h('div', { 'data-test': 'catalog-filters' }, [h('button', { 'data-test': 'set-query', onClick: () => emit('update:query', 'zzz') }, 'search')]) }
-    const ContentStoreShelf = { props: ['products'], emits: ['quote'], setup: (props, { emit }) => () => props.products?.[0] ? h('button', { 'data-test': 'request-quote', onClick: () => emit('quote', props.products[0]) }, 'See exact quote') : null }
+    const ContentStoreShelf = { props: ['products'], emits: ['quote'], setup: (props, { emit }) => () => props.products?.[0] ? h('button', { 'data-test': 'request-quote', onClick: () => emit('quote', props.products[0]) }, 'See Exact Quote') : null }
     const ContentLibraryView = { render: () => null }
     const ContentInstalledLibraryView = { render: () => null }
     const ContentPurchaseDialog = { props: ['visible', 'attempt'], emits: ['close', 'confirm'], setup: (props, { emit }) => () => props.visible ? h('div', { role: 'dialog' }, [h('button', { 'data-test': 'confirm-purchase', onClick: () => emit('confirm', props.attempt.quote_id) }, 'Confirm'), h('button', { 'data-test': 'purchase-done', onClick: () => emit('close') }, 'Done')]) : null }
@@ -64,7 +64,7 @@ async function loadStorePage(): Promise<Component> {
       batchTotal: computed(() => 0), batchDone: computed(() => 0), batchInstalled: computed(() => 0),
       batchFailed: computed(() => 0), activeTitle: computed(() => ''), finished: computed(() => false),
     })
-    // Real rule, not a stub: Select all counts on it.
+    // Real rule, not a stub: Select All counts on it.
     const batchSkipReason = (product) => !product ? 'No longer in the catalog' : product.owned ? 'Already owned' : product.retired ? 'Retired by GenStudio' : !product.compatible ? (product.compatibilityReason || 'Not compatible') : !product.currentRelease ? 'No published release' : null
     // Buying a whole selection lives in ~/composables/useBatchPurchase and has
     // its own tests (contentStoreBatchPurchase). Here it only has to exist, so
@@ -327,7 +327,7 @@ describe('Content Store proof route contract', () => {
         error: null,
       })
       assert.match(rendered.host.textContent || '', recovery, code)
-      assert.equal([...rendered.host.querySelectorAll('button')].some(button => /Retry this purchase/.test(button.textContent || '')), false, code)
+      assert.equal([...rendered.host.querySelectorAll('button')].some(button => /Retry This Purchase/.test(button.textContent || '')), false, code)
       assert.equal([...rendered.host.querySelectorAll('button')].some(button => /Confirm/.test(button.textContent || '')), false, code)
       rendered.unmount()
     }
@@ -384,7 +384,7 @@ describe('Content Store proof route contract', () => {
     const tabCounts = [...rendered.host.querySelectorAll('[role="tab"] span')].map(node => node.textContent)
     assert.deepEqual(tabCounts, ['1', '—', '—', '—'], 'the published count is a catalogue fact; the rest are not counted yet')
 
-    const restore = [...rendered.host.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent === 'Restore purchases')
+    const restore = [...rendered.host.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent === 'Restore Purchases')
     assert.equal(restore?.disabled, true, 'commerce stays off until ownership is verified')
     rendered.unmount()
   })
@@ -429,7 +429,7 @@ describe('Content Store proof route contract', () => {
       assert.match(text, scenario.expect, scenario.name)
       assert.doesNotMatch(text, scenario.absent, scenario.name)
       assert.equal(
-        [...rendered.host.querySelectorAll('button')].some(button => /Clear filters/.test(button.textContent || '')),
+        [...rendered.host.querySelectorAll('button')].some(button => /Clear Filters/.test(button.textContent || '')),
         false,
         `${scenario.name} must not offer to clear filters nobody set`,
       )
@@ -437,7 +437,7 @@ describe('Content Store proof route contract', () => {
     }
   })
 
-  test('filters that really do exclude everything keep the original message and its Clear filters action', async () => {
+  test('filters that really do exclude everything keep the original message and its Clear Filters action', async () => {
     const Page = await loadStorePage()
     ;(globalThis as any).__contentStorePageStore = pageStore({
       products: ref([catalogProduct({})]),
@@ -451,7 +451,7 @@ describe('Content Store proof route contract', () => {
 
     assert.match(rendered.host.textContent || '', /No published products match these filters/)
     assert.equal(
-      [...rendered.host.querySelectorAll('button')].some(button => /Clear filters/.test(button.textContent || '')),
+      [...rendered.host.querySelectorAll('button')].some(button => /Clear Filters/.test(button.textContent || '')),
       true,
     )
     rendered.unmount()

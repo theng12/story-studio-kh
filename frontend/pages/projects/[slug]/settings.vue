@@ -155,7 +155,7 @@
                   </div>
                   <div class="notification-connect-row">
                     <button type="button" class="btn btn-sm btn-secondary" :disabled="telegramDetectBusy || !notifSettings.telegram.bot_token" @click="detectTelegramChatId">
-                      {{ telegramDetectBusy ? 'Looking for your chat…' : 'Detect my chat' }}
+                      {{ telegramDetectBusy ? 'Looking for Your Chat…' : 'Detect My Chat' }}
                     </button>
                     <input v-model="notifSettings.telegram.chat_id" type="text" class="input" placeholder="Chat ID (detected or pasted)" spellcheck="false" autocomplete="off" />
                   </div>
@@ -171,7 +171,7 @@
                 <div><strong>Verify delivery</strong><p>Send one test before relying on Telegram for unattended overnight work.</p></div>
                 <div class="notification-test-action">
                   <button type="button" class="btn btn-sm btn-primary" :disabled="telegramTestBusy || !telegramReady" @click="testTelegram">
-                    {{ telegramTestBusy ? 'Sending test…' : 'Send test message' }}
+                    {{ telegramTestBusy ? 'Sending Test…' : 'Send Test Message' }}
                   </button>
                   <small v-if="telegramTestResult" :class="telegramTestResult.ok ? 'ok' : 'error'">{{ telegramTestResult.ok ? 'Delivered. Check Telegram.' : telegramTestResult.error || 'Delivery failed.' }}</small>
                 </div>
@@ -201,8 +201,8 @@
             <div class="notification-last-fired"><span>Last scheduled delivery</span><strong>{{ formattedDigestLastFired }}</strong></div>
           </div>
           <div class="notification-digest-actions">
-            <button type="button" class="btn btn-sm btn-secondary" :disabled="digestPreviewBusy" @click="loadDigestPreview">{{ digestPreviewBusy ? 'Building preview…' : 'Preview brief' }}</button>
-            <button type="button" class="btn btn-sm btn-primary" :disabled="digestSendNowBusy || !digestHasReadyDestination" @click="sendDigestNow">{{ digestSendNowBusy ? 'Sending now…' : 'Send now' }}</button>
+            <button type="button" class="btn btn-sm btn-secondary" :disabled="digestPreviewBusy" @click="loadDigestPreview">{{ digestPreviewBusy ? 'Building Preview…' : 'Preview Brief' }}</button>
+            <button type="button" class="btn btn-sm btn-primary" :disabled="digestSendNowBusy || !digestHasReadyDestination" @click="sendDigestNow">{{ digestSendNowBusy ? 'Sending Now…' : 'Send Now' }}</button>
             <span v-if="digestSendResult" :class="['notification-inline-result', digestSendResult.ok ? 'ok' : 'error']">{{ digestSendResult.ok ? 'Brief sent.' : digestSendResult.reason || 'Send failed.' }}</span>
           </div>
           <div v-if="digestPreview" class="notification-preview">
@@ -552,7 +552,7 @@
               <span v-else>Show install log</span>
             </button>
             <button v-if="ffmpegInstallLog.length" class="btn btn-sm btn-primary" @click="copyInstallLog" title="Copies the log entries + your platform info to the clipboard so you can paste it into a bug report">
-              Copy log to clipboard
+              Copy Log to Clipboard
             </button>
             <span v-if="ffmpegLogCopiedAt" class="text-muted" style="font-size: var(--font-xs);">Copied ✓</span>
           </div>
@@ -977,7 +977,7 @@
                     :disabled="artStyleSaving"
                     @click="useSuggestedProductionKitStyle"
                   >
-                    Use this style
+                    Use This Style
                   </button>
                 </template>
                 <small v-else-if="visualStylesLoading">Checking installed Content Pack styles…</small>
@@ -1133,7 +1133,7 @@
           />
           <div class="flex gap-2 mt-2" style="justify-content:flex-end">
             <button class="btn btn-secondary" :disabled="writingControlsDisabled" @click="showSavePreset = false">Cancel</button>
-            <button class="btn btn-primary" :disabled="writingControlsDisabled || !newPresetName.trim()" @click="savePreset">Save preset</button>
+            <button class="btn btn-primary" :disabled="writingControlsDisabled || !newPresetName.trim()" @click="savePreset">Save Preset</button>
           </div>
         </div>
       </div>
@@ -1580,7 +1580,7 @@
                 :title="row.eligible ? `Delete this sidecar (frees ${formatBytes(row.sidecar_size_bytes || 0)})` : 'Not eligible'"
                 @click="cleanupOneSidecar(row.episode_code)"
               >
-                Clean up
+                Clean Up
               </button>
             </span>
           </div>
@@ -1657,7 +1657,7 @@
       <div class="flex gap-2 mt-3" style="justify-content: flex-end">
         <button class="btn btn-secondary" :disabled="nicheCreateBusy" @click="closeNicheCreator">Cancel</button>
         <button class="btn btn-primary" :disabled="nicheCreateBusy || !nicheCanCreate" @click="submitNicheCreate">
-          {{ nicheCreateBusy ? 'Creating…' : 'Create niche' }}
+          {{ nicheCreateBusy ? 'Creating…' : 'Create Niche' }}
         </button>
       </div>
     </Modal>
@@ -2256,7 +2256,7 @@ async function confirmDeleteNiche(n: { id: string; name: string; project_count?:
   const ok = await ask({
     title: `Delete niche "${n.name}"?`,
     message: 'Removes the custom niche file from this Mac. Built-in niches cannot be deleted.',
-    confirmLabel: 'Delete niche',
+    confirmLabel: 'Delete Niche',
     danger: true,
   })
   if (!ok) return
@@ -2526,7 +2526,7 @@ async function cleanupAllChunkedSidecars() {
     title: `Remove ${sidecarScan.value.eligible_count} narration progress file(s)?`,
     message: `${formatBytes(sidecarScan.value.reclaimable_bytes)} of small progress files left over from finished narration. ` +
       'Only those files go — chapter documents, audio and everything else stay put.',
-    confirmLabel: 'Remove them',
+    confirmLabel: 'Remove Them',
     danger: true,
   })
   if (!ok) return
@@ -2760,7 +2760,7 @@ async function startArchive() {
       + `${staying}\n\n`
       + `Only the ${preview.ready_count} listed above will be moved — anything added to the folder `
       + `after this check is left alone.`,
-    confirmLabel: 'Move them',
+    confirmLabel: 'Move Them',
   })
   if (!ok) return
 
@@ -2859,7 +2859,7 @@ async function moveLibraryTo(picked: string) {
     message: `To: ${picked}\n\nEvery channel, your shared assets and your exports are COPIED there. ` +
       'The current folder is left exactly as it is, so nothing can be lost — you can delete it yourself once you have checked the new one. ' +
       'Story Studio restarts afterwards.',
-    confirmLabel: 'Copy and restart',
+    confirmLabel: 'Copy and Restart',
   })
   if (!ok) return
 
@@ -3058,7 +3058,7 @@ async function runYoutubeBackfill(dryRun: boolean) {
 
 function onYoutubeBackfillPreview() { void runYoutubeBackfill(true) }
 async function onYoutubeBackfillApply() {
-  if (!await ask({ title: 'Update every uploaded video?', message: 'Apply the current AI disclosure and category to every uploaded video? This costs 50 YouTube quota units per video. Privacy and schedule are preserved.', confirmLabel: 'Apply to all', danger: true })) return
+  if (!await ask({ title: 'Update every uploaded video?', message: 'Apply the current AI disclosure and category to every uploaded video? This costs 50 YouTube quota units per video. Privacy and schedule are preserved.', confirmLabel: 'Apply to All', danger: true })) return
   await runYoutubeBackfill(false)
 }
 
@@ -3802,7 +3802,7 @@ async function savePreset() {
 async function deletePreset() {
   if (writingControlsDisabled.value) return
   const doomed = (standardsSubTab.value === 'intro' ? introPresets : standardsPresets).value.find(p => p.id === selectedPresetId.value)
-  if (!await ask({ title: `Delete preset “${doomed?.name || 'this preset'}”?`, message: 'The text in the editor stays; only the saved preset is removed.', confirmLabel: 'Delete preset', danger: true })) return
+  if (!await ask({ title: `Delete preset “${doomed?.name || 'this preset'}”?`, message: 'The text in the editor stays; only the saved preset is removed.', confirmLabel: 'Delete Preset', danger: true })) return
   const projectSlug = slug.value
   const scope = writingConfigScope
   const subTab = standardsSubTab.value
@@ -4409,7 +4409,7 @@ async function deleteProject() {
     message:
       'Files stay on disk — only the registration is removed. ' +
       'You can restore the project anytime, or permanently delete it later from the home-page Hidden channels panel.',
-    confirmLabel: 'Hide project',
+    confirmLabel: 'Hide Project',
     danger: false,
   })
   if (!ok) return
@@ -4426,7 +4426,7 @@ async function deleteProject() {
         title: 'Files are still on disk',
         message: `Your files are still at:\n\n${result.orphan_path}\n\nClick "Open in Finder" to reveal the folder, or "Got it" to dismiss. You can manage hidden projects from the home page anytime.`,
         confirmLabel: 'Open in Finder',
-        cancelLabel: 'Got it',
+        cancelLabel: 'Got It',
         danger: false,
       })
       if (reveal) {

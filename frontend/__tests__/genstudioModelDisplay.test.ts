@@ -102,7 +102,7 @@ test('Jobs and Usage resolve catalog names instead of printing dispatch ids', ()
   assert.match(usage, /Billing is not available on this GenStudio deployment/)
   assert.doesNotMatch(usage, /will link directly|localhost.*billing|GenStudioUrl/i)
   assert.doesNotMatch(usage, /Current plan|Manage plan · coming soon/)
-  assert.match(usage, /<NuxtLink to="\/" class="btn btn-secondary btn-sm">← Back to projects<\/NuxtLink>/)
+  assert.match(usage, /<NuxtLink to="\/" class="btn btn-secondary btn-sm">← Back to Projects<\/NuxtLink>/)
   assert.doesNotMatch(usage, /<small>\{\{\s*job\.model_id\s*\}\}<\/small>/)
   // voice_tier is published metadata carried beside the job for history —
   // taken from the SELECTED VOICE, no longer from a Story-owned tier token.

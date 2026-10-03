@@ -19,7 +19,7 @@
         </p>
         <div class="field-row">
           <button class="btn btn-danger btn-sm" type="button" :disabled="busy !== ''" @click="recoverCredentials">
-            {{ busy === 'recover' ? 'Removing…' : 'Remove unusable YouTube credentials…' }}
+            {{ busy === 'recover' ? 'Removing…' : 'Remove Unusable YouTube Credentials…' }}
           </button>
         </div>
       </template>
@@ -77,7 +77,7 @@
               :disabled="busy !== '' || !clientIdDraft.trim() || !clientSecretDraft.trim()"
               @click="saveApplication"
             >
-              {{ busy === 'application' ? 'Saving…' : application ? 'Replace application' : 'Save application' }}
+              {{ busy === 'application' ? 'Saving…' : application ? 'Replace Application' : 'Save Application' }}
             </button>
             <button v-if="replacing" class="btn btn-sm" type="button" :disabled="busy !== ''" @click="cancelReplace">
               Cancel
@@ -86,7 +86,7 @@
         </div>
         <div v-else class="field-row">
           <button class="btn btn-sm" type="button" :disabled="busy !== ''" @click="replacing = true">
-            Replace application…
+            Replace Application…
           </button>
         </div>
 
@@ -136,10 +136,10 @@
 
         <div v-if="application?.has_client_secret" class="field-row">
           <button class="btn btn-sm btn-primary" type="button" :disabled="busy !== ''" @click="connectChannel()">
-            {{ busy === 'connect' ? 'Waiting for Google…' : 'Connect a YouTube channel' }}
+            {{ busy === 'connect' ? 'Waiting for Google…' : 'Connect a YouTube Channel' }}
           </button>
           <!-- Closing the Google tab used to leave every button here disabled for five minutes. -->
-          <button v-if="busy === 'connect'" class="btn btn-sm btn-ghost" type="button" @click="stopWaitingForGoogle = true">Stop waiting</button>
+          <button v-if="busy === 'connect'" class="btn btn-sm btn-ghost" type="button" @click="stopWaitingForGoogle = true">Stop Waiting</button>
         </div>
         <p v-if="channelResult" :class="['result', channelResult.kind]">{{ channelResult.message }}</p>
       </section>
@@ -174,7 +174,7 @@
             :disabled="busy !== '' || !assignmentDraft || assignmentDraft === assignment?.channel_id"
             @click="assign"
           >
-            {{ assignment ? 'Replace channel' : 'Assign channel' }}
+            {{ assignment ? 'Replace Channel' : 'Assign Channel' }}
           </button>
           <button v-if="assignment" class="btn btn-ghost btn-sm" type="button" :disabled="busy !== ''" @click="release">
             Release
@@ -193,8 +193,8 @@
         </p>
         <p v-else-if="!assignment" class="hint">
           {{ scope === 'assignment'
-            ? 'Connect a YouTube channel in This Mac → Connections first, then choose it here.'
-            : 'Connect a YouTube channel in step 2 first, then choose it here.' }}
+            ? 'Connect a YouTube Channel in This Mac → Connections first, then choose it here.'
+            : 'Connect a YouTube Channel in step 2 first, then choose it here.' }}
         </p>
 
         <p v-if="assignmentResult" :class="['result', assignmentResult.kind]">{{ assignmentResult.message }}</p>
@@ -310,7 +310,7 @@ async function recoverCredentials(): Promise<void> {
   if (!await ask({
     title: 'Remove unusable YouTube credentials?',
     message: 'This removes only the unreadable or unprotected local YouTube credential bucket. Provider API keys, projects, channel assignments, published-video records and history are kept. Every retained channel must be reconnected.',
-    confirmLabel: 'Remove YouTube credentials',
+    confirmLabel: 'Remove YouTube Credentials',
     danger: true,
   })) return
   busy.value = 'recover'
@@ -338,7 +338,7 @@ async function saveApplication(): Promise<void> {
     message: `Every connected channel (${channels.value.length}) will need to be reconnected before it can publish again. `
       + 'Story Studio removes the old local credentials; project assignments and published videos are kept. '
       + 'Manage any remaining Google grant in your Google Account permissions.',
-    confirmLabel: 'Replace application',
+    confirmLabel: 'Replace Application',
     danger: true,
   })) return
 
@@ -474,7 +474,7 @@ async function assign(): Promise<void> {
     title: 'Replace this project’s channel?',
     message: `${props.slug} will publish to ${titleOf(next)} instead of ${titleOf(assignment.value.channel_id)}. `
       + 'Videos already published stay attached to the channel that published them.',
-    confirmLabel: 'Replace channel',
+    confirmLabel: 'Replace Channel',
     danger: true,
   })) return
 
@@ -500,7 +500,7 @@ async function release(): Promise<void> {
   if (!await ask({
     title: 'Release this project’s channel?',
     message: `${props.slug} will keep working locally but cannot read or change YouTube until a channel is assigned.`,
-    confirmLabel: 'Release channel',
+    confirmLabel: 'Release Channel',
     danger: true,
   })) return
 

@@ -56,7 +56,7 @@
             A reference thumbnail is switched on for this project, so only <strong>paid</strong> models that can use a
             reference image are listed. Your image is used privately as a composition guide.
             <button type="button" class="btn btn-sm btn-ghost" :disabled="clearingReference" @click="stopUsingReference">
-              {{ clearingReference ? 'Turning off…' : 'Stop using the reference' }}
+              {{ clearingReference ? 'Turning Off…' : 'Stop Using the Reference' }}
             </button>
           </p>
           <span v-else class="text-muted text-xs">Tip: Use a higher-quality model for eye-catching thumbnails</span>
@@ -402,7 +402,7 @@ async function stopUsingReference(): Promise<void> {
   if (!await useConfirm().ask({
     title: 'Stop using the reference thumbnail?',
     message: 'Thumbnails will be rendered from the prompt alone, and free models become available again. You can add a reference again on Thumbnail Prompts.',
-    confirmLabel: 'Stop using it',
+    confirmLabel: 'Stop Using It',
   })) return
   clearingReference.value = true
   try {

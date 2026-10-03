@@ -25,7 +25,7 @@
         <button
           v-if="missingCount" type="button" class="btn btn-secondary btn-sm"
           :disabled="busy" @click="generateMissing"
-        >{{ busy ? `Rendering ${done}/${total}…` : `Show me ${missingCount}` }}</button>
+        >{{ busy ? `Rendering ${done}/${total}…` : `Show Me ${missingCount}` }}</button>
       </div>
 
       <div class="swatch-grid" role="radiogroup" :aria-label="title">

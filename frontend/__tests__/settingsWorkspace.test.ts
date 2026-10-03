@@ -194,7 +194,7 @@ describe('Settings workspace navigation', () => {
     assert.doesNotMatch(settingsSource, /formula_applied_style_id/)
     assert.match(settingsSource, /Suggested visual style/)
     assert.match(settingsSource, /productionKitStyleSuggestion/)
-    assert.match(settingsSource, /Use this style/)
+    assert.match(settingsSource, /Use This Style/)
     assert.match(settingsSource, /Not installed\. Get it from the/)
     assert.match(settingsSource, /In use on this channel/)
     // The one place a style is written is the picker's own watcher.

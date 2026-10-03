@@ -200,7 +200,7 @@ test('mounted Jobs finishes missing images directly and Retry all keeps continui
   assert.match(source, /projectQueue\.applyUpdate\(next\)/)
   assert.match(source, /universalQueue\.applyUpdate\(next\)/)
   assert.match(source, /statusFilter\.value = next\.status === 'running' \? 'running' : 'queued'/)
-  assert.match(source, /controlBusy\.has\(job\.job_id\) \? 'Queuing…' : 'Finish missing images'/)
+  assert.match(source, /controlBusy\.has\(job\.job_id\) \? 'Queuing…' : 'Finish Missing Images'/)
   assert.match(source, /v-if="isTerminalContinuityRender\(job\)"/)
   assert.match(source, /<button[\s\S]*?v-if="isTerminalContinuityRender\(job\)"[\s\S]*?@click="finishMissingImages\(job\)"/)
   mounted.unmount()

@@ -50,8 +50,8 @@ describe('Pipeline stage selection', () => {
     assert.match(pipeline, /function selectRequiredSteps\(\)/)
     assert.match(pipeline, /if \(!step\.optional\) stepChecked\[step\.id\] = true/)
     assert.match(pipeline, /function selectAllSteps\(\)/)
-    assert.match(pipeline, />Required stages<\/button>/)
-    assert.match(pipeline, />Select all<\/button>/)
+    assert.match(pipeline, />Required Stages<\/button>/)
+    assert.match(pipeline, />Select All<\/button>/)
     assert.match(pipeline, />Clear<\/button>/)
   })
 
@@ -152,7 +152,7 @@ describe('Pipeline stage selection', () => {
     assert.match(pipeline, /batchBlocked\.value = blockedEpisodes\(r\?\.blocked\)/)
     assert.match(pipeline, /No selected episodes were queued\. Their reasons are shown below\./)
     assert.match(pipeline, /blocked\.length && !hasGlobalPreflightIssue\(e\?\.data\?\.issues\)/)
-    assert.match(pipeline, /View queued jobs/)
+    assert.match(pipeline, /View Queued Jobs/)
     assert.doesNotMatch(extractFunction('submit'), /navigateTo/)
   })
 
@@ -202,7 +202,7 @@ describe('Pipeline stage selection', () => {
   })
 
   test('offers one explicit recover-first repair action with replay-stable authority', () => {
-    assert.match(pipeline, />Repair selected gaps<\/button>/)
+    assert.match(pipeline, />Repair Selected Gaps<\/button>/)
     assert.match(pipeline, /repairActionId\.value = crypto\.randomUUID\(\)/)
     assert.match(pipeline, /repair_missing: true, action_id: repairActionId\.value/)
     assert.match(pipeline, /force: submittedRepair \? false : forceRerun\.value/)

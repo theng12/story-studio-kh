@@ -25,7 +25,7 @@
             </template>
             <template v-else-if="loadError">
               <span class="text-muted">{{ loadError }}</span>
-              <button type="button" class="btn btn-sm btn-ghost" @click="loadAll">Try again</button>
+              <button type="button" class="btn btn-sm btn-ghost" @click="loadAll">Try Again</button>
             </template>
             <template v-else>
               <span class="text-muted">No template set. Pick one below — it'll become the default for this project.</span>
@@ -39,7 +39,7 @@
             :disabled="templateMutationBusy"
             @click="clearProjectOverride"
           >
-            Use the niche default
+            Use the Niche Default
           </button>
           <span class="text-muted tt-active-hint">Forgets this project's pick; no thumbnails are changed.</span>
         </div>
@@ -55,7 +55,7 @@
         class="btn btn-sm btn-primary"
         @click="onCreateTemplate"
       >
-        + New template
+        + New Template
       </button>
     </div>
     <p class="text-muted tt-section-hint">

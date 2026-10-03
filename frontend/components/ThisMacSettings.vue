@@ -58,7 +58,7 @@
         <p class="gateway-live" :class="connection.tone" role="status">
           <span class="gateway-live-dot" aria-hidden="true" />
           <strong>{{ connection.label }}</strong>
-          <button type="button" class="btn btn-ghost btn-sm" @click="refreshConnection">Check now</button>
+          <button type="button" class="btn btn-ghost btn-sm" @click="refreshConnection">Check Now</button>
         </p>
         <p v-if="connection.hint" class="gateway-live-hint">{{ connection.hint }}</p>
       </div>
@@ -74,8 +74,8 @@
         <p class="masked">Copy it from GatewayKH → Settings and paste it here.</p>
         <div class="field-row">
           <input id="genstudio-key" v-model="keyDraft" class="input" type="password" placeholder="gsk_…" autocomplete="off" spellcheck="false" />
-          <button class="btn btn-primary btn-sm" :disabled="busy !== '' || !keyDraft.trim()" @click="saveKey">{{ busy === 'save' ? 'Saving…' : 'Save key' }}</button>
-          <button class="btn btn-secondary btn-sm" :disabled="busy !== '' || (!keyDraft.trim() && !savedKey?.hasKey)" @click="testKey">{{ busy === 'test' ? 'Testing…' : 'Test connection' }}</button>
+          <button class="btn btn-primary btn-sm" :disabled="busy !== '' || !keyDraft.trim()" @click="saveKey">{{ busy === 'save' ? 'Saving…' : 'Save Key' }}</button>
+          <button class="btn btn-secondary btn-sm" :disabled="busy !== '' || (!keyDraft.trim() && !savedKey?.hasKey)" @click="testKey">{{ busy === 'test' ? 'Testing…' : 'Test Connection' }}</button>
           <button v-if="savedKey?.hasKey" class="btn btn-ghost btn-sm" :disabled="busy !== ''" @click="removeKey">Remove</button>
         </div>
         <p v-if="savedKey?.hasKey && !keyDraft" class="masked">Saved key: {{ savedKey.keyMasked || '••••' }}</p>
@@ -234,7 +234,7 @@ async function testKey(): Promise<void> {
 }
 
 async function removeKey(): Promise<void> {
-  if (!await ask({ title: 'Remove the Gateway key?', message: 'Nothing can be generated until a Gateway key is saved again.', confirmLabel: 'Remove key', danger: true })) return
+  if (!await ask({ title: 'Remove the Gateway key?', message: 'Nothing can be generated until a Gateway key is saved again.', confirmLabel: 'Remove Key', danger: true })) return
   busy.value = 'remove'; result.value = null
   try {
     await del('/app-settings/api-keys/genstudio')

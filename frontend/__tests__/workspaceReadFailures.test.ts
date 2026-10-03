@@ -79,6 +79,6 @@ test('E-10: deleting a Scene Plan leaves an actionable empty state, not a headin
   const emptyAt = source.indexOf('<section v-else class="card mt-3">')
   assert.ok(emptyAt >= 0, 'the no-plan empty card must exist')
   const empty = source.slice(emptyAt, emptyAt + 700)
-  assert.match(empty, /Build the plan/, 'the empty state must name an action')
+  assert.match(empty, /Build the Plan/, 'the empty state must name an action')
   assert.match(empty, /@click="planScenes"/, 'and that action must be reachable')
 })

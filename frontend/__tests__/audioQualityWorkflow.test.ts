@@ -110,12 +110,12 @@ describe('Audio quality workflow', () => {
       assert.match(text, /the saved transcript excerpt/)
       assert.match(text, /the current script excerpt/)
       assert.match(text, /published-tts · Published Provider · voice-one/)
-      assert.equal(mounted.host.querySelector('a[href="/projects/quality-project/scripts?episode_id=EP0001"]')?.textContent, 'View script')
+      assert.equal(mounted.host.querySelector('a[href="/projects/quality-project/scripts?episode_id=EP0001"]')?.textContent, 'View Script')
       assert.equal(mounted.host.querySelector('a[href*="/subtitles?episode_id=EP0001&section=Chapter_01"]')?.textContent, 'Re-transcribe')
 
       const buttons = [...mounted.host.querySelectorAll('button')]
-      buttons.find(button => button.textContent === 'Regenerate audio')!.click()
-      buttons.find(button => button.textContent === 'Check & repair')!.click()
+      buttons.find(button => button.textContent === 'Regenerate Audio')!.click()
+      buttons.find(button => button.textContent === 'Check & Repair')!.click()
       buttons.find(button => button.textContent?.includes('Double-check transcript'))!.click()
       await nextTick()
       assert.deepEqual(mounted.actions.at(-1), { slug: 'Chapter_01', mode: 'regenerate' })
@@ -127,7 +127,7 @@ describe('Audio quality workflow', () => {
   test('keeps quality evidence out of the ordinary Off workflow', async () => {
     const mounted = await mountSelector('off')
     try {
-      assert.doesNotMatch(mounted.host.textContent || '', /Review needed|Review evidence|Check & repair/)
+      assert.doesNotMatch(mounted.host.textContent || '', /Review needed|Review evidence|Check & Repair/)
       assert.match(mounted.host.textContent || '', /Regenerate/)
     } finally { mounted.destroy() }
   })
@@ -156,7 +156,7 @@ describe('Audio quality workflow', () => {
       await nextTick()
       assert.equal(mounted.approvals[0]?.slug, 'Chapter_01')
       assert.equal(mounted.approvals[0]?.quality.repair?.action_id, 'held-action')
-      assert.doesNotMatch(text, /Check & repair/)
+      assert.doesNotMatch(text, /Check & Repair/)
     } finally { mounted.destroy() }
   })
 
@@ -177,7 +177,7 @@ describe('Audio quality workflow', () => {
       assert.match(text, /two-model transcript check/i)
       assert.match(text, /No issue detected by alternate-asr/)
       assert.doesNotMatch(text, /Double-check transcript|Review double-check quote/)
-      assert.match(text, /Regenerate audio/)
+      assert.match(text, /Regenerate Audio/)
     } finally { mounted.destroy() }
   })
 

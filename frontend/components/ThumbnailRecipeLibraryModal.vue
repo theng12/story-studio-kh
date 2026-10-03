@@ -74,7 +74,7 @@
         <div v-else class="rlm-empty">
           <strong>No thumbnail recipes found</strong>
           <span>Try a broader search or choose All recipes.</span>
-          <button type="button" class="btn btn-secondary btn-sm" @click="resetFilters">Clear filters</button>
+          <button type="button" class="btn btn-secondary btn-sm" @click="resetFilters">Clear Filters</button>
         </div>
       </template>
 
@@ -88,7 +88,7 @@
         </div>
         <div class="rlm-actions">
           <button type="button" class="btn btn-secondary" @click="emit('close')">Cancel</button>
-          <button type="button" class="btn btn-primary" :disabled="!selectedRecipe" @click="confirmSelection">Apply selected recipe</button>
+          <button type="button" class="btn btn-primary" :disabled="!selectedRecipe" @click="confirmSelection">Apply Selected Recipe</button>
         </div>
       </footer>
     </div>

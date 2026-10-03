@@ -30,7 +30,7 @@
     type="button"
     class="genstudio-standing-strip"
     :class="`standing-strip-${variant}`"
-    aria-label="Connect your Gateway"
+    aria-label="Connect Your Gateway"
     @click="appSettingsModal.open('connections')"
   >
     <!-- No key yet: this is the Gateway connection, not the paid GenStudio cloud service. -->

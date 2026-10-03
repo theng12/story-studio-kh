@@ -50,7 +50,7 @@
             :title="dirty ? 'Save your scene edits first' : `${timelineBuiltLabel}. Rebuilding starts every scene over: new scenes, cleared prompts, and existing images and approvals no longer attached. Asks for confirmation first.`"
             @click="planScenes"
           >
-            1. Rebuild timeline
+            1. Rebuild Timeline
           </button>
         </template>
       </TopActionBar>
@@ -323,7 +323,7 @@
               {{ DEFAULT_PROMPT_BATCH_SIZE }} is a speed judgement, not a token limit — a request has
               {{ languageTimeoutMinutes }} minutes to come back, and the large models’ real speed has not been
               measured yet. Raise it once it has, or give requests longer in This Mac → Throughput.
-              <button type="button" class="btn btn-ghost btn-xs" @click="resetBatchTuning">Reset to defaults</button>
+              <button type="button" class="btn btn-ghost btn-xs" @click="resetBatchTuning">Reset to Defaults</button>
             </p>
             <p v-if="hasSelectedPromptModel" class="scene-setting-help mt-1">Context: {{ selectedModelContextLabel }} · {{ hasPublishedPromptBudget ? 'Output is the response limit, so it—not context—sets the safe batch size.' : hasUnpublishedExplicitPromptBudget ? 'Your selected output allowance, not context, caps the safe batch size.' : 'No output limit is published or selected; the batch is the channel setting, not a model guarantee.' }}</p>
           </details>
@@ -519,7 +519,7 @@
                 :disabled="savingDefaultStyleBible || defaultStyleBible.trim() === savedDefaultStyleBible"
                 @click="saveDefaultStyleBible"
               >
-                {{ savingDefaultStyleBible ? 'Saving…' : 'Save channel default' }}
+                {{ savingDefaultStyleBible ? 'Saving…' : 'Save Channel Default' }}
               </button>
               <span
                 class="prompt-char-badge"
@@ -593,7 +593,7 @@
             <a href="#visual-timing">Change</a>
           </span>
           <button class="btn btn-secondary mt-2" :disabled="!canPlan || planning || planJobActive || dirty" @click="planScenes">
-            {{ plan?.scenes?.length ? 'Rebuild timeline' : 'Build timeline' }}
+            {{ plan?.scenes?.length ? 'Rebuild Timeline' : 'Build Timeline' }}
           </button>
         </div>
         <div class="stage-step">
@@ -602,20 +602,20 @@
           <span class="stage-setting">Full detail · 110–150 words per scene</span>
           <div class="flex gap-1 mt-2 flex-wrap">
             <button v-if="hasSelectedPromptModel" class="btn btn-primary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !plan || !visualPendingCount || planning || planJobActive || dirty" @click="runPromptStage('visual', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
-            <button class="btn btn-secondary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !plan || !visualPendingCount || planning || planJobActive || dirty" @click="runPromptStage('visual')">All pending</button>
+            <button class="btn btn-secondary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !plan || !visualPendingCount || planning || planJobActive || dirty" @click="runPromptStage('visual')">All Pending</button>
           </div>
           <small v-if="hasSelectedPromptModel">Sends {{ effectivePromptPackSize }} scenes per request; several requests can run at once when your account allows it.</small>
-          <small v-else>Choose a prompt model to see the Next batch size. All pending remains available after a model is selected.</small>
+          <small v-else>Choose a prompt model to see the Next batch size. All Pending remains available after a model is selected.</small>
         </div>
         <div class="stage-step" :class="{ optional: true }">
           <strong>3. Motion prompts <em>optional</em></strong>
           <span>{{ motionDoneCount }}/{{ motionTargetCount }} animated · {{ motionStillCount }} held still</span>
           <div v-if="form.generate_motion_prompts" class="flex gap-1 mt-2 flex-wrap">
             <button v-if="hasSelectedPromptModel" class="btn btn-primary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive || dirty" @click="runPromptStage('motion', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
-            <button class="btn btn-secondary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive || dirty" @click="runPromptStage('motion')">All pending</button>
+            <button class="btn btn-secondary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive || dirty" @click="runPromptStage('motion')">All Pending</button>
           </div>
           <small v-if="form.generate_motion_prompts && hasSelectedPromptModel">Uses the same {{ effectivePromptPackSize }}-scene request size saved for visual prompts. Held-still scenes stay valid in final assembly without an image-to-video render.</small>
-          <small v-else-if="form.generate_motion_prompts">Choose a prompt model to see a model-backed Next batch size. All pending remains available after a model is selected.</small>
+          <small v-else-if="form.generate_motion_prompts">Choose a prompt model to see a model-backed Next batch size. All Pending remains available after a model is selected.</small>
           <small v-else>Skipped for this project. Still images remain valid through assembly.</small>
         </div>
       </div>
@@ -665,13 +665,13 @@
                 : dirty ? 'Save your edits first' : 'Split abnormal long scenes against current subtitle cues; then generate only the new pending prompts.'"
               @click="repairLongScenes"
             >
-              {{ repairingLongScenes ? 'Repairing…' : `✂ Repair ${overlongSceneCount} out-of-range scene${overlongSceneCount === 1 ? '' : 's'}` }}
+              {{ repairingLongScenes ? 'Repairing…' : `✂ Repair ${overlongSceneCount} Out-of-Range Scene${overlongSceneCount === 1 ? '' : 's'}` }}
             </button>
             <template #content>
               <div class="popover-title">Repair out-of-range scenes</div>
               <p><strong>Use when:</strong> one or more scenes exceed the selected continuity pacing maximum, when explicitly applying a new pace from Visual timing & motion.</p>
               <p><strong>What it does:</strong> splits only those ranges against the verified subtitle text at safe word boundaries. No LLM is used and unaffected prompts, images, and approvals stay in place.</p>
-              <p><strong>Next:</strong> run Visual prompts → All pending, then generate the new missing images in Scene Review.</p>
+              <p><strong>Next:</strong> run Visual prompts → All Pending, then generate the new missing images in Scene Review.</p>
             </template>
           </Popover>
           <Popover placement="top">
@@ -681,7 +681,7 @@
               :title="dirty ? 'Save your edits first' : 'Restore narration ranges with no scene; large narrated gaps become cue-aligned pending scenes, not one frozen hold.'"
               @click="repairCoverage()"
             >
-              {{ repairingCoverage ? 'Repairing…' : '🩹 Repair coverage' }}
+              {{ repairingCoverage ? 'Repairing…' : '🩹 Repair Coverage' }}
             </button>
             <template #content>
               <div class="popover-title">Repair coverage</div>
@@ -697,7 +697,7 @@
               :title="dirty ? 'Save your edits first' : 'Line existing scenes back up with the current subtitles after the audio or subtitles changed. Keeps every image, prompt and approval.'"
               @click="reconcileTimings"
             >
-              {{ reconciling ? 'Reconciling…' : '🎯 Reconcile timings' }}
+              {{ reconciling ? 'Reconciling…' : '🎯 Reconcile Timings' }}
             </button>
             <template #content>
               <div class="popover-title">Reconcile timings</div>
@@ -712,7 +712,7 @@
             :title="planBusy || bulkReplan.active ? 'Wait for the running Scene Plan job to finish' : 'Delete this episode’s scene list. Images stay on disk.'"
             @click="deletePlan"
           >
-            {{ deleting ? 'Deleting…' : '✕ Delete plan' }}
+            {{ deleting ? 'Deleting…' : '✕ Delete Plan' }}
           </button>
         </div>
       </div>
@@ -743,7 +743,7 @@
             :disabled="repairingCoverage || !!dirty"
             @click="repairCoverage()"
           >
-            {{ repairingCoverage ? 'Repairing…' : '🩹 Repair coverage now' }}
+            {{ repairingCoverage ? 'Repairing…' : '🩹 Repair Coverage Now' }}
           </button>
         </div>
         <!-- The plan skipped the opening and recorded no reason, so this page's
@@ -769,7 +769,7 @@
             :title="dirty ? 'Save your edits first' : `Pull scene 1 back to 0:00 so its image holds for the whole ${uncreditedHeadGapLabel} opening. Every other scene keeps its timing.`"
             @click="repairCoverage(true)"
           >
-            {{ repairingCoverage ? 'Covering…' : '⏮ Cover the opening' }}
+            {{ repairingCoverage ? 'Covering…' : '⏮ Cover the Opening' }}
           </button>
         </div>
         <!-- Plan health surfaces missing prompts and timeline defects without
@@ -1010,7 +1010,7 @@
                     ? 'Write the visual prompt first — the motion prompt animates that image'
                     : 'Write a new motion prompt for this scene (picture prompt and timing stay the same)'"
                 @click="regenMotionPrompt(scene)"
-              >{{ regenMotionId === scene.id ? '⏳ Motion…' : '🎬 Regen motion' }}</button>
+              >{{ regenMotionId === scene.id ? '⏳ Motion…' : '🎬 Regen Motion' }}</button>
             </div>
             <div class="scene-row-actions mt-1">
               <NuxtLink
@@ -1018,7 +1018,7 @@
                 :to="subtitleLink(missingSubtitleSectionForScene(scene))"
                 class="btn-icon"
                 title="This scene crosses audio with no subtitles. Transcribe the named chapters and stitch again before repairing it."
-              >Fix subtitles first</NuxtLink>
+              >Fix Subtitles First</NuxtLink>
               <button
                 class="btn-icon"
                 :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || regenPromptId === scene.id || planBusy || bulkReplan.active || dirty || !scene.transcript_segment?.trim()"
@@ -1030,7 +1030,7 @@
                     ? 'This scene has no narration text — fill in the transcript first'
                     : 'Regenerate only the visual prompt; the deterministic time range and transcript stay unchanged.'"
                 @click="regenerateScenePrompt(scene)"
-              >{{ regenPromptId === scene.id && !rewordingPrompt ? '⏳ Regenerating…' : '✨ Prompt only' }}</button>
+              >{{ regenPromptId === scene.id && !rewordingPrompt ? '⏳ Regenerating…' : '✨ Prompt Only' }}</button>
               <button
                 class="btn-icon"
                 :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || regenPromptId === scene.id || planBusy || bulkReplan.active || dirty || !scene.transcript_segment?.trim() || !scene.visual_prompt?.trim()"
@@ -1046,7 +1046,7 @@
                 :disabled="i === 0 || planBusy"
                 title="Merge into previous scene (keeps the previous scene’s picture prompt)"
                 @click="mergeScene(i)"
-              >▲ Merge up</button>
+              >▲ Merge Up</button>
               <button
                 class="btn-icon"
                 :disabled="planBusy || sceneOverlapsMissingSubtitles(scene) || (scene.end_sec - scene.start_sec) < 6"
@@ -1104,7 +1104,7 @@
         :disabled="!canPlan || planning || planJobActive"
         @click="planScenes"
       >
-        Build the plan
+        Build the Plan
       </button>
     </section>
 
@@ -2437,7 +2437,7 @@ async function planScenes(): Promise<void> {
       title: 'Start every scene over?',
       message: `${timelineBuiltLabel.value}. Rebuilding replaces all ${plan.value.scenes.length} scenes with new ones: every visual and motion prompt is cleared, and the images and approvals you already have will no longer be attached to any scene (the image files stay on disk). `
         + 'If the audio or subtitles only shifted, use 🎯 Reconcile timings instead — it keeps every image, prompt and approval.',
-      confirmLabel: 'Rebuild and start over',
+      confirmLabel: 'Rebuild and Start Over',
       danger: true,
     })
     if (!ok) return
@@ -2953,7 +2953,7 @@ async function repairLongScenes(): Promise<void> {
   const ok = await ask({
     title: `Repair ${overlongSceneCount.value} out-of-range scene${overlongSceneCount.value === 1 ? '' : 's'}?`,
     message: `Uses the subtitle text to split only scenes beyond their saved plan pacing. Plans without saved pacing use the existing repair threshold. No LLM is used. Every unaffected scene, prompt, image, and approval stays in place; newly uncovered scenes will need visual prompts and images.`,
-    confirmLabel: 'Repair scenes',
+    confirmLabel: 'Repair Scenes',
   })
   if (!ok) return
   repairingLongScenes.value = true

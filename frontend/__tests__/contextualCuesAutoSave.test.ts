@@ -125,12 +125,12 @@ test('a failed save keeps the edits, says so, and does not retry on a timer', ()
   // otherwise be asked every 800ms forever.
   assert.doesNotMatch(rescue, /setTimeout|markDirty\(\)|saveNow\(\)/)
   // And the customer is told plainly, including that the work is still there.
-  assert.match(page, /Not saved — \$\{saveError\.value\} Your changes are still here; Save changes tries again\./)
+  assert.match(page, /Not saved — \$\{saveError\.value\} Your changes are still here; Save Changes tries again\./)
 })
 
 test('the manual button survives auto-save: always pressable, honest about what it did', () => {
   // Never disabled just because everything is saved — that reads as broken.
-  assert.match(page, /:disabled="saving" @click="saveTimeline">Save changes</)
+  assert.match(page, /:disabled="saving" @click="saveTimeline">Save Changes</)
   assert.doesNotMatch(page, /:disabled="saving \|\| !dirty"/)
   // Pressing it with nothing to save confirms that instead of doing nothing.
   assert.match(page, /if \(!dirty\.value\) \{ success\(/)
@@ -146,11 +146,11 @@ test('the page states saving/unsaved/saved rather than leaving it to be guessed'
 })
 
 test('bulk actions ride the same auto-save, and stop telling the customer to click Save', () => {
-  // Approve all still writes nothing directly — it marks dirty like every
+  // Approve All still writes nothing directly — it marks dirty like every
   // other edit, and the shared debounce does the writing.
   assert.doesNotMatch(page, /function approveAllProposed[\s\S]{0,400}?await (put|post)\(/)
   assert.match(page, /for \(const cue of pending\) setStatus\(cue, 'approved'\)/)
   // Their toasts would otherwise be instructions the page no longer needs —
   // a control that describes an action it is not performing.
-  assert.doesNotMatch(page, /click Save changes to keep this/)
+  assert.doesNotMatch(page, /click Save Changes to keep this/)
 })

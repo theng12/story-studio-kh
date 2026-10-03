@@ -98,7 +98,7 @@ describe('Upload Center Overview', () => {
     current = overview({
       assigned_channel: { channel_id: 'UC-new', title: 'New Channel', status: 'connected' }, quota: quota(),
     })
-    const sync = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Sync with YouTube now'))!
+    const sync = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Sync with YouTube Now'))!
     sync.click()
     for (let i = 0; i < 5; i++) await nextTick()
     const newImage = mounted.el.querySelector<HTMLImageElement>('.channel-avatar img')!
@@ -200,7 +200,7 @@ describe('Upload Center Overview', () => {
       const mounted = await mount(overview({
         assigned_channel: { channel_id: 'UC-x', title: 'My Channel', status }, quota: quota(), operation_count: 1,
       }))
-      const sync = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Sync with YouTube now'))!
+      const sync = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Sync with YouTube Now'))!
       assert.equal(sync.disabled, true, status)
       assert.match(mounted.text, expected, status)
       assert.deepEqual((globalThis as any).__ucPosts, [], `${status} must not start an unrecorded sync`)
@@ -326,7 +326,7 @@ describe('Upload Center Overview', () => {
     }))
     assert.deepEqual((globalThis as any).__ucPosts, [], 'nothing is spent just by opening the page')
 
-    const sync = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Sync with YouTube now'))!
+    const sync = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Sync with YouTube Now'))!
     sync.click()
     for (let i = 0; i < 6; i++) await nextTick()
     assert.deepEqual((globalThis as any).__ucPosts, ['/projects/demo-project/youtube/sync'])

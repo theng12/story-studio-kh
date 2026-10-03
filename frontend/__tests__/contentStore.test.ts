@@ -814,7 +814,7 @@ describe('Content Store stale-while-revalidate', () => {
     goOffline()
 
     await assert.rejects(store.refresh())
-    assert.equal(calls.length, before + 1, 'Refresh store is a real request, never a cache read')
+    assert.equal(calls.length, before + 1, 'Refresh Store is a real request, never a cache read')
     assert.equal(calls.at(-1)?.options.cache, 'no-store')
     assert.equal(store.error.value?.code, 'CONTENT_STORE_UNAVAILABLE')
     assert.equal(store.catalogFreshness.value, 'cached')
@@ -1108,7 +1108,7 @@ describe('Content Store renderer contract', () => {
     assert.match(page, /No updates available/)
     assert.match(page, /The Content Store is ready, but no packs have been published yet\./)
     assert.doesNotMatch(page + card, /starter entries|preview gallery|license terms|portal URL/i)
-    assert.match(page, /Restore purchases/)
+    assert.match(page, /Restore Purchases/)
     assert.match(card, /Install on this Mac/)
     assert.match(card, /ContentProductCover/)
     assert.match(card, /View proof/)
@@ -1143,8 +1143,8 @@ describe('Content Store renderer contract', () => {
 
   test('covers every product kind and blocks incompatible checkout', () => {
     assert.match(card, /compatibilityReason/)
-    assert.match(card, /See exact quote/)
-    assert.match(card, /Get free/)
+    assert.match(card, /See Exact Quote/)
+    assert.match(card, /Get Free/)
     assert.doesNotMatch(card, /@click="[^\"]*purchase/i)
   })
 
@@ -1168,7 +1168,7 @@ describe('Content Store renderer contract', () => {
     assert.match(dialog, /Bought — not installed on this Mac yet/)
     assert.match(page, /Ownership receipts are verified locally/)
     assert.match(dialog, /never charged twice/)
-    assert.match(dialog, /Retry this purchase/)
+    assert.match(dialog, /Retry This Purchase/)
     assert.match(dialog, /store is not open yet/i)
     assert.match(dialog, /credits_charged|creditsCharged/)
     assert.match(dialog, /props\.attempt\?\.status !== 'refused'/)

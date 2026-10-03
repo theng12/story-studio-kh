@@ -18,7 +18,7 @@
       description="Register media folders once, then index, tag, preview, and normalize reusable footage, images, and sound effects for every channel."
       :breadcrumb="false"
     >
-      <template #aside><button class="btn btn-primary" @click="openCreateModal()">+ Register pool</button></template>
+      <template #aside><button class="btn btn-primary" @click="openCreateModal()">+ Register Pool</button></template>
     </WorkspaceHero>
 
     <div v-if="loading" class="muted">Loading pools…</div>
@@ -33,7 +33,7 @@
       message="Register a folder on your drive that holds the clips. Tags are saved in a small file inside that folder, so they travel with the drive to other Macs."
     >
       <template #action>
-        <button class="btn btn-primary mt-2" @click="openCreateModal()">+ Register pool</button>
+        <button class="btn btn-primary mt-2" @click="openCreateModal()">+ Register Pool</button>
       </template>
     </EmptyState>
 
@@ -49,7 +49,7 @@
         </div>
         <p v-if="!filteredPools.length" class="muted pool-filter-empty">
           No {{ poolFilter === 'image' ? 'image' : poolFilter === 'video' ? 'video' : '' }} pools yet —
-          <button class="link-btn" @click="openCreateModal()">register one</button>.
+          <button class="link-btn" @click="openCreateModal()">Register One</button>.
         </p>
         <button
           v-for="p in filteredPools"
@@ -105,7 +105,7 @@
               :title="!selectedPool.online ? 'Pool offline' : !clips.length ? 'No clips to rename' : 'Apply a naming template (e.g. prayer_{n:3}.{ext}) to every clip in this pool. Preview before applying.'"
               @click="openBulkRename"
             >
-              ✏ Bulk rename
+              ✏ Bulk Rename
             </button>
             <button
               v-if="isVideoPool"
@@ -492,7 +492,7 @@
             :disabled="!createDraft.name.trim() || !createDraft.folder_path.trim() || creating"
             @click="submitCreate"
           >
-            {{ creating ? 'Registering…' : 'Register pool' }}
+            {{ creating ? 'Registering…' : 'Register Pool' }}
           </button>
         </div>
       </div>
@@ -528,7 +528,7 @@
             :disabled="!editDraft.name.trim() || !editDraft.folder_path.trim() || editing"
             @click="submitEdit"
           >
-            {{ editing ? 'Saving…' : 'Save changes' }}
+            {{ editing ? 'Saving…' : 'Save Changes' }}
           </button>
         </div>
       </div>
@@ -683,7 +683,7 @@
             :disabled="bulkRenameBusy || !bulkRenameTemplate.trim() || !clips.length"
             @click="submitBulkRename"
           >
-            {{ bulkRenameBusy ? 'Renaming…' : bulkRenameResult ? 'Run again' : `Rename ${clips.length} clip${clips.length === 1 ? '' : 's'}` }}
+            {{ bulkRenameBusy ? 'Renaming…' : bulkRenameResult ? 'Run Again' : `Rename ${clips.length} clip${clips.length === 1 ? '' : 's'}` }}
           </button>
         </div>
       </div>
@@ -1190,7 +1190,7 @@ async function runNormalizeAll(): Promise<void> {
   const ok = await ask({
     title: `Normalize ${count} clip${count === 1 ? '' : 's'}?`,
     message: `This converts ${count} clip${count === 1 ? '' : 's'} to smooth-playing 1080p copies on this Mac. It runs in the background and can take a while — roughly 1–3 hours for 200 clips — and keeps the computer busy. Originals are not changed. You can cancel from the Pool jobs list.`,
-    confirmLabel: 'Start normalizing',
+    confirmLabel: 'Start Normalizing',
   })
   if (!ok) return
   const scope = poolScope

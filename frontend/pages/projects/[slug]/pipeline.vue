@@ -43,7 +43,7 @@
             :disabled="!canRun"
             title="Recover saved provider results first, then repair only missing output in the selected stages."
             @click="openRepairConfirm"
-          >Repair selected gaps</button>
+          >Repair Selected Gaps</button>
         </template>
       </TopActionBar>
       <p class="pipeline-command-copy">
@@ -65,7 +65,7 @@
       {{ lineupNotice.steps.length ? `these steps: ${lineupNotice.steps.join(', ')}` : 'any step with no writing model of its own' }}.
       To fall back across several models, make a pool in GatewayKH → Providers → Pools and pick it here.
       <template #actions>
-        <button type="button" class="btn btn-sm btn-secondary" @click="dismissLineupNotice">Got it</button>
+        <button type="button" class="btn btn-sm btn-secondary" @click="dismissLineupNotice">Got It</button>
       </template>
     </WorkspaceNotice>
 
@@ -84,14 +84,14 @@
             :disabled="!visualSource"
             title="Select every required stage in the current production chain. Optional Research and paid Motion Clips stay off. An Introduction is not a choice here — it follows what the channel says."
             @click="selectRequiredSteps"
-          >Required stages</button>
+          >Required Stages</button>
           <button
             type="button"
             class="btn btn-sm btn-secondary"
             :disabled="!visualSource"
             title="Select every available stage in the current production chain, including optional and paid stages."
             @click="selectAllSteps"
-          >Select all</button>
+          >Select All</button>
           <button
             type="button"
             class="btn btn-sm btn-ghost"
@@ -267,7 +267,7 @@
           <strong>{{ blocked.episode_id }}</strong> — {{ blocked.reason }}
         </span>
         <NuxtLink v-if="batchHasJobs" :to="`/projects/${slug}/jobs`" class="btn btn-sm btn-secondary mt-2">
-          View queued jobs
+          View Queued Jobs
         </NuxtLink>
       </WorkspaceNotice>
     </WorkspaceSection>
@@ -292,7 +292,7 @@
               :title="`Mark all ${selectedEpisodes.size} selected episode(s) as already done. Asks for confirmation. Reversible.`"
               @click="bulkMarkSelected(true)"
             >
-              {{ bulkMarking ? 'Working…' : `✓ Mark ${selectedEpisodes.size} as done` }}
+              {{ bulkMarking ? 'Working…' : `✓ Mark ${selectedEpisodes.size} as Done` }}
             </button>
             <button
               class="btn btn-sm btn-secondary"
@@ -306,8 +306,8 @@
           </template>
 
           <!-- Global selection (across all pages, respects current filter) -->
-          <button class="btn btn-sm btn-secondary" :title="selectButtonTitle" @click="selectAllPending">Select all pending</button>
-          <button class="btn btn-sm btn-secondary" :title="selectAllTitle" @click="selectAll">Select all</button>
+          <button class="btn btn-sm btn-secondary" :title="selectButtonTitle" @click="selectAllPending">Select All Pending</button>
+          <button class="btn btn-sm btn-secondary" :title="selectAllTitle" @click="selectAll">Select All</button>
 
           <span class="ep-actions-divider" aria-hidden="true" />
 
@@ -317,12 +317,12 @@
             class="btn btn-sm btn-secondary"
             title="Select only the episodes visible on this page (respects current sort + filter)."
             @click="selectAllOnPage"
-          >Select page</button>
+          >Select Page</button>
           <button
             class="btn btn-sm btn-secondary"
             title="Select only this page's episodes that still need at least one core step. Adds to the existing selection."
             @click="selectAllPendingOnPage"
-          >Select pending on page</button>
+          >Select Pending on Page</button>
 
           <span class="ep-actions-divider" aria-hidden="true" />
 
@@ -640,7 +640,7 @@
       <template #actions>
         <div class="pipeline-quality-actions">
           <NuxtLink :to="`/projects/${slug}/settings#production`" class="btn btn-sm btn-secondary">
-            Quality setting
+            Quality Setting
           </NuxtLink>
           <button
             type="button"

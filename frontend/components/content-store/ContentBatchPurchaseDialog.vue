@@ -158,7 +158,7 @@
           class="btn btn-primary"
           :disabled="busy || !!spendBlocker || !quoted.length"
           @click="$emit('confirm')"
-        >{{ totals.quoted === null ? `Buy all ${quoted.length}` : `Buy all ${quoted.length} · up to ${formatCredits(totals.quoted)} credits` }}</button>
+        >{{ totals.quoted === null ? `Buy All ${quoted.length}` : `Buy All ${quoted.length} · Up to ${formatCredits(totals.quoted)} Credits` }}</button>
         <button
           v-else-if="phase === 'result' && failed.some(item => item.retryable)"
           type="button"

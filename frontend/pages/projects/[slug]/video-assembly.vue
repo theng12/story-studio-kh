@@ -74,7 +74,7 @@
             <button
               class="btn btn-sm btn-secondary"
               @click="repickBundlePath(row)"
-            >Pick replacement…</button>
+            >Pick Replacement…</button>
           </li>
         </ul>
       </div>
@@ -151,7 +151,7 @@
                the operator's next move is "fix the backend / re-run the
                check", not "click Install FFmpeg". -->
           <span class="badge badge-warn" :title="ffmpegStatus.check_error">FFmpeg check failed</span>
-          <button class="btn btn-sm btn-secondary ml-2-tight" @click="checkFfmpeg">Retry check</button>
+          <button class="btn btn-sm btn-secondary ml-2-tight" @click="checkFfmpeg">Retry Check</button>
         </template>
         <template v-else>
           <span class="badge badge-error">FFmpeg not found</span>
@@ -206,7 +206,7 @@
           We couldn't check this episode's files. Nothing below reflects this episode until the check succeeds.
         </p>
         <p class="text-muted text-xs">Technical details: <code>{{ scanError }}</code></p>
-        <button type="button" class="btn btn-sm btn-secondary mt-1" @click="scanAssets">Retry asset check</button>
+        <button type="button" class="btn btn-sm btn-secondary mt-1" @click="scanAssets">Retry Asset Check</button>
       </div>
 
       <div v-if="scannedAssets && !scanning" class="assets-overview mt-2">
@@ -256,7 +256,7 @@
               :to="`/projects/${slug}/scene-review?episode_id=${episodeId}`"
             >Open Scene Review</NuxtLink>
             <button type="button" class="btn btn-sm btn-secondary" :disabled="scanning" @click="scanAssets">
-              {{ scanning ? 'Checking…' : 'Check again' }}
+              {{ scanning ? 'Checking…' : 'Check Again' }}
             </button>
           </div>
         </div>
@@ -431,7 +431,7 @@
       <div class="settings-section mt-2">
         <div class="flex gap-2 items-center justify-between">
           <h4 class="m-0">Timeline Clips</h4>
-          <button class="btn btn-sm btn-secondary" @click="addTimelineClip">+ Add clip</button>
+          <button class="btn btn-sm btn-secondary" @click="addTimelineClip">+ Add Clip</button>
         </div>
         <p class="text-muted text-sm mt-1">
           Insert your own video clips at named positions in the final render — sponsor stings, credits,
@@ -672,7 +672,7 @@
         <div class="flex gap-2 items-center justify-between flex-wrap">
           <h4>Scene Transitions</h4>
           <div class="flex gap-2 items-center">
-            <button class="btn btn-sm btn-secondary" @click="transition.type = 'none'">Hard cut</button>
+            <button class="btn btn-sm btn-secondary" @click="transition.type = 'none'">Hard Cut</button>
             <PresetPicker
               v-if="transitionPresets"
               label="Transition preset"
@@ -789,7 +789,7 @@
                   We couldn't load the list of reveal looks. Rendering still works and uses the standard looks.
                 </p>
                 <p class="text-muted text-xs">{{ revealLibraryError }}</p>
-                <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadRevealLibrary">Try again</button>
+                <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadRevealLibrary">Try Again</button>
               </div>
               <div v-else-if="!revealLibrary.length" class="text-muted text-sm">Loading the reveal library…</div>
               <div v-else class="reveal-pool">
@@ -811,14 +811,14 @@
 
             <div v-if="!revealPlan" class="mt-3">
               <button class="btn btn-secondary btn-sm" :disabled="revealPlanLoading || !episodeId" @click="loadRevealPlan()">
-                {{ revealPlanLoading ? 'Planning…' : 'Show planned arrivals' }}
+                {{ revealPlanLoading ? 'Planning…' : 'Show Planned Arrivals' }}
               </button>
             </div>
             <div v-else class="mt-3">
               <div class="reveal-plan-head">
                 <strong>Planned arrivals</strong>
                 <button class="btn btn-secondary btn-sm" :disabled="revealPlanLoading" @click="loadRevealPlan()">
-                  {{ revealPlanLoading ? 'Planning…' : 'Refresh plan' }}
+                  {{ revealPlanLoading ? 'Planning…' : 'Refresh Plan' }}
                 </button>
               </div>
               <p class="text-muted text-sm">
@@ -842,7 +842,7 @@
         <div v-else-if="animationsCatalogError" class="ffmpeg-warning" role="alert">
           <p class="text-muted text-md">We couldn't load the animation list.</p>
           <p class="text-muted text-xs">{{ animationsCatalogError }}</p>
-          <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadAnimationsCatalog">Try again</button>
+          <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadAnimationsCatalog">Try Again</button>
         </div>
         <AnimationPicker
           v-else
@@ -1130,7 +1130,7 @@
                 class="btn btn-sm btn-secondary"
                 title="Open the project's backgrounds/ folder so you can drop a video in"
                 @click="openBackgroundsFolder"
-              >📁 Open folder</button>
+              >📁 Open Folder</button>
             </div>
           </div>
 
@@ -1490,9 +1490,9 @@
             <p class="field-hint">Use a still texture or looping video behind the framed scene. Leave empty to use the board color.</p>
             <div class="flex gap-2 items-center flex-wrap">
               <span class="text-sm flex-1">{{ frame.background_path ? frame.background_path.split('/').pop() : 'Solid color only' }}</span>
-              <button type="button" class="btn btn-sm btn-secondary" @click="openBackgroundPicker('frame')">Pick image / video</button>
+              <button type="button" class="btn btn-sm btn-secondary" @click="openBackgroundPicker('frame')">Pick Image / Video</button>
               <button v-if="frame.background_path" type="button" class="btn btn-sm btn-secondary" @click="frame.background_path = ''">Clear</button>
-              <button type="button" class="btn btn-sm btn-secondary" @click="openBackgroundsFolder">Open folder</button>
+              <button type="button" class="btn btn-sm btn-secondary" @click="openBackgroundsFolder">Open Folder</button>
             </div>
           </div>
         </div>
@@ -1602,7 +1602,7 @@
         <strong>{{ episodeId }}</strong> only. From now on the preset carries the overlay's look and each
         episode keeps its own timing, so applying it elsewhere will not re-time that episode.
         <template #actions>
-          <button class="btn btn-sm" @click="overlayTimingMigrated = []">Got it</button>
+          <button class="btn btn-sm" @click="overlayTimingMigrated = []">Got It</button>
         </template>
       </WorkspaceNotice>
 
@@ -1831,7 +1831,7 @@
             class="btn btn-sm btn-secondary"
             title="Open the project's overlays/ folder in Finder so you can drop new asset files in"
             @click="openOverlaysFolder"
-          >📁 Open overlays folder</button>
+          >📁 Open Overlays Folder</button>
           <button
             type="button"
             class="btn btn-sm btn-secondary"
@@ -1967,7 +1967,7 @@
             <label>Background image / looping video <span class="text-muted">(optional)</span></label>
             <div class="flex gap-2 items-center flex-wrap">
               <span class="text-sm flex-1">{{ titleCard.background_media_path ? titleCard.background_media_path.split('/').pop() : 'Use selected color style' }}</span>
-              <button type="button" class="btn btn-sm btn-secondary" :disabled="!titleCard.enabled" @click="openBackgroundPicker('title-card')">Pick media</button>
+              <button type="button" class="btn btn-sm btn-secondary" :disabled="!titleCard.enabled" @click="openBackgroundPicker('title-card')">Pick Media</button>
               <button v-if="titleCard.background_media_path" type="button" class="btn btn-sm btn-secondary" @click="titleCard.background_media_path = ''">Clear</button>
             </div>
           </div>
@@ -2095,7 +2095,7 @@
             <label>Background image / looping video <span class="text-muted">(optional)</span></label>
             <div class="flex gap-2 items-center flex-wrap">
               <span class="text-sm flex-1">{{ outroCard.background_media_path ? outroCard.background_media_path.split('/').pop() : 'Use solid background' }}</span>
-              <button type="button" class="btn btn-sm btn-secondary" :disabled="!outroCard.enabled" @click="openBackgroundPicker('outro-card')">Pick media</button>
+              <button type="button" class="btn btn-sm btn-secondary" :disabled="!outroCard.enabled" @click="openBackgroundPicker('outro-card')">Pick Media</button>
               <button v-if="outroCard.background_media_path" type="button" class="btn btn-sm btn-secondary" @click="outroCard.background_media_path = ''">Clear</button>
             </div>
           </div>
@@ -2253,7 +2253,7 @@
               <p v-if="burnView.pinned" class="text-muted text-sm mt-2">
                 You chose <strong>{{ burnView.burning }}</strong> for this episode.
                 <button class="btn btn-sm" :disabled="pinningSubtitle" @click="pinSubtitle('')">
-                  Back to automatic
+                  Back to Automatic
                 </button>
               </p>
               <p v-if="burnView.hidden_chapter_count" class="text-muted text-sm mt-2">
@@ -2294,7 +2294,7 @@
           <div class="flex gap-2 items-center mt-2">
             <button class="btn btn-sm btn-secondary" :disabled="preflightRunning || !episodeId"
                     @click="runSubtitlePreflight()">
-              {{ preflightRunning ? 'Rendering frames…' : subtitlePreflight ? 'Check again' : 'Check captions' }}
+              {{ preflightRunning ? 'Rendering Frames…' : subtitlePreflight ? 'Check Again' : 'Check Captions' }}
             </button>
             <span v-if="subtitlePreflight?.frames?.length" class="text-muted text-sm">
               {{ subtitlePreflight.subtitle_filename }} ·
@@ -2314,7 +2314,7 @@
             <template #actions>
               <NuxtLink :to="`/projects/${slug}/subtitles?episode_id=${encodeURIComponent(episodeId)}`" class="btn btn-sm btn-primary">Open Subtitles</NuxtLink>
               <button class="btn btn-sm" :disabled="generating" @click="preflightConfirmed = true; generateVideo()">
-                Render without captions
+                Render Without Captions
               </button>
             </template>
           </WorkspaceNotice>
@@ -2348,7 +2348,7 @@
             before reading anything into it.
             <template #actions>
               <button class="btn btn-sm btn-primary" :disabled="preflightRunning" @click="runSubtitlePreflight">
-                {{ preflightRunning ? 'Checking…' : 'Check again' }}
+                {{ preflightRunning ? 'Checking…' : 'Check Again' }}
               </button>
             </template>
           </WorkspaceNotice>
@@ -2389,7 +2389,7 @@
             moment, the timing has drifted. Either way, fix it in the Subtitles tab rather than rendering.
             <template #actions>
               <button class="btn btn-sm btn-primary" @click="preflightConfirmed = true">
-                These are right — allow rendering
+                These Are Right — Allow Rendering
               </button>
               <NuxtLink :to="`/projects/${slug}/subtitles`" class="btn btn-sm">Open Subtitles</NuxtLink>
             </template>
@@ -2505,7 +2505,7 @@
               This channel's format recommends {{ formatRecommendedAspect }} —
               <button type="button" class="aspect-format-link"
                       @click="exportSettings.aspect_ratio = formatRecommendedAspect">
-                use that instead
+                Use That Instead
               </button>.
             </template>
             <template v-else-if="formatRecommendedAspect">
@@ -2807,7 +2807,7 @@
           Live progress from the render. You can leave this page; the render keeps running in the background.
         </p>
         <div v-else-if="activeJobStatus === 'error' || activeJobStatus === 'cancelled'" class="mt-1">
-          <button type="button" class="btn btn-sm btn-primary" @click="generateVideo">Try again</button>
+          <button type="button" class="btn btn-sm btn-primary" @click="generateVideo">Try Again</button>
         </div>
       </div>
 

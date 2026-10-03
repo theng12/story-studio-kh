@@ -26,6 +26,6 @@ test('thumbnail board has one bulk action (the top button) and pins upload selec
   assert.doesNotMatch(panel, /runBulk|Generate \$\{missingCount\.value\} missing/)
   assert.doesNotMatch(page, /Generate missing fresh/)
   assert.match(panel, /@pin-toggle=/)
-  assert.match(row, /Pin for upload/)
-  assert.match(row, /Pinned for upload/)
+  assert.match(row, /Pin for Upload/)
+  assert.match(row, /Pinned for Upload/)
 })

@@ -22,7 +22,7 @@
           <p>{{ activeStyle?.blurb || customStyleSummary }}</p>
         </div>
         <button type="button" class="btn btn-primary style-picker-browse" @click="libraryOpen = true">
-          {{ activeStyle || activeStyleBible?.trim() ? 'Change style' : 'Browse styles' }}
+          {{ activeStyle || activeStyleBible?.trim() ? 'Change Style' : 'Browse Styles' }}
         </button>
       </div>
 

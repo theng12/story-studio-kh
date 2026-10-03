@@ -32,7 +32,7 @@
       <WorkspaceNotice title="Stills remain the safe default" tone="info">
         Skip motion freely. Choosing a clip only replaces its still inside the same locked timestamp window.
         <template #actions>
-          <NuxtLink :to="`/projects/${slug}/scene-review`" class="btn btn-sm btn-secondary">Back to image review</NuxtLink>
+          <NuxtLink :to="`/projects/${slug}/scene-review`" class="btn btn-sm btn-secondary">Back to Image Review</NuxtLink>
         </template>
       </WorkspaceNotice>
 
@@ -209,9 +209,9 @@
             <span v-if="existingClipCount">Existing clips stay out of this batch.</span>
           </div>
           <button v-if="motionScope.mode === 'all'" class="btn btn-sm btn-secondary" :disabled="savingAll || scopedClipCount === 0" @click="approveAllClips">
-            Approve all fresh clips
+            Approve All Fresh Clips
           </button>
-          <button v-if="motionScope.mode === 'all'" class="btn btn-sm btn-ghost" :disabled="savingAll" @click="keepAllStills">Keep all as stills</button>
+          <button v-if="motionScope.mode === 'all'" class="btn btn-sm btn-ghost" :disabled="savingAll" @click="keepAllStills">Keep All as Stills</button>
         </div>
       </div>
     </WorkspaceSection>
@@ -231,7 +231,7 @@
     <section v-else-if="loadError && !scenes.length" class="card mt-3 empty-state" role="alert">
       <p>We couldn't load this episode's scenes. Check your connection and try again.</p>
       <p class="load-error-detail">{{ loadError }}</p>
-      <button class="btn btn-sm btn-secondary" :disabled="loading" @click="loadReview()">Try again</button>
+      <button class="btn btn-sm btn-secondary" :disabled="loading" @click="loadReview()">Try Again</button>
     </section>
     <section v-else-if="!scenes.length" class="card mt-3 empty-state">
       No scene plan is available yet. Complete Scene Plan and Scene Review first.
@@ -280,18 +280,18 @@
             class="btn btn-sm btn-secondary"
             :disabled="uploadingId === scene.id || animatingId === scene.id"
             @click="uploadClipOne(scene)"
-          >{{ uploadingId === scene.id ? 'Uploading...' : 'Upload external MP4' }}</button>
+          >{{ uploadingId === scene.id ? 'Uploading...' : 'Upload External MP4' }}</button>
           <button
             class="btn btn-sm btn-secondary"
             :disabled="!scopedMotionSceneIds.has(scene.id) || !selectionReady || !scene.image_filename || !scene.motion_prompt || animatingId === scene.id"
             @click="generateOne(scene)"
-          >{{ animatingId === scene.id ? 'Queuing...' : (scene.clip_exists ? 'Re-generate clip' : 'Generate clip') }}</button>
+          >{{ animatingId === scene.id ? 'Queuing...' : (scene.clip_exists ? 'Re-Generate Clip' : 'Generate Clip') }}</button>
           <button
             class="btn btn-sm btn-primary"
             :disabled="!scene.clip_exists || scene.clip_stale || savingId === scene.id"
             @click="setChoice(scene, 'clip')"
-          >Use clip</button>
-          <button class="btn btn-sm btn-ghost" :disabled="savingId === scene.id" @click="setChoice(scene, 'still')">Use still</button>
+          >Use Clip</button>
+          <button class="btn btn-sm btn-ghost" :disabled="savingId === scene.id" @click="setChoice(scene, 'still')">Use Still</button>
         </div>
       </li>
     </ul>
@@ -972,7 +972,7 @@ async function generateOne(scene: MotionScene) {
   if (scene.clip_exists && !await ask({
     title: `Re-generate the clip for scene ${scene.scene_index}?`,
     message: 'This replaces the current clip, and re-generating is charged again.',
-    confirmLabel: 'Re-generate clip',
+    confirmLabel: 'Re-Generate Clip',
     danger: true,
   })) return
   animatingId.value = scene.id
@@ -998,7 +998,7 @@ async function generateMissing() {
     message: `This starts ${count} paid ${count === 1 ? 'clip' : 'clips'}.`
       + (videoHasUsdPrice.value ? '' : ` Estimated total: ${formatCredits(batchListedTotal.value)}.`)
       + ' The price is confirmed when each clip starts.',
-    confirmLabel: 'Generate clips',
+    confirmLabel: 'Generate Clips',
   })) return
   queuing.value = true
   try {
@@ -1079,7 +1079,7 @@ async function keepAllStills() {
   if (!await ask({
     title: 'Keep every scene as a still?',
     message: 'No scene will use a motion clip. Your clips stay saved, and you can pick Use clip on any scene later.',
-    confirmLabel: 'Keep all as stills',
+    confirmLabel: 'Keep All as Stills',
   })) return
   await setAll('still')
 }

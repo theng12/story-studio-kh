@@ -592,7 +592,7 @@ describe('exceptions', () => {
     assert.doesNotMatch(ledger, /bucket === 'active' \|\| bucket === 'failed'/)
     assert.doesNotMatch(ledger, /active or failed/i)
     assert.match(ledger, /v-if="exceptionJobs\.length"/)
-    assert.match(ledger, /Inspect \$\{exceptionJobs\.length\.toLocaleString\(\)\} failed/)
+    assert.match(ledger, /Inspect \$\{exceptionJobs\.length\.toLocaleString\(\)\} Failed/)
   })
 })
 

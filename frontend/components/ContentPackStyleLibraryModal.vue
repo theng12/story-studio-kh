@@ -108,7 +108,7 @@
                 :disabled="!previewModel || previewStates[style.id]?.loading"
                 @click.stop="generatePreview(style)"
               >
-                {{ previewStates[style.id]?.loading ? 'Rendering…' : 'Generate preview' }}
+                {{ previewStates[style.id]?.loading ? 'Rendering…' : 'Generate Preview' }}
               </button>
             </div>
             <button
@@ -145,7 +145,7 @@
         <div v-else-if="!filteredStyles.length" class="slm-empty">
           <strong>No styles found</strong>
           <span>Try a broader search or choose All styles.</span>
-          <button type="button" class="btn btn-secondary btn-sm" @click="resetFilters">Clear filters</button>
+          <button type="button" class="btn btn-secondary btn-sm" @click="resetFilters">Clear Filters</button>
         </div>
       </div>
       </template>

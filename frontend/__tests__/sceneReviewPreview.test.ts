@@ -53,8 +53,8 @@ describe('Scene Review image preview', () => {
     assert.doesNotMatch(sceneReviewSource, /render_mode|form\.concurrency|Render sequentially|Render in parallel|Generate \(refs\)|🛠 Repair|⛓ From here|showLivePreview|mode === 'independent'/)
     assert.match(sceneReviewSource, /:generate-label="finishMissingLabel"/)
     assert.match(sceneReviewSource, /`Finish \$\{missingCount\.value\} missing image\$\{missingCount\.value === 1 \? '' : 's'\} · may use credits`/)
-    assert.match(sceneReviewSource, /Generate image/)
-    assert.match(sceneReviewSource, /Regenerate image/)
+    assert.match(sceneReviewSource, /Generate Image/)
+    assert.match(sceneReviewSource, /Regenerate Image/)
     assert.match(sceneReviewSource, /Upload replacement…/)
     assert.match(sceneReviewSource, /Approve/)
     assert.match(sceneReviewSource, /configKey: 'scene_review_genstudio'/)
@@ -128,7 +128,7 @@ describe('Scene Review image preview', () => {
   })
 
   test('a fully approved episode offers direct, episode-specific next steps', () => {
-    assert.match(sceneReviewSource, /v-if="stats\.all_approved && episodeId"[\s\S]*Motion Review \(optional\)/)
+    assert.match(sceneReviewSource, /v-if="stats\.all_approved && episodeId"[\s\S]*Motion Review \(Optional\)/)
     assert.match(sceneReviewSource, /:to="motionReviewLink"/)
     assert.match(sceneReviewSource, /:to="videoAssemblyLink"/)
     assert.match(sceneReviewSource, /const motionReviewLink = computed\(\(\) => `\/projects\/\$\{slug\.value\}\/motion-review\?episode_id=\$\{encodeURIComponent\(episodeId\.value\)\}`\)/)

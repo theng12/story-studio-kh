@@ -287,7 +287,7 @@
           @click="approveOutline"
           title="Lock in this outline so expand-chapters can run"
         >
-          ✓ Mark approved
+          ✓ Mark Approved
         </button>
       </div>
       <div class="op-footer-right">
@@ -1015,7 +1015,7 @@ async function postExpand(chapters: number[] | null): Promise<void> {
         'This outline is still in Draft. Expanding chapters locks in the current outline content. ' +
         'You can still edit and Regenerate individual chapters afterwards, but the structural review pass should happen here. ' +
         'Click Approve to lock the outline and continue with the expansion.',
-      confirmLabel: 'Approve and expand',
+      confirmLabel: 'Approve and Expand',
     })
     if (!ok) return
     await approveOutline()

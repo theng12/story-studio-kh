@@ -12,7 +12,7 @@
     <div v-if="loading" class="muted">Loading characters…</div>
     <div v-else-if="!available.length" class="empty-cast">
       No Channel Characters are assigned yet.
-      <button class="btn btn-secondary btn-sm" @click="showQuickCreate = true">+ Quick channel character</button>
+      <button class="btn btn-secondary btn-sm" @click="showQuickCreate = true">+ Quick Channel Character</button>
       <NuxtLink :to="{ path: '/character-library', query: { channel: projectSlug, project: projectSlug } }" class="link-sm">Open Channel Characters →</NuxtLink>
     </div>
 
@@ -31,7 +31,7 @@
         </div>
       </label>
       <div class="picker-actions">
-        <button class="btn btn-ghost btn-sm" @click="showQuickCreate = true">+ Quick channel character</button>
+        <button class="btn btn-ghost btn-sm" @click="showQuickCreate = true">+ Quick Channel Character</button>
         <NuxtLink :to="{ path: '/character-library', query: { channel: projectSlug, project: projectSlug } }" class="link-sm">Manage Channel Characters →</NuxtLink>
       </div>
     </div>
@@ -51,7 +51,7 @@
       <div class="quick-actions">
         <button class="btn btn-ghost btn-sm" @click="cancelQuickCreate">Cancel</button>
         <button class="btn btn-primary btn-sm" :disabled="quickSaving || !quick.name.trim() || !quick.description.trim()" @click="saveQuickCreate">
-          {{ quickSaving ? 'Creating…' : 'Create character' }}
+          {{ quickSaving ? 'Creating…' : 'Create Character' }}
         </button>
       </div>
       <div v-if="quickError" class="quick-error">{{ quickError }}</div>

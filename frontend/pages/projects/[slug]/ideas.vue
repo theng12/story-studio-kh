@@ -376,7 +376,7 @@
             title="Fills genre, theme, mood, audience, and keywords with random picks from the pools. Review or tweak before generating — no API cost."
             @click="randomizeForm"
           >
-            Randomize attributes
+            Randomize Attributes
           </button>
           <button
             class="btn btn-secondary"
@@ -403,9 +403,9 @@
             <span class="ds-chevron" :class="{ 'is-open': otherWaysOpen }" aria-hidden="true" /> Add ideas another way
           </button>
           <template v-if="otherWaysOpen">
-            <button class="btn btn-secondary btn-sm" @click="openAddIdea">+ Add idea manually</button>
+            <button class="btn btn-secondary btn-sm" @click="openAddIdea">+ Add Idea Manually</button>
             <button class="btn btn-secondary btn-sm" @click="openPasteIdeas">Paste from an LLM</button>
-            <button class="btn btn-secondary btn-sm" @click="openImportFolder">Import episode folder</button>
+            <button class="btn btn-secondary btn-sm" @click="openImportFolder">Import Episode Folder</button>
           </template>
       </div>
     </div>
@@ -457,7 +457,7 @@
         :disabled="bulkMarkRunning"
         @click="bulkMarkAllImported(true)"
       >
-        {{ bulkMarkRunning ? 'Marking…' : `Mark all ${unmarkedImportedCount} as already done` }}
+        {{ bulkMarkRunning ? 'Marking…' : `Mark All ${unmarkedImportedCount} as Already Done` }}
       </button>
     </div>
 
@@ -474,7 +474,7 @@
           class="btn btn-primary btn-sm"
           :disabled="bulkMarkRunning"
           @click="bulkMarkSelected(true)"
-        >Mark selected as already done</button>
+        >Mark Selected as Already Done</button>
         <button
           class="btn btn-secondary btn-sm"
           :disabled="bulkMarkRunning"
@@ -562,7 +562,7 @@
                   :disabled="dismissingIds.has(idea.id)"
                   @click="dismiss(idea.id)"
                 >{{ dismissingIds.has(idea.id) ? 'Dismissing…' : 'Dismiss' }}</button>
-                <button v-if="idea.status === 'accepted'" class="btn btn-sm btn-secondary" @click="openRenumberDialog(idea)" title="Change this episode's code (renames folder + asset files)">Change code</button>
+                <button v-if="idea.status === 'accepted'" class="btn btn-sm btn-secondary" @click="openRenumberDialog(idea)" title="Change this episode's code (renames folder + asset files)">Change Code</button>
                 <button v-if="idea.status === 'accepted'" class="btn btn-sm btn-danger" title="Move this episode's files to the project's _trash and un-accept" @click="resetIdea(idea)">Un-accept</button>
                 <button class="btn-icon" @click="openEditIdea(idea)" aria-label="Edit idea" title="Edit idea">✎</button>
                 <button class="btn-icon danger" @click="remove(idea.id)" aria-label="Delete idea" title="Delete idea">&#10005;</button>
@@ -720,7 +720,7 @@
           :disabled="!renumberValid || renumberRunning"
           @click="doRenumber"
         >
-          {{ renumberRunning ? 'Changing…' : 'Change code' }}
+          {{ renumberRunning ? 'Changing…' : 'Change Code' }}
         </button>
       </div>
       <button class="btn btn-sm btn-secondary mt-2 w-full" @click="renumberDialogIdea = null">Cancel</button>
@@ -906,7 +906,7 @@
 
         <div class="flex gap-2 mt-3 justify-end">
           <button class="btn btn-secondary" :disabled="parentImporting" @click="importOpen = false">
-            {{ parentImporting ? 'Close after finish' : 'Cancel' }}
+            {{ parentImporting ? 'Close After Finish' : 'Cancel' }}
           </button>
           <button
             v-if="importMode === 'single'"
@@ -3071,7 +3071,7 @@ async function resetIdea(idea: any) {
   const ok = await ask({
     title: `Un-accept "${idea.title}"?`,
     message,
-    confirmLabel: 'Move to _trash and un-accept',
+    confirmLabel: 'Move to _trash and Un-Accept',
     danger: true,
   })
   if (!ok) return
@@ -3108,7 +3108,7 @@ async function remove(id: string) {
     const ok = await ask({
       title: `Delete accepted episode ${code}?`,
       message: `Removes ${label} from your idea list and frees the code ${code} for a future Accept. The episode's folder and files stay where they are — nothing on disk is deleted. You'll have 10 seconds to undo.`,
-      confirmLabel: 'Delete idea',
+      confirmLabel: 'Delete Idea',
       danger: true,
     })
     if (!ok) return

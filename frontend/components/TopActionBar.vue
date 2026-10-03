@@ -73,7 +73,7 @@
               :class="['preset-menu-item', { 'preset-action-success': presetActionSuccess === 'save-as' }]"
               :disabled="presetActionBusy"
               @click="openSaveAs"
-            >{{ presetActionLabel('save-as', 'Save as…', 'Saving…', '✓ Saved') }}</button>
+            >{{ presetActionLabel('save-as', 'Save As…', 'Saving…', '✓ Saved') }}</button>
             <button
               type="button"
               :class="['preset-menu-item', { 'preset-action-success': presetActionSuccess === 'rename' }]"
@@ -445,7 +445,7 @@ async function onDelete() {
   const ok = await ask({
     title: `Delete preset "${p.name}"?`,
     message: 'The preset is removed from this project. Any content previously generated with it is untouched.',
-    confirmLabel: 'Delete preset',
+    confirmLabel: 'Delete Preset',
     danger: true,
   })
   if (!ok) return

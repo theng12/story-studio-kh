@@ -13,7 +13,7 @@ describe('Production Board defaults', () => {
     assert.match(board, /const needsWorkOnly = ref\(true\)/)
     // A search still finds finished episodes (it is a lookup, not a work list).
     assert.match(board, /if \(needsWorkOnly\.value && !searchActive\.value\) list = list\.filter\(ep => !isFullyDone\(ep\)\)/)
-    assert.match(board, /Show all episodes/)
+    assert.match(board, /Show All Episodes/)
     assert.doesNotMatch(board, /const hidePending/)
   })
 

@@ -13,7 +13,7 @@
         :title="`Copy ${state.folder} to the clipboard`"
         @click="revealFolder"
       >
-        Copy folder path
+        Copy Folder Path
       </button>
     </div>
 
@@ -55,7 +55,7 @@
             class="link-btn mp-cursor-reset"
             :disabled="state.cursor === 0"
             @click="resetCursor"
-          >reset to 1</button>
+          >Reset to 1</button>
         </span>
       </div>
 
@@ -210,17 +210,17 @@
             type="button"
             class="link-btn mp-overrides-clear"
             @click="clearAllOverrides(t)"
-          >Clear all overrides for this track</button>
+          >Clear All Overrides for This Track</button>
         </div>
         </template>
       </div>
 
       <div class="mp-actions">
         <button type="button" class="btn btn-sm btn-secondary" :disabled="adding" @click="addTrack">
-          {{ adding ? 'Adding…' : '+ Add music…' }}
+          {{ adding ? 'Adding…' : '+ Add Music…' }}
         </button>
         <button type="button" class="link-btn" @click="refresh" :disabled="loading">
-          ↻ Rescan folder
+          ↻ Rescan Folder
         </button>
       </div>
     </template>

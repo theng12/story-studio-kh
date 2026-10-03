@@ -136,7 +136,7 @@ async function mount(jobs: any[] = []) {
 let page: Component
 
 const saveButton = (host: HTMLElement) => Array.from(host.querySelectorAll('button'))
-  .find(button => button.textContent?.includes('Save for this channel')) as HTMLButtonElement
+  .find(button => button.textContent?.includes('Save for This Channel')) as HTMLButtonElement
 
 test('no unsaved changes right after load, after an edit there are, and none again after Save', async () => {
   page = await loadPage()

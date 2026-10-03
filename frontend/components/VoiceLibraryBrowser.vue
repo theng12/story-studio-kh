@@ -52,7 +52,7 @@
         :disabled="adding === voice.public_voice_id || voice.is_saved === true"
         @click="add(voice)"
       >
-          {{ voice.is_saved === true ? 'In library' : adding === voice.public_voice_id ? 'Adding…' : 'Add' }}
+          {{ voice.is_saved === true ? 'In Library' : adding === voice.public_voice_id ? 'Adding…' : 'Add' }}
         </button>
       </div>
     </div>
@@ -63,7 +63,7 @@
       class="btn btn-sm btn-secondary vlb-more"
       :disabled="loading"
       @click="load(page + 1, true)"
-    >{{ loading ? 'Loading…' : 'Load more voices' }}</button>
+    >{{ loading ? 'Loading…' : 'Load More Voices' }}</button>
   </div>
 </template>
 

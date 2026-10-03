@@ -430,7 +430,7 @@ async function onDisableAndRestart() {
   if (!await ask({
     title: 'Disable server mode?',
     message: 'The app will restart as a desktop-only window and will no longer be reachable from this browser. Re-enabling requires access to the Mac mini.',
-    confirmLabel: 'Disable and restart',
+    confirmLabel: 'Disable and Restart',
     danger: true,
   })) return
 
@@ -495,7 +495,7 @@ async function onSaveCredentials() {
 
 async function onRotateSessions() {
   if (saving.value) return
-  if (!await ask({ title: 'Sign out every browser?', message: 'Invalidate every signed-in browser session? You will need to log in again everywhere.', confirmLabel: 'Invalidate sessions', danger: true })) return
+  if (!await ask({ title: 'Sign out every browser?', message: 'Invalidate every signed-in browser session? You will need to log in again everywhere.', confirmLabel: 'Invalidate Sessions', danger: true })) return
   saving.value = 'rotate'
   message.value = null
   try {

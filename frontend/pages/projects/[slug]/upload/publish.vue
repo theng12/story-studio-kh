@@ -4,7 +4,7 @@
     <div v-else-if="loadError" class="load-failure" role="alert">
       <p class="result err">{{ loadError }}</p>
       <button class="btn btn-ghost btn-sm" type="button" :disabled="refreshingList" @click="refreshList">
-        {{ refreshingList ? 'Retrying…' : 'Retry loading' }}
+        {{ refreshingList ? 'Retrying…' : 'Retry Loading' }}
       </button>
     </div>
 
@@ -34,10 +34,10 @@
               :title="planBlocked || (!planCandidates.length ? 'No visible video needs a planned date.' : '')"
               @click="planUnscheduledVideos()"
             >
-              {{ busy === 'plan-batch' ? 'Planning…' : `${planCandidates.some(hasMissedPlan) ? 'Plan missing or missed dates' : 'Plan unscheduled videos'} (${planCandidates.length})` }}
+              {{ busy === 'plan-batch' ? 'Planning…' : `${planCandidates.some(hasMissedPlan) ? 'Plan Missing or Missed Dates' : 'Plan Unscheduled Videos'} (${planCandidates.length})` }}
             </button>
             <button class="btn btn-ghost btn-sm" type="button" :disabled="refreshingList" @click="refreshList">
-              {{ refreshingList ? 'Refreshing…' : 'Refresh list' }}
+              {{ refreshingList ? 'Refreshing…' : 'Refresh List' }}
             </button>
           </div>
         </header>
@@ -57,7 +57,7 @@
             <strong>No YouTube channel assigned</strong>
             <span>These videos are ready locally, but Story Studio cannot upload them until this project has a channel.</span>
           </div>
-          <NuxtLink :to="`/projects/${slug}/settings#youtube`" class="btn btn-ghost btn-sm">Assign channel</NuxtLink>
+          <NuxtLink :to="`/projects/${slug}/settings#youtube`" class="btn btn-ghost btn-sm">Assign Channel</NuxtLink>
         </div>
         <p v-if="planResult" :class="['result', planResult.kind]" role="status">
           {{ planResult.message }}
@@ -108,10 +108,10 @@
               :disabled="busy !== '' || !sortedEpisodes.length"
               @click="toggleAllMatching"
             >
-              {{ allMatchingSelected ? `Unselect these ${sortedEpisodes.length}` : `Select all matching (${sortedEpisodes.length})` }}
+              {{ allMatchingSelected ? `Unselect These ${sortedEpisodes.length}` : `Select All Matching (${sortedEpisodes.length})` }}
             </button>
             <button v-if="selectedCodes.length" class="btn btn-ghost btn-sm" type="button" :disabled="busy !== ''" @click="clearSelection">
-              Clear selection
+              Clear Selection
             </button>
           </div>
           <p class="hint">
@@ -146,13 +146,13 @@
             <button
               v-if="!bulkRun.finished && bulkRun.stoppable" class="btn btn-ghost btn-sm" type="button"
               :disabled="bulkRun.stopRequested" @click="bulkRun.stopRequested = true"
-            >{{ bulkRun.stopRequested ? 'Stopping after this row…' : 'Stop after this row' }}</button>
+            >{{ bulkRun.stopRequested ? 'Stopping After This Row…' : 'Stop After This Row' }}</button>
             <button v-else-if="bulkRun.finished" class="btn btn-ghost btn-sm" type="button" @click="bulkRun = null">Dismiss</button>
           </div>
         </section>
 
         <p v-if="total && !sortedEpisodes.length" class="empty-filter" role="status">
-          No episodes match these filters. <button type="button" class="inline-action" @click="clearFilters">Clear filters</button>
+          No episodes match these filters. <button type="button" class="inline-action" @click="clearFilters">Clear Filters</button>
         </p>
         <div v-if="sortedEpisodes.length" class="episode-columns" aria-hidden="true">
           <span>Episode</span><span>Local video</span><span>Upload</span><span>Publication</span><span>Actions</span>
@@ -176,7 +176,7 @@
               <span class="fact-label">Local video</span>
               <span :class="['state-text', stateTone(renderState(ep))]">{{ renderLabel(ep) }}</span>
               <span v-if="renderState(ep) === 'ready' && !assignedChannel" class="fact-note">Ready locally · assign a channel to upload.</span>
-              <button v-if="playableVideoUrl(ep)" class="inline-action" type="button" @click="openVideo(ep)">Play local video</button>
+              <button v-if="playableVideoUrl(ep)" class="inline-action" type="button" @click="openVideo(ep)">Play Local Video</button>
               <NuxtLink v-else-if="renderState(ep) === 'missing'" class="inline-action" :to="videoAssemblyLink(ep)">Open Video Assembly</NuxtLink>
             </div>
 
@@ -208,7 +208,7 @@
                 v-if="hasMissedPlan(ep) && canPlanEpisode(ep)" class="inline-action" type="button"
                 :disabled="busy !== '' || !!planBlocked" :title="planBlocked || ''"
                 @click="planUnscheduledVideos([ep.episode_code])"
-              >Move missed date forward</button>
+              >Move Missed Date Forward</button>
               <span v-if="publicationReason(ep)" class="fact-note">{{ publicationReason(ep) }}</span>
               <span v-if="lastCheckedLabel(ep)" class="fact-note">{{ lastCheckedLabel(ep) }}</span>
             </div>
@@ -226,26 +226,26 @@
                 :disabled="busy !== '' || !!scheduleBlocked" :title="scheduleBlocked || ''"
                 @click="preview(ep.episode_code, $event, 'schedule')"
               >
-                {{ busy === `preview-${ep.episode_code}` ? 'Preparing…' : 'Schedule publication' }}
+                {{ busy === `preview-${ep.episode_code}` ? 'Preparing…' : 'Schedule Publication' }}
               </button>
               <button
                 v-if="renderState(ep) === 'ready'" class="btn btn-ghost btn-sm" type="button"
                 :disabled="busy !== ''" @click="preview(ep.episode_code, $event)"
               >
-                {{ busy === `preview-${ep.episode_code}` ? 'Preparing…' : 'Review upload details' }}
+                {{ busy === `preview-${ep.episode_code}` ? 'Preparing…' : 'Review Upload Details' }}
               </button>
               <NuxtLink
                 v-if="renderState(ep) === 'ready' && !assignedChannel"
                 :to="`/projects/${slug}/settings#youtube`" class="btn btn-ghost btn-sm"
-              >Assign channel</NuxtLink>
+              >Assign Channel</NuxtLink>
               <NuxtLink
                 v-if="uploadState(ep) === 'succeeded'" :to="`/projects/${slug}/settings#free-up-space`"
                 class="btn btn-ghost btn-sm" title="Shrink images and move clips, chapter narration and the final video to this project's _trash"
-              >Free up space</NuxtLink>
+              >Free Up Space</NuxtLink>
               <button
                 v-if="associatedVideoId(ep) && assignedChannel" class="btn btn-ghost btn-sm forget-upload" type="button"
                 :disabled="busy !== ''" @click="forgetUpload(ep)"
-              >I deleted this video on YouTube</button>
+              >I Deleted This Video on YouTube</button>
             </div>
             <p v-if="ep.blocked_reason" class="row-result warn">{{ ep.blocked_reason }}</p>
             <p v-if="rowResults[ep.episode_code]" :class="['row-result', rowResults[ep.episode_code].kind]" role="status">
@@ -279,7 +279,7 @@
             v-if="busy === 'bulk-upload'"
             class="btn btn-ghost btn-sm" type="button"
             :disabled="bulkQueueStopRequested" @click="bulkQueueStopRequested = true"
-          >{{ bulkQueueStopRequested ? 'Stopping after current…' : 'Stop queueing' }}</button>
+          >{{ bulkQueueStopRequested ? 'Stopping After Current…' : 'Stop Queueing' }}</button>
           <button v-else class="btn btn-ghost btn-sm" type="button" @click="closeBulkReview">Dismiss</button>
         </div>
       </section>
@@ -341,7 +341,7 @@
               />
             </label>
             <button class="btn btn-ghost btn-sm" type="button" :disabled="busy !== '' || !customDateTime" @click="reviewCustomTiming">
-              {{ busy.startsWith('timing-') ? 'Reviewing…' : 'Review this time' }}
+              {{ busy.startsWith('timing-') ? 'Reviewing…' : 'Review This Time' }}
             </button>
           </div>
             <button
@@ -349,7 +349,7 @@
             class="inline-action" type="button" :disabled="busy !== '' || !!planBlocked"
             @click="useNextPlanSlot"
           >
-            Use the next date from this channel’s upload plan
+            Use the Next Date from This Channel’s Upload Plan
           </button>
           <NuxtLink :to="`/projects/${slug}/upload/plans`" class="inline-action">Manage upload plans</NuxtLink>
           <p v-if="timingError" class="row-result err" role="alert">
@@ -531,7 +531,7 @@
                 :disabled="busy !== '' || !relayoutStartDate"
                 @click="previewRelayout()"
               >
-                {{ busy === 'relayout-preview' ? 'Checking…' : 'Preview dates' }}
+                {{ busy === 'relayout-preview' ? 'Checking…' : 'Preview Dates' }}
               </button>
             </div>
 
@@ -576,7 +576,7 @@
 
               <div v-if="relayoutPreview.assignments.length" class="field-row upload-row">
                 <button class="btn btn-primary" type="button" :disabled="busy !== ''" @click="applyRelayout()">
-                  {{ busy === 'relayout-apply' ? 'Saving…' : `Save ${relayoutPreview.assignments.length} planned date${relayoutPreview.assignments.length === 1 ? '' : 's'}` }}
+                  {{ busy === 'relayout-apply' ? 'Saving…' : `Save ${relayoutPreview.assignments.length} Planned Date${relayoutPreview.assignments.length === 1 ? '' : 's'}` }}
                 </button>
               </div>
             </template>
@@ -649,7 +649,7 @@
             <p class="hint">Any scheduled publish time on these videos is cleared. Titles, descriptions and thumbnails are not changed.</p>
             <div class="field-row upload-row">
               <button class="btn btn-primary" type="button" :disabled="busy !== '' || !bulkVisibility" @click="confirmBulkVisibility">
-                {{ bulkVisibility ? `Make ${visibilityRows.length} video${visibilityRows.length === 1 ? '' : 's'} ${visibilityLabel(bulkVisibility)} on YouTube` : 'Choose a visibility' }}
+                {{ bulkVisibility ? `Make ${visibilityRows.length} video${visibilityRows.length === 1 ? '' : 's'} ${visibilityLabel(bulkVisibility)} on YouTube` : 'Choose a Visibility' }}
               </button>
             </div>
           </div>
@@ -718,14 +718,14 @@
             <button
               v-if="busy === 'bulk-upload'" class="btn btn-ghost" type="button"
               :disabled="bulkQueueStopRequested" @click="bulkQueueStopRequested = true"
-            >{{ bulkQueueStopRequested ? 'Stopping after current…' : 'Stop queueing' }}</button>
+            >{{ bulkQueueStopRequested ? 'Stopping After Current…' : 'Stop Queueing' }}</button>
             <button
               v-else
               class="btn btn-primary" type="button"
               :disabled="busy !== '' || !queueableBulkReviews.length"
               @click="queueReviewedUploads"
             >
-              {{ busy === 'bulk-upload' ? 'Queueing…' : `Queue reviewed uploads (${queueableBulkReviews.length})` }}
+              {{ busy === 'bulk-upload' ? 'Queueing…' : `Queue Reviewed Uploads (${queueableBulkReviews.length})` }}
             </button>
           </div>
         </section>
@@ -1612,12 +1612,12 @@ const bulkActions = computed(() => {
   const all = actionableSelection.value.length
   return [
     {
-      key: 'upload' as BulkKey, youtube: true, label: `Review selected uploads (${upload})`,
+      key: 'upload' as BulkKey, youtube: true, label: `Review Selected Uploads (${upload})`,
       hint: 'Shows each video’s exact file, thumbnail and metadata, then queues them as private uploads. Nothing is sent until you press Queue.',
       why: why(uploadBlocked.value, upload, 'None of the selected rows can be uploaded: each needs a finished video and no upload yet.'),
     },
     {
-      key: 'relayout' as BulkKey, youtube: false, label: `Edit planned dates (${relayout})`,
+      key: 'relayout' as BulkKey, youtube: false, label: `Edit Planned Dates (${relayout})`,
       hint: 'Spreads the planned dates of videos not on YouTube yet from a start date, on the active plan’s cadence.',
       why: why(planBlocked.value, relayout, 'None of the selected rows can be re-dated: they are already on YouTube or uploading.'),
     },
@@ -1627,17 +1627,17 @@ const bulkActions = computed(() => {
       why: why(scheduleBlocked.value, scheduleRows.value.length, 'None of the selected rows is an uploaded private video without a publish time.'),
     },
     {
-      key: 'visibility' as BulkKey, youtube: true, label: `Set visibility (${visibilityRows.value.length})`,
+      key: 'visibility' as BulkKey, youtube: true, label: `Set Visibility (${visibilityRows.value.length})`,
       hint: 'Makes videos already on YouTube Public, Unlisted or Private, and clears any scheduled time.',
       why: why(scheduleBlocked.value, visibilityRows.value.length, 'None of the selected rows is on YouTube yet.'),
     },
     {
-      key: 'refinalize' as BulkKey, youtube: false, label: `Re-finalize metadata (${all})`,
+      key: 'refinalize' as BulkKey, youtube: false, label: `Re-Finalize Metadata (${all})`,
       hint: 'Writes a new title, description and tags with this channel’s YouTube Finalizer preset. Earlier versions are kept.',
       why: why('', all, ''),
     },
     {
-      key: 'dequeue' as BulkKey, youtube: false, label: `Remove from upload queue (${dequeueRows.value.length})`,
+      key: 'dequeue' as BulkKey, youtube: false, label: `Remove from Upload Queue (${dequeueRows.value.length})`,
       hint: 'Cancels uploads still waiting to start. Nothing has reached YouTube for these, and they can be queued again.',
       why: why('', dequeueRows.value.length, 'None of the selected rows has an upload waiting in the queue.'),
     },
@@ -2021,7 +2021,7 @@ async function forgetUpload(ep: PublishableEpisode): Promise<void> {
   const confirmed = await ask({
     title: `Allow ${ep.episode_code} to be uploaded again?`,
     message: `Use this only after you deleted ${expectedVideoId} on YouTube and verified it is gone. Story Studio will remove this local upload association; it will not check or delete anything on YouTube. The next upload creates a new YouTube link.`,
-    confirmLabel: 'Remove upload association',
+    confirmLabel: 'Remove Upload Association',
   })
   if (!actionIsCurrent(confirmationAction)) return
   if (!confirmed) { busy.value = ''; return }
@@ -2378,7 +2378,7 @@ async function confirmForeignEpisodeCode(error: any, episodeCode: string): Promi
   return ask({
     title: `${episodeCode} is already on this channel`,
     message: String(error.data.detail || 'Another project has already uploaded this episode code here.'),
-    confirmLabel: 'Upload anyway',
+    confirmLabel: 'Upload Anyway',
   })
 }
 
@@ -2398,7 +2398,7 @@ async function scheduleExisting(): Promise<void> {
   const confirmed = await ask({
     title: `Schedule ${episode.episode_code} on YouTube?`,
     message: `This checks and schedules the existing video on ${expectedChannelTitle || 'the assigned channel'} (${expectedChannelId || 'unknown'}) for ${formatZonedWhen(publishAt, timingTimezone.value)} (${publishAt}). YouTube will refuse any video that is not private. It does not upload the video again.`,
-    confirmLabel: 'Schedule video',
+    confirmLabel: 'Schedule Video',
   })
   if (!actionIsCurrent(confirmationAction)) return
   if (!confirmed) { busy.value = ''; return }

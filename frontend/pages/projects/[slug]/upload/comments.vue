@@ -20,7 +20,7 @@
             :disabled="busy !== '' || !inbox.channel_assigned"
             @click="refresh"
           >
-            {{ busy === 'refresh' ? 'Fetching…' : 'Fetch comments from YouTube' }}
+            {{ busy === 'refresh' ? 'Fetching…' : 'Fetch Comments from YouTube' }}
           </button>
         </div>
       </section>
@@ -96,7 +96,7 @@
             <input v-model="sinceFilter" class="input" type="date" />
           </label>
           <button v-if="filtersActive" class="btn btn-ghost btn-sm" type="button" @click="clearFilters">
-            Clear filters
+            Clear Filters
           </button>
         </div>
       </section>
@@ -110,13 +110,13 @@
         </div>
         <div class="field-row">
           <button class="btn btn-sm" type="button" :disabled="busy !== ''" @click="previewBulk('approve')">
-            Preview approving
+            Preview Approving
           </button>
           <button class="btn btn-sm" type="button" :disabled="busy !== ''" @click="previewBulk('reject')">
-            Preview rejecting
+            Preview Rejecting
           </button>
           <button class="btn btn-ghost btn-sm" type="button" :disabled="busy !== ''" @click="selected.clear()">
-            Clear selection
+            Clear Selection
           </button>
         </div>
         <div v-if="bulkPreview" class="preview">
@@ -178,14 +178,14 @@
               <button class="btn btn-ghost btn-sm" type="button" :disabled="busy !== ''"
                 @click="rejectComment(comment)">Reject</button>
               <button class="btn btn-ghost btn-sm danger" type="button" :disabled="busy !== ''"
-                @click="banAuthor(comment)">Reject and ban author…</button>
+                @click="banAuthor(comment)">Reject and Ban Author…</button>
             </div>
             <div v-if="replyingTo === comment.comment_id" class="reply">
               <p class="hint">Replying to <strong>{{ comment.author }}</strong></p>
               <textarea v-model="replyText" class="input" rows="3" placeholder="Write a reply…"></textarea>
               <div class="field-row">
                 <button class="btn btn-sm btn-primary" type="button" :disabled="busy !== '' || !replyText.trim()"
-                  @click="sendReply(comment)">Post reply</button>
+                  @click="sendReply(comment)">Post Reply</button>
                 <button class="btn btn-ghost btn-sm" type="button" :disabled="busy !== ''"
                   @click="replyingTo = ''">Cancel</button>
               </div>
@@ -419,7 +419,7 @@ const rejectComment = async (comment: Comment) => {
   const confirmed = await ask({
     title: `Reject ${comment.author}’s comment?`,
     message: 'This hides the comment on YouTube, along with its replies. The author is not banned and can keep commenting.',
-    confirmLabel: 'Reject comment',
+    confirmLabel: 'Reject Comment',
     danger: true,
   })
   if (!confirmed) return
@@ -435,7 +435,7 @@ const banAuthor = (comment: Comment) => run(`ban-${comment.comment_id}`, async (
     title: `Ban ${comment.author}?`,
     message: `This rejects their comment and stops ${comment.author} commenting on this channel again. `
       + 'It applies to that one author, and Story Studio cannot undo it from here.',
-    confirmLabel: 'Reject and ban',
+    confirmLabel: 'Reject and Ban',
     danger: true,
   })
   if (!confirmed) return

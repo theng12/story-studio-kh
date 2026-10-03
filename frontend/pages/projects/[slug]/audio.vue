@@ -58,7 +58,7 @@
           title="Wipe this project's status cache and re-stat every episode folder."
           @click="onRescan"
         >
-          {{ rescanning ? 'Rescanning…' : 'Rescan from disk' }}
+          {{ rescanning ? 'Rescanning…' : 'Rescan from Disk' }}
         </button>
       </template>
     </WorkspaceNotice>
@@ -73,7 +73,7 @@
       costs a few hundred words.
       <template #actions>
         <NuxtLink :to="`/projects/${slug}/introduction`" class="btn btn-secondary btn-sm">
-          Write the opening first
+          Write the Opening First
         </NuxtLink>
       </template>
     </WorkspaceNotice>
@@ -234,7 +234,7 @@
           </label>
         </div>
         <div class="audio-quality-overview-actions">
-          <NuxtLink :to="`/projects/${slug}/settings#production`" class="btn btn-sm btn-secondary">Change setting</NuxtLink>
+          <NuxtLink :to="`/projects/${slug}/settings#production`" class="btn btn-sm btn-secondary">Change Setting</NuxtLink>
           <button
             v-if="audioQualityMode !== 'off'"
             type="button"
@@ -389,7 +389,7 @@
             class="btn btn-ghost"
             :disabled="!quoteEligible || quoting"
             @click="refreshQuote"
-          >{{ quoting ? 'Quoting…' : 'Get quote' }}</button>
+          >{{ quoting ? 'Quoting…' : 'Get Quote' }}</button>
           <details class="audio-more">
             <summary class="btn btn-secondary" aria-label="More audio actions">More</summary>
             <div class="audio-more-menu">
@@ -397,7 +397,7 @@
                 type="button"
                 :disabled="!effectiveSections.length || inlineGenerateDisabled"
                 @click="queueAudio(effectiveSections, 'new_version')"
-              >{{ audioActionLabel(effectiveSections, 'new_version', 'Create another version') }}</button>
+              >{{ audioActionLabel(effectiveSections, 'new_version', 'Create Another Version') }}</button>
             </div>
           </details>
         </div>
@@ -1423,7 +1423,7 @@ async function runAudioQualityCheck(targetSections: string[]): Promise<void> {
       const confirmed = await ask({
         title: `Repair ${scopeSummary(targetSections)}?`,
         message: details.join('\n'),
-        confirmLabel: 'Start checked repair',
+        confirmLabel: 'Start Checked Repair',
       })
       if (!confirmed) {
         freshQualityAction.cancel('quality')

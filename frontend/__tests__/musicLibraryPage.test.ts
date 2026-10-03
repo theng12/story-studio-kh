@@ -50,12 +50,12 @@ describe('the page tells you what costs money', () => {
   })
 
   test('the top-up says how many it is ordering before you press it', () => {
-    assert.match(page, /Add \$\{count\} song\(s\)/,
+    assert.match(page, /Add \$\{count\} Song\(s\)/,
       'a paid button must name the quantity, not just say "Generate"')
   })
 
   test('a preview exists, so the tracklist is visible BEFORE committing', () => {
-    assert.match(page, /Preview the tracklist/)
+    assert.match(page, /Preview the Tracklist/)
     assert.match(page, /music-library\/preview-mix/)
   })
 

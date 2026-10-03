@@ -81,13 +81,13 @@ async function mount(deferred: Promise<unknown>) {
   app.component('ProgressBar', defineComponent({ setup() { return () => h('div') } }))
   app.mount(el)
   await ticks()
-  const select = [...el.querySelectorAll('button')].find(button => button.textContent?.includes('Select all matching'))!
+  const select = [...el.querySelectorAll('button')].find(button => button.textContent?.includes('Select All Matching'))!
   select.click()
   await ticks()
-  const open = [...el.querySelectorAll('button')].find(button => button.textContent?.includes('Edit planned dates'))!
+  const open = [...el.querySelectorAll('button')].find(button => button.textContent?.includes('Edit Planned Dates'))!
   open.click()
   await ticks()
-  const preview = [...el.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Preview dates')!
+  const preview = [...el.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Preview Dates')!
   preview.click()
   await ticks()
   return { el, destroy: () => { app.unmount(); el.remove() } }
@@ -105,7 +105,7 @@ test('changing a relayout date invalidates the outstanding preview instead of en
     await ticks()
 
     assert.equal(
-      [...mounted.el.querySelectorAll('button')].some(button => button.textContent?.includes('Save 1 planned date')),
+      [...mounted.el.querySelectorAll('button')].some(button => button.textContent?.includes('Save 1 Planned Date')),
       false,
     )
   } finally { mounted.destroy() }
@@ -123,7 +123,7 @@ test('a delayed relayout preview cannot repopulate after Close', async () => {
 
     assert.equal(mounted.el.querySelector('[role="dialog"]'), null)
     assert.equal(
-      [...mounted.el.querySelectorAll('button')].some(button => button.textContent?.includes('Save 1 planned date')),
+      [...mounted.el.querySelectorAll('button')].some(button => button.textContent?.includes('Save 1 Planned Date')),
       false,
     )
   } finally { mounted.destroy() }

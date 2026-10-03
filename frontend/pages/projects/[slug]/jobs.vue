@@ -101,12 +101,12 @@
             <span class="jobs-control-label">Collect finished output · free · both already run inside “Check on running jobs”</span>
             <div class="jobs-more-action">
               <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || recoverableEpisodes.length === 0"
-                @click="recoverAllEpisodes()">{{ recoveringAllEpisodes ? 'Recovering…' : `Recover all (${recoverableEpisodes.length})` }}</button>
+                @click="recoverAllEpisodes()">{{ recoveringAllEpisodes ? 'Recovering…' : `Recover All (${recoverableEpisodes.length})` }}</button>
               <small>{{ recoverableEpisodes.length ? MORE_ACTION_HINTS.recover : 'No episodes to recover.' }}</small>
             </div>
             <div class="jobs-more-action">
               <button class="btn btn-sm btn-secondary repair-all-btn" :disabled="bulkActionBusy || repairableFailedJobs.length === 0"
-                @click="repairAllFailed()">{{ repairingAllFailed ? 'Repairing…' : `Repair all (${repairableFailedJobs.length})` }}</button>
+                @click="repairAllFailed()">{{ repairingAllFailed ? 'Repairing…' : `Repair All (${repairableFailedJobs.length})` }}</button>
               <small>{{ repairableFailedJobs.length ? MORE_ACTION_HINTS.repair : 'No failed narration or thumbnail jobs to repair.' }}</small>
             </div>
           </div>
@@ -114,12 +114,12 @@
             <span class="jobs-control-label">Queue · pause applies to all projects</span>
             <div class="jobs-more-action">
               <button class="btn btn-sm btn-secondary" :disabled="changingQueueState || resumingQueue || queueStateUnknown || (!queuePaused && !hasQueueWork)"
-                @click="queuePaused ? resumeQueue() : pauseQueue()">{{ changingQueueState || resumingQueue ? 'Updating queue…' : queueStateUnknown ? 'Queue state unknown' : queuePaused ? 'Resume queue' : 'Pause queue' }}</button>
+                @click="queuePaused ? resumeQueue() : pauseQueue()">{{ changingQueueState || resumingQueue ? 'Updating Queue…' : queueStateUnknown ? 'Queue State Unknown' : queuePaused ? 'Resume Queue' : 'Pause Queue' }}</button>
               <small>{{ queueStateUnknown ? 'Story Studio cannot read the queue state right now. Refresh to check.' : queuePaused ? 'Releases the hold so waiting work starts again.' : hasQueueWork ? MORE_ACTION_HINTS.queue : 'Nothing is waiting or running.' }}</small>
             </div>
             <div class="jobs-more-action">
               <button class="btn btn-sm btn-secondary resume-paused-btn" :disabled="bulkActionBusy || pausedJobCount === 0"
-                @click="resumePausedJobs()">{{ bulkResumeBusy ? `Resuming ${bulkResumeCount}…` : `Resume paused (${pausedJobCount})` }}</button>
+                @click="resumePausedJobs()">{{ bulkResumeBusy ? `Resuming ${bulkResumeCount}…` : `Resume Paused (${pausedJobCount})` }}</button>
               <small>{{ pausedJobCount ? MORE_ACTION_HINTS.resume : 'No paused jobs.' }}</small>
             </div>
           </div>
@@ -127,12 +127,12 @@
             <span class="jobs-control-label">History · keeps files and billing records</span>
             <div class="jobs-more-action">
               <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || finishedCount === 0"
-                @click="clearFinished()">{{ clearingHistory === 'finished' ? 'Clearing…' : `Clear finished (${finishedCount})` }}</button>
+                @click="clearFinished()">{{ clearingHistory === 'finished' ? 'Clearing…' : `Clear Finished (${finishedCount})` }}</button>
               <small>{{ finishedCount ? MORE_ACTION_HINTS.clearFinished : 'No finished rows to clear.' }}</small>
             </div>
             <div class="jobs-more-action">
               <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || failedCount === 0"
-                @click="clearFailed()">{{ clearingHistory === 'failed' ? 'Clearing…' : `Clear failed (${failedCount})` }}</button>
+                @click="clearFailed()">{{ clearingHistory === 'failed' ? 'Clearing…' : `Clear Failed (${failedCount})` }}</button>
               <small>{{ failedCount ? MORE_ACTION_HINTS.clearFailed : 'No settled failed rows to clear.' }}</small>
             </div>
           </div>
@@ -158,12 +158,12 @@
     </WorkspaceNotice>
     <WorkspaceNotice v-if="queueStateUnknown" tone="info" title="Queue state could not be read">
       Story Studio could not confirm whether the queue is paused, so the state is unknown rather than "running". Refresh to check before changing it.
-      <button class="btn btn-sm btn-secondary" @click="checkQueuePaused">Refresh queue state</button>
+      <button class="btn btn-sm btn-secondary" @click="checkQueuePaused">Refresh Queue State</button>
     </WorkspaceNotice>
     <WorkspaceNotice v-if="jobsStale" tone="warning" title="Jobs may be out of date">
       {{ jobsRefreshMessage }}
       <button class="btn btn-sm btn-secondary" :disabled="refreshingJobs" @click="refreshVisibleJobs">
-        {{ refreshingJobs ? 'Refreshing jobs…' : 'Refresh jobs' }}
+        {{ refreshingJobs ? 'Refreshing Jobs…' : 'Refresh Jobs' }}
       </button>
     </WorkspaceNotice>
 
@@ -315,7 +315,7 @@
           class="btn btn-xs btn-ghost"
           :aria-pressed="showHidden"
           @click="toggleHiddenJobs"
-        >{{ showHidden ? 'Hide hidden' : `Show hidden (${hiddenJobsInScope.length})` }}</button>
+        >{{ showHidden ? 'Hide Hidden' : `Show Hidden (${hiddenJobsInScope.length})` }}</button>
       </div>
     </div>
 
@@ -347,8 +347,8 @@
         <strong>{{ selectedCleanupJobs.length }} selected</strong>
         <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || !attentionCleanupCount" @click="selectCleanupJobs(true)">Select needs attention ({{ attentionCleanupCount }})</button>
         <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || !eligibleCleanupJobs.length" @click="selectCleanupJobs(false)">Select all matching ({{ eligibleCleanupJobs.length }})</button>
-        <button class="btn btn-sm btn-ghost" :disabled="bulkActionBusy || !selectedCleanupIds.size" @click="selectedCleanupIds = new Set()">Clear selection</button>
-        <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || !selectedCleanupJobs.length" @click="abandonAndClearSelected">{{ clearingSelected ? 'Clearing selected…' : `Abandon and clear (${selectedCleanupJobs.length})` }}</button>
+        <button class="btn btn-sm btn-ghost" :disabled="bulkActionBusy || !selectedCleanupIds.size" @click="selectedCleanupIds = new Set()">Clear Selection</button>
+        <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || !selectedCleanupJobs.length" @click="abandonAndClearSelected">{{ clearingSelected ? 'Clearing Selected…' : `Abandon and Clear (${selectedCleanupJobs.length})` }}</button>
       </div>
       <p class="text-muted">Selection includes matching jobs across all filtered pages. Files and billing records stay intact. Abandoning stops local tracking; accepted provider work may still finish.</p>
       <p v-if="cleanupProgress" role="status">{{ cleanupProgress }}</p>
@@ -363,7 +363,7 @@
     </WorkspaceNotice>
     <WorkspaceNotice v-else-if="jobsRefreshError && !jobs.length" tone="warning" title="Jobs could not be loaded">
       {{ jobsRefreshMessage }}
-      <button class="btn btn-sm btn-secondary" :disabled="refreshingJobs" @click="refreshVisibleJobs">Refresh jobs</button>
+      <button class="btn btn-sm btn-secondary" :disabled="refreshingJobs" @click="refreshVisibleJobs">Refresh Jobs</button>
     </WorkspaceNotice>
     <!-- Empty State -->
     <EmptyState
@@ -766,7 +766,7 @@
                 :disabled="controlBusy.has(job.job_id)"
                 title="Checks the saved provider tasks first, then queues only confirmed failed audio sections or writing requests. Existing successful output stays in place; replacement work may use credits."
                 @click="replaceFailedItems(job)"
-              >{{ failedItemReplacementOutcome(job)?.state === 'checking' ? 'Checking failed items…' : 'Replace failed items' }}</button>
+              >{{ failedItemReplacementOutcome(job)?.state === 'checking' ? 'Checking Failed Items…' : 'Replace Failed Items' }}</button>
               <span v-if="failedItemReplacementOutcome(job)" class="repair-chip" :class="`rc-${failedItemReplacementOutcome(job)?.kind}`">
                 {{ failedItemReplacementOutcome(job)?.text }}
               </span>
@@ -781,7 +781,7 @@
                 class="btn btn-xs btn-primary"
                 title="SAFE — Checks THIS episode only for output the provider already finished but that never landed on disk, and pulls it in for free. No credits consumed, nothing re-submitted, and no other episode is scanned."
               >
-                {{ episodeRecoveryBusy(job) ? 'Recovering…' : 'Recover this episode' }}
+                {{ episodeRecoveryBusy(job) ? 'Recovering…' : 'Recover This Episode' }}
               </button>
               <button
                 v-if="(job.status === 'error' || job.status === 'cancelled') && canOfferScenePromptAutoRepair(job)"
@@ -790,7 +790,7 @@
                 :aria-label="`Auto repair missing prompts for ${job.episode_id}; GenStudio credits may be charged`"
                 title="PAID AUTO REPAIR — Keeps every verified prompt and submits each missing or duplicated scene alone. Continues only while verified progress improves. Pause stops new requests after any accepted request settles. GenStudio credits may be charged."
                 @click="autoRepairScenePrompts(job)"
-              >{{ controlBusy.has(job.job_id) ? 'Starting…' : 'Auto repair prompts · credits' }}</button>
+              >{{ controlBusy.has(job.job_id) ? 'Starting…' : 'Auto Repair Prompts · Credits' }}</button>
               <button
                 v-if="isTerminalContinuityRender(job)"
                 class="btn btn-xs btn-primary"
@@ -798,7 +798,7 @@
                 title="Queues only missing images. Existing images stay as they are; new generations may use credits."
                 @click="finishMissingImages(job)"
               >
-                {{ controlBusy.has(job.job_id) ? 'Queuing…' : 'Finish missing images' }}
+                {{ controlBusy.has(job.job_id) ? 'Queuing…' : 'Finish Missing Images' }}
               </button>
               <button
                 v-if="canRetryJob(job)"
@@ -990,7 +990,7 @@
               :aria-controls="`job-error-history-${job.job_id}`"
               @click="errorExpanded === job.job_id ? errorExpanded = null : errorExpanded = job.job_id"
             >
-              {{ errorExpanded === job.job_id ? 'Hide details' : 'Show details' }}
+              {{ errorExpanded === job.job_id ? 'Hide Details' : 'Show Details' }}
             </button>
             <div :id="`job-error-history-${job.job_id}`" v-if="errorExpanded === job.job_id && job.error" class="error-details">
               {{ customerJobText(job.error, job) }}
@@ -2541,7 +2541,7 @@ async function abandonAndClearSelected() {
     if (!await ask({
       title: `Abandon and clear ${selected.length} selected job${selected.length === 1 ? '' : 's'}?`,
       message: `${scope}: only these ${selected.length} selected job rows will be removed. Files and billing records stay intact.${reasons.length ? `\n\n${reasons.join('\n')}` : ''}`,
-      confirmLabel: 'Abandon and clear selected',
+      confirmLabel: 'Abandon and Clear Selected',
     })) return
     cleanupFailures.value = []
     controlBusy.value = new Set([...controlBusy.value, ...selected.map(job => job.job_id)])
@@ -2675,7 +2675,7 @@ async function runJobControl(job: RJob, requestedControl?: JobControl) {
     if (!await ask({
       title: `Abandon ${job.title || job.type}?`,
       message: control.reason,
-      confirmLabel: 'Abandon this job',
+      confirmLabel: 'Abandon This Job',
     })) return
   }
   controlBusy.value = new Set(controlBusy.value).add(job.job_id)
@@ -3442,7 +3442,7 @@ async function clearHistory(status: 'finished' | 'failed') {
   const promised = status === 'finished' ? finishedCount.value : failedCount.value
   if (!promised) return
   // Failed rows are the only place Retry/Recover and the error detail live.
-  if (status === 'failed' && !await useConfirm().ask({ title: 'Clear failed jobs?', message: `Remove ${promised} failed job row(s)? Their error details and Retry/Recover actions go with them. Files and billing records are unchanged.`, confirmLabel: 'Clear failed', danger: true })) return
+  if (status === 'failed' && !await useConfirm().ask({ title: 'Clear failed jobs?', message: `Remove ${promised} failed job row(s)? Their error details and Retry/Recover actions go with them. Files and billing records are unchanged.`, confirmLabel: 'Clear Failed', danger: true })) return
   const project = isUniversal.value ? projectFilter.value : slug.value
   const endpoint = isUniversal.value && project === 'all' ? '/jobs/all'
     : project === '_app_' ? '/jobs/app' : `/projects/${project}/jobs`
