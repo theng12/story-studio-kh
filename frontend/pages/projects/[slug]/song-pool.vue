@@ -307,7 +307,8 @@ function clock(sec: number) { const s = Math.round(sec || 0); return `${Math.flo
 function hm(sec: number) { const m = Math.round((sec || 0) / 60); return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} m` }
 function subtitle(s: any) {
   if (!s.ensemble) return s.source === 'folder' ? 'Added from the folder' : ''
-  return [s.ensemble, s.texture?.toLowerCase(), s.structure].filter(Boolean).join(', ') + (s.line ? ` — ${s.line}` : '')
+  const lower = (t?: string) => (t && t !== t.toUpperCase() ? t.toLowerCase() : t)
+  return [s.ensemble, lower(s.texture), lower(s.structure)].filter(Boolean).join(', ') + (s.line ? ` — ${s.line}` : '')
 }
 function modelName(id?: string) { return musicModels.value.find(m => m.id === id)?.display_name || (id ? id.split('::').pop() : 'the song model') }
 function made(s: any) {

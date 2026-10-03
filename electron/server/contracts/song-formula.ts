@@ -61,6 +61,7 @@ export const EpisodeDefaultsSchema = z.object({
   scene_change: z.object({ transition: z.string().trim().min(1).max(60), seconds: z.number().min(0).max(30) }),
   effects_look: z.array(z.string().trim().min(1).max(120)).max(50),
   frame_rate: z.number().int().min(1).max(120),
+  // model-drift-allow: the episode's own output size (owner 2026-10-03: 720p, or Story's local 1080p upscale), not a model option
   resolution: z.enum(['720p', '1080p']),
   pools: z.array(z.string().trim().min(1).max(80)).max(50),
 }).strict()
