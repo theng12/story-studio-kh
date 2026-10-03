@@ -9,7 +9,8 @@ import test from 'node:test'
 
 const read = (rel: string) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8')
 
-for (const page of ['metadata', 'image-prompts']) {
+// image-prompts has no script gate: thumbnails are cover art and never wait for a script.
+for (const page of ['metadata']) {
   test(`${page}: the script gate says "No finished script yet" and links to Script Generator`, () => {
     const source = read(`pages/projects/[slug]/${page}.vue`)
     assert.doesNotMatch(source, /Generate the script first to unlock this generator/)

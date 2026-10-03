@@ -74,7 +74,6 @@ describe('scalable Content Pack style library', () => {
 
   test('keeps every project style surface on the shared Content Pack catalog', () => {
     assert.match(characterSheet, /<StylePicker/)
-    assert.match(imagePrompts, /useVisualStyleCatalog/)
     assert.match(imagePrompts, /<StylePicker/)
     assert.match(settings, /useVisualStyleCatalog/)
     assert.match(settings, /visualStylesError/)

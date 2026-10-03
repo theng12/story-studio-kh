@@ -70,10 +70,10 @@ function panelFixture(jobReads: Array<() => any>) {
   return fx
 }
 
-async function mountPanel(fx: any, generationMode: 'skip' | 'regenerate' = 'skip') {
+async function mountPanel(fx: any) {
   const Panel = await loadSetup('../components/ImageGeneratorPanel.vue', PANEL_SUPPORT)
   const app = createApp({ render: () => h(Panel, {
-    projectSlug: 'p', episodeId: 'EP1', title: 'T', generationMode,
+    projectSlug: 'p', episodeId: 'EP1', title: 'T',
     prepare: async (force: boolean, ask: boolean) => { fx.prepares.push([force, ask]); return fx.prepareResult(force) },
   }) })
   app.mount(document.body.appendChild(document.createElement('div')))
@@ -100,31 +100,14 @@ test('a row render uses the page builder and sends a UUID operation id with forc
   } finally { app.unmount() }
 })
 
-test('the board bulk button asks like the top button and sends no operation id when not overwriting', async () => {
-  const fx = panelFixture([])
-  const app = await mountPanel(fx)
-  try {
-    await fx.state.runBulk()
-    assert.deepEqual(fx.prepares, [[false, true]], 'bulk shows the page confirmation')
-    assert.equal(fx.posts[0].force, false)
-    assert.equal('operation_id' in fx.posts[0], false)
-    assert.equal('thumb_number' in fx.posts[0], false)
-
-    fx.prepareResult = () => null // cancelled confirmation
-    await fx.state.runBulk()
-    assert.equal(fx.posts.length, 1, 'a cancelled confirmation submits nothing')
-  } finally { app.unmount() }
-})
-
-test('a regenerate-all bulk render carries its own operation id', async () => {
-  const fx = panelFixture([])
-  const app = await mountPanel(fx, 'regenerate')
-  try {
-    await fx.state.runBulk()
-    assert.deepEqual(fx.prepares, [[true, true]])
-    assert.equal(fx.posts[0].force, true)
-    assert.match(fx.posts[0].operation_id, UUID)
-  } finally { app.unmount() }
+test('the board has one bulk action, the top button — the panel only renders single rows', () => {
+  const panel = read('../components/ImageGeneratorPanel.vue')
+  const page = read('../pages/projects/[slug]/images.vue')
+  assert.doesNotMatch(panel, /runBulk|bulkActionLabel|bulkDisabled/)
+  assert.doesNotMatch(panel, /Generate \$\{missingCount\.value\} missing/)
+  assert.doesNotMatch(page, /generateMissingFresh|Generate missing fresh/)
+  assert.doesNotMatch(page, /:generation-mode=/)
+  assert.match(page, /:generate-label="generateButtonLabel"/)
 })
 
 test('a job error reaches the row through the customer-safe text', async () => {
@@ -155,12 +138,12 @@ test('Prompt review drops a slow load for an earlier episode and saves to the ep
   ;(globalThis as any).__fx = fx
   const Review = await loadSetup('../components/PromptReviewPanel.vue', REVIEW_SUPPORT)
   const { reactive } = await import('vue')
-  const props = reactive({ projectSlug: 'p', episodeId: 'EP-A', title: 'A', pool: 'thumbnails' })
+  const props = reactive({ projectSlug: 'p', episodeId: 'EP-A', title: 'A' })
   const app = createApp({ render: () => h(Review, { ...props }) })
   app.mount(document.body.appendChild(document.createElement('div')))
   await flush()
   try {
-    void fx.state.saveOne('thumbnail', 1, { title: 't', prompt: 'p' })
+    void fx.state.saveOne(1, { title: 't', prompt: 'p' })
     props.episodeId = 'EP-B'
     props.title = 'B'
     await flush()
@@ -212,7 +195,7 @@ test('Thumbnail Prompts: explicit replace-all, honest toast, choices survive a r
   // Format defaults only seed keys nobody chose.
   assert.match(page, /if \(seedThumb\('aspect_ratio'\)\) form\.thumbnail\.aspect_ratio = ip\.recommendedAspect/)
   assert.match(page, /seedThumb\('thumb_count'\)/)
-  assert.match(page, /if \(seedThumb\('style_tag'\)\) \{/)
+  assert.match(page, /ip\.defaultStyleTag\.trim\(\) && seedThumb\('style_tag'\)\) \{/)
   // The click brief: never restored, never in a preset, cleared + announced on switch.
   assert.match(page, /excludeKeys: \[\.\.\.DEFAULT_EXCLUDE_KEYS, 'thumb_creative_direction'\]/)
   assert.match(page, /useRememberedForm\('image-prompts'[\s\S]{0,400}form\.thumbnail\.thumb_creative_direction = ''/)

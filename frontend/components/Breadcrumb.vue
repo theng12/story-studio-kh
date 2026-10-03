@@ -57,14 +57,12 @@ function sectionLabel(path: string): string {
 function promptSectionLabel(): string {
   const tab = String(route.query.tab || '')
   if (tab === 'thumbnails') return 'Thumbnail Prompts'
-  if (tab === 'scenes') return 'Scene Prompts'
   return 'Prompts'
 }
 
 function imageSectionLabel(): string {
   const tab = String(route.query.tab || '')
   if (tab === 'thumbnails') return 'Thumbnails'
-  if (tab === 'scenes') return 'Scene Generator'
   return 'Images'
 }
 </script>

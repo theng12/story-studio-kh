@@ -1,7 +1,6 @@
 /**
  * Vision routes — reference-image analysis for the image-prompts page.
  *
- *   POST /projects/:slug/analyze-style      →  extract style description
  *   POST /projects/:slug/analyze-character  →  describe subject from image
  *   GET  /projects/:slug/vision/caps        →  whether vision is usable
  *
@@ -216,18 +215,6 @@ router.post('/projects/:slug/thumbnail-reference/analyze', async (req, res) => {
   } catch (error: any) {
     res.status(502).json({ detail: error?.message || 'Thumbnail reference analysis failed.' })
   }
-})
-
-router.post('/projects/:slug/analyze-style', async (req, res) => {
-  const { slug } = req.params
-  const config = await pm.getConfig(slug)
-  if (!config) return res.status(404).json({ detail: 'Project not found' })
-
-  const imagePath = typeof req.body?.image_path === 'string' ? req.body.image_path.trim() : ''
-  if (!imagePath) {
-    return res.status(400).json({ detail: 'image_path is required' })
-  }
-  return res.status(501).json({ code: 'GENSTUDIO_CAPABILITY_UNAVAILABLE', detail: GENSTUDIO_VISION_UNAVAILABLE })
 })
 
 /**

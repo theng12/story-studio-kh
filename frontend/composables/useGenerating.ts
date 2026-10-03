@@ -25,7 +25,6 @@ export function useGenerating() {
   const videoAssemblyGenerating = useState('videoAssemblyGenerating', () => false)
 
   // Direct-API generating states (managed manually by pages)
-  const promptGenerating = useState('promptGenerating', () => false)
   const thumbPromptGenerating = useState('thumbPromptGenerating', () => false)
   const metaGenerating = useState('metaGenerating', () => false)
 
@@ -91,7 +90,6 @@ export function useGenerating() {
 
   return {
     scriptGenerating,
-    promptGenerating,
     thumbPromptGenerating,
     imageGenerating,
     thumbImageGenerating,

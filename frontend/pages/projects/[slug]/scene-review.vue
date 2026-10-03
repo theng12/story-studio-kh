@@ -2168,12 +2168,6 @@ watch([slug, episodeId], () => {
   z-index: 2;
 }
 .review-thumb-clip:hover { background: rgba(40, 40, 56, 0.95); }
-.sr-lb-stage {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-}
 .btn-warn {
   background: color-mix(in srgb, #e0843a 22%, transparent);
   border-color: #e0843a;
@@ -2289,24 +2283,6 @@ watch([slug, episodeId], () => {
 }
 .sr-health-chip:hover { border-color: #e0a23a; background: rgba(224, 162, 58, 0.2); }
 .sr-health-why { color: var(--text-muted); }
-.sr-blocking-warning {
-  border: 1px solid rgba(232, 91, 91, 0.55);
-  border-left: 4px solid #e85b5b;
-  border-radius: 10px;
-  background: rgba(232, 91, 91, 0.09);
-  padding: 11px 13px;
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-.sr-blocking-warning strong { color: var(--text-primary); margin-right: 4px; }
-.sr-legacy-note {
-  border: 1px solid rgba(224, 162, 58, 0.35);
-  border-radius: 10px;
-  background: rgba(224, 162, 58, 0.08);
-  padding: 10px 13px;
-  color: var(--text-muted);
-  font-size: 12px;
-}
 .sr-row-problem { border-left: 3px solid #e0a23a; }
 .sr-row-flash { animation: sr-row-flash-kf 1.4s ease; }
 @keyframes sr-row-flash-kf {

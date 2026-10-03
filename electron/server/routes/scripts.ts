@@ -8,7 +8,6 @@ import { hasAnyTextProviderKey } from '../lib/ai-client.js'
 import { resolveEpisodePaths, resolveEpisodePathsForRead, resolveEpisodeTitleByCode } from '../services/utils.js'
 import { resolveReadPath, resolveArtifact, matchChapterFile } from '../lib/episode-artifacts.js'
 import { hasIntroductionScriptSource } from '../lib/narration-assembly.js'
-import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { resolveSubfolderNames } from '../services/utils.js'
 import { formatMetadataTxt, parseMetadataTxt } from '../services/metadata-format.js'
@@ -476,7 +475,7 @@ function parseOutlineText(text: string): Array<{ title: string; synopsis?: strin
  * new folder instead of using mine" bug, and a mess at bulk-import scale.
  *
  * Fix: match the real folder by `${code} - ` prefix (✅-tolerant) the same way
- * `image-prompts/save` does, then find/create the Script subfolder inside it.
+ * the old image-prompts save did, then find/create the Script subfolder inside it.
  * Only when no folder matches the code do we fall back to creating the computed
  * path — a genuinely new episode. This converges every writer on one on-disk
  * folder per episode.
@@ -1118,81 +1117,6 @@ router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
     })
     return res.status(201).json(job)
   })
-})
-
-// ── Save reviewed prompts to .docx ──
-
-router.post('/projects/:slug/generate/image-prompts/save', async (req, res) => {
-  const { slug } = req.params
-  const { episode_id, title, prompts } = req.body
-  try {
-    if (Array.isArray(prompts?.scenes) && prompts.scenes.length > 0) {
-      return res.status(410).json({ detail: 'Legacy Scene Prompts are retired. Save planned visual prompts through Scene Plan.' })
-    }
-    const paths = await resolveEpisodePaths(slug, episode_id, title || '')
-
-    const pathMod = await import('path')
-    const names = await resolveSubfolderNames(slug, episode_id)
-    const computedEpisodeDir = paths.episode_dir.replace(/\/$/, '')
-    let episodeDir = computedEpisodeDir
-
-    // Resolve the actual episode dir on disk. resolveEpisodeDir matches by
-    // `${code} - ` prefix, so a folder created with an older title (or
-    // before a title rename that didn't reach the disk) is still found.
-    // Returns null only when the season dir doesn't exist OR no folder
-    // matches the prefix — both warrant a log line because saving image
-    // prompts before any script-generated folder exists is unusual (the
-    // user must have a script on disk to be reviewing prompts).
-    const seasonDir = pathMod.dirname(episodeDir)
-    const actualDir = await resolveEpisodeDir(seasonDir, episode_id)
-    if (actualDir) {
-      episodeDir = actualDir
-      if (actualDir !== computedEpisodeDir) {
-        console.log(
-          `[image-prompts/save] episode ${slug}/${episode_id}: ` +
-          `request title yielded "${pathMod.basename(computedEpisodeDir)}" but on-disk folder ` +
-          `is "${pathMod.basename(actualDir)}". Using on-disk folder. ` +
-          `(Title-sync may not have renamed; harmless if intentional.)`,
-        )
-      }
-    } else {
-      console.warn(
-        `[image-prompts/save] episode ${slug}/${episode_id}: ` +
-        `no existing episode folder under ${seasonDir} matches "${episode_id} - " prefix. ` +
-        `Will create "${pathMod.basename(computedEpisodeDir)}". This usually means the script ` +
-        `was never generated for this episode — check whether you're saving prompts to the ` +
-        `right episode.`,
-      )
-    }
-
-    // Save thumbnail prompts to Thumbnail Prompts folder. Same caveat as
-    // scenes — log when the subfolder is freshly created.
-    if ((prompts.thumbnails || []).length > 0) {
-      const expectedThumbDir = pathMod.join(episodeDir, names.thumb_prompts)
-      const thumbSubfolderExisted = existsSync(expectedThumbDir)
-      const thumbDir = await resolveSubfolder(episodeDir, names.thumb_prompts)
-      if (!thumbSubfolderExisted) {
-        let nearby: string[] = []
-        try {
-          const entries = await fs.readdir(episodeDir, { withFileTypes: true })
-          nearby = entries
-            .filter(e => e.isDirectory() && /thumb/i.test(e.name) && e.name !== names.thumb_prompts)
-            .map(e => e.name)
-        } catch { /* episode dir might be brand new */ }
-        console.warn(
-          `[image-prompts/save] created NEW thumbnail-prompts folder "${names.thumb_prompts}" in ${episodeDir}. ` +
-          (nearby.length ? `Possible orphan(s) with similar name: ${nearby.join(', ')}.` : 'No similar siblings.'),
-        )
-      }
-      let thumbText = `# Thumbnail Prompts\n\n`
-      for (const t of prompts.thumbnails) thumbText += `## Thumbnail ${t.number}: ${t.title}\n\n${t.prompt}\n\n`
-      await buildImagePromptsDocx(thumbText, episode_id, title, pathMod.join(thumbDir, `${episode_id}_Thumbnail_Prompts.md`))
-    }
-
-    res.json({ ok: true, path: paths.thumb_prompts_docx })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to write image prompts'))
-  }
 })
 
 // ══════════════════════════════════════════════════════════════════════════

@@ -18,7 +18,7 @@ test('retired scene-generator handoffs lead to Scene Plan instead of a canonical
 test('Thumbnail Prompts ignores a completed job after the selected episode or run changes', () => {
   assert.match(
     imagePrompts,
-    /async function runGenerate\(mode: PromptMode, replaceAll = false\) \{[\s\S]*?const ep = form\.episode_id[\s\S]*?const requestSequence = \+\+promptGenerationSequence[\s\S]*?waitForJob\(generationSlug, job\.job_id\)[\s\S]*?form\.episode_id !== ep[\s\S]*?episodes\/\$\{ep\}\/image-prompts[\s\S]*?form\.episode_id !== ep/,
+    /async function runGenerate\(replaceAll = false\) \{[\s\S]*?const ep = form\.episode_id[\s\S]*?const requestSequence = \+\+promptGenerationSequence[\s\S]*?waitForJob\(generationSlug, job\.job_id\)[\s\S]*?form\.episode_id !== ep[\s\S]*?episodes\/\$\{ep\}\/image-prompts[\s\S]*?form\.episode_id !== ep/,
   )
   assert.match(
     imagePrompts,
@@ -86,7 +86,7 @@ test('a free-form custom lettering choice is sent with the run, not left in the 
   // the payload used to send only the `custom` id — so the run fell back to the
   // built-in serif/gold and the words the customer typed were ignored.
   const payload = imagePrompts.slice(
-    imagePrompts.indexOf('async function runGenerate(mode: PromptMode'),
+    imagePrompts.indexOf('async function runGenerate('),
     imagePrompts.indexOf('const operationId = payload.force'),
   )
   assert.match(

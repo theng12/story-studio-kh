@@ -232,18 +232,16 @@ describe('Scene Plan workspace control', () => {
 })
 
 describe('Thumbnail prompts control', () => {
-  test('the same Auto / published / No limit / Custom shape', () => {
-    assert.match(imagePrompts, /<option value="auto">Auto · \{\{ autoPromptCharCapLabel \}\}<\/option>/)
-    assert.match(imagePrompts, /<option value="none">No limit<\/option>/)
-    assert.match(imagePrompts, /v-for="cap in publishedPromptCharCaps"/)
-    assert.match(imagePrompts, /<option value="custom">Custom…<\/option>/)
-    assert.match(imagePrompts, /\{\{ model\.display_name \}\} · \{\{ imageModelCapLabel\(model\) \}\}/)
+  test('the ceiling resolves silently from the remembered image model — no picker on the page', () => {
+    assert.doesNotMatch(imagePrompts, /publishedPromptCharCaps|Prompt character limit|Intended image model/)
+    assert.match(imagePrompts, /resolvePromptCharCap\(normalizePromptCharCapSetting\(form\.thumbnail\.prompt_char_cap\), intendedImageModelCap\.value\)/)
+    assert.match(imagePrompts, /readRememberedImageModelId\(slug\.value, window\.localStorage\)/)
   })
 
   test('the ceiling reaches the generator and the review rows', () => {
     assert.match(imagePrompts, /prompt_char_cap: effectivePromptCharCap\.value \|\| undefined,/)
     assert.match(imagePrompts, /:thumbnail-prompt-cap="effectivePromptCharCap \|\| null"/)
-    assert.match(reviewPanel, /prompt_char_cap: \(kind === 'scene' \? props\.scenePromptCap : props\.thumbnailPromptCap\) \|\| undefined,/)
+    assert.match(reviewPanel, /prompt_char_cap: props\.thumbnailPromptCap \|\| undefined,/)
   })
 
   test('the catalogue is read once, not fetched again for the ceiling', () => {
