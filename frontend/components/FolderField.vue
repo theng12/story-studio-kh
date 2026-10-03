@@ -26,9 +26,13 @@
        - `hint` or #hint  — one visible sentence under the field.
        - `allowTyping`    — offer "Type a Path" (default on).
        - `revealable`     — offer "Show in Finder" when a path is set (default on).
-       - `clearable`      — offer a clear button labelled `clearLabel`. -->
+       - `clearable`      — offer a clear button labelled `clearLabel`.
+       - #badge           — a small status chip beside the label (e.g. "Not found"). -->
   <div class="folder-field" :class="{ 'is-empty': !modelValue, 'is-disabled': disabled }">
-    <label v-if="label" :for="editing ? inputId : undefined" class="folder-field-label">{{ label }}</label>
+    <div v-if="label || $slots.badge" class="folder-field-head">
+      <label v-if="label" :for="editing ? inputId : undefined" class="folder-field-label">{{ label }}</label>
+      <slot name="badge" />
+    </div>
     <div class="folder-field-row" role="group" :aria-label="label || undefined">
       <span class="folder-field-icon" aria-hidden="true">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
@@ -201,6 +205,7 @@ function clear() {
 
 <style scoped>
 .folder-field { display: grid; gap: var(--space-1); min-width: 0; }
+.folder-field-head { display: flex; align-items: center; gap: var(--space-2); }
 .folder-field-label { margin-bottom: 2px; }
 .folder-field-row {
   display: flex;

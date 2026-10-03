@@ -444,25 +444,10 @@ router.post('/system/resolve-asset-path', (req, res) => {
   }
 })
 
-// ── Projects storage location (cloud-sync setup) ──────────────────────────
-//
-// Lets the user point the projects folder at any local path — typically
-// inside iCloud Drive / Dropbox / Google Drive so the OS handles
-// cross-machine sync. Persists to app-settings.json (per-machine, doesn't
-// sync). The boot-time read in project-manager.ts picks up the override
-// on next launch — so the typical flow is:
-//
-//   1. PUT  /app-settings/projects-root     { override: "/iCloud/SS Projects" }
-//   2. POST /app-settings/projects-root/migrate
-//                                            { target_path: "/iCloud/SS Projects" }
-//   3. POST /system/restart-app
-//
-// All three are issued by the Storage tab UI in one user-visible action.
-
-// v1.4.3 — `GET`/`PUT /app-settings/projects-root` are gone. The location is
-// the Library now and lives behind `/library` (routes/library.ts), which also
-// validates writability and creates the fixed subfolders. The preview/inspect/
-// migrate helpers below survive: the Library's own move flow calls them.
+// v1.4.249 — the old cloud-folder "projects root" routes (preview-migration,
+// inspect-target, migrate) are gone: nothing called them since the Library
+// (routes/library.ts) took over in v1.4.3, and the owner no longer uses iCloud.
+// Moving the Library still uses services/projects-storage-mover.ts.
 
 // Last step of the migration flow: relaunch the Electron app after the
 // projects root moves. The path itself is now resolved per access, so it

@@ -41,6 +41,7 @@ async function loadPage(): Promise<Component> {
     const settingsAnchorTargetIds = () => []
     const projectSettingsSavePlan = (...args) => (globalThis.__settingsFixture.savePlan || (() => ({})))(...args)
     const genstudioStaleNote = () => ''
+    const SETTINGS_ZONES = [{ id: 'machine', title: 'This Mac', scope: '', sections: [{ id: 'maintenance', label: 'Files & maintenance', description: '' }, { id: 'writing', label: 'Writing & style', description: '' }, { id: 'publishing', label: 'Publishing', description: '' }] }]
   `
   const content = script.content
     .replace(/^import[^\n]+\n/gm, '')
@@ -259,17 +260,52 @@ test('entering the FFmpeg tab reads the real status, and a failed check is unkno
   }
 })
 
-// The card's template branches cannot be reached by the headless harness (it
-// renders `h('main')`), so the wiring that keeps an unknown status from opening
-// the installer is pinned at the source level.
-test('the FFmpeg installer and manual fallback stay closed while the status is unknown', () => {
+// v1.4.249 — the FFmpeg card is one plain sentence plus at most one fix button,
+// computed in `ffmpegState`. The fix button (a download) is never offered for a
+// status that was never read, a failed check, or a bundled copy.
+test('the FFmpeg card offers a download only for a real, fixable status', async () => {
+  const route = reactive({ params: reactive({ slug: 'project-a' }), hash: '', query: {} })
+  const fixture: any = {
+    route,
+    api: { get: async () => ({}), post: async () => ({}), put: async () => ({}), patch: async () => ({}), del: async () => ({}) },
+    projectState: { project: ref(null), config: ref(null), refreshConfig: async () => undefined, loadProject: async () => undefined },
+  }
+  ;(globalThis as any).__settingsFixture = fixture
+  const app = createApp(await loadPage())
+  const host = document.body.appendChild(document.createElement('div'))
+  app.mount(host)
+  await flush()
+  try {
+    const st = fixture.state
+    st.ffmpegStatus.value = null
+    assert.equal(st.ffmpegState.value.fix, '', 'unknown status: no download offered')
+    st.ffmpegStatusError.value = 'Backend unreachable'
+    assert.match(st.ffmpegState.value.title, /Could not check/)
+    assert.equal(st.ffmpegState.value.fix, '', 'a failed check is not "missing"')
+    st.ffmpegStatusError.value = ''
+    st.ffmpegStatus.value = { installed: true, source: 'bundled', has_drawtext: true, has_libass: true }
+    assert.equal(st.ffmpegState.value.title, 'Ready — includes text overlays and subtitle burn-in')
+    assert.equal(st.ffmpegState.value.fix, '')
+    st.ffmpegStatus.value = { installed: true, source: 'bundled', has_drawtext: false, has_libass: true }
+    assert.equal(st.ffmpegState.value.fix, '', 'a bundled copy is pinned and never replaced from Settings')
+    st.ffmpegStatus.value = { installed: true, source: 'system', has_drawtext: false, has_libass: false }
+    assert.match(st.ffmpegState.value.title, /missing text overlays and subtitle burn-in/)
+    assert.equal(st.ffmpegState.value.fix, 'Install Full Version')
+    st.ffmpegStatus.value = { installed: false, source: 'not-found' }
+    assert.equal(st.ffmpegState.value.fix, 'Install FFmpeg')
+  } finally {
+    app.unmount()
+    host.remove()
+    delete (globalThis as any).__settingsFixture
+  }
+})
+
+test('the FFmpeg internals sit behind Advanced', () => {
   const source = readFileSync(filename, 'utf8')
-  assert.match(source, /<details\s+v-else-if="ffmpegStatus"/,
-    'the recovery installer must require a real status, not merely "not bundled"')
+  assert.match(source, /<AdvancedDisclosure label="Advanced: FFmpeg details">[\s\S]{0,400}ffmpegStatus\?\.path/,
+    'the resolved path lives behind Advanced, not on the card')
   assert.match(source, /<details v-if="ffmpegStatus && ffmpegStatus\.source !== 'bundled'"/,
     'the manual-install fallback must not appear for a status that was never read')
-  assert.match(source, /v-if="ffmpegStatusError"[\s\S]{0,700}@click="refreshFfmpegStatus"/,
-    'a failed check must be stated with a retry')
 })
 
 // ── Shell audit 2026-10-03 — a backfill never runs on values that failed to save ──

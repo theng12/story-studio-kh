@@ -144,16 +144,14 @@ describe('the override is reachable, not just present', () => {
     const route = await read('routes/app-settings.ts')
     assert.match(route, /image_fanout_per_episode: await getImageFanout\(\)/)
     assert.match(route, /jq\.setImageFanoutOverride/, 'it must apply to the live queue, not only store')
-    const panel = await readFile(
-      path.join(SERVER, '..', '..', 'frontend', 'components', 'ThisMacSettings.vue'), 'utf8')
-    assert.match(panel, /Cloud requests per episode at once/)
+    const panel = await readFile(path.join(SERVER, '..', '..', 'frontend', 'utils', 'performanceSettings.ts'), 'utf8')
+    assert.match(panel, /server: 'image_fanout_per_episode', label: 'Image requests per episode'/)
   })
 
   test('the screen names the image fan-outs this dial governs, not unrelated modalities', async () => {
-    const panel = await readFile(
-      path.join(SERVER, '..', '..', 'frontend', 'components', 'ThisMacSettings.vue'), 'utf8')
+    const panel = await readFile(path.join(SERVER, '..', '..', 'frontend', 'utils', 'performanceSettings.ts'), 'utf8')
     const field = panel.slice(panel.indexOf("key: 'imageFanout'"))
-      .slice(0, panel.slice(panel.indexOf("key: 'imageFanout'")).indexOf('choices:'))
+      .slice(0, panel.slice(panel.indexOf("key: 'imageFanout'")).indexOf('input:'))
     assert.match(field, /image/i)
     assert.match(field, /thumbnail/i)
     assert.doesNotMatch(field, /subtitle/i)

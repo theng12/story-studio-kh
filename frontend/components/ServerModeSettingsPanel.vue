@@ -59,7 +59,7 @@
             After the next restart, your other computers can open Story Studio here. Restart the app to apply.
           </span>
         </label>
-        <details class="ssm-details">
+        <details class="ssm-details disclosure">
           <summary>Details — port and network address</summary>
           <p class="ssm-field-hint">
             When enabled, the next launch listens on <code>{{ state.bind }}:{{ state.port }}</code> instead of
@@ -225,7 +225,7 @@
             <span class="ssm-diag-value">{{ diag.session_ttl_hours }} h ({{ Math.round(diag.session_ttl_hours / 24) }} days)</span>
           </div>
         </div>
-        <details class="ssm-details">
+        <details class="ssm-details disclosure">
           <summary>Details</summary>
           <p class="ssm-field-hint">
             System: <code>{{ diag.platform }} · node {{ diag.node_version }}</code>.

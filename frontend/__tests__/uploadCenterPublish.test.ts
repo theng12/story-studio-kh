@@ -2100,8 +2100,11 @@ describe('Upload Center Publish boundaries', () => {
   test('links every planning entry point to the actual plan editor', () => {
     const shell = readFileSync(new URL('../pages/projects/[slug]/upload.vue', import.meta.url), 'utf8')
     const settings = readFileSync(new URL('../pages/projects/[slug]/settings.vue', import.meta.url), 'utf8')
+    // v1.4.249 — Settings → Publishing shows the plan itself through this card.
+    const scheduleCard = readFileSync(new URL('../components/PublishingScheduleCard.vue', import.meta.url), 'utf8')
     assert.match(shell, /upload\/plans/)
-    assert.match(settings, /upload\/plans/)
+    assert.match(settings, /<PublishingScheduleCard /)
+    assert.match(scheduleCard, /upload\/plans/)
     assert.match(source, /upload\/plans`[\s\S]*Manage upload plans/)
     assert.doesNotMatch(source, /Create or activate one in Settings/)
   })

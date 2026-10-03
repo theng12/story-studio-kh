@@ -91,13 +91,11 @@ describe('the ceiling is the owner\'s, not the code\'s', () => {
   })
 
   test('it has a screen, because the last two settings did not and that was the bug', async () => {
-    const panel = await read('../../frontend/components/ThisMacSettings.vue')
-    assert.match(panel, /Extra chapters allowed/, 'the owner must be able to see the setting')
-    // v1.4.44 — see the note in image-episode-concurrency.test.ts: the 1.4.42
-    // panel rewrite renamed the refs into one reactive object, and this
-    // assertion went red while the setting itself kept working.
-    assert.match(panel, /outline_chapter_headroom: Number\(models\.outlineHeadroom\)/,
-      'and the screen must actually send it')
+    // v1.4.249 — the row (label + request field) is in utils/performanceSettings.ts.
+    const panel = await read('../../frontend/utils/performanceSettings.ts')
+    assert.match(panel, /server: 'outline_chapter_headroom', label: 'Extra chapters an outline may add'/, 'the owner must be able to see the setting')
+    const screen = await read('../../frontend/components/PerformanceSettings.vue')
+    assert.match(screen, /throughputPayload\(models\)/, 'and the screen must actually send it')
   })
 
   test('the default is generous enough that EP0056 would have passed', () => {

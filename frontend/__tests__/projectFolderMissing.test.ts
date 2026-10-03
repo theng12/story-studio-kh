@@ -57,11 +57,13 @@ test('no user-facing text recommends the removed button', () => {
 })
 
 test('the honest recovery route is described instead', () => {
-  // Project discovery is a filesystem scan of the projects root, so the true
-  // instruction is where to put the folder — not which button to press.
-  assert.match(settings, /projects folder/i)
-  assert.match(settings, /project\.json/)
-  assert.match(settings, /Settings\s*(→|>)\s*Storage/i)
+  // Project discovery is a folder scan of the Library, so the true instruction
+  // is where to put the folder — not which button to press. (v1.4.249: the old
+  // "Settings → Storage" cloud-sync wording is gone with the iCloud features.)
+  const live = withoutComments(settings)
+  assert.match(live, /folder in your Library/i)
+  assert.match(live, /anywhere inside the Library/i)
+  assert.ok(!/iCloud|cloud sync|cloud-folder/i.test(live), 'Settings must not offer iCloud or cloud-folder features')
 })
 
 test('the unlink flow is gone entirely, not merely reworded', () => {

@@ -34,7 +34,9 @@ test('Settings: no native alert()/confirm(), and destructive per-row actions ask
     assert.match(script, new RegExp(`async function ${fn}\\([^)]*\\) \\{[\\s\\S]{0,400}?await ask\\(`), fn)
   }
   assert.doesNotMatch(settings, /\{'\{code\}'\}|Define it under Named Roots|e\.g\. \$\{MEDIA\}/)
-  assert.match(settings, /@click\.prevent="openSpaceRecovery"/)
+  // v1.4.249: the storage map (and its "Space recovery" card) is gone; per-episode
+  // space lives under Project files & behavior.
+  assert.match(settings, /data-setting="episode-storage"/)
 })
 
 test('Server Mode button text has no raw HTML entity inside an interpolation', () => {
