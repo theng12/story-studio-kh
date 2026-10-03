@@ -1295,6 +1295,38 @@ router.post('/projects/:slug/upload/youtube-backfill', async (req, res) => {
   }
 })
 
+// ── The channel's one schedule (v1.4.249) ─────────────────────────────────
+// Settings → Publishing and Upload Center → Plans both read and write this:
+// once a channel is assigned it IS the channel's active upload plan, shown by
+// name. See services/publish-cadence.ts.
+
+router.get('/projects/:slug/publishing-schedule', async (req, res) => {
+  try {
+    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const { readChannelSchedule } = await import('../services/publish-cadence.js')
+    res.json(await readChannelSchedule(req.params.slug))
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to read the publishing schedule'))
+  }
+})
+
+router.put('/projects/:slug/publishing-schedule', async (req, res) => {
+  try {
+    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const body = req.body || {}
+    if (!body.schedule || typeof body.schedule !== 'object') return res.status(400).json({ detail: 'schedule required' })
+    const { saveChannelSchedule } = await import('../services/publish-cadence.js')
+    res.json(await saveChannelSchedule(req.params.slug, {
+      schedule: body.schedule,
+      name: typeof body.name === 'string' ? body.name : undefined,
+      auto_schedule_on_render: typeof body.auto_schedule_on_render === 'boolean' ? body.auto_schedule_on_render : undefined,
+    }))
+  } catch (e: any) {
+    const status = e?.statusCode === 400 || e?.status === 400 ? 400 : 500
+    res.status(status).json(status === 400 ? { detail: e.message } : humanizeBackendError(e, 'Failed to save the publishing schedule'))
+  }
+})
+
 // ── Plans CRUD ────────────────────────────────────────────────────────────
 
 router.get('/projects/:slug/upload/plans', async (req, res) => {
@@ -1342,6 +1374,9 @@ router.post('/projects/:slug/upload/plans', async (req, res) => {
       schedule,
       defaults,
     })
+    // v1.4.249 — Settings shows this same plan; keep the channel's seed equal to it.
+    const { mirrorPlanToCadence } = await import('../services/publish-cadence.js')
+    await mirrorPlanToCadence(slug, plan)
     res.json({ plan })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save plan'))
@@ -1368,6 +1403,8 @@ router.put('/projects/:slug/upload/plans/:id/active', async (req, res) => {
       return res.status(409).json({ detail: 'Plan account no longer matches the project YouTube account' })
     }
     await plans.setActivePlanId(slug, plan.platform, plan.account_id, plan.id)
+    const { mirrorPlanToCadence } = await import('../services/publish-cadence.js')
+    await mirrorPlanToCadence(slug, plan)
     res.json({ ok: true })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to activate plan'))

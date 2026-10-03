@@ -329,8 +329,7 @@ router.post('/system/validate-path', async (req, res) => {
 router.get('/system/quick-locations', async (_req, res) => {
   // Sidebar shortcuts shown in the FileBrowserModal — common starting points
   // a user is likely to want when picking a folder. Each entry is checked for
-  // existence so we don't surface broken paths (e.g. the "Mobile Documents"
-  // iCloud dir doesn't exist on a fresh install with iCloud disabled).
+  // existence so we don't surface broken paths.
   const home = process.env.HOME || process.env.USERPROFILE || ''
   const candidates: Array<{ label: string; path: string }> = []
   if (home) {
@@ -338,12 +337,6 @@ router.get('/system/quick-locations', async (_req, res) => {
     candidates.push({ label: 'Desktop', path: path.join(home, 'Desktop') })
     candidates.push({ label: 'Documents', path: path.join(home, 'Documents') })
     candidates.push({ label: 'Downloads', path: path.join(home, 'Downloads') })
-    if (process.platform === 'darwin') {
-      candidates.push({
-        label: 'iCloud Drive',
-        path: path.join(home, 'Library', 'Mobile Documents', 'com~apple~CloudDocs'),
-      })
-    }
   }
   // Always include the app's projects root — that's where most picker flows
   // want to start (e.g. choosing a subfolder of an existing project).
@@ -451,72 +444,10 @@ router.post('/system/resolve-asset-path', (req, res) => {
   }
 })
 
-// ── Projects storage location (cloud-sync setup) ──────────────────────────
-//
-// Lets the user point the projects folder at any local path — typically
-// inside iCloud Drive / Dropbox / Google Drive so the OS handles
-// cross-machine sync. Persists to app-settings.json (per-machine, doesn't
-// sync). The boot-time read in project-manager.ts picks up the override
-// on next launch — so the typical flow is:
-//
-//   1. PUT  /app-settings/projects-root     { override: "/iCloud/SS Projects" }
-//   2. POST /app-settings/projects-root/migrate
-//                                            { target_path: "/iCloud/SS Projects" }
-//   3. POST /system/restart-app
-//
-// All three are issued by the Storage tab UI in one user-visible action.
-
-// v1.4.3 — `GET`/`PUT /app-settings/projects-root` are gone. The location is
-// the Library now and lives behind `/library` (routes/library.ts), which also
-// validates writability and creates the fixed subfolders. The preview/inspect/
-// migrate helpers below survive: the Library's own move flow calls them.
-
-router.post('/app-settings/projects-root/preview-migration', async (_req, res) => {
-  try {
-    const { previewMigration } = await import('../services/projects-storage-mover.js')
-    const r = await previewMigration()
-    res.json(r)
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to preview migration'))
-  }
-})
-
-// Inspect a candidate target dir to see if it already contains projects.
-// Used by the "Use existing folder (no copy)" flow on a second machine
-// where iCloud has already synced the projects folder down — the UI
-// shows the count + sample slugs before the user commits to switching.
-router.post('/app-settings/projects-root/inspect-target', async (req, res) => {
-  try {
-    const target = typeof req.body?.target_path === 'string' ? req.body.target_path.trim() : ''
-    if (!target) return res.status(400).json({ detail: 'target_path is required' })
-    const { inspectTargetForExistingProjects } = await import('../services/projects-storage-mover.js')
-    const r = await inspectTargetForExistingProjects(target)
-    res.json(r)
-  } catch (e: any) {
-    const status = e?.statusCode === 400 ? 400 : 500
-    res.status(status).json(humanizeBackendError(e, 'Failed to inspect target'))
-  }
-})
-
-router.post('/app-settings/projects-root/migrate', async (req, res) => {
-  try {
-    const target = typeof req.body?.target_path === 'string' ? req.body.target_path.trim() : ''
-    if (!target) return res.status(400).json({ detail: 'target_path is required' })
-    const { migrateProjectsTo } = await import('../services/projects-storage-mover.js')
-    const result = await migrateProjectsTo(target, {
-      merge_into_existing: req.body?.merge_into_existing === true,
-    })
-    res.json(result)
-  } catch (e: any) {
-    // Service throws with statusCode set on validation errors. Map
-    // 400/409 distinctly so the UI can show the right confirmation
-    // (e.g. 409 → "target not empty, switch to merge mode?").
-    const status = e?.statusCode === 400 ? 400
-      : e?.statusCode === 409 ? 409
-      : 500
-    res.status(status).json(humanizeBackendError(e, 'Migration failed'))
-  }
-})
+// v1.4.249 — the old cloud-folder "projects root" routes (preview-migration,
+// inspect-target, migrate) are gone: nothing called them since the Library
+// (routes/library.ts) took over in v1.4.3, and the owner no longer uses iCloud.
+// Moving the Library still uses services/projects-storage-mover.ts.
 
 // Last step of the migration flow: relaunch the Electron app after the
 // projects root moves. The path itself is now resolved per access, so it

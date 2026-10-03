@@ -85,8 +85,8 @@ export async function scheduleEpisodeWithActivePlan(
   if (!plan) {
     return {
       scheduled: false, episode_code: code,
-      reason: 'This channel has no active upload plan. Set a publishing cadence in Channel Identity, '
-        + 'or make a plan in Upload Center.',
+      reason: 'This channel has no upload schedule yet. Set one in Settings → Publishing '
+        + '(the Upload Center shows the same plan).',
     }
   }
 

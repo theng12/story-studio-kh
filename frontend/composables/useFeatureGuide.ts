@@ -36,13 +36,13 @@ export const featureGuides: Record<string, FeatureGuide> = {
       // v1.4.2 — this described a button removed on 2026-08-08. Project
       // discovery is a filesystem scan, so the honest answer is where to put the
       // folder, not which button to press.
-      { title: 'Adding a project that already exists on disk', purpose: 'Story Studio finds any folder in your projects folder that contains a project.json, so a project you copied or restored appears on its own.', useWhen: 'Use after restoring a backup or moving a project between Macs. Settings → Storage shows where your projects folder is.' },
+      { title: 'Adding a project that already exists on disk', purpose: 'Story Studio finds any folder in your projects folder that contains a project.json, so a project you copied or restored appears on its own.', useWhen: 'Use after restoring a backup or moving a project between Macs. Settings → Files & maintenance shows where your Library is.' },
       { title: 'Hidden channels', purpose: 'Lists channels removed from the list with Hide project, and restores them without touching any files.', useWhen: 'Use when a channel you hid needs to come back.' },
       { title: 'New Project', purpose: 'Creates the channel structure, production format, and initial settings.', effect: 'A new project folder and project record are created.' },
       { title: 'Usage', purpose: 'Shows your GenStudio credits: what is set aside for running jobs and what finished jobs actually cost.' },
       { title: 'Settings', purpose: 'Opens settings that belong to this Mac, including appearance, remote access, and the Gateway connection.' },
     ],
-    tips: ['Removing a project from the app is different from deleting its files. Use project controls rather than deleting folders blindly.', 'A "Folder missing" badge means the project record is safe but the episodes folder it points at is not there — the path is named on the project page so you can move the folder back or repoint it in Settings → Storage.'],
+    tips: ['Removing a project from the app is different from deleting its files. Use project controls rather than deleting folders blindly.', 'A "Folder missing" badge means the project record is safe but the episodes folder it points at is not there — the path is named on the project page so you can move the folder back, or choose the Library in Settings → Files & maintenance.'],
   },
   dashboard: {
     title: 'Project Dashboard',
@@ -315,7 +315,7 @@ export const featureGuides: Record<string, FeatureGuide> = {
   upload: {
     title: 'YouTube Upload',
     summary: 'Connect one YouTube channel, explicitly preview and publish finished episodes, and manage the records YouTube has already accepted.',
-    workflow: ['Open Settings → YouTube to connect or repair the project’s channel.', 'Use Publish to inspect the exact episode payload before an explicit upload.', 'Use Library, Reconcile, Comments, and Analytics to review the published channel records.'],
+    workflow: ['Open Settings → Publishing to choose or repair the project’s channel.', 'Use Publish to inspect the exact episode payload before an explicit upload.', 'Use Library, Reconcile, Comments, and Analytics to review the published channel records.'],
     topics: [
       { title: 'YouTube connection', purpose: 'Settings connects this project to exactly one channel and reports account health.' },
       { title: 'Overview', purpose: 'Shows the assigned channel, quota records, and items that need attention.' },
@@ -354,15 +354,15 @@ export const featureGuides: Record<string, FeatureGuide> = {
   },
   settings: {
     title: 'Settings',
-    summary: 'Configure what belongs to this Mac and what travels with this project. The Gateway decides which models you can use.',
-    workflow: ['Use App and Connections for this Mac.', 'Use Content and Generation for channel behavior.', 'Use Files for project paths and storage.'],
+    summary: 'Configure what belongs to this Mac and what travels with this project. Type in “Find a setting” to jump straight to any control.',
+    workflow: ['Pick a section on the left: This Mac sections apply to every channel, This Project sections to this one.', 'Each section starts with what you change most; rarer options sit under one Advanced.', 'Search finds single settings (for example “time zone” or “finished videos”) and opens them.'],
     topics: [
-      { title: 'App and Connections', purpose: 'Manages appearance, server mode, secure Gateway connection, catalog access, and account diagnostics.' },
-      { title: 'Format, Niche, and Standards', purpose: 'Defines what the channel produces and its editorial guardrails.' },
-      { title: 'Styles', purpose: 'Chooses or builds the visual language used by prompts and image generation.' },
-      { title: 'Performance', purpose: 'Controls how much work Story Studio prepares at once on this Mac. The Gateway still decides when each job starts.' },
-      { title: 'Folders, Storage, and Named Roots', purpose: 'Controls project file locations, portable paths, and cleanup behavior.' },
-      { title: 'Confirmations and Project', purpose: 'Controls safety prompts, project identity, relocation, and removal.' },
+      { title: 'Connections', purpose: 'The Gateway address and key, and the YouTube accounts on this Mac.' },
+      { title: 'Performance & recovery', purpose: 'How much work runs at once, and whether a confirmed failure may buy one paid replacement. One Save for the section.' },
+      { title: 'Appearance & notifications', purpose: 'Light or dark, desktop and Telegram alerts, the daily brief, and Server Mode under Advanced.' },
+      { title: 'Files & maintenance', purpose: 'Where your files are (Library and finished videos folders, chosen with a folder picker), Free up space, smaller files, and FFmpeg.' },
+      { title: 'Publishing', purpose: 'The channel’s upload schedule — the same plan the Upload Center shows — plus its YouTube channel and upload defaults.' },
+      { title: 'Project files & behavior', purpose: 'Episode numbering, space per episode, confirmation prompts, folder names, and hiding the project.' },
     ],
     tips: ['Labels state whether a setting stays on this Mac or travels with the project.', 'Never expose the Story Studio server port publicly; use authenticated Server Mode over a private network such as Tailscale.'],
   },

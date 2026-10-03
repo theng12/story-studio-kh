@@ -17,12 +17,16 @@
  *
  *   channel created  → cadence stored here, no account needed
  *   account connected → a plan is created from the cadence and made active
- *   from then on      → the PLAN is the authority; the cadence is only a seed
+ *   from then on      → the PLAN is the authority
  *
- * That last line is the part worth being strict about. Two places showing a
- * schedule is how "I changed it here but it used the other one" happens, so
- * this module never reads the cadence once a plan exists, and never writes
- * back to it when a plan changes.
+ * ONE SCHEDULE, TWO SCREENS (v1.4.249). The owner: *"it saves here but doesn't
+ * show me the plan's name so I have to do the same save again inside the
+ * Upload Center. feels like a duplicate action."* Settings and the Upload
+ * Center now read and write the same record through `readChannelSchedule` /
+ * `saveChannelSchedule`: once a channel is assigned, that record is its active
+ * upload plan, shown by name. Every save of the active plan — from either
+ * screen — is mirrored back into the cadence, so the seed a future reconnect
+ * uses is always the schedule the owner last saw, never an older one.
  *
  * Nothing here touches an episode that is already live. That protection lives
  * where it always has — `routes/upload.ts` partitions out any sidecar whose
@@ -31,7 +35,7 @@
 
 import * as pm from './project-manager.js'
 import * as plans from './upload-plans.js'
-import type { UploadSchedule, UploadPlanDefaults } from './upload-plans.js'
+import type { UploadPlan, UploadSchedule, UploadPlanDefaults } from './upload-plans.js'
 import type { UploadPlatform } from './upload-store.js'
 
 export const CADENCE_CONFIG_KEY = 'publish_cadence'
@@ -90,14 +94,18 @@ export async function writeCadence(slug: string, cadence: PublishCadence): Promi
 }
 
 /**
- * Give a newly connected account a plan, if the channel has a cadence and the
- * account has no active plan yet.
+ * Give an account its one active plan, if it has none.
  *
  * Deliberately does nothing when a plan is already active: connecting a second
  * device, or re-authorising an expired token, must not quietly reset a schedule
  * the owner has since tuned by hand.
  *
- * Returns the plan id when one was created, else null. Never throws into the
+ * Never makes a duplicate: when the account already has saved plans but none
+ * is active (or the active pointer names a plan that is gone), the most
+ * recently edited one is made active instead of creating another from the
+ * cadence. Only an account with no plans at all gets one made from the cadence.
+ *
+ * Returns the plan id it created or activated, else null. Never throws into the
  * OAuth path — a channel that cannot be given a plan is still a connected
  * channel, and failing the connection over it would be the wrong trade.
  */
@@ -108,8 +116,15 @@ export async function ensurePlanForAccount(
   accountLabel?: string,
 ): Promise<string | null> {
   try {
-    const existing = await plans.getActivePlanId(slug, platform, account_id)
-    if (existing) return null
+    const all = await plans.listPlans(slug)
+    const own = all.filter(p => p.platform === platform && p.account_id === account_id)
+    const activeId = await plans.getActivePlanId(slug, platform, account_id)
+    if (activeId && own.some(p => p.id === activeId)) return null
+    if (own.length) {
+      const newest = [...own].sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))[0]!
+      await plans.setActivePlanId(slug, platform, account_id, newest.id)
+      return newest.id
+    }
     const cadence = await readCadence(slug)
     if (!cadence) return null
     const plan = await plans.upsertPlan(slug, {
@@ -124,4 +139,133 @@ export async function ensurePlanForAccount(
   } catch {
     return null
   }
+}
+
+/** The schedule fields a cadence keeps; dates belong to one plan, not to a seed. */
+function seedScheduleFrom(schedule: UploadSchedule): UploadSchedule {
+  const seed: UploadSchedule = {
+    weekdays: Array.isArray(schedule.weekdays) ? [...schedule.weekdays] : [],
+    time_local: schedule.time_local,
+    timezone: schedule.timezone,
+  }
+  if (schedule.interval_weeks) seed.interval_weeks = schedule.interval_weeks
+  if (!seed.weekdays.length && schedule.monthly_day) seed.monthly_day = schedule.monthly_day
+  return seed
+}
+
+/**
+ * Keep the cadence equal to the channel's active plan. Called after every save
+ * or activation of a plan; a plan that is not the active one for its account
+ * leaves the cadence alone. Best-effort: the plan save already succeeded.
+ */
+export async function mirrorPlanToCadence(slug: string, plan: UploadPlan): Promise<void> {
+  try {
+    const activeId = await plans.getActivePlanId(slug, plan.platform, plan.account_id)
+    if (activeId !== plan.id) return
+    await writeCadence(slug, { schedule: seedScheduleFrom(plan.schedule), defaults: plan.defaults })
+  } catch { /* the plan is saved; the seed catches up on the next save */ }
+}
+
+export interface ChannelSchedule {
+  /** The assigned YouTube channel, or null before one is chosen. */
+  channel: { channel_id: string; title: string } | null
+  /** `registry:<channel id>` when a channel is assigned, else ''. */
+  account_id: string
+  /** The channel's active plan — THE schedule once a channel is assigned. */
+  plan: UploadPlan | null
+  /** Every saved plan for this channel, so either screen can switch between them. */
+  plans: UploadPlan[]
+  /** The channel's rhythm before YouTube is connected (also kept equal to the active plan). */
+  cadence: PublishCadence | null
+  auto_schedule_on_render: boolean
+}
+
+async function assignedChannel(slug: string): Promise<{ channel_id: string; title: string; account_id: string } | null> {
+  const { resolveYouTubeCredential } = await import('./youtube-credential.js')
+  const credential = await resolveYouTubeCredential(slug).catch(() => null)
+  if (!credential) return null
+  const { readYouTubeConnectionRegistry } = await import('./youtube-connection-store.js')
+  const registry = await readYouTubeConnectionRegistry().catch(() => null)
+  const title = registry?.channels?.[credential.channelId]?.title || credential.channelId
+  return { channel_id: credential.channelId, title, account_id: credential.accountId }
+}
+
+/**
+ * What Settings → Publishing and the Upload Center both show.
+ *
+ * Also the migration for channels set up before v1.4.249: a channel with a
+ * cadence and no plan gets its plan now, and a channel whose plans were never
+ * made active gets its newest one activated — without ever creating a second
+ * copy of a schedule that already exists.
+ */
+export async function readChannelSchedule(slug: string): Promise<ChannelSchedule> {
+  const channel = await assignedChannel(slug)
+  if (channel) await ensurePlanForAccount(slug, 'youtube', channel.account_id, channel.title)
+  const config = (await pm.getConfig(slug)) as any
+  const cadence = await readCadence(slug)
+  const auto = config?.auto_schedule_on_render === true
+  if (!channel) {
+    return { channel: null, account_id: '', plan: null, plans: [], cadence, auto_schedule_on_render: auto }
+  }
+  const own = (await plans.listPlans(slug)).filter(p => p.platform === 'youtube' && p.account_id === channel.account_id)
+  const activeId = await plans.getActivePlanId(slug, 'youtube', channel.account_id)
+  return {
+    channel: { channel_id: channel.channel_id, title: channel.title },
+    account_id: channel.account_id,
+    plan: own.find(p => p.id === activeId) || null,
+    plans: own,
+    cadence,
+    auto_schedule_on_render: auto,
+  }
+}
+
+export interface ChannelScheduleInput {
+  schedule: UploadSchedule
+  /** Plan name; only used when a plan is created or renamed. */
+  name?: string
+  auto_schedule_on_render?: boolean
+}
+
+/**
+ * Save the channel's schedule from either screen. With a channel assigned it
+ * edits the ACTIVE plan in place (or creates and activates the first one);
+ * without one it stores the cadence that becomes the plan on connect.
+ */
+export async function saveChannelSchedule(slug: string, input: ChannelScheduleInput): Promise<ChannelSchedule> {
+  const badRequest = (detail: string) => Object.assign(new Error(detail), { statusCode: 400, status: 400, expose: true })
+  if (typeof input.auto_schedule_on_render === 'boolean') {
+    await pm.updateConfig(slug, { auto_schedule_on_render: input.auto_schedule_on_render } as any)
+  }
+  const channel = await assignedChannel(slug)
+  if (!channel) {
+    const current = await readCadence(slug)
+    await writeCadence(slug, {
+      schedule: seedScheduleFrom(input.schedule),
+      defaults: current?.defaults || defaultCadence().defaults,
+    })
+    return readChannelSchedule(slug)
+  }
+  await ensurePlanForAccount(slug, 'youtube', channel.account_id, channel.title)
+  const activeId = await plans.getActivePlanId(slug, 'youtube', channel.account_id)
+  const active = activeId ? await plans.getPlan(slug, activeId) : null
+  const name = (input.name || '').trim() || active?.name || `${channel.title} schedule`
+  const draft = {
+    ...(active ? { id: active.id } : {}),
+    name,
+    platform: 'youtube' as const,
+    account_id: channel.account_id,
+    schedule: { ...(active?.schedule || {}), ...input.schedule },
+    defaults: active?.defaults || (await readCadence(slug))?.defaults || defaultCadence().defaults,
+  }
+  // Fields cleared by the editor must really clear, not survive the merge.
+  if (!input.schedule.monthly_day) delete (draft.schedule as any).monthly_day
+  if (!input.schedule.start_date) delete (draft.schedule as any).start_date
+  if (!input.schedule.end_date) delete (draft.schedule as any).end_date
+  if (!input.schedule.interval_weeks) delete (draft.schedule as any).interval_weeks
+  const problem = plans.validateUploadPlanDraft(draft)
+  if (problem) throw badRequest(problem)
+  const saved = await plans.upsertPlan(slug, draft)
+  if (!active) await plans.setActivePlanId(slug, 'youtube', channel.account_id, saved.id)
+  await mirrorPlanToCadence(slug, saved)
+  return readChannelSchedule(slug)
 }

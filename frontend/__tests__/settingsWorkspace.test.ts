@@ -9,6 +9,14 @@ const settingsSource = readFileSync(
   fileURLToPath(new URL('../pages/projects/[slug]/settings.vue', import.meta.url)),
   'utf8',
 )
+const settingsIndexSource = readFileSync(
+  fileURLToPath(new URL('../utils/settingsIndex.ts', import.meta.url)),
+  'utf8',
+)
+const performanceSource = readFileSync(
+  fileURLToPath(new URL('../utils/performanceSettings.ts', import.meta.url)),
+  'utf8',
+)
 const thisMacSettingsSource = readFileSync(
   fileURLToPath(new URL('../components/ThisMacSettings.vue', import.meta.url)),
   'utf8',
@@ -16,18 +24,21 @@ const thisMacSettingsSource = readFileSync(
 
 describe('Settings workspace navigation', () => {
   test('primary Settings groups use the shared modern panel shell', () => {
-    for (const id of ['connections', 'performance', 'appearance', 'writing', 'production', 'maintenance']) {
-      assert.match(settingsSource, new RegExp(`activeTab === '${id}'[^>]+class="[^"]*settings-panel`))
+    // v1.4.249 — one block per section, no shared multi-section cards.
+    const templateSource = settingsSource.slice(0, settingsSource.indexOf('<script setup'))
+    for (const id of ['connections', 'performance', 'appearance', 'maintenance', 'identity', 'production', 'writing', 'publishing', 'files']) {
+      assert.equal(templateSource.match(new RegExp(`v-if="activeTab === '${id}'"`, 'g'))?.length, 1, `${id} renders from exactly one block`)
     }
-    assert.match(settingsSource, /\['identity', 'publishing', 'writing', 'files'\]\.includes\(activeTab\)" class="card settings-panel/)
-    assert.match(settingsSource, /\['identity', 'production', 'publishing'\]\.includes\(activeTab\)" class="card settings-panel/)
+    assert.doesNotMatch(templateSource, /\.includes\(activeTab\)/, 'no card is shared between sections')
+    assert.ok((templateSource.match(/settings-panel/g)?.length || 0) > 10)
   })
 
   test('uses nine searchable destinations with exact links and explicit scopes', () => {
     for (const id of ['connections', 'performance', 'appearance', 'maintenance', 'identity', 'production', 'writing', 'publishing', 'files']) {
-      assert.match(settingsSource, new RegExp(`id: '${id}'`), `${id} is addressable`)
+      assert.match(settingsIndexSource, new RegExp(`id: '${id}'`), `${id} is addressable`)
     }
-    assert.match(settingsSource, /<SettingsSectionNav/)
+    assert.match(settingsSource, /<SettingsSectionNav v-model="activeTab" :zones="tabZones" @go="goToSetting" \/>/)
+    assert.match(settingsSource, /const tabZones = SETTINGS_ZONES/)
     assert.match(settingsSource, /scope="connections"/)
     assert.match(settingsSource, /scope="assignment"/)
     assert.match(settingsSource, /section="performance"/)
@@ -66,17 +77,17 @@ describe('Settings workspace navigation', () => {
 
   test('focused sections name their actions and keep secondary writing tools behind the current style', () => {
     const templateSource = settingsSource.slice(0, settingsSource.indexOf('<script setup'))
-    assert.match(templateSource, /Save project name/)
-    assert.match(templateSource, /Save publishing defaults/)
-    assert.match(templateSource, /Save file settings/)
+    assert.match(templateSource, /Save Name/)
+    assert.match(templateSource, /Save Upload Defaults/)
+    assert.match(templateSource, /Save Numbering/)
     assert.doesNotMatch(templateSource, /metadata PATCH|status\.containsSyntheticMedia/)
-    assert.match(templateSource, /href="#identity">Channel identity<\/a> owns the/)
 
-    const currentStyle = templateSource.indexOf('<label>Art Style')
-    const customStyles = templateSource.indexOf('<strong>Browse or create custom styles</strong>')
-    const writingInstructions = templateSource.indexOf('<strong>Writing instructions</strong>')
-    assert.ok(currentStyle >= 0 && currentStyle < customStyles)
-    assert.ok(customStyles < writingInstructions)
+    // The current style comes first; the rarer tools are collapsible cards after it.
+    const currentStyle = templateSource.indexOf('<label>Art style</label>')
+    const writingInstructions = templateSource.indexOf('<CollapsibleCard title="Writing instructions"')
+    const customStyles = templateSource.indexOf('<CollapsibleCard title="Custom art styles"')
+    assert.ok(currentStyle >= 0 && currentStyle < writingInstructions)
+    assert.ok(writingInstructions < customStyles)
     assert.equal(templateSource.match(/<ProjectStyleLibrary/g)?.length, 1)
   })
 
@@ -108,7 +119,7 @@ describe('Settings workspace navigation', () => {
       hasPendingSeasonSize: true,
     })
     const saveBlock = settingsSource.match(
-      /async function saveProject[\s\S]*?(?=\nasync function syncFolders)/,
+      /async function saveProject[\s\S]*?(?=\nasync function deleteProject)/,
     )?.[0] || ''
     assert.doesNotMatch(saveBlock, /loadProject\(|refreshConfig\(/)
     assert.match(saveBlock, /Object\.keys\(plan\.project\)/)
@@ -153,13 +164,12 @@ describe('Settings workspace navigation', () => {
     assert.doesNotMatch(settingsSource, /Save performance/)
     assert.doesNotMatch(settingsSource, /script-concurrency/)
     assert.doesNotMatch(settingsSource, /launch stagger/i)
-    assert.doesNotMatch(thisMacSettingsSource, /[Tt]he Gateway itself accepts 12|what the Gateway accepts/)
+    assert.doesNotMatch(performanceSource, /[Tt]he Gateway itself accepts 12|what the Gateway accepts/)
     // Same meaning, plain words: Story's number only limits what it sends; the Gateway decides what runs.
-    assert.match(thisMacSettingsSource, /the Gateway still decides/i)
+    assert.match(performanceSource, /the Gateway still decides/i)
   })
 
   test('Channel Identity owns the channel-wide recurring guide visibility default', () => {
-    assert.match(settingsSource, /Visual planning defaults/)
     assert.match(settingsSource, /Recurring guide visibility/)
     assert.match(settingsSource, /character_density: guideDensity\.value/)
     assert.match(settingsSource, /Existing Scene Plans stay unchanged/)
@@ -203,7 +213,7 @@ describe('Settings workspace navigation', () => {
   test('Gateway catalogs are account-scoped under App & Connections', () => {
     assert.match(
       settingsSource,
-      /activeTab === 'connections'[\s\S]*?<ThisMacSettings section="connections" \/>[\s\S]*?<GenStudioCatalogSettings \/>/,
+      /activeTab === 'connections'[\s\S]*?<ThisMacSettings section="connections" embedded \/>[\s\S]*?<GenStudioCatalogSettings \/>/,
     )
     assert.doesNotMatch(settingsSource, /activeTab === 'models'/)
     assert.doesNotMatch(settingsSource, /id: 'models'/)
@@ -221,25 +231,32 @@ describe('Settings workspace navigation', () => {
     assert.doesNotMatch(thisMacSettingsSource, /\/v1\/api-keys|\/reveal/)
   })
 
-  test('Storage separates active destinations from optional maintenance and keeps retired migration out', () => {
-    assert.match(settingsSource, /Library & exports/)
-    assert.match(settingsSource, /Project storage/)
-    assert.match(settingsSource, /Your storage map/)
-    assert.match(settingsSource, /Optional storage split/)
-    assert.match(settingsSource, /Advanced maintenance/)
+  test('Files: one "Where your files are" card with folder pickers; no storage map, no iCloud', () => {
+    // v1.4.249 — "this library and your storage map thing is so confusing. and
+    // i no longer use any icloud features."
+    const templateSource = settingsSource.slice(0, settingsSource.indexOf('<script setup')).replace(/<!--[\s\S]*?-->/g, '')
+    assert.match(templateSource, /Where your files are/)
+    assert.match(templateSource, /<FolderField[\s\S]{0,120}label="Library folder"/)
+    assert.match(templateSource, /<FolderField[\s\S]{0,120}label="Finished videos folder"/)
+    assert.match(templateSource, /@picked="chooseExportsFolder"/)
+    assert.match(templateSource, /Move uploaded videos to another drive/)
+    assert.doesNotMatch(templateSource, /storage map|overview-card|Cross-machine and cloud-folder notes/i)
+    assert.doesNotMatch(templateSource, /iCloud|cloud sync|cloud-folder/i)
+    assert.doesNotMatch(templateSource, /This is not\s+a setting/)
+    assert.match(settingsSource, /'\/library\/exports'/)
     assert.match(settingsSource, /Current resume checkpoints, not legacy assets/)
     assert.doesNotMatch(settingsSource, /Legacy video assembly presets/)
     assert.doesNotMatch(settingsSource, /legacy-video-assembly-presets/)
   })
 
   test('Notifications stages changes and guides setup through modern channel controls', () => {
-    assert.match(settingsSource, /Notification center/)
+    assert.match(settingsSource, /<h3>Notifications<\/h3>/)
     assert.match(settingsSource, /notification-status-grid/)
     assert.match(settingsSource, /Set up Telegram/)
     assert.match(settingsSource, /:type="showTelegramToken \? 'text' : 'password'"/)
     assert.match(settingsSource, /Daily production brief/)
     assert.match(settingsSource, /notificationsDirty/)
-    assert.match(settingsSource, /Save notifications/)
+    assert.match(settingsSource, /Save Notifications/)
     assert.doesNotMatch(settingsSource, /@change="saveNotifSettings"/)
     assert.doesNotMatch(settingsSource, /Saved automatically/)
   })

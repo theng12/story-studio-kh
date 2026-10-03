@@ -14,6 +14,7 @@ import {
   checkLibraryTarget,
   describeLibrary,
   getLibraryRoot,
+  setExportsRoot,
   setLibraryRoot,
 } from '../services/library.js'
 import {
@@ -111,6 +112,21 @@ router.put('/library', async (req, res) => {
   } catch (e: any) {
     const status = e?.status === 400 ? 400 : 500
     res.status(status).json(humanizeBackendError(e, 'Could not set the Library location'))
+  }
+})
+
+/**
+ * Choose where NEW finished videos go (v1.4.249). `{ path: '' }` returns to
+ * the Library's own Exports folder. Moves nothing: videos already rendered
+ * stay put and are still found in the folder they were made in.
+ */
+router.put('/library/exports', async (req, res) => {
+  try {
+    const target = typeof req.body?.path === 'string' ? req.body.path : ''
+    res.json(await setExportsRoot(target))
+  } catch (e: any) {
+    const status = e?.status === 400 ? 400 : 500
+    res.status(status).json(humanizeBackendError(e, 'Could not set the finished videos folder'))
   }
 })
 

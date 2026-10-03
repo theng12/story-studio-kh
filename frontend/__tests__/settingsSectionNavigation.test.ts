@@ -5,6 +5,7 @@ import { describe, test } from 'node:test'
 import { createApp, defineComponent, h, nextTick, ref, type Component } from 'vue'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
+import { SETTINGS_INDEX, SETTINGS_ZONES, searchSettings } from '../utils/settingsIndex.ts'
 
 const componentPath = fileURLToPath(new URL('../components/SettingsSectionNav.vue', import.meta.url))
 
@@ -18,56 +19,76 @@ async function loadComponent(): Promise<Component> {
     compilerOptions: { bindingMetadata: script.bindings },
   })
   const vueUrl = await import.meta.resolve('vue')
+  const indexUrl = new URL('../utils/settingsIndex.ts', import.meta.url).href
   const code = `${script.content.replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
   const transformed = await transform(code, { loader: 'ts', format: 'esm' })
   return (await import(`data:text/javascript;base64,${Buffer.from(
-    transformed.code.replaceAll('"vue"', JSON.stringify(vueUrl)),
+    transformed.code.replaceAll('"vue"', JSON.stringify(vueUrl)).replaceAll('"~/utils/settingsIndex"', JSON.stringify(indexUrl)),
   ).toString('base64')}`)).default
 }
 
-const zones = [
-  {
-    id: 'machine', title: 'This Mac', scope: 'Stays on this Mac', sections: [
-      { id: 'connections', label: 'Connections', description: 'The Gateway and YouTube accounts', keywords: 'api key oauth channel' },
-      { id: 'performance', label: 'Performance & recovery', description: 'Local workload and retries', keywords: 'throughput failed image subtitles' },
-    ],
-  },
-  {
-    id: 'project', title: 'This Project', scope: 'Travels with project', sections: [
-      { id: 'identity', label: 'Channel identity', description: 'Formula and topics', keywords: 'series topic packs' },
-      { id: 'publishing', label: 'Publishing', description: 'YouTube assignment and cadence', keywords: 'channel upload schedule' },
-    ],
-  },
-]
+const zones = SETTINGS_ZONES
 
 async function mountNav() {
   const Component = await loadComponent()
   const selected = ref('connections')
+  const gone: any[] = []
   const host = document.body.appendChild(document.createElement('div'))
   const app = createApp(defineComponent({
     render: () => h(Component as any, {
       zones,
       modelValue: selected.value,
       'onUpdate:modelValue': (value: string) => { selected.value = value },
+      onGo: (hit: any) => { gone.push(hit) },
     }),
   }))
   app.mount(host)
   await nextTick()
-  return { host, selected, destroy: () => { app.unmount(); host.remove() } }
+  return { host, selected, gone, destroy: () => { app.unmount(); host.remove() } }
 }
 
 describe('Settings section navigation', () => {
-  test('searches labels, descriptions and keywords across both scopes', async () => {
+  test('search finds individual settings, not just section names', () => {
+    // v1.4.249 — "the way settings are is a bit messy. it's hard to understand or navigate."
+    const first = (q: string) => searchSettings(q)[0]
+    assert.equal(first('telegram')?.section, 'appearance')
+    assert.equal(first('time zone')?.anchor, 'upload-schedule')
+    assert.equal(first('finished videos')?.anchor, 'exports-folder')
+    assert.equal(first('ffmpeg')?.section, 'maintenance')
+    assert.equal(first('credit limit')?.anchor, 'paid-replacement')
+    assert.equal(first('concurrency')?.anchor, 'throughput')
+    assert.equal(first('library')?.anchor, 'library-folder')
+    assert.deepEqual(searchSettings('icloud'), [], 'retired iCloud features are not searchable')
+    assert.deepEqual(searchSettings('   '), [])
+  })
+
+  test('every indexed setting points at a real section, and nine sections exist', () => {
+    const sections = SETTINGS_ZONES.flatMap(zone => zone.sections.map(section => section.id))
+    assert.equal(sections.length, 9)
+    for (const entry of SETTINGS_INDEX) assert.ok(sections.includes(entry.section), `${entry.label} → ${entry.section}`)
+    // Every anchor the index names is present in the page or one of its components.
+    const sources = ['../pages/projects/[slug]/settings.vue', '../components/ThisMacSettings.vue', '../components/PerformanceSettings.vue']
+      .map(rel => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')).join('\n')
+    for (const entry of SETTINGS_INDEX) {
+      assert.match(sources, new RegExp(`data-setting="${entry.anchor}"`), `anchor ${entry.anchor} exists`)
+    }
+  })
+
+  test('typing shows matching settings; choosing one opens its section and reports the anchor', async () => {
     const mounted = await mountNav()
     try {
       const input = mounted.host.querySelector<HTMLInputElement>('input[type="search"]')!
-      input.value = 'youtube'
+      input.value = 'schedule'
       input.dispatchEvent(new Event('input', { bubbles: true }))
       await nextTick()
-
-      const links = [...mounted.host.querySelectorAll<HTMLAnchorElement>('a')]
-      assert.deepEqual(links.map(link => link.getAttribute('href')), ['#connections', '#publishing'])
-      assert.equal(mounted.host.querySelectorAll('[data-settings-scope]').length, 2, 'both matching scopes stay named')
+      const hits = [...mounted.host.querySelectorAll<HTMLButtonElement>('.settings-search-hit')]
+      assert.ok(hits.length >= 1)
+      assert.match(hits[0]!.textContent || '', /Upload schedule[\s\S]*Publishing/)
+      hits[0]!.click()
+      await nextTick()
+      assert.equal(mounted.selected.value, 'publishing')
+      assert.equal(mounted.gone[0]?.anchor, 'upload-schedule')
+      assert.equal(input.value, '', 'the search clears after jumping')
     } finally { mounted.destroy() }
   })
 
@@ -83,11 +104,11 @@ describe('Settings section navigation', () => {
       input.value = 'nothing matches'
       input.dispatchEvent(new Event('input', { bubbles: true }))
       await nextTick()
-      assert.match(mounted.host.textContent!, /No settings match/)
+      assert.match(mounted.host.textContent!, /Nothing matches/)
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
       await nextTick()
       assert.equal(input.value, '')
-      assert.equal(mounted.host.querySelectorAll('a').length, 4)
+      assert.equal(mounted.host.querySelectorAll('a').length, 9)
     } finally { mounted.destroy() }
   })
 })

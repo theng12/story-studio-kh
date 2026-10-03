@@ -90,6 +90,7 @@ export async function resolveExternalFinalVideoDir(
   code: string,
   title: string,
   cache?: ProjectFactsCache,
+  options: { forWrite?: boolean } = {},
 ): Promise<string | null> {
   const root = cache
     ? await (cache.externalFinalVideoRoot ??= getExternalFinalVideoRoot().catch((error: unknown) => {
@@ -123,7 +124,25 @@ export async function resolveExternalFinalVideoDir(
     .replace('{code}', code)
     .replace('{title}', title || code)
 
-  return path.join(root, slug, episodeRel)
+  const current = path.join(root, slug, episodeRel)
+  // v1.4.249 — the finished-videos folder can be changed. A video rendered
+  // before the change is still where it was, so when this episode has nothing
+  // in the current folder, look in the folders it replaced. Writers pass
+  // `forWrite` and always get the current folder.
+  if (options.forWrite || existsSync(current)) return current
+  const previous = cache
+    ? await (cache.previousExportRoots ??= previousExportRootsOrEmpty())
+    : await previousExportRootsOrEmpty()
+  for (const earlier of previous) {
+    const candidate = path.join(earlier, slug, episodeRel)
+    if (existsSync(candidate)) return candidate
+  }
+  return current
+}
+
+async function previousExportRootsOrEmpty(): Promise<string[]> {
+  const { previousExportsDirs } = await import('./library.js')
+  return previousExportsDirs().catch(() => [])
 }
 
 /**
@@ -136,7 +155,7 @@ export async function ensureExternalFinalVideoDir(
   code: string,
   title: string,
 ): Promise<string | null> {
-  const dir = await resolveExternalFinalVideoDir(slug, code, title)
+  const dir = await resolveExternalFinalVideoDir(slug, code, title, undefined, { forWrite: true })
   if (!dir) return null
   await fs.mkdir(dir, { recursive: true })
   return dir

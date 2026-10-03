@@ -1,340 +1,588 @@
 <template>
   <div class="settings-workspace">
-    <header class="settings-page-hero">
-      <div class="settings-page-copy">
-        <h1>Settings</h1>
-        <p>Find one setting, see its scope, and change how <strong>{{ projectForm.name || project?.name || 'this project' }}</strong> works.</p>
-      </div>
-      <div class="settings-page-key" aria-label="Settings storage key">
-        <span><i class="key-dot key-machine" />This Mac</span>
-        <span><i class="key-dot key-project" />This Project</span>
-      </div>
+    <header class="settings-head">
+      <h1>Settings</h1>
+      <p><span class="key-dot key-machine" /> <strong>This Mac</strong> settings apply to every channel. <span class="key-dot key-project" /> <strong>This Project</strong> settings belong to <strong>{{ projectForm.name || project?.name || 'this channel' }}</strong>.</p>
     </header>
 
-    <SettingsSectionNav v-model="activeTab" :zones="tabZones" />
+    <div class="settings-layout">
+      <aside class="settings-rail">
+        <SettingsSectionNav v-model="activeTab" :zones="tabZones" @go="goToSetting" />
+      </aside>
 
-    <section
-      v-if="activeZone && activeTabMeta"
-      :class="['settings-active-intro', activeZone.id === 'machine' ? 'scope-machine' : 'scope-project']"
-    >
-      <div class="settings-active-copy">
-        <h2 :id="activeTab">{{ activeTabMeta.label }}</h2>
-        <span
-          v-for="targetId in inactiveSettingsHashTargets"
-          :id="targetId"
-          :key="targetId"
-          class="settings-hash-target"
-          aria-hidden="true"
-        ></span>
-        <p>{{ activeTabMeta.description }}</p>
-      </div>
-      <span class="settings-scope-pill">
-        {{ activeZone.id === 'machine' ? 'Stays on this Mac' : 'Travels with project' }}
-      </span>
-    </section>
-
-    <div v-if="activeTab === 'connections'" class="card settings-panel settings-panel-embedded mt-2">
-      <ThisMacSettings section="connections" />
-      <GenStudioCatalogSettings />
-      <YouTubeConnectionSettings :slug="slug" scope="connections" />
-    </div>
-
-    <div v-if="activeTab === 'performance'" class="card settings-panel settings-panel-embedded mt-2">
-      <ThisMacSettings section="performance" />
-    </div>
-
-    <div v-if="activeTab === 'appearance'" class="card settings-panel settings-panel-embedded mt-2">
-      <ThisMacSettings section="appearance" />
-    </div>
-
-    <!-- Channel Identity — production path -->
-    <div v-if="activeTab === 'production'" class="card settings-panel mt-2">
-      <div class="format-tab-header">
-        <div>
-          <h3>Continuity Engine</h3>
-          <p class="text-muted mt-1 mb-2">
-            This is the one production engine for every channel. Choose how it handles
-            scene references. <a href="#identity">Channel identity</a> owns the
-            Series Formula for titles, perspective, voice, and script structure.
-          </p>
-        </div>
-      </div>
-
-      <div class="continuity-engine-summary">
-        <strong>Continuity Engine</strong>
-        <span>Narration-timed scene planning, with independent or character-anchored reference behavior.</span>
-      </div>
-
-      <div class="continuity-mode-box mt-3">
-        <div class="cm-label">Reference behavior</div>
-        <p class="text-muted text-xs mt-1">Every channel uses the Continuity Engine. Choose the starting behavior for new episodes; Character Sheet can still refine an individual episode.</p>
-        <div class="cm-options">
-          <label class="cm-opt" :class="{ active: continuityMode === 'independent-stills' }">
-            <input v-model="continuityMode" type="radio" value="independent-stills" />
-            <div><strong>Independent illustrated scenes</strong><div class="text-muted text-xs">No previous-frame reference. Best for explainers, history, economics, and varied locations.</div></div>
-          </label>
-          <label class="cm-opt" :class="{ active: continuityMode === 'character-continuity' }">
-            <input v-model="continuityMode" type="radio" value="character-continuity" />
-            <div><strong>Character continuity</strong><div class="text-muted text-xs">Each scene references the previous render and character anchors for one recurring on-screen subject.</div></div>
-          </label>
-          <label class="cm-opt" :class="{ active: continuityMode === 'explainer-stills' }">
-            <input v-model="continuityMode" type="radio" value="explainer-stills" />
-            <div><strong>Explainer boards</strong><div class="text-muted text-xs">Independent subject-led scenes, ready for an optional composition reference.</div></div>
-          </label>
-        </div>
-      </div>
-
-      <div class="mt-3 button-row">
-        <button class="btn btn-primary" :disabled="formatSaving || !formatDirty" @click="saveFormatSettings">
-          {{ formatSaving ? 'Saving…' : 'Save Continuity behavior' }}
-        </button>
-        <SaveIndicator v-bind="savedHintProps('format')" />
-        <span v-if="formatSaveError" class="text-error">{{ formatSaveError }}</span>
-      </div>
-
-      <section class="channel-visual-defaults mt-3">
-        <div class="settings-section-head">
-          <div>
-            <span class="settings-section-kicker">Visual planning defaults</span>
-            <h3>Recurring guide visibility</h3>
-            <p>Controls how often Scene Plan includes its recurring on-screen guide in newly generated episodes. This is a channel rule, not a Character Sheet setting.</p>
+      <div class="settings-content">
+        <section
+          v-if="activeZone && activeTabMeta"
+          :class="['settings-active-intro', activeZone.id === 'machine' ? 'scope-machine' : 'scope-project']"
+        >
+          <div class="settings-active-copy">
+            <h2 :id="activeTab">{{ activeTabMeta.label }}</h2>
+            <span
+              v-for="targetId in inactiveSettingsHashTargets"
+              :id="targetId"
+              :key="targetId"
+              class="settings-hash-target"
+              aria-hidden="true"
+            ></span>
+            <p>{{ activeTabMeta.description }}</p>
           </div>
-          <span class="settings-section-count">{{ guideDensityLabel }}</span>
-        </div>
-        <div class="channel-guide-density-row">
-          <input
-            v-model.number="guideDensity"
-            type="range"
-            min="0"
-            max="100"
-            step="5"
-            class="channel-guide-density-slider"
-            :disabled="savingGuideDensity"
-            @change="saveGuideDensity"
-          />
-          <output class="channel-guide-density-value" :class="{ off: guideDensity === 0 }">{{ guideDensity }}%</output>
-        </div>
-        <p class="text-muted text-xs mt-1">
-          <strong>0%</strong> means no recurring guide; <strong>100%</strong> means one in every scene. Existing Scene Plans stay unchanged—regenerate a plan to apply this default.
-        </p>
-        <SaveIndicator v-bind="savedHintProps('guide_density')" />
-      </section>
-
-      <section class="audio-quality-settings mt-3" aria-labelledby="audio-quality-settings-title">
-        <div class="settings-section-head">
-          <div>
-            <h3 id="audio-quality-settings-title">Audio quality</h3>
-            <p>Choose whether this channel checks chapter narration after subtitles exist. Normal Audio and Pipeline runs stay available in every mode.</p>
-          </div>
-          <span class="settings-section-count">{{ audioQualityModeSummary }}</span>
-        </div>
-
-        <div class="audio-quality-options" role="radiogroup" aria-label="Audio quality mode">
-          <label v-for="option in audioQualityModeOptions" :key="option.value" :class="['audio-quality-option', { active: audioQualityMode === option.value }]">
-            <input v-model="audioQualityMode" type="radio" :value="option.value" />
-            <span>
-              <strong>{{ option.label }} <small v-if="option.recommended">Recommended during calibration</small></strong>
-              <span>{{ option.description }}</span>
-            </span>
-          </label>
-        </div>
-
-        <div v-if="audioQualityMode === 'check_and_repair'" class="audio-quality-alternate">
-          <label>Alternate transcription model <span class="required" aria-hidden="true">*</span></label>
-          <ModelMenu
-            v-model="audioQualityAlternateModel"
-            :options="audioQualityModelOptions"
-            media-type="transcription"
-            title="Choose the alternate transcription model"
-            placeholder="Choose a published model…"
-            search-placeholder="Search transcription models…"
-            aria-label="Alternate transcription model"
-          />
-          <p class="text-muted text-xs mt-1">
-            You choose the alternate. It must have a different published model ID from the first transcript; a different provider name alone does not make it a distinct model.
-          </p>
-          <p v-if="audioQualityCatalogLoading" class="text-muted text-xs mt-1"><LoadingSpinner size="sm" /> Loading published transcription models…</p>
-          <p v-else-if="audioQualityCatalogError" class="text-warning text-xs mt-1">
-            {{ audioQualityCatalogError }}
-            <button type="button" class="btn btn-sm btn-ghost" @click="loadAudioQualityModels">Retry</button>
-          </p>
-          <p v-else-if="audioQualityCatalogStale" class="text-warning text-xs mt-1">
-            {{ audioQualityCatalogStaleNote }}. Showing the last available catalog for display only; refresh it before starting a paid quality check.
-            <button type="button" class="btn btn-sm btn-ghost" @click="loadAudioQualityModels">Refresh</button>
-          </p>
-        </div>
-
-        <p v-if="audioQualityMode === 'check_and_repair'" class="audio-quality-cost-note">
-          Replacement narration estimates are advisory because the current TTS contract has no hard aggregate credit ceiling. Audio requires an action-specific verification credit ceiling; transcription is quoted after candidate audio exists, and a higher quote holds that candidate for your approval.
-        </p>
-
-        <div class="audio-quality-save-row">
-          <button
-            type="button"
-            class="btn btn-primary"
-            :disabled="audioQualitySaving || !audioQualityDirty || !audioQualityValid"
-            @click="saveAudioQuality"
-          >{{ audioQualitySaving ? 'Saving…' : 'Save audio quality' }}</button>
-          <SaveIndicator v-bind="savedHintProps('audio_quality')" />
-          <span v-if="!audioQualityValid" class="text-warning text-xs">Choose an alternate transcription model to enable checked repair.</span>
-          <span v-if="audioQualitySaveError" class="text-error text-xs">{{ audioQualitySaveError }}</span>
-        </div>
-      </section>
-
-    </div>
-
-    <div v-if="activeTab === 'publishing'" class="card publishing-profile-card settings-panel mt-2">
-      <div class="settings-section-head">
-        <div>
-          <span class="settings-section-kicker">YouTube publishing</span>
-          <h3>Publishing Profile</h3>
-          <p>Set channel-wide links, credits, CTAs, disclosures, recurring tags, and an optional title wrapper once. The selected Series Formula continues to own episode-specific metadata.</p>
-        </div>
-        <NuxtLink :to="`/projects/${slug}/metadata-template`" class="btn btn-primary">Configure publishing profile</NuxtLink>
-      </div>
-    </div>
-
-    <div v-if="activeTab === 'publishing'" class="card settings-panel settings-panel-embedded mt-2">
-      <YouTubeConnectionSettings :slug="slug" scope="assignment" />
-      <p class="settings-cross-link">
-        YouTube accounts are shared by this Mac.
-        <a href="#connections" @click="activeTab = 'connections'">Manage connected accounts</a>
-      </p>
-    </div>
-
-    <!-- Channel Identity — formula + subject lane layer. -->
-    <div v-if="['identity', 'production', 'publishing'].includes(activeTab)" class="card settings-panel mt-2">
-      <div v-if="activeTab === 'identity'" class="format-tab-header">
-        <div>
-          <h3>Series Formula + Topic Packs</h3>
-          <p class="text-muted mt-1 mb-2">
-            The Series Formula defines the recurring hook, title style, script
-            flow, and channel voice. Topic Packs supply reusable subject lanes.
-            Mix one formula with several packs to expand without duplicating the
-            channel structure. The Production Path above remains independent.
-          </p>
-        </div>
-      </div>
-
-      <div v-if="activeTab === 'identity'" class="sub-tabs mt-3">
-        <button
-          :class="['sub-tab', { active: nicheSubTab === 'project' }]"
-          @click="nicheSubTab = 'project'"
-        >Project formula</button>
-        <button
-          :class="['sub-tab', { active: nicheSubTab === 'library' }]"
-          @click="nicheSubTab = 'library'"
-        >Custom formulas <span class="sub-tab-count">· {{ nicheLibraryCount }}</span></button>
-      </div>
-
-      <!-- ── Sub-tab 1: Project niche picker ───────────────────────── -->
-      <div v-if="activeTab !== 'identity' || nicheSubTab === 'project'" class="sub-tab-body">
-        <h4 v-if="activeTab === 'identity'" class="sub-tab-section-title">Choose the formula and subject lanes this channel uses</h4>
-        <section v-if="activeTab === 'identity'" class="channel-identity-summary">
-          <div class="channel-identity-summary-copy">
-            <span>Series Formula</span>
-            <strong>{{ selectedFormulaLabel }}</strong>
-            <small>{{ selectedNicheProfile?.description || (nicheId ? 'This saved Formula is currently unavailable from the library.' : 'General generation without a repeatable Formula.') }}</small>
-          </div>
-          <div class="channel-identity-summary-copy">
-            <span>Topic Packs</span>
-            <strong>{{ selectedTopicPackLabel }}</strong>
-            <small>{{ topicPackIds.length ? 'Reusable subject inventories selected for this channel.' : 'No Topic Packs selected.' }}</small>
-          </div>
-          <button type="button" class="btn btn-primary" @click="identityPickerOpen = true">Choose Formula &amp; Topics</button>
+          <span class="settings-scope-pill">
+            {{ activeZone.id === 'machine' ? 'This Mac' : 'This Project' }}
+          </span>
         </section>
 
-        <!-- v1.4.20 — how often this channel publishes. Channel-level, because
-             an upload plan cannot exist before a YouTube account is connected. -->
-        <section v-if="activeTab === 'publishing'" class="episode-shape-card">
-          <div class="episode-shape-head">
-            <div>
-              <span class="settings-section-kicker">Publishing cadence</span>
-              <h4>How often this channel puts out an episode</h4>
-              <p class="text-muted text-sm mb-0">
-                Set the rhythm once and each finished episode takes the next free slot on its own.
-                <template v-if="cadenceHasPlan">
-                  This channel already has an upload plan, so that plan is what actually schedules —
-                  edit it using Manage upload plans below. What you set here seeds any new account you connect.
-                </template>
-                <template v-else>
-                  This seeds a plan when you connect YouTube. If the channel is already connected, create or choose its plan below.
-                </template>
-              </p>
-            </div>
+        <!-- ═══ This Mac → Connections ═══ -->
+        <template v-if="activeTab === 'connections'">
+          <div class="card settings-panel settings-panel-embedded">
+            <ThisMacSettings section="connections" embedded />
           </div>
+          <div class="card settings-panel settings-panel-embedded" data-setting="youtube-accounts">
+            <YouTubeConnectionSettings :slug="slug" scope="connections" />
+          </div>
+          <AdvancedDisclosure label="Advanced: Gateway model catalog" data-setting="gateway-catalog">
+            <div class="card settings-panel settings-panel-embedded"><GenStudioCatalogSettings /></div>
+          </AdvancedDisclosure>
+        </template>
 
-          <NuxtLink :to="`/projects/${slug}/upload/plans`" class="btn btn-ghost btn-sm mb-3">Manage upload plans</NuxtLink>
+        <!-- ═══ This Mac → Performance & recovery ═══ -->
+        <div v-if="activeTab === 'performance'" class="settings-plain">
+          <ThisMacSettings section="performance" embedded />
+        </div>
 
-          <div v-if="cadenceLoaded" class="cadence-body">
-            <div class="cadence-days">
-              <button
-                v-for="(label, day) in WEEKDAY_LABELS"
-                :key="day"
-                type="button"
-                class="cadence-day"
-                :class="{ on: cadenceWeekdays.includes(day) }"
-                @click="toggleCadenceWeekday(day)"
-              >{{ label }}</button>
-            </div>
+        <!-- ═══ This Mac → Appearance & notifications ═══ -->
+        <template v-if="activeTab === 'appearance'">
+          <div class="settings-plain">
+            <ThisMacSettings section="appearance" embedded />
+          </div>
+    <div class="card settings-panel notification-panel" data-setting="notifications">
+      <header class="settings-section-head">
+        <div>
+          <h3>Notifications</h3>
+          <p>Choose what deserves your attention, where it should reach you, and when the daily production brief arrives.</p>
+        </div>
+        <span class="settings-section-count">{{ notificationReadinessLabel }}</span>
+      </header>
 
-            <div class="episode-shape-fields mt-2">
-              <label>
-                <span>Time of day</span>
-                <input v-model="cadenceTime" type="time" />
-              </label>
-              <label>
-                <span>Every</span>
-                <select v-model.number="cadenceIntervalWeeks">
-                  <option :value="1">week</option>
-                  <option :value="2">2 weeks</option>
-                  <option :value="3">3 weeks</option>
-                  <option :value="4">4 weeks</option>
-                </select>
-              </label>
-              <label>
-                <span>Time zone</span>
-                <input v-model="cadenceTimezone" type="text" placeholder="Asia/Phnom_Penh" />
-              </label>
-            </div>
+      <section class="notification-status-grid" aria-label="Notification channel status">
+        <article :class="['notification-status-card', { active: notifSettings.enabled }]">
+          <span class="notification-status-icon" aria-hidden="true">▣</span>
+          <div><strong>Desktop</strong><small>{{ notifSettings.enabled ? 'Active on this Mac' : 'Muted' }}</small></div>
+          <span :class="['notification-state', notifSettings.enabled ? 'ready' : 'off']">{{ notifSettings.enabled ? 'ON' : 'OFF' }}</span>
+        </article>
+        <article :class="['notification-status-card', { active: telegramReady }]">
+          <span class="notification-status-icon" aria-hidden="true">↗</span>
+          <div><strong>Telegram</strong><small>{{ telegramStatusText }}</small></div>
+          <span :class="['notification-state', telegramReady ? 'ready' : notifSettings.telegram.enabled ? 'warn' : 'off']">{{ telegramReady ? 'READY' : notifSettings.telegram.enabled ? 'SETUP' : 'OFF' }}</span>
+        </article>
+        <article :class="['notification-status-card', { active: digestReady }]">
+          <span class="notification-status-icon" aria-hidden="true">◷</span>
+          <div><strong>Daily brief</strong><small>{{ digestStatusText }}</small></div>
+          <span :class="['notification-state', digestReady ? 'ready' : notifSettings.digest.enabled ? 'warn' : 'off']">{{ digestReady ? 'SET' : notifSettings.digest.enabled ? 'CHECK' : 'OFF' }}</span>
+        </article>
+      </section>
 
-            <p class="episode-shape-maths text-muted text-sm">
-              <template v-if="cadencePerMonth">
-                That is about <strong>{{ cadencePerMonth }}</strong> episodes a month.
-              </template>
-              <template v-else>
-                Pick at least one day — a schedule with no days can never produce a slot.
-              </template>
-            </p>
-
-            <label class="episode-shape-check">
-              <input v-model="autoScheduleOnRender" type="checkbox" />
-              <span>
-                Give each episode a publish time as soon as it finishes rendering
-                <small class="text-muted">
-                  Nothing is sent to YouTube — the episode just gets its slot, and you still press
-                  upload. An episode that is already live, or already has a time, is left alone.
-                </small>
-              </span>
+      <div class="notification-layout">
+        <section class="notification-section notification-section--events">
+          <div class="notification-section-head">
+            <div><span class="settings-section-kicker">What reaches you</span><h4>Alert events</h4></div>
+            <span>{{ enabledNotificationEventCount }}/3 selected</span>
+          </div>
+          <div class="notification-event-grid">
+            <label :class="['notification-event-card', { active: notifSettings.events.failures }]">
+              <input v-model="notifSettings.events.failures" type="checkbox" />
+              <span class="notification-event-mark" aria-hidden="true">!</span>
+              <span><strong>Job needs attention</strong><small>Send immediately when any generation or assembly job fails.</small></span>
             </label>
-
-            <p v-if="cadenceError" class="error-box mt-2">{{ cadenceError }}</p>
-
-            <div class="episode-shape-actions">
-              <button class="btn btn-sm btn-primary" type="button" :disabled="cadenceSaving" @click="saveCadence">
-                {{ cadenceSaving ? 'Saving…' : 'Save cadence' }}
-              </button>
-            </div>
+            <label :class="['notification-event-card', { active: notifSettings.events.pipeline_finished }]">
+              <input v-model="notifSettings.events.pipeline_finished" type="checkbox" />
+              <span class="notification-event-mark" aria-hidden="true">✓</span>
+              <span><strong>Pipeline run complete</strong><small>Send one result summary after every episode in the batch settles.</small></span>
+            </label>
+            <label :class="['notification-event-card', { active: notifSettings.events.long_job }]">
+              <input v-model="notifSettings.events.long_job" type="checkbox" />
+              <span class="notification-event-mark" aria-hidden="true">◷</span>
+              <span><strong>Long job complete</strong><small>Notify for standalone jobs that ran longer than your threshold.</small></span>
+            </label>
           </div>
         </section>
 
-        <!-- v1.4.18 — the episode shape, editable. Sits with the Formula it
-             belongs to rather than in the library, because it is a decision
-             about THIS channel's episodes. -->
-        <section v-if="activeTab === 'production' && nicheId" class="episode-shape-card">
+        <section class="notification-section notification-section--desktop">
+          <div class="notification-channel-head">
+            <span class="notification-channel-icon" aria-hidden="true">▣</span>
+            <div><h4>Desktop alerts</h4><p>Native macOS or Windows alerts. Clicking one opens the matching project’s Jobs page.</p></div>
+            <label class="notification-switch">
+              <input v-model="notifSettings.enabled" type="checkbox" />
+              <span aria-hidden="true" />
+            </label>
+          </div>
+          <div :class="['notification-threshold', { disabled: !notifSettings.events.long_job }]">
+            <div><strong>Long-job threshold</strong><small>Fast jobs stay quiet. Failures ignore this threshold and alert immediately.</small></div>
+            <span class="notification-threshold-value">{{ notifMinDurationMinutes }} min</span>
+            <SliderWithNumber v-model="notifMinDurationMinutes" :min="1" :max="60" :step="1" />
+          </div>
+        </section>
+
+        <section class="notification-section notification-section--telegram" data-setting="telegram">
+          <div class="notification-channel-head">
+            <span class="notification-channel-icon" aria-hidden="true">↗</span>
+            <div><h4>Telegram</h4><p>Receive the same alerts on your phone when you are away from this Mac.</p></div>
+            <label class="notification-switch">
+              <input v-model="notifSettings.telegram.enabled" type="checkbox" />
+              <span aria-hidden="true" />
+            </label>
+          </div>
+
+          <details class="notification-setup" :open="notifSettings.telegram.enabled && !telegramReady">
+            <summary>
+              <span><strong>{{ telegramReady ? 'Connection settings' : 'Set up Telegram' }}</strong><small>{{ telegramReady ? 'Bot token and chat are configured.' : 'Three short steps. No JSON or command line needed.' }}</small></span>
+              <span :class="['notification-state', telegramReady ? 'ready' : 'warn']">{{ telegramReady ? 'CONNECTED' : '3 STEPS' }}</span>
+            </summary>
+            <div class="notification-setup-body">
+              <article class="notification-setup-step">
+                <span>1</span>
+                <div><strong>Create a Telegram bot</strong><p>Open BotFather, send <code>/newbot</code>, and follow its prompts. Copy the token it gives you.</p></div>
+                <button type="button" class="btn btn-sm btn-secondary" @click="openExternal('https://t.me/BotFather')">Open BotFather ↗</button>
+              </article>
+              <article class="notification-setup-step">
+                <span>2</span>
+                <div class="notification-setup-fields">
+                  <strong>Connect your bot</strong>
+                  <p>Paste the token, then message your new bot with <code>/start</code>. Story Studio can detect that chat automatically.</p>
+                  <label>Bot token</label>
+                  <div class="notification-secret-row">
+                    <input v-model="notifSettings.telegram.bot_token" :type="showTelegramToken ? 'text' : 'password'" class="input" placeholder="1234567890:ABCdef…" spellcheck="false" autocomplete="off" />
+                    <button type="button" class="btn btn-sm btn-ghost" @click="showTelegramToken = !showTelegramToken">{{ showTelegramToken ? 'Hide' : 'Show' }}</button>
+                  </div>
+                  <div class="notification-connect-row">
+                    <button type="button" class="btn btn-sm btn-secondary" :disabled="telegramDetectBusy || !notifSettings.telegram.bot_token" @click="detectTelegramChatId">
+                      {{ telegramDetectBusy ? 'Looking for your chat…' : 'Detect my chat' }}
+                    </button>
+                    <input v-model="notifSettings.telegram.chat_id" type="text" class="input" placeholder="Chat ID (detected or pasted)" spellcheck="false" autocomplete="off" />
+                  </div>
+                  <p v-if="telegramDetectResult" :class="['notification-inline-result', telegramDetectResult.ok && telegramDetectResult.chat_id ? 'ok' : 'error']">
+                    {{ telegramDetectResult.ok && telegramDetectResult.chat_id
+                      ? `Chat connected${telegramDetectResult.chat_label ? `: ${telegramDetectResult.chat_label}` : ''}.`
+                      : telegramDetectResult.error || 'No recent chat found. Send /start to the bot, then try again.' }}
+                  </p>
+                </div>
+              </article>
+              <article class="notification-setup-step">
+                <span>3</span>
+                <div><strong>Verify delivery</strong><p>Send one test before relying on Telegram for unattended overnight work.</p></div>
+                <div class="notification-test-action">
+                  <button type="button" class="btn btn-sm btn-primary" :disabled="telegramTestBusy || !telegramReady" @click="testTelegram">
+                    {{ telegramTestBusy ? 'Sending test…' : 'Send test message' }}
+                  </button>
+                  <small v-if="telegramTestResult" :class="telegramTestResult.ok ? 'ok' : 'error'">{{ telegramTestResult.ok ? 'Delivered. Check Telegram.' : telegramTestResult.error || 'Delivery failed.' }}</small>
+                </div>
+              </article>
+            </div>
+          </details>
+        </section>
+
+        <section class="notification-section notification-section--digest" data-setting="daily-brief">
+          <div class="notification-channel-head">
+            <span class="notification-channel-icon" aria-hidden="true">◷</span>
+            <div><h4>Daily production brief</h4><p>A once-daily view of publishing today, scheduled inventory, and episodes awaiting upload across every project.</p></div>
+            <label class="notification-switch">
+              <input v-model="notifSettings.digest.enabled" type="checkbox" />
+              <span aria-hidden="true" />
+            </label>
+          </div>
+          <div :class="['notification-digest-controls', { disabled: !notifSettings.digest.enabled }]">
+            <label class="notification-time-control"><span>Send at</span><input v-model="notifSettings.digest.time_local" type="time" class="input" :disabled="!notifSettings.digest.enabled" /><small>Local time. The app must be running.</small></label>
+            <div class="notification-route-control">
+              <span>Deliver to</span>
+              <label><input v-model="notifSettings.digest.desktop_enabled" type="checkbox" :disabled="!notifSettings.digest.enabled" /> Desktop</label>
+              <label><input v-model="notifSettings.digest.telegram_enabled" type="checkbox" :disabled="!notifSettings.digest.enabled || !telegramReady" /> Telegram</label>
+              <small v-if="notifSettings.digest.telegram_enabled && !telegramReady">Finish Telegram setup before using it for the brief.</small>
+            </div>
+            <label class="notification-quiet-control"><input v-model="notifSettings.digest.quiet_when_empty" type="checkbox" :disabled="!notifSettings.digest.enabled" /><span><strong>Skip quiet days</strong><small>Do not send when nothing is scheduled to publish today.</small></span></label>
+            <div class="notification-last-fired"><span>Last scheduled delivery</span><strong>{{ formattedDigestLastFired }}</strong></div>
+          </div>
+          <div class="notification-digest-actions">
+            <button type="button" class="btn btn-sm btn-secondary" :disabled="digestPreviewBusy" @click="loadDigestPreview">{{ digestPreviewBusy ? 'Building preview…' : 'Preview brief' }}</button>
+            <button type="button" class="btn btn-sm btn-primary" :disabled="digestSendNowBusy || !digestHasReadyDestination" @click="sendDigestNow">{{ digestSendNowBusy ? 'Sending now…' : 'Send now' }}</button>
+            <span v-if="digestSendResult" :class="['notification-inline-result', digestSendResult.ok ? 'ok' : 'error']">{{ digestSendResult.ok ? 'Brief sent.' : digestSendResult.reason || 'Send failed.' }}</span>
+          </div>
+          <div v-if="digestPreview" class="notification-preview">
+            <span class="settings-section-kicker">Preview</span>
+            <strong>{{ digestPreview.title }}</strong>
+            <pre>{{ digestPreview.body }}</pre>
+          </div>
+        </section>
+      </div>
+
+      <div class="notification-save-bar">
+        <div>
+          <strong>{{ notificationsDirty ? 'Unsaved notification changes' : 'Notification settings are saved' }}</strong>
+          <span>Applies to every project on this Mac.</span>
+          <span v-if="notifSaveStatus === 'error'" class="error">{{ notifSaveError }}</span>
+        </div>
+        <button type="button" class="btn btn-sm btn-ghost" @click="applyRecommendedNotifications">Use Recommended Alerts</button>
+        <button type="button" class="btn btn-sm btn-secondary" :disabled="!notificationsDirty || notifSaveStatus === 'saving'" @click="discardNotificationChanges">Revert</button>
+        <SaveIndicator v-bind="savedHintProps('notifications')" />
+        <button type="button" class="btn btn-primary" :disabled="!notificationsDirty || notifSaveStatus === 'saving'" @click="saveNotifSettings">{{ notifSaveStatus === 'saving' ? 'Saving…' : 'Save Notifications' }}</button>
+      </div>
+    </div>
+          <AdvancedDisclosure label="Advanced: open Story Studio from another computer (Server Mode)" data-setting="server-mode">
+            <div class="card settings-panel settings-panel-embedded"><ServerModeSettingsPanel /></div>
+          </AdvancedDisclosure>
+        </template>
+
+        <!-- ═══ This Mac → Files & maintenance ═══ -->
+        <template v-if="activeTab === 'maintenance'">
+          <!-- v1.4.249 — "Where your files are". Replaces the storage map, Your
+               Library, Where finished videos go and Advanced: move uploaded videos
+               ("this library and your storage map thing is so confusing"). -->
+          <section class="card settings-panel files-where" aria-labelledby="files-where-title">
+            <header class="settings-card-head">
+              <h3 id="files-where-title">Where your files are</h3>
+              <p>Two folders on this Mac. Choose a folder with the button — no paths to type.</p>
+            </header>
+
+            <div data-setting="library-folder">
+              <FolderField
+                :model-value="library?.path || ''"
+                label="Library folder"
+                hint="Every channel lives here, with a _Project Assets folder for files you share between channels. Choosing another folder copies everything there and restarts Story Studio; the old folder is left untouched."
+                picker-title="Choose where to keep your Library"
+                button-label="Move Library…"
+                :disabled="projectsRootBusy"
+                confirm-first
+                @picked="moveLibraryTo"
+              >
+                <template #badge>
+                  <span v-if="library && !library.exists" class="status-chip warn">Not found</span>
+                </template>
+              </FolderField>
+              <p v-if="library && !library.exists" class="settings-warn">
+                Story Studio looked here and the folder is not there. If it is on a drive that is not plugged in, reconnect it — nothing has been lost.
+              </p>
+              <p v-if="projectsRootStatus" :class="['settings-status', projectsRootStatusKind]">{{ projectsRootStatus }}</p>
+            </div>
+
+            <div data-setting="exports-folder">
+              <FolderField
+                :model-value="library?.exports_dir || ''"
+                label="Finished videos folder"
+                :hint="library?.exports_custom
+                  ? 'New finished videos are saved here. Videos made before you changed it stay where they are and are still found.'
+                  : 'New finished videos are saved in the Exports folder inside your Library. Choose another folder — another drive, say — to keep them separate.'"
+                picker-title="Choose where finished videos go"
+                button-label="Choose…"
+                :disabled="exportsBusy"
+                confirm-first
+                @picked="chooseExportsFolder"
+              >
+                <template #actions>
+                  <button v-if="library?.exports_custom" type="button" class="btn btn-ghost btn-sm" :disabled="exportsBusy" @click="chooseExportsFolder('')">Use Library Folder</button>
+                </template>
+              </FolderField>
+              <p v-if="exportsStatus" :class="['settings-status', exportsStatusKind]">{{ exportsStatus }}</p>
+            </div>
+
+            <div class="files-where-action" data-setting="move-uploaded">
+              <div>
+                <strong>Move uploaded videos to another drive</strong>
+                <p>Optional. Moves finished videos that are confirmed uploaded to YouTube into a folder you choose, to free space here. Each one is checked at the new place before the original is removed. Everything else stays put.</p>
+              </div>
+              <button v-if="!archiveOpen" type="button" class="btn btn-secondary btn-sm" @click="archiveOpen = true">Move Uploaded Videos…</button>
+            </div>
+            <div v-if="archiveOpen" class="archive-flow">
+              <FolderField
+                v-model="archiveSource"
+                label="Look for videos in"
+                placeholder="Your finished videos folder"
+                hint="Usually your finished videos folder. Choose another folder if your videos are somewhere else."
+                picker-title="Where are your finished videos?"
+                picker-button="Scan This Folder"
+                :disabled="archiveBusy"
+                @update:model-value="archivePreview = null"
+              />
+              <FolderField
+                v-model="archiveDest"
+                label="Move them to"
+                placeholder="Choose a folder on the other drive"
+                picker-title="Move finished videos into…"
+                picker-button="Move Here"
+                :disabled="archiveBusy"
+              />
+              <div class="flex gap-2 items-center">
+                <button class="btn btn-secondary btn-sm" :disabled="archiveBusy" @click="loadArchivePreview">
+                  {{ archiveChecking ? 'Checking…' : 'Check What Would Move' }}
+                </button>
+                <button v-if="archivePreview?.complete && archivePreview?.ready_count" class="btn btn-primary btn-sm"
+                        :disabled="archiveBusy || !archiveDest.trim()" @click="startArchive">
+                  Move {{ archivePreview.ready_count }} Video{{ archivePreview.ready_count === 1 ? '' : 's' }} · {{ formatBytes(archivePreview.ready_bytes) }}
+                </button>
+                <button v-if="archiveRunning || archiveChecking" class="btn btn-danger btn-sm" @click="stopArchive">Stop</button>
+                <button v-if="!archiveBusy" class="btn btn-ghost btn-sm" @click="archiveOpen = false">Close</button>
+              </div>
+        <div v-if="archivePreview" class="mt-2">
+          <p v-if="!archivePreview.source_exists" class="validation-msg text-sm">
+            Nothing to scan — <code>{{ archivePreview.source_root }}</code> is not there.
+          </p>
+          <template v-else>
+            <p v-if="!archivePreview.complete" class="validation-msg text-sm">
+              Check stopped early. Nothing can move until the folder has been checked completely.
+            </p>
+            <p class="text-sm">
+              <strong>{{ archivePreview.ready_count }}</strong> video(s) ready
+              ({{ formatBytes(archivePreview.ready_bytes) }} ready to move),
+              <strong>{{ archivePreview.skipped_count }}</strong> skipped
+              ({{ formatBytes(archivePreview.skipped_bytes) }} staying put).
+            </p>
+            <ul v-if="archivePreview.by_channel.length" class="archive-channels">
+              <li v-for="c in archivePreview.by_channel" :key="c.slug">
+                {{ c.slug }} — {{ c.count }} video(s), {{ formatBytes(c.bytes) }}
+              </li>
+            </ul>
+            <details v-if="archivePreview.ready_count" class="mt-1">
+              <summary class="text-sm">Review {{ archivePreview.ready_count }} uploaded videos to move</summary>
+              <ul class="archive-skipped">
+                <li v-for="c in archiveReadyRows" :key="c.source_path">
+                  <strong>{{ c.slug }} · {{ c.code }}</strong> — <code>{{ c.filename }}</code>
+                  · {{ formatBytes(c.bytes) }}
+                  <a v-if="c.youtube_video_id" :href="`https://www.youtube.com/watch?v=${encodeURIComponent(c.youtube_video_id)}`"
+                     target="_blank" rel="noopener noreferrer">Open recorded YouTube upload</a>
+                </li>
+              </ul>
+            </details>
+            <details v-if="archivePreview.skipped_count" class="mt-1">
+              <summary class="text-muted text-sm">Why {{ archivePreview.skipped_count }} were skipped</summary>
+              <ul class="archive-skipped">
+                <li v-for="c in archiveSkippedRows" :key="c.source_path">
+                  <code>{{ c.filename }}</code> — {{ c.reason }}
+                </li>
+              </ul>
+            </details>
+          </template>
+        </div>
+
+        <div v-if="archiveChecking || archiveRunning || archiveResult" class="mt-2">
+          <p v-if="archiveChecking" class="text-sm">
+            Checking {{ archiveProgress.checked }} video file{{ archiveProgress.checked === 1 ? '' : 's' }} —
+            <code>{{ archiveProgress.current }}</code>
+            <span v-if="archiveStopping"> · stopping after this file…</span>
+          </p>
+          <p v-else-if="archiveRunning" class="text-sm">
+            {{ archiveStage === 'checking' ? 'Rechecking proof' : 'Moving' }} {{ archiveProgress.done }} / {{ archiveProgress.total }} —
+            <code>{{ archiveProgress.current }}</code>
+            <span v-if="archiveStopping"> · stopping after this file…</span>
+          </p>
+          <p v-if="archiveResult" class="text-sm">
+            ✓ Moved {{ archiveResult.moved.length }} video(s), {{ formatBytes(archiveResult.bytes_moved) }} total.
+            <span v-if="archiveResult.cancelled">Stopped early — everything not yet moved is untouched.</span>
+            <span v-if="archiveResult.failed.length">
+              {{ archiveResult.failed.length }} could not be verified and were left in both places.
+            </span>
+          </p>
+          <ul v-if="archiveResult?.warnings?.length" class="archive-skipped">
+            <li v-for="w in archiveResult.warnings" :key="w">{{ w }}</li>
+          </ul>
+        </div>
+            </div>
+          </section>
+
+          <section class="card settings-panel" data-setting="free-up-space">
+            <MediaCleanupPanel :slug="slug" />
+          </section>
+
+          <section class="card settings-panel" data-setting="smaller-files">
+            <GenerationCompressionPanel />
+          </section>
+
+          <!-- FFmpeg — plain status, one fix button; internals behind Advanced. -->
+          <section id="ffmpeg-section" class="card settings-panel ffmpeg-card" data-setting="ffmpeg">
+            <header class="settings-card-head">
+              <h3>FFmpeg (video engine)</h3>
+              <p>Joins narration, mixes music and makes the final MP4 for Audio Assembly and Video Assembly.</p>
+            </header>
+            <div class="ffmpeg-state" :class="ffmpegState.tone" role="status">
+              <span class="ffmpeg-state-dot" aria-hidden="true" />
+              <div>
+                <strong>{{ ffmpegState.title }}</strong>
+                <span v-if="ffmpegState.detail">{{ ffmpegState.detail }}</span>
+              </div>
+              <button v-if="ffmpegState.fix" class="btn btn-primary btn-sm" :disabled="ffmpegInstalling" @click="installFfmpeg">
+                {{ ffmpegInstalling ? `${ffmpegInstallMessage || 'Installing…'} ${ffmpegInstallProgress}%` : ffmpegState.fix }}
+              </button>
+              <button class="btn btn-ghost btn-sm" :disabled="ffmpegStatusLoading" @click="refreshFfmpegStatus">{{ ffmpegStatusLoading ? 'Checking…' : 'Check Again' }}</button>
+            </div>
+            <p v-if="ffmpegInstallMessage && !ffmpegInstalling" class="settings-status" :class="ffmpegInstallError ? 'err' : 'ok'">{{ ffmpegInstallMessage }}</p>
+            <div v-if="showFfmpegRestartPrompt" class="ffmpeg-restart-prompt">
+              <span class="restart-msg"><strong>Install complete.</strong> Restart the app so Audio Assembly and Video Assembly use it.</span>
+              <div class="flex gap-2 mt-1">
+                <button class="btn btn-sm btn-primary" :disabled="restarting" @click="restartApp">{{ restarting ? 'Restarting…' : 'Restart Now' }}</button>
+                <button class="btn btn-sm btn-secondary" @click="showFfmpegRestartPrompt = false">Later</button>
+              </div>
+            </div>
+            <AdvancedDisclosure label="Advanced: FFmpeg details">
+              <dl class="ffmpeg-details">
+                <dt>Version</dt><dd>{{ ffmpegStatus?.version || '—' }}</dd>
+                <dt>Copy in use</dt><dd>{{ ffmpegSourceLabel }}</dd>
+                <dt>Location</dt><dd><code>{{ ffmpegStatus?.path || '—' }}</code></dd>
+                <dt>Text overlays (drawtext)</dt><dd>{{ ffmpegStatus?.installed ? (ffmpegStatus.has_drawtext ? 'Yes' : 'No') : '—' }}</dd>
+                <dt>Subtitle burn-in (libass)</dt><dd>{{ ffmpegStatus?.installed ? (ffmpegStatus.has_libass ? 'Yes' : 'No') : '—' }}</dd>
+              </dl>
+              <div v-if="ffmpegStatus?.installed && ffmpegStatus.source !== 'bundled' && !ffmpegState.fix" class="mt-2">
+                <button class="btn btn-secondary btn-sm" :disabled="ffmpegInstalling" @click="installFfmpeg">Replace Recovery Copy</button>
+                <span class="settings-hint"> Downloads the same pinned FFmpeg this app was tested with and checks it before use.</span>
+              </div>
+        <div v-if="ffmpegInstallError" class="ffmpeg-log-block mt-2">
+          <div class="flex gap-2" style="align-items: center;">
+            <button class="btn btn-sm btn-secondary" @click="loadInstallLog" :disabled="ffmpegLogLoading" title="Fetches the last hour of ffmpeg-install log entries">
+              <span v-if="ffmpegLogLoading">Loading…</span>
+              <span v-else-if="ffmpegInstallLog.length">Refresh log</span>
+              <span v-else>Show install log</span>
+            </button>
+            <button v-if="ffmpegInstallLog.length" class="btn btn-sm btn-primary" @click="copyInstallLog" title="Copies the log entries + your platform info to the clipboard so you can paste it into a bug report">
+              Copy log to clipboard
+            </button>
+            <span v-if="ffmpegLogCopiedAt" class="text-muted" style="font-size: var(--font-xs);">Copied ✓</span>
+          </div>
+          <pre v-if="ffmpegInstallLog.length" class="ffmpeg-log-output mt-1">{{ ffmpegInstallLogText }}</pre>
+          <p v-else-if="ffmpegInstallLogChecked" class="text-muted mt-1" style="font-size: var(--font-xs);">
+            No ffmpeg-install entries in the last hour. The error may have happened before logging was wired up — try clicking Install again.
+          </p>
+        </div>
+              <details v-if="ffmpegStatus && ffmpegStatus.source !== 'bundled'" class="ffmpeg-manual mt-2">
+                <summary>Install it yourself</summary>
+                <p class="settings-hint">If the download is blocked, install FFmpeg with Homebrew (<code>brew install ffmpeg</code>), then press Check Again.</p>
+              </details>
+            </AdvancedDisclosure>
+          </section>
+
+          <section class="card settings-panel about-card" data-setting="about">
+            <div>
+              <h3>About Story Studio KH</h3>
+              <p class="settings-hint">Version <strong>{{ appVersion }}</strong><template v-if="buildDate"> · built {{ buildDate }}</template>. Copy this when you report a problem.</p>
+            </div>
+            <button class="btn btn-secondary btn-sm" @click="copyVersionString">{{ versionCopied ? 'Copied' : 'Copy Version' }}</button>
+          </section>
+        </template>
+
+        <!-- ═══ This Project → Channel identity ═══ -->
+        <template v-if="activeTab === 'identity'">
+          <section class="card settings-panel" data-setting="formula">
+            <header class="settings-card-head">
+              <h3>Series Formula and Topic Packs</h3>
+              <p>The Formula sets the hook, title style, script flow and voice of every episode. Topic Packs supply subjects.</p>
+            </header>
+            <section class="channel-identity-summary">
+              <div class="channel-identity-summary-copy">
+                <span>Series Formula</span>
+                <strong>{{ selectedFormulaLabel }}</strong>
+                <small>{{ selectedNicheProfile?.description || (nicheId ? 'This saved Formula is currently unavailable from the library.' : 'General generation without a repeatable Formula.') }}</small>
+              </div>
+              <div class="channel-identity-summary-copy">
+                <span>Topic Packs</span>
+                <strong>{{ selectedTopicPackLabel }}</strong>
+                <small>{{ topicPackIds.length ? 'Reusable subject inventories selected for this channel.' : 'No Topic Packs selected.' }}</small>
+              </div>
+              <button type="button" class="btn btn-primary" @click="identityPickerOpen = true">Choose Formula &amp; Topics</button>
+            </section>
+            <div class="button-row"><SaveIndicator v-bind="savedHintProps('niche')" /></div>
+          </section>
+
+          <section class="card settings-panel" data-setting="project-name">
+            <div class="form-group">
+              <label>Project name</label>
+              <input v-model="projectForm.name" class="input" />
+            </div>
+            <div class="flex gap-2" style="align-items:center">
+              <button class="btn btn-primary btn-sm" @click="saveProject('identity')">Save Name</button>
+              <SaveIndicator v-bind="savedHintProps('project_identity')" />
+            </div>
+          </section>
+
+          <AdvancedDisclosure :label="`Advanced: custom formulas (${nicheLibraryCount})`" data-setting="custom-formulas">
+            <div class="card settings-panel">
+        <div class="niche-library-header">
+          <button
+            class="btn btn-primary btn-sm"
+            :disabled="nicheCreateBusy"
+            @click="openNicheCreator"
+          >Create Custom Formula…</button>
+        </div>
+        <p class="text-muted text-sm">
+          Formulas written on this Mac. Pick one for this channel with <strong>Choose Formula &amp; Topics</strong> above.
+        </p>
+
+        <div v-if="nicheLibLoading" class="muted mt-3">Loading niches…</div>
+        <div v-else-if="nicheLibError" class="error-box mt-3">{{ nicheLibError }}</div>
+        <div v-else-if="!customNicheLibList.length" class="empty-box mt-3">
+          No custom formulas yet. Create one here, then select it from the Channel Identity library.
+        </div>
+
+        <div v-else class="niche-lib-grid mt-3">
+          <article
+            v-for="n in customNicheLibList"
+            :key="n.id"
+            class="niche-lib-tile"
+            :class="{ 'tile-builtin': n.builtin, 'tile-custom': !n.builtin, 'tile-active': n.id === nicheId }"
+          >
+            <div class="tile-header">
+              <h5>{{ n.name }}</h5>
+              <span v-if="n.id === nicheId" class="badge badge-active">project niche</span>
+              <span class="badge badge-custom">custom</span>
+              <span v-if="n.catalog?.version" class="badge">v{{ n.catalog.version }}</span>
+            </div>
+            <p v-if="n.tagline" class="tile-tagline">{{ n.tagline }}</p>
+            <p class="tile-description">{{ n.description }}</p>
+            <div class="tile-stats">
+              <span><strong>{{ n.exampleTopics.length }}</strong> example {{ n.exampleTopics.length === 1 ? 'topic' : 'topics' }}</span>
+              <span v-if="n.vocabulary?.keyword">
+                <strong>{{ n.vocabulary.keyword.length }}</strong> keywords
+              </span>
+              <span v-if="n.titleShapeRules?.length">
+                <strong>{{ n.titleShapeRules.length }}</strong> title rules
+              </span>
+              <span v-if="n.referenceImages?.length">
+                <strong>{{ n.referenceImages.length }}</strong> refs
+              </span>
+              <span v-if="n.project_count">
+                in <strong>{{ n.project_count }}</strong> {{ n.project_count === 1 ? 'project' : 'projects' }}
+              </span>
+            </div>
+            <details class="tile-details">
+              <summary>Example topics</summary>
+              <ul class="topic-list">
+                <li v-for="t in n.exampleTopics.slice(0, 10)" :key="t">{{ t }}</li>
+                <li v-if="n.exampleTopics.length > 10" class="topic-more">+{{ n.exampleTopics.length - 10 }} more</li>
+              </ul>
+            </details>
+            <details v-if="n.visualStyleSheet || n.scriptContext" class="tile-details">
+              <summary>Generator context</summary>
+              <div v-if="n.scriptContext" class="detail-row">
+                <strong>Script:</strong> {{ n.scriptContext }}
+              </div>
+              <div v-if="n.visualStyleSheet" class="detail-row">
+                <strong>Visual:</strong> {{ n.visualStyleSheet }}
+              </div>
+            </details>
+            <div class="tile-actions">
+              <button
+                v-if="!n.builtin"
+                class="btn btn-ghost btn-sm danger"
+                :title="n.project_count ? `Can't delete — ${n.project_count} project(s) still reference this niche.` : 'Delete this custom niche.'"
+                :disabled="!!n.project_count"
+                @click="confirmDeleteNiche(n)"
+              >Delete</button>
+            </div>
+          </article>
+        </div>
+            </div>
+          </AdvancedDisclosure>
+        </template>
+
+        <!-- ═══ This Project → Production defaults ═══ -->
+        <template v-if="activeTab === 'production'">
+          <section class="card settings-panel" v-if="nicheId">
+        <section v-if="nicheId" class="episode-shape-card" data-setting="episode-shape">
           <div class="episode-shape-head">
             <div>
-              <span class="settings-section-kicker">Episode shape</span>
               <h4>How long an episode runs, and how it is read</h4>
               <p class="text-muted text-sm mb-0">
                 These are the numbers every new episode of this channel starts from. Change them
@@ -346,7 +594,7 @@
               v-if="!shapeOpen"
               class="btn btn-sm btn-secondary"
               @click="openEpisodeShape"
-            >Change</button>
+            >Change…</button>
           </div>
 
           <div v-if="!shapeOpen" class="episode-shape-grid">
@@ -448,7 +696,7 @@
 
             <div class="episode-shape-actions">
               <button class="btn btn-sm btn-primary" type="submit" :disabled="shapeSaving">
-                {{ shapeSaving ? 'Saving…' : 'Save episode shape' }}
+                {{ shapeSaving ? 'Saving…' : 'Save Episode Shape' }}
               </button>
               <button class="btn btn-sm btn-ghost" type="button" :disabled="shapeSaving" @click="shapeOpen = false">
                 Cancel
@@ -456,8 +704,133 @@
             </div>
           </form>
         </section>
+          </section>
 
-        <section v-if="activeTab === 'production' && selectedProductionKit" class="production-kit-card mt-3">
+          <section class="card settings-panel" data-setting="continuity">
+            <header class="settings-card-head">
+              <h3>Reference behavior</h3>
+              <p>Every channel uses the Continuity Engine. Choose how new episodes use earlier scenes as references; Character Sheet can still change one episode.</p>
+            </header>
+      <div class="continuity-mode-box">
+        <div class="cm-options">
+          <label class="cm-opt" :class="{ active: continuityMode === 'independent-stills' }">
+            <input v-model="continuityMode" type="radio" value="independent-stills" />
+            <div><strong>Independent illustrated scenes</strong><div class="text-muted text-xs">No previous-frame reference. Best for explainers, history, economics, and varied locations.</div></div>
+          </label>
+          <label class="cm-opt" :class="{ active: continuityMode === 'character-continuity' }">
+            <input v-model="continuityMode" type="radio" value="character-continuity" />
+            <div><strong>Character continuity</strong><div class="text-muted text-xs">Each scene references the previous render and character anchors for one recurring on-screen subject.</div></div>
+          </label>
+          <label class="cm-opt" :class="{ active: continuityMode === 'explainer-stills' }">
+            <input v-model="continuityMode" type="radio" value="explainer-stills" />
+            <div><strong>Explainer boards</strong><div class="text-muted text-xs">Independent subject-led scenes, ready for an optional composition reference.</div></div>
+          </label>
+        </div>
+      </div>
+
+      <div class="mt-3 button-row">
+        <button class="btn btn-primary" :disabled="formatSaving || !formatDirty" @click="saveFormatSettings">
+          {{ formatSaving ? 'Saving…' : 'Save Reference Behavior' }}
+        </button>
+        <SaveIndicator v-bind="savedHintProps('format')" />
+        <span v-if="formatSaveError" class="text-error">{{ formatSaveError }}</span>
+      </div>
+          </section>
+
+          <section class="card settings-panel">
+      <section class="channel-visual-defaults" data-setting="guide-density">
+        <div class="settings-section-head">
+          <div>
+            <h3>Recurring guide visibility</h3>
+            <p>Controls how often Scene Plan includes its recurring on-screen guide in newly generated episodes. This is a channel rule, not a Character Sheet setting.</p>
+          </div>
+          <span class="settings-section-count">{{ guideDensityLabel }}</span>
+        </div>
+        <div class="channel-guide-density-row">
+          <input
+            v-model.number="guideDensity"
+            type="range"
+            min="0"
+            max="100"
+            step="5"
+            class="channel-guide-density-slider"
+            :disabled="savingGuideDensity"
+            @change="saveGuideDensity"
+          />
+          <output class="channel-guide-density-value" :class="{ off: guideDensity === 0 }">{{ guideDensity }}%</output>
+        </div>
+        <p class="text-muted text-xs mt-1">
+          <strong>0%</strong> means no recurring guide; <strong>100%</strong> means one in every scene. Existing Scene Plans stay unchanged—regenerate a plan to apply this default.
+        </p>
+        <SaveIndicator v-bind="savedHintProps('guide_density')" />
+      </section>
+          </section>
+
+          <AdvancedDisclosure label="Advanced: narration quality checks and the Formula’s production kit">
+            <section class="card settings-panel">
+      <section class="audio-quality-settings" data-setting="audio-quality" aria-labelledby="audio-quality-settings-title">
+        <div class="settings-section-head">
+          <div>
+            <h3 id="audio-quality-settings-title">Narration quality checks</h3>
+            <p>Choose whether this channel checks chapter narration after subtitles exist. Normal Audio and Pipeline runs stay available in every mode.</p>
+          </div>
+          <span class="settings-section-count">{{ audioQualityModeSummary }}</span>
+        </div>
+
+        <div class="audio-quality-options" role="radiogroup" aria-label="Audio quality mode">
+          <label v-for="option in audioQualityModeOptions" :key="option.value" :class="['audio-quality-option', { active: audioQualityMode === option.value }]">
+            <input v-model="audioQualityMode" type="radio" :value="option.value" />
+            <span>
+              <strong>{{ option.label }} <small v-if="option.recommended">Recommended during calibration</small></strong>
+              <span>{{ option.description }}</span>
+            </span>
+          </label>
+        </div>
+
+        <div v-if="audioQualityMode === 'check_and_repair'" class="audio-quality-alternate">
+          <label>Alternate transcription model <span class="required" aria-hidden="true">*</span></label>
+          <ModelMenu
+            v-model="audioQualityAlternateModel"
+            :options="audioQualityModelOptions"
+            media-type="transcription"
+            title="Choose the alternate transcription model"
+            placeholder="Choose a published model…"
+            search-placeholder="Search transcription models…"
+            aria-label="Alternate transcription model"
+          />
+          <p class="text-muted text-xs mt-1">
+            You choose the alternate. It must have a different published model ID from the first transcript; a different provider name alone does not make it a distinct model.
+          </p>
+          <p v-if="audioQualityCatalogLoading" class="text-muted text-xs mt-1"><LoadingSpinner size="sm" /> Loading published transcription models…</p>
+          <p v-else-if="audioQualityCatalogError" class="text-warning text-xs mt-1">
+            {{ audioQualityCatalogError }}
+            <button type="button" class="btn btn-sm btn-ghost" @click="loadAudioQualityModels">Retry</button>
+          </p>
+          <p v-else-if="audioQualityCatalogStale" class="text-warning text-xs mt-1">
+            {{ audioQualityCatalogStaleNote }}. Showing the last available catalog for display only; refresh it before starting a paid quality check.
+            <button type="button" class="btn btn-sm btn-ghost" @click="loadAudioQualityModels">Refresh</button>
+          </p>
+        </div>
+
+        <p v-if="audioQualityMode === 'check_and_repair'" class="audio-quality-cost-note">
+          Replacement narration estimates are advisory because the current TTS contract has no hard aggregate credit ceiling. Audio requires an action-specific verification credit ceiling; transcription is quoted after candidate audio exists, and a higher quote holds that candidate for your approval.
+        </p>
+
+        <div class="audio-quality-save-row">
+          <button
+            type="button"
+            class="btn btn-primary"
+            :disabled="audioQualitySaving || !audioQualityDirty || !audioQualityValid"
+            @click="saveAudioQuality"
+          >{{ audioQualitySaving ? 'Saving…' : 'Save Narration Checks' }}</button>
+          <SaveIndicator v-bind="savedHintProps('audio_quality')" />
+          <span v-if="!audioQualityValid" class="text-warning text-xs">Choose an alternate transcription model to enable checked repair.</span>
+          <span v-if="audioQualitySaveError" class="text-error text-xs">{{ audioQualitySaveError }}</span>
+        </div>
+      </section>
+            </section>
+            <section v-if="selectedProductionKit" class="card settings-panel mt-2">
+        <section v-if="selectedProductionKit" class="production-kit-card">
           <div class="production-kit-head">
             <div>
               <span class="settings-section-kicker">Formula production kit</span>
@@ -474,7 +847,7 @@
                 <strong>{{ productionKitStyleSuggestion.name }}</strong>
                 <small v-if="productionKitStyleSuggestion.inUse">
                   In use on this channel. Art style is always your choice — change it any time in
-                  Settings → Art Style.
+                  Writing &amp; style → Art style.
                 </small>
                 <template v-else-if="productionKitStyleSuggestion.installed">
                   <small>Installed, but not selected. Your current art style stays until you apply this.</small>
@@ -489,7 +862,7 @@
                 </template>
                 <small v-else-if="visualStylesLoading">Checking installed Content Pack styles…</small>
                 <small v-else-if="visualStylesError">
-                  Could not check installed Content Pack styles. Retry in Settings → Art Style.
+                  Could not check installed Content Pack styles. Retry in Writing &amp; style → Art style.
                 </small>
                 <small v-else>
                   Not installed. Get it from the
@@ -498,7 +871,7 @@
               </template>
               <template v-else>
                 <strong>Your choice</strong>
-                <small>This Formula suggests no particular look. Pick one in Settings → Art Style.</small>
+                <small>This Formula suggests no particular look. Pick one in Writing &amp; style → Art style.</small>
               </template>
             </div>
             <div class="production-kit-item">
@@ -531,616 +904,357 @@
             <small>Idea Campaign assigns and saves these lanes. Script and thumbnail behavior follow the saved idea profile—there is no per-run profile picker.</small>
           </div>
         </section>
+            </section>
+          </AdvancedDisclosure>
+        </template>
 
-        <div v-if="activeTab === 'identity'" class="mt-3 button-row"><SaveIndicator v-bind="savedHintProps('niche')" /></div>
-
-        <p v-if="activeTab === 'identity'" class="text-muted text-xs mt-3">
-          <strong>Channel default:</strong> this Formula and Pack selection automatically drives
-          Ideas, Script, Metadata, and visual direction. Idea campaigns show it as status rather
-          than asking you to select it again.
-        </p>
-        <p v-if="activeTab === 'identity'" class="text-muted text-xs mt-1">
-          Need to author a local formula? Switch to <strong>Custom formulas</strong> above.
-        </p>
-      </div>
-
-      <!-- ── Sub-tab 2: Niche library (browse + create + delete) ─────── -->
-      <div v-if="activeTab === 'identity' && nicheSubTab === 'library'" class="sub-tab-body">
-        <div class="niche-library-header">
-          <h4 class="sub-tab-section-title">Custom formulas</h4>
-          <button
-            class="btn btn-primary btn-sm"
-            :disabled="nicheCreateBusy"
-            @click="openNicheCreator"
-          >+ Create custom niche</button>
+        <!-- ═══ This Project → Writing & style ═══ -->
+        <template v-if="activeTab === 'writing'">
+          <section class="card settings-panel">
+      <div class="form-group" data-setting="art-style">
+        <label>Art style</label>
+        <p class="settings-hint">Added to every image prompt for this channel. You can still change it for one run on the Image Prompts page.</p>
+        <div class="art-style-picker">
+          <select v-model="artStyleSelection" class="input" :disabled="artStyleSaving">
+            <option value="">— None (use format / niche default) —</option>
+            <optgroup v-if="savedStylePresets.length" label="Saved styles">
+              <option v-for="s in savedStylePresets" :key="s.id" :value="s.id">{{ s.name }}</option>
+            </optgroup>
+            <optgroup label="Style library">
+              <option v-for="s in visualStyles" :key="s.id" :value="s.id">{{ s.name }}</option>
+            </optgroup>
+          </select>
         </div>
-        <p class="text-muted text-sm">
-          Create and maintain formulas authored on this Mac. Browse Installed, Included,
-          Built in, and Custom choices together from Choose Formula &amp; Topics.
+        <p v-if="visualStylesLoading" class="text-muted text-sm mt-1">
+          Loading installed Content Pack styles…
         </p>
+        <p v-else-if="visualStylesError" class="text-warning text-sm mt-1">
+          Installed Content Pack styles are unavailable. Existing saved style data is unchanged.
+          <button type="button" class="btn btn-ghost btn-sm" @click="refreshVisualStyles">Retry</button>
+        </p>
+        <p v-else-if="!visualStyles.length" class="text-muted text-sm mt-1">
+          No Content Pack styles are installed. Add one from the
+          <NuxtLink to="/content-store">Content Store</NuxtLink>.
+        </p>
+        <p v-if="unresolvedArtStyleId" class="text-warning text-sm mt-1">
+          This channel is saved against the art style <code>{{ humanizeCatalogId(unresolvedArtStyleId) }}</code>,
+          but nothing installed provides it — images are being generated without it. Pick a style
+          above, or install the pack that provides it from the
+          <NuxtLink to="/content-store">Content Store</NuxtLink>.
+        </p>
+        <span v-if="artStyleSaveMessage" class="text-muted" style="font-size: var(--font-xs)">{{ artStyleSaveMessage }}</span>
+      </div>
+          </section>
 
-        <div v-if="nicheLibLoading" class="muted mt-3">Loading niches…</div>
-        <div v-else-if="nicheLibError" class="error-box mt-3">{{ nicheLibError }}</div>
-        <div v-else-if="!customNicheLibList.length" class="empty-box mt-3">
-          No custom formulas yet. Create one here, then select it from the Channel Identity library.
-        </div>
-
-        <div v-else class="niche-lib-grid mt-3">
-          <article
-            v-for="n in customNicheLibList"
-            :key="n.id"
-            class="niche-lib-tile"
-            :class="{ 'tile-builtin': n.builtin, 'tile-custom': !n.builtin, 'tile-active': n.id === nicheId }"
-          >
-            <div class="tile-header">
-              <h5>{{ n.name }}</h5>
-              <span v-if="n.id === nicheId" class="badge badge-active">project niche</span>
-              <span class="badge badge-custom">custom</span>
-              <span v-if="n.catalog?.version" class="badge">v{{ n.catalog.version }}</span>
-            </div>
-            <p v-if="n.tagline" class="tile-tagline">{{ n.tagline }}</p>
-            <p class="tile-description">{{ n.description }}</p>
-            <div class="tile-stats">
-              <span><strong>{{ n.exampleTopics.length }}</strong> example {{ n.exampleTopics.length === 1 ? 'topic' : 'topics' }}</span>
-              <span v-if="n.vocabulary?.keyword">
-                <strong>{{ n.vocabulary.keyword.length }}</strong> keywords
-              </span>
-              <span v-if="n.titleShapeRules?.length">
-                <strong>{{ n.titleShapeRules.length }}</strong> title rules
-              </span>
-              <span v-if="n.referenceImages?.length">
-                <strong>{{ n.referenceImages.length }}</strong> refs
-              </span>
-              <span v-if="n.project_count">
-                in <strong>{{ n.project_count }}</strong> {{ n.project_count === 1 ? 'project' : 'projects' }}
-              </span>
-            </div>
-            <details class="tile-details">
-              <summary>Example topics</summary>
-              <ul class="topic-list">
-                <li v-for="t in n.exampleTopics.slice(0, 10)" :key="t">{{ t }}</li>
-                <li v-if="n.exampleTopics.length > 10" class="topic-more">+{{ n.exampleTopics.length - 10 }} more</li>
-              </ul>
-            </details>
-            <details v-if="n.visualStyleSheet || n.scriptContext" class="tile-details">
-              <summary>Generator context</summary>
-              <div v-if="n.scriptContext" class="detail-row">
-                <strong>Script:</strong> {{ n.scriptContext }}
-              </div>
-              <div v-if="n.visualStyleSheet" class="detail-row">
-                <strong>Visual:</strong> {{ n.visualStyleSheet }}
-              </div>
-            </details>
-            <div class="tile-actions">
-              <button
-                v-if="!n.builtin"
-                class="btn btn-ghost btn-sm danger"
-                :title="n.project_count ? `Can't delete — ${n.project_count} project(s) still reference this niche.` : 'Delete this custom niche.'"
-                :disabled="!!n.project_count"
-                @click="confirmDeleteNiche(n)"
-              >Delete</button>
-            </div>
-          </article>
-        </div>
-      </div>
-    </div>
-
-    <ChannelIdentityPickerModal
-      :visible="identityPickerOpen"
-      :project-slug="slug"
-      :selected-formula-id="nicheId"
-      :selected-topic-pack-ids="topicPackIds"
-      :project-content-pack-versions="projectContentPackVersions"
-      @close="identityPickerOpen = false"
-      @saved="onIdentitySaved"
-    />
-
-    <!-- v1.0.96+ Create-custom-niche modal. Lives under the Niche tab now
-         (the standalone /niches sidebar page is gone). Same form fields as
-         before — id, name, tagline, description, example topics, script
-         context, visual style sheet. -->
-    <Modal
-      v-if="nicheCreateOpen"
-      :visible="nicheCreateOpen"
-      size="md"
-      labelledby="niche-create-title"
-      @close="closeNicheCreator"
-    >
-      <h3 id="niche-create-title">Create custom niche</h3>
-      <p class="text-muted text-sm mt-1 mb-2">
-        Custom niches live alongside the built-ins. Fill in the basics here;
-        you can expand example topics, add a visual style sheet, or layer in
-        title shape rules later by editing the JSON file directly.
-      </p>
-      <div class="form-group">
-        <label><strong>id</strong> <span class="text-muted text-xs">lowercase slug — letters / digits / dashes / underscores</span></label>
-        <input v-model="nicheDraft.id" class="input" placeholder="e.g. gemstones" :disabled="nicheCreateBusy" />
-      </div>
-      <div class="form-group mt-2">
-        <label><strong>name</strong> <span class="text-muted text-xs">label shown in the picker</span></label>
-        <input v-model="nicheDraft.name" class="input" placeholder="e.g. Gemstones & Minerals" :disabled="nicheCreateBusy" />
-      </div>
-      <div class="form-group mt-2">
-        <label><strong>tagline</strong> <span class="text-muted text-xs">optional one-liner shown on the niche card</span></label>
-        <input v-model="nicheDraft.tagline" class="input" placeholder="e.g. Crystalline, ancient, weirdly violent to form." :disabled="nicheCreateBusy" />
-      </div>
-      <div class="form-group mt-2">
-        <label><strong>description</strong> <span class="text-muted text-xs">2-3 sentences describing what this niche covers</span></label>
-        <textarea v-model="nicheDraft.description" class="input" rows="3" :disabled="nicheCreateBusy" />
-      </div>
-      <div class="form-group mt-2">
-        <label><strong>example topics</strong> <span class="text-muted text-xs">one per line — feeds the Ideas generator's title bar</span></label>
-        <textarea v-model="nicheDraftExampleTopicsText" class="input" rows="6" :disabled="nicheCreateBusy" placeholder="Diamond&#10;Ruby&#10;Sapphire&#10;…" />
-      </div>
-      <div class="form-group mt-2">
-        <label><strong>script context</strong> <span class="text-muted text-xs">one-line context injected into the narration system prompt</span></label>
-        <textarea v-model="nicheDraft.scriptContext" class="input" rows="2" :disabled="nicheCreateBusy" />
-      </div>
-      <div class="form-group mt-2">
-        <label><strong>visual style sheet</strong> <span class="text-muted text-xs">long-form style instructions appended to every image prompt</span></label>
-        <textarea v-model="nicheDraft.visualStyleSheet" class="input" rows="3" :disabled="nicheCreateBusy" />
-      </div>
-      <div v-if="nicheCreateError" class="error-box mt-2">{{ nicheCreateError }}</div>
-      <div class="flex gap-2 mt-3" style="justify-content: flex-end">
-        <button class="btn btn-secondary" :disabled="nicheCreateBusy" @click="closeNicheCreator">Cancel</button>
-        <button class="btn btn-primary" :disabled="nicheCreateBusy || !nicheCanCreate" @click="submitNicheCreate">
-          {{ nicheCreateBusy ? 'Creating…' : 'Create niche' }}
+          <CollapsibleCard title="Writing instructions" subtitle="Channel guidance and intro rules, with reusable presets" data-setting="writing-instructions">
+      <div class="sub-tabs">
+        <button v-for="st in standardsSubTabs" :key="st.id" :disabled="writingControlsDisabled" :class="['sub-tab', { active: standardsSubTab === st.id }]" @click="standardsSubTab = st.id">
+          {{ st.label }}
         </button>
       </div>
-    </Modal>
 
-    <!-- Folders -->
-    <details v-if="activeTab === 'files'" class="card settings-panel settings-disclosure mt-2">
-      <summary><span><strong>Episode folder names</strong><small>Templates used when Story Studio creates and syncs folders</small></span></summary>
-      <h3>Folder Structure</h3>
-      <p class="text-muted mt-1 mb-2">
-        Customize how episode subfolders are named. Each template must include <code>{{ '{code}' }}</code> which is replaced with the episode code (e.g. TN0024).
-      </p>
-      <p v-if="folderConfigLoading" class="text-muted mt-2">Loading folder settings…</p>
-      <p v-else-if="folderConfigError" class="text-error mt-2">{{ folderConfigError }}</p>
+      <div class="sub-tab-body">
+        <h3>{{ currentStandardDoc.title }}</h3>
+        <p class="text-muted mt-1 mb-2">{{ currentStandardDoc.description }}</p>
+        <p v-if="standardsLoading" class="text-muted mt-2">Loading saved instructions…</p>
+        <p v-else-if="standardsError" class="text-error mt-2">{{ standardsError }}</p>
 
-      <div v-if="folderConfig.length" class="folder-config-list">
-        <div class="folder-config-header">
-          <span class="col-order">#</span>
-          <span class="col-label">Folder</span>
-          <span class="col-template">Template</span>
-          <span class="col-generator">Generator</span>
-        </div>
-        <div v-for="entry in folderConfig" :key="entry.key" class="folder-config-row">
-          <span class="col-order text-muted">{{ entry.order.toString().padStart(2, '0') }}</span>
-          <span class="col-label">{{ entry.label }}</span>
-          <input v-model="entry.template" class="input input-sm col-template" />
-          <span class="col-generator text-muted" style="font-size:12px">{{ entry.generator }}</span>
-        </div>
-      </div>
-
-      <div class="flex gap-2 mt-3" style="align-items: center;">
-        <button class="btn btn-primary" :disabled="folderConfigLoading || !!folderConfigError" @click="saveFolderConfig">Save Folder Config</button>
-        <button class="btn btn-secondary" :disabled="folderConfigLoading || !!folderConfigError" @click="resetFolderDefaults">Reset to Defaults</button>
-        <SaveIndicator v-bind="savedHintProps('folder_config')" />
-      </div>
-
-      <p class="text-muted mt-2" style="font-size:12px">
-        💡 After saving, use <strong>Sync Folders</strong> in Files &amp; Behavior to rename existing episode folders to match the new names.
-      </p>
-    </details>
-
-    <!-- (The Assets audit/repair UI once lived in this Settings tab, then in a
-         standalone /assets page. v1.0.481 retired both: the audit matrix is
-         redundant with the Production Board, and Repair moved into the board's
-         ↻ Repair… dialog — see frontend/components/RepairAssetsDialog.vue.) -->
-
-    <!-- "Smaller files": this Mac's default (Files & maintenance) and this project's override
-         (Project files & behavior). Which assets are requested already compressed (AAC / JPEG). -->
-    <div v-if="activeTab === 'maintenance'" class="card settings-panel mt-2">
-      <GenerationCompressionPanel />
-    </div>
-    <div v-if="activeTab === 'files'" class="card settings-panel mt-2">
-      <GenerationCompressionPanel :slug="slug" />
-    </div>
-
-    <!-- Storage — per-episode disk usage + cleanup of uploaded final
-         videos + external-root configuration. A final is cleared only
-         after its exact local bytes and current YouTube state are verified. -->
-    <details v-if="activeTab === 'maintenance' || activeTab === 'files'" :open="activeTab === 'maintenance'" class="card settings-panel settings-disclosure storage-panel mt-2">
-      <summary v-if="activeTab === 'files'"><span><strong>Storage &amp; cleanup</strong><small>Episode usage, recovery data, and optional media split</small></span></summary>
-      <header class="settings-section-head">
-        <div>
-          <h3>{{ activeTab === 'maintenance' ? 'Library & exports' : 'Project storage' }}</h3>
-          <p v-if="activeTab === 'maintenance'">Free up space from uploaded episodes, choose the shared Library, and see where exports land.</p>
-          <p v-else>Keep this project portable, inspect episode usage, and manage recovery data.</p>
-        </div>
-        <span v-if="activeTab === 'files'" class="settings-section-count">{{ storage ? formatBytes(storage.project_bytes_total) : 'Not scanned' }}</span>
-      </header>
-
-      <!-- Free up space comes first on this tab: it is the most-wanted action here, and
-           it needs no folder choice (files go to the project's own _trash). -->
-      <MediaCleanupPanel v-if="activeTab === 'maintenance'" :slug="slug" />
-
-      <!-- ── Cloud Sync Overview (top-of-tab indicator) ────────────────
-           Surfaces all three storage subsystems with their current state
-           and a 1-line description so users can scan it and know what's
-           available + which warnings apply. Replaces the legacy
-           "Cloud sync is paused" dashboard banner: that banner pointed
-           at a feature that no longer exists; this card points at the
-           feature that DID replace it. -->
-      <div v-if="activeTab === 'maintenance'" class="cloud-sync-overview storage-map">
-        <div class="overview-head">
-          <span class="overview-icon" aria-hidden="true">◫</span>
-          <div>
-            <strong>Your storage map</strong>
-            <p class="overview-sub">
-              Two active destinations handle normal work. Advanced split-media
-              storage stays out of the way unless you explicitly enable it.
-            </p>
+        <!-- Starter templates + preset dropdown -->
+        <div class="standards-toolbar">
+          <div class="toolbar-group">
+            <label class="toolbar-label">Start from</label>
+            <select v-model="selectedTemplateId" class="select input-sm" :disabled="writingControlsDisabled">
+              <option value="">— pick a template —</option>
+              <option v-for="t in currentTemplates" :key="t.id" :value="t.id">{{ t.name }}</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" :disabled="writingControlsDisabled || !selectedTemplateId" @click="loadStarterTemplate">Load</button>
           </div>
-        </div>
 
-        <div class="overview-grid">
-          <a class="overview-card" href="#projects-root-section" @click.prevent="scrollTo('projects-root-section')">
-            <div class="overview-card-head">
-              <span class="overview-card-icon">📁</span>
-              <strong>Your Library</strong>
-              <span :class="['overview-badge', library && !library.exists ? 'on' : 'off']">
-                {{ library && !library.exists ? 'NOT FOUND' : 'IN USE' }}
-              </span>
-            </div>
-            <p class="overview-card-desc">
-              Every channel, your shared assets and your finished videos live in one folder.
-            </p>
-            <code class="overview-card-path">{{ library?.path || '(loading)' }}</code>
-          </a>
-
-          <a class="overview-card" href="#external-video-section" @click.prevent="scrollTo('external-video-section')">
-            <div class="overview-card-head">
-              <span class="overview-card-icon">🎞</span>
-              <strong>Final videos</strong>
-              <span :class="['overview-badge', externalRootInput ? 'on' : 'off']">
-                {{ externalRootInput ? 'CUSTOM' : 'INSIDE PROJECT' }}
-              </span>
-            </div>
-            <p class="overview-card-desc">
-              {{ externalRootInput
-                ? 'New ffmpeg renders land at the external path — keeps multi-GB videos out of cloud sync.'
-                : 'New ffmpeg renders land inside each project (under the Video Assembly Output folder). Set an external path to avoid syncing 5–10 GB videos.' }}
-            </p>
-            <code v-if="externalRootInput" class="overview-card-path">{{ externalRootInput }}</code>
-          </a>
-
-          <a class="overview-card" href="#per-episode-section" @click.prevent="openSpaceRecovery">
-            <div class="overview-card-head">
-              <span class="overview-card-icon">🧹</span>
-              <strong>Space recovery</strong>
-              <span class="overview-badge info">
-                {{ storage ? `${storage.episodes.filter(e => e.cleanup_eligible && (e.bytes_final_video > 0 || e.bytes_external_final_video > 0)).length} eligible` : 'unscanned' }}
-              </span>
-            </div>
-            <p class="overview-card-desc">
-              Verify eligible local exports before clearing them. Original audio,
-              images, motion clips, and project files remain untouched.
-            </p>
-          </a>
-
-          <a class="overview-card overview-card--advanced" href="#files" @click="activeTab = 'files'">
-            <div class="overview-card-head">
-              <span class="overview-card-icon">⌁</span>
-              <strong>Project storage</strong>
-              <span :class="['overview-badge', mediaRootSavedValue ? 'on' : 'off']">
-                {{ mediaRootSavedValue ? 'SPLIT ACTIVE' : 'PROJECT' }}
-              </span>
-            </div>
-            <p class="overview-card-desc">
-              Episode usage, cleanup, recovery sidecars, and the optional heavy-media split live with this project's file settings.
-            </p>
-            <span class="overview-card-path">Open Files &amp; Behavior →</span>
-          </a>
-        </div>
-
-        <details class="overview-warnings">
-          <summary>Cross-machine and cloud-folder notes</summary>
-          <ul>
-            <li>
-              <strong>API keys are per-machine.</strong> Each Mac encrypts its
-              own keys with a machine-derived key — they don't decrypt across
-              devices. You'll re-enter keys (Settings → This Mac) on every Mac.
-            </li>
-            <li>
-              <strong>One Mac at a time.</strong> Don't have two Macs actively
-              editing the same project — the cloud is last-write-wins per file
-              and will silently overwrite the loser.
-            </li>
-            <li>
-              <strong>Job queue + session analytics may diverge.</strong>
-              <code>jobs.json</code> + <code>sessions.json</code> live inside
-              the project folder; cross-syncing them can confuse mid-flight
-              state. Avoid running generations on two Macs targeting the
-              same project at once.
-            </li>
-            <li>
-              <strong>5–10 GB final videos.</strong> Long-form video
-              projects produce huge final-video files. If you're on iCloud
-              Drive with limited space, set the external final-video root
-              above and/or use the cleanup button below.
-            </li>
-          </ul>
-        </details>
-      </div>
-
-      <!-- ── Projects storage location ──────────────────────────── -->
-      <!-- v1.4.3 — one Library. This replaced the projects-root override, the
-           per-Mac register of outside folders, the named-roots map and the
-           free-floating export root. Changing it copies every channel across,
-           which is why it is a deliberate action and not an inline edit. -->
-      <div v-if="activeTab === 'maintenance'" id="projects-root-section" class="storage-section storage-surface">
-        <h4><span class="storage-section-icon" aria-hidden="true">📁</span>Your Library</h4>
-        <p class="text-muted hint">
-          Everything Story Studio makes lives here: one folder per channel, a
-          <code>_Project Assets</code> folder for files you share between channels, and an
-          <code>Exports</code> folder for finished videos. Copy a channel folder in and it appears
-          in the list; take it out and it is gone.
-        </p>
-        <div class="projects-root-row">
-          <div class="projects-root-info">
-            <div class="projects-root-current">
-              <strong>{{ library?.path || 'Loading…' }}</strong>
-              <span v-if="library && !library.exists" class="root-badge custom">NOT FOUND</span>
-            </div>
-            <div v-if="library && !library.exists" class="projects-root-default-note">
-              Story Studio looked here and the folder is not there. If it is on a drive that is
-              not plugged in, reconnect it — nothing has been lost.
-            </div>
+          <div class="toolbar-group" v-if="currentPresets.length">
+            <label class="toolbar-label">Saved presets</label>
+            <select v-model="selectedPresetId" class="select input-sm" :disabled="writingControlsDisabled">
+              <option value="">— none —</option>
+              <option v-for="p in currentPresets" :key="p.id" :value="p.id">{{ p.name }}</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" :disabled="writingControlsDisabled || !selectedPresetId" @click="loadPreset">Load</button>
+            <button class="btn btn-secondary btn-sm" :disabled="writingControlsDisabled || !selectedPresetId" @click="deletePreset">Delete Preset</button>
           </div>
+
+          <button class="btn btn-secondary btn-sm" :disabled="writingControlsDisabled" @click="copyAsAiPrompt" title="Copy a chatbot-ready prompt to your clipboard">Copy as AI Prompt</button>
+          <button class="btn btn-secondary btn-sm" :disabled="writingControlsDisabled" @click="showSavePreset = true">Save as Preset…</button>
         </div>
-        <div class="projects-root-actions">
-          <button
-            class="btn btn-secondary"
-            :disabled="projectsRootBusy"
-            @click="browseAndMoveLibrary"
-          >📂 Move my Library somewhere else</button>
-        </div>
-        <div v-if="projectsRootStatus" :class="['projects-root-status', projectsRootStatusKind]">
-          {{ projectsRootStatus }}
-        </div>
-        <div v-if="projectsRootPickerHelp" class="manual-path-hint">
-          {{ projectsRootPickerHelp }}
+
+        <textarea
+          v-model="currentStandardText"
+          class="textarea"
+          style="min-height: 400px; font-family: monospace; font-size: 13px;"
+          :placeholder="currentStandardDoc.placeholder"
+          :disabled="writingControlsDisabled"
+        />
+
+        <div class="flex gap-2 mt-2" style="align-items: center;">
+          <button class="btn btn-primary" :disabled="writingControlsDisabled" @click="saveStandardsCurrent">Save Instructions</button>
+          <SaveIndicator v-bind="savedHintProps('standards')" />
         </div>
       </div>
 
-      <!-- ── External final-video root (per-machine) ─────────────── -->
-      <!-- v1.4.4 — Archive uploaded videos. Library-wide, unlike everything
-           else on this tab: he wants one button that clears finished films out
-           of the way across every channel at once. -->
-      <details v-if="activeTab === 'maintenance'" id="archive-section" class="storage-section storage-surface" :open="archiveBusy || !!archiveResult">
-        <summary><h4 class="archive-summary"><span class="storage-section-icon" aria-hidden="true">📦</span>Advanced: move uploaded videos to another drive</h4></summary>
-        <p class="text-muted hint">
-          Moves finished videos that are <strong>confirmed uploaded to YouTube</strong> into a folder
-          you choose, so what is left is a folder of finished films you can back up, park on a slow
-          drive, or delete. The reviewed list contains only videos whose exact export can be proven
-          uploaded; anything else, and all source media, stays exactly where it is. Move to another
-          disk to recover capacity — moving within the same disk only reorganizes files.
-        </p>
-
-        <div class="form-group mt-2">
-          <label>Look for videos in</label>
-          <div class="flex gap-2 items-center">
-            <input v-model="archiveSource" class="input" spellcheck="false"
-                   placeholder="Defaults to your Library’s Exports folder" />
-            <button class="btn btn-sm btn-secondary" aria-label="Browse archive source folder" :disabled="archiveBusy || archivePicking" @click="pickArchiveSource">📂</button>
-          </div>
-          <p class="text-muted text-sm mt-1">
-            Leave blank for your Library’s <code>Exports</code> folder. Point it anywhere if your
-            finished videos are somewhere else.
-          </p>
-        </div>
-
-        <div class="form-group">
-          <label>Move them to</label>
-          <div class="flex gap-2 items-center">
-            <input v-model="archiveDest" class="input" spellcheck="false" placeholder="Choose a folder…" />
-            <button class="btn btn-sm btn-secondary" aria-label="Browse archive destination folder" :disabled="archiveBusy || archivePicking" @click="pickArchiveDest">📂</button>
-          </div>
-        </div>
-
-        <div class="flex gap-2 items-center mt-2">
-          <button class="btn btn-secondary" :disabled="archiveBusy || archivePicking" @click="loadArchivePreview">
-            {{ archivePicking ? 'Opening folder picker…' : archiveChecking ? 'Checking…' : 'Check what would move' }}
-          </button>
-          <button v-if="archivePreview?.complete && archivePreview?.ready_count" class="btn btn-primary"
-                  :disabled="archiveBusy || !archiveDest.trim()" @click="startArchive">
-            Move {{ archivePreview.ready_count }} video(s) · {{ formatBytes(archivePreview.ready_bytes) }}
-          </button>
-          <button v-if="archiveRunning || archiveChecking" class="btn btn-danger" @click="stopArchive">Stop</button>
-        </div>
-
-        <!-- The bill, before it runs. -->
-        <div v-if="archivePreview" class="mt-2">
-          <p v-if="!archivePreview.source_exists" class="validation-msg text-sm">
-            Nothing to scan — <code>{{ archivePreview.source_root }}</code> is not there.
-          </p>
-          <template v-else>
-            <p v-if="!archivePreview.complete" class="validation-msg text-sm">
-              Check stopped early. Nothing can move until the folder has been checked completely.
-            </p>
-            <p class="text-sm">
-              <strong>{{ archivePreview.ready_count }}</strong> video(s) ready
-              ({{ formatBytes(archivePreview.ready_bytes) }} ready to move),
-              <strong>{{ archivePreview.skipped_count }}</strong> skipped
-              ({{ formatBytes(archivePreview.skipped_bytes) }} staying put).
-            </p>
-            <ul v-if="archivePreview.by_channel.length" class="archive-channels">
-              <li v-for="c in archivePreview.by_channel" :key="c.slug">
-                {{ c.slug }} — {{ c.count }} video(s), {{ formatBytes(c.bytes) }}
-              </li>
-            </ul>
-            <details v-if="archivePreview.ready_count" class="mt-1">
-              <summary class="text-sm">Review {{ archivePreview.ready_count }} uploaded videos to move</summary>
-              <ul class="archive-skipped">
-                <li v-for="c in archiveReadyRows" :key="c.source_path">
-                  <strong>{{ c.slug }} · {{ c.code }}</strong> — <code>{{ c.filename }}</code>
-                  · {{ formatBytes(c.bytes) }}
-                  <a v-if="c.youtube_video_id" :href="`https://www.youtube.com/watch?v=${encodeURIComponent(c.youtube_video_id)}`"
-                     target="_blank" rel="noopener noreferrer">Open recorded YouTube upload</a>
-                </li>
-              </ul>
-            </details>
-            <details v-if="archivePreview.skipped_count" class="mt-1">
-              <summary class="text-muted text-sm">Why {{ archivePreview.skipped_count }} were skipped</summary>
-              <ul class="archive-skipped">
-                <li v-for="c in archiveSkippedRows" :key="c.source_path">
-                  <code>{{ c.filename }}</code> — {{ c.reason }}
-                </li>
-              </ul>
-            </details>
-          </template>
-        </div>
-
-        <div v-if="archiveChecking || archiveRunning || archiveResult" class="mt-2">
-          <p v-if="archiveChecking" class="text-sm">
-            Checking {{ archiveProgress.checked }} video file{{ archiveProgress.checked === 1 ? '' : 's' }} —
-            <code>{{ archiveProgress.current }}</code>
-            <span v-if="archiveStopping"> · stopping after this file…</span>
-          </p>
-          <p v-else-if="archiveRunning" class="text-sm">
-            {{ archiveStage === 'checking' ? 'Rechecking proof' : 'Moving' }} {{ archiveProgress.done }} / {{ archiveProgress.total }} —
-            <code>{{ archiveProgress.current }}</code>
-            <span v-if="archiveStopping"> · stopping after this file…</span>
-          </p>
-          <p v-if="archiveResult" class="text-sm">
-            ✓ Moved {{ archiveResult.moved.length }} video(s), {{ formatBytes(archiveResult.bytes_moved) }} total.
-            <span v-if="archiveResult.cancelled">Stopped early — everything not yet moved is untouched.</span>
-            <span v-if="archiveResult.failed.length">
-              {{ archiveResult.failed.length }} could not be verified and were left in both places.
-            </span>
-          </p>
-          <ul v-if="archiveResult?.warnings?.length" class="archive-skipped">
-            <li v-for="w in archiveResult.warnings" :key="w">{{ w }}</li>
-          </ul>
-        </div>
-      </details>
-
-      <!-- v1.4.5 — read-only. This panel used to Save and Clear a per-machine
-           export root, but v1.4.3 made that folder derived (`<Library>/Exports`)
-           and removed the setter route — so its buttons had been posting to a
-           404 ever since. It states where finished videos go, and the Archive
-           panel above is how you move them somewhere else. -->
-      <div v-if="activeTab === 'maintenance'" id="external-video-section" class="storage-section storage-surface">
-        <h4>
-          <span class="storage-section-icon" aria-hidden="true">🎬</span>
-          Where finished videos go
-        </h4>
-        <p class="text-muted hint">
-          New renders are saved into the <code>Exports</code> folder inside your Library. This is not
-          a setting — move your Library in the section above to change it, or use
-          <strong>Move uploaded videos to another drive</strong> to move finished films somewhere else entirely.
-        </p>
-        <div class="external-root-row">
-          <code class="path-display">{{ externalRootSavedValue || '(loading)' }}</code>
-        </div>
-        <p v-if="externalRootStatus" :class="['external-root-status', externalRootReachable ? 'ok' : 'warn']">
-          {{ externalRootStatus }}
-        </p>
-      </div>
-
-      <!-- ── External media root (Level B, per-project, opt-in) ──── -->
-      <div v-if="activeTab === 'files'" class="storage-advanced-heading">
-        <span>Optional storage split</span>
-        <p>Leave this off when you want the project and all of its assets to stay together.</p>
-      </div>
-      <details v-if="activeTab === 'files'" id="media-root-section" class="storage-disclosure" :open="!!mediaRootSavedValue">
-        <summary class="storage-disclosure-summary">
-          <span class="storage-section-icon" aria-hidden="true">⌁</span>
-          <span><strong>Heavy media split</strong><small>Keep off to store every project and its assets together.</small></span>
-          <span :class="['overview-badge', mediaRootSavedValue ? 'on' : 'off']">{{ mediaRootSavedValue ? 'ACTIVE' : 'OFF' }}</span>
-        </summary>
-        <div class="storage-disclosure-body">
-        <p class="text-muted hint">
-          Route this project's <strong>heavy media</strong> — scene images,
-          thumbnails, audio, merged audio, final video — to a separate root
-          (typically an external SSD), keeping the light artifacts (scripts,
-          metadata, prompts, subtitles) in the project / iCloud tree. Use a
-          portable token like <code>${ASSET}</code> so the same project works on any Mac —
-          it always means the <code>_Project Assets</code> folder inside your Library.
-          Leave blank to keep everything under the project's output folder (the default).
-        </p>
-        <div class="external-root-row">
+      <!-- Save preset modal -->
+      <div v-if="showSavePreset" class="modal-overlay" @click.self="showSavePreset = false">
+        <div class="modal-small">
+          <h3>Save {{ standardsSubTab === 'intro' ? 'intro' : 'project instructions' }} preset</h3>
+          <p class="text-muted mt-1 mb-2" style="font-size:12px">Give this preset a name so you can reuse it across projects of the same style.</p>
           <input
-            v-model="mediaRootInput"
+            v-model="newPresetName"
             class="input"
-            placeholder="(not set — media stays in the project tree)   e.g. ${ASSET}/Media"
-            spellcheck="false"
+            placeholder="e.g. Sleep Stories v2, Horror Narration"
+            :disabled="writingControlsDisabled"
+            @keyup.enter.stop.prevent="savePreset"
+            @keydown.escape="showSavePreset = false"
+          />
+          <div class="flex gap-2 mt-2" style="justify-content:flex-end">
+            <button class="btn btn-secondary" :disabled="writingControlsDisabled" @click="showSavePreset = false">Cancel</button>
+            <button class="btn btn-primary" :disabled="writingControlsDisabled || !newPresetName.trim()" @click="savePreset">Save preset</button>
+          </div>
+        </div>
+      </div>
+          </CollapsibleCard>
+
+          <CollapsibleCard title="Custom art styles" subtitle="Browse the style library or make your own" data-setting="style-library">
+      <ProjectStyleLibrary
+        :project-slug="slug"
+        title="Project style library"
+        :show-catalog-starters="true"
+      />
+          </CollapsibleCard>
+        </template>
+
+        <!-- ═══ This Project → Publishing ═══ -->
+        <template v-if="activeTab === 'publishing'">
+          <PublishingScheduleCard :slug="slug" data-setting="upload-schedule" />
+
+          <div class="card settings-panel settings-panel-embedded" data-setting="youtube-channel">
+            <YouTubeConnectionSettings :slug="slug" scope="assignment" />
+            <p class="settings-cross-link">
+              YouTube accounts are shared by this Mac.
+              <a href="#connections" @click="activeTab = 'connections'">Manage connected accounts</a>
+            </p>
+          </div>
+
+          <section class="card settings-panel">
+            <header class="settings-card-head">
+              <h3>Upload defaults</h3>
+              <p>Used for every new upload and every update to an uploaded video.</p>
+            </header>
+      <div class="form-group" data-setting="category">
+        <label>
+          YouTube Category
+          <span class="text-muted" style="font-weight:normal">(used for new uploads and updates to existing videos)</span>
+        </label>
+        <div class="flex gap-2 items-center" style="flex-wrap: wrap;">
+          <select
+            v-if="ytCategoryList.length"
+            v-model.number="projectForm.category_id"
+            class="input"
+            style="flex: 1; min-width: 240px;"
+          >
+            <option :value="undefined">— Default (24 · Entertainment) —</option>
+            <option v-for="c in ytCategoryList" :key="c.id" :value="Number(c.id)">
+              {{ c.id }} · {{ c.title }}
+            </option>
+          </select>
+          <input
+            v-else
+            v-model.number="projectForm.category_id"
+            type="number"
+            min="1"
+            class="input"
+            style="flex: 1; min-width: 240px;"
+            :placeholder="'24 (default — Entertainment)'"
           />
           <button
-            class="btn btn-secondary btn-sm"
-            :disabled="!mediaRootInput.trim() || mediaRootChecking"
-            title="Check that this token/path resolves on this machine"
-            @click="checkMediaRoot"
+            type="button"
+            class="btn btn-sm btn-secondary"
+            :disabled="ytCategoryLoading"
+            @click="loadYoutubeCategoryList"
           >
-            {{ mediaRootChecking ? 'Checking…' : '🔍 Check' }}
+            {{ ytCategoryLoading ? 'Fetching…' : 'Refresh Categories' }}
+          </button>
+        </div>
+        <span class="text-muted" style="font-size: var(--font-xs);">
+          <template v-if="ytCategoryHint">⚠ {{ ytCategoryHint }}</template>
+          <template v-else-if="ytCategorySource">
+            {{ ytCategorySource === 'live' ? 'Just fetched' : ytCategorySource === 'cache' ? 'From cache' : ytCategorySource === 'stale' ? 'Stale cache (fetch failed)' : 'Empty' }}
+            · {{ ytCategoryList.length }} assignable categor{{ ytCategoryList.length === 1 ? 'y' : 'ies' }}
+          </template>
+          <template v-else>Click Refresh to load YouTube’s category list (cached 7 days).</template>
+        </span>
+      </div>
+      <div class="form-group" data-setting="ai-disclosure">
+        <label>
+          AI / Altered or Synthetic Content disclosure
+          <span class="text-muted" style="font-weight:normal">(shown in YouTube’s altered-content disclosure)</span>
+        </label>
+        <div class="flex gap-2 items-center" style="flex-wrap: wrap;">
+          <select
+            v-model="aiDisclosureSelection"
+            class="input"
+            style="flex: 1; min-width: 240px;"
+          >
+            <option value="default">Use app default ({{ ytAppDefaults?.default_mark_as_ai_generated === false ? 'OFF' : 'ON' }})</option>
+            <option value="on">ON — mark uploads as AI-generated</option>
+            <option value="off">OFF — do not disclose</option>
+          </select>
+        </div>
+        <span class="text-muted" style="font-size: var(--font-xs);">
+          Required by YouTube when a video contains realistic AI-made narration, images or footage. New uploads use this automatically.
+        </span>
+      </div>
+            <div class="form-group">
+              <label>YouTube channel link <span class="text-muted" style="font-weight:normal">(for video recommendations)</span></label>
+              <input v-model="projectForm.youtube_channel_url" class="input" placeholder="https://youtube.com/@yourchannel" />
+            </div>
+            <div class="flex gap-2 mt-2" style="align-items:center">
+              <button class="btn btn-primary" @click="saveProject('publishing')">Save Upload Defaults</button>
+              <SaveIndicator v-bind="savedHintProps('project_publishing')" />
+            </div>
+            <AdvancedDisclosure label="Advanced: apply disclosure and category to videos already uploaded">
+              <p class="settings-hint">Updates every uploaded video on this channel with the disclosure and category above. Privacy and schedule are kept. Uses YouTube quota: 1 unit per 50 videos read, 50 per video updated.</p>
+              <div class="flex gap-2 items-center" style="flex-wrap: wrap;">
+          <button
+            type="button"
+            class="btn btn-sm btn-secondary"
+            :disabled="!!ytBackfillBusy"
+            @click="onYoutubeBackfillPreview"
+            title="Show what would change without applying"
+          >
+            {{ ytBackfillBusy === 'preview' ? 'Checking…' : 'Preview Changes' }}
           </button>
           <button
-            v-if="mediaRootInput.trim() !== mediaRootSavedValue"
-            class="btn btn-primary btn-sm"
-            :disabled="mediaRootSaving"
-            @click="saveMediaRoot"
+            type="button"
+            class="btn btn-sm btn-primary"
+            :disabled="!!ytBackfillBusy"
+            @click="onYoutubeBackfillApply"
+            title="Apply current AI disclosure + category to every uploaded video on this project"
           >
-            {{ mediaRootSaving ? 'Saving…' : '💾 Save' }}
+            {{ ytBackfillBusy === 'apply' ? 'Applying…' : 'Apply to All Uploaded Videos' }}
           </button>
-          <button v-if="mediaRootInput" class="btn btn-ghost btn-sm" :disabled="mediaRootSaving" @click="clearMediaRoot">
-            Clear
-          </button>
-        </div>
-        <p v-if="mediaRootStatus" :class="['external-root-status', mediaRootOk ? 'ok' : 'warn']">
-          {{ mediaRootStatus }}
-        </p>
-        <p class="text-muted" style="font-size: var(--font-xs); margin-top: 4px;">
-          ⚠ Advanced &amp; experimental. New media is written here going forward. To move your
-          <strong>existing</strong> episodes' media onto this root, use the button below.
-          Keep the drive connected during generation / rendering / migration.
-        </p>
-        <div class="external-root-row" style="margin-top: 8px;">
-          <button
-            class="btn btn-secondary btn-sm"
-            :disabled="!mediaRootSavedValue || mediaMigrateRunning || mediaRootInput.trim() !== mediaRootSavedValue"
-            :title="!mediaRootSavedValue ? 'Save a media root first' : (mediaRootInput.trim() !== mediaRootSavedValue ? 'Save your change first' : 'Preview, then move existing media to the media root')"
-            @click="migrateMediaToRoot"
-          >
-            {{ mediaMigrateRunning ? 'Migrating…' : 'Migrate existing media here →' }}
-          </button>
-        </div>
-        <div v-if="lastMediaMigration" class="storage-result">
-          <strong>Media migration:</strong>
-          {{ lastMediaMigration.files_moved }} file(s) moved
-          ({{ formatBytes(lastMediaMigration.bytes_moved) }} off the project tree)
-          across {{ lastMediaMigration.folders.length }} folder(s).
-          <span v-if="lastMediaMigration.scene_plan_rewrites">
-            {{ lastMediaMigration.scene_plan_rewrites }} scene-plan path(s) updated.
-          </span>
-          <span v-if="lastMediaMigration.errors.length" class="error-text">
-            {{ lastMediaMigration.errors.length }} error(s): {{ lastMediaMigration.errors[0]?.reason }}
-          </span>
-        </div>
-        </div>
-      </details>
 
-      <!-- ── Per-episode storage breakdown ───────────────────────── -->
-      <div v-if="activeTab === 'files'" id="per-episode-section" class="storage-section storage-surface">
+              </div>
+        <div v-if="ytBackfillResult" class="card mt-2" style="font-size: 12px;">
+          <div class="flex gap-3" style="flex-wrap: wrap;">
+            <span><strong>Scanned:</strong> {{ ytBackfillResult.scanned }}</span>
+            <span><strong>Eligible:</strong> {{ ytBackfillResult.eligible }}</span>
+            <span class="text-success"><strong>Updated:</strong> {{ ytBackfillResult.updated }}</span>
+            <span><strong>Skipped (already ok):</strong> {{ ytBackfillResult.skipped }}</span>
+            <span v-if="ytBackfillResult.failed" class="text-danger"><strong>Failed:</strong> {{ ytBackfillResult.failed }}</span>
+            <span v-if="ytBackfillResult.missing" class="text-muted"><strong>Missing on YouTube:</strong> {{ ytBackfillResult.missing }}</span>
+            <span v-if="ytBackfillResult.dry_run" class="text-warning"><strong>(dry run — nothing applied)</strong></span>
+          </div>
+          <div v-if="ytBackfillResult.message" class="text-muted mt-1">{{ ytBackfillResult.message }}</div>
+          <details v-if="ytBackfillResult.details?.length" class="mt-1">
+            <summary style="cursor: pointer;">Per-video details ({{ ytBackfillResult.details.length }})</summary>
+            <ul style="margin: 6px 0 0; padding-left: 18px;">
+              <li v-for="d in ytBackfillResult.details" :key="d.video_id">
+                <code>{{ d.episode_code }}</code> ·
+                <span :class="{ 'text-success': d.action === 'updated', 'text-muted': d.action === 'skipped', 'text-danger': d.action === 'failed', 'text-warning': d.action === 'missing' }">
+                  {{ d.action }}
+                </span>
+                <template v-if="d.changed">
+                  · {{ Object.entries(d.changed).map(([k, v]) => `${k}=${v}`).join(', ') }}
+                </template>
+                <template v-if="d.error || d.reason">
+                  · <span class="text-muted">{{ d.error || d.reason }}</span>
+                </template>
+              </li>
+            </ul>
+          </details>
+        </div>
+
+            </AdvancedDisclosure>
+          </section>
+
+          <section class="card settings-panel publishing-profile-card" data-setting="publishing-profile">
+            <div class="settings-section-head">
+              <div>
+                <h3>Publishing profile</h3>
+                <p>Channel-wide links, credits, calls to action, disclosures, recurring tags and an optional title wrapper.</p>
+              </div>
+              <NuxtLink :to="`/projects/${slug}/metadata-template`" class="btn btn-secondary">Open Publishing Profile</NuxtLink>
+            </div>
+          </section>
+        </template>
+
+        <!-- ═══ This Project → Project files & behavior ═══ -->
+        <template v-if="activeTab === 'files'">
+          <section class="card settings-panel" data-setting="numbering">
+            <header class="settings-card-head">
+              <h3>Episode numbering</h3>
+            </header>
+            <div class="grid-2">
+        <div class="form-group">
+          <label>Episode prefix</label>
+          <input v-model="projectForm.episode_prefix" class="input" />
+        </div>
+        <div class="form-group">
+          <label>Group name</label>
+          <input v-model="projectForm.season_prefix" class="input" placeholder="Season" />
+          <span class="text-muted" style="font-size: var(--font-xs)">Season, Batch, Volume, Collection, etc.</span>
+        </div>
+        <div class="form-group">
+          <label>Episodes per group</label>
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <input v-model.number="projectForm.season_size" class="input" type="number" min="1" max="1000" style="max-width: 120px;" />
+            <button
+              v-if="seasonSizeChanged"
+              type="button"
+              class="btn btn-sm btn-secondary"
+              :disabled="reseasonState.opening"
+              :title="`Preview the folder rebalance from ${serverSeasonSize} → ${projectForm.season_size} episodes per group, then commit. Reversible from the Unlinked Uploads tab for 30 days.`"
+              @click="openReseasonPreview"
+            >
+              <LoadingSpinner v-if="reseasonState.opening" size="sm" />
+              {{ reseasonState.opening ? 'Loading…' : `Rebalance to ${projectForm.season_size} per Group…` }}
+            </button>
+          </div>
+          <span class="text-muted" style="font-size: var(--font-xs);">
+            Changing this moves every episode folder into the new groups, so it has its own
+            <strong>Rebalance</strong> button (Save leaves it alone). Reversible for 30 days.
+          </span>
+        </div>
+            </div>
+            <div class="flex gap-2 mt-2" style="align-items:center">
+              <button class="btn btn-primary btn-sm" @click="saveProject('files')">Save Numbering</button>
+              <SaveIndicator v-bind="savedHintProps('project_files')" />
+            </div>
+          </section>
+
+          <section class="card settings-panel" data-setting="project-location">
+            <div class="form-group">
+              <label>Project folder</label>
+              <div class="flex gap-2 items-center" style="flex-wrap:wrap">
+                <code class="path-display">{{ projectLocation || '(no location set)' }}</code>
+                <button class="btn btn-sm btn-secondary" :disabled="!projectLocation" @click="revealInFinder">Show in Finder</button>
+              </div>
+              <p class="settings-hint">This channel is a folder in your Library. To move it, quit Story Studio and drag the folder — anywhere inside the Library works.</p>
+            </div>
+          </section>
+
+          <section class="card settings-panel" data-setting="project-smaller-files">
+            <GenerationCompressionPanel :slug="slug" />
+          </section>
+
+          <section class="card settings-panel storage-panel" data-setting="episode-storage">
         <div class="flex items-center" style="justify-content: space-between; gap: 12px;">
           <div>
-            <h4><span class="storage-section-icon" aria-hidden="true">📊</span>Per-episode breakdown</h4>
+            <h4>Space used by each episode</h4>
             <p class="text-muted hint">
-              Sorted largest first. Eligible finals can be verified before their
-              local <code>{code}_final_video.*</code> files are cleared.
-            </p>
-            <p class="text-muted voice-helper-line">
-              💡 Before any final is cleared, Story Studio verifies its SHA-256
-              against the accepted upload and refreshes the current processed
-              video on the assigned YouTube channel. Unverified or legacy
-              receipts remain local. Audio + image assets are never touched.
+              Largest first. A finished video that is confirmed uploaded (same file, still on YouTube) can be cleared
+              from this Mac; anything Story Studio cannot confirm stays. Audio and images are never touched.
             </p>
           </div>
           <div class="flex gap-2">
             <button class="btn btn-secondary btn-sm" :disabled="auditLoading" @click="loadStorageAudit">
-              {{ auditLoading ? 'Scanning…' : (storage ? '↻ Rescan' : 'Run scan') }}
+              {{ auditLoading ? 'Scanning…' : (storage ? 'Scan Again' : 'Scan Episodes') }}
             </button>
             <button
               class="btn btn-primary btn-sm"
@@ -1150,7 +1264,7 @@
             >
               {{ bulkRunning
                 ? 'Verifying…'
-                : `Verify & clear candidates (${formatBytes(uploadedFinalsTotalBytes)})` }}
+                : `Clear Uploaded Videos (${formatBytes(uploadedFinalsTotalBytes)})` }}
             </button>
           </div>
         </div>
@@ -1237,10 +1351,8 @@
           </div>
         </div>
         <div v-else-if="!auditLoading" class="text-muted hint mt-2">
-          Click "Run scan" to compute per-episode disk usage.
+          Press Scan Episodes to see how much space each episode uses.
         </div>
-      </div>
-
       <div v-if="activeTab === 'files' && lastBulkCleanup" class="storage-result mt-2">
         <strong>Cleanup:</strong>
         {{ lastBulkCleanup.deleted_count }} file(s) moved to _trash after verification ({{ formatBytes(lastBulkCleanup.bytes_freed) }}); the space is freed when you empty _trash.
@@ -1253,26 +1365,156 @@
           </li>
         </ul>
       </div>
+          </section>
 
-      <div v-if="activeTab === 'files'" class="storage-advanced-heading">
-        <span>Advanced maintenance</span>
-        <p>Recovery checkpoints are current safety data. Clean them only after a script is fully assembled.</p>
+          <CollapsibleCard title="Confirmation prompts" subtitle="Choose which generation and file actions ask first" data-setting="confirmations">
+      <h3>Generation Confirmations</h3>
+      <p class="text-muted mt-1 mb-2">
+        Choose which generators ask for confirmation before starting. Disabled generators skip the prompt and start immediately.
+      </p>
+      <div class="confirm-list">
+        <label v-for="gen in confirmGenerationRows" :key="gen.key" class="confirm-row">
+          <div class="confirm-info">
+            <span class="confirm-label">{{ gen.label }}</span>
+            <span class="confirm-desc text-muted">{{ gen.description }}</span>
+          </div>
+          <div class="toggle-switch" :class="{ active: confirmPrefs[gen.key] !== false }" @click="confirmPrefs[gen.key] = !(confirmPrefs[gen.key] !== false)">
+            <div class="toggle-knob" />
+          </div>
+        </label>
       </div>
 
-      <!-- ── Chunked-progress sidecars (v1.0.71+) ──────────────────── -->
-      <!--
-        Per-episode JSON sidecars that lib/chunked-narration.ts writes
-        during long script generations to enable resume on cancel/crash.
-        Once the unified narration is on disk with the expected chapter
-        count, the sidecar has no further purpose — but we don't auto-
-        delete (per user direction). This panel surfaces eligible
-        sidecars and lets the user clean them up manually.
-      -->
-      <details v-if="activeTab === 'files'" id="chunked-sidecars-section" class="storage-disclosure">
+      <h3 class="mt-3">Action Confirmations</h3>
+      <p class="text-muted mt-1 mb-2">
+        Non-generation guardrails. Turn off to skip the dialog (the action fires immediately); turn on to restore the prompt after you dismissed it with "don't ask again".
+      </p>
+      <div class="confirm-list">
+        <label v-for="gen in confirmActionRows" :key="gen.key" class="confirm-row">
+          <div class="confirm-info">
+            <span class="confirm-label">{{ gen.label }}</span>
+            <span class="confirm-desc text-muted">{{ gen.description }}</span>
+          </div>
+          <div class="toggle-switch" :class="{ active: confirmPrefs[gen.key] !== false }" @click="confirmPrefs[gen.key] = !(confirmPrefs[gen.key] !== false)">
+            <div class="toggle-knob" />
+          </div>
+        </label>
+      </div>
+            <div class="flex gap-2 mt-3" style="align-items: center;">
+              <button class="btn btn-primary btn-sm" @click="saveConfirmPrefs">Save Confirmations</button>
+              <SaveIndicator v-bind="savedHintProps('confirm_prefs')" />
+            </div>
+          </CollapsibleCard>
+
+          <CollapsibleCard title="Episode folder names" subtitle="Names used when Story Studio creates episode folders" data-setting="folder-names">
+            <p class="settings-hint">Each name must include <code>{{ '{code}' }}</code>, which becomes the episode code (for example EP0024). New folders use the new names.</p>
+            <p v-if="folderConfigLoading" class="text-muted mt-2">Loading folder settings…</p>
+            <p v-else-if="folderConfigError" class="text-error mt-2">{{ folderConfigError }}</p>
+      <div v-if="folderConfig.length" class="folder-config-list">
+        <div class="folder-config-header">
+          <span class="col-order">#</span>
+          <span class="col-label">Folder</span>
+          <span class="col-template">Template</span>
+          <span class="col-generator">Generator</span>
+        </div>
+        <div v-for="entry in folderConfig" :key="entry.key" class="folder-config-row">
+          <span class="col-order text-muted">{{ entry.order.toString().padStart(2, '0') }}</span>
+          <span class="col-label">{{ entry.label }}</span>
+          <input v-model="entry.template" class="input input-sm col-template" />
+          <span class="col-generator text-muted" style="font-size:12px">{{ entry.generator }}</span>
+        </div>
+      </div>
+            <div class="flex gap-2 mt-3" style="align-items: center;">
+              <button class="btn btn-primary btn-sm" :disabled="folderConfigLoading || !!folderConfigError" @click="saveFolderConfig">Save Folder Names</button>
+              <button class="btn btn-secondary btn-sm" :disabled="folderConfigLoading || !!folderConfigError" @click="resetFolderDefaults">Reset to Defaults</button>
+              <SaveIndicator v-bind="savedHintProps('folder_config')" />
+            </div>
+          </CollapsibleCard>
+
+          <section class="card settings-panel danger-zone" data-setting="hide-project">
+            <h3>Hide this project</h3>
+            <p class="settings-hint">
+              Removes the project from the app's list; every file stays on disk. Bring it back any time from
+              <em>Hidden channels</em> on the All Projects page — moving the folder out and back would not bring it back on its own.
+            </p>
+            <button class="btn btn-danger btn-sm mt-2" @click="deleteProject">Hide Project (Keep Files)</button>
+          </section>
+
+          <AdvancedDisclosure label="Advanced: heavy media on another drive, script recovery data">
+            <details id="media-root-section" class="storage-disclosure card settings-panel" :open="!!mediaRootSavedValue" data-setting="heavy-media">
+        <summary class="storage-disclosure-summary">
+          <span class="storage-section-icon" aria-hidden="true">⌁</span>
+          <span><strong>Heavy media split</strong><small>Keep off to store every project and its assets together.</small></span>
+          <span :class="['overview-badge', mediaRootSavedValue ? 'on' : 'off']">{{ mediaRootSavedValue ? 'ACTIVE' : 'OFF' }}</span>
+        </summary>
+        <div class="storage-disclosure-body">
+        <p class="text-muted hint">
+          Put this project's <strong>heavy media</strong> — scene images, thumbnails, audio and
+          finished video — on another drive, while scripts, metadata, prompts and subtitles stay in
+          the project folder. Leave it off to keep everything together (the default).
+        </p>
+        <div class="external-root-row">
+          <input
+            v-model="mediaRootInput"
+            class="input"
+            placeholder="(not set — media stays in the project tree)   e.g. ${ASSET}/Media"
+            spellcheck="false"
+          />
+          <button
+            class="btn btn-secondary btn-sm"
+            :disabled="!mediaRootInput.trim() || mediaRootChecking"
+            title="Check that this token/path resolves on this machine"
+            @click="checkMediaRoot"
+          >
+            {{ mediaRootChecking ? 'Checking…' : '🔍 Check' }}
+          </button>
+          <button
+            v-if="mediaRootInput.trim() !== mediaRootSavedValue"
+            class="btn btn-primary btn-sm"
+            :disabled="mediaRootSaving"
+            @click="saveMediaRoot"
+          >
+            {{ mediaRootSaving ? 'Saving…' : '💾 Save' }}
+          </button>
+          <button v-if="mediaRootInput" class="btn btn-ghost btn-sm" :disabled="mediaRootSaving" @click="clearMediaRoot">
+            Clear
+          </button>
+        </div>
+        <p v-if="mediaRootStatus" :class="['external-root-status', mediaRootOk ? 'ok' : 'warn']">
+          {{ mediaRootStatus }}
+        </p>
+        <p class="text-muted" style="font-size: var(--font-xs); margin-top: 4px;">
+          ⚠ Advanced &amp; experimental. New media is written here going forward. To move your
+          <strong>existing</strong> episodes' media onto this root, use the button below.
+          Keep the drive connected during generation / rendering / migration.
+        </p>
+        <div class="external-root-row" style="margin-top: 8px;">
+          <button
+            class="btn btn-secondary btn-sm"
+            :disabled="!mediaRootSavedValue || mediaMigrateRunning || mediaRootInput.trim() !== mediaRootSavedValue"
+            :title="!mediaRootSavedValue ? 'Save a media root first' : (mediaRootInput.trim() !== mediaRootSavedValue ? 'Save your change first' : 'Preview, then move existing media to the media root')"
+            @click="migrateMediaToRoot"
+          >
+            {{ mediaMigrateRunning ? 'Migrating…' : 'Migrate existing media here →' }}
+          </button>
+        </div>
+        <div v-if="lastMediaMigration" class="storage-result">
+          <strong>Media migration:</strong>
+          {{ lastMediaMigration.files_moved }} file(s) moved
+          ({{ formatBytes(lastMediaMigration.bytes_moved) }} off the project tree)
+          across {{ lastMediaMigration.folders.length }} folder(s).
+          <span v-if="lastMediaMigration.scene_plan_rewrites">
+            {{ lastMediaMigration.scene_plan_rewrites }} scene-plan path(s) updated.
+          </span>
+          <span v-if="lastMediaMigration.errors.length" class="error-text">
+            {{ lastMediaMigration.errors.length }} error(s): {{ lastMediaMigration.errors[0]?.reason }}
+          </span>
+        </div>
+        </div>
+            </details>
+            <details id="chunked-sidecars-section" class="storage-disclosure card settings-panel mt-2" data-setting="recovery-data">
         <summary class="storage-disclosure-summary">
           <span class="storage-section-icon" aria-hidden="true">↻</span>
           <span><strong>Script recovery data</strong><small>Current resume checkpoints, not legacy assets.</small></span>
-          <span class="overview-badge off">ADVANCED</span>
         </summary>
         <div class="storage-disclosure-body">
         <div class="flex items-center" style="justify-content: space-between; gap: 12px;">
@@ -1355,771 +1597,76 @@
           <span v-if="lastSidecarCleanup.skipped.length">{{ lastSidecarCleanup.skipped.length }} skipped.</span>
         </div>
         </div>
-      </details>
-
-    </details>
-
-    <!-- Confirmations -->
-    <details v-if="activeTab === 'files'" class="card settings-panel settings-disclosure mt-2">
-      <summary><span><strong>Confirmation prompts</strong><small>Choose which generation and file actions ask first</small></span></summary>
-      <h3>Generation Confirmations</h3>
-      <p class="text-muted mt-1 mb-2">
-        Choose which generators ask for confirmation before starting. Disabled generators skip the prompt and start immediately.
-      </p>
-      <div class="confirm-list">
-        <label v-for="gen in confirmGenerationRows" :key="gen.key" class="confirm-row">
-          <div class="confirm-info">
-            <span class="confirm-label">{{ gen.label }}</span>
-            <span class="confirm-desc text-muted">{{ gen.description }}</span>
-          </div>
-          <div class="toggle-switch" :class="{ active: confirmPrefs[gen.key] !== false }" @click="confirmPrefs[gen.key] = !(confirmPrefs[gen.key] !== false)">
-            <div class="toggle-knob" />
-          </div>
-        </label>
-      </div>
-
-      <h3 class="mt-3">Action Confirmations</h3>
-      <p class="text-muted mt-1 mb-2">
-        Non-generation guardrails. Turn off to skip the dialog (the action fires immediately); turn on to restore the prompt after you dismissed it with "don't ask again".
-      </p>
-      <div class="confirm-list">
-        <label v-for="gen in confirmActionRows" :key="gen.key" class="confirm-row">
-          <div class="confirm-info">
-            <span class="confirm-label">{{ gen.label }}</span>
-            <span class="confirm-desc text-muted">{{ gen.description }}</span>
-          </div>
-          <div class="toggle-switch" :class="{ active: confirmPrefs[gen.key] !== false }" @click="confirmPrefs[gen.key] = !(confirmPrefs[gen.key] !== false)">
-            <div class="toggle-knob" />
-          </div>
-        </label>
-      </div>
-
-      <div class="flex gap-2 mt-3" style="align-items: center;">
-        <button class="btn btn-primary" @click="saveConfirmPrefs">Save Confirmation Preferences</button>
-        <SaveIndicator v-bind="savedHintProps('confirm_prefs')" />
-      </div>
-    </details>
-
-    <!-- FFmpeg -->
-    <div v-if="activeTab === 'maintenance'" id="ffmpeg-section" class="card settings-panel mt-2">
-      <h3>FFmpeg</h3>
-      <p class="text-muted mt-1" style="font-size: 12px;">
-        FFmpeg is the engine behind Audio Assembly and Video Assembly — it concatenates
-        narration chapters, mixes music, and encodes the final MP4. The Story Studio DMG
-        already includes the release-tested FFmpeg and FFprobe binaries. Re-check verifies
-        that bundled copy; no separate download or Homebrew install is normally required.
-      </p>
-
-      <!-- Live status -->
-      <div class="ffmpeg-status-row mt-2">
-        <button class="btn btn-sm btn-secondary" @click="refreshFfmpegStatus" :disabled="ffmpegStatusLoading" :title="'Re-runs the FFmpeg / FFprobe detection — useful after a manual install.'">
-          <span v-if="ffmpegStatusLoading">Checking…</span>
-          <span v-else>Re-check status</span>
-        </button>
-        <template v-if="ffmpegStatus">
-          <span v-if="ffmpegStatus.installed" class="badge badge-success">
-            FFmpeg installed{{ ffmpegStatus.version ? ` (v${ffmpegStatus.version})` : '' }}
-          </span>
-          <span v-if="ffmpegStatus.installed && ffmpegStatus.source === 'bundled'" class="badge badge-success">Bundled with app</span>
-          <span v-else-if="ffmpegStatus.installed && ffmpegStatus.source === 'app-data'" class="badge badge-warn">Recovery copy</span>
-          <span v-else-if="ffmpegStatus.installed && ffmpegStatus.source === 'system'" class="badge">System copy</span>
-          <span v-else class="badge badge-error">Not installed</span>
-          <span v-if="ffmpegStatus.installed && ffmpegStatus.has_drawtext" class="badge badge-success">drawtext</span>
-          <span v-if="ffmpegStatus.installed && !ffmpegStatus.has_drawtext" class="badge badge-warn">no drawtext</span>
-          <span v-if="ffmpegStatus.installed && ffmpegStatus.has_libass" class="badge badge-success">libass</span>
-          <span v-if="ffmpegStatus.installed && !ffmpegStatus.has_libass" class="badge badge-warn">no libass</span>
+            </details>
+          </AdvancedDisclosure>
         </template>
       </div>
-      <!-- F-04 (DS-11) — a failed check is its own state: not "not installed". -->
-      <div v-if="ffmpegStatusError" class="ffmpeg-warning mt-1" role="alert">
-        <p class="text-muted text-md">
-          We couldn't determine FFmpeg's status: <code>{{ ffmpegStatusError }}</code>.
-          This is different from "not installed" — the backend may be unreachable, or the
-          binary isn't executable, or detection hit a permissions error.
-        </p>
-        <button type="button" class="btn btn-sm btn-secondary mt-1" @click="refreshFfmpegStatus">Retry check</button>
-      </div>
-      <p v-if="ffmpegStatus?.installed && ffmpegStatus.path" class="text-muted mt-1" style="font-size: var(--font-xs);">
-        Resolved path: <code>{{ ffmpegStatus.path }}</code>
-      </p>
-      <p v-if="ffmpegStatus?.installed && (!ffmpegStatus.has_drawtext || !ffmpegStatus.has_libass)" class="text-muted mt-1" style="font-size: 12px;">
-        Your FFmpeg works but is missing optional filters: <strong>drawtext</strong> (text overlays)
-        and/or <strong>libass</strong> (subtitle burn-in). The downloaded build below includes both.
-      </p>
-
-      <div v-if="ffmpegStatus?.installed && ffmpegStatus.source === 'bundled'" class="ffmpeg-bundled-ready mt-2">
-        <strong>Bundled and ready</strong>
-        <span>
-          This is the pinned build shipped and tested with Story Studio. It remains fixed
-          until the app itself is updated, preventing an incompatible FFmpeg upgrade.
-        </span>
-      </div>
-
-      <!-- Recovery installer only. A healthy release bundle must never invite
-           an unnecessary replacement download, and an unknown status (not yet
-           read, or a failed read) never justifies one either. -->
-      <details
-        v-else-if="ffmpegStatus"
-        :open="!ffmpegStatus.installed || ffmpegInstalling"
-        class="ffmpeg-install-block mt-2"
-      >
-        <summary
-          v-if="ffmpegStatus?.installed && !ffmpegInstalling"
-          class="ffmpeg-install-summary"
-        >
-          <span style="font-size: 13px;">Advanced: replace recovery FFmpeg</span>
-          <span class="text-muted" style="font-size: var(--font-xs);">
-            (only needed when the app bundle is unavailable)
-          </span>
-        </summary>
-        <h4 v-else style="margin: 0 0 8px 0;">One-click install</h4>
-        <p class="text-muted" style="font-size: 12px; margin: 8px 0;">
-          Downloads the same pinned FFmpeg + FFprobe release used by this app, verifies its
-          SHA-256 checksums, and installs it into the app's user-data folder as a recovery copy.
-        </p>
-        <button
-          class="btn btn-primary"
-          @click="installFfmpeg"
-          :disabled="ffmpegInstalling"
-        >
-          <span v-if="ffmpegInstalling">{{ ffmpegInstallMessage || 'Installing…' }} {{ ffmpegInstallProgress }}%</span>
-          <span v-else-if="ffmpegStatus?.installed">Replace recovery copy</span>
-          <span v-else>Install recovery copy</span>
-        </button>
-        <div v-if="ffmpegInstallMessage && !ffmpegInstalling" class="mt-1" style="font-size: 12px;" :style="{ color: ffmpegInstallError ? 'var(--error)' : 'var(--text-muted)' }">
-          {{ ffmpegInstallMessage }}
-        </div>
-
-        <!-- Restart prompt — appears after a successful install OR after
-             a "Re-check status" flips the badges from red to green. The
-             FFmpeg path is cached at module level on the backend; even
-             though the cache is technically invalidated by the install
-             flow, a full app restart guarantees every code path picks
-             up the new binary (renderer-side caches, child processes
-             already spawned, etc). One click does it. -->
-        <div v-if="showFfmpegRestartPrompt" class="ffmpeg-restart-prompt mt-2">
-          <span class="restart-msg">
-            <strong>Install complete.</strong> Restart the app so Audio Assembly and Video Assembly pick up the new binary.
-          </span>
-          <div class="flex gap-2 mt-1">
-            <button class="btn btn-sm btn-primary" @click="restartApp" :disabled="restarting" title="Quits and re-launches the app — about 2 seconds.">
-              <span v-if="restarting">Restarting…</span>
-              <span v-else>Restart now</span>
-            </button>
-            <button class="btn btn-sm btn-secondary" @click="showFfmpegRestartPrompt = false">Later</button>
-          </div>
-        </div>
-
-        <!-- Diagnostic log block — appears on install failure so the user
-             has a one-click way to copy the structured error trail back
-             to support without hunting in Console.app or shell. The log
-             entries come from `GET /ffmpeg/install-log` which filters
-             today's server log down to ffmpeg-install:* messages from
-             the last hour. -->
-        <div v-if="ffmpegInstallError" class="ffmpeg-log-block mt-2">
-          <div class="flex gap-2" style="align-items: center;">
-            <button class="btn btn-sm btn-secondary" @click="loadInstallLog" :disabled="ffmpegLogLoading" title="Fetches the last hour of ffmpeg-install log entries">
-              <span v-if="ffmpegLogLoading">Loading…</span>
-              <span v-else-if="ffmpegInstallLog.length">Refresh log</span>
-              <span v-else>Show install log</span>
-            </button>
-            <button v-if="ffmpegInstallLog.length" class="btn btn-sm btn-primary" @click="copyInstallLog" title="Copies the log entries + your platform info to the clipboard so you can paste it into a bug report">
-              Copy log to clipboard
-            </button>
-            <span v-if="ffmpegLogCopiedAt" class="text-muted" style="font-size: var(--font-xs);">Copied ✓</span>
-          </div>
-          <pre v-if="ffmpegInstallLog.length" class="ffmpeg-log-output mt-1">{{ ffmpegInstallLogText }}</pre>
-          <p v-else-if="ffmpegInstallLogChecked" class="text-muted mt-1" style="font-size: var(--font-xs);">
-            No ffmpeg-install entries in the last hour. The error may have happened before logging was wired up — try clicking Install again.
-          </p>
-        </div>
-      </details>
-      <!-- The unknown branch of the installer chain: no repair action is
-           offered until the status has actually been read. -->
-      <p v-else class="text-muted mt-2" style="font-size: 13px;">
-        Checking FFmpeg before offering any repair download…
-      </p>
-
-      <!-- Manual install fallback -->
-      <details v-if="ffmpegStatus && ffmpegStatus.source !== 'bundled'" class="ffmpeg-manual mt-3">
-        <summary style="cursor: pointer; font-weight: 600; font-size: 13px;">
-          Manual install (advanced)
-        </summary>
-        <div class="mt-2" style="font-size: 12px;">
-          <p class="text-muted" style="margin-bottom: 8px;">
-            If the one-click installer fails (e.g. firewall blocks the download), install FFmpeg
-            yourself and the app will detect it on the next "Re-check status".
-          </p>
-          <p style="margin: 6px 0;"><strong>macOS (Homebrew):</strong></p>
-          <pre class="ffmpeg-cmd"><code>brew install ffmpeg</code></pre>
-          <p style="margin: 6px 0;"><strong>Ubuntu / Debian:</strong></p>
-          <pre class="ffmpeg-cmd"><code>sudo apt install ffmpeg</code></pre>
-          <p style="margin: 6px 0;"><strong>Windows:</strong></p>
-          <p class="text-muted" style="margin-bottom: 4px;">
-            Download a static build from
-            <a href="https://www.gyan.dev/ffmpeg/builds/" target="_blank" rel="noopener" @click.prevent="openExternal('https://www.gyan.dev/ffmpeg/builds/')">gyan.dev/ffmpeg/builds</a>,
-            extract <code>ffmpeg.exe</code> and <code>ffprobe.exe</code> to a folder, and add that folder to your PATH.
-          </p>
-        </div>
-      </details>
     </div>
 
-    <!-- Notifications -->
-    <div v-if="activeTab === 'appearance'" class="card settings-panel notification-panel mt-2">
-      <header class="settings-section-head">
-        <div>
-          <span class="settings-section-kicker">Attention routing</span>
-          <h3>Notification center</h3>
-          <p>Choose what deserves your attention, where it should reach you, and when the daily production brief arrives.</p>
-        </div>
-        <span class="settings-section-count">{{ notificationReadinessLabel }}</span>
-      </header>
+    <ChannelIdentityPickerModal
+      :visible="identityPickerOpen"
+      :project-slug="slug"
+      :selected-formula-id="nicheId"
+      :selected-topic-pack-ids="topicPackIds"
+      :project-content-pack-versions="projectContentPackVersions"
+      @close="identityPickerOpen = false"
+      @saved="onIdentitySaved"
+    />
 
-      <section class="notification-status-grid" aria-label="Notification channel status">
-        <article :class="['notification-status-card', { active: notifSettings.enabled }]">
-          <span class="notification-status-icon" aria-hidden="true">▣</span>
-          <div><strong>Desktop</strong><small>{{ notifSettings.enabled ? 'Active on this Mac' : 'Muted' }}</small></div>
-          <span :class="['notification-state', notifSettings.enabled ? 'ready' : 'off']">{{ notifSettings.enabled ? 'ON' : 'OFF' }}</span>
-        </article>
-        <article :class="['notification-status-card', { active: telegramReady }]">
-          <span class="notification-status-icon" aria-hidden="true">↗</span>
-          <div><strong>Telegram</strong><small>{{ telegramStatusText }}</small></div>
-          <span :class="['notification-state', telegramReady ? 'ready' : notifSettings.telegram.enabled ? 'warn' : 'off']">{{ telegramReady ? 'READY' : notifSettings.telegram.enabled ? 'SETUP' : 'OFF' }}</span>
-        </article>
-        <article :class="['notification-status-card', { active: digestReady }]">
-          <span class="notification-status-icon" aria-hidden="true">◷</span>
-          <div><strong>Daily brief</strong><small>{{ digestStatusText }}</small></div>
-          <span :class="['notification-state', digestReady ? 'ready' : notifSettings.digest.enabled ? 'warn' : 'off']">{{ digestReady ? 'SET' : notifSettings.digest.enabled ? 'CHECK' : 'OFF' }}</span>
-        </article>
-      </section>
-
-      <div class="notification-layout">
-        <section class="notification-section notification-section--events">
-          <div class="notification-section-head">
-            <div><span class="settings-section-kicker">What reaches you</span><h4>Alert events</h4></div>
-            <span>{{ enabledNotificationEventCount }}/3 selected</span>
-          </div>
-          <div class="notification-event-grid">
-            <label :class="['notification-event-card', { active: notifSettings.events.failures }]">
-              <input v-model="notifSettings.events.failures" type="checkbox" />
-              <span class="notification-event-mark" aria-hidden="true">!</span>
-              <span><strong>Job needs attention</strong><small>Send immediately when any generation or assembly job fails.</small></span>
-            </label>
-            <label :class="['notification-event-card', { active: notifSettings.events.pipeline_finished }]">
-              <input v-model="notifSettings.events.pipeline_finished" type="checkbox" />
-              <span class="notification-event-mark" aria-hidden="true">✓</span>
-              <span><strong>Pipeline run complete</strong><small>Send one result summary after every episode in the batch settles.</small></span>
-            </label>
-            <label :class="['notification-event-card', { active: notifSettings.events.long_job }]">
-              <input v-model="notifSettings.events.long_job" type="checkbox" />
-              <span class="notification-event-mark" aria-hidden="true">◷</span>
-              <span><strong>Long job complete</strong><small>Notify for standalone jobs that ran longer than your threshold.</small></span>
-            </label>
-          </div>
-        </section>
-
-        <section class="notification-section notification-section--desktop">
-          <div class="notification-channel-head">
-            <span class="notification-channel-icon" aria-hidden="true">▣</span>
-            <div><h4>Desktop alerts</h4><p>Native macOS or Windows alerts. Clicking one opens the matching project’s Jobs page.</p></div>
-            <label class="notification-switch">
-              <input v-model="notifSettings.enabled" type="checkbox" />
-              <span aria-hidden="true" />
-            </label>
-          </div>
-          <div :class="['notification-threshold', { disabled: !notifSettings.events.long_job }]">
-            <div><strong>Long-job threshold</strong><small>Fast jobs stay quiet. Failures ignore this threshold and alert immediately.</small></div>
-            <span class="notification-threshold-value">{{ notifMinDurationMinutes }} min</span>
-            <SliderWithNumber v-model="notifMinDurationMinutes" :min="1" :max="60" :step="1" />
-          </div>
-        </section>
-
-        <section class="notification-section notification-section--telegram">
-          <div class="notification-channel-head">
-            <span class="notification-channel-icon" aria-hidden="true">↗</span>
-            <div><h4>Telegram</h4><p>Receive the same alerts on your phone when you are away from this Mac.</p></div>
-            <label class="notification-switch">
-              <input v-model="notifSettings.telegram.enabled" type="checkbox" />
-              <span aria-hidden="true" />
-            </label>
-          </div>
-
-          <details class="notification-setup" :open="notifSettings.telegram.enabled && !telegramReady">
-            <summary>
-              <span><strong>{{ telegramReady ? 'Connection settings' : 'Set up Telegram' }}</strong><small>{{ telegramReady ? 'Bot token and chat are configured.' : 'Three short steps. No JSON or command line needed.' }}</small></span>
-              <span :class="['notification-state', telegramReady ? 'ready' : 'warn']">{{ telegramReady ? 'CONNECTED' : '3 STEPS' }}</span>
-            </summary>
-            <div class="notification-setup-body">
-              <article class="notification-setup-step">
-                <span>1</span>
-                <div><strong>Create a Telegram bot</strong><p>Open BotFather, send <code>/newbot</code>, and follow its prompts. Copy the token it gives you.</p></div>
-                <button type="button" class="btn btn-sm btn-secondary" @click="openExternal('https://t.me/BotFather')">Open BotFather ↗</button>
-              </article>
-              <article class="notification-setup-step">
-                <span>2</span>
-                <div class="notification-setup-fields">
-                  <strong>Connect your bot</strong>
-                  <p>Paste the token, then message your new bot with <code>/start</code>. Story Studio can detect that chat automatically.</p>
-                  <label>Bot token</label>
-                  <div class="notification-secret-row">
-                    <input v-model="notifSettings.telegram.bot_token" :type="showTelegramToken ? 'text' : 'password'" class="input" placeholder="1234567890:ABCdef…" spellcheck="false" autocomplete="off" />
-                    <button type="button" class="btn btn-sm btn-ghost" @click="showTelegramToken = !showTelegramToken">{{ showTelegramToken ? 'Hide' : 'Show' }}</button>
-                  </div>
-                  <div class="notification-connect-row">
-                    <button type="button" class="btn btn-sm btn-secondary" :disabled="telegramDetectBusy || !notifSettings.telegram.bot_token" @click="detectTelegramChatId">
-                      {{ telegramDetectBusy ? 'Looking for your chat…' : 'Detect my chat' }}
-                    </button>
-                    <input v-model="notifSettings.telegram.chat_id" type="text" class="input" placeholder="Chat ID (detected or pasted)" spellcheck="false" autocomplete="off" />
-                  </div>
-                  <p v-if="telegramDetectResult" :class="['notification-inline-result', telegramDetectResult.ok && telegramDetectResult.chat_id ? 'ok' : 'error']">
-                    {{ telegramDetectResult.ok && telegramDetectResult.chat_id
-                      ? `Chat connected${telegramDetectResult.chat_label ? `: ${telegramDetectResult.chat_label}` : ''}.`
-                      : telegramDetectResult.error || 'No recent chat found. Send /start to the bot, then try again.' }}
-                  </p>
-                </div>
-              </article>
-              <article class="notification-setup-step">
-                <span>3</span>
-                <div><strong>Verify delivery</strong><p>Send one test before relying on Telegram for unattended overnight work.</p></div>
-                <div class="notification-test-action">
-                  <button type="button" class="btn btn-sm btn-primary" :disabled="telegramTestBusy || !telegramReady" @click="testTelegram">
-                    {{ telegramTestBusy ? 'Sending test…' : 'Send test message' }}
-                  </button>
-                  <small v-if="telegramTestResult" :class="telegramTestResult.ok ? 'ok' : 'error'">{{ telegramTestResult.ok ? 'Delivered. Check Telegram.' : telegramTestResult.error || 'Delivery failed.' }}</small>
-                </div>
-              </article>
-            </div>
-          </details>
-        </section>
-
-        <section class="notification-section notification-section--digest">
-          <div class="notification-channel-head">
-            <span class="notification-channel-icon" aria-hidden="true">◷</span>
-            <div><h4>Daily production brief</h4><p>A once-daily view of publishing today, scheduled inventory, and episodes awaiting upload across every project.</p></div>
-            <label class="notification-switch">
-              <input v-model="notifSettings.digest.enabled" type="checkbox" />
-              <span aria-hidden="true" />
-            </label>
-          </div>
-          <div :class="['notification-digest-controls', { disabled: !notifSettings.digest.enabled }]">
-            <label class="notification-time-control"><span>Send at</span><input v-model="notifSettings.digest.time_local" type="time" class="input" :disabled="!notifSettings.digest.enabled" /><small>Local time. The app must be running.</small></label>
-            <div class="notification-route-control">
-              <span>Deliver to</span>
-              <label><input v-model="notifSettings.digest.desktop_enabled" type="checkbox" :disabled="!notifSettings.digest.enabled" /> Desktop</label>
-              <label><input v-model="notifSettings.digest.telegram_enabled" type="checkbox" :disabled="!notifSettings.digest.enabled || !telegramReady" /> Telegram</label>
-              <small v-if="notifSettings.digest.telegram_enabled && !telegramReady">Finish Telegram setup before using it for the brief.</small>
-            </div>
-            <label class="notification-quiet-control"><input v-model="notifSettings.digest.quiet_when_empty" type="checkbox" :disabled="!notifSettings.digest.enabled" /><span><strong>Skip quiet days</strong><small>Do not send when nothing is scheduled to publish today.</small></span></label>
-            <div class="notification-last-fired"><span>Last scheduled delivery</span><strong>{{ formattedDigestLastFired }}</strong></div>
-          </div>
-          <div class="notification-digest-actions">
-            <button type="button" class="btn btn-sm btn-secondary" :disabled="digestPreviewBusy" @click="loadDigestPreview">{{ digestPreviewBusy ? 'Building preview…' : 'Preview brief' }}</button>
-            <button type="button" class="btn btn-sm btn-primary" :disabled="digestSendNowBusy || !digestHasReadyDestination" @click="sendDigestNow">{{ digestSendNowBusy ? 'Sending now…' : 'Send now' }}</button>
-            <span v-if="digestSendResult" :class="['notification-inline-result', digestSendResult.ok ? 'ok' : 'error']">{{ digestSendResult.ok ? 'Brief sent.' : digestSendResult.reason || 'Send failed.' }}</span>
-          </div>
-          <div v-if="digestPreview" class="notification-preview">
-            <span class="settings-section-kicker">Preview</span>
-            <strong>{{ digestPreview.title }}</strong>
-            <pre>{{ digestPreview.body }}</pre>
-          </div>
-        </section>
+    <!-- v1.0.96+ Create-custom-niche modal. Lives under the Niche tab now
+         (the standalone /niches sidebar page is gone). Same form fields as
+         before — id, name, tagline, description, example topics, script
+         context, visual style sheet. -->
+    <Modal
+      v-if="nicheCreateOpen"
+      :visible="nicheCreateOpen"
+      size="md"
+      labelledby="niche-create-title"
+      @close="closeNicheCreator"
+    >
+      <h3 id="niche-create-title">Create custom niche</h3>
+      <p class="text-muted text-sm mt-1 mb-2">
+        Custom niches live alongside the built-ins. Fill in the basics here;
+        you can expand example topics, add a visual style sheet, or layer in
+        title shape rules later by editing the JSON file directly.
+      </p>
+      <div class="form-group">
+        <label><strong>id</strong> <span class="text-muted text-xs">lowercase slug — letters / digits / dashes / underscores</span></label>
+        <input v-model="nicheDraft.id" class="input" placeholder="e.g. gemstones" :disabled="nicheCreateBusy" />
       </div>
-
-      <div class="notification-save-bar">
-        <div>
-          <strong>{{ notificationsDirty ? 'Unsaved notification changes' : 'Notification settings are saved' }}</strong>
-          <span>Applies to every project on this Mac.</span>
-          <span v-if="notifSaveStatus === 'error'" class="error">{{ notifSaveError }}</span>
-        </div>
-        <button type="button" class="btn btn-sm btn-ghost" @click="applyRecommendedNotifications">Use recommended alerts</button>
-        <button type="button" class="btn btn-sm btn-secondary" :disabled="!notificationsDirty || notifSaveStatus === 'saving'" @click="discardNotificationChanges">Revert</button>
-        <SaveIndicator v-bind="savedHintProps('notifications')" />
-        <button type="button" class="btn btn-primary" :disabled="!notificationsDirty || notifSaveStatus === 'saving'" @click="saveNotifSettings">{{ notifSaveStatus === 'saving' ? 'Saving…' : 'Save notifications' }}</button>
+      <div class="form-group mt-2">
+        <label><strong>name</strong> <span class="text-muted text-xs">label shown in the picker</span></label>
+        <input v-model="nicheDraft.name" class="input" placeholder="e.g. Gemstones & Minerals" :disabled="nicheCreateBusy" />
       </div>
-    </div>
-
-    <!-- v1.4.3 — the Named Roots tab is gone. It mapped labels like
-         ${MY_FOLDER} to a folder on THIS Mac, which made a project
-         non-portable in exactly the situation portability was for: carry it to
-         another machine and the label meant nothing until someone re-declared
-         it by hand. Shared files now live at <Library>/_Project Assets and are
-         written as ${ASSET}/…, which needs no per-machine setup. -->
-
-    <!-- Project settings are grouped by where the values are used. They still
-         save through the existing project + config endpoints. -->
-    <div v-if="['identity', 'publishing', 'writing', 'files'].includes(activeTab)" class="card settings-panel mt-2">
-      <h3>{{ activeTab === 'identity' ? 'Project identity' : activeTab === 'publishing' ? 'Publishing defaults' : activeTab === 'writing' ? 'Visual style' : 'Project files & behavior' }}</h3>
-      <div v-if="activeTab === 'identity'" class="form-group mt-2">
-          <label>Project Name</label>
-          <input v-model="projectForm.name" class="input" />
+      <div class="form-group mt-2">
+        <label><strong>tagline</strong> <span class="text-muted text-xs">optional one-liner shown on the niche card</span></label>
+        <input v-model="nicheDraft.tagline" class="input" placeholder="e.g. Crystalline, ancient, weirdly violent to form." :disabled="nicheCreateBusy" />
       </div>
-      <div v-if="activeTab === 'files'" class="grid-2 mt-2">
-        <div class="form-group">
-          <label>Episode Prefix</label>
-          <input v-model="projectForm.episode_prefix" class="input" />
-        </div>
-        <div class="form-group">
-          <label>Group Label</label>
-          <input v-model="projectForm.season_prefix" class="input" placeholder="Season" />
-          <span class="text-muted" style="font-size: var(--font-xs)">Season, Batch, Volume, Collection, etc.</span>
-        </div>
-        <div class="form-group">
-          <label>Episodes per Group</label>
-          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-            <input v-model.number="projectForm.season_size" class="input" type="number" min="1" max="1000" style="max-width: 120px;" />
-            <button
-              v-if="seasonSizeChanged"
-              type="button"
-              class="btn btn-sm btn-secondary"
-              :disabled="reseasonState.opening"
-              :title="`Preview the folder rebalance from ${serverSeasonSize} → ${projectForm.season_size} episodes per group, then commit. Reversible from the Unlinked Uploads tab for 30 days.`"
-              @click="openReseasonPreview"
-            >
-              <LoadingSpinner v-if="reseasonState.opening" size="sm" />
-              {{ reseasonState.opening ? 'Loading…' : `↻ Rebalance ${projectForm.season_size}/group →` }}
-            </button>
-          </div>
-          <span class="text-muted" style="font-size: var(--font-xs);">
-            Changing this rebalances every episode folder into the new grouping.
-            <strong>Use the Rebalance button</strong> — the regular Save below ignores this field
-            because a silent value change would mismatch all the on-disk folders.
-            Reversible from the Unlinked Uploads tab for 30 days after rebalance.
-          </span>
-        </div>
+      <div class="form-group mt-2">
+        <label><strong>description</strong> <span class="text-muted text-xs">2-3 sentences describing what this niche covers</span></label>
+        <textarea v-model="nicheDraft.description" class="input" rows="3" :disabled="nicheCreateBusy" />
       </div>
-      <div v-if="activeTab === 'publishing'" class="form-group">
-        <label>YouTube Channel URL (for video recommendations)</label>
-        <input v-model="projectForm.youtube_channel_url" class="input" placeholder="https://youtube.com/@yourchannel" />
+      <div class="form-group mt-2">
+        <label><strong>example topics</strong> <span class="text-muted text-xs">one per line — feeds the Ideas generator's title bar</span></label>
+        <textarea v-model="nicheDraftExampleTopicsText" class="input" rows="6" :disabled="nicheCreateBusy" placeholder="Diamond&#10;Ruby&#10;Sapphire&#10;…" />
       </div>
-
-      <!-- Item J — YouTube videoCategories.list ID. Applied to every fresh
-           upload + metadata-only PATCH for this project. Default 22
-           ("People & Blogs") if unset. Dropdown is populated from the
-           backend's 7-day cache of YouTube's category list; soft fallback
-           lets the user type a number even if the cache is empty / API
-           is down. -->
-      <div v-if="activeTab === 'publishing'" class="form-group">
-        <label>
-          YouTube Category
-          <span class="text-muted" style="font-weight:normal">(used for new uploads and updates to existing videos)</span>
-        </label>
-        <div class="flex gap-2 items-center" style="flex-wrap: wrap;">
-          <select
-            v-if="ytCategoryList.length"
-            v-model.number="projectForm.category_id"
-            class="input"
-            style="flex: 1; min-width: 240px;"
-          >
-            <option :value="undefined">— Default (24 · Entertainment) —</option>
-            <option v-for="c in ytCategoryList" :key="c.id" :value="Number(c.id)">
-              {{ c.id }} · {{ c.title }}
-            </option>
-          </select>
-          <input
-            v-else
-            v-model.number="projectForm.category_id"
-            type="number"
-            min="1"
-            class="input"
-            style="flex: 1; min-width: 240px;"
-            :placeholder="'24 (default — Entertainment)'"
-          />
-          <button
-            type="button"
-            class="btn btn-sm btn-secondary"
-            :disabled="ytCategoryLoading"
-            @click="loadYoutubeCategoryList"
-          >
-            {{ ytCategoryLoading ? '↻ Fetching…' : '↻ Refresh categories' }}
-          </button>
-        </div>
-        <span class="text-muted" style="font-size: var(--font-xs);">
-          <template v-if="ytCategoryHint">⚠ {{ ytCategoryHint }}</template>
-          <template v-else-if="ytCategorySource">
-            {{ ytCategorySource === 'live' ? 'Just fetched' : ytCategorySource === 'cache' ? 'From cache' : ytCategorySource === 'stale' ? 'Stale cache (fetch failed)' : 'Empty' }}
-            · {{ ytCategoryList.length }} assignable categor{{ ytCategoryList.length === 1 ? 'y' : 'ies' }}
-          </template>
-          <template v-else>Click Refresh to load YouTube’s category list (cached 7 days).</template>
-        </span>
+      <div class="form-group mt-2">
+        <label><strong>script context</strong> <span class="text-muted text-xs">one-line context injected into the narration system prompt</span></label>
+        <textarea v-model="nicheDraft.scriptContext" class="input" rows="2" :disabled="nicheCreateBusy" />
       </div>
-
-      <!-- v1.0.77 — AI / synthetic content disclosure toggle + backfill action -->
-      <div v-if="activeTab === 'publishing'" class="form-group">
-        <label>
-          AI / Altered or Synthetic Content disclosure
-          <span class="text-muted" style="font-weight:normal">(shown in YouTube’s altered-content disclosure)</span>
-        </label>
-        <div class="flex gap-2 items-center" style="flex-wrap: wrap;">
-          <select
-            v-model="aiDisclosureSelection"
-            class="input"
-            style="flex: 1; min-width: 240px;"
-          >
-            <option value="default">Use app default ({{ ytAppDefaults?.default_mark_as_ai_generated === false ? 'OFF' : 'ON' }})</option>
-            <option value="on">ON — mark uploads as AI-generated</option>
-            <option value="off">OFF — do not disclose</option>
-          </select>
-          <button
-            type="button"
-            class="btn btn-sm btn-secondary"
-            :disabled="!!ytBackfillBusy"
-            @click="onYoutubeBackfillPreview"
-            title="Show what would change without applying"
-          >
-            {{ ytBackfillBusy === 'preview' ? '↻ Checking…' : '↻ Preview backfill' }}
-          </button>
-          <button
-            type="button"
-            class="btn btn-sm btn-primary"
-            :disabled="!!ytBackfillBusy"
-            @click="onYoutubeBackfillApply"
-            title="Apply current AI disclosure + category to every uploaded video on this project"
-          >
-            {{ ytBackfillBusy === 'apply' ? 'Applying…' : 'Apply to all uploaded videos' }}
-          </button>
-        </div>
-        <span class="text-muted" style="font-size: var(--font-xs);">
-          Required by YouTube when your video contains realistic AI-generated narration, images, or footage.
-          Fresh uploads use this automatically. The backfill action applies the selected disclosure and category
-          to existing uploads while preserving privacy and schedule. Live YouTube quota: 1 unit per 50 videos read + 50 units per video updated.
-        </span>
-        <div v-if="ytBackfillResult" class="card mt-2" style="font-size: 12px;">
-          <div class="flex gap-3" style="flex-wrap: wrap;">
-            <span><strong>Scanned:</strong> {{ ytBackfillResult.scanned }}</span>
-            <span><strong>Eligible:</strong> {{ ytBackfillResult.eligible }}</span>
-            <span class="text-success"><strong>Updated:</strong> {{ ytBackfillResult.updated }}</span>
-            <span><strong>Skipped (already ok):</strong> {{ ytBackfillResult.skipped }}</span>
-            <span v-if="ytBackfillResult.failed" class="text-danger"><strong>Failed:</strong> {{ ytBackfillResult.failed }}</span>
-            <span v-if="ytBackfillResult.missing" class="text-muted"><strong>Missing on YouTube:</strong> {{ ytBackfillResult.missing }}</span>
-            <span v-if="ytBackfillResult.dry_run" class="text-warning"><strong>(dry run — nothing applied)</strong></span>
-          </div>
-          <div v-if="ytBackfillResult.message" class="text-muted mt-1">{{ ytBackfillResult.message }}</div>
-          <details v-if="ytBackfillResult.details?.length" class="mt-1">
-            <summary style="cursor: pointer;">Per-video details ({{ ytBackfillResult.details.length }})</summary>
-            <ul style="margin: 6px 0 0; padding-left: 18px;">
-              <li v-for="d in ytBackfillResult.details" :key="d.video_id">
-                <code>{{ d.episode_code }}</code> ·
-                <span :class="{ 'text-success': d.action === 'updated', 'text-muted': d.action === 'skipped', 'text-danger': d.action === 'failed', 'text-warning': d.action === 'missing' }">
-                  {{ d.action }}
-                </span>
-                <template v-if="d.changed">
-                  · {{ Object.entries(d.changed).map(([k, v]) => `${k}=${v}`).join(', ') }}
-                </template>
-                <template v-if="d.error || d.reason">
-                  · <span class="text-muted">{{ d.error || d.reason }}</span>
-                </template>
-              </li>
-            </ul>
-          </details>
-        </div>
+      <div class="form-group mt-2">
+        <label><strong>visual style sheet</strong> <span class="text-muted text-xs">long-form style instructions appended to every image prompt</span></label>
+        <textarea v-model="nicheDraft.visualStyleSheet" class="input" rows="3" :disabled="nicheCreateBusy" />
       </div>
-
-      <div v-if="activeTab === 'writing'" class="form-group">
-        <label>Art Style <span class="text-muted" style="font-weight:normal">(auto-applied to every image prompt for this project; the style's preview image also feeds img2img renders. Overridable per run on the Image Prompts page.)</span></label>
-        <div class="art-style-picker">
-          <select v-model="artStyleSelection" class="input" :disabled="artStyleSaving">
-            <option value="">— None (use format / niche default) —</option>
-            <optgroup v-if="savedStylePresets.length" label="Saved styles">
-              <option v-for="s in savedStylePresets" :key="s.id" :value="s.id">{{ s.name }}</option>
-            </optgroup>
-            <optgroup label="Style library">
-              <option v-for="s in visualStyles" :key="s.id" :value="s.id">{{ s.name }}</option>
-            </optgroup>
-          </select>
-        </div>
-        <p v-if="visualStylesLoading" class="text-muted text-sm mt-1">
-          Loading installed Content Pack styles…
-        </p>
-        <p v-else-if="visualStylesError" class="text-warning text-sm mt-1">
-          Installed Content Pack styles are unavailable. Existing saved style data is unchanged.
-          <button type="button" class="btn btn-ghost btn-sm" @click="refreshVisualStyles">Retry</button>
-        </p>
-        <p v-else-if="!visualStyles.length" class="text-muted text-sm mt-1">
-          No Content Pack styles are installed. Add one from the
-          <NuxtLink to="/content-store">Content Store</NuxtLink>.
-        </p>
-        <p v-if="unresolvedArtStyleId" class="text-warning text-sm mt-1">
-          This channel is saved against the art style <code>{{ humanizeCatalogId(unresolvedArtStyleId) }}</code>,
-          but nothing installed provides it — images are being generated without it. Pick a style
-          above, or install the pack that provides it from the
-          <NuxtLink to="/content-store">Content Store</NuxtLink>.
-        </p>
-        <span v-if="artStyleSaveMessage" class="text-muted" style="font-size: var(--font-xs)">{{ artStyleSaveMessage }}</span>
-      </div>
-
-      <!-- Per-project cloud-sync mode toggle removed alongside the
-           legacy manifest-sync feature. There's now only one mode —
-           cloud sync is configured app-wide via Settings → Storage →
-           Projects storage location (point at iCloud Drive / etc.).
-           A `.story-studio-project.json` manifest is still written
-           into every project folder as a project_id identity marker
-           for cross-machine import. -->
-
-      <div v-if="activeTab === 'files'" class="form-group">
-        <label>Project Files Location</label>
-        <div class="flex gap-2 items-center" style="flex-wrap:wrap">
-          <code class="path-display">{{ projectLocation || '(no location set)' }}</code>
-          <button class="btn btn-sm btn-secondary" :disabled="!projectLocation" @click="revealInFinder">
-            📂 Open in Finder
-          </button>
-        </div>
-        <!-- v1.4.3 — "Move this project to…" and "Unlink from this Mac" are
-             gone. Both existed to manage projects living OUTSIDE the projects
-             folder, tracked in a per-Mac register. The owner removed that idea:
-             *"i want to just copy and paste a folder and then connect it. i
-             don't want connection like in the past where i have to link and
-             stuff."* A channel is a folder in the Library now, so moving one is
-             a drag in Finder and there is nothing to unlink from. -->
-        <p class="text-muted text-sm mt-1">
-          This channel is a folder in your Library. To move it, quit Story Studio and drag the
-          folder — anywhere inside the Library works, and it will be found again on the next launch.
-        </p>
-      </div>
-
-      <div v-if="activeTab !== 'writing'" class="flex gap-2 mt-3" style="align-items:center">
-        <button class="btn btn-primary" @click="saveProject()">
-          {{ activeTab === 'identity' ? 'Save project name' : activeTab === 'publishing' ? 'Save publishing defaults' : 'Save file settings' }}
-        </button>
-        <SaveIndicator v-bind="savedHintProps(`project_${activeTab}`)" />
-      </div>
-
-      <div v-if="activeTab === 'files'" class="danger-zone mt-3">
-        <h3>Hide / Remove Project</h3>
-        <p class="text-muted mt-1">
-          <strong>Non-destructive:</strong> the project is removed from this app's
-          list but every file stays on disk. You'll see a confirmation dialog with
-          the folder path so you can open it in Finder afterward and decide what
-          to keep or delete by hand. The way back is the 🗑️ <em>Hidden channels</em>
-          panel on the All Projects page — <strong>Restore</strong> puts this project back
-          exactly as it was, without touching a single file. Use that rather than moving
-          the folder: hiding records the project as hidden, so moving its folder out and
-          back would not bring it back on its own.
-        </p>
-        <button class="btn btn-danger mt-2" @click="deleteProject">Hide project (keep files)</button>
-      </div>
-    </div>
-
-    <details v-if="activeTab === 'writing'" class="card settings-panel settings-disclosure mt-2">
-      <summary><span><strong>Browse or create custom styles</strong><small>Open the project style library and custom style editor</small></span></summary>
-      <ProjectStyleLibrary
-        :project-slug="slug"
-        title="Project style library"
-        :show-catalog-starters="true"
-      />
-    </details>
-
-    <!-- Optional project instructions — retained for channel-specific facts
-         and constraints, but Formula rules stay authoritative. -->
-    <details v-if="activeTab === 'writing'" class="card settings-panel settings-disclosure mt-2">
-      <summary><span><strong>Writing instructions</strong><small>Project guidance, intro rules, and reusable presets</small></span></summary>
-      <div class="sub-tabs">
-        <button v-for="st in standardsSubTabs" :key="st.id" :disabled="writingControlsDisabled" :class="['sub-tab', { active: standardsSubTab === st.id }]" @click="standardsSubTab = st.id">
-          {{ st.label }}
+      <div v-if="nicheCreateError" class="error-box mt-2">{{ nicheCreateError }}</div>
+      <div class="flex gap-2 mt-3" style="justify-content: flex-end">
+        <button class="btn btn-secondary" :disabled="nicheCreateBusy" @click="closeNicheCreator">Cancel</button>
+        <button class="btn btn-primary" :disabled="nicheCreateBusy || !nicheCanCreate" @click="submitNicheCreate">
+          {{ nicheCreateBusy ? 'Creating…' : 'Create niche' }}
         </button>
       </div>
+    </Modal>
 
-      <div class="sub-tab-body">
-        <h3>{{ currentStandardDoc.title }}</h3>
-        <p class="text-muted mt-1 mb-2">{{ currentStandardDoc.description }}</p>
-        <p v-if="standardsLoading" class="text-muted mt-2">Loading saved instructions…</p>
-        <p v-else-if="standardsError" class="text-error mt-2">{{ standardsError }}</p>
-
-        <!-- Starter templates + preset dropdown -->
-        <div class="standards-toolbar">
-          <div class="toolbar-group">
-            <label class="toolbar-label">Start from</label>
-            <select v-model="selectedTemplateId" class="select input-sm" :disabled="writingControlsDisabled">
-              <option value="">— pick a template —</option>
-              <option v-for="t in currentTemplates" :key="t.id" :value="t.id">{{ t.name }}</option>
-            </select>
-            <button class="btn btn-secondary btn-sm" :disabled="writingControlsDisabled || !selectedTemplateId" @click="loadStarterTemplate">Load</button>
-          </div>
-
-          <div class="toolbar-group" v-if="currentPresets.length">
-            <label class="toolbar-label">Saved presets</label>
-            <select v-model="selectedPresetId" class="select input-sm" :disabled="writingControlsDisabled">
-              <option value="">— none —</option>
-              <option v-for="p in currentPresets" :key="p.id" :value="p.id">{{ p.name }}</option>
-            </select>
-            <button class="btn btn-secondary btn-sm" :disabled="writingControlsDisabled || !selectedPresetId" @click="loadPreset">Load</button>
-            <button class="btn btn-secondary btn-sm" :disabled="writingControlsDisabled || !selectedPresetId" @click="deletePreset">Delete preset</button>
-          </div>
-
-          <button class="btn btn-secondary btn-sm" :disabled="writingControlsDisabled" @click="copyAsAiPrompt" title="Copy a chatbot-ready prompt to your clipboard">📋 Copy as AI refine prompt</button>
-          <button class="btn btn-secondary btn-sm" :disabled="writingControlsDisabled" @click="showSavePreset = true">💾 Save as preset</button>
-        </div>
-
-        <textarea
-          v-model="currentStandardText"
-          class="textarea"
-          style="min-height: 400px; font-family: monospace; font-size: 13px;"
-          :placeholder="currentStandardDoc.placeholder"
-          :disabled="writingControlsDisabled"
-        />
-
-        <div class="flex gap-2 mt-2" style="align-items: center;">
-          <button class="btn btn-primary" :disabled="writingControlsDisabled" @click="saveStandardsCurrent">Save</button>
-          <SaveIndicator v-bind="savedHintProps('standards')" />
-        </div>
-      </div>
-
-      <!-- Save preset modal -->
-      <div v-if="showSavePreset" class="modal-overlay" @click.self="showSavePreset = false">
-        <div class="modal-small">
-          <h3>Save {{ standardsSubTab === 'intro' ? 'intro' : 'project instructions' }} preset</h3>
-          <p class="text-muted mt-1 mb-2" style="font-size:12px">Give this preset a name so you can reuse it across projects of the same style.</p>
-          <input
-            v-model="newPresetName"
-            class="input"
-            placeholder="e.g. Sleep Stories v2, Horror Narration"
-            :disabled="writingControlsDisabled"
-            @keyup.enter.stop.prevent="savePreset"
-            @keydown.escape="showSavePreset = false"
-          />
-          <div class="flex gap-2 mt-2" style="justify-content:flex-end">
-            <button class="btn btn-secondary" :disabled="writingControlsDisabled" @click="showSavePreset = false">Cancel</button>
-            <button class="btn btn-primary" :disabled="writingControlsDisabled || !newPresetName.trim()" @click="savePreset">Save preset</button>
-          </div>
-        </div>
-      </div>
-    </details>
-
-    <!-- About — version + build info, copyable for bug reports.
-         Read at frontend build time from the root package.json (see
-         nuxt.config.ts → runtimeConfig.public.appVersion). -->
-    <div v-if="activeTab === 'maintenance'" class="card settings-panel mt-2">
-      <h3>About Story Studio KH</h3>
-      <p class="text-muted mt-1" style="font-size:13px">
-        When reporting an issue or asking for help, copy the version string below — it tells us exactly which build you're on so we can match it to the change history.
-      </p>
-      <div class="about-grid mt-3">
-        <div class="about-row">
-          <span class="about-label">Version</span>
-          <span class="about-value">{{ appVersion }}</span>
-        </div>
-        <div class="about-row">
-          <span class="about-label">Build date</span>
-          <span class="about-value">{{ buildDate || '—' }}</span>
-        </div>
-        <div class="about-row">
-          <span class="about-label">Project name</span>
-          <span class="about-value">Story Studio KH</span>
-        </div>
-      </div>
-      <button class="btn btn-secondary mt-3" @click="copyVersionString">
-        {{ versionCopied ? 'Copied ✓' : 'Copy version string' }}
-      </button>
-      <p class="text-muted mt-2" style="font-size: var(--font-xs)">
-        The same version is also pinned in the bottom-left of the sidebar so you can see it from any page.
-      </p>
-    </div>
-
-    <!-- v1.0.45 — Reseason preview modal. Lists every episode that
-         would move from its current `Season NNN/` parent to a new
-         one at the requested season_size. Confirm runs the bulk fs
-         move + commits the new size + leaves a `.reseason-undo.json`
-         on the project root for 30-day rollback via the Unlinked
-         Uploads tab. -->
     <Teleport to="body">
       <div v-if="reseasonState.open" class="reseason-modal-backdrop" @click="closeReseasonPreview" />
       <div v-if="reseasonState.open" class="reseason-modal" role="dialog" aria-label="Rebalance season folders" @click.stop>
@@ -2148,9 +1695,8 @@
                 {{ reseasonState.preview.noop_count }} stay where they are.
               </span>
               <br />
-              External-root mirror (when configured) is rebalanced in the same step.
-              The <code>.reseason-undo.json</code> safety net is written first — fully reversible from the
-              Unlinked Uploads tab for 30 days.
+              Finished videos in your finished-videos folder are regrouped in the same step.
+              A safety record is written first, so this can be undone for 30 days.
             </p>
             <div class="reseason-move-list">
               <div
@@ -2201,6 +1747,7 @@
 // — it's a bare named export, not a useX composable.
 import { pickFolder as pickFolderShared } from '~/composables/usePathPicker'
 import { resolveSettingsSectionHash, settingsAnchorTargetIds } from '~/utils/settingsNavigation'
+import { SETTINGS_ZONES, type SettingEntry } from '~/utils/settingsIndex'
 import { projectSettingsSavePlan, type ProjectSettingsSaveSection } from '~/utils/projectSettingsSave'
 // Reactive installed Content Pack catalog used by the per-project selector.
 // Project-local saved styles remain independent compatibility data.
@@ -2223,7 +1770,7 @@ const {
   error: visualStylesError,
   refresh: refreshVisualStyles,
 } = useVisualStyleCatalog()
-onMounted(() => { void refreshVisualStyles(); void loadCadence() })
+onMounted(() => { void refreshVisualStyles() })
 const { ask } = useConfirm()
 const { project, config, refreshConfig, loadProject } = useProject()
 const { success, error: showError, info } = useToast()
@@ -2246,8 +1793,6 @@ const audioQualityCatalogStaleNote = computed(() => genstudioStaleNote(
 // it is a Finder drag inside the Library.
 
 const activeTab = ref('connections')
-const syncing = ref(false)
-const syncResults = ref<string[]>([])
 
 // ── About-tab bindings ──────────────────────────────────────────────────
 // App version + build date come from runtimeConfig (set in nuxt.config.ts
@@ -2453,9 +1998,6 @@ const { topicPacks: topicPackLibList } = useTopicPacks()
 const nicheId = ref<string>('')
 const topicPackIds = ref<string[]>([])
 const identityPickerOpen = ref(false)
-// Sub-tab state for the merged Niche tab. Default to 'project' (the
-// picker) since that's the common case; 'library' is for browse/create.
-const nicheSubTab = ref<'project' | 'library'>('project')
 const customNicheLibList = computed(() => nicheLibList.value.filter(niche => !niche.builtin))
 const nicheLibraryCount = computed(() => customNicheLibList.value.length)
 const selectedNicheProfile = computed(() => findNicheProfile(nicheId.value))
@@ -2521,94 +2063,8 @@ const selectedProductionKitDurations = computed(() => {
   return presets.length ? presets.map(value => `${value} min`).join(' · ') : 'Formula default'
 })
 
-// ── Publishing cadence (v1.4.20) ──────────────────────────────────────────
-// The owner: "right now my upload plan is in upload center. what if i make it
-// part of the channel creation? but also make it adjustable."
-//
-// The cadence belongs to the CHANNEL; the plan belongs to the ACCOUNT. A plan
-// is keyed platform:account_id and so cannot exist before YouTube is connected
-// — a channel can predate its account by months. Setting the cadence
-// here means a channel has a rhythm from day one and the plan is created from
-// it on connect. Once a plan exists the PLAN is the authority; this is a seed.
-const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-const cadenceLoaded = ref(false)
-const cadenceSaving = ref(false)
-const cadenceError = ref('')
-const cadenceWeekdays = ref<number[]>([])
-const cadenceTime = ref('18:00')
-const cadenceTimezone = ref('')
-const cadenceIntervalWeeks = ref(1)
-const autoScheduleOnRender = ref(false)
-/** True once this channel has a real plan — from then on this screen is a seed. */
-const cadenceHasPlan = ref(false)
-
-function toggleCadenceWeekday(day: number) {
-  const i = cadenceWeekdays.value.indexOf(day)
-  if (i >= 0) cadenceWeekdays.value.splice(i, 1)
-  else cadenceWeekdays.value.push(day)
-  cadenceWeekdays.value.sort((a, b) => a - b)
-}
-
-/** Episodes a month at this cadence — the number that makes it concrete. */
-const cadencePerMonth = computed(() => {
-  const perWeek = cadenceWeekdays.value.length
-  if (!perWeek) return 0
-  return Math.round((perWeek / Math.max(1, cadenceIntervalWeeks.value)) * 4.345)
-})
-
-async function loadCadence() {
-  try {
-    const cfg: any = await get(`/projects/${slug.value}/settings/config`)
-    const c = cfg?.publish_cadence || cfg?.config?.publish_cadence
-    if (c?.schedule) {
-      cadenceWeekdays.value = Array.isArray(c.schedule.weekdays) ? [...c.schedule.weekdays] : []
-      cadenceTime.value = c.schedule.time_local || '18:00'
-      cadenceTimezone.value = c.schedule.timezone || ''
-      cadenceIntervalWeeks.value = c.schedule.interval_weeks || 1
-    }
-    const auto = cfg?.auto_schedule_on_render ?? cfg?.config?.auto_schedule_on_render
-    autoScheduleOnRender.value = auto === true
-    if (!cadenceTimezone.value) {
-      cadenceTimezone.value = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-    }
-    // Does a plan already exist? If so this screen stops being the authority.
-    try {
-      const plans: any = await get(`/projects/${slug.value}/upload/plans`)
-      const list = Array.isArray(plans) ? plans : (plans?.plans || [])
-      cadenceHasPlan.value = list.length > 0
-    } catch { cadenceHasPlan.value = false }
-  } catch { /* a channel with no config yet is a fine starting state */ }
-  cadenceLoaded.value = true
-}
-
-async function saveCadence() {
-  cadenceSaving.value = true
-  cadenceError.value = ''
-  try {
-    if (!cadenceWeekdays.value.length) {
-      throw new Error('Pick at least one day, or the schedule can never produce a slot.')
-    }
-    await put(`/projects/${slug.value}/settings/config`, {
-      publish_cadence: {
-        schedule: {
-          weekdays: [...cadenceWeekdays.value],
-          time_local: cadenceTime.value,
-          timezone: cadenceTimezone.value,
-          interval_weeks: cadenceIntervalWeeks.value,
-        },
-        defaults: { privacy_status: 'private', made_for_kids: false },
-      },
-      auto_schedule_on_render: autoScheduleOnRender.value,
-    })
-    success(cadenceHasPlan.value
-      ? 'Publishing cadence saved. Your existing upload plan is unchanged — edit that in Upload Center.'
-      : 'Publishing cadence saved. It becomes this channel\'s plan when you connect YouTube.')
-  } catch (e: any) {
-    cadenceError.value = e?.data?.detail || e?.message || 'Could not save the cadence'
-  } finally {
-    cadenceSaving.value = false
-  }
-}
+// ── Publishing cadence ── moved to components/PublishingScheduleCard.vue (v1.4.249):
+// Settings now shows and edits the channel's active upload plan itself.
 
 // ── Episode shape (v1.4.18) ───────────────────────────────────────────────
 // 1.4.16 gave every Formula its own chapters, length and pace, and left no way
@@ -2877,18 +2333,6 @@ const storage = ref<StorageAudit | null>(null)
 const auditLoading = ref(false)
 const previewCacheClearing = ref(false)
 const lastPreviewCacheClear = ref<{ bytes: number; moved: boolean } | null>(null)
-const externalRootInput = ref('')
-// Mirror of the persisted value — drives the dirty-state for the "Save manual
-// path" button (only shown when the input differs from what's saved).
-const externalRootSavedValue = ref('')
-const externalRootSaving = ref(false)
-const externalRootStatus = ref('')
-// Friendly picker-failure panel (shown beneath the External-root status).
-// Distinct from `externalRootStatus` so the "Picker failed: …" message can
-// be rephrased into actionable guidance without losing the save-status text.
-const externalRootPickerHelp = ref('')
-const externalRootReachable = ref(false)
-const migrateRunning = ref(false)
 
 // ── External media root (Level B, per-project, opt-in) ───────────────────────
 // Routes heavy media (images/thumbnails/audio/merged audio/video) to a separate
@@ -2962,25 +2406,6 @@ function formatBytes(n: number): string {
   return `${(n / 1024 ** 3).toFixed(2)} GB`
 }
 
-async function loadExternalRoot() {
-  try {
-    const r = await get<{ value: string; reachable: boolean; reason: string }>(
-      '/app-settings/external-final-video-root',
-    )
-    externalRootInput.value = r.value || ''
-    externalRootSavedValue.value = r.value || ''
-    externalRootReachable.value = r.reachable
-    externalRootStatus.value = r.value
-      ? (r.reachable ? `✓ reachable: ${r.value}` : `⚠ ${r.reason}`)
-      : ''
-  } catch { /* leave defaults — non-fatal */ }
-}
-
-// v1.4.5 — `saveExternalRoot`/`clearExternalRoot` deleted. The export folder is
-// derived from the Library since v1.4.3 and its setter route went with the
-// setting; these had been posting to a 404. `loadExternalRoot` stays — the GET
-// is alive and reports where finished videos actually go.
-
 // Verify the media_root token/path resolves on THIS machine (does not check
 // that the drive is currently plugged in — just that ${MEDIA} is defined).
 async function checkMediaRoot() {
@@ -3023,28 +2448,6 @@ async function clearMediaRoot() {
   mediaRootInput.value = ''
   await saveMediaRoot()
 }
-
-/**
- * Translate a /system/pick-folder failure into a one-liner the user can act
- * on. Only the explicit Electron-missing message identifies the common
- * dev-mode case: a generic 503 can instead mean Electron is still busy.
- */
-function pickerHelpFor(e: any): string {
-  const status = e?.status ?? e?.response?.status
-  const detail: string = e?.data?.detail || e?.message || ''
-  if (/Electron main process not detected|Folder picker not available/i.test(detail)) {
-    return 'The native folder picker only works in the packaged app, not in the dev server. Type or paste a path into the field above instead.'
-  }
-  if (status === 503 || /timed? out|timeout/i.test(detail)) {
-    return 'The folder picker is taking longer than expected. Wait for any open picker to close, then try again, or type or paste a path above.'
-  }
-  return `Folder picker failed: ${detail || 'unknown error'}. You can also type or paste a path above instead.`
-}
-
-// v1.4.5 — `browseAndSetExternalRoot` and `clearExternalRoot` went with
-// `saveExternalRoot`. There is nothing to set: finished videos go to
-// `<Library>/Exports`, and moving them elsewhere is what the Archive panel does.
-
 
 async function loadStorageAudit() {
   auditLoading.value = true
@@ -3226,45 +2629,6 @@ async function migrateMediaToRoot() {
   }
 }
 
-// Load the external root setting on mount so the field is populated
-// the first time the user opens the Storage tab.
-onMounted(loadExternalRoot)
-
-/**
- * Smooth-scroll to one of the storage subsections from the top-of-tab
- * overview cards. The target IDs are added to the section markers
- * (`projects-root-section`, `external-video-section`,
- * `per-episode-section`). Falls back to no-op when the target doesn't
- * exist (e.g. if a future refactor renames an anchor).
- */
-/** The per-episode list lives on the Files tab; this card is on Maintenance, so switch first. */
-function openSpaceRecovery() {
-  activeTab.value = 'files'
-  nextTick(() => scrollTo('per-episode-section'))
-}
-
-function scrollTo(id: string) {
-  const el = document.getElementById(id)
-  if (!el) return
-  el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
-
-// ── Projects storage location (cloud-sync setup) ──────────────────────────
-//
-// Surfaces the current PROJECTS_ROOT + lets the user pick a new location
-// (typically inside iCloud Drive). The "Move + restart" flow is three
-// HTTP calls in sequence:
-//   1. POST /app-settings/projects-root/migrate { target_path }
-//      → copies the projects folder; old location stays in place
-//   2. PUT /app-settings/projects-root { override }
-//      → persists the new path so next boot reads it
-//   3. POST /system/restart-app
-//      → relaunches Electron; new path takes effect
-//
-// Step 2 is split out from the migration call deliberately: we set the
-// override AFTER the copy verifies, so a failed migration leaves the
-// app pointing at the old (still-intact) location.
-
 /**
  * The Library — one location, replacing the projects-root override (v1.4.3).
  *
@@ -3282,13 +2646,18 @@ interface LibraryStatus {
   suggested: string
   assets_dir: string
   exports_dir: string
+  exports_custom?: boolean
+  exports_previous?: string[]
 }
 
 const library = ref<LibraryStatus | null>(null)
 const projectsRootBusy = ref(false)
 const projectsRootStatus = ref('')
 const projectsRootStatusKind = ref<'ok' | 'warn' | 'err'>('ok')
-const projectsRootPickerHelp = ref('')
+const exportsBusy = ref(false)
+const exportsStatus = ref('')
+const exportsStatusKind = ref<'ok' | 'warn' | 'err'>('ok')
+const archiveOpen = ref(false)
 
 async function loadLibrary() {
   try {
@@ -3329,7 +2698,6 @@ const archiveDest = ref('')
 const archiveBusy = ref(false)
 const archiveRunning = ref(false)
 const archiveChecking = ref(false)
-const archivePicking = ref(false)
 const archiveStopping = ref(false)
 const archiveStage = ref<'checking' | 'moving' | null>(null)
 const archivePreview = ref<ArchivePreviewResult | null>(null)
@@ -3376,33 +2744,8 @@ const archiveSkipSummary = computed(() => {
   return phrases
 })
 
-async function pickArchiveSource() {
-  if (archivePicking.value || archiveBusy.value) return
-  archivePicking.value = true
-  try {
-    const p = await pickFolderShared({ title: 'Where are your finished videos?', button_label: 'Scan This Folder' })
-    if (p) { archiveSource.value = p; archivePreview.value = null }
-  } catch (e: any) {
-    showError(pickerHelpFor(e))
-  } finally {
-    archivePicking.value = false
-  }
-}
-async function pickArchiveDest() {
-  if (archivePicking.value || archiveBusy.value) return
-  archivePicking.value = true
-  try {
-    const p = await pickFolderShared({ title: 'Move finished videos into…', button_label: 'Move Here' })
-    if (p) archiveDest.value = p
-  } catch (e: any) {
-    showError(pickerHelpFor(e))
-  } finally {
-    archivePicking.value = false
-  }
-}
-
 async function loadArchivePreview() {
-  if (archiveBusy.value || archivePicking.value) return
+  if (archiveBusy.value) return
   archiveBusy.value = true
   archiveChecking.value = true
   archiveRunning.value = false
@@ -3427,7 +2770,7 @@ async function loadArchivePreview() {
 }
 
 async function startArchive() {
-  if (archiveBusy.value || archivePicking.value) return
+  if (archiveBusy.value) return
   const preview = archivePreview.value
   if (!preview?.complete) return
   const approved = preview.candidates.filter(c => c.status === 'ready').map(c => c.source_path)
@@ -3535,20 +2878,8 @@ onBeforeUnmount(() => {
   archivePoll = null
 })
 
-async function browseAndMoveLibrary() {
-  projectsRootPickerHelp.value = ''
-  let picked: string | null
-  try {
-    picked = await pickFolderShared({
-      title: 'Choose where to keep your Library',
-      button_label: 'Use This Folder',
-    })
-  } catch (e: any) {
-    projectsRootPickerHelp.value = e?.data?.detail || e?.message || 'Could not open the folder picker.'
-    return
-  }
-  if (!picked) return
-
+async function moveLibraryTo(picked: string) {
+  if (!picked || picked === library.value?.path) return
   const ok = await ask({
     title: 'Move your Library?',
     message: `To: ${picked}\n\nEvery channel, your shared assets and your exports are COPIED there. ` +
@@ -3580,6 +2911,31 @@ async function browseAndMoveLibrary() {
   }
 }
 
+
+/** Choose where NEW finished videos go ('' = the Library's Exports folder). Moves nothing. */
+async function chooseExportsFolder(picked: string) {
+  const current = library.value?.exports_dir || ''
+  if (picked && picked === current) return
+  const ok = await ask({
+    title: picked ? 'Save new finished videos here?' : 'Go back to the Library folder?',
+    message: `${picked || 'The Exports folder inside your Library'}\n\nNew finished videos are saved there from now on. `
+      + 'Videos you already made are NOT moved: they stay where they are and Story Studio still finds them.',
+    confirmLabel: picked ? 'Use This Folder' : 'Use Library Folder',
+  })
+  if (!ok) return
+  exportsBusy.value = true
+  exportsStatus.value = ''
+  try {
+    library.value = await put<LibraryStatus>('/library/exports', { path: picked })
+    exportsStatusKind.value = 'ok'
+    exportsStatus.value = 'Saved. New finished videos go to this folder.'
+  } catch (e: any) {
+    exportsStatusKind.value = 'err'
+    exportsStatus.value = e?.data?.detail || e?.message || 'Could not use that folder.'
+  } finally {
+    exportsBusy.value = false
+  }
+}
 
 // v1.0.150 — The Chatterbox standalone provider was removed. All the
 // chatterbox* state, loaders, savers, test-connection, and reference-upload
@@ -3732,31 +3088,7 @@ async function onYoutubeBackfillApply() {
   await runYoutubeBackfill(false)
 }
 
-const tabZones = [
-  {
-    id: 'machine',
-    title: 'This Mac',
-    scope: 'Stays on this Mac',
-    sections: [
-      { id: 'connections', label: 'Connections', description: 'Gateway and YouTube accounts', keywords: 'gateway genstudio api key oauth models catalog channel' },
-      { id: 'performance', label: 'Performance & recovery', description: 'Local workload and retry choices', keywords: 'throughput concurrency failed image subtitles timeout' },
-      { id: 'appearance', label: 'Appearance & notifications', description: 'Display, access, text and alerts', keywords: 'theme remote server emoji telegram digest' },
-      { id: 'maintenance', label: 'Files & maintenance', description: 'Shared Library, exports and diagnostics', keywords: 'ffmpeg about version archive storage' },
-    ],
-  },
-  {
-    id: 'project',
-    title: 'This Project',
-    scope: 'Travels with this project',
-    sections: [
-      { id: 'identity', label: 'Channel identity', description: 'Series Formula and Topic Packs', keywords: 'niche formula topics custom' },
-      { id: 'production', label: 'Production defaults', description: 'Continuity, narration quality and episode shape', keywords: 'guide references chapters runtime motion audio voice transcript quality repair' },
-      { id: 'writing', label: 'Writing & style', description: 'Instructions, intros and visual style', keywords: 'standards prompts art presets' },
-      { id: 'publishing', label: 'Publishing', description: 'Channel assignment, profile and cadence', keywords: 'youtube upload schedule metadata category' },
-      { id: 'files', label: 'Project files & behavior', description: 'Folders, storage, numbering and confirmations', keywords: 'episodes group archive cleanup paths' },
-    ],
-  },
-]
+const tabZones = SETTINGS_ZONES
 
 const tabs = tabZones.flatMap(zone => zone.sections)
 const settingsHashTargetIds = settingsAnchorTargetIds(tabs.map(tab => tab.id))
@@ -3770,6 +3102,30 @@ const activeZone = computed(() =>
 )
 
 const activeTabMeta = computed(() => tabs.find(tab => tab.id === activeTab.value) || null)
+
+/**
+ * Search result → open its section, open any Advanced disclosure around it,
+ * scroll to it and flash it, so the owner sees exactly which control it was.
+ */
+async function goToSetting(hit: SettingEntry): Promise<void> {
+  activeTab.value = hit.section
+  await nextTick()
+  await new Promise(resolve => setTimeout(resolve, 60))
+  const el = document.querySelector<HTMLElement>(`[data-setting="${hit.anchor}"]`)
+  if (!el) return
+  const openDisclosure = (node: HTMLElement) => {
+    if (node.classList.contains('adv-disclosure')) {
+      const toggle = node.querySelector<HTMLButtonElement>(':scope > .adv-disclosure-toggle')
+      if (toggle?.getAttribute('aria-expanded') === 'false') toggle.click()
+    }
+    if (node.tagName === 'DETAILS') (node as HTMLDetailsElement).open = true
+  }
+  for (let node: HTMLElement | null = el; node; node = node.parentElement) openDisclosure(node)
+  await nextTick()
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  el.classList.add('setting-flash')
+  setTimeout(() => el.classList.remove('setting-flash'), 1600)
+}
 
 // ── FFmpeg tab state ─────────────────────────────────────────────────────
 // The backend exposes a self-contained installer at POST /ffmpeg/install
@@ -3786,6 +3142,25 @@ interface FfmpegStatus {
   path?: string
 }
 const ffmpegStatus = ref<FfmpegStatus | null>(null)
+/** The FFmpeg card in one plain sentence, plus the one button that fixes it (v1.4.249). */
+const ffmpegState = computed<{ tone: 'ok' | 'warn' | 'err' | 'idle'; title: string; detail: string; fix: string }>(() => {
+  const st = ffmpegStatus.value
+  if (ffmpegStatusError.value) return { tone: 'err', title: 'Could not check FFmpeg', detail: `${ffmpegStatusError.value} — this does not mean it is missing. Check again.`, fix: '' }
+  if (!st) return { tone: 'idle', title: 'Checking FFmpeg…', detail: '', fix: '' }
+  if (!st.installed) return { tone: 'err', title: 'FFmpeg is missing', detail: 'Audio Assembly and Video Assembly cannot run until it is installed.', fix: 'Install FFmpeg' }
+  const missing = [!st.has_drawtext && 'text overlays', !st.has_libass && 'subtitle burn-in'].filter(Boolean) as string[]
+  if (!missing.length) return { tone: 'ok', title: 'Ready — includes text overlays and subtitle burn-in', detail: st.source === 'bundled' ? 'The copy that ships with Story Studio.' : '', fix: '' }
+  // A bundled copy is pinned to the app; it is never replaced from here.
+  return {
+    tone: 'warn',
+    title: `Works, but missing ${missing.join(' and ')}`,
+    detail: st.source === 'bundled' ? 'Update Story Studio to get the full version.' : 'Install the full version Story Studio was tested with.',
+    fix: st.source === 'bundled' ? '' : 'Install Full Version',
+  }
+})
+const ffmpegSourceLabel = computed(() => ({
+  bundled: 'Bundled with Story Studio', 'app-data': 'Recovery copy', system: 'Installed on this Mac', 'not-found': 'None',
+} as Record<string, string>)[ffmpegStatus.value?.source || ''] || '—')
 const ffmpegStatusLoading = ref(false)
 // F-04 (DS-11) — the FFmpeg card proposes an install/recovery download from
 // `ffmpegStatus.installed === false`, and a failed status check used to be
@@ -4655,10 +4030,6 @@ watch(slug, () => {
   }
 })
 
-// (Removed: per-project enable/disable cloud-sync handlers + portable
-// form field. Cloud sync is now app-wide via Settings → Storage; the
-// per-project mode toggle is dead.)
-
 // Absolute path to the episodes folder, for the read-only "Reveal in Finder"
 // row. Read from the resolved path the backend computes, not from a stored
 // setting — there is no longer one, and there is no form here that could
@@ -5053,26 +4424,6 @@ async function saveProject(requestedSection?: ProjectSettingsSaveSection): Promi
   }
 }
 
-async function syncFolders() {
-  const ok = await ask({
-    title: 'Repair folder structure?',
-    message: 'Renames folders to match current config, creates missing subfolders, moves files to the right places, and recycles missing episode numbers. Existing files are never deleted.',
-    confirmLabel: 'Repair folders',
-  })
-  if (!ok) return
-  syncing.value = true
-  syncResults.value = []
-  try {
-    const result = await post<any>(`/projects/${slug.value}/sync-folders`)
-    syncResults.value = result.actions || []
-    success('Folders synced!')
-  } catch (e: any) {
-    showError(e.data?.detail || 'Sync failed')
-  } finally {
-    syncing.value = false
-  }
-}
-
 async function deleteProject() {
   // The delete is non-destructive — files stay on disk. Confirm reflects
   // that ("hide" not "delete") so the user knows they can recover.
@@ -5118,8 +4469,6 @@ async function deleteProject() {
 
 <style scoped>
 /* v1.0.270 — content mode toggle (Format tab) */
-.cm-box { border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
-.cm-label { display: block; font-weight: 600; font-size: 13px; margin-bottom: 8px; }
 .cm-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 @media (max-width: 720px) { .cm-options { grid-template-columns: 1fr; } }
 .cm-opt {
@@ -5139,14 +4488,6 @@ async function deleteProject() {
 .art-style-picker .input { flex: 1; min-width: 200px; }
 
 /* ── Format tab ──────────────────────────────────────────────────────── */
-.format-tab-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-}
-.format-tab-header > div { flex: 1; }
-.format-tab-header h3 { margin: 0 0 4px; }
 .channel-visual-defaults {
   padding: 14px;
   border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
@@ -5161,41 +4502,6 @@ async function deleteProject() {
 /* v1.0.165 — Patterns sub-section CSS removed with the Pattern system. */
 
 /* ── FFmpeg tab ──────────────────────────────────────────────────────── */
-.ffmpeg-status-row {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-}
-.ffmpeg-install-block {
-  padding: 12px 14px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-}
-.ffmpeg-install-block > .ffmpeg-install-summary {
-  cursor: pointer;
-  list-style: none;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-.ffmpeg-install-block > .ffmpeg-install-summary::-webkit-details-marker { display: none; }
-.ffmpeg-install-block > .ffmpeg-install-summary::before {
-  content: '▸';
-  color: var(--text-muted);
-  font-size: var(--font-xs);
-  transition: transform 0.15s;
-}
-.ffmpeg-install-block[open] > .ffmpeg-install-summary::before { transform: rotate(90deg); }
-.ffmpeg-cmd {
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 6px 10px;
-  margin: 2px 0 8px 0;
-  font-family: 'SF Mono', Monaco, monospace;
-  font-size: var(--font-xs);
-  overflow-x: auto;
-}
-.ffmpeg-cmd code { background: transparent; padding: 0; }
 .ffmpeg-manual a { color: var(--accent); text-decoration: underline; }
 
 /* Restart prompt — visually distinct from the install block (green
@@ -5234,80 +4540,74 @@ async function deleteProject() {
 /* Connectivity Diagnose block on the API Keys tab. Reachable hosts are
    styled green, unreachable red — so the user can tell at a glance whether
    the issue is a single provider or a whole-network outage. */
-.precheck-diagnose {
-  padding: 10px 12px;
-  margin-bottom: 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-}
-.precheck-host-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-}
-.precheck-host {
-  font-size: var(--font-xs);
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  background: rgba(255,255,255,0.03);
-}
-.precheck-host-ok  { border-color: rgba(34, 197, 94, 0.35);  background: rgba(34, 197, 94, 0.08); }
-.precheck-host-bad { border-color: rgba(239, 68, 68, 0.45);  background: rgba(239, 68, 68, 0.10); }
 
 .settings-workspace {
   --settings-green: #58c692;
   --settings-gold: #e3b45a;
+  /* v1.4.249 — a positioned box, so no absolutely-positioned control inside a
+     section can escape the scroll area and stretch the whole window. */
+  position: relative;
   padding-bottom: 48px;
 }
-.settings-page-hero {
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 24px;
-  padding: 24px 26px;
-  border: 1px solid color-mix(in srgb, var(--settings-green) 28%, var(--border));
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at 90% 5%, rgba(227, 180, 90, 0.16), transparent 28%),
-    radial-gradient(circle at 5% 110%, rgba(88, 198, 146, 0.18), transparent 35%),
-    linear-gradient(135deg, color-mix(in srgb, var(--bg-secondary) 92%, #123a2b), var(--bg-secondary));
-  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.14);
+/* v1.4.249 layout: section rail on the left, one section on the right. */
+.settings-head { margin: 4px 0 16px; }
+.settings-head h1 { margin: 0 0 4px; font-size: 26px; font-weight: 600; letter-spacing: -.02em; }
+.settings-head p { margin: 0; color: var(--text-secondary); font-size: 13px; }
+.settings-head .key-dot { display: inline-block; vertical-align: middle; margin: 0 2px 2px 0; }
+.settings-layout { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 24px; align-items: start; }
+.settings-rail { position: sticky; top: 0; max-height: calc(100dvh - 120px); overflow-y: auto; padding-right: 4px; }
+.settings-content { display: grid; gap: 16px; min-width: 0; }
+.settings-content > .settings-active-intro { margin: 0; }
+.settings-plain { min-width: 0; }
+.settings-card-head { margin-bottom: 12px; }
+.settings-card-head h3 { margin: 0 0 4px; font-size: 16px; }
+.settings-card-head p { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.settings-hint { margin: 4px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.settings-warn { margin: 6px 0 0; color: var(--warning, #d97706); font-size: 12px; }
+.settings-status { margin: 6px 0 0; font-size: 12px; }
+.settings-status.ok { color: var(--success); }
+.settings-status.warn { color: var(--warning, #d97706); }
+.settings-status.err { color: var(--error); }
+.status-chip { padding: 1px 8px; border-radius: 999px; font-size: var(--font-xs); font-weight: 600; }
+.status-chip.warn { background: color-mix(in srgb, var(--warning, #d97706) 18%, transparent); color: var(--warning, #d97706); }
+/* A section already drawn as a card does not get a second frame inside the card. */
+.settings-content .settings-panel > .channel-visual-defaults,
+.settings-content .settings-panel > .episode-shape-card,
+.settings-content .settings-panel > .production-kit-card { padding: 0; border: 0; background: none; box-shadow: none; }
+.settings-content .settings-panel > .audio-quality-settings { padding-top: 0; border-top: 0; }
+.settings-content .settings-section-head h3 { font-size: 16px; letter-spacing: -.01em; }
+.settings-content .storage-panel .btn { white-space: nowrap; }
+.settings-content .storage-panel .flex.gap-2 { flex: 0 0 auto; }
+.files-where { display: grid; gap: 18px; }
+.files-where-action { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+.files-where-action strong { font-size: 13px; }
+.files-where-action p { margin: 3px 0 0; max-width: 680px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.files-where-action .btn { white-space: nowrap; }
+.archive-flow { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-primary); }
+.ffmpeg-state { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-primary); }
+.ffmpeg-state > div { display: grid; flex: 1 1 auto; gap: 2px; }
+.ffmpeg-state strong { font-size: 13px; }
+.ffmpeg-state span { color: var(--text-muted); font-size: 12px; }
+.ffmpeg-state .btn { white-space: nowrap; }
+.ffmpeg-state-dot { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 50%; background: var(--text-muted); }
+.ffmpeg-state.ok .ffmpeg-state-dot { background: var(--success); }
+.ffmpeg-state.warn .ffmpeg-state-dot { background: var(--warning, #d97706); }
+.ffmpeg-state.err .ffmpeg-state-dot { background: var(--error); }
+.ffmpeg-details { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 16px; margin: 0; font-size: 12px; }
+.ffmpeg-details dt { color: var(--text-muted); }
+.ffmpeg-details dd { margin: 0; overflow-wrap: anywhere; }
+.ffmpeg-manual summary { cursor: pointer; font-size: 12px; }
+.about-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.about-card h3 { margin: 0; font-size: 14px; }
+.setting-flash { animation: setting-flash 1.6s ease; border-radius: 8px; }
+@keyframes setting-flash { 0%, 40% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 70%, transparent); } 100% { box-shadow: 0 0 0 3px transparent; } }
+@media (max-width: 1100px) {
+  .settings-layout { grid-template-columns: 1fr; }
+  .settings-rail { position: static; max-height: none; overflow: visible; }
 }
-.settings-page-hero::after {
-  content: '';
-  position: absolute;
-  right: 11%;
-  top: -54px;
-  width: 160px;
-  height: 160px;
-  border: 1px solid rgba(227, 180, 90, 0.18);
-  border-radius: 50%;
-  pointer-events: none;
-}
-.settings-page-copy { position: relative; z-index: 1; max-width: 720px; }
-.settings-page-copy h1 { margin: 3px 0 6px; font-size: clamp(28px, 3vw, 40px); letter-spacing: -0.035em; }
-.settings-page-copy p { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.55; }
-.settings-page-key {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  gap: 12px;
-  padding: 8px 11px;
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 999px;
-  background: rgba(0,0,0,0.12);
-  white-space: nowrap;
-}
-.settings-page-key span { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: var(--font-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
 .key-dot { width: 7px; height: 7px; border-radius: 50%; }
 .key-machine { background: var(--settings-gold); }
 .key-project { background: var(--settings-green); }
-
 
 .settings-active-intro {
   display: grid;
@@ -5346,19 +4646,6 @@ async function deleteProject() {
   box-shadow: 0 20px 45px rgba(0,0,0,.12), inset 0 1px rgba(255,255,255,.025);
 }
 .settings-panel-embedded { padding: 14px; }
-.settings-disclosure > summary {
-  margin: -4px;
-  padding: 8px;
-  border-radius: 10px;
-  cursor: pointer;
-  list-style-position: outside;
-}
-.settings-disclosure > summary:hover { background: var(--bg-tertiary); }
-.settings-disclosure > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.settings-disclosure > summary > span { display: inline-flex; flex-direction: column; gap: 2px; margin-left: 4px; vertical-align: middle; }
-.settings-disclosure > summary strong { color: var(--text-primary); font-size: 14px; }
-.settings-disclosure > summary small { color: var(--text-muted); font-size: var(--font-xs); font-weight: 400; }
-.settings-disclosure[open] > summary { margin-bottom: 14px; border-bottom: 1px solid var(--border); border-radius: 10px 10px 0 0; }
 .settings-panel > h3:first-child,
 .settings-panel > .card-header:first-child h3 { font-size: 18px; letter-spacing: -.015em; }
 .settings-section-head {
@@ -5391,13 +4678,10 @@ async function deleteProject() {
 }
 
 @media (max-width: 720px) {
-  .settings-page-hero { align-items: flex-start; flex-direction: column; padding: 20px; }
-  .settings-page-key { width: 100%; justify-content: space-around; }
-  .settings-active-intro { grid-template-columns: 1fr; }
+      .settings-active-intro { grid-template-columns: 1fr; }
   .settings-scope-pill { grid-column: 1 / -1; justify-self: start; }
   .settings-section-head { align-items: flex-start; flex-direction: column; }
 }
-
 
 .input-sm {
   padding: 6px 10px;
@@ -5421,23 +4705,6 @@ async function deleteProject() {
 .btn-icon.danger:hover {
   color: var(--error);
   background: rgba(248, 113, 113, 0.1);
-}
-
-
-.sync-zone {
-  border-top: 1px solid var(--accent);
-  padding-top: 20px;
-}
-.sync-zone h3 { color: var(--accent); }
-.sync-results {
-  background: var(--bg-primary);
-  border-radius: var(--radius-sm);
-  padding: 12px;
-}
-.sync-action {
-  font-size: 13px;
-  color: var(--success);
-  padding: 2px 0;
 }
 
 /* ── Notification center ───────────────────────────────────────────── */
@@ -5480,7 +4747,7 @@ async function deleteProject() {
 .notification-state.ready { color: #6bd6a8; background: rgba(88,198,146,.14); }
 .notification-state.warn { color: #e0b760; background: rgba(227,180,90,.13); }
 .notification-state.off { color: var(--text-muted); background: rgba(128,138,150,.12); }
-.notification-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.notification-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .notification-section {
   min-width: 0;
   padding: 16px;
@@ -5514,6 +4781,10 @@ async function deleteProject() {
 }
 .notification-event-card:hover { border-color: rgba(227,180,90,.35); transform: translateY(-1px); }
 .notification-event-card.active { border-color: rgba(88,198,146,.38); background: rgba(88,198,146,.07); }
+/* The card is the containing block for its hidden checkbox. Without it the
+   checkbox was positioned against the page and stretched the window, so
+   Appearance & notifications scrolled far past its content (v1.4.249). */
+.notification-event-card { position: relative; }
 .notification-event-card input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .notification-event-mark { display: grid; place-items: center; width: 27px; height: 27px; border-radius: 8px; color: var(--text-muted); background: var(--bg-tertiary); font-size: var(--font-xs); font-weight: 850; }
 .notification-event-card.active .notification-event-mark { color: var(--settings-green); background: rgba(88,198,146,.12); }
@@ -5590,7 +4861,6 @@ async function deleteProject() {
 /* ── Storage tab ─────────────────────────────────────────────────────── */
 .storage-panel { overflow: hidden; }
 #archive-section > summary { cursor: pointer; }
-.archive-summary { display: inline; margin: 0; }
 .storage-section h4 {
   margin: 0 0 6px;
   font-size: 14px;
@@ -5601,82 +4871,16 @@ async function deleteProject() {
 }
 .storage-section .hint { margin: 4px 0 8px; font-size: var(--font-xs); line-height: 1.45; }
 .storage-section-icon { font-size: 16px; line-height: 1; }
-.storage-surface {
-  margin-top: 12px;
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--bg-tertiary) 58%, transparent);
-  scroll-margin-top: 18px;
-}
 /* Top-bordered subsections inside the Storage card. The first subsection
    (Projects storage location) skips the modifier so the top of the card
    stays flush; everything below gets a clear horizontal divider + breathing
    room so it's obvious where one section ends and the next begins. */
-.storage-section--bordered {
-  border-top: 1px solid var(--border);
-  margin-top: 24px;
-  padding-top: 18px;
-}
 /* Inline help panel beneath a section's status row. Used to translate
    "Picker failed: …" into actionable guidance ("type the path manually")
    without burying the message inside the same line as a save error. */
-.manual-path-hint {
-  margin-top: 8px;
-  padding: 10px 12px;
-  background: rgba(245, 158, 11, 0.08);
-  border: 1px solid rgba(245, 158, 11, 0.28);
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--text-secondary);
-}
 .optional-tag { color: var(--text-muted); font-size: var(--font-xs); font-weight: normal; }
 
 /* ── Cloud sync overview (top-of-Storage indicator card) ─────────── */
-.cloud-sync-overview {
-  margin: 8px 0 0;
-  padding: 14px 16px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-left: 3px solid #4b82c8;
-  border-radius: var(--radius-sm);
-}
-.storage-map { border-left: 1px solid var(--border); border-radius: 14px; background: linear-gradient(145deg, rgba(24,72,55,.16), rgba(227,180,90,.04)); }
-.overview-card--advanced { border-style: dashed; }
-.overview-head {
-  display: flex; gap: 12px; align-items: flex-start; margin-bottom: 12px;
-}
-.overview-icon { font-size: 20px; line-height: 1.2; flex-shrink: 0; }
-.overview-head strong { display: block; margin-bottom: 2px; font-size: 14px; }
-.overview-sub {
-  margin: 0; font-size: var(--font-xs); color: var(--text-secondary); line-height: 1.5;
-}
-.overview-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 8px;
-  margin-bottom: 10px;
-}
-.overview-card {
-  display: flex; flex-direction: column; gap: 6px;
-  padding: 10px 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  text-decoration: none; color: inherit;
-  transition: border-color 0.15s, transform 0.1s;
-  cursor: pointer;
-}
-.overview-card:hover {
-  border-color: #4b82c8;
-  transform: translateY(-1px);
-}
-.overview-card-head {
-  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-}
-.overview-card-head strong { font-size: 12px; }
-.overview-card-icon { font-size: 14px; }
 .overview-badge {
   display: inline-block;
   padding: 1px 6px;
@@ -5687,41 +4891,7 @@ async function deleteProject() {
 .overview-badge.on { background: rgba(75, 130, 200, 0.2); color: #60a5fa; }
 .overview-badge.off { background: rgba(120, 130, 140, 0.18); color: var(--text-muted); }
 .overview-badge.info { background: rgba(214, 155, 43, 0.15); color: var(--warning, #d69b2b); }
-.overview-card-desc {
-  margin: 0; font-size: var(--font-xs); color: var(--text-secondary); line-height: 1.45;
-}
-.overview-card-path {
-  font-family: 'Menlo', 'Monaco', monospace;
-  font-size: var(--font-xs); color: var(--text-muted);
-  word-break: break-all;
-}
-.overview-warnings {
-  margin-top: 8px;
-  padding: 8px 12px;
-  background: rgba(214, 155, 43, 0.08);
-  border-left: 3px solid var(--warning, #d69b2b);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-xs);
-}
-.overview-warnings summary {
-  cursor: pointer;
-  color: var(--warning, #d69b2b);
-  font-weight: 500;
-}
-.overview-warnings ul {
-  margin: 8px 0 0;
-  padding-left: 18px;
-  line-height: 1.5;
-}
-.overview-warnings li { margin-bottom: 4px; color: var(--text-secondary); }
-.overview-warnings code {
-  background: var(--bg-secondary); padding: 1px 4px; border-radius: 3px;
-  font-size: var(--font-xs);
-}
 
-.storage-advanced-heading { display: flex; align-items: baseline; gap: 10px; margin: 24px 2px 8px; }
-.storage-advanced-heading > span { color: var(--settings-gold); font-size: var(--font-xs); font-weight: 800; letter-spacing: .13em; text-transform: uppercase; white-space: nowrap; }
-.storage-advanced-heading p { margin: 0; color: var(--text-muted); font-size: var(--font-xs); }
 .storage-disclosure { margin-top: 8px; border: 1px dashed var(--border); border-radius: 13px; background: color-mix(in srgb, var(--bg-primary) 42%, transparent); scroll-margin-top: 18px; }
 .storage-disclosure[open] { border-style: solid; background: color-mix(in srgb, var(--bg-tertiary) 56%, transparent); }
 .storage-disclosure-summary { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto 18px; gap: 10px; align-items: center; padding: 13px 15px; cursor: pointer; list-style: none; }
@@ -5736,73 +4906,9 @@ async function deleteProject() {
 .storage-disclosure .storage-row { grid-template-columns: 90px minmax(220px, 1fr) 100px 110px; min-width: 620px; }
 
 /* ── Projects storage location ─────────────────────────────────────── */
-.projects-root-row {
-  padding: 10px 12px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-sm);
-  margin-bottom: 8px;
-}
-.projects-root-info { display: flex; flex-direction: column; gap: 4px; }
-.projects-root-current {
-  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
-}
-.projects-root-current strong {
-  font-family: 'Menlo', 'Monaco', monospace;
-  font-size: 12px;
-  word-break: break-all;
-}
-.root-badge {
-  display: inline-block;
-  padding: 1px 7px;
-  font-size: var(--font-xs); font-weight: 700; letter-spacing: 0.06em;
-  border-radius: 999px;
-  flex-shrink: 0;
-}
-.root-badge.default { background: rgba(120, 130, 140, 0.18); color: var(--text-muted); }
-.root-badge.custom { background: rgba(75, 130, 200, 0.22); color: #60a5fa; }
-.projects-root-default-note {
-  font-size: var(--font-xs); color: var(--text-muted);
-}
-.projects-root-default-note code {
-  background: var(--bg-secondary); padding: 1px 4px; border-radius: 3px;
-  font-size: var(--font-xs);
-}
-.projects-root-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-
-.projects-root-warning {
-  padding: 8px 12px;
-  background: rgba(214, 155, 43, 0.08);
-  border-left: 3px solid var(--warning, #d69b2b);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-xs);
-}
-.projects-root-warning summary {
-  cursor: pointer;
-  color: var(--warning, #d69b2b);
-  font-weight: 500;
-}
-.projects-root-warning ul {
-  margin: 8px 0 0;
-  padding-left: 18px;
-  line-height: 1.5;
-}
-.projects-root-warning li { margin-bottom: 4px; color: var(--text-secondary); }
-.projects-root-warning code {
-  background: var(--bg-secondary); padding: 1px 4px; border-radius: 3px;
-  font-size: var(--font-xs);
-}
 
 .archive-channels, .archive-skipped { color: var(--text-secondary); margin: 6px 0; padding-left: 18px; }
 .archive-skipped code { overflow-wrap: anywhere; }
-.projects-root-status {
-  margin-top: 8px;
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-}
-.projects-root-status.ok { background: rgba(75, 200, 100, 0.10); color: var(--success, #5fc070); }
-.projects-root-status.warn { background: rgba(214, 155, 43, 0.10); color: var(--warning, #d69b2b); }
-.projects-root-status.err { background: rgba(226, 92, 92, 0.10); color: var(--error, #e25c5c); }
 
 .external-root-row {
   display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
@@ -5887,8 +4993,7 @@ async function deleteProject() {
   .notification-digest-controls { grid-template-columns: 1fr; }
   .notification-save-bar { position: static; align-items: stretch; flex-direction: column; }
   .notification-save-bar .btn { width: 100%; }
-  .storage-advanced-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
-  .storage-disclosure-summary { grid-template-columns: 28px minmax(0, 1fr) 18px; }
+    .storage-disclosure-summary { grid-template-columns: 28px minmax(0, 1fr) 18px; }
   .storage-disclosure-summary .overview-badge { grid-column: 2; justify-self: start; margin-left: 0; }
   .storage-disclosure-summary::after { grid-column: 3; }
 }
@@ -6087,35 +5192,6 @@ async function deleteProject() {
   max-height: calc(100vh - 80px);
   overflow-y: auto;
 }
-.move-assets-summary {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-tertiary);
-  padding: 8px 12px;
-  display: flex; flex-direction: column; gap: 6px;
-}
-.move-assets-row {
-  display: grid; grid-template-columns: 60px 1fr; gap: 8px;
-  align-items: baseline;
-  font-size: 12px;
-}
-.move-assets-blockers {
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  background: rgba(239, 68, 68, 0.08);
-  border-left: 3px solid #ef4444;
-  font-size: 12px;
-  color: #ef4444;
-}
-.move-assets-blockers ul { margin: 4px 0 0 18px; padding: 0; }
-.move-assets-error {
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  background: rgba(239, 68, 68, 0.08);
-  border-left: 3px solid #ef4444;
-  font-size: 12px;
-  color: #ef4444;
-}
 
 .badge-warning {
   background: rgba(234, 179, 8, 0.15); color: #eab308;
@@ -6124,33 +5200,6 @@ async function deleteProject() {
 
 /* About tab — version/build readout. Two-column k/v with monospace value
    so the version string is easy to read and select for copying. */
-.about-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-width: 420px;
-}
-.about-row {
-  display: grid;
-  grid-template-columns: 110px 1fr;
-  gap: 12px;
-  align-items: baseline;
-  padding: 6px 10px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-sm);
-}
-.about-label {
-  color: var(--text-muted);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.about-value {
-  color: var(--text-primary);
-  font-family: 'JetBrains Mono', SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: 13px;
-  user-select: text;
-}
 
 /* v1.0.45 — Reseason preview modal. Same shape as Compact's preview
    modal (defined in upload.vue scope) — small, scrollable list of
@@ -6215,46 +5264,10 @@ async function deleteProject() {
 }
 
 /* v1.0.93+ Niche-moved-to-its-own-tab wayfinder inside the Format tab. */
-.niche-moved-pointer {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  background: var(--bg-tertiary);
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-sm, 4px);
-  font-size: 13px;
-  flex-wrap: wrap;
-}
-.niche-moved-pointer strong { color: var(--accent, #6c8fff); }
-
-.continuity-engine-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent, #6c8fff);
-  border-radius: var(--radius-sm, 6px);
-  background: var(--bg-tertiary);
-  font-size: 13px;
-}
-.continuity-engine-summary span { color: var(--text-muted); }
 
 /* v1.0.96+ — Niche library inside the Settings → Niche tab. The
    standalone /niches sidebar page used to host this; merged here so
    all niche stuff lives under Settings. */
-.sub-tab-section-title {
-  margin: 4px 0 8px 0;
-  font-size: 14px;
-  color: var(--text-primary);
-  font-weight: 500;
-}
-.sub-tab-count {
-  color: var(--text-muted);
-  font-weight: normal;
-  font-size: var(--font-xs);
-}
 .niche-library-header {
   display: flex;
   justify-content: space-between;
@@ -6361,18 +5374,6 @@ async function deleteProject() {
 .niche-lib-tile .btn.danger { color: var(--error, #e25c5c); }
 
 /* v1.4.20 — publishing cadence day picker. */
-.cadence-body { margin-top: 14px; }
-.cadence-days { display: flex; gap: 6px; flex-wrap: wrap; }
-.cadence-day {
-  border: 1px solid var(--border, #2a2a2a);
-  background: transparent;
-  color: inherit;
-  border-radius: 999px;
-  padding: 6px 14px;
-  cursor: pointer;
-  font-size: 13px;
-}
-.cadence-day.on { background: var(--accent, #d9a441); color: #1a1a1a; border-color: transparent; font-weight: 600; }
 
 /* v1.4.18 — the episode shape, read as a summary and edited in place. */
 .episode-shape-card {
@@ -6573,24 +5574,4 @@ async function deleteProject() {
 }
 
 /* v1.0.391 — local server pool status card */
-.pool-status-card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 14px;
-  background: var(--bg-secondary);
-  margin: 8px 0 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.pool-status-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.pool-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
-.pool-label { min-width: 130px; }
-.pool-count { font-weight: 600; }
-.pool-count.pool-ok { color: var(--accent); }
-.pool-count.pool-zero { color: var(--danger, #e5534b); }
-.pool-dots { display: inline-flex; gap: 3px; flex-wrap: wrap; }
-.pool-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
-.pool-dot.on { background: var(--success, #3fb950); }
-.pool-dot.off { background: var(--danger, #e5534b); opacity: 0.6; }
 </style>

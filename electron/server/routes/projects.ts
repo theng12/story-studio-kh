@@ -665,17 +665,18 @@ router.post('/projects/:slug/storage/cleanup-chunked-sidecars', async (req, res)
   }
 })
 
-// Where finished videos go. v1.4.3 made this `<Library>/Exports`, so it is
-// DERIVED and no longer settable — the PUT that used to write a free-floating
-// per-machine root is gone with the setting itself. Kept as a read so the
-// Storage tab can show the path and whether it is reachable.
+// Where finished videos go: `<Library>/Exports`, or the folder chosen through
+// `PUT /library/exports` (v1.4.249). Read-only here; kept so callers can ask
+// whether the folder is reachable.
 
 router.get('/app-settings/external-final-video-root', async (_req, res) => {
   try {
     const { getExternalFinalVideoRoot, externalRootIsReachable } = await import('../services/external-video-store.js')
     const value = await getExternalFinalVideoRoot()
     const reach = await externalRootIsReachable()
-    res.json({ value, reachable: reach.ok, reason: reach.reason || '', derived: true })
+    const { getCustomExportsRoot } = await import('../services/library.js')
+    const custom = !!(await getCustomExportsRoot())
+    res.json({ value, reachable: reach.ok, reason: reach.reason || '', derived: !custom, custom })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to read the exports folder'))
   }

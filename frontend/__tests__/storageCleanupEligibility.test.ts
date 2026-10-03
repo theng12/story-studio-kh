@@ -22,16 +22,15 @@ test('Settings offers final cleanup only as a verify-and-clear candidate action'
   assert.match(settings, /lastBulkCleanup\.items\.length/)
 })
 
-test('archive folder picking is visibly single-flight and reports picker failures', () => {
-  assert.match(settings, /const archivePicking = ref\(false\)/)
-  assert.match(settings, /:disabled="archiveBusy \|\| archivePicking"/)
-  assert.match(settings, /aria-label="Browse archive source folder"/)
-  assert.match(settings, /aria-label="Browse archive destination folder"/)
-  const sourcePicker = settings.slice(settings.indexOf('async function pickArchiveSource('), settings.indexOf('async function loadArchivePreview('))
-  assert.match(sourcePicker, /archivePicking\.value = true/)
-  assert.match(sourcePicker, /if \(archivePicking\.value \|\| archiveBusy\.value\) return/)
-  assert.match(sourcePicker, /showError\(pickerHelpFor\(e\)\)/)
-  assert.match(sourcePicker, /archivePicking\.value = false/)
+test('archive folders are chosen with the shared folder picker, single-flight and with failures reported', () => {
+  // v1.4.249 — folder pickers everywhere: no typed paths.
+  assert.match(settings, /<FolderField\s+v-model="archiveSource"[\s\S]{0,400}:disabled="archiveBusy"/)
+  assert.match(settings, /<FolderField\s+v-model="archiveDest"[\s\S]{0,400}:disabled="archiveBusy"/)
+  const field = readFileSync(new URL('../components/FolderField.vue', import.meta.url), 'utf8')
+  assert.match(field, /if \(props\.disabled \|\| picking\.value\) return/)
+  assert.match(field, /picking\.value = true/)
+  assert.match(field, /pickError\.value = /)
+  assert.match(field, /picking\.value = false/)
 })
 
 test('archive preview is treated as a background check, not a request that can silently time out', () => {
@@ -48,7 +47,7 @@ test('archive preview is treated as a background check, not a request that can s
 
 test('archive run uses its reviewed source root, not a later edit to the input', () => {
   const start = settings.slice(settings.indexOf('async function startArchive('), settings.indexOf('async function pollArchive('))
-  assert.match(start, /if \(archiveBusy\.value \|\| archivePicking\.value\) return/)
+  assert.match(start, /if \(archiveBusy\.value\) return/)
   assert.match(start, /source_root: preview\.source_root/)
 })
 
