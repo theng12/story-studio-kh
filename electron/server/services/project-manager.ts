@@ -229,9 +229,8 @@ function readProjectsRootFromDisk(): string {
   const library = readSettingSync('library_root')
   if (library) return library
 
-  // Legacy: `projects_root_override` from before the Library existed. Read so
-  // an upgrading install keeps working in the window before the boot migration
-  // copies it across; `migrateLegacyLocationSettings` then retires the key.
+  // Legacy: `projects_root_override` from before the Library existed (<= 1.4.2),
+  // read so an install that still carries it keeps its folder.
   const legacy = readSettingSync('projects_root_override')
   if (legacy) return legacy
 
@@ -1627,28 +1626,3 @@ export async function getProjectOutputRoot(slug: string): Promise<string | null>
   return resolveOutputRoot(projectDir).path
 }
 
-export async function getTemplates(): Promise<Array<{ id: string; name: string; description: string }>> {
-  const templates: Array<{ id: string; name: string; description: string }> = []
-  let entries: string[] = []
-  try { entries = await fs.readdir(TEMPLATES_ROOT) } catch { return templates }
-  for (const name of entries.sort()) {
-    const dir = path.join(TEMPLATES_ROOT, name)
-    const stat = await fs.stat(dir)
-    if (!stat.isDirectory()) continue
-    // Don't let a single malformed template shipping in the bundle blow up
-    // the whole wizard — skip it with a warning and show the others.
-    let meta: any
-    try {
-      meta = await readJson(path.join(dir, 'project.json'))
-    } catch (e: any) {
-      console.warn(`[projects] getTemplates: skipping '${name}' — ${e.message}`)
-      continue
-    }
-    templates.push({
-      id: name,
-      name: meta.name || name.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()),
-      description: meta.description || '',
-    })
-  }
-  return templates
-}

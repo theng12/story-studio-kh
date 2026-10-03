@@ -10,12 +10,9 @@ const imagePrompts = source('../pages/projects/[slug]/image-prompts.vue')
 const characterSheet = source('../pages/projects/[slug]/character-sheet.vue')
 const sceneReview = source('../pages/projects/[slug]/scene-review.vue')
 const imagePool = source('../pages/projects/[slug]/image-pool.vue')
-const referencesCard = source('../components/Img2ImgReferencesCard.vue')
 
 test('retired scene-generator handoffs lead to Scene Plan instead of a canonicalized thumbnail route', () => {
   assert.doesNotMatch(images, /image-prompts\?tab=scenes/)
-  assert.doesNotMatch(referencesCard, /image-prompts\?tab=scenes/)
-  assert.match(referencesCard, /projects\/\$\{projectSlug\}\/scene-plan/)
 })
 
 test('Thumbnail Prompts ignores a completed job after the selected episode or run changes', () => {

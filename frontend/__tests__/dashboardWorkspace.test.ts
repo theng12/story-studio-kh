@@ -40,8 +40,7 @@ describe('project dashboard workspace', () => {
   test('does not repaint a loading timer or recursively rescan assets on normal visits', () => {
     assert.doesNotMatch(dashboard, /statsElapsed|setInterval/)
     const routeStart = healthRoutes.indexOf("router.get('/projects/:slug/dashboard-stats'")
-    const routeEnd = healthRoutes.indexOf("router.get('/projects/:slug/health'", routeStart)
-    const route = healthRoutes.slice(routeStart, routeEnd)
+    const route = healthRoutes.slice(routeStart)
     assert.match(route, /getSessionStats/)
     assert.doesNotMatch(route, /scanEpisodes|readdir|SCAN_TIMEOUT_MS|timeSavedMin/)
   })

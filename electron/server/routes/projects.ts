@@ -1,7 +1,5 @@
 import { Router } from 'express'
 import path from 'path'
-import { existsSync } from 'fs'
-import fs from 'fs/promises'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { validateBody } from '../lib/validate.js'
@@ -12,11 +10,7 @@ import { CreateProjectSchema, UpdateProjectSchema } from '../schemas/index.js'
 import { auditProjectAssets } from '../services/asset-status.js'
 import { auditAssets } from '../services/manifest-audit.js'
 import { getSecretsProvenanceStatus, resetSecretsForCurrentMachine } from '../services/secrets-store.js'
-import { listFormats, loadFormat, getEffectiveFormatFor, _clearFormatCaches } from '../services/format-loader.js'
-import { buildFormatExtractionPrompt, parseExtractedFormatJson } from '../lib/format-extraction-prompt.js'
-import { callAi, callAiWithRetry } from '../lib/ai-client.js'
-import { JSON_OBJECT_OUTPUT_CONTRACT } from '../lib/json-output-contract.js'
-import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
+import { listFormats, getEffectiveFormatFor } from '../services/format-loader.js'
 import { humanizeBackendError, respondWithError } from '../lib/humanize-backend-error.js'
 import type { ProjectMeta } from '../models/types.js'
 import type { JobType } from '../models/types.js'
@@ -55,15 +49,10 @@ router.get('/projects', async (_req, res) => {
   res.json(await pm.listProjects())
 })
 
-router.get('/projects/templates', async (_req, res) => {
-  res.json(await pm.getTemplates())
-})
-
 //
-// Built-in + user-custom formats are merged by listFormats(). The picker UI
-// uses /api/formats; the override editor uses /api/formats/:id for the full
-// bundle. Per-project effective format (base + project's overrides applied)
-// lives at /api/projects/:slug/effective-format.
+// Built-in + user-custom formats are merged by listFormats(); the picker UI
+// uses /api/formats. Per-project effective format (base + project's overrides
+// applied) lives at /api/projects/:slug/effective-format.
 
 router.get('/formats', async (_req, res) => {
   try {
@@ -71,16 +60,6 @@ router.get('/formats', async (_req, res) => {
     res.json(formats)
   } catch (e: any) {
     respondWithError(res, e, 'Failed to list formats')
-  }
-})
-
-router.get('/formats/:id', async (req, res) => {
-  try {
-    const fmt = await loadFormat(req.params.id)
-    if (!fmt) return res.status(404).json({ detail: `Format '${req.params.id}' not found` })
-    res.json(fmt)
-  } catch (e: any) {
-    respondWithError(res, e, 'Failed to load format')
   }
 })
 
@@ -100,126 +79,6 @@ router.get('/projects/:slug/effective-format', async (req, res) => {
     res.json(await getEffectiveFormatFor(project, episodeId ? { episodeId } : undefined))
   } catch (e: any) {
     respondWithError(res, e, 'Failed to resolve effective format')
-  }
-})
-
-// v1.0.166 — Pattern library + CRUD + from-sample routes removed with the
-// Pattern system. Format endpoints (below) are untouched.
-
-// ── Format-from-Sample wizard (Phase 4) ────────────────────────────────────
-//
-// Two-step flow so the user can review the LLM's extraction before it lands
-// in the format library:
-//
-//   1. POST /api/projects/:slug/formats/from-sample
-//      → { samples, model, desired_name?, channel_intent? }
-//      → returns the extracted Format JSON (not saved). Uses the project's
-//        API keys for the LLM call.
-//
-//   2. POST /api/formats/custom
-//      → { format }
-//      → validates, writes to ${PROJECTS_ROOT}/.formats/{id}.json,
-//        returns the saved record. Refuses to overwrite an existing id
-//        unless `overwrite: true` is passed.
-
-router.post('/projects/:slug/formats/from-sample', async (req, res) => {
-  const { slug } = req.params
-  const config = await pm.getConfig(slug)
-  if (!config) return res.status(404).json({ detail: 'Project not found' })
-
-  const { samples, model, desired_name, channel_intent } = req.body || {}
-  if (!Array.isArray(samples) || samples.length === 0 || !samples.every((s: any) => typeof s === 'string' && s.trim())) {
-    return res.status(400).json({ detail: 'samples must be a non-empty array of non-empty strings' })
-  }
-  if (typeof model !== 'string' || !model) {
-    return res.status(400).json({ detail: 'model is required' })
-  }
-
-  const apiKeys = {
-    anthropic_api_key: config.anthropic_api_key,
-    openai_api_key: config.openai_api_key,
-    kie_api_key: config.kie_api_key,
-  }
-
-  const prompt = buildFormatExtractionPrompt({
-    samples: samples.map((s: string) => s.trim()),
-    desiredName: typeof desired_name === 'string' ? desired_name.trim() || undefined : undefined,
-    channelIntent: typeof channel_intent === 'string' ? channel_intent.trim() || undefined : undefined,
-  })
-
-  try {
-    // Long: a whole format definition derived from full sample scripts.
-    const raw = await callAiWithRetry(model, '', prompt, apiKeys, false, {
-      slug, outputBudget: 'long',
-      // `parseExtractedFormatJson` is a hard JSON.parse, so JSON must be
-      // requested. No schema: the Format definition is described in prose in
-      // `buildFormatExtractionPrompt` and has no machine-readable schema here,
-      // and a partial one would reject valid formats after the user paid for
-      // the extraction.
-      outputContract: JSON_OBJECT_OUTPUT_CONTRACT,
-    })
-    const parsed = parseExtractedFormatJson(raw)
-    res.json({ format: parsed })
-  } catch (e: any) {
-    respondWithError(res, e, 'Format extraction failed')
-  }
-})
-
-router.post('/formats/custom', async (req, res) => {
-  const { format, overwrite } = req.body || {}
-  if (!format || typeof format !== 'object') {
-    return res.status(400).json({ detail: 'format object is required' })
-  }
-  const id = String(format.id || '').trim()
-  if (!id || !/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(id)) {
-    return res.status(400).json({ detail: 'format.id must be a kebab-case slug (lowercase, hyphens, alphanumeric)' })
-  }
-  if (typeof format.name !== 'string' || !format.name.trim()) {
-    return res.status(400).json({ detail: 'format.name is required' })
-  }
-
-  const existing = await loadFormat(id).catch(() => null)
-  if (existing && !overwrite) {
-    return res.status(409).json({
-      detail: `Format id "${id}" already exists${existing.builtin ? ' as a built-in' : ''}. Pass overwrite:true to replace, or rename.`,
-      existingIsBuiltin: existing.builtin,
-    })
-  }
-
-  const saveable = { ...format, builtin: false, schemaVersion: 1 }
-
-  const userDir = path.join(pm.ensureProjectsRoot(), '.formats')
-  const filePath = path.join(userDir, `${id}.json`)
-  try {
-    await fs.mkdir(userDir, { recursive: true })
-    await withLock(filePath, async () => {
-      await writeJsonAtomic(filePath, saveable)
-    })
-    _clearFormatCaches()
-    res.json({ format: saveable, savedTo: filePath })
-  } catch (e: any) {
-    respondWithError(res, e, 'Failed to save format')
-  }
-})
-
-router.delete('/formats/custom/:id', async (req, res) => {
-  const id = req.params.id
-  // The sibling POST above already rejects a non-kebab id; this DELETE took the
-  // raw route param straight into `path.join` and `fs.rm`. `%2F` and `%2e%2e`
-  // are decoded into `req.params`, so `..%2F..%2Ftmp%2Fvictim` unlinked
-  // `${projectsRoot}/.formats/../../tmp/victim.json` — an arbitrary `*.json`
-  // delete anywhere the process can write.
-  if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]?$/.test(String(id))) {
-    return res.status(400).json({ detail: `Invalid format id "${id}" — must be kebab-case` })
-  }
-  const filePath = path.join(pm.projectsRoot(), '.formats', `${id}.json`)
-  if (!existsSync(filePath)) return res.status(404).json({ detail: `Custom format "${id}" not found` })
-  try {
-    await fs.rm(filePath, { force: true })
-    _clearFormatCaches()
-    res.json({ ok: true, id })
-  } catch (e: any) {
-    respondWithError(res, e, 'Failed to delete')
   }
 })
 

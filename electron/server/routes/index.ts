@@ -22,7 +22,6 @@ import { router as debugRouter } from './debug.js'
 import { router as systemRouter } from './system.js'
 import { router as voicesRouter } from './voices.js'
 import { router as visionRouter } from './vision.js'
-import { router as imageEditRouter } from './image-edit.js'
 import { router as uploadRouter } from './upload.js'
 import { router as youtubeConnectionsRouter } from './youtube-connections.js'
 import { router as youtubeUploadCenterRouter } from './youtube-upload-center.js'
@@ -85,7 +84,6 @@ export function mountRoutes(app: Express): void {
   app.use('/api', systemRouter)
   app.use('/api', voicesRouter)
   app.use('/api', visionRouter)
-  app.use('/api', imageEditRouter)
   app.use('/api', uploadRouter)
   app.use('/api', youtubeConnectionsRouter)
   app.use('/api', youtubeUploadCenterRouter)

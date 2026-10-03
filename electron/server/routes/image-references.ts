@@ -173,48 +173,6 @@ router.post('/projects/:slug/episodes/:episodeId/img2img-references/master', asy
   }
 })
 
-// ── POST thumbnail reference ─────────────────────────────────────────────
-// Dedicated to Thumbnail Generator so its channel/reference cover never
-// overwrites the Scene Generator's episode-wide master reference.
-router.post('/projects/:slug/episodes/:episodeId/img2img-references/thumbnail', async (req, res) => {
-  const { slug, episodeId } = req.params
-  const titleParam = (req.body?.title as string | undefined) || (req.query.title as string) || ''
-  try {
-    const project = await pm.getProject(slug)
-    if (!project) return res.status(404).json({ detail: 'Project not found' })
-    const buf = decodeUploadBuffer(req.body)
-    if (!buf.ok) return res.status(buf.status).json({ detail: buf.detail })
-    const dir = await refsDir(slug, episodeId, titleParam, { create: true })
-    const stored = await storeReference(dir, THUMBNAIL_FILENAME, buf.data)
-    res.json({
-      ok: true,
-      url: fileUrl(slug, episodeId, THUMBNAIL_FILENAME),
-      ...stored,
-    })
-  } catch (e: any) {
-    res.status(500).json({ detail: e?.message || 'Failed to save thumbnail reference' })
-  }
-})
-
-// ── POST style ───────────────────────────────────────────────────────────
-// v1.0.229 — continuity-chain style reference (saved as style.png alongside
-// the master sheet). Attached to every scene when references.style is on.
-router.post('/projects/:slug/episodes/:episodeId/img2img-references/style', async (req, res) => {
-  const { slug, episodeId } = req.params
-  const titleParam = (req.body?.title as string | undefined) || (req.query.title as string) || ''
-  try {
-    const project = await pm.getProject(slug)
-    if (!project) return res.status(404).json({ detail: 'Project not found' })
-    const buf = decodeUploadBuffer(req.body)
-    if (!buf.ok) return res.status(buf.status).json({ detail: buf.detail })
-    const dir = await refsDir(slug, episodeId, titleParam, { create: true })
-    const stored = await storeReference(dir, STYLE_FILENAME, buf.data)
-    res.json({ ok: true, url: fileUrl(slug, episodeId, STYLE_FILENAME), ...stored })
-  } catch (e: any) {
-    res.status(500).json({ detail: e?.message || 'Failed to save style reference' })
-  }
-})
-
 // ── POST composition template ────────────────────────────────────────────
 // v1.0.260 — explainer composition template (saved as composition.png). The
 // LAYOUT every scene is img2img-structured against when references.composition
@@ -235,33 +193,6 @@ router.post('/projects/:slug/episodes/:episodeId/img2img-references/composition'
   }
 })
 
-// ── POST per-scene ───────────────────────────────────────────────────────
-router.post('/projects/:slug/episodes/:episodeId/img2img-references/scene/:n', async (req, res) => {
-  const { slug, episodeId } = req.params
-  const n = Number(req.params.n)
-  if (!Number.isFinite(n) || n < 1 || n > 999) {
-    return res.status(400).json({ detail: 'invalid scene number' })
-  }
-  const titleParam = (req.body?.title as string | undefined) || (req.query.title as string) || ''
-  try {
-    const project = await pm.getProject(slug)
-    if (!project) return res.status(404).json({ detail: 'Project not found' })
-    const buf = decodeUploadBuffer(req.body)
-    if (!buf.ok) return res.status(buf.status).json({ detail: buf.detail })
-    const dir = await refsDir(slug, episodeId, titleParam, { create: true })
-    const filename = sceneFilename(n)
-    const stored = await storeReference(dir, filename, buf.data)
-    res.json({
-      ok: true,
-      number: n,
-      url: fileUrl(slug, episodeId, filename),
-      ...stored,
-    })
-  } catch (e: any) {
-    res.status(500).json({ detail: e?.message || 'Failed to save scene reference' })
-  }
-})
-
 // ── DELETE master ────────────────────────────────────────────────────────
 router.delete('/projects/:slug/episodes/:episodeId/img2img-references/master', async (req, res) => {
   const { slug, episodeId } = req.params
@@ -273,33 +204,6 @@ router.delete('/projects/:slug/episodes/:episodeId/img2img-references/master', a
     res.json({ ok: true })
   } catch (e: any) {
     res.status(500).json({ detail: e?.message || 'Failed to delete master reference' })
-  }
-})
-
-router.delete('/projects/:slug/episodes/:episodeId/img2img-references/thumbnail', async (req, res) => {
-  const { slug, episodeId } = req.params
-  const titleParam = (req.query.title as string) || ''
-  try {
-    const dir = await refsDir(slug, episodeId, titleParam)
-    const target = path.join(dir, THUMBNAIL_FILENAME)
-    if (existsSync(target)) await fs.rm(target)
-    res.json({ ok: true })
-  } catch (e: any) {
-    res.status(500).json({ detail: e?.message || 'Failed to delete thumbnail reference' })
-  }
-})
-
-// ── DELETE style ─────────────────────────────────────────────────────────
-router.delete('/projects/:slug/episodes/:episodeId/img2img-references/style', async (req, res) => {
-  const { slug, episodeId } = req.params
-  const titleParam = (req.query.title as string) || ''
-  try {
-    const dir = await refsDir(slug, episodeId, titleParam)
-    const target = path.join(dir, STYLE_FILENAME)
-    if (existsSync(target)) await fs.rm(target)
-    res.json({ ok: true })
-  } catch (e: any) {
-    res.status(500).json({ detail: e?.message || 'Failed to delete style reference' })
   }
 })
 
@@ -340,24 +244,6 @@ router.delete('/projects/:slug/episodes/:episodeId/img2img-references/compositio
     res.json({ ok: true })
   } catch (e: any) {
     res.status(500).json({ detail: e?.message || 'Failed to delete composition template' })
-  }
-})
-
-// ── DELETE per-scene ─────────────────────────────────────────────────────
-router.delete('/projects/:slug/episodes/:episodeId/img2img-references/scene/:n', async (req, res) => {
-  const { slug, episodeId } = req.params
-  const n = Number(req.params.n)
-  if (!Number.isFinite(n) || n < 1 || n > 999) {
-    return res.status(400).json({ detail: 'invalid scene number' })
-  }
-  const titleParam = (req.query.title as string) || ''
-  try {
-    const dir = await refsDir(slug, episodeId, titleParam)
-    const target = path.join(dir, sceneFilename(n))
-    if (existsSync(target)) await fs.rm(target)
-    res.json({ ok: true })
-  } catch (e: any) {
-    res.status(500).json({ detail: e?.message || 'Failed to delete scene reference' })
   }
 })
 

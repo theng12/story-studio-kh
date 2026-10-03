@@ -19,7 +19,7 @@
       <!-- Preview thumbnail. Renders an <img> when an imagePath is
            provided; placeholder dashed box otherwise. Click opens a
            full-size lightbox (delegated via emit so the parent can
-           plug into the existing ImageEditDialog / lightbox flow). -->
+           open its lightbox). -->
       <button
         v-if="imagePath"
         type="button"
