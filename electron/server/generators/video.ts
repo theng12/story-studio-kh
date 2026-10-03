@@ -2637,7 +2637,32 @@ export async function generateVideo(job: Job): Promise<void> {
     // negative shift, which is equally correct: the cue follows its scene.
     const planSceneOriginSec = planCoverageScenes[0]?.start_sec ?? 0
     const sceneTimelineOffsetSec = Math.round((preSceneDuration - planSceneOriginSec) * 1000) / 1000
-    if (Math.abs(sceneTimelineOffsetSec) >= 0.05) {
+    // A title image / title card / opening still the plan did not reserve is
+    // silent picture that is NOT in the merged audio. Instead of playing the
+    // narration under it (every scene then lands that many seconds after its
+    // words — Dreamlands EP0002, 5 s), the narration and its captions start
+    // after it, so the opening leads in and the scenes stay on their narration.
+    const narrationLeadInSec = narrationLeadInForOpening({
+      planStrict,
+      sceneTimelineOffsetSec,
+      introVideoInOpening: !!introClipPath,
+    })
+    if (narrationLeadInSec > 0) {
+      job.output_lines.push(
+        `Opening sync: the ${narrationLeadInSec.toFixed(2)}s opening (title image or card) is not part of the narration, ` +
+        `so the narration${req.subtitles?.enabled ? ' and captions' : ''} start after it — every scene stays on the narration it was planned against.`,
+      )
+      if (req.subtitles?.enabled && req.subtitles.srt_path && existsSync(req.subtitles.srt_path)) {
+        const { parseSrt, formatSrtTime } = await import('../lib/subtitle-builder.js')
+        const cues = parseSrt(await fs.readFile(req.subtitles.srt_path, 'utf-8'))
+        const shiftedPath = path.join(tempDir, 'subtitles_after_opening.srt')
+        await fs.writeFile(shiftedPath, cues
+          .map((c, i) => `${i + 1}\n${formatSrtTime(c.start_sec + narrationLeadInSec)} --> ${formatSrtTime(c.end_sec + narrationLeadInSec)}\n${c.text}`)
+          .join('\n\n') + '\n', 'utf-8')
+        req.subtitles = { ...req.subtitles, srt_path: shiftedPath }
+      }
+    }
+    if (Math.abs(sceneTimelineOffsetSec) >= 0.05 && narrationLeadInSec === 0) {
       // The reverse of the guard above, and the owner's live situation: an
       // intro is enabled while the plan reserved nothing for it. Deriving the
       // offset puts the CUES back on their scenes, but it cannot put the scenes
@@ -2654,6 +2679,8 @@ export async function generateVideo(job: Job): Promise<void> {
         'To lock them together, open Scene Plan and create the timeline again — it measures your opening ' +
         `clips (${preSceneDuration.toFixed(1)}s right now) and reserves exactly that.`,
       )
+    }
+    if (Math.abs(sceneTimelineOffsetSec) >= 0.05) {
       if (req.contextual_cues?.length) {
         job.output_lines.push(
           `Contextual cues shifted ${sceneTimelineOffsetSec > 0 ? '+' : ''}${sceneTimelineOffsetSec.toFixed(2)}s ` +
@@ -2699,7 +2726,9 @@ export async function generateVideo(job: Job): Promise<void> {
     // extend the encoder's `-t` so nothing gets clipped, and both
     // contribute to the premix audio length in identical fashion.
     const tailClipsDuration = afterScenesDur + afterOutroDur
-    const totalRenderDuration = targetDuration + outroDuration + tailClipsDuration
+    // The narration lead-in pushes the narration (and its post-audio tail) later by the same amount.
+    const sceneTrackTargetDuration = targetDuration + narrationLeadInSec
+    const totalRenderDuration = sceneTrackTargetDuration + outroDuration + tailClipsDuration
     if (outroDuration > 0 || tailClipsDuration > 0) {
       const parts = [`target ${targetDuration.toFixed(1)}s`]
       if (outroDuration > 0) parts.push(`outro ${outroDuration.toFixed(1)}s`)
@@ -2761,7 +2790,7 @@ export async function generateVideo(job: Job): Promise<void> {
     // 10. Build concat list — scenes match narration duration, post-audio fills the rest
     const { listPath: concatListPath, sceneEndTime } = await buildConcatList(
       tempDir, introClipPath, titleClipPath, sceneClips,
-      targetDuration, narrationDuration, postAudio,
+      sceneTrackTargetDuration, narrationDuration, postAudio,
       req.scene_recycling, resW, resH, quality, job,
       sceneClipDurations,
       req.transition && req.transition !== 'none' ? {
@@ -2789,6 +2818,7 @@ export async function generateVideo(job: Job): Promise<void> {
       narrationPath: narrationFilePath,
       narrationDuration,
       narrationVolume: req.narration_volume ?? 1.0,
+      narrationDelaySec: narrationLeadInSec,
       musicFilePath, musicConfig: req.music,
       backgroundNoise: req.background_noise,
       targetDuration: totalRenderDuration, tempDir, job,
@@ -4916,6 +4946,8 @@ interface PremixAudioOpts {
   narrationPath: string
   narrationDuration: number
   narrationVolume: number
+  /** Seconds of silence before the narration (an unreserved title image leads in). */
+  narrationDelaySec?: number
   musicFilePath?: string
   musicConfig?: VideoMusicConfig
   backgroundNoise?: VideoBackgroundNoise
@@ -4924,12 +4956,15 @@ interface PremixAudioOpts {
   job: Job
 }
 
-async function premixAudio(opts: PremixAudioOpts): Promise<string> {
+export async function premixAudio(opts: PremixAudioOpts): Promise<string> {
   const {
-    narrationPath, narrationDuration, narrationVolume,
+    narrationPath, narrationVolume,
     musicFilePath, musicConfig, backgroundNoise,
     targetDuration, tempDir, job,
   } = opts
+  const narrationDelayMs = Math.max(0, Math.round((opts.narrationDelaySec || 0) * 1000))
+  // Where the narration ENDS on the composed timeline (music swells after it).
+  const narrationDuration = opts.narrationDuration + narrationDelayMs / 1000
 
   const outputPath = path.join(tempDir, 'premixed_audio.wav')
   const args: string[] = ['-y']
@@ -4974,7 +5009,7 @@ async function premixAudio(opts: PremixAudioOpts): Promise<string> {
   // Narration: resample, normalize, pad to target duration
   const narrVol = narrationVolume ?? 1.0
   filterParts.push(
-    `[${narrIdx}:a]aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp,volume=${narrVol},apad=whole_dur=${targetDuration}[narr]`
+    `[${narrIdx}:a]aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp,volume=${narrVol}${narrationDelayMs > 0 ? `,adelay=delays=${narrationDelayMs}:all=1` : ''},apad=whole_dur=${targetDuration}[narr]`
   )
 
   const audioStreams: string[] = ['[narr]']
@@ -6197,6 +6232,24 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
       dropped: succeededTier.dropsBurnedInFeatures ? requestedBurnIns : [],
     })
   }
+}
+
+/**
+ * Seconds the narration should start after the composed opening.
+ *
+ * Only for a Scene Plan render whose opening the plan did not reserve, and
+ * only when that opening is silent picture (title image / card / stills): an
+ * intro VIDEO's sound already lives inside the merged audio (Audio Assembly),
+ * so delaying the narration there would push the intro audio under scene 1 —
+ * that case keeps the existing warning and the page warns before Generate.
+ */
+export function narrationLeadInForOpening(opts: {
+  planStrict: boolean
+  sceneTimelineOffsetSec: number
+  introVideoInOpening: boolean
+}): number {
+  if (!opts.planStrict || opts.introVideoInOpening) return 0
+  return opts.sceneTimelineOffsetSec >= 0.05 ? opts.sceneTimelineOffsetSec : 0
 }
 
 export type EncodeTier = {

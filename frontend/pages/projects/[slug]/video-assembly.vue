@@ -628,6 +628,8 @@
             <p class="text-muted text-xs hint-line">This image will display for {{ titleImage.duration }}s before scenes begin</p>
           </div>
 
+          <p v-if="openingSyncNote" :class="['opening-sync-note', 'mt-2', `opening-sync-note--${openingSyncNote.tone}`]" role="status">{{ openingSyncNote.text }}</p>
+
           <!-- The staged Scene Plan owns branded-opening timing. -->
           <div v-if="introHold?.opening_mode === 'branded-opening'" class="intro-hold-note mt-2">
             <strong>Opening timing is controlled by Scene Plan.</strong>
@@ -2434,6 +2436,7 @@
     <div v-if="currentStep === 6" class="card workspace-section assembly-step-panel">
       <h3>Step 6: Export &amp; Generate</h3>
       <p class="text-muted mt-1">Review settings and generate your video</p>
+      <p v-if="openingSyncNote" :class="['opening-sync-note', 'mt-2', `opening-sync-note--${openingSyncNote.tone}`]" role="status">{{ openingSyncNote.text }}</p>
 
       <PresetPicker
         label="Export preset"
@@ -2882,6 +2885,7 @@
 import type { CSSProperties } from 'vue'
 import { applyTitleImagePreset, snapshotTitleImagePreset } from '~/utils/video-assembly-presets'
 import { describeMergedAudioOpening } from '~/utils/merged-audio-opening'
+import { describeOpeningSync } from '~/utils/opening-sync'
 import { aspectRatioOptions, canvasFor, parseAspectRatio, DEFAULT_ASPECT_RATIO } from '~/utils/aspect-ratios'
 import { describeSubtitleBurn } from '~/utils/subtitle-episode-selection'
 import { customerSafeJobText } from '~/utils/job-presentation'
@@ -3184,6 +3188,8 @@ const introHold = ref<{
   intro_video_sec: number
   hold_sec: number
   intro_label: string | null
+  /** Seconds this episode's Scene Plan reserved for the opening; null = no plan yet. */
+  plan_opening_reserved_sec?: number | null
 } | null>(null)
 let introHoldSequence = 0
 async function loadIntroHold() {
@@ -4527,6 +4533,18 @@ const titleCard = reactive({
   background: 'black',
   background_media_path: '',
 })
+
+// Said before Generate: whether the opening will keep scenes on their narration.
+const openingSyncNote = computed(() => describeOpeningSync({
+  visualSource: visualSource.value,
+  planReservedSec: introHold.value ? (introHold.value.plan_opening_reserved_sec ?? null) : null,
+  introVideoOn: !!(intro.enabled && intro.video_path),
+  introVideoSec: Number(introHold.value?.intro_video_sec) || 0,
+  titleImageOn: !!(titleImage.enabled && titleImage.image_path),
+  titleImageSec: Number(titleImage.duration) || 0,
+  titleCardOn: !!(titleCard.enabled && titleCard.text?.trim()),
+  titleCardSec: Number(titleCard.duration) || 0,
+}))
 const chapterTitles = reactive({
   enabled: false,
   style: 'white' as string,
@@ -6725,6 +6743,9 @@ onUnmounted(() => {
 .thumb-preview { width: 100%; height: 100%; object-fit: cover; }
 .thumb-label { position: absolute; bottom: 4px; left: 4px; right: 4px; background: rgba(0,0,0,0.7); color: white; font-size: var(--font-xs); font-weight: 600; padding: 2px 6px; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .thumb-check { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; background: var(--accent); color: white; font-size: 12px; font-weight: 700; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+.opening-sync-note { font-size: 13px; line-height: 1.5; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); color: var(--text-secondary); }
+.opening-sync-note--info { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.opening-sync-note--warning { border-color: var(--warning, #d29922); background: color-mix(in srgb, var(--warning, #d29922) 12%, transparent); color: var(--text-primary); }
 .intro-hold-note { font-size: 12px; line-height: 1.5; padding: 8px 10px; border: 1px solid var(--accent); border-radius: 6px; background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--text-secondary); }
 
 /* Title image preview */
