@@ -168,12 +168,13 @@ test('a project refresh cannot blank the hydrated YouTube category, and a delibe
     assert.equal(fixture.state.projectForm.category_id, 31,
       'an unsaved deliberate change must survive a project refresh')
 
-    // Saving writes BOTH records: the project meta and the config that owns the category.
+    // Saving writes the config that owns the category. v1.4.249: Publishing owns no
+    // project.json field any more (youtube_channel_url is gone), so that file is left alone.
     await fixture.state.saveProject('publishing')
     await flush()
     const projectWrite = puts.find(entry => entry.path === '/projects/project-a')
     const configWrite = puts.find(entry => entry.path === '/projects/project-a/settings/config')
-    assert.ok(projectWrite, 'the Publishing save must still write the project record')
+    assert.equal(projectWrite, undefined, 'the Publishing save must not rewrite the project record')
     assert.ok(configWrite, 'the category belongs to ProjectConfig and must be written there')
     assert.equal(configWrite.body.category_id, 31, 'the customer’s deliberate category must persist')
 

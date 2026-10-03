@@ -68,8 +68,10 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 
   { section: 'maintenance', anchor: 'library-folder', label: 'Library folder', keywords: 'library folder location where files projects channels move drive storage' },
   { section: 'maintenance', anchor: 'exports-folder', label: 'Finished videos folder', keywords: 'finished videos exports export folder renders final mp4 where location' },
+  { section: 'maintenance', anchor: 'free-up-space', label: 'Free up space', keywords: 'free up space cleanup disk storage trash uploaded episodes archive shrink images' },
+  { section: 'maintenance', anchor: 'clear-uploaded-finals', label: 'Clear uploaded final videos', keywords: 'clear uploaded final videos verify local free space trash' },
   { section: 'maintenance', anchor: 'move-uploaded', label: 'Move uploaded videos to another drive', keywords: 'archive move uploaded videos drive disk space external' },
-  { section: 'maintenance', anchor: 'free-up-space', label: 'Free up space', keywords: 'free up space cleanup disk storage trash uploaded episodes archive' },
+  { section: 'maintenance', anchor: 'episode-storage', label: "What's using space", keywords: 'storage disk usage space used episode scan preview cache' },
   { section: 'maintenance', anchor: 'smaller-files', label: 'Smaller files (compression)', keywords: 'compression compress smaller files aac jpeg png music narration images thumbnails' },
   { section: 'maintenance', anchor: 'ffmpeg', label: 'FFmpeg video engine', keywords: 'ffmpeg video engine assembly subtitles burn drawtext libass install' },
   { section: 'maintenance', anchor: 'about', label: 'Version and build', keywords: 'about version build copy report bug' },
@@ -96,11 +98,9 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { section: 'files', anchor: 'numbering', label: 'Episode prefix and groups', keywords: 'episode prefix code season group batch numbering' },
   { section: 'files', anchor: 'project-location', label: 'Project folder', keywords: 'project folder location finder open' },
   { section: 'files', anchor: 'project-smaller-files', label: 'Smaller files for this project', keywords: 'compression project override smaller files' },
-  { section: 'files', anchor: 'episode-storage', label: 'Space used by each episode', keywords: 'storage disk usage episode clear local video cleanup preview cache scan' },
   { section: 'files', anchor: 'confirmations', label: 'Confirmation prompts', keywords: 'confirm confirmation prompts ask dialog' },
   { section: 'files', anchor: 'folder-names', label: 'Episode folder names', keywords: 'folder names templates subfolders sync' },
   { section: 'files', anchor: 'hide-project', label: 'Hide project', keywords: 'hide remove delete project' },
-  { section: 'files', anchor: 'heavy-media', label: 'Heavy media on another drive', keywords: 'media root split external ssd heavy media drive' },
   { section: 'files', anchor: 'recovery-data', label: 'Script recovery data', keywords: 'chunked progress sidecars recovery resume cleanup' },
 ]
 

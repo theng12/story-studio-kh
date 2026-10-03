@@ -300,6 +300,15 @@ router.get('/projects/:slug', async (req, res) => {
 })
 
 router.put('/projects/:slug', validateBody(UpdateProjectSchema), async (req, res) => {
+  // v1.4.249 — "heavy media on another drive" is retired for projects that do
+  // not use it: one that has media_root may change or clear it, one without it
+  // cannot start. Nothing on disk is moved either way.
+  if (String(req.body.media_root ?? '').trim()) {
+    const current = await pm.getProject(req.params.slug) as { media_root?: unknown } | null
+    if (current && !String(current.media_root ?? '').trim()) {
+      return res.status(400).json({ detail: 'Heavy media on another drive is retired: it can only be changed or cleared on a project that already uses it.' })
+    }
+  }
   const project = await pm.updateProject(req.params.slug, req.body)
   if (!project) return res.status(404).json({ detail: 'Project not found' })
   res.json(withoutRetiredResearchPolicy(project))

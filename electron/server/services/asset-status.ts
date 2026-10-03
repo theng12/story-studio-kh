@@ -79,13 +79,12 @@ async function safeReaddir(dir: string): Promise<string[]> {
  * "couldn't read folder". The status-detection compute uses the rich
  * variant for the four primary watched folders (script / scene_prompts /
  * thumb_prompts / metadata) so the cache can refuse to persist a
- * `script: false` result that came from an iCloud-truncated readdir.
+ * `script: false` result that came from a failed or truncated readdir.
  *
  * `errored` distinguishes TRANSIENT failures (EBUSY, EPERM, EACCES,
- * EIO — typically iCloud transience) from PERMANENT "not there yet"
+ * EIO — a busy, slow or disconnected drive) from PERMANENT "not there yet"
  * states (ENOENT, ENOTDIR — folder hasn't been created because the user
- * hasn't run the generator yet, or iCloud hasn't synced the episode at
- * all). The `not there yet` state is correctly a `false` we should
+ * hasn't run the generator yet). The `not there yet` state is correctly a `false` we should
  * cache — when the folder eventually appears, snapshotMtimes will see a
  * new key in the next snapshot and the cache will correctly stale.
  *
@@ -108,8 +107,8 @@ async function safeReaddirRich(dir: string): Promise<SafeReaddirResult> {
     if (code === 'ENOENT' || code === 'ENOTDIR') {
       return { files: [], errored: false }
     }
-    // Anything else (EBUSY / EPERM / EACCES / EIO / EMFILE / iCloud
-    // transient) is unreliable — the folder may exist with files, we
+    // Anything else (EBUSY / EPERM / EACCES / EIO / EMFILE, e.g. an external
+    // drive that stalls or drops) is unreliable — the folder may exist with files, we
     // just couldn't enumerate them. Don't let the cache freeze that.
     return { files: [], errored: true }
   }
@@ -117,7 +116,7 @@ async function safeReaddirRich(dir: string): Promise<SafeReaddirResult> {
 
 /**
  * A read that failed for any reason other than "not there" (EBUSY, EIO,
- * EACCES, iCloud eviction…) says nothing about the episode. Flag the status
+ * EACCES, a stalled external drive…) says nothing about the episode. Flag the status
  * `_unreliable` so the cache never stores that error as "pending"; the next
  * read recomputes. ENOENT/ENOTDIR and non-fs errors keep today's `false`.
  */
@@ -129,7 +128,7 @@ function flagTransientReadError(status: EpisodeStatus, error: unknown): void {
 }
 
 /**
- * Users (and cloud-sync tools) sometimes prefix folders with ✅, ✔️, or other
+ * Users sometimes prefix folders with ✅, ✔️, or other
  * decorative marks to signal completion. Strip them before matching the
  * episode code so detection doesn't silently flip to false.
  */
@@ -1001,8 +1000,8 @@ export interface EpisodeStatus {
   /**
    * v1.0.78 — internal cache-control flag (NOT a UI-facing status field).
    * Set to `true` when one or more of the watched-folder readdirs errored
-   * during this compute (typically iCloud transience: subfolder evicted,
-   * EBUSY mid-sync, etc.). The episode-status cache reads this flag and
+   * during this compute (a busy, slow or disconnected drive: EBUSY, EIO,
+   * etc.). The episode-status cache reads this flag and
    * refuses to persist the entry, forcing a fresh recompute on the next
    * read. Underscore-prefixed so consumers know it's not a real status
    * boolean to render in the UI.
@@ -1164,9 +1163,8 @@ export async function computeEpisodeStatus(
     authoritativePaths = paths
 
     // v1.0.78: use the rich `safeReaddirRich` variant so we can tell apart
-    // "folder is genuinely empty" from "couldn't read folder" (iCloud
-    // transience: subfolder evicted, EBUSY mid-sync, ENOENT during a
-    // just-delivered move). The four primary watched folders directly
+    // "folder is genuinely empty" from "couldn't read folder" (a busy,
+    // slow or disconnected drive: EBUSY, EIO, EACCES). The four primary watched folders directly
     // determine the boolean status fields below; an errored read on any
     // of them poisons the result and we surface that via `_unreliable`
     // so the cache can refuse to persist it.
@@ -1376,7 +1374,7 @@ export async function computeEpisodeStatus(
 
     // If ANY of the four primary readdirs errored, mark the entire status
     // unreliable. The cache will skip persistence and the next read will
-    // recompute — by which point iCloud has usually settled. False
+    // recompute — by which point the drive has usually settled. False
     // positives are cheap (~10 fs ops to recompute). False negatives
     // (cached `script: false` for an episode whose script lives on disk)
     // are the actual user-visible bug we're closing.
@@ -1513,8 +1511,7 @@ export async function computeEpisodeStatus(
     // app-settings, video-assembly writes finals to
     //   {root}/{slug}/Season NNN/{code} - {title}/{code}_final_video.{ext}
     // mirroring the project tree. Detection looks there too so the
-    // pipeline view sees finals that live outside the iCloud-synced
-    // project folder.
+    // pipeline view sees finals that live outside the project folder.
     let hasFinalAtExternalRoot = false
     if (!hasFinalInVideoDir && !hasUsableRemote) {
       try {

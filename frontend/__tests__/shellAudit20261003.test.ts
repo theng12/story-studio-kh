@@ -30,12 +30,12 @@ test('Settings: no native alert()/confirm(), and destructive per-row actions ask
   const script = settings.slice(settings.indexOf('<script'))
   assert.doesNotMatch(script, /(?<![.\w])alert\(/)
   assert.doesNotMatch(script, /(?<![.\w])confirm\(/)
-  for (const fn of ['cleanupRow', 'cleanupOneSidecar', 'cleanupAllChunkedSidecars', 'deletePreset']) {
+  for (const fn of ['runBulkCleanup', 'clearMediaRoot', 'cleanupOneSidecar', 'cleanupAllChunkedSidecars', 'deletePreset']) {
     assert.match(script, new RegExp(`async function ${fn}\\([^)]*\\) \\{[\\s\\S]{0,400}?await ask\\(`), fn)
   }
   assert.doesNotMatch(settings, /\{'\{code\}'\}|Define it under Named Roots|e\.g\. \$\{MEDIA\}/)
   // v1.4.249: the storage map (and its "Space recovery" card) is gone; per-episode
-  // space lives under Project files & behavior.
+  // space is the read-only "What's using space" view inside the Free Up Space card.
   assert.match(settings, /data-setting="episode-storage"/)
 })
 

@@ -279,111 +279,228 @@
               <p v-if="exportsStatus" :class="['settings-status', exportsStatusKind]">{{ exportsStatus }}</p>
             </div>
 
-            <div class="files-where-action" data-setting="move-uploaded">
-              <div>
-                <strong>Move uploaded videos to another drive</strong>
-                <p>Optional. Moves finished videos that are confirmed uploaded to YouTube into a folder you choose, to free space here. Each one is checked at the new place before the original is removed. Everything else stays put.</p>
-              </div>
-              <button v-if="!archiveOpen" type="button" class="btn btn-secondary btn-sm" @click="archiveOpen = true">Move Uploaded Videos…</button>
-            </div>
-            <div v-if="archiveOpen" class="archive-flow">
-              <FolderField
-                v-model="archiveSource"
-                label="Look for videos in"
-                placeholder="Your finished videos folder"
-                hint="Usually your finished videos folder. Choose another folder if your videos are somewhere else."
-                picker-title="Where are your finished videos?"
-                picker-button-label="Scan This Folder"
-                :disabled="archiveBusy"
-                @update:model-value="archivePreview = null"
-              />
-              <FolderField
-                v-model="archiveDest"
-                label="Move them to"
-                placeholder="Choose a folder on the other drive"
-                picker-title="Move finished videos into…"
-                picker-button-label="Move Here"
-                :disabled="archiveBusy"
-              />
-              <div class="flex gap-2 items-center">
-                <button class="btn btn-secondary btn-sm" :disabled="archiveBusy" @click="loadArchivePreview">
-                  {{ archiveChecking ? 'Checking…' : 'Check What Would Move' }}
-                </button>
-                <button v-if="archivePreview?.complete && archivePreview?.ready_count" class="btn btn-primary btn-sm"
-                        :disabled="archiveBusy || !archiveDest.trim()" @click="startArchive">
-                  Move {{ archivePreview.ready_count }} Video{{ archivePreview.ready_count === 1 ? '' : 's' }} · {{ formatBytes(archivePreview.ready_bytes) }}
-                </button>
-                <button v-if="archiveRunning || archiveChecking" class="btn btn-danger btn-sm" @click="stopArchive">Stop</button>
-                <button v-if="!archiveBusy" class="btn btn-ghost btn-sm" @click="archiveOpen = false">Close</button>
-              </div>
-        <div v-if="archivePreview" class="mt-2">
-          <p v-if="!archivePreview.source_exists" class="validation-msg text-sm">
-            Nothing to scan — <code>{{ archivePreview.source_root }}</code> is not there.
-          </p>
-          <template v-else>
-            <p v-if="!archivePreview.complete" class="validation-msg text-sm">
-              Check stopped early. Nothing can move until the folder has been checked completely.
-            </p>
-            <p class="text-sm">
-              <strong>{{ archivePreview.ready_count }}</strong> video(s) ready
-              ({{ formatBytes(archivePreview.ready_bytes) }} ready to move),
-              <strong>{{ archivePreview.skipped_count }}</strong> skipped
-              ({{ formatBytes(archivePreview.skipped_bytes) }} staying put).
-            </p>
-            <ul v-if="archivePreview.by_channel.length" class="archive-channels">
-              <li v-for="c in archivePreview.by_channel" :key="c.slug">
-                {{ c.slug }} — {{ c.count }} video(s), {{ formatBytes(c.bytes) }}
-              </li>
-            </ul>
-            <details v-if="archivePreview.ready_count" class="mt-1 disclosure">
-              <summary class="text-sm">Review {{ archivePreview.ready_count }} uploaded videos to move</summary>
-              <ul class="archive-skipped">
-                <li v-for="c in archiveReadyRows" :key="c.source_path">
-                  <strong>{{ c.slug }} · {{ c.code }}</strong> — <code>{{ c.filename }}</code>
-                  · {{ formatBytes(c.bytes) }}
-                  <a v-if="c.youtube_video_id" :href="`https://www.youtube.com/watch?v=${encodeURIComponent(c.youtube_video_id)}`"
-                     target="_blank" rel="noopener noreferrer">Open recorded YouTube upload</a>
-                </li>
-              </ul>
-            </details>
-            <details v-if="archivePreview.skipped_count" class="mt-1 disclosure">
-              <summary class="text-muted text-sm">Why {{ archivePreview.skipped_count }} were skipped</summary>
-              <ul class="archive-skipped">
-                <li v-for="c in archiveSkippedRows" :key="c.source_path">
-                  <code>{{ c.filename }}</code> — {{ c.reason }}
-                </li>
-              </ul>
-            </details>
-          </template>
-        </div>
-
-        <div v-if="archiveChecking || archiveRunning || archiveResult" class="mt-2">
-          <p v-if="archiveChecking" class="text-sm">
-            Checking {{ archiveProgress.checked }} video file{{ archiveProgress.checked === 1 ? '' : 's' }} —
-            <code>{{ archiveProgress.current }}</code>
-            <span v-if="archiveStopping"> · stopping after this file…</span>
-          </p>
-          <p v-else-if="archiveRunning" class="text-sm">
-            {{ archiveStage === 'checking' ? 'Rechecking proof' : 'Moving' }} {{ archiveProgress.done }} / {{ archiveProgress.total }} —
-            <code>{{ archiveProgress.current }}</code>
-            <span v-if="archiveStopping"> · stopping after this file…</span>
-          </p>
-          <p v-if="archiveResult" class="text-sm">
-            ✓ Moved {{ archiveResult.moved.length }} video(s), {{ formatBytes(archiveResult.bytes_moved) }} total.
-            <span v-if="archiveResult.cancelled">Stopped early — everything not yet moved is untouched.</span>
-            <span v-if="archiveResult.failed.length">
-              {{ archiveResult.failed.length }} could not be verified and were left in both places.
-            </span>
-          </p>
-          <ul v-if="archiveResult?.warnings?.length" class="archive-skipped">
-            <li v-for="w in archiveResult.warnings" :key="w">{{ w }}</li>
-          </ul>
-        </div>
-            </div>
           </section>
 
+          <!-- v1.4.249 — ONE Free Up Space card ("four overlapping ways to free space"):
+               the recommended preset first, then the other ways as options of the
+               same card, then the read-only "What's using space" view. -->
           <section class="card settings-panel" data-setting="free-up-space">
             <MediaCleanupPanel :slug="slug" />
+            <details class="disclosure space-option" data-setting="clear-uploaded-finals">
+              <summary><strong>Clear uploaded final videos (verified)</strong><small>Each final video is checked against its YouTube upload, then moved to this project's <code>_trash</code> folder. Anything that cannot be checked stays.</small></summary>
+              <div class="space-option-body">
+                <div class="flex gap-2 items-center">
+                  <button v-if="!storage" class="btn btn-secondary btn-sm" :disabled="auditLoading" @click="loadStorageAudit">
+                    {{ auditLoading ? 'Checking…' : 'Check Uploaded Videos' }}
+                  </button>
+                  <button
+                    v-else
+                    class="btn btn-primary btn-sm"
+                    :disabled="bulkRunning || uploadedFinalsTotalBytes === 0"
+                    :title="uploadedFinalsTotalBytes === 0 ? 'No verification candidates have local final videos' : `Verify and clear ${uploadedFinalsCount} local final video(s) — up to ${formatBytes(uploadedFinalsTotalBytes)}`"
+                    @click="runBulkCleanup"
+                  >
+                    {{ bulkRunning ? 'Verifying…' : `Clear Uploaded Videos (${formatBytes(uploadedFinalsTotalBytes)})` }}
+                  </button>
+                </div>
+                <p v-if="storage && uploadedFinalsTotalBytes === 0 && !bulkRunning" class="settings-hint">
+                  No uploaded episode has a local final video left to clear.
+                </p>
+                <div v-if="lastBulkCleanup" class="storage-result mt-2">
+                  <strong>Cleanup:</strong>
+                  {{ lastBulkCleanup.deleted_count }} file(s) moved to _trash after verification ({{ formatBytes(lastBulkCleanup.bytes_freed) }}); the space is freed when you empty _trash.
+                  <span v-if="lastBulkCleanup.skipped_count">{{ lastBulkCleanup.skipped_count }} kept locally (could not verify).</span>
+                  <span v-if="lastBulkCleanup.failed_count" class="error-text">{{ lastBulkCleanup.failed_count }} failed.</span>
+                  <ul v-if="lastBulkCleanup.items.length" class="cleanup-item-results">
+                    <li v-for="item in lastBulkCleanup.items" :key="`${item.episode_code}:${item.file}`">
+                      <strong>{{ item.episode_code }}:</strong>
+                      {{ item.status === 'deleted' ? 'moved to _trash after verification' : (item.reason || item.status) }}
+                    </li>
+                  </ul>
+                </div>
+                <details class="settings-tech-details disclosure">
+                  <summary>Details</summary>
+                  <p class="text-muted text-xs">
+                    The file's SHA-256 is compared with the accepted upload, and the current processed video on the
+                    assigned YouTube channel is refreshed. Unverified or legacy upload records stay local.
+                  </p>
+                </details>
+              </div>
+            </details>
+            <details class="disclosure space-option" data-setting="move-uploaded" :open="archiveBusy || !!archivePreview || !!archiveResult">
+              <summary><strong>Move uploaded videos to another drive</strong><small>Finished videos confirmed on YouTube, from every channel, are copied to a folder you choose and checked there before the original is removed. Everything else stays put.</small></summary>
+              <div class="space-option-body">
+              <div class="archive-flow">
+                <FolderField
+                  v-model="archiveSource"
+                  label="Look for videos in"
+                  placeholder="Your finished videos folder"
+                  hint="Usually your finished videos folder. Choose another folder if your videos are somewhere else."
+                  picker-title="Where are your finished videos?"
+                  picker-button-label="Scan This Folder"
+                  :disabled="archiveBusy"
+                  @update:model-value="archivePreview = null"
+                />
+                <FolderField
+                  v-model="archiveDest"
+                  label="Move them to"
+                  placeholder="Choose a folder on the other drive"
+                  picker-title="Move finished videos into…"
+                  picker-button-label="Move Here"
+                  :disabled="archiveBusy"
+                />
+                <div class="flex gap-2 items-center">
+                  <button class="btn btn-secondary btn-sm" :disabled="archiveBusy" @click="loadArchivePreview">
+                    {{ archiveChecking ? 'Checking…' : 'Check What Would Move' }}
+                  </button>
+                  <button v-if="archivePreview?.complete && archivePreview?.ready_count" class="btn btn-primary btn-sm"
+                          :disabled="archiveBusy || !archiveDest.trim()" @click="startArchive">
+                    Move {{ archivePreview.ready_count }} Video{{ archivePreview.ready_count === 1 ? '' : 's' }} · {{ formatBytes(archivePreview.ready_bytes) }}
+                  </button>
+                  <button v-if="archiveRunning || archiveChecking" class="btn btn-danger btn-sm" @click="stopArchive">Stop</button>
+                </div>
+          <div v-if="archivePreview" class="mt-2">
+            <p v-if="!archivePreview.source_exists" class="validation-msg text-sm">
+              Nothing to scan — <code>{{ archivePreview.source_root }}</code> is not there.
+            </p>
+            <template v-else>
+              <p v-if="!archivePreview.complete" class="validation-msg text-sm">
+                Check stopped early. Nothing can move until the folder has been checked completely.
+              </p>
+              <p class="text-sm">
+                <strong>{{ archivePreview.ready_count }}</strong> video(s) ready
+                ({{ formatBytes(archivePreview.ready_bytes) }} ready to move),
+                <strong>{{ archivePreview.skipped_count }}</strong> skipped
+                ({{ formatBytes(archivePreview.skipped_bytes) }} staying put).
+              </p>
+              <ul v-if="archivePreview.by_channel.length" class="archive-channels">
+                <li v-for="c in archivePreview.by_channel" :key="c.slug">
+                  {{ c.slug }} — {{ c.count }} video(s), {{ formatBytes(c.bytes) }}
+                </li>
+              </ul>
+              <details v-if="archivePreview.ready_count" class="mt-1 disclosure">
+                <summary class="text-sm">Review {{ archivePreview.ready_count }} uploaded videos to move</summary>
+                <ul class="archive-skipped">
+                  <li v-for="c in archiveReadyRows" :key="c.source_path">
+                    <strong>{{ c.slug }} · {{ c.code }}</strong> — <code>{{ c.filename }}</code>
+                    · {{ formatBytes(c.bytes) }}
+                    <a v-if="c.youtube_video_id" :href="`https://www.youtube.com/watch?v=${encodeURIComponent(c.youtube_video_id)}`"
+                       target="_blank" rel="noopener noreferrer">Open recorded YouTube upload</a>
+                  </li>
+                </ul>
+              </details>
+              <details v-if="archivePreview.skipped_count" class="mt-1 disclosure">
+                <summary class="text-muted text-sm">Why {{ archivePreview.skipped_count }} were skipped</summary>
+                <ul class="archive-skipped">
+                  <li v-for="c in archiveSkippedRows" :key="c.source_path">
+                    <code>{{ c.filename }}</code> — {{ c.reason }}
+                  </li>
+                </ul>
+              </details>
+            </template>
+          </div>
+
+          <div v-if="archiveChecking || archiveRunning || archiveResult" class="mt-2">
+            <p v-if="archiveChecking" class="text-sm">
+              Checking {{ archiveProgress.checked }} video file{{ archiveProgress.checked === 1 ? '' : 's' }} —
+              <code>{{ archiveProgress.current }}</code>
+              <span v-if="archiveStopping"> · stopping after this file…</span>
+            </p>
+            <p v-else-if="archiveRunning" class="text-sm">
+              {{ archiveStage === 'checking' ? 'Rechecking proof' : 'Moving' }} {{ archiveProgress.done }} / {{ archiveProgress.total }} —
+              <code>{{ archiveProgress.current }}</code>
+              <span v-if="archiveStopping"> · stopping after this file…</span>
+            </p>
+            <p v-if="archiveResult" class="text-sm">
+              ✓ Moved {{ archiveResult.moved.length }} video(s), {{ formatBytes(archiveResult.bytes_moved) }} total.
+              <span v-if="archiveResult.cancelled">Stopped early — everything not yet moved is untouched.</span>
+              <span v-if="archiveResult.failed.length">
+                {{ archiveResult.failed.length }} could not be verified and were left in both places.
+              </span>
+            </p>
+            <ul v-if="archiveResult?.warnings?.length" class="archive-skipped">
+              <li v-for="w in archiveResult.warnings" :key="w">{{ w }}</li>
+            </ul>
+          </div>
+              </div>
+              </div>
+            </details>
+            <details class="disclosure space-option" data-setting="episode-storage">
+              <summary><strong>What's using space</strong><small>Space used by each episode in this project, largest first.</small></summary>
+              <div class="space-option-body storage-panel">
+                <button class="btn btn-secondary btn-sm" :disabled="auditLoading" @click="loadStorageAudit">
+                  {{ auditLoading ? 'Scanning…' : (storage ? 'Scan Again' : 'Scan Episodes') }}
+                </button>
+                <div v-if="storage" class="storage-summary mt-2">
+                  <span><strong>Project total:</strong> {{ formatBytes(storage.project_bytes_total) }}</span>
+                  <span class="dot">·</span>
+                  <span><strong>Final videos:</strong> {{ formatBytes(storage.project_bytes_final_video) }}</span>
+                  <span class="dot">·</span>
+                  <span><strong>Per-scene clips:</strong> {{ formatBytes(storage.project_bytes_per_scene_clips) }}</span>
+                  <span v-if="storage.project_bytes_thumbnail_cache" class="dot">·</span>
+                  <span v-if="storage.project_bytes_thumbnail_cache" title="Small previews for the review grids. Safe to delete: they are rebuilt on demand.">
+                    <strong>Preview cache:</strong> {{ formatBytes(storage.project_bytes_thumbnail_cache) }}
+                  </span>
+                  <button
+                    v-if="storage.project_bytes_thumbnail_cache"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="previewCacheClearing"
+                    title="Moves the small review-grid previews to this project's _trash folder. They rebuild automatically as you open Scene Review and Motion Review."
+                    @click="clearPreviewCache"
+                  >
+                    {{ previewCacheClearing ? 'Clearing…' : `Clear Preview Cache (${formatBytes(storage.project_bytes_thumbnail_cache)})` }}
+                  </button>
+                  <span v-if="storage.external_root_configured" class="dot">·</span>
+                  <span v-if="storage.external_root_configured">
+                    <strong>In the Exports folder:</strong> {{ formatBytes(storage.project_bytes_external_final_video) }}
+                  </span>
+                </div>
+                <div v-if="lastPreviewCacheClear" class="storage-result mt-2">
+                  Preview cache ({{ formatBytes(lastPreviewCacheClear.bytes) }}) moved to this project's <code>_trash</code> folder.
+                  It rebuilds automatically as you use the review pages.
+                </div>
+                <div v-if="storage" class="storage-table mt-2">
+                  <div class="storage-row storage-head">
+                    <span class="col-code">Code</span>
+                    <span class="col-title">Title</span>
+                    <span class="col-final">Final</span>
+                    <span class="col-clips">Clips</span>
+                    <span class="col-other">Audio + img + other</span>
+                    <span class="col-status">Upload</span>
+                  </div>
+                  <div
+                    v-for="row in sortedStorageRows"
+                    :key="row.episode_code"
+                    :class="['storage-row', { uploaded: row.uploaded_to_youtube, 'no-final': row.bytes_final_video === 0 }]"
+                  >
+                    <span class="col-code"><strong>{{ row.episode_code }}</strong></span>
+                    <span class="col-title" :title="row.title">{{ row.title }}</span>
+                    <span class="col-final">
+                      {{ formatBytes(row.bytes_final_video) }}
+                      <span v-if="row.bytes_external_final_video > 0" class="ext-badge" title="Final video also in the Exports folder">
+                        + {{ formatBytes(row.bytes_external_final_video) }} in Exports
+                      </span>
+                    </span>
+                    <span class="col-clips">{{ formatBytes(row.bytes_per_scene_clips) }}</span>
+                    <span class="col-other">{{ formatBytes(row.bytes_audio + row.bytes_images + row.bytes_other) }}</span>
+                    <span class="col-status">
+                      <span v-if="row.cleanup_eligible" class="upload-badge ok" :title="`Candidate for fresh verification against YouTube video ${row.youtube_video_id}`">
+                        ✓ verify candidate
+                      </span>
+                      <span
+                        v-else-if="row.uploaded_to_youtube"
+                        class="upload-badge warn"
+                        :title="`YouTube video ${row.youtube_video_id}`"
+                      >
+                        ⚠ remains local
+                      </span>
+                      <small v-if="!row.cleanup_eligible && row.uploaded_to_youtube" class="row-reason">{{ row.cleanup_reason || 'The upload record cannot confirm the YouTube copy, so the local video is kept.' }}</small>
+                      <span v-else class="upload-badge none">—</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </details>
           </section>
 
           <section class="card settings-panel" data-setting="smaller-files">
@@ -1112,10 +1229,6 @@
           Required by YouTube when a video contains realistic AI-made narration, images or footage. New uploads use this automatically.
         </span>
       </div>
-            <div class="form-group">
-              <label>YouTube channel link <span class="text-muted" style="font-weight:normal">(for video recommendations)</span></label>
-              <input v-model="projectForm.youtube_channel_url" class="input" placeholder="https://youtube.com/@yourchannel" />
-            </div>
             <div class="flex gap-2 mt-2" style="align-items:center">
               <button class="btn btn-primary" @click="saveProject('publishing')">Save Upload Defaults</button>
               <SaveIndicator v-bind="savedHintProps('project_publishing')" />
@@ -1246,141 +1359,6 @@
             <GenerationCompressionPanel :slug="slug" />
           </section>
 
-          <section class="card settings-panel storage-panel" data-setting="episode-storage">
-        <div class="flex items-center" style="justify-content: space-between; gap: 12px;">
-          <div>
-            <h4>Space used by each episode</h4>
-            <p class="text-muted hint">
-              Largest first. A finished video that is confirmed uploaded (same file, still on YouTube) can be cleared
-              from this Mac; anything Story Studio cannot confirm stays. Audio and images are never touched.
-            </p>
-            <details class="settings-tech-details disclosure">
-              <summary>Details</summary>
-              <p class="text-muted text-xs">
-                The file's SHA-256 is compared with the accepted upload, and the current processed video on the
-                assigned YouTube channel is refreshed. Unverified or legacy upload records stay local.
-              </p>
-            </details>
-          </div>
-          <div class="flex gap-2">
-            <button class="btn btn-secondary btn-sm" :disabled="auditLoading" @click="loadStorageAudit">
-              {{ auditLoading ? 'Scanning…' : (storage ? 'Scan Again' : 'Scan Episodes') }}
-            </button>
-            <button
-              class="btn btn-primary btn-sm"
-              :disabled="!storage || bulkRunning || uploadedFinalsTotalBytes === 0"
-              :title="uploadedFinalsTotalBytes === 0 ? 'No verification candidates have local final videos' : `Verify and clear ${uploadedFinalsCount} local final video(s) — up to ${formatBytes(uploadedFinalsTotalBytes)}`"
-              @click="runBulkCleanup"
-            >
-              {{ bulkRunning
-                ? 'Verifying…'
-                : `Clear Uploaded Videos (${formatBytes(uploadedFinalsTotalBytes)})` }}
-            </button>
-          </div>
-        </div>
-        <p v-if="storage && uploadedFinalsTotalBytes === 0 && !bulkRunning" class="text-muted hint mt-1">
-          Verify &amp; clear is off: no uploaded episode has a local final video left to clear.
-        </p>
-
-        <div v-if="storage" class="storage-summary mt-2">
-          <span><strong>Project total:</strong> {{ formatBytes(storage.project_bytes_total) }}</span>
-          <span class="dot">·</span>
-          <span><strong>Final videos:</strong> {{ formatBytes(storage.project_bytes_final_video) }}</span>
-          <span class="dot">·</span>
-          <span><strong>Per-scene clips:</strong> {{ formatBytes(storage.project_bytes_per_scene_clips) }}</span>
-          <span v-if="storage.project_bytes_thumbnail_cache" class="dot">·</span>
-          <span v-if="storage.project_bytes_thumbnail_cache" title="Small previews for the review grids. Safe to delete: they are rebuilt on demand.">
-            <strong>Preview cache:</strong> {{ formatBytes(storage.project_bytes_thumbnail_cache) }}
-          </span>
-          <button
-            v-if="storage.project_bytes_thumbnail_cache"
-            class="btn btn-secondary btn-sm"
-            :disabled="previewCacheClearing"
-            title="Moves the small review-grid previews to this project's _trash folder. They rebuild automatically as you open Scene Review and Motion Review."
-            @click="clearPreviewCache"
-          >
-            {{ previewCacheClearing ? 'Clearing…' : `Clear preview cache (${formatBytes(storage.project_bytes_thumbnail_cache)})` }}
-          </button>
-          <span v-if="storage.external_root_configured" class="dot">·</span>
-          <span v-if="storage.external_root_configured">
-            <strong>At external root:</strong> {{ formatBytes(storage.project_bytes_external_final_video) }}
-          </span>
-        </div>
-
-        <div v-if="lastPreviewCacheClear" class="storage-result mt-2">
-          Preview cache ({{ formatBytes(lastPreviewCacheClear.bytes) }}) moved to this project's <code>_trash</code> folder.
-          It rebuilds automatically as you use the review pages.
-        </div>
-
-        <div v-if="storage" class="storage-table mt-2">
-          <div class="storage-row storage-head">
-            <span class="col-code">Code</span>
-            <span class="col-title">Title</span>
-            <span class="col-final">Final</span>
-            <span class="col-clips">Clips</span>
-            <span class="col-other">Audio + img + other</span>
-            <span class="col-status">Upload</span>
-            <span class="col-actions"></span>
-          </div>
-          <div
-            v-for="row in sortedStorageRows"
-            :key="row.episode_code"
-            :class="['storage-row', { uploaded: row.uploaded_to_youtube, 'no-final': row.bytes_final_video === 0 }]"
-          >
-            <span class="col-code"><strong>{{ row.episode_code }}</strong></span>
-            <span class="col-title" :title="row.title">{{ row.title }}</span>
-            <span class="col-final">
-              {{ formatBytes(row.bytes_final_video) }}
-              <span v-if="row.bytes_external_final_video > 0" class="ext-badge" title="Final video also at the external root">
-                + {{ formatBytes(row.bytes_external_final_video) }} ext
-              </span>
-            </span>
-            <span class="col-clips">{{ formatBytes(row.bytes_per_scene_clips) }}</span>
-            <span class="col-other">{{ formatBytes(row.bytes_audio + row.bytes_images + row.bytes_other) }}</span>
-            <span class="col-status">
-              <span v-if="row.cleanup_eligible" class="upload-badge ok" :title="`Candidate for fresh verification against YouTube video ${row.youtube_video_id}`">
-                ✓ verify candidate
-              </span>
-              <span
-                v-else-if="row.uploaded_to_youtube"
-                class="upload-badge warn"
-                :title="`YouTube video ${row.youtube_video_id}`"
-              >
-                ⚠ remains local
-              </span>
-              <small v-if="!row.cleanup_eligible && row.uploaded_to_youtube" class="row-reason">{{ row.cleanup_reason || 'The upload record cannot confirm the YouTube copy, so the local video is kept.' }}</small>
-              <span v-else class="upload-badge none">—</span>
-            </span>
-            <span class="col-actions">
-              <button
-                v-if="row.cleanup_eligible && (row.bytes_final_video > 0 || row.bytes_external_final_video > 0)"
-                class="btn btn-ghost btn-sm"
-                :disabled="rowCleanupRunning === row.episode_code"
-                :title="`Verify this local final against its current YouTube upload, then clear it (up to ${formatBytes(row.bytes_final_video + row.bytes_external_final_video)})`"
-                @click="cleanupRow(row)"
-              >
-                {{ rowCleanupRunning === row.episode_code ? 'Verifying…' : 'Verify & clear local video' }}
-              </button>
-            </span>
-          </div>
-        </div>
-        <div v-else-if="!auditLoading" class="text-muted hint mt-2">
-          Press Scan Episodes to see how much space each episode uses.
-        </div>
-      <div v-if="activeTab === 'files' && lastBulkCleanup" class="storage-result mt-2">
-        <strong>Cleanup:</strong>
-        {{ lastBulkCleanup.deleted_count }} file(s) moved to _trash after verification ({{ formatBytes(lastBulkCleanup.bytes_freed) }}); the space is freed when you empty _trash.
-        <span v-if="lastBulkCleanup.skipped_count">{{ lastBulkCleanup.skipped_count }} kept locally (could not verify).</span>
-        <span v-if="lastBulkCleanup.failed_count" class="error-text">{{ lastBulkCleanup.failed_count }} failed.</span>
-        <ul v-if="lastBulkCleanup.items.length" class="cleanup-item-results">
-          <li v-for="item in lastBulkCleanup.items" :key="`${item.episode_code}:${item.file}`">
-            <strong>{{ item.episode_code }}:</strong>
-            {{ item.status === 'deleted' ? 'moved to _trash after verification' : (item.reason || item.status) }}
-          </li>
-        </ul>
-      </div>
-          </section>
-
           <CollapsibleCard title="Confirmation prompts" description="Choose which generation and file actions ask first" data-setting="confirmations">
       <h3>Generation Confirmations</h3>
       <p class="text-muted mt-1 mb-2">
@@ -1453,18 +1431,21 @@
             <button class="btn btn-danger btn-sm mt-2" @click="deleteProject">Hide Project (Keep Files)</button>
           </section>
 
-          <AdvancedDisclosure label="Advanced: heavy media on another drive, script recovery data">
-            <details id="media-root-section" class="storage-disclosure card settings-panel" :open="!!mediaRootSavedValue" data-setting="heavy-media">
+          <!-- v1.4.249 — "Heavy media on another drive" is retired for projects that
+               don't use it: shown only when this project's project.json has media_root
+               (it can still be changed or cleared); the server refuses a new one. -->
+          <AdvancedDisclosure :label="mediaRootSavedValue ? 'Advanced: heavy media on another drive, script recovery data' : 'Advanced: script recovery data'">
+            <details v-if="mediaRootSavedValue" id="media-root-section" class="storage-disclosure card settings-panel" open data-setting="heavy-media">
         <summary class="storage-disclosure-summary">
           <span class="storage-section-icon" aria-hidden="true">⌁</span>
-          <span><strong>Heavy media split</strong><small>Keep off to store every project and its assets together.</small></span>
-          <span :class="['overview-badge', mediaRootSavedValue ? 'on' : 'off']">{{ mediaRootSavedValue ? 'ACTIVE' : 'OFF' }}</span>
+          <span><strong>Heavy media on another drive</strong><small>This project keeps its heavy media on another drive.</small></span>
         </summary>
         <div class="storage-disclosure-body">
         <p class="text-muted hint">
-          Put this project's <strong>heavy media</strong> — scene images, thumbnails, audio and
-          finished video — on another drive, while scripts, metadata, prompts and subtitles stay in
-          the project folder. Leave it off to keep everything together (the default).
+          This project's <strong>heavy media</strong> — scene images, thumbnails, audio and finished
+          video — lives in the folder below, while scripts, metadata, prompts and subtitles stay in
+          the project folder. You can change or clear it here. New projects keep everything together,
+          and once cleared this cannot be turned on again.
         </p>
         <div class="external-root-row">
           <input
@@ -1479,15 +1460,15 @@
             title="Check that this token/path resolves on this machine"
             @click="checkMediaRoot"
           >
-            {{ mediaRootChecking ? 'Checking…' : '🔍 Check' }}
+            {{ mediaRootChecking ? 'Checking…' : 'Check' }}
           </button>
           <button
             v-if="mediaRootInput.trim() !== mediaRootSavedValue"
             class="btn btn-primary btn-sm"
             :disabled="mediaRootSaving"
-            @click="saveMediaRoot"
+            @click="mediaRootInput.trim() ? saveMediaRoot() : clearMediaRoot()"
           >
-            {{ mediaRootSaving ? 'Saving…' : '💾 Save' }}
+            {{ mediaRootSaving ? 'Saving…' : 'Save' }}
           </button>
           <button v-if="mediaRootInput" class="btn btn-ghost btn-sm" :disabled="mediaRootSaving" @click="clearMediaRoot">
             Clear
@@ -1508,7 +1489,7 @@
             :title="!mediaRootSavedValue ? 'Save a media root first' : (mediaRootInput.trim() !== mediaRootSavedValue ? 'Save your change first' : 'Preview, then move existing media to the media root')"
             @click="migrateMediaToRoot"
           >
-            {{ mediaMigrateRunning ? 'Migrating…' : 'Migrate existing media here →' }}
+            {{ mediaMigrateRunning ? 'Moving…' : 'Move Existing Media Here' }}
           </button>
         </div>
         <div v-if="lastMediaMigration" class="storage-result">
@@ -2363,7 +2344,6 @@ const lastMediaMigration = ref<MediaMigrationResult | null>(null)
 const lastMigration = ref<MigrationResult | null>(null)
 const bulkRunning = ref(false)
 const lastBulkCleanup = ref<CleanupResult | null>(null)
-const rowCleanupRunning = ref<string | null>(null)
 
 // v1.0.71: chunked-progress sidecar cleanup (manual; never auto-wipes).
 // listChunkedSidecars walks every accepted episode and tags each as
@@ -2459,6 +2439,13 @@ async function saveMediaRoot() {
 }
 
 async function clearMediaRoot() {
+  // The option is retired for projects without it, so clearing is one-way.
+  if (!await ask({
+    title: 'Stop using the other drive for this project?',
+    message: 'Story Studio looks for this project\'s media in the project folder again. Files already on the other drive are not moved back. Once cleared, this cannot be turned on again.',
+    confirmLabel: 'Clear',
+    danger: true,
+  })) return
   mediaRootInput.value = ''
   await saveMediaRoot()
 }
@@ -2513,32 +2500,6 @@ async function runBulkCleanup() {
     showError(e?.data?.detail || e?.message || 'Bulk cleanup failed')
   } finally {
     bulkRunning.value = false
-  }
-}
-
-async function cleanupRow(row: StorageEntry) {
-  if (!row.cleanup_eligible) return
-  if (!await ask({
-    title: `Verify and clear ${row.episode_code}'s local video?`,
-    message: 'Story Studio checks the file matches the accepted YouTube upload before deleting it. If it cannot verify the file, the file stays and you are told why.',
-    confirmLabel: 'Verify & clear',
-    danger: true,
-  })) return
-  rowCleanupRunning.value = row.episode_code
-  try {
-    const result = await post<CleanupResult>(
-      `/projects/${slug.value}/storage/cleanup-final/${row.episode_code}`,
-      {},
-    )
-    // A skipped file used to come back as a quiet 200: nothing happened and nothing said so.
-    const kept = result?.items?.find(item => item.status !== 'deleted')
-    if (result && !result.deleted_count && kept) info(`${row.episode_code}: the local video was kept — ${kept.reason || kept.status}.`)
-    else if (result?.deleted_count) success(`${row.episode_code}: freed ${formatBytes(result.bytes_freed)}.`)
-    await loadStorageAudit()
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Cleanup failed')
-  } finally {
-    rowCleanupRunning.value = null
   }
 }
 
@@ -2671,7 +2632,6 @@ const projectsRootStatusKind = ref<'ok' | 'warn' | 'err'>('ok')
 const exportsBusy = ref(false)
 const exportsStatus = ref('')
 const exportsStatusKind = ref<'ok' | 'warn' | 'err'>('ok')
-const archiveOpen = ref(false)
 
 async function loadLibrary() {
   try {
@@ -3917,7 +3877,6 @@ const projectForm = reactive<{
   episode_prefix: string
   season_prefix: string
   season_size: number
-  youtube_channel_url: string
   /**
    * Item J — YouTube videoCategories.list ID. Stored in ProjectConfig
    * (not project meta), so saveProject() splits this off and PUTs it to
@@ -3933,7 +3892,7 @@ const projectForm = reactive<{
    * AI-generated content).
    */
   mark_as_ai_generated: boolean | undefined
-}>({ name: '', episode_prefix: '', season_prefix: 'Season', season_size: 20, youtube_channel_url: '', category_id: undefined, mark_as_ai_generated: undefined })
+}>({ name: '', episode_prefix: '', season_prefix: 'Season', season_size: 20, category_id: undefined, mark_as_ai_generated: undefined })
 
 // ── Per-project Art Style (v1.0.518) ──────────────────────────────────────
 // The project's active art style is persisted as config.active_style_preset_id
@@ -4079,15 +4038,16 @@ async function revealInFinder() {
 // that don't cost money but still deserve a guardrail the user can
 // disable once they've decided they trust it. Both live in the same
 // `confirmation_preferences` map so one Save button covers all rows.
+// v1.4.249 — only keys something actually reads (useConfirmation callers:
+// scripts.vue script + introduction, images.vue thumb_images, audio.vue audio;
+// useConfirmSkip: reveal_folder). Rows for thumb_prompts, scene_plan,
+// scene_review, description and video switched nothing and are gone; their
+// stored values stay on disk (saveConfirmPrefs merges, never drops keys).
 const confirmGenerators = [
   { key: 'script', label: 'Scripts', description: 'Episode script generation', group: 'generation' },
-  { key: 'thumb_prompts', label: 'Thumbnail Prompts', description: 'Thumbnail image prompt generation', group: 'generation' },
+  { key: 'introduction', label: 'Introduction', description: 'Episode introduction generation', group: 'generation' },
   { key: 'thumb_images', label: 'Thumbnail Images', description: 'Thumbnail image generation', group: 'generation' },
-  { key: 'scene_plan', label: 'Scene Plan', description: 'Narration-timed visual prompt generation', group: 'generation' },
-  { key: 'scene_review', label: 'Scene Review', description: 'Scene image generation from the approved plan', group: 'generation' },
   { key: 'audio', label: 'Audio', description: 'TTS narration', group: 'generation' },
-  { key: 'description', label: 'Description', description: 'YouTube description generation', group: 'generation' },
-  { key: 'video', label: 'Video', description: 'Video assembly via FFmpeg', group: 'generation' },
   { key: 'reveal_folder', label: 'Open in Finder', description: 'Confirm before opening a folder in Finder / File Explorer', group: 'action' },
 ]
 const confirmGenerationRows = computed(() => confirmGenerators.filter(g => g.group === 'generation'))
@@ -4266,7 +4226,6 @@ watch(project, (p) => {
     projectForm.season_prefix = p.season_prefix || 'Season'
     projectForm.season_size = p.season_size || 20
     serverSeasonSize.value = p.season_size || 20
-    projectForm.youtube_channel_url = (p as any).youtube_channel_url || ''
     // Level B external media root (lives on project meta). Seed the Storage-tab
     // control + verify it resolves on this machine for the status line.
     mediaRootInput.value = (p as any).media_root || ''
@@ -4374,7 +4333,10 @@ async function confirmReseason() {
 
 async function saveConfirmPrefs() {
   try {
-    await put(`/projects/${slug.value}/settings/config`, { confirmation_preferences: { ...confirmPrefs } })
+    await put(`/projects/${slug.value}/settings/config`, {
+      // The server replaces the whole map: keep keys this page has no row for.
+      confirmation_preferences: { ...((config.value as any)?.confirmation_preferences || {}), ...confirmPrefs },
+    })
     await refreshConfig(slug.value)
     stampSaved('confirm_prefs')
     success('Confirmation preferences saved!')
@@ -4409,12 +4371,13 @@ async function saveProject(requestedSection?: ProjectSettingsSaveSection): Promi
       info('Episodes per Group not saved — use the ↻ Rebalance button next to the field to apply size changes.')
     }
 
-    const savedProject = await put<any>(`/projects/${targetSlug}`, plan.project)
+    // Publishing owns no project.json field: send nothing rather than rewrite the file.
+    const savedProject = plan.project ? await put<any>(`/projects/${targetSlug}`, plan.project) : null
     if (plan.config) {
       await put(`/projects/${targetSlug}/settings/config`, plan.config)
     }
     if (slug.value !== targetSlug) return false
-    if (project.value) {
+    if (project.value && plan.project) {
       for (const key of Object.keys(plan.project)) {
         (project.value as any)[key] = savedProject[key]
       }
@@ -4593,11 +4556,11 @@ async function deleteProject() {
 .settings-content .storage-panel .btn { white-space: nowrap; }
 .settings-content .storage-panel .flex.gap-2 { flex: 0 0 auto; }
 .files-where { display: grid; gap: 18px; }
-.files-where-action { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
-.files-where-action strong { font-size: 13px; }
-.files-where-action p { margin: 3px 0 0; max-width: 680px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
-.files-where-action .btn { white-space: nowrap; }
-.archive-flow { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-primary); }
+/* Free Up Space options — the same rules as MediaCleanupPanel's own .space-option. */
+.space-option { border-top: 1px solid var(--border); padding: 12px 0; }
+.space-option > summary small { display: block; margin: 2px 0 0 18px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.space-option-body { padding: 4px 0 0 18px; }
+.archive-flow { display: grid; gap: 12px; }
 .ffmpeg-state { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-primary); }
 .ffmpeg-state > div { display: grid; flex: 1 1 auto; gap: 2px; }
 .ffmpeg-state strong { font-size: 13px; }
@@ -4951,11 +4914,11 @@ async function deleteProject() {
 }
 .storage-row {
   display: grid;
-  grid-template-columns: 80px 1.5fr 110px 90px 130px 100px 130px;
+  grid-template-columns: 80px 1.5fr 110px 90px 130px 130px;
   gap: 8px; align-items: center;
   padding: 6px 8px; font-size: 12px;
   background: var(--bg-secondary); border-radius: var(--radius-sm);
-  min-width: 900px;
+  min-width: 760px;
 }
 .storage-row.storage-head {
   background: transparent; padding: 6px 8px 4px;
