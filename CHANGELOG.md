@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.252 — 2026-10-04
+
+- **Narration pauses are longer and more natural: 1 second after each sentence and 1.5 seconds between paragraphs.**
+- **Fair turns: each request tells the Gateway which project and episode it belongs to, so a small redo or a second
+  project doesn't wait behind a big batch.**
+
+---
+
 ## v1.4.251 — 2026-10-04
 
 - **Khmer narration: sentences end at ។.** The 220-character rule, request splitting, pauses and timing now work for

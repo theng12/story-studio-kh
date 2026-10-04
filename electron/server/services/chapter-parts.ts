@@ -10,9 +10,9 @@
  * the chapter re-joined without paying for, or waiting on, the whole chapter.
  *
  * The join follows the text, like the Hub's own long-form joiner: each part's
- * own leading/trailing silence is trimmed, then exactly 0.6 s goes after a
- * sentence end, 1.0 s at a paragraph break (0.15 s mid-sentence) — one rule for
- * every voice model (owner decision 2026-10-03) — or the channel's own sentence /
+ * own leading/trailing silence is trimmed, then exactly 1.0 s goes after a
+ * sentence end, 1.5 s at a paragraph break (0.15 s mid-sentence) — one rule for
+ * all narration (owner decision 2026-10-04) — or the channel's own sentence /
  * paragraph pause (Series Formula, Audio Generator), the same one the Hub is asked for. Each part is
  * gain-matched to the chapter's median integrated loudness (one linear gain per
  * part, no limiter), lowered together only if a peak would pass -1 dBTP, and
@@ -37,13 +37,13 @@ import { hashSubtitleAudioSources } from './subtitle-completion.js'
 export const PARTS_DIRNAME = '.parts'
 export const MANIFEST_NAME = 'manifest.json'
 
-/** The join pauses every voice model uses inside a request (studio-hub long_form_policy.py,
- *  owner decision 2026-10-03), so a part seam sounds like any other join. */
-export const SEAM_PAUSE_S = { sentence: 0.6, paragraph: 1.0, soft: 0.15 } as const
+/** The narration pauses for ALL narration (owner decision 2026-10-04): sent to the Hub as the
+ *  request's own join pauses and used at Story's part seams, so every join sounds the same. */
+export const SEAM_PAUSE_S = { sentence: 1.0, paragraph: 1.5, soft: 0.15 } as const
 export type SeamPauseRule = { sentence: number; paragraph: number; soft: number }
 const MAX_PAUSE_S = 3
 
-/** The seam pauses for a chapter: the asked-for sentence / paragraph pause (0–3 s), else the Hub's. */
+/** The seam pauses for a chapter: the asked-for sentence / paragraph pause (0–3 s), else the uniform one. */
 export function seamPauseRule(wanted: { paragraph?: number | null; sentence?: number | null } = {}): SeamPauseRule {
   const pick = (value: number | null | undefined, fallback: number) =>
     typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.min(value, MAX_PAUSE_S) : fallback
@@ -234,7 +234,7 @@ export interface ConsolidateInput {
   /** Limit to these chapters (slugs, any case). */
   only?: string[]
   settings?: Record<string, unknown>
-  /** The channel's sentence / paragraph pause (`seamPauseRule`); absent = the uniform 0.6 / 1.0 s. */
+  /** The channel's sentence / paragraph pause (`seamPauseRule`); absent = the uniform 1.0 / 1.5 s. */
   pauseRule?: SeamPauseRule
   log?: (line: string) => void
 }

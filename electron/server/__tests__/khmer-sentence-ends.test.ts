@@ -93,5 +93,5 @@ void test('English chunking and sentence timing are unchanged', () => {
 void test('sentence timing and seam pauses see Khmer stops', () => {
   assert.deepEqual(splitIntoSentences(UNSPACED), [A, B, C, A, B, C])
   const section = `${A} ${B}`
-  assert.deepEqual(planSeams(section, [A, B]).pauses, [0.6])
+  assert.deepEqual(planSeams(section, [A, B]).pauses, [1.0])
 })

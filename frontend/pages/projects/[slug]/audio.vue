@@ -488,7 +488,7 @@
           />
           <p class="text-muted text-xs hint-line">
             Silence inside a chapter {{ field.key === 'paragraph_pause_sec' ? 'where a new paragraph starts' : 'after each sentence' }}.
-            Every voice uses {{ field.key === 'paragraph_pause_sec' ? '1.0' : '0.6' }} s unless you change it here or in the Series Formula.
+            All narration uses {{ field.key === 'paragraph_pause_sec' ? '1.5' : '1.0' }} s unless you change it here or in the Series Formula.
             <button v-if="field.value !== undefined" type="button" class="btn-link" @click="setPause(field.key, undefined)">Use the default</button>
           </p>
         </div>
@@ -822,8 +822,7 @@ const form = reactive({
   controls: {} as Record<string, number | boolean | string>,
   /**
    * Pauses inside a chapter, seconds (Series Formula override). Undefined = the
-   * default every voice uses (1.0 s at a paragraph, 0.6 s after a sentence), and
-   * nothing is sent.
+   * default for all narration (1.5 s at a paragraph, 1.0 s after a sentence).
    */
   paragraph_pause_sec: undefined as number | undefined,
   sentence_pause_sec: undefined as number | undefined,
@@ -832,8 +831,8 @@ const form = reactive({
 // The join pauses, with the selected model's published bounds/default where it
 // has them. Story's own part seams use the same values on any model.
 const PAUSE_ROWS = [
-  { key: 'paragraph_pause_sec', label: 'Pause at a paragraph break', fallback: 1.0 },
-  { key: 'sentence_pause_sec', label: 'Pause after a sentence', fallback: 0.6 },
+  { key: 'paragraph_pause_sec', label: 'Pause at a paragraph break', fallback: 1.5 },
+  { key: 'sentence_pause_sec', label: 'Pause after a sentence', fallback: 1.0 },
 ] as const
 const pauseFields = computed(() => PAUSE_ROWS.map(row => {
   const published = selectedTtsModel.value?.pause_parameters?.find(p => p.name === row.key)
@@ -842,7 +841,7 @@ const pauseFields = computed(() => PAUSE_ROWS.map(row => {
     published: !!published,
     min: published?.minimum ?? 0,
     max: published?.maximum ?? 3,
-    voiceDefault: published?.default ?? row.fallback,
+    voiceDefault: row.fallback,
     value: form[row.key],
   }
 }))

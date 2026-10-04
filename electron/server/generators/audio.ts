@@ -520,7 +520,7 @@ export async function generateAudio(job: Job): Promise<void> {
   // asserting a capability GenStudio did not publish.
   //
   // The pauses inside a chapter follow the same precedence: the Audio page's
-  // values, else the Series Formula's override, else the default every voice uses.
+  // values, else the Series Formula's override, else the default for all narration.
   try {
     const fmt = await getEffectiveFormat(project_slug)
     const fmtAudio = fmt?.script.audioDefaults
@@ -620,13 +620,13 @@ export async function generateAudio(job: Job): Promise<void> {
   // "Smaller files" for narration (Settings, per-project override): ask for AAC on the wire.
   // Transport only — the chapter is still written as Story's 96 kbps MP3 either way.
   const narrationOutputFormat = await resolveOutputFormat(project_slug, 'narration')
-  // Pauses inside a chapter: sent to the Mac only where this model publishes
-  // them (clamped to its range); Story's own part seams use them either way.
-  const wantedPauses = { paragraph: req.paragraph_pause_sec, sentence: req.sentence_pause_sec }
-  const { pauses: requestPauses, unsupported: unsupportedPauses } = resolveTtsPauses(ttsModel.pause_parameters, wantedPauses)
+  // Pauses inside a chapter: the asked-for ones, else the default for all narration
+  // (1.0 s / 1.5 s, owner decision 2026-10-04). Sent to the Mac only where this model
+  // publishes them (clamped to its range); Story's own part seams use them either way.
+  const seamRule = seamPauseRule({ paragraph: req.paragraph_pause_sec, sentence: req.sentence_pause_sec })
+  const { pauses: requestPauses, unsupported: unsupportedPauses } = resolveTtsPauses(ttsModel.pause_parameters, seamRule)
   const pauseRequest = Object.keys(requestPauses).length ? { pauses: requestPauses } : {}
-  const seamRule = seamPauseRule(wantedPauses)
-  if (wantedPauses.paragraph !== undefined || wantedPauses.sentence !== undefined) {
+  if (req.paragraph_pause_sec !== undefined || req.sentence_pause_sec !== undefined) {
     job.output_lines.push(
       `Pauses inside a chapter: ${seamRule.paragraph} s at a paragraph break, ${seamRule.sentence} s after a sentence.`
       + (unsupportedPauses.length

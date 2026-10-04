@@ -1,6 +1,6 @@
 /**
- * Pauses inside a chapter (owner 2026-10-03): every voice uses 1.0 s at a
- * paragraph break and 0.6 s after a sentence; a Series Formula may override
+ * Pauses inside a chapter (owner 2026-10-04): all narration uses 1.5 s at a
+ * paragraph break and 1.0 s after a sentence; a Series Formula may override
  * them per channel, the
  * Audio Generator sends them with every narration request — only to a model
  * that publishes them, clamped to its range — and a request without them is
