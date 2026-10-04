@@ -40,6 +40,7 @@ import type {
   ScenePlanRunOptions,
   SceneType,
 } from '../models/types.js'
+import { endsSentence } from '../lib/sentence-ends.js'
 import { truncateChars } from '../lib/well-formed-text.js'
 import { pacingBandAt, type ScenePacing, type ScenePacingBand, type ScenePacingPeriod } from '../contracts/pacing.js'
 
@@ -1297,8 +1298,8 @@ export function splitCueForStrictVisualPacing(cue: SrtCue, maxSec: number): SrtC
     let chosen = low
     for (let candidate = low; candidate <= high; candidate++) {
       const betterDistance = Math.abs(candidate - desired) < Math.abs(chosen - desired)
-      const sentenceEnd = /[.!?…]["')\]]*$/u.test(words[candidate - 1] || '')
-      const chosenSentenceEnd = /[.!?…]["')\]]*$/u.test(words[chosen - 1] || '')
+      const sentenceEnd = endsSentence(words[candidate - 1] || '')
+      const chosenSentenceEnd = endsSentence(words[chosen - 1] || '')
       if ((sentenceEnd && !chosenSentenceEnd) || (sentenceEnd === chosenSentenceEnd && betterDistance)) chosen = candidate
     }
     boundaries.push(chosen)

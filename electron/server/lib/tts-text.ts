@@ -22,6 +22,8 @@
  * generated section would look "missing".
  */
 
+import { SENTENCE_END, UNSPACED_SENTENCE_END, terminatorFor } from './sentence-ends.js'
+
 export interface TtsNormalizeResult {
   text: string
   /** Count of TTS-hostile marks rewritten (for an operator-facing log line). */
@@ -405,8 +407,7 @@ export interface LongSentenceReport {
   pieces: string[]
 }
 
-const SENTENCE_END = /[.!?]/
-const CLOSERS = new Set(['"', "'", '”', '’', '»', ')', ']'])
+const CLOSERS = new Set(['"', "'", '”', '’', '»', ')', ']', '」', '』', '）'])
 // After a comma, a clause starting with one of these reads naturally as its own sentence
 // ("…, but for now the hour belonged…" → "…. But for now the hour belonged…"), as does a
 // participle ("…, listening to the water" → "…. Listening to the water").
@@ -425,7 +426,8 @@ function sentenceSpans(line: string): Array<[number, number]> {
     if (!SENTENCE_END.test(line[i]!)) continue
     let end = i + 1
     while (end < line.length && (SENTENCE_END.test(line[end]!) || CLOSERS.has(line[end]!))) end += 1
-    if (end < line.length && !/\s/.test(line[end]!)) continue
+    // Khmer and CJK stops need no space after them; the Latin ones do ("3.5" is not a stop).
+    if (end < line.length && !/\s/.test(line[end]!) && !UNSPACED_SENTENCE_END.test(line[i]!)) continue
     spans.push([start, end])
     start = end
     i = end - 1
@@ -452,7 +454,7 @@ function splitSentence(sentence: string, max: number): string[] {
     const left = sentence.slice(0, match.index).trimEnd()
     const right = sentence.slice(match.index + match[0].length).trimStart()
     if (left.length < MIN_PIECE_CHARS || right.length < MIN_PIECE_CHARS) continue
-    if (CLOSERS.has(left.at(-1)!) || /[.!?]$/.test(left)) continue
+    if (CLOSERS.has(left.at(-1)!) || SENTENCE_END.test(left.at(-1)!)) continue
     const firstWord = right.match(/^[A-Za-z]+/)?.[0]?.toLowerCase() ?? ''
     if (NEVER_STARTERS.has(firstWord)) continue
     const rank = !match[0].includes(',') ? 0
@@ -465,7 +467,7 @@ function splitSentence(sentence: string, max: number): string[] {
   const best = cuts.filter(cut => cut.rank === rank)
     .reduce((a, b) => (Math.abs(b.left.length - middle) < Math.abs(a.left.length - middle) ? b : a))
   return [
-    ...splitSentence(`${best.left}.`, max),
+    ...splitSentence(`${best.left}${terminatorFor(best.left)}`, max),
     ...splitSentence(capitalise(best.right), max),
   ]
 }

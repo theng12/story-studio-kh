@@ -22,6 +22,7 @@ import {
   type GenStudioServiceTier,
   type GenStudioServiceTierStanding,
 } from './genstudio-admission.js'
+import { splitAtLimit } from './sentence-ends.js'
 import { chunkText } from './text-chunker.js'
 import { ACTIVE_GENSTUDIO_PROVIDER_STATES, isNeverCreatedProviderTask } from './provider-task-state.js'
 import { isFreeFleetModelId } from '../contracts/provider-task-state.js'
@@ -3411,11 +3412,7 @@ export function splitGenStudioApiRequests(text: string, maxCharacters: number | 
   const cap = Math.floor(maxCharacters)
   return chunkText(text, cap).flatMap(part => {
     if (part.length <= cap) return [part]
-    const slices: string[] = []
-    for (let offset = 0; offset < part.length; offset += cap) {
-      slices.push(part.slice(offset, offset + cap))
-    }
-    return slices
+    return splitAtLimit(part, cap)
   })
 }
 
