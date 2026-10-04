@@ -60,6 +60,7 @@ import {
 import type { JobRemoteOperation, ResearchEvidenceLevel } from '../models/types.js'
 import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
 import { isRetiredVideoModel } from '../contracts/retired-video-models.js'
+import { nextTtsRouteRetryIdentity } from '../services/tts-capacity-retry.js'
 
 /**
  * Job-poll cadence — ONE schedule shared by all five wait loops.
@@ -9404,6 +9405,7 @@ async function generateTtsToFileAdmitted(
   apiKey: string,
   outPath: string,
   request: GenStudioTtsSubmitRequest,
+  replayHops = 0,
 ): Promise<void> {
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
@@ -9462,6 +9464,22 @@ async function generateTtsToFileAdmitted(
     { operation: 'voice.tts', preview: requestPreview },
   ) as GenStudioJob
   await recordGenStudioEvidence('voice.tts', submitted, requestPreview)
+  // The chat rule (`replayedSettledChatFailure`), for narration: the key is derived from the part,
+  // so once Story's record of an earlier failure is gone (a lost accept answer, a removed manifest)
+  // a re-run re-POSTs it and the gateway answers with that OLD failed job. Settled, held by nobody
+  // and free, nothing is in flight under it, so re-send under the identity the run's own retry
+  // derives from the dead job (`nextTtsRouteRetryIdentity`): a re-run walks the same chain the
+  // first run did, reattaching to what it already made, and a restart re-derives it too.
+  // Only a key derived here: a caller-supplied key (a resume, a deliberate action's Retry, a paid
+  // replacement) names one specific request and is never moved - the chat rule again.
+  if (!request.idempotencyKey?.trim() && request.replacementChargeLimit === undefined
+    && replayedSettledChatFailure(submitted) && replayHops < MAX_FAILED_CHAT_REPLAY_HOPS) {
+    return generateTtsToFileAdmitted(apiKey, outPath, {
+      ...request,
+      requestIdentity: nextTtsRouteRetryIdentity(request.requestIdentity?.trim() || '', submitted.id),
+      idempotencyKey: undefined,
+    }, replayHops + 1)
+  }
   await reportQueueState(request, submitted)
   await request.onJobAccepted?.(submitted.id, idempotencyKey)
   try {
