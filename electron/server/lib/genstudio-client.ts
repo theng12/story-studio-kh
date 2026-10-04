@@ -3334,6 +3334,25 @@ export function catalogHasVoice(voices: GenStudioVoice[], voiceId: unknown): boo
   return voices.some(voice => voice.id === voiceId.trim() && voice.generation_enabled !== false)
 }
 
+/**
+ * Fair-turns tag (Gateway D6): `<project-slug>/<episode-id | 'project'>` of the Story job this
+ * request runs under. Optional and advisory; never part of an idempotency key. Pure so it is testable.
+ */
+export function formatJobGroup(projectSlug: unknown, episodeId: unknown): string | undefined {
+  const clean = (v: unknown) => String(v ?? '').trim().replace(/[^A-Za-z0-9._:-]+/g, '-')
+  const slug = clean(projectSlug)
+  return slug ? `${slug}/${clean(episodeId) || 'project'}`.slice(0, 120) : undefined
+}
+
+/** `{ job_group }` for the running queue job, `{}` outside one (a route-level call has no episode run). */
+async function jobGroupField(): Promise<{ job_group?: string }> {
+  const queue = await import('../services/job-queue.js')
+  const id = queue.currentJobId()
+  const job = id ? queue.getJob(id) : null
+  const job_group = job ? formatJobGroup(job.project_slug, job.episode_id) : undefined
+  return job_group ? { job_group } : {}
+}
+
 function apiBase(url: string): string {
   return url.trim().replace(/\/+$/, '')
 }
@@ -5795,6 +5814,7 @@ async function generateVideoWithGenStudioAdmitted(
       ['reference_asset_id', sourceAsset.id],
     ],
   })
+  const jobGroup = await jobGroupField()
   const submitted = await submitJsonWithAdmission(
     apiKey,
     `${apiBase(baseUrl)}/v1/videos/generations`,
@@ -5806,6 +5826,7 @@ async function generateVideoWithGenStudioAdmitted(
         'Idempotency-Key': idempotencyKey,
       },
       body: wellFormedJson({
+        ...jobGroup,
         prompt,
         model_id: modelId,
         mode: request.operation,
@@ -6172,6 +6193,7 @@ export async function generateMusicWithGenStudio(
       ...(request.seed !== undefined ? [['seed', request.seed] as [string, number]] : []),
     ],
   })
+  const jobGroup = await jobGroupField()
   const submitted = await submitJsonWithAdmission(
     apiKey,
     `${apiBase(baseUrl)}/v1/music/generations`,
@@ -6183,6 +6205,7 @@ export async function generateMusicWithGenStudio(
         'Idempotency-Key': idempotencyKey,
       },
       body: wellFormedJson({
+        ...jobGroup,
         model_id: modelId,
         title,
         prompt,
@@ -7719,6 +7742,7 @@ async function callChatViaResponsesOnce(
     return recoverChatByIdempotencyKey(apiKey, prepared.idempotencyKey, request, prepared, requestPreview, baseUrl)
   }
   let submitted: GenStudioChatJob
+  const jobGroup = await jobGroupField()
   try {
     submitted = await submitLanguageJson(
       apiKey,
@@ -7733,6 +7757,7 @@ async function callChatViaResponsesOnce(
           'Idempotency-Key': prepared.idempotencyKey,
         },
         body: wellFormedJson({
+          ...jobGroup,
           // `ChatResponseRequest` field names — NOT the OpenAI-compatible ones.
           model_id: prepared.modelId,
           input: prepared.messages,
@@ -7833,6 +7858,7 @@ async function callChatViaCompletions(
     messages: prepared.messages,
     fields: [['stream', false], ...chatPreviewFields(request, prepared)],
   })
+  const jobGroup = await jobGroupField()
   const completion = await submitLanguageJson(
     apiKey,
     `${apiBase(baseUrl)}/v1/chat/completions`,
@@ -7844,6 +7870,7 @@ async function callChatViaCompletions(
         'Idempotency-Key': prepared.idempotencyKey,
       },
       body: wellFormedJson({
+        ...jobGroup,
         model: prepared.modelId,
         messages: prepared.messages,
         // Omitted for prose — see the preview comment above the submission.
@@ -8833,6 +8860,7 @@ async function generateImageWithGenStudioAdmitted(
     ],
   })
   let submitted: GenStudioImageJob
+  const jobGroup = await jobGroupField()
   for (;;) {
     await assertImageSubmissionAllowed(request)
     try {
@@ -8846,6 +8874,7 @@ async function generateImageWithGenStudioAdmitted(
             'Idempotency-Key': idempotencyKey,
           },
           body: wellFormedJson({
+            ...jobGroup,
             ...paidBody,
             ...(permitId ? { admission_permit_id: permitId } : {}),
           }),
@@ -9157,6 +9186,8 @@ async function transcribeWithGenStudioAdmitted(
   }) as GenStudioTranscriptionQuote
   if (!quote.id) throw new Error('The Gateway did not return a price for this transcription.')
   const confirmIdempotencyKey = `${idempotencyKey}-confirm`
+  // The confirm is the job-creating request (the quote only prices), so the group rides here.
+  const jobGroup = await jobGroupField()
   const submitted = await submitJsonWithAdmission(
     apiKey,
     `${apiBase(baseUrl)}/v1/audio/transcriptions/quotes/${encodeURIComponent(quote.id)}/confirm`,
@@ -9165,7 +9196,9 @@ async function transcribeWithGenStudioAdmitted(
       headers: {
         ...authorization(apiKey),
         'Idempotency-Key': confirmIdempotencyKey,
+        ...(jobGroup.job_group ? { 'Content-Type': 'application/json' } : {}),
       },
+      ...(jobGroup.job_group ? { body: wellFormedJson(jobGroup) } : {}),
     },
     { ...request, withPost: post => {
       const confirm = async () => {
@@ -9445,6 +9478,7 @@ async function generateTtsToFileAdmitted(
         : []),
     ],
   })
+  const jobGroup = await jobGroupField()
   const submitted = await submitJsonWithAdmission(
     apiKey,
     `${apiBase(baseUrl)}/v1/audio/jobs`,
@@ -9455,7 +9489,7 @@ async function generateTtsToFileAdmitted(
         'Content-Type': 'application/json',
         'Idempotency-Key': idempotencyKey,
       },
-      body: wellFormedJson({ ...submission.body, ...(request.replacementChargeLimit !== undefined ? { max_charge_credits: request.replacementChargeLimit } : {}) }),
+      body: wellFormedJson({ ...jobGroup, ...submission.body, ...(request.replacementChargeLimit !== undefined ? { max_charge_credits: request.replacementChargeLimit } : {}) }),
     },
     request,
     deadline,
