@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.253 — 2026-10-05
+
+- **Server mode: automation keys — an AI helper on another Mac can work with this Story Studio over Tailscale using a
+  key you create in Settings → Server Mode, without ever knowing your password; keys can be revoked any time and can't
+  change your sign-in settings.**
+
+---
+
 ## v1.4.252 — 2026-10-04
 
 - **Narration pauses are longer and more natural: 1 second after each sentence and 1.5 seconds between paragraphs.**
