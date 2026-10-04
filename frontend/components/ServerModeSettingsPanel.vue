@@ -251,7 +251,7 @@
         </legend>
         <p class="ssm-field-hint">
           Let an agent on another Mac use this server without your password. It sends
-          <code>Authorization: Bearer ssk_…</code> and has the same access as you. Keys work only while Server Mode is running.
+          <code>Authorization: Bearer ssk_…</code> and can use your projects, but can't change sign-in settings. Keys work only while Server Mode is running.
         </p>
 
         <div v-if="newKey" class="ssm-key-reveal" role="status">

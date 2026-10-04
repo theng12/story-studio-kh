@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 /**
- * reset-server-auth — wipe Server Mode credentials from app-settings.json.
+ * reset-server-auth — wipe Server Mode credentials and automation keys from
+ * app-settings.json. This is the emergency reset, so every agent key goes too.
  *
  * Usage:
  *
@@ -25,7 +26,7 @@
  * process may overwrite your changes on its next save.
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
 import os from 'os'
 
@@ -95,9 +96,10 @@ function main() {
 
   const hadAuth = !!sm.auth
   const wasEnabled = sm.enabled === true
+  const keys = Array.isArray(sm.automation_keys) ? sm.automation_keys : []
 
-  if (!hadAuth && !wasEnabled) {
-    console.log(`\n✓ Server mode is already disabled with no credentials.`)
+  if (!hadAuth && !wasEnabled && keys.length === 0) {
+    console.log(`\n✓ Server mode is already disabled with no credentials or automation keys.`)
     console.log(`  Nothing to reset.`)
     return
   }
@@ -109,11 +111,21 @@ function main() {
   // Clear auth, optionally disable.
   if (sm.auth) delete sm.auth
   if (!keepEnabled) sm.enabled = false
+  delete sm.automation_keys
 
   writeFileSync(file, JSON.stringify(data, null, 2) + '\n')
+  if (keys.length) {
+    // Same audit file the app writes (services/app-settings.ts); never the keys.
+    appendFileSync(path.join(path.dirname(file), 'server-mode-key-audit.jsonl'), JSON.stringify({
+      ts: new Date().toISOString(),
+      event: 'reset',
+      revoked: keys.map((k: any) => ({ key_id: k?.id, label: k?.label, last4: k?.last4 })),
+    }) + '\n', { mode: 0o600 })
+  }
 
   console.log(`\n✓ Reset complete.`)
   if (hadAuth) console.log(`  • Cleared the auth block (username + password hash + session secret).`)
+  if (keys.length) console.log(`  • Revoked ${keys.length} automation key${keys.length === 1 ? '' : 's'}. Create new ones in Settings → Server Mode.`)
   if (!keepEnabled && wasEnabled) {
     console.log(`  • Set server_mode.enabled = false. Next launch boots in desktop mode.`)
   } else if (keepEnabled && wasEnabled) {

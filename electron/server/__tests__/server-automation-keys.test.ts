@@ -10,6 +10,8 @@ import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import express from 'express'
 import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
@@ -44,6 +46,7 @@ app.use('/api', buildRequireSession(() => getServerModeConfig()?.auth, {
 app.get('/api/protected', (req: any, res) => res.json({ user: req.user }))
 app.use('/api', appSettingsRouter)
 
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 const settingsFile = path.join(isolated.dir, 'app-settings.json')
 const auditFile = path.join(isolated.dir, 'server-mode-key-audit.jsonl')
 
@@ -122,13 +125,33 @@ test('revocation is immediate; rotating the session secret does not revoke', asy
   assert.match(audit, /"event":"revoked"/)
 })
 
-test('a key cannot mint more keys, but can revoke one', async () => {
+test('a key cannot change sign-in settings or mint keys, but can revoke one', async () => {
   const { key } = await createKey('agent')
   const { id: other } = await createKey('spare')
-  await request(app).post('/api/app-settings/server-mode/automation-keys')
-    .set('Authorization', `Bearer ${key}`).send({ label: 'persistence' }).expect(403)
+  // last_used_at may legitimately move; nothing else may.
+  const signIn = async () => {
+    const sm = JSON.parse(await fs.readFile(settingsFile, 'utf8')).server_mode
+    return { auth: sm.auth, enabled: sm.enabled, bind: sm.bind, port: sm.port, keys: sm.automation_keys.map((k: any) => k.id) }
+  }
+  const before = await signIn()
+  const refused = [
+    request(app).put('/api/app-settings/server-mode/credentials').send({ username: 'x', password: 'takeover-password' }),
+    request(app).put('/api/app-settings/server-mode').send({ enabled: false }),
+    request(app).put('/api/app-settings/server-mode').send({ bind: '0.0.0.0', port: 9999 }),
+    request(app).put('/api/app-settings/server-mode/rate-limit').send({ login_max_attempts_per_minute: 1000 }),
+    request(app).post('/api/app-settings/server-mode/rotate-sessions'),
+    request(app).post('/api/app-settings/server-mode/automation-keys').send({ label: 'persistence' }),
+  ]
+  for (const req of refused) {
+    const res = await req.set('Authorization', `Bearer ${key}`).expect(403)
+    assert.equal(res.body.detail, "Automation keys can't change sign-in settings — use your password session.")
+  }
+  assert.deepEqual(await signIn(), before, 'no sign-in setting changed')
   await request(app).delete(`/api/app-settings/server-mode/automation-keys/${other}`)
     .set('Authorization', `Bearer ${key}`).expect(200)
+  // The owner's own session still can.
+  await request(app).put('/api/app-settings/server-mode/rate-limit').set('x-test-peer', '127.0.0.1')
+    .send({ login_max_attempts_per_minute: 30 }).expect(200)
 })
 
 test('session-cookie login is unchanged', async () => {
@@ -147,6 +170,25 @@ test('labels are required and the number of keys is capped', async () => {
   const view = await settings.getServerModeSettingsSafe()
   for (let i = view.automation_keys.length; i < settings.MAX_AUTOMATION_KEYS; i++) await createKey(`k${i}`)
   await assert.rejects(settings.createServerModeAutomationKey('one too many'), /At most/)
+})
+
+test('reset-server-auth clears every automation key and audits it', async () => {
+  const full = await settings.getServerModeSettingsSafe()
+  await settings.revokeServerModeAutomationKey(full.automation_keys[0].id) // the cap test left 5
+  const { key } = await createKey('before reset')
+  const run = spawnSync(process.execPath, ['--import', 'tsx', path.join(repoRoot, 'scripts/reset-server-auth.ts')], {
+    cwd: repoRoot, env: { ...process.env, STORY_STUDIO_DATA_DIR: isolated.dir }, encoding: 'utf8',
+  })
+  assert.equal(run.status, 0, run.stderr)
+  assert.match(run.stdout, /Revoked \d+ automation key/)
+  const sm = JSON.parse(await fs.readFile(settingsFile, 'utf8')).server_mode
+  assert.equal(sm.automation_keys, undefined)
+  assert.equal(sm.auth, undefined)
+  const last = JSON.parse((await fs.readFile(auditFile, 'utf8')).trim().split('\n').pop()!)
+  assert.equal(last.event, 'reset')
+  assert.ok(last.revoked.some((k: any) => k.label === 'before reset'))
+  assert.ok(!JSON.stringify(last).includes(key))
+  await request(app).get('/api/protected').set('x-test-peer', '100.64.0.51').set('Authorization', `Bearer ${key}`).expect(401)
 })
 
 test('desktop mode ignores the header', async () => {

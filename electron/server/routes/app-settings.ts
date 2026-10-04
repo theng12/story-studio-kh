@@ -848,6 +848,15 @@ router.get('/app-settings/genstudio/usage', async (_req, res) => {
 // configure credentials + enable server mode here, quit, relaunch under
 // launchd.
 
+// Least privilege: a request authenticated by an automation key (see
+// lib/auth-session.ts) may use the app but not change how anyone signs in.
+function refuseAutomationKey(req: any, res: any, next: any) {
+  if (req.user?.via === 'automation_key') {
+    return res.status(403).json({ detail: 'Automation keys can\'t change sign-in settings — use your password session.' })
+  }
+  next()
+}
+
 router.get('/app-settings/server-mode', async (_req, res) => {
   try {
     res.json(await getServerModeSettingsSafe())
@@ -856,7 +865,7 @@ router.get('/app-settings/server-mode', async (_req, res) => {
   }
 })
 
-router.put('/app-settings/server-mode', async (req, res) => {
+router.put('/app-settings/server-mode', refuseAutomationKey, async (req, res) => {
   const body = (req.body || {}) as Record<string, unknown>
   const patch: { enabled?: boolean; port?: number; bind?: string } = {}
   if (body.enabled !== undefined) {
@@ -884,7 +893,7 @@ router.put('/app-settings/server-mode', async (req, res) => {
   }
 })
 
-router.put('/app-settings/server-mode/credentials', async (req, res) => {
+router.put('/app-settings/server-mode/credentials', refuseAutomationKey, async (req, res) => {
   const username = typeof req.body?.username === 'string' ? req.body.username.trim() : ''
   const password = typeof req.body?.password === 'string' ? req.body.password : ''
   const session_ttl_hours = typeof req.body?.session_ttl_hours === 'number'
@@ -900,7 +909,7 @@ router.put('/app-settings/server-mode/credentials', async (req, res) => {
   }
 })
 
-router.put('/app-settings/server-mode/rate-limit', async (req, res) => {
+router.put('/app-settings/server-mode/rate-limit', refuseAutomationKey, async (req, res) => {
   const n = Number(req.body?.login_max_attempts_per_minute)
   if (!Number.isFinite(n) || n < 1 || n > 1000) {
     return res.status(400).json({ detail: 'login_max_attempts_per_minute must be a number between 1 and 1000' })
@@ -912,7 +921,7 @@ router.put('/app-settings/server-mode/rate-limit', async (req, res) => {
   }
 })
 
-router.post('/app-settings/server-mode/rotate-sessions', async (_req, res) => {
+router.post('/app-settings/server-mode/rotate-sessions', refuseAutomationKey, async (_req, res) => {
   try {
     res.json(await rotateServerModeSessionSecret())
   } catch (e: any) {
@@ -923,10 +932,7 @@ router.post('/app-settings/server-mode/rotate-sessions', async (_req, res) => {
 // Automation keys. The plaintext key is in this one response only. A request
 // authenticated BY a key may revoke keys but not mint new ones, so a leaked key
 // cannot plant a replacement that survives its own revocation.
-router.post('/app-settings/server-mode/automation-keys', async (req: any, res) => {
-  if (req.user?.via === 'automation_key') {
-    return res.status(403).json({ detail: 'An automation key cannot create other keys. Create it from Settings → Server Mode.' })
-  }
+router.post('/app-settings/server-mode/automation-keys', refuseAutomationKey, async (req: any, res) => {
   try {
     res.status(201).json(await createServerModeAutomationKey(req.body?.label))
   } catch (e: any) {

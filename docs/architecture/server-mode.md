@@ -175,8 +175,8 @@ An agent drives the server with its own key instead of your password.
    `X-Story-Key: <key>` works too. `/api/health` needs no key; `/api/auth/me` is the one to check that the key works.
 
 How it behaves:
-- A key has the same access as your signed-in browser, except it cannot create more keys (it can revoke them).
-- **Revoke** in the same list takes effect on the next request. **Sign Out Everywhere** and **Change Password** do not revoke keys; `npm run reset-server-auth` does not either.
+- A key can do what your signed-in browser does with your projects, but it **can't change sign-in settings**: password, Server Mode on/off, port and bind, the sign-in limit, **Sign Out Everywhere**, and creating keys all answer 403. It can revoke a key.
+- **Revoke** in the same list takes effect on the next request. **Sign Out Everywhere** and **Change Password** do not revoke keys. `npm run reset-server-auth` (the emergency reset) removes every key and writes a `reset` line to the audit file.
 - A wrong, malformed or revoked key gets 401 and counts toward the same per-computer limit as password sign-ins; over the limit the answer is 429 for a minute, even for a valid key.
 - Keys work only in server mode. In desktop mode the header is ignored.
 - Only a SHA-256 of the key is stored (`server_mode.automation_keys` in `app-settings.json`); a 256-bit random key needs no slow hash. Logs show the label and the last four characters only.
@@ -239,8 +239,8 @@ Three ways, in order of convenience:
 - **No HTTPS.** Tailscale carries WireGuard-encrypted bytes, so traffic between machines is private. The HTTP layer at the app is plain text. **Never expose port 8765 to the public internet without putting TLS in front.**
 - **Single shared credential.** This is a personal-use design — one username + password. There's no multi-user support.
 - **Cookie is HttpOnly + SameSite=Lax**, but **not** marked `Secure` (would refuse to set over plain HTTP). XSS on the SPA can't read the cookie via `document.cookie`; the SPA itself is the same trust boundary as the user.
-- **Rate limit on login**: 5 attempts / 60s per peer IP. Restart resets the counter.
-- **Automation keys** carry your full access (see above). Treat the key file like a password; revoke a key you no longer use.
+- **Rate limit on login**: 30 attempts / 60s per peer IP by default (Settings → Server Mode → sign-in tries per minute). Failed automation-key attempts count toward the same limit. Restart resets the counter.
+- **Automation keys** can use everything except sign-in settings (see above). Treat the key file like a password; revoke a key you no longer use.
 - **Session TTL**: 7 days by default. Click **Sign Out Everywhere** in Settings to rotate the session secret and invalidate every active browser session immediately.
 
 ---

@@ -24,7 +24,7 @@ export const router = Router()
  * POST /api/auth/login { username, password }
  *
  * Verifies credentials, signs a fresh session cookie, returns the username.
- * Rate-limited per peer IP to 5 attempts / 60s. Defends against tailnet-
+ * Rate-limited per peer IP (default 30 attempts / 60s, configurable). Defends against tailnet-
  * internal brute force; restart resets buckets which is fine for personal use.
  */
 router.post('/auth/login', async (req, res) => {
