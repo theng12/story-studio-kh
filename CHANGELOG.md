@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.251 — 2026-10-04
+
+- **Khmer narration: sentences end at ។.** The 220-character rule, request splitting, pauses and timing now work for
+  Khmer; text is never cut inside a Khmer syllable.
+- **A re-run never gets back an old failed result.** If the Gateway answers a fresh narration request with an earlier
+  free failure, Story asks again.
+
+---
+
 ## v1.4.250 — 2026-10-04
 
 - **New: the Music format.** A music channel now has its own flow in the sidebar. **Song Pool** writes song briefs
