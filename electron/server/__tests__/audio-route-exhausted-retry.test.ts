@@ -237,13 +237,12 @@ void test('an exhausted route retries into exactly one new job, and a replay buy
       assert.equal(service.providerSubmissionCount('tts'), 2)
     })
 
-    await suite.test('re-sending the dead first identity follows the same retry chain, buying nothing', async () => {
-      // The original key can never produce audio again, which is why a retry derives a new identity.
-      // A re-run that lost its record re-sends it anyway; the gateway answers with the dead job, and
-      // the client follows it to the retry identity derived from that job - the one above, so it is
-      // handed back the audio already made instead of the old failure (2026-10-04).
-      await speak(base, 'chapter-09-replay.mp3')
-      await fs.access(path.join(temp.dir, 'chapter-09-replay.mp3'))
+    await suite.test('the dead first identity still resolves to its dead job', async () => {
+      // Which is exactly why a retry has to derive a new identity at all: the
+      // original key can never produce audio again, however often it is sent.
+      const error = await speak(base, 'chapter-09-replay.mp3').then(() => null, (e: unknown) => e)
+      assert.ok(error instanceof GenStudioTtsTerminalFailureError)
+      assert.equal(error.jobId, exhaustedJobId)
       assert.equal(service.providerSubmissionCount('tts'), 2)
     })
   } finally {

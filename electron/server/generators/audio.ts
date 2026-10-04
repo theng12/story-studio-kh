@@ -1036,7 +1036,10 @@ export async function generateAudio(job: Job): Promise<void> {
         requestIdentity: submissionIdentity,
         ...(narrationOutputFormat ? { outputFormat: narrationOutputFormat } : {}),
         ...pauseRequest,
-        idempotencyKey,
+        // Pinned only when it names one specific request: a resume of a recorded one, or a
+        // deliberate action (its Jobs Retry replays that action). Otherwise the client derives the
+        // same key from this object, and may follow a replayed settled failure to a fresh one.
+        ...(recoveryEntry || req.force === true ? { idempotencyKey } : {}),
         signal: controller.signal,
         isCancelled,
         onProgress: makeChunkCb(),

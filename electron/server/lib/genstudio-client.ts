@@ -9473,9 +9473,10 @@ async function generateTtsToFileAdmitted(
   // and free, nothing is in flight under it, so re-send under the identity the run's own retry
   // derives from the dead job (`nextTtsRouteRetryIdentity`): a re-run walks the same chain the
   // first run did, reattaching to what it already made, and a restart re-derives it too.
-  // Not for a paid replacement, which names its key.
-  if (request.replacementChargeLimit === undefined && replayedSettledChatFailure(submitted)
-    && replayHops < MAX_FAILED_CHAT_REPLAY_HOPS) {
+  // Only a key derived here: a caller-supplied key (a resume, a deliberate action's Retry, a paid
+  // replacement) names one specific request and is never moved - the chat rule again.
+  if (!request.idempotencyKey?.trim() && request.replacementChargeLimit === undefined
+    && replayedSettledChatFailure(submitted) && replayHops < MAX_FAILED_CHAT_REPLAY_HOPS) {
     return generateTtsToFileAdmitted(apiKey, outPath, {
       ...request,
       requestIdentity: nextTtsRouteRetryIdentity(request.requestIdentity?.trim() || '', submitted.id),

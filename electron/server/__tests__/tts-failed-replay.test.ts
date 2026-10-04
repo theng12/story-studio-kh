@@ -53,6 +53,16 @@ void test('narration replays of an earlier failure', async (suite) => {
       assert.deepEqual(accepted, [client.buildGenStudioSubmission({ ...request(), requestIdentity: derived } as any).idempotencyKey],
         'Story records the key the Gateway accepted, so a restart reattaches instead of buying a third')
     })
+
+    await suite.test('a pinned key (a resume, a deliberate action\'s Retry) is never moved', async () => {
+      service.reset()
+      service.queueScenario('tts', { states: ['failed'], failureCode: 'PROVIDER_FAILED' })
+      const identity = { ...request(), requestIdentity: 'proj:EP0001:audio:Chapter_02.mp3:regenerate:action-1' }
+      const pinned = { ...identity, idempotencyKey: client.buildGenStudioSubmission(identity as any).idempotencyKey }
+      await client.generateTtsToFile(MOCK_GENSTUDIO_FULL_KEY, path.join(temp.dir, 'c.mp3'), pinned as any).catch(() => null)
+      await assert.rejects(client.generateTtsToFile(MOCK_GENSTUDIO_FULL_KEY, path.join(temp.dir, 'd.mp3'), pinned as any))
+      assert.equal(service.providerSubmissionCount('tts'), 1, 'the Retry replays the action, as promised')
+    })
   } finally {
     await service.close()
     await temp.cleanup()
