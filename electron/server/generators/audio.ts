@@ -976,6 +976,10 @@ export async function generateAudio(job: Job): Promise<void> {
         ...pauseRequest,
       })
       const idempotencyKey = recoveryEntry?.idempotency_key || prepared.idempotencyKey
+      // The key the Gateway accepted, which moves when the client re-sends after a replayed
+      // settled failure (`ttsKeyAfterFailedReplay`). States are saved under it, so the saved
+      // task id and key always name the same request.
+      let acceptedKey = idempotencyKey
       const submittedAt = recoveryEntry?.submitted_at || new Date().toISOString()
 
       if (announceRecoveryFromTerminal) {
@@ -1038,6 +1042,7 @@ export async function generateAudio(job: Job): Promise<void> {
         onProgress: makeChunkCb(),
         onSectionQuality: (raw: unknown) => noteSectionQuality(task.sectionSlug, raw),
         onJobAccepted: async (providerJobId: string, acceptedIdempotencyKey: string) => {
+          acceptedKey = acceptedIdempotencyKey
           await recordTaskStrict(audioDir, chunkFilename, {
             provider: 'genstudio',
             task_id: providerJobId,
@@ -1062,14 +1067,14 @@ export async function generateAudio(job: Job): Promise<void> {
             task_id: providerJobId,
             submitted_at: submittedAt,
             input_hash: inputHash,
-            idempotency_key: idempotencyKey,
+            idempotency_key: acceptedKey,
             operation: 'tts',
             model_id: genStudioModelId,
             last_state: state,
           })
           await checkpointGenStudioAsset(job, chunkFilename, {
             operation: 'tts',
-            idempotency_key: idempotencyKey,
+            idempotency_key: acceptedKey,
             job_id: providerJobId,
             state,
           })
