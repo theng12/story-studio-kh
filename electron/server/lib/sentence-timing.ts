@@ -25,9 +25,7 @@
  * the same.
  */
 
-/** Same regex the text chunker uses — preserves consistency between
- *  what TTS sees and what we count. */
-const SENTENCE_BOUNDARY = /(?<=[.!?])\s+/
+import { splitSentences } from './sentence-ends.js'
 
 export interface SentenceTimingEntry {
   /** 0-based index of this sentence within the chapter. */
@@ -50,7 +48,7 @@ export function splitIntoSentences(text: string): string[] {
   if (!text) return []
   const flattened = text.replace(/\n+/g, ' ').trim()
   if (!flattened) return []
-  const parts = flattened.split(SENTENCE_BOUNDARY).map(s => s.trim()).filter(Boolean)
+  const parts = splitSentences(flattened).map(s => s.trim()).filter(Boolean)
   return parts
 }
 

@@ -15,6 +15,8 @@
  * boundary. A required parameter makes that class of mistake unexpressible.
  */
 
+import { splitAtLimit, splitSentences } from './sentence-ends.js'
+
 export function chunkText(text: string, maxChars: number): string[] {
   if (text.length <= maxChars) return [text]
 
@@ -30,41 +32,29 @@ export function chunkText(text: string, maxChars: number): string[] {
     } else {
       if (current) chunks.push(current)
 
-      // Paragraph itself exceeds limit — split on sentences
+      // Paragraph itself exceeds limit — split on sentences (Latin, Khmer ។ ៕ and CJK stops)
       if (para.length > maxChars) {
-        const sentences = para.split(/(?<=[.!?])\s+/)
         let sub = ''
-        for (const sent of sentences) {
-          const candidate2 = sub ? `${sub} ${sent}` : sent
-          if (candidate2.length <= maxChars) {
-            sub = candidate2
+        for (const sent of splitSentences(para)) {
+          if ((sub + sent).trimEnd().length <= maxChars) {
+            sub += sent
+            continue
+          }
+          if (sub) chunks.push(sub.trimEnd())
+          const bare = sent.trimEnd()
+          if (bare.length > maxChars) {
+            // A single sentence over the boundary on its own. Rare in narration
+            // prose, but possible with verbose technical content or Khmer text
+            // with no stop. Cut at the last space, else at a point that is not
+            // inside a Khmer syllable; the tail starts the next chunk.
+            const pieces = splitAtLimit(bare.replace(/\s+/g, ' '), maxChars)
+            chunks.push(...pieces.slice(0, -1))
+            sub = pieces.at(-1)! + sent.slice(bare.length)
           } else {
-            if (sub) chunks.push(sub)
-            // Word-level fallback for a single sentence that exceeds
-            // the boundary on its own. Rare in narration prose, but
-            // possible with verbose technical or academic content, and
-            // the only remaining way a part could come back larger than
-            // the caller allowed. Greedy-pack words up to the boundary
-            // and start a fresh chunk on the word that would cross it.
-            if (sent.length > maxChars) {
-              const words = sent.split(/\s+/)
-              let wordSub = ''
-              for (const w of words) {
-                const cand3 = wordSub ? `${wordSub} ${w}` : w
-                if (cand3.length <= maxChars) {
-                  wordSub = cand3
-                } else {
-                  if (wordSub) chunks.push(wordSub)
-                  wordSub = w
-                }
-              }
-              sub = wordSub
-            } else {
-              sub = sent
-            }
+            sub = sent
           }
         }
-        current = sub
+        current = sub.trimEnd()
       } else {
         current = para
       }

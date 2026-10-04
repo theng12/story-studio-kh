@@ -27,6 +27,7 @@ import { createHash } from 'node:crypto'
 import { createReadStream, existsSync, renameSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { SENTENCE_END_CHARS } from '../lib/sentence-ends.js'
 import { runFfmpeg } from '../lib/ffmpeg-utils.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { moveToTrashSync } from '../lib/trash-move.js'
@@ -48,7 +49,7 @@ export function seamPauseRule(wanted: { paragraph?: number | null; sentence?: nu
     typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.min(value, MAX_PAUSE_S) : fallback
   return { sentence: pick(wanted.sentence, SEAM_PAUSE_S.sentence), paragraph: pick(wanted.paragraph, SEAM_PAUSE_S.paragraph), soft: SEAM_PAUSE_S.soft }
 }
-const SENTENCE_ENDINGS = new Set('.!?。！？')
+const SENTENCE_ENDINGS = new Set(SENTENCE_END_CHARS)
 const TRAILING_CLOSERS = new Set('"\'”’»）】〕〉')
 const SILENCE_DB = -50
 const EDGE_FADE_S = 0.005
