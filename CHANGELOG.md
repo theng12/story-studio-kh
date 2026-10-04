@@ -4,6 +4,50 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.250 — 2026-10-04
+
+- **New: the Music format.** A music channel now has its own flow in the sidebar. **Song Pool** writes song briefs
+  from the channel's **Music Formula**, makes the songs on your own Macs and keeps them in pools (the Music Library's
+  songs can be added in one click). **Episode Builder** draws an episode's songs from one or more pools without
+  repeating recent ones, lets you lock, swap and reorder them on a timeline, joins them with crossfades at matched
+  loudness, writes the tracklist and plans scenes per song. The thumbnail can come straight from a scene, the YouTube
+  Finalizer turns the tracklist into chapters, and the Pipeline can run the whole music chain.
+- **New: Effects Library.** Rain, snow, fireflies, dust, embers, stars, petals, fog, light rays and more, with a live
+  preview, per-scene ranges with fades, stacking order and presets. Video Assembly says what an episode's effects add.
+- **One narration file per chapter.** A long chapter that is made in parts is joined into one file with natural pauses
+  and matched loudness, and the parts stay hidden so a single part can still be redone. Every voice now pauses the same
+  way: 0.6 s after a sentence and 1.0 s at a paragraph break, and 3 s between chapters. A channel can still set its own
+  pauses in the Series Formula or on the Audio page. Narration sentences are kept under 220 characters so a voice never
+  cuts one in the middle; saving a chapter splits any longer sentence at a natural break without dropping a word.
+- **Redoing a failed part now finishes the chapter.** When one part of a split chapter failed and was made again, the
+  chapter was never joined and Repair said "Nothing to repair". Now the parts are joined, and Repair joins a chapter whose
+  parts are all there without making any narration again.
+- **Waiting is not failing.** A busy, slow or restarting Mac now reads "waiting for a free Mac" and Story asks again by
+  itself, instead of dropping chapters or showing them as failed. The Jobs page uses one count everywhere, music has its
+  own lane, and Audio Assembly picks up again after a restart instead of saying "Interrupted by app restart".
+- **Pause, Resume and Cancel you can trust.** Resume works while a pause is still taking effect, episode recovery waits
+  for narration before Audio Assembly, and Cancel on a video render stops every encoder. Encoders left behind by a crash
+  are stopped when Story starts.
+- **Subtitles find skipped sentences.** After subtitles are made, each chapter's script is compared with what was
+  actually said; any sentence the voice skipped is listed with **Re-narrate Chapter N**. Gaps in subtitles lead with
+  Re-narrate too, and the Audio page shows the Mac's own check of each section.
+- **Video Assembly remembers.** Each episode keeps the settings of its last render, and a new episode starts from the
+  channel's last one. A title image at the start no longer pushes the scenes out of step with the narration, and the page
+  warns before Generate if they would drift. Size and time estimates now match a measured render. Sleep captions are
+  larger and easier to read at 1080p.
+- **New channels start with their Formula's look.** A new Sleep Story or Sleep History channel starts with 20-30 second
+  scenes (and Sleep Story with its soft, dreamlike look), both editable. Stories avoid reusing recent main character
+  names.
+- **No surprise charges.** Pickers never pre-select a paid image, voice or music model; free models on your own Macs
+  read "free", and a writing pool that is only paid as a last resort says so.
+- **Fixes from the Dreamlands test.** Audio Assembly refuses to merge when music is on but no track is chosen, and lists
+  only a chapter's active versions; "Use This Version" really makes that take the chapter's narration; re-merging keeps
+  the episode's music track; Audio Assembly remembers the music bed on this Mac; Scene Plan stops offering a repair the
+  server already refused; What's New closes on the first click; several wording fixes say "Gateway" instead of
+  "GenStudio".
+
+---
+
 ## v1.4.249 — 2026-10-03
 
 - **Settings, redesigned.** A list of sections on the left and a **Find a setting** box that jumps straight to any
