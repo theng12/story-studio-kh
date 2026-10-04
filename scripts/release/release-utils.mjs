@@ -290,3 +290,23 @@ export function restoreSourceManifests(root, snapshot) {
   }
   return changed
 }
+
+/**
+ * Move every DMG (and blockmap) in `outputDir` to `trashDist` with a timestamp
+ * (owner's rule, 2026-09-26: old DMGs are never `rm`d). Creates `outputDir`
+ * first: a fresh checkout or worktree has no `dist/` yet, and reading it crashed.
+ */
+export function trashOldDmgs(outputDir, trashDist, now = new Date()) {
+  fs.mkdirSync(outputDir, { recursive: true })
+  fs.mkdirSync(trashDist, { recursive: true })
+  const stamp = now.toISOString().replace(/[-:T]/g, '').slice(0, 14)
+  for (const entry of fs.readdirSync(outputDir)) {
+    if (!entry.endsWith('.dmg') && !entry.endsWith('.dmg.blockmap')) continue
+    // The stamp goes BEFORE the extension, so a trashed blockmap still reads as one:
+    // `…-arm64-<stamp>.dmg.blockmap`. Stripping only the last extension left
+    // `…-arm64.dmg-<stamp>.blockmap`, which reads as a blockmap of a `.dmg-…` file.
+    const suffix = entry.endsWith('.blockmap') ? '.dmg.blockmap' : '.dmg'
+    const stem = entry.slice(0, -suffix.length)
+    fs.renameSync(path.join(outputDir, entry), path.join(trashDist, `${stem}-${stamp}${suffix}`))
+  }
+}

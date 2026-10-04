@@ -5,7 +5,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
-import { expandArtifactName, packagingTreeErrors, restoreSourceManifests, snapshotSourceManifests } from './release-utils.mjs'
+import { expandArtifactName, packagingTreeErrors, restoreSourceManifests, snapshotSourceManifests, trashOldDmgs } from './release-utils.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(scriptDir, '..', '..')
@@ -82,18 +82,7 @@ fs.rmSync(appOutputDir, { recursive: true, force: true })
 // destroyed the previous artefact, and every other version's DMG simply stayed in `dist/` for
 // ever. Both now move aside. `mac-arm64/` above is a working tree electron-builder regenerates,
 // not an artefact anyone keeps, so removing that one stands.
-const trashDist = path.join(root, '_trash', 'dist')
-fs.mkdirSync(trashDist, { recursive: true })
-const dmgStamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
-for (const entry of fs.readdirSync(outputDir)) {
-  if (!entry.endsWith('.dmg') && !entry.endsWith('.dmg.blockmap')) continue
-  // The stamp goes BEFORE the extension, so a trashed blockmap still reads as one:
-  // `…-arm64-<stamp>.dmg.blockmap`. Stripping only the last extension left
-  // `…-arm64.dmg-<stamp>.blockmap`, which reads as a blockmap of a `.dmg-…` file.
-  const suffix = entry.endsWith('.blockmap') ? '.dmg.blockmap' : '.dmg'
-  const stem = entry.slice(0, -suffix.length)
-  fs.renameSync(path.join(outputDir, entry), path.join(trashDist, `${stem}-${dmgStamp}${suffix}`))
-}
+trashOldDmgs(outputDir, path.join(root, '_trash', 'dist'))
 
 console.log(`[unsigned-package] packaging ${contract.productName} v${pkg.version} (${contract.architectures[0]}) into dist/`)
 // NEW-11 is NOT this build's doing — see the corrected note on `snapshotSourceManifests`.

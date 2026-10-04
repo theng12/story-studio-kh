@@ -15,6 +15,7 @@ import {
   resolvePackagedDependency,
   restoreSourceManifests,
   snapshotSourceManifests,
+  trashOldDmgs,
   validateServiceBaseUrl,
 } from '../release-utils.mjs'
 
@@ -202,5 +203,27 @@ describe('packaging tree guard', () => {
     } finally {
       fs.rmSync(sandbox, { recursive: true, force: true })
     }
+  })
+})
+
+describe('trashOldDmgs', () => {
+  test('creates a missing dist/ instead of crashing (fresh worktree)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dmg-trash-'))
+    const dist = path.join(dir, 'dist')
+    const trash = path.join(dir, '_trash', 'dist')
+    trashOldDmgs(dist, trash)
+    assert.ok(fs.statSync(dist).isDirectory())
+    assert.deepEqual(fs.readdirSync(trash), [])
+  })
+
+  test('moves old DMGs and blockmaps aside with the stamp before the extension', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dmg-trash-'))
+    const dist = path.join(dir, 'dist')
+    const trash = path.join(dir, '_trash', 'dist')
+    fs.mkdirSync(dist)
+    for (const f of ['A-arm64.dmg', 'A-arm64.dmg.blockmap', 'notes.txt']) fs.writeFileSync(path.join(dist, f), f)
+    trashOldDmgs(dist, trash, new Date('2026-10-04T01:02:03Z'))
+    assert.deepEqual(fs.readdirSync(dist), ['notes.txt'])
+    assert.deepEqual(fs.readdirSync(trash).sort(), ['A-arm64-20261004010203.dmg', 'A-arm64-20261004010203.dmg.blockmap'])
   })
 })
