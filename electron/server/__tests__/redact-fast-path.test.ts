@@ -15,6 +15,7 @@ const MUST_CHANGE: Array<[string, string]> = [
   ['Key scheme', 'header was Key abcdefgh12345678'],
   ['sk token', 'rejected sk-abcdefgh12345678'],
   ['gsk token, upper case', 'rejected GSK_abcdefgh12345678'],
+  ['story automation key', 'rejected ssk_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE'],
   ['authorization field', 'authorization: abcd1234'],
   ['api_key json', '{"api_key":"abcd1234"}'],
   ['apikey equals', 'apikey=abcd1234'],

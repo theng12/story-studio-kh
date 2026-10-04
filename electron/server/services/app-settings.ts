@@ -869,8 +869,8 @@ export async function setVoiceFavouritesGlobal(value: string[]): Promise<void> {
 // when two settings panels are saved nearly simultaneously.
 
 import crypto from 'crypto'
-import { hashPassword } from '../lib/auth-session.js'
-import { isServerMode } from '../lib/server-mode.js'
+import { hashPassword, generateAutomationKey, hashAutomationKey } from '../lib/auth-session.js'
+import { isServerMode, normalizeAutomationKeys, type AutomationKeyRecord } from '../lib/server-mode.js'
 
 export const SERVER_MODE_KEY = 'server_mode'
 
@@ -891,7 +891,11 @@ export interface ServerModeSafeView {
   session_ttl_hours: number
   /** v1.0.107+ — per-IP login rate-limit cap. Default 30/min. */
   login_max_attempts_per_minute: number
+  /** Automation keys without their hashes. */
+  automation_keys: AutomationKeyView[]
 }
+
+export type AutomationKeyView = Omit<AutomationKeyRecord, 'hash'>
 
 export interface ServerModeNetworkingPatch {
   enabled?: boolean
@@ -931,6 +935,7 @@ export async function getServerModeSettingsSafe(): Promise<ServerModeSafeView> {
       typeof auth.login_max_attempts_per_minute === 'number' && auth.login_max_attempts_per_minute > 0
         ? auth.login_max_attempts_per_minute
         : SERVER_MODE_DEFAULTS.login_max_attempts_per_minute,
+    automation_keys: normalizeAutomationKeys(sm.automation_keys).map(({ hash: _hash, ...view }) => view),
   }
 }
 
@@ -1051,6 +1056,105 @@ export async function rotateServerModeSessionSecret(): Promise<ServerModeSafeVie
     await writeSettings(settings)
   })
   return getServerModeSettingsSafe()
+}
+
+// ── Automation keys (server mode) ──────────────────────────────────────────
+//
+// `server_mode.automation_keys`: see AutomationKeyRecord in lib/server-mode.ts.
+// The audit trail is `server-mode-key-audit.jsonl` beside app-settings.json:
+// one line per create/revoke, and per key in use at most one line every
+// KEY_USE_FLUSH_MS carrying the number of calls since the previous line.
+
+export const MAX_AUTOMATION_KEYS = 5
+const AUTOMATION_KEY_LABEL_MAX = 60
+const KEY_USE_FLUSH_MS = 10 * 60_000
+
+function automationKeyAuditPath(): string {
+  return path.join(path.dirname(appSettingsPath()), 'server-mode-key-audit.jsonl')
+}
+
+async function appendAutomationKeyAudit(entry: Record<string, unknown>): Promise<void> {
+  const target = automationKeyAuditPath()
+  assertWriteIsolatedInTests(target, 'automation-key-audit')
+  await fs.appendFile(target, JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n', { mode: 0o600 })
+}
+
+/** Create a key. The plaintext is returned here once and never stored. */
+export async function createServerModeAutomationKey(label: unknown): Promise<{ key: string; view: ServerModeSafeView }> {
+  const name = typeof label === 'string' ? label.trim() : ''
+  if (!name || name.length > AUTOMATION_KEY_LABEL_MAX) {
+    throw new Error(`Give the key a label of 1–${AUTOMATION_KEY_LABEL_MAX} characters, e.g. "Claude on Mac Studio".`)
+  }
+  const key = generateAutomationKey()
+  const record: AutomationKeyRecord = {
+    id: crypto.randomBytes(6).toString('hex'),
+    label: name,
+    hash: hashAutomationKey(key),
+    last4: key.slice(-4),
+    created_at: new Date().toISOString(),
+    last_used_at: null,
+  }
+  await withLock(appSettingsPath(), async () => {
+    const settings = await readSettingsForWrite()
+    const cur = (settings[SERVER_MODE_KEY] || {}) as Record<string, any>
+    const keys = normalizeAutomationKeys(cur.automation_keys)
+    if (keys.length >= MAX_AUTOMATION_KEYS) {
+      throw new Error(`At most ${MAX_AUTOMATION_KEYS} automation keys. Revoke one you no longer use first.`)
+    }
+    cur.automation_keys = [...keys, record]
+    settings[SERVER_MODE_KEY] = cur
+    await writeSettings(settings)
+  })
+  await appendAutomationKeyAudit({ event: 'created', key_id: record.id, label: record.label, last4: record.last4 })
+  return { key, view: await getServerModeSettingsSafe() }
+}
+
+/** Revoke a key. The gate re-reads the file per request, so this is immediate. */
+export async function revokeServerModeAutomationKey(id: string): Promise<ServerModeSafeView> {
+  let removed: AutomationKeyRecord | undefined
+  await withLock(appSettingsPath(), async () => {
+    const settings = await readSettingsForWrite()
+    const cur = (settings[SERVER_MODE_KEY] || {}) as Record<string, any>
+    const keys = normalizeAutomationKeys(cur.automation_keys)
+    removed = keys.find((k) => k.id === id)
+    if (!removed) throw Object.assign(new Error('No automation key with that id.'), { status: 404 })
+    cur.automation_keys = keys.filter((k) => k.id !== id)
+    settings[SERVER_MODE_KEY] = cur
+    await writeSettings(settings)
+  })
+  await appendAutomationKeyAudit({ event: 'revoked', key_id: id, label: removed!.label, last4: removed!.last4 })
+  return getServerModeSettingsSafe()
+}
+
+const automationKeyUse = new Map<string, { uses: number; flushedAt: number }>()
+
+/**
+ * Count a successful key use. Called synchronously from the auth gate; the
+ * first use per process and then at most one per KEY_USE_FLUSH_MS persists
+ * last_used_at and appends an audit line, so a busy agent never turns into a
+ * settings write per request.
+ */
+export function recordAutomationKeyUse(key: AutomationKeyRecord, peer: string): void {
+  const now = Date.now()
+  const use = automationKeyUse.get(key.id) || { uses: 0, flushedAt: 0 }
+  use.uses++
+  automationKeyUse.set(key.id, use)
+  if (now - use.flushedAt < KEY_USE_FLUSH_MS) return
+  const uses = use.uses
+  use.uses = 0
+  use.flushedAt = now
+  const at = new Date(now).toISOString()
+  void (async () => {
+    await withLock(appSettingsPath(), async () => {
+      const settings = await readSettingsForWrite()
+      const keys = settings[SERVER_MODE_KEY]?.automation_keys
+      const stored = Array.isArray(keys) ? keys.find((k: any) => k?.id === key.id) : null
+      if (!stored) return // revoked in the meantime
+      stored.last_used_at = at
+      await writeSettings(settings)
+    })
+    await appendAutomationKeyAudit({ event: 'used', key_id: key.id, label: key.label, last4: key.last4, peer, uses })
+  })().catch(() => { /* bookkeeping only — never fail the request */ })
 }
 
 // ── YouTube upload defaults (app-level) ────────────────────────────────────

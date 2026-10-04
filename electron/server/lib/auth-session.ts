@@ -154,7 +154,81 @@ export function parseCookieHeader(header: string | undefined, name: string): str
 
 // ── requireSession middleware ──────────────────────────────────────────────
 
-import type { ServerModeAuth } from './server-mode.js'
+import type { ServerModeAuth, AutomationKeyRecord } from './server-mode.js'
+
+// ── Automation keys (`Authorization: Bearer ssk_…`) ────────────────────────
+//
+// Stored as plain SHA-256, not scrypt: the key is 32 random bytes, so there is
+// nothing to brute-force offline and a slow hash would only cost ~50 ms on
+// every API call. scrypt exists for low-entropy human passwords.
+
+export const AUTOMATION_KEY_PREFIX = 'ssk_'
+const AUTOMATION_KEY_SHAPE = /^ssk_[A-Za-z0-9_-]{43}$/
+
+export function generateAutomationKey(): string {
+  return AUTOMATION_KEY_PREFIX + crypto.randomBytes(32).toString('base64url')
+}
+
+export function hashAutomationKey(key: string): string {
+  return crypto.createHash('sha256').update(key).digest('hex')
+}
+
+/**
+ * The key a request presents, from `Authorization: Bearer …` or `X-Story-Key`.
+ * undefined when the request carries neither (it then falls through to the
+ * cookie check); an empty or malformed value is still "presented" and fails.
+ */
+export function readAutomationKeyHeader(headers: Record<string, unknown>): string | undefined {
+  const x = headers['x-story-key']
+  if (typeof x === 'string') return x.trim()
+  const a = headers.authorization
+  if (typeof a === 'string' && /^bearer(\s|$)/i.test(a)) return a.slice(6).trim()
+  return undefined
+}
+
+/** Constant-time match against every stored hash (no early exit). */
+export function findAutomationKey(presented: string, keys: AutomationKeyRecord[]): AutomationKeyRecord | null {
+  if (!AUTOMATION_KEY_SHAPE.test(presented)) return null
+  const actual = Buffer.from(hashAutomationKey(presented), 'hex')
+  let match: AutomationKeyRecord | null = null
+  for (const key of keys) {
+    const expected = Buffer.from(key.hash, 'hex')
+    if (expected.length === actual.length && crypto.timingSafeEqual(expected, actual) && !match) match = key
+  }
+  return match
+}
+
+export type AutomationKeyCheck =
+  | { ok: true; key: AutomationKeyRecord }
+  | { ok: false; status: 401 | 429; detail: string }
+
+/**
+ * Check a presented key, sharing the login rate limiter: an IP over the limit
+ * is refused before the key is looked at, and every failure counts as one
+ * attempt. Successes do not count, so a busy agent never throttles itself.
+ */
+export function checkAutomationKey(
+  presented: string, peer: string, keys: AutomationKeyRecord[], maxAttempts: number = 30,
+): AutomationKeyCheck {
+  if (isLoginRateLimited(peer, maxAttempts)) {
+    return { ok: false, status: 429, detail: `Too many failed sign-in attempts (max ${maxAttempts}/min). Wait a minute and try again.` }
+  }
+  const key = findAutomationKey(presented, keys)
+  if (key) return { ok: true, key }
+  checkLoginRateLimit(peer, maxAttempts)
+  return { ok: false, status: 401, detail: 'Invalid or revoked automation key' }
+}
+
+/** `…abcd` — the only part of a key that may appear in a log. */
+export function automationKeyHint(key: string): string {
+  return `…${key.slice(-4)}`
+}
+
+export interface RequireSessionOptions {
+  getKeys?: () => AutomationKeyRecord[]
+  onKeyUsed?: (key: AutomationKeyRecord, peer: string) => void
+  onKeyRejected?: (presented: string, peer: string, status: number) => void
+}
 
 /**
  * Build a session-required middleware bound to the current server-mode auth
@@ -169,7 +243,10 @@ import type { ServerModeAuth } from './server-mode.js'
  *   2. `req.skip_auth = true` set by an earlier middleware can also bypass
  *      — used for public probes (/api/health, /api/server-info, /api/auth/*).
  */
-export function buildRequireSession(getAuth: () => ServerModeAuth | undefined) {
+export function buildRequireSession(
+  getAuth: () => ServerModeAuth | undefined,
+  { getKeys = () => [], onKeyUsed, onKeyRejected }: RequireSessionOptions = {},
+) {
   return function requireSession(req: any, res: any, next: any): void {
     if (req.skip_auth) return next()
 
@@ -182,6 +259,22 @@ export function buildRequireSession(getAuth: () => ServerModeAuth | undefined) {
     }
 
     const auth = getAuth()
+
+    // Automation key: when presented it decides, cookie or not. Read fresh
+    // per request, so a revoked key stops working on the next call.
+    const presented = readAutomationKeyHeader(req.headers || {})
+    if (presented !== undefined) {
+      const result = checkAutomationKey(presented, peer, getKeys(), auth?.login_max_attempts_per_minute)
+      if (!result.ok) {
+        onKeyRejected?.(presented, peer, result.status)
+        res.status(result.status).json({ detail: result.detail })
+        return
+      }
+      req.user = { username: auth?.username || '__automation__', via: 'automation_key', key_id: result.key.id }
+      onKeyUsed?.(result.key, peer)
+      return next()
+    }
+
     if (!auth || !auth.session_secret) {
       // Server is in server mode but credentials aren't configured yet.
       // Fail closed — the user must complete the first-launch setup.
@@ -212,6 +305,12 @@ interface RateLimitBucket {
   windowStart: number
 }
 const rateLimitBuckets = new Map<string, RateLimitBucket>()
+
+/** Whether `ip` is already over the limit, without counting this call. */
+export function isLoginRateLimited(ip: string, maxAttempts: number = 30): boolean {
+  const bucket = rateLimitBuckets.get(ip)
+  return !!bucket && Date.now() - bucket.windowStart < 60_000 && bucket.count >= maxAttempts
+}
 
 /**
  * Per-IP rate limit on login attempts. Default 30 attempts / 60s — bumped

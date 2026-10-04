@@ -24,7 +24,8 @@ import { migrateLegacyProjects } from './services/project-manager.js'
 import { applySecurityHeaders, requireAllowedHost } from './lib/security.js'
 import { isServerMode, getServerModeConfig } from './lib/server-mode.js'
 import { DEV_BACKEND_PORT } from './lib/dev-backend.js'
-import { buildRequireSession } from './lib/auth-session.js'
+import { buildRequireSession, automationKeyHint } from './lib/auth-session.js'
+import { recordAutomationKeyUse } from './services/app-settings.js'
 import { router as authRouter } from './routes/auth.js'
 import { errorBoundary } from './lib/error-boundary.js'
 import { resolveStoryStudioVersion } from './lib/app-version.js'
@@ -169,7 +170,14 @@ if (SERVER_MODE) {
   // Re-read the config on each request so credential changes (set/rotate
   // via the Settings UI) take effect immediately without an app restart.
   // Cheap — sync read of a small JSON file from OS page cache.
-  const requireSession = buildRequireSession(() => getServerModeConfig()?.auth)
+  const requireSession = buildRequireSession(() => getServerModeConfig()?.auth, {
+    getKeys: () => getServerModeConfig()?.automation_keys || [],
+    onKeyUsed: recordAutomationKeyUse,
+    // Never the key itself: its last four characters identify it in the log.
+    onKeyRejected: (presented, peer, status) => logLine('warn', 'automation key rejected', {
+      key_hint: automationKeyHint(presented), peer, status,
+    }),
+  })
   app.use('/api', requireSession)
 }
 

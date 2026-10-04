@@ -16,6 +16,8 @@ import {
   getServerModeSettingsSafe, setServerModeNetworking, setServerModeCredentials,
   setServerModeRateLimit,
   rotateServerModeSessionSecret,
+  createServerModeAutomationKey,
+  revokeServerModeAutomationKey,
   getYoutubeDefaults, setYoutubeDefaults,
   getLastSeenVersion, setLastSeenVersion,
   getGenStudioUrl, setGenStudioUrl, DEFAULT_GENSTUDIO_URL,
@@ -915,6 +917,28 @@ router.post('/app-settings/server-mode/rotate-sessions', async (_req, res) => {
     res.json(await rotateServerModeSessionSecret())
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Failed to rotate sessions'))
+  }
+})
+
+// Automation keys. The plaintext key is in this one response only. A request
+// authenticated BY a key may revoke keys but not mint new ones, so a leaked key
+// cannot plant a replacement that survives its own revocation.
+router.post('/app-settings/server-mode/automation-keys', async (req: any, res) => {
+  if (req.user?.via === 'automation_key') {
+    return res.status(403).json({ detail: 'An automation key cannot create other keys. Create it from Settings → Server Mode.' })
+  }
+  try {
+    res.status(201).json(await createServerModeAutomationKey(req.body?.label))
+  } catch (e: any) {
+    res.status(400).json(humanizeBackendError(e, 'Failed to create automation key'))
+  }
+})
+
+router.delete('/app-settings/server-mode/automation-keys/:id', async (req, res) => {
+  try {
+    res.json(await revokeServerModeAutomationKey(String(req.params.id)))
+  } catch (e: any) {
+    res.status(e?.status === 404 ? 404 : 400).json(humanizeBackendError(e, 'Failed to revoke automation key'))
   }
 })
 

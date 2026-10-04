@@ -48,11 +48,45 @@ export interface ServerModeAuth {
   login_max_attempts_per_minute: number  // default 30
 }
 
+/**
+ * An automation key (`ssk_…`) lets an agent on another Mac call the API
+ * without the owner's password. Only the SHA-256 of the key is stored; the
+ * key itself is shown once at creation. Lives in `server_mode.automation_keys`,
+ * outside `auth`, so rotating the session secret or changing the password does
+ * not revoke keys — removing the entry does.
+ */
+export interface AutomationKeyRecord {
+  id: string
+  label: string
+  hash: string                // sha256 hex of the full key
+  last4: string
+  created_at: string
+  last_used_at: string | null
+}
+
 export interface ServerModeConfig {
   enabled: boolean
   port: number                // default 8765
   bind: string                // default '0.0.0.0'
   auth?: ServerModeAuth       // absent until credentials are first set
+  automation_keys: AutomationKeyRecord[]
+}
+
+/** Well-formed key records from a raw settings value; anything else is dropped. */
+export function normalizeAutomationKeys(value: unknown): AutomationKeyRecord[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((k): k is AutomationKeyRecord =>
+    !!k && typeof k === 'object'
+    && typeof k.id === 'string' && !!k.id
+    && typeof k.hash === 'string' && /^[0-9a-f]{64}$/.test(k.hash))
+    .map((k) => ({
+      id: k.id,
+      label: typeof k.label === 'string' ? k.label : '',
+      hash: k.hash,
+      last4: typeof k.last4 === 'string' ? k.last4 : '',
+      created_at: typeof k.created_at === 'string' ? k.created_at : '',
+      last_used_at: typeof k.last_used_at === 'string' ? k.last_used_at : null,
+    }))
 }
 
 const DEFAULT_PORT = 8765
@@ -238,6 +272,7 @@ export function getServerModeConfig(): ServerModeConfig | null {
             : DEFAULT_LOGIN_MAX_ATTEMPTS_PER_MINUTE,
       }
       : undefined,
+    automation_keys: normalizeAutomationKeys(block.automation_keys),
   }
 }
 

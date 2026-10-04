@@ -20,7 +20,7 @@
 const REDACTED = '[REDACTED]'
 const activeSecrets = new Set<string>()
 
-const SENSITIVE_FIELD = /^(?:authorization|proxy-authorization|cookie|set-cookie|x-api-key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|session[_-]?secret|client[_-]?secret|password|passphrase|bot[_-]?token|hub[_-]?token|genstudio[_-]?api[_-]?key)$/i
+const SENSITIVE_FIELD = /^(?:authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-story-key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|session[_-]?secret|client[_-]?secret|password|passphrase|bot[_-]?token|hub[_-]?token|genstudio[_-]?api[_-]?key)$/i
 
 /**
  * Does this name identify a credential-bearing field?
@@ -50,7 +50,7 @@ const sensitiveNameCache = new Map<string, boolean>()
  * is a superset test: it must contain a trigger for EVERY pattern, and the equivalence test pins it
  * against the full scan on a corpus.
  */
-const PATTERN_TRIGGERS = /bearer|key|sk-|gsk_|authorization|token|secret|password|passphrase|:\/\//i
+const PATTERN_TRIGGERS = /bearer|key|sk-|gsk_|ssk_|authorization|token|secret|password|passphrase|:\/\//i
 
 /**
  * Register a runtime secret once it crosses the trusted main-process boundary.
@@ -115,6 +115,9 @@ export function redactSecrets(text: string, ...secrets: Array<string | undefined
   // though loaded keys are exact-match registered above: it protects error
   // text produced before the secrets store has been read in this process.
   out = out.replace(/\bgsk_[A-Za-z0-9._\-]{8,}/gi, REDACTED)
+  // Story Studio's own server-mode automation keys (`ssk_` + 43 base64url).
+  // The length floor keeps the `ssk_session` cookie name itself readable.
+  out = out.replace(/\bssk_[A-Za-z0-9_-]{40,}/g, REDACTED)
   // Key/value text and JSON snippets frequently appear in provider errors.
   // Preserve the field name so diagnostics remain understandable.
   out = out.replace(

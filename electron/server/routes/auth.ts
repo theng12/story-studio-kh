@@ -13,6 +13,7 @@ import { Router } from 'express'
 import {
   verifyPassword, signSession, buildSessionCookie, buildClearedSessionCookie,
   parseCookieHeader, verifySession, checkLoginRateLimit,
+  readAutomationKeyHeader, checkAutomationKey,
 } from '../lib/auth-session.js'
 import { getServerModeConfig } from '../lib/server-mode.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -91,6 +92,14 @@ router.get('/auth/me', (req, res) => {
     // In default (Electron) mode, /auth/me reports a synthetic "local"
     // user so the SPA's auth checks pass without a server-mode round-trip.
     return res.json({ username: '__local__', mode: 'local' })
+  }
+  // An agent checks its automation key here; same rules as the API gate.
+  const presented = readAutomationKeyHeader(req.headers)
+  if (presented !== undefined) {
+    const peer = req.ip || req.socket?.remoteAddress || 'unknown'
+    const result = checkAutomationKey(presented, peer, cfg.automation_keys, cfg.auth?.login_max_attempts_per_minute)
+    if (!result.ok) return res.status(result.status).json({ detail: result.detail })
+    return res.json({ username: cfg.auth?.username || '__automation__', mode: 'server', via: 'automation_key', key_label: result.key.label })
   }
   if (!cfg.auth?.session_secret) {
     return res.status(503).json({ detail: 'Server mode credentials not configured' })

@@ -241,6 +241,58 @@
           </span>
         </div>
       </fieldset>
+
+      <!-- Automation keys: an agent on another Mac uses the API without the
+           owner's password. The key is shown once, right after creation. -->
+      <fieldset class="ssm-fieldset ssm-keys">
+        <legend>
+          Automation keys
+          <span class="state-pill state-empty">{{ state.automation_keys.length }} of {{ MAX_KEYS }}</span>
+        </legend>
+        <p class="ssm-field-hint">
+          Let an agent on another Mac use this server without your password. It sends
+          <code>Authorization: Bearer ssk_…</code> and has the same access as you. Keys work only while Server Mode is running.
+        </p>
+
+        <div v-if="newKey" class="ssm-key-reveal" role="status">
+          <span class="ssm-field-label">New key for “{{ newKey.label }}”. Copy it now: it is not shown again.</span>
+          <div class="ssm-key-row">
+            <code class="ssm-key-value">{{ newKey.key }}</code>
+            <button class="btn btn-secondary btn-sm" @click="copyNewKey">{{ copied ? 'Copied' : 'Copy' }}</button>
+            <button class="btn btn-ghost btn-sm" @click="newKey = null">Done</button>
+          </div>
+          <span class="ssm-field-hint">
+            On the agent's Mac, paste it into <code>~/Library/Application Support/story-studio-kh-agent/key</code>
+            and run <code>chmod 600</code> on that file. Never paste it into a chat.
+          </span>
+        </div>
+
+        <ul v-if="state.automation_keys.length" class="ssm-key-list">
+          <li v-for="k in state.automation_keys" :key="k.id" class="ssm-key-item">
+            <span class="ssm-key-label">{{ k.label }} <code>…{{ k.last4 }}</code></span>
+            <span class="ssm-field-hint">
+              Created {{ formatWhen(k.created_at) }} · Last used {{ k.last_used_at ? formatWhen(k.last_used_at) : 'never' }}
+            </span>
+            <button class="btn btn-secondary btn-sm ssm-danger" :disabled="!!saving" @click="onRevokeKey(k)">
+              {{ saving === 'revoke-' + k.id ? 'Revoking…' : 'Revoke' }}
+            </button>
+          </li>
+        </ul>
+        <p v-else class="ssm-field-hint ssm-key-empty">No automation keys yet.</p>
+
+        <form v-if="state.automation_keys.length < MAX_KEYS" class="ssm-key-create" @submit.prevent="onCreateKey">
+          <input
+            v-model="keyLabel"
+            class="input ssm-input"
+            maxlength="60"
+            placeholder="Label, e.g. Claude on Mac Studio"
+            aria-label="Key label"
+          >
+          <button class="btn btn-primary btn-sm" type="submit" :disabled="!!saving || !keyLabel.trim()">
+            {{ saving === 'create-key' ? 'Creating…' : 'Create Key' }}
+          </button>
+        </form>
+      </fieldset>
       </div>
 
       <div v-if="message" :class="['ssm-message', message.kind]">{{ message.text }}</div>
@@ -260,14 +312,25 @@ interface ServerModeView {
   username: string | null
   session_ttl_hours: number
   login_max_attempts_per_minute: number
+  automation_keys: AutomationKey[]
 }
 
-const { get, put, post } = useApi()
+interface AutomationKey {
+  id: string
+  label: string
+  last4: string
+  created_at: string
+  last_used_at: string | null
+}
+
+const MAX_KEYS = 5
+
+const { get, put, post, del } = useApi()
 const { ask } = useConfirm()
 
 const state = ref<ServerModeView | null>(null)
 const loading = ref(false)
-const saving = ref<'' | 'networking' | 'credentials' | 'rotate' | 'disable' | 'rate-limit'>('')
+const saving = ref<string>('')
 const message = ref<{ kind: 'ok' | 'err'; text: string } | null>(null)
 
 const form = reactive({ port: 8765, bind: '0.0.0.0' })
@@ -508,6 +571,63 @@ async function onRotateSessions() {
   }
 }
 
+const keyLabel = ref('')
+const newKey = ref<{ label: string; key: string } | null>(null)
+const copied = ref(false)
+
+function formatWhen(iso: string): string {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+}
+
+async function onCreateKey() {
+  const label = keyLabel.value.trim()
+  if (!label || saving.value) return
+  saving.value = 'create-key'
+  message.value = null
+  try {
+    const r = await post<{ key: string; view: ServerModeView }>('/app-settings/server-mode/automation-keys', { label })
+    state.value = r.view
+    newKey.value = { label, key: r.key }
+    copied.value = false
+    keyLabel.value = ''
+  } catch (e: any) {
+    message.value = { kind: 'err', text: e?.data?.detail || 'Could not create the key' }
+  } finally {
+    saving.value = ''
+  }
+}
+
+async function copyNewKey() {
+  if (!newKey.value) return
+  try {
+    await navigator.clipboard.writeText(newKey.value.key)
+    copied.value = true
+  } catch {
+    message.value = { kind: 'err', text: 'Copy failed. Select the key and copy it by hand.' }
+  }
+}
+
+async function onRevokeKey(k: AutomationKey) {
+  if (saving.value) return
+  if (!await ask({
+    title: `Revoke “${k.label}”?`,
+    message: 'Anything using this key loses access on its next request. This cannot be undone; create a new key if it is needed again.',
+    confirmLabel: 'Revoke Key',
+    danger: true,
+  })) return
+  saving.value = 'revoke-' + k.id
+  message.value = null
+  try {
+    state.value = await del<ServerModeView>(`/app-settings/server-mode/automation-keys/${encodeURIComponent(k.id)}`)
+    message.value = { kind: 'ok', text: `Revoked “${k.label}”.` }
+  } catch (e: any) {
+    message.value = { kind: 'err', text: e?.data?.detail || 'Could not revoke the key' }
+  } finally {
+    saving.value = ''
+  }
+}
+
 onMounted(load)
 onMounted(loadDiag)
 
@@ -646,6 +766,47 @@ defineExpose({ reload: load })
 .ssm-diag-value code { padding: 2px 5px; border-radius: 3px; background: var(--bg-tertiary); font-size: var(--font-xs); }
 .ssm-diag-refresh { display: flex; align-items: baseline; gap: 9px; margin-top: 8px; flex-wrap: wrap; }
 
+.ssm-keys { grid-column: 1 / -1; }
+.ssm-keys > .ssm-field-hint { display: block; margin: 2px 0 0; }
+.ssm-key-reveal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent-dim);
+}
+.ssm-key-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.ssm-key-value {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 7px;
+  overflow-wrap: anywhere;
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--font-xs);
+  user-select: all;
+}
+.ssm-key-list { margin: 8px 0 0; padding: 0; list-style: none; }
+.ssm-key-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+.ssm-key-item:first-child { border-top: none; }
+.ssm-key-label { min-width: 0; overflow: hidden; color: var(--text-primary); font-size: var(--font-xs); text-overflow: ellipsis; white-space: nowrap; }
+.ssm-key-label code { color: var(--text-muted); }
+.ssm-key-empty { display: block; margin-top: 8px; }
+.ssm-key-create { display: flex; gap: 7px; margin-top: 8px; }
+.ssm-key-create .ssm-input { flex: 1; max-width: 360px; min-width: 0; }
+.ssm-danger { color: #dc2626; }
+
 @container server-mode-settings (max-width: 820px) {
   .ssm-config-grid { grid-template-columns: 1fr; }
   .ssm-fieldset:nth-child(3) { grid-column: auto; }
@@ -658,6 +819,8 @@ defineExpose({ reload: load })
   .ssm-buttons { align-items: stretch; flex-direction: column; }
   .ssm-buttons .btn { width: 100%; }
   .ssm-input-narrow { max-width: none; }
+  .ssm-key-item { grid-template-columns: minmax(0, 1fr) auto; }
+  .ssm-key-item .ssm-field-hint { grid-column: 1 / -1; grid-row: 2; }
 }
 /* Technical detail stays one click away. */
 .ssm-details summary { cursor: pointer; color: var(--text-muted); font-size: var(--font-xs); }

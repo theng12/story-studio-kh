@@ -150,6 +150,38 @@ If you absolutely can't mirror layouts (different usernames on the two Macs, sep
 
 Open **Settings → Server Mode** on the connected browser. The **Server Status** card shows what bind+port the mini is listening on, current uptime, whether credentials are configured, the session TTL, and the platform / Node version. Useful for confirming the daemon is alive and answering before troubleshooting connectivity issues elsewhere.
 
+### Automation keys (an AI agent on another Mac)
+
+An agent drives the server with its own key instead of your password.
+
+1. **Create the key.** **Settings → Server Mode → Automation keys**, type a label (e.g. `Claude on Mac Studio`), click **Create Key**. The key (`ssk_…`) is shown **once**; copy it before closing the box. Up to 5 keys.
+2. **Put it on the agent's Mac yourself** — never paste it into a chat with the agent:
+
+   ```bash
+   mkdir -p ~/Library/Application\ Support/story-studio-kh-agent
+   pbpaste > ~/Library/Application\ Support/story-studio-kh-agent/key
+   chmod 600 ~/Library/Application\ Support/story-studio-kh-agent/key
+   ```
+
+3. **The agent reads the file per call:**
+
+   ```bash
+   KEY_FILE="$HOME/Library/Application Support/story-studio-kh-agent/key"
+   curl -H "Authorization: Bearer $(cat "$KEY_FILE")" http://mac-mini:8765/api/auth/me
+   # → {"username":"…","mode":"server","via":"automation_key","key_label":"Claude on Mac Studio"}
+   curl -H "Authorization: Bearer $(cat "$KEY_FILE")" http://mac-mini:8765/api/projects
+   ```
+
+   `X-Story-Key: <key>` works too. `/api/health` needs no key; `/api/auth/me` is the one to check that the key works.
+
+How it behaves:
+- A key has the same access as your signed-in browser, except it cannot create more keys (it can revoke them).
+- **Revoke** in the same list takes effect on the next request. **Sign Out Everywhere** and **Change Password** do not revoke keys; `npm run reset-server-auth` does not either.
+- A wrong, malformed or revoked key gets 401 and counts toward the same per-computer limit as password sign-ins; over the limit the answer is 429 for a minute, even for a valid key.
+- Keys work only in server mode. In desktop mode the header is ignored.
+- Only a SHA-256 of the key is stored (`server_mode.automation_keys` in `app-settings.json`); a 256-bit random key needs no slow hash. Logs show the label and the last four characters only.
+- **Last used** updates at most every 10 minutes. `server-mode-key-audit.jsonl` beside `app-settings.json` gets one line per create/revoke and, per key in use, at most one line per 10 minutes with the number of calls since the previous line.
+
 ---
 
 ## Walking up to the mini directly
@@ -208,6 +240,7 @@ Three ways, in order of convenience:
 - **Single shared credential.** This is a personal-use design — one username + password. There's no multi-user support.
 - **Cookie is HttpOnly + SameSite=Lax**, but **not** marked `Secure` (would refuse to set over plain HTTP). XSS on the SPA can't read the cookie via `document.cookie`; the SPA itself is the same trust boundary as the user.
 - **Rate limit on login**: 5 attempts / 60s per peer IP. Restart resets the counter.
+- **Automation keys** carry your full access (see above). Treat the key file like a password; revoke a key you no longer use.
 - **Session TTL**: 7 days by default. Click **Sign Out Everywhere** in Settings to rotate the session secret and invalidate every active browser session immediately.
 
 ---
