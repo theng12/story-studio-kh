@@ -52,7 +52,7 @@ export function seamPauseRule(wanted: { paragraph?: number | null; sentence?: nu
 const SENTENCE_ENDINGS = new Set(SENTENCE_END_CHARS)
 const TRAILING_CLOSERS = new Set('"\'”’»）】〕〉')
 const SILENCE_DB = -50
-const EDGE_FADE_S = 0.005
+export const EDGE_FADE_S = 0.005
 const TRUE_PEAK_CEILING_DB = -1
 const BITRATE = '96k'
 

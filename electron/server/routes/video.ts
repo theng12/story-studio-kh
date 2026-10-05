@@ -1460,45 +1460,51 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
     })
   }
 
-  const { getApiKey } = await import('../services/app-secrets-store.js')
-  const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey.trim()) {
-    return res.status(400).json({
-      detail: 'Transcription is not configured. Add an API key in Settings → This Mac → API Keys.',
-    })
-  }
-  let models
-  try {
-    models = await listGenStudioTranscriptionModels(apiKey)
-  } catch {
-    return res.status(502).json({ detail: 'Could not load transcription models. Check the Gateway app is running, then try again.' })
-  }
-  const requestedModel = typeof req.body?.model === 'string' ? req.body.model.trim() : ''
-  const migratedModel = resolveGenStudioModelId('transcription', requestedModel)
-  if (!migratedModel) {
-    return res.status(409).json({ detail: unavailableLegacyModelMessage('transcription', requestedModel || '(none)') })
-  }
-  const selectedModel = models.find(model => model.id === migratedModel)
-  if (!selectedModel) {
-    return res.status(400).json({
-      detail: requestedModel
-        ? 'The selected transcription model is no longer available.'
-        : 'No transcription model is available right now.',
-    })
-  }
-  if (!selectedModel.available) {
-    return res.status(503).json({
-      detail: 'The selected transcription model is temporarily unavailable.',
-    })
-  }
-  if (selectedModel.locked) {
-    return res.status(409).json({ detail: 'The selected transcription model is locked for this Gateway account. Choose an unlocked model.' })
-  }
+  // Script-timed subtitles (2026-10-05) time our own script: no model, key or charge.
+  const scriptTimed = req.body?.method === 'script'
   const requestedLanguage = typeof req.body?.language === 'string' ? req.body.language : undefined
-  try {
-    resolveTranscriptionLanguage(selectedModel, requestedLanguage)
-  } catch (error: any) {
-    return res.status(400).json({ detail: error?.message || 'Select a published transcription language before continuing.' })
+  let selectedModelId: string | undefined
+  if (!scriptTimed) {
+    const { getApiKey } = await import('../services/app-secrets-store.js')
+    const apiKey = await getApiKey('genstudio').catch(() => '')
+    if (!apiKey.trim()) {
+      return res.status(400).json({
+        detail: 'Transcription is not configured. Add an API key in Settings → This Mac → API Keys.',
+      })
+    }
+    let models
+    try {
+      models = await listGenStudioTranscriptionModels(apiKey)
+    } catch {
+      return res.status(502).json({ detail: 'Could not load transcription models. Check the Gateway app is running, then try again.' })
+    }
+    const requestedModel = typeof req.body?.model === 'string' ? req.body.model.trim() : ''
+    const migratedModel = resolveGenStudioModelId('transcription', requestedModel)
+    if (!migratedModel) {
+      return res.status(409).json({ detail: unavailableLegacyModelMessage('transcription', requestedModel || '(none)') })
+    }
+    const selectedModel = models.find(model => model.id === migratedModel)
+    if (!selectedModel) {
+      return res.status(400).json({
+        detail: requestedModel
+          ? 'The selected transcription model is no longer available.'
+          : 'No transcription model is available right now.',
+      })
+    }
+    if (!selectedModel.available) {
+      return res.status(503).json({
+        detail: 'The selected transcription model is temporarily unavailable.',
+      })
+    }
+    if (selectedModel.locked) {
+      return res.status(409).json({ detail: 'The selected transcription model is locked for this Gateway account. Choose an unlocked model.' })
+    }
+    try {
+      resolveTranscriptionLanguage(selectedModel, requestedLanguage)
+    } catch (error: any) {
+      return res.status(400).json({ detail: error?.message || 'Select a published transcription language before continuing.' })
+    }
+    selectedModelId = selectedModel.id
   }
   const deliberateFresh = req.body?.force === true
   let operationId: string | null
@@ -1510,10 +1516,11 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
   const params = {
     episode_id: episodeId,
     language: requestedLanguage,
-    model: selectedModel.id,
+    model: selectedModelId,
     audio_path: req.body?.audio_path,
     force: deliberateFresh,
-    per_chapter: req.body?.per_chapter === true,
+    per_chapter: req.body?.per_chapter === true || scriptTimed,
+    ...(scriptTimed ? { method: 'script' as const } : req.body?.method === 'transcribe' ? { method: 'transcribe' as const } : {}),
     sections: Array.isArray(req.body?.sections)
       ? (req.body.sections as unknown[]).filter((s): s is string => typeof s === 'string' && s.trim() !== '')
       : undefined,
