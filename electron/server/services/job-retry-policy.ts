@@ -1,4 +1,5 @@
 import type { Job, JobType } from '../models/types.js'
+import { isFreeFleetModelId } from '../contracts/provider-task-state.js'
 
 export interface JobAutoRetryPolicy {
   eligible: boolean
@@ -122,8 +123,14 @@ export function resolveJobAutoRetryPolicy(
   }
 
   if (job.type === 'audio') {
-    return isLocalAudioModel(value(params, 'model'))
-      ? localPolicy('Local TTS preserves completed section audio files.')
+    const model = value(params, 'model')
+    if (isLocalAudioModel(model)) return localPolicy('Local TTS preserves completed section audio files.')
+    // The owner's own Studio Hub fleet (`studio-hub::`) costs nothing to ask again, and a failed
+    // part there is usually the Mac (a slow M1 past its deadline) or Whisper mishearing a short
+    // section, not the text (Breeze night-atlas, 2026-10-05: 6 episodes left with one failed part).
+    // Each retry submits only the parts still missing on disk, under a fresh request identity.
+    return isFreeFleetModelId(model)
+      ? localPolicy('Free narration on your own Macs costs nothing to repeat; a retry submits only the missing parts.')
       : MANUAL_ONLY
   }
 

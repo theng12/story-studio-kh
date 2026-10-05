@@ -2,6 +2,7 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { JobType } from '../models/types.js'
 import { resolveJobAutoRetryPolicy } from '../services/job-retry-policy.js'
+import { terminalRetryIdentity } from '../generators/audio.js'
 
 function policy(type: JobType, params: Record<string, any> = {}) {
   return resolveJobAutoRetryPolicy({ type, params })
@@ -26,6 +27,27 @@ describe('local auto-retry policy', () => {
     assert.equal(policy('audio', { model: 'macos-say' }).eligible, true)
     assert.equal(policy('audio', { model: 'fishaudio-s2-pro' }).eligible, false)
     assert.equal(policy('audio', { model: 'kie-elevenlabs' }).eligible, false)
+  })
+
+  test('retries free fleet TTS parts twice, then manual; paid Gateway voices stay manual', () => {
+    // Breeze night-atlas 2026-10-05: 6 episodes were left with one failed free part.
+    const fleet = policy('audio', { model: 'studio-hub::mlx-community/Breeze-TTS-2-mlx-4bit' })
+    assert.equal(fleet.eligible, true)
+    assert.equal(fleet.max_attempts, 3)
+    assert.match(fleet.reason, /only the missing parts/)
+    assert.equal(policy('audio', { model: 'studio-hub-9701220bf30f::breeze' }).eligible, true)
+    assert.equal(policy('audio', { model: 'genstudio::paid-voice' }).eligible, false)
+    assert.equal(policy('audio', { model: 'elevenlabs::eleven_v3' }).eligible, false)
+    assert.equal(policy('audio', { model: 'studio-hub::breeze', auto_retry: false }).eligible, false)
+  })
+
+  test('each automatic retry of a failed part asks the Gateway under a fresh identity', () => {
+    const base = 'proj:EP01:audio:TN_Chapter_01.mp3'
+    // Attempt 1 keeps the identity a manual Retry has always used.
+    assert.equal(terminalRetryIdentity(base, 'job-42'), `${base}:manual-retry:job-42`)
+    assert.equal(terminalRetryIdentity(base, 'job-42', 1), `${base}:manual-retry:job-42`)
+    const keys = new Set([1, 2, 3].map(attempt => terminalRetryIdentity(base, 'job-42', attempt)))
+    assert.equal(keys.size, 3, 'a repeated key would replay the same failed Gateway job')
   })
 
   test('retries local image generation but not image APIs', () => {

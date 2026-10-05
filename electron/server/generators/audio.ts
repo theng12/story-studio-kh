@@ -82,6 +82,16 @@ export function resolveAudioProvider(
 }
 
 /**
+ * The request identity a part gets after its saved Gateway job failed for good. A manual Retry is a
+ * new Story job, so its id makes it fresh; an automatic retry of free fleet TTS (`job-retry-policy`)
+ * is the same Story job, so each attempt adds its number - the Gateway answers a repeated
+ * idempotency key with the same failed job, which would make the retry a no-op.
+ */
+export function terminalRetryIdentity(requestIdentity: string, jobId: string, attempt = 1): string {
+  return `${requestIdentity}:manual-retry:${jobId}${attempt > 1 ? `:auto-${attempt}` : ''}`
+}
+
+/**
  * Local `last_state` values that mean the saved GenStudio TTS job can never
  * yield audio again. There is no `cancelled` JobState — cancellation arrives
  * as a boolean and is normalised into `failed` before it reaches the manifest.
@@ -1167,11 +1177,11 @@ export async function generateAudio(job: Job): Promise<void> {
     // Explicit Regenerate/New version work owns the current Story job's fresh
     // identity and must never adopt a successful task from an older run.
     // Ordinary retries retain unfinished accepted work; terminal provider
-    // failures receive a separate manual-retry identity.
+    // failures receive a separate retry identity (`terminalRetryIdentity`).
     let submissionIdentity = explicitRegeneration
       ? `${requestIdentity}:regenerate:${generationActionId || job.job_id}`
       : terminalFailure
-      ? `${requestIdentity}:manual-retry:${job.job_id}`
+      ? terminalRetryIdentity(requestIdentity, job.job_id, job.auto_retry?.attempt)
       : requestIdentity
     // Only the first attempt may reclaim work a previous run left accepted.
     // Either format: the owner may have flipped "smaller files" since this request was made.
