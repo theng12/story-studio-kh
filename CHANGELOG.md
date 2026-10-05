@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.254 — 2026-10-05
+
+- **Narration pieces that fail on the fleet are retried automatically (twice), so episodes finish on their own.**
+- **Subtitles can be made straight from your script, timed exactly to the narration — Khmer uses this automatically;
+  any channel can choose 'Script-timed' on the Subtitles page (fast, exact words, no transcription needed). Exact
+  timing needs Studio Hub 0.6.146+; older narration is timed per piece.**
+
+---
+
 ## v1.4.253 — 2026-10-05
 
 - **Server mode: automation keys — an AI helper on another Mac can work with this Story Studio over Tailscale using a
