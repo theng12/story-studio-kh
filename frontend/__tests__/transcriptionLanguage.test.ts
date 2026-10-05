@@ -189,7 +189,7 @@ test("no 'en' is baked into a type, a schema, or a non-overridable path", () => 
 
 test('the choice round-trips through the subtitles preset', () => {
   const page = source('../pages/projects/[slug]/subtitles.vue')
-  assert.match(page, /usePresets<\{ model\?: string; language\?: string; force\?: boolean \}>/)
+  assert.match(page, /usePresets<\{ model\?: string; language\?: string; force\?: boolean; method\?: 'script' \}>/)
   assert.match(page, /snapshot: \(\) => \(\{ model: genstudioModel\.value, language: language\.value/)
   assert.match(page, /if \(typeof d\?\.language === 'string' && d\.language\) language\.value = d\.language/)
   assert.deepEqual(transcriptionLanguageRequestFields(AUTO_DETECT_LANGUAGE, PUBLISHED), {})

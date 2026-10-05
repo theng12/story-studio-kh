@@ -45,6 +45,7 @@ import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
 import { fileExistsWithContent, isTransportFailure } from '../lib/http-retry.js'
 import { recordTask, recordTaskStrict, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
+import { recordSectionTimeline } from '../services/script-subtitles.js'
 import { checkpointGenStudioAsset, type GenStudioRecoveryState } from '../services/genstudio-recovery.js'
 import { unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
@@ -766,6 +767,8 @@ export async function generateAudio(job: Job): Promise<void> {
    * one failed on every try (Hub 0.6.137 section check). Shown on Audio.
    */
   const sectionQuality: Record<string, ChapterSectionQuality> = {}
+  /** The last finished request's raw `section_quality` per audio file (its section timeline). */
+  const sectionQualityByFile = new Map<string, unknown>()
   const publishSectionQuality = () => { job.result = { ...job.result, section_quality: { ...sectionQuality } } }
   function noteSectionQuality(chapter: string, raw: unknown): void {
     const part = summarizeSectionQuality(raw)
@@ -949,6 +952,7 @@ export async function generateAudio(job: Job): Promise<void> {
       chunkFilename, effectiveVoice, submissionIdentity,
       inputHash, recoveryEntry, announceRecoveryFromTerminal,
     } = options
+    sectionQualityByFile.delete(chunkFilename)
     {
       const prepared = buildGenStudioSubmission({
         text: task.chunkText,
@@ -1043,7 +1047,10 @@ export async function generateAudio(job: Job): Promise<void> {
         signal: controller.signal,
         isCancelled,
         onProgress: makeChunkCb(),
-        onSectionQuality: (raw: unknown) => noteSectionQuality(task.sectionSlug, raw),
+        onSectionQuality: (raw: unknown) => {
+          noteSectionQuality(task.sectionSlug, raw)
+          sectionQualityByFile.set(chunkFilename, raw)
+        },
         onJobAccepted: async (providerJobId: string, acceptedIdempotencyKey: string) => {
           acceptedKey = acceptedIdempotencyKey
           await recordTaskStrict(audioDir, chunkFilename, {
@@ -1210,6 +1217,9 @@ export async function generateAudio(job: Job): Promise<void> {
           })
           completedTasks++
           writtenChunkPaths.add(task.outputPath)
+          // The Hub's section timeline for these bytes: script-timed subtitles are timed by it.
+          await recordSectionTimeline(audioDir, chunkFilename, task.chunkText, sectionQualityByFile.get(chunkFilename))
+            .catch((error: any) => job.output_lines.push(`  Section timing for ${chunkFilename} was not kept (${error?.message || error}); its subtitles will be timed over the whole part.`))
           return
         } catch (e: any) {
           if (isGenStudioInsufficientCredits(e)) throw e
@@ -1789,6 +1799,9 @@ export async function queueSubtitlesAfterNarration(job: Job, sectionSlugs: strin
     .filter(other => other.type === 'subtitles_transcribe' && other.status === 'done' && typeof other.params?.model === 'string')
     .sort((a, b) => String(b.finished_at || '').localeCompare(String(a.finished_at || '')))[0]
   const model = sectionSlugs.map(slug => used[`${code}_${slug}.srt`]).find(Boolean) || lastRun?.params.model
+  // Script-timed subtitles are made again the same way: no transcription model (2026-10-05).
+  const { SCRIPT_TIMED } = await import('../services/script-subtitles.js')
+  const scriptTimed = typeof model === 'string' && model.startsWith(SCRIPT_TIMED)
   if (!model) {
     job.output_lines.push(`New subtitles were not started: no earlier transcription model is on record. Make ${label} subtitles on the Subtitles page.`)
     return
@@ -1803,7 +1816,7 @@ export async function queueSubtitlesAfterNarration(job: Job, sectionSlugs: strin
     episode_id,
     title: `Subtitles after re-narration (${label})`,
     params: {
-      episode_id, model, engine: 'genstudio', per_chapter: true, force: false, sections: sectionSlugs,
+      episode_id, ...(scriptTimed ? { method: 'script' } : { model }), engine: 'genstudio', per_chapter: true, force: false, sections: sectionSlugs,
       ...(typeof lastRun?.params.language === 'string' ? { language: lastRun.params.language } : {}),
     },
   })

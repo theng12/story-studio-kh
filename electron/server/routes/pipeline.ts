@@ -1266,6 +1266,7 @@ export function resolveStepParams(
       ...(typeof data.language === 'string' && data.language.trim()
         ? { language: data.language.trim() }
         : {}),
+      ...(data.method === 'script' ? { method: 'script' } : {}),
       force: data.force === true,
     }
   }
@@ -1347,8 +1348,10 @@ export function resolveStepParams(
  */
 async function resolvePipelineTranscriptionParams(
   preset: StoredPreset,
-): Promise<{ model: string; language?: string }> {
+): Promise<{ model?: string; language?: string; method?: 'script' }> {
   const params = resolveStepParams('subtitles', '', '', preset)
+  // Script-timed subtitles use no transcription model (2026-10-05).
+  if (params.method === 'script') return { method: 'script' }
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey.trim()) {
     throw new Error('Transcription is not configured. Add an API key in Settings → This Mac → API Keys.')
@@ -1982,7 +1985,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
   // plain reason. `introduction-only` reads `preflight.introductionChatModel` /
   // `preflight.scriptSideChatModel` — the owner's own choices — and nothing else.
 
-  let pipelineTranscriptionParams: { model: string; language?: string } | null = null
+  let pipelineTranscriptionParams: Awaited<ReturnType<typeof resolvePipelineTranscriptionParams>> | null = null
   if (presetByStep.subtitles) {
     try {
       pipelineTranscriptionParams = await resolvePipelineTranscriptionParams(presetByStep.subtitles)

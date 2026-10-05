@@ -248,7 +248,17 @@
         title="Transcription settings"
         description="Current chapter subtitles are preserved. Transcription updates only missing or outdated sections unless you choose to re-run them all."
       >
-        <div class="mt-2">
+        <div class="form-group mt-2">
+          <label for="sub-method">How subtitles are made</label>
+          <select id="sub-method" v-model="subtitleMethod" class="input">
+            <option value="">Transcribe the audio (Khmer is always script-timed)</option>
+            <option value="script">Script-timed (fast, exact text)</option>
+          </select>
+          <small class="text-muted">
+            Script-timed shows the script's own words, timed by the narration's sections — no transcription model and nothing charged.
+          </small>
+        </div>
+        <div v-if="subtitleMethod !== 'script'" class="mt-2">
           <div v-if="genstudioModelsLoading" class="text-muted text-sm">
             <LoadingSpinner size="sm" /> Loading transcription models…
           </div>
@@ -602,6 +612,8 @@ const loading = ref(false)
 const statusError = ref('')
 
 const force = ref(false)
+/** '' = transcribe (Khmer script-timed automatically), 'script' = script-timed (2026-10-05). */
+const subtitleMethod = ref<'' | 'script'>('')
 const transcribing = ref(false)
 /**
  * The chosen spoken language, or published auto-detect.
@@ -841,6 +853,7 @@ const canTranscribe = computed(() => {
   if (status.value?.freshness_unavailable) return false
   if (subtitleSelectionUnavailable.value) return false
   if (transcribing.value || transcribeJobActive.value) return false
+  if (subtitleMethod.value === 'script') return true
   return genstudioModelReady.value && isTranscriptionLanguageUsable(language.value, genstudioSelectedModel.value)
 })
 const transcribeDisabledReason = computed(() => {
@@ -852,6 +865,7 @@ const transcribeDisabledReason = computed(() => {
   if (!status.value?.audio_assembly_ready) return 'Run Audio Assembly before transcription'
   if (status.value?.freshness_unavailable) return 'Subtitle source freshness is unavailable. Refresh status before transcribing.'
   if (subtitleSelectionUnavailable.value) return 'Selected chapters could not be verified. Refresh status or clear the selection.'
+  if (subtitleMethod.value === 'script') return ''
   if (genstudioModelsLoading.value) return 'Loading transcription models'
   if (genstudioModelsError.value) return genstudioModelsError.value
   if (!genstudioModel.value) return 'No transcription model is available'
@@ -999,6 +1013,15 @@ async function stitchSubtitles(): Promise<void> {
 
 function subtitleRequestPayload(sectionSlug?: string): Record<string, any> {
   const selected = sectionSlug ? [sectionSlug] : selectedSubtitleIds.value
+  if (subtitleMethod.value === 'script') {
+    return {
+      per_chapter: true,
+      engine: 'genstudio',
+      method: 'script',
+      force: selected.length ? true : force.value,
+      ...(selected.length ? { sections: selected } : {}),
+    }
+  }
   return {
     per_chapter: true,
     engine: 'genstudio',
@@ -1015,7 +1038,7 @@ function subtitleActionTarget(sectionSlug?: string): string {
 
 function subtitleActionLabel(sectionSlug: string | null, label: string): string {
   // Disabled buttons still render while the catalogue is loading or unavailable.
-  if (!isTranscriptionLanguageUsable(language.value, genstudioSelectedModel.value)) return label
+  if (subtitleMethod.value !== 'script' && !isTranscriptionLanguageUsable(language.value, genstudioSelectedModel.value)) return label
   const payload = subtitleRequestPayload(sectionSlug || undefined)
   return payload.force && freshSubtitleAction.isRetry(payload, subtitleActionTarget(sectionSlug || undefined)) ? 'Retry (same request)' : label
 }
@@ -1148,11 +1171,13 @@ async function deleteSrt(filename: string): Promise<void> {
 // same pattern as the other generator tabs — so the user's pick persists and
 // is shareable, instead of a hidden per-machine localStorage value. Distinct
 // configKey from Video Assembly's 'subtitles' (subtitle-STYLE) presets.
-const subtitlesPresets = usePresets<{ model?: string; language?: string; force?: boolean }>({
+const subtitlesPresets = usePresets<{ model?: string; language?: string; force?: boolean; method?: 'script' }>({
   slug: slug.value,
   configKey: 'subtitles_generator',
-  snapshot: () => ({ model: genstudioModel.value, language: language.value, force: force.value }),
+  snapshot: () => ({ model: genstudioModel.value, language: language.value, force: force.value,
+    ...(subtitleMethod.value === 'script' ? { method: 'script' as const } : {}) }),
   apply: (d) => {
+    subtitleMethod.value = d?.method === 'script' ? 'script' : ''
     if (typeof d?.model === 'string' && d.model) genstudioModel.value = d.model
     // The language choice round-trips as-is, including the auto-detect
     // sentinel, so "let the model decide" survives a reload as a decision

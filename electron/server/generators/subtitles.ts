@@ -103,6 +103,19 @@ export interface TranscribeSubtitlesRequest {
   subtitle_purchase?: { additional_credit_ceiling: number }
   /** New work uses the current live transcription catalog. */
   engine?: 'genstudio' | 'openai' | 'voicestudio'
+  /**
+   * 2026-10-05 — 'script' times the script we wrote against the narration's
+   * known section timeline (no speech recognition, nothing charged);
+   * 'transcribe' is the Whisper path. Absent: Khmer (which no transcriber
+   * reads) is script-timed, everything else transcribed.
+   */
+  method?: 'script' | 'transcribe'
+}
+
+/** Whisper cannot read Khmer (GATE.md), so a Khmer episode is script-timed unless asked otherwise. */
+export function resolveSubtitleMethod(req: Pick<TranscribeSubtitlesRequest, 'method' | 'language'>, scriptText: string): 'script' | 'transcribe' {
+  if (req.method === 'script' || req.method === 'transcribe') return req.method
+  return req.language?.toLowerCase().startsWith('km') || /[\u1780-\u17ff]/.test(scriptText) ? 'script' : 'transcribe'
 }
 
 /**
@@ -446,7 +459,7 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
   // v1.0.216+ — Per-chapter mode (audio-paced pipeline). Routed before the
   // merged-audio path: transcribe each chapter's clean narration into
   // {code}_{slug}.srt for Scene Plan's stitcher to consume.
-  if (req.per_chapter) {
+  if (req.per_chapter || req.method === 'script') {
     return await transcribePerChapter(job, project_slug, episode_id, req)
   }
 
@@ -648,7 +661,19 @@ async function transcribePerChapter(
   const config = await pm.getConfig(projectSlug)
   if (!config) throw new Error('Project not found')
 
-  const genstudio = await resolveGenStudioTranscription(job, req)
+  // The script, as narrated: script-timed subtitles are made from it, and its
+  // language picks the method when none was asked for.
+  const { findNarrationFile } = await import('./audio.js')
+  const { parseNarrationDocx } = await import('../lib/docx-parser.js')
+  const narration = await findNarrationFile(projectSlug, code)
+    .then(file => parseNarrationDocx(file))
+    .catch(() => [] as Awaited<ReturnType<typeof parseNarrationDocx>>)
+  const method = resolveSubtitleMethod(req, narration.map(section => section.text).join('\n'))
+  const genstudio = method === 'script' ? null : await resolveGenStudioTranscription(job, req)
+  if (method === 'script') {
+    if (!narration.length) throw new Error('Script-timed subtitles need the narration script, and none was found for this episode. Write or restore the script, or choose Transcribe.')
+    job.output_lines.push('Method: script-timed — the script\'s own words, timed by the narration\'s sections (no transcription, nothing charged).')
+  }
   // Subtitles are timed to the chapter file: join complete split chapters
   // first so captions are made once, for the file Audio Assembly will use.
   if (!req.pipeline_repair) {
@@ -771,14 +796,50 @@ async function transcribePerChapter(
   const failures: Array<{ slug: string; error: string }> = []
 
   const { resolveGenStudioLocalFanout } = await import('../lib/genstudio-runtime.js')
-  const admission = await refreshGenStudioAdmission(genstudio.apiKey)
-  const concurrency = resolveGenStudioLocalFanout(
-    sections.length,
-    admission.burst_concurrency_ceiling,
-  )
+  const concurrency = genstudio
+    ? resolveGenStudioLocalFanout(sections.length, (await refreshGenStudioAdmission(genstudio.apiKey)).burst_concurrency_ceiling)
+    : 1
   job.output_lines.push(
-    `Transcribing ${sections.length} chapter(s)…`,
+    `${genstudio ? 'Transcribing' : 'Timing'} ${sections.length} chapter(s)…`,
   )
+
+  // Script-timed: the chapter's script on the narration's own timeline.
+  const scriptTiming = genstudio ? null : await (async () => {
+    const { loadPartTexts } = await import('../services/chapter-parts.js')
+    const { normalizeForTts } = await import('../lib/tts-text.js')
+    const planned = await loadPartTexts(projectSlug, code, episodePaths.episode_dir).catch(() => new Map())
+    return { planned, normalizeForTts }
+  })()
+  let proportionalChapters = 0
+  async function scriptTimeSection(sec: ChapterAudioSource, outPath: string): Promise<void> {
+    const { scriptTimedChapter, SCRIPT_TIMED } = await import('../services/script-subtitles.js')
+    const { cuesToSrt } = await import('../lib/script-timed-cues.js')
+    const key = sec.slug.toLowerCase()
+    const script = narration.find(section => section.slug.toLowerCase() === key)
+    if (!script) throw new Error(`the script has no ${sec.slug.replaceAll('_', ' ')}`)
+    const planned = [...scriptTiming!.planned.entries()].find(([slug]) => slug.toLowerCase() === key)?.[1]
+    const chapter = await scriptTimedChapter({
+      audioDir, code, slug: sec.slug, files: sec.files, scriptText: script.text,
+      spokenText: planned?.sectionText ?? scriptTiming!.normalizeForTts(script.text).text,
+      partTexts: planned?.parts,
+    })
+    const sourceAudioHash = await hashSubtitleAudioSources(sec.files.map(file => path.join(audioDir, file)))
+    if (!sourceAudioHash) throw new Error(`Could not fingerprint active audio for ${sec.slug}`)
+    if (!chapter.cues.length) {
+      failures.push({ slug: sec.slug, error: 'the script gave no cues for this chapter' })
+      job.output_lines.push(`  ⚠ ${sec.slug}: no cues — skipped`)
+      return
+    }
+    await fs.writeFile(outPath, cuesToSrt(chapter.cues), 'utf-8')
+    const exact = chapter.timing === 'sections'
+    await recordSubtitleSourceEvidence(outDir, path.basename(outPath), sourceAudioHash, exact ? SCRIPT_TIMED : `${SCRIPT_TIMED}:proportional`)
+    if (!exact) proportionalChapters++
+    totalCues += chapter.cues.length
+    generatedSections += 1
+    job.output_lines.push(`  ✓ ${sec.slug}: ${chapter.cues.length} cues → ${path.basename(outPath)}` + (exact
+      ? ' (timed by the narration\'s sections)'
+      : ' (no section timing for this audio — timed over each part\'s whole speech; re-narrating this chapter makes it exact)'))
+  }
 
   // One chapter's transcription. (The old loop's `continue`s become `return`s.)
   async function transcribeSection(sec: ChapterAudioSource): Promise<void> {
@@ -786,6 +847,11 @@ async function transcribePerChapter(
     const repairSection = repairSections.has(sec.slug.toLowerCase())
     if (!force && !repairSection && !staleSections.has(sec.slug.toLowerCase()) && await fileExistsWithContent(outPath)) {
       job.output_lines.push(`Skipping ${sec.slug} — SRT already exists. Tick "Re-run" to overwrite.`)
+      done++; job.progress = Math.round((done / sections.length) * 100)
+      return
+    }
+    if (!genstudio) {
+      await scriptTimeSection(sec, outPath)
       done++; job.progress = Math.round((done / sections.length) * 100)
       return
     }
@@ -962,6 +1028,8 @@ async function transcribePerChapter(
     ready_sections: readySections.length,
     generated_sections: generatedSections,
     new_cues: totalCues,
+    subtitle_method: genstudio ? 'transcribe' : 'script',
+    ...(proportionalChapters ? { script_timing_proportional_chapters: proportionalChapters } : {}),
     missing_sections: episodeMissingSlugs,
     recovery_state: 'needs_attention',
   }
