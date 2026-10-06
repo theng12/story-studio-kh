@@ -920,3 +920,4 @@ export interface JobStreamCleared {
 }
 
 export type JobStreamEvent = JobStreamSnapshot | JobStreamUpdate | JobStreamCleared
+export type { YouTubeEpisodeUploadStatus } from './youtube-upload-center.js'

@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.256 — 2026-10-06
+
+- **The Production Board remains scrollable in both directions.** Its episode table keeps the episode column visible while scrolling through production stages.
+- **Upload status appears beside production readiness.** The Board shows queued, uploading, processing, uploaded, recorded, and failed states from saved upload evidence, and opens the selected episode in Upload Center.
+
+---
+
 ## v1.4.255 — 2026-10-06
 
 - **Large Pipeline batches start with fewer repeated checks.** Episode checks run in bounded parallel work, and Start still verifies current files before queuing.

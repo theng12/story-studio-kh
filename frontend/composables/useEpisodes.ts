@@ -35,6 +35,7 @@
 import { ref, computed, onMounted, watch, type Ref } from 'vue'
 import { useApi } from './useApi.js'
 import { useJobs } from './useJobs.js'
+import type { YouTubeEpisodeUploadStatus } from '@shared/contracts'
 
 export interface LocalMediaCleanupStatus {
   state: 'available' | 'archived' | 'partially_removed' | 'removed'
@@ -75,6 +76,8 @@ export interface EpisodeRow {
   episode_profile?: string
   scene_images: { total: number; present: number; complete: boolean }
   local_media_status?: LocalMediaCleanupStatus | null
+  /** Durable publishing history; independent of local assets and all_done. */
+  youtube_upload?: YouTubeEpisodeUploadStatus
   // Provenance + per-episode override surface (added in mark-done overhaul).
   // batch_id === 'imported' identifies YouTube imports (Situation A); the UI
   // uses it for the Source filter + bulk-by-source action. marked_done lets
@@ -145,6 +148,8 @@ interface SharedSlot {
    * instance — a 300-episode batch used to cost two full episode scans per finished job.
    */
   refreshedForJobs: Set<string>
+  /** Shared upload transitions: publishing receipts must stay live while a list is mounted. */
+  refreshedUploadStatuses: Map<string, string>
 }
 
 const TTL_MS = 5 * 60 * 1000  // 5 minutes — past this, treat as cold
@@ -164,6 +169,7 @@ function getOrCreateSlot(slug: string): SharedSlot {
       inflight: null,
       requestSeq: 0,
       refreshedForJobs: new Set(),
+      refreshedUploadStatuses: new Map(),
     }
     slots.set(slug, slot)
   }
@@ -172,7 +178,10 @@ function getOrCreateSlot(slug: string): SharedSlot {
 
 /** Test-only: forget which completions each list already refreshed for (job ids repeat across tests). */
 export function _forgetEpisodeJobRefreshesForTests(): void {
-  for (const slot of slots.values()) slot.refreshedForJobs.clear()
+  for (const slot of slots.values()) {
+    slot.refreshedForJobs.clear()
+    slot.refreshedUploadStatuses.clear()
+  }
 }
 
 /** Drop the cached entry for a slug. Next mount refetches from scratch. */
@@ -396,6 +405,27 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
 
       const previousStatus = observedJobStatuses.get(seenKey)
       observedJobStatuses.set(seenKey, job.status)
+      if (job.type === 'youtube_upload' && job.episode_id) {
+        const slot = currentSlot()
+        if (slot.refreshedUploadStatuses.get(seenKey) !== job.status) {
+          slot.refreshedUploadStatuses.set(seenKey, job.status)
+          const completedAt = job.finished_at ? Date.parse(job.finished_at) : NaN
+          const isObservedTransition = previousStatus !== undefined && previousStatus !== job.status
+          if (!isObservedTransition && ['done', 'error', 'cancelled'].includes(job.status)
+            && slot.fetchedFrom.value > 0 && Number.isFinite(completedAt) && completedAt <= slot.fetchedFrom.value) continue
+          // One receipt read covers every upload in this queue snapshot.
+          for (const peer of jobs.value) {
+            if (peer.project_slug === job.project_slug && peer.type === 'youtube_upload') {
+              slot.refreshedUploadStatuses.set(`${peer.project_slug}:${peer.job_id}`, peer.status)
+            }
+          }
+          // Re-read the durable receipt; a queue completion cannot prove an upload.
+          // Surgical invalidation also bypasses any pre-transition in-flight read.
+          void revalidateAfterMutation(job.episode_id).catch(() => { /* error stored on slot */ })
+          return
+        }
+        continue
+      }
       if (job.status !== 'done' || seenDoneJobs.has(seenKey)) continue
 
       seenDoneJobs.add(seenKey)
