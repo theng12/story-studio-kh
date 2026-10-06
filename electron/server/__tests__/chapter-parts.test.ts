@@ -1,7 +1,7 @@
 /**
  * One file per chapter: split narration parts are joined with text-led pauses,
  * level-matched, click-free, kept in `.parts`, migrated idempotently, finished
- * after a stop, and cleared to `_trash` after the final render.
+ * after a stop, and moved to `_trash` only when the owner frees them in Free up space.
  * Fixtures are synthetic tones made with FFmpeg (no real narration needed).
  */
 import assert from 'node:assert/strict'
@@ -14,7 +14,7 @@ import { useTempDataDir } from './_helpers.js'
 const temp = await useTempDataDir()
 const { runFfmpeg } = await import('../lib/ffmpeg-utils.js')
 const {
-  planSeams, stitchParts, consolidateChapterParts, readPartsManifest, trashEpisodeParts, SEAM_PAUSE_S, seamPauseRule,
+  planSeams, stitchParts, consolidateChapterParts, readPartsManifest, trashEpisodeParts, narrationPartsToFree, trashTargetFor, SEAM_PAUSE_S, seamPauseRule,
 } = await import('../services/chapter-parts.js')
 const { hashSubtitleAudioSources } = await import('../services/subtitle-completion.js')
 const { readAudioQualityProvenance, writeAudioQualityProvenance } = await import('../services/audio-quality-store.js')
@@ -267,14 +267,66 @@ void test('a new take of the parts (Regenerate) is joined again; the previous jo
   assert.ok(existsSync(path.join(trashed, '.parts', 'EP001_Chapter_02', 'part1.mp3')))
 })
 
-void test('after the final render the kept parts move to the project _trash', async () => {
-  const fx = await episodeFixture('render')
+void test('a video render no longer moves narration parts: nothing in the render path calls the parts mover', async () => {
+  // Owner decision 2026-10-06: parts stay until he removes them in Free up space.
+  const video = await fs.readFile(new URL('../generators/video.ts', import.meta.url), 'utf8')
+  assert.doesNotMatch(video, /trashEpisodeParts|trashChapterParts|PARTS_DIRNAME|\.parts/)
+  const callers: string[] = []
+  for (const dir of ['../generators', '../services', '../routes', '../lib']) {
+    for (const name of await fs.readdir(new URL(dir, import.meta.url))) {
+      if (!name.endsWith('.ts')) continue
+      if (/trashEpisodeParts\(/.test(await fs.readFile(new URL(`${dir}/${name}`, import.meta.url), 'utf8'))) callers.push(name)
+    }
+  }
+  assert.deepEqual(callers.sort(), ['chapter-parts.ts', 'episode-media-cleanup.ts'], 'only Free up space moves parts')
+})
+
+void test('Free up space › Narration parts: offers kept folders and joined loose parts only while the joined chapter exists', async () => {
+  const fx = await episodeFixture('free-parts')
   await consolidateChapterParts(fx)
-  assert.equal(trashEpisodeParts(fx.projectDir, fx.audioDir), true)
-  assert.ok(!existsSync(path.join(fx.audioDir, '.parts')))
-  assert.ok(existsSync(path.join(fx.projectDir, '_trash', 'episodes', 'EP001 - Test', 'EP001 - 07 Audio Assets', '.parts', 'EP001_Chapter_02', 'part1.mp3')))
-  assert.equal(trashEpisodeParts(fx.projectDir, fx.audioDir), false, 'nothing left to move')
-  assert.ok(existsSync(path.join(fx.audioDir, 'EP001_Chapter_02.mp3')))
+  const stemDir = path.join(fx.audioDir, '.parts', 'EP001_Chapter_02')
+  // A joined loose copy (an interrupted join), a newer-take loose part, and a part of a never-joined chapter.
+  await fs.copyFile(path.join(stemDir, 'part1.mp3'), path.join(fx.audioDir, fx.parts[0]!))
+  await tone(path.join(fx.audioDir, fx.parts[1]!), { seconds: 1, gainDb: -10, lead: 0, trail: 0, freq: 500 })
+  await tone(path.join(fx.audioDir, 'EP001_Chapter_03_part1.mp3'), { seconds: 1, gainDb: -16, lead: 0, trail: 0 })
+  const offered = await narrationPartsToFree(fx.audioDir)
+  assert.deepEqual(offered.map(item => item.relative_path), [fx.parts[0], path.join('.parts', 'EP001_Chapter_02')], 'loose first, then the folder')
+  let folderBytes = 0
+  for (const name of await fs.readdir(stemDir)) folderBytes += (await fs.stat(path.join(stemDir, name))).size
+  assert.equal(offered[1]!.bytes, folderBytes)
+  assert.equal(offered[0]!.bytes, (await fs.stat(path.join(fx.audioDir, fx.parts[0]!))).size)
+
+  const { moved, left } = await trashEpisodeParts(fx.projectDir, fx.audioDir, offered.map(item => item.path))
+  assert.equal(moved.length, 2)
+  assert.deepEqual(left, [])
+  const trashed = path.join(fx.projectDir, '_trash', 'episodes', 'EP001 - Test', 'EP001 - 07 Audio Assets')
+  assert.ok(existsSync(path.join(trashed, fx.parts[0]!)))
+  for (const name of ['part1.mp3', 'part2.mp3', 'part3.mp3', 'manifest.json']) assert.ok(existsSync(path.join(trashed, '.parts', 'EP001_Chapter_02', name)), name)
+  assert.ok(!existsSync(stemDir))
+  // Kept: the joined chapter, the newer-take part, the never-joined chapter's part.
+  for (const name of ['EP001_Chapter_02.mp3', fx.parts[1]!, 'EP001_Chapter_03_part1.mp3']) assert.ok(existsSync(path.join(fx.audioDir, name)), name)
+  assert.deepEqual(await narrationPartsToFree(fx.audioDir), [], 'nothing left to offer')
+})
+
+void test('Narration parts whose joined chapter is gone are still needed and are never moved', async () => {
+  const fx = await episodeFixture('parts-needed')
+  await consolidateChapterParts(fx)
+  const stemDir = path.join(fx.audioDir, '.parts', 'EP001_Chapter_02')
+  await fs.rename(path.join(fx.audioDir, 'EP001_Chapter_02.mp3'), path.join(temp.dir, 'parts-needed-joined.mp3'))
+  assert.deepEqual(await narrationPartsToFree(fx.audioDir), [])
+  const { moved, left } = await trashEpisodeParts(fx.projectDir, fx.audioDir, [stemDir])
+  assert.deepEqual(moved, [])
+  assert.match(left[0]!.reason, /Left where it is/)
+  assert.ok(existsSync(path.join(stemDir, 'part1.mp3')))
+})
+
+void test('parts under a media_root on another drive go to that drive\'s own _trash, never across volumes', () => {
+  const projectDir = '/Library/Story/my-channel'
+  const anchor = '/Volumes/Media/Story Media'
+  const folder = path.join(anchor, 'episodes', 'EP001 - Test', 'EP001 - 07 Audio Assets', '.parts', 'EP001_Chapter_02')
+  assert.equal(trashTargetFor(projectDir, folder, anchor),
+    path.join(anchor, '_trash', 'my-channel', 'episodes', 'EP001 - Test', 'EP001 - 07 Audio Assets', '.parts', 'EP001_Chapter_02'))
+  assert.equal(trashTargetFor(projectDir, path.join(projectDir, 'episodes', 'a.mp3'), anchor), path.join(projectDir, '_trash', 'episodes', 'a.mp3'))
 })
 
 void test('a channel\'s own pauses (Series Formula override) set the seams; bad values fall back', () => {

@@ -195,3 +195,22 @@ test('one missed progress read does not freeze the operation: it keeps checking 
     assert.match(ui.host.textContent || '', /Move Reviewed Files to _trash/)
   } finally { mock.timers.reset(); ui.close() }
 })
+
+test('narration parts: a not-uploaded episode is listed but never pre-selected, and Narration parts is its own category', async () => {
+  const both = { episodes: [
+    { episode_code: 'EP0001', title: 'Uploaded episode', video_id: 'abc' },
+    { episode_code: 'EP0002', title: 'Narrated, not uploaded', video_id: null },
+  ], blocked_reasons: [] }
+  const ui = await mount({ get: async () => both })
+  try {
+    const text = ui.host.textContent || ''
+    assert.match(text, /1 episode selected/)
+    assert.match(text, /Not uploaded · only Narration parts can be freed/)
+    assert.equal(ui.host.querySelectorAll('a[href*="youtube.com"]').length, 1, 'no upload link for the not-uploaded episode')
+    const parts = [...ui.host.querySelectorAll<HTMLInputElement>('.cleanup-categories input')].find(input => input.value === 'narration_parts')
+    assert.ok(parts, 'Narration parts category is offered')
+    assert.equal(parts!.checked, false, 'never pre-selected')
+    button(ui.host, 'Select All Uploaded').click(); await flush()
+    assert.match(ui.host.textContent || '', /1 episode selected/)
+  } finally { ui.close() }
+})

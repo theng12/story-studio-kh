@@ -30,7 +30,7 @@ import path from 'node:path'
 import { SENTENCE_END_CHARS } from '../lib/sentence-ends.js'
 import { runFfmpeg } from '../lib/ffmpeg-utils.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
-import { moveToTrashSync } from '../lib/trash-move.js'
+import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import { readAudioQualityProvenance, updateAudioQualityProvenance } from './audio-quality-store.js'
 import { hashSubtitleAudioSources } from './subtitle-completion.js'
 
@@ -206,15 +206,22 @@ export async function keptPartPath(audioDir: string, stem: string, partNumber: n
 }
 
 /**
- * The project's `_trash` mirror of `file` (same volume as the project).
- * ponytail: a media_root on another drive keeps its file in place instead
+ * The `_trash` mirror of `file` on the file's own drive: `<project>/_trash/<same relative path>`,
+ * or, for heavy media under a `media_root` on another drive (`mediaAnchor`), that drive's
+ * `<media root>/_trash/<slug>/<same relative path>` (the Free up space convention, `trashRootFor`).
+ * ponytail: without a `mediaAnchor`, media on another drive keeps its file in place instead
  * (rename across volumes fails and nothing is copied-then-deleted).
  */
-export function trashTargetFor(projectDir: string, file: string): string {
-  const rel = path.relative(projectDir, file)
-  return rel && !rel.startsWith('..') && !path.isAbsolute(rel)
-    ? path.join(projectDir, '_trash', rel)
-    : path.join(projectDir, '_trash', 'media', path.basename(path.dirname(path.dirname(file))), path.basename(path.dirname(file)), path.basename(file))
+export function trashTargetFor(projectDir: string, file: string, mediaAnchor?: string): string {
+  const under = (root: string) => {
+    const rel = path.relative(root, file)
+    return rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel : null
+  }
+  const rel = under(projectDir)
+  if (rel) return path.join(projectDir, '_trash', rel)
+  const mediaRel = mediaAnchor ? under(mediaAnchor) : null
+  if (mediaRel) return path.join(trashRootFor(mediaAnchor!, projectDir, path.basename(projectDir)), mediaRel)
+  return path.join(projectDir, '_trash', 'media', path.basename(path.dirname(path.dirname(file))), path.basename(path.dirname(file)), path.basename(file))
 }
 
 function trash(projectDir: string, file: string, log: (line: string) => void): void {
@@ -473,10 +480,69 @@ export async function consolidateEpisodeParts(slug: string, code: string, log: (
   }
 }
 
-/** After the final video renders: the episode's kept parts go to the project's `_trash`. */
-export function trashEpisodeParts(projectDir: string, audioDir: string, log: (line: string) => void = () => {}): boolean {
-  const dir = path.join(audioDir, PARTS_DIRNAME)
-  if (!existsSync(dir)) return false
-  trash(projectDir, dir, log)
-  return !existsSync(dir)
+/** One thing Free up space › Narration parts can move: a kept `.parts/<stem>` folder or a loose part. */
+export interface NarrationPartsItem { path: string; relative_path: string; bytes: number }
+
+async function treeBytes(p: string): Promise<number> {
+  const stat = await fs.lstat(p).catch(() => null)
+  if (stat?.isFile()) return stat.size
+  if (!stat?.isDirectory()) return 0
+  let total = 0
+  for (const name of await fs.readdir(p)) total += await treeBytes(path.join(p, name))
+  return total
+}
+
+async function joinedChapterExists(audioDir: string, stem: string, manifest: PartsManifest): Promise<boolean> {
+  const stat = await fs.stat(path.join(audioDir, manifest.stitched_file || `${stem}.mp3`)).catch(() => null)
+  return !!stat?.isFile() && stat.size > 0
+}
+
+/**
+ * What Free up space › Narration parts may move without losing anything: each loose
+ * `{stem}_part{n}.mp3` whose exact bytes went into its chapter's join (manifest sha) and each kept
+ * `.parts/<stem>` folder, both only while the joined chapter file is there. Loose parts of a newer
+ * take, or of a chapter never joined, are still needed and are not offered. Loose parts come first so
+ * moving a folder (and its manifest) never makes a later loose part unprovable.
+ */
+export async function narrationPartsToFree(audioDir: string): Promise<NarrationPartsItem[]> {
+  const loose: NarrationPartsItem[] = []
+  const folders: NarrationPartsItem[] = []
+  for (const entry of await fs.readdir(audioDir, { withFileTypes: true }).catch(() => [])) {
+    const stem = entry.isFile() ? /^(.+)_part\d+\.mp3$/.exec(entry.name)?.[1] : undefined
+    const manifest = stem ? await readPartsManifest(audioDir, stem) : null
+    const expected = manifest?.parts?.find(part => part.source_name === entry.name)?.sha256
+    const file = path.join(audioDir, entry.name)
+    if (!expected || !await joinedChapterExists(audioDir, stem!, manifest!) || await sha256File(file) !== expected) continue
+    loose.push({ path: file, relative_path: entry.name, bytes: (await fs.stat(file)).size })
+  }
+  for (const entry of await fs.readdir(path.join(audioDir, PARTS_DIRNAME), { withFileTypes: true }).catch(() => [])) {
+    const manifest = entry.isDirectory() ? await readPartsManifest(audioDir, entry.name) : null
+    if (!manifest || !await joinedChapterExists(audioDir, entry.name, manifest)) continue
+    const dir = partsDir(audioDir, entry.name)
+    folders.push({ path: dir, relative_path: path.relative(audioDir, dir), bytes: await treeBytes(dir) })
+  }
+  return [...loose, ...folders]
+}
+
+/**
+ * Free up space › Narration parts: the ONLY thing that moves narration parts out of the
+ * episode (owner decision 2026-10-06 — nothing is moved automatically, not even after the
+ * final render). Each of `only` that is still safe to move (checked again now) goes to
+ * `_trash` on its own drive (`trashTargetFor`); anything else stays exactly where it is.
+ */
+export async function trashEpisodeParts(
+  projectDir: string, audioDir: string, only: string[], mediaAnchor?: string,
+): Promise<{ moved: Array<{ path: string; to: string }>; left: Array<{ path: string; reason: string }> }> {
+  const safe = new Set((await narrationPartsToFree(audioDir)).map(item => item.path))
+  const moved: Array<{ path: string; to: string }> = []
+  const left: Array<{ path: string; reason: string }> = []
+  for (const item of only) {
+    if (!safe.has(item)) {
+      left.push({ path: item, reason: 'Left where it is: its joined chapter is missing or the part changed since review, so it may still be needed.' })
+      continue
+    }
+    try { moved.push({ path: item, to: moveToTrashSync(item, trashTargetFor(projectDir, item, mediaAnchor)) }) }
+    catch (error: any) { left.push({ path: item, reason: `Left where it is: it could not be moved to _trash on its own drive (${error?.message || error}).` }) }
+  }
+  return { moved, left }
 }

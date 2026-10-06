@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import express from 'express'
@@ -847,7 +848,7 @@ describe('compress scene images (Archive episode)', () => {
 
     const started = await cleanup.startMediaCleanupPreview(SLUG, { episode_codes: ['EP0001'], categories: [], preset: 'archive_episode' })
     const bill = (await waitForOperation(started.operation_id)).preview!
-    assert.deepEqual([...bill.categories].sort(), ['chapter_audio', 'final_video', 'images', 'motion_clips'])
+    assert.deepEqual([...bill.categories].sort(), ['chapter_audio', 'final_video', 'images', 'motion_clips', 'narration_parts'])
     assert.deepEqual(bill.files.map(file => file.path).sort(), [chapter, clip, episode.final, scene].sort())
     assert.equal(bill.estimate.compress_files, 1)
     assert.equal(bill.estimate.trash_files, 3)
@@ -914,5 +915,88 @@ describe('compress scene images (Archive episode)', () => {
       (error: any) => error?.statusCode === 409 && /already running on this Mac/.test(error.message),
     )
     await waitForOperation(first.operation_id)
+  })
+})
+
+// ── v1.4.257: narration parts are removed only when the owner chooses to (owner decision 2026-10-06) ──
+
+/** A joined Chapter_01 with its kept parts, a joined loose duplicate, and Chapter_02 parts whose join is gone. */
+async function seedNarrationParts(audioDir: string, code: string) {
+  const sha = (text: string) => createHash('sha256').update(text).digest('hex')
+  const write = async (file: string, text: string) => { await fs.mkdir(path.dirname(file), { recursive: true }); await fs.writeFile(file, text) }
+  const kept = path.join(audioDir, '.parts', `${code}_Chapter_01`)
+  const orphan = path.join(audioDir, '.parts', `${code}_Chapter_02`)
+  const joined = path.join(audioDir, `${code}_Chapter_01.mp3`)
+  const loose = path.join(audioDir, `${code}_Chapter_01_part1.mp3`)
+  const newer = path.join(audioDir, `${code}_Chapter_01_part2.mp3`)
+  await write(joined, 'joined-chapter')
+  await makeOlder(joined)
+  const manifest = (stem: string) => JSON.stringify({ schema_version: 1, chapter: stem, stitched_file: `${code}_${stem}.mp3`, parts: [
+    { file: 'part1.mp3', source_name: `${code}_${stem}_part1.mp3`, sha256: sha('part-one') },
+    { file: 'part2.mp3', source_name: `${code}_${stem}_part2.mp3`, sha256: sha('part-two') },
+  ] })
+  for (const [dir, stem] of [[kept, 'Chapter_01'], [orphan, 'Chapter_02']] as const) {
+    await write(path.join(dir, 'part1.mp3'), 'part-one')
+    await write(path.join(dir, 'part2.mp3'), 'part-two')
+    await write(path.join(dir, 'manifest.json'), manifest(stem))
+  }
+  await write(loose, 'part-one')
+  await write(newer, 'a newer take of part two')
+  const folderBytes = 'part-one'.length + 'part-two'.length + manifest('Chapter_01').length
+  return { kept, orphan, joined, loose, newer, folderBytes, partsBytes: folderBytes + 'part-one'.length + 'part-two'.length + manifest('Chapter_02').length }
+}
+
+describe('Narration parts (Free up space, owner decision 2026-10-06)', () => {
+  test('offered for a finished-narration episode that is not uploaded; lists, sizes and moves parts to _trash', async () => {
+    const episode = await seedEpisode('EP0001')
+    await seedEpisode('EP0002')
+    const seeded = await seedNarrationParts(episode.paths.audio_dir, 'EP0001')
+
+    const listed = await cleanup.listMediaCleanupEpisodes(SLUG)
+    assert.deepEqual(listed.episodes.map(row => [row.episode_code, row.video_id]), [['EP0001', null]], 'no upload needed; no parts, no row')
+
+    const { auditProjectStorage } = await import('../services/storage-audit.js')
+    const audit = await auditProjectStorage(SLUG)
+    assert.equal(audit.episodes.find(row => row.episode_code === 'EP0001')!.bytes_narration_parts, seeded.partsBytes)
+    assert.equal(audit.project_bytes_narration_parts, seeded.partsBytes)
+
+    const mixed = await preview(['EP0001'], ['narration_parts', 'images'])
+    assert.match(mixed.episodes[0]!.blocked_reasons.join(' '), /only its narration parts/)
+    const bill = await preview(['EP0001'], ['narration_parts'])
+    assert.deepEqual(bill.files.map(file => file.relative_path), [path.basename(seeded.loose), path.join('.parts', 'EP0001_Chapter_01')])
+    assert.equal(bill.total_bytes, 'part-one'.length + seeded.folderBytes)
+    assert.deepEqual(bill.trash_roots, [path.join(pm.getProjectDir(SLUG)!, '_trash')])
+
+    const operation = await run(bill.preview_id, 'remove')
+    assert.equal(operation.status, 'completed', operation.error)
+    assert.equal(operation.result?.removed_count, 2)
+    const projectDir = pm.getProjectDir(SLUG)!
+    const inTrash = (file: string) => path.join(projectDir, '_trash', path.relative(projectDir, file))
+    for (const name of ['part1.mp3', 'part2.mp3', 'manifest.json']) assert.ok(existsSync(path.join(inTrash(seeded.kept), name)), name)
+    assert.equal(await fs.readFile(inTrash(seeded.loose), 'utf8'), 'part-one')
+    assert.ok(!existsSync(seeded.kept))
+    // Still needed, so still here: the joined chapter, a newer-take part, parts whose join is gone.
+    for (const file of [seeded.joined, seeded.newer, path.join(seeded.orphan, 'part1.mp3')]) assert.ok(existsSync(file), file)
+    assert.equal((await cleanup.readLocalMediaCleanupStatus(SLUG, 'EP0001')).state, 'available', 'not upload-backed media: no cleanup record')
+  })
+
+  test('uploaded episode: chapter audio never splits a parts folder; the parts move whole as their own category', async () => {
+    const episode = await seedEpisode('EP0001')
+    const seeded = await seedNarrationParts(episode.paths.audio_dir, 'EP0001')
+    await Promise.all([seeded.loose, seeded.newer].map(makeOlder))
+    await markUploaded(episode)
+
+    const audioOnly = await preview(['EP0001'], ['chapter_audio'])
+    assert.ok(audioOnly.files.every(file => !file.relative_path.startsWith('.parts')), 'chapter audio leaves .parts alone')
+
+    const bill = await preview(['EP0001'], ['chapter_audio', 'narration_parts'])
+    const rows = bill.files.map(file => [file.category, file.relative_path])
+    assert.deepEqual(rows.filter(([category]) => category === 'narration_parts').map(([, rel]) => rel),
+      [path.basename(seeded.loose), path.join('.parts', 'EP0001_Chapter_01')])
+    assert.equal(rows.filter(([, rel]) => rel === path.basename(seeded.loose)).length, 1, 'a joined loose part is listed once')
+
+    const archived = await run(bill.preview_id, 'archive', path.join(tmp.dir, 'archive-drive'))
+    assert.ok(archived.result!.items.filter(item => item.category === 'narration_parts').every(item => item.outcome === 'skipped' && /only move to _trash/.test(item.reason || '')))
+    assert.ok(existsSync(seeded.kept), 'never archived, never removed')
   })
 })

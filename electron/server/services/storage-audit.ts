@@ -28,6 +28,7 @@ import { constants, existsSync } from 'fs'
 import path from 'path'
 import * as pm from './project-manager.js'
 import { thumbCacheBytes } from '../lib/thumbnail-cache.js'
+import { PARTS_DIRNAME } from './chapter-parts.js'
 import * as im from './idea-manager.js'
 import { resolveEpisodePaths } from './utils.js'
 import {
@@ -66,6 +67,8 @@ export interface StorageEntry {
   bytes_final_video: number
   bytes_per_scene_clips: number
   bytes_audio: number
+  /** Kept narration parts (`<audio>/.parts`), already inside `bytes_audio`; shown on their own line. */
+  bytes_narration_parts: number
   bytes_images: number
   bytes_other: number
   bytes_total: number
@@ -91,6 +94,8 @@ export interface StorageAuditResult {
   /** Sum of bytes_per_scene_clips. Surfaced separately so the UI can
    *  flag the "$$$ to regenerate" warning. */
   project_bytes_per_scene_clips: number
+  /** Sum of bytes_narration_parts (Free up space › Narration parts). */
+  project_bytes_narration_parts: number
   /** Sum of bytes_external_final_video — what already lives outside the project tree. */
   project_bytes_external_final_video: number
   /** Regenerable review-grid thumbnails under `<project>/.cache/thumbs`; not part of any episode. */
@@ -210,7 +215,7 @@ export async function auditProjectStorage(slug: string): Promise<StorageAuditRes
         episode_code: code, title: idea.title || code,
         project_episode_dir: '', external_episode_dir: '',
         bytes_final_video: 0, bytes_per_scene_clips: 0,
-        bytes_audio: 0, bytes_images: 0, bytes_other: 0,
+        bytes_audio: 0, bytes_narration_parts: 0, bytes_images: 0, bytes_other: 0,
         bytes_total: 0, bytes_external_final_video: 0,
         final_video_filenames: [],
         uploaded_to_youtube: false, youtube_video_id: '', cleanup_eligible: false,
@@ -222,8 +227,9 @@ export async function auditProjectStorage(slug: string): Promise<StorageAuditRes
 
     // Audio (per-chapter chunks + merged) and images (scenes + thumbs)
     // — these are bulk numbers; the user isn't cleaning at this level.
-    const [audioBytes, mergedBytes, sceneBytes, thumbBytes] = await Promise.all([
+    const [audioBytes, partsBytes, mergedBytes, sceneBytes, thumbBytes] = await Promise.all([
       dirSize(paths.audio_dir),
+      dirSize(path.join(paths.audio_dir, PARTS_DIRNAME)),
       dirSize(paths.merged_audio_dir),
       dirSize(paths.bg_dir),
       dirSize(paths.thumb_dir),
@@ -306,6 +312,7 @@ export async function auditProjectStorage(slug: string): Promise<StorageAuditRes
       bytes_final_video: v.bytes_final_video,
       bytes_per_scene_clips: v.bytes_per_scene_clips,
       bytes_audio: audioTotal,
+      bytes_narration_parts: partsBytes,
       bytes_images: imageTotal,
       bytes_other: otherTotal + v.bytes_other_video,
       bytes_total: total,
@@ -330,11 +337,13 @@ export async function auditProjectStorage(slug: string): Promise<StorageAuditRes
   let projectBytesTotal = 0
   let projectBytesFinal = 0
   let projectBytesScenes = 0
+  let projectBytesParts = 0
   let projectBytesExternalFinal = 0
   for (const r of results) {
     projectBytesTotal += r.bytes_total
     projectBytesFinal += r.bytes_final_video
     projectBytesScenes += r.bytes_per_scene_clips
+    projectBytesParts += r.bytes_narration_parts
     projectBytesExternalFinal += r.bytes_external_final_video
   }
 
@@ -342,6 +351,7 @@ export async function auditProjectStorage(slug: string): Promise<StorageAuditRes
     project_bytes_total: projectBytesTotal,
     project_bytes_final_video: projectBytesFinal,
     project_bytes_per_scene_clips: projectBytesScenes,
+    project_bytes_narration_parts: projectBytesParts,
     project_bytes_external_final_video: projectBytesExternalFinal,
     project_bytes_thumbnail_cache: await thumbCacheBytes(pm.getProjectDir(slug) || ''),
     external_root_configured: !!externalRoot,
