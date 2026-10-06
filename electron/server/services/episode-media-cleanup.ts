@@ -714,6 +714,13 @@ async function putSidecarEntry(
     }
     await writeJsonAtomic(file, next)
   })
+  await invalidateEpisodeRow(slug, code)
+}
+
+/** The episode list caches this record's summary on the status row; drop it now. */
+async function invalidateEpisodeRow(slug: string, code: string): Promise<void> {
+  const { episodeStatusCache } = await import('./episode-status-cache.js')
+  episodeStatusCache.invalidate(slug, code)
 }
 
 async function markEpisodeArchived(slug: string, code: string): Promise<void> {
@@ -726,6 +733,7 @@ async function markEpisodeArchived(slug: string, code: string): Promise<void> {
       ...current, updated_at: now, archived_at: now,
     } satisfies MediaCleanupSidecar)
   })
+  await invalidateEpisodeRow(slug, code)
 }
 
 async function currentSourceRoot(

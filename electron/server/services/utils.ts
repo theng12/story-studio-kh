@@ -185,6 +185,13 @@ export interface ProjectFactsCache {
    * paid once per episode.
    */
   youtubeRetentionStores?: Promise<unknown>
+  /**
+   * Season-folder listings for the same-code sibling scan in
+   * `resolveEpisodePathsByCodeWithSidecar`. 1.4.257: the episode list resolved
+   * three sidecars per episode, and each one that was absent (the usual case)
+   * re-listed the whole season folder.
+   */
+  siblingListings?: Map<string, Promise<import('fs').Dirent[] | null>>
 }
 
 export function createProjectFactsCache(slug?: string): ProjectFactsCache {
@@ -630,13 +637,15 @@ export async function resolveEpisodePathsByCodeWithSidecar(
   if (await hasSidecar(paths.episode_dir)) return paths
 
   const seasonDir = path.dirname(path.resolve(paths.episode_dir))
-  let entries: import('fs').Dirent[]
-  try {
-    const fs = await import('fs/promises')
-    entries = await fs.readdir(seasonDir, { withFileTypes: true })
-  } catch {
-    return paths
+  const listSeason = async () => (await import('fs/promises')).readdir(seasonDir, { withFileTypes: true }).catch(() => null)
+  const scoped = usableFor(cache, slug)
+  let listing = scoped?.siblingListings?.get(seasonDir)
+  if (!listing) {
+    listing = listSeason()
+    if (scoped) (scoped.siblingListings ??= new Map()).set(seasonDir, listing)
   }
+  const entries = await listing
+  if (!entries) return paths
 
   const wanted = code.toLowerCase()
   for (const entry of entries) {

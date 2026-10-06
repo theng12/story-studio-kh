@@ -683,11 +683,14 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
     // getForList, not get: on a warm list this serves watcher-vouched entries
     // without re-statting every episode's folders. The single-episode status
     // route below stays on the strict get().
-    const [status, visualState] = await Promise.all([
-      episodeStatusCache.getForList(slug, code, ideas, projectFacts),
-      readVideoVisualSource(slug, code, projectFacts),
-    ])
-    const episodeVisualSource = visualState.source
+    const status = await episodeStatusCache.getForList(slug, code, ideas, projectFacts)
+    // 1.4.257 — kept on the cached row: each read resolved three sidecars
+    // (a scan of the season folder apiece) for every episode on every list.
+    const rowReads = await episodeStatusCache.listExtras(slug, code, status, async () => ({
+      visual_source: (await readVideoVisualSource(slug, code, projectFacts)).source,
+      local_media_status: await readLocalMediaCleanupStatus(slug, code, projectFacts),
+    }))
+    const episodeVisualSource = rowReads.visual_source
     const needsScenePlan = episodeVisualSource === 'scene_plan'
     const needsImagePool = episodeVisualSource === 'image_pool'
     const needsCharacterSheet = needsScenePlan && projectVisualSource !== 'timestamp-driven'
@@ -744,7 +747,7 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
       marked_done: idea.marked_done === true,
       marked_done_at: idea.marked_done_at || null,
       status_overrides: idea.status_overrides || null,
-      local_media_status: await readLocalMediaCleanupStatus(slug, code, projectFacts),
+      local_media_status: rowReads.local_media_status,
       youtube_upload: uploadStores && uploadJobs
         ? await readEpisodeUploadStatus(slug, code, idea.title || '', uploadStores, projectFacts,
           uploadJobs.find(job => job.episode_id === code))

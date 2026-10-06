@@ -621,6 +621,8 @@ export async function setVideoVisualSource(
       source,
     } satisfies SourceOnlyVisualSidecar)
   }
+  // The episode list keeps this episode's visual source on its status row.
+  ;(await import('./episode-status-cache.js')).episodeStatusCache.invalidate(slug, episodeId)
   return readVideoVisualSource(slug, episodeId)
 }
 

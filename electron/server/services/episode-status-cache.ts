@@ -146,6 +146,13 @@ export interface EpisodeStatusCacheEntry {
    */
   watchedMtimes: FolderMtimes
   schemaVersion: typeof SCHEMA_VERSION
+  /**
+   * 1.4.257 — the episode list's own per-row reads (visual source, local media
+   * cleanup), kept with the status they were read beside. They share the entry's
+   * lifetime: any invalidation or stale recompute replaces the entry and drops
+   * them. A change to their shape must bump SCHEMA_VERSION like any other field.
+   */
+  listExtras?: unknown
 }
 
 interface CacheStats {
@@ -540,6 +547,25 @@ class EpisodeStatusCache {
     if (b.used >= b.limit) return false
     b.used++
     return true
+  }
+
+  /**
+   * Per-row list reads cached on the status entry they were read beside (see
+   * `listExtras`). `status` must be the object this cache just returned for
+   * the row: if the entry was replaced meanwhile, the value is computed and
+   * returned but not kept, so it can never outlive the status it belongs to.
+   */
+  async listExtras<T>(slug: string, code: string, status: EpisodeStatus, compute: () => Promise<T>): Promise<T> {
+    const k = cacheKey(slug, code)
+    const before = this.entries.get(k)
+    if (before?.status === status && before.listExtras !== undefined) return before.listExtras as T
+    const value = await compute()
+    const entry = this.entries.get(k)
+    if (entry?.status === status) {
+      entry.listExtras = value
+      this.scheduleFlush(slug)
+    }
+    return value
   }
 
   /** Drop a single episode's cached status. Next read recomputes. */

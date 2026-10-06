@@ -128,5 +128,7 @@ export async function saveSelectionSidecar(
     throw new Error(`B-Roll selection is not used for Image Pool episode ${episodeId}. Keep the saved Image Pool picks or switch this episode to Scene Plan first.`)
   }
   await writeJsonAtomic(p, { ...sidecar, ...(source ? { source } : {}) })
+  // The episode list keeps this episode's visual source on its status row.
+  ;(await import('./episode-status-cache.js')).episodeStatusCache.invalidate(slug, episodeId)
   return p
 }
