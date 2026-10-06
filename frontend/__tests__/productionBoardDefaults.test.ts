@@ -12,7 +12,7 @@ describe('Production Board defaults', () => {
   test('opens as a needs-work dashboard instead of a completed archive', () => {
     assert.match(board, /const needsWorkOnly = ref\(true\)/)
     // A search still finds finished episodes (it is a lookup, not a work list).
-    assert.match(board, /if \(needsWorkOnly\.value && !searchActive\.value\) list = list\.filter\(ep => !isFullyDone\(ep\)\)/)
+    assert.match(board, /if \(needsWorkOnly\.value && !searchActive\.value && uploadFilter\.value === 'all'\) list = list\.filter\(ep => !isFullyDone\(ep\)\)/)
     assert.match(board, /Show All Episodes/)
     assert.doesNotMatch(board, /const hidePending/)
   })
@@ -37,5 +37,13 @@ describe('Production Board defaults', () => {
     assert.match(board, /:aria-label="cellTitle\(ep, col\)"/)
     assert.match(board, /:aria-label="markTitle\(ep, col\)"/)
     assert.match(board, /:aria-label="`Import a finished file for \$\{ep\.episode_code\}`"/)
+  })
+
+  test('keeps stage navigation above the matrix and makes the region keyboard-accessible', () => {
+    assert.ok(board.indexOf('aria-label="Navigate production stages"') < board.indexOf('ref="boardScroll"'))
+    assert.match(board, /ref="boardScroll" class="board-scroll" tabindex="0" role="region"/)
+    assert.match(board, /region\.scrollTo\(\{ left: direction === 'start' \? 0 : region\.scrollWidth \}\)/)
+    assert.match(board, /scrollStages\('assembly'\)/)
+    assert.match(board, /\.board-scroll \{\s*width: 100%;\s*min-width: 0;/)
   })
 })

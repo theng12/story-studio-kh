@@ -62,6 +62,18 @@ export type YouTubeLocalUploadProjection = {
   reason?: string
 }
 
+/** Production Board receipt status, independent of local media and generation readiness. */
+export interface YouTubeEpisodeUploadStatus {
+  state: 'pending' | 'queued' | 'uploading' | 'processing' | 'uploaded' | 'recorded' | 'failed' | 'unknown'
+  video_id?: string
+  url?: string
+  source?: 'operation_record' | 'reconcile_link' | 'legacy_sidecar'
+  visibility?: string
+  scheduled_for?: string | null
+  checked_at?: string
+  reason?: string
+}
+
 export type YouTubePublicationProjection = {
   state: 'unpublished' | 'uploaded' | 'processing' | 'published' | 'scheduled' | 'failed' | 'rejected' | 'unknown'
   visibility?: string

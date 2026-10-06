@@ -18,6 +18,8 @@ import { loadNiche } from '../services/niche-loader.js'
 import { isCompatible, loadTopicPack } from '../services/topic-pack-loader.js'
 import { readVideoVisualSource } from '../services/video-visual-source.js'
 import { readLocalMediaCleanupStatus } from '../services/episode-media-cleanup.js'
+import { readYouTubeRetentionStores } from '../services/youtube-remote-video.js'
+import { readEpisodeUploadStatus } from '../services/episode-upload-status.js'
 import {
   previewReseason, applyReseason, revertReseason,
   readReseasonUndo, deleteReseasonUndo, isReseasonUndoExpired,
@@ -650,6 +652,10 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
   // `ProjectFactsCache`.
   const { createProjectFactsCache } = await import('../services/utils.js')
   const projectFacts = createProjectFactsCache(slug)
+  // Publishing is a separate saved receipt, not another required generation stage.
+  const uploadStores = await readYouTubeRetentionStores(slug, projectFacts).catch(() => null)
+  const uploadJobs = await jq.getJobs(slug).then(jobs => jobs.filter(job => job.type === 'youtube_upload')
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))).catch(() => null)
 
   const { episodeStatusCache } = await import('../services/episode-status-cache.js')
   const effectiveFormat = await getEffectiveFormat(slug)
@@ -739,6 +745,11 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
       marked_done_at: idea.marked_done_at || null,
       status_overrides: idea.status_overrides || null,
       local_media_status: await readLocalMediaCleanupStatus(slug, code, projectFacts),
+      youtube_upload: uploadStores && uploadJobs
+        ? await readEpisodeUploadStatus(slug, code, idea.title || '', uploadStores, projectFacts,
+          uploadJobs.find(job => job.episode_id === code))
+          .catch(() => ({ state: 'unknown', reason: 'The saved upload record could not be read.' }))
+        : { state: 'unknown', reason: 'The saved YouTube publishing or queue records could not be read.' },
       visual_source: episodeVisualSource,
       // ── Asset-readiness contract (single source of truth for UI gating) ──
       // Every consumer reads from these fields; nothing else should infer

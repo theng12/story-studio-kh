@@ -110,6 +110,16 @@
         >
           ↻ Repair…
         </button>
+        <label class="board-upload-filter">YouTube
+          <select v-model="uploadFilter" class="input" aria-label="Filter YouTube upload status">
+            <option value="all">All upload states</option>
+            <option value="uploaded">Uploaded</option>
+            <option value="pending">Not uploaded</option>
+            <option value="recorded">Recorded only</option>
+            <option value="failed">Failed uploads</option>
+            <option value="unknown">Needs review</option>
+          </select>
+        </label>
       </div>
       <button
         v-if="stepFilter && stepFilterCol"
@@ -123,6 +133,7 @@
         <template v-else><strong>Mark done</strong>: click a ○ to mark work you made outside the app as done; click a hand-marked ✓ to undo. Nothing is generated.&nbsp;</template>
         <strong>Needs work only</strong> hides finished episodes (a search always looks through all of them).
         <strong>Repair</strong> re-downloads results that finished but never saved to this Mac — it never starts new work or spends credits.
+        Upload status comes from saved YouTube records and survives local media cleanup. Recorded links are not a verified upload. Upload filters also show completed episodes.
         <template v-if="failedStepCount"><strong>✕</strong> means the last attempt failed — retry it from <NuxtLink :to="`/projects/${slug}/jobs`">Jobs</NuxtLink>.</template>
       </p>
       <div v-if="visibleEpisodes.length" class="board-pagination" aria-label="Episode pages">
@@ -188,14 +199,24 @@
         <template v-if="searchActive">No episode matches "{{ search }}". </template>
         <template v-else-if="failedOnly">No episode has a failed step. </template>
         <template v-else-if="stepFilter && stepFilterCol">Every episode has {{ stepFilterCol.label }} done. </template>
+        <template v-else-if="uploadFilter !== 'all'">No episode has the selected YouTube upload status. </template>
         <template v-else-if="needsWorkOnly">Every episode is fully done. </template>
         Clear the filters to see all {{ episodes.length }}.
       </p>
-      <button class="btn btn-secondary" @click="search = ''; needsWorkOnly = false; stepFilter = null; failedOnly = false">Show All Episodes</button>
+      <button class="btn btn-secondary" @click="search = ''; needsWorkOnly = false; stepFilter = null; failedOnly = false; uploadFilter = 'all'">Show All Episodes</button>
     </div>
 
     <!-- The matrix -->
-    <div v-else class="board-scroll">
+    <div v-else class="board-matrix">
+      <div class="board-stage-navigation" role="group" aria-label="Navigate production stages">
+        <span id="board-scroll-hint">Scroll across stages, or focus the table and use arrow keys.</span>
+        <button type="button" class="board-page-btn" @click="scrollStages('start')">First stages</button>
+        <button type="button" class="board-page-btn" @click="scrollStages(-1)">Previous stages</button>
+        <button type="button" class="board-page-btn" @click="scrollStages(1)">Next stages</button>
+        <button type="button" class="board-page-btn" @click="scrollStages('assembly')">Video Assembly</button>
+        <button type="button" class="board-page-btn" @click="scrollStages('end')">Upload</button>
+      </div>
+      <div ref="boardScroll" class="board-scroll" tabindex="0" role="region" aria-label="Episode production status" aria-describedby="board-scroll-hint">
       <table class="board-grid">
         <thead>
           <tr class="board-phase-row">
@@ -208,12 +229,14 @@
             >
               {{ phase.label }}
             </th>
+            <th class="phase-head">Publishing</th>
           </tr>
           <tr>
             <th
               v-for="col in columns"
               :key="col.key"
               class="col-step sticky-head stage-head"
+              :data-stage="col.key"
             >
               <button
                 type="button"
@@ -230,6 +253,7 @@
                 <span class="step-h-count">{{ doneCount(col) }}/{{ eligibleCount(col) }}</span>
               </button>
             </th>
+            <th class="col-upload sticky-head stage-head">YouTube upload<br /><small>Separate from production</small></th>
           </tr>
         </thead>
         <tbody>
@@ -288,9 +312,21 @@
                 {{ cellBusy(ep, col) ? '·' : cellMark(ep, col) }}
               </button>
             </td>
+            <td class="col-upload">
+              <NuxtLink :to="`/projects/${slug}/upload/publish?episode_id=${encodeURIComponent(ep.episode_code)}`"
+                class="upload-state" :data-state="ep.youtube_upload?.state || 'unknown'"
+                :title="ep.youtube_upload?.reason || (ep.youtube_upload?.checked_at
+                  ? `Saved YouTube status checked at ${ep.youtube_upload.checked_at}` : 'Open the saved publishing record')">
+                {{ uploadLabel(ep) }}
+              </NuxtLink>
+              <a v-if="ep.youtube_upload?.url" :href="ep.youtube_upload.url" target="_blank" rel="noopener noreferrer" class="upload-video-link">Open YouTube video ↗</a>
+              <small v-if="ep.youtube_upload?.visibility">{{ ep.youtube_upload.scheduled_for ? 'Scheduled · ' : '' }}{{ ep.youtube_upload.visibility }}</small>
+              <small v-if="finalMediaRemoved(ep)">Local final removed</small>
+            </td>
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
 
     <div v-if="episodes.length" class="board-legend">
@@ -378,6 +414,26 @@ const { jobs } = useJobs()
 // outside the app, so file-detection never flips them done).
 const mode = ref<'open' | 'mark'>('open')
 const busyCell = ref('') // `${code}:${field}` while a PATCH is in flight
+const boardScroll = ref<HTMLElement | null>(null)
+function scrollStages(direction: 'start' | 'end' | 'assembly' | number) {
+  const region = boardScroll.value
+  if (!region) return
+  if (typeof direction === 'number') region.scrollBy({ left: direction * region.clientWidth * 0.75 })
+  else if (direction === 'assembly') {
+    const stage = region.querySelector<HTMLElement>('[data-stage="video-assembly"]')
+    const episode = region.querySelector<HTMLElement>('.col-ep')
+    if (stage) region.scrollTo({ left: region.scrollLeft + stage.getBoundingClientRect().left
+      - (episode?.getBoundingClientRect().right || region.getBoundingClientRect().left) })
+  }
+  else region.scrollTo({ left: direction === 'start' ? 0 : region.scrollWidth })
+}
+const uploadFilter = ref('all')
+function uploadLabel(ep: any): string {
+  return ({ pending: 'Pending', queued: 'Queued', uploading: 'Uploading', processing: 'Processing', uploaded: 'Uploaded', recorded: 'Recorded — unverified', failed: 'Upload failed', unknown: 'Needs review' } as Record<string, string>)[ep.youtube_upload?.state || 'unknown'] || 'Needs review'
+}
+function finalMediaRemoved(ep: any): boolean {
+  return ep.local_media_status?.categories?.some((item: any) => item.category === 'final_video' && item.removed_files > 0) === true
+}
 const importEp = ref<any | null>(null) // episode row whose import dialog is open
 // Repair dialog (re-pull provider-completed jobs). Auto-opens when the board
 // is reached via ?repair=1 — the entry point used by the dashboard + Jobs
@@ -501,6 +557,9 @@ watch(columns, cols => {
 
 const visibleEpisodes = computed(() => {
   let list = episodes.value
+  if (uploadFilter.value !== 'all') list = list.filter(ep => uploadFilter.value === 'pending'
+    ? ['pending', 'queued', 'uploading', 'processing'].includes(ep.youtube_upload?.state || '')
+    : ep.youtube_upload?.state === uploadFilter.value)
   if (stepFilter.value) {
     const col = stepFilterCol.value
     list = col
@@ -509,7 +568,7 @@ const visibleEpisodes = computed(() => {
   }
   if (failedOnly.value) list = list.filter(ep => columns.value.some(col => cellState(ep, col) === 'failed'))
   // A search is a lookup: it must find a finished episode too.
-  if (needsWorkOnly.value && !searchActive.value) list = list.filter(ep => !isFullyDone(ep))
+  if (needsWorkOnly.value && !searchActive.value && uploadFilter.value === 'all') list = list.filter(ep => !isFullyDone(ep))
   if (searchActive.value) {
     const q = search.value.trim().toLowerCase()
     list = list.filter(ep =>
@@ -541,7 +600,7 @@ function goToPage(page: number) {
 
 // Filtering can shrink the result set substantially. Always return to a real
 // page instead of leaving the board on an empty slice.
-watch([search, needsWorkOnly, stepFilter, failedOnly], () => { currentPage.value = 1 })
+watch([search, needsWorkOnly, stepFilter, failedOnly, uploadFilter], () => { currentPage.value = 1 })
 watch(slug, () => { failedOnly.value = false })
 watch(totalPages, pages => {
   if (currentPage.value > pages) currentPage.value = pages
@@ -880,6 +939,9 @@ async function markCell(ep: any, col: BoardCol) {
 
 /* ── Grid ── */
 .board-scroll {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   overflow-x: auto;
   overflow-y: visible;
   border: 1px solid var(--border);
@@ -887,6 +949,17 @@ async function markCell(ep: any, col: BoardCol) {
   background: var(--bg-secondary);
   box-shadow: var(--shadow);
 }
+.board-scroll:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.board-matrix { min-width: 0; }
+.board-stage-navigation { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+.board-stage-navigation > span { color: var(--text-secondary); font-size: var(--font-xs); margin-right: auto; }
+.board-upload-filter { display: flex; align-items: center; gap: 8px; font-size: var(--font-xs); }
+.col-upload { min-width: 170px; padding: 8px 12px; text-align: left; }
+.col-upload small, .upload-video-link { display: block; font-size: var(--font-xs); }
+.col-upload small { color: var(--text-secondary); }
+.upload-state { display: block; color: var(--text-secondary); font-weight: 650; }
+.upload-state[data-state='uploaded'] { color: var(--success); }
+.upload-state[data-state='failed'], .upload-state[data-state='unknown'] { color: var(--error); }
 .board-grid {
   border-collapse: separate;
   border-spacing: 0;
@@ -1109,6 +1182,11 @@ async function markCell(ep: any, col: BoardCol) {
 .board-legend-hint { opacity: 0.8; }
 
 @media (max-width: 720px) {
+  .col-ep { min-width: 144px; max-width: 180px; }
+  .col-upload { width: 148px; min-width: 148px; }
+  .ep-cell { display: block; }
+  .ep-title { max-width: 132px; }
+  .ep-import { margin-top: 4px; }
   .board-search,
   .board-search-input {
     width: 100%;

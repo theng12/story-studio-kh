@@ -1,6 +1,14 @@
 # HANDOFF — Story Studio KH
 
-## Current work — 2026-10-06
+## Current work — 2026-10-06 (local update integration)
+
+Source release **1.4.256** builds on `a3c2e722` / 1.4.255 from the other Mac. The Production Board has native stage navigation, a keyboard-focusable scrolling region, and a separate saved YouTube publishing column/filter. Upload transitions refresh through surgical episode invalidation; historical terminal snapshots do not trigger repeated scans. Independent review found no unresolved code issues. Full backend: exit 0, 6,154 tests / 6,150 pass / 0 fail / 4 skip, 604/604 files completed. Full frontend: exit 0, 2,385 tests / 0 fail, 276/276 files completed. Content-packs: exit 0, 368 tests / 366 pass / 0 fail / 2 skip, 38/38 files completed. Typechecks pass; lint reports 0 errors and 1,778 existing warnings. Final main packaging/release-lane evidence and this Mac's current installed state are recorded in `/build/Developer/story-studio-operations/story-update-integration-plan.json`.
+
+At recovery, this Mac was running **1.4.254** on **8766**, with **4 running scene jobs, 73 queued, and 1 paused**. The owner authorizes restart, including forced termination if normal quit stalls, for this update. Prefer the existing cooperative queue checkpoint first, retain accepted-task identities and unknown-outcome fences, back up receipts/manifests/jobs and profile, verify restored work after launch, then restore original admission through the official global Resume. Manual pauses remain explicit; stalled rows require evidence-proven recovery. History EP0005/EP0007 were queued for Finish missing images after their Gateway tasks were confirmed finished; the earlier UNKNOWN_OUTCOME evidence does not authorize bypassing reconciliation.
+
+Installer tests now isolate their temporary trash as well as their install target. Safe cleanup for this session goes to the owner's central `/build/Developer/_trash`; retained trash is never tidied. The unrelated untracked `.impeccable/critique` file remains untouched.
+
+## Upstream 1.4.255 — 2026-10-06
 
 Source release **1.4.255**, based on `dcea61ad` (1.4.254), addresses the owner's unattended Pipeline workflow on the separate 2 TB Mac mini. See `docs/superpowers/plans/2026-10-06-autonomous-pipeline.md` for scope and safeguards. The installable artifact is `dist/Story Studio KH 1.4.255-arm64.dmg`; the coordinating handoff under `/build/Developer/_orchestra/` records its final build/verification status. This release has not been installed on the mini.
 

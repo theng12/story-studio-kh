@@ -300,6 +300,40 @@ describe('useEpisodes', () => {
     second.app.unmount()
   })
 
+  test('mounted lists re-read saved upload status once per queue transition, including retries', async () => {
+    let savedUploadState = 'pending'
+    fetchHandler = () => [{ ...fakeRow('EP001'), youtube_upload: { state: savedUploadState } }]
+    const { queue, stream } = startJobs('alpha')
+    const first = mountWithComposable('alpha', { invalidateOnJobTypes: true })
+    const second = mountWithComposable('alpha', { invalidateOnJobTypes: true })
+    try {
+      await settle()
+      const initialReads = fetchCalls.length
+      const historicalUpload = fakeJob({ job_id: 'historic-upload', type: 'youtube_upload', status: 'done', finished_at: '2020-01-01T00:00:00.000Z' })
+      stream.fire('snapshot', snapshot([historicalUpload]))
+      await settle()
+      assert.equal(fetchCalls.length, initialReads, 'historical upload completion already predates the episode snapshot')
+      const upload = fakeJob({ job_id: 'live-upload', type: 'youtube_upload' })
+      for (const [status, receiptState] of [['queued', 'queued'], ['running', 'uploading'], ['error', 'failed'], ['queued', 'queued'], ['running', 'uploading'], ['done', 'processing']] as const) {
+        savedUploadState = receiptState
+        const before = fetchCalls.length
+        stream.fire('snapshot', snapshot([{ ...upload, status }, { ...upload, job_id: 'peer-upload', episode_id: 'EP002', status }]))
+        await settle()
+        assert.equal(fetchCalls.length - before, 1, `${status}: shared bulk transition refreshes once`)
+        assert.match(fetchCalls.at(-1) || '', /episodes\?invalidate=EP001$/)
+        assert.equal(first.captured.episodes.value[0].youtube_upload?.state, receiptState)
+        assert.equal(second.captured.episodes.value[0].youtube_upload?.state, receiptState)
+        stream.fire('update', { ...upload, status, output_lines: ['Progress only'] })
+        await settle()
+        assert.equal(fetchCalls.length - before, 1, 'progress with unchanged status does not refetch')
+      }
+    } finally {
+      queue.stopPolling()
+      first.app.unmount()
+      second.app.unmount()
+    }
+  })
+
   test('refetches when a completion lands after the episode list was fetched', async () => {
     let call = 0
     fetchHandler = () => call++ === 0 ? [fakeRow('EP001')] : [fakeRow('EP001'), fakeRow('EP002')]
