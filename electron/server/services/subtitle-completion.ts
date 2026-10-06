@@ -100,6 +100,35 @@ async function readExpectedSections(episodeDir: string): Promise<string[]> {
 }
 
 /**
+ * Per-file byte hashes, reused while the file's identity is unchanged.
+ *
+ * 1.4.257 — every status recompute re-read every narration file of the
+ * episode (hundreds of MB on a long sleep story). The key is the file's path,
+ * size, mtime, ctime and inode: an in-place rewrite moves mtime/ctime, an
+ * atomic replace moves the inode, and ctime cannot be set back by `utimes`.
+ */
+const fileHashMemo = new Map<string, { identity: string, hash: string }>()
+const FILE_HASH_MEMO_MAX = 20_000
+
+async function hashAudioFile(file: string): Promise<string> {
+  const before = await fs.stat(file)
+  const identity = `${before.size}:${before.mtimeMs}:${before.ctimeMs}:${before.ino}`
+  const remembered = fileHashMemo.get(file)
+  if (remembered?.identity === identity) return remembered.hash
+  const hash = createHash('sha256')
+  // Match the existing upload hasher's 4 MiB reads: bounded buffers
+  // without a separate event-loop turn for every 64 KiB of long audio.
+  for await (const chunk of createReadStream(file, { highWaterMark: 4 * 1024 * 1024 })) hash.update(chunk)
+  const digest = hash.digest('hex')
+  // ponytail: clear-all at the cap; an LRU only matters past ~20k narration files.
+  if (fileHashMemo.size >= FILE_HASH_MEMO_MAX) fileHashMemo.clear()
+  // Stored under the identity read BEFORE hashing: a write during the read
+  // changes the identity, so the next call re-hashes instead of trusting this.
+  fileHashMemo.set(file, { identity, hash: digest })
+  return digest
+}
+
+/**
  * Stable local source identity for one active chapter. This deliberately hashes
  * source bytes rather than duration or mtime: a same-length replacement still
  * needs a new transcript. Multi-part chapters retain their source-file order.
@@ -112,11 +141,7 @@ export async function hashSubtitleAudioSources(sourceFiles: string[]): Promise<s
   const parts: string[] = []
   for (const file of sourceFiles) {
     try {
-      const hash = createHash('sha256')
-      // Match the existing upload hasher's 4 MiB reads: bounded buffers
-      // without a separate event-loop turn for every 64 KiB of long audio.
-      for await (const chunk of createReadStream(file, { highWaterMark: 4 * 1024 * 1024 })) hash.update(chunk)
-      parts.push(hash.digest('hex'))
+      parts.push(await hashAudioFile(file))
     } catch {
       return null
     }

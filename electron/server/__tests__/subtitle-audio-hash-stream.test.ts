@@ -43,3 +43,25 @@ test('source hashing retains empty-file identity and refuses absent or unreadabl
     assert.equal(await hashSubtitleAudioSources([temp.dir]),null)
   } finally {await temp.cleanup()}
 })
+
+test('an unchanged source file is hashed once; a replacement is hashed again', async t => {
+  const temp = await useTempDataDir()
+  const { default: fsSync } = await import('node:fs')
+  const { syncBuiltinESMExports } = await import('node:module')
+  try {
+    const file = path.join(temp.dir, 'narration.mp3')
+    await fs.writeFile(file, 'first take')
+    const opened: string[] = []
+    const real = fsSync.createReadStream
+    t.mock.method(fsSync, 'createReadStream', (...args: any[]) => { opened.push(String(args[0])); return (real as any)(...args) })
+    syncBuiltinESMExports()
+    assert.equal(await hashSubtitleAudioSources([file]), expected([Buffer.from('first take')]))
+    assert.equal(await hashSubtitleAudioSources([file]), expected([Buffer.from('first take')]))
+    assert.equal(opened.length, 1, 'the second status read reuses the hash instead of re-reading the narration')
+    const replacement = `${file}.tmp`
+    await fs.writeFile(replacement, 'other take')
+    await fs.rename(replacement, file)
+    assert.equal(await hashSubtitleAudioSources([file]), expected([Buffer.from('other take')]))
+    assert.equal(opened.length, 2, 'a same-size atomic replacement is read again')
+  } finally { t.mock.restoreAll(); (await import('node:module')).syncBuiltinESMExports(); await temp.cleanup() }
+})
