@@ -108,3 +108,26 @@ test('episode rows show the latest upload attempt rather than queue display orde
   assert.equal(response.body[0].youtube_upload.state, 'failed')
   assert.equal(response.body[0].youtube_upload.reason, 'Upload connection failed.')
 })
+
+test('the episode list serialises only upload jobs, never the whole job history', async () => {
+  const project = await pm.createProject({ name: 'Large History Upload List' })
+  const [idea] = await im.addIdeas(project.slug, [{ title: 'Big', logline: '', themes: [], suggested_chapters: 1, suggested_length: 'short', mood: 'calm' }], 'test')
+  await im.acceptIdea(project.slug, idea!.id, false, { override_code: 'EP0001' })
+  const jq = await import('../services/job-queue.js')
+  const job = (job_id: string, type: string, status: string, created_at: string) => ({
+    job_id, project_slug: project.slug, type, episode_id: 'EP0001', title: 'Big', status,
+    created_at, started_at: created_at, finished_at: created_at, error: status === 'error' ? 'Upload connection failed.' : null,
+    output_lines: [], params: {}, progress: 0,
+  } as any)
+  for (let i = 0; i < 40; i++) await jq.writeAuthoritativeJob(job(`render-${i}`, 'continuity_render', 'done', NOW))
+  await jq.writeAuthoritativeJob(job('upload-old', 'youtube_upload', 'done', '2026-10-05T00:00:00.000Z'))
+  await jq.writeAuthoritativeJob(job('upload-new', 'youtube_upload', 'error', NOW))
+  const expected = (await jq.getJobs(project.slug)).filter(row => row.type === 'youtube_upload')
+  assert.deepEqual(await jq.getJobs(project.slug, 'youtube_upload'), expected, 'the filtered read returns the same public rows')
+
+  jq._resetJobPersistenceCountersForTesting()
+  const response = await request(express().use(router)).get(`/projects/${project.slug}/episodes?refresh=1`)
+  assert.equal(response.status, 200)
+  assert.equal(response.body[0].youtube_upload.state, 'failed')
+  assert.equal(jq._getJobPersistenceCountersForTesting().public_serializations, 2, 'only the two upload jobs are serialised')
+})

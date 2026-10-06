@@ -5114,11 +5114,16 @@ export async function resumeEpisodeRecoveryJob(jobId: string, explicit = false):
   })
 }
 
-export async function getJobs(projectSlug: string): Promise<Job[]> {
+/**
+ * Public snapshots of a project's jobs. `type` serialises only that type: a caller that needs a few
+ * rows (the episode list reads `youtube_upload`) must not clone and redact the whole history, which
+ * is tens of MB on a large channel.
+ */
+export async function getJobs(projectSlug: string, type?: JobType): Promise<Job[]> {
   await loadPersistedJobs(projectSlug)
   const projectJobs: Job[] = []
   for (const job of jobs.values()) {
-    if (job.project_slug === projectSlug) {
+    if (job.project_slug === projectSlug && (!type || job.type === type)) {
       const j = serializeJob(job)
       if (j.status === 'queued') {
         const q = queues[job.type]

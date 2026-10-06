@@ -654,7 +654,7 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
   const projectFacts = createProjectFactsCache(slug)
   // Publishing is a separate saved receipt, not another required generation stage.
   const uploadStores = await readYouTubeRetentionStores(slug, projectFacts).catch(() => null)
-  const uploadJobs = await jq.getJobs(slug).then(jobs => jobs.filter(job => job.type === 'youtube_upload')
+  const uploadJobs = await jq.getJobs(slug, 'youtube_upload').then(jobs => jobs
     .sort((a, b) => b.created_at.localeCompare(a.created_at))).catch(() => null)
 
   const { episodeStatusCache } = await import('../services/episode-status-cache.js')
