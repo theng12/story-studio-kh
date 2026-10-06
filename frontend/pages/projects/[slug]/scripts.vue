@@ -1530,7 +1530,7 @@ watch(scriptJobsSignal, () => {
 // O(N) array find — instant. Auto-revalidates on `done` job events
 // inside the composable, so freshness after generations is handled
 // without an explicit refetch here.
-const { episodes: cachedEpisodeList, refresh: refreshEpisodeCache } = useEpisodes(slug)
+const { episodes: cachedEpisodeList, revalidate: revalidateEpisodeCache } = useEpisodes(slug)
 
 let episodeStatusSequence = 0
 
@@ -1553,11 +1553,11 @@ async function refetchEpisodeStatus() {
     selectedEpisode.value = cached
     return
   }
-  // 2. Cold cache (deep-link, fresh tab) → trigger a refresh through
-  //    the composable. Returns when the cache fills; downstream reads
-  //    pick up the value reactively.
+  // 2. Cold cache (deep-link, fresh tab) → read the list through the
+  //    composable (no ?refresh=1 rebuild of every row). Returns when the
+  //    cache fills; downstream reads pick up the value reactively.
   try {
-    await refreshEpisodeCache()
+    await revalidateEpisodeCache()
     if (slug.value !== targetSlug || form.episode_id !== targetEpisode || requestSequence !== episodeStatusSequence) return
     const fresh = cachedEpisodeList.value.find((e: any) => e.episode_code === targetEpisode)
     if (fresh) selectedEpisode.value = fresh

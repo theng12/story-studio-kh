@@ -67,6 +67,24 @@ describe('refresh buttons', () => {
     assert.match(board, /v-if="isRevalidating && episodes\.length"[^>]*>Updating…</)
   })
 
+  test('Pipeline ↻ and EpisodeSelector ↻ are paced; Shift-click is the full rebuild', () => {
+    const pipeline = source('../pages/projects/[slug]/pipeline.vue')
+    const pipelineClick = pipeline.slice(pipeline.indexOf('async function onRefreshClick('), pipeline.indexOf('\n}\n', pipeline.indexOf('async function onRefreshClick(')))
+    assert.match(pipelineClick, /e\.shiftKey \? refreshEpisodes\(\) : revalidateEpisodes\(\)/)
+    const selector = source('../components/EpisodeSelector.vue')
+    assert.match(selector, /@click="onRefreshClick"/)
+    const selectorClick = selector.slice(selector.indexOf('async function onRefreshClick('), selector.indexOf('\n}\n', selector.indexOf('async function onRefreshClick(')))
+    assert.match(selectorClick, /e\.shiftKey \? refresh\(\) : revalidate\(\)/)
+  })
+
+  test('the scripts page deep link reads the list without rebuilding every row', () => {
+    const scripts = source('../pages/projects/[slug]/scripts.vue')
+    const start = scripts.indexOf('async function refetchEpisodeStatus(')
+    const body = scripts.slice(start, scripts.indexOf('\n}\n', start))
+    assert.match(body, /await revalidateEpisodeCache\(\)/)
+    assert.doesNotMatch(scripts, /refresh: refreshEpisodeCache/)
+  })
+
   test('Pipeline mutations re-read only the episode they changed', () => {
     const pipeline = source('../pages/projects/[slug]/pipeline.vue')
     for (const fn of ['onImported', 'onOverridesSaved', 'onMarkDone', 'bulkMarkSelected']) {

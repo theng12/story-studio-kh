@@ -328,7 +328,7 @@
           <span class="ep-actions-divider" aria-hidden="true" />
 
           <button class="btn btn-sm btn-secondary" @click="selectNone">Clear</button>
-          <button class="btn btn-sm btn-ghost" :disabled="epLoading || epRevalidating" @click="onRefreshClick" title="Refresh episode statuses. Shift-click for a deeper rescan that wipes the on-disk cache too — use after files change on disk outside the app.">
+          <button class="btn btn-sm btn-ghost" :disabled="epLoading || epRevalidating" @click="onRefreshClick" title="Refresh episode statuses. Shift-click to rebuild every row — slower, use after files change on disk outside the app.">
             {{ (epLoading || epRevalidating) ? '⟳ Refreshing…' : '↻ Refresh' }}
           </button>
         </div>
@@ -1512,7 +1512,7 @@ const {
   isLoading: epLoading,
   isRevalidating: epRevalidating,
   refresh: refreshEpisodes,
-  rescan: rescanEpisodes,
+  revalidate: revalidateEpisodes,
   revalidateAfterMutation,
   updateEpisode,
   error: epError,
@@ -1530,9 +1530,10 @@ watch(epError, (e) => {
 })
 
 
+// Plain click re-reads what changed; Shift-click keeps the full rebuild of
+// every row (`?refresh=1`), as on the Production Board.
 async function onRefreshClick(e: MouseEvent) {
-  if (e.shiftKey) await rescanEpisodes()
-  else await refreshEpisodes()
+  await (e.shiftKey ? refreshEpisodes() : revalidateEpisodes())
 }
 
 function toggleEpisode(code: string) {

@@ -23,7 +23,7 @@
         class="toggle-btn refresh-btn"
         :disabled="loading"
         @click="onRefreshClick"
-        :title="loading ? 'Loading…' : 'Refresh (shift-click to rescan from disk — slower, use after files change outside the app)'"
+        :title="loading ? 'Loading…' : 'Refresh (shift-click to rebuild every row — slower, use after files change outside the app)'"
       >
         {{ loading || isRevalidating ? '…' : '↻' }}
       </button>
@@ -164,6 +164,7 @@ const {
   error: loadError,
   load,
   refresh,
+  revalidate,
   revalidateAfterMutation,
   rescan,
   updateEpisode,
@@ -634,9 +635,9 @@ async function onSelect(code: string) {
 
 // Refresh + invalidation are handled inside useEpisodes:
 //  - Auto-revalidate on `done` job transitions (any type, current slug)
-//  - Manual ↻ button calls refresh() which forces ?refresh=1
-//  - Shift+↻ calls rescan() which also wipes the on-disk cache (use
-//    after files appear on disk but the UI hasn't caught up).
+//  - Manual ↻ re-reads what changed (revalidate(), no ?refresh=1; the server
+//    re-checks the rest on its own pace). Shift+↻ is the full rebuild
+//    (refresh(), ?refresh=1), as on the Production Board.
 //
 // The dropdown's @focus handler. It must stay on the CACHED path: this
 // fires every time the select is tabbed into or clicked, and refresh()
@@ -650,8 +651,7 @@ async function loadEpisodes() {
 }
 
 async function onRefreshClick(e: MouseEvent) {
-  if (e.shiftKey) await rescan()
-  else await refresh()
+  await (e.shiftKey ? refresh() : revalidate())
 }
 
 defineExpose({ refresh, rescan })
