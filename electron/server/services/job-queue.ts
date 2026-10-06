@@ -5165,18 +5165,19 @@ export async function resumeEpisodeRecoveryJob(jobId: string, explicit = false):
 }
 
 /**
- * Public snapshots of a project's jobs. `type` serialises only that type: a caller that needs a few
+ * Public snapshots of a project's jobs. `type` serialises only that type (or those types): a caller that needs a few
  * rows (the episode list reads `youtube_upload`) must not clone and redact the whole history, which
  * is tens of MB on a large channel. `view: 'stream'` is the live streams' slim view (`streamSource`).
  */
 export async function getJobs(
   projectSlug: string,
-  { type, view = 'full' }: { type?: JobType, view?: 'full' | 'stream' } = {},
+  { type, view = 'full' }: { type?: JobType | readonly string[], view?: 'full' | 'stream' } = {},
 ): Promise<Job[]> {
   await loadPersistedJobs(projectSlug)
   const projectJobs: Job[] = []
+  const wanted = (job: Job) => !type || (typeof type === 'string' ? job.type === type : type.includes(job.type))
   for (const job of jobs.values()) {
-    if (job.project_slug === projectSlug && (!type || job.type === type)) {
+    if (job.project_slug === projectSlug && wanted(job)) {
       const j = serializeJob(job, view)
       if (j.status === 'queued') {
         const q = queues[job.type]

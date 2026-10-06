@@ -28,6 +28,9 @@ const JOB_TYPE_STATUS_FIELD: Record<string, string> = {
   music_episode_build: 'music_episode',
 }
 
+/** Every job type that can mark a Board step active or failed (`image_prompts` is mode-dependent). */
+export const STEP_JOB_TYPES = [...Object.keys(JOB_TYPE_STATUS_FIELD), 'image_prompts'] as const
+
 export interface StepJobLike {
   type: string
   status: string

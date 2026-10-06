@@ -17,7 +17,7 @@ import { loadNiche } from '../services/niche-loader.js'
 import { seedFormulaStartingDefaults } from '../services/formula-starting-defaults.js'
 import { getIdeas } from '../services/idea-manager.js'
 import { readYouTubeProjectPublishingState } from '../services/youtube-project-publishing-store.js'
-import { episodeStepJobStates } from '../contracts/episode-step-jobs.js'
+import { episodeStepJobStates, STEP_JOB_TYPES } from '../contracts/episode-step-jobs.js'
 
 export const router = Router()
 
@@ -121,7 +121,10 @@ router.get('/projects/:slug/channel-counts', async (req, res) => {
 
     const inProgress = new Set<string>()
     const needsAttention = new Set<string>()
-    for (const [key, state] of episodeStepJobStates(await jq.getJobs(slug))) {
+    // Step jobs only, slim: the counts never read a job's payload, and the whole
+    // history is tens of MB on a large channel.
+    const stepJobs = await jq.getJobs(slug, { type: STEP_JOB_TYPES, view: 'stream' })
+    for (const [key, state] of episodeStepJobStates(stepJobs)) {
       const code = key.slice(0, key.lastIndexOf(':'))
       if (!codes.has(code)) continue
       ;(state.state === 'active' ? inProgress : needsAttention).add(code)

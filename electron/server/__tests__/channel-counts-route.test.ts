@@ -104,6 +104,18 @@ describe('GET /api/projects/:slug/channel-counts', () => {
     assert.deepEqual(body, { episodes: 5, on_youtube: 0, in_progress: 1, needs_attention: 2 })
   })
 
+  test('counts serialise only step jobs, never the rest of the history', async () => {
+    const { slug } = await pm.createProject({ name: 'Counts History' })
+    await seed(slug, { statuses: ['accepted'] })
+    await writeJobs(slug, [
+      { type: 'audio', status: 'error', ep: 'EP0001', at: '2026-10-01T01:00:00Z' },
+      ...Array.from({ length: 30 }, () => ({ type: 'youtube_upload', status: 'done', ep: 'EP0001', at: '2026-10-01T00:00:00Z' })),
+    ])
+    jq._resetJobPersistenceCountersForTesting()
+    assert.deepEqual((await counts(slug).expect(200)).body, { episodes: 1, on_youtube: 0, in_progress: 0, needs_attention: 1 })
+    assert.equal(jq._getJobPersistenceCountersForTesting().public_serializations, 1, 'only the one step job is copied')
+  })
+
   test('counts do not leak between channels', async () => {
     const a = await pm.createProject({ name: 'Counts A' })
     const b = await pm.createProject({ name: 'Counts B' })
