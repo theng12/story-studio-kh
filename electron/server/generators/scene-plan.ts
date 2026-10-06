@@ -33,6 +33,7 @@ import {
   listChatModels as listGenStudioChatModels,
   GenStudioApiError,
   GenStudioChatCapabilityUnavailableError,
+  GenStudioChatIncompleteError,
   GenStudioChatProductUnavailableError,
   GenStudioChatRecoveryUnresolvedError,
   isGenStudioInsufficientCredits,
@@ -347,7 +348,7 @@ export interface ScenePromptCompletionIssue {
   detail: string
 }
 
-const MAX_AUTOMATIC_PROMPT_REPAIR_ATTEMPTS = 2
+const MAX_CONSECUTIVE_STALLED_PROMPT_REPAIR_ATTEMPTS = 2
 
 /** Split prompt work into bounded provider requests. Keeping this pure makes
  * request counts explicit and regression-testable (322 scenes at 50 per pack
@@ -1630,6 +1631,16 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         if (isGenStudioInsufficientCredits(error)) throw error
         requestError = error?.message || String(error)
         requestUnresolved = scenePromptRequestIsUnresolved(job, error)
+        if (error instanceof GenStudioChatIncompleteError && error.partialText.trim()) {
+          responseReceived = true
+          results = parseDirectPackResults(error.partialText, input.sceneIds, isMotion ? 'motion' : 'visual')
+          checkpointErrors = await checkpointPackPromptResults(
+            results,
+            new Set(input.checkpointSceneIds || input.sceneIds),
+            input.saved,
+            persistPrompt,
+          )
+        }
         // The provider derived this key before its POST. If that POST reaches
         // an ambiguous accepted/running state, carry the exact request and its
         // strict scene scope into an ordinary retry instead of inventing a
@@ -1755,6 +1766,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       let receipt = await auditScenePromptCompletion(outPath, pack.scene_ids, isMotion ? 'motion' : 'visual')
       syncMemoryPlan(receipt.plan)
       for (const sceneId of receipt.completed_ids) durableTargetIds.add(sceneId)
+      for (const sceneId of receipt.missing_ids) {
+        durableTargetIds.delete(sceneId)
+        saved.delete(sceneId)
+      }
       let issues = diagnoseScenePromptCompletionIssues({
         plan: receipt.plan,
         requestedIds: pack.scene_ids,
@@ -1796,8 +1811,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       // 0/333 with the log explaining only that repair "was not started".
       let automaticRepairAttempts = 0
       let priorMissingCount = receipt.missing_ids.length
+      let consecutiveStalledRepairAttempts = 0
       let previousRequestUnresolved = initial.requestUnresolved
-      for (let attempt = 1; !previousRequestUnresolved && receipt.missing_ids.length && (explicitPaidRepair || attempt <= MAX_AUTOMATIC_PROMPT_REPAIR_ATTEMPTS); attempt++) {
+      for (let attempt = 1; !previousRequestUnresolved && receipt.missing_ids.length
+        && (explicitPaidRepair || consecutiveStalledRepairAttempts < MAX_CONSECUTIVE_STALLED_PROMPT_REPAIR_ATTEMPTS); attempt++) {
         automaticRepairAttempts = attempt
         const outstanding = [...receipt.missing_ids]
         const repairGroups = packScenePromptItems(
@@ -1807,7 +1824,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         job.output_lines.push(
           explicitPaidRepair
             ? `↻ Paid repair pass ${attempt}: requesting ${outstanding.length} still-missing prompt(s), one scene per request.`
-            : `↻ Gateway prompt repair ${attempt}/${MAX_AUTOMATIC_PROMPT_REPAIR_ATTEMPTS}: requesting ${outstanding.length} missing or invalid scene prompt(s) only`
+            : `↻ Gateway prompt repair ${attempt}: requesting ${outstanding.length} missing or invalid scene prompt(s) only`
               + `${repairGroups.length > 1 ? `, one scene per request (${repairGroups.length} requests — small packs fail far more often than single scenes)` : ''}.`,
         )
         const repairBudget = isMotion ? activePromptOutputBudget : visualMaxTokens
@@ -1856,6 +1873,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         receipt = await auditScenePromptCompletion(outPath, pack.scene_ids, isMotion ? 'motion' : 'visual')
         syncMemoryPlan(receipt.plan)
         for (const sceneId of receipt.completed_ids) durableTargetIds.add(sceneId)
+        for (const sceneId of receipt.missing_ids) {
+          durableTargetIds.delete(sceneId)
+          saved.delete(sceneId)
+        }
         issues = diagnoseScenePromptCompletionIssues({
           plan: receipt.plan,
           requestedIds: pack.scene_ids,
@@ -1879,11 +1900,17 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           lastError = `${lastError}; the last Gateway request is still unresolved, so no replacement request was submitted`
           break
         }
+        const improved = receipt.missing_ids.length < priorMissingCount
+        priorMissingCount = receipt.missing_ids.length
         if (explicitPaidRepair) {
-          const improved = receipt.missing_ids.length < priorMissingCount
-          priorMissingCount = receipt.missing_ids.length
           if (!improved) {
             job.output_lines.push(`Paid auto-repair stopped after pass ${attempt}: the durable missing count did not improve. Click Auto repair prompts again after reviewing the provider/model result.`)
+            break
+          }
+        } else {
+          consecutiveStalledRepairAttempts = improved ? 0 : consecutiveStalledRepairAttempts + 1
+          if (consecutiveStalledRepairAttempts >= MAX_CONSECUTIVE_STALLED_PROMPT_REPAIR_ATTEMPTS) {
+            job.output_lines.push(`Gateway prompt repair stopped after pass ${attempt}: two consecutive settled passes made no durable progress.`)
             break
           }
         }

@@ -272,6 +272,12 @@ zero tests. Do not run competing suites: one test run at a time, and read-only a
 suite entirely. For every suite you cite, report the actual exit status, the completion line, and
 the test count — a wrapper's exit code is not the suite's, and "completed" is not "passed".
 
+**Installer tests must isolate trash as well as the install target.** Copy the real installer into
+a private temporary project, and keep source, target, and default/overridden trash there. Never
+run a test that removes or rearranges the checkout's `_trash/app`; a temporary
+`STORY_STUDIO_INSTALL_TARGET` alone does not protect that archive. The release lane's read-only
+built-bundle existence check runs after the main DMG build.
+
 **Releases.** Classify the deliverable first.
 
 - **Application release** — fixes, reliability work, UI/API/runtime behaviour, dependency updates,
@@ -321,4 +327,3 @@ bundled `app.asar` version against `main`, and never copy a worktree-built DMG i
   and keep it current: the version, anything newly learned, anything newly forbidden,
   and what is still open. A stale handoff is worse than none, because it is trusted —
   if it disagrees with the code, the code wins and the file gets fixed.
-

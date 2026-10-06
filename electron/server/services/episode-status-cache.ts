@@ -51,7 +51,13 @@ import { RESEARCH_JSON_FILENAME, researchFolderName } from '../lib/research-path
  * current), and their Scene Plan no longer needs a subtitle timeline. Discard v15 rows, which have
  * neither, so a music episode does not read "Steps 0/7" narration steps until something moves.
  */
-export const SCHEMA_VERSION = 16 as const
+/**
+ * v17 — project config, project metadata, and episode metadata outputs are watched directly.
+ * Config changes alter readiness and path resolution, while metadata outputs and their completion
+ * manifest are rewritten in place without changing the metadata folder mtime. Discard v16 rows so
+ * a warm cache cannot miss either kind of change after upgrade.
+ */
+export const SCHEMA_VERSION = 17 as const
 const MAX_ENTRIES = 1000
 /**
  * Watcher-backed reads (see `trusted()`): how long an entry may be served
@@ -152,6 +158,11 @@ function cacheKey(slug: string, code: string): string {
   return `${slug}::${code.toUpperCase()}`
 }
 
+function projectStatusDependencyPaths(slug: string): string[] {
+  const projectDir = pm.getProjectDir(slug) || path.join(pm.projectsRoot(), slug)
+  return [path.join(projectDir, 'config.json'), path.join(projectDir, 'project.json')]
+}
+
 /**
  * Resolve the list of folders whose mtimes determine episode status.
  * Resolve by code plus the audio manifest so title changes cannot leave the
@@ -173,6 +184,13 @@ async function resolveWatchedFolders(
   } catch {
     return []
   }
+  // Metadata JSON/text outputs and the completion manifest are rewritten in
+  // place. Their parent directory does not move when that happens, so retain
+  // the current files in the snapshot alongside the directory itself. A
+  // later create/remove still changes the directory mtime.
+  const metadataFiles = (await fs.readdir(paths.metadata_dir, { withFileTypes: true }).catch(() => []))
+    .filter(entry => entry.isFile())
+    .map(entry => path.join(paths.metadata_dir, entry.name))
 
   // All folders (and a couple of files) whose changes could affect any status
   // field. NOTE: stat works on files too — we watch scene_plan.json directly
@@ -182,6 +200,7 @@ async function resolveWatchedFolders(
   // inside a sibling). Without these two, scene_plan / scene_review never
   // refresh after the first plan was created. (v1.0.276)
   return [
+    ...projectStatusDependencyPaths(slug),  // config readiness plus project format/path settings
     paths.episode_dir,        // sibling-folder detection for video_assembly
     path.join(paths.episode_dir, 'scene_plan.json'),  // scene_plan + scene_review (legacy root location, in-place rewrites)
     // v1.0.467 — scene_plan.json now lives in the "03 Scene Prompts" folder.
@@ -198,6 +217,7 @@ async function resolveWatchedFolders(
     paths.scene_prompts_dir,  // scene_prompts (and bg_dir image counts via docx mtime)
     paths.thumb_prompts_dir,  // thumb_prompts
     paths.metadata_dir,       // metadata
+    ...metadataFiles,         // metadata outputs/manifests rewritten in place
     paths.bg_dir,             // images
     paths.thumb_dir,          // thumbnails
     paths.audio_dir,          // audio
@@ -394,6 +414,8 @@ class EpisodeStatusCache {
       // write during compute means the next read will see STALE — correct.)
       const folders = await resolveWatchedFolders(slug, code, ideas, cache)
       const watchedMtimes = await snapshotMtimes(folders)
+      const projectDependencies = new Set(projectStatusDependencyPaths(slug))
+      const hasEpisodeSnapshot = Object.keys(watchedMtimes).some(p => !projectDependencies.has(p))
       // The snapshot moment, not the post-compute moment: anything that
       // lands during the compute must still count as "after verification".
       const verifiedAt = Date.now()
@@ -409,7 +431,7 @@ class EpisodeStatusCache {
         watchedMtimes,
         schemaVersion: SCHEMA_VERSION,
       }
-      // Cache-poisoning guards. Two independent reasons NOT to cache a
+      // Cache-poisoning guards. Three independent reasons NOT to cache a
       // computed entry:
       //
       //   1. (v1.0.76) `folders.length === 0` — resolveEpisodePaths threw,
@@ -428,20 +450,21 @@ class EpisodeStatusCache {
       //      this entry, recompute on the next read, by which point
       //      iCloud has usually settled.
       //
-      //   3. An EMPTY mtimes snapshot, for the same reason as #1 and by
-      //      the same mechanism. A newly-accepted episode resolves to a
-      //      real folder list (resolveEpisodePaths computes paths from the
-      //      template and does not require them to exist) while none of
-      //      those folders is on disk yet, so `folders.length > 0` but the
-      //      snapshot is `{}`.
+      //   3. No EPISODE-SPECIFIC mtimes in the snapshot, for the same reason
+      //      as #1 and by the same mechanism. A newly-accepted episode resolves
+      //      to a real folder list (resolveEpisodePaths computes paths from the
+      //      template and does not require them to exist) while none of those
+      //      folders is on disk yet. The shared config.json/project.json files
+      //      may exist, but they cannot reveal that this episode's first folder
+      //      appeared later.
       //
       //      This note used to say caching that was correct, because when
       //      the folders appeared "the new keys in mtimes will not match
       //      the empty snapshot". They never appear. The staleness check
       //      stats `Object.keys(entry.watchedMtimes)` — the keys ALREADY
-      //      stored — so an empty snapshot stats nothing, compares `{}`
-      //      against `{}`, and is a permanent hit. Measured: an episode
-      //      read once before its script existed still reported
+      //      stored — so a project-only snapshot keeps comparing those same
+      //      unchanged shared files and becomes a permanent hit. Measured: an
+      //      episode read once before its script existed still reported
       //      `script: false` after the script really landed, for the life
       //      of the process, with nothing the owner could do about it.
       //
@@ -449,7 +472,7 @@ class EpisodeStatusCache {
       //      drops empty-snapshot rows as poisoned. Only the in-memory
       //      path still created them.
       const unreliable = (status as any)._unreliable === true
-      if (folders.length > 0 && Object.keys(watchedMtimes).length > 0 && !unreliable) {
+      if (folders.length > 0 && hasEpisodeSnapshot && !unreliable) {
         this.set(k, entry)
         this.scheduleFlush(slug)
       }

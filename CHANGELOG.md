@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.255 — 2026-10-06
+
+- **Large Pipeline batches start with fewer repeated checks.** Episode checks run in bounded parallel work, and Start still verifies current files before queuing.
+- **Scene prompts repair themselves while making progress.** Complete rows from a truncated response are kept, invalid duplicate rows remain repairable, and only missing or invalid scene IDs are requested again. Repair stops after repeated no progress or an unresolved request.
+- **Free fleet scene images recover without repeated manual Retry.** Stale prepared requests are refreshed only after the Gateway proves they were never submitted, completed images stay saved, and settled failures receive bounded missing-only retries. Slow free fleet work no longer becomes an automatic ten-minute pause; manual Pause and Cancel still apply.
+
+---
+
 ## v1.4.254 — 2026-10-05
 
 - **Narration pieces that fail on the fleet are retried automatically (twice), so episodes finish on their own.**

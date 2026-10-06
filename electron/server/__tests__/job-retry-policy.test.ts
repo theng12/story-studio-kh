@@ -50,8 +50,15 @@ describe('local auto-retry policy', () => {
     assert.equal(keys.size, 3, 'a repeated key would replay the same failed Gateway job')
   })
 
-  test('retries local image generation but not image APIs', () => {
+  test('retries local and free-fleet image generation but not paid image APIs', () => {
     assert.equal(policy('continuity_render', { model: 'imagestudio:org/model' }).eligible, true)
+    const fleet = policy('continuity_render', { model: 'studio-hub::org/model' })
+    assert.equal(fleet.eligible, true)
+    assert.equal(fleet.max_attempts, 3)
+    assert.match(fleet.reason, /only the missing images/)
+    assert.equal(policy('continuity_render', { model: 'studio-hub::org/model', auto_retry: false }).eligible, false)
+    assert.equal(policy('thumb_images', { model: 'studio-hub::org/model' }).eligible, false,
+      'free fleet retry stays limited to the generator whose terminal identity is proven end to end')
     assert.equal(policy('thumb_images', { model: 'gpt-image-1' }).eligible, false)
     assert.equal(policy('thumb_images', { model: 'flux-kontext-pro' }).eligible, false)
   })

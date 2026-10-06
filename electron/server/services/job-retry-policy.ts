@@ -162,10 +162,12 @@ export function resolveJobAutoRetryPolicy(
     if (isLocalImageModel(model)) {
       return localPolicy('Image Studio generation runs on your own hardware and preserves completed images.')
     }
-    // Classified STRUCTURALLY, by elimination, not by what the product is
-    // called. Story Studio has exactly two image paths: the local Image Studio
-    // fleet (`imagestudio:`) and GenStudio. Anything that is not local is a
-    // charged GenStudio submission.
+    if (job.type === 'continuity_render' && isFreeFleetModelId(model)) {
+      return localPolicy('Free scene images on your own Macs cost nothing to repeat; a retry submits only the missing images.')
+    }
+    // The remaining image generators have not proved their terminal-task
+    // promotion end to end, so even free fleet work stays manual here. Paid
+    // GenStudio work must also stay manual.
     //
     // This used to read `model.startsWith('genstudio-image')`, which silently
     // stopped being true once GenStudio products began publishing customer

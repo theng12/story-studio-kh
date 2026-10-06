@@ -74,8 +74,10 @@ export interface TaskManifestEntry {
     input_hash: string
   }>
   operation?: 'tts' | 'transcription' | 'image' | 'video'
-  /** TTS: the voice model that made these bytes, so a later run can activate a part an earlier run left behind. */
+  /** Exact provider model used for durable audio/image replay. */
   model_id?: string
+  /** Exact image seed prepared for submission; null means the request omitted a seed. */
+  image_seed?: number | null
   /** Exact GenStudio operation selected for a video task. */
   variant_operation?: string
   /**

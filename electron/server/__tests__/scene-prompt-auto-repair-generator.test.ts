@@ -331,6 +331,141 @@ test('Pipeline checkpoints the published ceiling separately from an explicit cal
   })
 })
 
+test('Pipeline checkpoints complete rows from a token-truncated pack and repairs only the malformed tail', async () => {
+  service.reset()
+  const f = await fixture(2)
+  const preservedPrompt = 'A complete cinematic prompt returned before the output ceiling.'
+  service.queueScenario('chat', {
+    states: ['succeeded'],
+    finishReason: 'length',
+    outputText: '{"results":[{"scene_id":"scene-0002","visual_prompt":"A complete cinematic prompt returned before the output ceiling."},{"scene_id":"scene-0003","visual_prompt":"cut off',
+  })
+  service.queueScenario('chat', {
+    states: ['succeeded'],
+    outputText: promptResult('scene-0003', 'A repaired prompt for only the malformed trailing scene.'),
+  })
+  const job = directJob(f, 'pipeline-truncated-pack-salvage')
+  job.params = {
+    ...f.params,
+    prompt_max_tokens: 4_096,
+    regenerate_empty_prompts: false,
+    auto_repair_missing_prompts: false,
+    pipeline_model_policy: {
+      scene_plan: { mode: 'single', models: ['mock-chat-v1'], assigned_model: 'mock-chat-v1' },
+    },
+  }
+
+  await runScenePlanJob(job)
+
+  assert.equal(service.providerSubmissionCount('chat'), 2)
+  assert.deepEqual(chatSubmissions().map(entry => (
+    (entry.parsedBody as any)?.response_format?.json_schema?.schema
+      ?.properties?.results?.items?.properties?.scene_id?.enum
+  )), [['scene-0002', 'scene-0003'], ['scene-0003']])
+  const saved = JSON.parse(await fs.readFile(f.planPath, 'utf8'))
+  assert.equal(saved.scenes[0].visual_prompt, f.originalPrompt)
+  assert.equal(saved.scenes[1].visual_prompt, preservedPrompt)
+  assert.equal(saved.scenes[2].visual_prompt, 'A repaired prompt for only the malformed trailing scene.')
+  assert.equal(job.result?.complete, true)
+})
+
+test('Pipeline replaces a salvaged duplicate prompt that the durable audit rejects', async () => {
+  service.reset()
+  const f = await fixture(1)
+  service.queueScenario('chat', {
+    states: ['succeeded'],
+    finishReason: 'length',
+    outputText: `{"results":[{"scene_id":"scene-0002","visual_prompt":${JSON.stringify(f.originalPrompt)}},{"scene_id":"scene-0002","visual_prompt":"cut off`,
+  })
+  service.queueScenario('chat', {
+    states: ['succeeded'],
+    outputText: promptResult('scene-0002', 'A distinct replacement for the audit-rejected duplicate.'),
+  })
+  const job = directJob(f, 'pipeline-truncated-duplicate-repair')
+  job.params = {
+    ...f.params,
+    regenerate_empty_prompts: false,
+    auto_repair_missing_prompts: false,
+    pipeline_model_policy: {
+      scene_plan: { mode: 'single', models: ['mock-chat-v1'], assigned_model: 'mock-chat-v1' },
+    },
+  }
+
+  await runScenePlanJob(job)
+
+  assert.equal(service.providerSubmissionCount('chat'), 2)
+  assert.deepEqual(chatSubmissions().map(entry => (
+    (entry.parsedBody as any)?.response_format?.json_schema?.schema
+      ?.properties?.results?.items?.properties?.scene_id?.enum
+  )), [['scene-0002'], ['scene-0002']])
+  const saved = JSON.parse(await fs.readFile(f.planPath, 'utf8'))
+  assert.equal(saved.scenes[0].visual_prompt, f.originalPrompt)
+  assert.equal(saved.scenes[1].visual_prompt, 'A distinct replacement for the audit-rejected duplicate.')
+  assert.equal(job.result?.complete, true)
+})
+
+test('Pipeline continues settled missing-only repair beyond two passes while durable progress continues', async () => {
+  service.reset()
+  const f = await fixture(3)
+  service.queueScenario('chat', { states: ['succeeded'], outputText: '{"results":[]}' })
+  service.queueScenario('chat', { states: ['succeeded'], outputText: promptResult('scene-0002') })
+  service.queueScenario('chat', { states: ['succeeded'], outputText: '{"results":[]}' })
+  service.queueScenario('chat', { states: ['succeeded'], outputText: '{"results":[]}' })
+  service.queueScenario('chat', { states: ['succeeded'], outputText: promptResult('scene-0003') })
+  service.queueScenario('chat', { states: ['succeeded'], outputText: '{"results":[]}' })
+  service.queueScenario('chat', { states: ['succeeded'], outputText: promptResult('scene-0004') })
+  const job = directJob(f, 'pipeline-improving-repair-passes')
+  job.params = {
+    ...f.params,
+    prompt_max_tokens: 4_096,
+    regenerate_empty_prompts: false,
+    auto_repair_missing_prompts: false,
+    pipeline_model_policy: {
+      scene_plan: { mode: 'single', models: ['mock-chat-v1'], assigned_model: 'mock-chat-v1' },
+    },
+  }
+
+  await runScenePlanJob(job)
+
+  assert.deepEqual(chatSubmissions().map(entry => (
+    (entry.parsedBody as any)?.response_format?.json_schema?.schema
+      ?.properties?.results?.items?.properties?.scene_id?.enum
+  )), [
+    ['scene-0002', 'scene-0003', 'scene-0004'],
+    ['scene-0002'], ['scene-0003'], ['scene-0004'],
+    ['scene-0003'], ['scene-0004'],
+    ['scene-0004'],
+  ])
+  const saved = JSON.parse(await fs.readFile(f.planPath, 'utf8'))
+  assert.equal(saved.scenes[0].visual_prompt, f.originalPrompt)
+  assert.ok(saved.scenes.slice(1).every((scene: any) => scene.visual_prompt.trim()))
+})
+
+test('Pipeline stops ordinary missing-only repair after two consecutive settled passes make no durable progress', async () => {
+  service.reset()
+  const f = await fixture(1)
+  for (let index = 0; index < 3; index++) {
+    service.queueScenario('chat', { states: ['succeeded'], outputText: '{"results":[]}' })
+  }
+  const job = directJob(f, 'pipeline-stalled-repair-passes')
+  job.params = {
+    ...f.params,
+    regenerate_empty_prompts: false,
+    auto_repair_missing_prompts: false,
+    pipeline_model_policy: {
+      scene_plan: { mode: 'single', models: ['mock-chat-v1'], assigned_model: 'mock-chat-v1' },
+    },
+  }
+
+  await assert.rejects(runScenePlanJob(job), /incomplete/i)
+
+  assert.equal(service.providerSubmissionCount('chat'), 3)
+  const saved = JSON.parse(await fs.readFile(f.planPath, 'utf8'))
+  assert.equal(saved.scenes[0].visual_prompt, f.originalPrompt)
+  assert.equal(saved.scenes[1].visual_prompt, '')
+  assert.equal(job.result?.complete, false)
+})
+
 test('explicit repair fans a large missing tail into single-scene requests and preserves verified prompts', async () => {
   service.reset()
   const f = await fixture(8)

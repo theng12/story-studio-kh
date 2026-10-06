@@ -14,14 +14,21 @@ import * as pm from '../services/project-manager.js'
 import * as im from '../services/idea-manager.js'
 import * as jq from '../services/job-queue.js'
 import type { ContinuityConfig, Format, JobType, ProjectMeta } from '../models/types.js'
-import { computeEpisodeStatus, type EpisodeStatus } from '../services/asset-status.js'
+import type { EpisodeStatus } from '../services/asset-status.js'
+import { episodeStatusCache } from '../services/episode-status-cache.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { buildContinuityConfig, defaultContinuityConfig, writeContinuityConfig } from './continuity.js'
 import { readProjectStartingPacing } from '../services/formula-starting-defaults.js'
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { createProjectFactsCache, resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
+import {
+  createProjectFactsCache,
+  projectMetaOnce,
+  resolveEpisodePathsByCode,
+  resolveScenePlanPath,
+  type ProjectFactsCache,
+} from '../services/utils.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import {
   autoCompleteResearchReview,
@@ -254,10 +261,32 @@ function retiredLocalMediaIssue(episodeId: string, status: LocalMediaCleanupStat
   }
 }
 
-async function retiredUploadedMediaByEpisode(slug: string, episodeIds: string[]): Promise<Map<string, LocalMediaCleanupStatus>> {
+const PREFLIGHT_CONCURRENCY = 8
+
+async function mapWithConcurrency<T, R>(items: readonly T[], fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let cursor = 0
+  async function worker(): Promise<void> {
+    while (cursor < items.length) {
+      const index = cursor++
+      results[index] = await fn(items[index]!)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(PREFLIGHT_CONCURRENCY, items.length) }, worker))
+  return results
+}
+
+async function retiredUploadedMediaByEpisode(
+  slug: string,
+  episodeIds: string[],
+  projectFacts: ProjectFactsCache,
+): Promise<Map<string, LocalMediaCleanupStatus>> {
   const retired = new Map<string, LocalMediaCleanupStatus>()
-  for (const code of episodeIds) {
-    const status = await readLocalMediaCleanupStatus(slug, code)
+  const statuses = await mapWithConcurrency(episodeIds, code =>
+    readLocalMediaCleanupStatus(slug, code, projectFacts))
+  for (let index = 0; index < episodeIds.length; index++) {
+    const code = episodeIds[index]!
+    const status = statuses[index]!
     if (status.has_retired_media || status.blocked_reason) retired.set(code, status)
   }
   return retired
@@ -291,6 +320,8 @@ interface BatchPreflight {
    */
   introductionChatModel: string | null
   visualSettingsByEpisode: Map<string, PipelineVisualSettingsSnapshot>
+  projectFacts: ProjectFactsCache
+  startingPacing?: ScenePacing
   /** The channel's formula has `musicFormat`: the music chain and its prerequisites apply. */
   musicChannel: boolean
 }
@@ -370,6 +401,8 @@ async function pipelineVisualSettingsSnapshot(
   source: Awaited<ReturnType<typeof readVideoVisualSource>>,
   includeEpisodeSettings: boolean,
   includeMotionSceneIds: boolean,
+  startingPacing: ScenePacing | undefined,
+  projectFacts: ProjectFactsCache,
 ): Promise<PipelineVisualSettingsSnapshot> {
   const snapshot: PipelineVisualSettingsSnapshot = { visual_source: source.source }
   if (source.source !== 'scene_plan' || !includeEpisodeSettings) return snapshot
@@ -390,13 +423,13 @@ async function pipelineVisualSettingsSnapshot(
       throw new Error(`continuity.json is malformed: ${error?.message || error}`)
     }
   }
-  snapshot.pacing = parseScenePacing(config.pacing === undefined ? await readProjectStartingPacing(slug) : config.pacing)
+  snapshot.pacing = parseScenePacing(config.pacing === undefined ? startingPacing : config.pacing)
   const motion = await readEpisodeMotionScope(slug, episodeId, source.episode_dir)
   snapshot.motion_scope = motion.motion_scope
   snapshot.motion_level = motion.motion_level
 
   if (!includeMotionSceneIds || motion.motion_scope.mode === 'off') return snapshot
-  const planPath = await resolveScenePlanPath(slug, episodeId, source.episode_dir)
+  const planPath = await resolveScenePlanPath(slug, episodeId, source.episode_dir, projectFacts)
   if (!existsSync(planPath)) return snapshot
   const plan = JSON.parse(await fs.readFile(planPath, 'utf8'))
   if (!Array.isArray(plan?.scenes)) throw new Error('scene_plan.json has no valid scenes array')
@@ -603,7 +636,9 @@ async function preflightBatch(
   projectFacts.config = Promise.resolve(config)
 
   const ideas = await im.getIdeas(slug, 'accepted')
+  projectFacts.ideas = Promise.resolve(ideas as unknown as Array<Record<string, unknown>>)
   const ideaByCode = new Map(ideas.filter(i => i.episode_code).map(i => [i.episode_code!, i]))
+  const startingPacing = await readProjectStartingPacing(slug)
   const effectiveFormat = await getEffectiveFormat(slug)
   const musicChannel = await isMusicChannel(slug)
   const foreignSteps = steps.filter(step => musicChannel ? !MUSIC_STEPS.includes(step) : step === 'music_build')
@@ -617,44 +652,58 @@ async function preflightBatch(
     })
   }
   const retiredMediaByEpisode = force ? new Map<string, LocalMediaCleanupStatus>()
-    : await retiredUploadedMediaByEpisode(slug, episodeIds)
+    : await retiredUploadedMediaByEpisode(slug, episodeIds, projectFacts)
   const visualSettingsByEpisode = new Map<string, PipelineVisualSettingsSnapshot>()
   const requiredSteps = new Set<BatchStep>()
-  for (const episodeId of episodeIds) {
+  const visualRows = await mapWithConcurrency(episodeIds, async episodeId => {
     if (!ideaByCode.has(episodeId)) {
-      issues.push({ code: 'episode_not_accepted', episode_id: episodeId, message: `${episodeId} is not an accepted episode.` })
-      continue
+      return {
+        episodeId,
+        issue: { code: 'episode_not_accepted', episode_id: episodeId, message: `${episodeId} is not an accepted episode.` } as PreflightIssue,
+      }
     }
     const retiredMedia = retiredMediaByEpisode.get(episodeId)
     if (retiredMedia) {
-      issues.push(retiredLocalMediaIssue(episodeId, retiredMedia))
-      continue
+      return { episodeId, issue: retiredLocalMediaIssue(episodeId, retiredMedia) }
     }
     try {
-      const source = await readVideoVisualSource(slug, episodeId)
+      const source = await readVideoVisualSource(slug, episodeId, projectFacts)
       const episodeSteps = applicablePipelineStepsForVisualSource(steps, source.source).applicable
-      episodeSteps.forEach(step => requiredSteps.add(step))
       if (episodeSteps.includes('video_assembly') && source.source === 'image_pool') {
         await resolveImagePoolSelection(slug, episodeId)
       }
       const includeEpisodeSettings = episodeSteps.some(step =>
         SCENE_PLAN_ONLY_STEPS.has(step) || step === 'video_assembly',
       )
-      visualSettingsByEpisode.set(episodeId, await pipelineVisualSettingsSnapshot(
+      const visualSettings = await pipelineVisualSettingsSnapshot(
         slug,
         episodeId,
         source,
         includeEpisodeSettings,
         episodeSteps.includes('motion_review') && !episodeSteps.includes('scene_plan'),
-      ))
+        startingPacing,
+        projectFacts,
+      )
+      return { episodeId, episodeSteps, visualSettings }
     } catch (error: any) {
-      issues.push({
-        code: 'invalid_preset',
-        episode_id: episodeId,
-        step: steps.includes('video_assembly') ? 'video_assembly' : steps.find(step => SCENE_PLAN_ONLY_STEPS.has(step)),
-        message: `${episodeId}: ${error?.message || 'Episode visual settings are not ready.'}`,
-      })
+      return {
+        episodeId,
+        issue: {
+          code: 'invalid_preset',
+          episode_id: episodeId,
+          step: steps.includes('video_assembly') ? 'video_assembly' : steps.find(step => SCENE_PLAN_ONLY_STEPS.has(step)),
+          message: `${episodeId}: ${error?.message || 'Episode visual settings are not ready.'}`,
+        } as PreflightIssue,
+      }
     }
+  })
+  for (const row of visualRows) {
+    if (row.issue) {
+      issues.push(row.issue)
+      continue
+    }
+    row.episodeSteps?.forEach(step => requiredSteps.add(step))
+    if (row.visualSettings) visualSettingsByEpisode.set(row.episodeId, row.visualSettings)
   }
 
   const presetByStep: Partial<Record<BatchStep, StoredPreset>> = {}
@@ -710,11 +759,12 @@ async function preflightBatch(
       issues.push({ code: 'missing_voice', step: 'audio', message: 'Audio preset has no voice selected.' })
     }
   }
-  for (const episodeId of episodeIds) {
+  const statusRows = await mapWithConcurrency(episodeIds, async episodeId => {
     const visualSettings = visualSettingsByEpisode.get(episodeId)
-    if (!ideaByCode.has(episodeId) || !visualSettings) continue
+    if (!ideaByCode.has(episodeId) || !visualSettings) return null
     const episodeSteps = applicablePipelineStepsForVisualSource(steps, visualSettings.visual_source).applicable
-    const status = await computeEpisodeStatus(slug, episodeId, ideas, projectFacts)
+    const status = await episodeStatusCache.get(slug, episodeId, ideas, projectFacts)
+    const episodeIssues: PreflightIssue[] = []
     const available = new Set<BatchStep>()
     for (const step of VALID_STEPS) {
       if (isStepAlreadyDone(status, step, effectiveFormat)) available.add(step)
@@ -740,7 +790,7 @@ async function preflightBatch(
           : prerequisitesForStep(step, cueReviewPending)
       const missing = prerequisites.filter(required => !available.has(required))
       for (const required of missing) {
-        issues.push({
+        episodeIssues.push({
           code: 'missing_prerequisite',
           episode_id: episodeId,
           step,
@@ -750,6 +800,11 @@ async function preflightBatch(
       }
       available.add(step)
     }
+    return { episodeId, status, issues: episodeIssues }
+  })
+  for (const row of statusRows) {
+    if (!row) continue
+    issues.push(...row.issues)
   }
 
   // Blocked episodes never reach the queue, so reserve disk only for the
@@ -783,7 +838,7 @@ async function preflightBatch(
   return {
     ok: issues.length === 0, issues, warnings, presetByStep, ideaByCode,
     effectiveFormat, estimatedBytes, freeBytes, scriptSideChatModel, introductionChatModel,
-    visualSettingsByEpisode, musicChannel,
+    visualSettingsByEpisode, projectFacts, startingPacing, musicChannel,
   }
 }
 
@@ -918,7 +973,6 @@ export async function autoCompleteResearchReviewForPipeline(slug: string, episod
     if (!hasResearchEvidence(existing) || isResearchReviewed(existing)) return false
 
     await fs.writeFile(jsonPath, JSON.stringify(autoCompleteResearchReview(existing), null, 2), 'utf-8')
-    const { episodeStatusCache } = await import('../services/episode-status-cache.js')
     episodeStatusCache.invalidate(slug, episodeId)
     return true
   } catch {
@@ -2056,7 +2110,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
   // unrequested regeneration. Force runs stay deliberate and continue to the
   // normal prerequisite checks above.
   if (!force) {
-    const retiredAtDispatch = await retiredUploadedMediaByEpisode(slug, eligible_episode_ids)
+    const retiredAtDispatch = await retiredUploadedMediaByEpisode(slug, eligible_episode_ids, preflight.projectFacts)
     const dispatchIssues = [...retiredAtDispatch.entries()]
       .map(([episodeId, status]) => retiredLocalMediaIssue(episodeId, status))
     if (dispatchIssues.length) {
@@ -2115,7 +2169,15 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     // with `force: true` to regenerate everything.
     let effectiveSteps: BatchStep[] = applicability.applicable
     if (!force) {
-      const status = await computeEpisodeStatus(slug, episodeId)
+      // Strict cache read: re-stat this episode's watched paths at its serial
+      // admission point. Reuse the bounded-preflight status only while disk
+      // still matches; terminal jobs also invalidate this entry immediately.
+      const status = await episodeStatusCache.get(
+        slug,
+        episodeId,
+        [...ideaByCode.values()],
+        preflight.projectFacts,
+      )
       const repairSubtitlesComplete = repairMissing && steps.includes('subtitles')
         ? await pipelineSubtitleRepairComplete(slug, episodeId)
         : null
@@ -2139,13 +2201,13 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       try {
         const csPreset = presetByStep['character_sheet']
         const csData = (csPreset?.data ?? csPreset) as Partial<ContinuityConfig>
-        const projectMeta = await pm.getProject(slug)
+        const projectMeta = await projectMetaOnce(slug, preflight.projectFacts)
         const continuityMode = projectMeta?.continuity_mode || 'independent-stills'
-        const episodePaths = await resolveEpisodePathsByCode(slug, episodeId)
+        const episodePaths = await resolveEpisodePathsByCode(slug, episodeId, preflight.projectFacts)
         const currentConfig = await readPipelineContinuityConfig(
           episodePaths.episode_dir,
           continuityMode,
-          await readProjectStartingPacing(slug),
+          preflight.startingPacing,
         )
         await writeContinuityConfig(
           slug,
@@ -2154,7 +2216,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
           continuityMode,
         )
         characterSheetsApplied++
-        const refreshedSource = await readVideoVisualSource(slug, episodeId)
+        const refreshedSource = await readVideoVisualSource(slug, episodeId, preflight.projectFacts)
         if (refreshedSource.source !== visualSettings.visual_source) {
           throw new Error('visual source changed while Pipeline was preparing this episode; submit it again')
         }
@@ -2164,6 +2226,8 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
           refreshedSource,
           true,
           effectiveSteps.includes('motion_review') && !effectiveSteps.includes('scene_plan'),
+          preflight.startingPacing,
+          preflight.projectFacts,
         )
       } catch (e: any) {
         skipped.push({ episode_id: episodeId, reason: `Character Sheet could not be applied: ${e?.message || e}` })
@@ -2390,7 +2454,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
           pipeline_batch_id: batch_id,
         },
       }, {}, force ? undefined : async () => {
-        const status = await readLocalMediaCleanupStatus(slug, episodeId)
+        const status = await readLocalMediaCleanupStatus(slug, episodeId, preflight.projectFacts)
         if (status.has_retired_media || status.blocked_reason) {
           cleanupAdmissionIssue = retiredLocalMediaIssue(episodeId, status)
           throw new Error(cleanupAdmissionIssue.message)

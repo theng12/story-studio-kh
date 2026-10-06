@@ -184,17 +184,6 @@ describe('Pipeline stage selection', () => {
     assert.match(pipeline, /submitRequestId \+= 1[\s\S]*submitting\.value = false[\s\S]*closeConfirm\(true\)/)
   })
 
-  test('shares the current request facts across every preflight episode status read', () => {
-    const backend = readFileSync(
-      fileURLToPath(new URL('../../electron/server/routes/pipeline.ts', import.meta.url)), 'utf8')
-    const start = backend.indexOf('async function preflightBatch(')
-    const end = backend.indexOf('\n/**', start)
-    const preflight = backend.slice(start, end)
-    assert.match(preflight, /const projectFacts = createProjectFactsCache\(slug\)/)
-    assert.match(preflight, /projectFacts\.config = Promise\.resolve\(config\)/)
-    assert.match(preflight, /computeEpisodeStatus\(slug, episodeId, ideas, projectFacts\)/)
-  })
-
   test('a partial response clears resolved submitted episodes, retains blockers, and preserves later selection', () => {
     const page = loadSelectionRetainer()
     page.removeResolvedSubmittedEpisodes(['EP-blocked', 'EP-queued'], [{ episode_id: 'EP-blocked' }])

@@ -58,6 +58,21 @@ test('a capacity-permit wait beyond ten minutes is deliberate waiting, never an 
   }), true)
 })
 
+test('free-fleet provider work never becomes a ten-minute automatic pause', () => {
+  const stalled = {
+    stallPauseRequested: false,
+    inFlightCount: 1,
+    pauseRequested: false,
+    fleetWaitingCount: 0,
+    capacityWaitingCount: 0,
+    elapsedMs: 11 * 60_000,
+  }
+  assert.equal(shouldPauseContinuityForStall({ ...stalled, freeFleet: true }), false,
+    'the Gateway and Hub own the durable queue and deadline for free Mac work')
+  assert.equal(shouldPauseContinuityForStall({ ...stalled, freeFleet: false }), true,
+    'the existing paid-provider circuit breaker remains intact')
+})
+
 test('the switch OFF is the only silent way to send no reference', () => {
   const off = planEpisodeReference({
     enabled: false,

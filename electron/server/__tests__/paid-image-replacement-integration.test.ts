@@ -6,6 +6,26 @@ import sharp from 'sharp'
 
 import { useTempDataDir } from './_helpers.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
+import { waitFor } from './_timing.js'
+
+const FREE_FLEET_IMAGE_MODEL = 'studio-hub::mock-image-v1'
+
+function imageCatalogRow(id: string, chargeable: boolean) {
+  return {
+    id, display_name: 'Mock Image', description: 'In-process PNG fixture.',
+    available: true, qualification_only: false, chargeable,
+    aspect_ratios: ['16:9', '1:1'], default_aspect_ratio: '16:9', default_resolution: '1K',
+    output_options: [
+      { resolution: '1K', aspect_ratio: '16:9', width: 1344, height: 768, is_default: true,
+        credits_per_image: chargeable ? 4 : 0, price_version: 'mock-image-price-v1' },
+      { resolution: '1K', aspect_ratio: '1:1', width: 1024, height: 1024, is_default: false,
+        credits_per_image: chargeable ? 4 : 0, price_version: 'mock-image-price-v1' },
+    ],
+    supports_seed: true, supports_image_to_image: false, operations: ['image.generation'],
+    max_prompt_characters: 4800, prompt_token_allowance: 1200,
+    min_reference_images: 0, max_reference_images: 0,
+  }
+}
 
 async function writeAuthoritativeFixture(job: any): Promise<void> {
   const queue = await import('../services/job-queue.js')
@@ -228,6 +248,97 @@ test('automatic missing-only run continues through repeated fully refunded failu
   } finally {
     if (previousRetryDelay === undefined) delete process.env.STORY_STUDIO_IMAGE_RETRY_BASE_MS
     else process.env.STORY_STUDIO_IMAGE_RETRY_BASE_MS = previousRetryDelay
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('queue auto-retries one terminal free-fleet image under a fresh key and preserves its completed neighbor', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  const originalFetch = globalThis.fetch
+  const jq = await import('../services/job-queue.js')
+  const wasQueuePaused = jq.isQueuePaused()
+  let queuedJobId = ''
+  let projectSlug = ''
+  try {
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const { readManifest } = await import('../services/task-manifest.js')
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    await settings.setGenStudioUrl(service.baseUrl)
+    await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 20 })
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    await jq.setQueuePaused(true)
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+      if (url.pathname === '/v1/image/models') return Response.json([imageCatalogRow(FREE_FLEET_IMAGE_MODEL, false)])
+      return originalFetch(input, init)
+    }
+    client.clearGenStudioCatalogCache()
+    await import('../providers/image/genstudio.js')
+
+    const { project, episodeId, paths } = await createContinuityFixture('Free fleet queue retry')
+    projectSlug = project.slug
+    await fs.writeFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({ scenes: [
+      { id: 'scene-001', scene_index: 1, visual_prompt: 'Retry this one free image.' },
+      { id: 'scene-complete', scene_index: 2, visual_prompt: 'Keep this completed image.' },
+    ] }))
+    const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    await fs.mkdir(outDir, { recursive: true })
+    const completedPath = path.join(outDir, 'scene-complete.png')
+    await sharp({ create: { width: 3, height: 3, channels: 3, background: '#314159' } }).png().toFile(completedPath)
+    const completedBytes = await fs.readFile(completedPath)
+    service.queueScenario('image', {
+      states: ['accepted', 'failed'], failureCode: 'IMAGE_FAILED', reservedCredits: 0, finalCredits: 0,
+    })
+    service.queueScenario('image', { states: ['accepted', 'succeeded'], reservedCredits: 0, finalCredits: 0 })
+    jq.registerExecutor('continuity_render', runContinuityRenderJob)
+    const queued = jq.enqueuePreparedForTest({
+      project_slug: project.slug, type: 'continuity_render', episode_id: episodeId,
+      title: 'Free image auto-retry', params: {
+        episode_id: episodeId, model: FREE_FLEET_IMAGE_MODEL, aspect_ratio: '16:9', resolution: '1K', seed: 42,
+        scene_ids: ['scene-001', 'scene-complete'], missing_only: true,
+      },
+    })
+    queuedJobId = queued.job_id
+    await jq.setQueuePaused(false)
+
+    await waitFor(() => ['done', 'error'].includes(jq.getJob(queuedJobId)?.status || ''), {
+      label: 'free image queue auto-retry finishes', timeoutMs: 10_000,
+    })
+    const completedJob = jq.getJob(queuedJobId)!
+    assert.equal(completedJob.status, 'done', completedJob.error || completedJob.output_lines.join('\n'))
+    assert.equal(completedJob.auto_retry?.attempt, 2)
+    assert.equal(service.providerSubmissionCount('image'), 2)
+    const submissions = service.submissions.filter(candidate => candidate.operation === 'image')
+    assert.notEqual(submissions[0]!.idempotencyKey, submissions[1]!.idempotencyKey,
+      'the retry must not replay the terminal failed provider key')
+    assert.deepEqual(await fs.readFile(completedPath), completedBytes, 'the completed neighbor stays byte-identical')
+    assert.equal(submissions.every(submission => submission.parsedBody?.prompt === 'Retry this one free image.'), true,
+      'the completed neighbor is never submitted')
+    const finalEntry = (await readManifest(outDir)).tasks['scene-001.png']!
+    assert.equal(finalEntry.last_state, 'succeeded')
+    assert.match(finalEntry.request_scope || '', /:retry:/)
+    const expectedRetryKey = client.buildGenStudioImageIdempotencyKey({
+      prompt: 'Retry this one free image.', modelId: FREE_FLEET_IMAGE_MODEL,
+      aspectRatio: '16:9', resolution: '1K', seed: 42,
+      requestIdentity: `${project.slug}:${episodeId}:scene:scene-001:image:${finalEntry.request_scope}`,
+      outputFormat: 'jpeg',
+    })
+    assert.equal(submissions[1]!.parsedBody?.output_format, 'jpeg')
+    assert.equal(submissions[1]!.idempotencyKey, expectedRetryKey, 'terminal task id produces one reproducible retry identity')
+    assert.deepEqual(completedJob.params.scene_ids, ['scene-001'], 'the next attempt is narrowed to unresolved images')
+  } finally {
+    globalThis.fetch = originalFetch
+    const client = await import('../lib/genstudio-client.js')
+    client.clearGenStudioCatalogCache()
+    if (projectSlug && queuedJobId && jq.getJob(queuedJobId)?.status !== 'done') {
+      await jq.forceAbandonJob(projectSlug, queuedJobId)
+    }
+    if (jq.isQueuePaused() !== wasQueuePaused) await jq.setQueuePaused(wasQueuePaused)
     await service.close()
     await temp.cleanup()
   }
@@ -738,6 +849,506 @@ test('manual Finish replays a provider-absent prepared image with its original k
     assert.equal(completed.input_hash, original.inputHash)
     assert.equal(completed.idempotency_key, oldKey)
   } finally {
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+for (const drift of [
+  {
+    name: 'model id',
+    oldModel: 'studio-hub-local::mock-image-v1',
+    oldSeed: 42,
+    currentSeed: 42,
+  },
+  {
+    name: 'seed',
+    oldModel: FREE_FLEET_IMAGE_MODEL,
+    oldSeed: 41,
+    currentSeed: 42,
+  },
+]) test(`a provider-absent free-fleet prepared image self-heals ${drift.name} drift`, async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  const originalFetch = globalThis.fetch
+  try {
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    const { buildPaidImageOriginalIdentity } = await import('../services/image-paid-replacement.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const { readManifest, recordTaskStrict } = await import('../services/task-manifest.js')
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    await settings.setGenStudioUrl(service.baseUrl)
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+      if (url.pathname === '/v1/image/models') {
+        return Response.json([imageCatalogRow(FREE_FLEET_IMAGE_MODEL, false)])
+      }
+      return originalFetch(input, init)
+    }
+    client.clearGenStudioCatalogCache()
+    await import('../providers/image/genstudio.js')
+
+    const { project, episodeId, paths } = await createContinuityFixture(`Prepared free ${drift.name} drift`)
+    const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    const outputPath = path.join(outDir, 'scene-001.png')
+    await fs.mkdir(outDir, { recursive: true })
+    const original = buildPaidImageOriginalIdentity({
+      prompt: 'A lantern in a quiet archive.', baseScope: 'missing', references: [],
+      selector: { resolution: '1K', aspect_ratio: '16:9', width: 1344, height: 768, reference_mode: 'normal' },
+    })
+    const requestIdentity = `${project.slug}:${episodeId}:scene:scene-001:image:${original.requestScope}`
+    const oldKey = client.buildGenStudioImageIdempotencyKey({
+      prompt: 'A lantern in a quiet archive.', modelId: drift.oldModel, aspectRatio: '16:9', resolution: '1K',
+      seed: drift.oldSeed, requestIdentity,
+    })
+    const expectedKey = client.buildGenStudioImageIdempotencyKey({
+      prompt: 'A lantern in a quiet archive.', modelId: FREE_FLEET_IMAGE_MODEL,
+      aspectRatio: '16:9', resolution: '1K', seed: drift.currentSeed, requestIdentity,
+      outputFormat: 'jpeg',
+    })
+    assert.notEqual(oldKey, expectedKey, 'the fixture must exercise a changed prepared identity')
+    await recordTaskStrict(outDir, 'scene-001.png', {
+      provider: 'genstudio-image', task_id: '', submitted_at: '2026-10-05T00:00:00.000Z',
+      input_hash: original.inputHash, idempotency_key: oldKey, operation: 'image',
+      last_state: 'prepared', request_scope: original.requestScope,
+      original_output_selector: { resolution: '1K', aspect_ratio: '16:9', width: 1344, height: 768, reference_mode: 'normal' },
+      original_reference_inputs: [], original_reference_identity_hash: original.referenceIdentityHash,
+      original_output_path: outputPath,
+    })
+    const now = new Date().toISOString()
+    const job: any = {
+      job_id: `prepared-free-${drift.name.replaceAll(' ', '-')}`,
+      project_slug: project.slug, type: 'continuity_render', episode_id: episodeId,
+      title: 'Resume free prepared scene', status: 'running', created_at: now, started_at: now, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [],
+      params: {
+        episode_id: episodeId, model: FREE_FLEET_IMAGE_MODEL, aspect_ratio: '16:9', resolution: '1K',
+        seed: drift.currentSeed, scene_ids: ['scene-001'], missing_only: true,
+      },
+    }
+    await writeAuthoritativeFixture(job)
+    service.queueScenario('image', { states: ['accepted', 'succeeded'], reservedCredits: 0, finalCredits: 0 })
+
+    assert.equal(await runContinuityRenderJob(job), undefined)
+    assert.equal(service.providerSubmissionCount('image'), 1)
+    const submission = service.submissions.find(candidate => candidate.operation === 'image')!
+    assert.equal(submission.idempotencyKey, expectedKey, 'the absent stale reservation is replaced under current frozen facts')
+    assert.equal(submission.parsedBody?.model_id, FREE_FLEET_IMAGE_MODEL)
+    assert.equal(submission.parsedBody?.seed, drift.currentSeed)
+    assert.equal(submission.parsedBody?.resolution, '1K')
+    assert.equal(submission.parsedBody?.output_format, 'jpeg')
+    assert.equal(submission.parsedBody?.width, undefined)
+    assert.equal(submission.parsedBody?.height, undefined)
+    const completed = (await readManifest(outDir)).tasks['scene-001.png']!
+    assert.equal(completed.idempotency_key, expectedKey)
+    assert.equal(completed.model_id, FREE_FLEET_IMAGE_MODEL, 'future resumes retain the exact submitted model id')
+    assert.equal((completed as any).image_seed, drift.currentSeed, 'future resumes retain the exact submitted seed')
+  } finally {
+    globalThis.fetch = originalFetch
+    const client = await import('../lib/genstudio-client.js')
+    client.clearGenStudioCatalogCache()
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+for (const recoveryCase of [
+  { name: 'keeps its frozen model and seed', frozenFacts: true },
+  { name: 'does not invent missing legacy model and seed', frozenFacts: false },
+]) test(`a completed exact-key prepared image ${recoveryCase.name} after current settings drift`, async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  const originalFetch = globalThis.fetch
+  try {
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    const { buildPaidImageOriginalIdentity } = await import('../services/image-paid-replacement.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const { readManifest, recordTaskStrict } = await import('../services/task-manifest.js')
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    await settings.setGenStudioUrl(service.baseUrl)
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+      if (url.pathname === '/v1/image/models') {
+        return Response.json([imageCatalogRow(FREE_FLEET_IMAGE_MODEL, false)])
+      }
+      return originalFetch(input, init)
+    }
+    client.clearGenStudioCatalogCache()
+    await import('../providers/image/genstudio.js')
+
+    const { project, episodeId, paths } = await createContinuityFixture(
+      recoveryCase.frozenFacts ? 'Prepared recovered frozen facts' : 'Prepared recovered legacy facts',
+    )
+    const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    const outputPath = path.join(outDir, 'scene-001.png')
+    await fs.mkdir(outDir, { recursive: true })
+    const original = buildPaidImageOriginalIdentity({
+      prompt: 'A lantern in a quiet archive.', baseScope: 'missing', references: [],
+      selector: { resolution: '1K', aspect_ratio: '16:9', width: 1344, height: 768, reference_mode: 'normal' },
+    })
+    const oldModel = 'studio-hub-local::mock-image-v1'
+    const oldSeed = 41
+    const oldKey = client.buildGenStudioImageIdempotencyKey({
+      prompt: 'A lantern in a quiet archive.', modelId: oldModel,
+      aspectRatio: '16:9', resolution: '1K', seed: oldSeed, outputFormat: 'jpeg',
+      requestIdentity: `${project.slug}:${episodeId}:scene:scene-001:image:${original.requestScope}`,
+    })
+    service.queueScenario('image', { states: ['succeeded'], reservedCredits: 0, finalCredits: 0 })
+    const seeded = await originalFetch(`${service.baseUrl}/v1/images/generations`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${MOCK_GENSTUDIO_FULL_KEY}`,
+        'Content-Type': 'application/json',
+        'Idempotency-Key': oldKey,
+      },
+      body: JSON.stringify({
+        model_id: oldModel, prompt: 'A lantern in a quiet archive.',
+        aspect_ratio: '16:9', resolution: '1K', seed: oldSeed, output_format: 'jpeg',
+      }),
+    })
+    assert.equal(seeded.status, 202)
+    const seededTask = await seeded.json() as { id: string; state: string }
+    assert.equal(seededTask.state, 'succeeded')
+    const postsBeforeRecovery = service.providerSubmissionCount('image')
+    await recordTaskStrict(outDir, 'scene-001.png', {
+      provider: 'genstudio-image', task_id: '', submitted_at: '2026-10-05T00:00:00.000Z',
+      input_hash: original.inputHash, idempotency_key: oldKey, operation: 'image',
+      last_state: 'prepared', request_scope: original.requestScope,
+      ...(recoveryCase.frozenFacts ? { model_id: oldModel, image_seed: oldSeed } : {}),
+      original_output_selector: { resolution: '1K', aspect_ratio: '16:9', width: 1344, height: 768, reference_mode: 'normal' },
+      original_reference_inputs: [], original_reference_identity_hash: original.referenceIdentityHash,
+      original_output_path: outputPath,
+    })
+    const now = new Date().toISOString()
+    const job: any = {
+      job_id: `prepared-recovered-${recoveryCase.frozenFacts ? 'frozen' : 'legacy'}`,
+      project_slug: project.slug, type: 'continuity_render', episode_id: episodeId,
+      title: 'Recover completed prepared scene', status: 'running', created_at: now, started_at: now, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [],
+      params: {
+        episode_id: episodeId, model: FREE_FLEET_IMAGE_MODEL, aspect_ratio: '16:9', resolution: '1K',
+        seed: 42, scene_ids: ['scene-001'], missing_only: true,
+      },
+    }
+    await writeAuthoritativeFixture(job)
+
+    assert.equal(await runContinuityRenderJob(job), undefined)
+    assert.equal(service.providerSubmissionCount('image'), postsBeforeRecovery,
+      'exact-key recovery must not submit another provider request')
+    await sharp(outputPath).stats()
+    const completed = (await readManifest(outDir)).tasks['scene-001.png']!
+    assert.equal(completed.last_state, 'succeeded')
+    assert.equal(completed.task_id, seededTask.id)
+    assert.equal(completed.idempotency_key, oldKey)
+    assert.equal(completed.model_id, recoveryCase.frozenFacts ? oldModel : undefined)
+    assert.equal(completed.image_seed, recoveryCase.frozenFacts ? oldSeed : undefined)
+  } finally {
+    globalThis.fetch = originalFetch
+    const client = await import('../lib/genstudio-client.js')
+    client.clearGenStudioCatalogCache()
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('a completed exact-key legacy preparation without frozen original facts cannot promote a changed prompt', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  const originalFetch = globalThis.fetch
+  try {
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const { recordTaskStrict } = await import('../services/task-manifest.js')
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    await settings.setGenStudioUrl(service.baseUrl)
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+      if (url.pathname === '/v1/image/models') {
+        return Response.json([imageCatalogRow(FREE_FLEET_IMAGE_MODEL, false)])
+      }
+      return originalFetch(input, init)
+    }
+    client.clearGenStudioCatalogCache()
+    await import('../providers/image/genstudio.js')
+
+    const { project, episodeId, paths } = await createContinuityFixture('Prepared recovered unfrozen legacy prompt')
+    const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    const outputPath = path.join(outDir, 'scene-001.png')
+    await fs.mkdir(outDir, { recursive: true })
+    const requestScope = 'legacy-missing'
+    const oldPrompt = 'An obsolete observatory prompt.'
+    const oldKey = client.buildGenStudioImageIdempotencyKey({
+      prompt: oldPrompt, modelId: FREE_FLEET_IMAGE_MODEL,
+      aspectRatio: '16:9', resolution: '1K', seed: 42, outputFormat: 'jpeg',
+      requestIdentity: `${project.slug}:${episodeId}:scene:scene-001:image:${requestScope}`,
+    })
+    service.queueScenario('image', { states: ['succeeded'], reservedCredits: 0, finalCredits: 0 })
+    const seeded = await originalFetch(`${service.baseUrl}/v1/images/generations`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${MOCK_GENSTUDIO_FULL_KEY}`,
+        'Content-Type': 'application/json',
+        'Idempotency-Key': oldKey,
+      },
+      body: JSON.stringify({
+        model_id: FREE_FLEET_IMAGE_MODEL, prompt: oldPrompt,
+        aspect_ratio: '16:9', resolution: '1K', seed: 42, output_format: 'jpeg',
+      }),
+    })
+    assert.equal(seeded.status, 202)
+    const postsBeforeRecovery = service.providerSubmissionCount('image')
+    await recordTaskStrict(outDir, 'scene-001.png', {
+      provider: 'genstudio-image', task_id: '', submitted_at: '2026-10-05T00:00:00.000Z',
+      input_hash: 'legacy-unfrozen-input', idempotency_key: oldKey, operation: 'image',
+      last_state: 'prepared', request_scope: requestScope,
+    })
+    const now = new Date().toISOString()
+    const job: any = {
+      job_id: 'prepared-recovered-unfrozen-legacy', project_slug: project.slug,
+      type: 'continuity_render', episode_id: episodeId, title: 'Reject changed legacy prepared prompt',
+      status: 'running', created_at: now, started_at: now, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [],
+      params: {
+        episode_id: episodeId, model: FREE_FLEET_IMAGE_MODEL, aspect_ratio: '16:9', resolution: '1K',
+        seed: 42, scene_ids: ['scene-001'], missing_only: true,
+      },
+    }
+    await writeAuthoritativeFixture(job)
+
+    await assert.rejects(runContinuityRenderJob(job), /incomplete/i)
+    assert.equal(service.providerSubmissionCount('image'), postsBeforeRecovery)
+    await assert.rejects(fs.stat(outputPath), { code: 'ENOENT' })
+    assert.ok(job.output_lines.some((line: string) => /saved prepared image request no longer matches/i.test(line)))
+  } finally {
+    globalThis.fetch = originalFetch
+    const client = await import('../lib/genstudio-client.js')
+    client.clearGenStudioCatalogCache()
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('a provider-absent paid prepared image stays fail-closed when its key no longer matches', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  const originalFetch = globalThis.fetch
+  try {
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    const { buildPaidImageOriginalIdentity } = await import('../services/image-paid-replacement.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const { recordTaskStrict } = await import('../services/task-manifest.js')
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    await settings.setGenStudioUrl(service.baseUrl)
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+      if (url.pathname === '/v1/image/models') return Response.json([imageCatalogRow('mock-image-v1', true)])
+      return originalFetch(input, init)
+    }
+    client.clearGenStudioCatalogCache()
+    await import('../providers/image/genstudio.js')
+
+    const { project, episodeId, paths } = await createContinuityFixture('Prepared paid mismatch')
+    const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    const outputPath = path.join(outDir, 'scene-001.png')
+    await fs.mkdir(outDir, { recursive: true })
+    const original = buildPaidImageOriginalIdentity({
+      prompt: 'A lantern in a quiet archive.', baseScope: 'missing', references: [],
+      selector: { resolution: '1K', aspect_ratio: '16:9', width: 1344, height: 768, reference_mode: 'normal' },
+    })
+    const oldKey = client.buildGenStudioImageIdempotencyKey({
+      prompt: 'A lantern in a quiet archive.', modelId: 'mock-image-v1', aspectRatio: '16:9', resolution: '1K',
+      seed: 41, requestIdentity: `${project.slug}:${episodeId}:scene:scene-001:image:${original.requestScope}`,
+    })
+    await recordTaskStrict(outDir, 'scene-001.png', {
+      provider: 'genstudio-image', task_id: '', submitted_at: '2026-10-05T00:00:00.000Z',
+      input_hash: original.inputHash, idempotency_key: oldKey, operation: 'image',
+      last_state: 'prepared', request_scope: original.requestScope,
+      original_output_selector: { resolution: '1K', aspect_ratio: '16:9', width: 1344, height: 768, reference_mode: 'normal' },
+      original_reference_inputs: [], original_reference_identity_hash: original.referenceIdentityHash,
+      original_output_path: outputPath,
+    })
+    const now = new Date().toISOString()
+    const job: any = {
+      job_id: 'prepared-paid-mismatch', project_slug: project.slug, type: 'continuity_render', episode_id: episodeId,
+      title: 'Resume paid prepared scene', status: 'running', created_at: now, started_at: now, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [],
+      params: {
+        episode_id: episodeId, model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K', seed: 42,
+        scene_ids: ['scene-001'], missing_only: true,
+      },
+    }
+    await writeAuthoritativeFixture(job)
+
+    await assert.rejects(runContinuityRenderJob(job), /incomplete/i)
+    assert.equal(service.providerSubmissionCount('image'), 0)
+    assert.ok(job.output_lines.some((line: string) => /saved prepared image request no longer matches/i.test(line)))
+  } finally {
+    globalThis.fetch = originalFetch
+    const client = await import('../lib/genstudio-client.js')
+    client.clearGenStudioCatalogCache()
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+for (const recoveryCase of [
+  { name: 'accepted lookup returns absent', taskId: 'missing-accepted-free-task', state: 'accepted', lookupStatus: 404 },
+  { name: 'prepared lookup is uncertain', taskId: '', state: 'prepared', lookupStatus: 500 },
+]) test(`free-fleet recovery makes no duplicate POST when an ${recoveryCase.name}`, async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  const originalFetch = globalThis.fetch
+  try {
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    const { buildPaidImageOriginalIdentity } = await import('../services/image-paid-replacement.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const { recordTaskStrict } = await import('../services/task-manifest.js')
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    await settings.setGenStudioUrl(service.baseUrl)
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    const oldKey = `story-image-${recoveryCase.state}-free-recovery`
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+      if (url.pathname === '/v1/image/models') return Response.json([imageCatalogRow(FREE_FLEET_IMAGE_MODEL, false)])
+      if (recoveryCase.lookupStatus === 500 && url.pathname === `/v1/images/by-idempotency-key/${oldKey}`) {
+        return Response.json({ detail: 'temporary lookup failure' }, { status: 500 })
+      }
+      return originalFetch(input, init)
+    }
+    client.clearGenStudioCatalogCache()
+    await import('../providers/image/genstudio.js')
+
+    const { project, episodeId, paths } = await createContinuityFixture(`Free recovery ${recoveryCase.state}`)
+    const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    const outputPath = path.join(outDir, 'scene-001.png')
+    await fs.mkdir(outDir, { recursive: true })
+    const original = buildPaidImageOriginalIdentity({
+      prompt: 'A lantern in a quiet archive.', baseScope: 'missing', references: [],
+      selector: { resolution: '1K', aspect_ratio: '16:9', width: 1344, height: 768, reference_mode: 'normal' },
+    })
+    await recordTaskStrict(outDir, 'scene-001.png', {
+      provider: 'genstudio-image', task_id: recoveryCase.taskId, submitted_at: '2026-10-05T00:00:00.000Z',
+      input_hash: original.inputHash, idempotency_key: oldKey, operation: 'image',
+      last_state: recoveryCase.state, request_scope: original.requestScope,
+      original_output_selector: { resolution: '1K', aspect_ratio: '16:9', width: 1344, height: 768, reference_mode: 'normal' },
+      original_reference_inputs: [], original_reference_identity_hash: original.referenceIdentityHash,
+      original_output_path: outputPath,
+    })
+    const now = new Date().toISOString()
+    const job: any = {
+      job_id: `free-recovery-${recoveryCase.state}`, project_slug: project.slug,
+      type: 'continuity_render', episode_id: episodeId, title: 'Recover free prepared scene',
+      status: 'running', created_at: now, started_at: now, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [],
+      params: {
+        episode_id: episodeId, model: FREE_FLEET_IMAGE_MODEL, aspect_ratio: '16:9', resolution: '1K',
+        scene_ids: ['scene-001'], missing_only: true,
+      },
+    }
+    await writeAuthoritativeFixture(job)
+
+    await assert.rejects(runContinuityRenderJob(job), /incomplete/i)
+    assert.equal(service.providerSubmissionCount('image'), 0)
+    assert.ok(job.output_lines.some((line: string) => /Could not confirm the earlier Gateway request/i.test(line)))
+  } finally {
+    globalThis.fetch = originalFetch
+    const client = await import('../lib/genstudio-client.js')
+    client.clearGenStudioCatalogCache()
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('manual pause after an absent free prepared lookup still prevents the healed POST', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  const originalFetch = globalThis.fetch
+  const jq = await import('../services/job-queue.js')
+  const wasQueuePaused = jq.isQueuePaused()
+  let queuedJobId = ''
+  let projectSlug = ''
+  try {
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    const { buildPaidImageOriginalIdentity } = await import('../services/image-paid-replacement.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const { recordTaskStrict } = await import('../services/task-manifest.js')
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    await settings.setGenStudioUrl(service.baseUrl)
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    await jq.setQueuePaused(true)
+    const { project, episodeId, paths } = await createContinuityFixture('Manual pause before healed free submit')
+    projectSlug = project.slug
+    const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    const outputPath = path.join(outDir, 'scene-001.png')
+    await fs.mkdir(outDir, { recursive: true })
+    const original = buildPaidImageOriginalIdentity({
+      prompt: 'A lantern in a quiet archive.', baseScope: 'missing', references: [],
+      selector: { resolution: '1K', aspect_ratio: '16:9', width: 1344, height: 768, reference_mode: 'normal' },
+    })
+    const oldKey = client.buildGenStudioImageIdempotencyKey({
+      prompt: 'A lantern in a quiet archive.', modelId: 'studio-hub-local::mock-image-v1',
+      aspectRatio: '16:9', resolution: '1K', seed: 42,
+      requestIdentity: `${project.slug}:${episodeId}:scene:scene-001:image:${original.requestScope}`,
+    })
+    await recordTaskStrict(outDir, 'scene-001.png', {
+      provider: 'genstudio-image', task_id: '', submitted_at: '2026-10-05T00:00:00.000Z',
+      input_hash: original.inputHash, idempotency_key: oldKey, operation: 'image',
+      last_state: 'prepared', request_scope: original.requestScope,
+      original_output_selector: { resolution: '1K', aspect_ratio: '16:9', width: 1344, height: 768, reference_mode: 'normal' },
+      original_reference_inputs: [], original_reference_identity_hash: original.referenceIdentityHash,
+      original_output_path: outputPath,
+    })
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+      if (url.pathname === '/v1/image/models') return Response.json([imageCatalogRow(FREE_FLEET_IMAGE_MODEL, false)])
+      if (url.pathname === `/v1/images/by-idempotency-key/${oldKey}`) {
+        await jq.pauseJob(queuedJobId, 'manual')
+        return Response.json({ detail: 'not found' }, { status: 404 })
+      }
+      return originalFetch(input, init)
+    }
+    client.clearGenStudioCatalogCache()
+    await import('../providers/image/genstudio.js')
+    jq.registerExecutor('continuity_render', runContinuityRenderJob)
+    const queued = jq.enqueuePreparedForTest({
+      project_slug: project.slug, type: 'continuity_render', episode_id: episodeId,
+      title: 'Resume free prepared scene', params: {
+        episode_id: episodeId, model: FREE_FLEET_IMAGE_MODEL, aspect_ratio: '16:9', resolution: '1K', seed: 42,
+        scene_ids: ['scene-001'], missing_only: true,
+      },
+    })
+    queuedJobId = queued.job_id
+    await jq.setQueuePaused(false)
+
+    await waitFor(() => jq.getJob(queuedJobId)?.status === 'paused', {
+      label: 'manual pause after absent prepared lookup',
+    })
+    assert.equal(jq.getJob(queuedJobId)?.pause_origin, 'manual')
+    assert.equal(service.providerSubmissionCount('image'), 0)
+  } finally {
+    globalThis.fetch = originalFetch
+    const client = await import('../lib/genstudio-client.js')
+    client.clearGenStudioCatalogCache()
+    if (projectSlug && queuedJobId && jq.getJob(queuedJobId)) {
+      await jq.forceAbandonJob(projectSlug, queuedJobId)
+    }
+    if (jq.isQueuePaused() !== wasQueuePaused) await jq.setQueuePaused(wasQueuePaused)
     await service.close()
     await temp.cleanup()
   }

@@ -64,6 +64,7 @@ import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
 import { deactivateSceneRenderStatus, RENDER_STATUS_FILENAME, writeSceneRenderStatus } from '../services/scene-render-status.js'
 import { fleetBusyRetryPlan, freeMacWaitLine, isFleetBusyFailure, isFreeMacPlan } from '../lib/genstudio-fleet-busy.js'
 import { imageRouteRetryDelayMs } from '../services/image-route-retry.js'
+import { isFreeFleetModelId } from '../contracts/provider-task-state.js'
 
 interface ContinuityRenderParams {
   episode_id: string
@@ -115,8 +116,10 @@ export function shouldPauseContinuityForStall(state: {
   fleetWaitingCount: number
   capacityWaitingCount: number
   elapsedMs: number
+  freeFleet?: boolean
 }): boolean {
-  return !state.stallPauseRequested
+  return !state.freeFleet
+    && !state.stallPauseRequested
     && state.inFlightCount > 0
     && !state.pauseRequested
     && state.fleetWaitingCount === 0
@@ -715,6 +718,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
         fleetWaitingCount: fleetWaiting.size,
         capacityWaitingCount: capacityWaiting.size,
         elapsedMs: Date.now() - lastCompletedAt,
+        freeFleet: isFreeFleetModelId(modelConfig.api_model || model),
       })) return
       stallPauseRequested = true
       void jq.pauseJobForStall(job.job_id, 'No scene image completed for 10 minutes while provider work was active.')
@@ -797,6 +801,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
             let attemptScope = ''
             let attemptHash = ''
             let attemptOriginalFields: Partial<TaskManifestEntry> = {}
+            let attemptRequestFields: Pick<TaskManifestEntry, 'model_id' | 'image_seed'> | null = null
             let isPaidReplacement = false
             let attemptPaidSelector: PaidImageOutputSelector | null = null
             let attemptBaseScope = ''
@@ -1150,12 +1155,22 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               const requestIdentity = replacementScope
                 ? replacementScope
                 : `${job.project_slug}:${episode_id}:scene:${scene.id}:image:${requestScope}`
-              const keyFor = (outputFormat: 'jpeg' | undefined) => buildGenStudioImageIdempotencyKey({
+              const currentModelId = modelConfig.api_model || model
+              const savedPreparedModelId = preparedReplay ? manifestEntry?.model_id?.trim() : ''
+              const hasSavedPreparedSeed = preparedReplay && manifestEntry?.image_seed !== undefined
+              const savedPreparedSeed = manifestEntry?.image_seed === null ? undefined : manifestEntry?.image_seed
+              let requestModelId = savedPreparedModelId || currentModelId
+              let requestSeed = hasSavedPreparedSeed ? savedPreparedSeed : params.seed
+              const keyFor = (
+                outputFormat: 'jpeg' | undefined,
+                modelId = requestModelId,
+                seed = requestSeed,
+              ) => buildGenStudioImageIdempotencyKey({
                 prompt: finalPrompt,
-                modelId: modelConfig.api_model || model,
+                modelId,
                 aspectRatio: requestSelector?.aspect_ratio || aspectRatio,
                 ...(requestSelector ? { resolution: requestSelector.resolution } : { width: renderWidth, height: renderHeight }),
-                seed: params.seed,
+                seed,
                 requestIdentity,
                 ...(outputFormat ? { outputFormat } : {}),
               })
@@ -1164,12 +1179,47 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               const replayFormats = preparedReplay
                 ? [sceneOutputFormat, undefined, 'jpeg' as const].filter(f => keyFor(f) === manifestEntry!.idempotency_key)
                 : []
-              const requestOutputFormat = replayFormats.length ? replayFormats[0] : sceneOutputFormat
-              const calculatedPreparedKey = keyFor(requestOutputFormat)
-              if (preparedReplay && calculatedPreparedKey !== manifestEntry!.idempotency_key) {
+              let requestOutputFormat = replayFormats.length ? replayFormats[0] : sceneOutputFormat
+              let calculatedPreparedKey = keyFor(requestOutputFormat)
+              const savedPreparedFactsChanged = preparedReplay && (
+                Boolean(savedPreparedModelId && savedPreparedModelId !== currentModelId)
+                || (hasSavedPreparedSeed && !Object.is(savedPreparedSeed, params.seed))
+              )
+              const canRenewAbsentFreePreparation = preparedReplay
+                && recovery.kind === 'no-saved-job'
+                && Boolean(validatedPreparedOriginal)
+                && isFreeFleetModelId(currentModelId)
+              const recoveredPreparedIdentityVerified = recovery.kind === 'recovered'
+                && (Boolean(validatedPreparedOriginal)
+                  || calculatedPreparedKey === manifestEntry!.idempotency_key)
+              if (canRenewAbsentFreePreparation
+                && (calculatedPreparedKey !== manifestEntry!.idempotency_key || savedPreparedFactsChanged)) {
+                // The Gateway proved this exact old reservation never became a task. Free fleet
+                // work can therefore adopt the current preset facts without risking a charge or
+                // duplicating provider work. Paid and unfrozen requests remain fail-closed below.
+                requestModelId = currentModelId
+                requestSeed = params.seed
+                requestOutputFormat = sceneOutputFormat
+                calculatedPreparedKey = keyFor(requestOutputFormat, requestModelId, requestSeed)
+                preparedReplay = false
+                job.output_lines.push(
+                  `Scene ${scene.scene_index}: the old free-Mac request was never submitted; refreshing its saved request before continuing.`,
+                )
+              // A completed exact-key lookup may reuse its artifact only when the frozen
+              // originals validate or this scene still reconstructs the exact saved request.
+              } else if (preparedReplay && !recoveredPreparedIdentityVerified
+                && (calculatedPreparedKey !== manifestEntry!.idempotency_key || savedPreparedFactsChanged)) {
                 throw new Error('The saved prepared image request no longer matches this scene. No provider work was submitted.')
               }
               const preparedKey = preparedReplay ? manifestEntry!.idempotency_key! : calculatedPreparedKey
+              const preparedRequestFields = {
+                model_id: requestModelId,
+                image_seed: requestSeed ?? null,
+              }
+              attemptRequestFields = recovery.kind === 'recovered' ? {
+                ...(manifestEntry?.model_id !== undefined ? { model_id: manifestEntry.model_id } : {}),
+                ...(manifestEntry?.image_seed !== undefined ? { image_seed: manifestEntry.image_seed } : {}),
+              } : preparedRequestFields
               const originalFields = identity && originalSelector && capturedReferences ? {
                 original_output_selector: originalSelector,
                 original_reference_inputs: capturedReferences.inputs,
@@ -1209,6 +1259,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                     idempotency_key: preparedKey,
                     operation: 'image',
                     last_state: 'prepared',
+                    ...preparedRequestFields,
                     ...originalFields,
                     ...(manualSupersession ? { superseded_image_requests: [manualSupersession.superseded] } : {}),
                   }
@@ -1237,13 +1288,13 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   prompt: finalPrompt,
                   apiKey,
                   aspectRatio: requestSelector?.aspect_ratio || aspectRatio,
-                  modelId: modelConfig.api_model || model,
+                  modelId: requestModelId,
                   providerParams: sref.params,
                   ...(requestReferences.length ? { referenceImagePaths: requestReferences } : {}),
                   ...(requestSelector
                     ? { resolution: requestSelector.resolution }
                     : { width: renderWidth, height: renderHeight }),
-                  seed: params.seed,
+                  seed: requestSeed,
                   ...(requestOutputFormat ? { outputFormat: requestOutputFormat } : {}),
                   idempotencyIdentity: requestIdentity,
                   idempotencyKey: preparedKey,
@@ -1283,6 +1334,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                         idempotency_key: idempotencyKey,
                         operation: 'image',
                         last_state: 'accepted',
+                        ...preparedRequestFields,
                         ...originalFields,
                         ...(manualSupersession ? { superseded_image_requests: [manualSupersession.superseded] } : {}),
                       }
@@ -1315,6 +1367,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                     ...(acceptedIdempotencyKey ? { idempotency_key: acceptedIdempotencyKey } : {}),
                     operation: 'image',
                     last_state: 'succeeded',
+                    ...preparedRequestFields,
                     ...originalFields,
                     ...(manualSupersession ? { superseded_image_requests: [manualSupersession.superseded] } : {}),
                   }
@@ -1373,6 +1426,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   ...(acceptedIdempotencyKey ? { idempotency_key: acceptedIdempotencyKey } : {}),
                   operation: 'image',
                   last_state: 'failed',
+                  ...(attemptRequestFields || {}),
                   ...attemptOriginalFields,
                 }
                 if (isPaidReplacement) {
