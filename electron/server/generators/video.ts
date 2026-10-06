@@ -24,7 +24,7 @@ import { resolveSubfolderNames, resolveScenePlanPath, resolveEpisodePathsByCodeW
 import { findEpisodeDir, findSubfolder as resolveSubfolder } from '../lib/folder-resolver.js'
 import { findEpisodeSubfolderDir, resolveEpisodeSubfolderDir } from '../services/media-root.js'
 import { homogenizeForConcat } from '../lib/audio-concat.js'
-import { runFfmpeg, getAudioDuration, checkFfmpeg, hasDrawtextFilter, formatConcatFileLine, appendCappedTail, stillDecoderArgs, escapeFilterPath } from '../lib/ffmpeg-utils.js'
+import { runFfmpeg, lowerFfmpegPriority, withX264ThreadCap, getAudioDuration, checkFfmpeg, hasDrawtextFilter, formatConcatFileLine, appendCappedTail, stillDecoderArgs, escapeFilterPath } from '../lib/ffmpeg-utils.js'
 import { renderRevealClip, revealClipPath } from '../lib/reveal-render.js'
 import {
   plannedRevealForScene,
@@ -5953,9 +5953,10 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     job.output_lines.push(`FFmpeg watchdog: ${timeoutMin} min for ${(targetDuration / 60).toFixed(1)} min output`)
 
     await new Promise<void>((resolve, reject) => {
-      const proc = spawn(ffmpegBin, encodeArgs, {
+      const proc = spawn(ffmpegBin, withX264ThreadCap(encodeArgs), {
         stdio: ['ignore', 'pipe', 'pipe'],
       })
+      lowerFfmpegPriority(proc)
       // Track for cancellation — the final encode pass is the longest ffmpeg
       // run in the entire pipeline (minutes), so this is the most important
       // cancellable child in the app.

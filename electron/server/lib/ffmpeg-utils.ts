@@ -5,6 +5,7 @@
 
 import { spawn, type ChildProcess } from 'child_process'
 import { existsSync } from 'fs'
+import os from 'os'
 import { getFFmpegPath, getFFprobePath, getFFmpegStatus } from '../services/ffmpeg-manager.js'
 import { trackChild } from '../services/job-queue.js'
 
@@ -234,14 +235,29 @@ export function appendCappedTail(current: string, chunk: string, max = FFMPEG_LO
 
 // ── Run FFmpeg Command ──────────────────────────────────────────────────
 
+/**
+ * FFmpeg must not starve the Electron main thread (Express runs in it): every encode runs at nice 10,
+ * and libx264 leaves two cores free. VideoToolbox and other encoders are untouched.
+ */
+export function lowerFfmpegPriority(proc: ChildProcess): void {
+  try { if (proc.pid) os.setPriority(proc.pid, 10) } catch { /* best effort: the encode still runs */ }
+}
+
+export function withX264ThreadCap(args: string[], cores = os.availableParallelism()): string[] {
+  if (args.includes('-threads')) return args
+  const threads = String(Math.max(1, cores - 2))
+  return args.flatMap((arg, i) => arg === 'libx264' && args[i - 1] === '-c:v' ? [arg, '-threads', threads] : [arg])
+}
+
 /** Resolves with the (capped) stderr tail, which is where analysis filters print. */
 export async function runFfmpeg(args: string[], opts: { timeoutMs?: number } = {}): Promise<string> {
   const ffmpegBin = await getFFmpegPath()
   const { timeoutMs } = opts
   return new Promise((resolve, reject) => {
-    const proc = spawn(ffmpegBin, args, {
+    const proc = spawn(ffmpegBin, withX264ThreadCap(args), {
       stdio: ['ignore', 'pipe', 'pipe'],
     })
+    lowerFfmpegPriority(proc)
     // Register against the current job (via AsyncLocalStorage) so a proven local stop
     // can SIGTERM us. No-op outside a job context.
     trackChild(proc)
