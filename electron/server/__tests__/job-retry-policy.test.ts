@@ -72,12 +72,15 @@ describe('local auto-retry policy', () => {
 
   test('retries deterministic timeline and local assembly work', () => {
     assert.equal(policy('scene_plan_run', { stage: 'timeline' }).eligible, true)
+    // Owner, 2026-10-07: paid chat prompts retry too — the earlier answer is collected by its
+    // saved key first, so nothing is paid twice.
     const genStudioPromptRun = policy('scene_plan_run', {
       stage: 'visual',
       model: 'genstudio-chat:genstudio-chat-test-v1',
     })
-    assert.equal(genStudioPromptRun.eligible, false)
-    assert.match(genStudioPromptRun.reason, /ID-scoped Gateway prompt repair/)
+    assert.equal(genStudioPromptRun.eligible, true)
+    assert.deepEqual(genStudioPromptRun.delays_ms, [60_000, 300_000])
+    assert.match(genStudioPromptRun.reason, /nothing is paid twice/)
     // Free-fleet prompts retry by themselves (prompts stopping at N-k on a 400-episode run).
     for (const free of ['genstudio-chat:studio-hub::mlx-community/gemma', 'genstudio-chat:studio-hub-9701220bf30f::qwen']) {
       const freePromptRun = policy('scene_plan_run', { stage: 'visual', model: free })
@@ -86,6 +89,33 @@ describe('local auto-retry policy', () => {
       assert.deepEqual(freePromptRun.delays_ms, [60_000, 300_000])
     }
     assert.equal(policy('scene_plan_run', { stage: 'visual', model: 'genstudio-chat:studio-hub::x', auto_retry: false }).eligible, false)
+    // Pipeline runs pick the model from the channel's scene policy (a bare product id that
+    // overrides params.model), which is how the owner runs everything.
+    const pipelineFree = (assigned: string, extra: Record<string, any> = {}) => policy('scene_plan_run', {
+      model: assigned,
+      pipeline_model_policy: { scene_plan: { mode: 'single', models: [assigned], assigned_model: assigned } },
+      ...extra,
+    })
+    for (const free of ['studio-hub::mlx-community/gemma', 'studio-hub-9701220bf30f::qwen']) {
+      const run = pipelineFree(free)
+      assert.equal(run.eligible, true, free)
+      assert.deepEqual(run.delays_ms, [60_000, 300_000])
+    }
+    assert.equal(pipelineFree('studio-hub::x', { model: 'genstudio-chat:deepseek-v4-flash' }).eligible, true,
+      'the scene policy overrides a stale params.model, as runScenePlanJob does')
+    const paidPipeline = pipelineFree('deepseek-v4-flash')
+    assert.equal(paidPipeline.eligible, true, 'paid Pipeline prompts retry too')
+    assert.deepEqual(paidPipeline.delays_ms, [60_000, 300_000])
+    assert.match(paidPipeline.reason, /nothing is paid twice/)
+    assert.match(pipelineFree('studio-hub::x', { model: 'deepseek-v4-flash' }).reason, /Free scene prompts/,
+      'the scene policy, not a stale params.model, names the model that runs')
+    assert.equal(pipelineFree('studio-hub::x', { auto_retry: false }).eligible, false)
+    assert.equal(pipelineFree('deepseek-v4-flash', { auto_retry: false }).eligible, false)
+    assert.equal(policy('scene_plan_run', { model: 'studio-hub::x' }).eligible, true, 'a bare free product id in params.model')
+    assert.equal(policy('scene_plan_run', { stage: 'visual' }).eligible, false, 'no model, no retry')
+    // The paid IMAGE twin stays fail-closed and manual.
+    assert.equal(policy('continuity_render', { model: 'gpt-image-2' }).eligible, false)
+    assert.equal(policy('continuity_render', { model: 'genstudio-image:paid' }).eligible, false)
     assert.equal(policy('audio_merge').eligible, true)
     assert.equal(policy('video_assembly').eligible, true)
     assert.equal(policy('broll_normalize').eligible, true)

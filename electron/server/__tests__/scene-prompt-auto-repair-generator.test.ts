@@ -984,7 +984,9 @@ test('an accepted chat timeout keeps its exact evidence and starts no next paid 
     type: 'scene_plan_run',
     episode_id: f.episodeId,
     title: 'Paid prompt repair timeout',
-    params: f.params,
+    // One attempt's invariant. Paid prompt runs auto-retry since 1.4.257 (owner, 2026-10-07);
+    // the next attempt recovering this exact key first is covered by the free-fleet test below.
+    params: { ...f.params, auto_retry: false },
   })
 
   await barrier.started

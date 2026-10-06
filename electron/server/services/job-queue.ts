@@ -3709,7 +3709,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
           job.auto_retry.next_retry_at = new Date(Date.now() + delayMs).toISOString()
           job.output_lines.push(
             `↻ Local attempt ${attempt}/${lastAttempt} was incomplete: ${message}`,
-            `  Auto-retrying in ${Math.ceil(delayMs / 1_000)}s. Verified files already saved will be kept; no paid API request will be made.`,
+            `  Auto-retrying in ${Math.ceil(delayMs / 1_000)}s. Verified files already saved will be kept; only missing work is asked for again.`,
           )
           await persistJob(job)
           emitUpdate(job)
@@ -3720,7 +3720,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       if (!completed) {
         if (job.auto_retry?.eligible) {
           job.auto_retry.exhausted = true
-          job.output_lines.push(`✗ Local auto-retry exhausted after ${lastAttempt} attempts. Verified partial files remain on disk; manual Retry starts another free recovery cycle.`)
+          job.output_lines.push(`✗ Local auto-retry exhausted after ${lastAttempt} attempts. Verified partial files remain on disk; manual Retry starts another recovery cycle.`)
         } else {
           job.output_lines.push(`ℹ Automatic retry not used: ${retryPolicy.reason}`)
         }

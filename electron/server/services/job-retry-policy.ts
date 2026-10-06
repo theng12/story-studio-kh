@@ -1,5 +1,6 @@
 import type { Job, JobType } from '../models/types.js'
 import { isFreeFleetModelId } from '../contracts/provider-task-state.js'
+import { pipelinePolicyForJob } from '../lib/pipeline-model-policy.js'
 
 export interface JobAutoRetryPolicy {
   eligible: boolean
@@ -147,17 +148,21 @@ export function resolveJobAutoRetryPolicy(
   }
 
   if (TEXT_MODEL_TYPES.has(job.type) || job.type === 'scene_plan_run') {
-    const model = value(params, 'model', 'vision_model', 'ai_model', 'llm_model')
-    if (job.type === 'scene_plan_run' && model.startsWith('genstudio-chat:')) {
-      // Each retry first reclaims any unresolved pack by its saved idempotency key, so a
-      // retry never re-buys a pack. On the owner's free fleet that costs nothing to repeat.
-      if (isFreeFleetModelId(model.slice('genstudio-chat:'.length))) {
-        return localPolicy('Free scene prompts on your own Macs cost nothing to repeat; a retry first collects any earlier request, then asks only for missing prompts.', FREE_FLEET_RETRY_DELAYS_MS)
-      }
-      return {
-        ...MANUAL_ONLY,
-        reason: 'Scene Plan already performs bounded, ID-scoped Gateway prompt repair before it fails; a further provider submission requires a manual Retry.',
-      }
+    // A Pipeline run takes its model from the channel's scene policy, which overrides
+    // `params.model` exactly as runScenePlanJob does, and stores it as a bare product id
+    // (runScenePlanJob accepts it with or without `genstudio-chat:`). Judge that model.
+    const scenePolicyModel = job.type === 'scene_plan_run' ? pipelinePolicyForJob(params, 'scene_plan')?.assigned_model : undefined
+    const model = scenePolicyModel?.trim().toLowerCase() || value(params, 'model', 'vision_model', 'ai_model', 'llm_model')
+    const product = model.replace(/^genstudio-chat:/, '')
+    if (job.type === 'scene_plan_run' && product && !isLocalTextModel(product)) {
+      // Every scene-prompt model runs through GenStudio chat. Each retry first collects any
+      // unresolved pack by its saved idempotency key, so nothing is paid twice, then asks
+      // only for missing prompts. Owner, 2026-10-07: LLM calls are cheap, so paid chat
+      // retries like the free fleet. Paid IMAGE work stays manual (below).
+      return localPolicy(isFreeFleetModelId(product)
+        ? 'Free scene prompts on your own Macs cost nothing to repeat; a retry first collects any earlier request, then asks only for missing prompts.'
+        : 'Scene prompts retry automatically; a retry first collects any earlier answer by its saved key, so nothing is paid twice, then asks only for missing prompts.',
+      FREE_FLEET_RETRY_DELAYS_MS)
     }
     return isLocalTextModel(model)
       ? localPolicy('Chat Studio inference runs on your own hardware and preserves completed items.')
