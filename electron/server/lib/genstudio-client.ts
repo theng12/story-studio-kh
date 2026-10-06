@@ -8336,9 +8336,24 @@ async function waitForImageJob(
   deadline: number,
 ): Promise<GenStudioImageJob> {
   let current = submitted
-  await recordGenStudioEvidence('image.generation', current)
-  await reportQueueState(request, current)
-  request.onState?.(current.state)
+  let reportedState = ''
+  let reportedRoutingState = ''
+  let reportedProviderQueue = ''
+  // Same change guard as the other five wait loops. Every evidence record rewrites the project's whole
+  // jobs.json on the main thread; recording each unchanged poll of every in-flight scene image kept a
+  // large channel's server busy writing (story-perf findings, 2026-10-06).
+  const reportState = async (): Promise<void> => {
+    const routingState = current.routing_status_code || ''
+    const providerQueue = providerQueueFingerprint(current as GenStudioJob)
+    if (reportedState === current.state && reportedRoutingState === routingState && reportedProviderQueue === providerQueue) return
+    reportedState = current.state
+    reportedRoutingState = routingState
+    reportedProviderQueue = providerQueue
+    await recordGenStudioEvidence('image.generation', current)
+    await reportQueueState(request, current)
+    request.onState?.(current.state)
+  }
+  await reportState()
   const poller = createGenStudioJobPoller()
   while (!poller.settled(current)) {
     await submitQueuedRemoteCancellation('image.generation', baseUrl, apiKey, current.id, deadline)
@@ -8354,9 +8369,7 @@ async function waitForImageJob(
       deadline,
       undefined, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], false, GENSTUDIO_JOB_READ_ATTEMPTS,
     ) as GenStudioImageJob
-    await recordGenStudioEvidence('image.generation', current)
-    await reportQueueState(request, current)
-    request.onState?.(current.state)
+    await reportState()
   }
   await genStudioAdmission.notifyTerminal(apiKey)
   if (current.state === 'failed' || current.cancelled === true) {
