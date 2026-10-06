@@ -87,7 +87,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import type { Niche } from '../composables/useNiches.js'
 
 const props = defineProps<{
@@ -101,6 +101,9 @@ const emit = defineEmits<{
 }>()
 
 const { niches, isLoading, error, find, refresh } = useNiches()
+// The shared list loads once per session; a picker re-reads it so a Formula
+// installed since then is offered.
+onMounted(() => { void refresh() })
 
 const selected = computed<Niche | undefined>(() => find(props.modelValue))
 const ownsVoice = computed(() => !!selected.value?.scriptSystemPromptRole)

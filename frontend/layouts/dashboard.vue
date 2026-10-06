@@ -178,7 +178,6 @@ const { project, loadProject, clearProject } = useProject()
 const projectLoadError = ref('')
 const { jobs, stats, startPolling: startJobPolling, stopPolling: stopJobPolling } = useJobs()
 const { stats: allJobStats, start: startAllJobs, stop: stopAllJobs } = useAllJobs()
-const { niches, isReady: nichesReady, error: nichesError } = useNiches()
 const { refreshReadiness } = useNotifications()
 const { connection } = useConnectionStatus()
 const { get: apiGet } = useApi()
@@ -201,12 +200,29 @@ const workflowPhases = computed(() => FLOW_PHASES.map(phase => ({
   ...phase,
   steps: workflowSteps.value.filter(step => step.phase === phase.key),
 })).filter(phase => phase.steps.length))
-const channelFormula = computed(() => niches.value.find(niche => niche.id === project.value?.niche_id))
+// 1.4.257 — only this project's Formula, not the whole catalogue: `/niches`
+// re-verified every installed Content Pack on each project open (40–82 s on
+// the owner's mini) to show one name.
+const channelFormula = ref<{ name?: string; catalogName?: string } | null>(null)
+const channelFormulaLoading = ref(true)
+let formulaRequest = 0
+async function loadChannelFormula(): Promise<void> {
+  const projectSlug = slug.value
+  const request = ++formulaRequest
+  channelFormula.value = null
+  channelFormulaLoading.value = true
+  if (!projectSlug) return
+  try {
+    const { niche } = await apiGet<{ niche: { name?: string; catalogName?: string } | null }>(`/projects/${projectSlug}/effective-niche`)
+    if (request === formulaRequest) channelFormula.value = niche
+  } catch { /* named below as unavailable */ }
+  if (request === formulaRequest) channelFormulaLoading.value = false
+}
 const channelFormulaName = computed(() => {
   if (!project.value) return 'Loading channel…'
   if (!project.value.niche_id) return 'Choose a Series Formula'
   if (channelFormula.value) return channelFormula.value.catalogName || channelFormula.value.name
-  return nichesReady.value || nichesError.value ? 'Series Formula unavailable' : 'Loading Series Formula…'
+  return channelFormulaLoading.value ? 'Loading Series Formula…' : 'Series Formula unavailable'
 })
 const productionPathName = computed(() => {
   if (visualSource.value === 'music') return 'Music channel formula'
@@ -322,7 +338,7 @@ watch(slug, async currentSlug => {
 
 watch(
   () => [project.value?.format_id, project.value?.niche_id] as const,
-  () => { void loadVisualSource() },
+  () => { void loadVisualSource(); void loadChannelFormula() },
 )
 
 useBatchCompletionSignals(() => jobs.value as any)
