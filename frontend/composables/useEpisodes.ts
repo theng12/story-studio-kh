@@ -35,6 +35,7 @@
 import { ref, computed, onMounted, watch, type Ref } from 'vue'
 import { useApi } from './useApi.js'
 import { useJobs } from './useJobs.js'
+import { readLastKnownList, writeLastKnownList } from '../utils/last-known-list.js'
 import type { YouTubeEpisodeUploadStatus } from '@shared/contracts'
 
 export interface LocalMediaCleanupStatus {
@@ -150,17 +151,32 @@ interface SharedSlot {
   refreshedForJobs: Set<string>
   /** Shared upload transitions: publishing receipts must stay live while a list is mounted. */
   refreshedUploadStatuses: Map<string, string>
+  /** `data` came from the last launch (`rememberList`) and no live read has replaced it yet. */
+  remembered: Ref<boolean>
 }
 
 const TTL_MS = 5 * 60 * 1000  // 5 minutes — past this, treat as cold
 const REVALIDATE_MIN_MS = 15 * 1000
 const slots = new Map<string, SharedSlot>()
 
+/**
+ * 1.4.257 — each channel's last list, kept across launches so a reopened
+ * project paints at once while the live read runs (`load()` treats it as
+ * unconfirmed and revalidates in the background). A display cache only: every
+ * action that spends or changes something still goes through the server.
+ */
+const REMEMBERED_PREFIX = 'episodes:'
+const REMEMBERED_MAX_BYTES = 3 * 1024 * 1024
+function rememberList(slug: string, rows: EpisodeRow[]): void {
+  writeLastKnownList(REMEMBERED_PREFIX + slug, rows, { maxBytes: REMEMBERED_MAX_BYTES, evictPrefix: REMEMBERED_PREFIX })
+}
+
 function getOrCreateSlot(slug: string): SharedSlot {
   let slot = slots.get(slug)
   if (!slot) {
+    const remembered = readLastKnownList<EpisodeRow>(REMEMBERED_PREFIX + slug)
     slot = {
-      data: ref<EpisodeRow[]>([]),
+      data: ref<EpisodeRow[]>(remembered),
       isLoading: ref(false),
       isRevalidating: ref(false),
       error: ref<unknown>(null),
@@ -170,6 +186,7 @@ function getOrCreateSlot(slug: string): SharedSlot {
       requestSeq: 0,
       refreshedForJobs: new Set(),
       refreshedUploadStatuses: new Map(),
+      remembered: ref(remembered.length > 0),
     }
     slots.set(slug, slot)
   }
@@ -242,6 +259,7 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
       : force
         ? `/projects/${slugRef.value}/episodes?refresh=1`
         : `/projects/${slugRef.value}/episodes`
+    const requestSlug = slugRef.value
     const requestId = ++slot.requestSeq
     const requestStartedAt = Date.now()
 
@@ -256,6 +274,8 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
           slot.fetchedAt.value = Date.now()
           slot.fetchedFrom.value = requestStartedAt
           slot.error.value = null
+          slot.remembered.value = false
+          rememberList(requestSlug, slot.data.value)
         }
         return list || []
       } catch (e) {
@@ -283,6 +303,13 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
       // Show cached immediately. Avoid another project-wide status request
       // when several controls mount within the same navigation burst.
       if (age < REVALIDATE_MIN_MS) return
+      slot.isRevalidating.value = true
+      fetchOnce(false).catch(() => { /* error already stored on slot */ })
+      return
+    }
+    if (slot.remembered.value && slot.data.value.length > 0) {
+      // Remembered from the last launch: shown already, confirmed in the
+      // background (pages show "Updating…" while isRevalidating).
       slot.isRevalidating.value = true
       fetchOnce(false).catch(() => { /* error already stored on slot */ })
       return
@@ -470,6 +497,8 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
     isLoading: computed(() => currentSlot().isLoading.value),
     isRevalidating: computed(() => currentSlot().isRevalidating.value),
     error: computed(() => currentSlot().error.value),
+    /** Rows on screen came from the last launch and no live read has confirmed them yet. */
+    isRemembered: computed(() => currentSlot().remembered.value),
     isStale: computed(() => {
       const t = currentSlot().fetchedAt.value
       return t === 0 || (Date.now() - t) > TTL_MS

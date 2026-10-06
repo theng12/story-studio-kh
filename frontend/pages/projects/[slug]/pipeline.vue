@@ -1513,6 +1513,7 @@ const {
   isRevalidating: epRevalidating,
   refresh: refreshEpisodes,
   rescan: rescanEpisodes,
+  revalidateAfterMutation,
   updateEpisode,
   error: epError,
 } = useEpisodes(slug)
@@ -2118,17 +2119,19 @@ function openOverridesFor(ep: Episode) {
   overrideEpisode.value = ep
 }
 
+// One episode changed, so one row is re-read (`?invalidate=CODE`), not the
+// whole project (`?refresh=1` recomputed every row of a 400-episode channel).
+// Both dialogs emit before `close`, so the bound episode is still set here.
 function onImported(_summary: any) {
-  // Refresh the episode list so newly-imported assets show up in the
-  // status pills. The backend invalidates its own cache; the frontend
-  // composable refetches on demand.
-  refreshEpisodes()
+  // Newly-imported assets show up in the status pills.
+  const code = importEpisode.value?.episode_code
+  if (code) void revalidateAfterMutation(code).catch(() => { /* error stored on the list */ })
 }
 
 function onOverridesSaved(_payload: any) {
-  // Override route invalidates the episode-status cache server-side;
-  // refresh so the per-step pills (and (manual) annotation) update.
-  refreshEpisodes()
+  // Per-step pills (and the (manual) annotation) update.
+  const code = overrideEpisode.value?.episode_code
+  if (code) void revalidateAfterMutation(code).catch(() => { /* error stored on the list */ })
 }
 
 async function onMarkDone(ep: Episode, done: boolean) {
@@ -2143,11 +2146,10 @@ async function onMarkDone(ep: Episode, done: boolean) {
   ep.marked_done = done
   try {
     await patchApi(`/projects/${slug.value}/episodes/${ep.episode_code}/mark-done`, { done })
-    // Force a refresh — the per-step status fields haven't changed locally
-    // (they reflect file detection), so triggering a refetch ensures the
-    // server's recomputed override-applied status replaces our optimistic
-    // copy on the next paint.
-    await refreshEpisodes()
+    // Re-read this row — the per-step status fields haven't changed locally
+    // (they reflect file detection), so the server's recomputed
+    // override-applied status replaces our optimistic copy on the next paint.
+    await revalidateAfterMutation(ep.episode_code)
     success(done ? `${ep.episode_code} marked done` : `${ep.episode_code} reverted to file detection`)
   } catch (e: any) {
     ep.marked_done = prev
@@ -2233,9 +2235,10 @@ async function bulkMarkSelected(done: boolean) {
     }
 
     // Pull the server's recomputed override-applied status. Same reasoning
-    // as the single-episode handler — file-detection pills haven't changed
-    // locally so we need a refetch to see the truth.
-    await refreshEpisodes()
+    // as the single-episode handler. Each PATCH already dropped its own row
+    // server-side, so one fresh (never joined) read covers the batch; any
+    // marked code serves as its key.
+    if (okCount) await revalidateAfterMutation(toUpdate[0]!.episode_code).catch(() => { /* error stored on the list */ })
 
     const verb = done ? 'marked done' : 'unmarked'
     if (failCount === 0) {

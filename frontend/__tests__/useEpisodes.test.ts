@@ -500,3 +500,59 @@ describe('useEpisodes', () => {
     m.app.unmount()
   })
 })
+
+describe('useEpisodes remembers the last list across launches', () => {
+  test('a reopened channel paints its last list at once and confirms it in the background', async () => {
+    const { writeLastKnownList, readLastKnownList } = await import('../utils/last-known-list.js')
+    // What the previous launch stored for this channel.
+    writeLastKnownList('episodes:remembered', [fakeRow('EP001', false)], { maxBytes: 3 * 1024 * 1024 })
+    let resolveFetch!: (rows: unknown[]) => void
+    fetchCalls = []
+    fetchHandler = () => new Promise(resolve => { resolveFetch = resolve })
+    const { captured, app } = mountWithComposable('remembered')
+    await settle()
+    assert.equal(captured.episodes.value[0]?.episode_code, 'EP001', 'the remembered list is on screen before the read answers')
+    assert.equal(captured.isLoading.value, false, 'no blocking spinner over a remembered list')
+    assert.equal(captured.isRevalidating.value, true, 'the page can say it is updating')
+    assert.equal(captured.isRemembered.value, true)
+    assert.equal(fetchCalls.length, 1, 'a live read is under way')
+    assert.doesNotMatch(fetchCalls[0]!, /refresh=1/, 'the background read is the paced one')
+
+    resolveFetch([fakeRow('EP001', true), fakeRow('EP002', true)])
+    await settle()
+    assert.equal(captured.episodes.value.length, 2, 'the live list replaces the remembered one')
+    assert.equal(captured.isRemembered.value, false)
+    assert.equal(captured.isRevalidating.value, false)
+    assert.equal(readLastKnownList<any>('episodes:remembered').length, 2, 'the live list is remembered for next launch')
+    app.unmount()
+  })
+
+  test('a 400-episode list fits; a full store gives way to the channel being written', async () => {
+    const { writeLastKnownList, readLastKnownList } = await import('../utils/last-known-list.js')
+    const big = Array.from({ length: 400 }, (_, i) => ({ ...fakeRow(`EP${i}`), logline: 'x'.repeat(1500) }))
+    writeLastKnownList('episodes:big', big, { maxBytes: 3 * 1024 * 1024, evictPrefix: 'episodes:' })
+    assert.equal(readLastKnownList('episodes:big').length, 400)
+
+    // A store that is full until something is evicted.
+    const items = new Map<string, string>([['story_studio_last_known_episodes:other', '[]'], ['unrelated', 'kept']])
+    let full = true
+    const fake = {
+      get length() { return items.size },
+      key: (i: number) => [...items.keys()][i] ?? null,
+      getItem: (k: string) => items.get(k) ?? null,
+      removeItem: (k: string) => { items.delete(k); full = false },
+      setItem: (k: string, v: string) => { if (full) throw new DOMException('full', 'QuotaExceededError'); items.set(k, v) },
+    }
+    const real = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')!
+    Object.defineProperty(globalThis, 'localStorage', { value: fake, configurable: true })
+    try {
+      writeLastKnownList('episodes:big', big.slice(0, 10), { maxBytes: 3 * 1024 * 1024, evictPrefix: 'episodes:' })
+    } finally {
+      Object.defineProperty(globalThis, 'localStorage', real)
+    }
+    assert.equal(JSON.parse(items.get('story_studio_last_known_episodes:big') || '[]').length, 10, 'the retried write landed')
+    assert.equal(items.has('story_studio_last_known_episodes:other'), false, 'another channel\'s list was evicted to make room')
+    assert.equal(items.get('unrelated'), 'kept', 'nothing outside the family is touched')
+  })
+
+})

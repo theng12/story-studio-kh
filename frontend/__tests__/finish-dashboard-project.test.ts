@@ -91,14 +91,15 @@ describe('project dashboard — truthful status', () => {
     assert.match(upload, /res\.json\(\{ accounts, defaults \}\)/)
   })
 
-  test('Retry uses the light re-read; the full recompute is a clearly labelled button', () => {
+  test('Retry and Refresh use the light re-read; Shift-click is the labelled full recompute', () => {
     assert.match(script, /revalidate: revalidateEpisodes/)
     assert.match(script, /async function retryLoad\(\) \{[\s\S]*revalidateEpisodes\(\)/)
     assert.match(script, /onClick: retryLoad/)
     assert.equal((template.match(/@click="retryLoad"/g) || []).length, 2)
     assert.match(template, /@click="refreshAll"/)
-    assert.match(template, /Re-check all episodes/)
-    assert.match(template, /Re-reads every episode from disk/)
+    assert.match(script, /event\?\.shiftKey \? refreshEpisodes\(\) : revalidateEpisodes\(\)/)
+    assert.match(template, /Shift-click to re-check every episode from disk/)
+    assert.match(template, /v-if="episodesRefreshing && episodes\.length"[^>]*>Updating…</)
     assert.doesNotMatch(template, />Refresh status</)
   })
 

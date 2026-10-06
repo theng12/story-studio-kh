@@ -97,12 +97,13 @@
         <button
           class="btn btn-sm btn-secondary"
           :disabled="refreshing"
-          title="Re-reads every episode from disk. This can take a while on a large channel."
+          title="Re-reads changed episodes. Shift-click to re-check every episode from disk (slow on a large channel)."
           @click="refreshAll"
         >
           <LoadingSpinner v-if="refreshing" size="sm" />
-          <span v-else>Re-check all episodes</span>
+          <span v-else>Refresh</span>
         </button>
+        <span v-if="episodesRefreshing && episodes.length" class="dashboard-updating" role="status">Updating…</span>
       </template>
       <div v-if="focusActions.length" class="focus-grid">
         <NuxtLink v-for="action in focusActions" :key="action.key" :to="action.to" class="focus-card" :data-tone="action.tone">
@@ -615,10 +616,11 @@ const loadError = computed(() => {
   return [episodeMessage, overviewError.value, accountsError.value, formatError.value, auditError.value].filter(Boolean).join(' ')
 })
 
-// The explicit, slow path: re-reads every episode from disk.
-async function refreshAll() {
+// Plain click: the paced re-read. Shift-click: the explicit, slow path that
+// re-reads every episode from disk.
+async function refreshAll(event?: MouseEvent) {
   const requestSlug = slug.value
-  await Promise.all([refreshEpisodes(), loadOverview()])
+  await Promise.all([event?.shiftKey ? refreshEpisodes() : revalidateEpisodes(), loadOverview()])
   if (slug.value === requestSlug) reportReadiness()
 }
 
@@ -680,6 +682,8 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.dashboard-updating { align-self: center; font-size: 12px; color: var(--text-muted); }
+
 .dashboard-workspace {
   --dashboard-gold: #e8b85d;
   --dashboard-green: #4fd08a;

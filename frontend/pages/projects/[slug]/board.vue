@@ -94,11 +94,12 @@
           type="button"
           class="board-filter"
           :disabled="loading || isRevalidating"
-          title="Re-read every episode's status from disk."
-          @click="refresh()"
+          title="Re-read changed episodes. Shift-click to re-check every episode from disk (slow on a large channel)."
+          @click="onRefreshClick"
         >
           {{ loading || isRevalidating ? '…' : '↻' }} Refresh
         </button>
+        <span v-if="isRevalidating && episodes.length" class="board-updating" role="status">Updating…</span>
         <!-- v1.0.481 — Repair moved here from the retired Assets tab. Re-pulls
              provider-completed jobs (images/video/audio) that finished on the
              provider but never persisted locally. No credits consumed. -->
@@ -456,6 +457,12 @@ function queryEpisodes(): string[] {
 }
 
 function openImport(ep: any) { importEp.value = ep }
+
+// Plain click re-reads what changed (the server re-checks the rest on its own
+// pace); Shift-click keeps the full rebuild of every row.
+function onRefreshClick(event: MouseEvent) {
+  void (event.shiftKey ? refresh() : revalidate())
+}
 
 // After closing Repair, re-read status from disk — any recovered file should
 // flip its step done on the board.
@@ -925,6 +932,8 @@ async function markCell(ep: any, col: BoardCol) {
 }
 .board-page-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .board-page-edge { min-width: 32px; padding-inline: 8px; }
+
+.board-updating { align-self: center; font-size: 12px; color: var(--text-muted); }
 
 /* ── Empty / loading ── */
 .board-empty {

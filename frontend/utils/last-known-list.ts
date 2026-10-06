@@ -47,7 +47,13 @@ export function readLastKnownList<T = unknown>(name: string): T[] {
   }
 }
 
-export function writeLastKnownList(name: string, rows: unknown[]): void {
+/**
+ * `maxBytes` raises the size cap for a list that is legitimately large (a
+ * 400-episode channel's rows). `evictPrefix` names the family this entry
+ * belongs to: when the store is full, the family's OTHER entries are dropped
+ * and the write tried once more, so the list being written wins.
+ */
+export function writeLastKnownList(name: string, rows: unknown[], options: { maxBytes?: number; evictPrefix?: string } = {}): void {
   const storage = store()
   if (!storage) return
   // A non-array is refused outright rather than stored and read back as junk —
@@ -57,11 +63,20 @@ export function writeLastKnownList(name: string, rows: unknown[]): void {
     const raw = JSON.stringify(rows)
     // An oversized payload is dropped rather than truncated: half a list is
     // worse than a spinner, because it looks complete.
-    if (raw.length > MAX_BYTES) {
+    if (raw.length > (options.maxBytes ?? MAX_BYTES)) {
       storage.removeItem(PREFIX + name)
       return
     }
-    storage.setItem(PREFIX + name, raw)
+    try {
+      storage.setItem(PREFIX + name, raw)
+    } catch (error) {
+      if (!options.evictPrefix) throw error
+      for (let i = storage.length - 1; i >= 0; i--) {
+        const key = storage.key(i)
+        if (key?.startsWith(PREFIX + options.evictPrefix) && key !== PREFIX + name) storage.removeItem(key)
+      }
+      storage.setItem(PREFIX + name, raw)
+    }
   } catch { /* best effort — a full or blocked store must never break a page */ }
 }
 
