@@ -1,6 +1,7 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor as waitForCondition } from './_timing.js'
 
 let cleanup: () => Promise<void>
 let jq: typeof import('../services/job-queue.js')
@@ -90,5 +91,40 @@ describe('queue-owned local retries', () => {
     assert.equal(settled.auto_retry?.eligible, false)
     assert.equal(settled.auto_retry?.max_attempts, 1)
     assert.match(settled.output_lines.join('\n'), /Automatic retry not used/)
+  })
+
+  test('an attempt that finishes more items earns a fresh retry budget; three attempts without progress stop', async () => {
+    const { requireJobCompletion } = await import('../services/job-completion.js')
+    const realNow = Date.now
+    let skipped = 0
+    Date.now = () => realNow() + skipped
+    // Skip the retry waits: the clock jumps a minute every 50 ms of real time.
+    const clock = setInterval(() => { skipped += 60_000 }, 50)
+    try {
+      for (const run of [
+        { name: 'progress', remaining: [4, 3, 2, 1, 0], status: 'done', attempts: 5 },
+        { name: 'stall', remaining: [4, 3, 3, 3, 3, 3], status: 'error', attempts: 4 },
+      ]) {
+        const project = await pm.createProject({ name: `Retry budget ${run.name}` })
+        let attempt = 0
+        jq.registerExecutor('audio_merge', async (job) => {
+          const remaining = run.remaining[attempt++]!
+          requireJobCompletion(job, { label: 'Merge', expected: 10, completed: 10 - remaining })
+        })
+        const queued = jq.enqueuePreparedForTest({
+          project_slug: project.slug, type: 'audio_merge', episode_id: 'EP0040', title: 'Merge', params: { episode_id: 'EP0040' },
+        })
+        await waitForCondition(() => ['done', 'error'].includes(jq.getJob(queued.job_id)?.status || ''), {
+          label: `${run.name} run settles`, timeoutMs: 10_000, maxWallClockMs: Number.POSITIVE_INFINITY,
+        })
+        const settled = jq.getJob(queued.job_id)!
+        assert.equal(settled.status, run.status, run.name)
+        assert.equal(attempt, run.attempts, `${run.name}: executor runs`)
+        assert.equal(settled.auto_retry?.attempt, run.attempts)
+      }
+    } finally {
+      clearInterval(clock)
+      Date.now = realNow
+    }
   })
 })

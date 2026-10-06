@@ -274,11 +274,26 @@ function scenePromptRecoveries(value: unknown): Array<{ idempotency_key: string;
   })
 }
 
-export function scenePromptRequestIsUnresolved(job: Pick<Job, 'genstudio_jobs' | 'remote_cancellations'>, error: unknown): boolean {
+/**
+ * `requestKey` scopes provider evidence to THIS pack's request. Without it, one
+ * pack still running at the Gateway made every later pack's ordinary, settled
+ * failure look unresolved, so none of them was repaired.
+ */
+export function scenePromptRequestIsUnresolved(
+  job: Pick<Job, 'genstudio_jobs' | 'remote_cancellations'>,
+  error: unknown,
+  requestKey?: string,
+): boolean {
+  const evidence = requestKey === undefined ? job : {
+    ...job,
+    genstudio_jobs: (job.genstudio_jobs || []).filter(entry => (
+      entry.request_key === requestKey || entry.request?.idempotency_key === requestKey || entry.id === `pending:${requestKey}`
+    )),
+  }
   return isGenStudioRequestInProgress(error)
     || isGenStudioSubmissionUncertain(error)
     || error instanceof GenStudioChatRecoveryUnresolvedError
-    || hasUnsettledProviderEvidence(job)
+    || hasUnsettledProviderEvidence(evidence)
 }
 
 interface ScenePromptPack {
@@ -1630,7 +1645,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       } catch (error: any) {
         if (isGenStudioInsufficientCredits(error)) throw error
         requestError = error?.message || String(error)
-        requestUnresolved = scenePromptRequestIsUnresolved(job, error)
+        requestUnresolved = scenePromptRequestIsUnresolved(job, error, preparedIdempotencyKey || input.recoverByIdempotencyKey || '')
         if (error instanceof GenStudioChatIncompleteError && error.partialText.trim()) {
           responseReceived = true
           results = parseDirectPackResults(error.partialText, input.sceneIds, isMotion ? 'motion' : 'visual')
@@ -1748,12 +1763,13 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         missing = [...recoveredReceipt.missing_ids]
         if (recoveryUnresolved) break
       }
-      const initial = recoveryUnresolved ? {
+      // A fully recovered pack has nothing left to ask for: never POST an empty pack.
+      const initial = recoveryUnresolved || !missing.length ? {
         results: new Map<string, string>(),
         checkpointErrors: [] as string[],
         diagnostics: undefined,
         requestError: recoveryErrors.join('; '),
-        requestUnresolved: true,
+        requestUnresolved: recoveryUnresolved,
         responseReceived: false,
         answeredIds: new Set<string>(),
       } : await requestPromptGroups({

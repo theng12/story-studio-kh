@@ -5,6 +5,7 @@ import path from 'node:path'
 import express from 'express'
 import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
 
 const temp = await useTempDataDir()
@@ -1067,4 +1068,87 @@ test('Pause lets an accepted scene settle, then starts no next paid request', as
   assert.equal(saved.scenes[0].visual_prompt, f.originalPrompt)
   assert.match(saved.scenes[1].visual_prompt, /scene-0002/)
   assert.equal(saved.scenes[2].visual_prompt, '')
+})
+
+test('one pack still running at the Gateway does not make another pack\'s settled failure look unresolved', () => {
+  const job = {
+    genstudio_jobs: [{
+      id: 'chat-pack-2', operation: 'chat.response', state: 'running', request_key: 'pack-2-key',
+      updated_at: '2026-10-06T00:00:00.000Z',
+    }],
+    remote_cancellations: {},
+  } as any
+  const settled = new Error('structured output invalid')
+  assert.equal(scenePromptRequestIsUnresolved(job, settled, 'pack-3-key'), false,
+    'pack 3 settled; pack 2 running elsewhere must not block its repair')
+  assert.equal(scenePromptRequestIsUnresolved(job, settled, 'pack-2-key'), true, 'its own running request still fences it')
+  assert.equal(scenePromptRequestIsUnresolved(job, settled, ''), false, 'a request that was never prepared has no provider evidence')
+})
+
+test('free-fleet prompts: the queue auto-retries, recovers the stuck pack by its key, and finishes every prompt', async () => {
+  service.reset()
+  const freeModel = 'studio-hub::mock-chat-v1'
+  service.chatModels = [{
+    id: freeModel, display_name: 'Free Mock Chat', description: 'In-process LLM fixture.',
+    available: true, qualification_only: false, context_window_tokens: 128_000, max_output_tokens: 4_096,
+    max_structured_items_per_request: null, controls: ['temperature', 'top_p', 'max_output_tokens'],
+    activation_blockers: [], supports_structured_output: true, structured_output_mode: 'request_json_schema',
+  }]
+  genstudio.clearGenStudioCatalogCache()
+  const realNow = Date.now
+  let clock: ReturnType<typeof setInterval> | undefined
+  try {
+    const f = await fixture(6)
+    const pair = (a: string, b: string) => JSON.stringify({ results: [a, b].map(sceneId => ({
+      scene_id: sceneId, visual_prompt: `A distinct cinematic composition for ${sceneId} with its own light and place.`,
+    })) })
+    service.queueScenario('chat', { states: ['succeeded'], outputText: pair('scene-0002', 'scene-0003') })
+    service.queueScenario('chat', { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' })
+    service.queueScenario('chat', { states: ['succeeded'], outputText: pair('scene-0006', 'scene-0007') })
+    jq.registerExecutor('scene_plan_run', runScenePlanJob)
+    const queued = jq.enqueuePreparedForTest({
+      project_slug: f.project.slug, type: 'scene_plan_run', episode_id: f.episodeId, title: 'Free scene prompts',
+      params: { ...f.params, model: `genstudio-chat:${freeModel}`, prompt_pack_size: 2, regenerate_empty_prompts: false, auto_repair_missing_prompts: false },
+    })
+
+    await waitFor(() => Boolean(jq.getJob(queued.job_id)?.auto_retry?.next_retry_at) || jq.getJob(queued.job_id)?.status === 'error', {
+      label: 'first attempt ends and waits for its automatic retry', timeoutMs: 30_000,
+    })
+    const waiting = jq.getJob(queued.job_id)!
+    assert.notEqual(waiting.status, 'error', waiting.output_lines.join('\n'))
+    assert.equal(waiting.auto_retry?.eligible, true)
+    assert.ok(Date.parse(waiting.auto_retry!.next_retry_at!) - realNow() >= 50_000, 'free fleet waits about a minute')
+    const recovery = waiting.params.scene_prompt_recoveries
+    assert.deepEqual(recovery?.map((entry: any) => entry.scene_ids), [['scene-0004', 'scene-0005']])
+    const stuckKey = recovery[0].idempotency_key
+    assert.equal(chatSubmissions().filter(entry => entry.idempotencyKey === stuckKey).length, 1)
+
+    // While Story waits, the Gateway finishes the held request (a late result is adopted).
+    const held = [...(service as any).jobs.values()].find((job: any) => job.idempotencyKey === stuckKey)
+    held.scenario = { ...held.scenario, states: ['succeeded'], failureCode: null, outputText: pair('scene-0004', 'scene-0005') }
+    held.stateIndex = 0
+
+    let skipped = 0
+    Date.now = () => realNow() + skipped
+    clock = setInterval(() => { skipped += 2 * 60_000 }, 250)
+    await waitFor(() => ['done', 'error'].includes(jq.getJob(queued.job_id)?.status || ''), {
+      label: 'automatic retry finishes', timeoutMs: 30_000, maxWallClockMs: Number.POSITIVE_INFINITY,
+    })
+    clearInterval(clock)
+    Date.now = realNow
+    const finished = jq.getJob(queued.job_id)!
+    assert.equal(finished.status, 'done', finished.error || finished.output_lines.join('\n'))
+    assert.equal(finished.auto_retry?.attempt, 2)
+    assert.ok(service.requests.some(entry => entry.method === 'GET' && entry.path.endsWith(`/by-idempotency-key/${stuckKey}`)))
+    assert.equal(service.providerSubmissionCount('chat'), 3,
+      'one POST per pack: the stuck pack is collected by its key, never re-bought, and no empty pack is sent')
+    const saved = JSON.parse(await fs.readFile(f.planPath, 'utf8'))
+    assert.equal(saved.scenes[0].visual_prompt, f.originalPrompt)
+    assert.ok(saved.scenes.slice(1).every((scene: any) => scene.visual_prompt.trim()), 'all prompts finished')
+  } finally {
+    if (clock) clearInterval(clock)
+    Date.now = realNow
+    service.chatModels = null
+    genstudio.clearGenStudioCatalogCache()
+  }
 })

@@ -55,6 +55,7 @@ describe('local auto-retry policy', () => {
     const fleet = policy('continuity_render', { model: 'studio-hub::org/model' })
     assert.equal(fleet.eligible, true)
     assert.equal(fleet.max_attempts, 3)
+    assert.deepEqual(fleet.delays_ms, [60_000, 300_000], 'a fleet hiccup lasts minutes; 2 s / 8 s burned all three attempts')
     assert.match(fleet.reason, /only the missing images/)
     assert.equal(policy('continuity_render', { model: 'studio-hub::org/model', auto_retry: false }).eligible, false)
     assert.equal(policy('thumb_images', { model: 'studio-hub::org/model' }).eligible, false,
@@ -77,6 +78,14 @@ describe('local auto-retry policy', () => {
     })
     assert.equal(genStudioPromptRun.eligible, false)
     assert.match(genStudioPromptRun.reason, /ID-scoped Gateway prompt repair/)
+    // Free-fleet prompts retry by themselves (prompts stopping at N-k on a 400-episode run).
+    for (const free of ['genstudio-chat:studio-hub::mlx-community/gemma', 'genstudio-chat:studio-hub-9701220bf30f::qwen']) {
+      const freePromptRun = policy('scene_plan_run', { stage: 'visual', model: free })
+      assert.equal(freePromptRun.eligible, true, free)
+      assert.equal(freePromptRun.max_attempts, 3)
+      assert.deepEqual(freePromptRun.delays_ms, [60_000, 300_000])
+    }
+    assert.equal(policy('scene_plan_run', { stage: 'visual', model: 'genstudio-chat:studio-hub::x', auto_retry: false }).eligible, false)
     assert.equal(policy('audio_merge').eligible, true)
     assert.equal(policy('video_assembly').eligible, true)
     assert.equal(policy('broll_normalize').eligible, true)
