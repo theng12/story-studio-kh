@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.257 — 2026-10-06
+
+- **Settings cards stay inside the window.** Opening a file review and scanning "What's using space" in Free up space no longer pushes the card past the right edge, so Refresh Uploads and View upload stay visible; the space table scrolls sideways in its own frame instead.
+
+---
+
 ## v1.4.256 — 2026-10-06
 
 - **The Production Board remains scrollable in both directions.** Its episode table keeps the episode column visible while scrolling through production stages.

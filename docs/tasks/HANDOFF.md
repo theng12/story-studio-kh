@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## Current work — 2026-10-06 (Free up space card width)
+
+Release **1.4.257** fixes the Free up space card overflowing at 1280 px once a file review is open and "What's using space" is scanned (card right edge 1354 px → 1252 px, same as before the interaction; also fits at 1024 and 1440). Cause: `.settings-content` was a grid with an implicit `auto` column, so the storage table's intentional `min-width: 760px` widened every settings card. The column is now `minmax(0, 1fr)`; wide content scrolls inside its own `overflow: auto` frame. Reproduced on unchanged 1.4.256 (`238a1a37`) with the offscreen harness in `_orchestra/audit-20261001/story-parts-storage/render/`. The unreleased `fix/narration-parts-free-up-space` branch does not touch this line; whichever lands second takes the next version.
+
 ## Current work — 2026-10-06 (local update integration)
 
 Source release **1.4.256** builds on `a3c2e722` / 1.4.255 from the other Mac. The Production Board has native stage navigation, a keyboard-focusable scrolling region, and a separate saved YouTube publishing column/filter. Upload transitions refresh through surgical episode invalidation; historical terminal snapshots do not trigger repeated scans. Independent review found no unresolved code issues. Full backend: exit 0, 6,154 tests / 6,150 pass / 0 fail / 4 skip, 604/604 files completed. Full frontend: exit 0, 2,385 tests / 0 fail, 276/276 files completed. Content-packs: exit 0, 368 tests / 366 pass / 0 fail / 2 skip, 38/38 files completed. Typechecks pass; lint reports 0 errors and 1,778 existing warnings. Final main packaging/release-lane evidence and this Mac's current installed state are recorded in `<owner-home>/Developer/story-studio-operations/story-update-integration-plan.json`.

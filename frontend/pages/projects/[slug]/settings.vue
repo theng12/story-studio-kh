@@ -4533,7 +4533,7 @@ async function deleteProject() {
 .settings-head .key-dot { display: inline-block; vertical-align: middle; margin: 0 2px 2px 0; }
 .settings-layout { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 24px; align-items: start; }
 .settings-rail { position: sticky; top: 0; max-height: calc(100dvh - 120px); overflow-y: auto; padding-right: 4px; }
-.settings-content { display: grid; gap: 16px; min-width: 0; }
+.settings-content { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; min-width: 0; }
 .settings-content > .settings-active-intro { margin: 0; }
 .settings-plain { min-width: 0; }
 .settings-card-head { margin-bottom: 12px; }
