@@ -64,20 +64,28 @@ const MAX_ENTRIES = 1000
  * without re-statting its watched folders, and how many episodes of one
  * project may be re-statted per window once entries do age out.
  *
- * These bound a warm list to a couple of hundred stats instead of one per
- * episode per read, while still walking the whole project back to verified
- * status on its own. That second half is not decoration: `fs.watch` with
- * `recursive: true` can start successfully and then deliver nothing at all
- * (measured on a sandboxed filesystem here, and network/virtualised volumes
- * behave the same way), and it gives no signal when that happens. So the
- * watcher is treated as an optimisation that is usually right, never as the
- * only witness — 15 seconds is the longest a list may show a change nobody
- * announced, and a 300-episode project re-verifies itself inside ~13
- * seconds of ordinary use after that.
+ * These bound a warm list to a few dozen stats instead of one per episode per
+ * read, while still walking the whole project back to verified status on its
+ * own. That second half is not decoration: `fs.watch` with `recursive: true`
+ * can start successfully and then deliver nothing at all (measured on a
+ * sandboxed filesystem here, and network/virtualised volumes behave the same
+ * way), and it gives no signal when that happens. So the watcher is treated as
+ * an optimisation that is usually right, never as the only witness.
+ *
+ * 1.4.257 — paced. The budget used to refill every second, so on the owner's
+ * 405-episode channel a list read that itself took 20–45 s re-audited almost
+ * every row, and every row went stale on any `config.json` write. Now the
+ * budget refills every 15 s and is sized so a project's rows are all
+ * re-checked inside one AUDIT_MAX_AGE_MS cycle (~4 min): a change nobody
+ * announced — made while the app was closed, or one the watcher missed — can
+ * show up to ~4 min late (owner decision, 2026-10-06). Story's own mutations
+ * still invalidate their rows at once; Shift-Refresh forces a full check.
  */
-const AUDIT_MAX_AGE_MS = 15_000
-const AUDIT_BUDGET = 24
-const AUDIT_WINDOW_MS = 1_000
+const AUDIT_MAX_AGE_MS = 4 * 60_000
+const AUDIT_MIN_BUDGET = 24
+const AUDIT_WINDOW_MS = 15_000
+/** Windows per cycle the budget is sized for: under AUDIT_MAX_AGE_MS / AUDIT_WINDOW_MS (16), so re-ageing rows cannot starve the rest. */
+const AUDIT_WINDOWS_PER_CYCLE = 12
 // Phase 3 — persistence
 const FLUSH_DEBOUNCE_MS = 5000
 const CACHE_FILENAME = 'episode-status.json'
@@ -294,7 +302,7 @@ class EpisodeStatusCache {
   /** Slug whose entries must survive LRU eviction — the one being read. */
   private activeSlug: string | null = null
   /** Per-project re-stat allowance, so an audit sweep stays bounded. */
-  private auditBudget = new Map<string, { windowStart: number, used: number }>()
+  private auditBudget = new Map<string, { windowStart: number, used: number, limit: number }>()
 
   /**
    * Read or compute status for one episode, always verifying the cached
@@ -502,21 +510,21 @@ class EpisodeStatusCache {
    *     closed, or errored) → verify against disk, exactly as before. A
    *     broken watcher costs speed, never correctness.
    *   - An entry last verified BEFORE the watcher went live — including
-   *     every entry hydrated from disk at startup — gets one real check.
-   *   - An entry older than AUDIT_MAX_AGE_MS is re-verified anyway, capped
-   *     at AUDIT_BUDGET episodes per project per AUDIT_WINDOW_MS. That is
-   *     the backstop for events the OS coalesced away or dropped: a warm
-   *     list stays cheap, yet the project walks itself back to fully
-   *     verified within a handful of requests without anyone asking.
+   *     every entry hydrated from disk at startup — and an entry older than
+   *     AUDIT_MAX_AGE_MS are re-verified, paced by the project's audit
+   *     budget per AUDIT_WINDOW_MS (see the constants). That is the backstop
+   *     for events the OS coalesced away or dropped and for changes made while
+   *     the app was closed: a warm list stays cheap, yet the project walks
+   *     itself back to fully verified within one cycle without anyone asking.
    */
   private trusted(slug: string, entry: EpisodeStatusCacheEntry): boolean {
     const since = watcherTrustedSince(slug)
     if (since === null) return false
     const verifiedAt = entry.verifiedAt ?? 0
-    if (verifiedAt < since) return false
-    if (Date.now() - verifiedAt < AUDIT_MAX_AGE_MS) return true
-    // Aged out: re-verify if this project's audit allowance permits, else
-    // serve it now and let a later request pick it up.
+    if (verifiedAt >= since && Date.now() - verifiedAt < AUDIT_MAX_AGE_MS) return true
+    // Aged out, or last confirmed before this watcher went live (a row loaded
+    // from disk at startup): re-verify if this project's audit allowance
+    // permits, else serve it now and let a later request pick it up.
     return !this.consumeAuditBudget(slug)
   }
 
@@ -525,10 +533,11 @@ class EpisodeStatusCache {
     const now = Date.now()
     let b = this.auditBudget.get(slug)
     if (!b || now - b.windowStart > AUDIT_WINDOW_MS) {
-      b = { windowStart: now, used: 0 }
+      const rows = this._dumpProject(slug).length
+      b = { windowStart: now, used: 0, limit: Math.max(AUDIT_MIN_BUDGET, Math.ceil(rows / AUDIT_WINDOWS_PER_CYCLE)) }
       this.auditBudget.set(slug, b)
     }
-    if (b.used >= AUDIT_BUDGET) return false
+    if (b.used >= b.limit) return false
     b.used++
     return true
   }
@@ -791,7 +800,7 @@ bindInvalidator((slug, code) => episodeStatusCache.invalidate(slug, code))
 /**
  * A job that just finished (done, failed or cancelled) may have written or
  * removed this episode's files. Drop its cached status at once instead of
- * waiting for the folder watcher or the 15 s re-check. Jobs without an
+ * waiting for the folder watcher or the paced re-check. Jobs without an
  * episode drop the whole project. Wired to the queue's update events at boot.
  */
 export function invalidateForFinishedJob(job: { project_slug?: string; episode_id?: string; status?: string }): void {

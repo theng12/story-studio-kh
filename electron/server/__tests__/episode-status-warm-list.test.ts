@@ -28,7 +28,7 @@
  * inside before().
  */
 
-import { test, describe, before, after, beforeEach } from 'node:test'
+import { test, describe, before, after, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
@@ -52,7 +52,7 @@ async function makeProject(codes: string[] = CODES) {
     slug: SLUG,
     name: 'Warm List',
     episode_prefix: 'EP',
-    season_size: 20,
+    season_size: 100,
     season_prefix: 'Season',
     folder_template: '{season_prefix} {season_num}/{code} - {title}/',
   }, null, 2))
@@ -343,6 +343,38 @@ describe('episode-status warm list', () => {
     markFreshlyVerified()
     const settled = await countStats(() => listAll())
     assert.equal(settled.stats, 0, 're-verified entries go back to costing nothing')
+  })
+
+  test('a large project re-audits a paced slice per window, rows loaded from disk included', async () => {
+    // 1.4.257 — the owner's 405-episode channel re-audited almost every row on
+    // every read, because the budget refilled each second and a read took
+    // longer than that. Now one window spends a bounded slice, and the next
+    // window finishes the job.
+    const codes = Array.from({ length: 30 }, (_, i) => `EP${String(i + 1).padStart(3, '0')}`)
+    await makeProject(codes)
+    await listAll(codes)
+    if (watcherMod.watcherTrustedSince(SLUG) === null) return
+    watcherMod.bindInvalidator(() => {})
+    await listAll(codes)
+    assert.equal(cacheMod.episodeStatusCache._dumpProject(SLUG).length, 30, 'every episode is cached')
+    // Last confirmed before this watcher went live — exactly a row read from
+    // the disk cache at startup.
+    for (const e of cacheMod.episodeStatusCache._dumpProject(SLUG)) e.verifiedAt = 0
+    const verified = () => cacheMod.episodeStatusCache._dumpProject(SLUG).filter(e => (e.verifiedAt ?? 0) > 0).length
+
+    mock.timers.enable({ apis: ['Date'], now: Date.now() })
+    try {
+      await listAll(codes)
+      assert.equal(verified(), 24, 'one window re-checks only its budget; the rest are served as they are')
+      await listAll(codes)
+      assert.equal(verified(), 24, 'a second read in the same window spends nothing more')
+      mock.timers.tick(15_001)
+      await listAll(codes)
+      assert.equal(verified(), 30, 'the next window re-checks the rest')
+      assert.equal(cacheMod.episodeStatusCache.getStats().staleRecomputes, 0, 'unchanged rows are confirmed, not recomputed')
+    } finally {
+      mock.timers.reset()
+    }
   })
 
   test('a full cache evicts other projects before the one being read', async () => {
