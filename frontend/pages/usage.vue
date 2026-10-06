@@ -2,12 +2,12 @@
   <div class="usage-page">
     <header class="usage-header">
       <div>
+        <PlainBackLink />
         <span class="eyebrow">GenStudio</span>
         <h1>GenStudio credits</h1>
         <p>Every value on this page comes from the Gateway. Story Studio does not calculate rates or balances.</p>
       </div>
       <div class="usage-actions">
-        <NuxtLink to="/" class="btn btn-secondary btn-sm">← Back to Projects</NuxtLink>
         <div v-if="snapshot" class="billing-action">
           <a
             v-if="snapshot.overview.app_links.billing"

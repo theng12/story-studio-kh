@@ -11,6 +11,7 @@
          receive clicks; the surrounding bar stays draggable). -->
     <header class="top-bar">
       <div class="titlebar-drag"></div>
+      <NuxtLink to="/" class="top-bar-brand">Story Studio KH</NuxtLink>
       <div class="top-bar-version">
         <FeatureHelpCenter />
         <button
@@ -86,6 +87,21 @@ function openWhatsNew() { _whatsNew.open() }
   border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
 }
+.top-bar-brand {
+  /* Clear of the hidden-inset traffic lights (x 16, three ~12 px buttons). */
+  position: absolute;
+  top: 0;
+  left: 84px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  font-weight: 650;
+  text-decoration: none;
+  -webkit-app-region: no-drag;
+}
+.top-bar-brand:hover { color: var(--text-primary); }
 .top-bar-version {
   position: absolute;
   top: 0;

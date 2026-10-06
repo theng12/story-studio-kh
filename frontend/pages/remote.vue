@@ -1,6 +1,7 @@
 <template>
   <div class="remote">
     <header class="rm-head">
+      <PlainBackLink />
       <h1 class="rm-title">Remote control</h1>
       <p class="rm-sub">Kick off a run and watch it — touch-friendly, over Tailscale.</p>
     </header>
