@@ -306,9 +306,27 @@ test('queue auto-retries one terminal free-fleet image under a fresh key and pre
     queuedJobId = queued.job_id
     await jq.setQueuePaused(false)
 
-    await waitFor(() => ['done', 'error'].includes(jq.getJob(queuedJobId)?.status || ''), {
-      label: 'free image queue auto-retry finishes', timeoutMs: 10_000,
+    await waitFor(() => Boolean(jq.getJob(queuedJobId)?.auto_retry?.next_retry_at), {
+      label: 'free image waits before its automatic retry', timeoutMs: 10_000,
     })
+    assert.equal(jq.getJob(queuedJobId)?.auto_retry?.max_attempts, 3)
+    assert.ok(Date.parse(jq.getJob(queuedJobId)!.auto_retry!.next_retry_at!) - Date.now() > 50_000,
+      'a fleet hiccup lasts minutes, so the free retry waits about a minute rather than two seconds')
+    // Fast-forward the retry wait: the clock jumps two minutes every quarter second.
+    const realNow = Date.now
+    let skipped = 0
+    Date.now = () => realNow() + skipped
+    const clock = setInterval(() => { skipped += 2 * 60_000 }, 250)
+    try {
+      // Each jump is credited back to waitFor's scheduled-time budget; only its
+      // wall-clock backstop would read the fake clock, so it is lifted here.
+      await waitFor(() => ['done', 'error'].includes(jq.getJob(queuedJobId)?.status || ''), {
+        label: 'free image queue auto-retry finishes', timeoutMs: 10_000, maxWallClockMs: Number.POSITIVE_INFINITY,
+      })
+    } finally {
+      clearInterval(clock)
+      Date.now = realNow
+    }
     const completedJob = jq.getJob(queuedJobId)!
     assert.equal(completedJob.status, 'done', completedJob.error || completedJob.output_lines.join('\n'))
     assert.equal(completedJob.auto_retry?.attempt, 2)
@@ -867,7 +885,25 @@ for (const drift of [
     oldSeed: 41,
     currentSeed: 42,
   },
-]) test(`a provider-absent free-fleet prepared image self-heals ${drift.name} drift`, async () => {
+  // Prompt repair, Regenerate prompts or a style-bible edit after preparation: the frozen
+  // facts no longer validate against the current scene (TN0294 class). Free work rebuilds.
+  {
+    name: 'prompt',
+    oldModel: FREE_FLEET_IMAGE_MODEL,
+    oldSeed: 42,
+    currentSeed: 42,
+    oldPrompt: 'A lantern in a quiet archive, before the prompt was repaired.',
+  },
+  {
+    name: 'legacy entry without frozen details',
+    oldModel: FREE_FLEET_IMAGE_MODEL,
+    oldSeed: 42,
+    currentSeed: 42,
+    oldPrompt: 'A lantern in a quiet archive, before the prompt was repaired.',
+    legacy: true,
+  },
+] as Array<{ name: string; oldModel: string; oldSeed: number; currentSeed: number; oldPrompt?: string; legacy?: boolean }>)
+  test(`a provider-absent free-fleet prepared image self-heals ${drift.name} drift`, async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   const originalFetch = globalThis.fetch
@@ -895,13 +931,14 @@ for (const drift of [
     const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
     const outputPath = path.join(outDir, 'scene-001.png')
     await fs.mkdir(outDir, { recursive: true })
+    const oldPrompt = drift.oldPrompt || 'A lantern in a quiet archive.'
     const original = buildPaidImageOriginalIdentity({
-      prompt: 'A lantern in a quiet archive.', baseScope: 'missing', references: [],
+      prompt: oldPrompt, baseScope: 'missing', references: [],
       selector: { resolution: '1K', aspect_ratio: '16:9', width: 1344, height: 768, reference_mode: 'normal' },
     })
     const requestIdentity = `${project.slug}:${episodeId}:scene:scene-001:image:${original.requestScope}`
     const oldKey = client.buildGenStudioImageIdempotencyKey({
-      prompt: 'A lantern in a quiet archive.', modelId: drift.oldModel, aspectRatio: '16:9', resolution: '1K',
+      prompt: oldPrompt, modelId: drift.oldModel, aspectRatio: '16:9', resolution: '1K',
       seed: drift.oldSeed, requestIdentity,
     })
     const expectedKey = client.buildGenStudioImageIdempotencyKey({
@@ -914,9 +951,11 @@ for (const drift of [
       provider: 'genstudio-image', task_id: '', submitted_at: '2026-10-05T00:00:00.000Z',
       input_hash: original.inputHash, idempotency_key: oldKey, operation: 'image',
       last_state: 'prepared', request_scope: original.requestScope,
-      original_output_selector: { resolution: '1K', aspect_ratio: '16:9', width: 1344, height: 768, reference_mode: 'normal' },
-      original_reference_inputs: [], original_reference_identity_hash: original.referenceIdentityHash,
-      original_output_path: outputPath,
+      ...(drift.legacy ? {} : {
+        original_output_selector: { resolution: '1K', aspect_ratio: '16:9', width: 1344, height: 768, reference_mode: 'normal' as const },
+        original_reference_inputs: [], original_reference_identity_hash: original.referenceIdentityHash,
+        original_output_path: outputPath,
+      }),
     })
     const now = new Date().toISOString()
     const job: any = {
@@ -940,6 +979,7 @@ for (const drift of [
     assert.equal(submission.parsedBody?.seed, drift.currentSeed)
     assert.equal(submission.parsedBody?.resolution, '1K')
     assert.equal(submission.parsedBody?.output_format, 'jpeg')
+    assert.equal(submission.parsedBody?.prompt, 'A lantern in a quiet archive.', 'the current scene prompt is sent')
     assert.equal(submission.parsedBody?.width, undefined)
     assert.equal(submission.parsedBody?.height, undefined)
     const completed = (await readManifest(outDir)).tasks['scene-001.png']!
@@ -954,6 +994,113 @@ for (const drift of [
     await temp.cleanup()
   }
 })
+
+// TN0355 scene 65 (2026-10-06): a terminal free-fleet image went through the paid
+// replacement decision, whose control read threw (or was not "failed"), so every retry
+// answered "may still be recoverable" and never submitted. Free work takes the ordinary
+// path: one new request under a retry identity derived from the dead task.
+for (const control of ['throws', 'succeeded'] as const) {
+  for (const fleet of [true, false]) {
+    test(`a terminal ${fleet ? 'free-fleet' : 'paid'} image whose control read ${control} ${fleet ? 'is resubmitted once under a new key' : 'stays fail-closed'}`, async () => {
+      const temp = await useTempDataDir()
+      const service = await startMockGenStudioService()
+      const originalFetch = globalThis.fetch
+      const deadTask = `dead-${fleet ? 'free' : 'paid'}-${control}-task`
+      const modelId = fleet ? FREE_FLEET_IMAGE_MODEL : 'mock-image-v1'
+      try {
+        const settings = await import('../services/app-settings.js')
+        const secrets = await import('../services/app-secrets-store.js')
+        const client = await import('../lib/genstudio-client.js')
+        const { buildPaidImageOriginalIdentity } = await import('../services/image-paid-replacement.js')
+        const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+        const { readManifest, recordTaskStrict } = await import('../services/task-manifest.js')
+        const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+        await settings.setGenStudioUrl(service.baseUrl)
+        await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
+        await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+        globalThis.fetch = async (input, init) => {
+          const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+          if (url.pathname === '/v1/image/models') return Response.json([imageCatalogRow(modelId, !fleet)])
+          if (url.pathname.includes(deadTask)) {
+            if (control === 'throws') throw new TypeError('fetch failed')
+            return Response.json({
+              id: deadTask, state: 'succeeded', operation: 'image.generation', model_id: modelId,
+              cancellable: false, cancelled: false, failure_code: null,
+              reserved_credits: 0, settled_credits: 0, released_credits: 0,
+            })
+          }
+          return originalFetch(input, init)
+        }
+        client.clearGenStudioCatalogCache()
+        await import('../providers/image/genstudio.js')
+
+        const { project, episodeId, paths } = await createContinuityFixture(`Terminal ${fleet ? 'free' : 'paid'} ${control}`)
+        const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+        const outputPath = path.join(outDir, 'scene-001.png')
+        await fs.mkdir(outDir, { recursive: true })
+        const selector = { resolution: '1K', aspect_ratio: '16:9', width: 1344, height: 768, reference_mode: 'normal' as const }
+        const original = buildPaidImageOriginalIdentity({
+          prompt: 'A lantern in a quiet archive.', baseScope: 'missing', references: [], selector,
+        })
+        const oldKey = client.buildGenStudioImageIdempotencyKey({
+          prompt: 'A lantern in a quiet archive.', modelId, aspectRatio: '16:9', resolution: '1K', seed: 42,
+          requestIdentity: `${project.slug}:${episodeId}:scene:scene-001:image:${original.requestScope}`,
+          outputFormat: 'jpeg',
+        })
+        await recordTaskStrict(outDir, 'scene-001.png', {
+          provider: 'genstudio-image', task_id: deadTask, submitted_at: '2026-10-06T00:00:00.000Z',
+          input_hash: original.inputHash, idempotency_key: oldKey, operation: 'image',
+          last_state: 'failed', request_scope: original.requestScope, model_id: modelId, image_seed: 42,
+          original_output_selector: selector, original_reference_inputs: [],
+          original_reference_identity_hash: original.referenceIdentityHash, original_output_path: outputPath,
+        })
+        const now = new Date().toISOString()
+        const job: any = {
+          job_id: `terminal-${fleet ? 'free' : 'paid'}-${control}`, project_slug: project.slug, type: 'continuity_render',
+          episode_id: episodeId, title: 'Finish missing images', status: 'running', created_at: now, started_at: now,
+          finished_at: null, local_execution_complete: false, error: null, output_lines: [],
+          paid_image_replacement: { enabled: true, wait_minutes: 30, max_replacements_per_asset: 1, additional_credit_ceiling: 20, snapshotted_at: now },
+          params: {
+            episode_id: episodeId, model: modelId, aspect_ratio: '16:9', resolution: '1K', seed: 42,
+            scene_ids: ['scene-001'], missing_only: true,
+          },
+        }
+        await writeAuthoritativeFixture(job)
+        service.queueScenario('image', { states: ['accepted', 'succeeded'], reservedCredits: 0, finalCredits: 0 })
+
+        if (!fleet) {
+          await assert.rejects(runContinuityRenderJob(job), (error: any) => {
+            assert.equal(error.message,
+              "Scene images incomplete: 0 of 1 made; finished images are saved. Scene 1 couldn't be made after 1 try: "
+              + 'The original task may still be recoverable; no replacement was submitted. Press Retry to try again.')
+            return true
+          })
+          assert.equal(service.providerSubmissionCount('image'), 0, 'paid work never resubmits while the original may be recoverable')
+          return
+        }
+        assert.equal(await runContinuityRenderJob(job), undefined, job.output_lines.join('\n'))
+        assert.equal(service.providerSubmissionCount('image'), 1)
+        const submission = service.submissions.find(candidate => candidate.operation === 'image')!
+        assert.notEqual(submission.idempotencyKey, oldKey, 'the dead key is never replayed')
+        const completed = (await readManifest(outDir)).tasks['scene-001.png']!
+        assert.equal(completed.last_state, 'succeeded')
+        assert.match(completed.request_scope || '', /:retry:/)
+        assert.equal(submission.idempotencyKey, client.buildGenStudioImageIdempotencyKey({
+          prompt: 'A lantern in a quiet archive.', modelId, aspectRatio: '16:9', resolution: '1K', seed: 42,
+          requestIdentity: `${project.slug}:${episodeId}:scene:scene-001:image:${completed.request_scope}`,
+          outputFormat: 'jpeg',
+        }), 'one reproducible retry identity derived from the dead task')
+        await sharp(outputPath).stats()
+      } finally {
+        globalThis.fetch = originalFetch
+        const client = await import('../lib/genstudio-client.js')
+        client.clearGenStudioCatalogCache()
+        await service.close()
+        await temp.cleanup()
+      }
+    })
+  }
+}
 
 for (const recoveryCase of [
   { name: 'keeps its frozen model and seed', frozenFacts: true },
@@ -2884,4 +3031,18 @@ test('a thumbnail left prepared with no task is replayed, not failed forever', a
     await service.close()
     await temp.cleanup()
   }
+})
+
+test('an unfinished scene image is explained in plain words with what to do next', async () => {
+  const { unresolvedSceneImagesMessage } = await import('../generators/continuity-render.js')
+  const scenes = [{ id: 'tn0355-scene-0064', scene_index: 64 }, { id: 'tn0355-scene-0065', scene_index: 65 }]
+  const issues = [{ item_id: 'tn0355-scene-0065', reason: 'No free Mac answered in time.' }]
+  assert.equal(
+    unresolvedSceneImagesMessage({ auto_retry: { eligible: true, reason: '', attempt: 3, max_attempts: 3 } }, scenes, issues),
+    "Scene images incomplete: 1 of 2 made; finished images are saved. Scene 65 couldn't be made after 3 tries: No free Mac answered in time. Press Retry to try again.",
+  )
+  assert.match(
+    unresolvedSceneImagesMessage({ auto_retry: { eligible: true, reason: '', attempt: 1, max_attempts: 3 } }, scenes, issues),
+    /after 1 try: .* Story Studio will try again automatically\.$/,
+  )
 })

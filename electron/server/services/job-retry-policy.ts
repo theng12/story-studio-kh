@@ -16,12 +16,14 @@ const MANUAL_ONLY: JobAutoRetryPolicy = {
 }
 
 const LOCAL_RETRY_DELAYS_MS = [2_000, 8_000]
+/** A fleet hiccup (a Mac restarting, a model reloading) lasts minutes, not seconds. */
+const FREE_FLEET_RETRY_DELAYS_MS = [60_000, 300_000]
 
-function localPolicy(reason: string): JobAutoRetryPolicy {
+function localPolicy(reason: string, delays = LOCAL_RETRY_DELAYS_MS): JobAutoRetryPolicy {
   return {
     eligible: true,
-    max_attempts: LOCAL_RETRY_DELAYS_MS.length + 1,
-    delays_ms: [...LOCAL_RETRY_DELAYS_MS],
+    max_attempts: delays.length + 1,
+    delays_ms: [...delays],
     reason,
   }
 }
@@ -147,6 +149,11 @@ export function resolveJobAutoRetryPolicy(
   if (TEXT_MODEL_TYPES.has(job.type) || job.type === 'scene_plan_run') {
     const model = value(params, 'model', 'vision_model', 'ai_model', 'llm_model')
     if (job.type === 'scene_plan_run' && model.startsWith('genstudio-chat:')) {
+      // Each retry first reclaims any unresolved pack by its saved idempotency key, so a
+      // retry never re-buys a pack. On the owner's free fleet that costs nothing to repeat.
+      if (isFreeFleetModelId(model.slice('genstudio-chat:'.length))) {
+        return localPolicy('Free scene prompts on your own Macs cost nothing to repeat; a retry first collects any earlier request, then asks only for missing prompts.', FREE_FLEET_RETRY_DELAYS_MS)
+      }
       return {
         ...MANUAL_ONLY,
         reason: 'Scene Plan already performs bounded, ID-scoped Gateway prompt repair before it fails; a further provider submission requires a manual Retry.',
@@ -163,7 +170,7 @@ export function resolveJobAutoRetryPolicy(
       return localPolicy('Image Studio generation runs on your own hardware and preserves completed images.')
     }
     if (job.type === 'continuity_render' && isFreeFleetModelId(model)) {
-      return localPolicy('Free scene images on your own Macs cost nothing to repeat; a retry submits only the missing images.')
+      return localPolicy('Free scene images on your own Macs cost nothing to repeat; a retry submits only the missing images.', FREE_FLEET_RETRY_DELAYS_MS)
     }
     // The remaining image generators have not proved their terminal-task
     // promotion end to end, so even free fleet work stays manual here. Paid

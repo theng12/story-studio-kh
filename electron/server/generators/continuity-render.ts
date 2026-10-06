@@ -280,6 +280,27 @@ export async function resolveContinuityRenderOutputDir(
   return resolveSceneImagesDir(projectSlug, episodeId.toUpperCase(), resolvedEpisodeDir)
 }
 
+/** e.g. "Scene 65 couldn't be made after 3 tries: <reason>. Press Retry to try again." */
+export function unresolvedSceneImagesMessage(
+  job: Pick<Job, 'auto_retry'>,
+  scenes: ReadonlyArray<{ id: string; scene_index: number }>,
+  issues: ReadonlyArray<{ item_id: string; reason?: string }>,
+): string {
+  const tries = Math.max(1, job.auto_retry?.attempt || 1)
+  const retriesLeft = Boolean(job.auto_retry?.eligible && tries < (job.auto_retry.max_attempts || 1))
+  const shown = issues.slice(0, 5).map(issue => {
+    const index = scenes.find(scene => scene.id === issue.item_id)?.scene_index
+    const reason = (issue.reason || 'the image was not saved').trim().replace(/\.+$/, '')
+    return `${index ? `Scene ${index}` : issue.item_id} couldn't be made after ${tries} ${tries === 1 ? 'try' : 'tries'}: ${reason}.`
+  })
+  return [
+    `Scene images incomplete: ${scenes.length - issues.length} of ${scenes.length} made; finished images are saved.`,
+    ...shown,
+    issues.length > shown.length ? `${issues.length - shown.length} more scene(s) couldn't be made either.` : '',
+    retriesLeft ? 'Story Studio will try again automatically.' : 'Press Retry to try again.',
+  ].filter(Boolean).join(' ')
+}
+
 export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorResult> {
   const params = job.params as ContinuityRenderParams
   const pipelineRepairActionId = params.pipeline_repair?.action_id
@@ -347,6 +368,9 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
   if (modelConfig.provider !== 'genstudio-image') {
     throw new Error(`Image model "${model}" is not routed through the Gateway.`)
   }
+  // The owner's own Macs: nothing is charged, so paid-replacement safeguards
+  // (frozen-request validation, the paid replacement decision) do not apply.
+  const freeFleet = isFreeFleetModelId(modelConfig.api_model || model)
   const imageProvider = registry.getImageProvider('genstudio-image')
   if (!imageProvider) throw new Error('Image generation through the Gateway is not available right now.')
   // "Smaller files" for scene images (Settings, per-project override); undefined = native PNG.
@@ -558,6 +582,8 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
         : 'resume (skip existing)'
 
   const failedSceneIds: string[] = []
+  /** The last real reason each failed scene gave, shown to the owner in plain words. */
+  const failureReasons = new Map<string, string>()
   const cancelledSceneIds = new Set<string>()
   const successfulSceneIds = new Set<string>()
 
@@ -718,7 +744,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
         fleetWaitingCount: fleetWaiting.size,
         capacityWaitingCount: capacityWaiting.size,
         elapsedMs: Date.now() - lastCompletedAt,
-        freeFleet: isFreeFleetModelId(modelConfig.api_model || model),
+        freeFleet,
       })) return
       stallPauseRequested = true
       void jq.pauseJobForStall(job.job_id, 'No scene image completed for 10 minutes while provider work was active.')
@@ -893,19 +919,33 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               // manifests lack these additive fields; their retained key is
               // still replayed only after the provider proves it absent, but
               // we never claim an unrecorded payload is identical.
+              // Free fleet: frozen facts that no longer validate (the prompt or style
+              // changed since preparation) are simply not reused; the request is
+              // rebuilt from the current scene below once the Gateway proves the
+              // old key absent. Paid work stays fail-closed.
               const validatedPreparedOriginal = preparedReplay
                 && manifestEntry?.original_output_selector
                 && Array.isArray(manifestEntry.original_reference_inputs)
                 && manifestEntry.original_reference_identity_hash
                 && manifestEntry.original_output_path
-                ? readPaidImageOriginalRequest(
-                    manifestEntry!,
-                    paidReferenceRoot,
-                    { prompt: finalPrompt, baseScope: logicalPaidScope(manifestEntry, baseScope) },
-                    paidOutputRoot,
-                  )
+                ? (() => {
+                    try {
+                      return readPaidImageOriginalRequest(
+                        manifestEntry!,
+                        paidReferenceRoot,
+                        { prompt: finalPrompt, baseScope: logicalPaidScope(manifestEntry, baseScope) },
+                        paidOutputRoot,
+                      )
+                    } catch (error) {
+                      if (freeFleet) return null
+                      throw error
+                    }
+                  })()
                 : null
-              if (!sceneManualFinish && !zeroSettlementRetryPending && !replacementScope && !submittedRecoveryEntry && originalSelector && manifestEntry && isTerminalGenStudioImageTaskFailure(manifestEntry)
+              // Free fleet skips the paid decision: a control read that throws or is
+              // not "failed" made it answer "recover-original" forever (TN0355 scene 65).
+              // The ordinary path below derives a new retry identity from the dead task.
+              if (!freeFleet && !sceneManualFinish && !zeroSettlementRetryPending && !replacementScope && !submittedRecoveryEntry && originalSelector && manifestEntry && isTerminalGenStudioImageTaskFailure(manifestEntry)
                 && manifestEntry.original_output_selector) {
                 const decision = await decidePaidImageReplacement({
                   job,
@@ -1080,7 +1120,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 attemptOwner = carried
                 if (sceneManualFinish && pipelineRepairActionId !== sceneManualFinish.action_id
                   && belongsToManualFinish(carried.request_scope)) sceneManualFinish = undefined
-                if (!sceneManualFinish && originalSelector && carried.idempotency_key) {
+                if (!freeFleet && !sceneManualFinish && originalSelector && carried.idempotency_key) {
                   const decision = await decidePaidImageReplacement({
                     job,
                     asset: {
@@ -1187,8 +1227,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               )
               const canRenewAbsentFreePreparation = preparedReplay
                 && recovery.kind === 'no-saved-job'
-                && Boolean(validatedPreparedOriginal)
-                && isFreeFleetModelId(currentModelId)
+                && freeFleet
               const recoveredPreparedIdentityVerified = recovery.kind === 'recovered'
                 && (Boolean(validatedPreparedOriginal)
                   || calculatedPreparedKey === manifestEntry!.idempotency_key)
@@ -1196,7 +1235,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 && (calculatedPreparedKey !== manifestEntry!.idempotency_key || savedPreparedFactsChanged)) {
                 // The Gateway proved this exact old reservation never became a task. Free fleet
                 // work can therefore adopt the current preset facts without risking a charge or
-                // duplicating provider work. Paid and unfrozen requests remain fail-closed below.
+                // duplicating provider work. Paid requests remain fail-closed below.
                 requestModelId = currentModelId
                 requestSeed = params.seed
                 requestOutputFormat = sceneOutputFormat
@@ -1527,6 +1566,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               // One failed scene does not block the rest of the durable batch.
               if (!cancelledSceneIds.has(scene.id)) {
                 failedSceneIds.push(scene.id)
+                failureReasons.set(scene.id, isPaidReplacement ? jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE : String(e?.message || e))
                 job.output_lines.push(isPaidReplacement
                   ? jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE
                   : `Scene ${scene.scene_index} failed: ${e?.message || e}`)
@@ -1573,7 +1613,10 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
     // link to the owning Scene Review row without parsing prose.
     const issuesById = new Map(mediaAudit.issues.map(issue => [issue.item_id, issue]))
     for (const sceneId of failedSceneIds) {
-      if (!issuesById.has(sceneId)) issuesById.set(sceneId, { item_id: sceneId, state: 'invalid', reason: 'generation failed' })
+      const audited = issuesById.get(sceneId)
+      issuesById.set(sceneId, audited
+        ? { ...audited, reason: failureReasons.get(sceneId) || audited.reason }
+        : { item_id: sceneId, state: 'invalid', reason: failureReasons.get(sceneId) || 'generation failed' })
     }
     for (const scene of toRender) {
       if (successfulSceneIds.has(scene.id) || preservedCommittedArtifactIds.has(scene.id)) continue
@@ -1597,7 +1640,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
       missing,
       invalid,
       issues,
-      retry_hint: 'Successful images were saved. Recover saved provider output first; only a missing image with no recoverable result needs a new submission.',
+      message: unresolvedSceneImagesMessage(job, toRender, issues),
     })
     job.output_lines.push(`Done — ${toRender.length}/${toRender.length} target scene(s) verified; ${skipped} skipped.`)
     return

@@ -3605,12 +3605,16 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       if (!q.executor) throw new Error(`No executor registered for job type: ${type}`)
       let completed = false
       let finalError: unknown = null
-      for (let attempt = 1; attempt <= retryPolicy.max_attempts; attempt++) {
+      // An attempt that leaves fewer items unfinished than every attempt before it
+      // earns a fresh retry budget. The best count only ever falls, so this ends.
+      let lastAttempt = retryPolicy.max_attempts
+      let fewestRemaining = Infinity
+      for (let attempt = 1; attempt <= lastAttempt; attempt++) {
         job.auto_retry = {
           eligible: retryPolicy.eligible,
           reason: retryPolicy.reason,
           attempt,
-          max_attempts: retryPolicy.max_attempts,
+          max_attempts: lastAttempt,
         }
         job.error = null
         if (attempt > 1) {
@@ -3625,7 +3629,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
             ? { video_assembly_checkpoint: videoAssemblyCheckpoint }
             : undefined
           job.progress = 0
-          job.output_lines.push(`↻ Local auto-retry attempt ${attempt}/${retryPolicy.max_attempts} — checking disk and repairing only missing work.`)
+          job.output_lines.push(`↻ Local auto-retry attempt ${attempt}/${lastAttempt} — checking disk and repairing only missing work.`)
           await persistJob(job)
           emitUpdate(job)
         }
@@ -3688,13 +3692,23 @@ async function runJob(type: JobType, job: Job): Promise<void> {
           // A proven, uncharged quota stop. Do not consume a worker slot on
           // local retry backoff; the outer lifecycle parks it.
           if (isQuotaWait(job, error)) throw error
-          if (!retryPolicy.eligible || attempt >= retryPolicy.max_attempts) break
+          const completion = job.result?.completion
+          const remaining = completion && Number.isSafeInteger(completion.expected) && Number.isSafeInteger(completion.completed)
+            ? completion.expected - completion.completed
+            : Infinity
+          if (remaining < fewestRemaining) {
+            fewestRemaining = remaining
+            lastAttempt = attempt + retryPolicy.max_attempts - 1
+            job.auto_retry.max_attempts = lastAttempt
+          }
+          if (!retryPolicy.eligible || attempt >= lastAttempt) break
 
-          const delayMs = retryPolicy.delays_ms[attempt - 1] ?? retryPolicy.delays_ms.at(-1) ?? 2_000
+          const delayIndex = attempt - (lastAttempt - retryPolicy.max_attempts) - 1
+          const delayMs = retryPolicy.delays_ms[delayIndex] ?? retryPolicy.delays_ms.at(-1) ?? 2_000
           const message = error instanceof Error ? error.message : String(error)
           job.auto_retry.next_retry_at = new Date(Date.now() + delayMs).toISOString()
           job.output_lines.push(
-            `↻ Local attempt ${attempt}/${retryPolicy.max_attempts} was incomplete: ${message}`,
+            `↻ Local attempt ${attempt}/${lastAttempt} was incomplete: ${message}`,
             `  Auto-retrying in ${Math.ceil(delayMs / 1_000)}s. Verified files already saved will be kept; no paid API request will be made.`,
           )
           await persistJob(job)
@@ -3706,7 +3720,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       if (!completed) {
         if (job.auto_retry?.eligible) {
           job.auto_retry.exhausted = true
-          job.output_lines.push(`✗ Local auto-retry exhausted after ${retryPolicy.max_attempts} attempts. Verified partial files remain on disk; manual Retry starts another free recovery cycle.`)
+          job.output_lines.push(`✗ Local auto-retry exhausted after ${lastAttempt} attempts. Verified partial files remain on disk; manual Retry starts another free recovery cycle.`)
         } else {
           job.output_lines.push(`ℹ Automatic retry not used: ${retryPolicy.reason}`)
         }
