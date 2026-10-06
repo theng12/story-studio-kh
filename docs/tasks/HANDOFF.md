@@ -1,5 +1,15 @@
 # HANDOFF — Story Studio KH
 
+## Current work — 2026-10-07 (1.4.257 assembled)
+
+Source release **1.4.257** builds on `238a1a37` / 1.4.256 and assembles: `perf/episode-list-and-niches` (incl. `perf/scene-poll-and-streams`: paced episode-status re-audit, last list on reopen, slim job streams, skipped no-op poll/config writes, ffmpeg at nice 10 with libx264 threads capped, plain-page Back), `fix/partial-stops` (free-fleet scene prompts/images retry 60 s / 300 s, key-scoped unresolved checks, drifted free prepared images rebuilt), `fix/narration-parts-free-up-space` (narration parts kept until chosen in Free up space) and only the CSS line of `fix/free-up-space-card-width` (`.settings-content` column `minmax(0, 1fr)`; that branch's own version bump was dropped).
+
+Added in assembly:
+- `scene_plan_run` auto-retry judges the model the run actually uses: a Pipeline run's `pipeline_model_policy.scene_plan.assigned_model` (bare product id, overrides `params.model`), so Pipeline-started runs retry. **Owner decision 2026-10-07:** paid chat scene prompt runs also auto-retry with the same 60 s / 300 s delays; each retry first collects the earlier request by its saved idempotency key, so nothing is paid twice. Paid IMAGE work stays fail-closed and manual.
+- Pipeline ↻, EpisodeSelector ↻ and the scripts page's cold-cache deep link now `revalidate()`; Shift-click on ↻ is the full `?refresh=1` rebuild, as on the Board. (Error-notice Retry buttons still call `refresh()`.)
+
+Gate (worktree, before build): typecheck exit 0. Backend exit 0, 6,314 tests / 6,310 pass / 0 fail / 4 skip, 609/609 files. Frontend exit 0, 2,403 tests / 0 fail, 280/280 files. Content-packs exit 0, 368 tests / 366 pass / 0 fail / 2 skip, 38/38 files. check:changelog/typography/security/model-drift/release pass. Not installed anywhere; the owner installs on the mini.
+
 ## Current work — 2026-10-06 (local update integration)
 
 Source release **1.4.256** builds on `a3c2e722` / 1.4.255 from the other Mac. The Production Board has native stage navigation, a keyboard-focusable scrolling region, and a separate saved YouTube publishing column/filter. Upload transitions refresh through surgical episode invalidation; historical terminal snapshots do not trigger repeated scans. Independent review found no unresolved code issues. Full backend: exit 0, 6,154 tests / 6,150 pass / 0 fail / 4 skip, 604/604 files completed. Full frontend: exit 0, 2,385 tests / 0 fail, 276/276 files completed. Content-packs: exit 0, 368 tests / 366 pass / 0 fail / 2 skip, 38/38 files completed. Typechecks pass; lint reports 0 errors and 1,778 existing warnings. Final main packaging/release-lane evidence and this Mac's current installed state are recorded in `<owner-home>/Developer/story-studio-operations/story-update-integration-plan.json`.

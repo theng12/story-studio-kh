@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.257 — 2026-10-07
+
+- Much faster Overview, Production Board and channel opening on big channels (episode list re-checks gradually; last list shows instantly on reopen; Refresh no longer rebuilds everything — Shift-click for a full rebuild).
+- The app no longer freezes while scene images are being made (no needless job-file rewrites; much smaller live updates).
+- Video encoding runs at lower priority and leaves 2 cores free, so the app stays responsive.
+- Scene prompts and scene images on your own fleet no longer stop part-way: they retry automatically a few minutes apart, a stuck image is requested again, and edited prompts or styles no longer block old requests.
+- Scene prompt runs on paid AI models also retry automatically (the earlier answer is collected first, so nothing is paid twice).
+- Narration part files are kept until you choose to remove them in Free up space (new 'Narration parts' line and choice); nothing is moved automatically.
+- The Usage (credits) page has a Back button at the top left; Esc and ⌘[ go back.
+- The Free up space card fits the window.
+
+---
+
 ## v1.4.256 — 2026-10-06
 
 - **The Production Board remains scrollable in both directions.** Its episode table keeps the episode column visible while scrolling through production stages.
