@@ -111,6 +111,21 @@ void test('split narration is joined into one chapter file; re-runs never pay ag
     assert.equal(service.providerSubmissionCount('tts'), 6, forced.output_lines.join('\n'))
     assert.deepEqual(await mp3s(), [chapterFile])
     for (const n of [1, 2, 3]) assert.ok(existsSync(path.join(audioDir, '.parts', stem, `part${n}.mp3`)))
+
+    // The owner frees the parts in Free up space: the chapter still counts as made, a re-run
+    // buys nothing, and the Audio Assembly preflight passes on the joined chapter file alone.
+    const { trashEpisodeParts, narrationPartsToFree } = await import('../services/chapter-parts.js')
+    const freed = await trashEpisodeParts(pm.getProjectDir(project.slug)!, audioDir, (await narrationPartsToFree(audioDir)).map(item => item.path))
+    assert.equal(freed.moved.length, 1, JSON.stringify(freed))
+    assert.ok(!existsSync(path.join(audioDir, '.parts', stem)))
+    const afterFree = await generate()
+    assert.equal(service.providerSubmissionCount('tts'), 6, afterFree.output_lines.join('\n'))
+    assert.ok(afterFree.output_lines.some((line: string) => /already present/.test(line)), afterFree.output_lines.join('\n'))
+    assert.deepEqual(await mp3s(), [chapterFile])
+    const { requireChapterAudioReady } = await import('../services/audio-workflow-readiness.js')
+    const ready = await requireChapterAudioReady(project.slug, 'EP001')
+    assert.deepEqual([ready.expected_files, ready.missing_files], [[chapterFile], []])
+
   } finally {
     clearGenStudioCatalogCache()
     await service.close()

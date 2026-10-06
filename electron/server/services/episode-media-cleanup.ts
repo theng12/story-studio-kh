@@ -18,6 +18,7 @@ import { withFinalVideoPathLock } from './final-video-lock.js'
 import { registryCredentialFor } from '../lib/youtube-client.js'
 import { getExternalFinalVideoRoot, resolveExternalFinalVideoDir } from './external-video-store.js'
 import { resolveAssetPath } from './path-resolver.js'
+import { narrationPartsToFree, PARTS_DIRNAME, trashEpisodeParts, trashTargetFor } from './chapter-parts.js'
 import {
   createProjectFactsCache,
   resolveEpisodePathsByCode,
@@ -30,15 +31,19 @@ import { syncYouTubePublicationState } from './youtube-publication-status.js'
 import { resolveYouTubeSourceRevision } from './youtube-source-video.js'
 
 export const MEDIA_CLEANUP_SIDECAR = 'local_media_cleanup.json'
-export type MediaCleanupCategory = 'images' | 'chapter_audio' | 'merged_audio' | 'motion_clips' | 'final_video'
+export type MediaCleanupCategory = 'images' | 'chapter_audio' | 'narration_parts' | 'merged_audio' | 'motion_clips' | 'final_video'
 /**
  * `remove` moves to `_trash` (never a hard delete); `compress` re-encodes scene
  * images as JPEG in place (originals to `_trash`) and moves every other
  * selected category to `_trash`.
  */
 export type MediaCleanupMode = 'archive' | 'remove' | 'compress'
-/** The one-click preset: shrink scene images, trash clips, chapter narration and the uploaded final. */
-export const ARCHIVE_EPISODE_CATEGORIES: MediaCleanupCategory[] = ['images', 'chapter_audio', 'motion_clips', 'final_video']
+/**
+ * The one-click preset: shrink scene images, trash clips, chapter narration and the uploaded final.
+ * Chapter narration always took the kept narration parts with it (they live in the audio folder),
+ * so the preset keeps doing so through their own category, whole folders at a time.
+ */
+export const ARCHIVE_EPISODE_CATEGORIES: MediaCleanupCategory[] = ['images', 'chapter_audio', 'narration_parts', 'motion_clips', 'final_video']
 /** Measured 2026-09-30: mozjpeg q90 of a generated scene PNG is 11.7% of its size. */
 const JPEG_SIZE_RATIO = 0.117
 const MIN_COMPRESSION_GAIN = 0.8
@@ -61,7 +66,8 @@ export interface MediaCleanupFile {
   bytes: number
   sha256: string
   mtime_ms: number
-  upload_proof: MediaCleanupUploadProof
+  /** Null only for narration parts of an episode that is not uploaded (they never need an upload). */
+  upload_proof: MediaCleanupUploadProof | null
   /** Where a trash move lands (before any collision suffix). Same volume as the file. */
   trash_path: string
   /** Scene images only: already JPEG bytes, so compressing skips it. */
@@ -212,6 +218,8 @@ interface RootSpec {
   /** `<trash root>/<code>/<category>/<source_kind>`: files land here under their relative path. */
   trash_dir: string
   accepts(name: string): boolean
+  /** A subfolder this root never walks into (chapter audio leaves `.parts` to Narration parts). */
+  skip_dir?: string
 }
 
 const operations = new Map<string, MediaCleanupOperation>()
@@ -220,7 +228,7 @@ const consumedPreviews = new Set<string>()
 const PREVIEW_TTL_MS = 30 * 60 * 1_000
 const OPERATION_RETENTION_MS = 2 * 60 * 60 * 1_000
 const MAX_OPERATIONS = 200
-const CATEGORIES = new Set<MediaCleanupCategory>(['images', 'chapter_audio', 'merged_audio', 'motion_clips', 'final_video'])
+const CATEGORIES = new Set<MediaCleanupCategory>(['images', 'chapter_audio', 'narration_parts', 'merged_audio', 'motion_clips', 'final_video'])
 const IMAGE_EXT = /\.(png|jpe?g|webp)$/i
 const AUDIO_EXT = /\.(mp3|wav|m4a|aac|ogg|flac)$/i
 const VIDEO_EXT = /\.(mp4|mov|webm|mkv|m4v)$/i
@@ -315,7 +323,8 @@ function currentUploadProof(code: string, inventory: UploadInventory): MediaClea
 }
 
 export async function listMediaCleanupEpisodes(slug: string): Promise<{
-  episodes: Array<{ episode_code: string; title: string; video_id: string; local_media_status: LocalMediaCleanupStatus }>
+  /** Uploaded episodes, plus not-uploaded ones with kept narration parts (`video_id` null: only Narration parts apply). */
+  episodes: Array<{ episode_code: string; title: string; video_id: string | null; local_media_status: LocalMediaCleanupStatus }>
   blocked_reasons: string[]
 }> {
   if (!await pm.getProject(slug)) throw fail('Project not found', 404)
@@ -328,15 +337,29 @@ export async function listMediaCleanupEpisodes(slug: string): Promise<{
     const code = String(idea.episode_code || '').toUpperCase()
     if (!code) return null
     const proof = currentUploadProof(code, inventory)
-    if (!proof) return null
+    if (!proof && !await hasNarrationParts(slug, code, projectFacts)) return null
     return {
       episode_code: code,
       title: idea.title || code,
-      video_id: proof.video_id,
+      video_id: proof?.video_id ?? null,
       local_media_status: await readLocalMediaCleanupStatus(slug, code, projectFacts),
     }
   }))).filter((episode): episode is NonNullable<typeof episode> => episode !== null)
   return { episodes, blocked_reasons: [] }
+}
+
+async function hasNarrationParts(slug: string, code: string, cache: ProjectFactsCache): Promise<boolean> {
+  const paths = await resolveEpisodePathsByCode(slug, code, cache).catch(() => null)
+  return !!paths && (await fs.readdir(path.join(paths.audio_dir, PARTS_DIRNAME)).catch(() => [])).length > 0
+}
+
+/** Where heavy media lives: the project, or the `media_root` folder on its own drive. */
+async function mediaAnchorFor(slug: string, paths: Awaited<ReturnType<typeof resolveEpisodePathsByCode>>): Promise<string> {
+  const projectDir = pm.getProjectDir(slug)!
+  const meta = await pm.getProject(slug)
+  if (!(meta as any)?.media_root || paths.bg_dir.startsWith(`${projectDir}${path.sep}`)) return projectDir
+  try { return resolveAssetPath(String((meta as any).media_root), paths.output_root) }
+  catch { return path.dirname(path.dirname(paths.bg_dir)) }
 }
 
 async function relevantActiveJobs(slug: string, code: string, categories: MediaCleanupCategory[]) {
@@ -366,19 +389,16 @@ function isFinalName(code: string, name: string): boolean {
 async function rootsFor(slug: string, code: string, title: string, categories: MediaCleanupCategory[]): Promise<RootSpec[]> {
   const paths = await resolveEpisodePathsByCode(slug, code)
   const projectDir = pm.getProjectDir(slug)!
-  const meta = await pm.getProject(slug)
-  let heavyAnchor = projectDir
-  if ((meta as any)?.media_root && !paths.bg_dir.startsWith(`${projectDir}${path.sep}`)) {
-    try { heavyAnchor = resolveAssetPath(String((meta as any).media_root), paths.output_root) }
-    catch { heavyAnchor = path.dirname(path.dirname(paths.bg_dir)) }
-  }
+  const heavyAnchor = await mediaAnchorFor(slug, paths)
   const selected = new Set(categories)
   const roots: RootSpec[] = []
-  const add = (root: string, anchor: string, source_kind: string, category: MediaCleanupCategory, accepts: (name: string) => boolean) =>
-    roots.push({ root, anchor, source_kind, category, accepts, trash_dir: path.join(trashRootFor(anchor, projectDir, slug), code, category, source_kind) })
+  const add = (root: string, anchor: string, source_kind: string, category: MediaCleanupCategory, accepts: (name: string) => boolean, skip_dir?: string) =>
+    roots.push({ root, anchor, source_kind, category, accepts, skip_dir, trash_dir: path.join(trashRootFor(anchor, projectDir, slug), code, category, source_kind) })
   // Thumbnails (`thumb_dir`) are never cleanup candidates: the originals stay.
   if (selected.has('images')) add(paths.bg_dir, heavyAnchor, 'scene_images', 'images', name => IMAGE_EXT.test(name))
-  if (selected.has('chapter_audio')) add(paths.audio_dir, heavyAnchor, 'chapter_audio', 'chapter_audio', name => AUDIO_EXT.test(name))
+  // Kept narration parts are their own category, moved a whole `.parts/<chapter>` folder at a time
+  // (a half-moved folder would make a later Generate remake every part).
+  if (selected.has('chapter_audio')) add(paths.audio_dir, heavyAnchor, 'chapter_audio', 'chapter_audio', name => AUDIO_EXT.test(name), PARTS_DIRNAME)
   if (selected.has('merged_audio')) add(paths.merged_audio_dir, heavyAnchor, 'merged_audio', 'merged_audio', name => AUDIO_EXT.test(name))
   if (selected.has('motion_clips')) add(paths.video_assets_dir, heavyAnchor, 'motion_clips', 'motion_clips', name => VIDEO_EXT.test(name))
   if (selected.has('final_video')) {
@@ -458,7 +478,7 @@ async function discoverRoot(
         excluded.push({ path: full, category: spec.category, reason: 'Symbolic links are never cleanup candidates.' })
         continue
       }
-      if (entry.isDirectory()) { await walk(full); continue }
+      if (entry.isDirectory()) { if (entry.name !== spec.skip_dir) await walk(full); continue }
       if (!entry.isFile() || !spec.accepts(entry.name)) continue
       const stat = await fs.lstat(full)
       if (!stat.isFile() || stat.isSymbolicLink()) {
@@ -497,7 +517,7 @@ async function verifyFinalProof(slug: string, code: string, title: string, file:
   if (!assignment) return 'No current YouTube channel is assigned.'
   const evidence = await youtubeRetentionEvidenceFor(slug, code, title)
   const exact = await youtubeRetentionProofForFile(evidence, file.path)
-  if (!exact.usable || exact.operation_id !== file.upload_proof.operation_id
+  if (!exact.usable || !file.upload_proof || exact.operation_id !== file.upload_proof.operation_id
     || exact.video_id !== file.upload_proof.video_id || exact.channel_id !== assignment.channel_id) {
     return exact.reason || 'The final video is not the exact render in the current ready upload receipt.'
   }
@@ -513,6 +533,35 @@ async function verifyFinalProof(slug: string, code: string, title: string, file:
     return 'YouTube could not freshly verify the exact uploaded final video.'
   }
   return null
+}
+
+/** Free up space › Narration parts for one episode: whole kept folders and joined loose parts (`narrationPartsToFree`). */
+async function narrationPartsFiles(slug: string, code: string, proof: MediaCleanupUploadProof | null): Promise<MediaCleanupFile[]> {
+  const paths = await resolveEpisodePathsByCode(slug, code)
+  const projectDir = pm.getProjectDir(slug)!
+  const anchor = await mediaAnchorFor(slug, paths)
+  return (await narrationPartsToFree(paths.audio_dir)).map(item => ({
+    path: item.path, real_path: item.path, relative_path: item.relative_path,
+    source_kind: 'narration_parts', category: 'narration_parts' as const,
+    bytes: item.bytes, sha256: '', mtime_ms: 0, upload_proof: proof,
+    trash_path: trashTargetFor(projectDir, item.path, anchor),
+  }))
+}
+
+/**
+ * Narration parts move whole (a `.parts/<chapter>` folder in one rename) through `trashEpisodeParts`,
+ * which checks again that the joined chapter is still there. Never archived, never recorded in the
+ * cleanup sidecar (they are not upload-backed media), never hard-deleted.
+ */
+async function trashReviewedNarrationParts(
+  slug: string, code: string, file: MediaCleanupFile, mode: MediaCleanupMode,
+): Promise<MediaCleanupRunResult['items'][number]> {
+  const skipped = (reason: string) => ({ path: file.path, category: file.category, outcome: 'skipped' as const, bytes_reclaimed: 0, bytes_moved: 0, reason })
+  if (mode === 'archive') return skipped('Narration parts only move to _trash; nothing was copied or removed.')
+  const paths = await resolveEpisodePathsByCode(slug, code)
+  const { moved, left } = await trashEpisodeParts(pm.getProjectDir(slug)!, paths.audio_dir, [file.path], await mediaAnchorFor(slug, paths))
+  if (!moved.length) return skipped(left[0]?.reason || 'Left where it is.')
+  return { path: file.path, category: file.category, outcome: 'removed', bytes_reclaimed: 0, bytes_moved: file.bytes, destination_path: moved[0]!.to }
 }
 
 async function buildPreview(
@@ -540,13 +589,20 @@ async function buildPreview(
     const episode: MediaCleanupEpisodePreview = {
       episode_code: code, upload_proof: proof, files: [], excluded: [], blocked_reasons: [],
     }
-    if (!proof) {
+    // Narration parts need no upload (owner decision 2026-10-06): any episode with a joined chapter may free them.
+    const partsOnly = !proof && !input.preset && categories.includes('narration_parts')
+    if (!proof && !partsOnly) {
       episode.blocked_reasons.push('This episode has no ready canonical upload on the current YouTube channel.')
     } else {
       const idea = acceptedByCode.get(code)!
-      for (const root of await rootsFor(slug, code, idea.title || '', categories)) {
-        const discovered = await discoverRoot(root, proof, () => operation.stop_requested === true, code)
-        episode.files.push(...discovered.files)
+      if (categories.includes('narration_parts')) episode.files.push(...await narrationPartsFiles(slug, code, proof))
+      if (partsOnly && categories.length > 1) {
+        episode.blocked_reasons.push('Not uploaded yet: only its narration parts are offered.')
+      }
+      for (const root of partsOnly ? [] : await rootsFor(slug, code, idea.title || '', categories.filter(category => category !== 'narration_parts'))) {
+        const discovered = await discoverRoot(root, proof!, () => operation.stop_requested === true, code)
+        // A loose part already offered as a narration part is not listed twice.
+        episode.files.push(...discovered.files.filter(file => !episode.files.some(listed => listed.path === file.path)))
         episode.excluded.push(...discovered.excluded)
       }
       for (const file of [...episode.files]) {
@@ -837,7 +893,7 @@ export function archiveDestinationFor(destination: string, projectSlug: string, 
     path.resolve(destination),
     projectSlug,
     episodeCode.toUpperCase(),
-    file.upload_proof.channel_id,
+    file.upload_proof?.channel_id ?? 'not-uploaded',
     file.category,
     file.source_kind,
     path.basename(path.dirname(file.path)),
@@ -916,7 +972,7 @@ function trashReviewedFile(file: MediaCleanupFile): string {
 async function uploadProofStillCurrent(slug: string, code: string, file: MediaCleanupFile): Promise<string | null> {
   const proof = currentUploadProof(code, await loadUploadInventory(slug))
   if (!proof) return 'The ready canonical upload is no longer available on the current channel.'
-  if (proof.operation_id !== file.upload_proof.operation_id
+  if (proof.operation_id !== file.upload_proof?.operation_id
     || proof.video_id !== file.upload_proof.video_id
     || proof.channel_id !== file.upload_proof.channel_id) {
     return 'The current upload changed after preview.'
@@ -935,11 +991,12 @@ async function mutateReviewedFile(
   const code = preview.episodes.find(episode => episode.files.some(candidate => candidate.path === file.path))!.episode_code
   const active = await relevantActiveJobs(slug, code, [file.category])
   if (active.length) return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason: `Active ${active.map(job => job.type).join(', ')} work started after preview.` }
+  if (file.category === 'narration_parts') return trashReviewedNarrationParts(slug, code, file, mode)
   const staleUpload = await uploadProofStillCurrent(slug, code, file)
   if (staleUpload) return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason: staleUpload }
   const changed = await exactFileStillReviewed(file)
   if (changed) return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason: changed }
-  if (Math.floor((await fs.stat(file.path)).mtimeMs) > Date.parse(file.upload_proof.uploaded_at)) {
+  if (Math.floor((await fs.stat(file.path)).mtimeMs) > Date.parse(file.upload_proof!.uploaded_at)) {
     return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason: 'The file is newer than its upload proof.' }
   }
   if (file.category === 'final_video') {
@@ -953,7 +1010,7 @@ async function mutateReviewedFile(
     source_kind: file.source_kind,
     category: file.category, bytes: file.bytes, bytes_reclaimed: 0, sha256: file.sha256,
     preview_id: preview.preview_id, operation_id: operation.id, mode,
-    recorded_at: isoNow(), upload_proof: file.upload_proof,
+    recorded_at: isoNow(), upload_proof: file.upload_proof!,
   }
 
   if (mode === 'compress' && file.category === 'images') return compressReviewedImage(slug, code, file, entryBase)

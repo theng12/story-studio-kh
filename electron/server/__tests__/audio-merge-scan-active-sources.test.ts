@@ -29,3 +29,23 @@ test('Audio Assembly lists only the active sources of a chapter the source map n
   assert.deepEqual(scanned.chapters.map(c => c.filename),
     ['EP001_Chapter_01.mp3', 'EP001_Chapter_02_part1.mp3', 'EP001_Chapter_02_part2.mp3'])
 })
+
+test('a joined chapter whose narration parts were freed (Free up space) is assembled from its one file', async () => {
+  const project = await pm.createProject({ name: 'Scan Freed Parts', episode_prefix: 'EP', episode_digits: 3 })
+  const root = (await pm.getProjectOutputRoot(project.slug))!
+  const episodeDir = path.join(root, 'EP001 - Test')
+  const audioDir = path.join(episodeDir, 'EP001 - 07 Audio Assets')
+  await fs.mkdir(audioDir, { recursive: true })
+  for (const f of ['EP001_Chapter_01.mp3', 'EP001_Chapter_02.mp3']) await fs.writeFile(path.join(audioDir, f), 'x')
+  await fs.writeFile(path.join(episodeDir, 'audio_chapters.json'), JSON.stringify({ sections: [
+    { slug: 'Chapter_01', source_files: ['EP001_Chapter_01.mp3'] },
+    { slug: 'Chapter_02', source_file: 'EP001_Chapter_02.mp3', source_files: ['EP001_Chapter_02.mp3'] },
+  ] }))
+  const expected = ['EP001_Chapter_01.mp3', 'EP001_Chapter_02.mp3']
+  // While the kept parts are there they are never assembled; after they are freed nothing changes.
+  await fs.mkdir(path.join(audioDir, '.parts', 'EP001_Chapter_02'), { recursive: true })
+  await fs.writeFile(path.join(audioDir, '.parts', 'EP001_Chapter_02', 'part1.mp3'), 'p')
+  assert.deepEqual((await scanEpisodeAudioAssets(project.slug, 'EP001')).chapters.map(c => c.filename), expected)
+  await fs.rename(path.join(audioDir, '.parts'), path.join(root, 'freed-parts'))
+  assert.deepEqual((await scanEpisodeAudioAssets(project.slug, 'EP001')).chapters.map(c => c.filename), expected)
+})

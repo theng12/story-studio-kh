@@ -836,7 +836,7 @@ export async function generateAudio(job: Job): Promise<void> {
 
     // A chapter already joined into one file keeps its parts in `.parts`: each
     // kept part counts as present (only a missing one is made again). Once the
-    // parts were cleared after the final render, the joined file stands for all.
+    // parts were moved away in Free up space, the joined file stands for all.
     const activeSources = activeChapters[section.slug]?.source_files
     const joined = chunks.length > 1 && activeSources?.length === 1 && activeSources[0] === filename && existsSync(savePath)
     const partsCleared = joined && !existsSync(partsDir(audioDir, `${code}_${section.slug}`))

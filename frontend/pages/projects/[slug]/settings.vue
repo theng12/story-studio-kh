@@ -437,6 +437,10 @@
                   <span><strong>Final videos:</strong> {{ formatBytes(storage.project_bytes_final_video) }}</span>
                   <span class="dot">·</span>
                   <span><strong>Per-scene clips:</strong> {{ formatBytes(storage.project_bytes_per_scene_clips) }}</span>
+                  <span class="dot">·</span>
+                  <span title="Kept per-part narration takes (hidden .parts folders), already counted in each episode's audio. They stay until you move them with Free up space › Choose exactly which files › Narration parts.">
+                    <strong>Narration parts:</strong> {{ formatBytes(storage.project_bytes_narration_parts ?? 0) }}
+                  </span>
                   <span v-if="storage.project_bytes_thumbnail_cache" class="dot">·</span>
                   <span v-if="storage.project_bytes_thumbnail_cache" title="Small previews for the review grids. Safe to delete: they are rebuilt on demand.">
                     <strong>Preview cache:</strong> {{ formatBytes(storage.project_bytes_thumbnail_cache) }}
@@ -482,7 +486,7 @@
                       </span>
                     </span>
                     <span class="col-clips">{{ formatBytes(row.bytes_per_scene_clips) }}</span>
-                    <span class="col-other">{{ formatBytes(row.bytes_audio + row.bytes_images + row.bytes_other) }}</span>
+                    <span class="col-other">{{ formatBytes(row.bytes_audio + row.bytes_images + row.bytes_other) }}<small v-if="row.bytes_narration_parts" class="row-reason">incl. {{ formatBytes(row.bytes_narration_parts) }} narration parts</small></span>
                     <span class="col-status">
                       <span v-if="row.cleanup_eligible" class="upload-badge ok" :title="`Candidate for fresh verification against YouTube video ${row.youtube_video_id}`">
                         ✓ verify candidate
@@ -2286,6 +2290,7 @@ interface StorageEntry {
   bytes_final_video: number
   bytes_per_scene_clips: number
   bytes_audio: number
+  bytes_narration_parts?: number
   bytes_images: number
   bytes_other: number
   bytes_total: number
@@ -2299,6 +2304,7 @@ interface StorageAudit {
   project_bytes_total: number
   project_bytes_final_video: number
   project_bytes_per_scene_clips: number
+  project_bytes_narration_parts?: number
   project_bytes_external_final_video: number
   project_bytes_thumbnail_cache?: number
   external_root_configured: boolean

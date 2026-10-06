@@ -1,22 +1,22 @@
 <template>
   <section id="free-up-space" class="media-cleanup" aria-labelledby="media-cleanup-heading">
     <div class="cleanup-heading">
-      <div><h3 id="media-cleanup-heading">Free up space</h3><p>Only episodes already uploaded to YouTube are touched, and nothing is lost: files go to this project’s <code>_trash</code> folder (the space is freed when you empty it) or to a drive you choose.</p></div>
+      <div><h3 id="media-cleanup-heading">Free up space</h3><p>Only episodes already uploaded to YouTube are touched — except narration parts, which any episode with joined chapters can free — and nothing is lost: files go to this project’s <code>_trash</code> folder (the space is freed when you empty it) or to a drive you choose.</p></div>
       <button class="btn btn-secondary" :disabled="busy || loading" @click="loadEpisodes">{{ loading ? 'Checking Uploads…' : episodes === null ? 'Find Uploaded Episodes' : 'Refresh Uploads' }}</button>
     </div>
     <p v-if="error" class="cleanup-error" role="alert">{{ error }} <button v-if="operation" class="btn btn-sm" :disabled="polling" @click="pollOperation">Check Progress Again</button></p>
     <ul v-if="listWarnings.length" class="cleanup-warnings"><li v-for="warning in listWarnings" :key="warning">{{ warning }}</li></ul>
     <h4 class="space-option-title">Recommended: shrink and tidy uploaded episodes</h4>
-    <p class="cleanup-hint">Scene images are re-saved as smaller JPEGs; motion clips, chapter narration and the final video move to <code>_trash</code>. Thumbnails, merged narration, subtitles, scripts and prompts stay. You see what it frees before anything changes.</p>
+    <p class="cleanup-hint">Scene images are re-saved as smaller JPEGs; motion clips, chapter narration (with its kept narration parts) and the final video move to <code>_trash</code>. Thumbnails, merged narration, subtitles, scripts and prompts stay. You see what it frees before anything changes.</p>
     <template v-if="episodes !== null">
-      <p v-if="!episodes.length">No episodes have a verified ready upload for this project’s current YouTube channel. Upload or reconcile the episode first.</p>
+      <p v-if="!episodes.length">No episodes have a verified ready upload for this project’s current YouTube channel, or narration parts to free. Upload or reconcile the episode first.</p>
       <template v-else>
-        <div class="cleanup-selection"><strong>{{ selected.length }} {{ selected.length === 1 ? 'episode' : 'episodes' }} selected</strong><button class="btn btn-sm" :disabled="busy" @click="selected = episodes.map(ep => ep.episode_code)">Select All Uploaded</button><button class="btn btn-sm" :disabled="busy || !notArchived.length" @click="selected = notArchived">Select All Not Yet Freed</button><button class="btn btn-sm" :disabled="busy || !selected.length" @click="selected = []">Clear Selection</button></div>
+        <div class="cleanup-selection"><strong>{{ selected.length }} {{ selected.length === 1 ? 'episode' : 'episodes' }} selected</strong><button class="btn btn-sm" :disabled="busy" @click="selected = uploaded">Select All Uploaded</button><button class="btn btn-sm" :disabled="busy || !notArchived.length" @click="selected = notArchived">Select All Not Yet Freed</button><button class="btn btn-sm" :disabled="busy || !selected.length" @click="selected = []">Clear Selection</button></div>
         <div class="cleanup-episodes">
           <label v-for="ep in episodes" :key="ep.episode_code" class="cleanup-episode">
             <input v-model="selected" type="checkbox" :value="ep.episode_code" :disabled="busy" />
-            <span><strong>{{ ep.episode_code }}</strong> {{ ep.title }}<small>{{ localStatus(ep.local_media_status?.state) }}</small></span>
-            <a :href="`https://www.youtube.com/watch?v=${encodeURIComponent(ep.video_id)}`" target="_blank" rel="noopener noreferrer">View upload</a>
+            <span><strong>{{ ep.episode_code }}</strong> {{ ep.title }}<small>{{ ep.video_id ? localStatus(ep.local_media_status?.state) : 'Not uploaded · only Narration parts can be freed' }}</small></span>
+            <a v-if="ep.video_id" :href="`https://www.youtube.com/watch?v=${encodeURIComponent(ep.video_id)}`" target="_blank" rel="noopener noreferrer">View upload</a>
           </label>
         </div>
         <div class="cleanup-preset"><button class="btn btn-primary" :disabled="busy || !selected.length" @click="startPreview(true)">Free Up Space for {{ selected.length }} Selected</button></div>
@@ -71,8 +71,9 @@ import { useApi } from '~/composables/useApi'
 import { useConfirm } from '~/composables/useConfirm'
 import { pickFolder } from '~/composables/usePathPicker'
 
-type Category = 'images' | 'chapter_audio' | 'merged_audio' | 'motion_clips' | 'final_video'
-interface CleanupEpisode { episode_code: string; title: string; video_id: string; local_media_status?: { state: string; preset_archived_at?: string | null } }
+type Category = 'images' | 'chapter_audio' | 'narration_parts' | 'merged_audio' | 'motion_clips' | 'final_video'
+/** `video_id` null: not uploaded, listed only because it has kept narration parts. */
+interface CleanupEpisode { episode_code: string; title: string; video_id: string | null; local_media_status?: { state: string; preset_archived_at?: string | null } }
 interface ReviewedFile { path: string; relative_path: string; bytes: number; category: Category }
 interface Estimate { compress_files: number; compress_bytes_before: number; compress_bytes_after: number; already_jpeg_files: number; trash_files: number; trash_bytes: number }
 interface Preview { preview_id: string; project_slug: string; total_bytes: number; preset?: 'archive_episode'; trash_roots?: string[]; estimate?: Estimate; files: ReviewedFile[]; blocked_reasons: string[]; episodes: { episode_code: string; files: ReviewedFile[]; excluded?: { path: string; reason: string }[]; blocked_reasons: string[] }[] }
@@ -99,9 +100,11 @@ let disposed = false
 let timer: ReturnType<typeof setTimeout> | undefined
 const categoryOptions: { id: Category; label: string }[] = [
   { id: 'images', label: 'Scene images (thumbnails are never touched)' }, { id: 'chapter_audio', label: 'Chapter audio' },
+  { id: 'narration_parts', label: 'Narration parts (kept per-part takes; only where the joined chapter is there, any episode)' },
   { id: 'merged_audio', label: 'Merged audio' }, { id: 'motion_clips', label: 'Motion clips' }, { id: 'final_video', label: 'Final video' },
 ]
-const notArchived = computed(() => (episodes.value || []).filter(ep => !ep.local_media_status?.preset_archived_at).map(ep => ep.episode_code))
+const uploaded = computed(() => (episodes.value || []).filter(ep => ep.video_id).map(ep => ep.episode_code))
+const notArchived = computed(() => (episodes.value || []).filter(ep => ep.video_id && !ep.local_media_status?.preset_archived_at).map(ep => ep.episode_code))
 const trashText = computed(() => preview.value?.trash_roots?.length ? preview.value.trash_roots.join(' and ') : 'the project’s _trash folder')
 const freedBytes = computed(() => { const e = preview.value?.estimate; return e ? e.trash_bytes + e.compress_bytes_before - e.compress_bytes_after : 0 })
 const estimateText = computed(() => {
@@ -144,7 +147,7 @@ async function loadEpisodes() {
     if (!current(version)) return
     episodes.value = result.episodes; listWarnings.value = result.blocked_reasons || []
     selected.value = selected.value.filter(code => result.episodes.some(ep => ep.episode_code === code))
-    if (!selected.value.length) selected.value = result.episodes.filter(ep => !ep.local_media_status?.preset_archived_at).map(ep => ep.episode_code)
+    if (!selected.value.length) selected.value = result.episodes.filter(ep => ep.video_id && !ep.local_media_status?.preset_archived_at).map(ep => ep.episode_code)
   } catch (e) { if (current(version)) error.value = message(e) }
   finally { if (current(version)) loading.value = false }
 }
