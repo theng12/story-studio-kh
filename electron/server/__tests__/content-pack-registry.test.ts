@@ -382,4 +382,34 @@ describe('verified Content Pack registry', () => {
     assert.equal(centeredHero?.id, 'centered-hero-headline')
     assert.equal(portraitBlock?.id, 'portrait-block-right')
   })
+
+  test('a repeated listing reuses verification until state.json changes', async () => {
+    const { paths, options } = await isolated()
+    const packs = ['com.storystudio.registry-memo-a', 'com.storystudio.registry-memo-b']
+    for (const [index, packId] of packs.entries()) {
+      await installContentPack({ archiveBytes: await buildArchive(packId, '1.0.0', `memo ${index}`), source: 'local-import' }, { paths, policy })
+    }
+    const first = await listCatalogEntries('series-formula', options)
+    assert.deepEqual(first.map(entry => entry.pack?.pack_id), packs)
+    first[0]!.value.name = 'mutated by a caller'
+
+    const realReaddir = fs.readdir.bind(fs)
+    let packReads = 0
+    const readdirMock = mock.method(fs, 'readdir', async (dir: any, ...args: any[]) => {
+      if (String(dir).startsWith(paths.installedRoot)) packReads++
+      return (realReaddir as any)(dir, ...args)
+    })
+    let second: Awaited<ReturnType<typeof listCatalogEntries>>
+    try {
+      second = await listCatalogEntries('series-formula', options)
+    } finally {
+      readdirMock.mock.restore()
+    }
+    assert.equal(packReads, 0, 'an unchanged catalogue is not re-walked pack by pack')
+    assert.equal(second[0]!.value.name, 'Formula memo 0', 'each caller gets its own copy')
+
+    await setContentPackDiscoveryDisabled(packs[1]!, true, { paths })
+    assert.deepEqual((await listCatalogEntries('series-formula', options)).map(entry => entry.pack?.pack_id), [packs[0]],
+      'a state change is seen on the next listing')
+  })
 })

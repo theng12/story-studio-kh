@@ -1,9 +1,11 @@
+import fs from 'node:fs/promises'
+
 import type { ContentPackVerificationPolicy, VerifiedContentPack } from './archive.js'
 import { verifyInstalledContentPackClosure } from './installer.js'
 import { getFirstPartyContentPackVerificationPolicy } from './keyring.js'
 import { listVerifiedRecoveryPacks } from './recovery.js'
 import { getContentPackRuntimePaths, type ContentPackRuntimePaths } from './runtime-paths.js'
-import type { ContentPackVersionRef } from './runtime-types.js'
+import type { ContentPackRuntimeState, ContentPackVersionRef } from './runtime-types.js'
 import { readContentPackState } from './state.js'
 import type { ContentPackDocument, ContentPackItemKind, UserForkableContentPackItemKind } from './types.js'
 import {
@@ -110,9 +112,11 @@ async function verifiedInstalled(
   ref: Pick<ContentPackVersionRef, 'pack_id' | 'version'>,
   options: ContentPackRegistryOptions,
   expectedSha?: string,
+  // 1.4.257 — a listing passes the state it already read; re-reading and
+  // re-validating state.json once per installed pack was most of a listing.
+  knownState?: ContentPackRuntimeState,
 ): Promise<VerifiedContentPack | null> {
-  const paths = options.paths ?? getContentPackRuntimePaths()
-  const state = await readContentPackState(paths)
+  const state = knownState ?? await readContentPackState(options.paths ?? getContentPackRuntimePaths())
   const installed = state.packs[ref.pack_id]?.versions[ref.version]
   if (!installed || installed.pending_removal) return null
   if (expectedSha && installed.archive_sha256 !== expectedSha) return null
@@ -176,11 +180,52 @@ export async function listCatalogEntries(
 ): Promise<CatalogEntry<ContentPackDocument>[]> {
   const paths = options.paths ?? getContentPackRuntimePaths()
   const state = await readContentPackState(paths)
+  const key = JSON.stringify([kind, !!options.includeDisabled, options.pins ?? [], paths, options.recoveryRoot ?? null, options.appVersion ?? null])
+  const byPolicy = listingMemo.get(options.policy ?? DEFAULT_POLICY) ?? new Map()
+  listingMemo.set(options.policy ?? DEFAULT_POLICY, byPolicy)
+  const stamp = await listingStamp(paths, state, options)
+  let signed = byPolicy.get(key)?.stamp === stamp ? byPolicy.get(key)!.entries : null
+  if (!signed) {
+    signed = await listSignedCatalogEntries(kind, options, state)
+    byPolicy.set(key, { stamp, entries: signed })
+  }
+  // Callers receive their own clones, exactly as before the memo.
+  const result = structuredClone(signed)
+  for (const legacy of options.legacy ?? []) {
+    if (legacy.value.kind !== kind) continue
+    result.push({ value: cloneDocument(legacy.value), source: legacy.source })
+  }
+  return result
+}
+
+/**
+ * 1.4.257 — the signed part of a listing, kept until state.json, an active
+ * pack's version folder or the recovery folder changes. Opening a project
+ * listed every Series Formula through here, re-verifying every installed pack
+ * each time: 40–82 s on the owner's mini with ~115 packs installed.
+ */
+const DEFAULT_POLICY = {}
+const listingMemo = new WeakMap<object, Map<string, { stamp: string, entries: CatalogEntry<ContentPackDocument>[] }>>()
+
+async function listingStamp(paths: ContentPackRuntimePaths, state: ContentPackRuntimeState, options: ContentPackRegistryOptions): Promise<string> {
+  const identity = async (file: string) => {
+    const info = await fs.lstat(file).catch(() => null)
+    return info ? `${info.size}:${info.mtimeMs}:${info.ctimeMs}:${info.ino}` : '-'
+  }
+  const folders = Object.values(state.packs).flatMap(pack => Object.values(pack.versions).map(version => version.install_path)).sort()
+  return (await Promise.all([paths.statePath, options.recoveryRoot ?? paths.recoveryRoot, ...folders].map(identity))).join('|')
+}
+
+async function listSignedCatalogEntries(
+  kind: ContentPackItemKind,
+  options: ContentPackRegistryOptions,
+  state: ContentPackRuntimeState,
+): Promise<CatalogEntry<ContentPackDocument>[]> {
   const result: CatalogEntry<ContentPackDocument>[] = []
   const emittedVersions = new Set<string>()
 
   for (const pin of options.pins ?? []) {
-    const installed = await verifiedInstalled(pin, options, pin.archive_sha256)
+    const installed = await verifiedInstalled(pin, options, pin.archive_sha256, state)
     const verified = installed
       ?? (await recoveryPacks(options)).find(pack => pack.manifest.pack_id === pin.pack_id
         && pack.manifest.version === pin.version && pack.archiveSha256 === pin.archive_sha256)
@@ -193,7 +238,7 @@ export async function listCatalogEntries(
     if (!pack.active_version || (pack.discovery_disabled && !options.includeDisabled)) continue
     const versionKey = `${packId}@${pack.active_version}`
     if (emittedVersions.has(versionKey)) continue
-    const verified = await verifiedInstalled({ pack_id: packId, version: pack.active_version }, options)
+    const verified = await verifiedInstalled({ pack_id: packId, version: pack.active_version }, options, undefined, state)
     if (!verified || verified.manifest.lifecycle !== 'active') continue
     result.push(...entriesFromVerified(verified, 'signed-installed', kind))
     emittedVersions.add(versionKey)
@@ -209,11 +254,6 @@ export async function listCatalogEntries(
       || (installedState?.discovery_disabled && !options.includeDisabled)) continue
     result.push(...entriesFromVerified(verified, 'signed-recovery', kind))
     emittedVersions.add(versionKey)
-  }
-
-  for (const legacy of options.legacy ?? []) {
-    if (legacy.value.kind !== kind) continue
-    result.push({ value: cloneDocument(legacy.value), source: legacy.source })
   }
   return result
 }
@@ -263,7 +303,7 @@ export async function resolveCatalogItem(
   const emittedVersions = new Set<string>()
   for (const [packId, pack] of Object.entries(state.packs).sort(([left], [right]) => left.localeCompare(right))) {
     if (!pack.active_version || pack.discovery_disabled) continue
-    const verified = await verifiedInstalled({ pack_id: packId, version: pack.active_version }, options)
+    const verified = await verifiedInstalled({ pack_id: packId, version: pack.active_version }, options, undefined, state)
     if (!verified || verified.manifest.lifecycle !== 'active') continue
     emittedVersions.add(`${packId}@${pack.active_version}`)
     const match = entriesFromVerified(verified, 'signed-installed').find(entry => entry.value.id === id)
