@@ -124,9 +124,9 @@ async function allJobScopes(): Promise<string[]> {
   ])]
 }
 
-async function allJobsSnapshot() {
+async function allJobsSnapshot(view: 'full' | 'stream' = 'full') {
   const scopes = await allJobScopes()
-  const lists = await Promise.all(scopes.map(scope => jq.getJobs(scope)))
+  const lists = await Promise.all(scopes.map(scope => jq.getJobs(scope, { view })))
   const jobsList = lists.flat()
   return { jobs: jobsList, stats: summarizeJobs(jobsList) }
 }
@@ -375,7 +375,7 @@ router.get('/projects/:slug/jobs/stream', async (req, res) => {
   })
   try {
     stream.sendSnapshot({
-      jobs: await jq.getJobs(slug),
+      jobs: await jq.getJobs(slug, { view: 'stream' }),
       stats: jq.getQueueStats(slug),
     })
   } catch (error) {
@@ -424,7 +424,7 @@ router.get('/jobs/all/stream', async (req, res) => {
     jq.jobEvents.off('cleared', onCleared)
   })
   try {
-    stream.sendSnapshot(await allJobsSnapshot())
+    stream.sendSnapshot(await allJobsSnapshot('stream'))
   } catch (error) {
     console.error('[jobs/all/stream] snapshot error:', error)
     stream.sendSnapshotError()
@@ -606,7 +606,7 @@ router.get('/jobs/app/stream', async (req, res) => {
   })
   try {
     stream.sendSnapshot({
-      jobs: await jq.getJobs(APP_SLUG),
+      jobs: await jq.getJobs(APP_SLUG, { view: 'stream' }),
       stats: jq.getQueueStats(APP_SLUG),
     })
   } catch (error) {

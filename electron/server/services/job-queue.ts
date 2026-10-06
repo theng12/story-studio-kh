@@ -34,7 +34,7 @@ import {
   isUnsettledProviderEntry as isUnsettledProviderEntryShared,
   shouldRecheckStoredTranscriptionAbsence,
 } from '../lib/provider-task-state.js'
-import { reconciledGenStudioQueueState } from '../contracts/provider-task-state.js'
+import { isFreeFleetWork, reconciledGenStudioQueueState } from '../contracts/provider-task-state.js'
 import { FLEET_BUSY_FAILURE_CODES } from '../lib/genstudio-fleet-busy.js'
 import { holdsUnknownOutcome, isSubmissionUncertainCode } from '../lib/genstudio-client.js'
 import { isRetryableZeroSettlementImageFailureCode } from './image-paid-replacement.js'
@@ -345,6 +345,7 @@ export function _trackedChildCountForTesting(): number {
 export const jobEvents = new EventEmitter()
 jobEvents.setMaxListeners(50)
 const lastLiveStreamSignatures = new Map<string, string>()
+const lastLiveStreamPayloads = new Map<string, string>()
 const lastPublicJobStatuses = new Map<string, Job['status']>()
 let dirtyJobStreamIds = new Set<string>()
 
@@ -359,7 +360,20 @@ function emitPublicUpdate(job: Job): void {
   // Isolate listeners from each other — one bad handler shouldn't break the
   // queue's state machine. EventEmitter.emit is synchronous, so any throw
   // would propagate into the generator; swallow defensively.
-  try { jobEvents.emit('update', serializeJob(job)) } catch { /* noop */ }
+  try {
+    const payload = serializeJob(job, 'stream')
+    // A running job is re-sent only when what the stream would carry changed. Every evidence record
+    // marks the job dirty; most of them (an unchanged poll, a save of the same state) change nothing
+    // a page can see, and each identical frame made every open page reprocess its job list.
+    if (job.status === 'running') {
+      const text = JSON.stringify(payload)
+      if (lastLiveStreamPayloads.get(job.job_id) === text) return
+      lastLiveStreamPayloads.set(job.job_id, text)
+    } else {
+      lastLiveStreamPayloads.delete(job.job_id)
+    }
+    jobEvents.emit('update', payload)
+  } catch { /* noop */ }
 }
 
 function emitUpdate(job: Job): void {
@@ -413,6 +427,7 @@ function emitCleared(projectSlug: string, jobIds: string[]): void {
   for (const jobId of jobIds) {
     lastPublicJobStatuses.delete(jobId)
     lastLiveStreamSignatures.delete(jobId)
+    lastLiveStreamPayloads.delete(jobId)
     dirtyJobStreamIds.delete(jobId)
   }
   try { jobEvents.emit('cleared', { project_slug: projectSlug, job_ids: jobIds } satisfies JobsClearedEvent) } catch { /* noop */ }
@@ -1778,9 +1793,44 @@ export function recordPaidImageReplacementPublicReason(
   }
 }
 
-function serializeJob(job: Job): RendererJob {
+function settledNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+}
+
+/**
+ * The live job streams' view of a job. The Gateway evidence list, the recovery map and the scene list
+ * are the bulk of a long job (a finished 300-scene review is ~400 KB); a stream re-sent them for every
+ * running job on every tick and in every snapshot. Pages that need them read the per-job GET, which
+ * stays full. What the stream keeps of the evidence:
+ *   genstudio_jobs_count       how many entries the full record holds;
+ *   genstudio_jobs_operations  which operations they cover (e.g. "has chat evidence");
+ *   genstudio_jobs_active      the entries not yet succeeded or failed (pre-submission receipts too),
+ *                              without the request preview — bounded by what is in flight;
+ *   genstudio_jobs_updated_at  newest entry timestamp, so a page knows when its full copy is stale;
+ *   genstudio_settlement_open  paid work whose published settlement is not yet complete and balanced.
+ */
+function streamSource(job: Job): Job {
+  const { genstudio_jobs: entries = [], ...rest } = job
+  const { genstudio_recovery: _recovery, scenes: _scenes, ...params } = job.params || {}
+  const slim: Job & Record<string, unknown> = { ...rest, params }
+  if (!entries.length) return slim
+  slim.genstudio_jobs_count = entries.length
+  slim.genstudio_jobs_operations = [...new Set(entries.map(entry => entry.operation))]
+  slim.genstudio_jobs_active = entries
+    .filter(entry => String(entry.id).startsWith('pending:') || !['succeeded', 'failed'].includes(String(entry.state)))
+    .map(({ request: _request, ...entry }) => entry)
+  slim.genstudio_jobs_updated_at = entries.reduce((latest, entry) => (
+    typeof entry.updated_at === 'string' && entry.updated_at > latest ? entry.updated_at : latest), '') || undefined
+  slim.genstudio_settlement_open = !isFreeFleetWork(entries) && entries.some((entry: GenStudioEvidence) => (
+    !['succeeded', 'failed'].includes(String(entry.state))
+    || !settledNumber(entry.reserved_credits) || !settledNumber(entry.settled_credits) || !settledNumber(entry.released_credits)
+    || entry.settled_credits + entry.released_credits !== entry.reserved_credits))
+  return slim
+}
+
+function serializeJob(job: Job, view: 'full' | 'stream' = 'full'): RendererJob {
   jobPersistenceCounters.public_serializations++
-  const copy = safeJob(job)
+  const copy = safeJob(view === 'stream' ? streamSource(job) : job)
   if (copy.params?.manual_image_finish) {
     delete copy.params.manual_image_finish.uncertain_identity_hashes
     delete copy.params.manual_image_finish.expected_uncertain_identity_hashes
@@ -5117,14 +5167,17 @@ export async function resumeEpisodeRecoveryJob(jobId: string, explicit = false):
 /**
  * Public snapshots of a project's jobs. `type` serialises only that type: a caller that needs a few
  * rows (the episode list reads `youtube_upload`) must not clone and redact the whole history, which
- * is tens of MB on a large channel.
+ * is tens of MB on a large channel. `view: 'stream'` is the live streams' slim view (`streamSource`).
  */
-export async function getJobs(projectSlug: string, type?: JobType): Promise<Job[]> {
+export async function getJobs(
+  projectSlug: string,
+  { type, view = 'full' }: { type?: JobType, view?: 'full' | 'stream' } = {},
+): Promise<Job[]> {
   await loadPersistedJobs(projectSlug)
   const projectJobs: Job[] = []
   for (const job of jobs.values()) {
     if (job.project_slug === projectSlug && (!type || job.type === type)) {
-      const j = serializeJob(job)
+      const j = serializeJob(job, view)
       if (j.status === 'queued') {
         const q = queues[job.type]
         j.queue_position = q ? q.pending.findIndex(p => p.job_id === j.job_id) + 1 : 0

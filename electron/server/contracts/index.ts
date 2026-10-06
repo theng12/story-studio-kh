@@ -742,6 +742,19 @@ export interface JobEnqueuedResponse {
    * on the server for the canonical shape.
    */
   accounts_used?: Record<string, { id: string; label: string }>
+  /**
+   * Live streams (`/jobs/stream`, `/jobs/all/stream`, `/jobs/app/stream`) omit `genstudio_jobs`,
+   * `params.genstudio_recovery` and `params.scenes`; a page that needs them reads the per-job GET
+   * (`useJobDetails`). In their place a streamed job carries these summaries.
+   */
+  genstudio_jobs_count?: number
+  /** The distinct `operation`s among all entries. */
+  genstudio_jobs_operations?: string[]
+  /** Entries not yet succeeded or failed, without `request`. */
+  genstudio_jobs_active?: NonNullable<JobEnqueuedResponse['genstudio_jobs']>
+  genstudio_jobs_updated_at?: string
+  /** Paid work whose published settlement is not yet complete and balanced. */
+  genstudio_settlement_open?: boolean
   genstudio_jobs?: Array<{
     id: string
     request_key?: string

@@ -165,7 +165,8 @@ function waitForStatus(jobId: string, statuses: string[]): Promise<any> {
     const onUpdate = (job: any) => {
       if (job.job_id !== jobId || !statuses.includes(job.status)) return
       jq.jobEvents.off('update', onUpdate)
-      resolve(job)
+      // Update events carry the slim stream view; the assertions read the full record.
+      resolve(jq.getJob(jobId) ?? job)
     }
     jq.jobEvents.on('update', onUpdate)
   })

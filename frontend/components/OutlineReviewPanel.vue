@@ -556,33 +556,34 @@ const activeExpandJob = computed(() =>
 const expanding = computed(() => postingExpand.value || activeExpandJob.value)
 
 function terminalExpansionRetryJob(): any | undefined {
+  // Streamed jobs carry only their unsettled Gateway entries (`genstudio_jobs_active`) and the
+  // operations their full evidence covers (`genstudio_jobs_operations`); both questions are answerable.
+  const unsettledChat = (job: any) => (job.genstudio_jobs || job.genstudio_jobs_active || []).some((entry: any) =>
+    entry.operation === 'chat.response'
+    && (typeof entry.id !== 'string' || !entry.id || entry.id.startsWith('pending:') || !['succeeded', 'failed'].includes(entry.state)))
   return jobs.value
     .filter((job: any) =>
       job.episode_id === props.episodeId
       && job.type === 'expand_chapters'
       && (job.status === 'error' || job.status === 'cancelled')
-      && (job.genstudio_jobs || []).some((entry: any) =>
-        entry.operation === 'chat.response'
-      ),
+      && (job.genstudio_jobs
+        ? job.genstudio_jobs.some((entry: any) => entry.operation === 'chat.response')
+        : (job.genstudio_jobs_operations || []).includes('chat.response')),
     )
     .sort((a: any, b: any) =>
-      Number((b.genstudio_jobs || []).some((entry: any) =>
-        entry.operation === 'chat.response'
-        && (typeof entry.id !== 'string' || !entry.id || entry.id.startsWith('pending:') || !['succeeded', 'failed'].includes(entry.state)),
-      ))
-      - Number((a.genstudio_jobs || []).some((entry: any) =>
-        entry.operation === 'chat.response'
-        && (typeof entry.id !== 'string' || !entry.id || entry.id.startsWith('pending:') || !['succeeded', 'failed'].includes(entry.state)),
-      ))
+      Number(unsettledChat(b)) - Number(unsettledChat(a))
       || Date.parse(b.finished_at || b.created_at || '') - Date.parse(a.finished_at || a.created_at || ''),
     )[0]
 }
 /** A stopped run still has chat work GenStudio has not settled. The server
  *  refuses other expansions until it is resumed, so Expand all says
  *  "Resume writing" (it is the button that sends the resume reference). */
-const resumableRun = computed(() => (terminalExpansionRetryJob()?.genstudio_jobs || []).some((entry: any) =>
-  entry.operation === 'chat.response'
-  && (typeof entry.id !== 'string' || !entry.id || entry.id.startsWith('pending:') || !['succeeded', 'failed'].includes(entry.state))))
+const resumableRun = computed(() => {
+  const job = terminalExpansionRetryJob()
+  return (job?.genstudio_jobs || job?.genstudio_jobs_active || []).some((entry: any) =>
+    entry.operation === 'chat.response'
+    && (typeof entry.id !== 'string' || !entry.id || entry.id.startsWith('pending:') || !['succeeded', 'failed'].includes(entry.state)))
+})
 
 function isChapterDone(n: number): boolean {
   return chaptersDone.value.includes(n)

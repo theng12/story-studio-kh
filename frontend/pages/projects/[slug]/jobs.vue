@@ -1036,6 +1036,7 @@
 <script setup lang="ts">
 import type { DeepReadonly } from 'vue'
 import type { Job } from '~/composables/useJobs'
+import { useJobDetails } from '~/composables/useJobDetails'
 import { createVisibleInterval } from '~/composables/useVisibleInterval'
 import { publicProviderLabel } from '~/composables/useModelGroups'
 import { buildLatestBatchSummary, formatElapsed } from '~/composables/useBatchSummary'
@@ -1090,7 +1091,11 @@ const projectQueue = useJobs()
 const universalQueue = useAllJobs()
 const genStudioModels = useGenStudioModelDisplay()
 const isUniversal = computed(() => route.query.scope === 'all')
-const jobs = computed(() => isUniversal.value ? universalQueue.jobs.value : projectQueue.jobs.value)
+// The live streams carry slim jobs; the cards this page shows get their full Gateway evidence from
+// the per-job GET (see useJobDetails). `streamedJobs` is what the stream sent, `jobs` the merged view.
+const streamedJobs = computed(() => isUniversal.value ? universalQueue.jobs.value : projectQueue.jobs.value)
+const jobDetails = useJobDetails()
+const jobs = computed(() => streamedJobs.value.map(job => jobDetails.withDetail(job)) as typeof streamedJobs.value)
 const queueStats = computed(() => isUniversal.value ? universalQueue.stats.value : projectQueue.stats.value)
 const jobsStale = computed(() => isUniversal.value ? universalQueue.jobsStale.value : projectQueue.jobsStale.value)
 const jobsRefreshError = computed(() => isUniversal.value ? universalQueue.lastRefreshError.value : projectQueue.lastRefreshError.value)
@@ -2327,6 +2332,18 @@ const paginatedHistory = computed(() => {
   const start = (currentPage.value - 1) * PAGE_SIZE
   return historyJobs.value.slice(start, start + PAGE_SIZE)
 })
+
+// Full records for: the cards on screen, failed rows whose bulk Retry admission reads their
+// evidence, and hidden rows that may still be settling (the "N hidden jobs are still settling" count).
+const detailJobIds = computed(() => new Set([
+  ...activeJobs.value, ...paginatedHistory.value,
+  ...projectScopedJobs.value.filter(job => (job.status === 'error' || job.status === 'cancelled') && job.params?.jobs_replace_failed_items),
+  ...hiddenJobsInScope.value.filter(job => job.genstudio_settlement_open || job.genstudio_jobs?.length),
+].map(job => job.job_id)))
+watch([streamedJobs, detailJobIds], ([list, ids]) => {
+  jobDetails.ensure(list.filter(job => ids.has(job.job_id)))
+}, { immediate: true })
+onUnmounted(() => jobDetails.stop())
 
 // Reset page when either filter changes
 watch(activeFilter, () => { currentPage.value = 1 })

@@ -154,6 +154,8 @@ export interface CapacitySnapshotLike {
 export interface JobRequestIdentityLike {
   job_id: string
   genstudio_jobs?: readonly { id: string }[] | null
+  /** Streamed jobs: the unsettled entries only (the full list is on the per-job GET). */
+  genstudio_jobs_active?: readonly { id: string }[] | null
   remote_cancellations?: Readonly<Record<string, { provider_job_id: string }>> | null
 }
 
@@ -192,7 +194,7 @@ export function isVerifiedLiveCapacity(snapshot: CapacitySnapshotLike | null | u
 export function jobRequestIds(job: JobRequestIdentityLike): string[] {
   return [
     job.job_id,
-    ...(job.genstudio_jobs || []).map(remote => remote.id),
+    ...(job.genstudio_jobs || job.genstudio_jobs_active || []).map(remote => remote.id),
     ...Object.values(job.remote_cancellations || {}).map(record => record.provider_job_id),
   ].filter(Boolean)
 }

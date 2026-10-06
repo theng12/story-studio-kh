@@ -123,7 +123,7 @@ test('the episode list serialises only upload jobs, never the whole job history'
   await jq.writeAuthoritativeJob(job('upload-old', 'youtube_upload', 'done', '2026-10-05T00:00:00.000Z'))
   await jq.writeAuthoritativeJob(job('upload-new', 'youtube_upload', 'error', NOW))
   const expected = (await jq.getJobs(project.slug)).filter(row => row.type === 'youtube_upload')
-  assert.deepEqual(await jq.getJobs(project.slug, 'youtube_upload'), expected, 'the filtered read returns the same public rows')
+  assert.deepEqual(await jq.getJobs(project.slug, { type: 'youtube_upload' }), expected, 'the filtered read returns the same public rows')
 
   jq._resetJobPersistenceCountersForTesting()
   const response = await request(express().use(router)).get(`/projects/${project.slug}/episodes?refresh=1`)

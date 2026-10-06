@@ -24,6 +24,8 @@ async function loadJobs(): Promise<Component> {
     const useApi = () => globalThis.__jobsApi
     const useJobs = () => globalThis.__jobsProjectQueue
     const useAllJobs = () => globalThis.__jobsUniversalQueue
+    // Fixture jobs carry their full evidence, so the per-job detail merge is the identity here.
+    const useJobDetails = () => ({ ensure() {}, withDetail: job => job, stop() {} })
     const useGenStudioModelDisplay = () => ({ displayName: () => '', refresh: async () => undefined })
     const useToast = () => globalThis.__jobsToast
     const useNetworkStatus = () => ({ online: ref(true) })

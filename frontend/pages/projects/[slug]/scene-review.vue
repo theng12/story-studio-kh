@@ -1594,7 +1594,8 @@ const sceneRenderControls = (job: any): any[] => {
 }
 const hasSettlingProviderWork = computed(() => {
   const job = activeContinuityRenderJob.value as any
-  return (job?.genstudio_jobs || []).some((entry: any) => !['done', 'error', 'cancelled', 'succeeded', 'failed'].includes(entry.state) && entry.cancelled !== true)
+  // The live stream carries only the unsettled entries (`genstudio_jobs_active`) — exactly the ones this asks about.
+  return (job?.genstudio_jobs || job?.genstudio_jobs_active || []).some((entry: any) => !['done', 'error', 'cancelled', 'succeeded', 'failed'].includes(entry.state) && entry.cancelled !== true)
     || Object.values(job?.remote_cancellations || {}).some((entry: any) => ['queued', 'submitting', 'requested', 'reconciling', 'unknown'].includes(entry.status))
 })
 

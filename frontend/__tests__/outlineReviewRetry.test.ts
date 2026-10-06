@@ -188,3 +188,15 @@ test('row Expand while a run is stopped part-way resumes that run instead of dea
   assert.match(resumeExpandNotice([4], [1, 2, 4]), /including 4/)
   assert.match(resumeExpandNotice([7], [1, 2]), /Then press Expand on 7 again/)
 })
+
+test('Script Resume reads a streamed job: unsettled entries plus the operations its full evidence covers', () => {
+  const settledOnly = { ...expansionJob({ id: 'settled', finishedAt: '2026-10-06T00:00:02.000Z', evidence: [] }),
+    genstudio_jobs: undefined, genstudio_jobs_count: 3, genstudio_jobs_operations: ['chat.response'], genstudio_jobs_active: [] }
+  const unresolved = { ...expansionJob({ id: 'unresolved', finishedAt: '2026-10-06T00:00:01.000Z', evidence: [] }),
+    genstudio_jobs: undefined, genstudio_jobs_count: 3, genstudio_jobs_operations: ['chat.response'],
+    genstudio_jobs_active: [{ id: 'pending:key', operation: 'chat.response', state: 'submitting' }] }
+  const noChat = { ...expansionJob({ id: 'no-chat', finishedAt: '2026-10-06T00:00:03.000Z', evidence: [] }),
+    genstudio_jobs: undefined, genstudio_jobs_count: 1, genstudio_jobs_operations: ['voice.tts'], genstudio_jobs_active: [] }
+  assert.equal(productionRetrySelector([settledOnly, unresolved, noChat])()?.job_id, 'unresolved')
+  assert.equal(productionRetrySelector([settledOnly, noChat])()?.job_id, 'settled', 'settled chat evidence still identifies the run')
+})

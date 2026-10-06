@@ -205,7 +205,8 @@ const bulkControlJobs = computed(() => activeJobs.value.filter(job =>
 const bulkSkippedCount = computed(() => activeJobs.value.length - bulkControlJobs.value.length)
 
 function jobSubline(job: Job): string {
-  const providerDetail = [...(job.genstudio_jobs || [])].reverse()
+  // Streamed jobs carry only the unsettled entries; a settled item's detail is on the Jobs page.
+  const providerDetail = [...(job.genstudio_jobs || job.genstudio_jobs_active || [])].reverse()
     .map(item => item.status_detail || item.failure_detail)
     .find(Boolean)
   if (providerDetail) return customerJobText(providerDetail, job)
