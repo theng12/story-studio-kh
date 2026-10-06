@@ -212,6 +212,9 @@ export async function recordUsage(
     added.push(item)
   }
 
+  // Nothing new: leave config.json alone (a rewrite stales every episode row).
+  if (!added.length && log.length <= LOG_CAP) return { kind, added }
+
   // Trim oldest first if we've blown past the cap. 500 entries covers
   // a long-running daily channel (16+ months at 1 verse / episode);
   // bumping is straightforward if a use case shows up.

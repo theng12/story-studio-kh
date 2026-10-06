@@ -961,13 +961,17 @@ export async function updateProject(slug: string, req: UpdateProjectRequest): Pr
   const metaPath = path.join(projectDir, 'project.json')
   if (!existsSync(metaPath)) return null
   let merged: ProjectMeta | null = null
+  let changed = false
   await withLock(metaPath, async () => {
     const data = await readJson(metaPath)
     const updates = Object.fromEntries(Object.entries(req).filter(([_, v]) => v !== undefined))
     merged = { ...data, ...updates } as ProjectMeta
-    await writeJsonAtomic(metaPath, merged)
+    // A no-op save must not touch project.json: every episode-status row
+    // depends on its mtime, so a rewrite stales the whole Production Board.
+    changed = JSON.stringify(merged) !== JSON.stringify(data)
+    if (changed) await writeJsonAtomic(metaPath, merged)
   })
-  await syncManifest(slug)
+  if (changed) await syncManifest(slug)
   return merged
 }
 
@@ -1499,12 +1503,17 @@ export async function updateConfig(slug: string, req: UpdateConfigRequest): Prom
   if (!existsSync(configPath)) return false
   await applyGlobalConfigSideEffects(req)
   // Read-modify-write must be atomic against concurrent updateConfig calls.
+  let changed = false
   await withLock(configPath, async () => {
     const data = await readJson(configPath)
+    const before = JSON.stringify(data)
     applyConfigRequest(data, req)
-    await writeJsonAtomic(configPath, data)
+    // A no-op save must not touch config.json: every episode-status row
+    // depends on its mtime, so a rewrite stales the whole Production Board.
+    changed = JSON.stringify(data) !== before
+    if (changed) await writeJsonAtomic(configPath, data)
   })
-  await syncManifest(slug)
+  if (changed) await syncManifest(slug)
   return true
 }
 
