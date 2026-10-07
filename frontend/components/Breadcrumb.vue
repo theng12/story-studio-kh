@@ -54,8 +54,11 @@ function sectionLabel(path: string): string {
     'song-pool': 'Song Pool',
     'episode-builder': 'Episode Builder',
     'effects-library': 'Effects Library',
+    board: 'Production Board',
+    upload: 'Upload Center',
   }
-  return map[path] || path
+  // Unmapped pages read "Scene Review", not "scene-review".
+  return map[path] || path.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
 }
 
 function promptSectionLabel(): string {
