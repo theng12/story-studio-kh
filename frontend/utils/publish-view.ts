@@ -1,0 +1,38 @@
+/**
+ * Publish keeps its place in the URL: search, status chip, sort and how many
+ * rows are shown. Back, reload and the Overview's "Needs you" links all land on
+ * the same view. `episode_id` is the older Jobs deep link and still seeds the
+ * search; the page writes `q` from then on.
+ */
+import { readQueryState, writeQueryState } from './route-query-state'
+
+/** Rows rendered at first and added by each "Show More". */
+export const PUBLISH_PAGE = 50
+
+export const PUBLISH_STATUSES = ['all', 'ready', 'missing', 'in_progress', 'planned', 'missed', 'uploaded', 'scheduled', 'published', 'attention'] as const
+export type PublishStatus = typeof PUBLISH_STATUSES[number]
+export const PUBLISH_SORTS = ['episode_newest', 'episode_oldest', 'schedule_soonest', 'status'] as const
+export type PublishSort = typeof PUBLISH_SORTS[number]
+
+export type PublishView = { q: string; status: PublishStatus; sort: PublishSort; shown: number }
+
+const DEFAULTS = { q: '', status: 'all', sort: 'episode_newest', shown: PUBLISH_PAGE }
+
+export function readPublishView(query: Record<string, unknown>): PublishView {
+  const raw = readQueryState(query, DEFAULTS)
+  return {
+    q: raw.q || (typeof query.episode_id === 'string' ? query.episode_id : ''),
+    status: (PUBLISH_STATUSES as readonly string[]).includes(raw.status) ? raw.status as PublishStatus : 'all',
+    sort: (PUBLISH_SORTS as readonly string[]).includes(raw.sort) ? raw.sort as PublishSort : 'episode_newest',
+    // Whole pages only, never fewer than one.
+    shown: Math.max(PUBLISH_PAGE, Math.ceil(raw.shown / PUBLISH_PAGE) * PUBLISH_PAGE),
+  }
+}
+
+/** Route query values: what vue-router hands in, plus the strings written here. */
+export type PublishQuery = Record<string, string | null | Array<string | null>>
+
+export function writePublishView(query: Record<string, unknown>, view: PublishView): PublishQuery {
+  const { episode_id: _seed, ...rest } = query
+  return writeQueryState<typeof DEFAULTS>(rest, view, DEFAULTS) as PublishQuery
+}

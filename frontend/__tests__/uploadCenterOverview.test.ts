@@ -110,7 +110,7 @@ describe('Upload Center Overview', () => {
     const cases: Array<[string, RegExp]> = [
       ['no_oauth_application', /Connect Story Studio to YouTube once/],
       ['no_channel_connected', /Connect a YouTube channel/],
-      ['no_channel_assigned', /Choose this project’s channel/],
+      ['no_channel_assigned', /Choose the YouTube channel to publish to/],
     ]
     for (const [reason, expected] of cases) {
       const mounted = await mount(overview({ unavailable_reason: reason, quota_unavailable_reason: 'no_oauth_application' }))
@@ -149,7 +149,7 @@ describe('Upload Center Overview', () => {
     const fresh = await mount(overview({
       assigned_channel: { channel_id: 'UC-x', title: 'My Channel', status: 'connected' }, quota: quota(),
     }))
-    assert.match(fresh.text, /No episode has been uploaded from this project yet/)
+    assert.match(fresh.text, /No episode has been uploaded from this channel yet/)
     fresh.destroy()
 
     const settled = await mount(overview({
@@ -180,6 +180,24 @@ describe('Upload Center Overview', () => {
     assert.match(mounted.text, /rejected by YouTube/)
     assert.doesNotMatch(mounted.text, /upload failed/)
     assert.doesNotMatch(mounted.text, /status could not be checked/)
+    mounted.destroy()
+  })
+
+  test('each "Needs you" row opens Publish already filtered to it, or Library for drift', async () => {
+    const mounted = await mount(overview({
+      assigned_channel: { channel_id: 'UC-x', title: 'My Channel', status: 'connected' }, quota: quota(),
+      attention: { processing: 1, failed: 2, rejected: 1, status_unavailable: 1, drift: 1 },
+      episodes_needing_attention: 6, operation_count: 9, last_remote_sync_at: '2026-09-02T10:00:00.000Z',
+    }))
+    const links = [...mounted.el.querySelectorAll<HTMLElement>('.attention-list li')]
+      .map(li => [[...li.children].map(child => child.textContent!.trim()).join(' '), li.lastElementChild!.getAttribute('to')])
+    assert.deepEqual(links, [
+      ['1 still processing on YouTube Show in Publish', '/projects/demo-project/upload/publish?status=in_progress'],
+      ['2 upload failed Show in Publish', '/projects/demo-project/upload/publish?status=attention'],
+      ['1 rejected by YouTube Show in Publish', '/projects/demo-project/upload/publish?status=attention'],
+      ['1 status could not be checked Show in Publish', '/projects/demo-project/upload/publish?status=attention'],
+      ['1 differ from YouTube Open Library', '/projects/demo-project/upload/library'],
+    ])
     mounted.destroy()
   })
 

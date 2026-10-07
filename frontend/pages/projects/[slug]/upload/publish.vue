@@ -1,6 +1,6 @@
 <template>
   <div class="uc-publish">
-    <p v-if="loading" class="hint">Loading this project’s uploads…</p>
+    <p v-if="loading" class="hint">Loading this channel’s uploads…</p>
     <div v-else-if="loadError" class="load-failure" role="alert">
       <p class="result err">{{ loadError }}</p>
       <button class="btn btn-ghost btn-sm" type="button" :disabled="refreshingList" @click="refreshList">
@@ -27,7 +27,7 @@
             <p v-else class="hint">An episode appears here once it is accepted. Render its final video in Video Assembly before uploading.</p>
           </div>
           <div class="head-actions">
-            <span v-if="episodes.length" class="visible-count" aria-live="polite">{{ sortedEpisodes.length }} shown</span>
+            <span v-if="episodes.length" class="visible-count" aria-live="polite">{{ shownEpisodes.length < sortedEpisodes.length ? `${shownEpisodes.length} of ` : '' }}{{ sortedEpisodes.length }} shown</span>
             <button
               v-if="episodes.length" class="btn btn-ghost btn-sm" type="button"
               :disabled="busy !== '' || !planCandidates.length || !!planBlocked"
@@ -55,13 +55,13 @@
         <div v-else-if="!overviewError" class="channel-banner channel-missing" role="alert">
           <div>
             <strong>No YouTube channel assigned</strong>
-            <span>These videos are ready locally, but Story Studio cannot upload them until this project has a channel.</span>
+            <span>These videos are ready locally, but Story Studio cannot upload them until a YouTube channel is assigned.</span>
           </div>
           <NuxtLink :to="`/projects/${slug}/settings#youtube`" class="btn btn-ghost btn-sm">Assign Channel</NuxtLink>
         </div>
         <p v-if="planResult" :class="['result', planResult.kind]" role="status">
           {{ planResult.message }}
-          <NuxtLink v-if="isNoActivePlanMessage(planResult.message)" :to="`/projects/${slug}/upload/plans`" class="inline-action">Open Upload plans</NuxtLink>
+          <NuxtLink v-if="isNoActivePlanMessage(planResult.message)" :to="`/projects/${slug}/upload/plans`" class="inline-action">Open Upload Plans</NuxtLink>
         </p>
         <p v-if="relayoutResult" :class="['result', relayoutResult.kind]" role="status">{{ relayoutResult.message }}</p>
 
@@ -94,12 +94,14 @@
         </div>
 
         <!--
-          Bulk actions. Always on screen (disabled with the reason when nothing
-          fits), never hidden behind a selection, and each one says whether it
-          changes YouTube or only Story Studio. They act only on selected rows
-          the filters are showing: a row hidden by a filter is never touched.
+          Bulk actions. Collapsed to one line until a row is ticked (owner,
+          2026-10: the always-open panel pushed the list off the first screen);
+          then each action shows, disabled with its reason when nothing fits,
+          and says whether it changes YouTube or only Story Studio. They act
+          only on selected rows the filters match: a row hidden by a filter is
+          never touched.
         -->
-        <section v-if="episodes.length" class="bulk-panel" aria-labelledby="bulk-panel-title">
+        <section v-if="episodes.length" :class="['bulk-panel', { collapsed: !bulkOpen }]" aria-labelledby="bulk-panel-title">
           <div class="bulk-selection">
             <h4 id="bulk-panel-title">Bulk actions</h4>
             <span class="bulk-count" aria-live="polite">{{ selectionSummary }}</span>
@@ -114,18 +116,23 @@
               Clear Selection
             </button>
           </div>
+          <template v-if="bulkOpen">
           <p class="hint">
             Tick rows, or Shift-click a second row to tick everything between. “Select All Matching” ticks every row the
-            search and status filters are showing. Each action asks first and names the exact number of videos.
+            search and status filters match, including rows further down that are not shown yet. Each action asks first and
+            names the exact number of videos.
           </p>
           <p v-if="hiddenSelectedCount" class="hint tone-warn" role="status">
             {{ hiddenSelectedCount }} selected row{{ hiddenSelectedCount === 1 ? ' is' : 's are' }} hidden by the filters and will be left alone.
+          </p>
+          <p v-if="selectedBelowCount" class="hint" role="status">
+            {{ selectedBelowCount }} selected row{{ selectedBelowCount === 1 ? ' is' : 's are' }} further down the list, not shown yet, and included.
           </p>
           <ul class="bulk-actions">
             <li v-for="action in bulkActions" :key="action.key" class="bulk-action">
               <div class="bulk-action-head">
                 <button
-                  :class="['btn', 'btn-sm', action.key === 'upload' ? 'btn-primary' : 'btn-ghost']" type="button"
+                  :class="['btn', 'btn-sm', action.key === 'upload' && !action.why ? 'btn-primary' : 'btn-ghost']" type="button"
                   :disabled="busy !== '' || !!action.why"
                   @click="runBulkAction(action.key, $event)"
                 >
@@ -137,6 +144,7 @@
               <small v-if="action.why" class="bulk-why">{{ action.why }}</small>
             </li>
           </ul>
+          </template>
           <div v-if="bulkRun" class="bulk-progress" role="status" aria-live="polite">
             <p>
               <strong>{{ bulkRun.label }}:</strong>
@@ -158,7 +166,7 @@
           <span>Episode</span><span>Local video</span><span>Upload</span><span>Publication</span><span>Actions</span>
         </div>
         <ul v-if="sortedEpisodes.length" class="op-list">
-          <li v-for="ep in sortedEpisodes" :key="ep.episode_code" class="op" :data-episode-code="ep.episode_code">
+          <li v-for="ep in shownEpisodes" :key="ep.episode_code" class="op" :data-episode-code="ep.episode_code">
             <div class="op-id">
               <label class="row-select" :title="`Select ${ep.episode_code}. Shift-click selects every row between this one and the last one you clicked.`">
                 <input
@@ -240,7 +248,7 @@
               >Assign Channel</NuxtLink>
               <NuxtLink
                 v-if="uploadState(ep) === 'succeeded'" :to="`/projects/${slug}/settings#free-up-space`"
-                class="btn btn-ghost btn-sm" title="Shrink images and move clips, chapter narration and the final video to this project's _trash"
+                class="btn btn-ghost btn-sm" title="Shrink images and move clips, chapter narration and the final video to this channel's _trash"
               >Free Up Space</NuxtLink>
               <button
                 v-if="associatedVideoId(ep) && assignedChannel" class="btn btn-ghost btn-sm forget-upload" type="button"
@@ -253,11 +261,18 @@
             </p>
           </li>
         </ul>
+        <!-- 400 rows at once made the page slow and endless; 50 at a time. -->
+        <div v-if="shownEpisodes.length < sortedEpisodes.length" class="show-more">
+          <span class="hint">Showing {{ shownEpisodes.length }} of {{ sortedEpisodes.length }}</span>
+          <button class="btn btn-ghost btn-sm" type="button" @click="shownCount += PUBLISH_PAGE">
+            Show {{ Math.min(PUBLISH_PAGE, sortedEpisodes.length - shownEpisodes.length) }} More
+          </button>
+        </div>
         <!-- Spec section 17: disable only the REMOTE actions, and say why. The
              local records above stay fully readable either way. -->
         <p v-if="remoteBlocked" class="result warn">{{ remoteBlocked }}</p>
         <p v-if="overviewError" class="result warn">{{ overviewError }} Local video facts remain available.</p>
-        <p class="hint">Checking with YouTube spends this Cloud project’s daily allowance. Nothing here checks on its own.</p>
+        <p class="hint">Checking with YouTube spends the Google Cloud project’s daily allowance. Nothing here checks on its own.</p>
       </section>
 
       <!--
@@ -351,10 +366,10 @@
           >
             Use the Next Date from This Channel’s Upload Plan
           </button>
-          <NuxtLink :to="`/projects/${slug}/upload/plans`" class="inline-action">Manage upload plans</NuxtLink>
+          <NuxtLink :to="`/projects/${slug}/upload/plans`" class="inline-action">Manage Upload Plans</NuxtLink>
           <p v-if="timingError" class="row-result err" role="alert">
             {{ timingError }}
-            <NuxtLink v-if="isNoActivePlanMessage(timingError)" :to="`/projects/${slug}/upload/plans`" class="inline-action">Open Upload plans</NuxtLink>
+            <NuxtLink v-if="isNoActivePlanMessage(timingError)" :to="`/projects/${slug}/upload/plans`" class="inline-action">Open Upload Plans</NuxtLink>
           </p>
           <p v-else-if="timingDirty" class="hint" role="status">Review this timing choice to rebuild the exact YouTube payload before continuing.</p>
         </section>
@@ -483,7 +498,7 @@
           <button class="btn btn-primary" type="button" :disabled="busy !== ''" @click="upload(previewedEpisode)">
             {{ busy === 'upload' ? 'Uploading…' : 'Upload to YouTube' }}
           </button>
-          <span class="hint">Uploads {{ previewedEpisode }} to the channel this project is assigned to.</span>
+          <span class="hint">Uploads {{ previewedEpisode }} to the assigned YouTube channel.</span>
         </div>
         <p v-if="rowResults[previewedEpisode]" :class="['row-result', rowResults[previewedEpisode].kind]" role="status">
           {{ rowResults[previewedEpisode].message }}
@@ -537,7 +552,7 @@
 
             <p v-if="relayoutError" class="row-result err" role="alert">
               {{ relayoutError }}
-              <NuxtLink v-if="isNoActivePlanMessage(relayoutError)" :to="`/projects/${slug}/upload/plans`" class="inline-action">Open Upload plans</NuxtLink>
+              <NuxtLink v-if="isNoActivePlanMessage(relayoutError)" :to="`/projects/${slug}/upload/plans`" class="inline-action">Open Upload Plans</NuxtLink>
             </p>
 
             <template v-if="relayoutPreview">
@@ -622,7 +637,7 @@
             </table>
             <div class="field-row upload-row">
               <button class="btn btn-primary" type="button" :disabled="busy !== '' || !!bulkScheduleError || !bulkSchedulePlan.length" @click="confirmBulkSchedule">
-                Schedule {{ bulkSchedulePlan.length }} video{{ bulkSchedulePlan.length === 1 ? '' : 's' }} on YouTube
+                Schedule {{ bulkSchedulePlan.length }} Video{{ bulkSchedulePlan.length === 1 ? '' : 's' }} on YouTube
               </button>
             </div>
           </div>
@@ -649,7 +664,7 @@
             <p class="hint">Any scheduled publish time on these videos is cleared. Titles, descriptions and thumbnails are not changed.</p>
             <div class="field-row upload-row">
               <button class="btn btn-primary" type="button" :disabled="busy !== '' || !bulkVisibility" @click="confirmBulkVisibility">
-                {{ bulkVisibility ? `Make ${visibilityRows.length} video${visibilityRows.length === 1 ? '' : 's'} ${visibilityLabel(bulkVisibility)} on YouTube` : 'Choose a Visibility' }}
+                {{ bulkVisibility ? `Make ${visibilityRows.length} Video${visibilityRows.length === 1 ? '' : 's'} ${visibilityLabel(bulkVisibility)} on YouTube` : 'Choose a Visibility' }}
               </button>
             </div>
           </div>
@@ -698,7 +713,7 @@
                   </dl>
                 </div>
                 <details class="bulk-metadata disclosure">
-                  <summary>Review metadata</summary>
+                  <summary>Review Metadata</summary>
                   <dl>
                     <div><dt>Title</dt><dd>{{ item.preview.snippet.title }}</dd></div>
                     <div><dt>Description</dt><dd class="pre">{{ item.preview.snippet.description || 'none' }}</dd></div>
@@ -756,6 +771,8 @@
 
 <script setup lang="ts">
 import { applyRowSelection, spreadPublishTimes } from '~/utils/upload-bulk'
+import { PUBLISH_PAGE, readPublishView, writePublishView, type PublishSort, type PublishStatus } from '~/utils/publish-view'
+import { sameQuery } from '~/utils/route-query-state'
 
 interface Channel { channel_id: string; title: string; status: string }
 
@@ -769,8 +786,8 @@ interface Operation {
 type RenderState = 'ready' | 'missing' | 'unknown'
 type UploadState = 'none' | 'queued' | 'running' | 'failed' | 'succeeded' | 'unknown'
 type PublicationState = 'unpublished' | 'uploaded' | 'processing' | 'published' | 'scheduled' | 'failed' | 'rejected' | 'unknown'
-type StatusFilter = 'all' | 'ready' | 'missing' | 'in_progress' | 'planned' | 'missed' | 'uploaded' | 'scheduled' | 'published' | 'attention'
-type SortMode = 'episode_newest' | 'episode_oldest' | 'schedule_soonest' | 'status'
+type StatusFilter = PublishStatus
+type SortMode = PublishSort
 type ReviewIntent = 'upload' | 'schedule'
 type TimingMode = 'planned' | 'custom' | 'private'
 
@@ -846,6 +863,7 @@ function normalizePreview(value: Preview): Preview {
 }
 
 const route = useRoute()
+const router = useRouter()
 const slug = computed(() => route.params.slug as string)
 const { get, post } = useApi()
 const { ask } = useConfirm()
@@ -856,9 +874,13 @@ const loadError = ref('')
 const busy = ref('')
 const episodes = ref<PublishableEpisode[]>([])
 const total = ref(0)
-const filter = ref(typeof route.query.episode_id === 'string' ? route.query.episode_id : '')
-const statusFilter = ref<StatusFilter>('all')
-const sort = ref<SortMode>('episode_newest')
+// Search, status, sort and shown rows live in the URL (keep place; Overview's
+// "Needs you" links open a filtered view).
+const initialView = readPublishView(route.query)
+const filter = ref(initialView.q)
+const statusFilter = ref<StatusFilter>(initialView.status)
+const sort = ref<SortMode>(initialView.sort)
+const shownCount = ref(initialView.shown)
 const rowResults = reactive<Record<string, { kind: 'ok' | 'warn' | 'info' | 'err'; message: string }>>({})
 const planResult = ref<{ kind: 'ok' | 'warn' | 'err'; message: string } | null>(null)
 const selectedCodes = ref<string[]>([])
@@ -899,6 +921,14 @@ const sortedEpisodes = computed(() => {
     return rows.sort((a, b) => scheduleTime(a) - scheduleTime(b) || episodeNumber(b) - episodeNumber(a))
   }
   return rows.sort((a, b) => publicationLabel(a).localeCompare(publicationLabel(b)) || episodeNumber(b) - episodeNumber(a))
+})
+/** Rendered rows. Selection and bulk actions still use every matching row. */
+const shownEpisodes = computed(() => sortedEpisodes.value.slice(0, shownCount.value))
+watch([filter, statusFilter, sort], () => { shownCount.value = PUBLISH_PAGE })
+watch([filter, statusFilter, sort, shownCount], () => {
+  const query = writePublishView(route.query, { q: filter.value, status: statusFilter.value, sort: sort.value, shown: shownCount.value })
+  // Only while this page is the current route: a late watcher must not rewrite the next page's URL.
+  if (router.currentRoute.value.path === route.path && !sameQuery(query, route.query)) void router.replace({ query, hash: route.hash })
 })
 const statusOptions = computed(() => ([
   { key: 'all' as const, label: 'All', count: episodes.value.length },
@@ -1275,7 +1305,7 @@ async function assignPlanDates(episodeCodes: string[], busyLabel: string): Promi
     const confirmed = await ask({
       title: previewResult.assignments.length === 1 ? `Use the next ${plan.name} date?` : `Review planned dates for ${previewResult.assignments.length} videos?`,
       message: `The plan currently proposes:\n${proposedDates}\n\nExisting future bookings stay in place; new dates follow them in the channel’s cadence. Story Studio will check current claims again before saving. These are local planned dates; each YouTube upload or existing private video still needs its own confirmation.`,
-      confirmLabel: previewResult.assignments.length === 1 ? 'Use planned date' : 'Save planned dates',
+      confirmLabel: previewResult.assignments.length === 1 ? 'Use Planned Date' : 'Save Planned Dates',
     })
     if (!actionIsCurrent(action)) return null
     if (!confirmed) return null
@@ -1530,7 +1560,7 @@ function thumbnailGeneratorLink(episodeCode: string): string {
 /** Why an UPLOAD cannot run — the route's own preconditions, in the same order. */
 const uploadBlocked = computed(() => {
   if (overviewError.value) return 'YouTube connection status is unavailable, so uploads are paused.'
-  if (!channelStatus.value) return 'This project has no assigned YouTube channel, so it cannot upload.'
+  if (!channelStatus.value) return 'No YouTube channel is assigned yet, so nothing can be uploaded.'
   if (channelStatus.value === 'reconnect_required') return 'Reconnect this channel in Settings before uploading.'
   if (channelStatus.value === 'scope_upgrade_required') return 'This channel needs its permissions upgraded in Settings before Story Studio can upload.'
   if (quotaUnavailableReason.value === 'ledger_unreadable') return 'Uploads and other provider writes are paused until the local allowance record is repaired.'
@@ -1564,12 +1594,16 @@ function isUploadEligible(ep: PublishableEpisode): boolean { return uploadEligib
 /** Selected rows that are on screen, in on-screen order. */
 const actionableSelection = computed(() => sortedEpisodes.value.filter(ep => selectedCodes.value.includes(ep.episode_code)))
 const hiddenSelectedCount = computed(() => selectedCodes.value.length - actionableSelection.value.length)
+const selectedBelowCount = computed(() => actionableSelection.value.length
+  - shownEpisodes.value.filter(ep => selectedCodes.value.includes(ep.episode_code)).length)
+/** The bulk panel opens once a row is ticked, and stays while a run reports. */
+const bulkOpen = computed(() => selectedCodes.value.length > 0 || !!bulkRun.value)
 const selectedUploadEpisodes = computed(() => actionableSelection.value.filter(isUploadEligible))
 const allMatchingSelected = computed(() => sortedEpisodes.value.length > 0
   && sortedEpisodes.value.every(ep => selectedCodes.value.includes(ep.episode_code)))
 const selectionSummary = computed(() => {
   const shown = actionableSelection.value.length
-  return shown ? `${shown} selected` : 'Nothing selected'
+  return shown ? `${shown} selected` : bulkOpen.value ? 'Nothing selected' : 'Tick a row to see bulk actions'
 })
 let selectionAnchor: string | null = null
 function onRowSelect(episodeCode: string, event: MouseEvent): void {
@@ -1788,7 +1822,7 @@ async function removeSelectedFromQueue(): Promise<void> {
     title: `Remove ${count} from the upload queue?`,
     message: `${rows.map(ep => ep.episode_code).join(', ')}. These uploads have not started, so nothing has reached YouTube. `
       + 'The videos stay on this computer and can be queued again later. Uploads that start before their turn here are left running.',
-    confirmLabel: `Remove ${count}`,
+    confirmLabel: `Remove ${rows.length} Upload${rows.length === 1 ? '' : 's'}`,
     danger: true,
   })
   if (!confirmed) return
@@ -1811,7 +1845,7 @@ async function refinalizeSelected(): Promise<void> {
     message: `${rows.map(ep => ep.episode_code).join(', ')}. Story Studio writes a new title, description and tags for each with this `
       + 'channel’s YouTube Finalizer preset and metadata template. Earlier versions are kept. YouTube is not changed — '
       + 'send a new version from Library with “Update YouTube”. The work runs as jobs and keeps going if you leave this page.',
-    confirmLabel: `Re-finalize ${count}`,
+    confirmLabel: `Re-Finalize ${rows.length} Episode${rows.length === 1 ? '' : 's'}`,
   })
   if (!confirmed) return
   const action = beginAction('bulk-run')
@@ -1858,7 +1892,7 @@ async function refinalizeSelected(): Promise<void> {
 
 const remoteBlocked = computed(() => {
   if (overviewError.value) return 'YouTube connection status is unavailable, so remote checks are paused.'
-  if (!channelStatus.value) return 'This project has no assigned YouTube channel, so it cannot check anything on YouTube.'
+  if (!channelStatus.value) return 'No YouTube channel is assigned yet, so nothing can be checked on YouTube.'
   if (channelStatus.value === 'reconnect_required') return 'Reconnect this channel in Settings before checking anything on YouTube.'
   if (channelStatus.value === 'scope_upgrade_required') return 'This channel needs its permissions upgraded in Settings before Story Studio can read from YouTube.'
   if (quotaExhausted.value) return 'Today’s allowance for this Google Cloud project is used up. Checking resumes after it resets.'
@@ -1867,7 +1901,7 @@ const remoteBlocked = computed(() => {
 
 const scheduleBlocked = computed(() => {
   if (overviewError.value) return 'YouTube connection status is unavailable, so scheduling is paused.'
-  if (!channelStatus.value) return 'This project has no assigned YouTube channel, so it cannot schedule a video.'
+  if (!channelStatus.value) return 'No YouTube channel is assigned yet, so no video can be scheduled.'
   if (channelStatus.value === 'reconnect_required') return 'Reconnect this channel in Settings before scheduling a video.'
   if (channelStatus.value === 'scope_upgrade_required') return 'This channel needs its permissions upgraded in Settings before Story Studio can schedule a video.'
   if (quotaUnavailableReason.value === 'ledger_unreadable') return 'Provider writes are paused until the local allowance record is repaired.'
@@ -1964,7 +1998,7 @@ async function load(): Promise<void> {
     // stays, and each bulk action re-checks whether it still applies.
     selectedCodes.value = selectedCodes.value.filter(code => episodes.value.some(ep => ep.episode_code === code))
   } catch (error: any) {
-    loadError.value = error?.data?.detail || error?.message || 'Could not load this project’s uploads.'
+    loadError.value = error?.data?.detail || error?.message || 'Could not load this channel’s uploads.'
   } finally {
     if (revision === loadRevision && requestedSlug === slug.value) loading.value = false
   }
@@ -2377,7 +2411,7 @@ async function confirmForeignEpisodeCode(error: any, episodeCode: string): Promi
   if (error?.data?.code !== 'YOUTUBE_EPISODE_CODE_CLAIMED_ELSEWHERE') return false
   return ask({
     title: `${episodeCode} is already on this channel`,
-    message: String(error.data.detail || 'Another project has already uploaded this episode code here.'),
+    message: String(error.data.detail || 'Another Story Studio channel has already uploaded this episode code to this YouTube channel.'),
     confirmLabel: 'Upload Anyway',
   })
 }
@@ -2526,8 +2560,11 @@ watch(
   (next, previous) => { if (next && next !== previous) void load() },
 )
 
+// A Jobs deep link arriving while the page is open. The page itself drops
+// `episode_id` for `q`, and that removal must not clear the search.
 watch(() => route.query.episode_id, (episode) => {
-  filter.value = typeof episode === 'string' ? episode : ''
+  if (typeof episode !== 'string') return
+  filter.value = episode
   statusFilter.value = 'all'
 })
 
@@ -2543,8 +2580,11 @@ watch(slug, () => {
   quotaUnavailableReason.value = ''
   quotaExhausted.value = false
   uploadQuotaExhausted.value = false
-  filter.value = typeof route.query.episode_id === 'string' ? route.query.episode_id : ''
-  statusFilter.value = 'all'
+  const view = readPublishView(route.query)
+  filter.value = view.q
+  statusFilter.value = view.status
+  sort.value = view.sort
+  shownCount.value = view.shown
   planResult.value = null
   // The re-lay dialog names one project's episodes and one project's plan, and
   // its previewed dates were computed against that project. Carrying any of it
@@ -2585,7 +2625,7 @@ watch(slug, () => {
 .result.ok, .row-result.ok { color: var(--success); }
 .result.warn, .row-result.warn { color: var(--warning, #d97706); }
 .row-result.info { color: var(--text-secondary); }
-.result.err, .row-result.err { color: var(--danger); }
+.result.err, .row-result.err { color: var(--error); }
 .load-failure { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .load-failure .result { margin: 0; }
 
@@ -2650,9 +2690,9 @@ watch(slug, () => {
 .state-text { font-size: 12px; font-weight: 700; }
 .tone-success { color: var(--success); }
 .tone-info { color: var(--text-secondary); }
-.tone-danger { color: var(--danger); }
+.tone-danger { color: var(--error); }
 .tone-muted { color: var(--text-muted); }
-.fact-note.tone-danger { color: var(--danger); }
+.fact-note.tone-danger { color: var(--error); }
 .fact-note { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; overflow-wrap: anywhere; }
 .upload-progress { margin-top: 3px; min-width: 120px; }
 .op-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
@@ -2686,6 +2726,8 @@ watch(slug, () => {
 .bulk-upload-review > .hint { margin-top: 12px; }
 .bulk-upload-review > .bulk-review-list { margin-top: 12px; }
 .bulk-panel { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary); min-width: 0; }
+.bulk-panel.collapsed { padding-block: 8px; }
+.show-more { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 12px; }
 .bulk-selection { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .bulk-selection h4 { margin: 0; font-size: var(--font-sm); }
 .bulk-count { color: var(--text-secondary); font-size: var(--font-xs); font-variant-numeric: tabular-nums; }
