@@ -25,7 +25,7 @@
  * on, because the env var is a boolean and can't carry credentials.
  */
 
-import { existsSync } from 'fs'
+import { existsSync, statSync } from 'fs'
 import { readFileSync } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -170,10 +170,32 @@ interface ServerModeBlockRead {
   error: string | null
 }
 
+/**
+ * S14: every request read and parsed the whole app-settings.json synchronously, up to four times
+ * (auth + automation keys + mode checks). The parsed block is kept per file identity (inode, size,
+ * mtime). Keyed on the file, not on `onAppSettingWritten`: the server-mode writers (credentials,
+ * session-secret rotation, networking, automation keys) save through `writeSettings` without
+ * announcing, and a listener-only cache would keep a rotated session secret valid.
+ */
+let blockMemo: { signature: string; result: ServerModeBlockRead } | null = null
+
 function readServerModeBlockResult(): ServerModeBlockRead {
   const settingsPath = resolveAppSettingsPath()
-  // No settings file at all is the fresh-checkout case, not a failure.
-  if (!existsSync(settingsPath)) return { block: null, path: settingsPath, error: null }
+  let signature: string | null = null
+  try {
+    const info = statSync(settingsPath)
+    signature = `${settingsPath}\u0000${info.ino}\u0000${info.size}\u0000${info.mtimeMs}`
+  } catch (error: any) {
+    // No settings file at all is the fresh-checkout case, not a failure.
+    if (error?.code === 'ENOENT') return { block: null, path: settingsPath, error: null }
+  }
+  if (signature && blockMemo?.signature === signature) return blockMemo.result
+  const result = parseServerModeBlock(settingsPath)
+  blockMemo = signature && !result.error ? { signature, result } : null
+  return result
+}
+
+function parseServerModeBlock(settingsPath: string): ServerModeBlockRead {
   try {
     const raw = readFileSync(settingsPath, 'utf-8')
     const data = JSON.parse(raw)
