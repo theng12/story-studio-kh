@@ -34,9 +34,9 @@ test('the Board shows failed and running steps, says why, and does not hide its 
   assert.match(board, /episodeStepJobStates\(jobs\.value/)
   assert.match(board, /failed: '✕'/)
   assert.match(board, /last attempt failed/)
-  assert.match(board, /Failed only/)
+  assert.match(board, /Failed Only/)
   // A failed episode read is not an empty project.
-  assert.match(board, /Could not read this project's episodes/)
+  assert.match(board, /Could not read this channel's episodes/)
   // A search finds finished episodes even while Needs work only is on.
   assert.match(board, /needsWorkOnly\.value && !searchActive\.value/)
   // Visible one-line hints, not tooltip-only meaning.

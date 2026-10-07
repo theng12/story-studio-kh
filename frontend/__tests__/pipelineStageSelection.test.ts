@@ -106,7 +106,8 @@ describe('Pipeline stage selection', () => {
   })
 
   test('defaults to ten-episode pages and lets users expand the page without losing selection', () => {
-    assert.match(pipeline, /const pageSize = ref\(10\)/)
+    assert.match(pipeline, /const pageSize = ref\(\[10, 25, 50, 100\]\.includes\(place\.rows\) \? place\.rows : 10\)/)
+    assert.match(pipeline, /const PLACE = \{[^}]*rows: 10,/)
     assert.match(pipeline, /v-model\.number="pageSize"/)
     assert.match(pipeline, /<option :value="10">10<\/option>/)
     assert.match(pipeline, /<option :value="25">25<\/option>/)
@@ -197,7 +198,7 @@ describe('Pipeline stage selection', () => {
     assert.match(pipeline, /force: submittedRepair \? false : forceRerun\.value/)
     assert.match(pipeline, /one fresh attempt at the current live price/)
     assert.match(pipeline, /Valid completed outputs are kept/)
-    assert.match(pipeline, /Start repair · may use credits/)
+    assert.match(pipeline, /Start Repair · May Use Credits/)
     assert.match(pipeline, /Active or uncertain requests[\s\S]*without a duplicate submission/)
     assert.match(pipeline, /v-if="!repairMode" class="force-rerun"/)
     assert.match(pipeline, /if \(submitting\.value && !force\) return/)

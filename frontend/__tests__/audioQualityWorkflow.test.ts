@@ -241,7 +241,7 @@ describe('Audio quality workflow', () => {
     assert.match(action, /pipelineQualityAction\.complete\(operationId\)/)
     assert.doesNotMatch(action, /candidate_audio|\/audio-quality\/confirm|\/pipeline\/run-batch/)
     assert.match(pipelineSource, /\{\{ pipelineQualityActionLabel \}\}/)
-    assert.match(pipelineSource, /'Check selected episodes'/)
+    assert.match(pipelineSource, /'Check Selected Episodes'/)
     assert.match(pipelineSource, /never blocks an ordinary pipeline run/)
     assert.match(pipelineSource, /\/audio\?episode_id=/)
   })

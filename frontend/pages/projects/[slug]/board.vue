@@ -23,6 +23,7 @@
       description="See every episode against the same verified completion rules, then open, repair, or mark imported work from one place."
     >
       <template #aside>
+        <div class="board-hero-aside">
         <div class="workspace-metrics">
           <span class="workspace-metric"><strong>{{ episodes.length }}</strong> episodes</span>
           <span class="workspace-metric"><strong>{{ columns.length }}</strong> tracked stages</span>
@@ -33,11 +34,18 @@
             <strong>{{ visibleEpisodes.length }}</strong> shown
           </span>
         </div>
+        <UpdatedAgo
+          :at="loadedAt"
+          :busy="loading || isRevalidating"
+          title="Re-read changed episodes. Shift-click to re-check every episode from disk (slow on a large channel)."
+          @refresh="onRefreshClick"
+        />
+        </div>
       </template>
     </WorkspaceHero>
 
     <WorkspaceNotice v-if="formatError" tone="warning" title="Production flow unavailable">
-      {{ formatError }} Board stage counts and source-dependent actions stay unavailable until the project format can be read.
+      {{ formatError }} Board stage counts and source-dependent actions stay unavailable until the channel format can be read.
     </WorkspaceNotice>
 
     <div class="workspace-command-surface board-command-surface">
@@ -79,7 +87,7 @@
           title="Hide episodes whose steps are all done — focus on what still needs work."
           @click="needsWorkOnly = !needsWorkOnly"
         >
-          {{ needsWorkOnly ? '◉' : '○' }} Needs work only
+          {{ needsWorkOnly ? '◉' : '○' }} Needs Work Only
         </button>
         <button
           v-if="failedStepCount || failedOnly"
@@ -88,18 +96,8 @@
           :class="{ active: failedOnly }"
           @click="failedOnly = !failedOnly"
         >
-          {{ failedOnly ? '◉' : '○' }} Failed only ({{ failedEpisodeCount }})
+          {{ failedOnly ? '◉' : '○' }} Failed Only ({{ failedEpisodeCount }})
         </button>
-        <button
-          type="button"
-          class="board-filter"
-          :disabled="loading || isRevalidating"
-          title="Re-read changed episodes. Shift-click to re-check every episode from disk (slow on a large channel)."
-          @click="onRefreshClick"
-        >
-          {{ loading || isRevalidating ? '…' : '↻' }} Refresh
-        </button>
-        <span v-if="isRevalidating && episodes.length" class="board-updating" role="status">Updating…</span>
         <!-- v1.0.481 — Repair moved here from the retired Assets tab. Re-pulls
              provider-completed jobs (images/video/audio) that finished on the
              provider but never persisted locally. No credits consumed. -->
@@ -129,13 +127,38 @@
         title="Clear this step filter"
         @click="stepFilter = null"
       >Needs {{ stepFilterCol.label }} ✕</button>
+      <div class="board-selection" role="group" aria-label="Selected episodes">
+        <button
+          type="button"
+          class="board-filter"
+          :disabled="!visibleEpisodes.length"
+          title="Select every episode the current search and filters show, on all pages."
+          @click="selected = selectShown(selected, visibleEpisodes)"
+        >Select Shown ({{ visibleEpisodes.length }})</button>
+        <template v-if="selected.size">
+          <span class="board-selection-count"><strong>{{ selected.size }}</strong> selected</span>
+          <button
+            type="button"
+            class="board-filter"
+            :disabled="retrying || !selectionFailedCells.size"
+            title="Retry the failed steps (✕) of the selected episodes only. Asks first."
+            @click="retrySelectedFailed"
+          >{{ retrying ? 'Retrying…' : `Retry Failed (${selectionFailedCells.size})` }}</button>
+          <NuxtLink :to="pipelineLinkFor(slug, selected)" class="board-filter">Open in Pipeline</NuxtLink>
+          <button type="button" class="board-filter" @click="selected = new Set()">Clear</button>
+        </template>
+      </div>
+      <p v-if="hiddenFinishedCount" class="board-hidden-note">
+        Hiding {{ hiddenFinishedCount }} finished episode{{ hiddenFinishedCount === 1 ? '' : 's' }} ·
+        <button type="button" class="board-link-btn" @click="needsWorkOnly = false">Show Them</button>
+      </p>
       <p class="board-hint">
         <template v-if="mode === 'open'"><strong>Open</strong>: click a cell to go to that step for that episode.&nbsp;</template>
         <template v-else><strong>Mark done</strong>: click a ○ to mark work you made outside the app as done; click a hand-marked ✓ to undo. Nothing is generated.&nbsp;</template>
-        <strong>Needs work only</strong> hides finished episodes (a search always looks through all of them).
+        <strong>Needs Work Only</strong> hides finished episodes (a search always looks through all of them).
         <strong>Repair</strong> re-downloads results that finished but never saved to this Mac — it never starts new work or spends credits.
         Upload status comes from saved YouTube records and survives local media cleanup. Recorded links are not a verified upload. Upload filters also show completed episodes.
-        <template v-if="failedStepCount"><strong>✕</strong> means the last attempt failed — retry it from <NuxtLink :to="`/projects/${slug}/jobs`">Jobs</NuxtLink>.</template>
+        <template v-if="failedStepCount"><strong>✕</strong> means the last attempt failed — select the episodes and press <strong>Retry Failed</strong>, or retry from <NuxtLink :to="`/projects/${slug}/jobs`">Jobs</NuxtLink>.</template>
       </p>
       <div v-if="visibleEpisodes.length" class="board-pagination" aria-label="Episode pages">
         <span class="board-page-range">{{ visibleRangeText }}</span>
@@ -181,8 +204,8 @@
 
     <!-- A failed read is not an empty project. -->
     <div v-else-if="!episodes.length && episodesError" class="board-empty">
-      <p class="board-empty-title">Could not read this project's episodes</p>
-      <p class="text-muted">Nothing was changed. Check that the project folder or drive is available, then try again.</p>
+      <p class="board-empty-title">Could not read this channel's episodes</p>
+      <p class="text-muted">Nothing was changed. Check that the channel folder or drive is available, then try again.</p>
       <button class="btn btn-secondary" @click="refresh()">Try Again</button>
     </div>
 
@@ -211,9 +234,9 @@
     <div v-else class="board-matrix">
       <div class="board-stage-navigation" role="group" aria-label="Navigate production stages">
         <span id="board-scroll-hint">Scroll across stages, or focus the table and use arrow keys.</span>
-        <button type="button" class="board-page-btn" @click="scrollStages('start')">First stages</button>
-        <button type="button" class="board-page-btn" @click="scrollStages(-1)">Previous stages</button>
-        <button type="button" class="board-page-btn" @click="scrollStages(1)">Next stages</button>
+        <button type="button" class="board-page-btn" @click="scrollStages('start')">First Stages</button>
+        <button type="button" class="board-page-btn" @click="scrollStages(-1)">Previous Stages</button>
+        <button type="button" class="board-page-btn" @click="scrollStages(1)">Next Stages</button>
         <button type="button" class="board-page-btn" @click="scrollStages('assembly')">Video Assembly</button>
         <button type="button" class="board-page-btn" @click="scrollStages('end')">Upload</button>
       </div>
@@ -261,6 +284,13 @@
           <tr v-for="ep in paginatedEpisodes" :key="ep.episode_code" class="board-row">
             <th class="col-ep sticky-col">
               <div class="ep-cell">
+                <input
+                  type="checkbox"
+                  class="ep-select"
+                  :checked="selected.has(ep.episode_code)"
+                  :aria-label="`Select ${ep.episode_code}`"
+                  @change="toggleSelected(ep.episode_code)"
+                />
                 <div class="ep-cell-text">
                   <span class="ep-code">
                     {{ ep.episode_code }}
@@ -387,6 +417,10 @@ import {
 } from '~/composables/useProjectFlow'
 import { localMediaStatusLabel } from '~/composables/useEpisodes'
 import { episodeStepJobStates } from '~/utils/episode-step-jobs'
+import { boardRetryPlan, readRepairRecords } from '~/utils/board-retry'
+import { hideFinished, pipelineLinkFor, selectShown } from '~/utils/board-selection'
+import { groupEpisodeRecoveryRetries } from '~/utils/episode-recovery'
+import { readQueryState, sameQuery, writeQueryState } from '~/utils/route-query-state'
 import AssetImportDialog from '~/components/AssetImportDialog.vue'
 import RepairAssetsDialog from '~/components/RepairAssetsDialog.vue'
 
@@ -394,14 +428,20 @@ definePageMeta({ layout: 'dashboard' })
 useAppTitle('Production Board')
 
 const route = useRoute()
+const router = useRouter()
 const slug = computed(() => route.params.slug as string)
-const { get, patch } = useApi()
+const { get, patch, post } = useApi()
 const { success, error: showError, info: showInfo } = useToast()
+const { ask } = useConfirm()
+// Search, filters and page live in the URL too, so Back and reload keep the owner's place.
+const PLACE = { search: '', needsWork: true, step: null as string | null, failed: false, upload: 'all', page: 1 }
+const place = readQueryState(route.query, PLACE)
 
 const {
   episodes,
   isLoading: loading,
   isRevalidating,
+  isRemembered,
   error: episodesError,
   refresh,
   revalidate,
@@ -409,6 +449,9 @@ const {
   updateEpisode,
 } = useEpisodes(slug)
 const { jobs } = useJobs()
+// When the rows on screen were last read (rows remembered from the last launch don't count).
+const loadedAt = ref<number | null>(episodes.value.length && !isRemembered.value ? Date.now() : null)
+watch(episodes, () => { if (!isRemembered.value) loadedAt.value = Date.now() })
 
 // Cell-click mode. 'open' (default) = navigate to the step page; 'mark' =
 // toggle a manual done override (for steps whose result you imported from
@@ -428,7 +471,7 @@ function scrollStages(direction: 'start' | 'end' | 'assembly' | number) {
   }
   else region.scrollTo({ left: direction === 'start' ? 0 : region.scrollWidth })
 }
-const uploadFilter = ref('all')
+const uploadFilter = ref(place.upload)
 function uploadLabel(ep: any): string {
   return ({ pending: 'Pending', queued: 'Queued', uploading: 'Uploading', processing: 'Processing', uploaded: 'Uploaded', recorded: 'Recorded — unverified', failed: 'Upload failed', unknown: 'Needs review' } as Record<string, string>)[ep.youtube_upload?.state || 'unknown'] || 'Needs review'
 }
@@ -499,13 +542,13 @@ async function loadVisualSource() {
     if (request !== formatRequest || projectSlug !== slug.value) return
     const source = visualSourceFromFormat(f)
     if (!source) {
-      formatError.value = 'The project returned an unknown production format. Refresh this project before using Board workflow actions.'
+      formatError.value = 'The channel returned an unknown production format. Refresh this channel before using Board actions.'
       return
     }
     visualSource.value = source
   } catch (error: any) {
     if (request !== formatRequest || projectSlug !== slug.value) return
-    formatError.value = error?.data?.detail || error?.message || 'Could not load this project’s production format.'
+    formatError.value = error?.data?.detail || error?.message || 'Could not load this channel’s production format.'
   }
 }
 watch(slug, loadVisualSource, { immediate: true })
@@ -541,18 +584,18 @@ const columnDoneCounts = computed(() => {
 })
 
 // ── Filtering ─────────────────────────────────────────────────────────────
-const search = ref('')
+const search = ref(place.search)
 // Production Board is an exception dashboard: completed episodes are hidden
 // until the user explicitly asks to see the full archive.
-const needsWorkOnly = ref(true)
+const needsWorkOnly = ref(place.needsWork)
 // Click a column header to show only episodes still pending THAT step
 // ("who needs Audio?"). Null = no per-step filter.
-const stepFilter = ref<string | null>(null)
-const failedOnly = ref(false)
+const stepFilter = ref<string | null>(place.step)
+const failedOnly = ref(place.failed)
 const searchActive = computed(() => search.value.trim().length > 0)
 const stepFilterCol = computed(() => columns.value.find(c => c.field === stepFilter.value) || null)
 const EPISODES_PER_PAGE = 25
-const currentPage = ref(1)
+const currentPage = ref(place.page)
 
 function toggleStepFilter(field: string) {
   stepFilter.value = stepFilter.value === field ? null : field
@@ -562,7 +605,9 @@ watch(columns, cols => {
   if (stepFilter.value && !cols.some(c => c.field === stepFilter.value)) stepFilter.value = null
 })
 
-const visibleEpisodes = computed(() => {
+// A search is a lookup: it must find a finished episode too.
+const hidingFinished = computed(() => needsWorkOnly.value && !searchActive.value && uploadFilter.value === 'all')
+const filteredEpisodes = computed(() => {
   let list = episodes.value
   if (uploadFilter.value !== 'all') list = list.filter(ep => uploadFilter.value === 'pending'
     ? ['pending', 'queued', 'uploading', 'processing'].includes(ep.youtube_upload?.state || '')
@@ -574,16 +619,18 @@ const visibleEpisodes = computed(() => {
       : list
   }
   if (failedOnly.value) list = list.filter(ep => columns.value.some(col => cellState(ep, col) === 'failed'))
-  // A search is a lookup: it must find a finished episode too.
-  if (needsWorkOnly.value && !searchActive.value && uploadFilter.value === 'all') list = list.filter(ep => !isFullyDone(ep))
+  const { rows, hidden } = hideFinished(list, hidingFinished.value, isFullyDone)
+  list = rows
   if (searchActive.value) {
     const q = search.value.trim().toLowerCase()
     list = list.filter(ep =>
       (ep.episode_code || '').toLowerCase().includes(q) ||
       (ep.title || '').toLowerCase().includes(q))
   }
-  return [...list].sort((a, b) => a.episode_code.localeCompare(b.episode_code))
+  return { rows: [...list].sort((a, b) => a.episode_code.localeCompare(b.episode_code)), hidden }
 })
+const visibleEpisodes = computed(() => filteredEpisodes.value.rows)
+const hiddenFinishedCount = computed(() => filteredEpisodes.value.hidden)
 
 const totalPages = computed(() =>
   Math.max(1, Math.ceil(visibleEpisodes.value.length / EPISODES_PER_PAGE)))
@@ -612,6 +659,87 @@ watch(slug, () => { failedOnly.value = false })
 watch(totalPages, pages => {
   if (currentPage.value > pages) currentPage.value = pages
 })
+watch(() => writeQueryState(route.query, {
+  search: search.value.trim(), needsWork: needsWorkOnly.value, step: stepFilter.value,
+  failed: failedOnly.value, upload: uploadFilter.value, page: currentPage.value,
+}, PLACE), query => {
+  // Only while this page is the current route — never write board keys into the page being opened.
+  if (router.currentRoute.value.path === route.path && !sameQuery(query, route.query)) void router.replace({ query })
+})
+
+// ── Selection (Retry Failed / Open in Pipeline) ────────────────────────────
+const selected = ref(new Set<string>())
+function toggleSelected(code: string) {
+  const next = new Set(selected.value)
+  if (!next.delete(code)) next.add(code)
+  selected.value = next
+}
+watch(slug, () => { selected.value = new Set() })
+watch(episodes, list => {
+  const known = new Set(list.map(ep => ep.episode_code))
+  if ([...selected.value].some(code => !known.has(code))) selected.value = new Set([...selected.value].filter(code => known.has(code)))
+})
+// The ✕ cells of the selected episodes — the only steps Retry Failed may touch.
+const selectionFailedCells = computed(() => {
+  const keys = new Set<string>()
+  for (const ep of episodes.value) {
+    if (!selected.value.has(ep.episode_code)) continue
+    for (const col of columns.value) if (cellState(ep, col) === 'failed') keys.add(`${ep.episode_code}:${col.field}`)
+  }
+  return keys
+})
+const retrying = ref(false)
+async function retrySelectedFailed() {
+  if (retrying.value) return
+  const records = readRepairRecords(typeof localStorage === 'undefined' ? undefined : localStorage)
+  const plan = boardRetryPlan(jobs.value as any[], selectionFailedCells.value, id => records[id])
+  const count = plan.retry.length
+  const held = plan.held
+    ? ` ${plan.held} other failed step${plan.held === 1 ? '' : 's'} stay for the Jobs page — they need Repair or a check first, so nothing is paid for twice.`
+    : ''
+  if (!count) {
+    showInfo(held ? `Nothing was retried.${held}` : 'The selected episodes have no failed steps to retry.')
+    return
+  }
+  const episodeCount = new Set(plan.retry.map(job => job.episode_id)).size
+  if (!await ask({
+    title: 'Retry failed steps?',
+    message: `Retry ${count} failed step${count === 1 ? '' : 's'} in ${episodeCount} selected episode${episodeCount === 1 ? '' : 's'}? Finished work is kept.${held}${plan.mayUseCredits ? ' Paid work is included, so this may use credits.' : ''}`,
+    confirmLabel: `Retry ${count}`,
+  })) return
+  retrying.value = true
+  let sent = 0
+  const problems: string[] = []
+  const reason = (e: any) => e?.data?.detail || e?.message || 'could not be sent'
+  try {
+    // Same three routes as Jobs → Redo failed jobs, one request at a time.
+    const projectSlug = slug.value
+    const { episodes: recoveries, other } = groupEpisodeRecoveryRetries(plan.retry
+      .filter(job => job.type !== 'continuity_render')
+      .map(job => ({ ...job, project_slug: projectSlug, episode_id: String(job.episode_id) })))
+    for (const recovery of recoveries) {
+      try {
+        const response = await post<{ plan?: { dispatch_status?: string; message?: string } }>(
+          `/projects/${projectSlug}/jobs/recover-episode/${recovery.episode_id}`, { source_job_ids: recovery.source_job_ids })
+        const status = response?.plan?.dispatch_status
+        if (status === 'queued' || status === 'running' || status === 'complete') sent += recovery.source_job_ids.length
+        else problems.push(`${recovery.episode_id}: ${response?.plan?.message || 'not confirmed as queued'}`)
+      } catch (e: any) { problems.push(`${recovery.episode_id}: ${reason(e)}`) }
+    }
+    for (const job of [...plan.retry.filter(job => job.type === 'continuity_render'), ...other]) {
+      const action = job.type === 'continuity_render' ? 'finish-missing-images' : 'retry'
+      try {
+        const response = await post<{ job?: { job_id?: string } }>(`/projects/${projectSlug}/jobs/${job.job_id}/${action}`, {})
+        if (response?.job?.job_id) sent++
+        else problems.push(`${job.episode_id}: not confirmed as queued`)
+      } catch (e: any) { problems.push(`${job.episode_id}: ${reason(e)}`) }
+    }
+  } finally {
+    retrying.value = false
+  }
+  if (problems.length) showError(`Retry sent for ${sent} of ${count} failed steps. ${problems.join(' · ')}`)
+  else success(`Retry sent for ${sent} failed step${sent === 1 ? '' : 's'} — follow them on Jobs.`)
+}
 
 /** Fully done = every required step of this format's flow is done. Optional
  * steps stay visible and filterable but never keep an episode in Needs work.
@@ -694,7 +822,7 @@ function researchNote(status: any): string {
   const who = status.research_reviewed_by === 'pipeline-auto'
     ? 'claims auto-accepted by the Pipeline, not read by a person'
     : status.research_reviewed_by === 'auto-approval'
-      ? 'claims auto-approved by this project’s setting, not read by a person'
+      ? 'claims auto-approved by this channel’s setting, not read by a person'
       : 'claims reviewed'
   return status.research_has_usable_claims ? ` — ${who}` : ` — ${who}, none kept`
 }
@@ -822,6 +950,8 @@ async function markCell(ep: any, col: BoardCol) {
   gap: var(--space-4);
 }
 
+.board-hero-aside { display: grid; justify-items: end; gap: 10px; }
+
 .board-command-surface {
   display: flex;
   align-items: center;
@@ -865,7 +995,7 @@ async function markCell(ep: any, col: BoardCol) {
 }
 .board-mode-btn + .board-mode-btn { border-left: 1px solid var(--border); }
 .board-mode-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
-.board-mode-btn.active { background: var(--accent); color: #0f1117; }
+.board-mode-btn.active { background: var(--accent); color: var(--accent-on); }
 .board-search {
   position: relative;
   display: flex;
@@ -897,8 +1027,17 @@ async function markCell(ep: any, col: BoardCol) {
   white-space: nowrap;
 }
 .board-filter:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-primary); }
-.board-filter.active { background: var(--accent); color: #0f1117; border-color: var(--accent); }
+.board-filter.active { background: var(--accent); color: var(--accent-on); border-color: var(--accent); }
 .board-filter:disabled { opacity: 0.5; cursor: not-allowed; }
+a.board-filter { display: inline-flex; align-items: center; text-decoration: none; }
+.board-selection { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-basis: 100%; }
+.board-selection-count { font-size: 12px; color: var(--text-secondary); }
+.board-hidden-note { flex-basis: 100%; margin: 0; font-size: var(--font-xs); color: var(--text-secondary); }
+.board-link-btn {
+  padding: 0; border: 0; background: none; font: inherit; color: var(--accent);
+  text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+}
+.board-link-btn:hover { color: var(--accent-hover); }
 
 .board-pagination {
   display: flex;
@@ -932,8 +1071,6 @@ async function markCell(ep: any, col: BoardCol) {
 }
 .board-page-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .board-page-edge { min-width: 32px; padding-inline: 8px; }
-
-.board-updating { align-self: center; font-size: 12px; color: var(--text-muted); }
 
 /* ── Empty / loading ── */
 .board-empty {
@@ -1061,7 +1198,8 @@ async function markCell(ep: any, col: BoardCol) {
   justify-content: space-between;
   gap: 8px;
 }
-.ep-cell-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.ep-cell-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.ep-select { flex: 0 0 auto; width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
 /* Import button stays subtle until the row is hovered, so the grid reads
    cleanly but the affordance is one move away. */
 .ep-import {
@@ -1147,8 +1285,9 @@ async function markCell(ep: any, col: BoardCol) {
 .cell-done { color: var(--success, #22c55e); }
 .cell-active { color: var(--accent); }
 .cell-failed { color: var(--error); font-weight: 700; }
-.cell-pending { color: var(--text-muted); opacity: 0.55; }
-.cell-optional.cell-pending { opacity: 0.32; }
+/* Faint, but still readable on the dark theme (0.55 fell to ~2.5:1 there). */
+.cell-pending { color: var(--text-muted); opacity: 0.75; }
+.cell-optional.cell-pending { opacity: 0.5; }
 .cell-not-used {
   background: color-mix(in srgb, var(--bg-tertiary) 72%, transparent);
   color: var(--text-muted);
@@ -1177,7 +1316,7 @@ async function markCell(ep: any, col: BoardCol) {
 .lg-done { color: var(--success, #22c55e); }
 .lg-manual { color: var(--success, #22c55e); text-decoration: underline dashed; text-underline-offset: 2px; }
 .lg-not-used { color: var(--text-muted); }
-.lg-pending { opacity: 0.55; }
+.lg-pending { opacity: 0.75; }
 .lg-failed { color: var(--error); }
 .board-hint {
   flex-basis: 100%;
