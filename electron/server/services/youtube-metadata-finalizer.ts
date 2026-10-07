@@ -24,8 +24,8 @@ import { resolveEpisodePathsByCode } from './utils.js'
 import { inspectSubtitleCompletion } from './subtitle-completion.js'
 import { inspectMusicStitch, type MusicStitchState } from './music-episode-store.js'
 
-export const CHAPTERS_BEGIN = '<!-- youtube:chapters:start -->'
-export const CHAPTERS_END = '<!-- youtube:chapters:end -->'
+import { CHAPTERS_BEGIN, CHAPTERS_END } from '../lib/youtube-description-limit.js'
+export { CHAPTERS_BEGIN, CHAPTERS_END }
 export const SOURCES_BEGIN = '<!-- youtube:sources:start -->'
 export const SOURCES_END = '<!-- youtube:sources:end -->'
 
@@ -49,6 +49,14 @@ export interface YouTubeFinalizationStatus {
   source_count: number
   lead_in_seconds: number
   warnings: string[]
+  /**
+   * Why chapter marks cannot be written although Audio Assembly exists, or null.
+   * Owner decision 2026-10-07: chapter marks are required whenever Audio
+   * Assembly exists, so this stops the Finalizer instead of riding along as a
+   * warning. Fewer than three timed sections is NOT an issue — YouTube cannot
+   * show chapters for that episode at all, and that stays a warning.
+   */
+  chapter_issue: string | null
   /** Present for an Episode Builder (music) episode: chapters come from its tracklist. */
   music_episode?: { songs: number; tracklist_ready: boolean }
 }
@@ -174,10 +182,14 @@ async function finalizeMusicDescription(options: {
   const { stitch } = options
   const warnings: string[] = []
   let chapters: Chapter[] = []
+  let chapterIssue: string | null = null
   if (!stitch.current) {
     warnings.push(stitch.reason)
   } else {
-    const text = await fs.readFile(stitch.tracklist_path!, 'utf-8').catch(() => '')
+    const text = await fs.readFile(stitch.tracklist_path!, 'utf-8').catch((error: any) => {
+      chapterIssue = `The stitched mix's tracklist could not be read (${error?.code || error?.message || error}), so chapter marks cannot be written. Stitch the episode again in Episode Builder.`
+      return ''
+    })
     const parsed = chaptersFromTracklist(text, stitch.total_sec)
     chapters = parsed.chapters
     if (parsed.dropped.length) {
@@ -204,11 +216,34 @@ async function finalizeMusicDescription(options: {
     source_count: 0,
     lead_in_seconds: 0,
     warnings,
+    chapter_issue: chapterIssue,
     music_episode: { songs: stitch.songs, tracklist_ready: stitch.current },
     chapters: usable.map(chapter => ({ title: chapter.title, start_sec: chapter.start_sec })),
     sources: [],
     finalized_at: new Date().toISOString(),
   }
+}
+
+/**
+ * Why chapter marks cannot be written although Audio Assembly exists, or null.
+ * Fewer than three sections is not an issue (YouTube shows no chapters for such
+ * an episode at all); missing timing and an unmeasured opening are.
+ */
+export function chapterIssueFor(input: {
+  audioReady: boolean
+  timedSections: number
+  leadIn: { status: string; reason?: string } | null
+}): string | null {
+  if (!input.audioReady) return null
+  if (!input.timedSections) {
+    return 'Audio Assembly exists but its section timing (audio_chapters.json) is missing or unreadable, '
+      + 'so chapter marks cannot be written. Run Audio Assembly again, then retry the YouTube Finalizer.'
+  }
+  if (input.leadIn?.status === 'unmeasurable') {
+    return `Chapter marks would be early: ${input.leadIn.reason || 'the opening could not be measured.'} `
+      + 'Run Audio Assembly again so the opening is measured, then retry the YouTube Finalizer.'
+  }
+  return null
 }
 
 function renderSources(sources: SelectedResearchSource[]): string {
@@ -274,6 +309,7 @@ export async function finalizeYouTubeDescription(options: {
   // now, because a viewer clicking chapter three and landing mid-sentence is
   // exactly as wrong as a caption that fires early.
   let leadIn = 0
+  let leadInMeasurement: { status: string; reason?: string } | null = null
   if (timedSections.length) {
     const measured = await resolveEpisodeIntroLeadIn(
       paths.episode_dir,
@@ -281,13 +317,13 @@ export async function finalizeYouTubeDescription(options: {
       episodeId,
     )
     leadIn = measured.seconds
-    if (measured.status === 'unmeasurable') {
-      warnings.push(
-        `Chapter timestamps assume nothing plays before the narration — ${measured.reason} `
-        + 'If this episode opens with an intro, every chapter mark is early by its length.',
-      )
-    }
+    leadInMeasurement = measured
   }
+  const chapterIssue = chapterIssueFor({
+    audioReady: audioReadiness.audio_assembly_ready,
+    timedSections: timedSections.length,
+    leadIn: leadInMeasurement,
+  })
 
   const chapters = buildYouTubeChapters({
     sections: timedSections,
@@ -344,6 +380,7 @@ export async function finalizeYouTubeDescription(options: {
     source_count: sources.length,
     lead_in_seconds: leadIn,
     warnings,
+    chapter_issue: chapterIssue,
     chapters: chapters.map(chapter => ({ title: chapter.title, start_sec: chapter.start_sec })),
     sources,
     finalized_at: new Date().toISOString(),
@@ -370,6 +407,7 @@ export async function inspectYouTubeFinalizationStatus(
     source_count: result.source_count,
     lead_in_seconds: result.lead_in_seconds,
     warnings: result.warnings,
+    chapter_issue: result.chapter_issue,
     ...(result.music_episode ? { music_episode: result.music_episode } : {}),
   }
 }

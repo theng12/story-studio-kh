@@ -48,6 +48,7 @@ import {
   inspectYouTubeFinalizationStatus,
 } from '../services/youtube-metadata-finalizer.js'
 import { truncateChars } from '../lib/well-formed-text.js'
+import { fitYouTubeDescription, YOUTUBE_DESCRIPTION_MAX_BYTES } from '../lib/youtube-description-limit.js'
 import { pipelinePolicyCheckpointStore, pipelinePolicyForJob, pipelinePolicyInputFingerprint } from '../lib/pipeline-model-policy.js'
 
 /**
@@ -82,7 +83,8 @@ interface MetadataParams {
   title?: string
   model?: string
   sections?: Array<any>          // same shape as /generate/metadata/description expects
-  max_chars?: number             // description max
+  /** Ignored since 2026-10-07: the limit is YouTube's own (4,900 bytes, see lib/youtube-description-limit.ts). */
+  max_chars?: number
   title_count?: number
   title_max_length?: number
   title_platform_preset?: string
@@ -158,14 +160,24 @@ function metadataSectionsForProfile(ids: string[] | undefined, tagCount: number)
   }))
 }
 
-async function readStoryContext(slug: string, episode_id: string, title: string, maxChars = 2000): Promise<string> {
+/**
+ * The narration the description is written from. Owner decision 2026-10-07:
+ * when it cannot be read the job FAILS — it used to fall back to
+ * `Episode: EP0001, Title: …`, and a description written from the title alone
+ * reads plausibly and is wrong.
+ */
+export async function readStoryContext(slug: string, episode_id: string, title: string, maxChars = 2000): Promise<string> {
+  let raw = ''
   try {
     const paths = await resolveEpisodePaths(slug, episode_id, title || '')
-    const raw = await readArtifactRawText(paths.narration_docx)
-    return truncateChars(raw, maxChars)
-  } catch {
-    return `Episode: ${episode_id}, Title: ${title}`
+    raw = await readArtifactRawText(paths.narration_docx)
+  } catch (error: any) {
+    throw new Error(`Could not read ${episode_id}'s narration to write the description from (${error?.message || error}). Open Scripts and check the narration exists, then retry. Nothing was written.`)
   }
+  if (!raw.trim()) {
+    throw new Error(`${episode_id}'s narration is empty, so there is no story to write the description from. Generate the script first, then retry. Nothing was written.`)
+  }
+  return truncateChars(raw, maxChars)
 }
 
 // `buildDescriptionPrompt` is imported above from lib/metadata-prompt.ts —
@@ -283,7 +295,9 @@ export async function generateMetadata(job: Job): Promise<void> {
   })
   const formula = formulaEntry ? metadataFormulaPlan(formulaEntry) : null
   if (formula) job.output_lines.push(`Metadata formula: ${formulaEntry!.name} — ${formulaEntry!.architecture}`)
-  const max_chars = req.max_chars ?? formula?.descriptionMaxChars ?? profile?.descriptionMaxChars ?? fmtMeta?.defaultMaxChars ?? 5000
+  // 2026-10-07 — one limit for every channel: YouTube's own, in bytes. The
+  // formula/profile/preset `max_chars` (2,500–4,000) no longer caps anything.
+  const max_chars = YOUTUBE_DESCRIPTION_MAX_BYTES
   const title_count = req.title_count ?? formula?.titleCount ?? (profile ? (profile.titleMode === 'paraphrase' ? 3 : 1) : undefined) ?? fmtMeta?.defaultTitleCount ?? 5
   const title_max_length = req.title_max_length ?? formula?.titleMaxLength ?? profile?.titleMaxLength ?? fmtMeta?.defaultTitleMaxLength ?? 100
   const title_platform_preset = req.title_platform_preset || 'Universal'
@@ -313,6 +327,11 @@ export async function generateMetadata(job: Job): Promise<void> {
       new Error('Run Audio Assembly before YouTube Finalizer so chapter timestamps use measured narration timing.'),
       { statusCode: 409, code: 'YOUTUBE_FINALIZER_AUDIO_REQUIRED' },
     )
+  }
+  // Chapter marks are required whenever Audio Assembly exists — refuse before
+  // any model call rather than ship a package without them.
+  if (readiness.chapter_issue) {
+    throw Object.assign(new Error(readiness.chapter_issue), { statusCode: 409, code: 'YOUTUBE_FINALIZER_CHAPTERS_REQUIRED' })
   }
 
   const existingPackage = req.existing_package
@@ -385,7 +404,7 @@ export async function generateMetadata(job: Job): Promise<void> {
       description = templateOutput.description
       job.output_lines.push(`Description from template (${description.length} chars).`)
     } else {
-      job.output_lines.push(`Generating description (max ${max_chars} chars)…`)
+      job.output_lines.push(`Generating description (YouTube limit ${max_chars.toLocaleString()} bytes)…`)
       // v1.0.108+ — prepend the niche's avoidance instruction when its
       // rule covers the 'metadata' scope (e.g. prayer's scripture refs).
       // No-op for niches that don't ship recencyAvoidance or don't
@@ -597,7 +616,15 @@ Requirements:
       description,
       includeSources: sourcesSectionEnabled(sections),
     })
-    description = finalization.description
+    // Never fail for length: trim at a sentence boundary, chapter list intact.
+    const fitted = fitYouTubeDescription(finalization.description)
+    description = fitted.description
+    if (fitted.trimmed) {
+      job.output_lines.push(
+        `Description trimmed to fit YouTube: ${fitted.bytes_before.toLocaleString()} → ${fitted.bytes_after.toLocaleString()} bytes `
+        + `(limit ${YOUTUBE_DESCRIPTION_MAX_BYTES.toLocaleString()}); whole sentences removed from the end, chapter list kept.`,
+      )
+    }
     job.output_lines.push(
       `Finalized YouTube package: ${finalization.chapter_count} chapter marker(s), ` +
       `${finalization.source_count} research source(s).`,
@@ -633,6 +660,8 @@ Requirements:
         source_count: finalization.source_count,
         lead_in_seconds: finalization.lead_in_seconds,
         warnings: finalization.warnings,
+        description_bytes: fitted.bytes_after,
+        ...(fitted.trimmed ? { description_trimmed_from_bytes: fitted.bytes_before } : {}),
       },
       savedAt: new Date().toISOString(),
       version: writeVersion,
@@ -660,13 +689,17 @@ Requirements:
       : (templateOutput?.tags.length ? Math.min(tag_count, templateOutput.tags.length) : tag_count)
     const missing: string[] = []
     if (!description.trim()) missing.push('description')
+    // Chapter marks are audited like the other fields (they used to be a
+    // warning only). `chapter_issue` is null when the episode has fewer than
+    // three timed sections — YouTube cannot show chapters for it at all.
+    if (finalization.chapter_issue) missing.push(`chapter marks (${finalization.chapter_issue})`)
     for (let index = titles.length; index < expectedTitleCount; index++) {
       missing.push(`title option ${index + 1}`)
     }
     for (let index = tags.length; index < expectedTagCount; index++) {
       missing.push(`tag ${index + 1}`)
     }
-    const expected = 1 + expectedTitleCount + expectedTagCount
+    const expected = 2 + expectedTitleCount + expectedTagCount
     await writeMetadataCompletionManifest(dir, episode_id, json, expectedTitleCount, expectedTagCount)
     requireJobCompletion(job, {
       label: 'YouTube finalization',
