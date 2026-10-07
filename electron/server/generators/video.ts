@@ -15,7 +15,7 @@ import os from 'os'
 import path from 'path'
 import { spawn } from 'child_process'
 import * as pm from '../services/project-manager.js'
-import { checkpointJobState, isCancelled, trackChild } from '../services/job-queue.js'
+import { checkpointJobProgress, checkpointJobState, isCancelled, trackChild } from '../services/job-queue.js'
 import { withFinalVideoPathLock } from '../services/final-video-lock.js'
 import { resolveSubfolderNames, resolveScenePlanPath, resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 // v1.0.338 — episode-dir + subfolder lookups consolidated into the shared
@@ -3492,7 +3492,8 @@ export async function prepareSceneClips(
     if (!recovery) return Promise.resolve()
     setVideoAssemblyCheckpoint(job, recovery.checkpoint)
     checkpointWrite = checkpointWrite.then(() => (
-      recovery.persistCheckpoint ? recovery.persistCheckpoint(job) : checkpointJobState(job)
+      // A finished clip is a recovery hint: it may share one jobs.json rewrite with its neighbours (S4).
+      recovery.persistCheckpoint ? recovery.persistCheckpoint(job) : checkpointJobProgress(job)
     ))
     return checkpointWrite
   }

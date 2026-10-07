@@ -1883,7 +1883,9 @@ type ProjectPersistenceState = {
   writing: Promise<void> | null
   dirty: boolean
   pendingMutations: number
-  waiters: Array<{ revision: number; resolve: () => void; reject: (error: unknown) => void }>
+  waiters: Array<{ revision: number; resolve: () => void; reject: (error: unknown) => void; soft?: boolean }>
+  lastWriteAt: number
+  wake: (() => void) | null
 }
 type ProjectJobMutation =
   | { kind: 'transform'; jobId: string; transform: (current: Job | null) => Job | null }
@@ -1895,7 +1897,7 @@ function projectPersistenceState(projectSlug: string): ProjectPersistenceState {
   if (!state) {
     state = {
       baseline: null, hydratePromise: null, revision: 0, durableRevision: 0,
-      writing: null, dirty: false, pendingMutations: 0, waiters: [],
+      writing: null, dirty: false, pendingMutations: 0, waiters: [], lastWriteAt: 0, wake: null,
     }
     projectPersistence.set(projectSlug, state)
   }
@@ -1932,6 +1934,17 @@ async function drainProjectPersistence(projectSlug: string, state: ProjectPersis
   let retryAfterFailure = false
   try {
     while (state.dirty) {
+      // S4: soft (progress) checkpoints alone wait until the last write is ≥1 s old, so a render's
+      // per-clip/per-scene checkpoints share one rewrite of jobs.json instead of one each. Any normal
+      // mutation (paid preconditions, status changes) wakes the writer at once.
+      const wait = SOFT_CHECKPOINT_SPACING_MS - (Date.now() - state.lastWriteAt)
+      if (wait > 0 && coalesceSoftCheckpoints && state.waiters.every(waiter => waiter.soft)) {
+        await new Promise<void>(resolve => {
+          const timer = setTimeout(resolve, wait)
+          state.wake = () => { clearTimeout(timer); resolve() }
+        })
+        state.wake = null
+      }
       state.dirty = false
       const revision = state.revision
       failedRevision = revision
@@ -1957,6 +1970,7 @@ async function drainProjectPersistence(projectSlug: string, state: ProjectPersis
         }
       })
       state.durableRevision = revision
+      state.lastWriteAt = Date.now()
       const ready = state.waiters.filter(waiter => waiter.revision <= revision)
       state.waiters = state.waiters.filter(waiter => waiter.revision > revision)
       ready.forEach(waiter => waiter.resolve())
@@ -1994,7 +2008,11 @@ function markSafe<T extends object>(job: T): T {
   return job
 }
 
-function applyProjectMutation(state: ProjectPersistenceState, mutation: ProjectJobMutation): Promise<void> {
+/** Minimum gap between jobs.json rewrites while only soft checkpoints are pending. */
+export const SOFT_CHECKPOINT_SPACING_MS = 1_000
+let coalesceSoftCheckpoints = true
+
+function applyProjectMutation(state: ProjectPersistenceState, mutation: ProjectJobMutation, soft = false): Promise<void> {
   if (mutation.kind === 'delete') state.baseline!.delete(mutation.jobId)
   else {
     const previous = state.baseline!.get(mutation.jobId) || null
@@ -2003,7 +2021,9 @@ function applyProjectMutation(state: ProjectPersistenceState, mutation: ProjectJ
   }
   const revision = ++state.revision
   state.dirty = true
-  return new Promise<void>((resolve, reject) => state.waiters.push({ revision, resolve, reject }))
+  const durable = new Promise<void>((resolve, reject) => state.waiters.push({ revision, resolve, reject, soft }))
+  if (!soft) state.wake?.()
+  return durable
 }
 
 function startProjectPersistence(projectSlug: string, state: ProjectPersistenceState): void {
@@ -2013,7 +2033,7 @@ function startProjectPersistence(projectSlug: string, state: ProjectPersistenceS
   }
 }
 
-async function persistProjectMutation(projectSlug: string, mutation: ProjectJobMutation): Promise<void> {
+async function persistProjectMutation(projectSlug: string, mutation: ProjectJobMutation, soft = false): Promise<void> {
   const state = projectPersistenceState(projectSlug)
   state.pendingMutations++
   try {
@@ -2023,7 +2043,7 @@ async function persistProjectMutation(projectSlug: string, mutation: ProjectJobM
     // behind the writer, defeating snapshot coalescing. The writer still
     // holds the jobs.json lock for the only disk mutation; mutations arriving
     // while it is writing are picked up by its next dirty pass.
-    const durable = applyProjectMutation(state, mutation)
+    const durable = applyProjectMutation(state, mutation, soft)
     // Let the current synchronous burst of mutations join the same snapshot
     // before the writer captures its baseline. This is what makes a project
     // batch one atomic write instead of one write per record.
@@ -2057,6 +2077,8 @@ export async function _waitForJobPersistenceForTesting(): Promise<void> {
 
 /** Drain tracked children and already-started project writes within the shutdown budget. */
 export async function drainJobPersistenceForShutdown(timeoutMs: number): Promise<boolean> {
+  coalesceSoftCheckpoints = false
+  for (const state of projectPersistence.values()) state.wake?.()
   let stopped = false
   const drained = (async () => {
     let observedIdle = false
@@ -2202,13 +2224,13 @@ function mergeDurableJobEvidence(previous: Job | null, incoming: Job): Job {
   }
 }
 
-async function persistJob(job: Job): Promise<void> {
+async function persistJob(job: Job, soft = false): Promise<void> {
   const incoming = safeJob(job)
   await persistProjectMutation(job.project_slug, {
     kind: 'transform',
     jobId: job.job_id,
     transform: current => mergeDurableJobEvidence(current, incoming),
-  })
+  }, soft)
   const settled = TERMINAL_JOB_STATUSES.has(job.status)
     || (job.status === 'paused' && !hasUnsettledProviderEvidence(job))
   if (job.type === 'continuity_render' && settled) {
@@ -2472,6 +2494,18 @@ export function getPaidImageReplacementRecoveryEntry(
  */
 export async function checkpointJobState(job: Job): Promise<void> {
   await persistJob(job)
+  emitUpdate(job)
+  if (job.type === 'continuity_render') noteAdaptiveImageTailEvent()
+}
+
+/**
+ * A progress checkpoint that is only a recovery hint (a finished clip or scene, a queue-state
+ * change). It may share a jobs.json rewrite with others up to SOFT_CHECKPOINT_SPACING_MS later,
+ * but the caller still gets it durable before this resolves. NEVER use it for anything that must
+ * be on disk before paid work is sent; those use checkpointJobState, which is written at once.
+ */
+export async function checkpointJobProgress(job: Job): Promise<void> {
+  await persistJob(job, true)
   emitUpdate(job)
   if (job.type === 'continuity_render') noteAdaptiveImageTailEvent()
 }
