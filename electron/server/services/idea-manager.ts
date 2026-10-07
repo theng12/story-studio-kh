@@ -80,9 +80,13 @@ function ideasPath(slug: string, cache?: ProjectFactsCache): string {
  */
 async function readStoreFromDisk(slug: string, cache?: ProjectFactsCache): Promise<IdeasStore> {
   const p = ideasPath(slug, cache)
-  if (existsSync(p)) {
+  return parseStore(existsSync(p) ? await fs.readFile(p, 'utf-8').catch(() => null) : null)
+}
+
+function parseStore(text: string | null): IdeasStore {
+  if (text !== null) {
     try {
-      const data = JSON.parse(await fs.readFile(p, 'utf-8'))
+      const data = JSON.parse(text)
       return {
         ideas: data.ideas || [],
         next_episode_number: data.next_episode_number || 1,
@@ -152,20 +156,21 @@ async function applyAutoHeal(slug: string, store: IdeasStore, cache?: ProjectFac
  * heal back to disk — only `mutateStore` writes. Safe for pure readers like
  * `getIdeas` / `getNextEpisodeNumber`.
  */
-// S15: readers re-read and re-parsed ideas.json (hundreds of KB on a big channel) on every call.
-// The parsed file is kept per path + size + mtime and each reader gets its own copy; writers
-// (mutateStore) always read the disk.
-const readMemo = new Map<string, { signature: string; store: IdeasStore }>()
+// S15: readers re-read ideas.json (hundreds of KB on a big channel) on every call, which on a busy
+// disk is the slow part. Its text is kept per path + inode + size + mtime; each reader parses its own
+// copy (as fast as a clone). Writers (mutateStore) always read the disk.
+const readMemo = new Map<string, { signature: string; text: string }>()
 
 async function readStoreMemo(slug: string, cache?: ProjectFactsCache): Promise<IdeasStore> {
   const p = ideasPath(slug, cache)
   const info = await fs.stat(p).catch(() => null)
-  const signature = info ? `${info.size}:${info.mtimeMs}:${info.ino}` : ''
-  const hit = signature ? readMemo.get(p) : undefined
-  if (hit && hit.signature === signature) return structuredClone(hit.store)
-  const store = await readStoreFromDisk(slug, cache)
-  if (signature) readMemo.set(p, { signature, store: structuredClone(store) })
-  return store
+  if (!info) return parseStore(null)
+  const signature = `${info.size}:${info.mtimeMs}:${info.ino}`
+  const hit = readMemo.get(p)
+  if (hit?.signature === signature) return parseStore(hit.text)
+  const text = await fs.readFile(p, 'utf-8').catch(() => null)
+  if (text !== null) readMemo.set(p, { signature, text })
+  return parseStore(text)
 }
 
 async function loadStore(slug: string, cache?: ProjectFactsCache): Promise<IdeasStore> {
