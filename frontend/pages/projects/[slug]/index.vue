@@ -88,6 +88,16 @@
       </NuxtLink>
     </section>
 
+    <p v-if="statusKnown && visualSource && episodes.length" class="dashboard-stages" aria-label="Episodes by state">
+      <NuxtLink
+        v-for="stage in stageCounts"
+        :key="stage.key"
+        :to="`/projects/${slug}/board`"
+        class="dashboard-stage"
+        :data-stage="stage.key"
+      ><strong>{{ stage.count }}</strong> {{ stage.label.toLowerCase() }}</NuxtLink>
+    </p>
+
     <WorkspaceSection
       eyebrow="Priority queue"
       title="Focus now"
@@ -272,13 +282,16 @@
 import type { ProjectAudit } from '~/types/audit'
 import type { EpisodeRow } from '~/composables/useEpisodes'
 import {
+  EPISODE_STAGES,
   STEP_STATUS_FIELD,
+  episodeStage,
   isEpisodeDone,
   isFlowStepApplicable,
   normalizeEpisodeVisualSource,
   visualSourceFromFormat,
   requiredStatusFields,
   unionFlowForEpisodeSources,
+  type EpisodeStage,
   type EpisodeVisualSource,
   type FlowStep,
   type VisualSource,
@@ -307,7 +320,7 @@ const outputRootMissing = computed(() => project.value?.output_root_exists === f
 // person a path that is not a location.
 const outputRootPath = computed(() => project.value?.output_root_resolved || '')
 const { get } = useApi()
-const { stats: jobStats, jobsStale, isLoading: jobsLoading } = useJobs()
+const { jobs, stats: jobStats, jobsStale, isLoading: jobsLoading } = useJobs()
 const {
   episodes,
   isLoading: episodesLoading,
@@ -409,6 +422,20 @@ const readyToRenderCount = computed(() => episodes.value.filter(ep =>
       .every(field => statusDone(ep, field)),
 ).length)
 const activeJobCount = computed(() => jobStats.value.running + jobStats.value.queued)
+// R7 — the same derived state the Production Board shows on each row.
+const stageCounts = computed(() => {
+  const active = new Set((jobs.value || [])
+    .filter(job => (job.status === 'queued' || job.status === 'running') && job.project_slug === slug.value && job.episode_id)
+    .map(job => job.episode_id))
+  const counts = new Map<EpisodeStage, number>()
+  if (visualSource.value) {
+    for (const ep of episodes.value) {
+      const stage = episodeStage(ep as any, visualSource.value, active.has(ep.episode_code))
+      counts.set(stage, (counts.get(stage) || 0) + 1)
+    }
+  }
+  return EPISODE_STAGES.map(stage => ({ ...stage, count: counts.get(stage.key) || 0 }))
+})
 
 type FocusTone = 'warning' | 'accent' | 'success' | 'neutral'
 interface FocusAction { key: string; order: string; title: string; detail: string; to: string; tone: FocusTone }
@@ -832,4 +859,14 @@ onBeforeUnmount(() => {
 @media (prefers-reduced-motion: reduce) {
   .dashboard-metric, .focus-card, .coverage-track span { transition: none; }
 }
+.dashboard-stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0 0 16px;
+  font-size: var(--font-sm, 13px);
+}
+.dashboard-stage { color: var(--text-secondary, inherit); text-decoration: none; }
+.dashboard-stage strong { color: var(--text-primary, inherit); }
+.dashboard-stage[data-stage="waiting_for_you"] strong { color: var(--warning, #b7791f); }
 </style>

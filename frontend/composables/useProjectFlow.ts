@@ -297,6 +297,50 @@ export function isEpisodeDone(
   return requiredStatusFields(vs, selectedSource).every(field => status[field] === true)
 }
 
+/**
+ * One derived state per episode (R7, 2026-10-07), computed only from fields
+ * the episode list already returns — nothing new is stored.
+ *
+ * Order matters: published beats everything; a finished episode is ready to
+ * publish even while some optional job runs; otherwise a running or queued
+ * job means Story Studio is producing; an episode with every step before
+ * Video Assembly done (and no switched-on Contextual Cues / Sound Design left
+ * unfinished, which the renderer refuses) is ready to assemble; anything else
+ * is waiting for the owner to press something.
+ */
+export type EpisodeStage = 'producing' | 'waiting_for_you' | 'ready_to_assemble' | 'ready_to_publish' | 'published'
+
+export const EPISODE_STAGES: ReadonlyArray<{ key: EpisodeStage; label: string }> = [
+  { key: 'producing', label: 'Producing' },
+  { key: 'waiting_for_you', label: 'Waiting for you' },
+  { key: 'ready_to_assemble', label: 'Ready to assemble' },
+  { key: 'ready_to_publish', label: 'Ready to publish' },
+  { key: 'published', label: 'Published' },
+]
+
+export function episodeStage(
+  ep: { status?: Record<string, unknown> | null; visual_source?: unknown; youtube_upload?: { state?: string } | null } | null | undefined,
+  vs: VisualSource,
+  generating: boolean,
+): EpisodeStage {
+  if (ep?.youtube_upload?.state === 'uploaded') return 'published'
+  const status = (ep?.status || null) as Record<string, unknown> | null
+  const source = normalizeEpisodeVisualSource(ep?.visual_source ?? status?.visual_source)
+  if (isEpisodeDone(status, vs, source)) return 'ready_to_publish'
+  if (generating) return 'producing'
+  if (status
+    && status.contextual_cues !== false
+    && status.sound_design !== false
+    && requiredStatusFields(vs, source).filter(field => field !== 'video_assembly').every(field => status[field] === true)) {
+    return 'ready_to_assemble'
+  }
+  return 'waiting_for_you'
+}
+
+export function episodeStageLabel(stage: EpisodeStage): string {
+  return EPISODE_STAGES.find(item => item.key === stage)!.label
+}
+
 export function useProjectFlow(
   slug: Ref<string> | ComputedRef<string>,
   visualSource: Ref<VisualSource | null> | ComputedRef<VisualSource | null>,
