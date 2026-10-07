@@ -729,6 +729,18 @@ void electronApp.whenReady().then(async () => {
     } catch (e) {
       logCrash('digest-scheduler', e)
     }
+
+    // Remote updates from the Gateway (services/app-update.ts). Packaged builds only: a dev run
+    // has no bundle to replace. Not awaited: settling a previous install waits for /api/health.
+    if (electronApp.isPackaged && process.platform === 'darwin') {
+      const { startStoryUpdater } = await import('./server/routes/app-update.js')
+      void startStoryUpdater({
+        currentVersion: electronApp.getVersion(),
+        executable: process.execPath,
+        port,
+        quit: () => electronApp.quit(),
+      }).catch(e => logCrash('app-updater', e))
+    }
   } catch (e) {
     logCrash('startup', e)
     dialog.showErrorBox(

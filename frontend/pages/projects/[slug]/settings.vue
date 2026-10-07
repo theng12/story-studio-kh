@@ -579,6 +579,7 @@
             </div>
             <button class="btn btn-secondary btn-sm" @click="copyVersionString">{{ versionCopied ? 'Copied' : 'Copy Version' }}</button>
           </section>
+          <AppUpdatePanel />
         </template>
 
         <!-- ═══ This Project → Channel identity ═══ -->
