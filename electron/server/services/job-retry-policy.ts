@@ -1,6 +1,6 @@
 import type { Job, JobType } from '../models/types.js'
 import { isFreeFleetModelId } from '../contracts/provider-task-state.js'
-import { pipelinePolicyForJob } from '../lib/pipeline-model-policy.js'
+import { pipelinePolicyForJob, type PipelineModelPolicyStage } from '../lib/pipeline-model-policy.js'
 
 export interface JobAutoRetryPolicy {
   eligible: boolean
@@ -59,6 +59,9 @@ const ALWAYS_LOCAL_TYPES = new Set<JobType>([
   'broll_select',
   'broll_normalize',
   'broll_assemble',
+  // Spend nothing: FFmpeg over songs and images already on disk.
+  'music_video',
+  'music_episode_build',
 ])
 
 /**
@@ -77,30 +80,39 @@ export function isProvenLocalStopCapableJob(job: Pick<Job, 'type' | 'params'>): 
   return SAFE_LOCAL_STOP_TYPES.has(job.type)
 }
 
-const TEXT_MODEL_TYPES = new Set<JobType>([
-  'introduction-only',
-  'chapter-only',
-  'outline_only',
-  'expand_chapters',
-  'image_prompts',
-  'metadata',
-  ])
+/** Chat work, by the Pipeline policy stage that may choose its model. */
+const TEXT_MODEL_STAGES: Partial<Record<JobType, PipelineModelPolicyStage | null>> = {
+  'introduction-only': 'introduction-only',
+  'chapter-only': 'script-only',
+  outline_only: 'script-only',
+  expand_chapters: 'script-only',
+  image_prompts: 'image_prompts',
+  metadata: 'metadata',
+  contextual_cues: 'contextual_cues',
+  research_run: 'research',
+  scene_plan_run: 'scene_plan',
+  idea_campaign: 'ideas',
+  music_scene_polish: null,
+}
 
+/** Image work that may run on the free fleet. continuity_render is the scene render. */
 const IMAGE_MODEL_TYPES = new Set<JobType>([
   'thumb_images',
   'scene_image_generate',
-    'continuity_render',
+  'continuity_render',
   'composition_generate',
   'image_pool_generate',
 ])
 
+const PAID_MANUAL_REASON = 'Paid image and transcription work stays manual so it is never submitted twice; press Retry when ready.'
+
 /**
- * Deny-by-default retry classification.
- *
- * "Free" means no external provider submission: this Mac performs the compute.
- * A free tier on a cloud API is still an API and
- * is deliberately manual-only because automatic resubmission can consume
- * quota or create duplicate provider tasks.
+ * Deny-by-default retry classification (owner, 2026-10-07):
+ * - free fleet (`studio-hub::`) work always retries by itself, 60 s then 300 s;
+ * - chat work retries too, paid included ("LLM is cheap"); a Pipeline run reconnects its
+ *   earlier request by the saved key first, and scene prompts collect theirs the same way;
+ * - paid image and transcription work stays manual;
+ * - local work retries quickly.
  */
 export function resolveJobAutoRetryPolicy(
   job: Pick<Job, 'type' | 'params'>,
@@ -119,10 +131,9 @@ export function resolveJobAutoRetryPolicy(
   }
 
   if (job.type === 'subtitles_transcribe') {
-    return {
-      ...MANUAL_ONLY,
-      reason: 'Story Studio already retries free catalog/network reads and reconnects accepted Gateway tasks. Whole-job replay stays manual so terminal paid work is never submitted twice.',
-    }
+    return isFreeFleetModelId(value(params, 'model'))
+      ? localPolicy('Free transcription on your own Macs costs nothing to repeat; a retry transcribes only the sections still missing.', FREE_FLEET_RETRY_DELAYS_MS)
+      : { ...MANUAL_ONLY, reason: PAID_MANUAL_REASON }
   }
 
   if (job.type === 'audio') {
@@ -141,32 +152,23 @@ export function resolveJobAutoRetryPolicy(
     return localPolicy('Timeline construction is deterministic local work.')
   }
 
-  if (job.type === 'research_run') {
-    return value(params, 'source_provider') === 'llm-only' && isLocalTextModel(value(params, 'model'))
-      ? localPolicy('LLM-only research runs on your own Chat Studio.')
-      : MANUAL_ONLY
-  }
-
-  if (TEXT_MODEL_TYPES.has(job.type) || job.type === 'scene_plan_run') {
-    // A Pipeline run takes its model from the channel's scene policy, which overrides
-    // `params.model` exactly as runScenePlanJob does, and stores it as a bare product id
-    // (runScenePlanJob accepts it with or without `genstudio-chat:`). Judge that model.
-    const scenePolicyModel = job.type === 'scene_plan_run' ? pipelinePolicyForJob(params, 'scene_plan')?.assigned_model : undefined
-    const model = scenePolicyModel?.trim().toLowerCase() || value(params, 'model', 'vision_model', 'ai_model', 'llm_model')
+  if (job.type in TEXT_MODEL_STAGES) {
+    // The EFFECTIVE model: a Pipeline run's policy model overrides `params.model`, exactly as
+    // the generators do. No model at all means the generator resolves the project's default
+    // chat model, which is still chat — so it retries like any other chat model.
+    const stage = TEXT_MODEL_STAGES[job.type]
+    const policyModel = stage ? pipelinePolicyForJob(params, stage)?.assigned_model : undefined
+    const model = policyModel?.trim().toLowerCase()
+      || value(params, 'model', 'vision_model', 'ai_model', 'llm_model')
+      || value(params.settings || {}, 'model')
     const product = model.replace(/^genstudio-chat:/, '')
-    if (job.type === 'scene_plan_run' && product && !isLocalTextModel(product)) {
-      // Every scene-prompt model runs through GenStudio chat. Each retry first collects any
-      // unresolved pack by its saved idempotency key, so nothing is paid twice, then asks
-      // only for missing prompts. Owner, 2026-10-07: LLM calls are cheap, so paid chat
-      // retries like the free fleet. Paid IMAGE work stays manual (below).
-      return localPolicy(isFreeFleetModelId(product)
-        ? 'Free scene prompts on your own Macs cost nothing to repeat; a retry first collects any earlier request, then asks only for missing prompts.'
-        : 'Scene prompts retry automatically; a retry first collects any earlier answer by its saved key, so nothing is paid twice, then asks only for missing prompts.',
-      FREE_FLEET_RETRY_DELAYS_MS)
+    if (isLocalTextModel(product)) {
+      return localPolicy('Chat Studio inference runs on your own hardware and preserves completed items.')
     }
-    return isLocalTextModel(model)
-      ? localPolicy('Chat Studio inference runs on your own hardware and preserves completed items.')
-      : MANUAL_ONLY
+    return localPolicy(isFreeFleetModelId(product)
+      ? 'Free writing on your own Macs costs nothing to repeat; a retry first collects any earlier answer, then asks only for what is missing.'
+      : 'Writing retries automatically; a retry first collects any earlier answer by its saved key where it has one, then asks only for what is missing.',
+    FREE_FLEET_RETRY_DELAYS_MS)
   }
 
   if (IMAGE_MODEL_TYPES.has(job.type)) {
@@ -174,24 +176,12 @@ export function resolveJobAutoRetryPolicy(
     if (isLocalImageModel(model)) {
       return localPolicy('Image Studio generation runs on your own hardware and preserves completed images.')
     }
-    if (job.type === 'continuity_render' && isFreeFleetModelId(model)) {
-      return localPolicy('Free scene images on your own Macs cost nothing to repeat; a retry submits only the missing images.', FREE_FLEET_RETRY_DELAYS_MS)
+    if (isFreeFleetModelId(model)) {
+      return localPolicy('Free images on your own Macs cost nothing to repeat; a retry submits only the missing images.', FREE_FLEET_RETRY_DELAYS_MS)
     }
-    // The remaining image generators have not proved their terminal-task
-    // promotion end to end, so even free fleet work stays manual here. Paid
-    // GenStudio work must also stay manual.
-    //
-    // This used to read `model.startsWith('genstudio-image')`, which silently
-    // stopped being true once GenStudio products began publishing customer
-    // handles — `gpt-image-2` shares no prefix with anything — and a paid
-    // GenStudio job would have fallen through to the generic reason below.
-    if (model) {
-      return {
-        ...MANUAL_ONLY,
-        reason: 'Story Studio already retries free catalog/network reads and reconnects accepted Gateway tasks. Whole-job replay stays manual so terminal paid work is never submitted twice.',
-      }
-    }
-    return MANUAL_ONLY
+    // Paid GenStudio images stay manual. (This once read `model.startsWith('genstudio-image')`,
+    // which stopped matching when products began publishing handles such as `gpt-image-2`.)
+    return model ? { ...MANUAL_ONLY, reason: PAID_MANUAL_REASON } : MANUAL_ONLY
   }
 
   return MANUAL_ONLY

@@ -3253,9 +3253,9 @@ function autoRetryLabel(job: Pick<RJob, 'status' | 'auto_retry'>): string {
   if (job.status === 'error' || retry.exhausted) return `Local retries exhausted · ${attempt}/${retry.max_attempts}`
   if (retry.next_retry_at) {
     const seconds = Math.max(0, Math.ceil((new Date(retry.next_retry_at).getTime() - now.value) / 1000))
-    return `Local auto-retry · attempt ${attempt}/${retry.max_attempts} · next in ${seconds}s`
+    return `Auto-retry · attempt ${attempt}/${retry.max_attempts} · next in ${seconds}s`
   }
-  return `Local auto-retry · attempt ${attempt}/${retry.max_attempts}`
+  return `Auto-retry · attempt ${attempt}/${retry.max_attempts}`
 }
 
 function autoRetryClass(job: Pick<RJob, 'status' | 'auto_retry'>): string {

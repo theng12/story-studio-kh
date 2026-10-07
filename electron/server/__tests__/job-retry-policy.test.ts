@@ -9,12 +9,15 @@ function policy(type: JobType, params: Record<string, any> = {}) {
 }
 
 describe('local auto-retry policy', () => {
-  test('leaves Gateway durable recovery to the Gateway and never duplicates provider work', () => {
+  test('paid transcription stays manual; free-fleet Whisper retries by itself', () => {
     assert.equal(policy('subtitles_transcribe', { engine: 'genstudio' }).eligible, false)
-    assert.match(
-      policy('subtitles_transcribe', { engine: 'genstudio' }).reason,
-      /reconnects accepted Gateway tasks/,
-    )
+    const paid = policy('subtitles_transcribe', { engine: 'genstudio', model: 'genstudio-whisper' })
+    assert.equal(paid.eligible, false)
+    assert.match(paid.reason, /Paid .* stays manual/)
+    const free = policy('subtitles_transcribe', { engine: 'genstudio', model: 'studio-hub::whisper-turbo' })
+    assert.equal(free.eligible, true)
+    assert.deepEqual(free.delays_ms, [60_000, 300_000])
+    assert.doesNotMatch(free.reason, /paid|never submitted twice/i, 'free work is not described as paid work')
     // Queued pre-migration values are also manual-only while the generator
     // heals them onto GenStudio.
     assert.equal(policy('subtitles_transcribe', { engine: 'voicestudio' }).eligible, false)
@@ -58,16 +61,47 @@ describe('local auto-retry policy', () => {
     assert.deepEqual(fleet.delays_ms, [60_000, 300_000], 'a fleet hiccup lasts minutes; 2 s / 8 s burned all three attempts')
     assert.match(fleet.reason, /only the missing images/)
     assert.equal(policy('continuity_render', { model: 'studio-hub::org/model', auto_retry: false }).eligible, false)
-    assert.equal(policy('thumb_images', { model: 'studio-hub::org/model' }).eligible, false,
-      'free fleet retry stays limited to the generator whose terminal identity is proven end to end')
+    // Owner, 2026-10-07: every free-fleet image job retries by itself.
+    for (const type of ['thumb_images', 'image_pool_generate', 'scene_image_generate', 'composition_generate'] as JobType[]) {
+      const free = policy(type, { model: 'studio-hub::org/model' })
+      assert.equal(free.eligible, true, type)
+      assert.deepEqual(free.delays_ms, [60_000, 300_000], type)
+      assert.equal(policy(type, { model: 'gpt-image-2' }).eligible, false, `paid ${type} stays manual`)
+    }
     assert.equal(policy('thumb_images', { model: 'gpt-image-1' }).eligible, false)
     assert.equal(policy('thumb_images', { model: 'flux-kontext-pro' }).eligible, false)
   })
 
-  test('retries local Chat Studio models but not its cloud proxy catalog', () => {
-    assert.equal(policy('image_prompts', { model: 'chatstudio:mlx-community/gemma' }).eligible, true)
-    assert.equal(policy('metadata', { model: 'chatstudio:provider:openrouter:free-model' }).eligible, false)
-    assert.equal(policy('outline_only', { model: 'deepseek-v4-flash' }).eligible, false)
+  test('chat work retries: local quickly, fleet and paid chat after minutes', () => {
+    const local = policy('image_prompts', { model: 'chatstudio:mlx-community/gemma' })
+    assert.equal(local.eligible, true)
+    assert.deepEqual(local.delays_ms, [2_000, 8_000])
+    const types: JobType[] = ['introduction-only', 'chapter-only', 'outline_only', 'expand_chapters', 'image_prompts',
+      'metadata', 'contextual_cues', 'research_run', 'music_scene_polish', 'idea_campaign']
+    for (const type of types) {
+      for (const model of ['studio-hub::mlx-community/gemma', 'genstudio-chat:pool::gemini-free-all', 'pool::gemini-free-all', 'deepseek-v4-flash']) {
+        const run = policy(type, { model })
+        assert.equal(run.eligible, true, `${type} on ${model}`)
+        assert.deepEqual(run.delays_ms, [60_000, 300_000], `${type} on ${model}`)
+      }
+    }
+    assert.equal(policy('metadata', { model: 'chatstudio:provider:openrouter:free-model' }).eligible, true, 'paid chat may retry')
+    assert.match(policy('metadata', { model: 'studio-hub::x' }).reason, /^Free writing/)
+    assert.equal(policy('metadata', { model: 'studio-hub::x', auto_retry: false }).eligible, false)
+  })
+
+  test('judges the EFFECTIVE chat model: the Pipeline policy, then the default', () => {
+    const pipeline = (stage: string, assigned: string, extra: Record<string, any> = {}) => ({
+      pipeline_model_policy: { [stage]: { mode: 'single', models: [assigned], assigned_model: assigned } }, ...extra,
+    })
+    // Metadata via the policy (or the project default) has no params.model; it read as MANUAL.
+    assert.equal(policy('metadata', pipeline('metadata', 'studio-hub::gemma')).eligible, true)
+    assert.match(policy('metadata', pipeline('metadata', 'studio-hub::gemma')).reason, /^Free writing/)
+    assert.match(policy('metadata', pipeline('metadata', 'studio-hub::gemma', { model: 'deepseek-v4-flash' })).reason, /^Free writing/,
+      'the policy model, not a stale params.model, is the one that runs')
+    assert.equal(policy('metadata', {}).eligible, true, 'no model = the project default chat model, which is still chat')
+    assert.match(policy('expand_chapters', pipeline('script-only', 'studio-hub::q')).reason, /^Free writing/)
+    assert.match(policy('contextual_cues', { settings: { model: 'studio-hub::q' } }).reason, /^Free writing/)
   })
 
   test('retries deterministic timeline and local assembly work', () => {
@@ -80,7 +114,7 @@ describe('local auto-retry policy', () => {
     })
     assert.equal(genStudioPromptRun.eligible, true)
     assert.deepEqual(genStudioPromptRun.delays_ms, [60_000, 300_000])
-    assert.match(genStudioPromptRun.reason, /nothing is paid twice/)
+    assert.match(genStudioPromptRun.reason, /collects any earlier answer by its saved key/)
     // Free-fleet prompts retry by themselves (prompts stopping at N-k on a 400-episode run).
     for (const free of ['genstudio-chat:studio-hub::mlx-community/gemma', 'genstudio-chat:studio-hub-9701220bf30f::qwen']) {
       const freePromptRun = policy('scene_plan_run', { stage: 'visual', model: free })
@@ -106,19 +140,21 @@ describe('local auto-retry policy', () => {
     const paidPipeline = pipelineFree('deepseek-v4-flash')
     assert.equal(paidPipeline.eligible, true, 'paid Pipeline prompts retry too')
     assert.deepEqual(paidPipeline.delays_ms, [60_000, 300_000])
-    assert.match(paidPipeline.reason, /nothing is paid twice/)
-    assert.match(pipelineFree('studio-hub::x', { model: 'deepseek-v4-flash' }).reason, /Free scene prompts/,
+    assert.match(paidPipeline.reason, /collects any earlier answer by its saved key/)
+    assert.match(pipelineFree('studio-hub::x', { model: 'deepseek-v4-flash' }).reason, /^Free writing/,
       'the scene policy, not a stale params.model, names the model that runs')
     assert.equal(pipelineFree('studio-hub::x', { auto_retry: false }).eligible, false)
     assert.equal(pipelineFree('deepseek-v4-flash', { auto_retry: false }).eligible, false)
     assert.equal(policy('scene_plan_run', { model: 'studio-hub::x' }).eligible, true, 'a bare free product id in params.model')
-    assert.equal(policy('scene_plan_run', { stage: 'visual' }).eligible, false, 'no model, no retry')
+    assert.equal(policy('scene_plan_run', { stage: 'visual' }).eligible, true, 'no model = the default chat model')
     // The paid IMAGE twin stays fail-closed and manual.
     assert.equal(policy('continuity_render', { model: 'gpt-image-2' }).eligible, false)
     assert.equal(policy('continuity_render', { model: 'genstudio-image:paid' }).eligible, false)
     assert.equal(policy('audio_merge').eligible, true)
     assert.equal(policy('video_assembly').eligible, true)
     assert.equal(policy('broll_normalize').eligible, true)
+    assert.equal(policy('music_video').eligible, true, 'spends nothing')
+    assert.equal(policy('music_episode_build').eligible, true, 'spends nothing')
   })
 
   test('keeps all external API and provider recovery jobs manual-only', () => {
@@ -126,22 +162,7 @@ describe('local auto-retry policy', () => {
     assert.equal(policy('video').eligible, false)
     assert.equal(policy('scene_clip_generate').eligible, false)
     assert.equal(policy('images_repair').eligible, false)
-    assert.equal(policy('research_run').eligible, false)
-  })
-
-  test('retries only the explicitly local research adapter', () => {
-    assert.equal(policy('research_run', {
-      source_provider: 'llm-only',
-      model: 'chatstudio:mlx-community/gemma',
-    }).eligible, true)
-    assert.equal(policy('research_run', {
-      source_provider: 'llm-only',
-      model: 'deepseek-v4-flash',
-    }).eligible, false)
-    assert.equal(policy('research_run', {
-      source_provider: 'tavily',
-      model: 'chatstudio:mlx-community/gemma',
-    }).eligible, false)
+    assert.equal(policy('music_generate', { model: 'studio-hub::music' }).eligible, false)
   })
 
   test('uses two bounded retries for local work and honours an explicit disable', () => {

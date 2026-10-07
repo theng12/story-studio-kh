@@ -3639,7 +3639,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
             ? { video_assembly_checkpoint: videoAssemblyCheckpoint }
             : undefined
           job.progress = 0
-          job.output_lines.push(`↻ Local auto-retry attempt ${attempt}/${lastAttempt} — checking disk and repairing only missing work.`)
+          job.output_lines.push(`↻ Auto-retry attempt ${attempt}/${lastAttempt} — checking disk and repairing only missing work.`)
           await persistJob(job)
           emitUpdate(job)
         }
@@ -3718,7 +3718,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
           const message = error instanceof Error ? error.message : String(error)
           job.auto_retry.next_retry_at = new Date(Date.now() + delayMs).toISOString()
           job.output_lines.push(
-            `↻ Local attempt ${attempt}/${lastAttempt} was incomplete: ${message}`,
+            `↻ Attempt ${attempt}/${lastAttempt} was incomplete: ${message}`,
             `  Auto-retrying in ${Math.ceil(delayMs / 1_000)}s. Verified files already saved will be kept; only missing work is asked for again.`,
           )
           await persistJob(job)
@@ -3730,7 +3730,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       if (!completed) {
         if (job.auto_retry?.eligible) {
           job.auto_retry.exhausted = true
-          job.output_lines.push(`✗ Local auto-retry exhausted after ${lastAttempt} attempts. Verified partial files remain on disk; manual Retry starts another recovery cycle.`)
+          job.output_lines.push(`✗ Auto-retry exhausted after ${lastAttempt} attempts. Verified partial files remain on disk; manual Retry starts another recovery cycle.`)
         } else {
           job.output_lines.push(`ℹ Automatic retry not used: ${retryPolicy.reason}`)
         }
