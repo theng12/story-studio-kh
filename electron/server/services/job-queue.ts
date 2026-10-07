@@ -835,7 +835,9 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
 }
 
 function scheduleCancellationReconciliation(jobId: string): void {
-  void reconcileCancellationJob(jobId)
+  // Its failure path saves the job too; a save that fails there must not escape as an unhandled
+  // rejection (the 5 s retry in its `finally` still runs).
+  void reconcileCancellationJob(jobId).catch(error => console.warn('[job-queue] cancellation reconciliation not saved yet:', error?.message || error))
 }
 
 // ── v1.2.6 — re-checking a FINISHED job's provider evidence ──────────────

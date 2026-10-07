@@ -12,11 +12,16 @@ import path from 'node:path'
 import type { TestContext } from 'node:test'
 import type { Job } from '../models/types.js'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
 import { runFfmpeg } from '../lib/ffmpeg-utils.js'
 import { hashSubtitleAudioSources } from '../services/subtitle-completion.js'
 
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+/** Files written after this get a strictly newer mtime than files written before it. */
+async function clockMovesOn() {
+  const start = Date.now()
+  await waitFor(() => Date.now() > start + 20, { label: 'the clock to move on' })
+}
 async function tone(file: string, frequency = 440) {
   await runFfmpeg(['-y', '-f', 'lavfi', '-i', `sine=frequency=${frequency}:duration=1`, '-codec:a', 'libmp3lame', '-q:a', '9', file])
 }
@@ -58,7 +63,7 @@ async function fixture(t: TestContext, name = 'Review 1258') {
   }
   await fs.writeFile(path.join(paths.episode_dir, 'audio_chapters.json'), JSON.stringify({ gap_duration_s: 1,
     sections: sections.map(slug => ({ slug, duration_s: 1, source_file: `${code}_${slug}.mp3` })) }))
-  await sleep(20)
+  await clockMovesOn()
   await merged(paths.merged_audio_dir, code)
   await jq.setQueuePaused(true)
   const row = (job_id: string, type: Job['type'], params: Record<string, unknown>, extra: Partial<Job> = {}): Job => ({
@@ -73,7 +78,7 @@ test('re-narrate Chapter_02 -> scoped check -> one merge with saved mix -> local
   const prior = f.row('prior-merge', 'audio_merge', { gap_duration: 1, normalize_volume: false, music_volume: 0.33 }, { created_at: '2026-01-01T00:00:00Z', started_at: '2026-01-01T00:00:00Z' })
   await f.jq.writeAuthoritativeJob(prior)
   assert.equal((await inspectAudioAssemblyReadiness(f.project.slug, f.code)).audio_assembly_ready, true)
-  await sleep(20)
+  await clockMovesOn()
   await tone(path.join(f.paths.audio_dir, `${f.code}_Chapter_02.mp3`), 880) // the re-narration
   assert.equal((await inspectAudioAssemblyReadiness(f.project.slug, f.code)).audio_assembly_ready, false, 'owner precondition: merge is stale')
 
@@ -100,7 +105,7 @@ test('re-narrate Chapter_02 -> scoped check -> one merge with saved mix -> local
   assert.equal(merges[0].params.music_volume, 0.33, 'saved mix settings reused')
 
   // Simulate the merge finishing (fresh merged file newer than the chapters).
-  await sleep(20)
+  await clockMovesOn()
   await merged(f.paths.merged_audio_dir, f.code)
   await f.jq.mutateAuthoritativeJob(f.project.slug, merges[0].job_id, job => ({ ...job, status: 'done', finished_at: new Date().toISOString() }))
   const after = (await recoverEpisode(f.project.slug, f.code, false))!
@@ -111,9 +116,9 @@ test('re-narrate Chapter_02 -> scoped check -> one merge with saved mix -> local
 
 test('a stale chapter SRT behind a current merge is not counted as complete by recovery', async t => {
   const f = await fixture(t, 'Review parking')
-  await sleep(20)
+  await clockMovesOn()
   await tone(path.join(f.paths.audio_dir, `${f.code}_Chapter_02.mp3`), 880) // re-narrated, subtitles not redone
-  await sleep(20)
+  await clockMovesOn()
   await merged(f.paths.merged_audio_dir, f.code) // the owner ran Audio Assembly by hand
   const { inspectRecoverySubtitles } = await import('../services/episode-recovery.js')
   const coverage = await (inspectRecoverySubtitles as any)(f.paths.episode_dir, f.paths.subtitles_dir, f.code, true, f.paths.audio_dir)
