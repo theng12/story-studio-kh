@@ -148,7 +148,7 @@ export async function recordGenStudioJob(
   job.genstudio_jobs = boundGenStudioRequestPreviews(mergeDurableJobEvidence(job, { ...job, genstudio_jobs: entries }).genstudio_jobs || [])
   await persistJob(job)
   emitUpdate(job)
-  void finalizeSettledProviderJob(job.job_id)
+  inBackground('provider settlement', finalizeSettledProviderJob(job.job_id))
   if (job.type === 'continuity_render') noteAdaptiveImageTailEvent()
 }
 
@@ -228,7 +228,7 @@ export async function recordRemoteCancellation(
   }
   await persistJob(job)
   emitUpdate(job)
-  if (job.local_execution_complete) void finalizeSettledProviderJob(job.job_id)
+  if (job.local_execution_complete) inBackground('provider settlement', finalizeSettledProviderJob(job.job_id))
 }
 
 /**
@@ -834,10 +834,17 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
   }
 }
 
+/**
+ * Background work started without awaiting (finalize, evidence refresh, paid-image requeue,
+ * interrupted pipelines, cancellation) saves the job in its own failure paths too; a save that
+ * fails there must be logged, never escape as an unhandled rejection.
+ */
+function inBackground(what: string, work: Promise<unknown>): void {
+  void work.catch(error => console.warn(`[job-queue] ${what} not saved yet:`, (error as Error)?.message || error))
+}
+
 function scheduleCancellationReconciliation(jobId: string): void {
-  // Its failure path saves the job too; a save that fails there must not escape as an unhandled
-  // rejection (the 5 s retry in its `finally` still runs).
-  void reconcileCancellationJob(jobId).catch(error => console.warn('[job-queue] cancellation reconciliation not saved yet:', error?.message || error))
+  inBackground('cancellation reconciliation', reconcileCancellationJob(jobId)) // its 5 s retry still runs
 }
 
 // ── v1.2.6 — re-checking a FINISHED job's provider evidence ──────────────
@@ -961,7 +968,7 @@ async function recordHistoryEvidenceCheck(
 }
 
 function scheduleHistoryEvidenceRefresh(jobId: string): void {
-  void refreshFinishedJobProviderEvidence(jobId)
+  inBackground('provider evidence check', refreshFinishedJobProviderEvidence(jobId))
 }
 
 /**
@@ -2802,7 +2809,7 @@ async function schedulePaidImageWait(job: Job): Promise<boolean> {
     const timer = paidImageWaitRuntime.setTimer(() => {
       paidImageWaitTimers.delete(job.job_id)
       const current = jobs.get(job.job_id)
-      if (current) void requeuePaidImageWaitIfDue(current)
+      if (current) inBackground('paid image requeue', requeuePaidImageWaitIfDue(current))
     }, valid.dueAtMs - paidImageWaitRuntime.nowMs())
     paidImageWaitTimers.set(job.job_id, timer)
     return true
@@ -3271,7 +3278,7 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
   }
   // Only once the project counts as loaded: these hand-offs enqueue into it. Not awaited: the
   // first load can run inside enqueue's episode admission lock, which a hand-off also takes.
-  for (const job of interrupted) void continueInterruptedPipeline(job)
+  for (const job of interrupted) inBackground('interrupted pipeline', continueInterruptedPipeline(job))
 }
 
 /** A restart that still interrupts a step must not also stop the steps that never needed it. */
