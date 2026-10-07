@@ -147,16 +147,55 @@ describe('download, stage, drain and resume', () => {
     assert.equal(state.we_paused, true)
   })
 
-  test('a corrupted download is refused and not retried every two minutes', async () => {
-    const release = signed({ bytes: 3, sha256: 'b'.repeat(64) })
+  test('a download that is not fully available yet is "not ready": nothing is failed, the next check retries', async () => {
+    const release = signed({ bytes: 3, sha256: createHash('sha256').update('xyz').digest('hex') })
+    const answers: Array<() => Response> = [
+      () => new Response('missing', { status: 404 }), // not uploaded yet
+      () => new Response(Buffer.from('xy')), // short file
+      () => new Response(Buffer.from('xyq')), // right size, wrong bytes (still uploading)
+      () => new Response(new ReadableStream({ start(c) { c.enqueue(new Uint8Array([120])); c.error(new Error('connection dropped')) } })),
+    ]
     let downloads = 0
-    const fetch = (async () => { downloads++; return new Response(Buffer.from('xyz')) }) as any
+    const fetch = (async () => answers[downloads++]()) as any
     updater._configureForTesting(options(fakeQueue(), { fetch }))
     settings.trusted_publisher_key = PUB
-    await assert.rejects(updater.handleOffer({ release, publisher: { public_key_base64: PUB } }), /does not match the signed release/)
-    assert.equal(updater.readState().phase, 'failed')
+    for (let check = 1; check <= answers.length; check++) {
+      await updater.handleOffer({ release, publisher: { public_key_base64: PUB } })
+      const state = updater.readState()
+      assert.equal(downloads, check, 'every check downloads again, from zero')
+      assert.equal(state.phase, 'idle')
+      assert.match(state.error!, /not fully available yet/)
+      assert.equal(state.failed_signature ?? null, null, 'not recorded as a failed install')
+    }
+  })
+
+  test('a failed install is retried after about two checks; a re-publish (new signature) at once', async () => {
+    const bytes = Buffer.from('not a zip')
+    const release = signed({ bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })
+    let downloads = 0
+    const fetch = (async () => { downloads++; return new Response(bytes) }) as any
+    updater._configureForTesting(options(fakeQueue(), { fetch }))
+    settings.trusted_publisher_key = PUB
+    await assert.rejects(updater.handleOffer({ release, publisher: { public_key_base64: PUB } }))
+    let state = updater.readState()
+    assert.equal(state.phase, 'failed')
+    assert.equal(state.failed_signature, release.signature)
     await updater.handleOffer({ release, publisher: { public_key_base64: PUB } })
-    assert.equal(downloads, 1)
+    assert.equal(downloads, 1, 'the next check (30 minutes later) leaves the same release alone')
+    updater.writeState({ ...state, failed_at: Date.now() - updater.FAILED_RETRY_AFTER_MS - 1 })
+    await assert.rejects(updater.handleOffer({ release, publisher: { public_key_base64: PUB } }))
+    assert.equal(downloads, 2, 'tried again automatically after about two checks')
+    const republished = signed({ bytes: bytes.length, sha256: release.sha256, published_at: 2 })
+    assert.notEqual(republished.signature, release.signature)
+    await assert.rejects(updater.handleOffer({ release: republished, publisher: { public_key_base64: PUB } }))
+    assert.equal(downloads, 3, 'a re-publish is tried at once')
+    state = updater.readState()
+    assert.equal(state.failed_signature, republished.signature)
+  })
+
+  test('checks run every 30 minutes', () => {
+    assert.equal(updater.CHECK_INTERVAL_MS, 30 * 60_000)
+    assert.equal(updater.FAILED_RETRY_AFTER_MS, 2 * updater.CHECK_INTERVAL_MS)
   })
 
   function ready(extra: Partial<updater.UpdateState> = {}) {
@@ -220,9 +259,24 @@ describe('boot settle', () => {
     const queue = fakeQueue(0, true)
     const state = await updater.onBoot(options(queue))
     assert.equal(state.phase, 'rolled_back')
-    assert.equal(state.skip_version, '1.4.258')
+    assert.equal(state.skip_signature, signed().signature)
     assert.equal(state.error, '1.4.258 did not start')
     assert.deepEqual(queue.calls, [false])
+  })
+
+  test('a rolled-back release is never retried automatically, but its re-publish is', async () => {
+    const release = signed()
+    updater.writeState({ phase: 'rolled_back', release, skip_signature: release.signature })
+    let downloads = 0
+    const fetch = (async () => { downloads++; return new Response('missing', { status: 404 }) }) as any
+    updater._configureForTesting(options(fakeQueue(), { fetch }))
+    settings.trusted_publisher_key = PUB
+    await updater.handleOffer({ release, publisher: { public_key_base64: PUB } })
+    updater.writeState({ ...updater.readState(), failed_at: 0 })
+    await updater.handleOffer({ release, publisher: { public_key_base64: PUB } })
+    assert.equal(downloads, 0, 'the same signature stays skipped, however long ago')
+    await updater.handleOffer({ release: signed({ published_at: 2 }), publisher: { public_key_base64: PUB } })
+    assert.equal(downloads, 1, 'a re-publish carries a new signature and is tried')
   })
 })
 

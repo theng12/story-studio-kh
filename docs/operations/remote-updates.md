@@ -2,7 +2,7 @@
 
 From the first build that carries the updater, Story Studio updates itself from the Gateway the
 way Studio Hub does. The owner publishes a DMG on the Gateway; every Story Mac picks it up within
-about two minutes, verifies it, waits for its queue to drain, installs, restarts, and resumes.
+about 30 minutes, verifies it, waits for its queue to drain, installs, restarts, and resumes.
 No walk to the Mac mini, no `xattr`.
 
 Code: `electron/server/services/app-update.ts` (updater, swap helper, login agent),
@@ -16,7 +16,7 @@ Code: `electron/server/services/app-update.ts` (updater, swap helper, login agen
    version from the app's own Info.plist, copies the file into its data folder and signs a
    descriptor (version, build, file name, size, sha256) with the **same publisher key as Studio Hub
    releases**. The replaced artifact goes to the Gateway's Trash Folder.
-2. **Check-in** (every 2 minutes, and *Check Now* in Settings → About → Updates): Story posts
+2. **Check-in** (at startup, every 30 minutes, and *Check Now* in Settings → About → Updates): Story posts
    its version, machine name, channel count, queue and update phase to `/v1/apps/story/checkin`
    with the Gateway key it already uses, and gets the signed release back.
 3. **Verify**: the release key is pinned the first time this Mac sees one; after that a different
@@ -41,8 +41,15 @@ Code: `electron/server/services/app-update.ts` (updater, swap helper, login agen
    the new one into `/Applications`, and relaunches (through the login agent when it is installed).
 7. **Health**: the new version answers its own `/api/health` and writes `installed`; it then
    resumes the queue it paused. If it has not done so within 5 minutes, the helper moves it to
-   `_trash/app/…-failed-<time>`, puts the previous app back, relaunches it, and that version is
-   not installed again automatically (*Install Now* or *Update Now* still can).
+   `_trash/app/…-failed-<time>`, puts the previous app back, relaunches it, and that release
+   (by its signature) is not installed again automatically (*Install Now* or *Update Now* still
+   can; a re-publish has a new signature and is tried).
+
+**Failures are remembered by release signature, never by build** (the Hub's by-build memory never
+retried until relaunch). A download that is not fully available yet (404, a short or mismatched
+file, a dropped connection — the Gateway serves the file whole, without Range) records nothing:
+the next check downloads again from zero. Any other install failure is tried again automatically
+after about two checks (an hour); a re-publish is tried at once.
 
 Server Mode is unchanged by any of this: it is a saved setting, so a relaunched Story comes back
 as a server exactly as before.

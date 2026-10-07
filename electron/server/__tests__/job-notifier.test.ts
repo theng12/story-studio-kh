@@ -341,7 +341,17 @@ describe('Quit while jobs run', () => {
   test('the app asks before quitting with running jobs, and Cancel keeps it open', async () => {
     const { readFile } = await import('node:fs/promises')
     const main = await readFile(new URL('../../main.ts', import.meta.url), 'utf8')
-    assert.match(main, /before-quit[\s\S]{0,200}formatQuitWarning\(getQueueStats\(\)\.running\)[\s\S]{0,400}buttons: \['Quit', 'Cancel'\][\s\S]{0,200}if \(choice === 1\) \{\s*event\.preventDefault\(\)\s*return/)
+    assert.match(main, /before-quit[\s\S]{0,400}formatQuitWarning\(getQueueStats\(\)\.running\)[\s\S]{0,400}buttons: \['Quit', 'Cancel'\][\s\S]{0,200}if \(choice === 1\) \{\s*event\.preventDefault\(\)\s*return/)
+  })
+
+  test('a quit for an update never stops at the running-jobs question', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const main = await readFile(new URL('../../main.ts', import.meta.url), 'utf8')
+    assert.match(main, /import \{ isQuittingForUpdate \} from '\.\/server\/services\/app-update\.js'/)
+    assert.match(main, /before-quit[\s\S]{0,400}const warning = isQuittingForUpdate\(\) \? null : formatQuitWarning\(getQueueStats\(\)\.running\)/)
+    const update = await import('../services/app-update.js')
+    update._resetForTesting()
+    assert.equal(update.isQuittingForUpdate(), false, 'an ordinary quit still asks')
   })
 })
 

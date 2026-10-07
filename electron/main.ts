@@ -36,6 +36,7 @@ import {
   formatBatchMessage, formatSingleJobMessage, formatFailureMessage, getBatchId,
   getNotifierSettings, formatQuitWarning, formatApprovalWaitMessage,
 } from './server/services/job-notifier.js'
+import { isQuittingForUpdate } from './server/services/app-update.js'
 import type { Job } from './server/models/types.js'
 
 // ── Single-instance lock ────────────────────────────────────────────────────
@@ -796,7 +797,8 @@ const SHUTDOWN_DRAIN_MS = 800
 electronApp.on('before-quit', (event) => {
   if (isShuttingDown) return
   // Say what happens to running jobs before they stop. Headless server mode has no window to ask in.
-  const warning = formatQuitWarning(getQueueStats().running)
+  // An update quit never asks: a drain that hit its 30-minute ceiling would stall at the dialog.
+  const warning = isQuittingForUpdate() ? null : formatQuitWarning(getQueueStats().running)
   if (warning && mainWindow && !mainWindow.isDestroyed()) {
     const choice = dialog.showMessageBoxSync(mainWindow, {
       type: 'warning', buttons: ['Quit', 'Cancel'], defaultId: 0, cancelId: 1,

@@ -2,7 +2,7 @@
   <section class="card settings-panel app-update-panel" data-setting="app-update">
     <header class="settings-card-head">
       <h3>Updates</h3>
-      <p>Story Studio checks the Gateway for a new version every two minutes, installs it when the queue is drained, and restarts itself.</p>
+      <p>Story Studio checks the Gateway for a new version every 30 minutes (and at startup), installs it when the queue is drained, and restarts itself.</p>
     </header>
 
     <div v-if="!status" class="text-muted">Loading…</div>

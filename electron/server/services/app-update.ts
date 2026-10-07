@@ -4,7 +4,7 @@
  * The owner's pain (2026-10-07): every update was a walk to the Mac mini, a DMG, and
  * `xattr -d com.apple.quarantine` by hand. Now:
  *
- * 1. **Check in** every two minutes (and on "Check Now") with the Gateway this app already uses,
+ * 1. **Check in** every 30 minutes (at startup, and on "Check Now") with the Gateway this app already uses,
  *    on the same key: `POST /v1/apps/story/checkin` reports this Mac's version, channels, queue
  *    and update phase, and answers with the signed release plus any "Update now" the admin pressed.
  * 2. **Verify** the release's Ed25519 signature against the publisher key this Mac pinned the
@@ -80,8 +80,19 @@ export interface UpdateState {
   /** The owner pressed Resume during a drain: no automatic install of this release. */
   held?: boolean
   from_version?: string | null
-  /** A version that rolled back on this Mac; never installed again automatically. */
-  skip_version?: string | null
+  /**
+   * The signature of a release that started here and then failed its health check (rolled back):
+   * never installed again automatically. A re-publish carries a new signature and is tried.
+   */
+  skip_signature?: string | null
+  /**
+   * The signature of a release whose install failed for another reason (extraction, bundle check,
+   * the swap). Keyed by signature, not build, so a re-publish heals it at once; the same release
+   * is tried again automatically after FAILED_RETRY_AFTER_MS (the Hub's by-build memory never
+   * retried until relaunch and stalled a fleet group).
+   */
+  failed_signature?: string | null
+  failed_at?: number | null
   last_check_at?: number | null
   last_check_error?: string | null
   installed_at?: number | null
@@ -91,7 +102,9 @@ export interface UpdateState {
 export const RELEASE_SCHEMA = 'storystudio.app-release.v1'
 export const AGENT_LABEL = 'local.storystudio.kh'
 const SETTINGS_KEY = 'app_update'
-export const CHECK_INTERVAL_MS = 2 * 60_000
+export const CHECK_INTERVAL_MS = 30 * 60_000
+/** An install that failed (not a rollback) is tried again automatically after about two checks. */
+export const FAILED_RETRY_AFTER_MS = 2 * CHECK_INTERVAL_MS
 // ponytail: one fixed drain ceiling (install-local.sh's default); make it a setting if 30 min is wrong.
 export const DRAIN_TIMEOUT_MS = 30 * 60_000
 const DRAIN_POLL_MS = 5_000
@@ -323,8 +336,9 @@ export async function onBoot(options: UpdaterOptions): Promise<UpdateState> {
     const result = JSON.parse(fs.readFileSync(resultPath(), 'utf8'))
     if (Number(result.at) * 1000 >= (state.installing_at || 0) - 1000 && result.detail) detail = result.detail
   } catch { /* no result */ }
+  // It was installed and did not come up healthy: never this signature again automatically.
   const next = patchState({ phase: options.currentVersion === target ? 'failed' : 'rolled_back', error: detail,
-    skip_version: target, install_requested: false, staged_app: null })
+    skip_signature: state.release.signature, install_requested: false, staged_app: null })
   await releaseOurPause()
   return next
 }
@@ -403,10 +417,12 @@ export async function handleOffer(
   if (!release || compareVersions(String(release.version), o.currentVersion) <= 0) return
   const before = readState()
   const asked = force || !!offer.update_now || !!before.install_requested
-  // A version that rolled back here, or a download that failed, waits for the owner to ask again;
-  // a two-minute loop of half-gigabyte downloads is not a retry policy.
-  if (!asked && release.version === before.skip_version) return
-  if (!asked && before.phase === 'failed' && before.release?.sha256 === release.sha256) return
+  // A release that rolled back here waits for the owner (or a re-publish: a new signature). A failed
+  // install of this same signature is tried again after about two checks. A download that was not
+  // ready records nothing, so the next check simply tries again.
+  if (!asked && release.signature === before.skip_signature) return
+  if (!asked && release.signature === before.failed_signature
+    && Date.now() - (before.failed_at || 0) < FAILED_RETRY_AFTER_MS) return
   const settings = await o.getSettings()
   let trusted = settings.trusted_publisher_key
   const offered = offer.publisher?.public_key_base64 || ''
@@ -429,38 +445,61 @@ export async function handleOffer(
   if (!sameRelease || !['ready', 'draining', 'installing'].includes(state.phase)) {
     if (state.phase === 'draining' || state.phase === 'installing') return
     await stage(release)
+    if (readState().phase !== 'ready') return
   }
   await maybeInstall()
 }
 
-async function stage(release: ReleaseDescriptor): Promise<void> {
-  const o = opts!
-  const dir = path.join(updateDir(), 'staging', release.version)
-  await toTrash(dir, 'app-update')
-  await fsp.mkdir(dir, { recursive: true })
-  patchState({ phase: 'downloading', release, error: null, staged_app: null, held: false })
+/** Record an install failure against the release's signature (see `failed_signature`). */
+function markFailed(error: unknown): UpdateState {
+  return patchState({ phase: 'failed', error: String((error as any)?.message || error),
+    failed_signature: readState().release?.signature ?? null, failed_at: Date.now() })
+}
+
+/**
+ * Download the whole file (the Gateway serves it without Range; any interruption starts again from
+ * zero next time) and check its signed size and sha256. Every failure here means the file is not
+ * fully available yet (404, a short or still-uploading file, a dropped connection): nothing is
+ * recorded as a failed install, and the next check tries again.
+ */
+async function download(release: ReleaseDescriptor, file: string): Promise<boolean> {
   try {
-    const { url, key } = await o.gateway()
-    const f = o.fetch ?? fetch
+    const { url, key } = await opts!.gateway()
+    const f = opts!.fetch ?? fetch
     const response = await f(`${url.replace(/\/+$/, '')}/v1/apps/story/release/file`, {
       headers: { Authorization: `Bearer ${key}`, 'X-Caller': STORY_CALLER },
     })
-    if (!response.ok || !response.body) throw new Error(`The Gateway answered ${response.status} to the download.`)
-    const file = path.join(dir, release.filename)
+    if (!response.ok || !response.body) throw new Error(`the Gateway answered ${response.status} to the download`)
     const hash = createHash('sha256')
     let size = 0
     await pipeline(Readable.fromWeb(response.body as any), new Transform({
       transform(chunk, _enc, done) { hash.update(chunk); size += chunk.length; done(null, chunk) },
     }), fs.createWriteStream(`${file}.part`))
     if (size !== release.bytes || hash.digest('hex') !== release.sha256) {
-      throw new Error('The downloaded file does not match the signed release.')
+      throw new Error('the downloaded file does not match the signed release yet')
     }
     await fsp.rename(`${file}.part`, file)
+    return true
+  } catch (e: any) {
+    patchState({ phase: 'idle', staged_app: null,
+      error: `${release.version} is not fully available yet (${String(e?.message || e)}); trying again at the next check.` })
+    return false
+  }
+}
+
+async function stage(release: ReleaseDescriptor): Promise<void> {
+  const dir = path.join(updateDir(), 'staging', release.version)
+  await toTrash(dir, 'app-update')
+  await fsp.mkdir(dir, { recursive: true })
+  patchState({ phase: 'downloading', release, error: null, staged_app: null, held: false })
+  const file = path.join(dir, release.filename)
+  if (!await download(release, file)) return
+  try {
     const app = await extractApp(file, path.join(dir, 'app'))
     await checkBundle(app, release.version)
-    patchState({ phase: 'ready', staged_app: app })
-  } catch (e: any) {
-    patchState({ phase: 'failed', error: String(e?.message || e) })
+    patchState({ phase: 'ready', staged_app: app, failed_signature: null, failed_at: null })
+  } catch (e) {
+    markFailed(e)
     throw e
   }
 }
@@ -558,7 +597,7 @@ function watchDrain(): void {
     }
     const timedOut = Date.now() - (state.drain_started_at || 0) > DRAIN_TIMEOUT_MS
     if (o.queue.running() === 0 || timedOut) {
-      await install().catch(e => patchState({ phase: 'failed', error: String(e?.message || e) }))
+      await install().catch(e => markFailed(e))
       return
     }
     drainTimer = setTimeout(() => { void tick() }, DRAIN_POLL_MS)
@@ -612,13 +651,13 @@ export async function install(): Promise<void> {
   // If the quit never happens the helper gives up after 5 minutes; say so here too.
   setTimeout(() => {
     quittingForUpdate = false
-    patchState({ phase: 'failed', error: 'Story Studio did not quit for the update; nothing was replaced.' })
+    markFailed('Story Studio did not quit for the update; nothing was replaced.')
     void releaseOurPause()
   }, 6 * 60_000).unref()
 }
 
 let timer: NodeJS.Timeout | null = null
-/** Boot settle, then a check-in every two minutes. */
+/** Boot settle, a check-in shortly after startup, then every 30 minutes (and on Check Now). */
 export async function startAppUpdater(options: UpdaterOptions): Promise<void> {
   await onBoot(options)
   const tick = () => { void checkNow() }
