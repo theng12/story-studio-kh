@@ -74,6 +74,7 @@ describe('useJobDetails — full records for the cards a page shows', () => {
   test('the Jobs page renders the merged view and asks for the cards it shows', () => {
     const page = readFileSync(fileURLToPath(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url)), 'utf8')
     assert.match(page, /const jobs = computed\(\(\) => streamedJobs\.value\.map\(job => jobDetails\.withDetail\(job\)\)/)
-    assert.match(page, /\.\.\.activeJobs\.value, \.\.\.paginatedHistory\.value/)
+    // Only the Active rows on screen (capped at 25 until Show All) ask for detail.
+    assert.match(page, /\.\.\.visibleActiveJobs\.value, \.\.\.paginatedHistory\.value/)
   })
 })

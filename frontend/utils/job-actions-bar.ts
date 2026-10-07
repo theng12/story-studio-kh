@@ -29,7 +29,7 @@ export interface CheckCounts {
 export function checkRunningJobsAction(counts: CheckCounts, busy: { self: boolean; other: boolean }): PrimaryAction {
   const total = counts.unsettled + counts.repairable + counts.episodes
   if (busy.self) return { label: 'Checking…', disabled: true, hint: 'Asking the gateway about each job and collecting finished results.' }
-  const label = `Check on running jobs (${total})`
+  const label = `Check Running Jobs (${total})`
   if (busy.other) return { label, disabled: true, hint: 'Wait for the action that is running to finish.' }
   if (!total) {
     return {
@@ -46,39 +46,39 @@ export function checkRunningJobsAction(counts: CheckCounts, busy: { self: boolea
 }
 
 export interface RedoCounts {
-  /** Failed jobs Retry may start again now. */
+  /** Failed jobs Retry Failed Jobs may start again now. */
   redo: number
-  /** Failed jobs held back that "Check on running jobs" has not looked at yet. */
+  /** Failed jobs held back that "Check Running Jobs" has not looked at yet. */
   waitingForCheck: number
   /** Held back because the Gateway says their work is still running. */
   stillRunning?: number
   /** Held back because the last check could not get an answer for them. */
   couldNotCheck?: number
-  /** Failed jobs whose files were all found by a check — nothing to redo. */
+  /** Failed jobs whose files were all found by a check — nothing to retry. */
   alreadyComplete: number
 }
 
 export function redoFailedJobsAction(counts: RedoCounts, busy: { self: boolean; other: boolean; progress?: string }): PrimaryAction {
-  if (busy.self) return { label: busy.progress || 'Redoing…', disabled: true, hint: 'Starting the failed jobs again.' }
-  const label = `Redo failed jobs (${counts.redo})`
+  if (busy.self) return { label: busy.progress || 'Retrying…', disabled: true, hint: 'Starting the failed jobs again.' }
+  const label = `Retry Failed Jobs (${counts.redo})`
   if (busy.other) return { label, disabled: true, hint: 'Wait for the action that is running to finish.' }
   // Each held-back job gets its own real reason. A job the check already
   // looked at is never told to wait for the check again (Dreamlands loop).
   const running = counts.stillRunning || 0
   const unchecked = counts.couldNotCheck || 0
   const held = [
-    running ? `${running} ${running === 1 ? 'is' : 'are'} still running on the Macs — Redo waits for ${running === 1 ? 'it' : 'them'} so nothing is paid twice.` : '',
+    running ? `${running} ${running === 1 ? 'is' : 'are'} still running on the Macs — Retry waits for ${running === 1 ? 'it' : 'them'} so nothing is paid twice.` : '',
     unchecked ? `${unchecked} could not be checked — open ${unchecked === 1 ? 'it' : 'them'} to see why, or check again later.` : '',
   ].filter(Boolean).join(' ')
   const waiting = counts.waitingForCheck
-    ? `${counts.waitingForCheck} more wait${counts.waitingForCheck === 1 ? 's' : ''} for "Check on running jobs" first.`
+    ? `${counts.waitingForCheck} more wait${counts.waitingForCheck === 1 ? 's' : ''} for "Check Running Jobs" first.`
     : ''
   if (!counts.redo) {
     if (counts.waitingForCheck) {
-      return { label, disabled: true, hint: [`${counts.waitingForCheck} failed job${counts.waitingForCheck === 1 ? '' : 's'} may still be finishing — click "Check on running jobs" first.`, held].filter(Boolean).join(' ') }
+      return { label, disabled: true, hint: [`${counts.waitingForCheck} failed job${counts.waitingForCheck === 1 ? '' : 's'} may still be finishing — click "Check Running Jobs" first.`, held].filter(Boolean).join(' ') }
     }
     if (held) return { label, disabled: true, hint: held }
-    if (counts.alreadyComplete) return { label, disabled: true, hint: 'Nothing to redo — the check found every file. Clear failed removes the rows.' }
+    if (counts.alreadyComplete) return { label, disabled: true, hint: 'Nothing to retry — the check found every file. "Remove Failed From List" removes the rows.' }
     return { label, disabled: true, hint: 'Nothing failed.' }
   }
   return {
@@ -119,14 +119,14 @@ export function classifyCheckedJob(job: CheckedJobFacts): CheckOutcome {
   return 'needs-redo'
 }
 
-/** The one plain line a check ends with, e.g. "Checked 5: 2 finished and saved, 1 still running, 2 need Redo." */
+/** The one plain line a check ends with, e.g. "Checked 5: 2 finished and saved, 1 still running, 2 need Retry." */
 export function describeCheckResult(outcomes: readonly CheckOutcome[], recoveryJobsStarted = 0): string {
   const n = (outcome: CheckOutcome) => outcomes.filter(o => o === outcome).length
   const parts = [
     n('finished') ? `${n('finished')} finished and saved` : '',
     n('still-running') ? `${n('still-running')} still running` : '',
     n('could-not-check') ? `${n('could-not-check')} could not be checked` : '',
-    n('needs-redo') ? `${n('needs-redo')} need${n('needs-redo') === 1 ? 's' : ''} Redo` : '',
+    n('needs-redo') ? `${n('needs-redo')} need${n('needs-redo') === 1 ? 's' : ''} Retry` : '',
   ].filter(Boolean)
   const started = recoveryJobsStarted
     ? ` Started ${recoveryJobsStarted} free image recovery job${recoveryJobsStarted === 1 ? '' : 's'} (downloads only, no charge).`
@@ -140,7 +140,7 @@ export const MORE_ACTION_HINTS = {
   // The owner "just clicks them randomly": the hints say WHAT each one looks at.
   recover: 'Per episode: looks for that episode’s missing narration and images and downloads any the Macs already finished. Never generates or charges.',
   repair: 'Per failed job: asks the gateway about that job’s own recorded requests and downloads any that finished late. Never generates or charges.',
-  queue: 'Holds new work in every project. Work already sent keeps going.',
+  queue: 'Holds new work in every channel. Work already sent keeps going.',
   resume: 'Continues paused jobs from where they stopped.',
   clearFinished: 'Removes finished rows from this list. Keeps files and billing records.',
   clearFailed: 'Removes failed rows whose provider work has settled. Keeps files and billing records.',

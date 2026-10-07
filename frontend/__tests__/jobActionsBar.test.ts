@@ -11,9 +11,9 @@ import { jobDisplayStatus } from '../utils/episode-recovery.js'
 
 const idle = { self: false, other: false }
 
-test('Check on running jobs counts what it will ask about and says it never charges', () => {
+test('Check Running Jobs counts what it will ask about and says it never charges', () => {
   const a = checkRunningJobsAction({ unsettled: 2, repairable: 3, episodes: 1, running: 4 }, idle)
-  assert.equal(a.label, 'Check on running jobs (6)')
+  assert.equal(a.label, 'Check Running Jobs (6)')
   assert.equal(a.disabled, false)
   assert.match(a.hint, /Never generates anything new or charges/)
 })
@@ -26,16 +26,16 @@ test('Check is off with a reason when there is nothing to check', () => {
   assert.match(checkRunningJobsAction({ unsettled: 1, repairable: 0, episodes: 0, running: 0 }, { self: false, other: true }).hint, /Wait for the action/)
 })
 
-test('Redo failed jobs promises no double charge and names what waits for a check', () => {
+test('Retry Failed Jobs promises no double charge and names what waits for a check', () => {
   const a = redoFailedJobsAction({ redo: 10, waitingForCheck: 3, alreadyComplete: 0 }, idle)
-  assert.equal(a.label, 'Redo failed jobs (10)')
+  assert.equal(a.label, 'Retry Failed Jobs (10)')
   assert.equal(a.disabled, false)
   assert.match(a.hint, /not charged twice/)
-  assert.match(a.hint, /3 more wait for "Check on running jobs" first/)
+  assert.match(a.hint, /3 more wait for "Check Running Jobs" first/)
 })
 
-test('Redo is off with the reason that actually applies', () => {
-  assert.match(redoFailedJobsAction({ redo: 0, waitingForCheck: 2, alreadyComplete: 0 }, idle).hint, /click "Check on running jobs" first/)
+test('Retry is off with the reason that actually applies', () => {
+  assert.match(redoFailedJobsAction({ redo: 0, waitingForCheck: 2, alreadyComplete: 0 }, idle).hint, /click "Check Running Jobs" first/)
   assert.match(redoFailedJobsAction({ redo: 0, waitingForCheck: 0, alreadyComplete: 4 }, idle).hint, /found every file/)
   const none = redoFailedJobsAction({ redo: 0, waitingForCheck: 0, alreadyComplete: 0 }, idle)
   assert.equal(none.disabled, true)
@@ -63,12 +63,12 @@ test('a job the check already looked at is never told to wait for the check agai
   assert.equal(providerHoldReason('unreachable', false), 'could-not-check')
   assert.equal(providerHoldReason('unsettled', true), 'still-running')
   const afterCheck = redoFailedJobsAction({ redo: 0, waitingForCheck: 0, stillRunning: 1, couldNotCheck: 1, alreadyComplete: 0 }, idle)
-  assert.doesNotMatch(afterCheck.hint, /Check on running jobs/)
+  assert.doesNotMatch(afterCheck.hint, /Check Running Jobs/)
   assert.match(afterCheck.hint, /1 is still running on the Macs/)
   assert.match(afterCheck.hint, /1 could not be checked/)
   const mixed = redoFailedJobsAction({ redo: 2, waitingForCheck: 0, stillRunning: 1, alreadyComplete: 0 }, idle)
   assert.equal(mixed.disabled, false)
-  assert.doesNotMatch(mixed.hint, /wait.? for "Check on running jobs"/)
+  assert.doesNotMatch(mixed.hint, /wait.? for "Check Running Jobs"/)
 })
 
 test('the check ends with one plain line and names any recovery jobs it started', () => {
@@ -79,7 +79,7 @@ test('the check ends with one plain line and names any recovery jobs it started'
     classifyCheckedJob({ displayStatus: 'error', repairable: true, repair: { outcome: 'measured', result: { stillMissing: 2 } } }),
     classifyCheckedJob({ displayStatus: 'error' }),
   ]
-  assert.equal(describeCheckResult(outcomes), 'Checked 5: 2 finished and saved, 1 still running, 2 need Redo.')
+  assert.equal(describeCheckResult(outcomes), 'Checked 5: 2 finished and saved, 1 still running, 2 need Retry.')
   assert.equal(classifyCheckedJob({ displayStatus: 'error', repairable: true }), 'could-not-check', 'a repair that never answered is not "needs Redo"')
   assert.match(describeCheckResult(outcomes, 3), /Started 3 free image recovery jobs \(downloads only, no charge\)\.$/)
 })

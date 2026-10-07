@@ -21,6 +21,8 @@ async function loadJobs(): Promise<Component> {
     const definePageMeta = () => undefined
     const useAppTitle = () => undefined
     const useRoute = () => globalThis.__jobsRoute
+    const useRouter = () => ({ replace: async () => undefined })
+    const useConfirm = () => ({ ask: async () => true })
     const useApi = () => globalThis.__jobsApi
     const useJobs = () => globalThis.__jobsProjectQueue
     const useAllJobs = () => globalThis.__jobsUniversalQueue
@@ -66,6 +68,7 @@ async function loadJobs(): Promise<Component> {
     const jobDisplayLabel = globalThis.__jobDisplayLabel
     const jobsEmptyState = globalThis.__jobsEmptyState
     const retryAdmissionAllowed = globalThis.__retryAdmissionAllowed
+    import { bulkConfirmOptions, capList, controlLabel, episodeQueryValue, isPaidWork, matchesEpisodeSearch, pageCount, pageSlice } from ${JSON.stringify(new URL('../utils/jobs-list.ts', import.meta.url).href)}
   `
   const content = script.content
     .replace(/^import[\s\S]*?from ['"][^'"]+['"];?\n/gm, '')
@@ -104,7 +107,7 @@ async function mount(
     const calls: any[] = []
     refreshStats()
     return {
-      jobs: readonly(jobRows), stats: readonly(queueStats), jobsStale: readonly(jobsStale), lastRefreshError: readonly(lastRefreshError), jobsStaleState: jobsStale, lastRefreshErrorState: lastRefreshError, calls,
+      jobs: readonly(jobRows), stats: readonly(queueStats), isLoading: readonly(ref(false)), jobsStale: readonly(jobsStale), lastRefreshError: readonly(lastRefreshError), jobsStaleState: jobsStale, lastRefreshErrorState: lastRefreshError, calls,
       applyUpdate(next: any) {
         calls.push(next)
         const rows = [...jobRows.value]
@@ -256,7 +259,7 @@ test('mounted Retry all shares three workers, reports progress, ignores repeat c
     assert.equal(mounted.state.retryAllRun.value.completed, 0)
     assert.equal(mounted.state.retryAllRun.value.total, 4)
     assert.equal(mounted.state.retryAllButtonLabel.value, 'Retrying 0/4…')
-    assert.equal(mounted.state.retryAllStatusMessage.value, 'Redo failed jobs: 0 of 4 finished · working on project-a / EP0001, project-a / EP0002, project-a / EP0003.')
+    assert.equal(mounted.state.retryAllStatusMessage.value, 'Retry Failed Jobs: 0 of 4 finished · working on project-a / EP0001, project-a / EP0002, project-a / EP0003.')
     assert.equal(await mounted.state.retryAllFailed(), false, 'a repeated click cannot start a second snapshot')
     assert.equal(mounted.posts.length, 3)
 
@@ -283,7 +286,7 @@ test('mounted Retry all shares three workers, reports progress, ignores repeat c
     })
     assert.equal(await retry, true)
     assert.deepEqual(mounted.state.retryAllCounts.value, { sent: 3, alreadyComplete: 1, needsAttention: 0 })
-    assert.equal(mounted.state.bulkActionMessage.value, 'Redo failed jobs finished: 3 queued or running; 1 already complete; 0 need attention. Original failed rows may remain in history.')
+    assert.equal(mounted.state.bulkActionMessage.value, 'Retry Failed Jobs finished: 3 queued or running; 1 already complete; 0 need attention. Original failed rows may remain in history.')
     assert.equal(mounted.state.retryAllStatusMessage.value, mounted.state.bulkActionMessage.value, 'the final counts remain visible after the workers finish')
     assert.equal(mounted.posts.some(call => call.path.includes('project-b')), false, 'changing the filter does not widen the active snapshot')
     assert.deepEqual(mounted.universalQueue.transportCalls(), { refreshCalls: 1, fetchCalls: 0 }, 'the visible queue refreshes once after the snapshot settles')
@@ -343,7 +346,7 @@ test('mounted Retry all classifies every recovery plan and continues after failu
     ])
     assert.deepEqual(mounted.toasts[mounted.toasts.length - 1], {
       kind: 'error',
-      message: 'Redo failed jobs finished: 1 queued or running; 1 already complete; 5 need attention. Original failed rows may remain in history.',
+      message: 'Retry Failed Jobs finished: 1 queued or running; 1 already complete; 5 need attention. Original failed rows may remain in history.',
     })
   } finally { mounted.unmount() }
 })
