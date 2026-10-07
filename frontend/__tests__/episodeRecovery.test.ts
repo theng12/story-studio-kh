@@ -30,11 +30,22 @@ test('cancelled subtitle, Scene Plan, and Scene Review retries use saved source 
   assert.deepEqual(grouped.episodes, [{ project_slug: 'p', episode_id: 'EP0001', source_job_ids: jobs.map(job => job.job_id) }])
   const page = readFileSync(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url), 'utf8')
   const retry = page.slice(page.indexOf('async function retryJob('), page.indexOf('async function autoRepairScenePrompts', page.indexOf('async function retryJob(')))
-  assert.match(retry, /if \(isEpisodeRecoveryType\(job.type\)\)/)
+  assert.match(retry, /if \(isEpisodeRecoveryType\(job.type, job.params\)\)/)
   assert.match(retry, /source_job_ids: \[job.job_id\]/)
   assert.doesNotMatch(retry, /status !== 'cancelled'/)
   assert.doesNotMatch(page.slice(page.indexOf('async function retryJob(')), /video-editor\/subtitles\/transcribe/)
   assert.deepEqual(jobs[0].params, { force: true, sections: ['Chapter_02'] })
+})
+
+test('standalone chapter Retry and Retry All preserve their scope without requesting full-episode recovery', async () => {
+  const { groupEpisodeRecoveryRetries, isEpisodeRecoveryType } = await import('../utils/episode-recovery')
+  const scoped = { job_id: 'chapter-check', project_slug: 'p', episode_id: 'EP0001', type: 'subtitles_transcribe',
+    params: { per_chapter: true, sections: ['Chapter_18'] } }
+  assert.equal(isEpisodeRecoveryType(scoped.type, scoped.params), false)
+  const full = { ...scoped, job_id: 'whole-episode', params: { per_chapter: true } }
+  const grouped = groupEpisodeRecoveryRetries([scoped, full])
+  assert.deepEqual(grouped.other, [scoped])
+  assert.deepEqual(grouped.episodes, [{ project_slug: 'p', episode_id: 'EP0001', source_job_ids: ['whole-episode'] }])
 })
 
 test('only a verified normal subtitle recovery is presented as recovered', async () => {

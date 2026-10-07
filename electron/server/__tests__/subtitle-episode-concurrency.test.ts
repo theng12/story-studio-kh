@@ -31,6 +31,44 @@ import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
 import {
   SUBTITLE_EPISODE_CONCURRENCY_DEFAULT,
 } from '../services/app-settings.js'
+import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
+
+test('chapter jobs of one episode are serialized while another episode uses the second slot', async () => {
+  const isolated = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  const pm = await import('../services/project-manager.js')
+  const project = await pm.createProject({ name: 'Chapter check queue ownership' })
+  const started: string[] = []
+  const release = new Map<string, () => void>()
+  const wasPaused = jq.isQueuePaused()
+  await jq.setQueuePaused(true)
+  jq.setSubtitleTranscribeConcurrency(2)
+  jq.registerExecutor('subtitles_transcribe', async job => {
+    started.push(job.title)
+    await new Promise<void>(resolve => release.set(job.title, resolve))
+    job.result = { complete: true }
+  })
+  const queued: Array<{ job_id: string }> = []
+  try {
+    for (const [title, episode] of [['first', 'EP0001'], ['second', 'EP0001'], ['other', 'EP0002']]) {
+      queued.push(await jq.enqueue({ project_slug: project.slug, episode_id: episode, type: 'subtitles_transcribe',
+        title, params: { narration_refresh_job_id: title }, dedupeParams: params => params.narration_refresh_job_id === title }))
+    }
+    await jq.setQueuePaused(false)
+    await waitFor(() => started.length === 2, { label: 'two episode slots' })
+    assert.deepEqual(started, ['first', 'other'])
+    release.get('first')!()
+    await waitFor(() => started.includes('second'), { label: 'next chapter after first worker releases ownership' })
+    release.get('second')!(); release.get('other')!()
+    await waitFor(() => queued.every(job => jq.getJob(job.job_id)?.status === 'done'), { label: 'all checks done' })
+  } finally {
+    for (const resolve of release.values()) resolve()
+    await jq.setQueuePaused(wasPaused)
+    await jq._waitForJobPersistenceForTesting()
+    await isolated.cleanup()
+  }
+})
 
 describe('chapters stay wide, episodes become narrow', () => {
   test('a ten-chapter episode still fans out ten ways', () => {

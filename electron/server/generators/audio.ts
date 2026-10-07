@@ -1799,37 +1799,45 @@ export async function generateAudio(job: Job): Promise<void> {
  * are now out of date are transcribed (no `force`), so a replay never pays twice.
  */
 export async function queueSubtitlesAfterNarration(job: Job, sectionSlugs: string[]): Promise<void> {
-  const { project_slug, episode_id } = job
-  const code = episode_id.toUpperCase()
-  const label = sectionSlugs.map(slug => slug.replaceAll('_', ' ')).join(', ')
-  const paths = await resolveEpisodePathsByCodeWithSidecar(project_slug, episode_id, 'audio_chapters.json')
-  const { readSubtitleSourceModels } = await import('../services/subtitle-recovery.js')
-  const used = await readSubtitleSourceModels(paths.subtitles_dir).catch(() => ({} as Record<string, string>))
-  const lastRun = (await jq.getJobs(project_slug))
-    .filter(other => other.type === 'subtitles_transcribe' && other.status === 'done' && typeof other.params?.model === 'string')
-    .sort((a, b) => String(b.finished_at || '').localeCompare(String(a.finished_at || '')))[0]
-  const model = sectionSlugs.map(slug => used[`${code}_${slug}.srt`]).find(Boolean) || lastRun?.params.model
-  // Script-timed subtitles are made again the same way: no transcription model (2026-10-05).
-  const { SCRIPT_TIMED } = await import('../services/script-subtitles.js')
-  const scriptTimed = typeof model === 'string' && model.startsWith(SCRIPT_TIMED)
-  if (!model) {
-    job.output_lines.push(`New subtitles were not started: no earlier transcription model is on record. Make ${label} subtitles on the Subtitles page.`)
-    return
-  }
-  if (jq.isDuplicate(project_slug, episode_id, 'subtitles_transcribe')) {
-    job.output_lines.push(`Subtitles for ${episode_id} are already being made; update ${label} on the Subtitles page once that finishes.`)
-    return
-  }
-  const queued = await jq.enqueue({
-    project_slug,
-    type: 'subtitles_transcribe',
-    episode_id,
-    title: `Subtitles after re-narration (${label})`,
-    params: {
-      episode_id, ...(scriptTimed ? { method: 'script' } : { model }), engine: 'genstudio', per_chapter: true, force: false, sections: sectionSlugs,
-      ...(typeof lastRun?.params.language === 'string' ? { language: lastRun.params.language } : {}),
-    },
+  return withLock(`narration-subtitles:${job.project_slug}:${job.episode_id}`, async () => {
+    const { project_slug, episode_id } = job
+    const code = episode_id.toUpperCase()
+    const label = sectionSlugs.map(slug => slug.replaceAll('_', ' ')).join(', ')
+    const existing = (await jq.getJobs(project_slug)).find(other => other.type === 'subtitles_transcribe'
+      && other.episode_id === episode_id && other.params.narration_refresh_job_id === job.job_id)
+    if (existing) {
+      job.result = { ...job.result, subtitles_job_id: existing.job_id }
+      job.output_lines.push(`Subtitle follow-up for ${label} is already recorded (${existing.job_id}).`)
+      return
+    }
+    const paths = await resolveEpisodePathsByCodeWithSidecar(project_slug, episode_id, 'audio_chapters.json')
+    const { readSubtitleSourceModels } = await import('../services/subtitle-recovery.js')
+    const used = await readSubtitleSourceModels(paths.subtitles_dir).catch(() => ({} as Record<string, string>))
+    const lastRun = (await jq.getJobs(project_slug))
+      .filter(other => other.type === 'subtitles_transcribe' && other.status === 'done' && typeof other.params?.model === 'string')
+      .sort((a, b) => String(b.finished_at || '').localeCompare(String(a.finished_at || '')))[0]
+    const model = sectionSlugs.map(slug => used[`${code}_${slug}.srt`]).find(Boolean) || lastRun?.params.model
+    // Script-timed subtitles are made again the same way: no transcription model (2026-10-05).
+    const { SCRIPT_TIMED } = await import('../services/script-subtitles.js')
+    const scriptTimed = typeof model === 'string' && model.startsWith(SCRIPT_TIMED)
+    if (!model) {
+      job.output_lines.push(`New subtitles were not started: no earlier transcription model is on record. Make ${label} subtitles on the Subtitles page.`)
+      return
+    }
+    const queued = await jq.enqueue({
+      project_slug,
+      type: 'subtitles_transcribe',
+      episode_id,
+      title: `Subtitles after re-narration (${label})`,
+      params: {
+        episode_id, ...(scriptTimed ? { method: 'script' } : { model }), engine: 'genstudio', per_chapter: true, force: false, sections: sectionSlugs,
+        narration_refresh_job_id: job.job_id,
+        narration_refresh_source: { saved_at: new Date().toISOString(), sections: [...sectionSlugs] },
+        ...(typeof lastRun?.params.language === 'string' ? { language: lastRun.params.language } : {}),
+      },
+      dedupeParams: params => params?.narration_refresh_job_id === job.job_id,
+    })
+    job.result = { ...job.result, subtitles_job_id: queued.job_id }
+    job.output_lines.push(`New subtitles for ${label} queued (${queued.job_id}).`)
   })
-  job.result = { ...job.result, subtitles_job_id: queued.job_id }
-  job.output_lines.push(`New subtitles for ${label} queued (${queued.job_id}).`)
 }

@@ -3273,7 +3273,17 @@ function pump(type: JobType): void {
   } else if (group === LLM_GROUP || group === LOCAL_LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP || FLEET_EPISODE_GROUPS.has(group)) {
     while (q.pending.length > 0 && (groupActive[group] || 0) < groupLimit(group)) {
       if (groupOf(type, q.pending[0]) !== group) break
-      const job = q.pending.shift()!
+      // Chapter checks for one episode share subtitle manifests and output paths.
+      // Keep them serial; other episodes still use the published episode concurrency.
+      // ponytail: scan the bounded active workers; index episode owners if very wide lanes make this costly.
+      const index = group === SUBTITLE_TRANSCRIBE_GROUP ? q.pending.findIndex(candidate =>
+        !Array.from(activeRunJobIds).some(id => {
+          const active = jobs.get(id)
+          return active?.type === type && active.project_slug === candidate.project_slug
+            && active.episode_id === candidate.episode_id
+        })) : 0
+      if (index < 0) break
+      const job = q.pending.splice(index, 1)[0]!
       groupActive[group] = (groupActive[group] || 0) + 1
       runJob(type, job).catch(e => console.error(`[job-queue] Error processing ${type}:`, e))
     }

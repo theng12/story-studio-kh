@@ -68,10 +68,19 @@ test('Re-narrate queues only the chapter\'s subtitles, with the model that made 
     assert.deepEqual(queued.params.sections, ['Chapter_03'])
     assert.equal(queued.params.model, 'studio-hub::whisper-turbo')
     assert.equal(queued.params.language, 'en')
+    assert.equal(queued.params.narration_refresh_job_id, audio.job_id)
     assert.equal(queued.params.force, false, 'only out-of-date chapters are transcribed, so a replay never pays twice')
 
     await queueSubtitlesAfterNarration(audio, ['Chapter_03'])
-    assert.match(audio.output_lines.at(-1)!, /already being made/, 'never a second subtitle job for the same episode')
+    assert.match(audio.output_lines.at(-1)!, /already recorded/, 'never repeat the same narration handoff')
+    assert.equal(audio.result?.subtitles_job_id, queued.job_id)
+
+    const second = jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'audio', episode_id: 'EP0001', title: 'Second chapter',
+      params: { episode_id: 'EP0001', then_subtitles: true, sections: 'Chapter_04' }, dedupeParams: params => params.sections === 'Chapter_04' })
+    await queueSubtitlesAfterNarration(second, ['Chapter_04'])
+    const next = (await jq.getJobs(project.slug)).find(row => row.job_id === second.result?.subtitles_job_id)!
+    assert.notEqual(next.job_id, queued.job_id, 'a different chapter repair is not dropped because the first is queued')
+    assert.deepEqual(next.params.sections, ['Chapter_04'])
   } finally {
     await jq._waitForJobPersistenceForTesting()
     if (!wasPaused) await jq.setQueuePaused(false)

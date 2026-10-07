@@ -23,6 +23,8 @@ export interface AudioAssemblyReadiness extends ChapterAudioReadiness {
   merged_audio_path: string | null
 }
 
+export { isScopedChapterTranscription } from '../contracts/subtitle-gaps.js'
+
 interface AudioChaptersManifest {
   sections?: Array<{ slug?: unknown; duration_s?: unknown }>
 }
@@ -38,7 +40,7 @@ function unique(values: string[]): string[] {
   return Array.from(new Set(values))
 }
 
-function chapterKeyOf(filename: string, code: string): string {
+export function chapterKeyOf(filename: string, code: string): string {
   let base = filename.replace(/\.[^.]+$/, '')
   if (base.toUpperCase().startsWith(`${code.toUpperCase()}_`)) {
     base = base.slice(code.length + 1)

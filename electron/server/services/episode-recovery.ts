@@ -8,17 +8,20 @@ import * as jq from './job-queue.js'
 import { getProjectDir, listProjects } from './project-manager.js'
 import { computeEpisodeStatus } from './asset-status.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from './utils.js'
-import { inspectAudioAssemblyReadiness } from './audio-workflow-readiness.js'
+import { inspectAudioAssemblyReadiness, isScopedChapterTranscription } from './audio-workflow-readiness.js'
 import { readStitchPlan } from './subtitle-stitcher.js'
 import { ensureStitchedSubtitle, type EnsureStitchedOptions } from '../lib/subtitle-autostitch.js'
 import { verifyWrittenSubtitleTimeline } from './scene-timeline-integrity.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
 import { inspectPlanTimelineDrift } from '../lib/scene-plan-timeline.js'
+import { hashSubtitleAudioSources, inspectChapterSubtitleCompletion } from './subtitle-completion.js'
+import { readSubtitleSourceAudioHashes } from './subtitle-recovery.js'
 
 export const EPISODE_RECOVERY_ORDER = ['audio_merge', 'subtitle_sections', 'subtitle_stitch', 'scene_plan_run', 'contextual_cues', 'continuity_render'] as const
 export type EpisodeRecoveryStep = typeof EPISODE_RECOVERY_ORDER[number]
 type RecoveryJob = { job_id: string; type: JobType; title: string; params: Job['params']; source_job_id?: string; dispatched?: boolean; manual_image_finish_withheld?: true }
 type RecoveryContinuation = { type: JobType; title?: string; params?: Job['params']; manual_image_finish_withheld?: true }
+type NarrationRefreshAcknowledgement = { source_job_id: string; section: string; job_id: string; created_at: string; source_saved_at: string }
 export interface EpisodeRecoveryPlan {
   version: 1
   id: string
@@ -35,6 +38,125 @@ export interface EpisodeRecoveryPlan {
   pipeline_batch_id?: string
   retry_source_job_ids?: string[]
   next_free_check_at?: string
+  narration_refresh_job_ids?: string[]
+  narration_refresh_checks?: NarrationRefreshAcknowledgement[]
+}
+
+function savedNarrationStamp(check: Job): string | null {
+  const proof = check.params.narration_refresh_source
+  const sections = check.params.sections as string[]
+  return proof && typeof proof.saved_at === 'string' && Number.isFinite(Date.parse(proof.saved_at))
+    && new Date(proof.saved_at).toISOString() === proof.saved_at && Array.isArray(proof.sections)
+    && proof.sections.length === sections.length && new Set(sections.map(section => section.trim().toLowerCase())).size === sections.length
+    && new Set(proof.sections.map((section: unknown) => typeof section === 'string' ? section.trim().toLowerCase() : section)).size === sections.length
+    && proof.sections.every((section: unknown) => typeof section === 'string'
+      && sections.some(item => item.trim().toLowerCase() === section.trim().toLowerCase()))
+    ? proof.saved_at : null
+}
+
+function savedNarrationSource(check: Job, jobs: Job[]): string | null {
+  const stamp = savedNarrationStamp(check)
+  if (check.params.narration_refresh_source && !stamp) return null
+  const source = jobs.find(job => job.job_id === check.params.narration_refresh_job_id)
+  if (source) return source.type === 'audio' && source.project_slug === check.project_slug && source.episode_id === check.episode_id
+    && source.params?.then_subtitles === true && !source.force_abandoned && source.status !== 'cancelled'
+    ? stamp || source.finished_at || source.started_at || source.created_at : null
+  return stamp
+}
+
+/** Only a server-stamped child of this episode's narration can request a refresh. */
+function narrationRefreshChecks(jobs: Job[]): Job[] {
+  return jobs.filter(job => job.type === 'subtitles_transcribe' && isScopedChapterTranscription(job.params)
+    && typeof job.params.narration_refresh_job_id === 'string'
+    && !!job.params.narration_refresh_job_id.trim()
+    && !!savedNarrationSource(job, jobs))
+}
+
+async function continueFailedSubtitleCheck(plan: EpisodeRecoveryPlan, job: Job, explicit: boolean): Promise<void> {
+  if (job.status !== 'error') return
+  if (explicit) { await jq.resumeEpisodeRecoveryJob(job.job_id, true); return }
+  const states = Object.values(job.params?.subtitle_recovery?.sections || {}) as Array<{ state?: string }>
+  if (!states.some(state => state.state === 'waiting_settlement' || state.state === 'free_recovery')) return
+  const due = Date.parse(plan.next_free_check_at || '')
+  plan.next_free_check_at ||= new Date(Date.now() + 30_000).toISOString()
+  if (Number.isFinite(due) && due <= Date.now()) {
+    plan.next_free_check_at = new Date(Date.now() + 30_000).toISOString()
+    await jq.resumeEpisodeRecoveryJob(job.job_id)
+  }
+}
+
+/** The existing episode lock coalesces the currently known chapter repair batch. */
+async function waitForNarrationRefreshChecks(plan: EpisodeRecoveryPlan, jobs: Job[], sourceJobIds: string[]): Promise<boolean> {
+  if (!plan.narration_refresh_job_ids?.length) return false
+  const owned = jobs.filter(job => job.project_slug === plan.project_slug && job.episode_id === plan.episode_id)
+  const stamped = narrationRefreshChecks(owned).filter(job => plan.narration_refresh_job_ids!.includes(job.params.narration_refresh_job_id))
+  const acknowledgements = new Map((plan.narration_refresh_checks || []).map(check => [`${check.source_job_id}:${check.section.toLowerCase()}`, check]))
+  const expected = new Map(acknowledgements)
+  for (const check of stamped) for (const section of check.params.sections as string[]) {
+    const key = `${check.params.narration_refresh_job_id}:${section.toLowerCase()}`
+    if (!expected.has(key)) expected.set(key, { source_job_id: check.params.narration_refresh_job_id, section,
+      job_id: check.job_id, created_at: check.created_at, source_saved_at: savedNarrationSource(check, owned)! })
+  }
+  // ponytail: repair batches are small; scan owned history per chapter, index it if long histories become costly.
+  const failed = new Set<Job>()
+  const successful: Array<[string, NarrationRefreshAcknowledgement]> = []
+  const absent = plan.narration_refresh_job_ids.filter(id => ![...expected.values()].some(check => check.source_job_id === id))
+  for (const [key, scope] of expected) {
+    const latest = owned.filter(job => job.type === 'subtitles_transcribe' && isScopedChapterTranscription(job.params)
+      && job.created_at >= scope.created_at && (job.params.sections as string[]).some(item => item.trim().toLowerCase() === scope.section.trim().toLowerCase()))
+      .sort((a, b) => a.created_at.localeCompare(b.created_at)).at(-1)
+    if (latest && (latest.status !== 'done' || latest.result?.scope_complete !== true)) { failed.add(latest); continue }
+    if (!latest && !acknowledgements.has(key)) { absent.push(scope.source_job_id); continue }
+    successful.push([key, latest ? { ...scope, job_id: latest.job_id, created_at: latest.created_at } : scope])
+  }
+  const invalid: string[] = []
+  if (successful.length) {
+    try {
+      const sections = [...new Set(successful.map(([, check]) => check.section))]
+      const { resolveSubtitleChapterSources } = await import('../generators/subtitles.js')
+      const { audioDir, episodePaths, allSections } = await resolveSubtitleChapterSources(plan.project_slug, plan.episode_id.toUpperCase(), sections)
+      const [recorded, coverage] = await Promise.all([
+        readSubtitleSourceAudioHashes(episodePaths.subtitles_dir),
+        inspectChapterSubtitleCompletion(episodePaths.subtitles_dir, plan.episode_id, sections),
+      ])
+      for (const [key, check] of successful) {
+        const source = allSections.find(section => section.slug.toLowerCase() === check.section.toLowerCase())
+        const hash = source && await hashSubtitleAudioSources(source.files.map(file => path.join(audioDir, file)))
+        const filename = `${plan.episode_id.toUpperCase()}_${source?.slug || check.section}.srt`
+        if (!hash || recorded[filename] !== hash || !coverage.completed_sections.includes(check.section)) invalid.push(check.section)
+        else if (owned.some(job => job.job_id === check.source_job_id && job.type === 'audio' && job.status === 'done')
+          || stamped.some(job => job.params.narration_refresh_job_id === check.source_job_id && !!savedNarrationStamp(job))
+          || acknowledgements.has(key)) acknowledgements.set(key, check)
+      }
+    } catch (error) {
+      plan.message = `Audio Assembly waiting for verified chapter subtitle sources: ${error instanceof Error ? error.message : String(error)}`
+      return true
+    }
+  }
+  // These compact, hash-checked acknowledgements survive Clear Finished without
+  // turning an absent failed or unknown job into a successful one.
+  plan.narration_refresh_checks = [...acknowledgements.values()]
+  if (owned.some(job => (job.type === 'audio' || (job.type === 'subtitles_transcribe' && isScopedChapterTranscription(job.params)))
+    && ['queued', 'running', 'paused'].includes(job.status))) {
+    plan.message = 'Waiting for narration and chapter subtitle checks before Audio Assembly.'
+    return true
+  }
+  if (plan.narration_refresh_job_ids.some(id => {
+    const source = owned.find(job => job.job_id === id)
+    return source ? source.type !== 'audio' || source.status !== 'done' || source.force_abandoned
+      : ![...expected.values()].some(check => check.source_job_id === id && check.source_saved_at)
+  })) {
+    plan.message = 'Audio Assembly waiting for the saved chapter narration to finish successfully. Retry the failed narration before checking its subtitles.'
+    return true
+  }
+  if (invalid.length) {
+    plan.message = `Audio Assembly waiting for current subtitle source evidence for ${[...new Set(invalid)].join(', ')}. Active narration changed or its checked transcript is unavailable. Re-transcribe those chapters; completed chapters are preserved.`
+    return true
+  }
+  if (!absent.length && !failed.size) return false
+  for (const job of failed) await continueFailedSubtitleCheck(plan, job, sourceJobIds.includes(job.job_id))
+  plan.message = `Audio Assembly waiting for chapter subtitle checks. ${[...failed].map(job => job.error || job.title).join(' ')}${absent.length ? ' The saved narration refresh has no verified chapter check; open Subtitles to check the repaired chapters.' : ''}`
+  return true
 }
 
 const MANUAL_IMAGE_FINISH_GUIDANCE = 'Open Scene Review and use Finish missing images with the current model settings.'
@@ -277,6 +399,9 @@ async function inspectRecovery(plan: EpisodeRecoveryPlan, jobs: Job[]) {
   if (jobs.some(job => job.type === 'audio_merge' && ['queued', 'running', 'paused'].includes(job.status))) {
     return { verified: unresolved, message: 'Waiting for the active Audio Assembly job.' }
   }
+  if (plan.narration_refresh_job_ids?.length && !plan.steps.audio_merge?.dispatched) {
+    return { verified: unresolved, message: 'Chapter repair requires Audio Assembly with the saved mix settings' }
+  }
   const audio = await inspectAudioAssemblyReadiness(plan.project_slug, plan.episode_id)
   if (!audio.audio_assembly_ready) return { verified: unresolved, message: audio.issues.join(' ') }
   const paths = await resolveEpisodePathsByCode(plan.project_slug, plan.episode_id)
@@ -316,6 +441,11 @@ export async function dispatchEpisodeRecoveryStep(
   for (const job of jobs) {
     const step = episodeRecoveryStep(job.type)
     if (step && ['queued', 'running', 'paused'].includes(job.status)) verified[step] = false
+  }
+  if (!verified.audio_merge && await waitForNarrationRefreshChecks(plan, jobs, sourceJobIds)) {
+    plan.completed = []
+    plan.first_unresolved = 'audio_merge'
+    return
   }
   const step = nextEpisodeRecoveryStep(plan, verified)
   plan.message = step ? `${facts.message}. Waiting for ${labels[step]}.` : 'Episode recovery complete.'
@@ -365,15 +495,7 @@ export async function dispatchEpisodeRecoveryStep(
     plan.message = states.map(state => state.message).filter(Boolean).join(' ') || existing.error || plan.message
     if (existing.status === 'error' && sourceJobIds.length) {
       await jq.resumeEpisodeRecoveryJob(existing.job_id, true)
-    } else if (step === 'subtitle_sections' && existing.status === 'error'
-      && states.some(state => state.state === 'waiting_settlement' || state.state === 'free_recovery')) {
-      const due = Date.parse(plan.next_free_check_at || '')
-      plan.next_free_check_at ||= new Date(Date.now() + 30_000).toISOString()
-      if (Number.isFinite(due) && due <= Date.now()) {
-        plan.next_free_check_at = new Date(Date.now() + 30_000).toISOString()
-        await jq.resumeEpisodeRecoveryJob(existing.job_id)
-      }
-    }
+    } else if (step === 'subtitle_sections') await continueFailedSubtitleCheck(plan, existing, false)
     return
   }
   if (!node) { plan.message += ` Open ${labels[step]} to complete or configure this prerequisite.`; return }
@@ -420,13 +542,21 @@ export function episodeRecoveryDispatch(plan: EpisodeRecoveryPlan, jobs: Job[]) 
 }
 
 /** Serialize an episode's decisions; share the file lock only while saving records. */
-export async function recoverEpisode(projectSlug: string, episodeId: string, create = true, sourceJobIds: string[] = []): Promise<(EpisodeRecoveryPlan & { dispatch_status: 'queued' | 'running' | 'paused' | 'blocked' | 'complete'; dispatch_job_id?: string }) | null> {
+export async function recoverEpisode(projectSlug: string, episodeId: string, create = true, sourceJobIds: string[] = [], observedJobs: Job[] = []): Promise<(EpisodeRecoveryPlan & { dispatch_status: 'queued' | 'running' | 'paused' | 'blocked' | 'complete'; dispatch_job_id?: string }) | null> {
   const projectDir = getProjectDir(projectSlug)
   if (!projectDir) throw new Error('Project not found.')
   await jq.getJobs(projectSlug)
   const file = path.join(projectDir, 'episode-recovery-plans.json')
   return withLock(`${file}:${episodeId}`, async () => {
-    let jobs = (await jq.getJobs(projectSlug)).filter(job => job.episode_id === episodeId)
+    const currentJobs = async () => {
+      const current = (await jq.getJobs(projectSlug)).filter(job => job.episode_id === episodeId)
+      // Completion events are server-owned snapshots. Keep terminal evidence
+      // for this pass when Clear Finished wins the race with the file audit.
+      for (const job of observedJobs) if (job.project_slug === projectSlug && job.episode_id === episodeId
+        && ['done', 'error'].includes(job.status) && !current.some(row => row.job_id === job.job_id)) current.push(job)
+      return current
+    }
+    let jobs = await currentJobs()
     const selected = sourceJobIds.map(id => jobs.find(job => job.job_id === id))
     const plan = await withLock(file, async () => {
       const store = await readPlans(file)
@@ -434,18 +564,57 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
       if (selected.some(job => !job || !episodeRecoveryStep(job.type) || job.force_abandoned
         || (!['error', 'cancelled'].includes(job.status)
           && !Object.values(plan?.steps || {}).some(node => node.job_id === job.job_id)))) throw new Error('Recovery source must be an owned failed or cancelled episode job.')
-      // Only a new explicit cancellation intent starts a new recovery identity.
+      // Explicit cancellation and a new server-stamped narration refresh own new identities.
       const newCancellationIntent = selected.some(job => job!.status === 'cancelled' && !plan?.retry_source_job_ids?.includes(job!.job_id))
-      if (!plan || newCancellationIntent) {
+      const priorMerge = jobs.filter(job => job.type === 'audio_merge' && !job.force_abandoned && job.status !== 'cancelled')
+        .sort((a, b) => a.created_at.localeCompare(b.created_at)).at(-1)
+      const completedMerge = jobs.filter(job => job.type === 'audio_merge' && job.status === 'done')
+        .sort((a, b) => a.created_at.localeCompare(b.created_at)).at(-1)
+      const mergedSourceTime = Date.parse(completedMerge?.started_at || completedMerge?.created_at || '')
+      const refreshIds = [...new Set(narrationRefreshChecks(jobs).filter(check => {
+        return !Number.isFinite(mergedSourceTime) || Date.parse(savedNarrationSource(check, jobs)!) > mergedSourceTime
+      }).map(check => check.params.narration_refresh_job_id as string))]
+      const newRefreshIds = refreshIds.filter(id => !plan?.narration_refresh_job_ids?.includes(id))
+      const mergeNode = plan?.steps.audio_merge
+      const mergeJob = mergeNode && jobs.find(job => job.job_id === mergeNode.job_id)
+      // Missing accepted identities have an unknown outcome, not permission to duplicate them.
+      const ownsAcceptedMerge = !!mergeNode?.dispatched && ((!mergeJob && !plan?.completed.includes('audio_merge')) || !!mergeJob && ['queued', 'running', 'paused'].includes(mergeJob.status))
+      if (!newCancellationIntent && !ownsAcceptedMerge && jobs.some(job => job.type === 'subtitles_transcribe'
+        && isScopedChapterTranscription(job.params) && typeof job.params.narration_refresh_job_id === 'string'
+        && job.status !== 'cancelled' && !job.force_abandoned && !savedNarrationSource(job, jobs)
+        && !plan?.narration_refresh_checks?.some(check => check.source_job_id === job.params.narration_refresh_job_id)
+        && (!Number.isFinite(mergedSourceTime) || Date.parse(job.created_at) >= mergedSourceTime))) {
+        throw new Error('Narration refresh source could not be verified. Its saved parent identity and chapter source evidence are required before Audio Assembly; missing history is not completion.')
+      }
+      const newRefreshIntent = newRefreshIds.length > 0 && plan?.first_unresolved === null && !ownsAcceptedMerge
+      if (!plan || newCancellationIntent || newRefreshIntent) {
         if (!create) return null
         const relevant = jobs.filter(job => episodeRecoveryStep(job.type) && !job.force_abandoned && job.status !== 'cancelled')
         for (const job of selected) if (!relevant.some(row => row.job_id === job!.job_id)) relevant.push(job!)
         if (!relevant.length) throw new Error('No recoverable episode jobs were found.')
         const priorSourceIds = plan?.retry_source_job_ids || []
+        const savedMerge = plan?.steps.audio_merge
         if (plan) (store.retired_plans ||= {})[plan.id] = plan
-        plan = store.plans[episodeId] = createEpisodeRecoveryPlan(relevant, sourceJobIds)
+        plan = store.plans[episodeId] = createEpisodeRecoveryPlan(refreshIds.length && !newCancellationIntent
+          ? priorMerge ? [priorMerge] : [narrationRefreshChecks(jobs).at(-1)!]
+          : relevant, sourceJobIds)
+        if (refreshIds.length && !newCancellationIntent) {
+          if (!plan.steps.audio_merge && savedMerge) plan.steps.audio_merge = { ...structuredClone(savedMerge),
+            job_id: `recovery-${plan.id}-audio_merge`, dispatched: false }
+          plan.target = 'subtitle_stitch'
+          plan.steps = plan.steps.audio_merge ? { audio_merge: plan.steps.audio_merge } : {}
+          delete plan.continuation
+          plan.narration_refresh_job_ids = refreshIds
+        }
         plan.retry_source_job_ids = [...new Set([...priorSourceIds, ...sourceJobIds])]
         await writeJsonAtomic(file, store) // identity first, before any queue insertion
+      } else if (newRefreshIds.length && !ownsAcceptedMerge) {
+        plan.narration_refresh_job_ids = [...new Set([...(plan.narration_refresh_job_ids || []), ...newRefreshIds])]
+        if (mergeNode && (mergeJob?.status === 'done' || (!mergeJob && plan.completed.includes('audio_merge')))) {
+          plan.steps.audio_merge = { ...mergeNode, job_id: `recovery-${plan.id}-audio_merge-${randomUUID()}`, dispatched: false }
+        }
+        plan.first_unresolved = 'audio_merge'
+        await writeJsonAtomic(file, store)
       }
       if (plan.project_slug !== projectSlug) throw new Error('Episode recovery belongs to another project.')
       return plan
@@ -474,7 +643,7 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
     let auditFailed = false
     try {
       const facts = await inspectRecovery(plan, jobs)
-      jobs = (await jq.getJobs(projectSlug)).filter(job => job.episode_id === episodeId)
+      jobs = await currentJobs()
       await dispatchEpisodeRecoveryStep(plan, facts, jobs, sourceJobIds)
     } catch (error) {
       auditFailed = true
@@ -502,23 +671,25 @@ let started = false
 export async function startEpisodeRecovery(): Promise<void> {
   if (started) return
   started = true
-  const pending = new Map<string, Job>()
+  const pending = new Map<string, Job[]>()
   const running = new Set<string>()
   const watching = new Map<string, { project: string; episode: string }>()
-  const advance = async (project: string, episode: string, create: boolean) => {
-    const plan = await recoverEpisode(project, episode, create)
+  const advance = async (project: string, episode: string, create: boolean, observedJobs: Job[] = []) => {
+    const plan = await recoverEpisode(project, episode, create, [], observedJobs)
     const key = `${project}:${episode}`
     if (plan?.first_unresolved) watching.set(key, { project, episode })
     else watching.delete(key)
   }
   const schedule = (job: Job) => {
     const automaticSubtitle = job.type === 'subtitles_transcribe' && job.status === 'error'
+    const stampedRefresh = narrationRefreshChecks([job, ...(typeof job.params?.narration_refresh_job_id === 'string'
+      ? [jq.getJob(job.params.narration_refresh_job_id)].filter((source): source is Job => !!source) : [])]).includes(job)
     const completedFreshSubtitle = job.type === 'subtitles_transcribe' && job.status === 'done'
-      && job.params?.generation_action?.kind === 'fresh'
+      && (job.params?.generation_action?.kind === 'fresh' || stampedRefresh)
     if (!episodeRecoveryStep(job.type) || (!job.params?.episode_recovery_id && !automaticSubtitle && !completedFreshSubtitle)
       || !['done', 'error'].includes(job.status) || job.force_abandoned) return
     const key = `${job.project_slug}:${job.episode_id}`
-    pending.set(key, job)
+    pending.set(key, [...(pending.get(key) || []).filter(row => row.job_id !== job.job_id), job])
     if (running.has(key)) return
     running.add(key)
     setImmediate(() => {
@@ -526,9 +697,11 @@ export async function startEpisodeRecovery(): Promise<void> {
         // Completion can arrive during an asynchronous artifact audit or queue
         // insertion. Retain it for another pass instead of dropping that edge.
         while (pending.has(key)) {
-          const latest = pending.get(key)!
+          const observed = pending.get(key)!
           pending.delete(key)
-          await advance(latest.project_slug, latest.episode_id, latest.type === 'subtitles_transcribe' && latest.status === 'error')
+          const latest = observed.at(-1)!
+          await advance(latest.project_slug, latest.episode_id, observed.some(job => job.type === 'subtitles_transcribe'
+            && (job.status === 'error' || typeof job.params?.narration_refresh_job_id === 'string')), observed)
         }
       })()
         .catch(error => console.warn('[episode-recovery]', error.message))

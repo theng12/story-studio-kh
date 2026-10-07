@@ -100,8 +100,10 @@ async function seedEpisode() {
     '## Chapter 01: Fixture', '', 'Narration for Chapter_01.', '',
     '## Chapter 02: Fixture', '', 'Narration for Chapter_02.', '',
   ].join('\n'))
-  await fs.writeFile(path.join(paths.audio_dir, `${episodeId}_Chapter_01.mp3`), 'fixture-audio-one')
-  await fs.writeFile(path.join(paths.audio_dir, `${episodeId}_Chapter_02.mp3`), 'fixture-audio-two')
+  for (const section of ['Chapter_01', 'Chapter_02']) await runFfmpeg([
+    '-y', '-f', 'lavfi', '-i', 'anullsrc=channel_layout=mono:sample_rate=8000,atrim=duration=1',
+    '-codec:a', 'libmp3lame', '-q:a', '9', path.join(paths.audio_dir, `${episodeId}_${section}.mp3`),
+  ])
   await fs.writeFile(path.join(paths.episode_dir, 'audio_chapters.json'), JSON.stringify({ gap_duration_s: 1, sections: [
     { slug: 'Chapter_01', duration_s: 1, source_file: `${episodeId}_Chapter_01.mp3` },
     { slug: 'Chapter_02', duration_s: 1, source_file: `${episodeId}_Chapter_02.mp3` },

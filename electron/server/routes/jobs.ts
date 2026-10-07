@@ -8,6 +8,7 @@ import * as pm from '../services/project-manager.js'
 import { getSoftDeletedSlugSet } from '../services/soft-delete.js'
 import { JOB_TYPES, type Job, type JobType } from '../models/types.js'
 import { episodeRecoveryStep, recoverEpisode } from '../services/episode-recovery.js'
+import { isScopedChapterTranscription } from '../services/audio-workflow-readiness.js'
 import { settleCompletedFailures } from '../services/stale-failures.js'
 import { inspectScenePromptIntegrity } from '../services/scene-prompt-integrity.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
@@ -452,7 +453,7 @@ router.post('/jobs/all/:jobId/retry', async (req, res) => {
   if (!existing) return res.status(404).json({ detail: 'Job not found' })
   const admissionError = retryAdmissionError(existing)
   if (admissionError) return res.status(409).json({ detail: admissionError })
-  if (episodeRecoveryStep(existing.type)) {
+  if (episodeRecoveryStep(existing.type) && !(existing.type === 'subtitles_transcribe' && isScopedChapterTranscription(existing.params))) {
     return res.status(202).json({ ok: true, plan: await recoverEpisode(existing.project_slug, existing.episode_id, true, [existing.job_id]) })
   }
   const job = jq.retryTerminalJob(existing.project_slug, req.params.jobId, retryReplacementParams(existing))
@@ -723,7 +724,8 @@ router.post('/projects/:slug/jobs/:jobId/retry', async (req, res) => {
     const admissionError = retryAdmissionError(existing)
     if (admissionError) return res.status(409).json({ detail: admissionError })
   }
-  if (existing?.project_slug === req.params.slug && episodeRecoveryStep(existing.type)) {
+  if (existing?.project_slug === req.params.slug && episodeRecoveryStep(existing.type)
+    && !(existing.type === 'subtitles_transcribe' && isScopedChapterTranscription(existing.params))) {
     return res.status(202).json({ ok: true, plan: await recoverEpisode(req.params.slug, existing.episode_id, true, [existing.job_id]) })
   }
   const retryParams = existing?.project_slug === req.params.slug ? retryReplacementParams(existing) : undefined
