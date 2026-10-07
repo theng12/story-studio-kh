@@ -459,7 +459,7 @@ export { buildLetterboxFilter, computeVignetteAngle } from '../lib/video-effects
 // to the job output panel and blank the field so the generator silently
 // skips that asset — same behaviour as an absent file. The user sees the
 // log line and knows to define the named root in Settings.
-function resolveAssetPathsInPlace(req: GenerateVideoRequest, outputRoot: string, job: Job): void {
+export function resolveAssetPathsInPlace(req: GenerateVideoRequest, outputRoot: string, job: Job): void {
   const tryResolve = (p: string | undefined, label: string): string | undefined => {
     if (!p || !isPortablePath(p)) return p
     try {
@@ -500,6 +500,18 @@ function resolveAssetPathsInPlace(req: GenerateVideoRequest, outputRoot: string,
     req.music.files = req.music.files
       .map((f, i) => tryResolve(f, `music.files[${i}]`) || '')
       .filter(Boolean)
+  }
+  // Overlay layers and the compilation plate are picked from the channel's own
+  // `overlays/` / `backgrounds/` folders, which collapse to `${CHANNEL}/…`.
+  // An unexpanded token would reach ffmpeg as a literal and the layer would
+  // vanish from the render.
+  if (req.overlays?.layers?.length) {
+    req.overlays.layers = req.overlays.layers.map((l, i) => l?.source_path
+      ? { ...l, source_path: tryResolve(l.source_path, `overlays.layers[${i}].source_path`) || '' }
+      : l)
+  }
+  if (req.background_plate?.source_path) {
+    req.background_plate.source_path = tryResolve(req.background_plate.source_path, 'background_plate.source_path') || ''
   }
   // User-supplied timeline clips (before_intro / after_intro / after_scenes /
   // after_outro). Resolve each path; drop rows whose portable token can't be

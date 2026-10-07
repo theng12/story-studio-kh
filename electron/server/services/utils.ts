@@ -140,8 +140,10 @@ export interface ProjectFactsCache {
    * CPU); the Upload Center listing asked for it once per episode, 302 times.
    */
   externalFinalVideoRoot?: Promise<string>
-  /** Earlier finished-videos folders, read once per request and only when needed. */
-  previousExportRoots?: Promise<string[]>
+  /** This channel's `Season NNN/…` finals folder (see `getChannelExportsBase`). */
+  channelExportsBase?: Promise<string>
+  /** Earlier places this channel's finals may still sit, read once per request and only when needed. */
+  otherExportBases?: Promise<string[]>
   /**
    * The project's own directory, resolved once per request.
    *

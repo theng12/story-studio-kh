@@ -67,6 +67,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { section: 'appearance', anchor: 'server-mode', label: 'Open from another computer (Server Mode)', keywords: 'server mode remote access network password port tailscale' },
 
   { section: 'maintenance', anchor: 'library-folder', label: 'Library folder', keywords: 'library folder location where files projects channels move drive storage' },
+  { section: 'maintenance', anchor: 'self-contained-all', label: 'Make all channels self-contained', keywords: 'self-contained move channel another mac copy assets shared project assets exports portable migrate' },
   { section: 'maintenance', anchor: 'exports-folder', label: 'Finished videos folder', keywords: 'finished videos exports export folder renders final mp4 where location' },
   { section: 'maintenance', anchor: 'free-up-space', label: 'Free up space', keywords: 'free up space cleanup disk storage trash uploaded episodes archive shrink images' },
   { section: 'maintenance', anchor: 'clear-uploaded-finals', label: 'Clear uploaded final videos', keywords: 'clear uploaded final videos verify local free space trash' },
@@ -95,6 +96,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { section: 'publishing', anchor: 'category', label: 'YouTube category', keywords: 'youtube category entertainment' },
   { section: 'publishing', anchor: 'ai-disclosure', label: 'AI content disclosure', keywords: 'ai synthetic altered content disclosure label' },
 
+  { section: 'files', anchor: 'self-contained', label: 'Make this channel self-contained', keywords: 'self-contained move channel another mac copy assets logo intro music overlays exports portable' },
   { section: 'files', anchor: 'numbering', label: 'Episode prefix and groups', keywords: 'episode prefix code season group batch numbering' },
   { section: 'files', anchor: 'project-location', label: 'Project folder', keywords: 'project folder location finder open' },
   { section: 'files', anchor: 'project-smaller-files', label: 'Smaller files for this project', keywords: 'compression project override smaller files' },

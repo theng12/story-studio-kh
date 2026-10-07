@@ -47,7 +47,8 @@ import {
 import { withFinalVideoPathLock } from './final-video-lock.js'
 import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import {
-  getExternalFinalVideoRoot,
+  exportsAnchorFor,
+  getChannelExportsBase,
   resolveExternalFinalVideoDir,
 } from './external-video-store.js'
 
@@ -192,7 +193,8 @@ export async function auditProjectStorage(slug: string): Promise<StorageAuditRes
   if (!meta) throw new Error('Project not found')
 
   const ideas = await im.getIdeas(slug, 'accepted')
-  const externalRoot = await getExternalFinalVideoRoot()
+  // This channel's finals folder: `<channel>/Exports` by default (2026-10-07).
+  const externalRoot = await getChannelExportsBase(slug)
   const [{ records: operations, state: publishingState }, assignment] = await Promise.all([
     readYouTubeRetentionStores(slug),
     getProjectYouTubeAssignment(slug),
@@ -488,8 +490,8 @@ export async function cleanupFinalVideoForEpisode(
         if (isFinalVideoName(code, name)) {
           const full = path.join(extDir, name)
           candidates.push(full)
-          const extRoot = await getExternalFinalVideoRoot().catch(() => '')
-          trashTargets.set(full, path.join(trashRootFor(extRoot || path.dirname(extDir), projectDir, slug), code, 'final_video', name))
+          const extAnchor = await exportsAnchorFor(slug, extDir).catch(() => '')
+          trashTargets.set(full, path.join(trashRootFor(extAnchor || path.dirname(extDir), projectDir, slug), code, 'final_video', name))
         }
       }
     }

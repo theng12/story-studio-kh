@@ -273,3 +273,47 @@ router.post('/library/archive/stop', (_req, res) => {
   sweep.stop = true
   res.json({ stopping: sweep.running })
 })
+
+// ── Self-contained channels (2026-10-07) ───────────────────────────────────
+//
+// GET is the dry run (what would be copied, rewritten and moved, with sizes);
+// POST does it. One apply at a time: two overlapping runs could both decide a
+// file still needs copying.
+
+let selfContainedBusy = false
+
+async function selfContained(res: any, work: () => Promise<unknown>, apply: boolean): Promise<void> {
+  if (apply && selfContainedBusy) {
+    res.status(409).json({ detail: 'A self-contained move is already running. Wait for it to finish.' })
+    return
+  }
+  if (apply) selfContainedBusy = true
+  try {
+    res.json(await work())
+  } catch (e: any) {
+    const status = [400, 404, 409].includes(e?.status) ? e.status : 500
+    res.status(status).json(humanizeBackendError(e, 'Could not make the channel self-contained'))
+  } finally {
+    if (apply) selfContainedBusy = false
+  }
+}
+
+router.get('/projects/:slug/self-contained', async (req, res) => {
+  const { planChannel } = await import('../services/channel-self-contained.js')
+  await selfContained(res, () => planChannel(req.params.slug), false)
+})
+
+router.post('/projects/:slug/self-contained', async (req, res) => {
+  const { applyChannel } = await import('../services/channel-self-contained.js')
+  await selfContained(res, () => applyChannel(req.params.slug), true)
+})
+
+router.get('/library/self-contained', async (_req, res) => {
+  const { planLibrary } = await import('../services/channel-self-contained.js')
+  await selfContained(res, () => planLibrary(), false)
+})
+
+router.post('/library/self-contained', async (_req, res) => {
+  const { applyLibrary } = await import('../services/channel-self-contained.js')
+  await selfContained(res, () => applyLibrary(), true)
+})

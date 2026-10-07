@@ -4,7 +4,7 @@
  * prefixes.
  *
  * Two shapes we round-trip:
- *   portable      — "${PROJECT}/00 Assets/logo.png" or "${MY_FOLDER}/logo.png"
+ *   portable      — "${CHANNEL}/assets/logo.png", "${PROJECT}/Season 001/…" or "${ASSET}/logo.png"
  *   absolute      — "/Users/alice/.../logo.png"  (whatever the OS sees)
  *
  * All resolvers are pure string ops — no filesystem calls — so they stay
@@ -22,6 +22,14 @@
 import path from 'path'
 import { projectsRoot } from './project-manager.js'
 import { ASSETS_DIR_NAME } from './library.js'
+
+/**
+ * A channel's own assets folder, `<channel>/assets` (2026-10-07). Lowercase like
+ * the channel's other media folders (`music/`, `backgrounds/`, `overlays/`,
+ * `ambient/`). Picked files and migrated shared files land here and are written
+ * as `${CHANNEL}/assets/…`, so copying the channel folder carries them along.
+ */
+export const CHANNEL_ASSETS_DIR = 'assets'
 
 const VAR_RE = /^\$\{([A-Z][A-Z0-9_]*)\}(?:\/(.*))?$/
 
@@ -49,9 +57,14 @@ export function assetsRoot(): string {
 /**
  * Expand a portable path to an absolute path on this machine.
  *
- * Two tokens exist, and only two:
- *   `${PROJECT}` — this episode's own project output root.
- *   `${ASSET}`   — the Library's shared assets folder.
+ * Three tokens exist:
+ *   `${PROJECT}` — this channel's episodes folder (`<channel>/episodes`).
+ *   `${CHANNEL}` — the channel folder itself (`<channel>`), the parent of the
+ *                  episodes folder. Self-contained channels (2026-10-07) write
+ *                  every file they need as `${CHANNEL}/…`, so moving the folder
+ *                  to another Mac moves everything it references.
+ *   `${ASSET}`   — the Library's shared `_Project Assets` folder (legacy:
+ *                  still resolved, no longer where new picks go).
  *
  * v1.4.3 removed arbitrary `${NAME}` tokens backed by a per-machine map. They
  * were the fourth location concept, and the one that made a project
@@ -68,7 +81,7 @@ export function resolveAssetPath(p: string, projectOutputRoot?: string): string 
   if (!m) return p
   const [, name, rel] = m
   let base: string
-  if (name === 'PROJECT') {
+  if (name === 'PROJECT' || name === 'CHANNEL') {
     if (!projectOutputRoot) {
       throw new Error(`Cannot resolve ${p}: PROJECT variable requires an episodes-folder context.`)
     }
@@ -86,15 +99,16 @@ export function resolveAssetPath(p: string, projectOutputRoot?: string): string 
         `Cannot resolve ${p}: the episodes folder must be an absolute path, got "${projectOutputRoot}".`,
       )
     }
-    base = projectOutputRoot
+    // The episodes folder is always `<channel>/episodes`, so the channel is its parent.
+    base = name === 'CHANNEL' ? path.dirname(projectOutputRoot) : projectOutputRoot
   } else if (name === 'ASSET') {
     base = assetsRoot()
   } else {
     throw new Error(
       `Cannot resolve ${p}: "${name}" is not a folder Story Studio knows about. `
-      + 'Custom folder labels were retired in 1.4.3 — shared files now live in your Library\'s '
-      + '"_Project Assets" folder and are written as ${ASSET}/…. '
-      + `Move the files this preset needs into _Project Assets and point it at \${ASSET}/ instead.`,
+      + 'Custom folder labels were retired in 1.4.3 — a channel keeps its files in its own '
+      + '"assets" folder, written as ${CHANNEL}/assets/…. '
+      + `Pick the file again so Story Studio copies it into this channel.`,
     )
   }
   return rel ? path.join(base, rel) : base
@@ -105,8 +119,9 @@ export function resolveAssetPath(p: string, projectOutputRoot?: string): string 
  *
  * Preference order (most specific wins):
  *   1. If the path is inside projectOutputRoot → `${PROJECT}/rel`
- *   2. If it's inside the Library's assets folder → `${ASSET}/rel`
- *   3. Otherwise                                 → return absolute unchanged
+ *   2. If it's inside the channel folder        → `${CHANNEL}/rel`
+ *   3. If it's inside the Library's assets folder → `${ASSET}/rel`
+ *   4. Otherwise                                 → return absolute unchanged
  *
  * Comparison is done on normalised absolute paths with a trailing
  * separator so `/Users/a/foo` doesn't falsely match `/Users/a/foobar`.
@@ -121,6 +136,8 @@ export function toPortablePath(abs: string, projectOutputRoot?: string): string 
   if (projectOutputRoot && path.isAbsolute(projectOutputRoot)) {
     const rel = relativeIfInside(normAbs, path.normalize(projectOutputRoot))
     if (rel !== null) return rel ? `\${PROJECT}/${rel}` : '${PROJECT}'
+    const channel = relativeIfInside(normAbs, path.dirname(path.normalize(projectOutputRoot)))
+    if (channel) return `\${CHANNEL}/${channel}`
   }
 
   // v1.4.3 — one shared folder instead of a map of user-declared ones.

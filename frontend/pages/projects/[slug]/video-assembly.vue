@@ -5308,7 +5308,7 @@ async function repickBundlePath(row: { key: string; index: number | null }) {
     return
   }
   if (!newPath) return
-  const portablePath = await collapseToPortablePath(newPath)
+  const portablePath = await collapseToPortablePath(newPath, true)
 
   switch (row.key) {
     case 'intro.video_path':         intro.video_path = portablePath; break
@@ -5954,14 +5954,19 @@ function pickTitleImage(filePath: string) {
   })()
 }
 
-async function collapseToPortablePath(input: string): Promise<string> {
+/**
+ * `adopt` — for a file the owner just PICKED: one outside this channel is
+ * copied into the channel's `assets/` folder first, so the channel folder
+ * carries everything it uses (self-contained channels, 2026-10-07).
+ */
+async function collapseToPortablePath(input: string, adopt = false): Promise<string> {
   const raw = String(input || '').trim()
   if (!raw) return ''
   try {
     const r = await post<{ output: string }>(`/system/resolve-asset-path`, {
       path: raw,
       output_root: episodesRoot.value,
-      mode: 'portable',
+      mode: adopt ? 'adopt' : 'portable',
     })
     return String(r?.output || raw)
   } catch {

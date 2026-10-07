@@ -30,6 +30,7 @@
  */
 
 import fs from 'fs'
+import path from 'path'
 import * as pm from './project-manager.js'
 
 const COALESCE_MS = 250
@@ -182,9 +183,16 @@ async function startWatcherInner(slug: string): Promise<void> {
     evictLRU()
   }
 
+  // 2026-10-07 — the stream covers the whole CHANNEL folder, not just
+  // `episodes/`: a self-contained channel keeps its finals in
+  // `<channel>/Exports/…`, which is part of episode status. One stream per
+  // project (not two) keeps us inside the FSEvents budget described above;
+  // events outside `episodes/` and `Exports/` (config.json, jobs.json, …) are
+  // ignored below.
+  const watchedTops = new Set([path.relative(projectDir, episodesDir).split(path.sep)[0], 'Exports'])
   let watcher: fs.FSWatcher
   try {
-    watcher = fs.watch(episodesDir, { recursive: true, persistent: false })
+    watcher = fs.watch(projectDir, { recursive: true, persistent: false })
   } catch (e) {
     // recursive watch isn't supported on this platform, or some other
     // setup error. Bail silently — the cache is still correct, just
@@ -212,6 +220,7 @@ async function startWatcherInner(slug: string): Promise<void> {
   watcher.on('change', (_event, rawName) => {
     try {
       if (typeof rawName !== 'string' || !rawName) return
+      if (!watchedTops.has(rawName.split(/[\\/]/)[0] || '')) return
       const code = extractEpisodeCode(rawName)
       if (!code) return
       scheduleInvalidate(state, slug, code)

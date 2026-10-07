@@ -132,7 +132,8 @@ describe('Folder pickers', () => {
     // succeeds and the Library is re-read.
     const settings = read('../pages/projects/[slug]/settings.vue')
     assert.match(settings, /<FolderField\s+:model-value="library\?\.path \|\| ''"[\s\S]{0,500}@change="moveLibraryTo"/)
-    assert.match(settings, /<FolderField\s+:model-value="library\?\.exports_dir \|\| ''"[\s\S]{0,700}@change="chooseExportsFolder"/)
+    // 2026-10-07 — unless a separate folder is chosen, finals go to the channel's own Exports folder.
+    assert.match(settings, /<FolderField\s+:model-value="library\?\.exports_custom \? library\.exports_dir : channelExportsDir"[\s\S]{0,800}@change="chooseExportsFolder"/)
     assert.match(settings, /async function moveLibraryTo\(picked: string\) \{[\s\S]{0,200}await ask\(/)
     assert.match(settings, /async function chooseExportsFolder\(picked: string\) \{[\s\S]{0,300}await ask\(/)
     assert.equal(read('../components/FolderField.vue').match(/NOTE FOR MERGE/), null, 'one FolderField, not a local copy')

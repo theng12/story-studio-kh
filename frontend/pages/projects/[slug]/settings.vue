@@ -245,7 +245,7 @@
               <FolderField
                 :model-value="library?.path || ''"
                 label="Library folder"
-                hint="Every channel lives here, with a _Project Assets folder for files you share between channels. Choosing another folder copies everything there and restarts Story Studio; the old folder is left untouched."
+                hint="Every channel lives here, each with its own files. Choosing another folder copies everything there and restarts Story Studio; the old folder is left untouched."
                 picker-title="Choose where to keep your Library"
                 picker-button-label="Use This Folder"
                 choose-label="Move Library…"
@@ -264,11 +264,11 @@
 
             <div data-setting="exports-folder">
               <FolderField
-                :model-value="library?.exports_dir || ''"
+                :model-value="library?.exports_custom ? library.exports_dir : channelExportsDir"
                 label="Finished videos folder"
                 :hint="library?.exports_custom
                   ? 'New finished videos are saved here. Videos made before you changed it stay where they are and are still found.'
-                  : 'New finished videos are saved in the Exports folder inside your Library. Choose another folder — another drive, say — to keep them separate.'"
+                  : 'Each channel saves its finished videos in its own Exports folder, so copying the channel folder takes them along. Choose another folder — another drive, say — to keep them separate.'"
                 picker-title="Choose where finished videos go"
                 picker-button-label="Use This Folder"
                 :disabled="exportsBusy"
@@ -279,6 +279,10 @@
               <p v-if="exportsStatus" :class="['settings-status', exportsStatusKind]">{{ exportsStatus }}</p>
             </div>
 
+          </section>
+
+          <section class="card settings-panel" data-setting="self-contained-all">
+            <SelfContainedPanel />
           </section>
 
           <!-- v1.4.249 — ONE Free Up Space card ("four overlapping ways to free space"):
@@ -1306,6 +1310,12 @@
 
         <!-- ═══ This Project → Project files & behavior ═══ -->
         <template v-if="activeTab === 'files'">
+          <!-- 2026-10-07 — self-contained channels: this channel's shared files and
+               finished videos move into its own folder, so the folder can be copied
+               to another Mac. -->
+          <section class="card settings-panel" data-setting="self-contained">
+            <SelfContainedPanel :slug="slug" />
+          </section>
           <section class="card settings-panel" data-setting="numbering">
             <header class="settings-card-head">
               <h3>Episode numbering</h3>
@@ -1771,7 +1781,12 @@ const {
 } = useVisualStyleCatalog()
 onMounted(() => { void refreshVisualStyles() })
 const { ask } = useConfirm()
-const { project, config, refreshConfig, loadProject } = useProject()
+const { project, config, refreshConfig, loadProject, episodesRoot } = useProject()
+/** `<channel>/Exports` — where this channel's finals go unless a separate folder is chosen. */
+const channelExportsDir = computed(() => {
+  const root = episodesRoot.value || ''
+  return root ? `${root.replace(/[\\/]+$/, '').replace(/[\\/][^\\/]+$/, '')}/Exports` : ''
+})
 const { success, error: showError, info } = useToast()
 const {
   modelId: audioQualityAlternateModel,

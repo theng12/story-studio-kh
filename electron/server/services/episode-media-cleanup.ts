@@ -16,7 +16,7 @@ import * as pm from './project-manager.js'
 import { getProjectYouTubeAssignment } from './youtube-connection-store.js'
 import { withFinalVideoPathLock } from './final-video-lock.js'
 import { registryCredentialFor } from '../lib/youtube-client.js'
-import { getExternalFinalVideoRoot, resolveExternalFinalVideoDir } from './external-video-store.js'
+import { exportsAnchorFor, resolveExternalFinalVideoDir } from './external-video-store.js'
 import { resolveAssetPath } from './path-resolver.js'
 import { narrationPartsToFree, PARTS_DIRNAME, trashEpisodeParts, trashTargetFor } from './chapter-parts.js'
 import {
@@ -405,7 +405,7 @@ async function rootsFor(slug: string, code: string, title: string, categories: M
     add(paths.video_dir, heavyAnchor, 'final_video', 'final_video', name => isFinalName(code, name))
     const external = await resolveExternalFinalVideoDir(slug, code, title).catch(() => null)
     if (external && path.resolve(external) !== path.resolve(paths.video_dir)) {
-      const externalAnchor = await getExternalFinalVideoRoot().catch(() => '')
+      const externalAnchor = await exportsAnchorFor(slug, external).catch(() => '')
       add(external, externalAnchor || path.dirname(external), 'external_final_video', 'final_video', name => isFinalName(code, name))
     }
   }
