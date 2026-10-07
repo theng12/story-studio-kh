@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, it } from 'node:test'
 
-import { auditSceneClipCompletion, auditSceneImageCompletion, checkpointSceneClip, checkpointSceneImage } from '../services/scene-media-checkpoint.js'
+import { auditSceneClipCompletion, auditSceneImageCompletion, checkpointSceneClip, checkpointSceneImage, countScenesAwaitingApproval } from '../services/scene-media-checkpoint.js'
 import type { ScenePlan } from '../models/types.js'
 import { tinyVideoBytes } from './fixtures/tiny-video.js'
 import { withLock } from '../lib/atomic-store.js'
@@ -52,6 +52,30 @@ afterEach(async () => {
 })
 
 describe('scene media checkpoints', () => {
+  it('an image filled in after an auto-approve render is approved too; a replacement still waits', async () => {
+    const { dir, planPath } = await fixture()
+    const image1 = path.join(dir, 'scene-1.png')
+    const image2 = path.join(dir, 'scene-2.png')
+    await Promise.all([writeValidImage(image1), writeValidImage(image2)])
+    // The batch auto-approved scene 1; scene 2 failed and is filled in later by a job without the flag (TN0329).
+    await checkpointSceneImage(planPath, 'scene-1', image1, 'Prompt one', true)
+    let plan = await checkpointSceneImage(planPath, 'scene-2', image2, 'Prompt two', false)
+    assert.equal(plan.auto_approve_generated, true)
+    assert.equal(plan.scenes.find(scene => scene.id === 'scene-2')?.approved, true)
+    // Regenerating an image that already existed is the owner's call to review.
+    plan = await checkpointSceneImage(planPath, 'scene-1', image1, 'Prompt one', false)
+    assert.equal(plan.scenes.find(scene => scene.id === 'scene-1')?.approved, false)
+  })
+
+  it('without an auto-approve render, a filled-in image waits for approval', async () => {
+    const { dir, planPath } = await fixture()
+    const image2 = path.join(dir, 'scene-2.png')
+    await writeValidImage(image2)
+    const plan = await checkpointSceneImage(planPath, 'scene-2', image2, 'Prompt two', false)
+    assert.equal(plan.scenes.find(scene => scene.id === 'scene-2')?.approved, false)
+    assert.equal(await countScenesAwaitingApproval(planPath), 1, 'scene 1 has no image yet, so only scene 2 waits on the owner')
+  })
+
   it('keeps concurrent image registrations for different scenes', async () => {
     const { dir, planPath } = await fixture()
     const image1 = path.join(dir, 'scene-1.png')

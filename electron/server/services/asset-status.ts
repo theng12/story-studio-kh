@@ -930,6 +930,8 @@ export interface EpisodeStatus {
   // scene_images/<id>.png layout). Drives the Scene Review "pending" filter.
   // NOT folded into all_done.
   scene_review: boolean
+  /** Scenes whose image is ready but nobody approved yet: Scene Review waits on the owner. */
+  scene_review_awaiting_approval?: number
   /**
    * Contextual Cues has NOTHING OUTSTANDING on this episode: the feature is
    * off, or no cue was ever proposed, or every proposed cue is resolved. It is
@@ -1377,11 +1379,10 @@ export async function computeEpisodeStatus(
           present: imageReady.filter(Boolean).length,
           complete: scenes.length > 0 && imageReady.every(Boolean),
         }
-        status.scene_review = inspectSceneReviewCompletion(
-          scenes,
-          imageReady,
-          status.scene_plan,
-        ).complete
+        const review = inspectSceneReviewCompletion(scenes, imageReady, status.scene_plan)
+        status.scene_review = review.complete
+        const missingImages = new Set(review.missingImageIds)
+        status.scene_review_awaiting_approval = review.unapprovedIds.filter(id => !missingImages.has(id)).length
         const clipsDir = await resolveVideoAssetsDir(slug, code.toUpperCase(), byCode.episode_dir, cache)
         const scopedMotion = await resolveEpisodeMotionSceneIds(slug, code, scenes, byCode.episode_dir)
         const motionReady = await Promise.all(scenes.filter((s: any) => scopedMotion.scene_ids.includes(s.id)).map(async (s: any) => {

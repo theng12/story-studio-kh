@@ -34,6 +34,7 @@ import {
   setNotifierSettings,
   DEFAULT_NOTIFIER_SETTINGS,
   formatQuitWarning,
+  formatApprovalWaitMessage,
 } from '../services/job-notifier.js'
 import type { Job } from '../models/types.js'
 
@@ -341,5 +342,20 @@ describe('Quit while jobs run', () => {
     const { readFile } = await import('node:fs/promises')
     const main = await readFile(new URL('../../main.ts', import.meta.url), 'utf8')
     assert.match(main, /before-quit[\s\S]{0,200}formatQuitWarning\(getQueueStats\(\)\.running\)[\s\S]{0,400}buttons: \['Quit', 'Cancel'\][\s\S]{0,200}if \(choice === 1\) \{\s*event\.preventDefault\(\)\s*return/)
+  })
+})
+
+describe('Scene Review waiting on the owner', () => {
+  test('a finished scene render with unapproved scenes notifies once, in plain words', async () => {
+    const job = { job_id: 'r1', type: 'continuity_render', status: 'done', episode_id: 'TN0329', result: { awaiting_approval: 1 } } as unknown as Job
+    assert.deepEqual(formatApprovalWaitMessage(job, 'TerraNash'), {
+      title: 'Waiting for your approval (1 scene) — TerraNash',
+      body: 'TN0329 — Scene Review. Open it to approve the scenes.',
+    })
+    assert.equal(formatApprovalWaitMessage({ ...job, result: {} } as Job), null)
+    assert.equal(formatApprovalWaitMessage({ ...job, status: 'error' } as Job), null)
+    const { readFile } = await import('node:fs/promises')
+    const main = await readFile(new URL('../../main.ts', import.meta.url), 'utf8')
+    assert.match(main, /formatApprovalWaitMessage\(job, projectLabel\)[\s\S]{0,200}!notifiedJobs\.has\(`approval:\$\{job\.job_id\}`\)[\s\S]{0,200}dispatchNotification\(approvalWait/)
   })
 })

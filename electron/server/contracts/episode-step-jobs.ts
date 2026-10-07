@@ -68,3 +68,12 @@ export function episodeStepJobStates(jobs: readonly StepJobLike[]): Map<string, 
   }
   return states
 }
+
+/**
+ * Scene Review that is waiting on the owner, not on work: every scene counted has its image and
+ * no approval yet. One wording for the Board and the notification (TN0329 sat on one scene unseen).
+ */
+export function awaitingApprovalLabel(count: unknown): string {
+  const n = typeof count === 'number' && Number.isInteger(count) && count > 0 ? count : 0
+  return n ? `Waiting for your approval (${n} scene${n === 1 ? '' : 's'})` : ''
+}

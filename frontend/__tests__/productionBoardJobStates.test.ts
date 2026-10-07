@@ -54,3 +54,15 @@ test('Pipeline episode pills show a failed or running step and explain the icons
   assert.match(pipeline, /class="pill-legend/)
   assert.match(pipeline, /only the later steps that need it wait/)
 })
+
+test('Scene Review waiting on unapproved scenes says so on the Board (TN0329)', async () => {
+  const { awaitingApprovalLabel } = await import('../utils/episode-step-jobs.js')
+  assert.equal(awaitingApprovalLabel(1), 'Waiting for your approval (1 scene)')
+  assert.equal(awaitingApprovalLabel(3), 'Waiting for your approval (3 scenes)')
+  assert.equal(awaitingApprovalLabel(0), '')
+  assert.equal(awaitingApprovalLabel(undefined), '')
+  assert.match(board, /awaitingApprovalLabel\(ep\.status\?\.scene_review_awaiting_approval\)/)
+  assert.match(board, /\|\| \(approvalWait\(ep, col\) \? 'waiting' : 'pending'\)/, 'a running or failed job still wins')
+  assert.match(board, /waiting: '⏸'/)
+  assert.match(board, /approvalWait\(ep, col\) \|\| 'pending'/, 'the cell title carries the wording')
+})

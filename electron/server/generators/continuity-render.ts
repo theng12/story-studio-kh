@@ -29,11 +29,12 @@ import {
 import { getCharacter } from '../services/character-manager.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir } from './scene-image.js'
 import type { Job, ScenePlan, ScenePlanEntry } from '../models/types.js'
+import { awaitingApprovalLabel } from '../contracts/episode-step-jobs.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
 import { resolveStyleBible } from '../lib/style-bible.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import { auditSceneImageCompletion, checkpointSceneImage } from '../services/scene-media-checkpoint.js'
+import { auditSceneImageCompletion, checkpointSceneImage, countScenesAwaitingApproval } from '../services/scene-media-checkpoint.js'
 import { selectSceneImageBatch } from '../services/scene-image-batch-selection.js'
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { getApiKey } from '../services/app-secrets-store.js'
@@ -1643,5 +1644,11 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
       message: unresolvedSceneImagesMessage(job, toRender, issues),
     })
     job.output_lines.push(`Done — ${toRender.length}/${toRender.length} target scene(s) verified; ${skipped} skipped.`)
+    // Scene Review now waits on the owner, not on work: say so (Jobs, the Board and a notification).
+    const awaiting = await countScenesAwaitingApproval(planPath)
+    if (awaiting) {
+      job.result = { ...(job.result || {}), awaiting_approval: awaiting }
+      job.output_lines.push(`${awaitingApprovalLabel(awaiting)} — open Scene Review.`)
+    }
     return
 }

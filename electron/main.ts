@@ -34,7 +34,7 @@ import { redactSecrets } from './server/lib/redact-secrets.js'
 import {
   aggregateBatch, isBatchComplete, shouldNotifyForSingleJob,
   formatBatchMessage, formatSingleJobMessage, formatFailureMessage, getBatchId,
-  getNotifierSettings, formatQuitWarning,
+  getNotifierSettings, formatQuitWarning, formatApprovalWaitMessage,
 } from './server/services/job-notifier.js'
 import type { Job } from './server/models/types.js'
 
@@ -457,6 +457,13 @@ function installJobNotifier(): void {
       if (events.failures && job.status === 'error' && !notifiedJobs.has(job.job_id)) {
         notifiedJobs.add(job.job_id)
         await dispatchNotification(formatFailureMessage(job, projectLabel), job.project_slug, settings)
+      }
+
+      // 1b. Scene Review waiting on the owner (it needs him, like a failure does).
+      const approvalWait = formatApprovalWaitMessage(job, projectLabel)
+      if (events.failures && approvalWait && !notifiedJobs.has(`approval:${job.job_id}`)) {
+        notifiedJobs.add(`approval:${job.job_id}`)
+        await dispatchNotification(approvalWait, job.project_slug, settings)
       }
 
       // 2. Batch summary — once per batch, when every job in it is terminal.
