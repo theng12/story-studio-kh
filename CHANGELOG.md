@@ -4,6 +4,58 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.259 — 2026-10-07
+
+**Updates from the Gateway**
+- Story Studio can now update itself from the Gateway (Settings → About → Updates): it checks every 30 minutes, waits for running jobs, installs, restarts and resumes; it rolls back automatically if the new version doesn't start. Every Gateway request now names its Mac.
+- A release that isn't fully on the Gateway yet is simply tried again at the next check; a failed install is retried after about an hour, and a re-published release right away.
+
+**Speed**
+- Big channels are lighter on the app: job lookups no longer copy the whole job history, render progress is saved in batches, and Scene Review, Free up space and the topic-pack list read much less from disk.
+- Audio lengths, narration documents, the ideas list and the FFmpeg check are remembered until their files change.
+- Episode recovery stops re-saving and re-checking episodes that haven't changed.
+
+**Reliability**
+- Failed work retries itself: free fleet work always; chat steps (paid ones too, without paying twice); free images and Whisper. Errors that would fail again are not retried, and the message says what to fix.
+- After a restart or an update, writing steps and uploads pick up where they stopped; an upload resumes and is never uploaded twice.
+- Installing waits for running jobs, and Quit asks first when jobs are running (never during an update).
+- Stuck episodes are repaired: subtitles made before a chapter was re-narrated count as missing, a repair reuses your last normal mix, and a check that can't be verified says so on its job.
+- A failed save of the job list no longer stops that channel's job list from saving again.
+- One-click Rebuild Timeline.
+
+**Done means done**
+- Video Assembly follows what is switched on and checks the final video's length.
+- YouTube descriptions stay under 4,900 bytes and are trimmed instead of failing; chapter marks are required.
+- The thumbnail is required for upload; playlist failures are reported.
+- Chapter and intro checks, chapters tied to the outline, and real cue counts.
+- The Production Board and Overview show one episode state; Scene Review waiting for your approval is shown.
+
+**YouTube**
+- Upload status is checked automatically until YouTube says the video is ready; "not found" is told apart from "couldn't check".
+- Check All Uploads on the Upload Center.
+- Reconnect on every channel, and when its sign-in expires.
+
+**Storage**
+- Free up space shows free disk and what is in _trash, and says why nothing is offered.
+- Motion clips are counted; leftovers are offered for _trash.
+- Convert PNG Scenes to JPEG.
+- Final videos can be freed once YouTube confirms the upload.
+
+**Self-contained channels**
+- A channel can carry its own assets and finished videos: preview the move, then apply. Final videos live inside the channel.
+
+**Screens**
+- Usage page no longer goes blank; Back sits on its own row.
+- Dark mode uses Story's orange accent instead of pale gold.
+- Retry All asks first. Jobs has episode search, links to one episode, pages, and the same words everywhere; its actions stay visible.
+- Production Board and Pipeline: select episodes and retry, open in Pipeline, keep your place, Run Batch stays in view.
+- Previous / next episode buttons; the sidebar logo goes home, with Jobs, All Jobs and All Channels pinned.
+- Scene Review leads with Check Again; attention chips stop at 12 with "more".
+- Publish shows 50 rows at a time, with the bulk panel on demand.
+- Dialogs share one style; Content Store has Back and Esc; breadcrumbs say Production Board and Upload Center; buttons use Title Case.
+
+---
+
 ## v1.4.258 — 2026-10-07
 
 - Re-narrated chapters can be transcribed directly before Audio Assembly. Full-episode transcription still requires a verified episode mix.
