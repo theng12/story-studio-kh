@@ -33,6 +33,7 @@ import {
   getNotifierSettings,
   setNotifierSettings,
   DEFAULT_NOTIFIER_SETTINGS,
+  formatQuitWarning,
 } from '../services/job-notifier.js'
 import type { Job } from '../models/types.js'
 
@@ -325,5 +326,20 @@ describe('per-event toggles + failures (v1.0.367)', () => {
     assert.equal(after.events?.pipeline_finished, true)
     assert.equal(after.events?.long_job, true)
     assert.equal(after.digest?.quiet_when_empty, true)
+  })
+})
+
+describe('Quit while jobs run', () => {
+  test('says how many are running and that they continue after restart', () => {
+    assert.equal(formatQuitWarning(0), null, 'nothing running: quit without asking')
+    assert.equal(formatQuitWarning(1)?.title, "1 job is running; it'll continue after restart.")
+    assert.equal(formatQuitWarning(3)?.title, "3 jobs are running; they'll continue after restart.")
+    assert.match(formatQuitWarning(3)!.body, /Retry in Jobs/)
+  })
+
+  test('the app asks before quitting with running jobs, and Cancel keeps it open', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const main = await readFile(new URL('../../main.ts', import.meta.url), 'utf8')
+    assert.match(main, /before-quit[\s\S]{0,200}formatQuitWarning\(getQueueStats\(\)\.running\)[\s\S]{0,400}buttons: \['Quit', 'Cancel'\][\s\S]{0,200}if \(choice === 1\) \{\s*event\.preventDefault\(\)\s*return/)
   })
 })

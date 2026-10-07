@@ -259,6 +259,15 @@ export function formatSingleJobMessage(job: Job, projectLabel?: string): Notific
   }
 }
 
+/** Quit while jobs run: say what happens to them. Null = nothing running, quit without asking. */
+export function formatQuitWarning(running: number): NotificationPayload | null {
+  if (!Number.isInteger(running) || running < 1) return null
+  return {
+    title: `${running} job${running === 1 ? ' is' : 's are'} running; ${running === 1 ? 'it' : 'they'}'ll continue after restart.`,
+    body: 'Saved work is kept. Anything that cannot pick up where it stopped shows Retry in Jobs.',
+  }
+}
+
 // ── Persistence (thin wrapper over app-settings.ts) ────────────────────────
 
 function readTelegramConfig(raw: unknown): TelegramConfig {

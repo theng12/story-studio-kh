@@ -19,6 +19,7 @@ import {
   killAllTrackedChildren,
   jobEvents,
   getJobs,
+  getQueueStats,
 } from './server/services/job-queue.js'
 import { reapFfmpegOrphans } from './server/services/orphan-reaper.js'
 import { projectsRoot, migrateLegacyProjects } from './server/services/project-manager.js'
@@ -33,7 +34,7 @@ import { redactSecrets } from './server/lib/redact-secrets.js'
 import {
   aggregateBatch, isBatchComplete, shouldNotifyForSingleJob,
   formatBatchMessage, formatSingleJobMessage, formatFailureMessage, getBatchId,
-  getNotifierSettings,
+  getNotifierSettings, formatQuitWarning,
 } from './server/services/job-notifier.js'
 import type { Job } from './server/models/types.js'
 
@@ -766,6 +767,18 @@ let isShuttingDown = false
 const SHUTDOWN_DRAIN_MS = 800
 electronApp.on('before-quit', (event) => {
   if (isShuttingDown) return
+  // Say what happens to running jobs before they stop. Headless server mode has no window to ask in.
+  const warning = formatQuitWarning(getQueueStats().running)
+  if (warning && mainWindow && !mainWindow.isDestroyed()) {
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: 'warning', buttons: ['Quit', 'Cancel'], defaultId: 0, cancelId: 1,
+      message: warning.title, detail: warning.body,
+    })
+    if (choice === 1) {
+      event.preventDefault()
+      return
+    }
+  }
   isShuttingDown = true
   event.preventDefault()
   try { if (server) server.close() } catch (e) { logCrash('shutdown-server-close', e) }
