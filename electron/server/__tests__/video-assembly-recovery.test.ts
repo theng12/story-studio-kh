@@ -139,7 +139,7 @@ describe('Video Assembly render fingerprint and scene reuse', () => {
     const fingerprintAt = generate.indexOf('buildVideoAssemblyRenderFingerprint({')
     const finalEncodeAt = generate.lastIndexOf('await runFinalComposition({')
     const finalPromoteAt = generate.lastIndexOf('await withFinalVideoPathLock(finalPath')
-    const finalVerifyAt = generate.lastIndexOf('await verifyFinalVideo(job, resolvedOutputPath, finalName)')
+    const finalVerifyAt = generate.lastIndexOf('await verifyFinalVideo(job, resolvedOutputPath, finalName, totalRenderDuration)')
 
     assert.ok(cloneAt >= 0 && cloneAt < authoritativeAt)
     assert.ok(authoritativeAt < pathsAt && pathsAt < snapshotAt)
