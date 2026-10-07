@@ -152,8 +152,24 @@ async function applyAutoHeal(slug: string, store: IdeasStore, cache?: ProjectFac
  * heal back to disk — only `mutateStore` writes. Safe for pure readers like
  * `getIdeas` / `getNextEpisodeNumber`.
  */
-async function loadStore(slug: string, cache?: ProjectFactsCache): Promise<IdeasStore> {
+// S15: readers re-read and re-parsed ideas.json (hundreds of KB on a big channel) on every call.
+// The parsed file is kept per path + size + mtime and each reader gets its own copy; writers
+// (mutateStore) always read the disk.
+const readMemo = new Map<string, { signature: string; store: IdeasStore }>()
+
+async function readStoreMemo(slug: string, cache?: ProjectFactsCache): Promise<IdeasStore> {
+  const p = ideasPath(slug, cache)
+  const info = await fs.stat(p).catch(() => null)
+  const signature = info ? `${info.size}:${info.mtimeMs}:${info.ino}` : ''
+  const hit = signature ? readMemo.get(p) : undefined
+  if (hit && hit.signature === signature) return structuredClone(hit.store)
   const store = await readStoreFromDisk(slug, cache)
+  if (signature) readMemo.set(p, { signature, store: structuredClone(store) })
+  return store
+}
+
+async function loadStore(slug: string, cache?: ProjectFactsCache): Promise<IdeasStore> {
+  const store = await readStoreMemo(slug, cache)
   await applyAutoHeal(slug, store, cache)
   return store
 }

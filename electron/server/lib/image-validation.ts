@@ -15,7 +15,11 @@ interface CachedValidation {
 }
 
 const validationCache = new Map<string, CachedValidation>()
-const MAX_CACHE_ENTRIES = 5_000
+// S15: 5,000 held barely 15 episodes of a 300-scene channel, so Scene Review polls and status
+// checks across a few episodes kept re-decoding every image. Least-recently-used now (a hit moves to
+// the back). ponytail: ~0.5 KB per entry; a sweep over more than this many images still misses, raise
+// further or key per episode if a whole-channel sweep becomes the hot path.
+const MAX_CACHE_ENTRIES = 50_000
 
 function remember(filePath: string, entry: CachedValidation): void {
   if (validationCache.size >= MAX_CACHE_ENTRIES) {
@@ -43,7 +47,11 @@ export async function assertDecodableImage(
 
   const signature = `${stat.size}:${stat.mtimeMs}`
   const cached = validationCache.get(filePath)
-  if (cached?.signature === signature) return cached.result
+  if (cached?.signature === signature) {
+    validationCache.delete(filePath)
+    validationCache.set(filePath, cached)
+    return cached.result
+  }
 
   const result = (async (): Promise<DecodableImageInfo> => {
     try {
