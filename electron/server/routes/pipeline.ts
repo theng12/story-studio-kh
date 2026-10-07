@@ -2079,7 +2079,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
   }) : ''
   const batch_id = repairMissing ? actionId : force ? operationId : randomUUID()
   const existingActionJobs = repairMissing || force
-    ? (await jq.getJobs(slug)).filter(job => repairMissing
+    ? await jq.findJobs(slug, job => repairMissing
       ? job.params?.pipeline_repair?.action_id === actionId
       : job.params?.generation_action?.id === operationId)
     : []

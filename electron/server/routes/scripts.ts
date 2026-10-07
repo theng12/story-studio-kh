@@ -21,7 +21,7 @@ import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { inspectYouTubeFinalizationStatus } from '../services/youtube-metadata-finalizer.js'
 import {
-  findFreshActionJob,
+  freshActionMatch,
   readOperationId,
   readOptionalOperationId,
   stampFreshGenerationAction,
@@ -44,7 +44,7 @@ async function prepareExplicitScriptAction(
     return { params, conflict: false }
   }
   const params = stampFreshGenerationAction(body, operationId)
-  const previous = findFreshActionJob(await jq.getJobs(slug), operationId)
+  const previous = (await jq.findJobs(slug, freshActionMatch(operationId)))[0]
   return {
     params,
     previous,
@@ -62,7 +62,7 @@ async function withExplicitActionReplay(
   const operationId = params.generation_action?.id
   if (!operationId) return enqueue()
   return withLock(`fresh-script:${slug}:${operationId}`, async () => {
-    const previous = findFreshActionJob(await jq.getJobs(slug), operationId)
+    const previous = (await jq.findJobs(slug, freshActionMatch(operationId)))[0]
     if (previous) {
       if (previous.params.generation_action_fingerprint !== params.generation_action_fingerprint) {
         return res.status(409).json({ detail: conflictDetail })

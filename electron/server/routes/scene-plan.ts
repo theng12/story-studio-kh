@@ -42,7 +42,7 @@ import {
   type ScenePromptPackSetting,
 } from '../services/scene-prompt-batching.js'
 import { parsePromptCharCap } from '../services/prompt-char-cap.js'
-import { findFreshActionJob, freshActionFingerprint, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
+import { freshActionMatch, freshActionFingerprint, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 import { normalizeCreativeDirection } from '../services/scene-creative-direction.js'
 import { clearLegacyPlannerFallbackReasons } from '../services/scene-prompt-integrity.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
@@ -389,7 +389,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
   }
 
   return withLock(`fresh-scene-prompt:${slug}:${operationId}`, async () => {
-    const previous = findFreshActionJob(await jq.getJobs(slug), operationId)
+    const previous = (await jq.findJobs(slug, freshActionMatch(operationId)))[0]
     if (previous) {
       const replay = {
         episode_id: episodeId,
@@ -916,7 +916,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-motion-prompt', as
   }
   const requestedModel = typeof body.model === 'string' ? body.model.trim() : ''
   return withLock(`fresh-motion-prompt:${slug}:${operationId}`, async () => {
-    const previous = findFreshActionJob(await jq.getJobs(slug), operationId)
+    const previous = (await jq.findJobs(slug, freshActionMatch(operationId)))[0]
     if (previous) {
       const previousModel = typeof previous.params.model === 'string'
         ? previous.params.model.replace(/^genstudio-chat:/, '') : ''

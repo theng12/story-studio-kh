@@ -21,7 +21,7 @@ import { createHash, randomUUID } from 'crypto'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
-import { findFreshActionJob, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
+import { freshActionMatch, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -475,11 +475,11 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
 
     let activeJob: any = null
     try {
-      activeJob = (await jq.getJobs(slug)).find((j: any) =>
+      activeJob = (await jq.findJobs(slug, (j: any) =>
         j.episode_id === episodeId
         && (j.type === 'continuity_render' || j.type === 'scene_images_batch')
-        && (j.status === 'running' || j.status === 'queued' || j.status === 'paused')
-      ) || null
+        && (j.status === 'running' || j.status === 'queued' || j.status === 'paused'),
+      ))[0] || null
     } catch {
       // Job metadata is non-critical for this endpoint. A stale/legacy job
       // record must not prevent Scene Review from loading the saved plan.
@@ -667,7 +667,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
     && candidate.params?.auto_approve_generated === (body.auto_approve_generated === true)
 
   try {
-    const actionJobs = (await jq.getJobs(slug)).filter(job =>
+    const actionJobs = await jq.findJobs(slug, job =>
       job.type === 'scene_image_generate'
       && job.episode_id === episodeId
       && job.params?.generation_action?.id === operationId,
@@ -705,11 +705,11 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
       })
     } catch (error) {
       if (error instanceof jq.DuplicateJobError) {
-        const replay = (await jq.getJobs(slug)).find(candidate =>
+        const replay = (await jq.findJobs(slug, candidate =>
           candidate.type === 'scene_image_generate'
           && candidate.episode_id === episodeId
           && candidate.params?.generation_action?.id === operationId,
-        )
+        ))[0]
         if (replay && sameActionRequest(replay)) return res.status(201).json({ ...replay, reused: true })
         if (replay) return res.status(409).json({ detail: 'operation_id already belongs to a different scene image request.' })
         return res.status(409).json({ detail: `Scene ${sceneId} image already generating` })
@@ -741,11 +741,11 @@ async function enqueueMissingScenes(
   try {
     if (manualFinish) {
       if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
-      const replay = (await jq.getJobs(slug)).find(job =>
+      const replay = (await jq.findJobs(slug, job =>
         job.type === 'continuity_render'
         && job.episode_id === episodeId
         && job.params?.manual_image_finish?.action_id === manualFinish.action_id,
-      )
+      ))[0]
       if (replay) {
         const fingerprint = finishRequestFingerprint(slug, episodeId, body, manualFinish, replay.params.scene_ids || [])
         if (replay.params.manual_image_finish?.request_fingerprint !== fingerprint) {
@@ -873,7 +873,7 @@ router.post('/projects/:slug/scene-review/:episodeId/replace-uncertain', async (
   // Hydrate this project's durable jobs before resolving the private receipt.
   // getJobs returns a public/redacted view; getJob below deliberately reads the
   // in-memory durable copy after hydration so a restart cannot erase authority.
-  await jq.getJobs(String(req.params.slug))
+  await jq.findJobs(String(req.params.slug), () => false)
   const sourceJob = jq.getJob(sourceJobId)
   const uncertainSceneIds = sourceJob?.params?.manual_image_finish?.uncertain_scene_ids
   const uncertainIdentityHashes = sourceJob?.params?.manual_image_finish?.uncertain_identity_hashes
@@ -1169,7 +1169,7 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
     && candidate.params?.generation_action?.id === operationId
     && candidate.params?.generation_action_fingerprint === actionParams.generation_action_fingerprint
   if (operationId) {
-    const existing = findFreshActionJob(await jq.getJobs(slug), operationId)
+    const existing = (await jq.findJobs(slug, freshActionMatch(operationId)))[0]
     if (existing) {
       if (!sameActionRequest(existing)) return res.status(409).json({ detail: 'operation_id already belongs to a different continuity render request.' })
       return res.status(201).json({ ...existing, reused: true })
@@ -1218,7 +1218,7 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
     // boundary in this app, so an unhandled throw would hang the request).
     if (e instanceof jq.DuplicateJobError) {
       if (operationId) {
-        const replay = findFreshActionJob(await jq.getJobs(slug), operationId)
+        const replay = (await jq.findJobs(slug, freshActionMatch(operationId)))[0]
         if (replay && sameActionRequest(replay)) return res.status(201).json({ ...replay, reused: true })
         if (replay) return res.status(409).json({ detail: 'operation_id already belongs to a different continuity render request.' })
       }

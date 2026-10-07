@@ -18,7 +18,7 @@ import {
   drainJobPersistenceForShutdown,
   killAllTrackedChildren,
   jobEvents,
-  getJobs,
+  findJobs,
 } from './server/services/job-queue.js'
 import { reapFfmpegOrphans } from './server/services/orphan-reaper.js'
 import { projectsRoot, migrateLegacyProjects } from './server/services/project-manager.js'
@@ -461,7 +461,7 @@ function installJobNotifier(): void {
       // 2. Batch summary — once per batch, when every job in it is terminal.
       if (batchId) {
         if (events.pipeline_finished && !notifiedBatches.has(batchId)) {
-          const allJobs = await getJobs(job.project_slug).catch(() => [] as Job[])
+          const allJobs = await findJobs(job.project_slug, other => getBatchId(other as Job) === batchId).catch(() => [] as Job[])
           const stats = aggregateBatch(allJobs, batchId)
           if (isBatchComplete(stats)) {
             notifiedBatches.add(batchId)

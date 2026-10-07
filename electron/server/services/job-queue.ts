@@ -5187,11 +5187,26 @@ export async function getJobs(
   projectSlug: string,
   { type, view = 'full' }: { type?: JobType | readonly string[], view?: 'full' | 'stream' } = {},
 ): Promise<Job[]> {
+  const wanted = (job: Readonly<Job>) => !type || (typeof type === 'string' ? job.type === type : type.includes(job.type))
+  return findJobs(projectSlug, wanted, view)
+}
+
+/**
+ * `getJobs` for lookups: `predicate` sees the RAW job (read-only — never mutate it) and only the
+ * matches are cloned, redacted and returned. A lookup for one job used to serialise the whole
+ * project history first (tens of MB on a large channel) and then throw all but one row away.
+ * Predicates must use stored fields (type, status, episode_id, params, timestamps), not the
+ * renderer-only ones serialisation adds (`controls`, `queue_position`, public `error` rewrites).
+ */
+export async function findJobs(
+  projectSlug: string,
+  predicate: (job: Readonly<Job>) => boolean,
+  view: 'full' | 'stream' = 'full',
+): Promise<Job[]> {
   await loadPersistedJobs(projectSlug)
   const projectJobs: Job[] = []
-  const wanted = (job: Job) => !type || (typeof type === 'string' ? job.type === type : type.includes(job.type))
   for (const job of jobs.values()) {
-    if (job.project_slug === projectSlug && wanted(job)) {
+    if (job.project_slug === projectSlug && predicate(job)) {
       const j = serializeJob(job, view)
       if (j.status === 'queued') {
         const q = queues[job.type]

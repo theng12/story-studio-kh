@@ -311,9 +311,7 @@ export async function getAudioStatus(
   if (!model) {
     try {
       const { getJobs } = await import('./job-queue.js')
-      const jobs = await getJobs(slug)
-      const audioJobs = jobs
-        .filter(j => j.type === 'audio')
+      const audioJobs = (await getJobs(slug, { type: 'audio' }))
         .sort((a, b) => String(b.finished_at || b.created_at || '').localeCompare(String(a.finished_at || a.created_at || '')))
       const ownJob = audioJobs.find(j => (j.episode_id || '').toUpperCase() === code)
       let remembered = ownJob?.params?.model
@@ -582,10 +580,9 @@ async function queueJoin(slug: string, episodeId: string, status: AudioStatus, l
     && chunk.filename.toLowerCase().startsWith(`${code}_${status.awaiting_join[0]}_part`.toLowerCase()))
   const model = firstPart ? (await readManifest(status.audio_dir)).tasks[firstPart.filename]?.model_id : undefined
   const jq = await import('./job-queue.js')
-  const made = (await jq.getJobs(slug))
-    .filter(job => job.type === 'audio' && (job.episode_id || '').toUpperCase() === code
+  const made = (await jq.findJobs(slug, job => job.type === 'audio' && (job.episode_id || '').toUpperCase() === code
       && job.params?.model === model && typeof job.params?.voice === 'string'
-      && !job.params.quality_repair && !job.params.quality_check)
+      && !job.params.quality_repair && !job.params.quality_check))
     .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0]
   if (!made) {
     logs.push(`${names}: every part is here but the chapter is not joined yet. Generate missing joins it without making anything again.`)

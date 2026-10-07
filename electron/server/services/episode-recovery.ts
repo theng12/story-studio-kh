@@ -423,10 +423,10 @@ export function episodeRecoveryDispatch(plan: EpisodeRecoveryPlan, jobs: Job[]) 
 export async function recoverEpisode(projectSlug: string, episodeId: string, create = true, sourceJobIds: string[] = []): Promise<(EpisodeRecoveryPlan & { dispatch_status: 'queued' | 'running' | 'paused' | 'blocked' | 'complete'; dispatch_job_id?: string }) | null> {
   const projectDir = getProjectDir(projectSlug)
   if (!projectDir) throw new Error('Project not found.')
-  await jq.getJobs(projectSlug)
+  await jq.findJobs(projectSlug, () => false) // hydrate only
   const file = path.join(projectDir, 'episode-recovery-plans.json')
   return withLock(`${file}:${episodeId}`, async () => {
-    let jobs = (await jq.getJobs(projectSlug)).filter(job => job.episode_id === episodeId)
+    let jobs = await jq.findJobs(projectSlug, job => job.episode_id === episodeId)
     const selected = sourceJobIds.map(id => jobs.find(job => job.job_id === id))
     const plan = await withLock(file, async () => {
       const store = await readPlans(file)
@@ -474,7 +474,7 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
     let auditFailed = false
     try {
       const facts = await inspectRecovery(plan, jobs)
-      jobs = (await jq.getJobs(projectSlug)).filter(job => job.episode_id === episodeId)
+      jobs = await jq.findJobs(projectSlug, job => job.episode_id === episodeId)
       await dispatchEpisodeRecoveryStep(plan, facts, jobs, sourceJobIds)
     } catch (error) {
       auditFailed = true
@@ -492,7 +492,7 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
       if (changed) await jq.checkpointJobState(changed)
     }
     const dispatch = auditFailed ? { dispatch_status: 'blocked' as const }
-      : episodeRecoveryDispatch(plan, await jq.getJobs(projectSlug))
+      : episodeRecoveryDispatch(plan, await jq.findJobs(projectSlug, job => job.episode_id === episodeId))
     return { ...plan, ...dispatch }
   })
 }
@@ -511,12 +511,15 @@ export async function startEpisodeRecovery(): Promise<void> {
     if (plan?.first_unresolved) watching.set(key, { project, episode })
     else watching.delete(key)
   }
-  const schedule = (job: Job) => {
+  const schedules = (job: Readonly<Job>) => {
     const automaticSubtitle = job.type === 'subtitles_transcribe' && job.status === 'error'
     const completedFreshSubtitle = job.type === 'subtitles_transcribe' && job.status === 'done'
       && job.params?.generation_action?.kind === 'fresh'
-    if (!episodeRecoveryStep(job.type) || (!job.params?.episode_recovery_id && !automaticSubtitle && !completedFreshSubtitle)
-      || !['done', 'error'].includes(job.status) || job.force_abandoned) return
+    return !(!episodeRecoveryStep(job.type) || (!job.params?.episode_recovery_id && !automaticSubtitle && !completedFreshSubtitle)
+      || !['done', 'error'].includes(job.status) || job.force_abandoned)
+  }
+  const schedule = (job: Job) => {
+    if (!schedules(job)) return
     const key = `${job.project_slug}:${job.episode_id}`
     pending.set(key, job)
     if (running.has(key)) return
@@ -540,7 +543,7 @@ export async function startEpisodeRecovery(): Promise<void> {
     const file = path.join(getProjectDir(project.slug)!, 'episode-recovery-plans.json')
     try {
       for (const episodeId of Object.keys((await readPlans(file)).plans)) await advance(project.slug, episodeId, false)
-      for (const job of await jq.getJobs(project.slug)) schedule(job)
+      for (const job of await jq.findJobs(project.slug, schedules)) schedule(job)
     } catch (error) { console.warn('[episode-recovery] boot:', error) }
   }
   // Also observes local stitch/cue review changes, which do not emit queue

@@ -20,7 +20,7 @@ import {
 } from '../services/contextual-cues.js'
 import type { ContextualCue, ContextualCueTimeline, JobType, ScenePlan } from '../models/types.js'
 import { withLock } from '../lib/atomic-store.js'
-import { findFreshActionJob, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
+import { freshActionMatch, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 
 export const router = Router()
 
@@ -79,7 +79,7 @@ router.post('/projects/:slug/contextual-cues/:episodeId/propose', async (req, re
   }
   const params = stampFreshGenerationAction({ episode_id: episodeId, ...settings }, operationId)
   return withLock(`fresh-contextual-cues:${slug}:${operationId}`, async () => {
-    const previous = findFreshActionJob(await jq.getJobs(slug), operationId)
+    const previous = (await jq.findJobs(slug, freshActionMatch(operationId)))[0]
     if (previous) {
       if (previous.params.generation_action_fingerprint !== params.generation_action_fingerprint) {
         return res.status(409).json({ detail: 'This operation_id already belongs to a different contextual-cue request.' })

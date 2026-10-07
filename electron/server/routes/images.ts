@@ -14,6 +14,7 @@ import { settleCompletedFailures } from '../services/stale-failures.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { readSelectedThumbnail, writeSelectedThumbnail } from '../services/upload-overrides.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { freshActionMatch } from '../lib/fresh-generation-action.js'
 
 export const router = Router()
 
@@ -128,11 +129,11 @@ router.post('/projects/:slug/generate/images', validateBody(GenerateImagesSchema
       && JSON.stringify(savedParams) === JSON.stringify(imageParams)
   }
   if (operationId) {
-    const existingAction = (await jq.getJobs(slug)).find(candidate =>
+    const existingAction = (await jq.findJobs(slug, candidate =>
       candidate.type === jobType
       && candidate.episode_id === req.body.episode_id
       && candidate.params?.generation_action?.id === operationId,
-    )
+    ))[0]
     if (existingAction) {
       if (!sameActionRequest(existingAction)) {
         return res.status(409).json({ detail: 'operation_id already belongs to a different image request.' })
@@ -157,7 +158,7 @@ router.post('/projects/:slug/generate/images', validateBody(GenerateImagesSchema
   } catch (error) {
     if (error instanceof jq.DuplicateJobError) {
       if (operationId) {
-        const replay = (await jq.getJobs(slug)).find(sameActionRequest)
+        const replay = (await jq.findJobs(slug, freshActionMatch(operationId))).find(sameActionRequest)
         if (replay) return res.status(201).json({ ...replay, reused: true })
       }
       const detail = requestedScene
@@ -214,7 +215,7 @@ router.post('/projects/:slug/generate/images-repair', async (req, res) => {
   // if every file is now on disk. No new row, nothing to wait for.
   const sourceJobId: unknown = req.body?.source_job_id
   if (typeof sourceJobId === 'string' && sourceJobId) {
-    const source = (await jq.getJobs(slug)).find(job => job.job_id === sourceJobId)
+    const source = (await jq.findJobs(slug, job => job.job_id === sourceJobId))[0]
     if (!source || source.episode_id !== episodeId || !['error', 'cancelled'].includes(source.status)) {
       return res.status(404).json({ detail: 'That failed job is no longer in the list.' })
     }

@@ -46,7 +46,7 @@ async function episodeDefaultsFor(slug: string) {
 
 /** The running (or paused/queued) Song Pool batch, if any. */
 async function activeBatch(slug: string) {
-  const jobs = (await jq.getJobs(slug)).filter(j => j.type === 'music_generate' && (j.params as any)?.song_pool === true)
+  const jobs = await jq.findJobs(slug, j => j.type === 'music_generate' && (j.params as any)?.song_pool === true)
   const live = jobs.filter(j => ['queued', 'running', 'paused'].includes(j.status))
     .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0]
   if (!live) return null
@@ -225,7 +225,7 @@ router.post('/projects/:slug/song-pool/generate', async (req, res) => {
       const got = await songFormulaFor(slug)
       if ('error' in got) return res.status(409).json({ detail: got.error })
     }
-    const existing = (await jq.getJobs(slug)).find(j => j.type === 'music_generate' && (j.params as any)?.generation_action?.id === operationId)
+    const existing = (await jq.findJobs(slug, j => j.type === 'music_generate' && (j.params as any)?.generation_action?.id === operationId))[0]
     if (existing) return res.status(201).json({ ...existing, reused: true })
     const live = await activeBatch(slug)
     if (live) return res.status(409).json({ detail: 'Songs are already being made for this pool. Wait for that batch, or open it on the Jobs page.' })
