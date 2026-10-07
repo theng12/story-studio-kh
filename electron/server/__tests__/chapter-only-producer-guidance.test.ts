@@ -37,7 +37,9 @@ function chapterOnlyJob(params: Record<string, unknown> = {}): any {
       chapter_number: 1,
       model: 'mock-chat-v1',
       chapters: 1,
-      words_per_chapter: 200,
+      // Small on purpose: the fake chapter is one sentence, and chapter-only
+      // output is now audited for length against this target (2026-10-07).
+      words_per_chapter: 5,
       ...params,
     },
     created_at: new Date().toISOString(),

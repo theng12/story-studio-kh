@@ -18,7 +18,11 @@ let saveChannelSegment: typeof import('../services/channel-segments.js')['saveCh
 let parseNarrationDocx: typeof import('../lib/docx-parser.js')['parseNarrationDocx']
 const prompts: string[] = []
 const requests: TextGenerationRequest[] = []
-let introductionResponse = 'A generated pastoral introduction with enough words for the fixture.'
+// Introduction and chapter output is audited for length against its target
+// (2026-10-07), so the fixture says enough to pass for a real one.
+const FILLER = ' The quiet hour settles over the house, and every listener is welcome to rest here a while.'.repeat(4)
+const DEFAULT_RESPONSE = `A generated pastoral introduction with enough words for the fixture.${FILLER}`
+let introductionResponse = DEFAULT_RESPONSE
 
 const MODEL = 'genstudio-chat-test-profiled-introduction-v1'
 const FORMULA = {
@@ -273,12 +277,12 @@ test('Introduction generation removes the observed assistant wrapper before sour
     '',
     '---',
     '',
-    'Let’s get the worst part out of the way first. This is the real spoken opening.',
+    'Let’s get the worst part out of the way first. This is the real spoken opening.' + FILLER,
   ].join('\n')
   try {
     await generateIntroductionOnly(job(project.slug, accepted.episode_code, accepted.idea.title))
   } finally {
-    introductionResponse = 'A generated pastoral introduction with enough words for the fixture.'
+    introductionResponse = DEFAULT_RESPONSE
   }
 
   const introductionPath = path.join(paths.script_dir, `${accepted.episode_code}_Introduction.md`)
@@ -291,7 +295,7 @@ test('Introduction generation removes the observed assistant wrapper before sour
   assert.equal(sections[0]?.slug, 'Introduction')
   assert.equal(
     sections[0]?.text,
-    'Let’s get the worst part out of the way first. This is the real spoken opening.',
+    'Let’s get the worst part out of the way first. This is the real spoken opening.' + FILLER,
   )
 })
 
@@ -305,18 +309,18 @@ test('Introduction generation removes an intro-specific wrapper variant with CRL
     '',
     '---',
     '',
-    'The real narration begins here and continues without production notes.',
+    'The real narration begins here and continues without production notes.' + FILLER,
   ].join('\r\n')
   try {
     await generateIntroductionOnly(job(project.slug, accepted.episode_code, accepted.idea.title))
   } finally {
-    introductionResponse = 'A generated pastoral introduction with enough words for the fixture.'
+    introductionResponse = DEFAULT_RESPONSE
   }
 
   const sections = await parseNarrationDocx(paths.narration_docx)
   assert.equal(
     sections[0]?.text,
-    'The real narration begins here and continues without production notes.',
+    'The real narration begins here and continues without production notes.' + FILLER,
   )
 })
 
@@ -328,13 +332,13 @@ test('Introduction generation preserves a wrapper-like opening when the assistan
   const legitimateOpening = [
     'Here is the introduction section for the episode.',
     '',
-    'The narrator intentionally refers to the structure before the story begins.',
+    'The narrator intentionally refers to the structure before the story begins.' + FILLER,
   ].join('\n')
   introductionResponse = legitimateOpening
   try {
     await generateIntroductionOnly(job(project.slug, accepted.episode_code, accepted.idea.title))
   } finally {
-    introductionResponse = 'A generated pastoral introduction with enough words for the fixture.'
+    introductionResponse = DEFAULT_RESPONSE
   }
 
   const sections = await parseNarrationDocx(paths.narration_docx)
@@ -353,7 +357,7 @@ test('Introduction generation rejects a wrapper with no spoken narration and lea
       /Introduction generation returned no usable text/,
     )
   } finally {
-    introductionResponse = 'A generated pastoral introduction with enough words for the fixture.'
+    introductionResponse = DEFAULT_RESPONSE
   }
 
   await assert.rejects(fs.access(path.join(paths.script_dir, `${accepted.episode_code}_Introduction.md`)))
