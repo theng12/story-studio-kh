@@ -293,7 +293,7 @@ async function clearTpl(): Promise<void> {
 </script>
 
 <style scoped>
-.publishing-relationship { padding: 16px 18px; border: 1px solid rgba(240, 198, 116, .35); border-radius: var(--radius-md, 6px); background: linear-gradient(120deg, rgba(240, 198, 116, .10), rgba(95, 179, 124, .06)); }
+.publishing-relationship { padding: 16px 18px; border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); border-radius: var(--radius-md, 6px); background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 10%, transparent), rgba(95, 179, 124, .06)); }
 .relationship-kicker { display: block; margin-bottom: 10px; color: var(--accent); text-transform: uppercase; letter-spacing: .09em; font-weight: 700; font-size: var(--font-xs); }
 .relationship-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .relationship-grid div { display: grid; gap: 3px; padding: 10px 12px; border-radius: 6px; background: var(--bg-tertiary); }

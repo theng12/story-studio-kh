@@ -87,8 +87,8 @@ watch(isOpen, (v) => {
   overflow: hidden;
 }
 .context-strip.has-warning {
-  border-left-color: rgba(240, 198, 116, 0.85);
-  background: rgba(240, 198, 116, 0.04);
+  border-left-color: color-mix(in srgb, var(--accent) 85%, transparent);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
 }
 .context-summary {
   display: flex;
@@ -116,9 +116,9 @@ watch(isOpen, (v) => {
 .context-warn {
   flex: 0 0 auto;
   font-size: var(--font-xs);
-  color: rgba(240, 198, 116, 0.95);
+  color: color-mix(in srgb, var(--accent) 95%, transparent);
   padding: 1px 8px;
-  background: rgba(240, 198, 116, 0.12);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
   border-radius: 999px;
 }
 .context-toggle {

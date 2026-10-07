@@ -1365,7 +1365,7 @@ onMounted(async () => {
 
 .shared-settings { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 12px 16px; }
 
-.metadata-blueprint { padding: 18px 20px; border-color: rgba(240, 198, 116, .28); background: linear-gradient(120deg, rgba(240, 198, 116, .09), rgba(69, 153, 210, .04)); }
+.metadata-blueprint { padding: 18px 20px; border-color: color-mix(in srgb, var(--accent) 28%, transparent); background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 9%, transparent), rgba(69, 153, 210, .04)); }
 .blueprint-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
 .blueprint-heading h3 { margin: 3px 0 5px; font-size: 17px; }
 .blueprint-heading p { margin: 0; max-width: 720px; line-height: 1.5; }

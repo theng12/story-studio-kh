@@ -3981,7 +3981,7 @@ function clearFailed() { return clearHistory('failed') }
   gap: 8px;
   padding: 8px 14px;
   background: var(--accent-dim);
-  border: 1px solid rgba(240, 198, 116, 0.25);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
   border-radius: var(--radius-sm);
   color: var(--accent);
   font-size: 12px;
@@ -4053,13 +4053,13 @@ function clearFailed() { return clearHistory('failed') }
 .meta-label { color: var(--text-muted); opacity: 0.7; }
 .auto-retry-tag {
   padding: 2px 8px;
-  border: 1px solid rgba(240, 198, 116, 0.28);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
   border-radius: 999px;
-  background: rgba(240, 198, 116, 0.08);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
   color: var(--accent);
   font-weight: 650;
 }
-.auto-retry-tag.is-active { border-color: rgba(240, 198, 116, 0.42); }
+.auto-retry-tag.is-active { border-color: color-mix(in srgb, var(--accent) 42%, transparent); }
 .auto-retry-tag.is-recovered {
   border-color: rgba(63, 185, 80, 0.34);
   background: rgba(63, 185, 80, 0.1);

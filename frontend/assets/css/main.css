@@ -29,11 +29,15 @@
   --text-secondary: #b0b7c8;
   --text-muted: #8b93a5;
 
-  --accent: #f0c674;
-  --accent-hover: #f5d48a;
-  --accent-dim: rgba(240, 198, 116, 0.15);
+  /* Story's orange (owner, 2026-10-07: keep it, and make it right in dark mode). It used to be a
+     pale gold (#f0c674) here while light mode was burnt orange, and that gold sat next to
+     --warning (#fbbf24) so "needs a decision" and "selected" looked alike. 8.9:1 on bg-primary,
+     7.9:1 on cards; dark text on it 8.9:1. */
+  --accent: #f59e4b;
+  --accent-hover: #f8b26e;
+  --accent-dim: rgba(245, 158, 75, 0.15);
   /* Text color that reads well ON the accent background. Dark mode's
-     accent is a light amber → dark text wins. Light mode flips this
+     accent is a light orange → dark text wins. Light mode flips this
      in the override block below. Used by .btn-primary, .nav-badge,
      `picked` chips, etc. — anything painting text on a solid accent. */
   --accent-on: #0f1117;
@@ -278,6 +282,14 @@ a:hover {
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+/* A half-transparent orange read as a muddy brown with dimmed dark text — on dark mode it looked
+   like a pressed button, not an unavailable one. Disabled primary goes neutral instead. */
+.btn-primary:disabled {
+  opacity: 1;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .btn-sm {

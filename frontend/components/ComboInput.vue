@@ -118,7 +118,7 @@ onBeforeUnmount(() => { document.removeEventListener('click', onClickOutside) })
   transition: border-color 0.15s;
 }
 .combo-trigger:hover { border-color: var(--accent); }
-.combo-trigger.open { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(240, 198, 116, 0.15); }
+.combo-trigger.open { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
 .combo-value { flex: 1; color: var(--text-primary); }
 .combo-placeholder { flex: 1; color: var(--text-muted); }
 .combo-chev { color: var(--text-muted); font-size: var(--font-xs); }
@@ -161,7 +161,7 @@ onBeforeUnmount(() => { document.removeEventListener('click', onClickOutside) })
   transition: background 0.1s;
 }
 .combo-option:hover { background: var(--bg-hover); }
-.combo-option.active { background: rgba(240, 198, 116, 0.12); color: var(--accent); font-weight: 500; }
+.combo-option.active { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); font-weight: 500; }
 
 .combo-empty {
   padding: 10px 12px;
@@ -174,12 +174,12 @@ onBeforeUnmount(() => { document.removeEventListener('click', onClickOutside) })
   border: none;
   border-top: 1px solid var(--border);
   padding: 10px 12px;
-  background: rgba(240, 198, 116, 0.08);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
   color: var(--accent);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   text-align: left;
 }
-.combo-add-custom:hover { background: rgba(240, 198, 116, 0.15); }
+.combo-add-custom:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
 </style>

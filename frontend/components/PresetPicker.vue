@@ -207,8 +207,8 @@ useDismissableDetails()
   padding: 2px 10px;
   font-size: var(--font-xs); font-weight: 500;
   color: var(--accent);
-  background: rgba(240, 198, 116, 0.12);
-  border: 1px solid rgba(240, 198, 116, 0.25);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
   border-radius: 999px;
   white-space: nowrap;
 }
