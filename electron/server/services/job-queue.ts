@@ -1965,9 +1965,24 @@ async function drainProjectPersistence(projectSlug: string, state: ProjectPersis
         if (jobFileLockProbeForTesting) await jobFileLockProbeForTesting('persist', p)
         await writeJsonAtomic(p, { jobs: snapshot }, { compact: true })
         jobPersistenceCounters.atomic_writes++
+        const dropped: string[] = []
         for (const [jobId, captured] of baselineEntries) {
-          if (!retainedIds.has(jobId) && baseline.get(jobId) === captured) baseline.delete(jobId)
+          if (!retainedIds.has(jobId) && baseline.get(jobId) === captured) {
+            baseline.delete(jobId)
+            dropped.push(jobId)
+          }
         }
+        // S10: history that fell off disk leaves memory too, or a long uptime kept every finished
+        // job ever run (cloned and redacted on each snapshot). Same rules as removeTerminalJob.
+        const forgotten = dropped.filter(jobId => {
+          const live = jobs.get(jobId)
+          if (!live || live.project_slug !== projectSlug || !TERMINAL_JOB_STATUSES.has(live.status)
+            || activeRunJobIds.has(jobId) || (!live.force_abandoned && hasUnsettledProviderEvidence(live))) return false
+          jobs.delete(jobId)
+          cancelled.delete(jobId)
+          return true
+        })
+        if (forgotten.length) emitCleared(projectSlug, forgotten)
       })
       state.durableRevision = revision
       state.lastWriteAt = Date.now()
