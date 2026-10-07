@@ -10,6 +10,7 @@ import { computeEpisodeStatus } from './asset-status.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from './utils.js'
 import { inspectAudioAssemblyReadiness, isScopedChapterTranscription } from './audio-workflow-readiness.js'
 import { readStitchPlan } from './subtitle-stitcher.js'
+import { inspectSubtitleSourceFreshness } from './subtitle-completion.js'
 import { ensureStitchedSubtitle, type EnsureStitchedOptions } from '../lib/subtitle-autostitch.js'
 import { verifyWrittenSubtitleTimeline } from './scene-timeline-integrity.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
@@ -19,7 +20,7 @@ import { readSubtitleSourceAudioHashes } from './subtitle-recovery.js'
 
 export const EPISODE_RECOVERY_ORDER = ['audio_merge', 'subtitle_sections', 'subtitle_stitch', 'scene_plan_run', 'contextual_cues', 'continuity_render'] as const
 export type EpisodeRecoveryStep = typeof EPISODE_RECOVERY_ORDER[number]
-type RecoveryJob = { job_id: string; type: JobType; title: string; params: Job['params']; source_job_id?: string; dispatched?: boolean; manual_image_finish_withheld?: true }
+type RecoveryJob = { job_id: string; type: JobType; title: string; params: Job['params']; source_job_id?: string; dispatched?: boolean; manual_image_finish_withheld?: true; stale_redispatched?: true }
 type RecoveryContinuation = { type: JobType; title?: string; params?: Job['params']; manual_image_finish_withheld?: true }
 type NarrationRefreshAcknowledgement = { source_job_id: string; section: string; job_id: string; created_at: string; source_saved_at: string }
 export interface EpisodeRecoveryPlan {
@@ -266,8 +267,12 @@ const labels: Record<EpisodeRecoveryStep, string> = {
   scene_plan_run: 'Scene Plan', contextual_cues: 'Contextual Cues', continuity_render: 'Scene Review',
 }
 
-/** Read real source cues, not merely non-empty filenames or a stale derivative. */
-export async function inspectRecoverySubtitles(episodeDir: string, subtitlesDir: string, code: string, perChapter = true) {
+/**
+ * Read real source cues, not merely non-empty filenames or a stale derivative. With the audio
+ * folder, a section whose SRT was made from audio that has since changed (re-narrated) is missing
+ * too: the stitch refuses it, so counting it complete parked recovery at "subtitle stitch" forever.
+ */
+export async function inspectRecoverySubtitles(episodeDir: string, subtitlesDir: string, code: string, perChapter = true, audioDir?: string) {
   if (!perChapter) {
     const cues = parseSrt(await fs.readFile(path.join(subtitlesDir, `${code.toUpperCase()}_whisper.srt`), 'utf8').catch(() => ''))
     const complete = cues.some(cue => cue.text.trim() && cue.end_sec > cue.start_sec)
@@ -281,12 +286,16 @@ export async function inspectRecoverySubtitles(episodeDir: string, subtitlesDir:
       ? parseSrt(await fs.readFile(path.join(subtitlesDir, section.source_srt), 'utf8').catch(() => '')) : []
     if (!cues.some(cue => cue.text.trim() && cue.end_sec > cue.start_sec)) missing.push(section.slug)
   }
+  if (audioDir) {
+    const { stale_sections } = await inspectSubtitleSourceFreshness(episodeDir, audioDir, subtitlesDir, code)
+    for (const slug of stale_sections) if (!missing.includes(slug)) missing.push(slug)
+  }
   return { expected: stitch.sections.map(section => section.slug), missing, complete: stitch.sections.length > 0 && missing.length === 0 }
 }
 
 /** Safe local repair, followed by proof of the actual written timeline. */
 export async function ensureRecoveryStitch(options: EnsureStitchedOptions): Promise<boolean> {
-  if (!(await inspectRecoverySubtitles(options.episodeDir, options.subtitlesDir, options.episodeCode)).complete) return false
+  if (!(await inspectRecoverySubtitles(options.episodeDir, options.subtitlesDir, options.episodeCode, true, options.audioDir)).complete) return false
   let outcome = await ensureStitchedSubtitle(options)
   if (!['fresh', 'stitched'].includes(outcome.status) || !outcome.path) return false
   if (await verifyWrittenSubtitleTimeline(options.subtitlesDir, options.episodeCode)) return true
@@ -299,7 +308,7 @@ export async function inspectRecoverySubtitlePrerequisites(plan: EpisodeRecovery
   verified.audio_merge = true // The caller establishes Audio Assembly before inspecting subtitles.
   const subtitleParams = plan.steps.subtitle_sections?.params
   const wholeTrack = subtitleParams?.per_chapter === false
-  const coverage = await inspectRecoverySubtitles(paths.episodeDir, paths.subtitlesDir, plan.episode_id, !wholeTrack)
+  const coverage = await inspectRecoverySubtitles(paths.episodeDir, paths.subtitlesDir, plan.episode_id, !wholeTrack, paths.audioDir)
   // A fresh action promises new artifacts for its saved scope. Existing SRTs
   // can prove an ordinary recovery, but cannot turn a failed fresh request into
   // a completed episode.
@@ -480,6 +489,15 @@ export async function dispatchEpisodeRecoveryStep(
   const node = plan.steps[step]
   const type = step === 'subtitle_sections' ? 'subtitles_transcribe' : step
   const active = jobs.find(job => job.type === type && ['queued', 'running', 'paused'].includes(job.status))
+  // Its earlier transcription finished, yet sections are missing again: the audio changed under
+  // them (re-narrated). Transcribe those sections once more under a new identity — once, so a
+  // section that stays stale cannot loop.
+  if (!active && step === 'subtitle_sections' && node && !node.stale_redispatched
+    && jobs.some(job => job.job_id === node.job_id && job.status === 'done')) {
+    node.job_id = `${node.job_id}-audio-changed`
+    node.dispatched = false
+    node.stale_redispatched = true
+  }
   const existing = active || (node && jobs.find(job => job.job_id === node.job_id))
   if (active && node) { node.job_id = active.job_id; node.dispatched = true }
   if (node && withholdManualImageFinish(node)) {

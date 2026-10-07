@@ -1075,3 +1075,63 @@ test('checking an already queued recovery returns its identity without another p
     assert.equal((await jq.getJobs(project.slug)).length, 2, 'no duplicate recovery job')
   } finally { t.mock.restoreAll(); await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
 })
+
+test('a section re-narrated after its subtitles were made counts as missing, not complete', async () => {
+  const temp = await useTempDataDir()
+  try {
+    const subs = path.join(temp.dir, 'subs'), audio = path.join(temp.dir, 'audio')
+    await fs.mkdir(subs); await fs.mkdir(audio)
+    await fs.writeFile(path.join(temp.dir, 'audio_chapters.json'), JSON.stringify({ sections: [
+      { slug: 'Chapter_01', duration_s: 4 }, { slug: 'Chapter_02', duration_s: 4 },
+    ] }))
+    const srt = '1\n00:00:00,000 --> 00:00:02,000\nReal words\n'
+    for (const slug of ['Chapter_01', 'Chapter_02']) {
+      await fs.writeFile(path.join(subs, `EP0001_${slug}.srt`), srt)
+      await fs.writeFile(path.join(audio, `EP0001_${slug}.mp3`), 'take one')
+      await fs.utimes(path.join(subs, `EP0001_${slug}.srt`), new Date(2_000_000_000_000), new Date(2_000_000_000_000))
+      await fs.utimes(path.join(audio, `EP0001_${slug}.mp3`), new Date(1_900_000_000_000), new Date(1_900_000_000_000))
+    }
+    // SS0101: Chapter 2 was re-narrated; its old cues no longer match the active audio.
+    await fs.utimes(path.join(audio, 'EP0001_Chapter_02.mp3'), new Date(2_100_000_000_000), new Date(2_100_000_000_000))
+    const { inspectRecoverySubtitles, createEpisodeRecoveryPlan, inspectRecoverySubtitlePrerequisites, nextEpisodeRecoveryStep } = await subject()
+    assert.equal((await inspectRecoverySubtitles(temp.dir, subs, 'EP0001')).complete, true, 'the cues alone look usable')
+    assert.deepEqual(await inspectRecoverySubtitles(temp.dir, subs, 'EP0001', true, audio), {
+      expected: ['Chapter_01', 'Chapter_02'], missing: ['Chapter_02'], complete: false,
+    })
+    const plan = createEpisodeRecoveryPlan([source('subtitles_transcribe', { per_chapter: true })])
+    const facts = await inspectRecoverySubtitlePrerequisites(plan, {
+      episodeDir: temp.dir, subtitlesDir: subs, audioDir: audio, mergedAudioDir: path.join(temp.dir, 'merged'), episodeCode: 'EP0001',
+    }, [])
+    assert.deepEqual(facts.missing, ['Chapter_02'])
+    assert.equal(nextEpisodeRecoveryStep(plan, facts.verified), 'subtitle_sections', 'recovery queues the fix instead of parking at subtitle stitch')
+  } finally { await temp.cleanup() }
+})
+
+test('a finished subtitle edge whose audio changed again is transcribed once more under a new identity', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const { createEpisodeRecoveryPlan, dispatchEpisodeRecoveryStep } = await subject()
+    const project = await pm.createProject({ name: 'Stale subtitle edge' })
+    await jq.setQueuePaused(true)
+    const plan = createEpisodeRecoveryPlan([{ ...source('subtitles_transcribe', { per_chapter: true }), project_slug: project.slug }])
+    const firstId = plan.steps.subtitle_sections!.job_id
+    const finished = { ...source('subtitles_transcribe', { per_chapter: true }), job_id: firstId, project_slug: project.slug, status: 'done' as const }
+    const facts = { verified: { ...ready, subtitle_sections: false, subtitle_stitch: false }, message: '1/2 sections ready', missing: ['Chapter_02'] }
+    await dispatchEpisodeRecoveryStep(plan, facts, [finished])
+    const node = plan.steps.subtitle_sections!
+    assert.notEqual(node.job_id, firstId)
+    assert.equal(node.dispatched, true)
+    const queued = jq.getJob(node.job_id)!
+    assert.deepEqual(queued.params.sections, ['Chapter_02'])
+    // Once only: a section that stays stale does not loop.
+    const again = { ...finished, job_id: node.job_id }
+    await dispatchEpisodeRecoveryStep(plan, facts, [again])
+    assert.equal(plan.steps.subtitle_sections!.job_id, node.job_id)
+  } finally {
+    await jq._waitForJobPersistenceForTesting()
+    await jq.setQueuePaused(false)
+    await temp.cleanup()
+  }
+})
