@@ -95,6 +95,11 @@ const TEXT_MODEL_STAGES: Partial<Record<JobType, PipelineModelPolicyStage | null
   music_scene_polish: null,
 }
 
+/** Chat writing work. Running it again keeps saved answers and collects earlier requests by key where it can. */
+export function isChatTextJob(type: string): boolean {
+  return type in TEXT_MODEL_STAGES
+}
+
 /** Image work that may run on the free fleet. continuity_render is the scene render. */
 const IMAGE_MODEL_TYPES = new Set<JobType>([
   'thumb_images',

@@ -147,4 +147,26 @@ describe('queue-owned local retries', () => {
     assert.equal(settled.auto_retry?.exhausted, undefined)
     assert.match(settled.output_lines.join('\n'), /Automatic retry skipped: .* Fix what the error names, then press Retry/)
   })
+
+  test('a writing request with no known outcome is not asked again in place; Retry reconnects by its key', async () => {
+    const project = await pm.createProject({ name: 'Unknown chat outcome' })
+    let attempts = 0
+    jq.registerExecutor('metadata', async job => {
+      attempts++
+      await jq.recordGenStudioJob(job.job_id, {
+        id: 'pending:metadata-lost', operation: 'chat.response', state: 'submitting', updated_at: new Date().toISOString(),
+        request: { method: 'POST', path: '/v1/chat/responses', idempotency_key: 'metadata-lost', messages: [], captured_at: new Date().toISOString() },
+      })
+      throw new Error('submit outcome was lost')
+    })
+    const queued = jq.enqueuePreparedForTest({
+      project_slug: project.slug, type: 'metadata', episode_id: 'EP0042', title: 'Metadata', params: { model: 'paid-writer' },
+    })
+    const settled = await waitFor(() => {
+      const job = jq.getJob(queued.job_id)
+      return job?.status === 'error' ? job : undefined
+    }, 1_500)
+    assert.equal(attempts, 1, 'a second request while the first may still be answering would pay twice')
+    assert.match(settled.output_lines.join('\n'), /no known outcome yet\. Retry reconnects to it by its saved key/)
+  })
 })

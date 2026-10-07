@@ -901,7 +901,7 @@ describe('exact project Content Pack pins', () => {
       type: 'chapter-only',
       episode_id: 'EP001',
       title: 'Pinned job',
-      params: {},
+      params: { auto_retry: false },
     }, options)
     assert.deepEqual(queued.content_pack_provenance, [{
       pack_id: PACK_ID,
@@ -948,7 +948,7 @@ describe('exact project Content Pack pins', () => {
       type: 'chapter-only',
       episode_id: 'EP002',
       title: 'Frozen Formula',
-      params: {},
+      params: { auto_retry: false },
     }, options)
 
     await applyProjectContentUpgrade(project.slug, PACK_ID, '1.1.0', options)

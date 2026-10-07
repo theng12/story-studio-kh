@@ -37,7 +37,7 @@ void test('Jobs Retry preserves saved fresh actions, adds thumbnail fill-gaps, a
       {
         type: 'metadata',
         params: {
-          episode_id: 'EP0001', model: 'saved-metadata-model', force: true,
+          episode_id: 'EP0001', model: 'saved-metadata-model', force: true, auto_retry: false,
           sections: [{ id: 'description' }],
           generation_action: { id: '11111111-1111-4111-8111-111111111111', kind: 'fresh' },
           generation_action_fingerprint: 'metadata-action-fingerprint',
@@ -47,7 +47,7 @@ void test('Jobs Retry preserves saved fresh actions, adds thumbnail fill-gaps, a
         type: 'image_prompts',
         universal: true,
         params: {
-          episode_id: 'EP0002', model: 'saved-thumbnail-model', thumb_count: 5,
+          episode_id: 'EP0002', model: 'saved-thumbnail-model', thumb_count: 5, auto_retry: false,
           generation_action: { id: '22222222-2222-4222-8222-222222222222', kind: 'fresh' },
           generation_action_fingerprint: 'thumbnail-action-fingerprint',
         },
@@ -87,7 +87,7 @@ void test('Jobs Retry preserves saved fresh actions, adds thumbnail fill-gaps, a
       type: 'image_prompts',
       episode_id: 'EP0003',
       title: 'Retired scene prompts',
-      params: { episode_id: 'EP0003', mode: 'scenes', model: 'saved-scene-prompt-model' },
+      params: { episode_id: 'EP0003', mode: 'scenes', model: 'saved-scene-prompt-model', auto_retry: false },
     })
     await waitForTerminal(jq, retiredScenePrompts.job_id, 'retired scene prompts original failure')
     const retiredRetry = await request(app).post(`/api/projects/${project.slug}/jobs/${retiredScenePrompts.job_id}/retry`).send({})
@@ -105,7 +105,7 @@ void test('Jobs Retry preserves saved fresh actions, adds thumbnail fill-gaps, a
       type: 'metadata',
       episode_id: 'EP0007',
       title: 'Bare metadata failure',
-      params: { episode_id: 'EP0007', title: 'Bare metadata', model: 'saved-metadata-model', force: true },
+      params: { episode_id: 'EP0007', title: 'Bare metadata', model: 'saved-metadata-model', force: true, auto_retry: false },
     })
     await waitForTerminal(jq, bare.job_id, 'bare metadata original failure')
     let bareRetryParams: Record<string, any> | undefined
@@ -120,7 +120,7 @@ void test('Jobs Retry preserves saved fresh actions, adds thumbnail fill-gaps, a
     assert.equal(bareRetryParams!.generation_action?.origin, 'retry', 'a minted action records that a retry made it')
     assert.deepEqual(
       Object.fromEntries(Object.entries(bareRetryParams!).filter(([key]) => !key.startsWith('generation_action'))),
-      { episode_id: 'EP0007', title: 'Bare metadata', model: 'saved-metadata-model', force: true },
+      { episode_id: 'EP0007', title: 'Bare metadata', model: 'saved-metadata-model', force: true, auto_retry: false },
       'a minted action changes nothing else about the saved request',
     )
 
@@ -214,7 +214,7 @@ void test('Jobs Retry preserves saved fresh actions, adds thumbnail fill-gaps, a
       finished_at: new Date().toISOString(),
       error: 'Local request lost after submission.',
       output_lines: [],
-      params: { episode_id: 'EP0003', model: 'saved-thumbnail-model' },
+      params: { episode_id: 'EP0003', model: 'saved-thumbnail-model', auto_retry: false },
       genstudio_jobs: [{
         id: 'pending:thumbnail-retry-key', operation: 'image.generation', state: 'submitting',
         queue_state: 'submitting', updated_at: new Date().toISOString(),

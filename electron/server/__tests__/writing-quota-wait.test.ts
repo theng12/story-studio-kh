@@ -111,7 +111,7 @@ describe('writing-model quota holds in the job queue', () => {
     const project = await pm.createProject({ name: 'Quota fails normally' })
     jq.registerExecutor('idea_campaign', async () => { throw quota(1) })
     const charged = jq.enqueuePreparedForTest({
-      project_slug: project.slug, type: 'idea_campaign', episode_id: 'EP-Q-CHARGED', title: 'charged', params: { model: 'paid' },
+      project_slug: project.slug, type: 'idea_campaign', episode_id: 'EP-Q-CHARGED', title: 'charged', params: { model: 'paid', auto_retry: false },
     })
     await waitFor(() => jq.getJob(charged.job_id)?.status === 'error' ? true : undefined)
     assert.equal(jq.getJob(charged.job_id)?.params.quota_retry_at, undefined)

@@ -820,7 +820,8 @@ describe('durable paid image waits across boot', () => {
     const terminal: Job = {
       job_id: `terminal-${++fixtureId}`,
       project_slug: terminalProject.slug,
-      type: 'chapter-only',
+      // Writing steps are picked up again at boot since R2; paid thumbnails are not.
+      type: 'thumb_images',
       episode_id: 'EP0001',
       title: 'Interrupted local work',
       status: 'running',

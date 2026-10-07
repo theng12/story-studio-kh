@@ -72,6 +72,7 @@ test('a failed opening no longer stops thumbnails; Retry continues only what wai
     episode_id: 'EP001',
     title: 'intro',
     params: {
+      auto_retry: false, // writing auto-retries since R1; this test is about the chain, not the retry
       pipeline_batch_id: 'batch-continue',
       pipeline_step: 'introduction-only',
       pipeline_requires: ['script-only'],

@@ -178,7 +178,9 @@ test('H-17 control: scene_plan_run has an auditor and does settle honestly', asy
 test('H-17 control: an interrupted job with no durable evidence keeps the plain restart error', async () => {
   const project = await pm.createProject({ name: 'Restart no evidence' })
   const jobId = 'restart-no-evidence'
-  await seed(project.slug, interruptedJob('metadata', jobId, project.slug, []))
+  // Writing steps without provider evidence are picked up again since R2 (2026-10-07); paid
+  // thumbnails are not resumable, so they still show the plain restart error.
+  await seed(project.slug, interruptedJob('thumb_images', jobId, project.slug, []))
   calls.length = 0
 
   await jq.getJobs(project.slug)

@@ -94,7 +94,7 @@ test('writing replacement enforces opt-in, fresh server support, durable budget,
             },
           })
         })
-        const job = queue.enqueuePreparedForTest({ project_slug: project.slug, type: 'metadata', episode_id: name, title: name, params: {} })
+        const job = queue.enqueuePreparedForTest({ project_slug: project.slug, type: 'metadata', episode_id: name, title: name, params: { auto_retry: false } })
         await waitFor(() => ['done', 'error'].includes(queue.getJob(job.job_id)?.status || ''), { label: name, timeoutMs: 10000 })
         assert.equal(posts.length, ['success', 'fails-again'].includes(name) ? 2 : 1, queue.getJob(job.job_id)?.error || '')
         if (posts.length === 2) {
