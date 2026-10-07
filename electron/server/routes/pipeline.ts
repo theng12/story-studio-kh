@@ -80,6 +80,7 @@ import { parseScenePacing, type ScenePacing } from '../contracts/pacing.js'
 import type { MotionScope } from '../contracts/motion-scope.js'
 import { readEpisodeMotionScope, resolveEpisodeMotionSceneIds } from '../services/episode-motion-scope.js'
 import { motionSceneIdsForNewRequest } from '../services/scene-motion-prompt-scope.js'
+import { mapWithConcurrency as mapEpisodes } from '../lib/map-with-concurrency.js'
 import {
   readLocalMediaCleanupStatus,
   type LocalMediaCleanupStatus,
@@ -263,18 +264,8 @@ function retiredLocalMediaIssue(episodeId: string, status: LocalMediaCleanupStat
 
 const PREFLIGHT_CONCURRENCY = 8
 
-async function mapWithConcurrency<T, R>(items: readonly T[], fn: (item: T) => Promise<R>): Promise<R[]> {
-  const results = new Array<R>(items.length)
-  let cursor = 0
-  async function worker(): Promise<void> {
-    while (cursor < items.length) {
-      const index = cursor++
-      results[index] = await fn(items[index]!)
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(PREFLIGHT_CONCURRENCY, items.length) }, worker))
-  return results
-}
+const mapWithConcurrency = <T, R>(items: readonly T[], fn: (item: T) => Promise<R>): Promise<R[]> =>
+  mapEpisodes(items, PREFLIGHT_CONCURRENCY, item => fn(item))
 
 async function retiredUploadedMediaByEpisode(
   slug: string,
@@ -1758,32 +1749,35 @@ router.get('/projects/:slug/pipeline/pending-approvals', async (req, res) => {
   const { slug } = req.params
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   try {
-    const ideas = await im.getIdeas(slug, 'accepted')
-    const pending: Array<{ episode_id: string; title: string; total: number; approved: number; with_image: number }> = []
-    for (const idea of ideas) {
-      const code = (idea as any).episode_code
-      if (!code) continue
+    const ideas = (await im.getIdeas(slug, 'accepted')).filter(idea => !!(idea as any).episode_code)
+    type Pending = { episode_id: string; title: string; total: number; approved: number; with_image: number }
+    // S8: one facts cache for the request and 8 episodes at a time (was strictly serial, 59–103 s on
+    // the mini); each plan is reduced to scene ids + approval flags as soon as it is parsed.
+    const facts = createProjectFactsCache(slug)
+    const rows = await mapEpisodes(ideas, 8, async (idea): Promise<Pending | null> => {
+      const code = (idea as any).episode_code as string
       let paths
-      try { paths = await resolveEpisodePathsByCode(slug, code) } catch { continue }
-      const planPath = await resolveScenePlanPath(slug, code, paths.episode_dir)
-      if (!existsSync(planPath)) continue
-      let scenes: any[]
-      try { scenes = JSON.parse(await fs.readFile(planPath, 'utf-8'))?.scenes || [] } catch { continue }
-      if (!scenes.length) continue
+      try { paths = await resolveEpisodePathsByCode(slug, code, facts) } catch { return null }
+      const planPath = await resolveScenePlanPath(slug, code, paths.episode_dir, facts)
+      let scenes: Array<{ id: string; approved: boolean }>
+      try {
+        scenes = (JSON.parse(await fs.readFile(planPath, 'utf-8'))?.scenes || [])
+          .map((scene: any) => ({ id: scene.id, approved: !!scene.approved }))
+      } catch { return null }
+      if (!scenes.length) return null
       const approved = scenes.filter(s => s.approved).length
-      if (approved >= scenes.length) continue   // fully approved — nothing to do
+      if (approved >= scenes.length) return null   // fully approved — nothing to do
       // v1.0.457 — count renders in the unified named folder OR the legacy flat
       // folder, so consolidated and not-yet-consolidated episodes both count.
-      const namedDir = await resolveSceneImagesDir(slug, code, paths.episode_dir).catch(() => '')
+      const namedDir = await resolveSceneImagesDir(slug, code, paths.episode_dir, facts).catch(() => '')
       const legacyDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
-      const files = new Set<string>()
-      if (namedDir && existsSync(namedDir)) for (const f of await fs.readdir(namedDir).catch(() => [] as string[])) files.add(f)
-      if (existsSync(legacyDir)) for (const f of await fs.readdir(legacyDir).catch(() => [] as string[])) files.add(f)
+      const listed = await Promise.all([namedDir, legacyDir].map(dir => dir ? fs.readdir(dir).catch(() => [] as string[]) : []))
+      const files = new Set(listed.flat())
       const withImage = scenes.filter(s => files.has(`${s.id}.png`)).length
-      if (withImage === 0) continue              // nothing rendered yet — can't approve
-      pending.push({ episode_id: code, title: (idea as any).title || code, total: scenes.length, approved, with_image: withImage })
-    }
-    res.json({ pending })
+      if (withImage === 0) return null              // nothing rendered yet — can't approve
+      return { episode_id: code, title: (idea as any).title || code, total: scenes.length, approved, with_image: withImage }
+    })
+    res.json({ pending: rows.filter((row): row is Pending => row !== null) })
   } catch (e: any) {
     res.status(500).json({ detail: e?.message || 'Failed to compute pending approvals' })
   }
