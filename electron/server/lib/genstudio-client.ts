@@ -5,6 +5,7 @@
  * Studio URL, token, worker list, or direct provider connection.
  */
 
+import { STORY_CALLER } from './machine-name.js'
 import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
@@ -3368,7 +3369,7 @@ function requestUrl(baseUrl: string, value: string): string {
 
 function authorization(apiKey: string): Record<string, string> {
   if (!apiKey.trim()) throw new Error('No Gateway key configured. Open Settings → This Mac → API Keys.')
-  return { Authorization: `Bearer ${apiKey.trim()}` }
+  return { Authorization: `Bearer ${apiKey.trim()}`, 'X-Caller': STORY_CALLER }
 }
 
 /**
