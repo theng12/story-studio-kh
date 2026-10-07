@@ -73,7 +73,7 @@ test('the Ideas model picker is always the real picker (the LLM lineup is retire
 })
 
 test('controls carry a visible one-line hint and there is one Formula picker button', () => {
-  assert.match(ideas, /<strong>Surprise me<\/strong> fills them and queues \{\{ form\.count \}\} ideas right away/)
+  assert.match(ideas, /<strong>Surprise Me<\/strong> fills them and queues \{\{ form\.count \}\} ideas right away/)
   assert.match(ideas, /“Unmark” goes back to checking their files/)
   assert.match(ideas, /Closes gaps in episode numbers/)
   assert.match(fn('surpriseMe') + ideas.match(/function randomizeForm\(\) \{([\s\S]*?)\n\}/)?.[1], /ideaRefinementsOpen\.value = true/)
@@ -84,7 +84,7 @@ test('controls carry a visible one-line hint and there is one Formula picker but
 test('Un-accept moves files to _trash and says so', () => {
   assert.match(ideas, /confirmLabel: 'Move to _trash and Un-Accept'/)
   assert.doesNotMatch(ideas, /Cannot be undone\./)
-  assert.match(ideas, /title="Move this episode's files to the project's _trash and un-accept"/)
+  assert.match(ideas, /title="Move this episode's files to the channel's _trash and un-accept"/)
 })
 
 test('presets leave the channel-wide title prefix/suffix alone; preferences save after a pause', () => {

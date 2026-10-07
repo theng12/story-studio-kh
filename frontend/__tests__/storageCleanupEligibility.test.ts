@@ -105,6 +105,6 @@ test('Free up space can clear the preview cache: shows its size, moves it to _tr
   assert.match(fn, /storage\/clear-preview-cache/)
   assert.match(fn, /if \(previewCacheClearing\.value\) return/)
   assert.match(fn, /await loadStorageAudit\(\)/)
-  assert.match(settings, /moved to this project's <code>_trash<\/code> folder/)
+  assert.match(settings, /moved to this channel's <code>_trash<\/code> folder/)
   assert.match(settings, /rebuilds automatically/)
 })

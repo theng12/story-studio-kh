@@ -23,7 +23,7 @@ test('Free Up Space is one card: recommended preset first, then the other ways, 
   const exact = panel.indexOf('Choose exactly which files')
   assert.ok(recommended > 0 && recommended < panel.indexOf('Free Up Space for {{ selected.length }} Selected') && other < exact && recommended < other)
   // Each option says in one sentence what happens and where files go.
-  assert.match(card, /Clear uploaded final videos \(verified\)<\/strong><small>[^<]*moved to this project's <code>_trash<\/code> folder/)
+  assert.match(card, /Clear uploaded final videos \(verified\)<\/strong><small>[^<]*moved to this channel's <code>_trash<\/code> folder/)
   assert.match(card, /Move uploaded videos to another drive<\/strong><small>[^<]*copied to a folder you choose/)
   assert.match(panel, /Choose exactly which files<\/strong><small>[^<]*<code>_trash<\/code>, or are copied to a folder you choose/)
   // The archive sweep is no longer a second entry point inside "Where your files are".

@@ -38,7 +38,7 @@ export const SETTINGS_ZONES: SettingsZoneDef[] = [
   },
   {
     id: 'project',
-    title: 'This Project',
+    title: 'This Channel',
     scope: 'Travels with this channel',
     sections: [
       { id: 'identity', label: 'Channel identity', description: 'Name, Series Formula and Topic Packs' },

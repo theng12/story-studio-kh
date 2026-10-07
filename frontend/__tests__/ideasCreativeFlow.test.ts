@@ -41,7 +41,7 @@ describe('Ideas freeform creative flow', () => {
     assert.match(ideas, /class="idea-launch-dock"/)
     assert.match(ideas, /Queue \{\{ form\.count \}\} ideas/)
     assert.match(ideas, /Randomize Attributes/)
-    assert.match(ideas, /Surprise me/)
+    assert.match(ideas, /Surprise Me/)
   })
 })
 

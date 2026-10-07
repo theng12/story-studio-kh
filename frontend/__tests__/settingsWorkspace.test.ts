@@ -243,7 +243,7 @@ describe('Settings workspace navigation', () => {
     assert.doesNotMatch(templateSource, /iCloud|cloud sync|cloud-folder/i)
     assert.doesNotMatch(templateSource, /This is not\s+a setting/)
     assert.match(settingsSource, /'\/library\/exports'/)
-    assert.match(settingsSource, /Current resume checkpoints, not legacy assets/)
+    assert.match(settingsSource, /Small files that let an unfinished script carry on where it stopped/)
     assert.doesNotMatch(settingsSource, /Legacy video assembly presets/)
     assert.doesNotMatch(settingsSource, /legacy-video-assembly-presets/)
   })
