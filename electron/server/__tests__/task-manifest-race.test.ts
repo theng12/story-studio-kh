@@ -274,3 +274,22 @@ test('shouldChunkByBudget: trips chunking when prompt + output crowd the cap', a
     'an unpublished cap must not resolve to a fallback number',
   )
 })
+
+// S11: entries that queue behind a write share the next one; each still succeeds or fails on its own.
+test('concurrent recordTask calls are batched into a few writes, keep every entry, and a bad entry fails alone', async t => {
+  const { _batchedManifestWritesForTesting } = await import('../services/task-manifest.js')
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'batched-manifest-'))
+  t.after(() => fs.rm(dir, { recursive: true, force: true }))
+  const before = _batchedManifestWritesForTesting()
+  const writes = Array.from({ length: 60 }, (_, i) => recordTaskStrict(dir, `scene-${i}.png`, { provider: 'genstudio', task_id: `t${i}`, submitted_at: 'ts' }))
+  // A subtitle-original binding with no current entry is refused; only this one call fails.
+  const bad = assert.rejects(recordTaskStrict(dir, 'scene-0.png', { provider: 'genstudio', task_id: 'x', submitted_at: 'ts', idempotency_key: 'k', input_hash: 'h',
+    subtitle_originals: { k: { task_id: 'x', idempotency_key: 'k', input_hash: 'other' } } } as any), /identity changed/)
+  await Promise.all([...writes, bad])
+  const manifest = await readManifestStrict(dir)
+  assert.equal(Object.keys(manifest.tasks).length, 60)
+  assert.equal(manifest.tasks['scene-59.png']?.task_id, 't59')
+  const made = _batchedManifestWritesForTesting() - before
+  assert.ok(made <= 3, `60 entries took ${made} writes`)
+  assert.ok(!(await fs.readFile(path.join(dir, (await fs.readdir(dir)).find(name => name.endsWith('.json'))!), 'utf8')).includes('\n  '), 'written compact')
+})

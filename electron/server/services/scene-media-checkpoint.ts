@@ -167,7 +167,7 @@ export async function checkpointSceneImage(
     // Approval is applied only after the exact output file passed the usable
     // media check above and the matching scene still exists in the fresh plan.
     scene.approved = autoApproveGenerated === true
-    await writeJsonAtomic(planPath, plan)
+    await writeJsonAtomic(planPath, plan, { compact: true })
     return plan
   })
 }
@@ -204,7 +204,7 @@ export async function checkpointSceneClip(
     scene.clip_duration_seconds = durationSeconds
     if (receipt.shortfall_mode === 'hold') scene.clip_shortfall_mode = 'hold'
     else delete scene.clip_shortfall_mode
-    await writeJsonAtomic(planPath, plan)
+    await writeJsonAtomic(planPath, plan, { compact: true })
     return plan
   })
 }
