@@ -16,13 +16,15 @@ const isReady = ref(false)
 const error = ref<unknown>(null)
 let inflight: Promise<void> | null = null
 
-async function fetchOnce(): Promise<void> {
+async function fetchOnce(force = false): Promise<void> {
   if (inflight) return inflight
+  // Loaded once per session (was re-fetched, 8 MB, on every mount); `refresh()` re-reads.
+  if (isReady.value && !force) return
   isLoading.value = true
   inflight = (async () => {
     try {
       const { get } = useApi()
-      const response = await get<{ topic_packs: TopicPack[] }>('/topic-packs')
+      const response = await get<{ topic_packs: TopicPack[] }>('/topic-packs?view=list')
       topicPacks.value = response.topic_packs || []
       isReady.value = true
       error.value = null
@@ -41,7 +43,7 @@ export function useTopicPacks() {
 
   async function refresh(): Promise<void> {
     inflight = null
-    await fetchOnce()
+    await fetchOnce(true)
   }
 
   function compatibleWith(seriesFormulaId: string): TopicPack[] {
