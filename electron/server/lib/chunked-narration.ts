@@ -475,6 +475,27 @@ function chapterFileLooksValid(filePath: string): boolean {
   }
 }
 
+/**
+ * Was this chapter file written for the sidecar's CURRENT outline? (2026-10-07)
+ *
+ * A new outline (rebuilt or imported) gets a new `outline_completed_at`; a
+ * chapter file older than that was written for a previous outline and must
+ * not count as done — expand_chapters used to skip it and ship the old
+ * chapter under the new plan. A file written after the outline belongs to it,
+ * which keeps the crash-window rule above (a chapter that reached disk before
+ * its sidecar update still counts, so it is not paid for twice). Outline
+ * EDITS keep the timestamp, so editing a title never invalidates chapters.
+ */
+export function chapterBelongsToOutline(sidecar: Pick<ChunkedSidecar, 'outline_completed_at'>, filePath: string): boolean {
+  const outlineAt = Date.parse(sidecar.outline_completed_at)
+  if (!Number.isFinite(outlineAt)) return true
+  try {
+    return statSync(filePath).mtimeMs >= outlineAt
+  } catch {
+    return false
+  }
+}
+
 export interface ChunkedScriptCompletion {
   complete: boolean
   approved: boolean
@@ -530,7 +551,8 @@ export async function inspectChunkedScriptCompletion(
   for (const filename of files) {
     const n = matchChapterFile(filename, episodeId)
     if (n === null) continue
-    if (chapterFileLooksValid(path.join(scriptDir, filename))) presentNumbers.add(n)
+    const file = path.join(scriptDir, filename)
+    if (chapterFileLooksValid(file) && chapterBelongsToOutline(sidecar, file)) presentNumbers.add(n)
   }
 
   const missing = expectedNumbers.filter(n => !presentNumbers.has(n))
@@ -910,7 +932,8 @@ export async function expandChapters(
     const n = entry.n
     // resolveReadPath: a legacy episode's chapter may be .docx, not .md —
     // it must still count as done so resume doesn't re-generate it.
-    if (chapterFileLooksValid(resolveReadPath(chapterFilePath(params.scriptDir, params.episode_id, n)))) {
+    const file = resolveReadPath(chapterFilePath(params.scriptDir, params.episode_id, n))
+    if (chapterFileLooksValid(file) && chapterBelongsToOutline(sidecar, file)) {
       verifiedDone.add(n)
     }
   }

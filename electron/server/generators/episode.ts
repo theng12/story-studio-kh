@@ -38,6 +38,7 @@ import { isLocalTextModel } from '../services/job-retry-policy.js'
 import { freshGenerationRequestIdentity } from '../lib/fresh-generation-action.js'
 import { pipelinePolicyForJob, pipelinePolicyCheckpointStore } from '../lib/pipeline-model-policy.js'
 import { MAX_NARRATION_SENTENCE_CHARS } from '../lib/tts-text.js'
+import { auditNarrationSection } from '../lib/narration-section-audit.js'
 
 // v1.0.166 — fuseFormatWithPattern() removed with the Pattern system.
 // Title shaping happens at idea-time via the Ideas page's title_template
@@ -326,7 +327,9 @@ export async function generateChapterOnly(job: Job): Promise<void> {
   // the prompt budget on long episodes. Audio reconciler-grade exact
   // text isn't needed here, just enough to anchor tone + plot.
   let entries: string[] = []
-  try { entries = await fs.readdir(paths.script_dir) } catch { /* empty */ }
+  try { entries = await fs.readdir(paths.script_dir) } catch (error: any) {
+    if (error?.code !== 'ENOENT') throw new Error(`Could not read ${episode_id}'s script folder (${error?.message || error}). Nothing was written.`)
+  }
   const existingNumbers = entries
     .map(n => matchChapterFile(n, episode_id))
     .filter((n): n is number => n !== null)
@@ -342,7 +345,11 @@ export async function generateChapterOnly(job: Job): Promise<void> {
       const firstParagraph = body.split('\n\n').find(p => p.trim().length > 0) || ''
       const summary = firstParagraph.split(/\s+/).slice(0, 60).join(' ')
       priorSummaries.push(`Chapter ${n}: ${summary}…`)
-    } catch { /* skip unreadable */ }
+    } catch (error: any) {
+      // A swallowed read here quietly regenerated a chapter with no memory of
+      // the story before it. Say which file, and write nothing.
+      throw new Error(`Could not read Chapter ${n} of ${episode_id} for story context (${error?.message || error}). Fix or regenerate that chapter first. Nothing was written.`)
+    }
   }
 
   const wordsPerChapter = Number(req.words_per_chapter) || 550
@@ -452,7 +459,14 @@ Output ONLY the ${sectionLowerRegen} heading + body. No commentary, no other ${s
     const headingMatch = chapterText.trim().match(/^##\s+Chapter\s+\d+\s*[:\-–—]\s*(.+)$/im)
     const newTitle = headingMatch ? headingMatch[1].trim() : `Chapter ${chapterNumber}`
     const body = chapterText.replace(/^##\s+Chapter\s+\d+[^\n]*\n+/m, '').trim()
-    if (!body) throw new Error(`Chapter ${chapterNumber} generation returned no usable body text.`)
+    // Audit BEFORE writing, so a cut-off chapter never replaces a good one.
+    const issues = auditNarrationSection(body, wordsPerChapter)
+    if (issues.length) {
+      requireJobCompletion(job, {
+        label: `Chapter ${chapterNumber}`, expected: 1, completed: 0, missing: [`Chapter ${chapterNumber}`],
+        message: `Chapter ${chapterNumber} was not saved: ${issues.join('; ')}. The previous chapter file is unchanged. Retry to write it again.`,
+      })
+    }
 
     await writeChapterFiles(paths.script_dir, episode_id, title, {
       chapters: [{ number: chapterNumber, title: newTitle, text: body }],
@@ -461,6 +475,12 @@ Output ONLY the ${sectionLowerRegen} heading + body. No commentary, no other ${s
 
     await assembleUnifiedNarration(paths.script_dir, episode_id, title)
     job.output_lines.push(`Re-assembled: ${path.basename(paths.narration_docx)}`)
+    const saved = await fs.stat(chapterFilePath(paths.script_dir, episode_id, chapterNumber)).catch(() => null)
+    requireJobCompletion(job, {
+      label: `Chapter ${chapterNumber}`, expected: 1, completed: saved?.size ? 1 : 0,
+      missing: saved?.size ? [] : [`Chapter ${chapterNumber} file`],
+      retry_hint: 'Retry writes the chapter again.',
+    })
   } finally {
     clearInterval(cancelWatcher)
   }
@@ -588,7 +608,7 @@ Do not add a heading, preface, explanation, divider, or separator.`
   // legacy unified-only narration if needed so users with old episodes
   // can still run intro generation without manually re-running the
   // script step.
-  const { ensureChapterFilesMigrated, writeChapterFiles, assembleUnifiedNarration, hasIntroductionScriptSource } =
+  const { ensureChapterFilesMigrated, writeChapterFiles, assembleUnifiedNarration, hasIntroductionScriptSource, introductionFilePath } =
     await import('../lib/narration-assembly.js')
   await ensureChapterFilesMigrated(paths.script_dir, episode_id, title)
 
@@ -648,6 +668,14 @@ Do not add a heading, preface, explanation, divider, or separator.`
     const introText = await introCall
     const cleanedIntro = cleanGeneratedIntroduction(introText)
     if (!cleanedIntro) throw new Error('Introduction generation returned no usable text.')
+    // Audit BEFORE writing, so a cut-off introduction never replaces a good one.
+    const introIssues = auditNarrationSection(cleanedIntro, Number(introSettings.word_target) || undefined)
+    if (introIssues.length) {
+      requireJobCompletion(job, {
+        label: 'Introduction', expected: 1, completed: 0, missing: ['introduction'],
+        message: `The introduction was not saved: ${introIssues.join('; ')}. Any previous introduction is unchanged. Retry to write it again.`,
+      })
+    }
     const wordCount = cleanedIntro.split(/\s+/).length
     job.output_lines.push(`Introduction: ${wordCount.toLocaleString()} words`)
 
@@ -676,6 +704,12 @@ Do not add a heading, preface, explanation, divider, or separator.`
       custom_opening: introSettings.custom_opening || null,
       beats: introSettings.beats,
     }, null, 2))
+    const saved = await fs.stat(introductionFilePath(paths.script_dir, episode_id)).catch(() => null)
+    requireJobCompletion(job, {
+      label: 'Introduction', expected: 1, completed: saved?.size ? 1 : 0,
+      missing: saved?.size ? [] : ['introduction file'],
+      retry_hint: 'Retry writes the introduction again.',
+    })
   } finally {
     clearInterval(cancelWatcher)
   }

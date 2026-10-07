@@ -269,6 +269,7 @@
                     <span v-if="ep.marked_done" class="ep-donepill" title="Whole episode marked done">done</span>
                   </span>
                   <span class="ep-title" :title="ep.title">{{ ep.title }}</span>
+                  <span v-if="visualSource" class="ep-stage" :data-stage="stageOf(ep)">{{ episodeStageLabel(stageOf(ep)) }}</span>
                   <span class="ep-source" :data-source="episodeVisualSource(ep)">{{ sourceLabel(ep) }}</span>
                   <span v-if="localMediaStatusLabel(ep.local_media_status)" class="ep-media-status">{{ localMediaStatusLabel(ep.local_media_status) }}</span>
                 </div>
@@ -377,6 +378,8 @@
 import {
   FLOW_PHASES,
   STEP_STATUS_FIELD,
+  episodeStage,
+  episodeStageLabel,
   isEpisodeDone,
   isFlowStepApplicable,
   normalizeEpisodeVisualSource,
@@ -634,6 +637,10 @@ const generatingCodes = computed(() => {
 })
 function isGenerating(code: string): boolean {
   return generatingCodes.value.has(code)
+}
+/** R7 — the one derived state for this row (useProjectFlow.episodeStage). */
+function stageOf(ep: any) {
+  return episodeStage(ep, visualSource.value!, isGenerating(ep.episode_code))
 }
 
 // Latest job per episode step: running now, or failed last time.
@@ -1217,4 +1224,16 @@ async function markCell(ep: any, col: BoardCol) {
     flex: 1;
   }
 }
+.ep-stage {
+  align-self: flex-start;
+  font-size: var(--font-xs, 11px);
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color, currentColor);
+  color: var(--text-secondary, inherit);
+}
+.ep-stage[data-stage="waiting_for_you"] { color: var(--warning, #b7791f); border-color: currentColor; }
+.ep-stage[data-stage="ready_to_assemble"],
+.ep-stage[data-stage="ready_to_publish"] { color: var(--accent, #2563eb); border-color: currentColor; }
+.ep-stage[data-stage="published"] { color: var(--success, #15803d); border-color: currentColor; }
 </style>

@@ -400,7 +400,7 @@
           </div>
           <div v-else class="thumbnail-unavailable" role="status">
             <strong>No thumbnail is selected for this upload.</strong>
-            <span>Choose or generate one if you want Story Studio to set a thumbnail on YouTube.</span>
+            <span>A thumbnail is required. Choose or generate one before uploading.</span>
           </div>
           <div v-if="previewed.thumbnail.options.length > 1 || previewed.thumbnail.state !== 'selected' || thumbnailImageUnavailable" class="thumbnail-options" aria-label="Choose thumbnail">
             <button
@@ -475,8 +475,8 @@
           </button>
           <span class="hint">Updates the existing video after YouTube confirms it is private. It does not upload the video again.</span>
         </div>
-        <div v-else-if="previewed.thumbnail.state === 'unavailable' || thumbnailImageUnavailable" class="hint">
-          Choose an available thumbnail before uploading.
+        <div v-else-if="previewed.thumbnail.state !== 'selected' || thumbnailImageUnavailable" class="hint">
+          A thumbnail is required. Choose an available thumbnail before uploading.
         </div>
         <div v-else-if="!previewed.source?.revision" class="hint">Refresh this review so Story Studio can verify the exact video file before uploading.</div>
         <div v-else class="field-row upload-row">
@@ -2055,7 +2055,8 @@ async function forgetUpload(ep: PublishableEpisode): Promise<void> {
  * channel, and neither is undoable: YouTube has no replace.
  */
 async function upload(episodeCode: string): Promise<void> {
-  if (previewed.value?.thumbnail.state === 'unavailable' || thumbnailImageUnavailable.value || timingDirty.value) return
+  // The thumbnail is required (2026-10-07): the upload job refuses without one.
+  if (previewed.value?.thumbnail.state !== 'selected' || thumbnailImageUnavailable.value || timingDirty.value) return
   const requestedSlug = slug.value
   const expectedChannelId = assignedChannel.value?.channel_id
   const expectedChannelTitle = assignedChannel.value?.title
@@ -2259,7 +2260,9 @@ async function reviewSelectedUploads(event?: Event): Promise<void> {
         // event promotes this row to Reviewed; an error keeps it out of Queue.
         item.state = 'pending'
       } else {
-        item.state = 'reviewed'
+        // No thumbnail: the upload job refuses (2026-10-07), so never queue it.
+        item.state = 'error'
+        item.error = 'A thumbnail is required. Open the individual upload review and choose one.'
       }
     } catch (error: any) {
       if (!actionIsCurrent(action)) return

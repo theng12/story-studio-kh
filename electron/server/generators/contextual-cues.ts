@@ -292,6 +292,44 @@ function applySafePacing(cues: ContextualCue[], density: 'restrained' | 'standar
   return out
 }
 
+export interface DroppedCueCandidate { scene_id: string; title: string; reason: string }
+
+/**
+ * Every candidate the model returned, split into the cues that will be saved
+ * and the ones dropped — each with its reason (2026-10-07). This used to drop
+ * silently, and the job certified a constant 1/1 whatever happened.
+ */
+export function accountCueCandidates(
+  candidates: CueCandidate[],
+  plan: ScenePlan,
+  settings: ContextualCueProposalSettings,
+  now: string,
+  resolvedIds: Set<string>,
+): { proposed: ContextualCue[]; dropped: DroppedCueCandidate[] } {
+  const dropped: DroppedCueCandidate[] = []
+  const safe: ContextualCue[] = []
+  for (const candidate of candidates) {
+    const cue = safeCandidate(candidate, plan, settings.density, settings, now)
+    if (cue) { safe.push(cue); continue }
+    const scene = plan.scenes.find(row => row.id === candidate.scene_id)
+    dropped.push({
+      scene_id: String(candidate.scene_id || ''),
+      title: String(candidate.title || ''),
+      reason: !scene
+        ? 'its scene is not in the Scene Plan'
+        : !String(candidate.title || '').trim()
+          ? 'it has no title'
+          : `its scene is shorter than ${CUE_MIN_DURATION_SEC}s`,
+    })
+  }
+  const paced = applySafePacing(safe, settings.density, plan.total_duration_sec || plan.scenes[plan.scenes.length - 1]?.end_sec || 0)
+  for (const cue of safe) {
+    if (!paced.includes(cue)) dropped.push({ scene_id: cue.scene_id, title: cue.title, reason: `too close to another cue for "${settings.density}" density` })
+  }
+  // One cue per scene: a scene the reviewer already resolved keeps that cue.
+  return { proposed: paced.filter(cue => !resolvedIds.has(cue.id)), dropped }
+}
+
 /**
  * The saved partial proposal this run may continue from, or null.
  *
@@ -563,11 +601,6 @@ export async function generateContextualCues(job: Job): Promise<void> {
     await checkpointJobState(job)
   }
   const now = new Date().toISOString()
-  let proposed = applySafePacing(
-    candidates.map(candidate => safeCandidate(candidate, plan, settings.density, settings, now)).filter((cue): cue is ContextualCue => !!cue),
-    settings.density,
-    plan.total_duration_sec || plan.scenes[plan.scenes.length - 1]?.end_sec || 0,
-  )
   // v1.0.796 — project-level "Approve cues automatically" (config.auto_approve_cues,
   // default OFF). This is a SEPARATE, persisted mode from the per-run/preset
   // `settings.auto_approve` checkbox below it: when the project default is on,
@@ -585,9 +618,10 @@ export async function generateContextualCues(job: Job): Promise<void> {
   // approvals or edits made on the review page meanwhile must survive it.
   const latest = await readContextualCueTimeline(planPath)
   const protectedCues = latest?.cues.filter(cue => cue.status !== 'proposed') || []
-  // One cue per scene: a scene the reviewer already resolved keeps that cue.
   const resolvedIds = new Set(protectedCues.map(cue => cue.id))
-  proposed = proposed.filter(cue => !resolvedIds.has(cue.id))
+  const accounted = accountCueCandidates(candidates, plan, settings, now, resolvedIds)
+  let proposed = accounted.proposed
+  const dropped = accounted.dropped
   let autoApprovalHolds: ContextualCueAutoApprovalHold[] = []
   if (config.auto_approve_cues || settings.auto_approve) {
     const result = autoApproveEligibleCues(proposed, protectedCues, plan)
@@ -614,11 +648,32 @@ export async function generateContextualCues(job: Job): Promise<void> {
   job.output_dir = paths.episode_dir
   job.progress = 100
   const approvedNow = proposed.filter(cue => cue.status === 'approved').length
-  job.result = { proposed: proposed.length - approvedNow, approved: approvedNow, preserved: protectedCues.length, held_back: autoApprovalHolds.length }
+  job.result = {
+    proposed: proposed.length - approvedNow,
+    approved: approvedNow,
+    preserved: protectedCues.length,
+    held_back: autoApprovalHolds.length,
+    candidates: candidates.length,
+    saved: proposed.length,
+    dropped,
+  }
+  job.output_lines.push(`Saved ${proposed.length} of ${candidates.length} candidate cue(s) the model proposed.`)
+  for (const drop of dropped.slice(0, 20)) {
+    job.output_lines.push(`  dropped: scene ${drop.scene_id}${drop.title ? ` "${drop.title}"` : ''} — ${drop.reason}`)
+  }
+  if (dropped.length > 20) job.output_lines.push(`  …and ${dropped.length - 20} more dropped (listed in the job result).`)
   job.output_lines.push(config.auto_approve_cues
     ? `Saved ${proposed.length} contextual cue(s): ${approvedNow} auto-approved, ${autoApprovalHolds.length} held back for review (failed a structural check — see the timeline for why).`
     : settings.auto_approve
       ? `Saved ${proposed.length} contextual cue(s) using this trusted preset: ${approvedNow} auto-approved, ${autoApprovalHolds.length} held back for review (failed a structural check — see the timeline for why).`
       : `Saved ${proposed.length} proposed contextual cue(s). Review and approve or disable every cue before Video Assembly.`)
-  requireJobCompletion(job, { label: 'Contextual cue proposal', expected: 1, completed: 1 })
+  // Real counts: every scene batch must have returned an answer. (Dropped
+  // candidates are editorial — reported above, not a failure.)
+  requireJobCompletion(job, {
+    label: 'Contextual cue proposal',
+    expected: batches.length,
+    completed: batches.filter((_, index) => completed.has(index)).length,
+    missing: batches.map((_, index) => index).filter(index => !completed.has(index)).map(index => `batch ${index + 1}`),
+    retry_hint: 'Retry asks again only for the missing batches.',
+  })
 }

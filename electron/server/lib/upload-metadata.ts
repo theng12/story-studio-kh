@@ -20,6 +20,7 @@ import { resolveEpisodePaths, resolveEpisodePathsByCodeWithSidecar } from '../se
 import { parseMetadataTxt } from '../services/metadata-format.js'
 import type { VideoSnippet } from './youtube-client.js'
 import { truncateChars, toWellFormedText } from './well-formed-text.js'
+import { fitYouTubeDescription } from './youtube-description-limit.js'
 import { stripInternalSectionLabels } from './metadata-label-leak.js'
 import { isScaffoldTitleLine, stripMarkdownScaffold, stripTitleScaffold } from './metadata-scaffold.js'
 
@@ -237,7 +238,15 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
           tags = platformOverride.tags.filter((t: any) => typeof t === 'string' && t.trim())
         }
       }
-    } catch { /* swallow */ }
+    } catch (error: any) {
+      // Surfaced, not swallowed (2026-10-07). Swallowing it uploaded the
+      // generated title/description in place of the ones the owner typed,
+      // with no word that his edits had been ignored.
+      throw new Error(
+        `${input.episode_code}'s upload_metadata_overrides.json could not be read (${error?.message || error}). `
+        + 'Fix or remove that file in the episode folder, then try again. Nothing was uploaded.',
+      )
+    }
   }
 
   // Last-resort title fallback — the idea's title. Never upload with an
@@ -324,7 +333,6 @@ function versionOf(filename: string): number {
 // YouTube Data API v3 hard limits (as of 2026). Verify against
 // https://developers.google.com/youtube/v3/docs/videos if updating.
 const YT_TITLE_MAX = 100
-const YT_DESCRIPTION_MAX = 5000
 const YT_TAGS_TOTAL_MAX = 500
 const PER_TAG_MAX = 30
 const MAX_TAGS = 15
@@ -441,13 +449,13 @@ export function snippetFromMeta(meta: EpisodeMetadataForUpload, logs?: string[],
   // nothing writes that field, so this only ever sees generated text. Once an
   // operator can type a description here, move this strip so it runs before
   // his override lands, the way the resolver already does.
-  const description = capLength(
-    cleanDescriptionForYouTube(
-      stripMarkdownScaffold(stripInternalSectionLabels(stripControl(meta.description))),
-      logs,
-    ),
-    YT_DESCRIPTION_MAX, 'description', logs,
-  )
+  // 2026-10-07 — the cap is YouTube's own unit: 5,000 BYTES (4,900 with
+  // headroom). It used to be 5,000 characters, which let a Khmer description
+  // reach ~15,000 bytes and the upload be refused. Fit before the private
+  // markers are stripped so the chapter list is recognised and kept whole.
+  const fitted = fitYouTubeDescription(stripMarkdownScaffold(stripInternalSectionLabels(stripControl(meta.description))))
+  if (fitted.trimmed) logs?.push(`description trimmed ${fitted.bytes_before} → ${fitted.bytes_after} bytes (YouTube limit), chapter list kept`)
+  const description = cleanDescriptionForYouTube(fitted.description, logs)
 
   const tags = cleanTags(meta.tags, logs)
 

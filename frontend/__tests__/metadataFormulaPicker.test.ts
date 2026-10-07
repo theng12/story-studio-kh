@@ -86,7 +86,8 @@ test('a formula in effect owns the description fields, so picking one is not ine
     finalizerPage,
     /\.\.\.\(effectiveFormulaId\.value \? \{\} : \{\s*\n\s*sections: sections\.value\.filter/,
   )
-  for (const field of ['sections:', 'max_chars:', 'title_count:', 'title_max_length:', 'title_mode:', 'tag_count:']) {
+  // `max_chars` is gone (2026-10-07): the description limit is YouTube's byte limit, not a formula field.
+  for (const field of ['sections:', 'title_count:', 'title_max_length:', 'title_mode:', 'tag_count:']) {
     const index = finalizerPage.indexOf(`\n          ${field}`)
     assert.ok(index !== -1, `${field} must live inside the no-formula spread`)
   }

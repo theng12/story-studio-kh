@@ -160,7 +160,7 @@
         </span>
       </div>
       <div class="blueprint-meta">
-        <span>Title: use approved idea</span><span>{{ formulaMetadataProfile.tagCount }} YouTube tags</span><span>{{ formulaMetadataProfile.descriptionMaxChars.toLocaleString() }}-character description cap</span>
+        <span>Title: use approved idea</span><span>{{ formulaMetadataProfile.tagCount }} YouTube tags</span><span>Description up to YouTube's {{ DESCRIPTION_MAX_BYTES.toLocaleString() }}-byte limit</span>
         <span v-if="publishingProfileActive" class="blueprint-active">Publishing profile active</span>
       </div>
       <p class="text-muted text-xs mt-2">
@@ -249,8 +249,12 @@
       <div class="form-group mt-1">
         <label>
           Description
-          <span class="char-count" :class="{ 'over-limit': preview.description.length > descConfig.maxChars }">
-            {{ preview.description.length }} / {{ descConfig.maxChars }}
+          <span
+            class="char-count"
+            :class="{ 'over-limit': descriptionBytes > DESCRIPTION_MAX_BYTES }"
+            title="YouTube counts the description in bytes. English is 1 byte a character; Khmer is 3. Over the limit, the Finalizer and the upload trim whole sentences from the end and keep the chapter list."
+          >
+            {{ descriptionBytes.toLocaleString() }} / {{ DESCRIPTION_MAX_BYTES.toLocaleString() }} bytes
           </span>
           <button class="btn-icon" @click="copy(preview.description, 'Description')" title="Copy description">📋</button>
         </label>
@@ -465,7 +469,11 @@ const titleConfig = reactive({
   suffix: '',
   manualTitle: '',
 })
-const descConfig = reactive({ maxChars: 5000 })
+// YouTube's description limit is 5,000 BYTES; Story Studio keeps 100 spare.
+// Mirrors electron/server/lib/youtube-description-limit.ts. Over it, nothing
+// fails: the Finalizer and the upload trim whole sentences, chapters kept.
+const DESCRIPTION_MAX_BYTES = 4900
+const descriptionBytes = computed(() => new TextEncoder().encode(preview.description || '').length)
 const tagConfig = reactive({ count: 15 })
 type FormulaMetadataProfile = {
   id: string
@@ -765,7 +773,6 @@ async function loadFormulaMetadataProfile(): Promise<void> {
       titleConfig.mode = profile.titleMode
       titleConfig.count = profile.titleMode === 'paraphrase' ? 3 : 1
       titleConfig.maxLength = profile.titleMaxLength
-      descConfig.maxChars = profile.descriptionMaxChars
       tagConfig.count = profile.tagCount
     }
     const template = config?.metadata_template
@@ -1001,7 +1008,6 @@ async function generateAll() {
         // is, every field is sent exactly as before.
         ...(effectiveFormulaId.value ? {} : {
           sections: sections.value.filter(s => s.enabled),
-          max_chars: descConfig.maxChars,
           title_count: titleConfig.count,
           title_max_length: titleConfig.maxLength,
           title_mode: titleConfig.mode,
@@ -1265,7 +1271,7 @@ watch(selectedVersion, () => {
 })
 
 /**
- * v1.0.71+: seed titleConfig / descConfig / tagConfig defaults from the
+ * v1.0.71+: seed titleConfig / tagConfig defaults from the
  * project's effective Format BEFORE preset.load() runs. Out-of-the-box
  * the page hardcoded sleep-story numbers (5000-char description, 5
  * titles, 100-char title cap, 15 tags) — for listicle / educational /
@@ -1285,9 +1291,6 @@ async function applyFormatDefaultsIfNoPreset() {
     const f = await get<any>(`/projects/${slug.value}/effective-format`)
     const meta = f?.metadata
     if (!meta) return
-    if (typeof meta.defaultMaxChars === 'number' && meta.defaultMaxChars > 0) {
-      descConfig.maxChars = meta.defaultMaxChars
-    }
     if (typeof meta.defaultTitleCount === 'number' && meta.defaultTitleCount > 0) {
       titleConfig.count = meta.defaultTitleCount
     }

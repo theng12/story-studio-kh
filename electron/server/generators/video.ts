@@ -46,6 +46,7 @@ import { probeVideoStream, sceneClipCompatibilityProblems } from '../lib/scene-c
 import { getAnimation } from '../models/animations.js'
 import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
 import { checkAssetAvailability } from '../lib/sync-safe.js'
+import { finalDurationIssue, missingEnabledVideoInputs, missingInputsMessage, switchedOnCueGate } from '../lib/video-enabled-inputs.js'
 import { estimateBytesForStep, getFreeBytes, formatBytes } from '../lib/disk.js'
 import { getWorkTempDir } from '../lib/work-tempdir.js'
 import { resolveStoryStudioVersion } from '../lib/app-version.js'
@@ -206,14 +207,25 @@ async function autoScheduleFinishedEpisode(
   }
 }
 
-async function verifyFinalVideo(job: Job, outputPath: string, finalName: string): Promise<void> {
+async function verifyFinalVideo(job: Job, outputPath: string, finalName: string, plannedSec: number): Promise<void> {
   const valid = path.basename(outputPath) === finalName && fileExistsNonEmpty(outputPath)
+  // 2026-10-07 — a file on disk is not proof of a finished render: its length
+  // must match the plan (narration + opening + outro + tail).
+  const durationIssue = valid ? finalDurationIssue(await getAudioDuration(outputPath).catch(() => null), plannedSec) : null
   requireJobCompletion(job, {
-    label: 'Final video assembly', expected: 1, completed: valid ? 1 : 0,
+    label: 'Final video assembly', expected: 1, completed: valid && !durationIssue ? 1 : 0,
     missing: valid ? [] : [finalName],
-    invalid: valid ? [] : [path.basename(outputPath)],
-    retry_hint: 'The encoded file was retained when possible. Retry promotion or import it as the canonical final.',
+    invalid: valid ? (durationIssue ? [`${finalName} (${durationIssue})`] : []) : [path.basename(outputPath)],
+    retry_hint: durationIssue
+      ? 'The file was kept so you can look at it. Retry renders it again.'
+      : 'The encoded file was retained when possible. Retry promotion or import it as the canonical final.',
   })
+}
+
+/** A feature that was switched on but rendered without, by a reviewer's choice — reported in the result, not only the log. */
+function noteRender(job: Job, note: string): void {
+  job.output_lines.push(note)
+  job.result = { ...(job.result || {}), render_notes: [...((job.result?.render_notes as string[] | undefined) || []), note] }
 }
 
 /**
@@ -1408,6 +1420,19 @@ async function hydrateEpisodeRenderCues(
   const cuePaths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
   const planPath = await resolveScenePlanPath(slug, episodeId, cuePaths.episode_dir)
   if (allowMissing && !existsSync(planPath)) {
+    // Image Pool without a Scene Plan: cues and sound design have nothing to
+    // be placed on. Switched on, that is a stop, not a silent drop.
+    const on = [
+      cueConfig.enabled ? 'Contextual Cues' : '',
+      normalizeSoundDesignConfig((await pm.getConfig(slug))?.sound_design).enabled ? 'Sound Design' : '',
+    ].filter(Boolean)
+    if (on.length) {
+      throw new Error(
+        `Video Assembly stopped before encoding ${episodeId}: ${on.join(' and ')} ${on.length > 1 ? 'are' : 'is'} switched on, `
+        + 'but this Image Pool episode has no Scene Plan to place them on. Build a Scene Plan for it, '
+        + `or switch ${on.join(' and ')} off in the project settings. Nothing was rendered.`,
+      )
+    }
     req.contextual_cues = undefined
     req.sound_design = undefined
     return
@@ -1418,23 +1443,22 @@ async function hydrateEpisodeRenderCues(
   // Rendering with none is allowed, but never silent: an optional feature that
   // is switched on and contributes nothing has to say so, or its absence in the
   // finished video reads as a bug.
-  if (cueConfig.enabled && !req.contextual_cues.length) {
-    job?.output_lines.push(
-      cueTimeline
-        ? 'Contextual Cues: none approved on this episode — rendering without them.'
-        : 'Contextual Cues: nothing was ever proposed for this episode — rendering without them. This is optional and does not block the render.',
-    )
-  }
+  // 2026-10-07 — switched on means expected. Never proposed, or proposals
+  // still waiting, stops the render; every cue switched off by the reviewer is
+  // his decision and is reported in the job result.
+  const cueGate = switchedOnCueGate('Contextual Cues', episodeId, {
+    enabled: cueConfig.enabled, timeline: cueTimeline, approved: req.contextual_cues.length,
+  })
+  if (cueGate.stop) throw new Error(cueGate.stop)
+  if (cueGate.note && job) noteRender(job, cueGate.note)
   const soundConfig = normalizeSoundDesignConfig((await pm.getConfig(slug))?.sound_design)
   const soundTimeline = await readSoundDesignTimeline(planPath)
   const approvedSoundCues = assertSoundDesignReadiness(soundConfig, soundTimeline, plan)
-  if (soundConfig.enabled && !approvedSoundCues.length) {
-    job?.output_lines.push(
-      soundTimeline
-        ? 'Sound Design: no approved cues on this episode — rendering without them.'
-        : 'Sound Design: nothing was ever added for this episode — rendering without it. This is optional and does not block the render.',
-    )
-  }
+  const soundGate = switchedOnCueGate('Sound Design', episodeId, {
+    enabled: soundConfig.enabled, timeline: soundTimeline, approved: approvedSoundCues.length,
+  })
+  if (soundGate.stop) throw new Error(soundGate.stop)
+  if (soundGate.note && job) noteRender(job, soundGate.note)
   // `soundTimeline` is null exactly when nothing was ever added, which now
   // reaches here instead of throwing — so the ducking profile falls back to the
   // shipped default rather than dereferencing null. With no approved cues the
@@ -1529,6 +1553,13 @@ export async function generateVideo(job: Job): Promise<void> {
   // to absolute paths on this machine BEFORE downstream code touches them.
   // Keeps legacy absolute paths unchanged.
   resolveAssetPathsInPlace(req, outputRoot, job)
+  // Everything switched on must have its input — checked here, on the
+  // resolved paths and before any encode, so a missing piece costs seconds
+  // instead of a whole render (owner decision 2026-10-07).
+  {
+    const missing = missingEnabledVideoInputs(req, { canDrawtext, episodeCode: code })
+    if (missing.length) throw new Error(missingInputsMessage(missing, code))
+  }
   // Keep the resolved authoritative inputs before Sound Design replaces the
   // narration path with a freshly mixed derivative. The source narration,
   // cue identities, and settings are what make scene clips reusable.
@@ -1996,7 +2027,7 @@ export async function generateVideo(job: Job): Promise<void> {
       }
 
       compResolvedPath = await selfHealFinalPromotion(compResolvedPath, compProjectTreeFinalPath, compFinalName, job)
-      await verifyFinalVideo(job, compResolvedPath, compFinalName)
+      await verifyFinalVideo(job, compResolvedPath, compFinalName, totalRenderDuration)
       await writeVideoAssemblySourceStamp(
         compResolvedPath,
         code,
@@ -2422,7 +2453,7 @@ export async function generateVideo(job: Job): Promise<void> {
           const dur = (await getAudioDuration(preparedPath)) || 0
           timelineClipsByAnchor[clip.anchor].push({ path: preparedPath, duration: dur })
         } catch (e: any) {
-          job.output_lines.push(`⚠ Failed to prepare timeline clip [${clip.anchor}]: ${e.message} — skipped`)
+          throw new Error(`Timeline clip ${idx + 1} (${clip.anchor}) could not be prepared: ${e.message}. Replace the file, or switch that clip off, then retry.`)
         }
         idx++
       }
@@ -2700,7 +2731,7 @@ export async function generateVideo(job: Job): Promise<void> {
           )
         }
       } else {
-        job.output_lines.push('Warning: could not probe outro duration; final encode may truncate outro')
+        throw new Error('The outro video\'s length could not be measured, so the final encode would cut it short. Re-export the outro file, or switch the outro off, then retry.')
       }
     }
 
@@ -2964,7 +2995,7 @@ export async function generateVideo(job: Job): Promise<void> {
     }
 
     resolvedOutputPath = await selfHealFinalPromotion(resolvedOutputPath, projectTreeFinalPath, finalName, job)
-    await verifyFinalVideo(job, resolvedOutputPath, finalName)
+    await verifyFinalVideo(job, resolvedOutputPath, finalName, totalRenderDuration)
     await writeVideoAssemblySourceStamp(
       resolvedOutputPath,
       code,

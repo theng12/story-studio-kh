@@ -153,10 +153,10 @@ describe('snippetFromMeta — integration', () => {
     assert.ok(!out.title.includes('\x00'), 'null byte should be stripped')
     assert.ok(out.title.length <= 100, 'title within 100 chars')
 
-    // Description: null byte gone, truncated to 5000 chars.
+    // Description: null byte gone, trimmed at a line/sentence boundary under
+    // YouTube's byte limit (2026-10-07: 4,900 bytes, never a mid-word cut).
     assert.ok(out.description && !out.description.includes('\x00'), 'null byte stripped from description')
-    assert.equal(out.description!.length, 5000, 'description capped to 5000 chars')
-    assert.ok(out.description!.endsWith('…'), 'description ends with ellipsis')
+    assert.equal(out.description, 'legit story content')
 
     // Tags: deduped, per-tag capped, 100-char tag trimmed to 30.
     assert.ok(out.tags!.every(t => t.length <= 30), 'per-tag length ≤ 30')
@@ -166,7 +166,7 @@ describe('snippetFromMeta — integration', () => {
     // Logs: at least URL warning, description truncation warning.
     const joined = logs.join('\n')
     assert.ok(joined.includes('URL stripped'), 'URL warning logged')
-    assert.ok(joined.includes('description truncated'), 'description truncation logged')
+    assert.ok(joined.includes('description trimmed'), 'description trim logged')
   })
 
   test('removes private finalizer markers before sending chapters and sources to YouTube', () => {

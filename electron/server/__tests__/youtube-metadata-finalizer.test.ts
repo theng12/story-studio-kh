@@ -107,6 +107,22 @@ describe('YouTube metadata finalizer', () => {
     )
   })
 
+  test('chapter marks are required once Audio Assembly exists (2026-10-07)', () => {
+    // An unmeasurable opening used to be a warning, and the package shipped
+    // with every chapter mark early by the intro's length.
+    assert.match(String(finalizer.chapterIssueFor({
+      audioReady: true, timedSections: 3, leadIn: { status: 'unmeasurable', reason: 'no record.' },
+    })), /Chapter marks would be early: no record\./)
+    assert.match(String(finalizer.chapterIssueFor({
+      audioReady: true, timedSections: 0, leadIn: null,
+    })), /audio_chapters\.json/)
+    assert.equal(finalizer.chapterIssueFor({
+      audioReady: true, timedSections: 3, leadIn: { status: 'measured', reason: '' },
+    }), null)
+    // Before Audio Assembly the audio gate answers first; never two refusals.
+    assert.equal(finalizer.chapterIssueFor({ audioReady: false, timedSections: 0, leadIn: null }), null)
+  })
+
   test('missing outline titles fall back to readable chapter labels', () => {
     const chapters = finalizer.buildYouTubeChapters({
       sections: [{ slug: 'chapter_003', duration_sec: 90 }],
@@ -212,5 +228,18 @@ describe('YouTube metadata finalizer', () => {
     assert.match(withoutSources.description, /The Door in the Mountain/)
     assert.doesNotMatch(withoutSources.description, /youtube:sources:start/)
     assert.doesNotMatch(withoutSources.description, /Selected evidence/)
+    assert.equal(result.chapter_issue, null, 'measured timing: chapter marks can be written')
+
+    // The story context is required too: no narration, no description.
+    const { readStoryContext } = await import('../generators/metadata.js')
+    assert.match(await readStoryContext(project.slug, episodeId, 'A Continent Set Adrift'), /Measured narration/)
+    await fs.rename(
+      path.join(paths.script_dir, `${episodeId}_Script_Narration.md`),
+      path.join(paths.script_dir, 'moved-away.md'),
+    )
+    await assert.rejects(
+      readStoryContext(project.slug, episodeId, 'A Continent Set Adrift'),
+      /Could not read EP\d+'s narration|narration is empty/,
+    )
   })
 })

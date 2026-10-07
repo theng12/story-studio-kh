@@ -1199,6 +1199,9 @@ router.post('/projects/:slug/generate/metadata', async (req, res) => {
       warnings: readiness.warnings,
     })
   }
+  if (readiness.chapter_issue) {
+    return res.status(409).json({ code: 'YOUTUBE_FINALIZER_CHAPTERS_REQUIRED', detail: readiness.chapter_issue, warnings: readiness.warnings })
+  }
 
   let action
   try {
