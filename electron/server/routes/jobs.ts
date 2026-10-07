@@ -385,8 +385,12 @@ router.get('/projects/:slug/jobs/stream', async (req, res) => {
   }
 })
 
+// `?view=stream` is the streams' slim view (no Gateway evidence / scene lists); the REST
+// fallbacks poll with it, so a closed stream does not pull the full history every 15 s.
+const listView = (query: unknown): 'full' | 'stream' => (query as any)?.view === 'stream' ? 'stream' : 'full'
+
 router.get('/projects/:slug/jobs', async (req, res) => {
-  const jobsList = await jq.getJobs(req.params.slug)
+  const jobsList = await jq.getJobs(req.params.slug, { view: listView(req.query) })
   const stats = jq.getQueueStats(req.params.slug)
   res.json({ jobs: jobsList, stats })
 })
@@ -432,8 +436,8 @@ router.get('/jobs/all/stream', async (req, res) => {
   }
 })
 
-router.get('/jobs/all', async (_req, res) => {
-  res.json(await allJobsSnapshot())
+router.get('/jobs/all', async (req, res) => {
+  res.json(await allJobsSnapshot(listView(req.query)))
 })
 
 router.post('/jobs/all/resume-paused', async (req, res) => {

@@ -61,4 +61,22 @@ describe('findJobs serialises only the matching jobs (S3)', () => {
     assert.notEqual(res.status, 404, 'the all-projects lookup still finds the job')
     assert.ok(jq._getJobPersistenceCountersForTesting().public_serializations <= 1)
   })
+
+  test('GET ?view=stream returns the slim view the REST fallbacks poll with (S5)', async () => {
+    const { slug } = await pm.createProject({ name: 'Slim Fallback' })
+    await fs.writeFile(path.join(pm.getProjectDir(slug)!, 'jobs.json'), JSON.stringify({ jobs: [{
+      job_id: `${slug}-big`, project_slug: slug, type: 'continuity_render', episode_id: 'EP0001', title: 't', status: 'done',
+      created_at: '2026-10-01T00:00:00Z', started_at: null, finished_at: '2026-10-01T00:00:00Z', error: null, output_lines: [],
+      params: { scenes: Array.from({ length: 50 }, (_, i) => ({ id: i })) },
+      genstudio_jobs: Array.from({ length: 20 }, (_, i) => ({ id: `t${i}`, operation: 'image.generation', state: 'succeeded' })),
+    }] }))
+    const full = (await request(app).get(`/api/projects/${slug}/jobs`).expect(200)).body.jobs[0]
+    const slim = (await request(app).get(`/api/projects/${slug}/jobs?view=stream`).expect(200)).body.jobs[0]
+    assert.equal(full.genstudio_jobs.length, 20)
+    assert.equal(slim.genstudio_jobs, undefined)
+    assert.equal(slim.genstudio_jobs_count, 20)
+    assert.equal(slim.params.scenes, undefined)
+    const all = (await request(app).get('/api/jobs/all?view=stream').expect(200)).body.jobs.find((job: any) => job.job_id === `${slug}-big`)
+    assert.equal(all.genstudio_jobs, undefined)
+  })
 })
