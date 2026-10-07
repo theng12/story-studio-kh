@@ -451,6 +451,8 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
       return plan
     })
     if (!plan) return null
+    // S12: an audit that changes nothing does not rewrite the plans file.
+    const stored = JSON.stringify(plan)
     const save = () => withLock(file, async () => {
       // Another episode may have finished its audit meanwhile. Merge only this
       // episode; never overwrite the other plans with our pre-audit snapshot.
@@ -480,7 +482,7 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
       auditFailed = true
       plan.message = error instanceof Error ? error.message : String(error)
     }
-    await save()
+    if (JSON.stringify(plan) !== stored) await save()
     for (const row of jobs) {
       const step = episodeRecoveryStep(row.type)
       if (!step || row.status === 'cancelled' || row.force_abandoned) continue
@@ -497,6 +499,17 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
   })
 }
 
+const BLOCKED_RECHECK_MS = 10 * 60_000
+
+/** Size + mtime of every episode folder and artifact path the audit reads; null when unresolvable. */
+export async function episodeInputStamp(projectSlug: string, episodeId: string): Promise<string | null> {
+  try {
+    const paths = await resolveEpisodePathsByCode(projectSlug, episodeId)
+    const stats = await Promise.all(Object.values(paths).map(target => fs.stat(target).then(info => `${info.size}:${info.mtimeMs}`, () => '-')))
+    return stats.join('|')
+  } catch { return null }
+}
+
 /** Called once after queue lanes are registered; progress never depends on an open browser. */
 let started = false
 export async function startEpisodeRecovery(): Promise<void> {
@@ -505,11 +518,16 @@ export async function startEpisodeRecovery(): Promise<void> {
   const pending = new Map<string, Job>()
   const running = new Set<string>()
   const watching = new Map<string, { project: string; episode: string }>()
+  // S12: a blocked plan is re-audited by the timer only when its episode's files changed (or every
+  // BLOCKED_RECHECK_MS as a backstop); job completions still advance it at once through `schedule`.
+  const blocked = new Map<string, { stamp: string; at: number }>()
   const advance = async (project: string, episode: string, create: boolean) => {
-    const plan = await recoverEpisode(project, episode, create)
     const key = `${project}:${episode}`
+    blocked.delete(key)
+    const plan = await recoverEpisode(project, episode, create)
     if (plan?.first_unresolved) watching.set(key, { project, episode })
     else watching.delete(key)
+    return plan
   }
   const schedules = (job: Readonly<Job>) => {
     const automaticSubtitle = job.type === 'subtitles_transcribe' && job.status === 'error'
@@ -553,7 +571,13 @@ export async function startEpisodeRecovery(): Promise<void> {
     for (const [key, scope] of watching) {
       if (running.has(key)) continue
       running.add(key)
-      void advance(scope.project, scope.episode, false)
+      void (async () => {
+        const stamp = await episodeInputStamp(scope.project, scope.episode)
+        const last = blocked.get(key)
+        if (last && stamp !== null && last.stamp === stamp && Date.now() - last.at < BLOCKED_RECHECK_MS) return
+        const plan = await advance(scope.project, scope.episode, false)
+        if (plan?.dispatch_status === 'blocked' && stamp !== null) blocked.set(key, { stamp, at: Date.now() })
+      })()
         .catch(error => console.warn('[episode-recovery] recheck:', error.message))
         .finally(() => running.delete(key))
     }

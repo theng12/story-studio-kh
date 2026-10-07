@@ -856,3 +856,36 @@ test('checking an already queued recovery returns its identity without another p
     assert.equal((await jq.getJobs(project.slug)).length, 2, 'no duplicate recovery job')
   } finally { t.mock.restoreAll(); await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
 })
+
+// S12: a re-audit that changes nothing leaves the plans file alone; the timer's input stamp moves
+// only when the episode's files do.
+test('an unchanged re-audit does not rewrite episode-recovery-plans.json, and the input stamp tracks episode files', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Episode recovery quiet recheck' })
+    for (const job of rows().map(job => ({ ...job, job_id: `quiet-${job.job_id}`, project_slug: project.slug }))) await jq.writeAuthoritativeJob(job)
+    await jq.getJobs(project.slug)
+    const { recoverEpisode, episodeInputStamp } = await subject()
+    const file = path.join(pm.getProjectDir(project.slug)!, 'episode-recovery-plans.json')
+    const first = (await recoverEpisode(project.slug, 'EP0001'))!
+    assert.equal(first.dispatch_status, 'blocked')
+    await recoverEpisode(project.slug, 'EP0001', false) // settle any one-time message
+    const before = await fs.stat(file)
+    const again = (await recoverEpisode(project.slug, 'EP0001', false))!
+    const after = await fs.stat(file)
+    assert.equal(again.id, first.id)
+    assert.equal(after.ino, before.ino, 'no atomic rewrite')
+    assert.equal(after.mtimeMs, before.mtimeMs)
+
+    const stamp = await episodeInputStamp(project.slug, 'EP0001')
+    assert.ok(stamp)
+    assert.equal(await episodeInputStamp(project.slug, 'EP0001'), stamp, 'stable while nothing changes')
+    const { resolveEpisodePathsByCode } = await import('../services/utils.js')
+    const paths = await resolveEpisodePathsByCode(project.slug, 'EP0001')
+    await fs.mkdir(paths.subtitles_dir, { recursive: true })
+    await fs.writeFile(path.join(paths.subtitles_dir, 'EP0001_Chapter_02.srt'), '1\n00:00:00,000 --> 00:00:01,000\nhi\n')
+    assert.notEqual(await episodeInputStamp(project.slug, 'EP0001'), stamp, 'a new subtitle file moves the stamp')
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
