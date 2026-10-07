@@ -334,8 +334,11 @@ describe('Upload Center Publish', () => {
       episodes: [NEVER_UPLOADED],
       preview: { ...PREVIEWED, thumbnail: { state: 'none', options: [] } },
     })
-    await previewThen(none)
+    const noneUpload = await previewThen(none)
     assert.match(none.text(), /No thumbnail is selected for this upload/)
+    // 2026-10-07 — the thumbnail is required: no Upload button without one.
+    assert.match(none.text(), /A thumbnail is required/)
+    assert.equal(noneUpload, undefined, 'no Upload button without a thumbnail')
     none.destroy()
 
     const unavailable = await mount({
@@ -423,6 +426,11 @@ describe('Upload Center Publish', () => {
     snippet: { title: 'The Lighthouse at Dawn', description: 'd', tags: [], categoryId: '24' },
     status: { privacyStatus: 'private', containsSyntheticMedia: true },
     modifications: [], warnings: [],
+    // A thumbnail is required to upload (2026-10-07).
+    thumbnail: {
+      state: 'selected', filename: 'EP0001_Thumb01_v1.png', url: '/api/thumb.png',
+      options: [{ filename: 'EP0001_Thumb01_v1.png', url: '/api/thumb.png' }],
+    },
   }
 
   async function previewThen(mounted: Awaited<ReturnType<typeof mount>>): Promise<HTMLButtonElement> {
@@ -456,7 +464,7 @@ describe('Upload Center Publish', () => {
     assert.deepEqual(posted!.body, {
       episode_code: 'EP0001', confirm: true, expected_channel_id: 'UC-x',
       expected_package_revision: 'pack-42', expected_source_revision: 'video-source-42',
-      thumbnail_filename: null, privacy_status: 'private',
+      thumbnail_filename: 'EP0001_Thumb01_v1.png', privacy_status: 'private',
     })
     assert.match(mounted.confirms[0].message, /Ch \(UC-x\)/)
 
@@ -562,7 +570,7 @@ describe('Upload Center Publish', () => {
     assert.match(mounted.confirms[0].message, new RegExp(publishAt.replaceAll('.', '\\.')))
     assert.deepEqual(mounted.calls.find(call => call.path.endsWith('/youtube/upload'))?.body, {
       episode_code: 'EP0001', confirm: true, expected_channel_id: 'UC-x', expected_package_revision: 'pack-42',
-      expected_source_revision: 'video-source-42', thumbnail_filename: null, privacy_status: 'private', publish_at: publishAt,
+      expected_source_revision: 'video-source-42', thumbnail_filename: 'EP0001_Thumb01_v1.png', privacy_status: 'private', publish_at: publishAt,
     })
     mounted.destroy()
   })
@@ -1221,6 +1229,8 @@ describe('Upload Center Publish', () => {
     ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
       .find(button => button.textContent!.includes('Review Selected Uploads'))!.click()
     for (let i = 0; i < 10; i++) await nextTick()
+    for (const image of mounted.el.querySelectorAll<HTMLImageElement>('.bulk-thumbnail img')) image.dispatchEvent(new Event('load'))
+    await nextTick()
     assert.match(mounted.text(), /preview exploded/)
 
     ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
@@ -1253,6 +1263,8 @@ describe('Upload Center Publish', () => {
     ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
       .find(button => button.textContent!.includes('Review Selected Uploads'))!.click()
     for (let i = 0; i < 10; i++) await nextTick()
+    for (const image of mounted.el.querySelectorAll<HTMLImageElement>('.bulk-thumbnail img')) image.dispatchEvent(new Event('load'))
+    await nextTick()
 
     const dialog = mounted.el.querySelector('[aria-labelledby="bulk-upload-review-title"]')!
     ;[...dialog.querySelectorAll<HTMLButtonElement>('button')]
@@ -1456,6 +1468,8 @@ describe('Upload Center Publish', () => {
     await nextTick()
     ;[...mounted.el.querySelectorAll('button')].find(b => /Review Selected Uploads/.test(b.textContent || ''))!.click()
     for (let i = 0; i < 12; i++) await nextTick()
+    for (const image of mounted.el.querySelectorAll<HTMLImageElement>('.bulk-thumbnail img')) image.dispatchEvent(new Event('load'))
+    await nextTick()
     const dialog = mounted.el.querySelector('[role="dialog"]')!
     const queue = [...dialog.querySelectorAll('button')].find(b => /Queue Reviewed Uploads \(3\)/.test(b.textContent || ''))!
     queue.click()

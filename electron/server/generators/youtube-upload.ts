@@ -179,7 +179,20 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
   // the owner pressed the button. Tell 13, fourth instance.
   const operations = await listYouTubeOperations(slug)
   const remote = await remoteVideoFor(slug, episodeId, idea.title || '', account.remote_id, operations)
-  if (remote?.video_id) throw new Error(`${alreadyOnYouTubeReason(episodeId, remote)} Nothing was uploaded.`)
+  if (remote?.video_id) {
+    // Retry after "uploaded, but the thumbnail failed": the video is kept and
+    // only the thumbnail is set. Never a second upload.
+    const recorded = await readSidecarRaw(slug, episodeId, idea.title || '', 'youtube')
+    if (thumbnailOnlyRetry(recorded, remote.video_id, account.remote_id)) {
+      await setRequiredThumbnail(job, {
+        slug, episodeId, accountId, videoId: remote.video_id, fallbackTitle: idea.title,
+        sidecarPath: path.join(paths.episode_dir, 'youtube_upload.json'),
+        thumbnailFilename: params.thumbnail_filename,
+      })
+      return
+    }
+    throw new Error(`${alreadyOnYouTubeReason(episodeId, remote)} Nothing was uploaded.`)
+  }
 
   // This job always uploads, so the local video file is always required.
   let videoPath: string | null = null
@@ -222,6 +235,11 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     platform: 'youtube',
     thumbnail_filename: params.thumbnail_filename,
   })
+  // The thumbnail is REQUIRED (owner decision 2026-10-07). Refuse before any
+  // quota is spent rather than publish a video with YouTube's frame grab.
+  if (!meta.thumbnailPath || !existsSync(meta.thumbnailPath)) {
+    throw new Error(`${missingThumbnailReason(episodeId, meta.thumbnailPath, params.thumbnail_filename)} Nothing was uploaded.`)
+  }
   const privacy: PrivacyStatus = params.privacy_status || 'private'
 
   let operationHandle!: YouTubeOperationHandle
@@ -525,31 +543,13 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     }
   }
 
-  // Thumbnail — best-effort. Channel must be verified for custom thumbnails;
-  // a failure here is a warning in the sidecar, not a fatal error.
-  let thumb_error = ''
-  let thumbnailVerifiedThisRun = false
-  if (meta.thumbnailPath && existsSync(meta.thumbnailPath)) {
-    try {
-      await setThumbnail({ slug, accountId, videoId, filePath: meta.thumbnailPath })
-      thumbnail_set = true
-      thumbnailVerifiedThisRun = true
-      job.output_lines.push('Thumbnail set ✓')
-    } catch (e: any) {
-      thumb_error = String(e?.message || 'thumbnail failed')
-      job.output_lines.push(`⚠ Thumbnail upload skipped: ${thumb_error}`)
-    }
-  } else if (!thumbnail_set && params.thumbnail_filename !== null) {
-    // v1.0.524 — never silent. Say WHY there was no thumbnail to set, and
-    // persist it to the sidecar last_error so the UI / a later backfill run
-    // shows the reason instead of an empty skip.
-    thumb_error = meta.thumbnailPath
-      ? `resolved thumbnail path no longer exists: ${meta.thumbnailPath}`
-      : 'no thumbnail found for this episode (empty Thumbnail Images folder, or none pinned). Make/pin a thumbnail, then run "Backfill thumbnails".'
-    job.output_lines.push(`⚠ No thumbnail set — ${thumb_error}`)
-  } else if (params.thumbnail_filename === null) {
-    job.output_lines.push('No thumbnail selected for this upload.')
-  }
+  // Thumbnail — REQUIRED. Tried twice (setThumbnail itself also retries the
+  // transient "still processing" race); a failure fails the job further down,
+  // after the durable record and the playlist, with the video id kept.
+  job.output_lines.push('Setting the thumbnail…')
+  const thumb_error = await setThumbnailWithRetry(job, { slug, accountId, videoId, filePath: meta.thumbnailPath })
+  if (!thumb_error) thumbnail_set = true
+  const thumbnailVerifiedThisRun = thumbnail_set
   job.progress = 95
 
   // Merge optional thumbnail details into the current record rather than
@@ -610,8 +610,114 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
           ? `Added to playlist ${playlistToUse} and verified membership.`
           : `Playlist ${playlistToUse} already contains this video; skipped the 50-unit insert.`,
       )
+      job.result = { ...(job.result || {}), playlist: { id: playlistToUse, added: true } }
     } catch (e: any) {
-      job.output_lines.push(`⚠ Playlist add failed: ${e?.message || 'unknown'} — upload itself is OK.`)
+      // Optional, so it does not fail the upload — but it is reported in the
+      // job result, not only in the log, so "done" never hides it.
+      const warning = `The video was not added to playlist ${playlistToUse}: ${e?.message || 'unknown error'}. The upload itself is complete; add it from YouTube Studio or retry the playlist.`
+      job.output_lines.push(`⚠ ${warning}`)
+      job.result = {
+        ...(job.result || {}),
+        playlist: { id: playlistToUse, added: false, error: String(e?.message || 'unknown') },
+        warnings: [...((job.result?.warnings as string[] | undefined) || []), warning],
+      }
     }
   }
+
+  requireThumbnailSet(job, videoId, thumb_error)
+}
+
+/** Why there is no thumbnail to set, in the owner's words. */
+function missingThumbnailReason(episodeId: string, resolvedPath: string, filename: string | null | undefined): string {
+  if (filename === null) {
+    return `A thumbnail is required to upload ${episodeId}, and none was selected. Pick one in Upload preview.`
+  }
+  return resolvedPath
+    ? `${episodeId}'s thumbnail no longer exists (${resolvedPath}). Make or pin a thumbnail on the Thumbnails page, then try again.`
+    : `A thumbnail is required to upload ${episodeId}, and this episode has none. Make or pin one on the Thumbnails page, then try again.`
+}
+
+/** setThumbnail, tried a second time on failure. Returns '' when set, else the error. */
+async function setThumbnailWithRetry(
+  job: Job,
+  opts: { slug: string; accountId: string; videoId: string; filePath: string },
+): Promise<string> {
+  let error = ''
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      await setThumbnail(opts)
+      job.output_lines.push('Thumbnail set ✓')
+      return ''
+    } catch (e: any) {
+      error = String(e?.message || 'thumbnail failed')
+      job.output_lines.push(`⚠ Thumbnail attempt ${attempt} of 2 failed: ${error}`)
+    }
+  }
+  return error
+}
+
+/** Fail the job when the thumbnail is not set, keeping the video id so Retry sets only the thumbnail. */
+function requireThumbnailSet(job: Job, videoId: string, error: string): void {
+  requireJobCompletion(job, {
+    label: 'YouTube thumbnail',
+    expected: 1,
+    completed: error ? 0 : 1,
+    missing: error ? ['thumbnail'] : [],
+    message: error
+      ? `Uploaded as https://youtu.be/${videoId}, but the thumbnail could not be set: ${error} `
+        + 'The video is kept. Press Retry to set only the thumbnail — nothing is uploaded again.'
+      : undefined,
+  })
+}
+
+/**
+ * Retry of an upload whose video went up but whose thumbnail did not: the
+ * record names the same video on the same channel, not removed, with no
+ * thumbnail set AND a recorded thumbnail failure. A legacy record with no
+ * thumbnail and no recorded failure is still refused, as before — that is
+ * "Backfill thumbnails", not a retry of this upload.
+ */
+export function thumbnailOnlyRetry(recorded: UploadSidecar | null, videoId: string, channelId: string): boolean {
+  return !!recorded
+    && recorded.video_id === videoId
+    && recorded.channel_id === channelId
+    && !recorded.deleted_at
+    && recorded.thumbnail_set !== true
+    && !!recorded.last_error
+}
+
+async function setRequiredThumbnail(job: Job, input: {
+  slug: string
+  episodeId: string
+  accountId: string
+  videoId: string
+  fallbackTitle?: string
+  sidecarPath: string
+  thumbnailFilename?: string | null
+}): Promise<void> {
+  job.output_lines.push(
+    `${input.episodeId} is already on YouTube (https://youtu.be/${input.videoId}) without its thumbnail — `
+    + 'setting only the thumbnail; the video is not uploaded again.',
+  )
+  const meta = await resolveUploadMetadata({
+    slug: input.slug,
+    episode_code: input.episodeId,
+    fallback_title: input.fallbackTitle,
+    platform: 'youtube',
+    ...(input.thumbnailFilename ? { thumbnail_filename: input.thumbnailFilename } : {}),
+  })
+  if (!meta.thumbnailPath || !existsSync(meta.thumbnailPath)) {
+    throw new Error(`${missingThumbnailReason(input.episodeId, meta.thumbnailPath, undefined)} The video stays on YouTube; nothing is uploaded again.`)
+  }
+  const error = await setThumbnailWithRetry(job, {
+    slug: input.slug, accountId: input.accountId, videoId: input.videoId, filePath: meta.thumbnailPath,
+  })
+  await checkpointThumbnailStateAtPath(
+    input.sidecarPath,
+    { video_id: input.videoId, account_id: input.accountId },
+    { set: !error, error: error || undefined, remotely_verified: !error },
+  )
+  job.output_dir = path.dirname(input.sidecarPath)
+  requireThumbnailSet(job, input.videoId, error)
+  job.progress = 100
 }

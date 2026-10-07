@@ -7,6 +7,7 @@ import { useTempDataDir } from './_helpers.js'
 import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 import { FakeYouTube } from './fixtures/fake-youtube.js'
 import { tinyVideoBytes } from './fixtures/tiny-video.js'
+import sharp from 'sharp'
 import {
   __resetYouTubeTransportForTests,
   __setYouTubeTransportForTests,
@@ -62,6 +63,10 @@ async function setUp(assign: boolean): Promise<{ slug: string; accountId: string
   await fs.mkdir(paths.video_dir, { recursive: true })
   const sourcePath = path.join(paths.video_dir, `${CODE}_final_video.mp4`)
   await fs.writeFile(sourcePath, tinyVideoBytes())
+  // The thumbnail is required (2026-10-07), so every episode here has one.
+  await fs.mkdir(paths.thumb_dir, { recursive: true })
+  await sharp({ create: { width: 16, height: 9, channels: 3, background: '#335577' } })
+    .png().toFile(path.join(paths.thumb_dir, `${CODE}_Thumb01_v1.png`))
 
   const settings = await resolveYouTubeUploadSettings(slug)
   const approved = await buildYouTubeMetadataPackage({
@@ -100,7 +105,13 @@ function fakeAcceptingUpload(videoId: string): FakeYouTube {
     headers: { Location: SESSION },
   })
   fake.respond({ method: 'PUT', path: '/resumable/session-abc', body: { id: videoId } })
+  fake.respondMatching({ method: 'POST', match: /\/thumbnails\/set/, body: {} })
   return fake
+}
+
+/** Thumbnail calls in hand-written transports: accepted. */
+function thumbnailResponse(url: string): Response | null {
+  return url.includes('/thumbnails/set') ? new Response('{}', { status: 200 }) : null
 }
 
 function job(slug: string, accountId: string): any {
@@ -165,6 +176,8 @@ describe('youtube upload generator', () => {
 
     __setYouTubeTransportForTests((async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const thumb = thumbnailResponse(url)
+      if (thumb) return thumb
       if (init?.method === 'POST') {
         await fs.rename(replacement, sourcePath)
         return new Response('{}', { status: 200, headers: { Location: SESSION } })
@@ -182,19 +195,72 @@ describe('youtube upload generator', () => {
     assert.notEqual(await resolveSourceRevision(sourcePath), recordedRevision, 'the pathname now names the replacement')
   })
 
-  test('an explicit no-thumbnail upload does not report a missing-thumbnail failure', async () => {
+  test('the thumbnail is required: an explicit no-thumbnail upload is refused before any quota is spent', async () => {
     const { slug, accountId } = await setUp(true)
-    __setYouTubeTransportForTests(fakeAcceptingUpload('video-without-thumbnail').transport())
+    const fake = fakeAcceptingUpload('must-not-upload')
+    __setYouTubeTransportForTests(fake.transport())
     const running = job(slug, accountId)
     running.params.thumbnail_filename = null
 
-    await generateYoutubeUpload(running)
+    await assert.rejects(generateYoutubeUpload(running), /A thumbnail is required to upload EP0001.*Nothing was uploaded/)
+    assert.equal(fake.calls.length, 0, 'YouTube was never contacted')
+    assert.equal((await listYouTubeOperations(slug)).length, 0)
+  })
 
-    const log = running.output_lines.join('\n')
-    assert.match(log, /No thumbnail selected for this upload\./)
-    assert.doesNotMatch(log, /No thumbnail set|no thumbnail found/)
-    const state = await readYouTubeProjectPublishingState(slug)
-    assert.equal(state.episode_video_links[CODE]?.video_id, 'video-without-thumbnail')
+  test('an episode with no thumbnail at all is refused before any quota is spent', async () => {
+    const { slug, accountId } = await setUp(true)
+    const paths = await resolveEpisodePaths(slug, CODE, TITLE)
+    await fs.rename(paths.thumb_dir, `${paths.thumb_dir}-moved`)
+    const fake = fakeAcceptingUpload('must-not-upload')
+    __setYouTubeTransportForTests(fake.transport())
+
+    await assert.rejects(generateYoutubeUpload(job(slug, accountId)), /this episode has none/)
+    assert.equal(fake.calls.length, 0)
+  })
+
+  test('a thumbnail that fails twice fails the job with the video kept, and Retry sets only the thumbnail', async () => {
+    const { slug, accountId } = await setUp(true)
+    const fake = new FakeYouTube()
+    fake.respond({
+      method: 'POST',
+      path: '/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status',
+      body: {},
+      headers: { Location: SESSION },
+    })
+    fake.respond({ method: 'PUT', path: '/resumable/session-abc', body: { id: 'video-thumb-later' } })
+    fake.respondMatching({ method: 'POST', match: /\/thumbnails\/set/, status: 403, body: { error: { message: 'forbidden' } } })
+    fake.respondMatching({ method: 'POST', match: /\/thumbnails\/set/, status: 403, body: { error: { message: 'forbidden' } } })
+    __setYouTubeTransportForTests(fake.transport())
+
+    const first = job(slug, accountId)
+    await assert.rejects(generateYoutubeUpload(first), /Uploaded as https:\/\/youtu\.be\/video-thumb-later, but the thumbnail could not be set.*Retry to set only the thumbnail/s)
+    assert.equal(first.output_lines.filter((line: string) => /Thumbnail attempt \d of 2 failed/.test(line)).length, 2, 'setThumbnail was retried')
+    const { readSidecarRaw } = await import('../services/upload-sidecar.js')
+    const kept = await readSidecarRaw(slug, CODE, TITLE, 'youtube')
+    assert.equal(kept?.video_id, 'video-thumb-later', 'the video id is kept')
+    assert.equal(kept?.thumbnail_set, false)
+
+    // Retry: no video request at all, only the thumbnail.
+    const retryFake = new FakeYouTube()
+    retryFake.respondMatching({ method: 'POST', match: /\/thumbnails\/set\?videoId=video-thumb-later/, body: {} })
+    __setYouTubeTransportForTests(retryFake.transport())
+    const retry = job(slug, accountId)
+    await generateYoutubeUpload(retry)
+    assert.equal(retryFake.calls.length, 1, 'exactly one request: the thumbnail')
+    assert.match(retry.output_lines.join('\n'), /setting only the thumbnail; the video is not uploaded again/)
+    assert.equal((await readSidecarRaw(slug, CODE, TITLE, 'youtube'))?.thumbnail_set, true)
+    assert.equal((await listYouTubeOperations(slug)).length, 1, 'still one upload')
+  })
+
+  test('a failed playlist add is a visible warning in the job result, not silence', async () => {
+    const { slug, accountId } = await setUp(true)
+    __setYouTubeTransportForTests(fakeAcceptingUpload('video-playlist-fails').transport())
+    const running = job(slug, accountId)
+    running.params.playlist_id = 'PL-missing'
+    await generateYoutubeUpload(running)
+    assert.equal(running.result?.playlist?.added, false)
+    assert.equal(running.result?.playlist?.id, 'PL-missing')
+    assert.match(String(running.result?.warnings?.[0]), /not added to playlist PL-missing/)
   })
 
   test('provider acceptance is checkpointed to the pinned channel across an in-flight reassignment', async () => {
@@ -208,6 +274,8 @@ describe('youtube upload generator', () => {
     __setYouTubeTransportForTests((async (input, init) => {
       providerCalls++
       const url = String(input)
+      const thumb = thumbnailResponse(url)
+      if (thumb) return thumb
       if ((init?.method || 'GET') === 'POST' && url.includes('/upload/youtube/v3/videos')) {
         return new Response('', { status: 200, headers: { Location: SESSION } })
       }
@@ -223,7 +291,9 @@ describe('youtube upload generator', () => {
     }) as typeof fetch)
 
     const originalJob = job(slug, accountId)
-    await generateYoutubeUpload(originalJob)
+    // The reassignment also blocks the (required) thumbnail on the old
+    // channel, so the job fails on it — with the accepted video kept.
+    await assert.rejects(generateYoutubeUpload(originalJob), /Uploaded as https:\/\/youtu\.be\/video-pinned-channel, but the thumbnail could not be set/)
     const [record] = await listYouTubeOperations(slug)
     assert.equal(record?.lifecycle, 'accepted')
     assert.equal(record?.video_id, 'video-pinned-channel')
@@ -399,6 +469,8 @@ describe('youtube upload generator', () => {
         initCount += 1
         throw new Error('resume must not create a second session')
       }
+      const thumb = thumbnailResponse(url)
+      if (thumb) return thumb
       if (url !== SESSION) throw new Error(`Unexpected request: ${url}`)
       const headers = new Headers(init?.headers)
       if (headers.get('Content-Range')?.startsWith('bytes */')) {
@@ -460,6 +532,8 @@ describe('youtube upload generator', () => {
     __setYouTubeTransportForTests((async (input, init) => {
       const url = String(input)
       if (url.includes('/upload/youtube/v3/videos')) throw new Error('must reuse the saved session')
+      const thumb = thumbnailResponse(url)
+      if (thumb) return thumb
       if (url !== SESSION) throw new Error(`Unexpected request: ${url}`)
       const headers = new Headers(init?.headers)
       if (headers.get('Content-Range')?.startsWith('bytes */')) {
@@ -544,7 +618,7 @@ describe('a fresh upload carries nothing forward from a previous video', () => {
     assert.equal(after!.video_id, 'video-after-removal')
     assert.equal(after!.deleted_at, undefined, 'the new video is not born tombstoned')
     assert.equal(after!.deleted_reason, undefined)
-    assert.equal(after!.thumbnail_set, false, 'the old video\'s thumbnail state is not claimed')
+    assert.equal(after!.thumbnail_sync?.video_id, 'video-after-removal', 'the thumbnail state is THIS video\'s, not the old one\'s')
     assert.notEqual(after!.uploaded_at, '2026-01-01T00:00:00.000Z', 'uploaded_at is this upload')
 
     // The outcome that matters: the new video is visible as published.

@@ -1,3 +1,4 @@
+import sharp from 'sharp'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -4052,6 +4053,10 @@ test('a fresh project can be listed, previewed, uploaded, and ends up with a vid
   const paths = await utils.resolveEpisodePaths(slug, episodeCode, title)
   await fs.mkdir(paths.video_dir, { recursive: true })
   await fs.writeFile(path.join(paths.video_dir, `${episodeCode}_final_video.mp4`), tinyVideoBytes())
+  // A thumbnail is required to upload (2026-10-07).
+  await fs.mkdir(paths.thumb_dir, { recursive: true })
+  await sharp({ create: { width: 16, height: 9, channels: 3, background: '#224466' } })
+    .png().toFile(path.join(paths.thumb_dir, `${episodeCode}_Thumb01_v1.png`))
 
   // This owner has turned the AI disclosure OFF, through the one control that
   // actually writes it: the app-level default in Settings. It is the setting
@@ -4089,6 +4094,7 @@ test('a fresh project can be listed, previewed, uploaded, and ends up with a vid
     headers: { Location: SESSION },
   })
   fake.respond({ method: 'PUT', path: '/resumable/e2e-session', body: { id: 'video-e2e' } })
+  fake.respondMatching({ method: 'POST', match: /\/thumbnails\/set/, body: {} })
   __setYouTubeTransportForTests(fake.transport())
 
   const started = await request(app).post(`/api/projects/${slug}/youtube/upload`)
