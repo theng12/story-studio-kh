@@ -44,6 +44,18 @@
 
   --success: #4ade80;
   --error: #f87171;
+  /* 21 files say var(--danger), which was never defined, so their error text fell back to plain
+     text colour. Alias it once here; it follows --error into light mode too. */
+  --danger: var(--error);
+  /* Same story for these older names: used in ~50 places, never defined, so borders, section
+     kickers and the Page guide's fields silently lost their colour. Aliases, not new colours. */
+  --accent-gold: var(--accent);
+  --text: var(--text-primary);
+  --border-color: var(--border);
+  --bg-input: var(--bg-primary);
+  --surface: var(--bg-secondary);
+  --bg-card: var(--bg-secondary);
+  --bg-subtle: var(--bg-tertiary);
   --warning: #fbbf24;
   --info: #60a5fa;
 

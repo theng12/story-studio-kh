@@ -9,6 +9,8 @@
  * default is left out of the URL; unrelated query keys are kept as they are.
  */
 export type QueryStateValue = string | number | boolean | null
+/** The shape of `route.query`, and what `router.replace({ query })` accepts. */
+export type UrlQuery = Record<string, string | null | (string | null)[]>
 
 function first(raw: unknown): string | undefined {
   const value = Array.isArray(raw) ? raw[0] : raw
@@ -28,11 +30,11 @@ export function readQueryState<T extends Record<string, QueryStateValue>>(query:
 }
 
 export function writeQueryState<T extends Record<string, QueryStateValue>>(
-  query: Record<string, unknown>,
+  query: UrlQuery,
   state: T,
   defaults: T,
-): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...query }
+): UrlQuery {
+  const out: UrlQuery = { ...query }
   for (const key of Object.keys(defaults)) {
     const value = state[key]
     if (value === defaults[key] || value === null || value === '') delete out[key]

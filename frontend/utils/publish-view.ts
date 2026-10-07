@@ -4,7 +4,7 @@
  * the same view. `episode_id` is the older Jobs deep link and still seeds the
  * search; the page writes `q` from then on.
  */
-import { readQueryState, writeQueryState } from './route-query-state'
+import { readQueryState, writeQueryState, type UrlQuery } from './route-query-state'
 
 /** Rows rendered at first and added by each "Show More". */
 export const PUBLISH_PAGE = 50
@@ -29,10 +29,9 @@ export function readPublishView(query: Record<string, unknown>): PublishView {
   }
 }
 
-/** Route query values: what vue-router hands in, plus the strings written here. */
-export type PublishQuery = Record<string, string | null | Array<string | null>>
+export type PublishQuery = UrlQuery
 
-export function writePublishView(query: Record<string, unknown>, view: PublishView): PublishQuery {
+export function writePublishView(query: UrlQuery, view: PublishView): PublishQuery {
   const { episode_id: _seed, ...rest } = query
-  return writeQueryState<typeof DEFAULTS>(rest, view, DEFAULTS) as PublishQuery
+  return writeQueryState<typeof DEFAULTS>(rest, view, DEFAULTS)
 }
