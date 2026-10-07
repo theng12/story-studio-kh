@@ -22,6 +22,14 @@ export interface YouTubeChannelRecord {
    * into it; an always-absent field would read as "never synchronized".
    */
   last_refresh_at?: string
+  /** When the owner last completed Google consent (Connect or Reconnect). Optional: older records use `updated_at`. */
+  authorized_at?: string
+  /**
+   * Set when Google refused this grant about 7 days after consent — the
+   * signature of an OAuth app still in "Testing" publishing status, whose
+   * refresh tokens expire after 7 days. Drives "Signed in until ~date".
+   */
+  seven_day_sign_in?: boolean
   granted_scopes: string[]
   status: 'connected' | 'reconnect_required' | 'scope_upgrade_required'
 }
@@ -121,6 +129,8 @@ export const YOUTUBE_FOUNDATION_ERROR_CODES = [
   'YOUTUBE_OAUTH_TIMEOUT',
   'YOUTUBE_OAUTH_CANCELLED',
   'YOUTUBE_OAUTH_FLOW_UNKNOWN',
+  /** YouTube could not be asked; distinct from any answer it gave. */
+  'YOUTUBE_STATUS_UNCHECKED',
 ] as const
 
 export type YouTubeFoundationErrorCode = typeof YOUTUBE_FOUNDATION_ERROR_CODES[number]

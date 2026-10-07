@@ -246,7 +246,7 @@ describe('Settings → YouTube', () => {
     mounted.destroy()
   })
 
-  test('shows channel health and offers reconnect only for an unhealthy grant', async () => {
+  test('shows channel health and offers Reconnect on every row, primary where sign-in is needed', async () => {
     const mounted = await mount({
       channels: [
         { channel_id: 'UC-healthy', title: 'Healthy', status: 'connected', last_refresh_at: '2026-09-01T10:00:00.000Z', assigned_project_slug: 'demo-project' },
@@ -262,7 +262,27 @@ describe('Settings → YouTube', () => {
     assert.match(text, /Not assigned to a project/)
 
     const reconnects = [...mounted.el.querySelectorAll('button')].filter(b => b.textContent!.trim() === 'Reconnect')
-    assert.equal(reconnects.length, 2, 'only the two unhealthy grants offer Reconnect')
+    assert.equal(reconnects.length, 3, 'every channel can sign in again without Disconnect → Connect')
+    assert.deepEqual(reconnects.map(b => b.classList.contains('btn-primary')), [false, true, true])
+    assert.match(text, /Sign-in expired — press Reconnect/)
+    mounted.destroy()
+  })
+
+  test('a 7-day (Testing-status) app says until when each channel stays signed in', async () => {
+    const day = 24 * 60 * 60 * 1000
+    const recent = new Date(Date.now() - 2 * day).toISOString()
+    const nearlyOut = new Date(Date.now() - 6.5 * day).toISOString()
+    const mounted = await mount({
+      channels: [
+        { channel_id: 'UC-a', application_id: 'youtube_app_1', title: 'A', status: 'connected', authorized_at: recent, seven_day_sign_in: true, assigned_project_slug: null },
+        { channel_id: 'UC-b', application_id: 'youtube_app_1', title: 'B', status: 'connected', authorized_at: nearlyOut, assigned_project_slug: null },
+      ],
+    })
+    const text = mounted.el.textContent!
+    assert.equal((text.match(/Signed in until ~/g) || []).length, 2, 'the Testing status belongs to the app, so both channels are 7-day')
+    assert.match(text, /OAuth consent screen is in Testing/)
+    const warned = [...mounted.el.querySelectorAll('.sign-in.warn')]
+    assert.equal(warned.length, 1, 'only the channel within a day of expiry is highlighted')
     mounted.destroy()
   })
 

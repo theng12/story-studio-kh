@@ -118,11 +118,14 @@
               <span class="hint">
                 {{ channel.assigned_project_slug ? `Publishing for ${channel.assigned_project_slug}` : 'Not assigned to a project' }}
               </span>
-              <span v-if="channel.last_refresh_at" class="hint">Authorized {{ formatWhen(channel.last_refresh_at) }}</span>
+              <span :class="['hint', 'sign-in', { warn: signIn(channel).warn }]">{{ signIn(channel).text }}</span>
             </div>
             <div class="channel-actions">
+              <!-- Always offered: re-runs Google consent for this same channel and
+                   keeps its settings, playlists and project link. Disconnect is
+                   never needed just to sign in again. -->
               <button
-                v-if="channel.status !== 'connected'" class="btn btn-sm btn-primary" type="button"
+                :class="['btn', 'btn-sm', channel.status !== 'connected' || signIn(channel).warn ? 'btn-primary' : 'btn-ghost']" type="button"
                 :disabled="busy !== '' || !application?.has_client_secret" @click="connectChannel(channel.channel_id)"
               >
                 Reconnect
@@ -134,6 +137,11 @@
           </li>
         </ul>
 
+        <p v-if="sevenDayApps.size" class="hint seven-day-note">
+          Google signs this app out every 7 days because its OAuth consent screen is in <strong>Testing</strong>.
+          Press Reconnect when asked, or publish the app in Google Cloud Console
+          (APIs &amp; Services → OAuth consent screen → Publish app) to stop it.
+        </p>
         <div v-if="application?.has_client_secret" class="field-row">
           <button class="btn btn-sm btn-primary" type="button" :disabled="busy !== ''" @click="connectChannel()">
             {{ busy === 'connect' ? 'Waiting for Google…' : 'Connect a YouTube Channel' }}
@@ -216,10 +224,14 @@ interface ApplicationView {
 
 interface ChannelView {
   channel_id: string
+  application_id?: string
   title: string
   handle?: string
   status: 'connected' | 'reconnect_required' | 'scope_upgrade_required'
   last_refresh_at?: string
+  updated_at?: string
+  authorized_at?: string
+  seven_day_sign_in?: boolean
   assigned_project_slug: string | null
 }
 
@@ -265,6 +277,25 @@ const assignableChannels = computed(() => channels.value.filter(
 ))
 
 const connectedChannels = computed(() => channels.value.filter(channel => channel.status === 'connected'))
+
+const DAY_MS = 24 * 60 * 60 * 1000
+/** Testing-status OAuth apps: the status belongs to the app, so one 7-day channel means all of its channels. */
+const sevenDayApps = computed(() => new Set(channels.value.filter(channel => channel.seven_day_sign_in).map(channel => channel.application_id)))
+
+function formatDay(ms: number): string {
+  return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+/** "Signed in until ~date" for a 7-day grant, "Sign-in expired", or when it was signed in. */
+function signIn(channel: ChannelView): { text: string; warn: boolean } {
+  if (channel.status === 'reconnect_required') return { text: 'Sign-in expired — press Reconnect', warn: true }
+  const since = Date.parse(channel.authorized_at || channel.updated_at || channel.last_refresh_at || '')
+  if (!Number.isFinite(since)) return { text: '', warn: false }
+  if (!sevenDayApps.value.has(channel.application_id)) return { text: `Signed in since ${formatDay(since)}`, warn: false }
+  const until = since + 7 * DAY_MS
+  if (until <= Date.now()) return { text: 'Sign-in expired — press Reconnect', warn: true }
+  return { text: `Signed in until ~${formatDay(until)}`, warn: until - Date.now() <= DAY_MS }
+}
 
 function statusLabel(status: ChannelView['status']): string {
   if (status === 'connected') return 'Connected'
@@ -558,6 +589,8 @@ header p, .panel p { margin: 4px 0 0; color: var(--text-muted); font-size: 12px;
 
 .badge { justify-self: start; padding: 2px 8px; border-radius: 999px; font-size: var(--font-xs); font-weight: 700; }
 .badge.connected { background: rgba(80, 160, 120, .16); color: var(--success); }
+.sign-in.warn { color: var(--warning, #d97706); }
+.seven-day-note { margin-top: 12px; }
 .badge.reconnect_required { background: rgba(217, 119, 6, .16); color: var(--warning, #d97706); }
 .badge.scope_upgrade_required { background: rgba(217, 119, 6, .16); color: var(--warning, #d97706); }
 

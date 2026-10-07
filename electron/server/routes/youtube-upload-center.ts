@@ -85,9 +85,11 @@ import * as im from '../services/idea-manager.js'
 import { getProjectDir } from '../services/project-manager.js'
 import { COMPARED_FIELDS, compareYouTubeVideo } from '../services/youtube-metadata-comparison.js'
 import {
-  syncProjectYouTubePublicationStates,
+  assertSafeToUploadAgain,
+  isConfirmedGoneFromYouTube,
   syncYouTubePublicationState,
 } from '../services/youtube-publication-status.js'
+import { checkAllYouTubeUploads } from '../services/youtube-status-sync.js'
 import { registryCredentialFor } from '../lib/youtube-client.js'
 import { ANALYTICS_METRICS, VIDEO_FACTS, fetchProjectAnalytics } from '../services/youtube-analytics-cache.js'
 import { cursorKey } from '../services/youtube-page-cursor.js'
@@ -333,7 +335,15 @@ function publicationProjection(
       return { state: 'rejected', ...common, ...(operation.processing?.rejection_reason ? { reason: operation.processing.rejection_reason } : {}) }
     }
     if (operation.lifecycle === 'status_unavailable') {
-      return { state: 'unknown', ...common, reason: 'YouTube status was unavailable at the last check.' }
+      // "YouTube said it is gone" and "YouTube said something we do not know"
+      // are different facts; neither is "we could not reach YouTube" (that
+      // writes nothing). Records from before the distinction carry no word.
+      const word = operation.processing?.provider_status
+      return { state: 'unknown', ...common, reason: isConfirmedGoneFromYouTube(operation)
+        ? 'Not found on YouTube: it was deleted or removed. “I Deleted This Video on YouTube” allows a new upload once YouTube confirms it.'
+        : word
+          ? `YouTube reported a status Story Studio does not recognise (${word}).`
+          : 'YouTube did not return this video at the last check. Check it again to confirm.' }
     }
     if (operation.lifecycle === 'processing') return { state: 'processing', ...common }
     if (operation.lifecycle === 'preparing' || operation.lifecycle === 'uploading') return { state: 'unpublished' }
@@ -2116,7 +2126,7 @@ router.post('/projects/:slug/youtube/episodes/:episode_code/forget-upload', asyn
       res.status(400).json({ detail: 'Confirm that you deleted this exact video on YouTube before allowing a new upload.' })
       return
     }
-    const { channelId } = await accountForCurrentChannel(slug)
+    const { accountId, channelId } = await accountForCurrentChannel(slug)
     if (req.body.expected_channel_id !== channelId) {
       res.status(409).json({ detail: 'The YouTube channel changed. Review the episode again.' })
       return
@@ -2137,6 +2147,17 @@ router.post('/projects/:slug/youtube/episodes/:episode_code/forget-upload', asyn
       res.status(409).json({ detail: 'YouTube has not finished this upload. Check its status before removing the association.' })
       return
     }
+    // The owner's word is not enough: YouTube must confirm every video this
+    // episode is known by is gone, and nothing on the channel may share its title.
+    const known = (await listYouTubeOperations(slug))
+      .filter(record => record.episode_code === episodeCode && record.channel_id === channelId && !!record.video_id)
+    const sidecar = await readSidecarStrict(slug, episodeCode, 'youtube').catch(() => null)
+    await assertSafeToUploadAgain({
+      project_slug: slug,
+      account_id: accountId,
+      video_ids: [remote.video_id, ...known.map(record => record.video_id!), ...(sidecar?.video_id ? [sidecar.video_id] : [])],
+      titles: [title, ...known.map(record => record.remote_snapshot?.title || ''), sidecar?.title || ''],
+    })
     await recordYouTubeVideoRemoval({
       project_slug: slug, episode_code: episodeCode, channel_id: channelId, video_id: remote.video_id,
     })
@@ -3161,10 +3182,11 @@ router.post('/projects/:slug/youtube/episodes/:episode_code/visibility', async (
 })
 
 /**
- * A deliberate whole-project refresh. The client batches all project videos
- * in groups of fifty, never on a timer, and the attempt is recorded whether it worked or
- * not — a screen has to be able to say "we tried and could not reach YouTube"
- * instead of showing stale data as if it were current.
+ * "Check All Uploads": a deliberate whole-project refresh, batched in groups of
+ * fifty. (Unfinished uploads are also followed in the background — see
+ * youtube-status-sync.ts.) The attempt is recorded whether it worked or not — a
+ * screen has to be able to say "we tried and could not reach YouTube" instead
+ * of showing stale data as if it were current.
  */
 router.post('/projects/:slug/youtube/sync', async (req, res) => {
   const slug = req.params.slug
@@ -3172,7 +3194,9 @@ router.post('/projects/:slug/youtube/sync', async (req, res) => {
     // Same guard: a sync reads publication state under this account's token,
     // so the account must be the one that signs in to the assigned channel.
     const { accountId } = await accountForCurrentChannel(slug)
-    const result = await syncProjectYouTubePublicationStates({ project_slug: slug, account_id: accountId })
+    // "Check All Uploads": every recorded upload, including the ones published
+    // before upload receipts existed (their legacy sidecars).
+    const result = await checkAllYouTubeUploads({ project_slug: slug, account_id: accountId })
     let attempt_recorded = true
     await recordYouTubeRemoteSyncAttempt({
       project_slug: slug,

@@ -4285,6 +4285,16 @@ test('a renamed episode folder is still recognised as published', async () => {
   assert.equal(res.body.video_id, 'legacy-video-77')
 })
 
+/** YouTube confirms the episode's videos are gone and nothing on the channel shares the title. */
+function youtubeConfirmsGone(): FakeYouTube {
+  const fake = new FakeYouTube()
+  fake.respondMatching({ method: 'GET', match: /^\/youtube\/v3\/videos\?/, body: { items: [] } })
+  fake.respondMatching({ method: 'GET', match: /^\/youtube\/v3\/channels\?/, body: { items: [{ contentDetails: { relatedPlaylists: { uploads: 'UU-test' } } }] } })
+  fake.respondMatching({ method: 'GET', match: /^\/youtube\/v3\/playlistItems\?/, body: { items: [] } })
+  __setYouTubeTransportForTests(fake.transport())
+  return fake
+}
+
 test('an automatic missing-video tombstone still requires explicit removal before reupload', async () => {
   const slug = await registryOnlyProject()
   const { episodeCode, title } = await legacyPublishedEpisode(slug)
@@ -4300,6 +4310,7 @@ test('an automatic missing-video tombstone still requires explicit removal befor
   })
   assert.equal(refused.status, 409)
   assert.equal(refused.body.code, 'YOUTUBE_ALREADY_PUBLISHED')
+  youtubeConfirmsGone()
   const removed = await request(app).post(`/api/projects/${slug}/youtube/episodes/${episodeCode}/forget-upload`).send({
     confirm: true, expected_channel_id: CHANNEL, expected_video_id: current!.video_id,
   })
@@ -4615,8 +4626,7 @@ test('confirmed deleted-video association permits a new upload and preserves the
     last_sync_at: new Date().toISOString(), scheduled_for: '2099-11-03T11:00:00.000Z',
     privacy_status: 'private', title, description: '', tags: [], thumbnail_set: false,
   })
-  const fake = new FakeYouTube()
-  __setYouTubeTransportForTests(fake.transport())
+  const fake = youtubeConfirmsGone()
   const endpoint = `/api/projects/${slug}/youtube/episodes/${episodeCode}/forget-upload`
   assert.equal((await request(app).post(endpoint).send({
     expected_channel_id: CHANNEL, expected_video_id: 'deleted-video',
@@ -4640,7 +4650,35 @@ test('confirmed deleted-video association permits a new upload and preserves the
   await acceptedOperation(slug, episodeCode, 'replacement-video')
   const refreshed = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
   assert.equal(refreshed.body.episodes.find((entry: any) => entry.episode_code === episodeCode).remote_video_id, 'replacement-video')
-  assert.equal(fake.calls.length, 0, 'association removal performs no YouTube mutation or read')
+  assert.ok(fake.calls.length > 0 && fake.calls.every(call => call.method === 'GET'),
+    'association removal only READS YouTube (to confirm the video is gone), never changes it')
+})
+
+test('forget-upload refuses while YouTube still has the video, and when YouTube cannot be checked', async () => {
+  const { slug, episodeCode } = await uploadReadyProject()
+  const id = await acceptedOperation(slug, episodeCode, 'still-there')
+  const accepted = await operations.readYouTubeOperation(slug, id)
+  await operations.updateYouTubeOperation({
+    project_slug: slug, operation_id: id, expected_revision: accepted!.revision,
+    mutate: record => { record.lifecycle = 'status_unavailable'; record.processing = { checked_at: new Date().toISOString() } },
+  })
+  const endpoint = `/api/projects/${slug}/youtube/episodes/${episodeCode}/forget-upload`
+  const body = { confirm: true, expected_channel_id: CHANNEL, expected_video_id: 'still-there' }
+  const live = new FakeYouTube()
+  live.respondMatching({ method: 'GET', match: /^\/youtube\/v3\/videos\?/, body: { items: [{ id: 'still-there', status: { uploadStatus: 'processed' }, snippet: {} }] } })
+  live.respondMatching({ method: 'GET', match: /^\/youtube\/v3\/channels\?/, body: { items: [{ contentDetails: { relatedPlaylists: { uploads: 'UU-test' } } }] } })
+  live.respondMatching({ method: 'GET', match: /^\/youtube\/v3\/playlistItems\?/, body: { items: [] } })
+  __setYouTubeTransportForTests(live.transport())
+  const refused = await request(app).post(endpoint).send(body)
+  assert.equal(refused.status, 409)
+  assert.match(refused.body.detail, /still has video still-there/)
+  const offline = new FakeYouTube()
+  offline.respondMatching({ method: 'GET', match: /^\/youtube\/v3\/videos\?/, status: 503, body: {} })
+  __setYouTubeTransportForTests(offline.transport())
+  const unchecked = await request(app).post(endpoint).send(body)
+  assert.equal(unchecked.status, 409)
+  assert.equal(unchecked.body.code, 'YOUTUBE_STATUS_UNCHECKED')
+  assert.equal((await publishing.readYouTubeProjectPublishingState(slug)).removed_videos, undefined)
 })
 
 test('deleted-video association refusal preserves an upload that is still processing', async () => {

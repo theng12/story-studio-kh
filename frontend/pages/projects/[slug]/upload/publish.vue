@@ -49,8 +49,9 @@
             <code>{{ assignedChannel.channel_id }}</code>
           </div>
           <span :class="['state-text', channelStatus === 'connected' ? 'tone-success' : 'tone-danger']">
-            {{ channelStatus === 'connected' ? 'Connected' : channelStatus === 'scope_upgrade_required' ? 'Permission upgrade required' : 'Reconnect required' }}
+            {{ channelStatus === 'connected' ? 'Connected' : channelStatus === 'scope_upgrade_required' ? 'Permission upgrade required' : 'Sign-in expired' }}
           </span>
+          <NuxtLink v-if="channelStatus && channelStatus !== 'connected'" :to="reconnectLink" class="btn btn-primary btn-sm">Reconnect</NuxtLink>
         </div>
         <div v-else-if="!overviewError" class="channel-banner channel-missing" role="alert">
           <div>
@@ -183,7 +184,9 @@
             <div class="fact">
               <span class="fact-label">Upload</span>
               <span :class="['state-text', stateTone(uploadState(ep))]">{{ uploadLabel(ep) }}</span>
-              <span v-if="uploadReason(ep)" class="fact-note">{{ uploadReason(ep) }}</span>
+              <span v-if="uploadReason(ep)" class="fact-note">{{ uploadReason(ep) }}
+                <NuxtLink v-if="needsReconnect(uploadReason(ep))" :to="reconnectLink" class="inline-action">Reconnect</NuxtLink>
+              </span>
               <ProgressBar
                 v-if="uploadProgress(ep)"
                 class="upload-progress"
@@ -255,9 +258,11 @@
         </ul>
         <!-- Spec section 17: disable only the REMOTE actions, and say why. The
              local records above stay fully readable either way. -->
-        <p v-if="remoteBlocked" class="result warn">{{ remoteBlocked }}</p>
+        <p v-if="remoteBlocked" class="result warn">{{ remoteBlocked }}
+          <NuxtLink v-if="channelStatus === 'reconnect_required'" :to="reconnectLink" class="inline-action">Reconnect</NuxtLink>
+        </p>
         <p v-if="overviewError" class="result warn">{{ overviewError }} Local video facts remain available.</p>
-        <p class="hint">Checking with YouTube spends this Cloud project’s daily allowance. Nothing here checks on its own.</p>
+        <p class="hint">Story Studio checks unfinished uploads with YouTube every 30 minutes; Check All Uploads on the Upload Center asks about every upload, older ones included. Each check spends a little of this Cloud project’s daily allowance.</p>
       </section>
 
       <!--
@@ -1006,6 +1011,10 @@ function publicationLabel(ep: PublishableEpisode): string {
   const visibility = ep.publication?.visibility
   return `${PUBLICATION_LABELS[state]}${visibility ? ` · ${visibility}` : ''}`
 }
+/** Settings → This Mac → Connections, where each channel row has its one-click Reconnect. */
+const reconnectLink = computed(() => `/projects/${slug.value}/settings#youtube`)
+/** Only a refused sign-in (the server says "Reconnect") gets the Reconnect action; a network hiccup does not. */
+function needsReconnect(reason: string): boolean { return /\bReconnect\b/.test(reason) }
 function uploadReason(ep: PublishableEpisode): string {
   return ep.local?.upload.reason || (ep.operation ? reasonFor(ep.operation) : '')
 }
@@ -1995,14 +2004,18 @@ async function refresh(op: Operation): Promise<void> {
   const action = beginAction(op.operation_id)
   delete rowResults[op.episode_code]
   try {
-    const res = await post<{ state: { lifecycle: string }; persisted: boolean }>(
+    const res = await post<{ state: { lifecycle: string; processing?: { provider_status?: string } }; persisted: boolean }>(
       `/projects/${action.slug}/youtube/operations/${op.operation_id}/refresh`, {},
     )
     if (!actionIsCurrent(action)) return
     // A status we could not get is not a verdict, and the copy says so.
-    rowResults[op.episode_code] = res.state.lifecycle === 'status_unavailable'
-      ? { kind: 'warn', message: `${op.episode_code}: YouTube did not return this video. Its last known state is kept.` }
-      : { kind: 'ok', message: `${op.episode_code}: ${lifecycleLabel(res.state.lifecycle)}.` }
+    rowResults[op.episode_code] = res.state.processing?.provider_status === 'not_found'
+      ? { kind: 'warn', message: `${op.episode_code}: YouTube answered and does not have this video (deleted or removed).${res.persisted ? '' : ' Its earlier final answer is kept.'}` }
+      : res.state.lifecycle === 'status_unavailable'
+        ? { kind: 'warn', message: res.state.processing?.provider_status
+          ? `${op.episode_code}: YouTube reported a status Story Studio does not recognise (${res.state.processing.provider_status}).`
+          : `${op.episode_code}: YouTube did not return this video. Its last known state is kept.` }
+        : { kind: 'ok', message: `${op.episode_code}: ${lifecycleLabel(res.state.lifecycle)}.` }
     await load()
   } catch (error: any) {
     if (!actionIsCurrent(action)) return

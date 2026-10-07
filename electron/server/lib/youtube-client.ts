@@ -20,7 +20,7 @@ import fsp from 'fs/promises'
 import type { FileHandle } from 'node:fs/promises'
 import { setTimeout as delay } from 'node:timers/promises'
 import type { OAuthTokenBundle } from './youtube-oauth.js'
-import { refreshAccessToken } from './youtube-oauth.js'
+import { OAUTH_GRANT_REVOKED_CODES, refreshAccessToken } from './youtube-oauth.js'
 import { friendlyQuotaErrorMessage, QUOTA_COST, type QuotaKey } from '../services/upload-quota.js'
 import { logLine } from '../services/logger.js'
 import { prepareThumbnail } from './thumbnail-prepare.js'
@@ -265,6 +265,10 @@ function reconnectRequired(message: string): Error {
   return Object.assign(new Error(message), { code: 'YOUTUBE_RECONNECT_REQUIRED' })
 }
 
+/** Waits between token-refresh attempts after a transient failure (3 attempts in all). */
+let TOKEN_REFRESH_RETRY_DELAYS_MS: number[] = [2_000, 8_000]
+export function __setTokenRefreshRetryDelaysForTests(delays: number[]): void { TOKEN_REFRESH_RETRY_DELAYS_MS = delays }
+
 async function refreshAndPersist(
   slug: string,
   accountId: string,
@@ -279,18 +283,45 @@ async function refreshAndPersist(
   if (!credential || (expectedApplicationId && credential.application_id !== expectedApplicationId)) {
     throw reconnectRequired('This YouTube connection changed. Reconnect the channel in Settings → YouTube and retry.')
   }
+  let fresh!: OAuthTokenBundle
+  for (let attempt = 1; ; attempt++) {
+    try {
+      fresh = await refreshAccessToken({
+        client_id: credential.client_id,
+        client_secret: credential.client_secret,
+        refresh_token: credential.tokens.refresh_token,
+        // Google omits `scope` from most refresh responses, and without this the
+        // stored grant loses it on the first refresh. Everything that ASKS what
+        // a token may do then gets the wrong answer — including the analytics
+        // scope check, which would report "grant analytics access" forever on a
+        // connection that has it.
+        ...(credential.tokens.scope ? { previous_scope: credential.tokens.scope } : {}),
+      })
+      break
+    } catch (e: any) {
+      // Only a refused GRANT needs the owner: anything else is Google or the
+      // network having a moment, and nothing has been sent to YouTube yet, so
+      // a short retry is safe.
+      if (OAUTH_GRANT_REVOKED_CODES.has(e?.provider_error)) {
+        await connections.markYouTubeChannelSignInExpired(channelId).catch((error: unknown) => {
+          logLine('warn', `[youtube-auth] could not mark the channel for Reconnect: ${(error as Error)?.message || 'unknown'}`, { channel_id: channelId })
+        })
+        throw reconnectRequired('YouTube sign-in expired or was revoked by Google. Press Reconnect for this channel in Settings → YouTube; its settings, playlists and project links are kept.')
+      }
+      const transient = e?.code === 'YOUTUBE_OAUTH_UNAVAILABLE'
+      if (transient && attempt < TOKEN_REFRESH_RETRY_DELAYS_MS.length + 1) {
+        await delay(TOKEN_REFRESH_RETRY_DELAYS_MS[attempt - 1]!)
+        continue
+      }
+      throw Object.assign(new Error(transient
+        ? `Could not reach Google to renew the YouTube sign-in (tried ${attempt} times). Nothing was sent to YouTube; try again in a few minutes.`
+        : `Google refused to renew the YouTube sign-in${e?.provider_error ? ` (${e.provider_error})` : ''}. Check the OAuth application in Settings → YouTube, then try again.`), {
+        code: 'YOUTUBE_TOKEN_REFRESH_FAILED',
+        transient,
+      })
+    }
+  }
   try {
-    const fresh = await refreshAccessToken({
-      client_id: credential.client_id,
-      client_secret: credential.client_secret,
-      refresh_token: credential.tokens.refresh_token,
-      // Google omits `scope` from most refresh responses, and without this the
-      // stored grant loses it on the first refresh. Everything that ASKS what
-      // a token may do then gets the wrong answer — including the analytics
-      // scope check, which would report "grant analytics access" forever on a
-      // connection that has it.
-      ...(credential.tokens.scope ? { previous_scope: credential.tokens.scope } : {}),
-    })
     const saved = await connections.saveYouTubeChannelTokens({
       channel_id: channelId,
       expected_access_token: credential.tokens.access_token,
@@ -309,7 +340,7 @@ async function refreshAndPersist(
     }
     throw new Error('The YouTube connection changed while its token was refreshing.')
   } catch (e: any) {
-    throw reconnectRequired(`Token refresh failed (${e?.message || 'unknown'}). Reconnect the channel in Settings → YouTube.`)
+    throw reconnectRequired(`Saving the renewed YouTube sign-in failed (${e?.message || 'unknown'}). Reconnect the channel in Settings → YouTube.`)
   }
 }
 

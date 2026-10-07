@@ -11,6 +11,7 @@
  *   6. Write/update the sidecar with the final state
  */
 
+import { syncYouTubePublicationState } from '../services/youtube-publication-status.js'
 import fsp from 'fs/promises'
 import path from 'path'
 import { existsSync } from 'fs'
@@ -522,6 +523,15 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
       // must never look like an upload failure, and must never trigger a retry
       // that uploads again.
       job.output_lines.push(`⚠ Durable upload record could not be completed (${e?.message || e}). The video is uploaded; reconcile it from the Upload Center.`)
+    }
+    // One status check straight away, so the record moves on from "accepted"
+    // without anyone asking; the background check follows it to "ready".
+    // A bookkeeping read: never fatal, never a reason to upload again.
+    try {
+      const checked = await syncYouTubePublicationState({ project_slug: slug, operation_id: operationHandle.operation_id, account_id: accountId })
+      job.output_lines.push(`YouTube status right after upload: ${checked.state.lifecycle}.`)
+    } catch (e: any) {
+      job.output_lines.push(`YouTube status not checked yet (${e?.message || e}); Story Studio checks again in the background.`)
     }
   }
 

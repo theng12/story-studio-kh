@@ -3327,6 +3327,10 @@ function applyHash() {
   const target = resolveSettingsSectionHash(rawTarget, tabs.map(tab => tab.id))
   if (!target) return
   activeTab.value = target
+  if (rawTarget === 'youtube') {
+    // The Reconnect links land on the channel rows, each with its own Reconnect.
+    nextTick(() => document.querySelector('[data-setting="youtube-accounts"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
   if (rawTarget === 'free-up-space') {
     nextTick(() => document.getElementById('free-up-space')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }

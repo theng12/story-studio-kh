@@ -253,7 +253,7 @@ describe('finish: overview', () => {
       get: () => overview,
       post: () => { throw Object.assign(new Error('x'), { data: { detail: 'Quota is used up' } }) },
     })
-    btn(m.el, 'Sync with YouTube Now')!.click()
+    btn(m.el, 'Check All Uploads')!.click()
     await flush()
     assert.match(m.text(), /Couldn’t check with YouTube: Quota is used up/)
     m.destroy()
