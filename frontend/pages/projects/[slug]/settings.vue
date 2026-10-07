@@ -431,12 +431,21 @@
                 <button class="btn btn-secondary btn-sm" :disabled="auditLoading" @click="loadStorageAudit">
                   {{ auditLoading ? 'Scanning…' : (storage ? 'Scan Again' : 'Scan Episodes') }}
                 </button>
+                <div v-if="storage?.space" class="storage-summary mt-2">
+                  <span><strong>Free on this drive:</strong> {{ storage.space.free_bytes === null ? 'could not be measured' : formatBytes(storage.space.free_bytes) }}</span>
+                  <span class="dot">·</span>
+                  <span title="Everything Story Studio removed from this project waits here until you empty it yourself.">
+                    <strong>In this project's _trash:</strong> {{ formatBytes(storage.space.project_trash_bytes) }}
+                  </span>
+                  <span class="dot">·</span>
+                  <span><strong>In every project's _trash:</strong> {{ formatBytes(storage.space.library_trash_bytes) }}</span>
+                </div>
                 <div v-if="storage" class="storage-summary mt-2">
                   <span><strong>Project total:</strong> {{ formatBytes(storage.project_bytes_total) }}</span>
                   <span class="dot">·</span>
                   <span><strong>Final videos:</strong> {{ formatBytes(storage.project_bytes_final_video) }}</span>
                   <span class="dot">·</span>
-                  <span><strong>Per-scene clips:</strong> {{ formatBytes(storage.project_bytes_per_scene_clips) }}</span>
+                  <span title="Per-scene motion clips, including the episode's Video Assets folder"><strong>Per-scene clips:</strong> {{ formatBytes(storage.project_bytes_per_scene_clips) }}</span>
                   <span class="dot">·</span>
                   <span title="Kept per-part narration takes (hidden .parts folders), already counted in each episode's audio. They stay until you move them with Free up space › Choose exactly which files › Narration parts.">
                     <strong>Narration parts:</strong> {{ formatBytes(storage.project_bytes_narration_parts ?? 0) }}
@@ -2307,6 +2316,8 @@ interface StorageAudit {
   project_bytes_narration_parts?: number
   project_bytes_external_final_video: number
   project_bytes_thumbnail_cache?: number
+  /** Free disk and what waits in `_trash`; free_bytes null = could not be measured. */
+  space?: { free_bytes: number | null; project_trash_bytes: number; library_trash_bytes: number }
   external_root_configured: boolean
   external_root: string
   episodes: StorageEntry[]

@@ -1,15 +1,25 @@
 <template>
   <section id="free-up-space" class="media-cleanup" aria-labelledby="media-cleanup-heading">
     <div class="cleanup-heading">
-      <div><h3 id="media-cleanup-heading">Free up space</h3><p>Only episodes already uploaded to YouTube are touched — except narration parts, which any episode with joined chapters can free — and nothing is lost: files go to this project’s <code>_trash</code> folder (the space is freed when you empty it) or to a drive you choose.</p></div>
-      <button class="btn btn-secondary" :disabled="busy || loading" @click="loadEpisodes">{{ loading ? 'Checking Uploads…' : episodes === null ? 'Find Uploaded Episodes' : 'Refresh Uploads' }}</button>
+      <div><h3 id="media-cleanup-heading">Free up space</h3><p>Only episodes whose upload YouTube confirmed are touched — except narration parts and converting PNG scenes to JPEG, which any episode can use — and nothing is lost: files go to this project’s <code>_trash</code> folder (the space is freed when you empty it) or to a drive you choose.</p></div>
+      <div class="cleanup-heading-actions">
+        <button class="btn btn-secondary" :disabled="busy || loading" @click="loadEpisodes">{{ loading ? 'Checking Uploads…' : episodes === null ? 'Find Uploaded Episodes' : 'Refresh Uploads' }}</button>
+        <button class="btn btn-secondary" :disabled="busy || loading || checkingYouTube" title="Asks YouTube about every upload, older ones included, so confirmed uploads can be freed" @click="checkAllUploads">{{ checkingYouTube ? 'Checking with YouTube…' : 'Check All Uploads' }}</button>
+      </div>
     </div>
+    <p v-if="space" class="cleanup-space">
+      Free on this drive: <strong>{{ space.free_bytes === null ? 'could not be measured' : formatBytes(space.free_bytes) }}</strong>
+      · Waiting in this project’s <code>_trash</code>: <strong>{{ formatBytes(space.project_trash_bytes) }}</strong>
+      · In every project’s <code>_trash</code>: <strong>{{ formatBytes(space.library_trash_bytes) }}</strong>
+      <small>(space comes back when you empty <code>_trash</code>)</small>
+    </p>
+    <p v-if="checkResult" class="cleanup-hint" role="status">{{ checkResult }}</p>
     <p v-if="error" class="cleanup-error" role="alert">{{ error }} <button v-if="operation" class="btn btn-sm" :disabled="polling" @click="pollOperation">Check Progress Again</button></p>
     <ul v-if="listWarnings.length" class="cleanup-warnings"><li v-for="warning in listWarnings" :key="warning">{{ warning }}</li></ul>
     <h4 class="space-option-title">Recommended: shrink and tidy uploaded episodes</h4>
     <p class="cleanup-hint">Scene images are re-saved as smaller JPEGs; motion clips, chapter narration (with its kept narration parts) and the final video move to <code>_trash</code>. Thumbnails, merged narration, subtitles, scripts and prompts stay. You see what it frees before anything changes.</p>
     <template v-if="episodes !== null">
-      <p v-if="!episodes.length">No episodes have a verified ready upload for this project’s current YouTube channel, or narration parts to free. Upload or reconcile the episode first.</p>
+      <p v-if="!episodes.length">Nothing can be freed here yet.{{ listWarnings.length ? ' The reasons are listed above.' : ' No episode has a YouTube upload confirmed on this project’s channel, or narration parts to free.' }}</p>
       <template v-else>
         <div class="cleanup-selection"><strong>{{ selected.length }} {{ selected.length === 1 ? 'episode' : 'episodes' }} selected</strong><button class="btn btn-sm" :disabled="busy" @click="selected = uploaded">Select All Uploaded</button><button class="btn btn-sm" :disabled="busy || !notArchived.length" @click="selected = notArchived">Select All Not Yet Freed</button><button class="btn btn-sm" :disabled="busy || !selected.length" @click="selected = []">Clear Selection</button></div>
         <div class="cleanup-episodes">
@@ -22,7 +32,29 @@
         <div class="cleanup-preset"><button class="btn btn-primary" :disabled="busy || !selected.length" @click="startPreview(true)">Free Up Space for {{ selected.length }} Selected</button></div>
       </template>
     </template>
+    <details v-if="notOffered.length" class="disclosure cleanup-not-offered">
+      <summary>{{ notOffered.length }} uploaded {{ notOffered.length === 1 ? 'episode is' : 'episodes are' }} not offered — see why</summary>
+      <ul class="cleanup-files"><li v-for="row in notOffered" :key="row.episode_code"><strong>{{ row.episode_code }}</strong> {{ row.title }} — {{ row.reason }}</li></ul>
+    </details>
     <h4 class="space-option-title">Other ways</h4>
+    <details class="disclosure space-option" data-setting="convert-png">
+      <summary><strong>Convert PNG scenes to JPEG</strong><small>Any episode, uploaded or not. The same picture under the same name, usually about 88% smaller, so scene plans, approvals and Video Assembly keep working and nothing is regenerated. The PNG originals move to <code>_trash</code>. You see the saving before anything changes.</small></summary>
+      <div class="space-option-body cleanup-convert">
+        <select v-model="convertCode" class="input" aria-label="Episode to convert" :disabled="busy"><option value="">Choose an episode…</option><option v-for="ep in allEpisodes" :key="ep.episode_code" :value="ep.episode_code">{{ ep.episode_code }} {{ ep.title }}</option></select>
+        <button class="btn btn-secondary" :disabled="busy || !convertCode" @click="startConvert([convertCode])">Check This Episode</button>
+        <button class="btn btn-secondary" :disabled="busy || !allEpisodes.length" @click="convertAll">Check All {{ allEpisodes.length }} Episodes</button>
+      </div>
+    </details>
+    <details class="disclosure space-option" data-setting="leftover-files">
+      <summary><strong>Leftover files</strong><small>Copies made by narration quality checks and repairs that are finished, and the scratch folders failed video renders keep. Nothing uses them; they move to <code>_trash</code>.</small></summary>
+      <div class="space-option-body">
+        <button class="btn btn-secondary" :disabled="busy || leftoverBusy" @click="loadLeftovers">{{ leftovers === null ? 'Find Leftover Files' : 'Look Again' }}</button>
+        <p v-if="leftovers && !leftovers.length">No leftover files in this project.</p>
+        <ul v-if="leftovers?.length" class="cleanup-files"><li v-for="item in leftovers" :key="item.path"><strong>{{ item.episode_code }}</strong> {{ item.kind === 'render_scratch' ? 'Leftover render files' : 'Audio quality copy' }} · {{ formatBytes(item.bytes) }} <span class="cleanup-path">{{ item.path }}</span></li></ul>
+        <button v-if="leftovers?.length" class="btn btn-primary" :disabled="busy || leftoverBusy" @click="trashLeftovers">Move {{ leftovers.length }} to _trash ({{ formatBytes(leftoverBytes) }})</button>
+        <p v-if="leftoverResult" class="cleanup-hint" role="status">{{ leftoverResult }}</p>
+      </div>
+    </details>
     <details v-if="episodes?.length" class="disclosure space-option">
       <summary><strong>Choose exactly which files</strong><small>Pick kinds of media for the selected episodes. They move to <code>_trash</code>, or are copied to a folder you choose and then removed here.</small></summary>
       <div class="space-option-body">
@@ -55,11 +87,12 @@
       </details>
       <p v-if="preview.estimate && preview.preset" class="cleanup-estimate"><strong>Frees about {{ formatBytes(freedBytes) }}</strong> once you empty _trash. {{ estimateText }}</p>
       <div class="cleanup-actions">
-        <p v-if="preview.preset"><strong>Free up space:</strong> images are shrunk in place, everything else listed moves to <code class="cleanup-path">{{ trashText }}</code>.</p>
+        <p v-if="preview.preset === 'convert_png'"><strong>Convert to JPEG:</strong> each PNG scene is re-saved as a JPEG under the same name; the PNG originals move to <code class="cleanup-path">{{ trashText }}</code>.</p>
+        <p v-else-if="preview.preset"><strong>Free up space:</strong> images are shrunk in place, everything else listed moves to <code class="cleanup-path">{{ trashText }}</code>.</p>
         <fieldset v-else :disabled="busy"><legend>What should happen to these files?</legend><label><input v-model="mode" type="radio" value="remove" /> Move local files to _trash (default)</label><label><input v-model="mode" type="radio" value="archive" /> Copy to a folder you choose, then remove here</label></fieldset>
         <div v-if="!preview.preset && mode === 'archive'" class="cleanup-destination"><label for="cleanup-destination">Archive folder</label><input id="cleanup-destination" v-model="destination" class="input" :disabled="busy || picking" placeholder="Choose a folder on your external drive" /><button class="btn btn-secondary" :disabled="busy || picking" @click="browse">{{ picking ? 'Opening…' : 'Browse…' }}</button></div>
         <p>{{ preview.preset ? 'Originals go to the _trash folder on the same drive. Space is freed when you empty _trash; until then you can put anything back.' : mode === 'archive' ? 'Each copy is verified before its original is removed. Choose another drive to free space on this drive.' : `Removed files move to ${trashText} on the same drive. Nothing is deleted; space is freed when you empty _trash.` }}</p>
-        <div class="cleanup-action-buttons"><button class="btn btn-secondary" :disabled="busy" @click="dismissReview">Dismiss Review</button><button class="btn btn-primary" :disabled="busy || picking || !preview.files.length || (!preview.preset && mode === 'archive' && !destination.trim())" @click="runCleanup">{{ submitting ? 'Starting…' : preview.preset ? 'Free Up Space' : mode === 'archive' ? 'Archive Reviewed Files' : 'Move Reviewed Files to _trash' }}</button></div>
+        <div class="cleanup-action-buttons"><button class="btn btn-secondary" :disabled="busy" @click="dismissReview">Dismiss Review</button><button class="btn btn-primary" :disabled="busy || picking || !preview.files.length || (!preview.preset && mode === 'archive' && !destination.trim())" @click="runCleanup">{{ submitting ? 'Starting…' : preview.preset === 'convert_png' ? 'Convert to JPEG' : preview.preset ? 'Free Up Space' : mode === 'archive' ? 'Archive Reviewed Files' : 'Move Reviewed Files to _trash' }}</button></div>
       </div>
     </div>
   </section>
@@ -76,8 +109,10 @@ type Category = 'images' | 'chapter_audio' | 'narration_parts' | 'merged_audio' 
 interface CleanupEpisode { episode_code: string; title: string; video_id: string | null; local_media_status?: { state: string; preset_archived_at?: string | null } }
 interface ReviewedFile { path: string; relative_path: string; bytes: number; category: Category }
 interface Estimate { compress_files: number; compress_bytes_before: number; compress_bytes_after: number; already_jpeg_files: number; trash_files: number; trash_bytes: number }
-interface Preview { preview_id: string; project_slug: string; total_bytes: number; preset?: 'archive_episode'; trash_roots?: string[]; estimate?: Estimate; files: ReviewedFile[]; blocked_reasons: string[]; episodes: { episode_code: string; files: ReviewedFile[]; excluded?: { path: string; reason: string }[]; blocked_reasons: string[] }[] }
+interface Preview { preview_id: string; project_slug: string; total_bytes: number; preset?: 'archive_episode' | 'convert_png'; trash_roots?: string[]; estimate?: Estimate; files: ReviewedFile[]; blocked_reasons: string[]; episodes: { episode_code: string; files: ReviewedFile[]; excluded?: { path: string; reason: string }[]; blocked_reasons: string[] }[] }
 interface Operation { id: string; project_slug: string; kind: 'preview' | 'run'; status: string; stage: string | null; done: number; total: number; current: string; error?: string; preview?: Preview; result?: { items?: Array<{ path?: string; source_path?: string; file?: string; status?: string; outcome?: string; reason?: string }>; bytes_reclaimed?: number; bytes_freed?: number; bytes_moved?: number; bytes_trashed?: number; bytes_after?: number } }
+interface Space { free_bytes: number | null; project_trash_bytes: number; library_trash_bytes: number }
+interface Leftover { kind: 'audio_quality_copy' | 'render_scratch'; episode_code: string; path: string; bytes: number }
 const props = defineProps<{ slug: string }>()
 const { get, post } = useApi()
 const { ask } = useConfirm()
@@ -95,6 +130,16 @@ const preview = ref<Preview | null>(null)
 const operation = ref<Operation | null>(null)
 const mode = ref<'archive' | 'remove'>('remove')
 const destination = ref('')
+const space = ref<Space | null>(null)
+const notOffered = ref<{ episode_code: string; title: string; reason: string }[]>([])
+const allEpisodes = ref<{ episode_code: string; title: string }[]>([])
+const convertCode = ref('')
+const checkingYouTube = ref(false)
+const checkResult = ref('')
+const leftovers = ref<Leftover[] | null>(null)
+const leftoverBusy = ref(false)
+const leftoverResult = ref('')
+const leftoverBytes = computed(() => (leftovers.value || []).reduce((n, item) => n + item.bytes, 0))
 let generation = 0
 let disposed = false
 let timer: ReturnType<typeof setTimeout> | undefined
@@ -143,13 +188,82 @@ async function loadEpisodes() {
   const version = generation, slug = props.slug
   loading.value = true; error.value = ''
   try {
-    const result = await get<{ episodes: CleanupEpisode[]; blocked_reasons: string[] }>(`/projects/${slug}/media-cleanup/episodes`)
+    const result = await get<{ episodes: CleanupEpisode[]; blocked_reasons: string[]; not_offered?: { episode_code: string; title: string; reason: string }[]; all_episodes?: { episode_code: string; title: string }[] }>(`/projects/${slug}/media-cleanup/episodes`)
     if (!current(version)) return
     episodes.value = result.episodes; listWarnings.value = result.blocked_reasons || []
+    notOffered.value = result.not_offered || []; allEpisodes.value = result.all_episodes || []
+    void loadSpace()
     selected.value = selected.value.filter(code => result.episodes.some(ep => ep.episode_code === code))
     if (!selected.value.length) selected.value = result.episodes.filter(ep => ep.video_id && !ep.local_media_status?.preset_archived_at).map(ep => ep.episode_code)
   } catch (e) { if (current(version)) error.value = message(e) }
   finally { if (current(version)) loading.value = false }
+}
+/** Free disk and _trash sizes; a failed read just leaves the line out. */
+async function loadSpace() {
+  const version = generation, slug = props.slug
+  try {
+    const result = await get<Space>(`/projects/${slug}/media-cleanup/space`)
+    if (current(version) && result && typeof result.project_trash_bytes === 'number') space.value = result
+  } catch { /* the figures are a convenience, not a gate */ }
+}
+async function checkAllUploads() {
+  if (checkingYouTube.value) return
+  const version = generation, slug = props.slug
+  checkingYouTube.value = true; checkResult.value = ''; error.value = ''
+  try {
+    const result = await post<{ checked: number; outcome: string; legacy?: { checked: number; processed: number; not_found: number } }>(`/projects/${slug}/youtube/sync`, {})
+    if (!current(version)) return
+    checkResult.value = result.outcome === 'failed'
+      ? 'YouTube could not be checked just now; nothing changed. Try again in a few minutes.'
+      : `YouTube checked ${result.checked} ${result.checked === 1 ? 'upload' : 'uploads'}${result.legacy?.not_found ? ` (${result.legacy.not_found} no longer on YouTube)` : ''}.${result.outcome === 'partial' ? ' Some could not be checked; try again later.' : ''}`
+  } catch (e) { if (current(version)) error.value = message(e) }
+  finally { if (current(version)) checkingYouTube.value = false }
+  if (current(version)) await loadEpisodes()
+}
+async function startConvert(codes: string[]) {
+  if (busy.value || !codes.length) return
+  const version = generation, slug = props.slug
+  submitting.value = true; error.value = ''; preview.value = null
+  try {
+    const result = await post<{ operation_id: string }>(`/projects/${slug}/media-cleanup/preview`, { episode_codes: [...codes], preset: 'convert_png' })
+    remember(slug, result.operation_id)
+    if (!current(version)) return
+    operation.value = { id: result.operation_id, project_slug: slug, kind: 'preview', status: 'queued', stage: 'checking', done: 0, total: 0, current: '' }
+    void pollOperation()
+  } catch (e) { if (current(version)) error.value = message(e) }
+  finally { if (current(version)) submitting.value = false }
+}
+async function convertAll() {
+  const codes = allEpisodes.value.map(ep => ep.episode_code)
+  if (busy.value || !codes.length) return
+  const approved = await ask({ title: `Check all ${codes.length} episodes for PNG scenes?`, message: `Story Studio reads every scene image of the ${codes.length} episodes in ${props.slug} and shows how much converting them to JPEG saves. Nothing changes until you confirm that review. Reading large channels can take several minutes.`, confirmLabel: 'Check All Episodes', danger: false })
+  if (approved) await startConvert(codes)
+}
+async function loadLeftovers() {
+  if (leftoverBusy.value) return
+  const version = generation, slug = props.slug
+  leftoverBusy.value = true; leftoverResult.value = ''
+  try {
+    const result = await get<{ leftovers: Leftover[] }>(`/projects/${slug}/media-cleanup/leftovers`)
+    if (current(version)) leftovers.value = result.leftovers || []
+  } catch (e) { if (current(version)) leftoverResult.value = message(e) }
+  finally { if (current(version)) leftoverBusy.value = false }
+}
+async function trashLeftovers() {
+  const items = leftovers.value || []
+  if (leftoverBusy.value || !items.length) return
+  const version = generation, slug = props.slug
+  const approved = await ask({ title: 'Move leftover files to _trash?', message: `${items.length} leftover ${items.length === 1 ? 'folder' : 'folders'} (${formatBytes(leftoverBytes.value)}) move to this project’s _trash. Nothing is deleted; space comes back when you empty _trash.`, confirmLabel: 'Move to _trash', danger: false })
+  if (!approved || !current(version)) return
+  leftoverBusy.value = true
+  try {
+    const result = await post<{ moved: { bytes: number }[]; left: { path: string; reason: string }[] }>(`/projects/${slug}/media-cleanup/leftovers/trash`, { paths: items.map(item => item.path) })
+    if (!current(version)) return
+    leftoverResult.value = `${result.moved.length} moved to _trash (${formatBytes(result.moved.reduce((n, item) => n + item.bytes, 0))}).${result.left.length ? ` ${result.left.length} left where they are: ${result.left.map(item => item.reason).join(' ')}` : ''}`
+    leftovers.value = null
+    void loadSpace()
+  } catch (e) { if (current(version)) leftoverResult.value = message(e) }
+  finally { if (current(version)) leftoverBusy.value = false }
 }
 async function pollOperation() {
   if (polling.value || !operation.value) return
@@ -197,7 +311,8 @@ async function runCleanup() {
   const version = generation, slug = props.slug, reviewed = reviewed0, chosenMode = chosen0, folder = destination.value.trim()
   submitting.value = true; error.value = ''
   try {
-    const approved = await ask({ title: chosenMode === 'archive' ? 'Archive reviewed media?' : chosenMode === 'compress' ? 'Free up space?' : 'Move reviewed media to _trash?', message: `${reviewed.files.length} reviewed files (${formatBytes(reviewed.total_bytes)}) from ${reviewed.episodes.filter(ep => ep.files.length).length} episodes in ${slug}. ${chosenMode === 'archive' ? `Copy to ${folder}, verify, then remove the originals.` : chosenMode === 'compress' ? `This frees about ${formatBytes(freedBytes.value)}. Scene images are re-saved as smaller JPEGs under the same names; the originals, clips, chapter narration and final video move to ${trashText.value}.` : `These files move to ${trashText.value}; nothing is deleted.`} Upload records, scripts, prompts, subtitles and thumbnails stay. Restore from _trash if you need anything back; space is freed when you empty it.`, confirmLabel: chosenMode === 'archive' ? 'Archive Files' : chosenMode === 'compress' ? 'Free Up Space' : 'Move to _trash', danger: false })
+    const converting = reviewed.preset === 'convert_png'
+    const approved = await ask(converting ? { title: 'Convert PNG scenes to JPEG?', message: `${reviewed.files.length} PNG scene ${reviewed.files.length === 1 ? 'image' : 'images'} (${formatBytes(reviewed.total_bytes)}) from ${reviewed.episodes.filter(ep => ep.files.length).length} episodes in ${slug} are re-saved as JPEG under the same names, saving about ${formatBytes(freedBytes.value)}. The PNG originals move to ${trashText.value}; scene plans, approvals and Video Assembly keep working.`, confirmLabel: 'Convert to JPEG', danger: false } : { title: chosenMode === 'archive' ? 'Archive reviewed media?' : chosenMode === 'compress' ? 'Free up space?' : 'Move reviewed media to _trash?', message: `${reviewed.files.length} reviewed files (${formatBytes(reviewed.total_bytes)}) from ${reviewed.episodes.filter(ep => ep.files.length).length} episodes in ${slug}. ${chosenMode === 'archive' ? `Copy to ${folder}, verify, then remove the originals.` : chosenMode === 'compress' ? `This frees about ${formatBytes(freedBytes.value)}. Scene images are re-saved as smaller JPEGs under the same names; the originals, clips, chapter narration and final video move to ${trashText.value}.` : `These files move to ${trashText.value}; nothing is deleted.`} Upload records, scripts, prompts, subtitles and thumbnails stay. Restore from _trash if you need anything back; space is freed when you empty it.`, confirmLabel: chosenMode === 'archive' ? 'Archive Files' : chosenMode === 'compress' ? 'Free Up Space' : 'Move to _trash', danger: false })
     if (!approved || !current(version)) return
     const result = await post<{ operation_id: string }>(`/projects/${slug}/media-cleanup/run`, { preview_id: reviewed.preview_id, mode: chosenMode, ...(chosenMode === 'archive' ? { destination: folder } : {}) })
     remember(slug, result.operation_id)
@@ -237,6 +352,7 @@ watch([selected, categories], () => { if (!busy.value) dismissReview() }, { deep
 watch(() => props.slug, () => {
   generation++; if (timer) clearTimeout(timer)
   episodes.value = null; selected.value = []; categories.value = []; preview.value = null; operation.value = null; error.value = ''; listWarnings.value = []; destination.value = ''; mode.value = 'remove'
+  space.value = null; notOffered.value = []; allEpisodes.value = []; convertCode.value = ''; checkResult.value = ''; leftovers.value = null; leftoverResult.value = ''
   loading.value = false; submitting.value = false; picking.value = false; polling.value = false; stopping.value = false
   void loadEpisodes().then(restore)
 })
@@ -250,7 +366,12 @@ onBeforeUnmount(() => { disposed = true; generation++; if (timer) clearTimeout(t
 .cleanup-heading h3 { margin: 0 0 8px; }
 p { color: var(--text-secondary); line-height: 1.5; margin: 8px 0 12px; }
 .cleanup-heading p { max-width: 72ch; }
-.cleanup-heading > button { flex-shrink: 0; }
+.cleanup-heading-actions { display: flex; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
+.cleanup-space { font-size: var(--font-sm); }
+.cleanup-space small { display: block; color: var(--text-muted); }
+.cleanup-convert { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.cleanup-convert .input { flex: 1; min-width: 200px; }
+.cleanup-not-offered { margin: 8px 0 12px; }
 .cleanup-selection, .cleanup-action-buttons { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
 .cleanup-episodes, .cleanup-files { max-height: 320px; overflow: auto; }
 .cleanup-episode { display: flex; gap: 12px; align-items: center; padding: 12px 4px; border-bottom: 1px solid var(--border); }

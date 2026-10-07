@@ -35,6 +35,7 @@
  */
 
 import fs from 'fs/promises'
+import { trashCopiedSourceSync } from '../lib/trash-move.js'
 import path from 'path'
 import { existsSync } from 'fs'
 import * as pm from './project-manager.js'
@@ -326,7 +327,8 @@ export async function applyReseason(slug: string, newSeasonSize: number): Promis
           // Cross-filesystem fallback (rare for project tree, but the
           // Library itself might sit on a USB / NAS).
           await copyDirRecursive(m.old_dir, m.new_dir)
-          await fs.rm(m.old_dir, { recursive: true, force: true })
+          // Never deleted: the source waits in _trash on its own drive.
+          trashCopiedSourceSync(m.old_dir, pm.getProjectDir(slug)!, slug, await pm.getProjectOutputRoot(slug) ?? undefined)
         } else if (e?.code === 'ENOTEMPTY' || e?.code === 'EEXIST' || e?.code === 'EISDIR') {
           errors.push({
             stage: `move ${m.code}`,
@@ -364,7 +366,7 @@ export async function applyReseason(slug: string, newSeasonSize: number): Promis
         } catch (e: any) {
           if (e?.code === 'EXDEV') {
             await copyDirRecursive(oldExt, newExt)
-            await fs.rm(oldExt, { recursive: true, force: true })
+            trashCopiedSourceSync(oldExt, pm.getProjectDir(slug)!, slug, externalRoot)
           } else if (e?.code === 'ENOTEMPTY' || e?.code === 'EEXIST' || e?.code === 'EISDIR') {
             errors.push({
               stage: `external move ${m.code}`,
@@ -504,7 +506,7 @@ export async function revertReseason(slug: string): Promise<ReseasonRevertResult
       } catch (e: any) {
         if (e?.code === 'EXDEV') {
           await copyDirRecursive(m.new_dir, m.old_dir)
-          await fs.rm(m.new_dir, { recursive: true, force: true })
+          trashCopiedSourceSync(m.new_dir, pm.getProjectDir(slug)!, slug, await pm.getProjectOutputRoot(slug) ?? undefined)
         } else if (e?.code === 'ENOTEMPTY' || e?.code === 'EEXIST' || e?.code === 'EISDIR') {
           result.errors.push({
             stage: `revert ${m.code}`,
@@ -538,7 +540,7 @@ export async function revertReseason(slug: string): Promise<ReseasonRevertResult
         } catch (e: any) {
           if (e?.code === 'EXDEV') {
             await copyDirRecursive(newExt, oldExt)
-            await fs.rm(newExt, { recursive: true, force: true })
+            trashCopiedSourceSync(newExt, pm.getProjectDir(slug)!, slug, externalRoot)
           } else { throw e }
         }
         result.reverted_external.push({ code: m.code, from: newExt, to: oldExt })

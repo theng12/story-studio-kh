@@ -8,6 +8,8 @@ import {
   startMediaCleanupRun,
   stopMediaCleanupOperation,
 } from '../services/episode-media-cleanup.js'
+import { listStorageLeftovers, trashStorageLeftovers } from '../services/storage-leftovers.js'
+import { storageSpaceSummary } from '../services/storage-audit.js'
 
 export const router = Router()
 
@@ -55,4 +57,30 @@ router.post('/projects/:slug/media-cleanup/operations/:id/stop', (req, res) => {
   const operation = stopMediaCleanupOperation(req.params.slug, req.params.id)
   if (!operation) return res.status(404).json({ detail: 'Media cleanup operation not found' })
   res.json({ operation_id: operation.id, status: operation.status })
+})
+
+/** Free disk and `_trash` sizes (project and Library), shown at the top of Free up space. */
+router.get('/projects/:slug/media-cleanup/space', async (req, res) => {
+  try {
+    res.json(await storageSpaceSummary(req.params.slug))
+  } catch (error) {
+    respondWithError(res, error, 'Could not measure free space')
+  }
+})
+
+/** Audio-quality copies and failed-render scratch, offered for `_trash`. */
+router.get('/projects/:slug/media-cleanup/leftovers', async (req, res) => {
+  try {
+    res.json({ leftovers: await listStorageLeftovers(req.params.slug) })
+  } catch (error) {
+    respondWithError(res, error, 'Could not list leftover files')
+  }
+})
+
+router.post('/projects/:slug/media-cleanup/leftovers/trash', async (req, res) => {
+  try {
+    res.json(await trashStorageLeftovers(req.params.slug, req.body?.paths))
+  } catch (error) {
+    respondWithError(res, error, 'Could not move leftover files to _trash')
+  }
 })

@@ -177,6 +177,7 @@ test('one missed progress read does not freeze the operation: it keeps checking 
   const ui = await mount({
     get: async (url: string) => {
       if (url.endsWith('/episodes')) return listed
+      if (url.endsWith('/space')) return null
       reads++
       if (reads === 1) throw Object.assign(new Error('engine busy'), { status: 503, data: { detail: 'Engine busy.' } })
       return { id: 'preview-op', project_slug: 'first', kind: 'preview', status: 'completed', done: 1, total: 1, current: '', stage: null, preview }
@@ -212,5 +213,63 @@ test('narration parts: a not-uploaded episode is listed but never pre-selected, 
     assert.equal(parts!.checked, false, 'never pre-selected')
     button(ui.host, 'Select All Uploaded').click(); await flush()
     assert.match(ui.host.textContent || '', /1 episode selected/)
+  } finally { ui.close() }
+})
+
+test('shows free disk and _trash sizes, why uploads are not offered, and checks all uploads on request', async () => {
+  const calls: string[] = []
+  let listCalls = 0
+  const ui = await mount({
+    get: async (url: string) => {
+      if (url.endsWith('/space')) return { free_bytes: 5 * 1024 ** 3, project_trash_bytes: 2 * 1024 ** 3, library_trash_bytes: 3 * 1024 ** 3 }
+      listCalls++
+      return { episodes: [], blocked_reasons: ['2 uploaded episodes: YouTube has not confirmed this upload yet — press Check All Uploads (Upload Center) so YouTube can confirm it.'],
+        not_offered: [{ episode_code: 'EP0001', title: 'One', reason: 'YouTube has not confirmed this upload yet.' }, { episode_code: 'EP0002', title: 'Two', reason: 'YouTube no longer has this video.' }],
+        all_episodes: [{ episode_code: 'EP0001', title: 'One' }, { episode_code: 'EP0002', title: 'Two' }] }
+    },
+    post: async (url: string) => { calls.push(url); return { checked: 2, outcome: 'ok', legacy: { checked: 1, processed: 0, not_found: 1 } } },
+  })
+  try {
+    await flush()
+    const text = ui.host.textContent || ''
+    assert.match(text, /Free on this drive: 5\.00 GB/)
+    assert.match(text, /this project’s _trash: 2\.00 GB/)
+    assert.match(text, /every project’s _trash: 3\.00 GB/)
+    assert.match(text, /Nothing can be freed here yet\. The reasons are listed above\./)
+    assert.match(text, /press Check All Uploads/)
+    assert.match(text, /2 uploaded episodes are not offered — see why/)
+    assert.match(text, /EP0002 Two — YouTube no longer has this video\./)
+    const before = listCalls
+    button(ui.host, 'Check All Uploads').click(); await flush(); await flush()
+    assert.deepEqual(calls, ['/projects/first/youtube/sync'])
+    assert.ok(listCalls > before, 'the list is read again after the check')
+    assert.match(ui.host.textContent || '', /YouTube checked 2 uploads \(1 no longer on YouTube\)/)
+  } finally { ui.close() }
+})
+
+test('Convert PNG scenes to JPEG works per episode and for the whole channel, and runs only as a conversion', async () => {
+  const calls: any[] = []
+  const asked: string[] = []
+  const convertPreview = { ...preview, preset: 'convert_png', estimate: { compress_files: 1, compress_bytes_before: 2048, compress_bytes_after: 240, already_jpeg_files: 0, trash_files: 0, trash_bytes: 0 }, trash_roots: ['/project/_trash'] }
+  const ui = await mount({
+    get: async (url: string) => url.endsWith('/episodes')
+      ? { episodes: [], blocked_reasons: [], not_offered: [], all_episodes: [{ episode_code: 'EP0001', title: 'One' }, { episode_code: 'EP0002', title: 'Two' }] }
+      : { id: 'preview-op', project_slug: 'first', kind: 'preview', status: 'completed', done: 1, total: 1, current: '', stage: null, preview: convertPreview },
+    post: async (url: string, body: any) => { calls.push({ url, body }); return { operation_id: url.endsWith('/preview') ? 'preview-op' : 'run-op' } },
+  }, async (options: any) => { asked.push(options.title); return true })
+  try {
+    const select = ui.host.querySelector<HTMLSelectElement>('select[aria-label="Episode to convert"]')!
+    select.value = 'EP0002'; select.dispatchEvent(new Event('change', { bubbles: true })); await flush()
+    button(ui.host, 'Check This Episode').click(); await flush(); await flush()
+    assert.deepEqual(calls[0], { url: '/projects/first/media-cleanup/preview', body: { episode_codes: ['EP0002'], preset: 'convert_png' } })
+    assert.match(ui.host.textContent || '', /Convert to JPEG:/)
+    button(ui.host, 'Convert to JPEG').click(); await flush(); await flush()
+    assert.deepEqual(calls[1], { url: '/projects/first/media-cleanup/run', body: { preview_id: 'review-1', mode: 'compress' } })
+    assert.equal(asked.at(-1), 'Convert PNG scenes to JPEG?')
+
+    button(ui.host, 'Dismiss Review').click(); await flush()
+    button(ui.host, 'Check All 2 Episodes').click(); await flush(); await flush()
+    assert.equal(asked.includes('Check all 2 episodes for PNG scenes?'), true, 'the whole channel is confirmed first')
+    assert.deepEqual(calls.at(-1).body, { episode_codes: ['EP0001', 'EP0002'], preset: 'convert_png' })
   } finally { ui.close() }
 })
