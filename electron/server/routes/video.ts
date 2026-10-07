@@ -68,6 +68,7 @@ import type { ScenePlan, VideoSubtitleStyle } from '../models/types.js'
 import {
   inspectAudioAssemblyReadiness,
   requireAudioAssemblyReady,
+  isScopedChapterTranscription,
 } from '../services/audio-workflow-readiness.js'
 import { truncateChars } from '../lib/well-formed-text.js'
 import { readVideoVisualSource, setVideoVisualSource } from '../services/video-visual-source.js'
@@ -1453,7 +1454,10 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
   const { slug, episodeId } = req.params
 
   try {
-    await requireAudioAssemblyReady(slug, episodeId)
+    if (isScopedChapterTranscription(req.body || {})) {
+      const { resolveSubtitleChapterSources } = await import('../generators/subtitles.js')
+      await resolveSubtitleChapterSources(slug, episodeId.toUpperCase(), req.body.sections)
+    } else await requireAudioAssemblyReady(slug, episodeId)
   } catch (error: any) {
     return res.status(409).json({
       detail: error?.message || 'Transcription requires a completed Audio Assembly first.',

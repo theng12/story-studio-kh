@@ -3,7 +3,18 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { evaluateAudioTimelineManifest } from '../services/audio-workflow-readiness.js'
+import { evaluateAudioTimelineManifest, isScopedChapterTranscription } from '../services/audio-workflow-readiness.js'
+
+test('only explicit standalone chapter scopes can check narration before assembly', () => {
+  assert.equal(isScopedChapterTranscription({ per_chapter: true, sections: ['Chapter_18'] }), true)
+  assert.equal(isScopedChapterTranscription({ method: 'script', sections: ['Chapter_18', 'Chapter_20'] }), true)
+  for (const request of [
+    { per_chapter: true }, { per_chapter: true, sections: [] }, { per_chapter: true, sections: [' '] },
+    { per_chapter: false, sections: ['Chapter_18'] },
+    { per_chapter: true, sections: ['Chapter_18'], pipeline_repair: { action_id: 'saved' } },
+    { per_chapter: true, sections: ['Chapter_18'], pipeline_chain: [{ type: 'metadata' }] },
+  ]) assert.equal(isScopedChapterTranscription(request), false)
+})
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const serverRoot = path.resolve(here, '..')

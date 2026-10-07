@@ -3465,7 +3465,7 @@ async function retryJob(job: RJob): Promise<boolean> {
   controlBusy.value = new Set(controlBusy.value).add(job.job_id)
   try {
     const projectSlug = jobProjectSlug(job)
-    if (isEpisodeRecoveryType(job.type)) {
+    if (isEpisodeRecoveryType(job.type, job.params)) {
       const response = await post<{ plan: { message: string } }>(`/projects/${projectSlug}/jobs/recover-episode/${job.episode_id}`, { source_job_ids: [job.job_id] })
       info(response.plan.message)
       return true

@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.258 — 2026-10-07
+
+- Re-narrated chapters can be transcribed directly before Audio Assembly. Full-episode transcription still requires a verified episode mix.
+- Multiple chapter repairs keep every transcription handoff. Audio Assembly waits for the known chapter checks, then refreshes the episode once with its saved mix settings and stitches current subtitles locally.
+- Clear Finished preserves verified repair progress. Changed audio, missing parts, malformed files and unknown chapters cannot be treated as checked.
+- Chapter Retry and Retry All keep their requested scope and saved provider identities; completed chapters are preserved.
+
+---
+
 ## v1.4.257 — 2026-10-07
 
 - Much faster Overview, Production Board and channel opening on big channels (episode list re-checks gradually; last list shows instantly on reopen; Refresh no longer rebuilds everything — Shift-click for a full rebuild).

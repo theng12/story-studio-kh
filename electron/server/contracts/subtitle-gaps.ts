@@ -61,3 +61,15 @@ export function gapAudioSentence(audio?: 'silent' | 'sound'): string {
   if (audio === 'sound') return 'There is sound here. Listen: humming or mumbling means the narration went wrong; clear speech means only the subtitles missed it.'
   return ''
 }
+
+/** A chapter-local check has no episode-timeline dependency. Bulk/Pipeline work still does. */
+export function isScopedChapterTranscription(request: {
+  per_chapter?: unknown; method?: unknown; sections?: unknown; pipeline_repair?: unknown; pipeline_chain?: unknown
+}): boolean {
+  return (request.per_chapter === true || request.method === 'script')
+    && !request.pipeline_repair
+    && !(Array.isArray(request.pipeline_chain) && request.pipeline_chain.length)
+    && Array.isArray(request.sections)
+    && request.sections.length > 0
+    && request.sections.every(section => typeof section === 'string' && section.trim().length > 0)
+}

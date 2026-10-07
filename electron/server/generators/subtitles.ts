@@ -16,6 +16,7 @@ import { stitchSubtitles } from '../services/subtitle-stitcher.js'
 import {
   inspectPipelineSubtitleRepairReadiness,
   inspectSubtitleCompletion,
+  inspectChapterSubtitleCompletion,
   inspectSubtitleSourceFreshness,
   hashSubtitleAudioSources,
   isPipelineRepairTranscriptUsable,
@@ -41,7 +42,7 @@ import { hashInput } from '../services/task-manifest.js'
 import { isFleetBusyFailure } from '../lib/genstudio-fleet-busy.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage, unavailableTranscriptionModelMessage } from '../services/genstudio-model-migration.js'
 import type { Job } from '../models/types.js'
-import { requireAudioAssemblyReady } from '../services/audio-workflow-readiness.js'
+import { chapterKeyOf, inspectAudioAssemblyReadiness, isScopedChapterTranscription, requireAudioAssemblyReady } from '../services/audio-workflow-readiness.js'
 import { runSubtitleTranscription } from '../services/subtitle-recovery.js'
 
 /**
@@ -97,6 +98,9 @@ export interface TranscribeSubtitlesRequest {
    * Ignored outside `per_chapter` mode, where there is only one audio track.
    */
   sections?: string[]
+  /** Server-created link to the narration repair; its coordinator refreshes Assembly after chapter checks. */
+  narration_refresh_job_id?: string
+  narration_refresh_source?: { saved_at: string; sections: string[] }
   /** Pipeline-stamped, deliberate one-action repair identity. */
   pipeline_repair?: { action_id: string }
   /** Backend-only explicit owner purchase, scoped to the failed job's missing set. */
@@ -448,6 +452,11 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
   job.progress = 0
   job.output_lines.push(`Starting transcription for ${code}`)
 
+  if (isScopedChapterTranscription(req)) {
+    const assembly = await inspectAudioAssemblyReadiness(project_slug, code)
+    return await transcribePerChapter(job, project_slug, episode_id, req, assembly.audio_assembly_ready)
+  }
+
   // Subtitle coverage is defined by Audio Assembly's verified section
   // timeline. Gate before any catalog lookup, upload, or paid submission so a
   // missing merge/manifest cannot become a misleading 0/0 completion error.
@@ -604,6 +613,7 @@ export interface ChapterAudioSource {
 export async function resolveActiveSubtitleChapterSources(
   episodeDir: string,
   audioDir: string,
+  requestedSections?: string[],
 ): Promise<ChapterAudioSource[] | null> {
   let sidecar: { sections?: Array<{ slug?: unknown; source_file?: unknown; source_files?: unknown }> }
   try {
@@ -619,6 +629,7 @@ export async function resolveActiveSubtitleChapterSources(
   ))
   if (!hasSourceSelection) return null
   const selected: ChapterAudioSource[] = []
+  const requested = requestedSections?.length ? new Set(requestedSections.map(slug => slug.trim().toLowerCase())) : null
   const seen = new Set<string>()
   for (const section of sidecar.sections) {
     const sourceList = Array.isArray(section?.source_files)
@@ -630,7 +641,7 @@ export async function resolveActiveSubtitleChapterSources(
     }
     const validFiles = sourceList.length > 0
       && sourceList.every(file => typeof file === 'string' && file.trim() !== '' && path.basename(file) === file)
-    if (!slug || !validFiles) {
+    if (!slug || path.basename(slug) !== slug || !validFiles) {
       throw new Error(`Audio Assembly's active source map is invalid for ${slug || 'a chapter'}. Re-run Audio Assembly before transcription.`)
     }
     const key = slug.toLowerCase()
@@ -638,10 +649,10 @@ export async function resolveActiveSubtitleChapterSources(
       throw new Error(`Audio Assembly's active source map repeats ${slug}. Re-run Audio Assembly before transcription.`)
     }
     const files = sourceList.map(file => (file as string).trim())
-    const available = await Promise.all(files.map(async file => {
+    const available = !requested || requested.has(key) ? await Promise.all(files.map(async file => {
       const stat = await fs.stat(path.join(audioDir, file)).catch(() => null)
       return !!stat?.isFile() && stat.size > 0
-    }))
+    })) : [true]
     if (!available.every(Boolean)) {
       throw new Error(`Audio Assembly's active source for ${slug} is missing or empty. Re-run Audio Assembly before transcription.`)
     }
@@ -651,36 +662,8 @@ export async function resolveActiveSubtitleChapterSources(
   return selected
 }
 
-async function transcribePerChapter(
-  job: Job,
-  projectSlug: string,
-  episodeId: string,
-  req: TranscribeSubtitlesRequest,
-): Promise<void> {
-  const code = episodeId.toUpperCase()
-  const config = await pm.getConfig(projectSlug)
-  if (!config) throw new Error('Project not found')
-
-  // The script, as narrated: script-timed subtitles are made from it, and its
-  // language picks the method when none was asked for.
-  const { findNarrationFile } = await import('./audio.js')
-  const { parseNarrationDocx } = await import('../lib/docx-parser.js')
-  const narration = await findNarrationFile(projectSlug, code)
-    .then(file => parseNarrationDocx(file))
-    .catch(() => [] as Awaited<ReturnType<typeof parseNarrationDocx>>)
-  const method = resolveSubtitleMethod(req, narration.map(section => section.text).join('\n'))
-  const genstudio = method === 'script' ? null : await resolveGenStudioTranscription(job, req)
-  if (method === 'script') {
-    if (!narration.length) throw new Error('Script-timed subtitles need the narration script, and none was found for this episode. Write or restore the script, or choose Transcribe.')
-    job.output_lines.push('Method: script-timed — the script\'s own words, timed by the narration\'s sections (no transcription, nothing charged).')
-  }
-  // Subtitles are timed to the chapter file: join complete split chapters
-  // first so captions are made once, for the file Audio Assembly will use.
-  if (!req.pipeline_repair) {
-    const { consolidateEpisodeParts } = await import('../services/chapter-parts.js')
-    await consolidateEpisodeParts(projectSlug, code, line => job.output_lines.push(line))
-  }
-
+/** Resolve and validate owned chapter inputs without requiring the episode mix. */
+export async function resolveSubtitleChapterSources(projectSlug: string, code: string, requestedSections?: string[]) {
   // Resolve the audio dir via the reconciler (it knows the 07-folder contract),
   // then scan that dir DIRECTLY for chapter MP3s.
   //
@@ -695,8 +678,17 @@ async function transcribePerChapter(
   // chapter audio actually exists, independent of how it was chunked.
   const { getAudioStatus } = await import('../services/audio-reconciler.js')
   const status = await getAudioStatus(projectSlug, code)
-  const episodePaths = await resolveEpisodePathsByCodeWithSidecar(projectSlug, episodeId, 'audio_chapters.json')
-  const selectedSources = await resolveActiveSubtitleChapterSources(episodePaths.episode_dir, episodePaths.audio_dir)
+  if (requestedSections?.length) {
+    const wanted = new Set(requestedSections.map(slug => slug.trim().toLowerCase()))
+    const expected = new Set(status.expected.map(item => chapterKeyOf(item.filename, code).toLowerCase()))
+    const foreign = [...wanted].filter(slug => !expected.has(slug))
+    if (foreign.length) throw new Error(`Requested chapters have no matching audio owned by this episode: ${foreign.join(', ')}.`)
+    const missing = status.missing.filter(file => wanted.has(chapterKeyOf(file, code).toLowerCase()))
+    if (missing.length) throw new Error(`Requested chapter audio is incomplete: ${missing.join(', ')}. Restore or re-narrate the missing parts before transcription.`)
+  }
+  const episodePaths = await resolveEpisodePathsByCodeWithSidecar(projectSlug, code, 'audio_chapters.json')
+  const selectedSources = await resolveActiveSubtitleChapterSources(episodePaths.episode_dir, episodePaths.audio_dir,
+    requestedSections)
   // A same-code sibling with the authoritative sidecar owns its matching audio
   // folder too. Legacy scan behavior keeps the reconciler's audio directory.
   const audioDir = selectedSources ? episodePaths.audio_dir : status.audio_dir
@@ -740,8 +732,57 @@ async function transcribePerChapter(
     throw new Error('No chapter audio found — generate audio (and Audio Assembly) for this episode first.')
   }
 
+  const requested = selectRequestedSections(allSections, requestedSections)
+  if (requestedSections?.length) {
+    const { getAudioDuration } = await import('../lib/ffmpeg-utils.js')
+    for (const section of requested) for (const file of section.files) {
+      const duration = await getAudioDuration(path.join(audioDir, file))
+      if (!Number.isFinite(duration) || Number(duration) <= 0) {
+        throw new Error(`${section.slug.replaceAll('_', ' ')} audio could not be verified as playable. Restore or re-narrate that chapter before transcription.`)
+      }
+    }
+  }
+  return { audioDir, episodePaths, allSections }
+}
+
+async function transcribePerChapter(
+  job: Job,
+  projectSlug: string,
+  episodeId: string,
+  req: TranscribeSubtitlesRequest,
+  assemblyReady = true,
+): Promise<void> {
+  const code = episodeId.toUpperCase()
+  const config = await pm.getConfig(projectSlug)
+  if (!config) throw new Error('Project not found')
+
+  // The script, as narrated: script-timed subtitles are made from it, and its
+  // language picks the method when none was asked for.
+  const { findNarrationFile } = await import('./audio.js')
+  const { parseNarrationDocx } = await import('../lib/docx-parser.js')
+  const narration = await findNarrationFile(projectSlug, code)
+    .then(file => parseNarrationDocx(file))
+    .catch(() => [] as Awaited<ReturnType<typeof parseNarrationDocx>>)
+  const method = resolveSubtitleMethod(req, narration.map(section => section.text).join('\n'))
+  const genstudio = method === 'script' ? null : await resolveGenStudioTranscription(job, req)
+  if (method === 'script') {
+    if (!narration.length) throw new Error('Script-timed subtitles need the narration script, and none was found for this episode. Write or restore the script, or choose Transcribe.')
+    job.output_lines.push('Method: script-timed — the script\'s own words, timed by the narration\'s sections (no transcription, nothing charged).')
+  }
+  // Subtitles are timed to the chapter file: join complete split chapters
+  // first so captions are made once, for the file Audio Assembly will use.
+  if (!req.pipeline_repair && assemblyReady) {
+    const { consolidateEpisodeParts } = await import('../services/chapter-parts.js')
+    await consolidateEpisodeParts(projectSlug, code, line => job.output_lines.push(line))
+  }
+
+  const { audioDir, episodePaths, allSections } = await resolveSubtitleChapterSources(
+    projectSlug, code, isScopedChapterTranscription(req) ? req.sections : undefined,
+  )
+
   const outDir = await resolveSubtitlesDir(projectSlug, code)
   await fs.mkdir(outDir, { recursive: true })
+  const recordedSourceHashes: Record<string, string> = assemblyReady ? {} : await readSubtitleSourceAudioHashes(outDir)
   const staleSections = new Set((await inspectSubtitleSourceFreshness(
     episodePaths.episode_dir,
     audioDir,
@@ -845,7 +886,10 @@ async function transcribePerChapter(
   async function transcribeSection(sec: ChapterAudioSource): Promise<void> {
     const outPath = path.join(outDir, `${code}_${sec.slug}.srt`)
     const repairSection = repairSections.has(sec.slug.toLowerCase())
-    if (!force && !repairSection && !staleSections.has(sec.slug.toLowerCase()) && await fileExistsWithContent(outPath)) {
+    // Without Assembly, its old/absent source map cannot prove an old SRT is current.
+    const sourceCurrent = assemblyReady || (recordedSourceHashes[path.basename(outPath)] !== undefined
+      && recordedSourceHashes[path.basename(outPath)] === await hashSubtitleAudioSources(sec.files.map(file => path.join(audioDir, file))))
+    if (!force && !repairSection && sourceCurrent && !staleSections.has(sec.slug.toLowerCase()) && await fileExistsWithContent(outPath)) {
       job.output_lines.push(`Skipping ${sec.slug} — SRT already exists. Tick "Re-run" to overwrite.`)
       done++; job.progress = Math.round((done / sections.length) * 100)
       return
@@ -979,12 +1023,12 @@ async function transcribePerChapter(
   // Audio Assembly's authoritative section manifest. This catches provider
   // errors, zero-cue responses, empty audio, and a whole missing audio section.
   const epaths = await resolveEpisodePathsByCodeWithSidecar(projectSlug, episodeId, 'audio_chapters.json')
-  const coverage = await inspectSubtitleCompletion(
+  const coverage = assemblyReady ? await inspectSubtitleCompletion(
     epaths.episode_dir,
     outDir,
     code,
     { require_per_section: true },
-  )
+  ) : await inspectChapterSubtitleCompletion(outDir, code, allSections.map(section => section.slug))
   const failedSlugs = Array.from(new Set([
     ...coverage.missing_sections,
     ...failures.map(failure => failure.slug),
@@ -1011,7 +1055,7 @@ async function transcribePerChapter(
   const scopeComplete = scopeFailedSlugs.length === 0
   // An explicitly scoped job can finish its requested work while the episode
   // still lacks other chapters or has stale unselected sources.
-  const episodeComplete = coverage.complete && failures.length === 0
+  const episodeComplete = assemblyReady && coverage.complete && failures.length === 0
     && (!explicitlyScoped || unselectedStaleSections.length === 0)
   const unselectedStaleLabelKeys = new Set(unselectedStaleSections.map(section => section.toLowerCase()))
   const readySections = coverage.completed_sections.filter(section => !failedKeys.has(section.toLowerCase())
@@ -1077,7 +1121,8 @@ async function transcribePerChapter(
     job.output_lines.push(
       `✓ Requested subtitle sections complete: ${sections.length}/${sections.length} ready. ` +
       `Episode coverage remains incomplete (${readySections.length}/${coverage.expected_sections.length}); ` +
-      'auto-stitch waits until every chapter is present and current.',
+      (assemblyReady ? 'auto-stitch waits until every chapter is present and current.'
+        : 'Audio Assembly is still needed before stitching the episode timeline.'),
     )
     return
   }

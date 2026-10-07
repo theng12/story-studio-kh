@@ -267,7 +267,7 @@ test('selected subtitle chapters share one scoped request, retain retry identity
   ;(globalThis as any).__subtitlesInitialApi = {
     get: async (path: string) => {
       if (path.endsWith('/audio-sections')) return { sections: [1, 2, 3].map(n => ({ label: `Chapter 0${n}`, slug: `Chapter_0${n}` })) }
-      return { has_chapter_audio: true, audio_assembly_ready: true, existing_srts: [], stale_sections: ['Chapter_01'],
+      return { has_chapter_audio: true, audio_assembly_ready: false, existing_srts: [], stale_sections: ['Chapter_01'],
         completion: { mode: 'per-section', completed_sections: ['Chapter_02', 'Chapter_03'] } }
     },
     post: async (path: string, payload: any) => { requests.push({ path, payload: structuredClone(payload) }); if (reject) throw Error('response lost'); return {} },
@@ -280,10 +280,13 @@ test('selected subtitle chapters share one scoped request, retain retry identity
     const state = (globalThis as any).__subtitlesInitialState
     await waitFor(() => state.sections.value.length === 3, { label: 'selectable subtitle sections' })
     state.language.value = 'en'
-    assert.equal(state.canTranscribe.value, true)
+    assert.equal(state.canTranscribe.value, false, 'full-episode transcription still requires Audio Assembly')
+    assert.equal(state.canTranscribeChapter('Chapter_01'), true, 'a known chapter can be checked directly before Assembly')
+    assert.equal(state.canTranscribeChapter('Chapter_99'), false, 'foreign/unknown scope remains refused')
     state.selectSubtitleAttention()
     assert.deepEqual(state.selectedSubtitleSections.value, ['Chapter_01'])
     state.selectedSubtitleSections.value = ['Chapter_03', 'Chapter_01']
+    assert.equal(state.canTranscribe.value, true)
     await state.transcribe()
     assert.equal(requests.length, 1)
     assert.deepEqual(requests[0].payload.sections, ['Chapter_01', 'Chapter_03'])

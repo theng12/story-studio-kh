@@ -42,7 +42,7 @@ test('Audio Assembly recovery waits while the episode is being narrated, then di
     assert.ok(jq.getJob(plan.steps.audio_merge!.job_id))
   } finally {
     const jq = await import('../services/job-queue.js')
-    await jq.setQueuePaused(false)
+    await jq._waitForJobPersistenceForTesting()
     await temp.cleanup()
   }
 })

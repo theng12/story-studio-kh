@@ -18,6 +18,225 @@ const source = (type: Job['type'], params = {}): Job => ({
 const rows = () => [source('subtitles_transcribe', { sections: ['Chapter_02', 'Chapter_16'], force: true }), source('scene_plan_run'), source('continuity_render')]
 const ready = { audio_merge: true, subtitle_sections: true, subtitle_stitch: true, scene_plan_run: true, contextual_cues: true, continuity_render: true }
 
+async function chapterCheckEvidence(projectSlug: string, sections = ['Chapter_01', 'Chapter_02']) {
+  const { resolveEpisodePathsByCode } = await import('../services/utils.js')
+  const { runFfmpeg } = await import('../lib/ffmpeg-utils.js')
+  const { hashSubtitleAudioSources } = await import('../services/subtitle-completion.js')
+  const { recordSubtitleSourceEvidence } = await import('../services/subtitle-recovery.js')
+  const paths = await resolveEpisodePathsByCode(projectSlug, 'EP0001')
+  for (const dir of [paths.script_dir, paths.audio_dir, paths.subtitles_dir]) await fs.mkdir(dir, { recursive: true })
+  await fs.writeFile(paths.narration_docx, sections.map((_, index) => `## Chapter ${index + 1}: Fixture\n\nNarration words.`).join('\n\n'))
+  const first = path.join(paths.audio_dir, `EP0001_${sections[0]}.mp3`)
+  await runFfmpeg(['-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-codec:a', 'libmp3lame', '-q:a', '9', first])
+  for (const section of sections) {
+    const audio = path.join(paths.audio_dir, `EP0001_${section}.mp3`)
+    if (audio !== first) await fs.copyFile(first, audio)
+    await fs.writeFile(path.join(paths.subtitles_dir, `EP0001_${section}.srt`), '1\n00:00:00,000 --> 00:00:00,900\nChecked words\n')
+    await recordSubtitleSourceEvidence(paths.subtitles_dir, `EP0001_${section}.srt`, (await hashSubtitleAudioSources([audio]))!, 'fixture-asr')
+  }
+  await fs.writeFile(path.join(paths.episode_dir, 'audio_chapters.json'), JSON.stringify({ sections: sections.map(slug => ({ slug, duration_s: 1, source_file: `EP0001_${slug}.mp3` })) }))
+  return paths
+}
+
+test('chapter repair coalesces two scoped checks before one Audio Assembly and ignores an older failed attempt', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Chapter repair QA ordering' })
+    await chapterCheckEvidence(project.slug)
+    await jq.setQueuePaused(true)
+    const { createEpisodeRecoveryPlan, dispatchEpisodeRecoveryStep } = await subject()
+    const plan = createEpisodeRecoveryPlan([{ ...source('audio_merge', { gap_duration: 0.5, music_volume: 0.12 }), project_slug: project.slug }])
+    plan.target = 'audio_merge'
+    plan.narration_refresh_job_ids = ['narration-1', 'narration-2']
+    const narration = (index: number): Job => ({ ...source('audio', { then_subtitles: true }), project_slug: project.slug,
+      job_id: `narration-${index}`, status: 'done', created_at: `2026-09-06T00:00:0${index}Z` })
+    const check = (index: number): Job => ({ ...source('subtitles_transcribe', { per_chapter: true, sections: [`Chapter_0${index}`],
+      narration_refresh_job_id: `narration-${index}` }), project_slug: project.slug, job_id: `check-${index}`,
+      status: 'done', created_at: `2026-09-06T00:01:0${index}Z`, result: { complete: true, scope_complete: true, episode_complete: false, stitch_complete: false } })
+    const first = check(1)
+    const second: Job = { ...check(2), status: 'running' }
+    const jobs = [narration(1), narration(2), first, second]
+    const facts = { verified: { ...ready, audio_merge: false }, message: 'Merge stale' }
+    await dispatchEpisodeRecoveryStep(plan, facts, jobs)
+    assert.equal((await jq.getJobs(project.slug)).length, 0, 'pending chapter QA holds assembly')
+    second.status = 'error'
+    second.result = { complete: false, scope_complete: false }
+    await dispatchEpisodeRecoveryStep(plan, facts, jobs)
+    assert.equal((await jq.getJobs(project.slug)).length, 0, 'failed QA cannot start assembly')
+    const healed = { ...check(2), job_id: 'check-2-healed', created_at: '2026-09-06T00:02:00Z' }
+    await dispatchEpisodeRecoveryStep(plan, facts, [...jobs, healed])
+    await dispatchEpisodeRecoveryStep(JSON.parse(JSON.stringify(plan)), facts, [...jobs, healed, ...await jq.getJobs(project.slug)])
+    const merges = (await jq.getJobs(project.slug)).filter(job => job.type === 'audio_merge')
+    assert.equal(merges.length, 1)
+    assert.equal(merges[0].params.music_volume, 0.12)
+    assert.equal(merges[0].params.gap_duration, 0.5)
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
+test('a new stamped narration refresh retires a completed plan while keeping an accepted merge owned', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Chapter refresh plan identity' })
+    await chapterCheckEvidence(project.slug)
+    await jq.setQueuePaused(true)
+    const { createEpisodeRecoveryPlan, recoverEpisode } = await subject()
+    const prior = { ...source('audio_merge', { gap_duration: 0.7, music_volume: 0.2 }), project_slug: project.slug,
+      job_id: 'prior-assembly', status: 'done' as const, finished_at: '2026-09-05T00:02:00Z' }
+    const old = createEpisodeRecoveryPlan([prior])
+    old.target = 'audio_merge'
+    old.first_unresolved = null
+    old.completed = ['audio_merge']
+    old.steps.audio_merge!.job_id = prior.job_id
+    old.steps.audio_merge!.dispatched = true
+    const file = path.join(pm.getProjectDir(project.slug)!, 'episode-recovery-plans.json')
+    await fs.writeFile(file, JSON.stringify({ version: 1, plans: { EP0001: old } }))
+    const narration = { ...source('audio', { then_subtitles: true }), project_slug: project.slug,
+      job_id: 'new-narration', status: 'done' as const, created_at: '2026-09-06T00:00:00Z' }
+    const check = { ...source('subtitles_transcribe', { per_chapter: true, sections: ['Chapter_01'], narration_refresh_job_id: narration.job_id }),
+      project_slug: project.slug, job_id: 'new-check', status: 'done' as const, created_at: '2026-09-06T00:01:00Z',
+      result: { complete: true, scope_complete: true, episode_complete: false, stitch_complete: false } }
+    for (const job of [prior, narration, check]) await jq.writeAuthoritativeJob(job)
+    const renewed = (await recoverEpisode(project.slug, 'EP0001'))!
+    assert.notEqual(renewed.id, old.id)
+    assert.equal(renewed.target, 'subtitle_stitch')
+    assert.deepEqual(Object.keys(renewed.steps), ['audio_merge'], 'only the saved local assembly is copied; no ASR or downstream generation')
+    assert.deepEqual(renewed.narration_refresh_job_ids, [narration.job_id])
+    assert.equal(renewed.steps.audio_merge!.params.music_volume, 0.2)
+    const saved = JSON.parse(await fs.readFile(file, 'utf8'))
+    assert.equal(saved.retired_plans[old.id].id, old.id)
+    const accepted = (await jq.getJobs(project.slug)).find(job => job.job_id === renewed.steps.audio_merge!.job_id)!
+    assert.equal(accepted.status, 'queued')
+    const nextNarration = { ...narration, job_id: 'later-narration', created_at: '2026-09-06T00:03:00Z' }
+    const nextCheck = { ...check, job_id: 'later-check', created_at: '2026-09-06T00:04:00Z',
+      params: { ...check.params, sections: ['Chapter_02'], narration_refresh_job_id: nextNarration.job_id } }
+    for (const job of [nextNarration, nextCheck]) {
+      await jq.enqueueEpisodeRecoveryOnce(job.job_id, { project_slug: job.project_slug, episode_id: job.episode_id, type: job.type, params: job.params })
+      await jq.mutateAuthoritativeJob(project.slug, job.job_id, () => job)
+    }
+    const observed = (await recoverEpisode(project.slug, 'EP0001'))!
+    assert.equal(observed.id, renewed.id)
+    assert.equal(observed.dispatch_job_id, accepted.job_id)
+    assert.equal((await jq.getJobs(project.slug)).filter(job => job.type === 'audio_merge' && job.status === 'queued').length, 1)
+    const { dispatchEpisodeRecoveryStep } = await subject()
+    await jq.mutateAuthoritativeJob(project.slug, accepted.job_id, job => ({ ...job, status: 'done' }))
+    await dispatchEpisodeRecoveryStep(renewed, { verified: { ...ready, subtitle_sections: false, subtitle_stitch: false }, message: 'Other chapters are missing' }, await jq.getJobs(project.slug))
+    assert.equal(renewed.first_unresolved, 'subtitle_sections')
+    assert.deepEqual(renewed.completed, ['audio_merge'], 'assembly is complete while the full subtitle timeline remains blocked')
+    assert.equal((await jq.getJobs(project.slug)).filter(job => job.type === 'audio_merge').length, 2, 'no second assembly')
+    assert.equal((await jq.getJobs(project.slug)).filter(job => job.type === 'subtitles_transcribe').length, 2, 'no fresh ASR')
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
+test('chapter repair observes free settlement with the same job and never auto-resumes a paid block', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Chapter repair free settlement' })
+    await jq.setQueuePaused(true)
+    const { createEpisodeRecoveryPlan, dispatchEpisodeRecoveryStep } = await subject()
+    const plan = createEpisodeRecoveryPlan([{ ...source('audio_merge'), project_slug: project.slug }])
+    plan.target = 'audio_merge'
+    plan.narration_refresh_job_ids = ['settlement-narration']
+    const narration = { ...source('audio', { then_subtitles: true }), job_id: 'settlement-narration', project_slug: project.slug, status: 'done' as const }
+    const check = { ...source('subtitles_transcribe', { per_chapter: true, sections: ['Chapter_01'], narration_refresh_job_id: narration.job_id,
+      episode_recovery_id: plan.id, durable_request_key: 'accepted-provider-task', subtitle_recovery: { sections: { Chapter_01: { state: 'waiting_settlement' } } } }),
+      job_id: 'settlement-check', project_slug: project.slug, result: { scope_complete: false } }
+    await jq.writeAuthoritativeJob(check)
+    await jq.getJobs(project.slug)
+    const facts = { verified: { ...ready, audio_merge: false }, message: 'Merge stale' }
+    plan.next_free_check_at = '2000-01-01T00:00:00Z'
+    await dispatchEpisodeRecoveryStep(plan, facts, [narration, ...await jq.getJobs(project.slug)])
+    assert.equal(jq.getJob(check.job_id)!.status, 'queued')
+    assert.equal(jq.getJob(check.job_id)!.params.durable_request_key, 'accepted-provider-task')
+    await jq.mutateAuthoritativeJob(project.slug, check.job_id, job => ({ ...job, status: 'error', params: { ...job.params,
+      subtitle_recovery: { sections: { Chapter_01: { state: 'paid_blocked' } } } } }))
+    plan.next_free_check_at = '2000-01-01T00:00:00Z'
+    await dispatchEpisodeRecoveryStep(plan, facts, [narration, ...await jq.getJobs(project.slug)])
+    assert.equal(jq.getJob(check.job_id)!.status, 'error')
+    assert.equal((await jq.getJobs(project.slug)).filter(job => job.type === 'audio_merge').length, 0)
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
+test('chapter repair survives Clear Finished with saved source and verified QA acknowledgements, but rejects later audio changes', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Chapter repair cleared history' })
+    const paths = await chapterCheckEvidence(project.slug)
+    await jq.setQueuePaused(true)
+    const prior = { ...source('audio_merge', { music_volume: 0.15 }), project_slug: project.slug, status: 'done' as const }
+    const parent = (index: number): Job => ({ ...source('audio', { then_subtitles: true }), job_id: `clear-parent-${index}`, project_slug: project.slug,
+      status: 'done', created_at: `2026-09-06T00:00:0${index}Z` })
+    const check = (index: number): Job => ({ ...source('subtitles_transcribe', { per_chapter: true, sections: [`Chapter_0${index}`],
+      narration_refresh_job_id: `clear-parent-${index}`, narration_refresh_source: { saved_at: `2026-09-06T00:01:0${index}.000Z`, sections: [`Chapter_0${index}`] } }),
+      job_id: `clear-check-${index}`, project_slug: project.slug, status: index === 1 ? 'done' : 'running',
+      created_at: `2026-09-06T00:02:0${index}Z`, result: { scope_complete: index === 1, complete: index === 1 } })
+    for (const job of [prior, parent(1), parent(2), check(1), check(2)]) await jq.writeAuthoritativeJob(job)
+    const { recoverEpisode } = await subject()
+    const waiting = (await recoverEpisode(project.slug, 'EP0001'))!
+    assert.equal(waiting.dispatch_status, 'blocked')
+    await jq.clearFinished(project.slug, 'finished')
+    await jq._waitForJobPersistenceForTesting()
+    await jq.mutateAuthoritativeJob(project.slug, 'clear-check-2', job => ({ ...job, status: 'done', result: { scope_complete: true, complete: true } }))
+    const changedAudio = path.join(paths.audio_dir, 'EP0001_Chapter_01.mp3')
+    const saved = await fs.readFile(changedAudio)
+    await fs.writeFile(changedAudio, Buffer.concat([saved, Buffer.from('later narration bytes')]))
+    const stale = (await recoverEpisode(project.slug, 'EP0001', false))!
+    assert.equal(stale.dispatch_status, 'blocked')
+    assert.match(stale.message, /Chapter_01|changed|source/i)
+    assert.equal((await jq.getJobs(project.slug)).some(job => job.type === 'audio_merge'), false)
+    await fs.writeFile(changedAudio, saved)
+    await jq.clearFinished(project.slug, 'finished')
+    await jq._waitForJobPersistenceForTesting()
+    const assembled = (await recoverEpisode(project.slug, 'EP0001', false))!
+    assert.equal(assembled.id, waiting.id)
+    assert.equal(assembled.dispatch_status, 'queued')
+    assert.equal((await jq.getJobs(project.slug)).filter(job => job.type === 'audio_merge').length, 1)
+    assert.equal(jq.getJob(assembled.dispatch_job_id!)!.params.music_volume, 0.15)
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
+test('a cleared completion event can start a stamped repair while an unproven missing parent cannot', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Cleared scoped completion event' })
+    await chapterCheckEvidence(project.slug, ['Chapter_01'])
+    await jq.setQueuePaused(true)
+    const prior = { ...source('audio_merge', { music_volume: 0.25 }), project_slug: project.slug, status: 'done' as const }
+    await jq.writeAuthoritativeJob(prior)
+    await jq.getJobs(project.slug)
+    const completed = { ...source('subtitles_transcribe', { per_chapter: true, sections: ['Chapter_01'], narration_refresh_job_id: 'cleared-parent',
+      narration_refresh_source: { saved_at: '2026-09-06T00:01:00.000Z', sections: ['Chapter_01'] } }),
+      project_slug: project.slug, job_id: 'cleared-qa', status: 'done' as const, created_at: '2026-09-06T00:02:00Z', result: { scope_complete: true, complete: true } }
+    const { recoverEpisode, createEpisodeRecoveryPlan, dispatchEpisodeRecoveryStep } = await subject()
+    const result = (await recoverEpisode(project.slug, 'EP0001', true, [], [completed]))!
+    assert.equal(result.dispatch_status, 'queued', 'event snapshot retains verified completion after its row was cleared')
+    assert.deepEqual(result.narration_refresh_job_ids, ['cleared-parent'])
+    const unproven = createEpisodeRecoveryPlan([prior])
+    unproven.narration_refresh_job_ids = ['missing-unknown-parent']
+    await dispatchEpisodeRecoveryStep(unproven, { verified: { ...ready, audio_merge: false }, message: 'stale' }, [])
+    assert.match(unproven.message, /saved chapter narration|verified|source/i)
+    assert.equal(unproven.steps.audio_merge!.dispatched, undefined)
+    const failedParent = { ...source('audio', { then_subtitles: true }), job_id: 'missing-unknown-parent', project_slug: project.slug }
+    const unprovedCheck = { ...completed, params: { ...completed.params, narration_refresh_job_id: failedParent.job_id, narration_refresh_source: undefined } }
+    await dispatchEpisodeRecoveryStep(unproven, { verified: { ...ready, audio_merge: false }, message: 'stale' }, [failedParent, unprovedCheck])
+    assert.deepEqual(unproven.narration_refresh_checks, [], 'a failed parent timestamp is not saved-source completion evidence')
+    await dispatchEpisodeRecoveryStep(unproven, { verified: { ...ready, audio_merge: false }, message: 'stale' }, [unprovedCheck])
+    assert.equal(unproven.steps.audio_merge!.dispatched, undefined, 'clearing the failed parent cannot convert its timestamp into success')
+    const missingProject = await pm.createProject({ name: 'Unproven refresh cannot become generic recovery' })
+    await assert.rejects(recoverEpisode(missingProject.slug, 'EP0001', true, [], [{ ...unprovedCheck, project_slug: missingProject.slug }]), /Narration refresh source could not be verified/)
+    assert.equal((await jq.getJobs(missingProject.slug)).length, 0)
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
 test('first unresolved prerequisite owns dispatch; failed downstream rows are deferred', async () => {
   const { createEpisodeRecoveryPlan, nextEpisodeRecoveryStep } = await subject()
   const plan = createEpisodeRecoveryPlan(rows())

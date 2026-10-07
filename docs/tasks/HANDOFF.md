@@ -1,5 +1,13 @@
 # HANDOFF — Story Studio KH
 
+## Current work — 2026-10-07 (1.4.258 chapter repair chain)
+
+Source release **1.4.258** builds on `067ca170` / 1.4.257. The owner explicitly keeps **re-narrate → transcribe repaired chapters → Audio Assembly**. Standalone chapter checks validate complete, playable episode-owned source audio without requiring the full episode mix; bulk/Pipeline and whole-track transcription retain the assembly gate. Chapter-local success never proves full-episode/stitch completion. Saved source hashes govern reuse.
+
+Narration follow-ups are deduplicated by their owned parent, and caption workers for one episode run serially so a second chapter is not lost or racing the same manifests. Existing episode recovery coalesces known chapter checks, uses prior owned mix settings, and locally restitches after assembly. Compact source/QA acknowledgements survive Clear Finished; current-source mismatches, missing accepted job identities and paid/unknown provider evidence stay fail-closed. No new ASR for unselected chapters or downstream generation is authorized by this repair.
+
+Independent review and focused regression evidence are in the local operations receipts. Final full gates, main packaging and installed state are recorded in `<owner-home>/Developer/story-studio-operations/chapter-repair-release-receipt.json`. Existing Story Sprout repair/assembly jobs must be reconciled and preserved before install; never cancel or repeat them to demonstrate the fix. Authentication is preserved: the owner declined session-secret rotation and will handle it later. Cleanup goes to central `<owner-home>/Developer/_trash`.
+
 ## Current work — 2026-10-07 (1.4.257 assembled)
 
 Source release **1.4.257** builds on `238a1a37` / 1.4.256 and assembles: `perf/episode-list-and-niches` (incl. `perf/scene-poll-and-streams`: paced episode-status re-audit, last list on reopen, slim job streams, skipped no-op poll/config writes, ffmpeg at nice 10 with libx264 threads capped, plain-page Back), `fix/partial-stops` (free-fleet scene prompts/images retry 60 s / 300 s, key-scoped unresolved checks, drifted free prepared images rebuilt), `fix/narration-parts-free-up-space` (narration parts kept until chosen in Free up space) and only the CSS line of `fix/free-up-space-card-width` (`.settings-content` column `minmax(0, 1fr)`; that branch's own version bump was dropped).

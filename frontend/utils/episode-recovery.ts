@@ -1,3 +1,5 @@
+import { isScopedChapterTranscription } from '../../electron/server/contracts/subtitle-gaps'
+
 const dependentTypes = new Set(['audio_merge', 'subtitles_transcribe', 'scene_plan_run', 'contextual_cues', 'continuity_render', 'scene_images_batch'])
 const AFTER_SUBTITLES = new Set<unknown>([null, 'scene_plan_run', 'contextual_cues', 'continuity_render'])
 
@@ -18,7 +20,9 @@ interface RecoveryDisplayJob {
   }
 }
 
-export function isEpisodeRecoveryType(type: string): boolean { return dependentTypes.has(type) }
+export function isEpisodeRecoveryType(type: string, params?: Record<string, unknown>): boolean {
+  return dependentTypes.has(type) && !(type === 'subtitles_transcribe' && isScopedChapterTranscription(params || {}))
+}
 
 /** The old attempt stays failed; this only describes its now-verified subtitle output. */
 export function isVerifiedRecoveredSubtitleJob(job: RecoveryDisplayJob): boolean {
@@ -45,11 +49,11 @@ export function jobDisplayStatus(job: RecoveryDisplayJob): string {
 }
 
 /** Send one episode intent; section identities and retry params remain server-owned. */
-export function groupEpisodeRecoveryRetries<T extends { job_id: string; type: string; project_slug: string; episode_id: string; status?: string }>(jobs: readonly T[]) {
+export function groupEpisodeRecoveryRetries<T extends { job_id: string; type: string; project_slug: string; episode_id: string; status?: string; params?: Record<string, unknown> }>(jobs: readonly T[]) {
   const episodes = new Map<string, { project_slug: string; episode_id: string; source_job_ids: string[] }>()
   const other: T[] = []
   for (const job of jobs) {
-    if (!isEpisodeRecoveryType(job.type)) other.push(job)
+    if (!isEpisodeRecoveryType(job.type, job.params)) other.push(job)
     else {
       const key = `${job.project_slug}:${job.episode_id}`
       const intent = episodes.get(key) || { project_slug: job.project_slug, episode_id: job.episode_id, source_job_ids: [] }

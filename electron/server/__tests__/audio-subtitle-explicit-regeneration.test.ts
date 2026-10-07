@@ -8,7 +8,6 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
 import request from 'supertest'
-import { runFfmpeg } from '../lib/ffmpeg-utils.js'
 import { useTempDataDir } from './_helpers.js'
 import { waitFor } from './_timing.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
@@ -106,9 +105,7 @@ void test('audio and subtitles route replay and Jobs Retry keep one provider req
     assert.equal(service.providerSubmissionCount('tts'), 2, 'ordinary audio recovery kept its current output')
     assert.equal(jq.getJob(jobId(audioOrdinary))?.params.generation_action, undefined, 'ordinary audio recovery stays unmarked')
 
-    // Audio Assembly is deliberately a local prerequisite for subtitle work.
-    // The valid chapter output above is the active source; the small merge and
-    // timeline sidecar model an already-completed local assembly.
+    // The valid chapter output above is active; chapter-local repair must not need a full mix.
     const sourceFile = `${episodeId}_Chapter_01.mp3`
     await fs.writeFile(path.join(paths.episode_dir, 'audio_chapters.json'), JSON.stringify({
       gap_duration_s: 0,
@@ -119,19 +116,15 @@ void test('audio and subtitles route replay and Jobs Retry keep one provider req
         source_files: [sourceFile],
       }],
     }))
-    const mergedFilename = `${episodeId}_merged_audio.mp3`
-    const mergedPath = path.join(paths.merged_audio_dir, mergedFilename)
-    await runFfmpeg([
-      '-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1',
-      '-codec:a', 'libmp3lame', '-q:a', '9', mergedPath,
-    ])
-    const mergedStat = await fs.stat(mergedPath)
-    await fs.writeFile(path.join(paths.merged_audio_dir, `${episodeId}_merged_audio.completion.json`), JSON.stringify({
-      output_filename: mergedFilename,
-      bytes: mergedStat.size,
-      duration_sec: 1,
-      opening: { lead_in_sec: 0, music_lead_in_sec: 0 },
-    }))
+    // Scoped chapter checks intentionally run before any full Audio Assembly.
+    const fullBeforeAssembly = await request(app).post(`/api/projects/${project.slug}/video-editor/subtitles/transcribe/${episodeId}`)
+      .send({ model: 'mock-whisper-v1', per_chapter: true, force: false })
+    assert.equal(fullBeforeAssembly.status, 409)
+    assert.equal(service.providerSubmissionCount('transcription'), 0)
+    const unknownChapter = await request(app).post(`/api/projects/${project.slug}/video-editor/subtitles/transcribe/${episodeId}`)
+      .send({ model: 'mock-whisper-v1', per_chapter: true, sections: ['Chapter_99'] })
+    assert.equal(unknownChapter.status, 409)
+    assert.equal(service.providerSubmissionCount('transcription'), 0)
 
     const subtitleBody = (operationId?: string, force = true) => ({
       model: 'mock-whisper-v1', language: 'en', force, per_chapter: true, sections: ['Chapter_01'],

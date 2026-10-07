@@ -292,6 +292,34 @@ export function isPipelineRepairTranscriptUsable(raw: string): boolean {
   return findSubtitleCueGaps(raw)?.length === 0
 }
 
+/** Verify chapter-local cues before an episode timeline exists; this never proves a stitch. */
+export async function inspectChapterSubtitleCompletion(
+  subtitlesDir: string,
+  episodeCode: string,
+  sections: string[],
+): Promise<SubtitleCompletion> {
+  const expected = [...new Set(sections)]
+  const completed: string[] = []
+  const missing: string[] = []
+  const coverageGaps: NonNullable<SubtitleCompletion['coverage_gaps']> = []
+  for (const slug of expected) {
+    if (!slug || path.basename(slug) !== slug) throw new Error('Invalid chapter subtitle scope.')
+    const raw = await fs.readFile(path.join(subtitlesDir, `${episodeCode.toUpperCase()}_${slug}.srt`), 'utf8').catch(() => '')
+    const gaps = findSubtitleCueGaps(raw)
+    if (gaps?.length === 0) completed.push(slug)
+    else {
+      missing.push(slug)
+      if (gaps) coverageGaps.push({ slug, gaps })
+    }
+  }
+  return {
+    complete: expected.length > 0 && missing.length === 0,
+    mode: completed.length ? 'per-section' : 'none',
+    expected_sections: expected, completed_sections: completed, missing_sections: missing,
+    coverage_gaps: coverageGaps,
+  }
+}
+
 /**
  * Pipeline repair is intentionally narrower than ordinary subtitle presence:
  * it names only source sections with no usable cues or an internal pacing gap.

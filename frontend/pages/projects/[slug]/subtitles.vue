@@ -65,7 +65,7 @@
           </div>
           <p v-else-if="!status?.has_chapter_audio && (status?.chapter_audio_present || 0) > 0" class="validation-msg text-sm mt-2">
             ⏳ {{ status?.chapter_audio_present }} of {{ status?.chapter_audio_expected }} chapters of {{ episodeId }} are narrated so far.
-            Subtitles start once every chapter has narration and Audio Assembly has run —
+            Ready chapters can be checked individually below. Full-episode timing waits for complete narration and Audio Assembly —
             follow the rest in the <NuxtLink :to="`/projects/${slug}/audio`" class="inline-link">Audio Generator</NuxtLink>.
           </p>
           <p v-else-if="!status?.has_chapter_audio" class="validation-msg text-sm mt-2">
@@ -76,12 +76,12 @@
           <p v-else-if="!status?.audio_assembly_ready" class="validation-msg text-sm mt-2">
             ⚠ Audio chapters are ready, but Audio Assembly is not complete.
             Open <NuxtLink :to="`/projects/${slug}/audio-merge`" class="inline-link">Audio Assembly</NuxtLink>
-            and generate the merged timeline before transcription.
+            for the full episode timeline, or select ready chapters below to check their narration first.
             <span v-if="status?.audio_assembly_issues?.length">
               {{ status.audio_assembly_issues.join(' ') }}
             </span>
           </p>
-          <div v-else class="mt-2 text-sm">
+          <div v-if="!statusError && (status?.chapter_audio_present || 0) > 0" class="mt-2 text-sm">
             <div class="sub-coverage">
               <span class="sub-coverage-bar" aria-hidden="true">
                 <span class="sub-coverage-fill" :style="{ width: subtitleFreshnessUnavailable ? '0%' : coveragePct + '%' }" />
@@ -147,8 +147,8 @@
                   <button
                     type="button"
                     :class="['btn', 'btn-sm', gapSections.has(section) ? 'btn-secondary' : 'btn-primary']"
-                    :disabled="!canTranscribe || transcribing"
-                    :title="canTranscribe ? `Makes new subtitles for ${section.replaceAll('_', ' ')} only, from the audio as it is now, then stitch again.` : transcribeDisabledReason"
+                    :disabled="!canTranscribeChapter(section) || transcribing"
+                    :title="canTranscribeChapter(section) ? `Checks ${section.replaceAll('_', ' ')} directly. Episode timing is refreshed after Audio Assembly.` : transcribeDisabledReason"
                     @click="retranscribeChapter(section)"
                   >{{ subtitleActionLabel(section, `Re-transcribe ${section.replaceAll('_', ' ')}`) }}</button>
                   <button type="button" class="btn btn-sm btn-secondary" @click="reviewChapterAudio(section, true)">Listen to {{ section.replaceAll('_', ' ') }}</button>
@@ -230,9 +230,9 @@
                   <button
                     :class="['btn', 'btn-xs', chapterHasCurrentSrt(s.slug) ? 'btn-secondary' : 'btn-primary']"
                     type="button"
-                    :disabled="!canTranscribe || transcribing"
+                    :disabled="!canTranscribeChapter(s.slug) || transcribing"
                     :aria-label="`${chapterIsStale(s.slug) ? 'Update' : chapterHasSrt(s.slug) ? 'Regenerate' : 'Generate'} ${s.label} subtitles`"
-                    :title="canTranscribe ? `Makes new subtitles for ${s.label} only${isFreeToRun(genstudioSelectedModel) ? '' : ' (a new request at the model\'s current price)'}.` : transcribeDisabledReason"
+                    :title="canTranscribeChapter(s.slug) ? `Makes new subtitles for ${s.label} only${isFreeToRun(genstudioSelectedModel) ? '' : ' (a new request at the model\'s current price)'}.` : transcribeDisabledReason"
                     @click="retranscribeChapter(s.slug)"
                   >{{ subtitleActionLabel(s.slug, chapterIsStale(s.slug) ? 'Update Subtitles' : chapterHasSrt(s.slug) ? 'Regenerate Subtitles' : 'Generate Subtitles') }}</button>
                 </div>
@@ -569,7 +569,7 @@ interface SubtitleStatus {
   }
   subtitles_dir: string
 }
-interface SectionRow { label: string; slug: string; quality?: AudioQualityEvidence }
+interface SectionRow { label: string; slug: string; audioReady?: boolean; quality?: AudioQualityEvidence }
 
 let episodeSequence = 0
 const route = useRoute()
@@ -848,21 +848,27 @@ const transcribeLabel = computed(() => selectedSubtitleIds.value.length
   ? `Generate / regenerate selected (${selectedSubtitleIds.value.length})`
   : coverage.value.done && !force.value ? 'Transcribe missing or outdated chapters' : 'Transcribe chapters')
 
-const canTranscribe = computed(() => {
-  if (!episodeId.value || !status.value?.has_chapter_audio || !status.value?.audio_assembly_ready) return false
+function canTranscribeScope(scope: string[]): boolean {
+  if (!episodeId.value) return false
+  const requested = scope.map(slug => sections.value.find(section => section.slug === slug))
+  if (requested.some(section => !section || section.audioReady === false)) return false
+  if (!status.value?.has_chapter_audio && (!scope.length || !requested.every(section => section?.audioReady === true))) return false
+  if (!scope.length && !status.value?.audio_assembly_ready) return false
   if (status.value?.freshness_unavailable) return false
   if (subtitleSelectionUnavailable.value) return false
   if (transcribing.value || transcribeJobActive.value) return false
   if (subtitleMethod.value === 'script') return true
   return genstudioModelReady.value && isTranscriptionLanguageUsable(language.value, genstudioSelectedModel.value)
-})
+}
+const canTranscribe = computed(() => canTranscribeScope(selectedSubtitleIds.value))
+function canTranscribeChapter(slug: string): boolean { return canTranscribeScope([slug]) }
 const transcribeDisabledReason = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
   if (!status.value?.has_chapter_audio && (status.value?.chapter_audio_present || 0) > 0) {
     return `${status.value?.chapter_audio_present} of ${status.value?.chapter_audio_expected} chapters narrated — finish the narration first`
   }
   if (!status.value?.has_chapter_audio) return 'No chapter audio — generate audio first'
-  if (!status.value?.audio_assembly_ready) return 'Run Audio Assembly before transcription'
+  if (!selectedSubtitleIds.value.length && !status.value?.audio_assembly_ready) return 'Select a chapter to check its audio now, or run Audio Assembly for the full episode'
   if (status.value?.freshness_unavailable) return 'Subtitle source freshness is unavailable. Refresh status before transcribing.'
   if (subtitleSelectionUnavailable.value) return 'Selected chapters could not be verified. Refresh status or clear the selection.'
   if (subtitleMethod.value === 'script') return ''
@@ -893,7 +899,9 @@ async function loadStatus(): Promise<void> {
     ])
     if (myToken !== loadToken) return   // a newer load (episode switch) superseded this one
     status.value = st
-    sections.value = (secs.sections || []).map((s: any) => ({ label: s.label, slug: s.slug, ...(s.quality ? { quality: s.quality } : {}) }))
+    sections.value = (secs.sections || []).map((s: any) => ({ label: s.label, slug: s.slug,
+      ...(Number(s.total_chunks) > 0 ? { audioReady: s.present_chunks === s.total_chunks } : {}),
+      ...(s.quality ? { quality: s.quality } : {}) }))
     loaded = true
     void loadStitchStatus()
   } catch (e: any) {
@@ -1077,7 +1085,7 @@ async function transcribe(): Promise<void> {
  * chapter so fixing one bad chapter does not re-charge the other twelve.
  */
 async function retranscribeChapter(sectionSlug: string): Promise<void> {
-  if (!canTranscribe.value || transcribing.value) return
+  if (!canTranscribeChapter(sectionSlug) || transcribing.value) return
   const episode = episodeSequence
   transcribing.value = true
   const payload = subtitleRequestPayload(sectionSlug)

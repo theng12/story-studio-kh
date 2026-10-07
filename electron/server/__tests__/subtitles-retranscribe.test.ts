@@ -51,7 +51,12 @@ async function writeValidMergedAudio(mergedDir: string, code: string, durationSe
   }))
 }
 
-async function createScopedSubtitleFixture(t: TestContext) {
+async function writePlayableChapterAudio(file: string, frequency = 440): Promise<void> {
+  await runFfmpeg(['-y', '-f', 'lavfi', '-i', `sine=frequency=${frequency}:duration=1`,
+    '-codec:a', 'libmp3lame', '-q:a', '9', file])
+}
+
+async function createScopedSubtitleFixture(t: TestContext, assembled = true) {
   const isolated = await useTempDataDir()
   const mock = await startMockGenStudioService()
   t.after(async () => { await mock.close(); await isolated.cleanup() })
@@ -79,12 +84,12 @@ async function createScopedSubtitleFixture(t: TestContext) {
 
   await Promise.all([paths.script_dir, paths.audio_dir, paths.merged_audio_dir, paths.subtitles_dir].map(dir => fs.mkdir(dir, { recursive: true })))
   await fs.writeFile(paths.narration_docx, sections.map((section, index) => `## Chapter ${String(index + 1).padStart(2, '0')}: Fixture\n\nNarration for ${section}.`).join('\n\n'))
-  await Promise.all(sections.map(section => fs.writeFile(path.join(paths.audio_dir, `${code}_${section}.mp3`), `audio-${section}`)))
+  for (const section of sections) await writePlayableChapterAudio(path.join(paths.audio_dir, `${code}_${section}.mp3`))
   await fs.writeFile(path.join(paths.episode_dir, 'audio_chapters.json'), JSON.stringify({
     gap_duration_s: 1,
     sections: sections.map(slug => ({ slug, duration_s: 1, source_file: `${code}_${slug}.mp3` })),
   }))
-  await writeValidMergedAudio(paths.merged_audio_dir, code)
+  if (assembled) await writeValidMergedAudio(paths.merged_audio_dir, code)
 
   return {
     mock,
@@ -103,6 +108,81 @@ async function createScopedSubtitleFixture(t: TestContext) {
     } as unknown as Job),
   }
 }
+
+test('a repaired chapter is transcribed before Audio Assembly, without stitching stale episode timing', async t => {
+  const fixture = await createScopedSubtitleFixture(t, false)
+  fixture.mock.queueScenario('transcription', { states: ['accepted', 'succeeded'] })
+  const job = fixture.makeJob('repaired-chapter-before-assembly')
+
+  await fixture.generateSubtitlesTranscribe(job)
+
+  assert.equal(job.result?.scope_complete, true)
+  assert.equal(job.result?.complete, true)
+  assert.equal(job.result?.episode_complete, false)
+  assert.equal(job.result?.stitch_complete, false)
+  assert.match(await fs.readFile(path.join(fixture.paths.subtitles_dir, `${fixture.code}_Chapter_01.srt`), 'utf8'), /Hello from mock the Gateway/)
+  await assert.rejects(fs.access(path.join(fixture.paths.subtitles_dir, `${fixture.code}_stitched.srt`)), /ENOENT/)
+  assert.equal(fixture.mock.providerSubmissionCount('transcription'), 1, 'only the requested replacement is sent')
+})
+
+test('several repaired chapters can be checked without an assembly while full-episode transcription remains blocked', async t => {
+  const fixture = await createScopedSubtitleFixture(t, false)
+  fixture.mock.queueScenario('transcription', { states: ['accepted', 'succeeded'] })
+  fixture.mock.queueScenario('transcription', { states: ['accepted', 'succeeded'] })
+  const job = fixture.makeJob('two-repaired-chapters-before-assembly', { sections: ['Chapter_01', 'Chapter_02'] })
+  await fixture.generateSubtitlesTranscribe(job)
+  assert.equal(job.result?.scope_complete, true)
+  assert.equal(job.result?.episode_complete, false)
+  assert.deepEqual(job.result?.scoped_sections, ['Chapter_01', 'Chapter_02'])
+
+  await assert.rejects(fixture.generateSubtitlesTranscribe(fixture.makeJob('whole-episode-still-needs-assembly', { sections: undefined })), /Audio Assembly/)
+  assert.equal(fixture.mock.providerSubmissionCount('transcription'), 2, 'a blocked episode must submit no provider work')
+})
+
+test('chapter checks do not need an old assembly sidecar and never submit missing or unknown selected inputs', async t => {
+  const fixture = await createScopedSubtitleFixture(t, false)
+  await fs.rename(path.join(fixture.paths.episode_dir, 'audio_chapters.json'), path.join(fixture.paths.episode_dir, 'audio_chapters.before-check.json'))
+  fixture.mock.queueScenario('transcription', { states: ['accepted', 'succeeded'] })
+  const job = fixture.makeJob('chapter-check-without-sidecar')
+  await fixture.generateSubtitlesTranscribe(job)
+  assert.equal(job.result?.scope_complete, true)
+  assert.equal(job.result?.episode_complete, false)
+  const before = fixture.mock.providerSubmissionCount('transcription')
+  await writePlayableChapterAudio(path.join(fixture.paths.audio_dir, `${fixture.code}_Chapter_99.mp3`))
+  await assert.rejects(fixture.generateSubtitlesTranscribe(fixture.makeJob('unknown-chapter-check', { sections: ['Chapter_99'] })), /no matching audio/)
+  await fs.rename(path.join(fixture.paths.audio_dir, `${fixture.code}_Chapter_01.mp3`), path.join(fixture.paths.audio_dir, 'removed-chapter.mp3'))
+  await writePlayableChapterAudio(path.join(fixture.paths.audio_dir, `${fixture.code}_Chapter_01_part1.mp3`))
+  await assert.rejects(fixture.generateSubtitlesTranscribe(fixture.makeJob('missing-chapter-check')), /incomplete/)
+  assert.equal(fixture.mock.providerSubmissionCount('transcription'), before)
+})
+
+test('a chapter check rejects malformed audio before provider submission', async t => {
+  const fixture = await createScopedSubtitleFixture(t, false)
+  await fs.writeFile(path.join(fixture.paths.audio_dir, `${fixture.code}_Chapter_01.mp3`), 'malformed audio')
+  await assert.rejects(fixture.generateSubtitlesTranscribe(fixture.makeJob('malformed-chapter-check')), /could not be verified as playable/)
+  assert.equal(fixture.mock.providerSubmissionCount('transcription'), 0)
+})
+
+test('an existing assembly does not let a malformed repaired chapter reach the provider', async t => {
+  const fixture = await createScopedSubtitleFixture(t)
+  await fs.writeFile(path.join(fixture.paths.audio_dir, `${fixture.code}_Chapter_01.mp3`), 'malformed replacement')
+  await assert.rejects(fixture.generateSubtitlesTranscribe(fixture.makeJob('assembled-malformed-chapter-check')), /could not be verified as playable/)
+  assert.equal(fixture.mock.providerSubmissionCount('transcription'), 0)
+})
+
+test('a playable split part cannot hide another required part before assembly', async t => {
+  const fixture = await createScopedSubtitleFixture(t, false)
+  await fs.rename(path.join(fixture.paths.episode_dir, 'audio_chapters.json'), path.join(fixture.paths.episode_dir, 'previous-selection.json'))
+  await fs.writeFile(fixture.paths.narration_docx, '## Chapter 01: Fixture\n\n' + 'The chapter continues beyond its first audio part. '.repeat(4))
+  const { writeAudioTtsModelRecord } = await import('../services/audio-tts-model-record.js')
+  await writeAudioTtsModelRecord(fixture.paths.episode_dir, { schema_version: 1, episode_code: fixture.code,
+    model_id: 'mock-tts-v1', published_maximum_input_characters: 50, request_budget: 50, safety_margin: 0,
+    recorded_at: new Date().toISOString() })
+  await fs.rename(path.join(fixture.paths.audio_dir, `${fixture.code}_Chapter_01.mp3`), path.join(fixture.paths.audio_dir, 'old-chapter.mp3'))
+  await writePlayableChapterAudio(path.join(fixture.paths.audio_dir, `${fixture.code}_Chapter_01_part1.mp3`))
+  await assert.rejects(fixture.generateSubtitlesTranscribe(fixture.makeJob('incomplete-split-check')), /Chapter_01_part2\.mp3/)
+  assert.equal(fixture.mock.providerSubmissionCount('transcription'), 0)
+})
 
 test('an explicitly selected subtitle succeeds while an unselected chapter is missing, without auto-stitching', async t => {
   const fixture = await createScopedSubtitleFixture(t)
@@ -290,7 +370,7 @@ test('a stamped fresh retry reuses its accepted Chapter_12 task instead of skipp
   await Promise.all(sections.map(section => fs.writeFile(path.join(paths.audio_dir, `${code}_${section}.mp3`), `audio-${section}`)))
   const selectedChapter = 'Chapter_12'
   const selectedAudio = `${code}_${selectedChapter}_v2.mp3`
-  await fs.writeFile(path.join(paths.audio_dir, selectedAudio), 'selected chapter twelve audio')
+  await writePlayableChapterAudio(path.join(paths.audio_dir, selectedAudio))
   await fs.writeFile(path.join(paths.episode_dir, 'audio_chapters.json'), JSON.stringify({ gap_duration_s: 1, sections: sections.map(slug => ({
     slug,
     duration_s: 1,
@@ -372,7 +452,7 @@ test('a changed active chapter source is re-transcribed instead of reusing its o
   const srtPath = path.join(paths.subtitles_dir, srtName)
   await Promise.all([paths.script_dir, paths.audio_dir, paths.merged_audio_dir, paths.subtitles_dir].map(dir => fs.mkdir(dir, { recursive: true })))
   await fs.writeFile(paths.narration_docx, '## Chapter 01: Fixture\n\nA short line for the mock audio request.\n')
-  await fs.writeFile(source, 'old chapter bytes')
+  await writePlayableChapterAudio(source)
   await fs.writeFile(path.join(paths.episode_dir, 'audio_chapters.json'), JSON.stringify({
     gap_duration_s: 1,
     sections: [{ slug: section, duration_s: 1, source_file: sourceName }],
@@ -381,7 +461,7 @@ test('a changed active chapter source is re-transcribed instead of reusing its o
   await fs.writeFile(srtPath, '1\n00:00:00,000 --> 00:00:01,000\nOld captions must not be reused.\n')
   await recordSubtitleSourceEvidence(paths.subtitles_dir, srtName, (await hashSubtitleAudioSources([source]))!, 'mock-whisper-v1')
 
-  await fs.writeFile(source, 'new chapter bytes')
+  await writePlayableChapterAudio(source, 880)
   // Audio Assembly is a strict prerequisite. Refresh its canonical output
   // after changing the selected chapter source so this regression reaches the
   // subtitle source-hash decision instead of correctly stopping at a stale
