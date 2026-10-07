@@ -34,11 +34,13 @@ test('soft progress checkpoints coalesce into one write; a normal checkpoint is 
 
   jq._resetJobPersistenceCountersForTesting()
   const started = Date.now()
-  await Promise.all(Array.from({ length: 6 }, (_, i) => {
+  for (let i = 0; i < 6; i++) {
     job.progress = i
     job.output_lines.push(`clip ${i}`)
-    return jq.checkpointJobProgress(job)
-  }))
+    await jq.checkpointJobProgress(job)
+  }
+  assert.ok(Date.now() - started < jq.SOFT_CHECKPOINT_SPACING_MS / 2, 'a render lane is not held up by its progress checkpoints')
+  await jq._waitForJobPersistenceForTesting()
   assert.equal(jq._getJobPersistenceCountersForTesting().atomic_writes, 1, 'six progress checkpoints, one rewrite')
   assert.ok(Date.now() - started >= jq.SOFT_CHECKPOINT_SPACING_MS - 100, 'the soft write waited for the spacing')
   const saved = JSON.parse(await fs.readFile(file, 'utf8')).jobs.find((row: Job) => row.job_id === job.job_id)
@@ -46,12 +48,13 @@ test('soft progress checkpoints coalesce into one write; a normal checkpoint is 
 
   // Right after that write, a normal (e.g. paid-precondition) checkpoint is not held back,
   // and it also flushes any soft checkpoint waiting behind the spacing.
-  const soft = jq.checkpointJobProgress(job)
+  job.output_lines.push('queued behind the spacing')
+  await jq.checkpointJobProgress(job)
   const urgentStart = Date.now()
   job.params.receipt = 'pending:key'
   await jq.checkpointJobState(job)
   assert.ok(Date.now() - urgentStart < jq.SOFT_CHECKPOINT_SPACING_MS / 2, 'a normal checkpoint is written immediately')
-  await soft
   const durable = JSON.parse(await fs.readFile(file, 'utf8')).jobs.find((row: Job) => row.job_id === job.job_id)
   assert.equal(durable.params.receipt, 'pending:key')
+  assert.ok(durable.output_lines.includes('queued behind the spacing'), 'and it flushed the progress checkpoint queued before it')
 })

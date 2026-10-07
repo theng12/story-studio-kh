@@ -2515,12 +2515,14 @@ export async function checkpointJobState(job: Job): Promise<void> {
 
 /**
  * A progress checkpoint that is only a recovery hint (a finished clip or scene, a queue-state
- * change). It may share a jobs.json rewrite with others up to SOFT_CHECKPOINT_SPACING_MS later,
- * but the caller still gets it durable before this resolves. NEVER use it for anything that must
- * be on disk before paid work is sent; those use checkpointJobState, which is written at once.
+ * change). It is applied in order at once but its jobs.json rewrite may be shared with others up
+ * to SOFT_CHECKPOINT_SPACING_MS later, and the caller does not wait for it (a render lane must not
+ * stall a second per clip). A failed write is logged; the next write carries it. NEVER use it for
+ * anything that must be on disk before paid work is sent: checkpointJobState is written at once
+ * and also flushes every progress checkpoint queued before it.
  */
 export async function checkpointJobProgress(job: Job): Promise<void> {
-  await persistJob(job, true)
+  void persistJob(job, true).catch(error => console.warn('[job-queue] progress checkpoint not saved yet:', error?.message || error))
   emitUpdate(job)
   if (job.type === 'continuity_render') noteAdaptiveImageTailEvent()
 }
