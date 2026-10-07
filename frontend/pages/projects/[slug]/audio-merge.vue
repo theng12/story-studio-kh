@@ -1218,14 +1218,19 @@ const existingMergedAudio = computed(() => {
 // to the centralised version. See `formatDurationPrecise` for output format.
 const formatDuration = formatDurationPrecise
 
-async function collapseToPortablePath(input: string): Promise<string> {
+/**
+ * `adopt` — for a file the owner just PICKED: one outside this channel is
+ * copied into the channel's `assets/` folder first, so the channel folder
+ * carries everything it uses (self-contained channels, 2026-10-07).
+ */
+async function collapseToPortablePath(input: string, adopt = false): Promise<string> {
   const raw = String(input || '').trim()
   if (!raw) return ''
   try {
     const r = await post<{ output: string }>(`/system/resolve-asset-path`, {
       path: raw,
       output_root: episodesRoot.value,
-      mode: 'portable',
+      mode: adopt ? 'adopt' : 'portable',
     })
     return String(r?.output || raw)
   } catch {
@@ -1291,7 +1296,7 @@ function togglePreview(filePath: string) {
 
 function addMusicFile() {
   void (async () => {
-    const next = await collapseToPortablePath(newMusicPath.value)
+    const next = await collapseToPortablePath(newMusicPath.value, true)
     if (next && !music.files.includes(next)) {
       music.files.push(next)
       newMusicPath.value = ''
@@ -1318,7 +1323,7 @@ async function browseMusicFile() {
       buttonLabel: 'Add Music',
       filters: AUDIO_FILTERS,
     })
-    const next = r.path ? await collapseToPortablePath(r.path) : ''
+    const next = r.path ? await collapseToPortablePath(r.path, true) : ''
     if (next && !music.files.includes(next)) music.files.push(next)
   } catch (e: any) {
     showError(`Music file picker failed — ${e.data?.detail || e.message || 'unknown error'}`)
@@ -1332,7 +1337,7 @@ async function browseNoiseFile() {
       buttonLabel: 'Use This File',
       filters: AUDIO_FILTERS,
     })
-    if (r.path) backgroundNoise.custom_file = await collapseToPortablePath(r.path)
+    if (r.path) backgroundNoise.custom_file = await collapseToPortablePath(r.path, true)
   } catch (e: any) {
     showError(`Ambience file picker failed — ${e.data?.detail || e.message || 'unknown error'}`)
   }
@@ -1345,7 +1350,7 @@ async function browseIntroFile() {
       buttonLabel: 'Use This File',
       filters: AUDIO_FILTERS,
     })
-    if (r.path) intro.file = await collapseToPortablePath(r.path)
+    if (r.path) intro.file = await collapseToPortablePath(r.path, true)
   } catch (e: any) {
     showError(`Intro file picker failed — ${e.data?.detail || e.message || 'unknown error'}`)
   }
@@ -1471,7 +1476,7 @@ async function repickInvalidPath(row: { key: string; index: number | null; value
           accept: ['audio/*'],
         })
         const newPath = r?.files?.[0]?.path
-        if (newPath) ambientTracks[i].source_path = await collapseToPortablePath(newPath)
+        if (newPath) ambientTracks[i].source_path = await collapseToPortablePath(newPath, true)
       } catch (e: any) {
         showError(`Pick failed — ${e?.data?.detail || e?.message || 'unknown error'}`)
       }

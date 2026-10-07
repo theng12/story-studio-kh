@@ -17,7 +17,15 @@
  * dynamic importers failing at runtime rather than at build. What the functions
  * RESOLVE TO changed; what they are called did not.
  *
- * Design:
+ * 2026-10-07 — self-contained channels. The owner runs two Story Macs, each
+ * with its own channels, and moves a channel by copying its folder. So unless
+ * he has chosen a separate finished-videos folder (Settings → Files), or the
+ * channel keeps heavy media on its own drive (`media_root`), a channel's finals
+ * now live INSIDE the channel: `<channel>/Exports/Season NNN/{code} - {title}/`.
+ * Finals rendered to the old `<Library>/Exports/<slug>/…` are still found there
+ * until "Make channel self-contained" moves them (see channel-self-contained.ts).
+ *
+ * Design (before 2026-10-07):
  *   - The root is always `<Library>/Exports`. There is no setting, so there is
  *     no unset state, no per-machine drift, and no "reachable?" question beyond
  *     whether the Library itself is there.
@@ -82,6 +90,9 @@ export async function resolveExternalFinalVideoDir(
     ? await projectMetaOnce(slug, cache).catch(() => null)
     : await pm.getProject(slug)
   if (!meta) return null
+  const base = cache
+    ? await (cache.channelExportsBase ??= channelBaseFor(slug, meta, root))
+    : await channelBaseFor(slug, meta, root)
 
   const seasonSize = (meta as any).season_size || 20
   const seasonPrefix = (meta as any).season_prefix || 'Season'
@@ -99,20 +110,93 @@ export async function resolveExternalFinalVideoDir(
     .replace('{code}', code)
     .replace('{title}', title || code)
 
-  const current = path.join(root, slug, episodeRel)
+  const current = path.join(base, episodeRel)
   // v1.4.249 — the finished-videos folder can be changed. A video rendered
   // before the change is still where it was, so when this episode has nothing
   // in the current folder, look in the folders it replaced. Writers pass
   // `forWrite` and always get the current folder.
   if (options.forWrite || existsSync(current)) return current
-  const previous = cache
-    ? await (cache.previousExportRoots ??= previousExportRootsOrEmpty())
-    : await previousExportRootsOrEmpty()
-  for (const earlier of previous) {
-    const candidate = path.join(earlier, slug, episodeRel)
+  const others = cache
+    ? await (cache.otherExportBases ??= previousExportRootsOrEmpty().then(p => otherChannelBases(slug, base, p)))
+    : await otherChannelBases(slug, base, await previousExportRootsOrEmpty())
+  for (const earlierBase of others) {
+    const candidate = path.join(earlierBase, episodeRel)
     if (existsSync(candidate)) return candidate
   }
   return current
+}
+
+/**
+ * The folder that holds ONE channel's `Season NNN/…` finals tree.
+ *
+ *   - a finished-videos folder chosen in Settings → `<chosen>/<slug>` (as before)
+ *   - a channel with `media_root` (heavy media on its own drive) → `<Library>/Exports/<slug>`
+ *     (as before: that owner already decided where big files live)
+ *   - otherwise → `<channel>/Exports`, so the channel folder carries its finals.
+ *
+ * '' when no Library has been chosen (callers then use the project tree).
+ */
+export async function getChannelExportsBase(slug: string): Promise<string> {
+  const root = await getExternalFinalVideoRoot()
+  if (!root) return ''
+  const meta = await pm.getProject(slug)
+  return meta ? channelBaseFor(slug, meta, root) : path.join(root, slug)
+}
+
+/** True when this channel's finals default to `<channel>/Exports`. */
+export async function usesChannelExports(slug: string, meta?: unknown): Promise<boolean> {
+  const { getCustomExportsRoot } = await import('./library.js')
+  if (await getCustomExportsRoot()) return false
+  const m: any = meta ?? await pm.getProject(slug)
+  return !(m?.media_root && String(m.media_root).trim()) && !!pm.getProjectDir(slug)
+}
+
+async function channelBaseFor(slug: string, meta: unknown, root: string): Promise<string> {
+  if (await usesChannelExports(slug, meta)) return path.join(pm.getProjectDir(slug)!, CHANNEL_EXPORTS_DIR_NAME)
+  return path.join(root, slug)
+}
+
+/** `<channel>/Exports` — the same name as the Library-level folder it replaces. */
+export const CHANNEL_EXPORTS_DIR_NAME = 'Exports'
+
+/**
+ * Every other place this channel's finals may still sit, most recent first:
+ * folders chosen earlier, the Library-wide `Exports/<slug>` that held every
+ * channel's finals until 2026-10-07, and the channel's own `Exports` (when a
+ * separate folder is now chosen). Never includes `current`.
+ */
+async function otherChannelBases(slug: string, current: string, previousRoots: string[]): Promise<string[]> {
+  const { getLibraryRoot, EXPORTS_DIR_NAME } = await import('./library.js')
+  const library = await getLibraryRoot().catch(() => '')
+  const projectDir = pm.getProjectDir(slug)
+  const bases = [
+    ...previousRoots.map(r => path.join(r, slug)),
+    ...(library ? [path.join(library, EXPORTS_DIR_NAME, slug)] : []),
+    ...(projectDir ? [path.join(projectDir, CHANNEL_EXPORTS_DIR_NAME)] : []),
+  ]
+  const seen = new Set([path.resolve(current)])
+  return bases.filter(b => !seen.has(path.resolve(b)) && seen.add(path.resolve(b)))
+}
+
+/**
+ * The storage root a final under `dir` belongs to, for trash placement and the
+ * cleanup ownership check: the channel folder for `<channel>/Exports/…` (so
+ * trash lands in the channel's own `_trash`), else the finished-videos root the
+ * folder sits in (`<root>/_trash/<slug>`, as before). '' when it is in neither.
+ */
+export async function exportsAnchorFor(slug: string, dir: string): Promise<string> {
+  const abs = path.resolve(dir)
+  const inside = (base: string) => abs.startsWith(path.resolve(base) + path.sep)
+  const projectDir = pm.getProjectDir(slug)
+  if (projectDir && inside(path.join(projectDir, CHANNEL_EXPORTS_DIR_NAME))) return projectDir
+  const { getLibraryRoot, EXPORTS_DIR_NAME } = await import('./library.js')
+  const library = await getLibraryRoot().catch(() => '')
+  const roots = [
+    await getExternalFinalVideoRoot().catch(() => ''),
+    ...await previousExportRootsOrEmpty(),
+    library ? path.join(library, EXPORTS_DIR_NAME) : '',
+  ].filter(Boolean)
+  return roots.find(r => inside(path.join(r, slug))) || ''
 }
 
 async function previousExportRootsOrEmpty(): Promise<string[]> {

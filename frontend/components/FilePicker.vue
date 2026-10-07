@@ -54,7 +54,8 @@ const { post } = useApi()
 const { error: showError } = useToast()
 const picking = ref(false)
 
-async function collapseToPortablePath(input: string): Promise<string> {
+/** `adopt`: a browsed file outside the channel is copied into its `assets/` folder first (2026-10-07). */
+async function collapseToPortablePath(input: string, adopt = false): Promise<string> {
   const raw = String(input || '').trim()
   if (!raw) return ''
   if (typeof props.episodesRoot === 'undefined') return raw
@@ -62,7 +63,7 @@ async function collapseToPortablePath(input: string): Promise<string> {
     const result = await post<{ output: string }>('/system/resolve-asset-path', {
       path: raw,
       output_root: props.episodesRoot || undefined,
-      mode: 'portable',
+      mode: adopt ? 'adopt' : 'portable',
     })
     return String(result?.output || raw)
   } catch {
@@ -84,7 +85,7 @@ async function browse() {
       buttonLabel: props.buttonLabel || 'Select',
       filters: props.filters || [{ name: 'All Files', extensions: ['*'] }],
     })
-    if (result.path) emit('update:modelValue', await collapseToPortablePath(result.path))
+    if (result.path) emit('update:modelValue', await collapseToPortablePath(result.path, true))
   } catch (e: any) {
     // Previously silent — that turned "backend returned 500" into "Browse
     // button looks broken" for users who had no way to know their request

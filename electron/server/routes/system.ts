@@ -431,12 +431,24 @@ router.post('/system/queue/resume', async (_req, res) => {
  *   mode=portable           — collapse absolute → portable form
  * Returns `{ input, output, is_portable }`.
  */
-router.post('/system/resolve-asset-path', (req, res) => {
+router.post('/system/resolve-asset-path', async (req, res) => {
   const input = typeof req.body?.path === 'string' ? req.body.path : ''
   const outputRoot = typeof req.body?.output_root === 'string' ? req.body.output_root : undefined
-  const mode = req.body?.mode === 'portable' ? 'portable' : 'resolve'
+  const mode = req.body?.mode === 'portable' ? 'portable' : req.body?.mode === 'adopt' ? 'adopt' : 'resolve'
   if (!input) return res.status(400).json({ detail: 'path required' })
   try {
+    // 2026-10-07 — a file the owner PICKS becomes part of the channel: copied
+    // into `<channel>/assets/` when it lives elsewhere, then stored as
+    // `${CHANNEL}/…`, so moving the channel folder moves it too. Anything that
+    // is not a readable media file keeps the plain portable behaviour.
+    if (mode === 'adopt' && outputRoot && !isPortablePath(input)) {
+      const { adoptIntoChannel, channelDirForEpisodesRoot } = await import('../services/channel-self-contained.js')
+      const channelDir = channelDirForEpisodesRoot(outputRoot)
+      const adopted = channelDir ? await adoptIntoChannel(channelDir, input) : null
+      if (adopted) {
+        return res.json({ input, output: adopted.stored, is_portable: true, copied_to: adopted.copied?.target || null })
+      }
+    }
     const output = mode === 'portable' ? toPortablePath(input, outputRoot) : resolveAssetPath(input, outputRoot)
     res.json({ input, output, is_portable: isPortablePath(output) })
   } catch (e: any) {

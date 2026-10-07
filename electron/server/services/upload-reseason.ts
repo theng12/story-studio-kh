@@ -43,7 +43,7 @@ import { resolveEpisodePaths, episodeNumber } from './utils.js'
 import { writeJsonAtomic } from '../lib/atomic-store.js'
 import {
   resolveExternalFinalVideoDir,
-  getExternalFinalVideoRoot,
+  getChannelExportsBase,
 } from './external-video-store.js'
 
 export const RESEASON_UNDO_FILENAME = '.reseason-undo.json'
@@ -347,7 +347,7 @@ export async function applyReseason(slug: string, newSeasonSize: number): Promis
   // on the external_final_video_root subtree. Only fires when the
   // user has the external root configured AND the per-episode
   // external dir exists.
-  const externalRoot = await getExternalFinalVideoRoot()
+  const externalRoot = await getChannelExportsBase(slug)
   if (externalRoot) {
     for (const m of sorted) {
       try {
@@ -355,7 +355,7 @@ export async function applyReseason(slug: string, newSeasonSize: number): Promis
         // For the new path we need to compute as if season_size were
         // already the new value. Mirror the math here since the
         // external resolver also reads project meta (still has old size).
-        const newExt = computeExternalDirAtSize(externalRoot, slug, meta as any, m.code, m.title, newSeasonSize)
+        const newExt = computeExternalDirAtSize(externalRoot, meta as any, m.code, m.title, newSeasonSize)
         if (!oldExt || !newExt || oldExt === newExt) continue
         if (!existsSync(oldExt)) continue
         await fs.mkdir(path.dirname(newExt), { recursive: true })
@@ -420,8 +420,8 @@ export async function applyReseason(slug: string, newSeasonSize: number): Promis
 }
 
 function computeExternalDirAtSize(
-  externalRoot: string,
-  slug: string,
+  /** This channel's finals folder (`getChannelExportsBase`). */
+  channelBase: string,
   meta: any,
   code: string,
   title: string,
@@ -437,7 +437,7 @@ function computeExternalDirAtSize(
     .replace('{code}', code)
     .replace('{title}', title || code)
     .replace(/\/+$/, '')
-  return path.join(externalRoot, slug, rel)
+  return path.join(channelBase, rel)
 }
 
 // ── Revert ───────────────────────────────────────────────────────────────
@@ -520,7 +520,7 @@ export async function revertReseason(slug: string): Promise<ReseasonRevertResult
   }
 
   // External-root reverse. Recompute paths since we don't store them.
-  const externalRoot = await getExternalFinalVideoRoot()
+  const externalRoot = await getChannelExportsBase(slug)
   if (externalRoot) {
     for (const m of plan.moves) {
       try {
@@ -529,7 +529,7 @@ export async function revertReseason(slug: string): Promise<ReseasonRevertResult
         // size — so the natural call gives us the OLD external path.
         const oldExt = await resolveExternalFinalVideoDir(slug, m.code, m.title)
         // For the post-reseason path, recompute with the new size.
-        const newExt = computeExternalDirAtSize(externalRoot, slug, meta as any, m.code, m.title, plan.new_season_size)
+        const newExt = computeExternalDirAtSize(externalRoot, meta as any, m.code, m.title, plan.new_season_size)
         if (!oldExt || !newExt || oldExt === newExt) continue
         if (!existsSync(newExt)) continue
         await fs.mkdir(path.dirname(oldExt), { recursive: true })
