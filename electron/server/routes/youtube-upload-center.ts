@@ -504,7 +504,7 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
     let jobs: Job[] = []
     let jobsUnreadable = false
     try {
-      jobs = await getJobs(slug)
+      jobs = await getJobs(slug, { type: 'youtube_upload' })
     } catch {
       jobsUnreadable = true
     }
@@ -2132,7 +2132,7 @@ router.post('/projects/:slug/youtube/episodes/:episode_code/forget-upload', asyn
       return
     }
     const title = await acceptedTitleFor(slug, episodeCode)
-    const jobs = await getJobs(slug)
+    const jobs = await getJobs(slug, { type: 'youtube_upload' })
     if (jobs.some(job => job.type === 'youtube_upload' && job.episode_id === episodeCode
       && ['queued', 'running', 'paused'].includes(job.status))) {
       res.status(409).json({ detail: 'This episode has an upload in progress. Finish or stop that work before removing its association.' })
@@ -2502,7 +2502,7 @@ async function previewUploadCenterPlan(
   // upload/publication flows and must never be reassigned by this local save.
   const [schedule, jobs, operations, publishingState] = await Promise.all([
     readItemSchedule(slug),
-    getJobs(slug),
+    getJobs(slug, { type: 'youtube_upload' }),
     listYouTubeOperations(slug),
     readYouTubeProjectPublishingState(slug),
   ])
@@ -2648,7 +2648,7 @@ router.post('/projects/:slug/youtube/plan/apply', async (req, res) => {
       const titles = new Map((await im.getIdeas(req.params.slug, 'accepted'))
         .filter(idea => !!idea.episode_code)
         .map(idea => [idea.episode_code!, idea.title || '']))
-      const jobs = await getJobs(req.params.slug)
+      const jobs = await getJobs(req.params.slug, { type: 'youtube_upload' })
       for (const assignment of preview.assignments) {
         const active = jobs.some(job => job.type === 'youtube_upload'
           && job.episode_id === assignment.episode_code
@@ -2764,7 +2764,7 @@ async function relayoutUploadCenterPlan(
 
   const [schedule, jobs, operations, publishingState] = await Promise.all([
     readItemSchedule(slug),
-    getJobs(slug),
+    getJobs(slug, { type: 'youtube_upload' }),
     listYouTubeOperations(slug),
     readYouTubeProjectPublishingState(slug),
   ])
@@ -2906,7 +2906,7 @@ router.post('/projects/:slug/youtube/plan/relayout/apply', async (req, res) => {
       const titles = new Map((await im.getIdeas(slug, 'accepted'))
         .filter(idea => !!idea.episode_code)
         .map(idea => [idea.episode_code!, idea.title || '']))
-      const jobs = await getJobs(slug)
+      const jobs = await getJobs(slug, { type: 'youtube_upload' })
       for (const assignment of preview.assignments) {
         const active = jobs.some(job => job.type === 'youtube_upload'
           && job.episode_id === assignment.episode_code

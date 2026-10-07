@@ -1883,7 +1883,9 @@ type ProjectPersistenceState = {
   writing: Promise<void> | null
   dirty: boolean
   pendingMutations: number
-  waiters: Array<{ revision: number; resolve: () => void; reject: (error: unknown) => void }>
+  waiters: Array<{ revision: number; resolve: () => void; reject: (error: unknown) => void; soft?: boolean }>
+  lastWriteAt: number
+  wake: (() => void) | null
 }
 type ProjectJobMutation =
   | { kind: 'transform'; jobId: string; transform: (current: Job | null) => Job | null }
@@ -1895,7 +1897,7 @@ function projectPersistenceState(projectSlug: string): ProjectPersistenceState {
   if (!state) {
     state = {
       baseline: null, hydratePromise: null, revision: 0, durableRevision: 0,
-      writing: null, dirty: false, pendingMutations: 0, waiters: [],
+      writing: null, dirty: false, pendingMutations: 0, waiters: [], lastWriteAt: 0, wake: null,
     }
     projectPersistence.set(projectSlug, state)
   }
@@ -1932,6 +1934,17 @@ async function drainProjectPersistence(projectSlug: string, state: ProjectPersis
   let retryAfterFailure = false
   try {
     while (state.dirty) {
+      // S4: soft (progress) checkpoints alone wait until the last write is ≥1 s old, so a render's
+      // per-clip/per-scene checkpoints share one rewrite of jobs.json instead of one each. Any normal
+      // mutation (paid preconditions, status changes) wakes the writer at once.
+      const wait = SOFT_CHECKPOINT_SPACING_MS - (Date.now() - state.lastWriteAt)
+      if (wait > 0 && coalesceSoftCheckpoints && state.waiters.every(waiter => waiter.soft)) {
+        await new Promise<void>(resolve => {
+          const timer = setTimeout(resolve, wait)
+          state.wake = () => { clearTimeout(timer); resolve() }
+        })
+        state.wake = null
+      }
       state.dirty = false
       const revision = state.revision
       failedRevision = revision
@@ -1952,11 +1965,27 @@ async function drainProjectPersistence(projectSlug: string, state: ProjectPersis
         if (jobFileLockProbeForTesting) await jobFileLockProbeForTesting('persist', p)
         await writeJsonAtomic(p, { jobs: snapshot }, { compact: true })
         jobPersistenceCounters.atomic_writes++
+        const dropped: string[] = []
         for (const [jobId, captured] of baselineEntries) {
-          if (!retainedIds.has(jobId) && baseline.get(jobId) === captured) baseline.delete(jobId)
+          if (!retainedIds.has(jobId) && baseline.get(jobId) === captured) {
+            baseline.delete(jobId)
+            dropped.push(jobId)
+          }
         }
+        // S10: history that fell off disk leaves memory too, or a long uptime kept every finished
+        // job ever run (cloned and redacted on each snapshot). Same rules as removeTerminalJob.
+        const forgotten = dropped.filter(jobId => {
+          const live = jobs.get(jobId)
+          if (!live || live.project_slug !== projectSlug || !TERMINAL_JOB_STATUSES.has(live.status)
+            || activeRunJobIds.has(jobId) || (!live.force_abandoned && hasUnsettledProviderEvidence(live))) return false
+          jobs.delete(jobId)
+          cancelled.delete(jobId)
+          return true
+        })
+        if (forgotten.length) emitCleared(projectSlug, forgotten)
       })
       state.durableRevision = revision
+      state.lastWriteAt = Date.now()
       const ready = state.waiters.filter(waiter => waiter.revision <= revision)
       state.waiters = state.waiters.filter(waiter => waiter.revision > revision)
       ready.forEach(waiter => waiter.resolve())
@@ -1994,7 +2023,11 @@ function markSafe<T extends object>(job: T): T {
   return job
 }
 
-function applyProjectMutation(state: ProjectPersistenceState, mutation: ProjectJobMutation): Promise<void> {
+/** Minimum gap between jobs.json rewrites while only soft checkpoints are pending. */
+export const SOFT_CHECKPOINT_SPACING_MS = 1_000
+let coalesceSoftCheckpoints = true
+
+function applyProjectMutation(state: ProjectPersistenceState, mutation: ProjectJobMutation, soft = false): Promise<void> {
   if (mutation.kind === 'delete') state.baseline!.delete(mutation.jobId)
   else {
     const previous = state.baseline!.get(mutation.jobId) || null
@@ -2003,7 +2036,9 @@ function applyProjectMutation(state: ProjectPersistenceState, mutation: ProjectJ
   }
   const revision = ++state.revision
   state.dirty = true
-  return new Promise<void>((resolve, reject) => state.waiters.push({ revision, resolve, reject }))
+  const durable = new Promise<void>((resolve, reject) => state.waiters.push({ revision, resolve, reject, soft }))
+  if (!soft) state.wake?.()
+  return durable
 }
 
 function startProjectPersistence(projectSlug: string, state: ProjectPersistenceState): void {
@@ -2013,7 +2048,7 @@ function startProjectPersistence(projectSlug: string, state: ProjectPersistenceS
   }
 }
 
-async function persistProjectMutation(projectSlug: string, mutation: ProjectJobMutation): Promise<void> {
+async function persistProjectMutation(projectSlug: string, mutation: ProjectJobMutation, soft = false): Promise<void> {
   const state = projectPersistenceState(projectSlug)
   state.pendingMutations++
   try {
@@ -2023,7 +2058,7 @@ async function persistProjectMutation(projectSlug: string, mutation: ProjectJobM
     // behind the writer, defeating snapshot coalescing. The writer still
     // holds the jobs.json lock for the only disk mutation; mutations arriving
     // while it is writing are picked up by its next dirty pass.
-    const durable = applyProjectMutation(state, mutation)
+    const durable = applyProjectMutation(state, mutation, soft)
     // Let the current synchronous burst of mutations join the same snapshot
     // before the writer captures its baseline. This is what makes a project
     // batch one atomic write instead of one write per record.
@@ -2057,6 +2092,8 @@ export async function _waitForJobPersistenceForTesting(): Promise<void> {
 
 /** Drain tracked children and already-started project writes within the shutdown budget. */
 export async function drainJobPersistenceForShutdown(timeoutMs: number): Promise<boolean> {
+  coalesceSoftCheckpoints = false
+  for (const state of projectPersistence.values()) state.wake?.()
   let stopped = false
   const drained = (async () => {
     let observedIdle = false
@@ -2202,13 +2239,13 @@ function mergeDurableJobEvidence(previous: Job | null, incoming: Job): Job {
   }
 }
 
-async function persistJob(job: Job): Promise<void> {
+async function persistJob(job: Job, soft = false): Promise<void> {
   const incoming = safeJob(job)
   await persistProjectMutation(job.project_slug, {
     kind: 'transform',
     jobId: job.job_id,
     transform: current => mergeDurableJobEvidence(current, incoming),
-  })
+  }, soft)
   const settled = TERMINAL_JOB_STATUSES.has(job.status)
     || (job.status === 'paused' && !hasUnsettledProviderEvidence(job))
   if (job.type === 'continuity_render' && settled) {
@@ -2472,6 +2509,20 @@ export function getPaidImageReplacementRecoveryEntry(
  */
 export async function checkpointJobState(job: Job): Promise<void> {
   await persistJob(job)
+  emitUpdate(job)
+  if (job.type === 'continuity_render') noteAdaptiveImageTailEvent()
+}
+
+/**
+ * A progress checkpoint that is only a recovery hint (a finished clip or scene, a queue-state
+ * change). It is applied in order at once but its jobs.json rewrite may be shared with others up
+ * to SOFT_CHECKPOINT_SPACING_MS later, and the caller does not wait for it (a render lane must not
+ * stall a second per clip). A failed write is logged; the next write carries it. NEVER use it for
+ * anything that must be on disk before paid work is sent: checkpointJobState is written at once
+ * and also flushes every progress checkpoint queued before it.
+ */
+export async function checkpointJobProgress(job: Job): Promise<void> {
+  void persistJob(job, true).catch(error => console.warn('[job-queue] progress checkpoint not saved yet:', error?.message || error))
   emitUpdate(job)
   if (job.type === 'continuity_render') noteAdaptiveImageTailEvent()
 }
@@ -5240,11 +5291,26 @@ export async function getJobs(
   projectSlug: string,
   { type, view = 'full' }: { type?: JobType | readonly string[], view?: 'full' | 'stream' } = {},
 ): Promise<Job[]> {
+  const wanted = (job: Readonly<Job>) => !type || (typeof type === 'string' ? job.type === type : type.includes(job.type))
+  return findJobs(projectSlug, wanted, view)
+}
+
+/**
+ * `getJobs` for lookups: `predicate` sees the RAW job (read-only — never mutate it) and only the
+ * matches are cloned, redacted and returned. A lookup for one job used to serialise the whole
+ * project history first (tens of MB on a large channel) and then throw all but one row away.
+ * Predicates must use stored fields (type, status, episode_id, params, timestamps), not the
+ * renderer-only ones serialisation adds (`controls`, `queue_position`, public `error` rewrites).
+ */
+export async function findJobs(
+  projectSlug: string,
+  predicate: (job: Readonly<Job>) => boolean,
+  view: 'full' | 'stream' = 'full',
+): Promise<Job[]> {
   await loadPersistedJobs(projectSlug)
   const projectJobs: Job[] = []
-  const wanted = (job: Job) => !type || (typeof type === 'string' ? job.type === type : type.includes(job.type))
   for (const job of jobs.values()) {
-    if (job.project_slug === projectSlug && wanted(job)) {
+    if (job.project_slug === projectSlug && predicate(job)) {
       const j = serializeJob(job, view)
       if (j.status === 'queued') {
         const q = queues[job.type]

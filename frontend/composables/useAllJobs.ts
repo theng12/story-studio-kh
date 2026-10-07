@@ -162,7 +162,7 @@ async function refresh() {
   const epoch = transportEpoch
   const revision = stateRevision
   try {
-    const snapshot = await get<JobListResponse>('/jobs/all')
+    const snapshot = await get<JobListResponse>('/jobs/all?view=stream')
     // Before the first snapshot, concurrent confirmed changes are recorded
     // for reconciliation. They must not make the only authoritative fallback
     // snapshot look stale.

@@ -35,9 +35,9 @@ export async function outputsComplete(job: Job): Promise<boolean> {
     // A file that was already on disk before the failure proves nothing, so
     // only a build of the same kind that FINISHED after it counts.
     const failedAt = Date.parse(job.finished_at || job.created_at || '')
-    return (await jq.getJobs(job.project_slug)).some(other => other.type === job.type
+    return (await jq.findJobs(job.project_slug, other => other.type === job.type
       && other.episode_id === job.episode_id && other.status === 'done'
-      && Date.parse(other.finished_at || '') > failedAt)
+      && Date.parse(other.finished_at || '') > failedAt)).length > 0
   }
   // A forced remake wanted NEW files; old ones on disk prove nothing.
   if (job.params?.force === true) return false
@@ -62,7 +62,7 @@ export async function settleCompletedFailures(
   episodeId?: string,
   isComplete: (job: Job) => Promise<boolean> = outputsComplete,
 ): Promise<string[]> {
-  const candidates = (await jq.getJobs(projectSlug)).filter(job => job.status === 'error'
+  const candidates = await jq.findJobs(projectSlug, job => job.status === 'error'
     && !job.resolved && RESOLVABLE_TYPES.has(job.type)
     && (!episodeId || job.episode_id === episodeId))
   const settled: string[] = []

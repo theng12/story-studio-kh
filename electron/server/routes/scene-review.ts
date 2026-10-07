@@ -21,7 +21,7 @@ import { createHash, randomUUID } from 'crypto'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
-import { findFreshActionJob, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
+import { freshActionMatch, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -329,7 +329,7 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
       // job wrote between its own read and this migration.
       plan = await withLock(planPath, async () => {
         const fresh = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-        if (clearLegacyPlannerFallbackReasons(fresh.scenes)) await writeJsonAtomic(planPath, fresh)
+        if (clearLegacyPlannerFallbackReasons(fresh.scenes)) await writeJsonAtomic(planPath, fresh, { compact: true })
         return fresh
       })
     }
@@ -360,8 +360,11 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     // v1.0.470 — clips live in the "11 Video Assets" folder as <scene_id>.mp4.
     const clipsDir = await resolveVideoAssetsDir(slug, episodeId.toUpperCase(), paths.episode_dir)
     const legacyNumberedPattern = new RegExp(`^${episodeId.toUpperCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}_Scene\\d+_v\\d+\\.(?:png|jpe?g|webp)$`, 'i')
-    const legacyUnmappedImages = (await fs.readdir(namedDir).catch(() => [] as string[]))
-      .filter(filename => legacyNumberedPattern.test(filename)).length
+    // One readdir per folder; a name not listed is missing without a stat (S6: the page polls every
+    // 3.5 s and a 300-scene plan cost ~600 probes per poll).
+    const listed = async (dir: string) => new Set(await fs.readdir(dir).catch(() => [] as string[]))
+    const [namedFiles, legacyFiles, clipFiles] = await Promise.all([listed(namedDir), listed(legacyDir), listed(clipsDir)])
+    const legacyUnmappedImages = [...namedFiles].filter(filename => legacyNumberedPattern.test(filename)).length
     const scenes: ReviewSceneAugmented[] = []
     const imageReady: boolean[] = []
     let approvedCount = 0
@@ -386,13 +389,14 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
       // beside a good legacy twin must still count as an image).
       const candidates: Array<{ imagePath: string; peeked: Awaited<ReturnType<typeof peekDecodableImageSignature>> }> = []
       for (const imagePath of [named, legacy]) {
+        if (!(imagePath === named ? namedFiles : legacyFiles).has(filename)) continue
         const peeked = await peekDecodableImageSignature(imagePath)
         if (peeked.state === 'missing') continue
         candidates.push({ imagePath, peeked })
         if (peeked.state === 'known' && peeked.signature !== null) break
       }
       const known = candidates.find(candidate => candidate.peeked.state === 'known' && candidate.peeked.signature !== null)
-      const clipStat = await fs.stat(path.join(clipsDir, `${s.id}.mp4`)).catch(() => null)
+      const clipStat = clipFiles.has(`${s.id}.mp4`) ? await fs.stat(path.join(clipsDir, `${s.id}.mp4`)).catch(() => null) : null
       const clipVersion = clipStat?.isFile() ? `${clipStat.size}-${Math.trunc(clipStat.mtimeMs)}` : null
       return {
         imageVersion: known && known.peeked.state === 'known' ? known.peeked.signature : null,
@@ -475,11 +479,11 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
 
     let activeJob: any = null
     try {
-      activeJob = (await jq.getJobs(slug)).find((j: any) =>
+      activeJob = (await jq.findJobs(slug, (j: any) =>
         j.episode_id === episodeId
         && (j.type === 'continuity_render' || j.type === 'scene_images_batch')
-        && (j.status === 'running' || j.status === 'queued' || j.status === 'paused')
-      ) || null
+        && (j.status === 'running' || j.status === 'queued' || j.status === 'paused'),
+      ))[0] || null
     } catch {
       // Job metadata is non-critical for this endpoint. A stale/legacy job
       // record must not prevent Scene Review from loading the saved plan.
@@ -667,7 +671,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
     && candidate.params?.auto_approve_generated === (body.auto_approve_generated === true)
 
   try {
-    const actionJobs = (await jq.getJobs(slug)).filter(job =>
+    const actionJobs = await jq.findJobs(slug, job =>
       job.type === 'scene_image_generate'
       && job.episode_id === episodeId
       && job.params?.generation_action?.id === operationId,
@@ -705,11 +709,11 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
       })
     } catch (error) {
       if (error instanceof jq.DuplicateJobError) {
-        const replay = (await jq.getJobs(slug)).find(candidate =>
+        const replay = (await jq.findJobs(slug, candidate =>
           candidate.type === 'scene_image_generate'
           && candidate.episode_id === episodeId
           && candidate.params?.generation_action?.id === operationId,
-        )
+        ))[0]
         if (replay && sameActionRequest(replay)) return res.status(201).json({ ...replay, reused: true })
         if (replay) return res.status(409).json({ detail: 'operation_id already belongs to a different scene image request.' })
         return res.status(409).json({ detail: `Scene ${sceneId} image already generating` })
@@ -741,11 +745,11 @@ async function enqueueMissingScenes(
   try {
     if (manualFinish) {
       if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
-      const replay = (await jq.getJobs(slug)).find(job =>
+      const replay = (await jq.findJobs(slug, job =>
         job.type === 'continuity_render'
         && job.episode_id === episodeId
         && job.params?.manual_image_finish?.action_id === manualFinish.action_id,
-      )
+      ))[0]
       if (replay) {
         const fingerprint = finishRequestFingerprint(slug, episodeId, body, manualFinish, replay.params.scene_ids || [])
         if (replay.params.manual_image_finish?.request_fingerprint !== fingerprint) {
@@ -873,7 +877,7 @@ router.post('/projects/:slug/scene-review/:episodeId/replace-uncertain', async (
   // Hydrate this project's durable jobs before resolving the private receipt.
   // getJobs returns a public/redacted view; getJob below deliberately reads the
   // in-memory durable copy after hydration so a restart cannot erase authority.
-  await jq.getJobs(String(req.params.slug))
+  await jq.findJobs(String(req.params.slug), () => false)
   const sourceJob = jq.getJob(sourceJobId)
   const uncertainSceneIds = sourceJob?.params?.manual_image_finish?.uncertain_scene_ids
   const uncertainIdentityHashes = sourceJob?.params?.manual_image_finish?.uncertain_identity_hashes
@@ -1169,7 +1173,7 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
     && candidate.params?.generation_action?.id === operationId
     && candidate.params?.generation_action_fingerprint === actionParams.generation_action_fingerprint
   if (operationId) {
-    const existing = findFreshActionJob(await jq.getJobs(slug), operationId)
+    const existing = (await jq.findJobs(slug, freshActionMatch(operationId)))[0]
     if (existing) {
       if (!sameActionRequest(existing)) return res.status(409).json({ detail: 'operation_id already belongs to a different continuity render request.' })
       return res.status(201).json({ ...existing, reused: true })
@@ -1218,7 +1222,7 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
     // boundary in this app, so an unhandled throw would hang the request).
     if (e instanceof jq.DuplicateJobError) {
       if (operationId) {
-        const replay = findFreshActionJob(await jq.getJobs(slug), operationId)
+        const replay = (await jq.findJobs(slug, freshActionMatch(operationId)))[0]
         if (replay && sameActionRequest(replay)) return res.status(201).json({ ...replay, reused: true })
         if (replay) return res.status(409).json({ detail: 'operation_id already belongs to a different continuity render request.' })
       }
@@ -1278,7 +1282,7 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-image/:sceneId', asy
       target.image_version = new Date().toISOString()
       target.motion_choice = 'pending'
       target.approved = false   // user re-approves after a manual swap
-      await writeJsonAtomic(planPath, fresh)
+      await writeJsonAtomic(planPath, fresh, { compact: true })
     })
     await invalidateEpisodeStatus(slug, episodeId)
     res.json({ ok: true, scene_id: sceneId })
@@ -1393,7 +1397,7 @@ router.put('/projects/:slug/scene-review/:episodeId/motion-choice', async (req, 
           changed++
         }
       }
-      await writeJsonAtomic(planPath, fresh)
+      await writeJsonAtomic(planPath, fresh, { compact: true })
       return changed
     })
     res.json({ ok: true, changed })
@@ -1406,6 +1410,14 @@ router.put('/projects/:slug/scene-review/:episodeId/motion-choice', async (req, 
 // Flip approval flags. Body shapes:
 //   { scene_id: '<id>', approved: true|false }   — single scene
 //   { all: true|false }                          — bulk all
+/** `<scene id>.png` present in the named or legacy scene folder: two readdirs instead of 2 × N existsSync. */
+async function sceneImageNames(slug: string, episodeId: string, episodeDir: string): Promise<(sceneId: string) => boolean> {
+  const namedDir = await resolveSceneImagesDir(slug, episodeId.toUpperCase(), episodeDir)
+  const legacyDir = path.join(episodeDir, SCENE_IMAGES_SUBFOLDER)
+  const [named, legacy] = await Promise.all([namedDir, legacyDir].map(async dir => new Set(await fs.readdir(dir).catch(() => [] as string[]))))
+  return sceneId => named.has(`${sceneId}.png`) || legacy.has(`${sceneId}.png`)
+}
+
 router.put('/projects/:slug/scene-review/:episodeId/approve', async (req, res) => {
   const { slug, episodeId } = req.params
 
@@ -1425,11 +1437,9 @@ router.put('/projects/:slug/scene-review/:episodeId/approve', async (req, res) =
         // Bulk path. Only approve scenes that have an image on disk —
         // approving a scene without an image is meaningless (the
         // assembler in 1.0.145 will reject it).
-        const namedDir = await resolveSceneImagesDir(slug, episodeId.toUpperCase(), paths.episode_dir)
-        const legacyDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
+        const hasImage = await sceneImageNames(slug, episodeId, paths.episode_dir)
         for (const s of plan.scenes) {
-          const hasImage = existsSync(path.join(namedDir, `${s.id}.png`)) || existsSync(path.join(legacyDir, `${s.id}.png`))
-          const target = body.all && hasImage  // bulk-deny works regardless
+          const target = body.all && hasImage(s.id)  // bulk-deny works regardless
           const final = body.all ? target : false
           if (s.approved !== final) {
             s.approved = final
@@ -1445,14 +1455,11 @@ router.put('/projects/:slug/scene-review/:episodeId/approve', async (req, res) =
         throw new BadApprovalRequest()
       }
 
-      await writeJsonAtomic(planPath, plan)
+      await writeJsonAtomic(planPath, plan, { compact: true })
       return { plan, changed }
     })
-    const namedDir = await resolveSceneImagesDir(slug, episodeId.toUpperCase(), paths.episode_dir)
-    const legacyDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
-    const imageReady = plan.scenes.map(s =>
-      existsSync(path.join(namedDir, `${s.id}.png`)) || existsSync(path.join(legacyDir, `${s.id}.png`)),
-    )
+    const hasImage = await sceneImageNames(slug, episodeId, paths.episode_dir)
+    const imageReady = plan.scenes.map(s => hasImage(s.id))
     const promptIntegrity = inspectScenePromptIntegrity(plan.scenes)
     const subtitleIntegrity = await readSubtitleTimelineIntegrity(paths.subtitles_dir, episodeId)
     const reviewCompletion = inspectSceneReviewCompletion(

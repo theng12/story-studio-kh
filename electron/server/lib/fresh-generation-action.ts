@@ -50,8 +50,13 @@ export function stampFreshGenerationAction<T extends Record<string, any>>(
   }
 }
 
+/** Predicate for `jq.findJobs(slug, freshActionMatch(id))`, which serialises only the match. */
+export function freshActionMatch(operationId: string): (job: Readonly<Job>) => boolean {
+  return job => job.params?.generation_action?.id === operationId
+}
+
 export function findFreshActionJob(jobs: Job[], operationId: string): Job | undefined {
-  return jobs.find(job => job.params?.generation_action?.id === operationId)
+  return jobs.find(freshActionMatch(operationId))
 }
 
 export function freshGenerationRequestIdentity(job: Job, purpose: string): string | undefined {

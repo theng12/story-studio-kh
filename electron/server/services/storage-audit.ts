@@ -30,7 +30,7 @@ import * as pm from './project-manager.js'
 import { thumbCacheBytes } from '../lib/thumbnail-cache.js'
 import { PARTS_DIRNAME } from './chapter-parts.js'
 import * as im from './idea-manager.js'
-import { resolveEpisodePaths } from './utils.js'
+import { createProjectFactsCache, resolveEpisodePaths } from './utils.js'
 import {
   youtubeRetentionEvidenceFor,
   youtubeRetentionProofForFile,
@@ -256,6 +256,8 @@ export async function auditProjectStorage(slug: string): Promise<StorageAuditRes
   ])
 
   const CONCURRENCY = 8
+  // S8: project facts (project.json, output root, season listings) read once per audit, not per episode.
+  const facts = createProjectFactsCache(slug)
   const results: StorageEntry[] = new Array(ideas.length)
   let cursor = 0
 
@@ -263,7 +265,7 @@ export async function auditProjectStorage(slug: string): Promise<StorageAuditRes
     const code = idea.episode_code
     let paths: any
     try {
-      paths = await resolveEpisodePaths(slug, code, idea.title || '')
+      paths = await resolveEpisodePaths(slug, code, idea.title || '', facts)
     } catch {
       // Episode dir unresolvable (idea exists but path math failed).
       // Return a zero entry so the UI still lists the episode rather
@@ -312,7 +314,7 @@ export async function auditProjectStorage(slug: string): Promise<StorageAuditRes
     const externalFinalPaths: string[] = []
     if (externalRoot) {
       try {
-        const extDir = await resolveExternalFinalVideoDir(slug, code, idea.title || '')
+        const extDir = await resolveExternalFinalVideoDir(slug, code, idea.title || '', facts)
         if (extDir && existsSync(extDir)) {
           externalEpisodeDir = extDir
           // Only count the final-video files at the external location;
@@ -337,7 +339,7 @@ export async function auditProjectStorage(slug: string): Promise<StorageAuditRes
     let uploaded = false
     let videoId = ''
     const evidence = await youtubeRetentionEvidenceFor(
-      slug, code, idea.title || '', operations, publishingState,
+      slug, code, idea.title || '', operations, publishingState, facts,
     )
     const remote = evidence.accepted_operations[0]
       ?? evidence.reconcile_link

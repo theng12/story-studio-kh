@@ -12,7 +12,7 @@ import type { Format } from '../models/types.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { withLock } from '../lib/atomic-store.js'
-import { findFreshActionJob, readOptionalOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
+import { freshActionMatch, readOptionalOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 import { previewCompact, compactAcceptedEpisodes } from '../services/upload-compact.js'
 import { loadNiche } from '../services/niche-loader.js'
 import { isCompatible, loadTopicPack } from '../services/topic-pack-loader.js'
@@ -126,7 +126,7 @@ router.post('/projects/:slug/generate/ideas/campaign', async (req, res) => {
     if (!operationId) return enqueue(requestParams)
     const params = stampFreshGenerationAction(requestParams, operationId)
     return withLock(`fresh-idea-campaign:${slug}:${operationId}`, async () => {
-      const previous = findFreshActionJob(await jq.getJobs(slug), operationId)
+      const previous = (await jq.findJobs(slug, freshActionMatch(operationId)))[0]
       if (previous) {
         if (previous.params.generation_action_fingerprint !== params.generation_action_fingerprint) {
           return res.status(409).json({ detail: 'This operation_id already belongs to a different idea campaign.' })

@@ -75,15 +75,27 @@ router.get('/niches', async (req, res) => {
   }
 })
 
+/**
+ * `?view=list` (S9): the pickers' slim rows. The generation inventories and coverage tuples are 8 of
+ * the 8.3 MB a big library sends, and no list shows them; a profile keeps its `tuple_count`.
+ * `GET /topic-packs/:id` stays complete.
+ */
+function topicPackListRow(pack: Record<string, any>): Record<string, any> {
+  const { mechanisms: _m, evidenceLenses: _e, episodeObjects: _o, timePlaceScopes: _t, coverageProfiles, ...rest } = pack
+  return {
+    ...rest,
+    ...(coverageProfiles ? { coverageProfiles: coverageProfiles.map(({ tuples, ...profile }: any) => ({ ...profile, tuple_count: Array.isArray(tuples) ? tuples.length : 0 })) } : {}),
+  }
+}
+
 router.get('/topic-packs', async (req, res) => {
   try {
     const nicheId = typeof req.query.niche_id === 'string' ? req.query.niche_id : ''
     const packs = await tpl.listTopicPackCatalogEntries(packOptionsFor(req))
+    const row = req.query.view === 'list' ? topicPackListRow : (pack: any) => pack
     res.json({
-      topic_packs: nicheId
-        ? packs.filter(entry => tpl.isCompatible(entry.value, nicheId))
-          .map(entry => ({ ...entry.value, catalog: catalogMetadata(entry) }))
-        : packs.map(entry => ({ ...entry.value, catalog: catalogMetadata(entry) })),
+      topic_packs: (nicheId ? packs.filter(entry => tpl.isCompatible(entry.value, nicheId)) : packs)
+        .map(entry => ({ ...row(entry.value), catalog: catalogMetadata(entry) })),
     })
   } catch (e: any) {
     respondWithError(res, e, 'Failed to list Topic Packs')

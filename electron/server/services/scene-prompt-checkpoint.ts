@@ -84,7 +84,7 @@ export async function checkpointScenePrompt(
     scene[key] = prompt
     plan.generated_at = new Date().toISOString()
     plan.planning_stage = kind
-    await writeJsonAtomic(planPath, plan)
+    await writeJsonAtomic(planPath, plan, { compact: true })
     return { changed: true, plan }
   })
 }

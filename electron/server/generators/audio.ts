@@ -1735,14 +1735,14 @@ export async function generateAudio(job: Job): Promise<void> {
       // The map is now authoritative. Existing SRT and merged timeline inputs
       // are intentionally left in place but become stale through their saved
       // source hashes until the local Audio Assembly/subtitle refresh below.
-      const existingRefresh = (await jq.getJobs(project_slug)).find(candidate =>
+      const existingRefresh = (await jq.findJobs(project_slug, candidate =>
         candidate.type === 'audio_merge' && candidate.episode_id === episode_id
         && candidate.params?.audio_quality_refresh?.action_id === qualityRepairActionId,
-      )
-      const priorMerge = (await jq.getJobs(project_slug)).filter(candidate =>
+      ))[0]
+      const priorMerge = (await jq.findJobs(project_slug, candidate =>
         candidate.type === 'audio_merge' && candidate.episode_id === episode_id && candidate.status === 'done'
         && !candidate.params?.audio_quality_refresh,
-      ).sort((left, right) => (right.finished_at || right.created_at).localeCompare(left.finished_at || left.created_at))[0]
+      )).sort((left, right) => (right.finished_at || right.created_at).localeCompare(left.finished_at || left.created_at))[0]
       let refreshJob = existingRefresh
       if (!refreshJob && priorMerge) {
         refreshJob = await jq.enqueue({
@@ -1803,8 +1803,9 @@ export async function queueSubtitlesAfterNarration(job: Job, sectionSlugs: strin
     const { project_slug, episode_id } = job
     const code = episode_id.toUpperCase()
     const label = sectionSlugs.map(slug => slug.replaceAll('_', ' ')).join(', ')
-    const existing = (await jq.getJobs(project_slug)).find(other => other.type === 'subtitles_transcribe'
-      && other.episode_id === episode_id && other.params.narration_refresh_job_id === job.job_id)
+    // One type-filtered read serves both the dedupe check and the last-model lookup.
+    const transcribes = await jq.getJobs(project_slug, { type: 'subtitles_transcribe' })
+    const existing = transcribes.find(other => other.episode_id === episode_id && other.params.narration_refresh_job_id === job.job_id)
     if (existing) {
       job.result = { ...job.result, subtitles_job_id: existing.job_id }
       job.output_lines.push(`Subtitle follow-up for ${label} is already recorded (${existing.job_id}).`)
@@ -1813,8 +1814,8 @@ export async function queueSubtitlesAfterNarration(job: Job, sectionSlugs: strin
     const paths = await resolveEpisodePathsByCodeWithSidecar(project_slug, episode_id, 'audio_chapters.json')
     const { readSubtitleSourceModels } = await import('../services/subtitle-recovery.js')
     const used = await readSubtitleSourceModels(paths.subtitles_dir).catch(() => ({} as Record<string, string>))
-    const lastRun = (await jq.getJobs(project_slug))
-      .filter(other => other.type === 'subtitles_transcribe' && other.status === 'done' && typeof other.params?.model === 'string')
+    const lastRun = transcribes
+      .filter(other => other.status === 'done' && typeof other.params?.model === 'string')
       .sort((a, b) => String(b.finished_at || '').localeCompare(String(a.finished_at || '')))[0]
     const model = sectionSlugs.map(slug => used[`${code}_${slug}.srt`]).find(Boolean) || lastRun?.params.model
     // Script-timed subtitles are made again the same way: no transcription model (2026-10-05).

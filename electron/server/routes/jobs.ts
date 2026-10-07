@@ -133,7 +133,8 @@ async function allJobsSnapshot(view: 'full' | 'stream' = 'full') {
 }
 
 async function findUniversalJob(jobId: string): Promise<Job | undefined> {
-  return (await allJobsSnapshot()).jobs.find(job => job.job_id === jobId)
+  const scopes = await allJobScopes()
+  return (await Promise.all(scopes.map(scope => jq.findJobs(scope, job => job.job_id === jobId)))).flat()[0]
 }
 
 function sendJobControlError(res: import('express').Response, error: unknown): boolean {
@@ -385,8 +386,12 @@ router.get('/projects/:slug/jobs/stream', async (req, res) => {
   }
 })
 
+// `?view=stream` is the streams' slim view (no Gateway evidence / scene lists); the REST
+// fallbacks poll with it, so a closed stream does not pull the full history every 15 s.
+const listView = (query: unknown): 'full' | 'stream' => (query as any)?.view === 'stream' ? 'stream' : 'full'
+
 router.get('/projects/:slug/jobs', async (req, res) => {
-  const jobsList = await jq.getJobs(req.params.slug)
+  const jobsList = await jq.getJobs(req.params.slug, { view: listView(req.query) })
   const stats = jq.getQueueStats(req.params.slug)
   res.json({ jobs: jobsList, stats })
 })
@@ -432,8 +437,8 @@ router.get('/jobs/all/stream', async (req, res) => {
   }
 })
 
-router.get('/jobs/all', async (_req, res) => {
-  res.json(await allJobsSnapshot())
+router.get('/jobs/all', async (req, res) => {
+  res.json(await allJobsSnapshot(listView(req.query)))
 })
 
 router.post('/jobs/all/resume-paused', async (req, res) => {
@@ -444,7 +449,7 @@ router.post('/jobs/all/resume-paused', async (req, res) => {
     return res.status(404).json({ detail: 'Project not found' })
   }
   const projectSlugs = parsed.value.project_slug === undefined ? scopes : [parsed.value.project_slug]
-  await Promise.all(projectSlugs.map(scope => jq.getJobs(scope)))
+  await Promise.all(projectSlugs.map(scope => jq.findJobs(scope, () => false)))
   res.status(202).json(await jq.resumePausedJobs({ projectSlugs, type: parsed.value.type }))
 })
 
@@ -650,7 +655,7 @@ router.post('/projects/:slug/jobs/resume-paused', async (req, res) => {
   if (!projects.some(project => project.slug === req.params.slug)) {
     return res.status(404).json({ detail: 'Project not found' })
   }
-  await jq.getJobs(req.params.slug)
+  await jq.findJobs(req.params.slug, () => false)
   res.status(202).json(await jq.resumePausedJobs({
     projectSlugs: [req.params.slug],
     type: parsed.value.type,
@@ -785,7 +790,7 @@ router.post('/projects/:slug/jobs/:jobId/resume', async (req, res) => {
 })
 
 router.post('/projects/:slug/jobs/:jobId/cancel', async (req, res, next) => {
-  const existing = (await jq.getJobs(req.params.slug)).find(job => job.job_id === req.params.jobId)
+  const existing = (await jq.findJobs(req.params.slug, job => job.job_id === req.params.jobId))[0]
   if (!existing || existing.project_slug !== req.params.slug) return res.status(404).json({ detail: 'Job not found' })
   try {
     const job = await jq.requestJobCancellation(req.params.slug, req.params.jobId)
@@ -798,7 +803,7 @@ router.post('/projects/:slug/jobs/:jobId/cancel', async (req, res, next) => {
 
 // v1.2.6 — see the /jobs/all sibling above.
 router.post('/projects/:slug/jobs/:jobId/recheck-provider-status', async (req, res, next) => {
-  const existing = (await jq.getJobs(req.params.slug)).find(job => job.job_id === req.params.jobId)
+  const existing = (await jq.findJobs(req.params.slug, job => job.job_id === req.params.jobId))[0]
   if (!existing || existing.project_slug !== req.params.slug) return res.status(404).json({ detail: 'Job not found' })
   try {
     res.json({ ok: true, job: await jq.recheckJobProviderStatus(req.params.slug, req.params.jobId) })
@@ -809,7 +814,7 @@ router.post('/projects/:slug/jobs/:jobId/recheck-provider-status', async (req, r
 
 // v1.2.8 — see the /jobs/all sibling above.
 router.post('/projects/:slug/jobs/:jobId/abandon', async (req, res, next) => {
-  const existing = (await jq.getJobs(req.params.slug)).find(job => job.job_id === req.params.jobId)
+  const existing = (await jq.findJobs(req.params.slug, job => job.job_id === req.params.jobId))[0]
   if (!existing || existing.project_slug !== req.params.slug) return res.status(404).json({ detail: 'Job not found' })
   try {
     res.json({ ok: true, job: await jq.forceAbandonJob(req.params.slug, req.params.jobId) })
@@ -819,7 +824,7 @@ router.post('/projects/:slug/jobs/:jobId/abandon', async (req, res, next) => {
 })
 
 router.delete('/projects/:slug/jobs/:jobId', async (req, res) => {
-  const existing = (await jq.getJobs(req.params.slug)).find(job => job.job_id === req.params.jobId)
+  const existing = (await jq.findJobs(req.params.slug, job => job.job_id === req.params.jobId))[0]
   if (!existing || existing.project_slug !== req.params.slug) return res.status(404).json({ detail: 'Job not found' })
   if (!jq.removeTerminalJob(req.params.slug, req.params.jobId)) return sendTerminalOnlyConflict(res, existing)
   res.json({ ok: true })

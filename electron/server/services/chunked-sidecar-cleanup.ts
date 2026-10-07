@@ -37,7 +37,8 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import * as im from './idea-manager.js'
-import { resolveEpisodePaths } from './utils.js'
+import { createProjectFactsCache, resolveEpisodePaths, type ProjectFactsCache } from './utils.js'
+import { mapWithConcurrency } from '../lib/map-with-concurrency.js'
 import { readSidecar } from '../lib/chunked-narration.js'
 
 export interface SidecarEligibility {
@@ -72,24 +73,15 @@ export interface ListResult {
 
 export async function listChunkedSidecars(slug: string): Promise<ListResult> {
   const ideas = await im.getIdeas(slug, 'accepted')
-  const episodes: SidecarEligibility[] = []
+  // S8: one facts cache and 8 episodes at a time (was serial, >120 s on the mini).
+  const facts = createProjectFactsCache(slug)
+  const checked = await mapWithConcurrency(ideas.filter(idea => !!idea.episode_code), 8, idea =>
+    // Couldn't resolve this episode's paths (folder missing, etc.): skip silently — the cleanup
+    // tool only reports what it CAN see; Repair Folder Structure covers the missing-folder case.
+    checkOne(slug, idea.episode_code!, idea.title || '', facts).catch(() => null))
+  const episodes = checked.filter((e): e is SidecarEligibility => e !== null)
   let reclaimable = 0
-
-  for (const idea of ideas) {
-    const code = idea.episode_code
-    if (!code) continue
-    try {
-      const e = await checkOne(slug, code, idea.title || '')
-      episodes.push(e)
-      if (e.eligible && e.sidecar_size_bytes) reclaimable += e.sidecar_size_bytes
-    } catch {
-      // Couldn't resolve this episode's paths (folder missing, etc.).
-      // Skip silently — the cleanup tool only reports what it CAN see;
-      // the user has other tools (Repair Folder Structure) for the
-      // missing-folder case.
-      continue
-    }
-  }
+  for (const e of episodes) if (e.eligible && e.sidecar_size_bytes) reclaimable += e.sidecar_size_bytes
 
   return {
     episodes,
@@ -98,8 +90,8 @@ export async function listChunkedSidecars(slug: string): Promise<ListResult> {
   }
 }
 
-async function checkOne(slug: string, code: string, title: string): Promise<SidecarEligibility> {
-  const paths = await resolveEpisodePaths(slug, code, title)
+async function checkOne(slug: string, code: string, title: string, facts?: ProjectFactsCache): Promise<SidecarEligibility> {
+  const paths = await resolveEpisodePaths(slug, code, title, facts)
   const sidecarPath = path.join(paths.script_dir, `${code}_chunked-progress.json`)
   const unifiedPath = paths.narration_docx
   const unifiedPresent = existsSync(unifiedPath)

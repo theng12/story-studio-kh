@@ -41,7 +41,7 @@ import { resolveResearchPaths } from '../lib/research-paths.js'
 import { sanitizeResearchOutputUrls } from '../services/research/urls.js'
 import { withLock } from '../lib/atomic-store.js'
 import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
-import { findFreshActionJob, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
+import { freshActionMatch, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 import {
   readResearchReview,
   readResearchTriage,
@@ -211,7 +211,7 @@ router.post('/projects/:slug/research/:episodeId/run', async (req, res) => {
     ...(blockedDomains.length ? { blocked_domains: blockedDomains } : {}),
   }, operationId)
   return withLock(`fresh-research:${slug}:${operationId}`, async () => {
-    const previous = findFreshActionJob(await jq.getJobs(slug), operationId)
+    const previous = (await jq.findJobs(slug, freshActionMatch(operationId)))[0]
     if (previous) {
       if (previous.params.generation_action_fingerprint !== params.generation_action_fingerprint) {
         return res.status(409).json({ detail: 'This operation_id already belongs to a different research request.' })

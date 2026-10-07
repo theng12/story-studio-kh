@@ -213,7 +213,35 @@ export interface NarrationSection {
   title?: string
 }
 
+// Same memo as parseImagePromptsDocx, keyed on path + mtime + size: the audio
+// sections page and the Overview audit parsed every episode's narration .docx
+// through mammoth on every request (3–19 s per page, >4 min Overview check).
+// Callers get their own clone, so a caller that edits sections cannot poison it.
+const NARRATION_CACHE = new Map<string, NarrationSection[]>()
+
+/** Test/diagnostics helper — clears the narration parse cache. */
+export function _clearNarrationParseCache(): void {
+  NARRATION_CACHE.clear()
+}
+
 export async function parseNarrationDocx(docxPath: string): Promise<NarrationSection[]> {
+  const st = await fs.stat(docxPath).catch(() => null)
+  const key = st ? `${docxPath}::${st.mtimeMs}::${st.size}` : null
+  const hit = key ? NARRATION_CACHE.get(key) : undefined
+  if (key && hit) {
+    NARRATION_CACHE.delete(key)
+    NARRATION_CACHE.set(key, hit)
+    return structuredClone(hit)
+  }
+  const parsed = await parseNarrationDocxUncached(docxPath)
+  if (key) {
+    NARRATION_CACHE.set(key, parsed)
+    while (NARRATION_CACHE.size > PARSE_CACHE_MAX) NARRATION_CACHE.delete(NARRATION_CACHE.keys().next().value!)
+  }
+  return structuredClone(parsed)
+}
+
+async function parseNarrationDocxUncached(docxPath: string): Promise<NarrationSection[]> {
   const lines = await readStructuredLines(docxPath)
 
   const sections: NarrationSection[] = []

@@ -150,6 +150,35 @@ describe('getFFmpegStatus()', () => {
   })
 })
 
+describe('getFFmpegStatus() memo (S13)', () => {
+  test('probes a binary once until it is replaced; a different binary is probed afresh', async () => {
+    const counter = path.join(tempDir, 'probe-count')
+    const fake = path.join(tempDir, 'fake-ffmpeg')
+    const script = (version: string) => `#!/bin/sh\necho x >> "${counter}"\ncase "$1" in -version) echo "ffmpeg version ${version}";; -filters) echo " drawtext subtitles ass";; esac\n`
+    await fs.writeFile(fake, script('1.0'))
+    await fs.chmod(fake, 0o755)
+    await settings.setAppSetting('ffmpeg_path', fake)
+    ff.clearFFmpegCache()
+    const probes = async () => (await fs.readFile(counter, 'utf8').catch(() => '')).split('\n').filter(Boolean).length
+
+    const first = await ff.getFFmpegStatus()
+    assert.equal(first.version, '1.0')
+    assert.equal(first.has_drawtext, true)
+    const spawned = await probes()
+    first.version = 'mutated by caller'
+    const second = await ff.getFFmpegStatus()
+    assert.equal(second.version, '1.0', 'callers get their own copy')
+    assert.equal(await probes(), spawned, 'a second status call spawns nothing')
+
+    // An update in place (new bytes, new mtime) is probed again.
+    await fs.writeFile(fake, script('2.0'))
+    const later = new Date(Date.now() + 5_000)
+    await fs.utimes(fake, later, later)
+    assert.equal((await ff.getFFmpegStatus()).version, '2.0')
+    assert.ok(await probes() > spawned)
+  })
+})
+
 describe('runFfmpeg() wall-clock watchdog', () => {
   test('fires SIGTERM after timeoutMs and surfaces "watchdog" error', async () => {
     // Use `sleep` as the stand-in "ffmpeg" — it blocks indefinitely the

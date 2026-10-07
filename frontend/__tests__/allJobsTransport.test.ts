@@ -236,3 +236,21 @@ test('hidden window closes the all-jobs stream; back on screen it catches up and
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
   }
 })
+
+test('the All Jobs REST fallback polls the slim stream view, not the full 11 MB history (S5)', async () => {
+  const originalEventSource = (globalThis as any).EventSource
+  const originalFetch = (globalThis as any).$fetch
+  const urls: string[] = []
+  ;(globalThis as any).EventSource = undefined
+  ;(globalThis as any).$fetch = async (url: string) => { urls.push(url); return snapshot('slim') }
+  const queue = useAllJobs()
+  try {
+    queue.start()
+    await queue.refresh()
+    assert.ok(urls.length > 0 && urls.every(url => url.endsWith('/jobs/all?view=stream')), urls.join(', '))
+  } finally {
+    queue.stop()
+    ;(globalThis as any).EventSource = originalEventSource
+    ;(globalThis as any).$fetch = originalFetch
+  }
+})

@@ -240,6 +240,40 @@ function mergeSupersededImageRequests(
  */
 const writeChains = new Map<string, Promise<void>>()
 
+/** Entries waiting for the next write of one folder's manifest (S11: one write per batch, not per scene). */
+type PendingEntry = { filename: string; entry: TaskManifestEntry; resolve: () => void; reject: (error: unknown) => void }
+const pendingBatches = new Map<string, PendingEntry[]>()
+let batchedManifestWrites = 0
+/** Test-only: how many batched manifest writes have happened. */
+export function _batchedManifestWritesForTesting(): number { return batchedManifestWrites }
+
+function applyTaskEntry(m: Manifest, filename: string, entry: TaskManifestEntry): void {
+  const latest = m.tasks[filename]
+  const originals = latest?.subtitle_originals || {}
+  if (entry.subtitle_originals && (!latest || latest.idempotency_key !== entry.idempotency_key
+    || latest.input_hash !== entry.input_hash || (latest.task_id && latest.task_id !== entry.task_id))) {
+    throw new Error('task manifest current identity changed before subtitle original binding')
+  }
+  for (const [originalKey, original] of Object.entries(entry.subtitle_originals || {})) {
+    const saved = originals[originalKey]
+    if (saved ? saved.task_id !== original.task_id || saved.idempotency_key !== original.idempotency_key || saved.input_hash !== original.input_hash
+      : originalKey !== original.idempotency_key || !latest || latest.idempotency_key !== original.idempotency_key
+        || latest.input_hash !== original.input_hash || (latest.task_id && latest.task_id !== original.task_id)) {
+      throw new Error('task manifest subtitle original identity changed before paid commitment')
+    }
+  }
+  const superseded = mergeSupersededImageRequests(
+    latest?.superseded_image_requests,
+    entry.superseded_image_requests,
+  )
+  m.tasks[filename] = {
+    ...entry,
+    ...(latest?.subtitle_originals || entry.subtitle_originals
+      ? { subtitle_originals: { ...entry.subtitle_originals, ...originals } } : {}),
+    ...(superseded ? { superseded_image_requests: superseded } : {}),
+  }
+}
+
 async function writeTaskEntry(
   assetDir: string,
   filename: string,
@@ -247,54 +281,54 @@ async function writeTaskEntry(
   strict: boolean,
 ): Promise<void> {
   const key = path.resolve(assetDir)
-  const previous = writeChains.get(key) ?? Promise.resolve()
-  const operation = previous.then(async () => {
-    await fs.mkdir(assetDir, { recursive: true })
-    const m = strict ? await readManifestStrict(assetDir).catch((error: unknown) => {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { schema_version: 1 as const, tasks: {} } as Manifest
-      throw error
-    }) : await readManifest(assetDir)
-    const latest = m.tasks[filename]
-    const originals = latest?.subtitle_originals || {}
-    if (entry.subtitle_originals && (!latest || latest.idempotency_key !== entry.idempotency_key
-      || latest.input_hash !== entry.input_hash || (latest.task_id && latest.task_id !== entry.task_id))) {
-      throw new Error('task manifest current identity changed before subtitle original binding')
-    }
-    for (const [originalKey, original] of Object.entries(entry.subtitle_originals || {})) {
-      const saved = originals[originalKey]
-      if (saved ? saved.task_id !== original.task_id || saved.idempotency_key !== original.idempotency_key || saved.input_hash !== original.input_hash
-        : originalKey !== original.idempotency_key || !latest || latest.idempotency_key !== original.idempotency_key
-          || latest.input_hash !== original.input_hash || (latest.task_id && latest.task_id !== original.task_id)) {
-        throw new Error('task manifest subtitle original identity changed before paid commitment')
+  const batchKey = `${key}\u0000${strict}`
+  const own = new Promise<void>((resolve, reject) => {
+    const waiting = pendingBatches.get(batchKey)
+    if (waiting) { waiting.push({ filename, entry, resolve, reject }); return }
+    // First entry since the last write started: open a batch that every entry arriving before
+    // this folder's previous write finishes joins. Each entry keeps its own checks and outcome;
+    // the batch shares one read and one write (a 300-scene render rewrote the file 300 times).
+    const batch: PendingEntry[] = [{ filename, entry, resolve, reject }]
+    pendingBatches.set(batchKey, batch)
+    const previous = writeChains.get(key) ?? Promise.resolve()
+    const operation = previous.then(async () => {
+      pendingBatches.delete(batchKey)
+      const applied: PendingEntry[] = []
+      try {
+        await fs.mkdir(assetDir, { recursive: true })
+        const m = strict ? await readManifestStrict(assetDir).catch((error: unknown) => {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { schema_version: 1 as const, tasks: {} } as Manifest
+          throw error
+        }) : await readManifest(assetDir)
+        for (const item of batch) {
+          try { applyTaskEntry(m, item.filename, item.entry); applied.push(item) } catch (error) { item.reject(error) }
+        }
+        if (applied.length) {
+          await writeJsonAtomic(manifestPath(assetDir), m, { compact: true })
+          batchedManifestWrites++
+        }
+        applied.forEach(item => item.resolve())
+      } catch (error) {
+        // Read or write failed: nothing in this batch is durable (settled promises ignore a second call).
+        for (const item of batch) item.reject(error)
       }
-    }
-    const superseded = mergeSupersededImageRequests(
-      latest?.superseded_image_requests,
-      entry.superseded_image_requests,
-    )
-    m.tasks[filename] = {
-      ...entry,
-      ...(latest?.subtitle_originals || entry.subtitle_originals
-        ? { subtitle_originals: { ...entry.subtitle_originals, ...originals } } : {}),
-      ...(superseded ? { superseded_image_requests: superseded } : {}),
-    }
-    await writeJsonAtomic(manifestPath(assetDir), m)
-  })
-  // Keep a non-rejecting tail in the chain so one failed write cannot block
-  // later assets in the same folder. Strict callers still await `operation`
-  // and receive the original persistence error before provider submission.
-  const tail = operation.catch(() => {})
-  writeChains.set(key, tail)
-  void tail.finally(() => {
-    if (writeChains.get(key) === tail) writeChains.delete(key)
+    })
+    // Keep a non-rejecting tail in the chain so one failed write cannot block
+    // later assets in the same folder. Strict callers still await their own
+    // promise and receive the original persistence error before provider submission.
+    const tail = operation.catch(() => {})
+    writeChains.set(key, tail)
+    void tail.finally(() => {
+      if (writeChains.get(key) === tail) writeChains.delete(key)
+    })
   })
 
   if (strict) {
-    await operation
+    await own
     return
   }
   try {
-    await operation
+    await own
   } catch (e: any) {
     console.warn(`[task-manifest] could not record ${filename}:`, e.message)
   }

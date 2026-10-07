@@ -1349,7 +1349,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                     if (state === 'waiting_account_capacity') capacityWaiting.add(scene.scene_index)
                     else capacityWaiting.delete(scene.scene_index)
                     syncItemProgress()
-                    await jq.checkpointJobState(job)
+                    await jq.checkpointJobProgress(job)
                   },
                   isCancelled: () => jq.isCancelled(job.job_id),
                   onJobAccepted: async (taskId, idempotencyKey) => {
@@ -1579,7 +1579,8 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               inFlight.delete(scene.scene_index)
               syncItemProgress()
               await pushStatus()
-              await jq.checkpointJobState(job)
+              // Progress only (results are recorded with their evidence): may share a rewrite (S4).
+              await jq.checkpointJobProgress(job)
             }
           }
         }

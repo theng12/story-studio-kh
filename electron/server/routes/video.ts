@@ -9,7 +9,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
 import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
-import { enqueue, enqueueEpisodeRecoveryOnce, getJobs, isDuplicate, loadAuthoritativeJob, subtitleFinalizerJobId } from '../services/job-queue.js'
+import { enqueue, enqueueEpisodeRecoveryOnce, findJobs, isDuplicate, loadAuthoritativeJob, subtitleFinalizerJobId } from '../services/job-queue.js'
 import { withLock } from '../lib/atomic-store.js'
 import { subtitlePurchaseParams } from '../services/subtitle-recovery.js'
 import { checkFfmpeg, prepareUnifiedVideoAssemblyInputs, scanEpisodeAssets } from '../generators/video.js'
@@ -55,7 +55,7 @@ import { inspectSubtitleCompletion, inspectSubtitleSourceFreshness } from '../se
 import { inspectExistingTranscriptSource } from '../services/subtitle-correction.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { isPreviewablePath } from '../lib/preview-roots.js'
-import { findFreshActionJob, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
+import { freshActionMatch, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
@@ -1533,7 +1533,7 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
   const queuedParams: Record<string, any> = operationId ? stampFreshGenerationAction(params, operationId) : params
   const enqueueSubtitles = async () => {
     if (operationId) {
-      const previous = findFreshActionJob(await getJobs(slug), operationId)
+      const previous = (await findJobs(slug, freshActionMatch(operationId)))[0]
       if (previous) {
         if (previous.params.generation_action_fingerprint !== queuedParams.generation_action_fingerprint) {
           return res.status(409).json({ detail: 'This operation_id already belongs to a different subtitle request.' })

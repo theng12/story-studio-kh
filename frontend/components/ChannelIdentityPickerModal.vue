@@ -390,7 +390,7 @@ function formulaVoices(formula: Niche): string {
 }
 function coverageLabel(pack: TopicPack): string {
   if (!pack.coverageProfiles?.length) return pack.ideaAxes?.map(axis => `${axis.label}: ${axis.values.length}`).join(' · ') || 'Not declared'
-  return pack.coverageProfiles.map(profile => `${profile.label || profile.id || 'Profile'} (${profile.tuples.length} angles)`).join(' · ')
+  return pack.coverageProfiles.map(profile => `${profile.label || profile.id || 'Profile'} (${profile.tuple_count ?? profile.tuples?.length ?? 0} angles)`).join(' · ')
 }
 function capacityLabel(pack: TopicPack): string {
   if (pack.maxSiblingsPerSubject === undefined) return 'Not declared'

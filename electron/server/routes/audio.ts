@@ -19,7 +19,7 @@ import {
 import { unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import { resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 import { inspectSubtitleSourceFreshness } from '../services/subtitle-completion.js'
-import { findFreshActionJob, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
+import { freshActionMatch, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 import { withLock } from '../lib/atomic-store.js'
 import { inspectAudioQualityActionScope } from '../services/audio-quality.js'
 import { readAudioQualityProvenance, updateAudioQualityProvenance } from '../services/audio-quality-store.js'
@@ -93,7 +93,7 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
     : (() => { const clean = { ...publicBody }; delete clean.generation_action; delete clean.operation_id; return clean })()
   const enqueueAudio = async () => {
     if (operationId) {
-      const previous = findFreshActionJob(await jq.getJobs(slug), operationId)
+      const previous = (await jq.findJobs(slug, freshActionMatch(operationId)))[0]
       if (previous) {
         if (previous.params.generation_action_fingerprint !== params.generation_action_fingerprint) {
           return res.status(409).json({ detail: 'This operation_id already belongs to a different audio request.' })
@@ -864,7 +864,7 @@ router.post('/projects/:slug/episodes/:code/audio-quality/confirm', async (req, 
         force: true, no_overwrite: false,
         quality_repair: { action_id: operationId!, source_fingerprint: action.source_fingerprint, verification_credit_ceiling: ceiling },
       }, operationId!)
-      const prior = findFreshActionJob(await jq.getJobs(slug), operationId!)
+      const prior = (await jq.findJobs(slug, freshActionMatch(operationId!)))[0]
       if (prior) {
         if (!resumingHeldCandidate && prior.params.generation_action_fingerprint !== params.generation_action_fingerprint) {
           return res.status(409).json({ detail: 'This operation_id already belongs to a different candidate repair.' })
@@ -897,7 +897,7 @@ router.post('/projects/:slug/episodes/:code/audio-quality/confirm', async (req, 
         return res.status(201).json(job)
       } catch (error) {
         if (error instanceof jq.DuplicateJobError) {
-          const winner = findFreshActionJob(await jq.getJobs(slug), operationId!)
+          const winner = (await jq.findJobs(slug, freshActionMatch(operationId!)))[0]
           if (winner && winner.params.generation_action_fingerprint === params.generation_action_fingerprint) {
             return res.status(200).json({ ...winner, reused: true })
           }
@@ -1052,7 +1052,7 @@ router.post('/projects/:slug/episodes/:code/audio-quality/active-check/confirm',
         force: false, no_overwrite: true,
         quality_check: { action_id: operationId!, source_fingerprint: action.source_fingerprint, verification_credit_ceiling: ceiling },
       }, operationId!)
-      const prior = findFreshActionJob(await jq.getJobs(slug), operationId!)
+      const prior = (await jq.findJobs(slug, freshActionMatch(operationId!)))[0]
       const resumingHeldCheck = active.state === 'needs_approval'
         && typeof active.credit_ceiling === 'number' && ceiling > active.credit_ceiling
       if (prior && !resumingHeldCheck) {
@@ -1077,7 +1077,7 @@ router.post('/projects/:slug/episodes/:code/audio-quality/active-check/confirm',
         return res.status(201).json(job)
       } catch (error) {
         if (error instanceof jq.DuplicateJobError) {
-          const winner = findFreshActionJob(await jq.getJobs(slug), operationId!)
+          const winner = (await jq.findJobs(slug, freshActionMatch(operationId!)))[0]
           if (winner && winner.params.generation_action_fingerprint === params.generation_action_fingerprint) return res.status(200).json({ ...winner, reused: true })
           return res.status(409).json({ detail: 'This operation_id belongs to a different active-audio check.' })
         }

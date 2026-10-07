@@ -1149,7 +1149,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             throw scenePlanContinuationError(error)
           }
         }
-        await writeJsonAtomic(outPath, plan)
+        await writeJsonAtomic(outPath, plan, { compact: true })
       })
       job.output_dir = paths.episode_dir
       job.output_lines.push(
@@ -1248,7 +1248,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       const timelineCleanup = removeNonRenderableScenes(plan.scenes)
       if (timelineCleanup.removed_ids.length) {
         plan.scenes = timelineCleanup.scenes
-        await writeJsonAtomic(outPath, plan)
+        await writeJsonAtomic(outPath, plan, { compact: true })
         job.output_lines.push(
           `Timeline cleanup: removed ${timelineCleanup.removed_ids.length} non-renderable zero-duration scene(s)`
           + (timelineCleanup.removed_prompt_ids.length
@@ -1276,7 +1276,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           `${job.project_slug}:${episode_id}`,
           true,
         )
-        await writeJsonAtomic(outPath, plan)
+        await writeJsonAtomic(outPath, plan, { compact: true })
         const profile = plan.creative_direction.profile === 'custom'
           ? 'Custom'
           : CREATIVE_PROFILES[plan.creative_direction.profile].label
@@ -2475,7 +2475,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   // As above: the legacy planner produces a whole new plan rather than editing
   // the one on disk, so this replaces the file — under the lock, so it cannot be
   // interleaved with someone else's read-modify-write.
-  await withLock(outPath, () => writeJsonAtomic(outPath, plan))
+  await withLock(outPath, () => writeJsonAtomic(outPath, plan, { compact: true }))
   const visualIntegrity = inspectScenePromptIntegrity(plan.scenes)
   requireJobCompletion(job, {
     label: 'Scene planning visual prompts',

@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto'
 import * as zlib from 'node:zlib'
-import { inflateRawSync } from 'node:zlib'
+import { promisify } from 'node:util'
+
+// Off the main thread: a sync inflate of a 40 MB pack stalled every request behind it.
+const inflateRaw = promisify(zlib.inflateRaw)
 import sharp from 'sharp'
 
 import { isBundleOnlyCoordinationManifest, parseContentPackDocument, parseContentPackManifest } from './schemas.js'
@@ -261,7 +264,7 @@ function readText(bytes: Uint8Array, label: string): string {
   }
 }
 
-function extractBounded(archiveBytes: Uint8Array, entry: ZipEntry, limit: number): Uint8Array {
+async function extractBounded(archiveBytes: Uint8Array, entry: ZipEntry, limit: number): Promise<Uint8Array> {
   if (!Number.isSafeInteger(limit) || limit <= 0) fail('invalid extraction limit')
   const compressed = archiveBytes.subarray(entry.dataOffset, entry.dataOffset + entry.compressedBytes)
   let bytes: Uint8Array
@@ -270,7 +273,7 @@ function extractBounded(archiveBytes: Uint8Array, entry: ZipEntry, limit: number
     bytes = Uint8Array.from(compressed)
   } else {
     try {
-      bytes = Uint8Array.from(inflateRawSync(compressed, { maxOutputLength: limit }))
+      bytes = Uint8Array.from(await inflateRaw(compressed, { maxOutputLength: limit }))
     } catch (error: any) {
       if (error?.code === 'ERR_BUFFER_TOO_LARGE' || /maxOutputLength|output length/i.test(String(error?.message ?? ''))) {
         fail(`actual expanded data exceeds bounded limit: ${JSON.stringify(entry.path)}`)
@@ -359,9 +362,9 @@ async function verifyArchive(
   if (manifestEntry.expandedBytes > limits.maxJsonBytes) fail('manifest.json exceeds JSON byte limit')
   if (signatureEntry && signatureEntry.expandedBytes > limits.maxSignatureBytes) fail('signature.ed25519 exceeds signature byte limit')
 
-  const manifestBytes = extractBounded(archiveBytes, manifestEntry, Math.min(limits.maxJsonBytes, limits.maxExpandedBytes))
+  const manifestBytes = await extractBounded(archiveBytes, manifestEntry, Math.min(limits.maxJsonBytes, limits.maxExpandedBytes))
   const signatureBytes = signatureEntry
-    ? extractBounded(archiveBytes, signatureEntry, Math.min(limits.maxSignatureBytes, limits.maxExpandedBytes - manifestBytes.byteLength))
+    ? await extractBounded(archiveBytes, signatureEntry, Math.min(limits.maxSignatureBytes, limits.maxExpandedBytes - manifestBytes.byteLength))
     : undefined
   if (signatureBytes && signatureBytes.byteLength !== 64) fail('signature.ed25519 must be a 64-byte Ed25519 signature')
   let manifest: ContentPackManifest
@@ -403,7 +406,7 @@ async function verifyArchive(
     const isJson = file.mime === 'application/json'
     const perFileLimit = isJson ? limits.maxJsonBytes : limits.maxRasterBytes
     const boundedLimit = Math.min(perFileLimit, file.bytes, limits.maxExpandedBytes - actualExpanded)
-    const bytes = extractBounded(archiveBytes, entry, boundedLimit)
+    const bytes = await extractBounded(archiveBytes, entry, boundedLimit)
     if (bytes.byteLength !== file.bytes || sha256(bytes) !== file.sha256) fail(`declared file hash or byte count mismatch: ${JSON.stringify(file.path)}`)
     actualExpanded += bytes.byteLength
     if (!Number.isSafeInteger(actualExpanded) || actualExpanded > limits.maxExpandedBytes) fail('actual expanded archive size exceeds limit')

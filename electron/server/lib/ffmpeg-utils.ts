@@ -164,7 +164,7 @@ export function escapeFilterPath(p: string): string {
 // passing an explicit `-c:v <decoder>` input option makes the same file
 // decode instantly regardless of its extension.
 
-import { open as fsOpen, access as fsAccess } from 'fs/promises'
+import { open as fsOpen, access as fsAccess, stat as fsStat } from 'fs/promises'
 
 /** Identify a still image's real format from magic bytes (value = the ffmpeg
  *  decoder name). Null = not a decodable still image (corrupt / html error
@@ -300,7 +300,30 @@ export async function runFfmpeg(args: string[], opts: { timeoutMs?: number } = {
 
 // ── Get Audio/Video Duration via ffprobe ────────────────────────────────
 
+// S7: Video Assembly re-probed every audio file on every scan (10–78 s to open). A duration is a
+// fact of the bytes, so it is remembered per path + size + mtime; a failed probe is not remembered.
+const DURATION_CACHE = new Map<string, number>()
+const DURATION_CACHE_MAX = 5_000
+
 export async function getAudioDuration(filePath: string): Promise<number | undefined> {
+  const info = await fsStat(filePath).catch(() => null)
+  const key = info?.isFile() ? `${filePath}\u0000${info.size}\u0000${info.mtimeMs}` : null
+  const known = key ? DURATION_CACHE.get(key) : undefined
+  if (known !== undefined) return known
+  const duration = await probeAudioDuration(filePath)
+  if (key && duration !== undefined) {
+    DURATION_CACHE.set(key, duration)
+    if (DURATION_CACHE.size > DURATION_CACHE_MAX) DURATION_CACHE.delete(DURATION_CACHE.keys().next().value!)
+  }
+  return duration
+}
+
+/** Test seam: forget remembered durations. */
+export function _clearAudioDurationCache(): void {
+  DURATION_CACHE.clear()
+}
+
+async function probeAudioDuration(filePath: string): Promise<number | undefined> {
   const ffprobeBin = await getFFprobePath()
   return new Promise((resolve) => {
     const proc = spawn(ffprobeBin, [

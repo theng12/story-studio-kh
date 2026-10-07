@@ -102,7 +102,7 @@ router.post('/projects/:slug/music-library/generate', async (req, res) => {
       && candidate.params?.planner_model === plannerModel
       && candidate.params?.instrumental === instrumental
       && candidate.params?.duration_seconds === durationSeconds
-    const actionJobs = (await jq.getJobs(slug)).filter(job =>
+    const actionJobs = await jq.findJobs(slug, job =>
       job.type === 'music_generate'
       && job.params?.generation_action?.id === operationId,
     )
@@ -131,10 +131,10 @@ router.post('/projects/:slug/music-library/generate', async (req, res) => {
       })
     } catch (error) {
       if (error instanceof jq.DuplicateJobError) {
-        const replay = (await jq.getJobs(slug)).find(candidate =>
+        const replay = (await jq.findJobs(slug, candidate =>
           candidate.type === 'music_generate'
           && candidate.params?.generation_action?.id === operationId,
-        )
+        ))[0]
         if (replay && sameActionRequest(replay)) return res.status(201).json({ ...replay, reused: true })
         if (replay) return res.status(409).json({ detail: 'operation_id already belongs to a different music top-up.' })
         return res.status(409).json({ detail: 'A music top-up is already queued or running.' })

@@ -41,7 +41,7 @@ export interface StorageLeftover {
 const ACTIVE = new Set(['queued', 'running', 'paused'])
 /** Test seam for "a job runs for this episode". */
 export const _leftoverHooks: { getJobs: (slug: string) => Promise<Array<{ episode_id?: string | null; status: string }>> } = {
-  getJobs: slug => jq.getJobs(slug),
+  getJobs: slug => jq.findJobs(slug, job => ACTIVE.has(job.status)),
 }
 const SETTLED_ACTIONS = new Set(['fixed', 'cancelled'])
 

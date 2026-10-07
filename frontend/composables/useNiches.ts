@@ -176,7 +176,9 @@ export interface TopicPack {
     id?: string
     label?: string
     description?: string
-    tuples: unknown[]
+    /** Full pack (`GET /topic-packs/:id`) only; list rows carry `tuple_count`. */
+    tuples?: unknown[]
+    tuple_count?: number
   }>
   catalog?: ContentCatalogMetadata
 }

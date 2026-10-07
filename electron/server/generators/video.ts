@@ -15,7 +15,7 @@ import os from 'os'
 import path from 'path'
 import { spawn } from 'child_process'
 import * as pm from '../services/project-manager.js'
-import { checkpointJobState, isCancelled, trackChild } from '../services/job-queue.js'
+import { checkpointJobProgress, checkpointJobState, isCancelled, trackChild } from '../services/job-queue.js'
 import { withFinalVideoPathLock } from '../services/final-video-lock.js'
 import { resolveSubfolderNames, resolveScenePlanPath, resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 // v1.0.338 — episode-dir + subfolder lookups consolidated into the shared
@@ -747,6 +747,9 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
       const unapprovedPlannedScenes: Array<{ id: string; scene_index: number }> = []
       const stalePlannedScenes: Array<{ id: string; scene_index: number }> = []
       const clipsDir = await resolveVideoAssetsDir(slug, code, episodeDir)
+      // One readdir per folder instead of up to 4 existsSync per scene (S7).
+      const listing = async (dir: string) => new Set(dir ? await safeReaddir(dir) : [])
+      const [namedFiles, flatFiles, clipFiles] = await Promise.all([listing(namedSceneDir), listing(legacySceneDir), listing(clipsDir)])
       let usableCount = 0
       for (const scene of planScenes) {
         // v1.0.456/457 — resolve robustly: unified named folder first, then the
@@ -756,11 +759,10 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
         // where they physically live.
         const namedPath = namedSceneDir ? path.join(namedSceneDir, `${scene.id}.png`) : ''
         const flatPath = path.join(legacySceneDir, `${scene.id}.png`)
-        const plannedPath =
-          (namedPath && existsSync(namedPath)) ? namedPath
-          : (scene.image_path && existsSync(scene.image_path)) ? scene.image_path
-          : flatPath
-        if (!existsSync(plannedPath)) {
+        const named = !!namedPath && namedFiles.has(`${scene.id}.png`)
+        const stored = !named && !!scene.image_path && existsSync(scene.image_path)
+        const plannedPath = named ? namedPath : stored ? scene.image_path! : flatPath
+        if (!named && !stored && !flatFiles.has(`${scene.id}.png`)) {
           missingPlannedScenes.push({ id: scene.id, scene_index: scene.scene_index })
           continue
         }
@@ -769,8 +771,8 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
         if (stale) stalePlannedScenes.push({ id: scene.id, scene_index: scene.scene_index })
         if (!scene.approved) unapprovedPlannedScenes.push({ id: scene.id, scene_index: scene.scene_index })
         const canonicalClip = path.join(clipsDir, `${scene.id}.mp4`)
-        const storedClip = scene.clip_path && existsSync(scene.clip_path) ? scene.clip_path : ''
-        const clipPath = existsSync(canonicalClip) ? canonicalClip : storedClip
+        const clipPath = clipFiles.has(`${scene.id}.mp4`) ? canonicalClip
+          : scene.clip_path && existsSync(scene.clip_path) ? scene.clip_path : ''
         const clipPromptCurrent = typeof scene.rendered_motion_prompt !== 'string'
           || scene.rendered_motion_prompt === (scene.motion_prompt || '')
         const clipImageCurrent = typeof scene.image_version !== 'string'
@@ -3535,7 +3537,8 @@ export async function prepareSceneClips(
     if (!recovery) return Promise.resolve()
     setVideoAssemblyCheckpoint(job, recovery.checkpoint)
     checkpointWrite = checkpointWrite.then(() => (
-      recovery.persistCheckpoint ? recovery.persistCheckpoint(job) : checkpointJobState(job)
+      // A finished clip is a recovery hint: it may share one jobs.json rewrite with its neighbours (S4).
+      recovery.persistCheckpoint ? recovery.persistCheckpoint(job) : checkpointJobProgress(job)
     ))
     return checkpointWrite
   }
