@@ -415,7 +415,7 @@ describe('episode media cleanup execution', () => {
     await markUploaded(episode)
     jq.registerExecutor('metadata', async () => { throw new Error('terminal fixture') })
     const terminal = jq.enqueuePreparedForTest({
-      project_slug: SLUG, type: 'metadata', episode_id: episode.code, title: 'terminal fixture', params: {},
+      project_slug: SLUG, type: 'metadata', episode_id: episode.code, title: 'terminal fixture', params: { auto_retry: false },
     })
     await waitForTerminalJob(terminal.job_id)
     assert.equal(jq.getJob(terminal.job_id)?.status, 'error')

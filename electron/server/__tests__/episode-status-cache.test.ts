@@ -600,6 +600,7 @@ describe('episode-status-cache', () => {
     const status = await cacheMod.episodeStatusCache.get(SLUG, CODE)
     assert.equal(status.scene_plan, true)
     assert.equal(status.scene_review, false, 'one unapproved scene keeps Scene Review pending')
+    assert.equal(status.scene_review_awaiting_approval, 1, 'the Board says it waits for the owner, not for work (TN0329)')
   })
 
   test('scene_review: pending when a scene has neither image_path nor a file on disk', async () => {
@@ -619,6 +620,7 @@ describe('episode-status-cache', () => {
     const status = await cacheMod.episodeStatusCache.get(SLUG, CODE)
     assert.equal(status.scene_plan, true)
     assert.equal(status.scene_review, false, 's2 has no image on disk and no image_path → pending')
+    assert.equal(status.scene_review_awaiting_approval, 1, 's1 has its image and waits; s2 has no image yet, so it is not counted')
   })
 
   test('scene_plan: duplicated prompts remain pending even when every row is filled', async () => {

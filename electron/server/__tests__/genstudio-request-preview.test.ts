@@ -377,6 +377,7 @@ describe('job-queue adopts the pre-submit preview', () => {
       const enqueued = jq.enqueuePreparedForTest({
         project_slug: project.slug,
         type: 'chapter-only',
+        params: { auto_retry: false },
         episode_id: 'EP0001',
       })
       const deadline = Date.now() + 3_000
@@ -453,6 +454,7 @@ describe('job-queue adopts the pre-submit preview', () => {
       const enqueued = jq.enqueuePreparedForTest({
         project_slug: project.slug,
         type: 'chapter-only',
+        params: { auto_retry: false },
         episode_id: 'EP0002',
       })
       await waitFor(() => jq.getJob(enqueued.job_id)?.status === 'error', {

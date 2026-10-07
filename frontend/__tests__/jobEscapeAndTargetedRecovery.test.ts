@@ -150,3 +150,15 @@ describe('per-episode targeted recovery', () => {
     assert.match(jobsPage, /other\.type === 'images_repair'/)
   })
 })
+
+describe('one-click Rebuild Timeline for a Scene Plan that cannot continue', () => {
+  it('is offered only for the structured attention the generator writes', () => {
+    assert.match(jobsPage, /attention\?\.kind === 'scene_plan_rebuild'/)
+    assert.match(jobsPage, /v-if="needsTimelineRebuild\(job\)"[\s\S]{0,300}@click="rebuildTimeline\(job\)"/)
+  })
+
+  it('confirms the replacement first, then queues only the timeline stage', () => {
+    assert.match(jobsPage, /async function rebuildTimeline[\s\S]{0,200}useConfirm\(\)\.ask\(\{[\s\S]{0,500}confirmLabel: 'Rebuild Timeline'[\s\S]{0,120}if \(!ok\) return/)
+    assert.match(jobsPage, /post\(`\/projects\/\$\{jobProjectSlug\(job\)\}\/scene-plan\/\$\{encodeURIComponent\(job\.episode_id!\)\}\/run`, \{ stage: 'timeline' \}\)/)
+  })
+})

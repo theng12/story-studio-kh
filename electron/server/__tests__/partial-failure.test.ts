@@ -59,7 +59,7 @@ describe('partial-failure status contract', () => {
 
     const job = jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'chapter-only', episode_id: 'PF_EP1',
-      title: 't', params: {},
+      title: 't', params: { auto_retry: false }, // a failure here is the point, not a wait
     })
 
     // Wait for the queue runner to execute + persist the terminal state.
@@ -86,7 +86,7 @@ describe('partial-failure status contract', () => {
 
     const job = jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'chapter-only', episode_id: 'PF_EP2',
-      title: 't', params: {},
+      title: 't', params: { auto_retry: false }, // a failure here is the point, not a wait
     })
     await waitForTerminal(job.job_id, 'PF_EP2 to reach a terminal status')
 
@@ -113,7 +113,7 @@ describe('partial-failure status contract', () => {
 
       jq.enqueuePreparedForTest({
         project_slug: proj.slug, type: 'chapter-only', episode_id: 'PF_EV_1',
-        title: 't', params: {},
+        title: 't', params: { auto_retry: false }, // a failure here is the point, not a wait
       })
       // Wait for a terminal frame of ANY kind, then assert below that the one
       // we got was the error frame — a `done` here would still fail the test.

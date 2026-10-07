@@ -135,6 +135,7 @@
         <strong>Needs work only</strong> hides finished episodes (a search always looks through all of them).
         <strong>Repair</strong> re-downloads results that finished but never saved to this Mac — it never starts new work or spends credits.
         Upload status comes from saved YouTube records and survives local media cleanup. Recorded links are not a verified upload. Upload filters also show completed episodes.
+        <strong>⏸</strong> in Scene Review means it is waiting for your approval.
         <template v-if="failedStepCount"><strong>✕</strong> means the last attempt failed — retry it from <NuxtLink :to="`/projects/${slug}/jobs`">Jobs</NuxtLink>.</template>
       </p>
       <div v-if="visibleEpisodes.length" class="board-pagination" aria-label="Episode pages">
@@ -386,7 +387,7 @@ import {
   type VisualSource,
 } from '~/composables/useProjectFlow'
 import { localMediaStatusLabel } from '~/composables/useEpisodes'
-import { episodeStepJobStates } from '~/utils/episode-step-jobs'
+import { awaitingApprovalLabel, episodeStepJobStates } from '~/utils/episode-step-jobs'
 import AssetImportDialog from '~/components/AssetImportDialog.vue'
 import RepairAssetsDialog from '~/components/RepairAssetsDialog.vue'
 
@@ -637,11 +638,16 @@ function isGenerating(code: string): boolean {
 
 // Latest job per episode step: running now, or failed last time.
 const stepJobStates = computed(() => episodeStepJobStates(jobs.value || []))
-type CellState = 'done' | 'active' | 'failed' | 'pending'
+type CellState = 'done' | 'active' | 'failed' | 'waiting' | 'pending'
 function cellState(ep: any, col: BoardCol): CellState {
   if (ep.status?.[col.field] === true) return 'done'
   if (!isColumnApplicable(ep, col)) return 'pending'
-  return stepJobStates.value.get(`${ep.episode_code}:${col.field}`)?.state || 'pending'
+  return stepJobStates.value.get(`${ep.episode_code}:${col.field}`)?.state
+    || (approvalWait(ep, col) ? 'waiting' : 'pending')
+}
+/** Scene Review waiting on the owner's approval rather than on any job. */
+function approvalWait(ep: any, col: BoardCol): string {
+  return col.field === 'scene_review' ? awaitingApprovalLabel(ep.status?.scene_review_awaiting_approval) : ''
 }
 const failedCells = computed(() => {
   const episodesWithFailure = new Set<string>()
@@ -673,13 +679,14 @@ function cellClass(ep: any, col: BoardCol): Record<string, boolean> {
     'cell-pending': state === 'pending',
     'cell-active': state === 'active',
     'cell-failed': state === 'failed',
+    'cell-waiting': state === 'waiting',
     'cell-manual': isManual(ep, col.field),
     'cell-optional': col.optional === true,
   }
 }
 function cellMark(ep: any, col: BoardCol): string {
   if (cellBusy(ep, col)) return '…'
-  return { done: '✓', active: '🔄', failed: '✕', pending: '○' }[cellState(ep, col)]
+  return { done: '✓', active: '🔄', failed: '✕', waiting: '⏸', pending: '○' }[cellState(ep, col)]
 }
 // The Research column's ✓ means "evidence exists" — the same field the
 // Pipeline's pill and the backend's skip logic read. It does NOT mean the
@@ -708,7 +715,7 @@ function cellTitle(ep: any, col: BoardCol): string {
       ? 'being made now'
       : jobState?.state === 'failed'
         ? `last attempt failed${jobState.error ? ` (${jobState.error})` : ''} — retry it from Jobs`
-        : 'pending'
+        : approvalWait(ep, col) || 'pending'
   const note = col.field === 'research' ? researchNote(ep.status) : ''
   return `${ep.episode_code} · ${col.label}${col.optional ? ' (optional)' : ''}: ${state}${note} — click to open`
 }
@@ -1147,6 +1154,7 @@ async function markCell(ep: any, col: BoardCol) {
 .cell-done { color: var(--success, #22c55e); }
 .cell-active { color: var(--accent); }
 .cell-failed { color: var(--error); font-weight: 700; }
+.cell-waiting { color: var(--warning, #d97706); font-weight: 700; }
 .cell-pending { color: var(--text-muted); opacity: 0.55; }
 .cell-optional.cell-pending { opacity: 0.32; }
 .cell-not-used {

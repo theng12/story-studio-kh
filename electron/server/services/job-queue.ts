@@ -23,7 +23,7 @@ import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import type { Job, JobRemoteCancellation, JobRemoteOperation, JobStats, JobType, PaidImageReplacementAttempt, PaidImageReplacementPolicySnapshot } from '../models/types.js'
 import { assertJobDidNotDeclareIncomplete } from './job-completion.js'
 import { jobStreamSignature } from './job-stream-signature.js'
-import { isLocalTextModel, resolveJobAutoRetryPolicy } from './job-retry-policy.js'
+import { isChatTextJob, isLocalTextModel, isNonRetryableError, resolveJobAutoRetryPolicy } from './job-retry-policy.js'
 import { getAppSetting, getPaidImageReplacementSetting, onAppSettingWritten, setAppSetting } from './app-settings.js'
 import { classifyJobControl, classifyJobControls } from './job-control.js'
 import { getJobCancellationAuditor, hasJobCancellationAuditor } from './job-cancellation-auditors.js'
@@ -2923,7 +2923,9 @@ async function hasManifestOnlyPaidImageCommitment(attempt: PaidImageReplacementA
 
 // ── Lazy load persisted jobs on first access ────────────────────────────────
 
-async function readPersistedJobs(projectSlug: string): Promise<void> {
+/** Returns the jobs a restart still left interrupted, so their independent Pipeline steps can start. */
+async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
+  const interrupted: Job[] = []
   const p = jobsPath(projectSlug)
   const resumedTypes = new Set<JobType>()
   const quotaWaitJobs: Job[] = []
@@ -3073,7 +3075,15 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
             // nothing and rebuilds the same file. Before, a restart left it "Interrupted by app
             // restart" and the owner had to find it and press Generate again (Dreamlands E2E).
             const recoverableLocalMerge = j.type === 'audio_merge' && !!queues.audio_merge?.executor
-            if ((recoverableGenStudio || recoverableImageEpisode || recoverableVideoAssembly || recoverableLocalMerge) && !hasCancellationContext(j)) {
+            // Writing work keeps every answer it saved and reconnects to an earlier request by its
+            // saved key where it has one (Scene Plan prompts, Pipeline policy steps); an upload
+            // resumes its saved YouTube session. Neither should wait for someone to press Retry.
+            // A provider request that may have settled is reconciled first (H-17), never re-run.
+            const recoverableChat = isChatTextJob(j.type) && !!queues[j.type as JobType]?.executor
+              && !requiresCancellationReconciliation(j)
+            const recoverableUpload = j.type === 'youtube_upload' && !!queues.youtube_upload?.executor
+            if ((recoverableGenStudio || recoverableImageEpisode || recoverableVideoAssembly || recoverableLocalMerge
+              || recoverableChat || recoverableUpload) && !hasCancellationContext(j)) {
               j.status = 'queued'
               // Keep the original admission timestamp so the fair image pump
               // recognises this as recovery work ahead of fresh FIFO.
@@ -3083,6 +3093,10 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
               j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
               j.output_lines.push(recoverableLocalMerge
                 ? '↻ Story Studio restarted — running Audio Assembly again from the start (local work, nothing is charged).'
+                : recoverableUpload
+                ? '↻ Story Studio restarted — resuming the upload from its saved YouTube session; nothing is uploaded twice.'
+                : recoverableChat
+                ? '↻ Story Studio restarted — picking this step up where it stopped. Saved answers are kept and an earlier request is collected by its saved key where it has one.'
                 : recoverableVideoAssembly
                 ? '↻ Story Studio restarted — resuming local Video Assembly from its validated scene-clip checkpoint. Missing or invalid clips and every later stage will be rebuilt.'
                 : recoverableImageEpisode
@@ -3105,6 +3119,7 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
                 j.status = 'error'
                 j.error = 'Interrupted by app restart'
                 j.finished_at = j.finished_at || new Date().toISOString()
+                interrupted.push(j)
               }
             }
             mutated = true
@@ -3154,6 +3169,7 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
     for (const jobId of historyRefreshJobs) scheduleHistoryEvidenceRefresh(jobId)
     for (const job of quotaWaitJobs) scheduleQuotaWait(job)
   } catch { /* ignore corrupt file */ }
+  return interrupted
 }
 
 async function loadPersistedJobs(projectSlug: string): Promise<void> {
@@ -3161,9 +3177,10 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
   const existing = loadingProjects.get(projectSlug)
   if (existing) return existing
 
+  let interrupted: Job[] = []
   const loading = (async () => {
     await initializeQueuePauseState()
-    await readPersistedJobs(projectSlug)
+    interrupted = await readPersistedJobs(projectSlug)
     const released = await transitionPausedJobsToQueuedByProject(
       [...jobs.values()].filter(job => (
         job.project_slug === projectSlug
@@ -3192,6 +3209,20 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
     loadedProjects.add(projectSlug)
   } finally {
     loadingProjects.delete(projectSlug)
+  }
+  // Only once the project counts as loaded: these hand-offs enqueue into it. Not awaited: the
+  // first load can run inside enqueue's episode admission lock, which a hand-off also takes.
+  for (const job of interrupted) void continueInterruptedPipeline(job)
+}
+
+/** A restart that still interrupts a step must not also stop the steps that never needed it. */
+async function continueInterruptedPipeline(job: Job): Promise<void> {
+  try {
+    await continuePipelineAfterFailure(job)
+    await persistJob(job)
+    emitUpdate(job)
+  } catch (error) {
+    console.warn('[job-queue] could not continue the Pipeline after an interrupted job', { job_id: job.job_id, error: (error as Error)?.message })
   }
 }
 
@@ -3619,6 +3650,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       // earns a fresh retry budget. The best count only ever falls, so this ends.
       let lastAttempt = retryPolicy.max_attempts
       let fewestRemaining = Infinity
+      let chatOutcomeUnknown = false
       for (let attempt = 1; attempt <= lastAttempt; attempt++) {
         job.auto_retry = {
           eligible: retryPolicy.eligible,
@@ -3639,7 +3671,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
             ? { video_assembly_checkpoint: videoAssemblyCheckpoint }
             : undefined
           job.progress = 0
-          job.output_lines.push(`↻ Local auto-retry attempt ${attempt}/${lastAttempt} — checking disk and repairing only missing work.`)
+          job.output_lines.push(`↻ Auto-retry attempt ${attempt}/${lastAttempt} — checking disk and repairing only missing work.`)
           await persistJob(job)
           emitUpdate(job)
         }
@@ -3711,14 +3743,21 @@ async function runJob(type: JobType, job: Job): Promise<void> {
             lastAttempt = attempt + retryPolicy.max_attempts - 1
             job.auto_retry.max_attempts = lastAttempt
           }
-          if (!retryPolicy.eligible || attempt >= lastAttempt) break
+          if (!retryPolicy.eligible || attempt >= lastAttempt || isNonRetryableError(error)) break
+          // A writing request whose outcome is unknown is reconnected by its saved key, which a
+          // manual Retry does; running again in place would send a second request instead.
+          // Scene Plan collects its own earlier packs by key, so it keeps retrying.
+          if (isChatTextJob(job.type) && job.type !== 'scene_plan_run' && hasRecoverableUnsettledGenStudioEvidence(job)) {
+            chatOutcomeUnknown = true
+            break
+          }
 
           const delayIndex = attempt - (lastAttempt - retryPolicy.max_attempts) - 1
           const delayMs = retryPolicy.delays_ms[delayIndex] ?? retryPolicy.delays_ms.at(-1) ?? 2_000
           const message = error instanceof Error ? error.message : String(error)
           job.auto_retry.next_retry_at = new Date(Date.now() + delayMs).toISOString()
           job.output_lines.push(
-            `↻ Local attempt ${attempt}/${lastAttempt} was incomplete: ${message}`,
+            `↻ Attempt ${attempt}/${lastAttempt} was incomplete: ${message}`,
             `  Auto-retrying in ${Math.ceil(delayMs / 1_000)}s. Verified files already saved will be kept; only missing work is asked for again.`,
           )
           await persistJob(job)
@@ -3728,9 +3767,13 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       }
 
       if (!completed) {
-        if (job.auto_retry?.eligible) {
+        if (isNonRetryableError(finalError)) {
+          job.output_lines.push('ℹ Automatic retry skipped: running this job again would stop at the same point. Fix what the error names, then press Retry.')
+        } else if (chatOutcomeUnknown) {
+          job.output_lines.push('ℹ Automatic retry skipped: an earlier writing request has no known outcome yet. Retry reconnects to it by its saved key instead of asking again.')
+        } else if (job.auto_retry?.eligible) {
           job.auto_retry.exhausted = true
-          job.output_lines.push(`✗ Local auto-retry exhausted after ${lastAttempt} attempts. Verified partial files remain on disk; manual Retry starts another recovery cycle.`)
+          job.output_lines.push(`✗ Auto-retry exhausted after ${lastAttempt} attempts. Verified partial files remain on disk; manual Retry starts another recovery cycle.`)
         } else {
           job.output_lines.push(`ℹ Automatic retry not used: ${retryPolicy.reason}`)
         }

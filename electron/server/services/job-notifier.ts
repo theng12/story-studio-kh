@@ -17,6 +17,7 @@
 import { getAppSetting, setAppSetting } from './app-settings.js'
 import type { Job } from '../models/types.js'
 import { truncateChars } from '../lib/well-formed-text.js'
+import { awaitingApprovalLabel } from '../contracts/episode-step-jobs.js'
 
 /** Telegram bot channel (v1.0.60+). Independent of the desktop channel
  *  — a user in Cambodia can mute desktop pop-ups but still get Telegram
@@ -256,6 +257,25 @@ export function formatSingleJobMessage(job: Job, projectLabel?: string): Notific
   return {
     title: suffixProject(`${tag}: ${labelForJobType(job.type)}`, projectLabel),
     body: `${prefix}${formatDuration(elapsed)}`,
+  }
+}
+
+/** A scene render finished and Scene Review now waits on the owner's approval. */
+export function formatApprovalWaitMessage(job: Job, projectLabel?: string): NotificationPayload | null {
+  const label = job.status === 'done' ? awaitingApprovalLabel(job.result?.awaiting_approval) : ''
+  if (!label) return null
+  return {
+    title: suffixProject(label, projectLabel),
+    body: `${job.episode_id ? `${job.episode_id} — ` : ''}Scene Review. Open it to approve the scenes.`,
+  }
+}
+
+/** Quit while jobs run: say what happens to them. Null = nothing running, quit without asking. */
+export function formatQuitWarning(running: number): NotificationPayload | null {
+  if (!Number.isInteger(running) || running < 1) return null
+  return {
+    title: `${running} job${running === 1 ? ' is' : 's are'} running; ${running === 1 ? 'it' : 'they'}'ll continue after restart.`,
+    body: 'Saved work is kept. Anything that cannot pick up where it stopped shows Retry in Jobs.',
   }
 }
 

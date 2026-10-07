@@ -6,8 +6,9 @@
  * checkout and a failing test cannot read, move, or remove the owner's `_trash/app` archive.
  */
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
+import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -109,4 +110,72 @@ test('a first install onto a bare machine needs no trash folder', (t) => {
     'the target has no Info.plist after a first install')
   assert.equal(fs.existsSync(paths.trash), false,
     'a first install created a trash directory even though there was no bundle to keep')
+})
+
+/** A stand-in for the running app's queue API: running jobs reach a safe stop two polls after Pause. */
+async function fakeQueueApi(t, { running, paused }) {
+  const calls = []
+  let polls = 0
+  const server = http.createServer((req, res) => {
+    calls.push(`${req.method} ${req.url}`)
+    if (req.url === '/api/system/queue/pause') paused = true
+    if (req.url === '/api/system/queue/resume') paused = false
+    if (req.url === '/api/system/queue/status' && paused && ++polls > 2) running = 0
+    res.setHeader('content-type', 'application/json')
+    res.end(JSON.stringify({ paused, stats: { running, queued: 0, paused: 0, done: 0, error: 0, total: running } }))
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => server.close())
+  return { calls, url: `http://127.0.0.1:${server.address().port}` }
+}
+
+function installAsync({ script, source, target, trash }, extraEnv) {
+  return new Promise(resolve => {
+    const child = spawn('bash', [script, source], {
+      env: { ...process.env, STORY_STUDIO_INSTALL_TARGET: target, STORY_STUDIO_INSTALL_TRASH: trash, ...extraEnv },
+    })
+    let output = ''
+    child.stdout.on('data', chunk => { output += chunk })
+    child.stderr.on('data', chunk => { output += chunk })
+    child.on('close', status => resolve({ status, output }))
+  })
+}
+
+test('running jobs: pause, wait for a safe stop, install, then resume the queue', async (t) => {
+  const paths = fixture(t, '9.9.6')
+  const app = await fakeQueueApi(t, { running: 2, paused: false })
+
+  const { status, output } = await installAsync(paths, { STORY_STUDIO_API: app.url, STORY_STUDIO_INSTALL_POLL_SECONDS: '0.1' })
+
+  assert.equal(status, 0, output)
+  const pause = app.calls.indexOf('POST /api/system/queue/pause')
+  const resume = app.calls.indexOf('POST /api/system/queue/resume')
+  assert.ok(pause >= 0 && resume > pause, `pause then resume: ${app.calls.join(', ')}`)
+  assert.match(output, /waiting: 2 job\(s\) still running/)
+  assert.ok(output.indexOf('copying 10.0.0') > output.indexOf('waiting:'), 'installed only after the wait')
+  assert.match(output, /resumed the queue \(jobs you paused by hand stay paused\)/)
+})
+
+test('a queue the owner paused stays paused, and a timeout still installs with a message', async (t) => {
+  const paths = fixture(t, '9.9.5')
+  const app = await fakeQueueApi(t, { running: 1, paused: true })
+
+  const { status, output } = await installAsync(paths, {
+    STORY_STUDIO_API: app.url, STORY_STUDIO_INSTALL_WAIT_SECONDS: '0', STORY_STUDIO_INSTALL_POLL_SECONDS: '0.1',
+  })
+
+  assert.equal(status, 0, output)
+  assert.ok(!app.calls.some(call => call.startsWith('POST')), `no pause or resume: ${app.calls.join(', ')}`)
+  assert.match(output, /already paused \(yours, left as it is\)/)
+  assert.match(output, /still running after 0s; installing anyway/)
+})
+
+test('nothing running: no pause and no resume', async (t) => {
+  const paths = fixture(t, '9.9.4')
+  const app = await fakeQueueApi(t, { running: 0, paused: false })
+
+  const { status, output } = await installAsync(paths, { STORY_STUDIO_API: app.url })
+
+  assert.equal(status, 0, output)
+  assert.deepEqual(app.calls, ['GET /api/system/queue/status'])
 })

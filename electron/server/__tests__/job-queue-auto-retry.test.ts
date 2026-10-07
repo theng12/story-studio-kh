@@ -127,4 +127,51 @@ describe('queue-owned local retries', () => {
       Date.now = realNow
     }
   })
+
+  test('an error that cannot pass on a second run skips the retry waits and says what to fix', async () => {
+    const { nonRetryable } = await import('../services/job-retry-policy.js')
+    const project = await pm.createProject({ name: 'Preflight stop' })
+    let attempts = 0
+    jq.registerExecutor('audio_merge', async () => {
+      attempts++
+      throw nonRetryable(new Error('the saved plan has no pacing snapshot'))
+    })
+    const queued = jq.enqueuePreparedForTest({
+      project_slug: project.slug, type: 'audio_merge', episode_id: 'EP0041', title: 'Merge', params: { episode_id: 'EP0041' },
+    })
+    const settled = await waitFor(() => {
+      const job = jq.getJob(queued.job_id)
+      return job?.status === 'error' ? job : undefined
+    }, 1_500)
+    assert.equal(attempts, 1, 'no 2 s / 8 s waits on a certain failure')
+    assert.equal(settled.auto_retry?.exhausted, undefined)
+    assert.match(settled.output_lines.join('\n'), /Automatic retry skipped: .* Fix what the error names, then press Retry/)
+    await jq._waitForJobPersistenceForTesting()
+  })
+
+  test('a writing request with no known outcome is not asked again in place; Retry reconnects by its key', async () => {
+    const project = await pm.createProject({ name: 'Unknown chat outcome' })
+    let attempts = 0
+    jq.registerExecutor('metadata', async job => {
+      attempts++
+      await jq.recordGenStudioJob(job.job_id, {
+        id: 'pending:metadata-lost', operation: 'chat.response', state: 'submitting', updated_at: new Date().toISOString(),
+        request: { method: 'POST', path: '/v1/chat/responses', idempotency_key: 'metadata-lost', messages: [], captured_at: new Date().toISOString() },
+      })
+      throw new Error('submit outcome was lost')
+    })
+    const queued = jq.enqueuePreparedForTest({
+      project_slug: project.slug, type: 'metadata', episode_id: 'EP0042', title: 'Metadata', params: { model: 'paid-writer' },
+    })
+    const settled = await waitFor(() => {
+      const job = jq.getJob(queued.job_id)
+      return job?.status === 'error' ? job : undefined
+    }, 1_500)
+    assert.equal(attempts, 1, 'a second request while the first may still be answering would pay twice')
+    assert.match(settled.output_lines.join('\n'), /no known outcome yet\. Retry reconnects to it by its saved key/)
+    // Its unresolved evidence would schedule a status read after this file's temp dir is gone.
+    await jq._waitForJobPersistenceForTesting()
+    jq.removeTerminalJob(project.slug, queued.job_id)
+    await jq._waitForJobPersistenceForTesting()
+  })
 })

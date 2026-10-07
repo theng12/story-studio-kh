@@ -451,7 +451,7 @@ describe('verified completion backstop', () => {
       job.result = { complete: false, completion_error: 'Metadata incomplete: description is missing.' }
     })
     const queued = jq.enqueuePreparedForTest({
-      project_slug: proj.slug, type: 'metadata', episode_id: 'EP001', title: 'partial', params: {},
+      project_slug: proj.slug, type: 'metadata', episode_id: 'EP001', title: 'partial', params: { auto_retry: false },
     })
 
     const deadline = Date.now() + 2000
@@ -474,7 +474,7 @@ describe('retryTerminalJob()', () => {
       type: 'research_run',
       episode_id: 'EP001',
       title: 'Research checkpoint',
-      params: { model: 'cloud-model', pending_ids: ['item-2'] },
+      params: { model: 'cloud-model', pending_ids: ['item-2'], auto_retry: false },
     })
 
     await waitFor(() => jq.getJob(original.job_id)?.status === 'error', {
@@ -492,7 +492,7 @@ describe('retryTerminalJob()', () => {
     while (Date.now() < retryDeadline && jq.getJob(retried.job_id)?.status !== 'done') {
       await new Promise(resolve => setTimeout(resolve, 20))
     }
-    assert.deepEqual(received, { model: 'cloud-model', pending_ids: ['item-2'] })
+    assert.deepEqual(received, { model: 'cloud-model', pending_ids: ['item-2'], auto_retry: false })
     assert.equal(jq.getJob(retried.job_id)?.status, 'done')
   })
 
@@ -711,7 +711,8 @@ describe('Persistence — interrupted jobs on restart', () => {
       jobs: [{
         job_id: 'fake-interrupted-job',
         project_slug: proj.slug,
-        type: 'chapter-only',
+        // Writing steps are picked up again at boot since R2; paid thumbnails still are not.
+        type: 'thumb_images',
         episode_id: 'EP001',
         title: 'old running job',
         status: 'running',
@@ -1480,6 +1481,7 @@ async function waitForTerminalJob(jobId: string): Promise<void> {
   )
 }
 
+// Writing jobs auto-retry since R1 (2026-10-07); these pin manual Retry identities, so they opt out.
 describe('manual Gateway chat retries', () => {
   test('an unresolved outline retry carries its recorded key to read-only recovery', async () => {
     const proj = await pm.createProject({ name: 'JQ Outline Exact Replay Key' })
@@ -1498,7 +1500,7 @@ describe('manual Gateway chat retries', () => {
       throw new Error('outline submit outcome was lost')
     })
     const failed = jq.enqueuePreparedForTest({
-      project_slug: proj.slug, type: 'outline_only', episode_id: 'EP001', title: 'outline', params: { model: 'writer-alpha' },
+      project_slug: proj.slug, type: 'outline_only', episode_id: 'EP001', title: 'outline', params: { model: 'writer-alpha', auto_retry: false },
     })
     await waitForTerminalJob(failed.job_id)
 
@@ -1532,11 +1534,11 @@ describe('manual Gateway chat retries', () => {
       throw new Error('chapter submit outcome was lost')
     })
     const unresolvedChapter = jq.enqueuePreparedForTest({
-      project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'writer-alpha' },
+      project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'writer-alpha', auto_retry: false },
     })
     await waitForTerminalJob(unresolvedChapter.job_id)
     const failedOutline = jq.enqueuePreparedForTest({
-      project_slug: proj.slug, type: 'outline_only', episode_id: 'EP001', title: 'outline', params: { model: 'writer-alpha' },
+      project_slug: proj.slug, type: 'outline_only', episode_id: 'EP001', title: 'outline', params: { model: 'writer-alpha', auto_retry: false },
     })
     await waitForTerminalJob(failedOutline.job_id)
 
@@ -1568,7 +1570,7 @@ describe('manual Gateway chat retries', () => {
       throw new Error('insufficient credits')
     })
     const failed = jq.enqueuePreparedForTest({
-      project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'writer-alpha' },
+      project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'writer-alpha', auto_retry: false },
     })
     await waitForTerminalJob(failed.job_id)
 
@@ -1602,7 +1604,7 @@ describe('manual Gateway chat retries', () => {
       throw new Error('repair submit outcome was lost')
     })
     const failed = jq.enqueuePreparedForTest({
-      project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'writer-alpha' },
+      project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'writer-alpha', auto_retry: false },
     })
     await waitForTerminalJob(failed.job_id)
 
@@ -1629,7 +1631,7 @@ describe('manual Gateway chat retries', () => {
       throw new Error('one batch is still reconcilable')
     })
     const failed = jq.enqueuePreparedForTest({
-      project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'writer-alpha' },
+      project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'writer-alpha', auto_retry: false },
     })
     await waitForTerminalJob(failed.job_id)
     assert.equal(jq.getJob(failed.job_id)?.status, 'error')
@@ -1653,7 +1655,7 @@ describe('manual Gateway chat retries', () => {
       throw new Error('a submission response is still unresolved')
     })
     const failed = jq.enqueuePreparedForTest({
-      project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'writer-alpha' },
+      project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'writer-alpha', auto_retry: false },
     })
     await waitForTerminalJob(failed.job_id)
     assert.equal(jq.getJob(failed.job_id)?.status, 'error')
@@ -1676,7 +1678,7 @@ describe('manual Gateway chat retries', () => {
       throw new Error('one submitted batch must be reattached')
     })
     const failed = jq.enqueuePreparedForTest({
-      project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'old-model' },
+      project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'old-model', auto_retry: false },
     })
     await waitForTerminalJob(failed.job_id)
     assert.equal(jq.getJob(failed.job_id)?.status, 'error')
@@ -1710,7 +1712,7 @@ describe('manual Gateway chat retries', () => {
       type: 'expand_chapters',
       episode_id: 'EP001',
       title: 'chapters',
-      params: { model: 'older-model' },
+      params: { model: 'older-model', auto_retry: false },
     })
     await waitForTerminalJob(older.job_id)
     const newer = jq.enqueuePreparedForTest({
@@ -1718,7 +1720,7 @@ describe('manual Gateway chat retries', () => {
       type: 'expand_chapters',
       episode_id: 'EP001',
       title: 'chapters',
-      params: { model: 'newer-model' },
+      params: { model: 'newer-model', auto_retry: false },
     })
     await waitForTerminalJob(newer.job_id)
 
@@ -1760,7 +1762,7 @@ describe('manual Gateway chat retries', () => {
       type: 'expand_chapters',
       episode_id: 'EP001',
       title: 'chapters',
-      params: { model: 'older-model' },
+      params: { model: 'older-model', auto_retry: false },
     })
     await waitForTerminalJob(unresolved.job_id)
     evidenceMode = 'settled'
@@ -1769,7 +1771,7 @@ describe('manual Gateway chat retries', () => {
       type: 'expand_chapters',
       episode_id: 'EP001',
       title: 'chapters',
-      params: { model: 'newer-model' },
+      params: { model: 'newer-model', auto_retry: false },
     })
     await waitForTerminalJob(settledFailure.job_id)
 
@@ -1803,7 +1805,7 @@ describe('manual Gateway chat retries', () => {
       type: 'expand_chapters',
       episode_id: 'EP001',
       title: 'chapters',
-      params: { model: 'old-model' },
+      params: { model: 'old-model', auto_retry: false },
     })
     await waitForTerminalJob(failed.job_id)
     assert.equal(jq.getJob(failed.job_id)?.status, 'error')
@@ -1839,7 +1841,7 @@ describe('manual Gateway chat retries', () => {
       type: 'expand_chapters',
       episode_id: 'EP001',
       title: 'chapters',
-      params: { model: 'writer-alpha' },
+      params: { model: 'writer-alpha', auto_retry: false },
     })
     await waitForTerminalJob(failed.job_id)
     assert.equal(jq.getJob(failed.job_id)?.status, 'error')
@@ -1871,7 +1873,7 @@ describe('manual Gateway chat retries', () => {
       type: 'expand_chapters',
       episode_id: 'EP001',
       title: 'chapters',
-      params: { model: 'writer-alpha' },
+      params: { model: 'writer-alpha', auto_retry: false },
     })
     await waitForTerminalJob(failed.job_id)
     assert.equal(jq.getJob(failed.job_id)?.status, 'error')

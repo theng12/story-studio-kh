@@ -4428,6 +4428,8 @@ export interface SceneMotionProfile {
 export interface ScenePlan {
   /** Settings used to build these timestamps; draft changes do not rewrite them. */
   pacing?: ScenePacing
+  /** A render of this plan auto-approved its images; images filled in later are approved too. */
+  auto_approve_generated?: boolean
 
   schema_version: 1
   /** Last time any plan content was updated. ISO8601. */

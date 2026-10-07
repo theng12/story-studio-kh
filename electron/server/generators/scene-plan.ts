@@ -14,6 +14,8 @@ import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePrompt
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { compareTimeline, stampFromCues } from '../lib/scene-plan-timeline.js'
 import { checkpointJobState, hasUnsettledProviderEvidence, isCancelled, throwIfPauseRequested } from '../services/job-queue.js'
+import { nonRetryable } from '../services/job-retry-policy.js'
+import { subtitleChapterLabel } from '../contracts/subtitle-gaps.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath, resolveSubfolderNames } from '../services/utils.js'
 import { findSubfolder } from '../lib/folder-resolver.js'
@@ -710,6 +712,22 @@ export function diagnoseScenePromptCompletionIssues(input: {
 
 export const SCENE_PLAN_FILENAME = 'scene_plan.json'
 
+/** Retrying cannot add cues; the message names the button that can. */
+export function subtitleCoverageGapError(gap: { gap_sec: number; previous_end_sec: number; next_start_sec: number; section_slugs: string[] }): Error {
+  const section = gap.section_slugs.length
+    ? ` in ${gap.section_slugs.join(' / ')}`
+    : ' in a section that could not be mapped'
+  const slug = gap.section_slugs[0]
+  return nonRetryable(new Error(
+    `Subtitle coverage gap: ${gap.gap_sec.toFixed(1)}s without subtitle cues${section}, ` +
+    `from ${gap.previous_end_sec.toFixed(1)}s to ${gap.next_start_sec.toFixed(1)}s. ` +
+    (slug
+      ? `Open Subtitles and press “Re-transcribe ${slug.replaceAll('_', ' ')}” (or “Re-narrate ${subtitleChapterLabel(slug)}” if the narration is silent there), then press Retry on this job. `
+      : 'Open Subtitles, press “Re-transcribe” on the chapter it lists (or “Re-narrate” if the narration is silent there), then press Retry on this job. ') +
+    'Retrying before that stops here again.',
+  ))
+}
+
 function scenePlanContinuationError(error: unknown): Error {
   return new Error(
     `Cannot safely continue Scene Plan: ${error instanceof Error ? error.message : String(error)}. `
@@ -1059,15 +1077,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             gaps: subtitleIntegrity.blocking_cue_gaps,
           },
         }
-        const section = suspiciousGap.section_slugs.length
-          ? ` in ${suspiciousGap.section_slugs.join(' / ')}`
-          : ' in a section that could not be mapped'
-        throw new Error(
-          `Subtitle coverage gap: ${suspiciousGap.gap_sec.toFixed(1)}s without subtitle cues${section}, ` +
-          `from ${suspiciousGap.previous_end_sec.toFixed(1)}s to ${suspiciousGap.next_start_sec.toFixed(1)}s. ` +
-          'Open Subtitles, regenerate or correct the affected chapter, then re-stitch and recheck. ' +
-          'Re-stitching alone cannot add missing cues.',
-        )
+        throw subtitleCoverageGapError(suspiciousGap)
       }
       if (!subtitleIntegrity.complete) {
         throw new Error(
@@ -1231,7 +1241,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         }
       } catch (error) {
         if (!continueExistingPlan) throw error
-        throw scenePlanContinuationError(error)
+        // Running again reads the same saved plan and stops here again. Offer the fix instead.
+        job.result = { ...(job.result || {}), attention: { kind: 'scene_plan_rebuild', workspace: 'scene-plan', episode_id } }
+        throw nonRetryable(scenePlanContinuationError(error))
       }
       const timelineCleanup = removeNonRenderableScenes(plan.scenes)
       if (timelineCleanup.removed_ids.length) {

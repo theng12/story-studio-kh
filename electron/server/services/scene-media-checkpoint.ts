@@ -146,6 +146,12 @@ export async function auditSceneClipCompletion(
   return { expected, completed: expected - missing.length - invalid.length, missing, invalid, issues }
 }
 
+/** Scenes that have their image and no approval yet: Scene Review is waiting on the owner. */
+export async function countScenesAwaitingApproval(planPath: string): Promise<number> {
+  const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+  return plan.scenes.filter(scene => scene.approved !== true && !!scene.image_path).length
+}
+
 export async function checkpointSceneImage(
   planPath: string,
   sceneId: string,
@@ -160,13 +166,17 @@ export async function checkpointSceneImage(
     const scene = plan.scenes.find(item => item.id === sceneId)
     if (!scene) throw new Error(`Scene ${sceneId} disappeared before its image could be registered.`)
 
+    // A scene filling in a gap (no image yet) of an episode whose render auto-approved its
+    // images is approved the same way; a replacement image still waits for the owner.
+    const fillIn = !scene.image_path
+    if (autoApproveGenerated === true) plan.auto_approve_generated = true
     scene.image_path = imagePath
     scene.rendered_prompt = renderedPrompt
     scene.image_version = new Date().toISOString()
     scene.motion_choice = 'pending'
     // Approval is applied only after the exact output file passed the usable
     // media check above and the matching scene still exists in the fresh plan.
-    scene.approved = autoApproveGenerated === true
+    scene.approved = autoApproveGenerated === true || (fillIn && plan.auto_approve_generated === true)
     await writeJsonAtomic(planPath, plan)
     return plan
   })

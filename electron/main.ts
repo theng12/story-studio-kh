@@ -19,6 +19,7 @@ import {
   killAllTrackedChildren,
   jobEvents,
   getJobs,
+  getQueueStats,
 } from './server/services/job-queue.js'
 import { reapFfmpegOrphans } from './server/services/orphan-reaper.js'
 import { projectsRoot, migrateLegacyProjects } from './server/services/project-manager.js'
@@ -33,7 +34,7 @@ import { redactSecrets } from './server/lib/redact-secrets.js'
 import {
   aggregateBatch, isBatchComplete, shouldNotifyForSingleJob,
   formatBatchMessage, formatSingleJobMessage, formatFailureMessage, getBatchId,
-  getNotifierSettings,
+  getNotifierSettings, formatQuitWarning, formatApprovalWaitMessage,
 } from './server/services/job-notifier.js'
 import type { Job } from './server/models/types.js'
 
@@ -458,6 +459,13 @@ function installJobNotifier(): void {
         await dispatchNotification(formatFailureMessage(job, projectLabel), job.project_slug, settings)
       }
 
+      // 1b. Scene Review waiting on the owner (it needs him, like a failure does).
+      const approvalWait = formatApprovalWaitMessage(job, projectLabel)
+      if (events.failures && approvalWait && !notifiedJobs.has(`approval:${job.job_id}`)) {
+        notifiedJobs.add(`approval:${job.job_id}`)
+        await dispatchNotification(approvalWait, job.project_slug, settings)
+      }
+
       // 2. Batch summary — once per batch, when every job in it is terminal.
       if (batchId) {
         if (events.pipeline_finished && !notifiedBatches.has(batchId)) {
@@ -766,6 +774,18 @@ let isShuttingDown = false
 const SHUTDOWN_DRAIN_MS = 800
 electronApp.on('before-quit', (event) => {
   if (isShuttingDown) return
+  // Say what happens to running jobs before they stop. Headless server mode has no window to ask in.
+  const warning = formatQuitWarning(getQueueStats().running)
+  if (warning && mainWindow && !mainWindow.isDestroyed()) {
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: 'warning', buttons: ['Quit', 'Cancel'], defaultId: 0, cancelId: 1,
+      message: warning.title, detail: warning.body,
+    })
+    if (choice === 1) {
+      event.preventDefault()
+      return
+    }
+  }
   isShuttingDown = true
   event.preventDefault()
   try { if (server) server.close() } catch (e) { logCrash('shutdown-server-close', e) }

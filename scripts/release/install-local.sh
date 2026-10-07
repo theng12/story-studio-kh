@@ -24,6 +24,13 @@
 #
 # `STORY_STUDIO_INSTALL_TARGET` and `STORY_STUDIO_INSTALL_TRASH` override the destination and trash,
 # which is what the test uses so it never touches the real install, owner trash, or running app.
+#
+# **Running jobs.** Before quitting, the script asks the running app for `/api/system/queue/status`.
+# With jobs running it pauses the queue (running work stops at its next safe point), waits up to
+# `STORY_STUDIO_INSTALL_WAIT_SECONDS` (default 1800) for them, installs, relaunches, and presses
+# Resume — which releases only the jobs the queue pause held. A queue the owner had already paused,
+# and any job he paused by hand, stays paused. `STORY_STUDIO_API` names the app's address instead
+# of finding it (the test's fake app).
 set -u
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -50,10 +57,66 @@ echo "== installing $NEW_VERSION from $SOURCE"
 REAL_TARGET=no
 [ "$TARGET" = "/Applications/Story Studio KH.app" ] && REAL_TARGET=yes
 
+# The running app's API: the given address, or the loopback port the app listens on.
+find_api() {
+  if [ -n "${STORY_STUDIO_API:-}" ]; then echo "$STORY_STUDIO_API"; return; fi
+  [ "$REAL_TARGET" = yes ] || return
+  local pid port
+  pid=$(pgrep -x "Story Studio KH" | head -1)
+  [ -n "$pid" ] || return
+  for port in $(lsof -nP -a -p "$pid" -iTCP -sTCP:LISTEN 2>/dev/null | awk 'NR > 1 { sub(/.*:/, "", $9); print $9 }'); do
+    if curl -fsS -m 3 "http://127.0.0.1:$port/api/system/queue/status" >/dev/null 2>&1; then
+      echo "http://127.0.0.1:$port"
+      return
+    fi
+  done
+}
+queue_status() { curl -fsS -m 5 "$1/api/system/queue/status" 2>/dev/null; }
+json_field() { printf '%s' "$1" | plutil -extract "$2" raw -o - - 2>/dev/null; }
+
+WE_PAUSED=no
+API=$(find_api)
+if [ -n "$API" ]; then
+  STATUS=$(queue_status "$API")
+  RUNNING=$(json_field "$STATUS" stats.running)
+  RUNNING=${RUNNING:-0}
+  if [ "$RUNNING" -gt 0 ]; then
+    if [ "$(json_field "$STATUS" paused)" = true ]; then
+      echo "== the queue is already paused (yours, left as it is); waiting for $RUNNING running job(s) to stop"
+    elif curl -fsS -m 10 -X POST "$API/api/system/queue/pause" >/dev/null 2>&1; then
+      WE_PAUSED=yes
+      echo "== $RUNNING job(s) running: paused the queue so they stop at a safe point"
+    else
+      echo "== could not pause the queue; waiting for $RUNNING running job(s) anyway"
+    fi
+    WAIT=${STORY_STUDIO_INSTALL_WAIT_SECONDS:-1800}
+    POLL=${STORY_STUDIO_INSTALL_POLL_SECONDS:-5}
+    START=$SECONDS
+    while [ "$RUNNING" -gt 0 ] && [ $((SECONDS - START)) -lt "$WAIT" ]; do
+      echo "   waiting: $RUNNING job(s) still running ($((SECONDS - START))s of ${WAIT}s)"
+      sleep "$POLL"
+      RUNNING=$(json_field "$(queue_status "$API")" stats.running)
+      RUNNING=${RUNNING:-0}
+    done
+    if [ "$RUNNING" -gt 0 ]; then
+      echo "== $RUNNING job(s) still running after ${WAIT}s; installing anyway. They pick up where they"
+      echo "   left off after the relaunch, or show Retry in Jobs. Story Studio asks before it quits."
+    fi
+  fi
+fi
+# A failed install must not leave a silent hold behind.
+trap '[ "$WE_PAUSED" = yes ] && echo "NOTE: this install paused the queue; press Resume in Jobs once Story Studio is open."' EXIT
+
 if [ "$REAL_TARGET" = yes ]; then
   echo "== stopping any running copy"
   osascript -e 'quit app "Story Studio KH"' >/dev/null 2>&1 || true
-  sleep 3
+  # Never move a bundle that is still running (a Quit question may be waiting for an answer).
+  for _ in $(seq 1 60); do pgrep -x "Story Studio KH" >/dev/null || break; sleep 2; done
+  if pgrep -x "Story Studio KH" >/dev/null; then
+    echo "FAILED: Story Studio KH is still open. Answer its Quit question (or quit it), then run this again."
+    echo "        Nothing was replaced."
+    exit 1
+  fi
 fi
 
 if [ -d "$TARGET" ]; then
@@ -91,4 +154,18 @@ echo "== installed $INSTALLED"
 if [ "$REAL_TARGET" = yes ]; then
   # `env -u ELECTRON_RUN_AS_NODE` because a shell that has that set makes the app boot as Node.
   env -u ELECTRON_RUN_AS_NODE open -a "$TARGET" && echo "== launched"
+fi
+
+if [ "$WE_PAUSED" = yes ]; then
+  # The relaunched app listens on a new port; give it time to boot.
+  API=""
+  for _ in $(seq 1 60); do
+    API=$(find_api)
+    [ -n "$API" ] && break
+    sleep 2
+  done
+  if [ -n "$API" ] && curl -fsS -m 10 -X POST "$API/api/system/queue/resume" >/dev/null 2>&1; then
+    WE_PAUSED=no
+    echo "== resumed the queue (jobs you paused by hand stay paused)"
+  fi
 fi
