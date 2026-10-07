@@ -1,5 +1,23 @@
 # HANDOFF — Story Studio KH
 
+## Current work — 2026-10-07 (1.4.259 assembled)
+
+Source release **1.4.259** builds on `cb0ce422` / 1.4.258 (its approach kept: re-narrate → transcribe repaired chapters → one Audio Assembly → local stitch) and merges, `--no-ff` in this order: `fix/retry-restart-stuck` (auto-retry per owner policy, restart resumes writing steps/uploads, install waits for running jobs, Quit asks first, stale subtitles count as missing in recovery), `feat/self-contained-channels`, `fix/done-means-done`, `fix/youtube-and-storage`, `perf/next-tier` (S1–S15), `fix/ux-sweep` and `feat/remote-update`.
+
+Conflict resolutions:
+- `episode-recovery.ts` / `audio.ts` (perf vs 1.4.258): 1.4.258's logic kept; perf intent re-applied — `currentJobs()` (with observed terminal snapshots) is a raw `findJobs` episode filter, the S12 blocked-plan input stamp / 10-min backstop and unchanged-save skip stay, `observedJobs` flows through `advance()`, 1.4.258's stamped-refresh condition is evaluated lazily inside the boot `findJobs` predicate; `queueSubtitlesAfterNarration` uses ONE type-filtered `getJobs`.
+- `episode-media-cleanup.ts` / `storage-audit.ts` (youtube-storage vs self-contained): both import sets kept; the `_trash` summary still reads the external finals root (channel-local Exports trash into the project's own `_trash`).
+- `board.vue`, `upload/publish.vue` (ux-sweep): both sides' board changes kept; the publish hint keeps "checked automatically every 30 minutes" (youtube-storage) over "nothing checks on its own".
+- ux-sweep's Jobs "More actions" fold is **reverted**: Recover, Repair, Queue and Remove From List stay visible, never folded (owner rule 2026-10-03; `jobsControls.test.ts` asserts it).
+
+Added in assembly:
+- 1.4.258 review fixes: `recoverEpisode` takes `priorMerge`/`savedMerge` only from finished merges without `audio_quality_refresh` and strips that marker from the copied params; "Narration refresh source could not be verified…" is written once on the check job's own lines; `chapter-repair-chain.test.ts` covers re-narrate → scoped check → one merge with saved mix → local stitch (no extra ASR) plus the stale-SRT, quality-refresh and refusal cases.
+- Job persistence: a jobs.json write that threw before its first await left a settled `state.writing` that was never cleared (that project's jobs.json was never written again; in tests `_waitForJobPersistenceForTesting` spun forever — `episode-recovery.test.ts` hung the gate). The drain now yields first, and a failed hydrate clears its cached promise. That un-masked an unhandled rejection from cancellation reconciliation's failure-path save, now caught at its scheduler.
+- Remote updates: a quit for an update skips the "jobs are running, quit?" dialog (`isQuittingForUpdate()`); checks every **30 minutes** (plus startup and Check Now); failures remembered by release **signature** — a not-ready download (HTTP error, short/mismatched file, dropped stream; the Gateway serves whole files without Range, so the next check starts from zero) records nothing, any other install failure retries after 2 intervals, only a failed health check (rollback) skips that signature, and a re-publish is always tried.
+- perf S8 lint error (`await-thenable` in pending-approvals) fixed.
+
+Gate (worktree, final commit): typecheck exit 0. Backend exit 0, 6,438 tests / 6,437 pass / 0 fail / 1 skip, 630/630 files. Frontend exit 0, 2,472 tests / 0 fail, 294/294 files. Content-packs exit 0, 368 tests / 366 pass / 0 fail / 2 skip, 38/38 files. check:changelog/typography/security/model-drift/release pass. Lint 0 errors (1,831 existing warnings). `npm run dist:smoke` built and launch-smoked `Story Studio KH 1.4.259-arm64.dmg` (242,373,879 bytes, sha256 `12296af07a9fe84396554c78a1917662db5e010d68d0844886f4eb03104e0cd7`); release lane after the build 54/54. Not installed anywhere; the owner installs on the mini (from 1.4.259 on, the Gateway updater can).
+
 ## Current work — 2026-10-07 (1.4.258 chapter repair chain)
 
 Source release **1.4.258** builds on `067ca170` / 1.4.257. The owner explicitly keeps **re-narrate → transcribe repaired chapters → Audio Assembly**. Standalone chapter checks validate complete, playable episode-owned source audio without requiring the full episode mix; bulk/Pipeline and whole-track transcription retain the assembly gate. Chapter-local success never proves full-episode/stitch completion. Saved source hashes govern reuse.
