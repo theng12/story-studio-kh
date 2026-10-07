@@ -146,6 +146,7 @@ describe('queue-owned local retries', () => {
     assert.equal(attempts, 1, 'no 2 s / 8 s waits on a certain failure')
     assert.equal(settled.auto_retry?.exhausted, undefined)
     assert.match(settled.output_lines.join('\n'), /Automatic retry skipped: .* Fix what the error names, then press Retry/)
+    await jq._waitForJobPersistenceForTesting()
   })
 
   test('a writing request with no known outcome is not asked again in place; Retry reconnects by its key', async () => {
@@ -168,5 +169,9 @@ describe('queue-owned local retries', () => {
     }, 1_500)
     assert.equal(attempts, 1, 'a second request while the first may still be answering would pay twice')
     assert.match(settled.output_lines.join('\n'), /no known outcome yet\. Retry reconnects to it by its saved key/)
+    // Its unresolved evidence would schedule a status read after this file's temp dir is gone.
+    await jq._waitForJobPersistenceForTesting()
+    jq.removeTerminalJob(project.slug, queued.job_id)
+    await jq._waitForJobPersistenceForTesting()
   })
 })

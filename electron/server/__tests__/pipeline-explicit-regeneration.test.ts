@@ -4,6 +4,9 @@ import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
 import { waitFor } from './_timing.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
+import { _setAutomaticRetryForTesting } from '../services/job-retry-policy.js'
+// These tests pin manual Retry; writing jobs auto-retry after a minute since R1 (2026-10-07).
+_setAutomaticRetryForTesting(false)
 
 test('forced Pipeline chat work replays one action, survives Jobs Retry, and a new click is fresh', async t => {
   const isolated = await useTempDataDir()

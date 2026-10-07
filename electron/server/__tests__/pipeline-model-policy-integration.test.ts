@@ -6,6 +6,9 @@ import { waitFor } from './_timing.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
 import { callAiWithModelPolicy, isUnchargedQuotaStop } from '../lib/ai-client.js'
 import type { PipelinePolicyAttemptCheckpoint, PipelinePolicyCheckpointStore } from '../lib/pipeline-model-policy.js'
+import { _setAutomaticRetryForTesting } from '../services/job-retry-policy.js'
+// These tests pin manual Retry; writing jobs auto-retry after a minute since R1 (2026-10-07).
+_setAutomaticRetryForTesting(false)
 
 test('Retry of a Pipeline run redoes an uncharged failure once, on the run\'s own model', async t => {
   const isolated = await useTempDataDir()

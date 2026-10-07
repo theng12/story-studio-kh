@@ -36,6 +36,9 @@ import request from 'supertest'
 import fs from 'fs/promises'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
+import { _setAutomaticRetryForTesting } from '../services/job-retry-policy.js'
+// These tests pin which model reaches the queue; writing jobs auto-retry after a minute since R1.
+_setAutomaticRetryForTesting(false)
 
 let tempDir: string
 let cleanup: () => Promise<void>

@@ -23,6 +23,9 @@ import request from 'supertest'
 import fs from 'fs/promises'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
+import { _setAutomaticRetryForTesting } from '../services/job-retry-policy.js'
+// These tests pin manual Retry; writing jobs auto-retry after a minute since R1 (2026-10-07).
+_setAutomaticRetryForTesting(false)
 
 let tempDir: string
 let cleanup: () => Promise<void>

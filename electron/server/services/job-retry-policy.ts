@@ -111,6 +111,12 @@ const IMAGE_MODEL_TYPES = new Set<JobType>([
 
 const PAID_MANUAL_REASON = 'Paid image and transcription work stays manual so it is never submitted twice; press Retry when ready.'
 
+let automaticRetryOffForTests = false
+/** Test files that pin manual Retry behaviour turn automatic retry off for that file's process. */
+export function _setAutomaticRetryForTesting(enabled: boolean): void {
+  automaticRetryOffForTests = !enabled
+}
+
 /**
  * Deny-by-default retry classification (owner, 2026-10-07):
  * - free fleet (`studio-hub::`) work always retries by itself, 60 s then 300 s;
@@ -123,7 +129,7 @@ export function resolveJobAutoRetryPolicy(
   job: Pick<Job, 'type' | 'params'>,
 ): JobAutoRetryPolicy {
   const params = job.params || {}
-  if (params.auto_retry === false) {
+  if (params.auto_retry === false || automaticRetryOffForTests) {
     return { ...MANUAL_ONLY, reason: 'Automatic retry was disabled for this job.' }
   }
 
