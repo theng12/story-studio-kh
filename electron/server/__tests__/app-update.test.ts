@@ -13,6 +13,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 import * as updater from '../services/app-update.js'
 
 const { publicKey, privateKey } = generateKeyPairSync('ed25519')
@@ -170,7 +171,7 @@ describe('download, stage, drain and resume', () => {
     await updater.maybeInstall()
     assert.equal(updater.readState().phase, 'draining')
     queue.paused = false // the owner pressed Resume
-    await new Promise(r => setTimeout(r, 50))
+    await waitFor(() => updater.readState().phase === 'ready', { label: 'the drain to give way' })
     const state = updater.readState()
     assert.equal(state.phase, 'ready')
     assert.equal(state.held, true)
@@ -271,7 +272,7 @@ describe('swap helper (temp dir)', () => {
     assert.equal(JSON.parse(fs.readFileSync(l.env.SU_RESULT, 'utf8')).outcome, 'rolled_back')
     // The relaunch command runs in the background; give the second one a moment to land.
     const relaunches = () => fs.readFileSync(path.join(tmp.dir, 'relaunches'), 'utf8').trim().split('\n').length
-    for (let i = 0; i < 50 && relaunches() < 2; i++) await new Promise(r => setTimeout(r, 100))
+    await waitFor(() => relaunches() >= 2, { label: 'the second relaunch' })
     assert.equal(relaunches(), 2)
   })
 
