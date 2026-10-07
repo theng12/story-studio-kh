@@ -162,7 +162,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
   const config = await pm.getConfig(job.project_slug)
   if (!config) throw new Error('Project config not found')
   const apiKey = await getApiKey('genstudio')
-  if (!apiKey) throw new Error('Add the Gateway key in Settings before generating images.')
+  if (!apiKey) throw new Error('Add the Gateway API Key in Settings before generating images.')
   const modelConfig = await resolveImageModelConfig(config, model, apiKey)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
   const aspectRatio = resolveConfiguredAspectRatio(modelConfig, params.aspect_ratio)

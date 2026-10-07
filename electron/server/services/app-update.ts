@@ -77,6 +77,8 @@ export interface UpdateState {
   we_paused?: boolean
   drain_started_at?: number | null
   install_requested?: boolean
+  /** Gateway manual command acknowledged only once its verified attempt actually starts. */
+  gateway_update_request_id?: string | null
   /** The owner pressed Resume during a drain: no automatic install of this release. */
   held?: boolean
   from_version?: string | null
@@ -143,7 +145,7 @@ export function verifyRelease(value: unknown, publicKeyBase64: string): ReleaseD
     throw new Error('The release file name is not a .dmg or .zip.')
   }
   const raw = Buffer.from(publicKeyBase64 || '', 'base64')
-  if (raw.byteLength !== 32) throw new Error('No trusted release key.')
+  if (raw.byteLength !== 32) throw new Error('No trusted App Update Key.')
   if (d.publisher_key_id !== fingerprint(publicKeyBase64)) {
     throw new Error('The release was signed with a key this Mac does not trust.')
   }
@@ -372,7 +374,8 @@ export async function report(): Promise<Record<string, unknown>> {
     version: o.currentVersion,
     channels: await o.channels().catch(() => null),
     queue: { ...o.queue.summary(), held: o.queue.isPaused() },
-    update: { phase: state.phase, version: state.release?.version ?? null, error: state.error ?? null },
+    update: { phase: state.phase, version: state.release?.version ?? null, error: state.error ?? null,
+      request_id: state.gateway_update_request_id ?? null },
     server_mode: isServerMode(),
   }
 }
@@ -390,7 +393,7 @@ async function checkInOnce(force: boolean): Promise<UpdateState> {
   const o = opts
   if (!o) return readState()
   const { url, key } = await o.gateway()
-  if (!key) return patchState({ last_check_at: Date.now(), last_check_error: 'No Gateway key is set, so updates are not checked.' })
+  if (!key) return patchState({ last_check_at: Date.now(), last_check_error: 'No Gateway API Key is set, so updates are not checked.' })
   const f = o.fetch ?? fetch
   const response = await f(`${url.replace(/\/+$/, '')}/v1/apps/story/checkin`, {
     method: 'POST',
@@ -402,14 +405,14 @@ async function checkInOnce(force: boolean): Promise<UpdateState> {
     return patchState({ last_check_at: Date.now(), last_check_error: 'This Gateway does not offer Story Studio updates yet.' })
   }
   if (!response.ok) throw new Error(`The Gateway answered ${response.status} to the update check.`)
-  const offer = await response.json() as { release?: unknown; publisher?: { public_key_base64?: string }; update_now?: boolean }
+  const offer = await response.json() as { release?: unknown; publisher?: { public_key_base64?: string }; update_now?: boolean; update_request_id?: string }
   patchState({ last_check_at: Date.now(), last_check_error: null })
   await handleOffer(offer, force)
   return readState()
 }
 
 export async function handleOffer(
-  offer: { release?: unknown; publisher?: { public_key_base64?: string }; update_now?: boolean },
+  offer: { release?: unknown; publisher?: { public_key_base64?: string }; update_now?: boolean; update_request_id?: string },
   force = false,
 ): Promise<void> {
   const o = opts!
@@ -429,7 +432,7 @@ export async function handleOffer(
   if (!trusted) {
     // Pinned on first sight, over the Gateway connection this Mac already authenticates to. From
     // then on a different key is refused until the owner presses "Trust the new key".
-    if (fingerprint(offered) !== release.publisher_key_id) throw new Error('The offered release key does not match the release.')
+    if (fingerprint(offered) !== release.publisher_key_id) throw new Error('The offered App Update Key does not match the release.')
     trusted = offered
     await o.saveSettings({ trusted_publisher_key: offered })
   }
@@ -441,11 +444,16 @@ export async function handleOffer(
   }
   if (offer.update_now) patchState({ install_requested: true, held: false })
   const state = readState()
+  const requestId = offer.update_now && typeof offer.update_request_id === 'string'
+    && /^[0-9a-f]{32}$/.test(offer.update_request_id) ? offer.update_request_id : null
   const sameRelease = state.release?.sha256 === release.sha256
   if (!sameRelease || !['ready', 'draining', 'installing'].includes(state.phase)) {
     if (state.phase === 'draining' || state.phase === 'installing') return
-    await stage(release)
+    await stage(release, requestId)
     if (readState().phase !== 'ready') return
+  } else if (requestId && state.phase !== 'installing') {
+    // An installing attempt keeps its own receipt; a later command belongs to the next attempt.
+    patchState({ gateway_update_request_id: requestId })
   }
   await maybeInstall()
 }
@@ -463,18 +471,27 @@ function markFailed(error: unknown): UpdateState {
  * recorded as a failed install, and the next check tries again.
  */
 async function download(release: ReleaseDescriptor, file: string): Promise<boolean> {
+  const controller = new AbortController()
+  const deadline = setTimeout(() => controller.abort(), 15 * 60_000)
+  let inactivity: ReturnType<typeof setTimeout> | undefined
+  const progressing = () => {
+    clearTimeout(inactivity)
+    inactivity = setTimeout(() => controller.abort(), 30_000)
+  }
+  progressing()
   try {
     const { url, key } = await opts!.gateway()
     const f = opts!.fetch ?? fetch
     const response = await f(`${url.replace(/\/+$/, '')}/v1/apps/story/release/file`, {
       headers: { Authorization: `Bearer ${key}`, 'X-Caller': STORY_CALLER },
+      signal: controller.signal,
     })
     if (!response.ok || !response.body) throw new Error(`the Gateway answered ${response.status} to the download`)
     const hash = createHash('sha256')
     let size = 0
     await pipeline(Readable.fromWeb(response.body as any), new Transform({
-      transform(chunk, _enc, done) { hash.update(chunk); size += chunk.length; done(null, chunk) },
-    }), fs.createWriteStream(`${file}.part`))
+      transform(chunk, _enc, done) { progressing(); hash.update(chunk); size += chunk.length; done(null, chunk) },
+    }), fs.createWriteStream(`${file}.part`), { signal: controller.signal })
     if (size !== release.bytes || hash.digest('hex') !== release.sha256) {
       throw new Error('the downloaded file does not match the signed release yet')
     }
@@ -484,14 +501,18 @@ async function download(release: ReleaseDescriptor, file: string): Promise<boole
     patchState({ phase: 'idle', staged_app: null,
       error: `${release.version} is not fully available yet (${String(e?.message || e)}); trying again at the next check.` })
     return false
+  } finally {
+    clearTimeout(deadline)
+    clearTimeout(inactivity)
   }
 }
 
-async function stage(release: ReleaseDescriptor): Promise<void> {
+async function stage(release: ReleaseDescriptor, requestId: string | null = null): Promise<void> {
   const dir = path.join(updateDir(), 'staging', release.version)
   await toTrash(dir, 'app-update')
   await fsp.mkdir(dir, { recursive: true })
-  patchState({ phase: 'downloading', release, error: null, staged_app: null, held: false })
+  patchState({ phase: 'downloading', release, error: null, staged_app: null, held: false,
+    gateway_update_request_id: requestId })
   const file = path.join(dir, release.filename)
   if (!await download(release, file)) return
   try {

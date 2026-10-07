@@ -309,7 +309,7 @@ export async function generateMusicLibraryTracks(job: Job): Promise<void> {
   if (!brief) throw new Error('A style brief is required.')
   const wanted = Math.max(1, Math.floor(params.count || 1))
   const apiKey = await getApiKey('genstudio')
-  if (!apiKey) throw new Error('Add your Gateway key in Settings first.')
+  if (!apiKey) throw new Error('Add your Gateway API Key in Settings first.')
   const dir = await getLibraryDir(job.project_slug)
   if (!dir) throw new Error(`Project ${job.project_slug} has no folder on disk.`)
 

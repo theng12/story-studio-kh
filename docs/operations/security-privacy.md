@@ -12,7 +12,7 @@ Story Studio KH is an Electron desktop application with an embedded Express API.
 
 ## GenStudio credential handling
 
-- The full GenStudio API key is accepted only by the protected main-process API and written to the per-machine `app-secrets.json` store with owner-only `0600` permissions.
+- The full Gateway API Key is accepted only by the protected main-process API and written to the per-machine `app-secrets.json` store with owner-only `0600` permissions.
 - Reads exposed to the renderer return only `hasKey` and a masked identifier. The raw value is loaded only inside the embedded main-process service when making an authorized GenStudio request.
 - API keys are not part of project configuration, manifests, presets, `jobs.json`, exports, or generated assets. The job persistence/SSE boundary deep-redacts secret-bearing fields and strings as a final safeguard.
 - Runtime-loaded keys are registered with the global redactor. Logs, crash messages, provider errors, URLs, and renderer-visible error details remove exact loaded credentials and defensive Bearer/Key/GenStudio patterns.

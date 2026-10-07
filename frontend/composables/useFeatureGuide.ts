@@ -357,7 +357,7 @@ export const featureGuides: Record<string, FeatureGuide> = {
     summary: 'Configure what belongs to this Mac and what travels with this project. Type in “Find a setting” to jump straight to any control.',
     workflow: ['Pick a section on the left: This Mac sections apply to every channel, This Project sections to this one.', 'Each section starts with what you change most; rarer options sit under one Advanced.', 'Search finds single settings (for example “time zone” or “finished videos”) and opens them.'],
     topics: [
-      { title: 'Connections', purpose: 'The Gateway address and key, and the YouTube accounts on this Mac.' },
+      { title: 'Connections', purpose: 'The Gateway address and Gateway API Key, and the YouTube accounts on this Mac.' },
       { title: 'Performance & recovery', purpose: 'How much work runs at once, and whether a confirmed failure may buy one paid replacement. One Save for the section.' },
       { title: 'Appearance & notifications', purpose: 'Light or dark, desktop and Telegram alerts, the daily brief, and Server Mode under Advanced.' },
       { title: 'Files & maintenance', purpose: 'Where your files are (Library and finished videos folders, chosen with a folder picker), Free up space (every way to free space, and what is using it), smaller files, and FFmpeg.' },

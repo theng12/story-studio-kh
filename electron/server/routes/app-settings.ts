@@ -490,14 +490,14 @@ router.get('/app-settings/api-keys', async (_req, res) => {
     const rows = (await listProviderKeys()).filter(row => row.providerId === 'genstudio')
     res.json({ providers: rows, supported: CUSTOMER_SECRET_PROVIDERS })
   } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to load API keys'))
+    res.status(500).json(humanizeBackendError(e, 'Failed to load the Gateway API Key'))
   }
 })
 
 router.put('/app-settings/api-keys/:providerId', async (req, res) => {
   const providerId = req.params.providerId
   if (!(CUSTOMER_SECRET_PROVIDERS as readonly string[]).includes(providerId)) {
-    return res.status(410).json({ code: 'GENSTUDIO_ONLY', detail: 'Only a Gateway key can be configured.' })
+    return res.status(410).json({ code: 'GENSTUDIO_ONLY', detail: 'Only a Gateway API Key can be configured.' })
   }
   const apiKey = typeof req.body?.apiKey === 'string' ? req.body.apiKey : ''
   if (!apiKey.trim()) {
@@ -507,20 +507,20 @@ router.put('/app-settings/api-keys/:providerId', async (req, res) => {
     await setApiKey(providerId, apiKey)
     res.json({ ok: true })
   } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to save API key'))
+    res.status(500).json(humanizeBackendError(e, 'Failed to save the Gateway API Key'))
   }
 })
 
 router.delete('/app-settings/api-keys/:providerId', async (req, res) => {
   const providerId = req.params.providerId
   if (!(CUSTOMER_SECRET_PROVIDERS as readonly string[]).includes(providerId)) {
-    return res.status(410).json({ code: 'GENSTUDIO_ONLY', detail: 'Only a Gateway key can be configured.' })
+    return res.status(410).json({ code: 'GENSTUDIO_ONLY', detail: 'Only a Gateway API Key can be configured.' })
   }
   try {
     await clearApiKey(providerId)
     res.json({ ok: true })
   } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to clear API key'))
+    res.status(500).json(humanizeBackendError(e, 'Failed to clear the Gateway API Key'))
   }
 })
 
@@ -556,7 +556,7 @@ router.put('/app-settings/genstudio', async (req, res) => {
 async function requireGenStudioKey(res: any): Promise<string | null> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey.trim()) {
-    res.status(400).json({ detail: 'Save a Gateway key in Settings → This Mac first.' })
+    res.status(400).json({ detail: 'Save a Gateway API Key in Settings → This Mac first.' })
     return null
   }
   return apiKey
@@ -724,7 +724,7 @@ router.get('/app-settings/genstudio/voice-libraries/:library/:publicVoiceId/prev
 router.get('/app-settings/genstudio/chat-models', async (_req, res) => {
   try {
     const apiKey = await getApiKey('genstudio')
-    if (!apiKey) return res.status(400).json({ detail: 'Add a Gateway key first.' })
+    if (!apiKey) return res.status(400).json({ detail: 'Add a Gateway API Key first.' })
     const snapshot = await listGenStudioChatModels(apiKey, { displayFallback: true })
     res.json({ models: snapshot.value, freshness: { stale: snapshot.stale, ageMs: snapshot.ageMs, loadedAt: snapshot.loadedAt } })
   } catch (e: any) {
@@ -735,7 +735,7 @@ router.get('/app-settings/genstudio/chat-models', async (_req, res) => {
 router.get('/app-settings/genstudio/video-models', async (_req, res) => {
   try {
     const apiKey = await getApiKey('genstudio')
-    if (!apiKey) return res.status(400).json({ detail: 'Add a Gateway key first.' })
+    if (!apiKey) return res.status(400).json({ detail: 'Add a Gateway API Key first.' })
     const snapshot = await listGenStudioVideoModels(apiKey, { displayFallback: true })
     res.json({ models: snapshot.value, freshness: { stale: snapshot.stale, ageMs: snapshot.ageMs, loadedAt: snapshot.loadedAt } })
   } catch (e: any) {
@@ -747,7 +747,7 @@ router.get('/app-settings/genstudio/transcription-models', async (_req, res) => 
   try {
     const apiKey = await getApiKey('genstudio')
     if (!apiKey.trim()) {
-      return res.status(400).json({ detail: 'Save a Gateway key in Settings → This Mac first.' })
+      return res.status(400).json({ detail: 'Save a Gateway API Key in Settings → This Mac first.' })
     }
     const snapshot = await listGenStudioTranscriptionModels(apiKey, { displayFallback: true })
     res.json({ models: snapshot.value, freshness: { stale: snapshot.stale, ageMs: snapshot.ageMs, loadedAt: snapshot.loadedAt } })
@@ -763,7 +763,7 @@ router.get('/app-settings/genstudio/image-models', async (_req, res) => {
   try {
     const apiKey = await getApiKey('genstudio')
     if (!apiKey.trim()) {
-      return res.status(400).json({ detail: 'Save a Gateway key in Settings → This Mac first.' })
+      return res.status(400).json({ detail: 'Save a Gateway API Key in Settings → This Mac first.' })
     }
     const snapshot = await listGenStudioImageModels(apiKey, { displayFallback: true })
     res.json({ models: snapshot.value, freshness: { stale: snapshot.stale, ageMs: snapshot.ageMs, loadedAt: snapshot.loadedAt } })
@@ -788,15 +788,15 @@ router.get('/app-settings/genstudio/music-models', async (_req, res) => {
 
 router.get('/app-settings/genstudio/admission', async (_req, res) => {
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) return res.status(400).json({ detail: 'Add a Gateway key first.' })
+  if (!apiKey) return res.status(400).json({ detail: 'Add a Gateway API Key first.' })
   try {
     res.json(await getGenStudioAdmissionSnapshot(apiKey))
   } catch (error: any) {
     if (error instanceof GenStudioApiError && (error.status === 401 || error.status === 403)) {
       return res.status(503).json({
         code: 'GENSTUDIO_ADMISSION_SCOPE_UNAVAILABLE',
-        detail: 'The saved Gateway key is invalid or missing usage:read for account admission capacity. ' +
-          'Use a Gateway key with usage:read (all-access keys already include it), then save and test it again.',
+        detail: 'The saved Gateway API Key is invalid or missing usage:read for account admission capacity. ' +
+          'Use a Gateway API Key with usage:read (all-access keys already include it), then save and test it again.',
       })
     }
     res.status(502).json(humanizeBackendError(error, 'Could not load how many jobs the Gateway can run at once'))
@@ -805,7 +805,7 @@ router.get('/app-settings/genstudio/admission', async (_req, res) => {
 
 router.get('/app-settings/genstudio/overview', async (_req, res) => {
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) return res.status(400).json({ detail: 'Add a Gateway key first.' })
+  if (!apiKey) return res.status(400).json({ detail: 'Add a Gateway API Key first.' })
   try {
     const { value: overview, ...overviewFreshness } = await getGenStudioAccountOverviewSnapshot(apiKey)
     res.json({ overview, overview_freshness: overviewFreshness })
@@ -813,8 +813,8 @@ router.get('/app-settings/genstudio/overview', async (_req, res) => {
     if (error instanceof GenStudioApiError && (error.status === 401 || error.status === 403)) {
       return res.status(503).json({
         code: 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE',
-        detail: 'The saved Gateway key is invalid or missing usage:read for account balance. ' +
-          'Use a Gateway key with usage:read (all-access keys already include it), then save and test it again.',
+        detail: 'The saved Gateway API Key is invalid or missing usage:read for account balance. ' +
+          'Use a Gateway API Key with usage:read (all-access keys already include it), then save and test it again.',
       })
     }
     res.status(502).json(humanizeBackendError(error, 'Could not load the Gateway account overview'))
@@ -823,15 +823,15 @@ router.get('/app-settings/genstudio/overview', async (_req, res) => {
 
 router.get('/app-settings/genstudio/usage', async (_req, res) => {
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) return res.status(400).json({ detail: 'Add a Gateway key first.' })
+  if (!apiKey) return res.status(400).json({ detail: 'Add a Gateway API Key first.' })
   try {
     res.json(await getGenStudioAccountSnapshot(apiKey))
   } catch (error: any) {
     if (error instanceof GenStudioApiError && (error.status === 401 || error.status === 403)) {
       return res.status(503).json({
         code: 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE',
-        detail: 'The saved Gateway key is invalid or missing usage:read for account balance and settlement history. ' +
-          'Use a Gateway key with usage:read (all-access keys already include it), then save and test it again. ' +
+        detail: 'The saved Gateway API Key is invalid or missing usage:read for account balance and settlement history. ' +
+          'Use a Gateway API Key with usage:read (all-access keys already include it), then save and test it again. ' +
           'Story Studio will not estimate or reconstruct credits locally.',
       })
     }
@@ -1054,7 +1054,7 @@ router.put('/app-settings/last-seen-version', async (req, res) => {
 router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
   const providerId = req.params.providerId
   if (!(CUSTOMER_SECRET_PROVIDERS as readonly string[]).includes(providerId)) {
-    return res.status(410).json({ code: 'GENSTUDIO_ONLY', detail: 'Only a Gateway key can be tested.' })
+    return res.status(410).json({ code: 'GENSTUDIO_ONLY', detail: 'Only a Gateway API Key can be tested.' })
   }
   // Allow caller to test a key BEFORE saving (req.body.apiKey) or to
   // re-test the currently-stored key (no body).
@@ -1064,7 +1064,7 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
     apiKey = await getApiKey(providerId)
   }
   if (!apiKey) {
-    return res.status(400).json({ valid: false, reachable: false, message: 'No Gateway key saved yet. Paste it from GatewayKH → Settings.' })
+    return res.status(400).json({ valid: false, reachable: false, message: 'No Gateway API Key saved yet. Paste it from GatewayKH → Settings.' })
   }
   try {
     if (providerId === 'genstudio') {
@@ -1187,6 +1187,6 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
       })
     }
   } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to test API key'))
+    res.status(500).json(humanizeBackendError(e, 'Failed to test the Gateway API Key'))
   }
 })

@@ -886,7 +886,7 @@ test('Gateway authentication failures are immediate and actionable', async () =>
         maxInputCharacters: 12_000,
         speed: 1,
       }),
-      /did not accept this API key.*valid account key/i,
+      /did not accept this Gateway API Key.*valid Gateway API Key/i,
     )
     assert.equal(attempts, 1)
   } finally {

@@ -519,7 +519,7 @@ const visionModelMenuOptions = computed(() => [
     group: model.provider || 'Vision models',
     provider: model.provider,
     disabled: !model.has_key,
-    disabledReason: model.has_key ? undefined : 'No API key configured for this provider.',
+    disabledReason: model.has_key ? undefined : 'No Gateway API Key configured.',
   })),
 ])
 

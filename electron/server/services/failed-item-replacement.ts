@@ -102,7 +102,7 @@ async function verifyFailure(entry: Evidence, operation: 'voice.tts' | 'chat.res
     return conflict('The failed request has no exact accepted Gateway identity. Story Studio did not queue replacement work.')
   }
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) return conflict('The Gateway could not be checked because its API key is unavailable. No replacement was queued.')
+  if (!apiKey) return conflict('The Gateway could not be checked because the Gateway API Key is unavailable. No replacement was queued.')
   const baseUrl = await getGenStudioUrl()
   let live: GenStudioJob
   try {

@@ -65,7 +65,7 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
   async run(opts: ResearchRunOptions): Promise<ResearchOutput> {
     const apiKey = await getApiKey('genstudio').catch(() => '')
     if (!apiKey) {
-      throw new Error('No Gateway key configured. Add it in Settings → This Mac before running research.')
+      throw new Error('No Gateway API Key configured. Add it in Settings → This Mac before running research.')
     }
     const policy = opts.pipeline_model_policy
     // The Pipeline's model is checked only before a fresh POST. A saved key is

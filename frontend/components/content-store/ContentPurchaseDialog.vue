@@ -162,7 +162,7 @@ const displayError = computed(() => {
     return { tone: 'warning', title: 'More credits are needed', detail, showCredits: true }
   }
   if (props.error?.status === 401 || code === 'CONTENT_STORE_SCOPE_REQUIRED') {
-    return { tone: 'warning', title: 'Your Gateway key is not allowed to buy content', detail, showCredits: false }
+    return { tone: 'warning', title: 'Your Gateway API Key is not allowed to buy content', detail, showCredits: false }
   }
   if (code === 'quote_expired' || code === 'quote_rejected') {
     return { tone: 'warning', title: 'This price has expired', detail: `${detail} Close this and ask for a new price.`, showCredits: false }

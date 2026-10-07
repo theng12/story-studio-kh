@@ -303,6 +303,7 @@ export async function runFfmpeg(args: string[], opts: { timeoutMs?: number } = {
 // S7: Video Assembly re-probed every audio file on every scan (10–78 s to open). A duration is a
 // fact of the bytes, so it is remembered per path + size + mtime; a failed probe is not remembered.
 const DURATION_CACHE = new Map<string, number>()
+const DURATION_INFLIGHT = new Map<string, Promise<number | undefined>>()
 const DURATION_CACHE_MAX = 5_000
 
 export async function getAudioDuration(filePath: string): Promise<number | undefined> {
@@ -310,17 +311,24 @@ export async function getAudioDuration(filePath: string): Promise<number | undef
   const key = info?.isFile() ? `${filePath}\u0000${info.size}\u0000${info.mtimeMs}` : null
   const known = key ? DURATION_CACHE.get(key) : undefined
   if (known !== undefined) return known
-  const duration = await probeAudioDuration(filePath)
-  if (key && duration !== undefined) {
-    DURATION_CACHE.set(key, duration)
-    if (DURATION_CACHE.size > DURATION_CACHE_MAX) DURATION_CACHE.delete(DURATION_CACHE.keys().next().value!)
-  }
-  return duration
+  if (!key) return probeAudioDuration(filePath)
+  const pending = DURATION_INFLIGHT.get(key)
+  if (pending) return pending
+  const probe = probeAudioDuration(filePath).then(duration => {
+    if (duration !== undefined) {
+      DURATION_CACHE.set(key, duration)
+      if (DURATION_CACHE.size > DURATION_CACHE_MAX) DURATION_CACHE.delete(DURATION_CACHE.keys().next().value!)
+    }
+    return duration
+  }).finally(() => { DURATION_INFLIGHT.delete(key) })
+  DURATION_INFLIGHT.set(key, probe)
+  return probe
 }
 
 /** Test seam: forget remembered durations. */
 export function _clearAudioDurationCache(): void {
   DURATION_CACHE.clear()
+  DURATION_INFLIGHT.clear()
 }
 
 async function probeAudioDuration(filePath: string): Promise<number | undefined> {

@@ -27,7 +27,7 @@
       <template #actions>
         <button type="button" class="btn btn-sm btn-secondary" :disabled="loading" @click="load">Try Again</button>
         <button type="button" class="btn btn-sm btn-secondary" @click="appSettingsModal.open('connections')">
-          {{ usageErrorCode === 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE' ? 'Review the Gateway Connection' : error === 'Add a Gateway key first.' ? 'Connect Your Gateway' : 'Open Connection Settings' }}
+          {{ usageErrorCode === 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE' ? 'Review the Gateway Connection' : error === 'Add a Gateway API Key first.' ? 'Connect Your Gateway' : 'Open Connection Settings' }}
         </button>
       </template>
     </WorkspaceNotice>

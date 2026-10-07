@@ -152,7 +152,7 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   // The key is resolved first: model capabilities come from the live
   // GenStudio catalogue, not from a synthesised constant.
   const apiKey = await getApiKey('genstudio')
-  if (!apiKey) throw new Error('Add the Gateway key in Settings before generating images.')
+  if (!apiKey) throw new Error('Add the Gateway API Key in Settings before generating images.')
   const modelConfig = await resolveImageModelConfig(config, model, apiKey)
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
 

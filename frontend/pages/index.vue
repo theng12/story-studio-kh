@@ -119,10 +119,10 @@
                   v-else-if="project.output_root_exists === false"
                   class="project-status project-status-missing"
                 >Folder missing</span>
-                <!-- This pill only says whether a Gateway key is saved. It is
+                <!-- This pill only says whether a Gateway API Key is saved. It is
                      not a readiness check, so it must not read like one. -->
                 <span v-else class="project-status" :data-ready="Boolean(project.has_api_keys)">
-                  {{ project.has_api_keys ? 'Key connected' : 'Needs Gateway key' }}
+                  {{ project.has_api_keys ? 'Key connected' : 'Needs Gateway API Key' }}
                 </span>
               </span>
               <span class="project-copy">

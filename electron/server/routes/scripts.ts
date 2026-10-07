@@ -95,7 +95,7 @@ router.post('/projects/:slug/generate/outline-only', validateBody(GenerateScript
 
   const config = await pm.getConfig(slug)
   if (!(await hasAnyTextProviderKey(config))) {
-    return res.status(400).json({ detail: 'No AI API key configured. Add one in Settings.' })
+    return res.status(400).json({ detail: 'No Gateway API Key configured. Add it in Settings → This Mac.' })
   }
 
   let action
@@ -129,7 +129,7 @@ router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
 
   const config = await pm.getConfig(slug)
   if (!(await hasAnyTextProviderKey(config))) {
-    return res.status(400).json({ detail: 'No AI API key configured. Add one in Settings.' })
+    return res.status(400).json({ detail: 'No Gateway API Key configured. Add it in Settings → This Mac.' })
   }
 
   const { episode_id, title } = req.body || {}
@@ -596,7 +596,7 @@ router.post('/projects/:slug/generate/chapter-only', validateBody(GenerateChapte
 
   const config = await pm.getConfig(slug)
   if (!(await hasAnyTextProviderKey(config))) {
-    return res.status(400).json({ detail: 'No AI API key configured. Add one in Settings.' })
+    return res.status(400).json({ detail: 'No Gateway API Key configured. Add it in Settings → This Mac.' })
   }
 
   let action
@@ -641,7 +641,7 @@ router.post('/projects/:slug/generate/introduction-only', validateBody(GenerateI
 
   const config = await pm.getConfig(slug)
   if (!(await hasAnyTextProviderKey(config))) {
-    return res.status(400).json({ detail: 'No AI API key configured. Add one in Settings.' })
+    return res.status(400).json({ detail: 'No Gateway API Key configured. Add it in Settings → This Mac.' })
   }
 
   // The caller names an episode; the server works out the rest.

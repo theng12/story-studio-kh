@@ -32,6 +32,7 @@ import {
   revealSecondsForImage,
   type ResolvedSceneReveals,
 } from '../lib/reveal-assembly.js'
+import { mapWithConcurrency } from '../lib/map-with-concurrency.js'
 import { mulberry32 } from '../lib/seeded-random.js'
 import { assertDecodableImage } from '../lib/image-validation.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
@@ -846,10 +847,11 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
     const files = await safeReaddir(audioDir)
     let fullNarrationPath: string | undefined
 
-    for (const file of files) {
-      if (!/\.(mp3|wav|m4a)$/i.test(file)) continue
+    const audioFiles = files.filter(file => /\.(mp3|wav|m4a)$/i.test(file))
+    const durations = await mapWithConcurrency(audioFiles, 4, file => getAudioDuration(path.join(audioDir, file)))
+    for (const [index, file] of audioFiles.entries()) {
       const filePath = path.join(audioDir, file)
-      const duration = await getAudioDuration(filePath)
+      const duration = durations[index]
 
       // Merged-audio files sometimes live in the chapter folder (legacy layout).
       // Route them to the merged_audio list so downstream logic sees them.
@@ -908,11 +910,11 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
   // Scan merged audio files
   if (mergedAudioDir) {
     const files = await safeReaddir(mergedAudioDir)
-    for (const file of files) {
-      if (!/\.(mp3|wav|m4a)$/i.test(file)) continue
-      if (file.startsWith('.tmp_')) continue
+    const audioFiles = files.filter(file => /\.(mp3|wav|m4a)$/i.test(file) && !file.startsWith('.tmp_'))
+    const durations = await mapWithConcurrency(audioFiles, 4, file => getAudioDuration(path.join(mergedAudioDir, file)))
+    for (const [index, file] of audioFiles.entries()) {
       const filePath = path.join(mergedAudioDir, file)
-      const duration = await getAudioDuration(filePath)
+      const duration = durations[index]
       result.merged_audio.push({
         filename: file,
         path: filePath,

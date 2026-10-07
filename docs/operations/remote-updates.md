@@ -14,13 +14,13 @@ Code: `electron/server/services/app-update.ts` (updater, swap helper, login agen
 1. **Publish** (Gateway → Fleet → Story Studio → *Publish a Story Studio Release…*): choose
    `dist/Story Studio KH <version>-arm64.dmg` (or a .zip of the .app). The Gateway reads the
    version from the app's own Info.plist, copies the file into its data folder and signs a
-   descriptor (version, build, file name, size, sha256) with the **same publisher key as Studio Hub
+   descriptor (version, build, file name, size, sha256) with the **same App Update Key as Studio Hub
    releases**. The replaced artifact goes to the Gateway's Trash Folder.
 2. **Check-in** (at startup, every 30 minutes, and *Check Now* in Settings → About → Updates): Story posts
    its version, machine name, channel count, queue and update phase to `/v1/apps/story/checkin`
-   with the Gateway key it already uses, and gets the signed release back.
-3. **Verify**: the release key is pinned the first time this Mac sees one; after that a different
-   key is refused until the owner presses *Trust the Gateway's New Key*. The signature, then the
+   with the Gateway API Key it already uses, and gets the signed release back.
+3. **Verify**: the App Update Key is pinned the first time this Mac sees one; after that a different
+   key is refused until the owner presses *Trust the New App Update Key*. The signature, then the
    download's size and sha256, must match.
 4. **Stage**: the .app is copied out of the DMG (read-only mount) into
    `~/Library/Application Support/Story Studio KH/app-update/staging/<version>/app/`.
@@ -47,8 +47,10 @@ Code: `electron/server/services/app-update.ts` (updater, swap helper, login agen
 
 **Failures are remembered by release signature, never by build** (the Hub's by-build memory never
 retried until relaunch). A download that is not fully available yet (404, a short or mismatched
-file, a dropped connection — the Gateway serves the file whole, without Range) records nothing:
-the next check downloads again from zero. Any other install failure is tried again automatically
+file, a dropped connection or a stalled transfer — the Gateway serves the file whole, without Range) records nothing:
+the next check downloads again from zero. Download headers and body have a 30-second inactivity
+ceiling and a 15-minute total ceiling; aborted partials move into runtime `_trash/app-update/`
+when the next attempt stages its folder. Any other install failure is tried again automatically
 after about two checks (an hour); a re-publish is tried at once.
 
 Server Mode is unchanged by any of this: it is a saved setting, so a relaunched Story comes back
@@ -73,9 +75,8 @@ a copy opened by hand from Finder is not supervised until the next login.
 4. Settings → About → **Updates**:
    - turn on **Open at Login, and restart after a crash**;
    - leave **Install updates automatically** on and pick **When to install**;
-   - press **Check Now**. It should say *Up to date* and show a *Trusted release key*. Its first
-     16 characters must match the publisher fingerprint the Gateway shows under Settings → release
-     identity (`/admin/api/release/identity`). If they differ, stop and tell the coordinator.
+   - press **Check Now**. It should say *Up to date* and show a *App Update Key*. Its first
+     16 characters should match the fingerprint in Gateway → Settings → App Update Key (`/admin/api/release/identity`). If they differ, stop and tell the coordinator.
 5. macOS, once: System Settings → Privacy & Security → **App Management** → add/allow
    *Story Studio KH*. Recent macOS can stop one app replacing an app bundle in /Applications; if it
    does, the first update fails cleanly with "Could not move the installed app aside… App
@@ -85,7 +86,11 @@ a copy opened by hand from Finder is not supervised until the next login.
 
 From then on: publish on the Gateway, and the Fleet → Story Studio tab shows each Mac go
 *Update available → Updating… → Up to date*. *Update Now* on a row makes that Mac start on its next
-check-in, whatever its install window.
+check-in, whatever its install window. New Gateways include an optional `update_request_id`; Story
+reports `update.request_id` as null until a verified attempt starts, then remembers the ID across
+failure, rollback and restart. The ID is saved together with `downloading` (or bound to an already
+verified staged attempt), so a stale failure report cannot consume a fresh manual command. Older
+Gateways remain compatible.
 
 ## Where to look on a Story Mac
 

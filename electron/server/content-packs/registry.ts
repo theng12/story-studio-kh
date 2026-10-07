@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 
 import type { ContentPackVerificationPolicy, VerifiedContentPack } from './archive.js'
-import { verifyInstalledContentPackClosure } from './installer.js'
+import { installedTreeFingerprint, verifyInstalledContentPackClosure } from './installer.js'
 import { getFirstPartyContentPackVerificationPolicy } from './keyring.js'
 import { listVerifiedRecoveryPacks } from './recovery.js'
 import { getContentPackRuntimePaths, type ContentPackRuntimePaths } from './runtime-paths.js'
@@ -200,7 +200,7 @@ export async function listCatalogEntries(
 
 /**
  * 1.4.257 — the signed part of a listing, kept until state.json, an active
- * pack's version folder or the recovery folder changes. Opening a project
+ * pack's complete version tree or the recovery tree changes. Opening a project
  * listed every Series Formula through here, re-verifying every installed pack
  * each time: 40–82 s on the owner's mini with ~115 packs installed.
  */
@@ -213,7 +213,10 @@ async function listingStamp(paths: ContentPackRuntimePaths, state: ContentPackRu
     return info ? `${info.size}:${info.mtimeMs}:${info.ctimeMs}:${info.ino}` : '-'
   }
   const folders = Object.values(state.packs).flatMap(pack => Object.values(pack.versions).map(version => version.install_path)).sort()
-  return (await Promise.all([paths.statePath, options.recoveryRoot ?? paths.recoveryRoot, ...folders].map(identity))).join('|')
+  const roots = [options.recoveryRoot ?? paths.recoveryRoot, ...folders]
+  const trees = await Promise.all(roots.map(root => installedTreeFingerprint(root).catch(() => '-')))
+  const identities = await Promise.all([paths.statePath, ...roots].map(identity))
+  return [...identities, ...trees].join('|')
 }
 
 async function listSignedCatalogEntries(

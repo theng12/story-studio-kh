@@ -402,7 +402,7 @@ async function loadExistingThumbnails(
 async function resolveDefaultImagePromptsModel(config: any): Promise<string> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
-    throw new Error('No Gateway key configured. Add it in Settings → This Mac before generating thumbnail prompts.')
+    throw new Error('No Gateway API Key configured. Add it in Settings → This Mac before generating thumbnail prompts.')
   }
   const saved = typeof config?.prompt_model === 'string' ? config.prompt_model : null
   return resolveChosenChatModel(apiKey, saved, 'the Thumbnail Prompts page')

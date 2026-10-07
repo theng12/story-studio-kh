@@ -332,6 +332,38 @@ describe('verified Content Pack registry', () => {
     assert.equal(await resolveCatalogItem('builtin-ms-paint-fantasy', undefined, options), null)
   })
 
+  test('warm listings reverify after nested payload edits, additions and removals', async () => {
+    const { paths, options } = await isolated()
+    const packId = 'com.storystudio.registry-nested'
+    await installContentPack({ archiveBytes: await buildArchive(packId, '1.0.0', 'nested'), source: 'local-import' }, { paths, policy })
+    const state = await readContentPackState(paths)
+    const root = state.packs[packId].versions['1.0.0'].install_path
+    const file = path.join(root, 'assets', 'style.png')
+    const original = await fs.readFile(file)
+    assert.equal((await listCatalogEntries('visual-style', options)).length, 1)
+    await fs.writeFile(file, 'changed nested asset')
+    await assert.rejects(listCatalogEntries('visual-style', options))
+    await fs.writeFile(file, original)
+    assert.equal((await listCatalogEntries('visual-style', options)).length, 1)
+    const added = path.join(root, 'assets', 'unexpected.txt')
+    await fs.writeFile(added, 'unsigned')
+    const realRead = fs.readFile.bind(fs)
+    let archiveReads = 0
+    const reads = mock.method(fs, 'readFile', async (file: any, ...args: any[]) => {
+      if (String(file).endsWith('/content/archive.sspack')) archiveReads++
+      return (realRead as any)(file, ...args)
+    })
+    try {
+      assert.equal((await listCatalogEntries('visual-style', options)).length, 1, 'unsigned extras are not catalogue items')
+      assert.ok(archiveReads > 0, 'nested addition rechecks signed bytes')
+    } finally { reads.mock.restore() }
+    // Removal is recoverable even in fixtures.
+    await fs.rename(added, path.join(paths.root, 'removed-unexpected.txt'))
+    assert.equal((await listCatalogEntries('visual-style', options)).length, 1)
+    await fs.rename(file, path.join(paths.root, 'removed-style.png'))
+    await assert.rejects(listCatalogEntries('visual-style', options))
+  })
+
   test('adapter routes never expose local Content Pack trust or install paths', async () => {
     const { paths, options } = await isolated()
     const packId = 'com.storystudio.registry-path-redaction'
@@ -383,7 +415,7 @@ describe('verified Content Pack registry', () => {
     assert.equal(portraitBlock?.id, 'portrait-block-right')
   })
 
-  test('a repeated listing reuses verification until state.json changes', async () => {
+  test('a repeated listing reuses verified bytes while checking nested identities until state.json changes', async () => {
     const { paths, options } = await isolated()
     const packs = ['com.storystudio.registry-memo-a', 'com.storystudio.registry-memo-b']
     for (const [index, packId] of packs.entries()) {
@@ -393,19 +425,19 @@ describe('verified Content Pack registry', () => {
     assert.deepEqual(first.map(entry => entry.pack?.pack_id), packs)
     first[0]!.value.name = 'mutated by a caller'
 
-    const realReaddir = fs.readdir.bind(fs)
+    const realReadFile = fs.readFile.bind(fs)
     let packReads = 0
-    const readdirMock = mock.method(fs, 'readdir', async (dir: any, ...args: any[]) => {
-      if (String(dir).startsWith(paths.installedRoot)) packReads++
-      return (realReaddir as any)(dir, ...args)
+    const readMock = mock.method(fs, 'readFile', async (file: any, ...args: any[]) => {
+      if (String(file).startsWith(paths.installedRoot)) packReads++
+      return (realReadFile as any)(file, ...args)
     })
     let second: Awaited<ReturnType<typeof listCatalogEntries>>
     try {
       second = await listCatalogEntries('series-formula', options)
     } finally {
-      readdirMock.mock.restore()
+      readMock.mock.restore()
     }
-    assert.equal(packReads, 0, 'an unchanged catalogue is not re-walked pack by pack')
+    assert.equal(packReads, 0, 'an unchanged catalogue checks metadata without rereading signed archives or payloads')
     assert.equal(second[0]!.value.name, 'Formula memo 0', 'each caller gets its own copy')
 
     await setContentPackDiscoveryDisabled(packs[1]!, true, { paths })

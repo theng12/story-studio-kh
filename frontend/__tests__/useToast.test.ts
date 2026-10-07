@@ -215,12 +215,12 @@ describe('useToast.humanizeError', () => {
   })
 
   test('real HTTP statuses are still translated', () => {
-    assert.match(humanizeError('Gateway request failed (HTTP 401)'), /API key is invalid/)
+    assert.match(humanizeError('Gateway request failed (HTTP 401)'), /Gateway API Key is invalid/)
     assert.match(humanizeError('Request failed with status code 429'), /rate limit/)
     assert.match(humanizeError('returned HTTP 503'), /overloaded/)
     assert.match(humanizeError('voice save returned HTTP 502'), /Server error/)
     assert.match(humanizeError('status: 409 conflict'), /already running/)
-    assert.match(humanizeError('401 Unauthorized'), /API key is invalid/)
+    assert.match(humanizeError('401 Unauthorized'), /Gateway API Key is invalid/)
   })
 
   test('an unreachable gateway blames the gateway, not the internet', () => {

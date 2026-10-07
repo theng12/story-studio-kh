@@ -351,7 +351,7 @@ async function refresh(): Promise<void> {
       accountConfigured.value = (keys.value.providers || []).some(row => row.providerId === 'genstudio' && row.hasKey)
     } else {
       accountConfigured.value = false
-      requestErrors.value.push(errorMessage(keys.reason, 'Could not verify the Gateway key.'))
+      requestErrors.value.push(errorMessage(keys.reason, 'Could not verify the Gateway API Key.'))
     }
     configurationChecked.value = true
   } finally {

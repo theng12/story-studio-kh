@@ -180,7 +180,7 @@ async function refreshReadiness(slug: string): Promise<void> {
     //    The same catalogue read also answers check 2b below, so it is fetched
     //    once and both checks share it.
     let catalog: ChannelCatalogRow[] = []
-    // 2a. No Gateway key at all. `/models` answers that with a 400 (so "no key" cannot look like
+    // 2a. No Gateway API Key at all. `/models` answers that with a 400 (so "no key" cannot look like
     //     "no models"), which the catch below reads as "unknown" — so a brand-new channel showed
     //     only the upload warning and nothing about the one thing every generator needs.
     let gatewayKeySaved = true
@@ -201,7 +201,7 @@ async function refreshReadiness(slug: string): Promise<void> {
       }
     } catch { /* unknown — leave prior state, no false alarm */ }
     try {
-      if (!gatewayKeySaved) throw new Error('no Gateway key')
+      if (!gatewayKeySaved) throw new Error('no Gateway API Key')
       const models = await get<Array<{ available: boolean } & ChannelCatalogRow>>(`/models?project=${slug}`)
       if (Array.isArray(models)) catalog = models
       const anyUsable = Array.isArray(models) && models.some(m => m.available)

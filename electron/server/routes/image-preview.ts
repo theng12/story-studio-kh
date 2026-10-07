@@ -152,7 +152,7 @@ router.post('/projects/:slug/preview-image', validateBody(PreviewImageSchema), a
   const apiKey = await resolveApiKeyForProvider(slug, imageProvider.meta, { model: modelName })
   if (!apiKey) {
     return res.status(400).json({
-      detail: `No API key configured for ${imageProvider.meta.name}. Add one in Settings → API Keys.`,
+      detail: `No Gateway API Key configured for ${imageProvider.meta.name}. Add it in Settings → This Mac.`,
     })
   }
 

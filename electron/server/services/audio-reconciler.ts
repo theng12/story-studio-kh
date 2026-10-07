@@ -532,7 +532,7 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
       continue
     }
     if (!apiKey) {
-      fail(filename, entry.task_id, 'No Gateway key configured. Add it in Settings → This Mac.')
+      fail(filename, entry.task_id, 'No Gateway API Key configured. Add it in Settings → This Mac.')
       continue
     }
     const chunk = expectedByName.get(filename)!

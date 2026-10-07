@@ -249,7 +249,7 @@ async function resolveGenStudioTranscription(
   const apiKey = await getApiKey('genstudio')
   if (!apiKey.trim()) {
     throw new Error(
-      'Transcription is not configured. Add an API key in Settings → This Mac → API Keys.',
+      'Transcription is not configured. Add the Gateway API Key in Settings → This Mac.',
     )
   }
   let models: Awaited<ReturnType<typeof listTranscriptionModels>>

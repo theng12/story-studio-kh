@@ -37,7 +37,7 @@ router.post('/projects/:slug/settings/llm-lineup-notice/dismiss', async (req, re
 
 const retiredCredentialPath = (_req: any, res: any) => res.status(410).json({
   code: 'GENSTUDIO_ONLY',
-  detail: 'Project/provider credentials are retired. Configure one Gateway key in Settings → This Mac.',
+  detail: 'Project/provider credentials are retired. Configure one Gateway API Key in Settings → This Mac.',
 })
 router.all('/projects/:slug/settings/api-keys', retiredCredentialPath)
 router.all('/projects/:slug/settings/accounts', retiredCredentialPath)

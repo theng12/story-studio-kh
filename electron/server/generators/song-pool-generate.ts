@@ -128,7 +128,7 @@ export async function generateSongPool(job: Job): Promise<void> {
   const params = job.params as unknown as SongPoolGenerateParams
   const slug = job.project_slug
   const apiKey = await getApiKey('genstudio')
-  if (!apiKey) throw new Error('Add your Gateway key in Settings first.')
+  if (!apiKey) throw new Error('Add your Gateway API Key in Settings first.')
   const dir = sp.poolDir(slug)
   if (!dir) throw new Error(`Project ${slug} has no folder on disk.`)
   await fs.mkdir(path.join(dir, 'batches'), { recursive: true })

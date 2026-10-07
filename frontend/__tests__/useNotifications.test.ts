@@ -32,13 +32,13 @@ test('Notification Center redacts known job identities without mutating durable 
   assert.equal(job.genstudio_jobs?.[0]?.id, 'provider_1234567890')
 })
 
-test('a new channel with no Gateway key gets a blocking "Connect your Gateway" action, not silence', async () => {
+test('a new channel with no Gateway API Key gets a blocking "Connect your Gateway" action, not silence', async () => {
   const calls: string[] = []
   ;(globalThis as any).$fetch = async (url: string) => {
     calls.push(url)
     if (url.endsWith('/upload/accounts')) return { accounts: {} }
     if (url.endsWith('/app-settings/api-keys')) return { providers: [{ providerId: 'genstudio', hasKey: false, keyMasked: '' }] }
-    if (url.includes('/models?')) { const e: any = new Error('400'); e.data = { detail: 'Add a Gateway key' }; throw e }
+    if (url.includes('/models?')) { const e: any = new Error('400'); e.data = { detail: 'Add a Gateway API Key' }; throw e }
     if (url.endsWith('/ffmpeg/status')) return { installed: true }
     throw new Error(`unexpected ${url}`)
   }
@@ -47,7 +47,7 @@ test('a new channel with no Gateway key gets a blocking "Connect your Gateway" a
   await notifications.refreshReadiness('new-channel')
   const items = notifications.actionItems('new-channel').value
   const gateway = items.find(item => item.key === 'gateway-key')
-  assert.ok(gateway, 'missing Gateway key is an action item')
+  assert.ok(gateway, 'missing Gateway API Key is an action item')
   assert.equal(gateway!.severity, 'blocking')
   assert.match(gateway!.title, /Connect your Gateway/)
   assert.match(gateway!.detail, /GatewayKH → Settings/)

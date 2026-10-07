@@ -169,6 +169,48 @@ describe('download, stage, drain and resume', () => {
     }
   })
 
+  for (const stall of ['headers', 'body'] as const) {
+    test(`a stalled download ${stall} aborts and releases the shared check for retry`, async (t) => {
+      const release = signed()
+      settings.trusted_publisher_key = PUB
+      let downloads = 0, cancelled = false, rejectHeaders: ((e: Error) => void) | undefined
+      let signal: AbortSignal | undefined
+      const fetch = (async (url: string, init: RequestInit) => {
+        if (String(url).endsWith('/checkin')) return Response.json({ release, publisher: { public_key_base64: PUB } })
+        downloads++
+        if (downloads > 1) return new Response('missing', { status: 404 })
+        signal = init.signal ?? undefined
+        if (stall === 'headers') return new Promise((_, reject) => {
+          rejectHeaders = reject
+          signal?.addEventListener('abort', () => reject(new Error('download aborted')), { once: true })
+        })
+        return new Response(new ReadableStream({ start(c) { c.enqueue(new Uint8Array([1])) }, cancel() { cancelled = true } }))
+      }) as any
+      updater._configureForTesting(options(fakeQueue(), { fetch }))
+      t.mock.timers.enable({ apis: ['setTimeout'] })
+      const checking = updater.checkNow()
+      assert.equal(checking, updater.checkNow(), 'in-flight checks share one promise')
+      for (let i = 0; i < 1000 && downloads !== 1; i++) await new Promise(r => setImmediate(r))
+      assert.equal(downloads, 1)
+      // A total deadline covers headers and body, even when a response never finishes.
+      t.mock.timers.tick(15 * 60_000)
+      for (let i = 0; i < 25; i++) await new Promise(r => setImmediate(r))
+      try {
+        assert.equal(signal?.aborted, true, 'download request is bounded')
+        await checking
+        assert.equal(updater.readState().phase, 'idle')
+        assert.match(updater.readState().error!, /not fully available yet/)
+        assert.equal(updater.readState().failed_signature ?? null, null)
+        if (stall === 'body') assert.equal(cancelled, true, 'aborted pipeline cancels the body')
+        await updater.checkNow()
+        assert.equal(downloads, 2, 'a later check retries instead of joining the old promise')
+      } finally {
+        rejectHeaders?.(new Error('fixture release'))
+        t.mock.timers.reset()
+      }
+    })
+  }
+
   test('a failed install is retried after about two checks; a re-publish (new signature) at once', async () => {
     const bytes = Buffer.from('not a zip')
     const release = signed({ bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })
@@ -238,6 +280,69 @@ describe('download, stage, drain and resume', () => {
     settings.auto_install = false
     await updater.maybeInstall()
     assert.equal(updater.readState().phase, 'ready')
+  })
+})
+
+describe('Gateway update request receipts', () => {
+  test('receipt stays absent before an attempt, begins atomically with downloading, and survives retry state and restart', async () => {
+    const release = signed()
+    const requestId = 'b'.repeat(32)
+    let started: any
+    let allowSettings!: () => void
+    const settingsGate = new Promise<void>(resolve => { allowSettings = resolve })
+    const o = options(fakeQueue(), {
+      getSettings: async () => { await settingsGate; return settings },
+      fetch: (async () => {
+        started = updater.readState()
+        return new Response('not yet', { status: 404 })
+      }) as any,
+    })
+    settings.trusted_publisher_key = PUB
+    updater._configureForTesting(o)
+    updater.writeState({ ...updater.readState(), phase: 'rolled_back', release, skip_signature: release.signature })
+    const offer: any = { release, publisher: { public_key_base64: PUB }, update_now: true, update_request_id: requestId }
+    const handling = updater.handleOffer(offer)
+    const beforeAttempt = await updater.report() as any
+    allowSettings()
+    await handling
+    assert.equal(beforeAttempt.update.request_id, null, 'an old failure is not a receipt')
+    assert.equal(started.phase, 'downloading')
+    assert.equal(started.gateway_update_request_id, requestId, 'receipt and attempt phase persisted together')
+    assert.equal(updater.readState().phase, 'idle')
+    assert.equal((await updater.report() as any).update.request_id, requestId)
+    updater._resetForTesting()
+    updater._configureForTesting(options(fakeQueue()))
+    assert.equal((await updater.report() as any).update.request_id, requestId, 'lost response/restart keeps the real attempt receipt')
+    updater.writeState({ ...updater.readState(), phase: 'rolled_back' })
+    assert.equal((await updater.report() as any).update.request_id, requestId, 'terminal outcome belongs to that attempt')
+  })
+
+  test('a newer Gateway command cannot rebind an already-installing attempt receipt', async () => {
+    const release = signed()
+    const oldId = 'a'.repeat(32), newId = 'b'.repeat(32)
+    settings.trusted_publisher_key = PUB
+    updater._configureForTesting(options(fakeQueue()))
+    updater.writeState({ phase: 'installing', release, gateway_update_request_id: oldId, install_requested: true })
+    await updater.handleOffer({ release, update_now: true, update_request_id: newId })
+    assert.equal((await updater.report() as any).update.request_id, oldId, 'installing still reports the command that started that attempt')
+    updater.writeState({ ...updater.readState(), phase: 'rolled_back', skip_signature: release.signature })
+    updater._configureForTesting(options(fakeQueue(), { fetch: (async () => new Response('missing', { status: 404 })) as any }))
+    await updater.handleOffer({ release, update_now: true, update_request_id: newId })
+    assert.equal((await updater.report() as any).update.request_id, newId, 'the next actual attempt owns the newer command')
+  })
+
+  test('invalid offers never acknowledge; a verified already-staged attempt may acknowledge a new request', async () => {
+    const release = signed()
+    const requestId = 'c'.repeat(32)
+    settings.trusted_publisher_key = PUB
+    updater._configureForTesting(options(fakeQueue(1), { getSettings: async () => ({ ...settings, auto_install: false }) }))
+    const offer: any = { release: { ...release, signature: 'invalid' }, update_now: true, update_request_id: requestId }
+    await assert.rejects(updater.handleOffer(offer))
+    assert.equal((await updater.report() as any).update.request_id, null)
+    updater.writeState({ ...updater.readState(), phase: 'ready', release, staged_app: '/fixture/already-staged' })
+    await updater.handleOffer({ ...offer, release })
+    assert.equal((await updater.report() as any).update.request_id, requestId)
+    assert.equal(updater.readState().phase, 'draining', 'manual Update Now retains its existing install behavior')
   })
 })
 

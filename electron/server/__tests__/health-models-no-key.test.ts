@@ -26,7 +26,7 @@ before(async () => {
 })
 after(async () => { await cleanup() })
 
-describe('GET /models with no Gateway key', () => {
+describe('GET /models with no Gateway API Key', () => {
   test('answers with an actionable error rather than an empty catalogue', async () => {
     const app = express()
     app.use(healthRouter)
@@ -38,6 +38,6 @@ describe('GET /models with no Gateway key', () => {
       'an empty catalogue and a missing key must not be the same answer',
     )
     assert.equal(res.status, 400)
-    assert.match(String(res.body?.detail ?? ''), /Gateway key/i, 'the message must name the thing to fix')
+    assert.match(String(res.body?.detail ?? ''), /Gateway API Key/i, 'the message must name the thing to fix')
   })
 })

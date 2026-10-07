@@ -44,8 +44,9 @@
         A Quit, a Force Quit or a macOS low-memory stop never restarts it. Server Mode stays as you set it, so an update or a restart comes back as a server.
       </p>
       <p v-if="status.trusted_fingerprint" class="settings-hint">
-        Trusted release key <code>{{ status.trusted_fingerprint.slice(0, 16) }}…</code> (this Mac: {{ status.machine }})
-        <button class="btn btn-ghost btn-sm" :disabled="!!busy" @click="act('trust')">Trust the Gateway's New Key</button>
+        App Update Key <code>{{ status.trusted_fingerprint.slice(0, 16) }}…</code> (this Mac: {{ status.machine }})
+        <span class="app-update-key-hint">should match the fingerprint in Gateway → Settings → App Update Key</span>
+        <button class="btn btn-ghost btn-sm" :disabled="!!busy" @click="act('trust')">Trust the New App Update Key</button>
       </p>
     </template>
   </section>
@@ -133,6 +134,7 @@ onMounted(() => { void load().catch(() => {}) })
 </script>
 
 <style scoped>
+.app-update-key-hint { display: block; margin-block: var(--space-2); }
 .app-update-actions { margin: var(--space-2, 8px) 0; }
 .app-update-field { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
 .app-update-field select { max-width: 360px; }

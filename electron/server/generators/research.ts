@@ -87,7 +87,7 @@ export async function runResearchJob(job: Job): Promise<void> {
   const configured = await adapter.isConfigured()
   if (!configured) {
     throw new Error(
-      `${adapter.displayName} is not configured. Add the required API key under App Settings → API Keys.`,
+      `${adapter.displayName} is not configured. Add the Gateway API Key under Settings → This Mac.`,
     )
   }
 
