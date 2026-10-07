@@ -396,16 +396,16 @@ export const featureGuides: Record<string, FeatureGuide> = {
     tips: ['Offline external drives remain registered and can be rescanned when reconnected.', 'Keep source licensing information with every asset intended for customer-facing production.'],
   },
   usage: {
-    title: 'GenStudio Credits',
-    summary: 'Your GenStudio credit balance and what recent jobs were charged, exactly as the Gateway reports them. Story Studio never works out prices itself.',
-    workflow: ['Press Refresh for the latest figures.', 'Check the balance and what is held for running jobs.', 'Look through recent jobs to see what each one was charged or refunded.'],
+    title: 'Usage',
+    summary: 'What your Gateway reports: credits, how many jobs are running or waiting, and its most recent jobs. Story Studio never works out prices itself.',
+    workflow: ['Press Refresh for the latest figures.', 'Check how many jobs are running now and how many are waiting.', 'Look through recent Gateway jobs to see what ran, on which model, and how it ended.'],
     topics: [
       { title: 'Available', purpose: 'Credits you can spend on new paid jobs. Free local work on your own Macs does not use them.' },
-      { title: 'Held credits', purpose: 'The most a running job can cost, set aside until it finishes.' },
-      { title: 'Charged credits', purpose: 'What Gateway actually charged once the job finished.' },
-      { title: 'Refunded credits', purpose: 'Held credits given back — unused, cancelled, or a failure that is not charged.' },
+      { title: 'Running now', purpose: 'Jobs the Gateway is working on, out of how many it can run at once.' },
+      { title: 'Waiting', purpose: 'Jobs queued at the Gateway until a slot frees up.' },
+      { title: 'Held / charged / refunded', purpose: 'Shown only when a job moved credits: what was set aside, what was charged, and what came back.' },
     ],
-    tips: ['If the page cannot load, check the Gateway app is running, then press Try again.', 'A balance of 0 only matters for paid cloud work; jobs on your own Macs are free.'],
+    tips: ['If the page cannot load, check the Gateway app is running, then press Try Again.', 'A balance of 0 only matters for paid cloud work; jobs on your own Macs are free.'],
   },
   'content-store': {
     title: 'Content Store',
