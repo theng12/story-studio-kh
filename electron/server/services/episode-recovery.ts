@@ -545,6 +545,8 @@ async function readPlans(file: string): Promise<RecoveryStore> {
   }
 }
 
+const UNVERIFIED_REFRESH_SOURCE = 'Narration refresh source could not be verified. Its saved parent identity and chapter source evidence are required before Audio Assembly; missing history is not completion.'
+
 /** Report queue evidence, rather than treating an HTTP 202 as a dispatched job. */
 export function episodeRecoveryDispatch(plan: EpisodeRecoveryPlan, jobs: Job[]) {
   const jobId = plan.first_unresolved
@@ -584,7 +586,10 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
           && !Object.values(plan?.steps || {}).some(node => node.job_id === job.job_id)))) throw new Error('Recovery source must be an owned failed or cancelled episode job.')
       // Explicit cancellation and a new server-stamped narration refresh own new identities.
       const newCancellationIntent = selected.some(job => job!.status === 'cancelled' && !plan?.retry_source_job_ids?.includes(job!.job_id))
-      const priorMerge = jobs.filter(job => job.type === 'audio_merge' && !job.force_abandoned && job.status !== 'cancelled')
+      // The repair Assembly reuses the owner's last ordinary mix: a finished merge, never a
+      // quality-refresh merge (its marker would replay that old action).
+      const priorMerge = jobs.filter(job => job.type === 'audio_merge' && job.status === 'done' && !job.force_abandoned
+        && !job.params?.audio_quality_refresh)
         .sort((a, b) => a.created_at.localeCompare(b.created_at)).at(-1)
       const completedMerge = jobs.filter(job => job.type === 'audio_merge' && job.status === 'done')
         .sort((a, b) => a.created_at.localeCompare(b.created_at)).at(-1)
@@ -597,12 +602,19 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
       const mergeJob = mergeNode && jobs.find(job => job.job_id === mergeNode.job_id)
       // Missing accepted identities have an unknown outcome, not permission to duplicate them.
       const ownsAcceptedMerge = !!mergeNode?.dispatched && ((!mergeJob && !plan?.completed.includes('audio_merge')) || !!mergeJob && ['queued', 'running', 'paused'].includes(mergeJob.status))
-      if (!newCancellationIntent && !ownsAcceptedMerge && jobs.some(job => job.type === 'subtitles_transcribe'
+      const unverifiedCheck = !newCancellationIntent && !ownsAcceptedMerge && jobs.find(job => job.type === 'subtitles_transcribe'
         && isScopedChapterTranscription(job.params) && typeof job.params.narration_refresh_job_id === 'string'
         && job.status !== 'cancelled' && !job.force_abandoned && !savedNarrationSource(job, jobs)
         && !plan?.narration_refresh_checks?.some(check => check.source_job_id === job.params.narration_refresh_job_id)
-        && (!Number.isFinite(mergedSourceTime) || Date.parse(job.created_at) >= mergedSourceTime))) {
-        throw new Error('Narration refresh source could not be verified. Its saved parent identity and chapter source evidence are required before Audio Assembly; missing history is not completion.')
+        && (!Number.isFinite(mergedSourceTime) || Date.parse(job.created_at) >= mergedSourceTime))
+      if (unverifiedCheck) {
+        // Automatic passes only log errors, so say it on the check's own job line too (once).
+        if (!unverifiedCheck.output_lines?.includes(UNVERIFIED_REFRESH_SOURCE)) {
+          const noted = await jq.mutateAuthoritativeJob(projectSlug, unverifiedCheck.job_id, current => ({ ...current,
+            output_lines: [...(current.output_lines || []), UNVERIFIED_REFRESH_SOURCE] }))
+          if (noted) await jq.checkpointJobState(noted)
+        }
+        throw new Error(UNVERIFIED_REFRESH_SOURCE)
       }
       const newRefreshIntent = newRefreshIds.length > 0 && plan?.first_unresolved === null && !ownsAcceptedMerge
       if (!plan || newCancellationIntent || newRefreshIntent) {
@@ -611,7 +623,10 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
         for (const job of selected) if (!relevant.some(row => row.job_id === job!.job_id)) relevant.push(job!)
         if (!relevant.length) throw new Error('No recoverable episode jobs were found.')
         const priorSourceIds = plan?.retry_source_job_ids || []
-        const savedMerge = plan?.steps.audio_merge
+        const savedNode = plan?.steps.audio_merge
+        const savedJob = savedNode && jobs.find(job => job.job_id === savedNode.job_id)
+        const savedMerge = savedNode && !savedNode.params?.audio_quality_refresh
+          && (savedJob ? savedJob.status === 'done' : plan!.completed.includes('audio_merge')) ? savedNode : undefined
         if (plan) (store.retired_plans ||= {})[plan.id] = plan
         plan = store.plans[episodeId] = createEpisodeRecoveryPlan(refreshIds.length && !newCancellationIntent
           ? priorMerge ? [priorMerge] : [narrationRefreshChecks(jobs).at(-1)!]
@@ -619,6 +634,7 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
         if (refreshIds.length && !newCancellationIntent) {
           if (!plan.steps.audio_merge && savedMerge) plan.steps.audio_merge = { ...structuredClone(savedMerge),
             job_id: `recovery-${plan.id}-audio_merge`, dispatched: false }
+          if (plan.steps.audio_merge) delete plan.steps.audio_merge.params.audio_quality_refresh
           plan.target = 'subtitle_stitch'
           plan.steps = plan.steps.audio_merge ? { audio_merge: plan.steps.audio_merge } : {}
           delete plan.continuation
