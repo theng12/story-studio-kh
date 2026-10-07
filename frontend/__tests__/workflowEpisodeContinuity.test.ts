@@ -15,6 +15,7 @@ import { transform } from 'esbuild'
 import { createApp, defineComponent, h, nextTick, reactive, ref, type Component } from 'vue'
 
 import { localMediaStatusLabel } from '../composables/useEpisodes.js'
+import { adjacentEpisodeCodes } from '../utils/episode-neighbours.ts'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 
@@ -42,9 +43,11 @@ async function loadEpisodeSelector(): Promise<Component> {
   })
   const vueUrl = await import.meta.resolve('vue')
   ;(globalThis as any).__workflowLocalMediaStatusLabel = localMediaStatusLabel
+  ;(globalThis as any).__workflowAdjacentEpisodeCodes = adjacentEpisodeCodes
   const support = `
     import { computed, defineComponent as _defineComponent, onBeforeUnmount, onMounted, ref, watch } from ${JSON.stringify(vueUrl)}
     const localMediaStatusLabel = globalThis.__workflowLocalMediaStatusLabel
+    const adjacentEpisodeCodes = globalThis.__workflowAdjacentEpisodeCodes
     const useRoute = () => globalThis.__workflowSelectorRoute
     const useRouter = () => globalThis.__workflowSelectorRouter
     const useEpisodes = () => globalThis.__workflowSelectorEpisodes
