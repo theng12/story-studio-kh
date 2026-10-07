@@ -45,7 +45,7 @@
         v-model:episode-id="episodeId"
         filter-field="research"
         :presets="researchPresets"
-        generate-label="Run research"
+        generate-label="Run Research"
         :generate-loading="researching || researchJobActive"
         :generate-disabled="!canRun"
         :generate-status="(researching || researchJobActive) ? `Researching for ${episodeId}…` : (canRun ? '' : runDisabledReason)"

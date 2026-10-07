@@ -48,7 +48,7 @@
         <div class="home-state-actions">
           <button type="button" class="btn btn-primary" :disabled="projectsRetrying" @click="retryLoadProjects">
             <LoadingSpinner v-if="projectsRetrying" size="sm" />
-            {{ projectsRetrying ? 'Checking…' : (libraryMissing ? 'It’s connected now — look again' : 'Try again') }}
+            {{ projectsRetrying ? 'Checking…' : (libraryMissing ? 'It’s Connected Now — Look Again' : 'Try Again') }}
           </button>
           <!-- v1.4.6 — the way out. Without this he was stuck: with the Library
                gone there are no projects, so Settings (which lives under

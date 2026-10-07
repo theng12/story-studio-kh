@@ -20,7 +20,7 @@
         v-model:episode-id="episodeId"
         filter-field="scene_review"
         :presets="motionPresets"
-        generate-label="Generate missing clips"
+        generate-label="Generate Missing Clips"
         :generate-loading="queuing || clipJobsActive"
         :generate-disabled="!canGenerate"
         :generate-status="generateStatus"

@@ -56,7 +56,7 @@
         :presets="introPresets"
         v-model:episode-id="episodeId"
         filter-field="introduction"
-        generate-label="Write this episode's opening"
+        generate-label="Write This Episode's Opening"
         :generate-loading="generating"
         :generate-disabled="!canGenerateIntroduction"
         :generate-status="actionStatus"

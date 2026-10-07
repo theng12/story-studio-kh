@@ -62,7 +62,7 @@ describe('Script Generator workspace', () => {
   })
 
   test('has one review-first creation action instead of a competing one-click script chain', () => {
-    assert.match(scripts, /generate-label="Create outline"/)
+    assert.match(scripts, /generate-label="Create Outline"/)
     assert.doesNotMatch(scripts, /⚡ Generate script/)
     assert.doesNotMatch(scripts, /Include introduction/)
     assert.doesNotMatch(scripts, /function generateScript\(/)

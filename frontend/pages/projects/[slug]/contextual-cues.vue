@@ -19,7 +19,7 @@
         v-model:episode-id="episodeId"
         filter-field="scene_plan"
         :presets="cuePresets"
-        generate-label="Propose cues"
+        generate-label="Propose Cues"
         generate-loading-label="Proposing cues…"
         :generate-loading="proposing || cueJobActive"
         :generate-disabled="!config.enabled || !episodeId || !form.model"
@@ -167,7 +167,7 @@
       </WorkspaceNotice>
       <WorkspaceNotice v-else-if="proposalProgress" tone="info" title="Saved partial proposal">
         {{ proposalProgress.completed_batches.length }} of {{ proposalProgress.total_batches }} batches are safely checkpointed.
-        {{ proposalProgress.total_scenes - completedProposalScenes }} scenes remain. Press Propose cues with the same model and settings and it continues from where it stopped — only the missing batches are requested. Video Assembly still treats this timeline as incomplete.
+        {{ proposalProgress.total_scenes - completedProposalScenes }} scenes remain. Press Propose Cues with the same model and settings and it continues from where it stopped — only the missing batches are requested. Video Assembly still treats this timeline as incomplete.
       </WorkspaceNotice>
       <WorkspaceNotice v-else-if="timeline?.auto_approval_holds?.length" tone="warning" title="Held back from auto-approval">
         {{ timeline.auto_approval_holds.length }} cue{{ timeline.auto_approval_holds.length === 1 ? '' : 's' }} failed a structural check

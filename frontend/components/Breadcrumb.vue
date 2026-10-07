@@ -20,7 +20,7 @@ const crumbs = computed(() => {
   const slug = route.params.slug as string | undefined
   const segs = route.path.split('/').filter(Boolean)
   const items: Array<{ label: string; to?: string }> = [
-    { label: 'Projects', to: '/' },
+    { label: 'Channels', to: '/' },
   ]
   if (slug) {
     items.push({

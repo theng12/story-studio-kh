@@ -42,7 +42,7 @@ describe('Generate Songs dialog', () => {
 
 describe('Song Pool page', () => {
   test('has the mockup\'s columns, filters and actions', () => {
-    for (const label of ['Free for next episode', 'Never played', 'Rejected', 'Plays', 'Last used', 'Rating', 'Loudness',
+    for (const label of ['Free for Next Episode', 'Never Played', 'Rejected', 'Plays', 'Last used', 'Rating', 'Loudness',
       'Regenerate', 'Add Tag…', 'Edit Brief &amp; Regenerate…', 'Show in Finder', 'Fill Gaps…', 'Generate Songs…', 'in window', 'Check by ear']) {
       assert.ok(pool.includes(label), `missing: ${label}`)
     }

@@ -331,7 +331,7 @@
         <template #actions><NuxtLink class="btn btn-sm btn-primary" :to="{ path: `/projects/${slug}/video-assembly`, query: { episode_id: code } }">Open Video Assembly</NuxtLink></template>
       </WorkspaceNotice>
       <WorkspaceNotice v-else-if="buildJob && buildJob.status === 'error'" tone="error" title="The stitch did not finish">
-        {{ buildJob.error || 'See Project Jobs for the log.' }}
+        {{ buildJob.error || 'See Jobs for the log.' }}
       </WorkspaceNotice>
     </template>
 
@@ -787,7 +787,7 @@ async function startPolish() {
 watch(() => polishJob.value?.status, (now, before) => {
   if (!before || before === now) return
   if (now === 'done') { void loadView(); success('Scene prompts polished. Make or regenerate the pictures you want with them.') }
-  if (now === 'error') { void loadView(); showError(polishJob.value?.error || 'Polishing the prompts did not finish. See Project Jobs.') }
+  if (now === 'error') { void loadView(); showError(polishJob.value?.error || 'Polishing the prompts did not finish. See Jobs.') }
 })
 
 // Episodes + hand-off

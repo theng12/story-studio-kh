@@ -21,7 +21,7 @@
       v-model:episode-id="episodeId"
       filter-field="character_sheet"
       :presets="pagePresets"
-      generate-label="Save visual setup"
+      generate-label="Save Visual Setup"
       :generate-loading="saving"
       :generate-disabled="!episodeId || !configLoaded"
       :generate-status="saveStatus"

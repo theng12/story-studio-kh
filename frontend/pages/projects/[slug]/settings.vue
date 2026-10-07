@@ -1427,7 +1427,7 @@
             <h3>Hide this channel</h3>
             <p class="settings-hint">
               Removes the channel from the app's list; every file stays on disk. Bring it back any time from
-              <em>Hidden channels</em> on the All Projects page — moving the folder out and back would not bring it back on its own.
+              <em>Hidden channels</em> on the All Channels page — moving the folder out and back would not bring it back on its own.
             </p>
             <button class="btn btn-danger btn-sm mt-2" @click="deleteProject">Hide Channel (Keep Files)</button>
           </section>

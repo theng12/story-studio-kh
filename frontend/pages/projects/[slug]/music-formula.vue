@@ -62,8 +62,8 @@
               <span class="mp-lbl">Keys</span>
               <div class="mp-seg">
                 <button type="button" :class="{ on: keyMode === 'all' }" @click="setKeys('all')">All 24</button>
-                <button type="button" :class="{ on: keyMode === 'minor' }" @click="setKeys('minor')">Minor only</button>
-                <button type="button" :class="{ on: keyMode === 'major' }" @click="setKeys('major')">Major only</button>
+                <button type="button" :class="{ on: keyMode === 'minor' }" @click="setKeys('minor')">Minor Only</button>
+                <button type="button" :class="{ on: keyMode === 'major' }" @click="setKeys('major')">Major Only</button>
                 <button type="button" :class="{ on: keyMode === 'pick' }" @click="pickingKeys = !pickingKeys">Pick…</button>
               </div>
               <div v-if="pickingKeys" class="mp-row" style="margin-top: 8px">
