@@ -1,8 +1,9 @@
 <template>
-  <div v-if="picker.isOpen" class="fbm-overlay" @click.self="onCancel">
-    <div class="fbm-card" role="dialog" aria-modal="true" :aria-label="title">
+  <!-- Above every other dialog: it opens from inside them (Browse… in a form). -->
+  <Modal :visible="picker.isOpen" size="xl" :z-index="2100" dialog-class="modal-flush" labelledby="fbm-title" @close="onCancel">
+    <div class="fbm-card">
       <header class="fbm-header">
-        <h2>{{ title }}</h2>
+        <h2 id="fbm-title">{{ title }}</h2>
         <button class="fbm-close" @click="onCancel" aria-label="Close">×</button>
       </header>
 
@@ -88,7 +89,7 @@
         </div>
       </footer>
     </div>
-  </div>
+  </Modal>
 </template>
 
 <script setup lang="ts">
@@ -285,28 +286,12 @@ function formatSize(bytes: number): string {
 </script>
 
 <style scoped>
-.fbm-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 32px;
-}
+/* The box itself is the shared <Modal> (modal-flush). */
 .fbm-card {
-  width: 100%;
-  max-width: 800px;
   height: 600px;
-  max-height: calc(100vh - 64px);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  max-height: calc(100dvh - 48px);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
 }
 .fbm-header {
   display: flex;

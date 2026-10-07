@@ -2,16 +2,14 @@
   <div class="workspace-page jobs-workspace">
     <WorkspaceHero
       eyebrow="Management · Operations"
-      :title="isUniversal ? 'All Jobs' : 'Project Jobs'"
-      :description="isUniversal
-        ? 'Monitor and control work across every project from one queue. Filter by project without switching workspaces.'
-        : 'Monitor this project’s active work, see what needs attention, recover output, and manage its history.'"
+      :title="isUniversal ? 'All Jobs' : 'Channel Jobs'"
+      :description="isUniversal ? 'Work across every channel in one queue.' : 'This channel’s work, what needs attention, and its history.'"
     >
       <template #aside>
         <div class="jobs-hero-aside">
           <nav class="job-scope-switch" aria-label="Job queue scope">
-            <NuxtLink :to="`/projects/${slug}/jobs`" :class="{ active: !isUniversal }">This project</NuxtLink>
-            <NuxtLink :to="{ path: `/projects/${slug}/jobs`, query: { scope: 'all' } }" :class="{ active: isUniversal }">All projects</NuxtLink>
+            <NuxtLink :to="`/projects/${slug}/jobs`" :class="{ active: !isUniversal }">This channel</NuxtLink>
+            <NuxtLink :to="{ path: `/projects/${slug}/jobs`, query: { scope: 'all' } }" :class="{ active: isUniversal }">All channels</NuxtLink>
           </nav>
           <div class="workspace-metrics" aria-label="Job queue summary">
             <span class="workspace-metric" data-tone="info"><strong>{{ stats.running }}</strong> running</span>
@@ -21,15 +19,19 @@
             <span v-if="stats.recovered" class="workspace-metric" data-tone="success"><strong>{{ stats.recovered }}</strong> recovered</span>
             <span v-if="stats.error" class="workspace-metric" data-tone="error"><strong>{{ stats.error }}</strong> job{{ stats.error === 1 ? '' : 's' }} need{{ stats.error === 1 ? 's' : '' }} attention</span>
           </div>
-          <div class="genstudio-capacity-summary" aria-label="Gateway account capacity">
-            <span
-              v-if="freshQueueAdmission && genStudioAdmission?.submissions_blocked"
-              class="capacity-error"
-              :title="genStudioAdmission.submission_block_reason || undefined"
-            >
-              <strong>Submissions stopped</strong>
-              Gateway release not ready
-            </span>
+          <!-- Owner 2026-10-07: capacity jargon (lanes, tiers, unverified) sits behind
+               one plain "Gateway capacity" disclosure; a stop stays visible. -->
+          <span
+            v-if="freshQueueAdmission && genStudioAdmission?.submissions_blocked"
+            class="capacity-error"
+            :title="genStudioAdmission.submission_block_reason || undefined"
+          >
+            <strong>Sending is stopped</strong>
+            the Gateway is not ready yet
+          </span>
+          <details class="genstudio-capacity">
+            <summary>Gateway capacity</summary>
+            <div class="genstudio-capacity-summary" aria-label="Gateway account capacity">
             <span v-if="freshQueueAdmission && genStudioAdmission?.local_waiting">
               <strong>{{ genStudioAdmission.local_waiting }}</strong>
               submissions waiting locally
@@ -72,7 +74,8 @@
               <strong>Account capacity is unverified.</strong>
               Story Studio is scheduling conservatively.
             </span>
-          </div>
+            </div>
+          </details>
 
         </div>
       </template>
@@ -82,6 +85,7 @@
       <div class="jobs-control-heading">
         <strong>Job actions</strong>
         <span>{{ actionScopeLabel }} · all job types and statuses</span>
+        <UpdatedAgo class="jobs-updated-ago" :at="jobsLoadedAt" :busy="refreshingJobs" @refresh="refreshVisibleJobs" />
       </div>
       <div class="jobs-primary-actions" role="group" aria-label="Main job actions">
         <div class="jobs-primary-action">
@@ -95,10 +99,11 @@
           <p id="redo-all-hint" class="jobs-action-hint">{{ redoAction.hint }}</p>
         </div>
       </div>
+      <!-- Owner rule 2026-10-03: these actions stay visible, never folded. -->
       <div class="jobs-more-actions" role="group" aria-label="Other job actions">
         <div class="jobs-control-groups">
           <div class="jobs-control-group" role="group" aria-label="Collect finished output">
-            <span class="jobs-control-label">Collect finished output · free · both already run inside “Check on running jobs”</span>
+            <span class="jobs-control-label">Collect finished output · free · both already run inside “Check Running Jobs”</span>
             <div class="jobs-more-action">
               <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || recoverableEpisodes.length === 0"
                 @click="recoverAllEpisodes()">{{ recoveringAllEpisodes ? 'Recovering…' : `Recover All (${recoverableEpisodes.length})` }}</button>
@@ -111,7 +116,7 @@
             </div>
           </div>
           <div class="jobs-control-group" role="group" aria-label="Queue controls">
-            <span class="jobs-control-label">Queue · pause applies to all projects</span>
+            <span class="jobs-control-label">Queue · pause applies to all channels</span>
             <div class="jobs-more-action">
               <button class="btn btn-sm btn-secondary" :disabled="changingQueueState || resumingQueue || queueStateUnknown || (!queuePaused && !hasQueueWork)"
                 @click="queuePaused ? resumeQueue() : pauseQueue()">{{ changingQueueState || resumingQueue ? 'Updating Queue…' : queueStateUnknown ? 'Queue State Unknown' : queuePaused ? 'Resume Queue' : 'Pause Queue' }}</button>
@@ -123,17 +128,17 @@
               <small>{{ pausedJobCount ? MORE_ACTION_HINTS.resume : 'No paused jobs.' }}</small>
             </div>
           </div>
-          <div class="jobs-control-group" role="group" aria-label="Clear job history">
-            <span class="jobs-control-label">History · keeps files and billing records</span>
+          <div class="jobs-control-group" role="group" aria-label="Remove rows from the list">
+            <span class="jobs-control-label">Remove From List · keeps files and billing records</span>
             <div class="jobs-more-action">
               <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || finishedCount === 0"
-                @click="clearFinished()">{{ clearingHistory === 'finished' ? 'Clearing…' : `Clear Finished (${finishedCount})` }}</button>
-              <small>{{ finishedCount ? MORE_ACTION_HINTS.clearFinished : 'No finished rows to clear.' }}</small>
+                @click="clearFinished()">{{ clearingHistory === 'finished' ? 'Removing…' : `Remove Finished From List (${finishedCount})` }}</button>
+              <small>{{ finishedCount ? MORE_ACTION_HINTS.clearFinished : 'No finished rows to remove.' }}</small>
             </div>
             <div class="jobs-more-action">
               <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || failedCount === 0"
-                @click="clearFailed()">{{ clearingHistory === 'failed' ? 'Clearing…' : `Clear Failed (${failedCount})` }}</button>
-              <small>{{ failedCount ? MORE_ACTION_HINTS.clearFailed : 'No settled failed rows to clear.' }}</small>
+                @click="clearFailed()">{{ clearingHistory === 'failed' ? 'Removing…' : `Remove Failed From List (${failedCount})` }}</button>
+              <small>{{ failedCount ? MORE_ACTION_HINTS.clearFailed : 'No settled failed rows to remove.' }}</small>
             </div>
           </div>
         </div>
@@ -261,7 +266,7 @@
           class="btn btn-sm btn-secondary"
           title="Filter History below to jobs that need attention — use this to review each job’s details and choose whether to Retry."
           @click="reviewFailures"
-        >Review jobs →</button>
+        >Review Jobs →</button>
 
       </div>
 
@@ -277,23 +282,12 @@
       </div>
     </div>
 
-    <!-- Filter Tabs -->
-    <div class="filter-tabs">
-      <button
-        v-for="tab in filterTabs"
-        :key="tab.type"
-        class="filter-tab"
-        :class="{ active: activeFilter === tab.type }"
-        :aria-pressed="activeFilter === tab.type"
-        @click="activeFilter = tab.type; failureBatchFilter = null; currentPage = 1"
-      >
-        {{ tab.label }}
-        <span v-if="tab.count > 0" class="tab-count">{{ tab.count }}</span>
-      </button>
-    </div>
-
     <!-- Status filters do not change the toolbar action scope. -->
     <div class="status-bar">
+      <label class="episode-search">
+        <span class="sr-only">Search by episode</span>
+        <input v-model="episodeSearch" type="search" placeholder="Search episode code or title" autocomplete="off">
+      </label>
       <div class="status-filters">
         <button
           v-for="s in statusFilters"
@@ -321,10 +315,17 @@
 
     <!-- Sort Bar -->
     <div class="sort-bar">
+      <!-- Job type: a select rather than a row of 19 tabs, so the first job sits higher (owner 2026-10-07). -->
+      <label class="project-filter type-filter">
+        <span>Type</span>
+        <select :value="activeFilter" @change="activeFilter = ($event.target as HTMLSelectElement).value; failureBatchFilter = null">
+          <option v-for="tab in filterTabs" :key="tab.type" :value="tab.type">{{ tab.label }}{{ tab.count ? ` (${tab.count} active)` : '' }}</option>
+        </select>
+      </label>
       <label v-if="isUniversal" class="project-filter">
-        <span>Project</span>
+        <span>Channel</span>
         <select v-model="projectFilter">
-          <option value="all">All projects</option>
+          <option value="all">All channels</option>
           <option value="_app_">App tools</option>
           <option v-for="project in projects" :key="project.slug" :value="project.slug">{{ project.name }}</option>
         </select>
@@ -345,12 +346,12 @@
     <section class="jobs-selection-toolbar" aria-label="Select jobs to abandon and clear">
       <div class="jobs-selection-buttons">
         <strong>{{ selectedCleanupJobs.length }} selected</strong>
-        <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || !attentionCleanupCount" @click="selectCleanupJobs(true)">Select needs attention ({{ attentionCleanupCount }})</button>
-        <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || !eligibleCleanupJobs.length" @click="selectCleanupJobs(false)">Select all matching ({{ eligibleCleanupJobs.length }})</button>
+        <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || !attentionCleanupCount" @click="selectCleanupJobs(true)">Select Needs Attention ({{ attentionCleanupCount }})</button>
+        <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || !eligibleCleanupJobs.length" @click="selectCleanupJobs(false)">Select All Matching ({{ eligibleCleanupJobs.length }})</button>
         <button class="btn btn-sm btn-ghost" :disabled="bulkActionBusy || !selectedCleanupIds.size" @click="selectedCleanupIds = new Set()">Clear Selection</button>
-        <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || !selectedCleanupJobs.length" @click="abandonAndClearSelected">{{ clearingSelected ? 'Clearing Selected…' : `Abandon and Clear (${selectedCleanupJobs.length})` }}</button>
+        <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || !selectedCleanupJobs.length" @click="abandonAndClearSelected">{{ clearingSelected ? 'Removing Selected…' : `Abandon and Remove From List (${selectedCleanupJobs.length})` }}</button>
       </div>
-      <p class="text-muted">Selection includes matching jobs across all filtered pages. Files and billing records stay intact. Abandoning stops local tracking; accepted provider work may still finish.</p>
+      <p v-if="selectedCleanupJobs.length" class="text-muted">Selection includes matching jobs across all filtered pages. Files and billing records stay intact. Abandoning stops local tracking; accepted provider work may still finish.</p>
       <p v-if="cleanupProgress" role="status">{{ cleanupProgress }}</p>
       <details v-if="cleanupFailures.length" class="disclosure">
         <summary>{{ cleanupFailures.length }} selected job{{ cleanupFailures.length === 1 ? ' needs' : 's need' }} attention</summary>
@@ -359,7 +360,7 @@
     </section>
 
     <WorkspaceNotice v-if="jobsLoading && !jobs.length" tone="info" title="Loading jobs">
-      Reading job records{{ isUniversal ? ' from all projects' : '' }}…
+      Reading job records{{ isUniversal ? ' from all channels' : '' }}…
     </WorkspaceNotice>
     <WorkspaceNotice v-else-if="jobsRefreshError && !jobs.length" tone="warning" title="Jobs could not be loaded">
       {{ jobsRefreshMessage }}
@@ -386,7 +387,7 @@
       </div>
       <div class="jobs-list mt-1">
         <div
-          v-for="job in activeJobs"
+          v-for="job in visibleActiveJobs"
           :key="job.job_id"
           class="job-card card"
           :class="'status-' + jobDisplayStatus(job)"
@@ -687,11 +688,14 @@
           :class="`control-${primaryJobControl(job)?.action}`"
           role="status"
         >
-          <template v-if="hasPendingCancellation(job) && primaryJobControl(job)?.action === 'request-remote-cancel'">Story Studio is reconciling the cancellation result. </template>
+          <template v-if="hasPendingCancellation(job) && primaryJobControl(job)?.action === 'request-remote-cancel'">Story Studio is confirming the cancellation with the Gateway. </template>
           {{ customerJobText(primaryJobControl(job)?.reason, job) }}
         </p>
       </div>
       </div>
+      <button v-if="activeJobs.length > visibleActiveJobs.length" type="button" class="btn btn-sm btn-secondary show-all-active" @click="showAllActive = true">
+        Show All {{ activeJobs.length }}
+      </button>
     </section>
 
     <!-- History (done / error / cancelled) — paginated -->
@@ -826,7 +830,7 @@
                 class="btn btn-xs btn-ghost"
                 title="Hide this completed card from Jobs. Work, receipts, and settlement checks continue."
                 @click="hideJob(job)"
-              >Hide from Jobs</button>
+              >Hide From Jobs</button>
             </div>
           </div>
           <EpisodeRecoveryStatus :job="job" :verified-recovered="isVerifiedRecoveredSubtitleJob(job)" />
@@ -836,7 +840,7 @@
             :class="`control-${primaryJobControl(job)?.action}`"
             role="status"
           >
-            <template v-if="hasPendingCancellation(job) && primaryJobControl(job)?.action === 'request-remote-cancel'">Story Studio is reconciling the cancellation result. </template>
+            <template v-if="hasPendingCancellation(job) && primaryJobControl(job)?.action === 'request-remote-cancel'">Story Studio is confirming the cancellation with the Gateway. </template>
             <template v-else-if="primaryJobControl(job)?.action === 'clear-history'">Removing this row does not change its files or billing records. </template>
             {{ customerJobText(primaryJobControl(job)?.reason, job) }}
           </p>
@@ -1086,11 +1090,13 @@ import { formatCredits } from '~/utils/genstudio-credit-cost'
 import { recoverEpisodeAssets, describeEpisodeAssetRecovery, type EpisodeAssetRecovery } from '~/utils/job-asset-recovery'
 import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isRecoveredFailure, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '~/utils/episode-recovery'
 import { effectiveGenStudioTaskState, FREE_MAC_WAIT_REASON, isFreeFleetWork } from '@shared/provider-task-state'
+import { bulkConfirmOptions, capList, controlLabel, episodeQueryValue, isPaidWork, matchesEpisodeSearch, pageCount, pageSlice } from '~/utils/jobs-list'
 type RJob = DeepReadonly<Job>
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Jobs')
 const route = useRoute()
+const router = useRouter()
 const slug = computed(() => route.params.slug as string)
 const { get, del, post } = useApi()
 const projectQueue = useJobs()
@@ -1163,6 +1169,9 @@ async function loadProjects() {
 }
 
 const refreshingJobs = ref(false)
+// When the job list last arrived (stream update or Refresh), for the "Updated N min ago" caption.
+const jobsLoadedAt = ref<number | null>(null)
+watch(streamedJobs, () => { if (!jobsLoading.value) jobsLoadedAt.value = Date.now() }, { immediate: true })
 const jobsRefreshMessage = computed(() => jobsRefreshError.value || 'Live updates are unavailable. Refresh to get the latest queue state.')
 async function refreshVisibleJobs() {
   if (refreshingJobs.value) return
@@ -1170,6 +1179,7 @@ async function refreshVisibleJobs() {
   try {
     if (isUniversal.value) await universalQueue.refresh()
     else await projectQueue.fetchJobs(slug.value)
+    jobsLoadedAt.value = Date.now()
   } catch (error: any) {
     showError(error?.data?.detail || error?.message || 'Could not refresh jobs')
   } finally {
@@ -1700,6 +1710,7 @@ async function repairAllFailed(chained = false, only?: RJob[]) {
   if (bulkActionBusy.value && !chained) return
   const snapshot = only || [...repairableFailedJobs.value]
   if (snapshot.length === 0) return
+  if (!chained && !await useConfirm().ask(bulkConfirmOptions('repair', snapshot.length))) return
   repairingAllFailed.value = true
   let failed = 0
   try {
@@ -1748,10 +1759,10 @@ function needsRepairCheck(job: RJob): boolean {
 // definitely known. Continuity rows use their explicit Finish action; everything it declines is named, with the reason, so
 // declining is visible rather than silent.
 //
-// Rejected on the way here, with reasons: a confirmation popup (gets clicked
-// through, and cannot tell "proved missing" from "never checked"); a global
-// grey-out until a repair has run (wrong for the 32 job types that have no
-// repair path at all, subtitles among them).
+// Rejected on the way here: a global grey-out until a repair has run (wrong for
+// the 32 job types that have no repair path at all, subtitles among them). A
+// confirmation was rejected too, then approved by the owner on 2026-10-07: it
+// states the count and whether paid work is included; the triage still decides.
 interface RetryAllAction {
   index: number
   key: string
@@ -1784,7 +1795,7 @@ function isTerminalContinuityRender(job: RJob): boolean {
 }
 // A finished job whose provider work GenStudio has not confirmed as settled.
 // The backend refuses its Retry with a 409 ("unsettled provider evidence"), so
-// Redo leaves it for "Check on running jobs" instead of counting a dead end.
+// Retry Failed Jobs leaves it for "Check Running Jobs" instead of counting a dead end.
 function waitsForProviderCheck(job: RJob): boolean {
   return ['done', 'error', 'cancelled'].includes(job.status)
     && jobControls(job).some(control => control.action === 'recheck-provider-status' || control.action === 'return-later')
@@ -1822,15 +1833,15 @@ const retryAllAttentionResults = computed(() => (retryAllRun.value?.results || [
   .sort((a, b) => a.index - b.index))
 const retryAllButtonLabel = computed(() => retryingAllFailed.value && retryAllRun.value
   ? `Retrying ${retryAllRun.value.completed}/${retryAllRun.value.total}…`
-  : `Retry all (${retryAllTriage.value.retry.length})`)
+  : `Retry Failed Jobs (${retryAllTriage.value.retry.length})`)
 const retryAllStatusMessage = computed(() => {
   const run = retryAllRun.value
   if (!retryingAllFailed.value || !run) return bulkActionMessage.value
   const current = retryAllCurrentEpisodes.value
-  return `Redo failed jobs: ${run.completed} of ${run.total} finished${current.length ? ` · working on ${current.join(', ')}.` : '.'}`
+  return `Retry Failed Jobs: ${run.completed} of ${run.total} finished${current.length ? ` · working on ${current.join(', ')}.` : '.'}`
 })
 
-// ── Check on running jobs ───────────────────────────────────────────────
+// ── Check Running Jobs ───────────────────────────────────────────────
 // The first of the two main buttons (owner, 2026-10-03). It chains only the
 // FREE actions — re-ask GenStudio about finished-but-unsettled jobs, Repair
 // (recorded requests) and Recover (episode files) — and never Retry: chaining
@@ -1839,10 +1850,10 @@ const recheckingAll = ref(false)
 const checkingAll = ref(false)
 // Every finished job still waiting on the Gateway — including the ones whose
 // automatic check has not answered yet ('return-later'). Redo counts those as
-// "waiting for Check on running jobs", so the check must ask about them too.
+// "waiting for Check Running Jobs", so the check must ask about them too.
 const providerCheckJobs = computed(() => projectScopedJobs.value.filter(waitsForProviderCheck))
 // Job ids the last check asked about. A job it looked at is never again told to
-// "wait for Check on running jobs" — it gets its own reason.
+// "wait for Check Running Jobs" — it gets its own reason.
 const checkLookedAt = ref<Set<string>>(new Set())
 const checkAction = computed(() => checkRunningJobsAction({
   unsettled: providerCheckJobs.value.length,
@@ -1960,6 +1971,9 @@ async function retryAllFailed() {
     }
     return false
   }
+  const paid = (triage.retry as RJob[]).filter(isPaidWork).length
+  if (!await useConfirm().ask(bulkConfirmOptions('retry', triage.retry.length, paid))) return false
+  if (bulkActionBusy.value) return false
   const directContinuityRetries = (triage.retry as RJob[]).filter(isTerminalContinuityRender)
   const grouped = groupEpisodeRecoveryRetries((triage.retry as RJob[]).filter(job => !isTerminalContinuityRender(job)))
   const snapshot = [...directContinuityRetries, ...grouped.other]
@@ -2038,7 +2052,7 @@ async function retryAllFailed() {
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, actions.length) }, () => worker()))
     await refreshVisibleJobs()
     const { sent, alreadyComplete, needsAttention } = retryAllCounts.value
-    bulkActionMessage.value = `Redo failed jobs finished: ${sent} queued or running; ${alreadyComplete} already complete; ${needsAttention} need attention. Original failed rows may remain in history.`
+    bulkActionMessage.value = `Retry Failed Jobs finished: ${sent} queued or running; ${alreadyComplete} already complete; ${needsAttention} need attention. Original failed rows may remain in history.`
     if (retryAllCounts.value.needsAttention > 0) showError(bulkActionMessage.value)
     else success(bulkActionMessage.value)
     return true
@@ -2196,6 +2210,17 @@ watch(() => route.query.status, value => {
   const next = statusFromQuery(value)
   if (next) statusFilter.value = next
 }, { immediate: true })
+// Search by episode code or title. `?episode_id=EP0123` opens it prefilled, and
+// typing mirrors back into the URL (replace, not push) so Back and refresh keep it.
+const episodeSearch = ref(episodeQueryValue(route.query.episode_id))
+watch(() => route.query.episode_id, value => { episodeSearch.value = episodeQueryValue(value) })
+watch(episodeSearch, value => {
+  currentPage.value = 1
+  const next = value.trim() || undefined
+  if (next !== (episodeQueryValue(route.query.episode_id) || undefined)) {
+    void router.replace({ query: { ...route.query, episode_id: next } })
+  }
+})
 const statusFilters = computed(() => STATUS_FILTERS.map(s => ({
   ...s,
   count: s.key === 'all'
@@ -2266,7 +2291,7 @@ const sortKey = ref('created_at')
 const sortDir = ref<'asc' | 'desc'>('desc')
 
 const sortColumns = [
-  { key: 'project_slug', label: 'Project' },
+  { key: 'project_slug', label: 'Channel' },
   { key: 'status', label: 'Status' },
   { key: 'type', label: 'Type' },
   { key: 'episode_id', label: 'Episode' },
@@ -2291,7 +2316,7 @@ const filteredJobs = computed(() => {
     status: statusFilter.value,
     project: 'all',
     batch: failureBatchFilter.value,
-  })
+  }).filter(job => matchesEpisodeSearch(job, episodeSearch.value))
 })
 
 const sortedJobs = computed(() => {
@@ -2314,7 +2339,6 @@ const sortedJobs = computed(() => {
   return list
 })
 
-const PAGE_SIZE = 10
 const currentPage = ref(1)
 
 const activeJobs = computed(() => {
@@ -2331,18 +2355,16 @@ const activeJobs = computed(() => {
 const historyJobs = computed(() =>
   sortedJobs.value.filter(j => j.status !== 'running' && j.status !== 'queued' && j.status !== 'paused')
 )
-const historyTotalPages = computed(() =>
-  Math.max(1, Math.ceil(historyJobs.value.length / PAGE_SIZE))
-)
-const paginatedHistory = computed(() => {
-  const start = (currentPage.value - 1) * PAGE_SIZE
-  return historyJobs.value.slice(start, start + PAGE_SIZE)
-})
+const historyTotalPages = computed(() => pageCount(historyJobs.value.length))
+const paginatedHistory = computed(() => pageSlice(historyJobs.value, currentPage.value))
+// A busy queue can hold hundreds of active rows; show the first 25 until asked.
+const showAllActive = ref(false)
+const visibleActiveJobs = computed(() => capList(activeJobs.value, showAllActive.value))
 
 // Full records for: the cards on screen, failed rows whose bulk Retry admission reads their
 // evidence, and hidden rows that may still be settling (the "N hidden jobs are still settling" count).
 const detailJobIds = computed(() => new Set([
-  ...activeJobs.value, ...paginatedHistory.value,
+  ...visibleActiveJobs.value, ...paginatedHistory.value,
   ...projectScopedJobs.value.filter(job => (job.status === 'error' || job.status === 'cancelled') && job.params?.jobs_replace_failed_items),
   ...hiddenJobsInScope.value.filter(job => job.genstudio_settlement_open || job.genstudio_jobs?.length),
 ].map(job => job.job_id)))
@@ -2363,7 +2385,7 @@ const removableJobs = computed(() => projectScopedJobs.value.filter(job =>
 const finishedCount = computed(() => removableJobs.value.filter(job => jobDisplayStatus(job) !== 'error').length)
 const failedCount = computed(() => removableJobs.value.filter(job => jobDisplayStatus(job) === 'error').length)
 const actionScopeLabel = computed(() => !isUniversal.value ? projectName(slug.value)
-  : projectFilter.value === 'all' ? 'All projects' : projectFilter.value === '_app_' ? 'App tools' : projectName(projectFilter.value))
+  : projectFilter.value === 'all' ? 'All channels' : projectFilter.value === '_app_' ? 'App tools' : projectName(projectFilter.value))
 const hasQueueWork = computed(() => globalQueueWork.value !== false || jobs.value.some(job => ['queued', 'running'].includes(job.status)))
 const clearingHistory = ref<'finished' | 'failed' | null>(null)
 const bulkActionMessage = ref('')
@@ -2600,7 +2622,7 @@ const eligibleCleanupJobs = computed(() => filteredJobs.value.filter(job => jobC
 const attentionCleanupCount = computed(() => eligibleCleanupJobs.value.filter(job => jobDisplayStatus(job) === 'error').length)
 const selectedCleanupJobs = computed(() => eligibleCleanupJobs.value.filter(job => selectedCleanupIds.value.has(job.job_id)))
 
-watch([slug, isUniversal, projectFilter, activeFilter, statusFilter, failureBatchFilter], () => {
+watch([slug, isUniversal, projectFilter, activeFilter, statusFilter, failureBatchFilter, episodeSearch], () => {
   selectedCleanupIds.value = new Set()
 })
 
@@ -2634,9 +2656,9 @@ async function abandonAndClearSelected() {
   try {
     const { ask } = useConfirm()
     if (!await ask({
-      title: `Abandon and clear ${selected.length} selected job${selected.length === 1 ? '' : 's'}?`,
+      title: `Abandon and remove ${selected.length} selected job${selected.length === 1 ? '' : 's'} from the list?`,
       message: `${scope}: only these ${selected.length} selected job rows will be removed. Files and billing records stay intact.${reasons.length ? `\n\n${reasons.join('\n')}` : ''}`,
-      confirmLabel: 'Abandon and Clear Selected',
+      confirmLabel: 'Abandon and Remove From List',
     })) return
     cleanupFailures.value = []
     controlBusy.value = new Set([...controlBusy.value, ...selected.map(job => job.job_id)])
@@ -2677,6 +2699,7 @@ type JobControl = NonNullable<RJob['control']>
 function jobControls(job: RJob): JobControl[] {
   return (job.controls?.length ? job.controls : (job.control ? [job.control] : []))
     .filter(control => control.action !== 'none')
+    .map(control => ({ ...control, label: controlLabel(control) }))
 }
 
 function primaryJobControl(job: RJob): JobControl | null {
@@ -2976,11 +2999,11 @@ const SAFE_PROMPT_ISSUE_REASONS: Record<string, string> = {
 }
 const PAID_REPLACEMENT_MESSAGES: Record<string, string> = {
   // Plain words (owner, 2026-10-03): what happened, and which button makes it again.
-  original_failure_not_eligible: 'The first try failed in a way Story Studio does not repeat on its own, so nothing new was sent or charged. Press “Redo failed jobs” to make it again.',
-  replacement_disabled: 'Automatic second tries are off for this job, so nothing new was sent or charged. Press “Redo failed jobs” to make it again.',
-  not_verified: 'Story Studio could not confirm the image is missing, so nothing new was sent. Press “Check on running jobs” first.',
+  original_failure_not_eligible: 'The first try failed in a way Story Studio does not repeat on its own, so nothing new was sent or charged. Press “Retry Failed Jobs” to make it again.',
+  replacement_disabled: 'Automatic second tries are off for this job, so nothing new was sent or charged. Press “Retry Failed Jobs” to make it again.',
+  not_verified: 'Story Studio could not confirm the image is missing, so nothing new was sent. Press “Check Running Jobs” first.',
   budget_limit: 'A second try would go over this job’s spending limit, so nothing new was sent.',
-  automatic_replacement_unavailable: 'An automatic second try was not possible, so nothing new was sent or charged. Press “Redo failed jobs” to make it again.',
+  automatic_replacement_unavailable: 'An automatic second try was not possible, so nothing new was sent or charged. Press “Retry Failed Jobs” to make it again.',
 }
 function paidReplacementAttemptMessage(job: RJob): string | null {
   const reason = (job.result as any)?.image_replacement?.reason
@@ -3051,7 +3074,7 @@ function jobAttentionCause(job: RJob): string {
       && remote.failure_code === 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN'
   })
   return submissionUncertain
-    ? 'The Gateway could not confirm the earlier prompt request. That request needs reconciliation before replacement.'
+    ? 'The Gateway could not confirm the earlier prompt request. Story Studio must confirm it before sending a replacement.'
     : ''
 }
 
@@ -3169,7 +3192,7 @@ async function recoverEpisode(job: RJob, announce = true): Promise<EpisodeAssetR
     const next = new Set(recoveringEpisodes.value)
     next.delete(key)
     recoveringEpisodes.value = next
-    // Looked at: "Check on running jobs" stops counting this episode (no loop).
+    // Looked at: "Check Running Jobs" stops counting this episode (no loop).
     episodesLookedAt.value = new Set(episodesLookedAt.value).add(key)
   }
 }
@@ -3336,7 +3359,7 @@ async function repairJobOnly(job: RJob, announce = true) {
   const body = JSON.parse(
     JSON.stringify(template.body).replace(/__EPISODE__/g, job.episode_id).replace(/__JOB__/g, job.job_id)
   )
-  // Bulk runs (Repair All, Check on running jobs) report once; each card keeps its chip.
+  // Bulk runs (Repair All, Check Running Jobs) report once; each card keeps its chip.
   const notify = announce ? { success, info } : { success: (_: string) => {}, info: (_: string) => {} }
 
   repairingJobs.value = new Set(repairingJobs.value).add(job.job_id)
@@ -3547,7 +3570,7 @@ async function clearHistory(status: 'finished' | 'failed') {
   const promised = status === 'finished' ? finishedCount.value : failedCount.value
   if (!promised) return
   // Failed rows are the only place Retry/Recover and the error detail live.
-  if (status === 'failed' && !await useConfirm().ask({ title: 'Clear failed jobs?', message: `Remove ${promised} failed job row(s)? Their error details and Retry/Recover actions go with them. Files and billing records are unchanged.`, confirmLabel: 'Clear Failed', danger: true })) return
+  if (status === 'failed' && !await useConfirm().ask({ title: 'Remove failed jobs from the list?', message: `Remove ${promised} failed job row(s)? Their error details and Retry/Recover actions go with them. Files and billing records are unchanged.`, confirmLabel: 'Remove From List', danger: true })) return
   const project = isUniversal.value ? projectFilter.value : slug.value
   const endpoint = isUniversal.value && project === 'all' ? '/jobs/all'
     : project === '_app_' ? '/jobs/app' : `/projects/${project}/jobs`
@@ -3555,8 +3578,8 @@ async function clearHistory(status: 'finished' | 'failed') {
   try {
     const result = await del<{ cleared: number }>(`${endpoint}?status=${status}`)
     bulkActionMessage.value = result.cleared
-      ? `Cleared ${result.cleared} ${status} history row(s). Files and billing records are unchanged.`
-      : 'Nothing was cleared. Provider status may have changed; the job’s controls show what is still pending.'
+      ? `Removed ${result.cleared} ${status} row(s) from the list. Files and billing records are unchanged.`
+      : 'Nothing was removed. Provider status may have changed; the job’s controls show what is still pending.'
     info(bulkActionMessage.value)
     // This endpoint returns only a count, not the exact ids that survived its
     // provider-settlement gate. Refresh the visible scope instead of guessing
@@ -3572,9 +3595,25 @@ function clearFailed() { return clearHistory('failed') }
 
 <style scoped>
 .jobs-workspace { padding-bottom: 32px; }
-.jobs-selection-toolbar { margin: 16px 0; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius-md); }
+.jobs-selection-toolbar { margin: 6px 0 10px; }
 .jobs-selection-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.jobs-selection-buttons .btn { min-height: 40px; white-space: normal; }
+.jobs-selection-buttons .btn { min-height: 32px; white-space: normal; }
+.jobs-selection-buttons .btn:disabled { color: var(--text-muted); background: var(--bg-tertiary); border-color: var(--border); cursor: not-allowed; opacity: .65; }
+.episode-search { flex: 0 1 240px; }
+.episode-search input {
+  width: 100%;
+  min-height: 31px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-sm);
+}
+.episode-search input::placeholder { color: var(--text-muted); }
+.episode-search input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+.show-all-active { margin-top: 8px; }
 .jobs-selection-toolbar p { margin: 8px 0 0; font-size: var(--font-sm); }
 .jobs-selection-toolbar li { overflow-wrap: anywhere; }
 .job-identity input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color: var(--accent); }
@@ -3583,15 +3622,16 @@ function clearFailed() { return clearHistory('failed') }
   justify-items: end;
   gap: 10px;
 }
-.jobs-control-toolbar { padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-secondary); }
-.jobs-control-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; margin-bottom: 16px; }
+.jobs-control-toolbar { padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-secondary); }
+.jobs-control-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; margin-bottom: 10px; }
+.jobs-updated-ago { margin-left: auto; }
 .jobs-control-heading span, .jobs-control-label { color: var(--text-secondary); font-size: var(--font-xs); }
 .jobs-primary-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .jobs-primary-action { min-width: 0; }
-.jobs-primary-action .btn { width: 100%; min-height: 48px; font-size: var(--font-md, 15px); font-weight: 600; white-space: normal; }
+.jobs-primary-action .btn { width: 100%; min-height: 40px; font-size: var(--font-md, 15px); font-weight: 600; white-space: normal; }
 .jobs-primary-action .btn:disabled { color: var(--text-muted); background: var(--bg-tertiary); border-color: var(--border); cursor: not-allowed; opacity: .7; }
 .jobs-action-hint { margin: 6px 2px 0; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.45; }
-.jobs-more-actions { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px; }
+.jobs-more-actions { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
 .jobs-more-action { display: grid; grid-template-columns: minmax(130px, auto) 1fr; align-items: center; gap: 4px 10px; margin-bottom: 8px; }
 .jobs-more-action .btn { min-height: 36px; white-space: normal; }
 .jobs-more-action .btn:disabled { color: var(--text-muted); background: var(--bg-tertiary); border-color: var(--border); cursor: not-allowed; opacity: .65; }
@@ -3672,14 +3712,23 @@ function clearFailed() { return clearHistory('failed') }
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.genstudio-capacity-summary .capacity-error {
-  border-color: color-mix(in srgb, var(--danger) 65%, var(--border));
+.capacity-error {
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--danger) 65%, var(--border));
+  border-radius: 999px;
   background: color-mix(in srgb, var(--danger) 12%, var(--bg-primary));
   color: var(--danger);
+  font-size: var(--font-xs);
 }
-.genstudio-capacity-summary .capacity-error strong {
-  color: var(--danger);
+.capacity-error strong { color: var(--danger); }
+.genstudio-capacity { display: grid; justify-items: end; gap: 6px; max-width: min(720px, 100%); }
+.genstudio-capacity > summary {
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  cursor: pointer;
 }
+.genstudio-capacity > summary:hover { color: var(--text-primary); }
+.genstudio-capacity > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .genstudio-capacity-summary .capacity-boost {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
   color: var(--accent);
@@ -3929,32 +3978,13 @@ function clearFailed() { return clearHistory('failed') }
 }
 .bbf-dismiss:hover { background: var(--bg-hover); color: var(--text-primary); }
 
-/* Filter Tabs */
-.filter-tabs {
-  display: flex; gap: 2px; margin-top: 16px;
-  background: var(--bg-secondary); border-radius: var(--radius); padding: 3px;
-  overflow-x: auto;
-}
-.filter-tab {
-  padding: 6px 14px; border-radius: var(--radius-sm);
-  font-size: 12px; font-weight: 500;
-  background: none; border: none; color: var(--text-muted);
-  cursor: pointer; transition: all 0.15s; white-space: nowrap;
-  display: flex; align-items: center; gap: 6px;
-}
-.filter-tab:hover { color: var(--text-primary); background: var(--bg-hover); }
-.filter-tab.active { background: var(--accent-dim); color: var(--accent); }
-.tab-count {
-  background: var(--accent); color: #0f1117;
-  font-size: var(--font-xs); font-weight: 700;
-  padding: 1px 5px; border-radius: 8px; min-width: 16px; text-align: center;
-}
-
 /* Sort Bar */
 .sort-bar {
   display: flex; align-items: center; gap: 4px; margin-top: 10px; padding: 4px 0;
 }
-.sort-label { font-size: var(--font-xs); margin-right: 4px; }
+.sort-label { font-size: var(--font-xs); margin-right: 4px; white-space: nowrap; }
+.sort-btn { white-space: nowrap; }
+.type-filter select { min-width: 150px; }
 .sort-btn {
   padding: 3px 8px; border-radius: var(--radius-sm);
   font-size: var(--font-xs); background: none; border: 1px solid transparent;
@@ -3971,7 +4001,7 @@ function clearFailed() { return clearHistory('failed') }
   gap: 8px;
   padding: 8px 14px;
   background: var(--accent-dim);
-  border: 1px solid rgba(240, 198, 116, 0.25);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
   border-radius: var(--radius-sm);
   color: var(--accent);
   font-size: 12px;
@@ -3995,10 +4025,10 @@ function clearFailed() { return clearHistory('failed') }
 }
 .job-card.status-running { border-left: 3px solid var(--accent); }
 .job-card.status-error { border-left: 3px solid var(--error); }
-.job-card.status-done { border-left: 3px solid #22c55e; }
+.job-card.status-done { border-left: 3px solid var(--success); }
 .job-card.status-recovered { border-left: 3px solid var(--success); }
 .job-card.status-queued { border-left: 3px solid var(--text-muted); }
-.job-card.status-paused { border-left: 3px solid #f5c35b; }
+.job-card.status-paused { border-left: 3px solid var(--warning); }
 .job-card.status-cancelled { border-left: 3px solid var(--text-muted); opacity: 0.6; }
 
 .job-row-main {
@@ -4043,13 +4073,13 @@ function clearFailed() { return clearHistory('failed') }
 .meta-label { color: var(--text-muted); opacity: 0.7; }
 .auto-retry-tag {
   padding: 2px 8px;
-  border: 1px solid rgba(240, 198, 116, 0.28);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
   border-radius: 999px;
-  background: rgba(240, 198, 116, 0.08);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
   color: var(--accent);
   font-weight: 650;
 }
-.auto-retry-tag.is-active { border-color: rgba(240, 198, 116, 0.42); }
+.auto-retry-tag.is-active { border-color: color-mix(in srgb, var(--accent) 42%, transparent); }
 .auto-retry-tag.is-recovered {
   border-color: rgba(63, 185, 80, 0.34);
   background: rgba(63, 185, 80, 0.1);
@@ -4294,13 +4324,13 @@ function clearFailed() { return clearHistory('failed') }
 
 /* Button sizes */
 .btn-xs { padding: 3px 10px; font-size: var(--font-xs); }
-.status-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
+.status-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 12px 0 8px; }
 .status-filters { display: flex; gap: 6px; flex-wrap: wrap; }
-.hidden-jobs { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--font-xs); color: var(--text-muted); }
+.hidden-jobs { margin-left: auto; display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--font-xs); color: var(--text-muted); }
 .hidden-settling-count { overflow-wrap: anywhere; }
 .status-chip { font-size: 12px; padding: 3px 10px; border-radius: 12px; border: 1px solid var(--border, #333); background: none; color: var(--text-muted, #999); cursor: pointer; }
 .status-chip:hover { border-color: var(--accent, #6ab0f3); }
-.status-chip.active { background: var(--accent, #6ab0f3); color: #fff; border-color: var(--accent, #6ab0f3); }
+.status-chip.active { background: var(--accent); color: var(--accent-on); border-color: var(--accent); }
 .status-chip.active.sc-error { background: #e06c75; border-color: #e06c75; }
 .status-count { margin-left: 5px; opacity: 0.8; font-variant-numeric: tabular-nums; }
 .resume-paused-btn { white-space: nowrap; }
@@ -4329,6 +4359,8 @@ function clearFailed() { return clearHistory('failed') }
   .project-filter { width: 100%; }
   .project-filter select { min-width: 0; flex: 1; }
   .sort-bar { flex-wrap: wrap; min-width: 0; }
+  .episode-search { flex: 1 1 100%; margin-right: 0; }
+  .jobs-updated-ago { margin-left: 0; }
   .sort-label { flex: 1 1 100%; margin-right: 0; }
   .status-filters { flex: 1 1 100%; min-width: 0; }
   .status-bar > .btn { flex: 1 1 auto; }

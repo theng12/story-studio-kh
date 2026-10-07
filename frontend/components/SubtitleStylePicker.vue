@@ -942,7 +942,7 @@ defineExpose({ defaultSubtitleStyle })
 }
 .ssp-safe-boundary {
   position: absolute;
-  border: 2px solid rgba(240, 198, 116, 0.8);
+  border: 2px solid color-mix(in srgb, var(--accent) 80%, transparent);
   border-radius: 5px;
   box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.18);
   pointer-events: none;

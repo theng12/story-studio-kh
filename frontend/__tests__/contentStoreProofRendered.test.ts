@@ -82,6 +82,10 @@ const NuxtLinkStub = defineComponent({
   setup(props, { slots }) { return () => h('a', { href: props.to }, slots.default?.()) },
 })
 const NuxtPageStub = defineComponent({ setup: () => () => null })
+const PlainBackLinkStub = defineComponent({
+  props: { label: String, fallback: String },
+  setup(props) { return () => h('a', { class: 'plain-back-link', href: props.fallback }, props.label) },
+})
 const LoadingSpinnerStub = defineComponent({ setup: () => () => h('span', 'loading') })
 
 async function mount(component: Component, props: Record<string, unknown> = {}) {
@@ -90,6 +94,7 @@ async function mount(component: Component, props: Record<string, unknown> = {}) 
   const app = createApp(component, props)
   app.component('NuxtLink', NuxtLinkStub)
   app.component('NuxtPage', NuxtPageStub)
+  app.component('PlainBackLink', PlainBackLinkStub)
   app.component('LoadingSpinner', LoadingSpinnerStub)
   app.mount(host)
   await nextTick()
@@ -348,7 +353,7 @@ describe('Content Store rendered catalog and proof regressions', () => {
     failed.unmount()
   })
 
-  test('keeps direct proof keyboard back navigation inside the Store', async () => {
+  test('leaves keyboard back navigation to PlainBackLink, falling back to the Store', async () => {
     const Route = await loadComponent('[productId].vue')
     const products = ref([product('proof', 'Proof product')])
     ;(globalThis as any).__contentStoreTestRoute = { params: { productId: 'proof' } }
@@ -357,8 +362,8 @@ describe('Content Store rendered catalog and proof regressions', () => {
     const rendered = await mount(Route)
     await Promise.resolve(); await nextTick()
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
-    assert.deepEqual((globalThis as any).__contentStoreNavigations, [['/content-store']])
-    assert.equal(rendered.host.querySelector('.back-link')?.getAttribute('href'), '/content-store')
+    assert.deepEqual((globalThis as any).__contentStoreNavigations, [], 'the page no longer handles Escape itself')
+    assert.equal(rendered.host.querySelector('.plain-back-link')?.getAttribute('href'), '/content-store')
     rendered.unmount()
   })
 

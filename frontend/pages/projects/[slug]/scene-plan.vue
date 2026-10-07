@@ -3601,7 +3601,7 @@ watch(slug, () => { void refreshMeasuredOpening() }, { immediate: true })
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: linear-gradient(145deg, rgba(240, 198, 116, 0.08), var(--bg-secondary));
+  background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 8%, transparent), var(--bg-secondary));
 }
 .stage-step > span { margin-top: 6px; color: var(--text-secondary); font-size: 13px; }
 .stage-step .stage-built { color: var(--text-muted); font-size: 12px; }
@@ -3697,8 +3697,8 @@ watch(slug, () => { void refreshMeasuredOpening() }, { immediate: true })
   padding: 1px 10px;
   font-size: var(--font-xs); font-weight: 600;
   color: var(--accent);
-  background: rgba(240, 198, 116, 0.12);
-  border: 1px solid rgba(240, 198, 116, 0.25);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
   border-radius: 999px;
 }
 .intensity-picker { min-width: 0; }
@@ -3841,7 +3841,7 @@ watch(slug, () => { void refreshMeasuredOpening() }, { immediate: true })
   content-visibility: auto;
   contain-intrinsic-size: auto 360px;
 }
-.scene-row-problem { border-left: 3px solid #e0a23a; }
+.scene-row-problem { border-left: 3px solid var(--warning); }
 .scene-row-flash { animation: scene-flash 1.4s ease; }
 @keyframes scene-flash {
   0%, 100% { box-shadow: 0 0 0 0 rgba(240, 180, 41, 0); }
@@ -3850,9 +3850,9 @@ watch(slug, () => { void refreshMeasuredOpening() }, { immediate: true })
 /* v1.0.245 — Plan-health banner. */
 .plan-health {
   padding: 10px 12px;
-  border: 1px solid rgba(224, 162, 58, 0.4);
-  border-left: 3px solid #e0a23a;
-  background: rgba(224, 162, 58, 0.08);
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+  border-left: 3px solid var(--warning);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
   border-radius: 8px;
 }
 .plan-health-head { font-size: 13px; font-weight: 600; color: var(--text-primary); }
@@ -3861,12 +3861,12 @@ watch(slug, () => { void refreshMeasuredOpening() }, { immediate: true })
   font-size: var(--font-xs);
   padding: 3px 9px;
   border-radius: 999px;
-  border: 1px solid rgba(224, 162, 58, 0.45);
-  background: rgba(224, 162, 58, 0.1);
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
   color: var(--text-primary);
   cursor: pointer;
 }
-.plan-health-chip:hover { border-color: #e0a23a; background: rgba(224, 162, 58, 0.2); }
+.plan-health-chip:hover { border-color: var(--warning); background: color-mix(in srgb, var(--warning) 20%, transparent); }
 .plan-health-why { color: var(--text-muted); }
 .scene-row-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
 .scene-select-box { align-self: center; margin: 0; cursor: pointer; }

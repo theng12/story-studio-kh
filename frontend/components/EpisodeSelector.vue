@@ -68,6 +68,15 @@
         @click="searchQuery = ''"
       >✕</button>
     </div>
+    <div class="ep-select-row">
+    <button
+      type="button"
+      class="btn btn-secondary btn-sm ep-step-btn"
+      :disabled="!previousCode"
+      :title="previousCode ? `Previous episode: ${previousCode}` : 'No previous episode in this list'"
+      aria-label="Previous episode"
+      @click="previousCode && onSelect(previousCode)"
+    >←</button>
     <select
       :value="modelValue"
       :disabled="loading || (!episodes.length && !!loadError)"
@@ -88,6 +97,15 @@
         {{ ep.episode_code }} — {{ ep.title }}{{ statusSuffix(ep) }}{{ localMediaStatusSuffix(ep) }}{{ retainedSuffix(ep) }}
       </option>
     </select>
+    <button
+      type="button"
+      class="btn btn-secondary btn-sm ep-step-btn"
+      :disabled="!nextCode"
+      :title="nextCode ? `Next episode: ${nextCode}` : 'No next episode in this list'"
+      aria-label="Next episode"
+      @click="nextCode && onSelect(nextCode)"
+    >→</button>
+    </div>
     <div v-if="legend" class="status-legend">{{ legend }}</div>
 
     <!-- v1.0.338 — per-step status for the SELECTED episode + manual
@@ -140,6 +158,7 @@ import { isNavigationFailure, NavigationFailureType } from 'vue-router'
 import { STEP_STATUS_FIELD } from '~/composables/useProjectFlow'
 import { localMediaStatusLabel } from '~/composables/useEpisodes'
 import { jobTypeLabel } from '~/utils/job-presentation'
+import { adjacentEpisodeCodes } from '~/utils/episode-neighbours'
 
 const props = defineProps<{
   modelValue: string
@@ -586,6 +605,11 @@ const legend = computed(() => {
 // :value binding handles the rollback). If they confirm, proceed.
 const { ask } = useConfirm()
 
+/** ← → step through the list as shown (Pending Only / search apply), via onSelect so the running-job guard still asks. */
+const neighbourCodes = computed(() => adjacentEpisodeCodes(filteredEpisodes.value.map(ep => ep.episode_code), props.modelValue))
+const previousCode = computed(() => neighbourCodes.value.previous)
+const nextCode = computed(() => neighbourCodes.value.next)
+
 async function onSelect(code: string) {
   // No-op when the user picked the same episode they were on (clicking
   // the dropdown without changing).
@@ -658,6 +682,9 @@ defineExpose({ refresh, rescan })
 </script>
 
 <style scoped>
+.ep-select-row { display: flex; align-items: center; gap: 6px; }
+.ep-select-row .select { flex: 1; min-width: 0; }
+.ep-step-btn { flex: 0 0 auto; min-width: 36px; padding: 6px 10px; }
 .toggle-row {
   display: flex;
   gap: 2px;

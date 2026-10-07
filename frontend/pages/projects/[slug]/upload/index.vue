@@ -96,7 +96,7 @@
           <h3>{{ episodesNeedingAttention === 0 ? 'Nothing is waiting' : `${episodesNeedingAttention} episode${episodesNeedingAttention === 1 ? '' : 's'} to look at` }}</h3>
           <p v-if="episodesNeedingAttention === 0" class="hint">
             {{ overview.operation_count === 0
-              ? 'No episode has been uploaded from this project yet.'
+              ? 'No episode has been uploaded from this channel yet.'
               : 'Every uploaded episode is settled.' }}
           </p>
         </div>
@@ -104,7 +104,7 @@
           <li v-for="row in attentionRows" :key="row.id">
             <span class="count">{{ row.count }}</span>
             <span>{{ row.label }}</span>
-            <NuxtLink :to="`/projects/${slug}/upload/publish`" class="btn btn-ghost btn-sm">Open Publish</NuxtLink>
+            <NuxtLink :to="`/projects/${slug}/upload/${row.to}`" class="btn btn-ghost btn-sm">{{ row.action }}</NuxtLink>
           </li>
         </ul>
       </section>
@@ -164,16 +164,16 @@ const SETUP_COPY: Record<string, { heading: string; body: string }> = {
   },
   no_channel_connected: {
     heading: 'Connect a YouTube channel',
-    body: 'The OAuth application is saved. Authorize the channel you publish to, then assign it to this project.',
+    body: 'The OAuth application is saved. Authorize the YouTube channel you publish to, then assign it here.',
   },
   no_channel_assigned: {
-    heading: 'Choose this project’s channel',
-    body: 'Channels are connected, but this project does not publish to one yet. It stays fully usable locally until you choose.',
+    heading: 'Choose the YouTube channel to publish to',
+    body: 'YouTube channels are connected, but none is assigned here yet. Everything stays usable locally until you choose.',
   },
 }
 
 const setupCopy = computed(() => SETUP_COPY[overview.value?.unavailable_reason ?? ''] ?? {
-  heading: 'YouTube is not available for this project',
+  heading: 'YouTube is not available here yet',
   body: 'Open Settings to finish connecting.',
 })
 
@@ -202,18 +202,22 @@ const buckets = computed(() => {
   return BUCKET_LABELS.map(({ id, label }) => ({ id, label, ...quota.buckets[id] }))
 })
 
-const ATTENTION_LABELS: Array<{ id: keyof Overview['attention']; label: string }> = [
-  { id: 'processing', label: 'still processing on YouTube' },
-  { id: 'failed', label: 'upload failed' },
-  { id: 'rejected', label: 'rejected by YouTube' },
-  { id: 'status_unavailable', label: 'status could not be checked' },
-  { id: 'drift', label: 'differ from YouTube' },
+/**
+ * Each row opens where it is dealt with, already filtered: Publish's own status
+ * chips (it reads `status` from the URL), or Library, where drift is resolved.
+ */
+const ATTENTION_LABELS: Array<{ id: keyof Overview['attention']; label: string; to: string; action: string }> = [
+  { id: 'processing', label: 'still processing on YouTube', to: 'publish?status=in_progress', action: 'Show in Publish' },
+  { id: 'failed', label: 'upload failed', to: 'publish?status=attention', action: 'Show in Publish' },
+  { id: 'rejected', label: 'rejected by YouTube', to: 'publish?status=attention', action: 'Show in Publish' },
+  { id: 'status_unavailable', label: 'status could not be checked', to: 'publish?status=attention', action: 'Show in Publish' },
+  { id: 'drift', label: 'differ from YouTube', to: 'library', action: 'Open Library' },
 ]
 const attentionRows = computed(() => {
   const attention = overview.value?.attention
   if (!attention) return []
   return ATTENTION_LABELS
-    .map(({ id, label }) => ({ id, label, count: attention[id] }))
+    .map(row => ({ ...row, count: attention[row.id] }))
     .filter(row => row.count > 0)
 })
 /**
@@ -326,7 +330,7 @@ onMounted(load)
 .panel p { margin: 4px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
 .eyebrow { color: var(--accent); font-size: var(--font-xs); font-weight: 700; letter-spacing: .11em; text-transform: uppercase; }
 .hint { color: var(--text-muted); font-size: var(--font-xs); }
-.result.err { color: var(--danger); font-size: var(--font-xs); }
+.result.err { color: var(--error); font-size: var(--font-xs); }
 
 .channel { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
 .channel > * { min-width: 0; }
@@ -347,7 +351,7 @@ onMounted(load)
 .buckets > div { display: grid; gap: 2px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--bg-tertiary); }
 .buckets dt, .buckets dd { margin: 0; font-size: var(--font-xs); }
 .buckets dd { display: grid; gap: 2px; }
-.buckets strong.exhausted { color: var(--danger); }
+.buckets strong.exhausted { color: var(--error); }
 .quota-broken h3, .sync-problem h3 { color: var(--warning, #d97706); }
 .hint.stale { color: var(--warning, #d97706); }
 

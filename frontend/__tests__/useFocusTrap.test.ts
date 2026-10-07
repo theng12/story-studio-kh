@@ -189,4 +189,28 @@ describe('useFocusTrap', () => {
       'typing a letter should not move focus')
     assert.equal(escCount, 0)
   })
+
+  test('Escape in a dialog opened from another dialog closes only the newest one', async () => {
+    const container = setupContainer()
+    const outer = ref(false)
+    const inner = ref(false)
+    let outerEscapes = 0
+    let innerEscapes = 0
+    useFocusTrap(ref<HTMLElement | null>(container), outer, () => { outerEscapes++ })
+    useFocusTrap(ref<HTMLElement | null>(container), inner, () => { innerEscapes++ })
+
+    outer.value = true
+    await nextTick()
+    inner.value = true
+    await nextTick()
+    dispatchKey('Escape')
+    assert.deepEqual([outerEscapes, innerEscapes], [0, 1], 'only the picker on top closes')
+
+    inner.value = false
+    await nextTick()
+    dispatchKey('Escape')
+    assert.deepEqual([outerEscapes, innerEscapes], [1, 1], 'then Escape belongs to the dialog underneath')
+    outer.value = false
+    await nextTick()
+  })
 })

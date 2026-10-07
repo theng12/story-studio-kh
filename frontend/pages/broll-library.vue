@@ -386,7 +386,15 @@
     </div>
 
     <!-- Create pool modal -->
-    <div v-if="createModalOpen" class="modal-overlay" @click.self="createModalOpen = false">
+    <!-- Forms: no backdrop close (a stray click must not throw away typing);
+         Escape closes only until something has been typed. -->
+    <Modal
+      :visible="createModalOpen"
+      size="md"
+      :close-on-backdrop="false"
+      :close-on-escape="!createDraft.name.trim() && !createDraft.folder_path.trim()"
+      @close="createModalOpen = false"
+    >
       <div class="create-modal">
         <h3>Register a B-Roll pool</h3>
         <p class="text-muted text-sm">
@@ -496,12 +504,18 @@
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
 
     <!-- ── Edit pool modal (v1.0.405) — rename + repoint folder ──────────── -->
-    <div v-if="editModalOpen" class="modal-overlay" @click.self="editModalOpen = false">
+    <Modal
+      :visible="editModalOpen"
+      size="md"
+      :close-on-backdrop="false"
+      :close-on-escape="editDraft.name === selectedPool?.name && editDraft.folder_path === selectedPool?.folder_path"
+      @close="editModalOpen = false"
+    >
       <div class="create-modal">
-        <h3>Edit pool</h3>
+        <h3>Edit Pool</h3>
         <div class="form-group">
           <label>Pool name <span class="req">*</span></label>
           <input v-model="editDraft.name" class="input" placeholder="Prayer images (DAS)" />
@@ -532,16 +546,21 @@
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
 
     <!-- ── Rename (single clip) modal ────────────────────────────────────
          Lightweight: just a text input + Save. We re-validate client-side
          (extension required, no path separators) so the user gets immediate
          feedback before round-tripping the server. The backend re-validates
          too — never trust the client's check alone. -->
-    <div v-if="renameOneOpen" class="modal-overlay" @click.self="closeRenameOne">
+    <Modal
+      :visible="renameOneOpen"
+      size="md"
+      :close-on-backdrop="false"
+      @close="closeRenameOne"
+    >
       <div class="create-modal">
-        <h3>Rename clip</h3>
+        <h3>Rename Clip</h3>
         <p class="text-muted text-sm">
           Renames the file on disk; its tags and converted copy follow automatically.
           <strong>Keep the file extension</strong> (e.g. <code>.mp4</code>) — the video tools need it.
@@ -574,7 +593,7 @@
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
 
     <!-- ── Bulk rename modal ─────────────────────────────────────────────
          User picks a template; we render a live preview of the first N
@@ -582,8 +601,9 @@
          inline so the user doesn't have to leave the modal to find the
          token reference. Errors are surfaced per-row after apply so the
          user can see exactly which renames collided. -->
-    <div v-if="bulkRenameOpen" class="modal-overlay" @click.self="closeBulkRename">
-      <div class="create-modal bulk-rename-modal">
+    <!-- The template is kept between opens, so Escape loses nothing here. -->
+    <Modal :visible="bulkRenameOpen" size="lg" :close-on-backdrop="false" @close="closeBulkRename">
+      <div class="create-modal">
         <h3>Bulk rename — {{ selectedPool?.name || 'pool' }}</h3>
         <p class="text-muted text-sm">
           Apply a naming template to every clip in this pool. Originals are
@@ -683,11 +703,11 @@
             :disabled="bulkRenameBusy || !bulkRenameTemplate.trim() || !clips.length"
             @click="submitBulkRename"
           >
-            {{ bulkRenameBusy ? 'Renaming…' : bulkRenameResult ? 'Run Again' : `Rename ${clips.length} clip${clips.length === 1 ? '' : 's'}` }}
+            {{ bulkRenameBusy ? 'Renaming…' : bulkRenameResult ? 'Run Again' : `Rename ${clips.length} Clip${clips.length === 1 ? '' : 's'}` }}
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   </div>
 </template>
 
@@ -1684,24 +1704,8 @@ function onThumbError(e: Event): void {
 .clip-filter { max-width: 280px; }
 .pool-actions-hint { flex-basis: 100%; text-align: right; }
 
-/* Create modal */
-.modal-overlay {
-  position: fixed; inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 200; padding: 24px;
-}
-.create-modal {
-  max-height: calc(100vh - 48px);
-  overflow-y: auto;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 18px 22px;
-  width: min(560px, 96vw);
-  display: flex; flex-direction: column; gap: 12px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.25);
-}
+/* Pool / rename dialogs — the box itself is the shared <Modal>. */
+.create-modal { display: flex; flex-direction: column; gap: 12px; }
 .create-modal h3 { margin: 0; font-size: 16px; }
 .form-group { display: flex; flex-direction: column; gap: 4px; }
 .form-group label { font-size: 12px; color: var(--text-primary); }
@@ -1798,10 +1802,6 @@ function onThumbError(e: Event): void {
 }
 
 /* v1.0.92+ Rename modals --------------------------------------------- */
-.bulk-rename-modal {
-  max-width: 720px;
-  width: min(720px, 92vw);
-}
 .input.has-error {
   border-color: var(--error, #e25c5c);
 }

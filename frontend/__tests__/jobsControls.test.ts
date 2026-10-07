@@ -126,9 +126,9 @@ test('Jobs keeps all toolbar actions available, disabled when their scoped count
   // Owner 2026-10-03: two main buttons, everything else under More actions.
   assert.match(jobs, /:disabled="checkAction\.disabled"[\s\S]{0,120}@click="checkOnRunningJobs\(\)"/)
   assert.match(jobs, /:disabled="redoAction\.disabled"[\s\S]{0,160}@click="retryAllFailed\(\)"/)
-  // Owner follow-up: the rest stay visible in a quieter row, never folded away.
+  // Owner rule 2026-10-03: More actions stay visible, never folded (the 2026-10-07 fold was reverted).
   assert.match(jobs, /<div class="jobs-more-actions" role="group" aria-label="Other job actions">/)
-  assert.doesNotMatch(jobs, /<details class="jobs-more-actions">/)
+  assert.doesNotMatch(jobs, /<details class="jobs-more-actions"/)
   for (const action of ['recoverAllEpisodes', 'repairAllFailed', 'resumePausedJobs', 'clearFinished', 'clearFailed']) {
     assert.match(jobs, new RegExp(`:disabled="[^"\\n]+"[\\s\\S]{0,240}@click="${action}`))
   }
@@ -191,9 +191,9 @@ test('Gateway batch ledger keeps customer cancellations neutral instead of faile
   assert.match(ledger, /class="cancelled"/)
 })
 
-test('Jobs keeps a requested cancellation active and explains reconciliation', () => {
+test('Jobs keeps a requested cancellation active and explains it in plain words', () => {
   assert.match(jobs, /control\.label/)
-  assert.match(jobs, /Story Studio is reconciling/)
+  assert.match(jobs, /Story Studio is confirming the cancellation with the Gateway/)
   assert.match(jobs, /files or billing records/i)
 })
 
@@ -288,7 +288,7 @@ test('normal Jobs surfaces use attention language while internal status keys sta
   assert.match(jobs, /job.*need.*attention/s)
   assert.match(jobs, /episode.*need.*attention/s)
   assert.match(jobs, /Show all episodes needing attention/)
-  assert.match(jobs, />Review jobs →<\/button>/)
+  assert.match(jobs, />Review Jobs →<\/button>/)
   assert.match(jobs, /What happened:/)
   assert.match(jobs, /Show Details/)
   assert.match(jobs, /Repair All \(\$\{repairableFailedJobs\.length\}\)/)

@@ -532,7 +532,7 @@
               </span>
             </div>
             <p class="text-muted text-xs mt-1">
-              Static segment — pipeline synthesises this from the single image at the project's resolution + fps.
+              Static segment — pipeline synthesises this from the single image at the channel's resolution + fps.
               Audio (background music / ambient noise) comes from the Music tab in Step 4 and loops automatically across this duration.
             </p>
           </template>
@@ -1133,7 +1133,7 @@
           <div class="form-group mt-2">
             <label>Background plate</label>
             <span class="field-hint" style="display: block; margin-bottom: 4px;">
-              Looping video (e.g. starfield) or a static image. Drop sources into the project's
+              Looping video (e.g. starfield) or a static image. Drop sources into the channel's
               <code>backgrounds/</code> folder, then pick from the list.
             </span>
             <div class="flex gap-2" style="flex-wrap: wrap; align-items: center;">
@@ -1151,7 +1151,7 @@
               <button
                 type="button"
                 class="btn btn-sm btn-secondary"
-                title="Open the project's backgrounds/ folder so you can drop a video in"
+                title="Open the channel's backgrounds/ folder so you can drop a video in"
                 @click="openBackgroundsFolder"
               >📁 Open Folder</button>
             </div>
@@ -1209,14 +1209,10 @@
         </div>
 
         <!-- Background picker modal -->
-        <div
-          v-if="showBackgroundPicker"
-          class="modal-overlay"
-          @click.self="showBackgroundPicker = false"
-        >
-          <div class="modal-content" style="max-width: 600px;">
+        <Modal :visible="showBackgroundPicker" size="md" labelledby="bg-picker-title" @close="showBackgroundPicker = false">
+          <div>
             <div class="flex gap-2 items-center" style="margin-bottom: 12px;">
-              <h3 style="margin: 0; flex: 1;">
+              <h3 id="bg-picker-title" style="margin: 0; flex: 1;">
                 {{ backgroundPickerTarget === 'frame' ? 'Pick a presentation-frame background'
                   : backgroundPickerTarget === 'title-card' ? 'Pick a title-card background'
                     : backgroundPickerTarget === 'outro-card' ? 'Pick an outro-card background'
@@ -1261,7 +1257,7 @@
               Source folder: <code>{{ bgLibraryDir }}</code>
             </p>
           </div>
-        </div>
+        </Modal>
       </div>
 
       <!-- Logo Overlay (moved from old Step 2) -->
@@ -1644,7 +1640,7 @@
         <p class="text-muted text-sm mt-1">
           Stack any number of effect clips (cinematic frames, fire, fireflies, rain) on top of your base render.
           Layers composite in list order — top of list draws first, bottom sits on top.
-          Drop your asset files into the project's <code>overlays/</code> folder, then click <strong>+ Add overlay</strong> below.
+          Drop your asset files into the channel's <code>overlays/</code> folder, then click <strong>+ Add overlay</strong> below.
         </p>
         <p class="text-muted text-xs mt-1">
           <strong>Source tip:</strong> alpha-channel files (<code>.mov</code> ProRes 4444, <code>.webm</code> VP9, RGBA <code>.png</code>, <code>.gif</code>) composite cleanly without keying.
@@ -1852,7 +1848,7 @@
           <button
             type="button"
             class="btn btn-sm btn-secondary"
-            title="Open the project's overlays/ folder in Finder so you can drop new asset files in"
+            title="Open the channel's overlays/ folder in Finder so you can drop new asset files in"
             @click="openOverlaysFolder"
           >📁 Open Overlays Folder</button>
           <button
@@ -1865,14 +1861,10 @@
         </div>
 
         <!-- Picker modal -->
-        <div
-          v-if="showOverlayPickerForLayer === '__add__'"
-          class="modal-overlay"
-          @click.self="showOverlayPickerForLayer = null"
-        >
-          <div class="modal-content" style="max-width: 600px;">
+        <Modal :visible="showOverlayPickerForLayer === '__add__'" size="md" labelledby="overlay-picker-title" @close="showOverlayPickerForLayer = null">
+          <div>
             <div class="flex gap-2 items-center" style="margin-bottom: 12px;">
-              <h3 style="margin: 0; flex: 1;">Pick an overlay asset</h3>
+              <h3 id="overlay-picker-title" style="margin: 0; flex: 1;">Pick an overlay asset</h3>
               <button type="button" class="btn btn-sm btn-secondary" @click="showOverlayPickerForLayer = null">✕ Close</button>
             </div>
             <div v-if="overlayPickerLoading" class="text-muted text-sm">Scanning overlays/ folder…</div>
@@ -1913,7 +1905,7 @@
               Source folder: <code>{{ overlayLibraryDir }}</code>
             </p>
           </div>
-        </div>
+        </Modal>
       </div>
 
       <!-- Intro + title exclusion -->
@@ -3270,7 +3262,7 @@ const TIMELINE_KIND_OPTIONS: Array<{ value: TimelineClipKind; label: string; hin
   {
     value: 'video',
     label: 'Video file',
-    hint: 'Use an existing .mp4/.mov/.mkv/.webm — the file is normalised to project resolution + fps and concatenated as-is. Audio is stripped.',
+    hint: 'Use an existing .mp4/.mov/.mkv/.webm — the file is normalised to channel resolution + fps and concatenated as-is. Audio is stripped.',
   },
   {
     value: 'static',
@@ -6433,37 +6425,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* This page's picker dialogs ("+ Add Overlay", "Background plate → + Pick",
-   "Pick image/video", "Pick media") used `class="modal-overlay"` /
-   `class="modal-content"` while defining neither — and NOTHING in the app
-   defines `.modal-content`. Every other `.modal-overlay` in the repo lives
-   inside some other component's `<style scoped>` block, so it could never match
-   here. The result was not a broken-looking dialog but NO dialog: the content
-   rendered as a bare in-flow list inside the narrow controls column, with no
-   fixed positioning, no backdrop, no z-index and no scroll, and
-   `@click.self` on a zero-size overlay could never dismiss it. Declared here,
-   in this page's own scope, mirroring ideas.vue's proven rules. */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-  padding: 24px;
-}
-.modal-content {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  padding: 32px;
-  box-sizing: border-box;
-  max-height: calc(100vh - 48px);
-  overflow-y: auto;
-  width: 100%;
-}
-
 .video-assembly-workspace :deep(.workspace-command-surface .top-action-bar) {
   margin: 0;
   border: 0;
@@ -6808,7 +6769,7 @@ onUnmounted(() => {
 .pos-cell.active .pos-dot { background: var(--accent); }
 
 /* Summary bar */
-.summary-bar { padding: 10px 14px; background: var(--accent-dim); border-radius: var(--radius-sm); font-size: 13px; color: var(--accent); font-weight: 500; border: 1px solid rgba(240, 198, 116, 0.2); }
+.summary-bar { padding: 10px 14px; background: var(--accent-dim); border-radius: var(--radius-sm); font-size: 13px; color: var(--accent); font-weight: 500; border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent); }
 
 /* Collapsible sections */
 .collapsible { border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; }
@@ -7042,8 +7003,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background: rgba(240, 198, 116, 0.05);
-  border-left: 3px solid rgba(240, 198, 116, 0.55);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 55%, transparent);
 }
 .preset-path-check.is-critical {
   background: rgba(226, 92, 92, 0.06);

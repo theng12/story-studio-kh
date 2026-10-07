@@ -13,7 +13,7 @@ test('Contextual Cues exposes saved partial batches without presenting them as c
   assert.match(page, /Saved partial proposal/)
   // This page has no Retry button: pressing Propose cues again is what continues.
   assert.doesNotMatch(page, /Retry resumes/)
-  assert.match(page, /Press Propose cues with the same model and settings and it continues from where it stopped/)
+  assert.match(page, /Press Propose Cues with the same model and settings and it continues from where it stopped/)
   assert.match(page, /Video Assembly still treats this timeline as incomplete/)
   assert.match(page, /aria-label="Saved partial contextual cue preview"/)
   assert.match(page, /read-only until every batch finishes/)

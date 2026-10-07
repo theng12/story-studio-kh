@@ -185,7 +185,7 @@ describe('the default card view carries no raw identifiers', () => {
       result: { completion: { completed: 143, expected: 193, issues } },
       genstudio_jobs: [{ operation: 'chat.response', state: 'failed', failure_code: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' }],
     }
-    assert.equal(summary(job), '143 of 193 prompts verified; 50 Scene Plan prompts need attention. The Gateway could not confirm the earlier prompt request. That request needs reconciliation before replacement.')
+    assert.equal(summary(job), '143 of 193 prompts verified; 50 Scene Plan prompts need attention. The Gateway could not confirm the earlier prompt request. Story Studio must confirm it before sending a replacement.')
 
     assert.equal(summary({ ...job, result: { completion: { completed: null, expected: null, issues } }, genstudio_jobs: [] }),
       '50 Scene Plan prompts need attention.', 'null counts must not become a fabricated 0 of 0')

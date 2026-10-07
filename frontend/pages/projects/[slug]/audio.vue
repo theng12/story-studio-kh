@@ -489,7 +489,7 @@
           <p class="text-muted text-xs hint-line">
             Silence inside a chapter {{ field.key === 'paragraph_pause_sec' ? 'where a new paragraph starts' : 'after each sentence' }}.
             All narration uses {{ field.key === 'paragraph_pause_sec' ? '1.5' : '1.0' }} s unless you change it here or in the Series Formula.
-            <button v-if="field.value !== undefined" type="button" class="btn-link" @click="setPause(field.key, undefined)">Use the default</button>
+            <button v-if="field.value !== undefined" type="button" class="btn-link" @click="setPause(field.key, undefined)">Use the Default</button>
           </p>
         </div>
       </div>

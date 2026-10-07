@@ -99,10 +99,11 @@ test('Jobs and Usage resolve catalog names instead of printing dispatch ids', ()
       'billing action must not depend on service-tier metadata',
     )
   assert.match(usage, /target="_blank"[^>]*rel="noopener noreferrer"/)
-  assert.match(usage, /Billing is not available on this GenStudio deployment/)
+  // No billing link published → no Buy button at all (it used to be a disabled button plus an apology).
+  assert.match(usage, /v-if="snapshot\?\.overview\.app_links\?\.billing"/)
   assert.doesNotMatch(usage, /will link directly|localhost.*billing|GenStudioUrl/i)
   assert.doesNotMatch(usage, /Current plan|Manage plan · coming soon/)
-  assert.match(usage, /<header class="usage-header">\s*<div>\s*<PlainBackLink \/>/, 'the back link sits at the top left')
+  assert.match(usage, /<div class="usage-page">\s*(<!--[\s\S]*?-->\s*)?<PlainBackLink \/>\s*<header class="usage-header">/, 'the back link sits at the top left, on its own row')
   assert.doesNotMatch(usage, /Back to Projects/)
   assert.doesNotMatch(usage, /<small>\{\{\s*job\.model_id\s*\}\}<\/small>/)
   // voice_tier is published metadata carried beside the job for history —

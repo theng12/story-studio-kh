@@ -23,10 +23,13 @@ async function loadPage(): Promise<Component> {
     import { ref, reactive, computed, watch, nextTick, onMounted, onUnmounted } from ${JSON.stringify(vueUrl)}
     const useApi = () => globalThis.__ucApi
     const useRoute = () => globalThis.__ucRoute
+    const useRouter = () => ({ currentRoute: { value: globalThis.__ucRoute }, replace: async (to) => { globalThis.__ucRoute.query = { ...to.query } } })
     const useConfirm = () => ({ ask: async (o) => globalThis.__ucConfirm(o) })
     const useJobs = () => ({ jobs: globalThis.__ucJobsRef, jobsStale: globalThis.__ucJobsStaleRef })
   `
-  const code = `${support}\n${script.content.replace('export default', 'const __sfc__ =').replace("'~/utils/upload-bulk'", JSON.stringify(new URL('../utils/upload-bulk.ts', import.meta.url).href))}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
+  const code = `${support}\n${script.content.replace('export default', 'const __sfc__ =').replace("'~/utils/upload-bulk'", JSON.stringify(new URL('../utils/upload-bulk.ts', import.meta.url).href))
+    .replace("'~/utils/publish-view'", JSON.stringify(new URL('../utils/publish-view.ts', import.meta.url).href))
+    .replace("'~/utils/route-query-state'", JSON.stringify(new URL('../utils/route-query-state.ts', import.meta.url).href))}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
   const out = await transform(code, { loader: 'ts', format: 'esm' })
   return (await import(`data:text/javascript;base64,${Buffer.from(
     out.code.replaceAll('"vue"', JSON.stringify(vueUrl)),
@@ -58,6 +61,8 @@ async function mount(input: {
   confirmOverride?: (options: any) => Promise<boolean>
   initialSlug?: string
   initialEpisode?: string
+  /** Extra route query the page opens with (keep-place keys). */
+  initialQuery?: Record<string, string>
   getOverride?: (path: string) => Promise<any> | any
   postOverride?: (path: string, body: any) => Promise<any> | any
   jobs?: any[]
@@ -73,6 +78,7 @@ async function mount(input: {
 }): Promise<{
   el: HTMLElement; text: () => string; calls: Recorded[]
   setEpisode: (episode: string) => Promise<void>
+  query: () => Record<string, unknown>
   confirms: any[]; setSlug: (slug: string) => Promise<void>; setJobs: (jobs: any[]) => Promise<void>; destroy: () => void
 }> {
   const calls: Recorded[] = []
@@ -83,7 +89,7 @@ async function mount(input: {
     if (input.confirmOverride) return input.confirmOverride(options)
     return input.confirmAnswer !== false
   }
-  const routeState = reactive({ params: { slug: input.initialSlug ?? 'demo-project' }, query: { episode_id: input.initialEpisode ?? '' } })
+  const routeState = reactive({ params: { slug: input.initialSlug ?? 'demo-project' }, query: { episode_id: input.initialEpisode ?? '', ...input.initialQuery } as Record<string, unknown>, path: '/projects/demo-project/upload/publish' })
   ;(globalThis as any).__ucRoute = routeState
   const jobsRef = ref(input.jobs ?? [])
   ;(globalThis as any).__ucJobsRef = jobsRef
@@ -190,6 +196,7 @@ async function mount(input: {
   return {
     el, text: () => el.textContent || '', calls, confirms,
     setEpisode: async (episode: string) => { routeState.query.episode_id = episode; for (let i = 0; i < 4; i++) await nextTick() },
+    query: () => routeState.query,
     setSlug: async (nextSlug: string) => { routeState.params.slug = nextSlug; for (let i = 0; i < 4; i++) await nextTick() },
     setJobs: async (nextJobs: any[]) => { jobsRef.value = nextJobs; for (let i = 0; i < 6; i++) await nextTick() },
     destroy: () => { app.unmount(); el.remove() },
@@ -1149,7 +1156,7 @@ describe('Upload Center Publish', () => {
     assert.doesNotMatch(dialog.textContent || '', /Reviewed version|package-EP0001/)
 
     const metadataReview = [...dialog.querySelectorAll<HTMLDetailsElement>('details')]
-      .find(details => details.querySelector('summary')?.textContent?.includes('Review metadata'))!
+      .find(details => details.querySelector('summary')?.textContent?.includes('Review Metadata'))!
     metadataReview.open = true
     metadataReview.dispatchEvent(new Event('toggle'))
     await nextTick()
@@ -1590,7 +1597,7 @@ describe('Upload Center Publish', () => {
     assert.match(mounted.text(), /Old Project/)
     await mounted.setSlug('new-project')
     assert.doesNotMatch(mounted.text(), /Old Project/)
-    assert.match(mounted.text(), /Loading this project’s uploads/)
+    assert.match(mounted.text(), /Loading this channel’s uploads/)
 
     resolveNewEpisodes({ episodes: [{ episode_code: 'EP0002', title: 'New Project', has_video: true }], total: 1 })
     resolveNewOverview({ assigned_channel: null, quota: { buckets: {} } })
@@ -1813,7 +1820,7 @@ describe('Upload Center Publish', () => {
     assert.match(mounted.text(), /ready locally/)
     const upload = await previewThen(mounted)
     assert.equal(upload, undefined, 'no button to press')
-    assert.match(mounted.text(), /no assigned YouTube channel/)
+    assert.match(mounted.text(), /No YouTube channel is assigned yet/)
     const ready = [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
       .find(button => button.textContent!.includes('Ready to upload'))!
     assert.match(ready.textContent || '', /0/, 'local readiness alone is not readiness for a missing channel')
@@ -1967,8 +1974,9 @@ describe('Upload Center Publish', () => {
     const mounted = await mount({ episodes: PLANNED_EPISODES, plans: RELAYOUT_PLANS })
     assert.match(mounted.text(), /Plan Unscheduled Videos \(0\)/,
       'an episode that already holds a future date is not a plan candidate')
-    const edit = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Edit Planned Dates'))!
-    assert.equal(edit.disabled, true, 'with nothing selected there is nothing to re-date')
+    // With nothing selected the bulk panel is collapsed: there is nothing to re-date.
+    const edit = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Edit Planned Dates'))
+    assert.equal(edit, undefined, 'with nothing selected there is nothing to re-date')
     mounted.destroy()
   })
 
@@ -2137,7 +2145,7 @@ describe('Upload Center Publish boundaries', () => {
     assert.match(shell, /upload\/plans/)
     assert.match(settings, /<PublishingScheduleCard /)
     assert.match(scheduleCard, /upload\/plans/)
-    assert.match(source, /upload\/plans`[\s\S]*Manage upload plans/)
+    assert.match(source, /upload\/plans`[\s\S]*Manage Upload Plans/)
     assert.doesNotMatch(source, /Create or activate one in Settings/)
   })
   test('the only path to another upload is the confirmed exact-video association removal', () => {
@@ -2198,15 +2206,28 @@ describe('Upload Center Publish bulk actions', () => {
     input.dispatchEvent(new MouseEvent('click', { shiftKey: true, bubbles: true, cancelable: true }))
   }
 
-  test('every action stays on screen, disabled with its reason, until rows are selected', async () => {
-    const mounted = await mount({ episodes: [ROW('EP0001')] })
-    const panel = mounted.el.querySelector('.bulk-panel')!
-    for (const label of [/Review Selected Uploads/, /Edit Planned Dates/, /Schedule on YouTube \(/, /Set Visibility/, /Re-Finalize Metadata/, /Remove from Upload Queue/]) {
-      assert.equal(button(panel as HTMLElement, label).disabled, true, `${label} is disabled with nothing selected`)
-    }
-    assert.match(panel.textContent || '', /Select rows first\./)
+  test('the bulk panel stays collapsed until a row is ticked, then shows every action with its reason', async () => {
+    const mounted = await mount({ episodes: [ROW('EP0001'), ON_YOUTUBE('EP0002')] })
+    const panel = mounted.el.querySelector<HTMLElement>('.bulk-panel')!
+    const labels = [/Review Selected Uploads/, /Edit Planned Dates/, /Schedule on YouTube \(/, /Set Visibility/, /Re-Finalize Metadata/, /Remove from Upload Queue/]
+    // Owner, 2026-10: collapsed to one line with nothing ticked; Select All stays reachable.
+    assert.ok(panel.classList.contains('collapsed'))
+    for (const label of labels) assert.equal(button(panel, label), undefined, `${label} is hidden with nothing selected`)
+    assert.match(panel.textContent || '', /Tick a row to see bulk actions/)
+    assert.ok(button(panel, /Select All Matching \(2\)/))
+
+    box(mounted.el, 'EP0002').click()
+    await flush()
+    assert.ok(!panel.classList.contains('collapsed'))
+    for (const label of labels) assert.ok(button(panel, label), `${label} shows once a row is ticked`)
+    assert.equal(button(panel, /Review Selected Uploads/).disabled, true, 'a row already on YouTube cannot be uploaded')
+    assert.match(panel.textContent || '', /None of the selected rows can be uploaded/)
     assert.match(panel.textContent || '', /Changes YouTube/)
     assert.match(panel.textContent || '', /Story Studio only/)
+
+    button(panel, /Clear Selection/).click()
+    await flush()
+    assert.ok(panel.classList.contains('collapsed'), 'clearing the selection collapses it again')
     mounted.destroy()
   })
 
@@ -2265,7 +2286,7 @@ describe('Upload Center Publish bulk actions', () => {
     assert.deepEqual([...dialog.querySelectorAll<HTMLInputElement>('input[name="bulk-visibility"]')].map(i => i.value), ['public', 'unlisted', 'private'])
     dialog.querySelector<HTMLInputElement>('input[value="public"]')!.click()
     await nextTick()
-    button(dialog as HTMLElement, /Make 2 videos Public on YouTube/).click()
+    button(dialog as HTMLElement, /Make 2 Videos Public on YouTube/).click()
     await flush()
     const sent = mounted.calls.filter(call => call.path.endsWith('/visibility'))
     assert.deepEqual(sent.map(call => call.path.split('/').at(-2)), ['EP0002', 'EP0001'])
@@ -2292,7 +2313,7 @@ describe('Upload Center Publish bulk actions', () => {
     every.value = '2'
     every.dispatchEvent(new Event('input'))
     await flush()
-    button(mounted.el, /Schedule 2 videos on YouTube/).click()
+    button(mounted.el, /Schedule 2 Videos on YouTube/).click()
     await flush()
     const sent = mounted.calls.filter(call => call.path.endsWith('/schedule'))
     assert.deepEqual(sent.map(call => call.path.split('/').at(-2)), ['EP0001', 'EP0002'], 'episode order')
@@ -2353,4 +2374,91 @@ describe('Upload Center Publish bulk actions', () => {
     assert.match(mounted.el.querySelector('.bulk-progress')!.textContent || '', /1 of 2 done/)
     mounted.destroy()
   })
+})
+
+describe('Upload Center Publish keeps its place and renders 50 rows at a time', () => {
+  const ROW = (n: number, extra: Record<string, unknown> = {}) => ({
+    episode_code: `EP${String(n).padStart(4, '0')}`, title: `Story ${n}`, has_video: true,
+    local: { render: { state: 'ready' }, upload: { state: 'none' } }, publication: { state: 'unpublished' }, ...extra,
+  })
+  const MANY = Array.from({ length: 120 }, (_, i) => ROW(i + 1))
+  const flush = async () => { for (let i = 0; i < 10; i++) await nextTick() }
+  const button = (el: HTMLElement, pattern: RegExp) =>
+    [...el.querySelectorAll<HTMLButtonElement>('button')].find(b => pattern.test(b.textContent || ''))
+
+  test('renders the first 50 rows and adds 50 more per click, mirroring the count into the URL', async () => {
+    const mounted = await mount({ episodes: MANY })
+    try {
+      assert.equal(mounted.el.querySelectorAll('li.op').length, 50)
+      assert.match(mounted.text(), /50 of 120 shown/)
+      assert.ok(mounted.el.querySelector('[data-episode-code="EP0120"]'), 'newest first')
+      assert.equal(mounted.el.querySelector('[data-episode-code="EP0070"]'), null)
+      button(mounted.el, /Show 50 More/)!.click()
+      await flush()
+      assert.equal(mounted.el.querySelectorAll('li.op').length, 100)
+      assert.equal(mounted.query().shown, '100')
+      button(mounted.el, /Show 20 More/)!.click()
+      await flush()
+      assert.equal(mounted.el.querySelectorAll('li.op').length, 120)
+      assert.equal(button(mounted.el, /Show \d+ More/), undefined, 'nothing left to show')
+    } finally { mounted.destroy() }
+  })
+
+  test('Select All Matching covers rows not rendered yet, and says so', async () => {
+    const mounted = await mount({ episodes: MANY })
+    try {
+      button(mounted.el, /Select All Matching \(120\)/)!.click()
+      await flush()
+      assert.match(mounted.text(), /120 selected/)
+      assert.match(mounted.text(), /70 selected rows are further down the list, not shown yet, and included/)
+      assert.ok(button(mounted.el, /Re-Finalize Metadata \(120\)/))
+    } finally { mounted.destroy() }
+  })
+
+  test('opens on the view in the URL: status, search, sort and rows shown', async () => {
+    const failed = (n: number) => ROW(n, { local: { render: { state: 'ready' }, upload: { state: 'failed' } }, publication: { state: 'failed' } })
+    const mounted = await mount({
+      episodes: [...MANY, failed(121), failed(122), failed(123)],
+      initialQuery: { status: 'attention', sort: 'episode_oldest' },
+    })
+    try {
+      const chip = button(mounted.el, /Needs attention/)!
+      assert.equal(chip.getAttribute('aria-pressed'), 'true')
+      assert.deepEqual([...mounted.el.querySelectorAll<HTMLElement>('li.op')].map(li => li.dataset.episodeCode), ['EP0121', 'EP0122', 'EP0123'])
+      assert.equal(mounted.el.querySelector<HTMLSelectElement>('select[aria-label="Sort episodes"]')!.value, 'episode_oldest')
+    } finally { mounted.destroy() }
+
+    const deep = await mount({ episodes: MANY, initialQuery: { q: 'Story 1', shown: '100' } })
+    try {
+      assert.equal(deep.el.querySelector<HTMLInputElement>('input[type=search]')!.value, 'Story 1')
+      // Story 1, 10-19 and 100-120: 32 matches, all within the 100 restored rows.
+      assert.equal(deep.el.querySelectorAll('li.op').length, 32)
+    } finally { deep.destroy() }
+  })
+
+  test('a new search writes q, drops the Jobs episode_id, and starts again from 50 rows', async () => {
+    const mounted = await mount({ episodes: MANY, initialEpisode: '', initialQuery: { shown: '150', other: 'kept' } })
+    try {
+      assert.equal(mounted.el.querySelectorAll('li.op').length, 120)
+      const search = mounted.el.querySelector<HTMLInputElement>('input[type=search]')!
+      search.value = 'Story'
+      search.dispatchEvent(new Event('input'))
+      await flush()
+      assert.deepEqual(mounted.query(), { other: 'kept', q: 'Story' })
+      assert.equal(mounted.el.querySelectorAll('li.op').length, 50)
+      button(mounted.el, /Missing video/)!.click()
+      await flush()
+      assert.equal(mounted.query().status, 'missing')
+    } finally { mounted.destroy() }
+  })
+})
+
+test('Publish source: rows come from the shown slice and the view is mirrored with router.replace', () => {
+  assert.match(source, /v-for="ep in shownEpisodes"/)
+  assert.match(source, /sortedEpisodes\.value\.slice\(0, shownCount\.value\)/)
+  assert.match(source, /router\.currentRoute\.value\.path === route\.path && !sameQuery\(query, route\.query\)\) void router\.replace\(\{ query, hash: route\.hash \}\)/)
+  assert.match(source, /:class="\['bulk-panel', \{ collapsed: !bulkOpen \}\]"/)
+  // `--danger` is not a theme token, so failures rendered in plain text colour.
+  const overviewSource = readFileSync(new URL('../pages/projects/[slug]/upload/index.vue', import.meta.url), 'utf8')
+  for (const page of [source, overviewSource]) assert.doesNotMatch(page, /var\(--danger/)
 })

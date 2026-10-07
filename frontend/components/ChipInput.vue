@@ -117,14 +117,14 @@ onBeforeUnmount(() => { document.removeEventListener('click', onClickOutside) })
 }
 .chip-area:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(240, 198, 116, 0.15);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
 }
 
 .chip {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 3px 8px 3px 10px;
-  background: rgba(240, 198, 116, 0.12);
-  border: 1px solid rgba(240, 198, 116, 0.25);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
   border-radius: 999px;
   color: var(--accent);
   font-size: 12px; font-weight: 500;

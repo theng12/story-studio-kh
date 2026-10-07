@@ -35,9 +35,9 @@
         ref="sidebar"
         class="sidebar"
         :class="{ 'mobile-open': mobileNavOpen }"
-        aria-label="Project navigation"
+        aria-label="Channel navigation"
       >
-        <div class="sidebar-brand">
+        <NuxtLink to="/" class="sidebar-brand" title="All channels">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <circle cx="12" cy="12" r="10" stroke="var(--accent)" stroke-width="1.5" />
             <path d="M15.5 12a5.5 5.5 0 0 1-9 4.24A7 7 0 0 0 12 5a5.5 5.5 0 0 1 3.5 7Z" fill="var(--accent)" opacity=".65" />
@@ -46,7 +46,7 @@
             <div class="brand-name">Story Studio KH</div>
             <div class="project-name">{{ project?.name || 'Loading channel…' }}</div>
           </div>
-        </div>
+        </NuxtLink>
 
         <NuxtLink v-if="slug" :to="`/projects/${slug}/settings#channel`" class="channel-identity-card">
           <span class="channel-identity-label">Channel identity</span>
@@ -88,38 +88,40 @@
 
           <div class="nav-group">
             <span class="nav-section-label">Manage</span>
-            <NuxtLink
-              :to="`/projects/${slug}/jobs`"
-              class="nav-item"
-              :class="{ active: isJobsScope('project') }"
-            >
-              <span>Project Jobs</span>
-              <span v-if="activeJobCount > 0" class="nav-badge">{{ activeJobCount }}</span>
-            </NuxtLink>
-            <NuxtLink
-              :to="{ path: `/projects/${slug}/jobs`, query: { scope: 'all' } }"
-              class="nav-item"
-              :class="{ active: isJobsScope('all') }"
-            >
-              <span>All Jobs</span>
-              <span v-if="allActiveJobCount > 0" class="nav-badge">{{ allActiveJobCount }}</span>
-            </NuxtLink>
             <NuxtLink :to="{ path: '/character-library', query: { channel: slug, project: slug } }" class="nav-item" active-class="active">Channel Characters</NuxtLink>
             <NuxtLink :to="`/projects/${slug}/effects-library`" class="nav-item" active-class="active">Effects Library</NuxtLink>
             <NuxtLink :to="`/projects/${slug}/presets`" class="nav-item" active-class="active">Presets</NuxtLink>
             <NuxtLink :to="{ path: '/broll-library', query: { project: slug } }" class="nav-item" active-class="active">Assets Library</NuxtLink>
             <NuxtLink :to="`/projects/${slug}/image-pool`" class="nav-item" active-class="active">Image Pool</NuxtLink>
           </div>
-
-          <NuxtLink to="/" class="all-projects-link">All Projects <span aria-hidden="true">→</span></NuxtLink>
         </nav>
 
         <footer class="sidebar-credits" aria-label="Story Studio status">
+          <!-- Pinned, not in the scrolling list: at 1280×800 Jobs and All Channels were
+               below the fold of the workflow steps. -->
           <nav class="sidebar-utilities" aria-label="Application utilities">
+            <NuxtLink
+              :to="`/projects/${slug}/jobs`"
+              class="sidebar-utility"
+              :class="{ active: isJobsScope('project') }"
+              title="This channel's jobs"
+            >
+              Jobs
+              <span v-if="activeJobCount > 0" class="nav-badge">{{ activeJobCount }}</span>
+            </NuxtLink>
+            <NuxtLink
+              :to="{ path: `/projects/${slug}/jobs`, query: { scope: 'all' } }"
+              class="sidebar-utility"
+              :class="{ active: isJobsScope('all') }"
+            >
+              All Jobs
+              <span v-if="allActiveJobCount > 0" class="nav-badge">{{ allActiveJobCount }}</span>
+            </NuxtLink>
             <NuxtLink to="/content-store" class="sidebar-utility" active-class="active">Content Store</NuxtLink>
             <NuxtLink v-if="slug" :to="`/projects/${slug}/settings#free-up-space`" class="sidebar-utility">Free Up Space</NuxtLink>
             <NuxtLink v-if="slug" :to="`/projects/${slug}/settings`" class="sidebar-utility" active-class="active">Settings</NuxtLink>
             <button v-else type="button" class="sidebar-utility" @click="appSettingsModal.open()">Settings</button>
+            <NuxtLink to="/" class="sidebar-utility all-projects-link">All Channels</NuxtLink>
           </nav>
           <div class="network-status" :class="connection.tone" role="status">
             <span class="network-dot" aria-hidden="true" />
@@ -420,6 +422,9 @@ onUnmounted(() => {
   padding: 15px;
   border-bottom: 1px solid var(--border);
 }
+.sidebar-brand { color: inherit; text-decoration: none; }
+.sidebar-brand:hover { background: var(--bg-hover); }
+.sidebar-brand:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
 .sidebar-brand > div { min-width: 0; }
 .brand-name { color: var(--accent); font-size: var(--font-md); font-weight: 750; }
 .project-name { overflow: hidden; color: var(--text-secondary); font-size: var(--font-xs); text-overflow: ellipsis; white-space: nowrap; }
@@ -470,8 +475,7 @@ onUnmounted(() => {
   letter-spacing: .1em;
   text-transform: uppercase;
 }
-.nav-item,
-.all-projects-link {
+.nav-item {
   display: flex;
   min-height: 38px;
   align-items: center;
@@ -483,8 +487,7 @@ onUnmounted(() => {
   font-size: var(--font-sm);
   font-weight: 550;
 }
-.nav-item:hover,
-.all-projects-link:hover { background: var(--bg-hover); color: var(--text-primary); }
+.nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
 .nav-item.active { border-color: color-mix(in srgb, var(--accent) 34%, transparent); background: var(--accent-dim); color: var(--text-primary); }
 /* The accent bar is positioned, not a flex item: as a flex item beside a bare
    text label ("Pipeline", "Dashboard") `space-between` pushed the label to the
@@ -496,7 +499,6 @@ onUnmounted(() => {
 .nav-hint { color: var(--accent); font-size: var(--font-xs); font-weight: 750; }
 .nav-hint-muted { color: var(--text-secondary); font-weight: 600; }
 .nav-badge { min-width: 22px; padding: 1px 6px; border-radius: 999px; background: var(--accent); color: var(--accent-on); text-align: center; font-size: var(--font-xs); }
-.all-projects-link { margin-top: auto; border-color: var(--border); color: var(--text-primary); }
 
 .sidebar-credits {
   display: grid;
@@ -517,8 +519,12 @@ onUnmounted(() => {
   color: var(--text-secondary);
   font: inherit;
   font-size: var(--font-xs);
+  gap: 6px;
   cursor: pointer;
 }
+.sidebar-utility { white-space: nowrap; }
+.sidebar-utility .nav-badge { min-width: 18px; padding: 0 5px; }
+.all-projects-link { color: var(--text-primary); }
 .sidebar-utility:hover, .sidebar-utility.active { border-color: color-mix(in srgb, var(--accent) 34%, var(--border)); background: var(--bg-hover); color: var(--text-primary); }
 .sidebar-utility:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .network-status {

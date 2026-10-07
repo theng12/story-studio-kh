@@ -460,7 +460,7 @@ onBeforeUnmount(() => stopPolling())
 .rm-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .rm-chip { font-size: 12px; padding: 6px 10px; border-radius: 999px; }
 .rm-chip-run { background: rgba(108,143,255,0.16); color: var(--accent, #6c8fff); }
-.rm-chip-queue { background: rgba(240,198,116,0.18); color: #c79328; }
+.rm-chip-queue { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
 .rm-chip-err { background: rgba(220,38,38,0.15); color: #dc6666; }
 .rm-chip-mut { background: var(--bg-secondary, #1c1c1f); color: var(--text-muted, #888); }
 
@@ -505,7 +505,7 @@ onBeforeUnmount(() => stopPolling())
 .rm-job-title { margin: 0; font-size: 14px; }
 .rm-job-sub { margin: 3px 0 0; font-size: 12px; color: var(--text-muted, #888); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rm-job-control { margin: 4px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; }
-.rm-job-control.control-return-later { color: #c79328; }
+.rm-job-control.control-return-later { color: var(--accent); }
 .rm-more-actions { position: relative; flex-shrink: 0; }
 .rm-more-actions summary { min-height: 44px; display: grid; place-items: center; cursor: pointer; color: var(--text-muted, #888); font-size: 12px; }
 .rm-more-actions summary:focus-visible { outline: 2px solid var(--accent, #6c8fff); outline-offset: 2px; }
@@ -513,7 +513,7 @@ onBeforeUnmount(() => stopPolling())
 .rm-err-tag { color: #dc6666; font-size: 12px; }
 .rm-job-btn { height: 44px; min-width: 64px; padding: 0 14px; border-radius: 8px; font-size: 14px; flex-shrink: 0; }
 .rm-stop { color: #dc6666; border-color: rgba(220,38,38,0.4); }
-.rm-retry { color: #c79328; border-color: rgba(240,198,116,0.5); }
+.rm-retry { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
 .rm-approve { color: #4ade80; border-color: rgba(74,222,128,0.45); }
 .rm-stopall { height: 44px; padding: 0 12px; border-radius: 8px; font-size: 13px; color: #dc6666; border-color: rgba(220,38,38,0.4); }
 

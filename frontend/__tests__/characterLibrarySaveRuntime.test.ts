@@ -112,6 +112,22 @@ test('reference images can be made the portrait or deleted', async () => {
 })
 
 test('the editor does not close on a stray backdrop click, and shows the size limit', () => {
-  assert.doesNotMatch(source, /editor-backdrop" @click\.self/)
+  assert.match(source, /<Modal[^>]*:visible="editorOpen"[^>]*:close-on-backdrop="false"/)
   assert.match(source, /Max 5 MB/)
+})
+
+test('Escape closes the editor only while nothing has changed', async () => {
+  const { state, unmount } = await mount()
+  try {
+    state.openEdit({ id: 'c1', name: 'X', description: 'd', projects: ['kh'] })
+    await flush()
+    assert.equal(state.editorDirty.value, false, 'opening (and rendering empty voice profiles) is not a change')
+    state.profileFor('kh')
+    assert.equal(state.editorDirty.value, false)
+    state.draft.name = 'Y'
+    assert.equal(state.editorDirty.value, true)
+    state.closeEditor()
+    state.openCreate()
+    assert.equal(state.editorDirty.value, false)
+  } finally { unmount() }
 })

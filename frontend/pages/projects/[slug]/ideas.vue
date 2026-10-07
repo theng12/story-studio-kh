@@ -18,7 +18,7 @@
           @click="openCompactDialog"
         >
           <LoadingSpinner v-if="compactState.opening" size="sm" />
-          {{ compactState.opening ? 'Loading…' : '↓ Compact codes' }}
+          {{ compactState.opening ? 'Loading…' : '↓ Compact Codes' }}
         </button>
         <small v-if="statusCounts.accepted > 0" class="text-muted text-xs control-hint">Closes gaps in episode numbers. Undo for 30 days.</small>
         </div>
@@ -33,17 +33,17 @@
          mode surfaces with a specific message + recovery action. -->
     <div v-if="hydrationError" class="hydration-banner" :class="`is-${hydrationError.kind}`">
       <template v-if="hydrationError.kind === 'project-missing'">
-        <strong>⚠ Project not found.</strong>
-        The URL points at <code>{{ slug }}</code> but no project with that slug exists on this Mac.
-        <NuxtLink to="/" class="banner-link">← Back to projects</NuxtLink>
+        <strong>⚠ Channel not found.</strong>
+        The URL points at <code>{{ slug }}</code> but no channel with that slug exists on this Mac.
+        <NuxtLink to="/" class="banner-link">← Back to channels</NuxtLink>
       </template>
       <template v-else-if="hydrationError.kind === 'project-fetch'">
-        <strong>⚠ Couldn't load project.</strong>
+        <strong>⚠ Couldn't load channel.</strong>
         {{ hydrationError.detail }}
         <button class="banner-link" @click="retryHydration">Retry</button>
       </template>
       <template v-else-if="hydrationError.kind === 'config-fetch'">
-        <strong>⚠ Couldn't load project settings.</strong>
+        <strong>⚠ Couldn't load channel settings.</strong>
         Your saved topic and title branding may be out of date. {{ hydrationError.detail }}
         <button class="banner-link" @click="retryHydration">Retry</button>
       </template>
@@ -248,7 +248,7 @@
           <span class="originality-copy">
             <strong>Prevent repeated ideas</strong>
             <small>
-              Checks every saved idea in this project plus the current batch.
+              Checks every saved idea in this channel plus the current batch.
               {{ allIdeas.length }} existing concept{{ allIdeas.length === 1 ? '' : 's' }} protected.
             </small>
           </span>
@@ -385,13 +385,13 @@
             @click="surpriseMe"
           >
             <LoadingSpinner v-if="generating" size="sm" label="Surprising you…" show-label />
-            <template v-else>Surprise me</template>
+            <template v-else>Surprise Me</template>
           </button>
           <NuxtLink v-if="ideaCampaignActive" :to="`/projects/${slug}/jobs`" class="btn btn-ghost btn-sm">View in Jobs</NuxtLink>
         </div>
       </div>
       <p class="text-muted text-xs control-hint">
-        <strong>Randomize</strong> fills the fields under “Refine” for free. <strong>Surprise me</strong> fills them and queues {{ form.count }} ideas right away.
+        <strong>Randomize</strong> fills the fields under “Refine” for free. <strong>Surprise Me</strong> fills them and queues {{ form.count }} ideas right away.
       </p>
       <div class="generator-actions-secondary">
           <button
@@ -400,7 +400,7 @@
             :aria-expanded="otherWaysOpen"
             @click="otherWaysOpen = !otherWaysOpen"
           >
-            <span class="ds-chevron" :class="{ 'is-open': otherWaysOpen }" aria-hidden="true" /> Add ideas another way
+            <span class="ds-chevron" :class="{ 'is-open': otherWaysOpen }" aria-hidden="true" /> Add Ideas Another Way
           </button>
           <template v-if="otherWaysOpen">
             <button class="btn btn-secondary btn-sm" @click="openAddIdea">+ Add Idea Manually</button>
@@ -563,7 +563,7 @@
                   @click="dismiss(idea.id)"
                 >{{ dismissingIds.has(idea.id) ? 'Dismissing…' : 'Dismiss' }}</button>
                 <button v-if="idea.status === 'accepted'" class="btn btn-sm btn-secondary" @click="openRenumberDialog(idea)" title="Change this episode's code (renames folder + asset files)">Change Code</button>
-                <button v-if="idea.status === 'accepted'" class="btn btn-sm btn-danger" title="Move this episode's files to the project's _trash and un-accept" @click="resetIdea(idea)">Un-accept</button>
+                <button v-if="idea.status === 'accepted'" class="btn btn-sm btn-danger" title="Move this episode's files to the channel's _trash and un-accept" @click="resetIdea(idea)">Un-accept</button>
                 <button class="btn-icon" @click="openEditIdea(idea)" aria-label="Edit idea" title="Edit idea">✎</button>
                 <button class="btn-icon danger" @click="remove(idea.id)" aria-label="Delete idea" title="Delete idea">&#10005;</button>
               </td>
@@ -727,9 +727,18 @@
     </Modal>
 
     <!-- Import Episode Folder modal -->
-    <div v-if="importOpen" class="modal-overlay" @click.self="importOpen = false">
-      <div class="modal" style="max-width: 680px;">
-        <h2>Import Episode Folder</h2>
+    <!-- Forms: no backdrop close (a stray click must not lose the picked
+         folder or pasted text); Escape closes only until something is entered. -->
+    <Modal
+      :visible="importOpen"
+      size="lg"
+      :close-on-backdrop="false"
+      :close-on-escape="!importPath && !parentPath"
+      labelledby="import-folder-title"
+      @close="importOpen = false"
+    >
+      <div class="ideas-dialog">
+        <h2 id="import-folder-title">Import Episode Folder</h2>
 
         <!-- Mode switch. Single-folder is the default so existing muscle
              memory still works; flipping to Parent reveals the auto-scan
@@ -835,7 +844,7 @@
           <label class="flex gap-2 mt-2 items-center text-sm">
             <input type="checkbox" v-model="importCopy" />
             <span>
-              <strong>Keep originals</strong> — copy files into the project (recommended).
+              <strong>Keep originals</strong> — copy files into the channel (recommended).
               Uncheck to <em>move</em> files (originals deleted after a successful import).
             </span>
           </label>
@@ -870,7 +879,7 @@
           <label class="flex gap-2 mt-2 items-center text-sm">
             <input type="checkbox" v-model="importCopy" :disabled="parentImporting" />
             <span>
-              <strong>Keep originals</strong> — copy files into the project (recommended).
+              <strong>Keep originals</strong> — copy files into the channel (recommended).
               Applies to every subfolder. Uncheck to <em>move</em> files (originals deleted after a successful import).
             </span>
           </label>
@@ -883,7 +892,7 @@
                 :disabled="parentImporting"
                 @click="parentSubfolders.forEach(r => r.selected = parentSelectedCount !== parentSubfolders.length)"
               >
-                {{ parentSelectedCount === parentSubfolders.length ? 'Deselect all' : 'Select all' }}
+                {{ parentSelectedCount === parentSubfolders.length ? 'Deselect All' : 'Select All' }}
               </button>
             </div>
             <div class="parent-sub-rows">
@@ -926,7 +935,7 @@
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
 
     <!-- Asset mapping dialog — auto-opens after a folder import that
          turned up classifiable files. Pre-populates with the discovered
@@ -946,9 +955,16 @@
     />
 
     <!-- Paste ideas from LLM modal -->
-    <div v-if="pasteOpen" class="modal-overlay" @click.self="pasteOpen = false">
-      <div class="modal modal-wide">
-        <h2>Paste Ideas from LLM</h2>
+    <Modal
+      :visible="pasteOpen"
+      size="xxl"
+      :close-on-backdrop="false"
+      :close-on-escape="!pasteInput.trim()"
+      labelledby="paste-ideas-title"
+      @close="pasteOpen = false"
+    >
+      <div class="ideas-dialog">
+        <h2 id="paste-ideas-title">Paste Ideas from LLM</h2>
         <p class="text-muted text-md mt-1">
           Copy the prompt below into ChatGPT, Claude, or any LLM. Paste the JSON array it produces into the box below and click <strong>Preview</strong>.
         </p>
@@ -1050,20 +1066,27 @@
             :disabled="!pastePreviewValid.length || pasteImporting"
             @click="doPasteImport"
           >
-            {{ pasteImporting ? 'Importing…' : `Import ${pastePreviewValid.length || 0} idea${pastePreviewValid.length === 1 ? '' : 's'}` }}
+            {{ pasteImporting ? 'Importing…' : `Import ${pastePreviewValid.length || 0} Idea${pastePreviewValid.length === 1 ? '' : 's'}` }}
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
 
     <!-- v1.0.165 — Pattern editor modal removed with the rest of the
          Pattern system. The title-template field above covers the one
          capability the user actually used. -->
 
     <!-- Add/Edit idea modal -->
-    <div v-if="editorOpen" class="modal-overlay" @click.self="editorOpen = false">
-      <div class="modal" style="max-width: 560px;">
-        <h2>{{ editorMode === 'add' ? 'Add Idea' : 'Edit Idea' }}</h2>
+    <Modal
+      :visible="editorOpen"
+      size="md"
+      :close-on-backdrop="false"
+      :close-on-escape="editorForm.title === (editorIdea?.title || '') && editorForm.logline === (editorIdea?.logline || '')"
+      labelledby="idea-editor-title"
+      @close="editorOpen = false"
+    >
+      <div class="ideas-dialog">
+        <h2 id="idea-editor-title">{{ editorMode === 'add' ? 'Add Idea' : 'Edit Idea' }}</h2>
         <p v-if="editorMode === 'edit' && editorIdea?.status === 'accepted'" class="text-muted text-sm mt-1">
           This idea is already accepted — changing the title also renames its episode folder to match.
         </p>
@@ -1108,7 +1131,7 @@
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
 
     <!-- Sticky multi-select action bar — floats at the bottom of the
          viewport so the user can scroll the imported list and still
@@ -1131,11 +1154,10 @@
          the operation, surfaces per-rename errors after, and points
          the user at the undo banner on the Match to YouTube tab (Upload
          Center) if they need to roll back. -->
-    <Teleport to="body">
-      <div v-if="compactState.open" class="compact-modal-backdrop" @click="closeCompactDialog" />
-      <div v-if="compactState.open" class="compact-modal" role="dialog" aria-label="Compact episode codes" @click.stop>
+    <Modal :visible="compactState.open" size="md" dialog-class="modal-flush" labelledby="compact-title" @close="closeCompactDialog">
+      <div class="compact-modal">
         <div class="compact-modal-header">
-          <strong>↓ Compact episode codes</strong>
+          <strong id="compact-title">↓ Compact episode codes</strong>
           <button class="compact-modal-close" type="button" title="Close" @click="closeCompactDialog">✕</button>
         </div>
         <div class="compact-modal-body">
@@ -1194,7 +1216,7 @@
           </button>
         </div>
       </div>
-    </Teleport>
+    </Modal>
   </div>
 </template>
 
@@ -1780,7 +1802,7 @@ async function onIdeasIdentitySaved(value: { formulaId: string; topicPackIds: st
     form.topic_pack_ids = [...projectTopicPackIds.value]
     success('Channel Identity updated')
   } catch (error: any) {
-    showError(error?.data?.detail || error?.message || 'Channel Identity was saved, but the project could not be refreshed.')
+    showError(error?.data?.detail || error?.message || 'Channel Identity was saved, but the channel could not be refreshed.')
   }
 }
 
@@ -2736,7 +2758,7 @@ async function loadIdeas() {
       // Successful load clears any prior load-error banner.
       ideasLoadError.value = ''
     } else {
-      ideasLoadError.value = 'Project returned no ideas payload — try refreshing.'
+      ideasLoadError.value = 'Channel returned no ideas payload — try refreshing.'
     }
   } catch (e: any) {
     // Surface the failure instead of swallowing it. Keep the previously-
@@ -3043,10 +3065,10 @@ function formatRelativeTime(iso: string | null): string {
 
 function buildResetMessage(idea: any, p: any): string {
   if (!p?.exists || !p?.file_count) {
-    return `This moves the empty ${idea.episode_code} folder to the project's _trash folder and puts the idea back to New.`
+    return `This moves the empty ${idea.episode_code} folder to the channel's _trash folder and puts the idea back to New.`
   }
   const lines = [
-    `This moves ${p.file_count} file${p.file_count === 1 ? '' : 's'} (${p.total_bytes_human}) from ${idea.episode_code} to the project's _trash folder and puts the idea back to New:`,
+    `This moves ${p.file_count} file${p.file_count === 1 ? '' : 's'} (${p.total_bytes_human}) from ${idea.episode_code} to the channel's _trash folder and puts the idea back to New:`,
     '',
   ]
   const b = p.breakdown || {}
@@ -3063,7 +3085,7 @@ function buildResetMessage(idea: any, p: any): string {
 }
 
 async function resetIdea(idea: any) {
-  let message = `Move this episode's files (${idea.episode_code}: script, prompts, any images or audio) to the project's _trash and un-accept the idea. Nothing is deleted.`
+  let message = `Move this episode's files (${idea.episode_code}: script, prompts, any images or audio) to the channel's _trash and un-accept the idea. Nothing is deleted.`
   try {
     const preview = await get<any>(`/projects/${slug.value}/ideas/${idea.id}/reset-preview`)
     message = buildResetMessage(idea, preview)
@@ -3079,8 +3101,8 @@ async function resetIdea(idea: any) {
     const r = await post<{ warnings?: string[] }>(`/projects/${slug.value}/ideas/${idea.id}/reset`)
     await loadIdeas()
     const warning = Array.isArray(r?.warnings) ? r.warnings[0] : ''
-    if (warning) showError(`${idea.episode_code} un-accepted and its project files moved to _trash, but: ${warning}`)
-    else success(`${idea.episode_code} un-accepted. Its files are in the project's _trash folder.`)
+    if (warning) showError(`${idea.episode_code} un-accepted and its channel files moved to _trash, but: ${warning}`)
+    else success(`${idea.episode_code} un-accepted. Its files are in the channel's _trash folder.`)
   } catch (e: any) { showError(e.data?.detail || 'Could not un-accept this episode') }
 }
 async function remove(id: string) {
@@ -3243,7 +3265,7 @@ async function confirmCompact() {
   padding: 16px;
   overflow: visible;
   background:
-    radial-gradient(circle at 92% 0%, rgba(240, 198, 116, 0.08), transparent 30%),
+    radial-gradient(circle at 92% 0%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 30%),
     var(--bg-secondary);
 }
 .generator-title { margin: 0 0 12px; font-size: 18px; }
@@ -3532,15 +3554,9 @@ async function confirmCompact() {
 .btn-icon { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 13px; padding: 3px 6px; border-radius: 4px; }
 .btn-icon.danger:hover { color: var(--error); background: rgba(248,113,113,0.1); }
 
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; justify-content: center; align-items: center; z-index: 1000; padding: 24px; }
-/* v1.0.402 — modals are responsive + internally scrollable so the footer
-   buttons are always reachable on any window size (was a fixed 520px with no
-   max-height, which cut off the Import button on the paste-ideas modal). */
-.modal { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-xl); padding: 32px; width: min(520px, 92vw); box-sizing: border-box; max-height: calc(100vh - 48px); overflow-y: auto; }
-/* Wide variant for content-heavy modals (e.g. the paste-ideas preview table).
-   Scales with the window instead of a fixed cap. */
-.modal.modal-wide { width: min(1100px, 94vw); }
-.modal h2 { margin-bottom: 20px; }
+/* Import / paste / idea editor content. The box (size, scroll, padding) is
+   the shared <Modal>. */
+.ideas-dialog h2 { margin-bottom: 20px; }
 .accept-preview { background: var(--bg-tertiary); border-radius: var(--radius-md); padding: 16px; }
 .accept-preview h3 { color: var(--accent); margin-bottom: 4px; }
 .accept-code { font-size: 15px; }
@@ -3705,7 +3721,7 @@ async function confirmCompact() {
   transition: border-color 0.12s, background 0.12s;
 }
 .code-option:hover { border-color: var(--accent); }
-.code-option.active { border-color: var(--accent); background: rgba(240, 198, 116, 0.06); }
+.code-option.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .code-option input { margin-right: 2px; cursor: pointer; }
 .code-option strong { color: var(--text-primary); }
 .code-hint { color: var(--text-muted); font-size: var(--font-xs); }
@@ -3728,7 +3744,7 @@ async function confirmCompact() {
 .asset-name { flex: 1; color: var(--text-secondary); }
 .asset-count {
   font-size: var(--font-xs); color: var(--accent);
-  background: rgba(240, 198, 116, 0.12);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
   padding: 0 6px; border-radius: 999px;
 }
 .import-info {
@@ -3762,7 +3778,7 @@ async function confirmCompact() {
 .import-mode-option:hover { border-color: var(--accent); }
 .import-mode-option.active {
   border-color: var(--accent);
-  background: rgba(240, 198, 116, 0.08);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 .import-mode-option input { grid-row: span 2; align-self: center; }
 .import-mode-label { font-size: 13px; font-weight: 600; }
@@ -3823,7 +3839,7 @@ async function confirmCompact() {
   font-size: 12px; font-weight: 600;
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(240, 198, 116, 0.18);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
   color: var(--accent);
 }
 .bulk-bar-enter-active, .bulk-bar-leave-active {
@@ -4123,23 +4139,6 @@ async function confirmCompact() {
 /* Compact / Fill Gaps modal — scoped tightly so we don't pick up generic
    modal styles from the dashboard layout that might fight our padding /
    width budget. */
-.compact-modal-backdrop {
-  position: fixed; inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 999;
-}
-.compact-modal {
-  position: fixed; top: 50%; left: 50%;
-  transform: translate(-50%, -50%);
-  width: min(560px, calc(100vw - 32px));
-  max-height: calc(100vh - 64px);
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
-  display: flex; flex-direction: column;
-  z-index: 1000;
-}
 .compact-modal-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 12px 16px;
@@ -4191,9 +4190,9 @@ async function confirmCompact() {
 .hydration-banner {
   margin-top: 12px;
   padding: 10px 14px;
-  background: rgba(240, 198, 116, 0.08);
-  border: 1px solid rgba(240, 198, 116, 0.30);
-  border-left: 3px solid rgba(240, 198, 116, 0.80);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 80%, transparent);
   border-radius: var(--radius-sm, 4px);
   font-size: 13px;
   line-height: 1.5;
@@ -4240,8 +4239,8 @@ async function confirmCompact() {
   gap: 6px;
 }
 .effective-state-card.has-warning {
-  border-left-color: rgba(240, 198, 116, 0.85);
-  background: rgba(240, 198, 116, 0.04);
+  border-left-color: color-mix(in srgb, var(--accent) 85%, transparent);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
 }
 .effective-row {
   display: flex;
@@ -4274,9 +4273,9 @@ async function confirmCompact() {
 .effective-fallback-tag,
 .effective-override-tag {
   font-size: var(--font-xs);
-  color: rgba(240, 198, 116, 0.95);
+  color: color-mix(in srgb, var(--accent) 95%, transparent);
   padding: 1px 8px;
-  background: rgba(240, 198, 116, 0.10);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
   border-radius: 999px;
 }
 .effective-override-tag {
@@ -4331,9 +4330,9 @@ async function confirmCompact() {
 .context-detail-hint { margin: 0 0 0 74px; line-height: 1.4; }
 .context-override-tag {
   font-size: var(--font-xs);
-  color: rgba(240, 198, 116, 0.95);
+  color: color-mix(in srgb, var(--accent) 95%, transparent);
   padding: 1px 8px;
-  background: rgba(240, 198, 116, 0.10);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
   border-radius: 999px;
 }
 .context-override-tag { color: var(--accent, #6c8fff); background: rgba(108, 143, 255, 0.10); }

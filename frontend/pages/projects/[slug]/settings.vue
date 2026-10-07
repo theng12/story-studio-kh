@@ -2,7 +2,7 @@
   <div class="settings-workspace">
     <header class="settings-head">
       <h1>Settings</h1>
-      <p><span class="key-dot key-machine" /> <strong>This Mac</strong> settings apply to every channel. <span class="key-dot key-project" /> <strong>This Project</strong> settings belong to <strong>{{ projectForm.name || project?.name || 'this channel' }}</strong>.</p>
+      <p><span class="key-dot key-machine" /> <strong>This Mac</strong> settings apply to every channel. <span class="key-dot key-project" /> <strong>This Channel</strong> settings belong to <strong>{{ projectForm.name || project?.name || 'this channel' }}</strong>.</p>
     </header>
 
     <div class="settings-layout">
@@ -27,7 +27,7 @@
             <p>{{ activeTabMeta.description }}</p>
           </div>
           <span class="settings-scope-pill">
-            {{ activeZone.id === 'machine' ? 'This Mac' : 'This Project' }}
+            {{ activeZone.id === 'machine' ? 'This Mac' : 'This Channel' }}
           </span>
         </section>
 
@@ -109,7 +109,7 @@
         <section class="notification-section notification-section--desktop">
           <div class="notification-channel-head">
             <span class="notification-channel-icon" aria-hidden="true">▣</span>
-            <div><h4>Desktop alerts</h4><p>Native macOS or Windows alerts. Clicking one opens the matching project’s Jobs page.</p></div>
+            <div><h4>Desktop alerts</h4><p>Native macOS or Windows alerts. Clicking one opens the matching channel’s Jobs page.</p></div>
             <label class="notification-switch">
               <input v-model="notifSettings.enabled" type="checkbox" />
               <span aria-hidden="true" />
@@ -183,7 +183,7 @@
         <section class="notification-section notification-section--digest" data-setting="daily-brief">
           <div class="notification-channel-head">
             <span class="notification-channel-icon" aria-hidden="true">◷</span>
-            <div><h4>Daily production brief</h4><p>A once-daily view of publishing today, scheduled inventory, and episodes awaiting upload across every project.</p></div>
+            <div><h4>Daily production brief</h4><p>A once-daily view of publishing today, scheduled inventory, and episodes awaiting upload across every channel.</p></div>
             <label class="notification-switch">
               <input v-model="notifSettings.digest.enabled" type="checkbox" />
               <span aria-hidden="true" />
@@ -216,7 +216,7 @@
       <div class="notification-save-bar">
         <div>
           <strong>{{ notificationsDirty ? 'Unsaved notification changes' : 'Notification settings are saved' }}</strong>
-          <span>Applies to every project on this Mac.</span>
+          <span>Applies to every channel on this Mac.</span>
           <span v-if="notifSaveStatus === 'error'" class="error">{{ notifSaveError }}</span>
         </div>
         <button type="button" class="btn btn-sm btn-ghost" @click="applyRecommendedNotifications">Use Recommended Alerts</button>
@@ -291,7 +291,7 @@
           <section class="card settings-panel" data-setting="free-up-space">
             <MediaCleanupPanel :slug="slug" />
             <details class="disclosure space-option" data-setting="clear-uploaded-finals">
-              <summary><strong>Clear uploaded final videos (verified)</strong><small>Each final video is checked against its YouTube upload, then moved to this project's <code>_trash</code> folder. Anything that cannot be checked stays.</small></summary>
+              <summary><strong>Clear uploaded final videos (verified)</strong><small>Each final video is checked against its YouTube upload, then moved to this channel's <code>_trash</code> folder. Anything that cannot be checked stays.</small></summary>
               <div class="space-option-body">
                 <div class="flex gap-2 items-center">
                   <button v-if="!storage" class="btn btn-secondary btn-sm" :disabled="auditLoading" @click="loadStorageAudit">
@@ -430,7 +430,7 @@
               </div>
             </details>
             <details class="disclosure space-option" data-setting="episode-storage">
-              <summary><strong>What's using space</strong><small>Space used by each episode in this project, largest first.</small></summary>
+              <summary><strong>What's using space</strong><small>Space used by each episode in this channel, largest first.</small></summary>
               <div class="space-option-body storage-panel">
                 <button class="btn btn-secondary btn-sm" :disabled="auditLoading" @click="loadStorageAudit">
                   {{ auditLoading ? 'Scanning…' : (storage ? 'Scan Again' : 'Scan Episodes') }}
@@ -445,7 +445,7 @@
                   <span><strong>In every project's _trash:</strong> {{ formatBytes(storage.space.library_trash_bytes) }}</span>
                 </div>
                 <div v-if="storage" class="storage-summary mt-2">
-                  <span><strong>Project total:</strong> {{ formatBytes(storage.project_bytes_total) }}</span>
+                  <span><strong>Channel total:</strong> {{ formatBytes(storage.project_bytes_total) }}</span>
                   <span class="dot">·</span>
                   <span><strong>Final videos:</strong> {{ formatBytes(storage.project_bytes_final_video) }}</span>
                   <span class="dot">·</span>
@@ -462,7 +462,7 @@
                     v-if="storage.project_bytes_thumbnail_cache"
                     class="btn btn-secondary btn-sm"
                     :disabled="previewCacheClearing"
-                    title="Moves the small review-grid previews to this project's _trash folder. They rebuild automatically as you open Scene Review and Motion Review."
+                    title="Moves the small review-grid previews to this channel's _trash folder. They rebuild automatically as you open Scene Review and Motion Review."
                     @click="clearPreviewCache"
                   >
                     {{ previewCacheClearing ? 'Clearing…' : `Clear Preview Cache (${formatBytes(storage.project_bytes_thumbnail_cache)})` }}
@@ -473,7 +473,7 @@
                   </span>
                 </div>
                 <div v-if="lastPreviewCacheClear" class="storage-result mt-2">
-                  Preview cache ({{ formatBytes(lastPreviewCacheClear.bytes) }}) moved to this project's <code>_trash</code> folder.
+                  Preview cache ({{ formatBytes(lastPreviewCacheClear.bytes) }}) moved to this channel's <code>_trash</code> folder.
                   It rebuilds automatically as you use the review pages.
                 </div>
                 <div v-if="storage" class="storage-table mt-2">
@@ -565,8 +565,8 @@
           <div class="flex gap-2" style="align-items: center;">
             <button class="btn btn-sm btn-secondary" @click="loadInstallLog" :disabled="ffmpegLogLoading" title="Fetches the last hour of ffmpeg-install log entries">
               <span v-if="ffmpegLogLoading">Loading…</span>
-              <span v-else-if="ffmpegInstallLog.length">Refresh log</span>
-              <span v-else>Show install log</span>
+              <span v-else-if="ffmpegInstallLog.length">Refresh Log</span>
+              <span v-else>Show Install Log</span>
             </button>
             <button v-if="ffmpegInstallLog.length" class="btn btn-sm btn-primary" @click="copyInstallLog" title="Copies the log entries + your platform info to the clipboard so you can paste it into a bug report">
               Copy Log to Clipboard
@@ -619,7 +619,7 @@
 
           <section class="card settings-panel" data-setting="project-name">
             <div class="form-group">
-              <label>Project name</label>
+              <label>Channel name</label>
               <input v-model="projectForm.name" class="input" />
             </div>
             <div class="flex gap-2" style="align-items:center">
@@ -656,7 +656,7 @@
           >
             <div class="tile-header">
               <h5>{{ n.name }}</h5>
-              <span v-if="n.id === nicheId" class="badge badge-active">project niche</span>
+              <span v-if="n.id === nicheId" class="badge badge-active">channel niche</span>
               <span class="badge badge-custom">custom</span>
               <span v-if="n.catalog?.version" class="badge">v{{ n.catalog.version }}</span>
             </div>
@@ -674,7 +674,7 @@
                 <strong>{{ n.referenceImages.length }}</strong> refs
               </span>
               <span v-if="n.project_count">
-                in <strong>{{ n.project_count }}</strong> {{ n.project_count === 1 ? 'project' : 'projects' }}
+                in <strong>{{ n.project_count }}</strong> {{ n.project_count === 1 ? 'channel' : 'channels' }}
               </span>
             </div>
             <details class="tile-details disclosure">
@@ -697,7 +697,7 @@
               <button
                 v-if="!n.builtin"
                 class="btn btn-ghost btn-sm danger"
-                :title="n.project_count ? `Can't delete — ${n.project_count} project(s) still reference this niche.` : 'Delete this custom niche.'"
+                :title="n.project_count ? `Can't delete — ${n.project_count} channel(s) still use this niche.` : 'Delete this custom niche.'"
                 :disabled="!!n.project_count"
                 @click="confirmDeleteNiche(n)"
               >Delete</button>
@@ -1136,30 +1136,27 @@
       </div>
 
       <!-- Save preset modal -->
-      <div v-if="showSavePreset" class="modal-overlay" @click.self="showSavePreset = false">
-        <div class="modal-small">
-          <h3>Save {{ standardsSubTab === 'intro' ? 'intro' : 'project instructions' }} preset</h3>
-          <p class="text-muted mt-1 mb-2" style="font-size:12px">Give this preset a name so you can reuse it across projects of the same style.</p>
-          <input
-            v-model="newPresetName"
-            class="input"
-            placeholder="e.g. Sleep Stories v2, Horror Narration"
-            :disabled="writingControlsDisabled"
-            @keyup.enter.stop.prevent="savePreset"
-            @keydown.escape="showSavePreset = false"
-          />
-          <div class="flex gap-2 mt-2" style="justify-content:flex-end">
-            <button class="btn btn-secondary" :disabled="writingControlsDisabled" @click="showSavePreset = false">Cancel</button>
-            <button class="btn btn-primary" :disabled="writingControlsDisabled || !newPresetName.trim()" @click="savePreset">Save Preset</button>
-          </div>
+      <Modal :visible="showSavePreset" :close-on-backdrop="false" labelledby="save-preset-title" @close="showSavePreset = false">
+        <h3 id="save-preset-title" class="modal-small-title">Save {{ standardsSubTab === 'intro' ? 'Intro' : 'Channel Instructions' }} Preset</h3>
+        <p class="text-muted mt-1 mb-2" style="font-size:12px">Give this preset a name so you can reuse it across channels of the same style.</p>
+        <input
+          v-model="newPresetName"
+          class="input"
+          placeholder="e.g. Sleep Stories v2, Horror Narration"
+          :disabled="writingControlsDisabled"
+          @keyup.enter.stop.prevent="savePreset"
+        />
+        <div class="flex gap-2 mt-2" style="justify-content:flex-end">
+          <button class="btn btn-secondary" :disabled="writingControlsDisabled" @click="showSavePreset = false">Cancel</button>
+          <button class="btn btn-primary" :disabled="writingControlsDisabled || !newPresetName.trim()" @click="savePreset">Save Preset</button>
         </div>
-      </div>
+      </Modal>
           </CollapsibleCard>
 
           <CollapsibleCard title="Custom art styles" description="Browse the style library or make your own" data-setting="style-library">
       <ProjectStyleLibrary
         :project-slug="slug"
-        title="Project style library"
+        title="Channel style library"
         :show-catalog-starters="true"
       />
           </CollapsibleCard>
@@ -1267,7 +1264,7 @@
             class="btn btn-sm btn-primary"
             :disabled="!!ytBackfillBusy"
             @click="onYoutubeBackfillApply"
-            title="Apply current AI disclosure + category to every uploaded video on this project"
+            title="Apply current AI disclosure + category to every uploaded video on this channel"
           >
             {{ ytBackfillBusy === 'apply' ? 'Applying…' : 'Apply to All Uploaded Videos' }}
           </button>
@@ -1369,7 +1366,7 @@
 
           <section class="card settings-panel" data-setting="project-location">
             <div class="form-group">
-              <label>Project folder</label>
+              <label>Channel folder</label>
               <div class="flex gap-2 items-center" style="flex-wrap:wrap">
                 <code class="path-display">{{ projectLocation || '(no location set)' }}</code>
                 <button class="btn btn-sm btn-secondary" :disabled="!projectLocation" @click="revealInFinder">Show in Finder</button>
@@ -1446,12 +1443,12 @@
           </CollapsibleCard>
 
           <section class="card settings-panel danger-zone" data-setting="hide-project">
-            <h3>Hide this project</h3>
+            <h3>Hide this channel</h3>
             <p class="settings-hint">
-              Removes the project from the app's list; every file stays on disk. Bring it back any time from
-              <em>Hidden channels</em> on the All Projects page — moving the folder out and back would not bring it back on its own.
+              Removes the channel from the app's list; every file stays on disk. Bring it back any time from
+              <em>Hidden channels</em> on the All Channels page — moving the folder out and back would not bring it back on its own.
             </p>
-            <button class="btn btn-danger btn-sm mt-2" @click="deleteProject">Hide Project (Keep Files)</button>
+            <button class="btn btn-danger btn-sm mt-2" @click="deleteProject">Hide Channel (Keep Files)</button>
           </section>
 
           <!-- v1.4.249 — "Heavy media on another drive" is retired for projects that
@@ -1461,20 +1458,20 @@
             <details v-if="mediaRootSavedValue" id="media-root-section" class="storage-disclosure card settings-panel" open data-setting="heavy-media">
         <summary class="storage-disclosure-summary">
           <span class="storage-section-icon" aria-hidden="true">⌁</span>
-          <span><strong>Heavy media on another drive</strong><small>This project keeps its heavy media on another drive.</small></span>
+          <span><strong>Heavy media on another drive</strong><small>This channel keeps its heavy media on another drive.</small></span>
         </summary>
         <div class="storage-disclosure-body">
         <p class="text-muted hint">
-          This project's <strong>heavy media</strong> — scene images, thumbnails, audio and finished
+          This channel's <strong>heavy media</strong> — scene images, thumbnails, audio and finished
           video — lives in the folder below, while scripts, metadata, prompts and subtitles stay in
-          the project folder. You can change or clear it here. New projects keep everything together,
+          the channel folder. You can change or clear it here. New channels keep everything together,
           and once cleared this cannot be turned on again.
         </p>
         <div class="external-root-row">
           <input
             v-model="mediaRootInput"
             class="input"
-            placeholder="(not set — media stays in the project tree)   e.g. ${ASSET}/Media"
+            placeholder="(not set — media stays in the channel folder)   e.g. ${ASSET}/Media"
             spellcheck="false"
           />
           <button
@@ -1518,7 +1515,7 @@
         <div v-if="lastMediaMigration" class="storage-result">
           <strong>Media migration:</strong>
           {{ lastMediaMigration.files_moved }} file(s) moved
-          ({{ formatBytes(lastMediaMigration.bytes_moved) }} off the project tree)
+          ({{ formatBytes(lastMediaMigration.bytes_moved) }} off the channel folder)
           across {{ lastMediaMigration.folders.length }} folder(s).
           <span v-if="lastMediaMigration.scene_plan_rewrites">
             {{ lastMediaMigration.scene_plan_rewrites }} scene-plan path(s) updated.
@@ -1532,56 +1529,56 @@
             <details id="chunked-sidecars-section" class="storage-disclosure card settings-panel mt-2" data-setting="recovery-data">
         <summary class="storage-disclosure-summary">
           <span class="storage-section-icon" aria-hidden="true">↻</span>
-          <span><strong>Script recovery data</strong><small>Current resume checkpoints, not legacy assets.</small></span>
+          <span><strong>Script recovery data</strong><small>Small files that let an unfinished script carry on where it stopped.</small></span>
         </summary>
         <div class="storage-disclosure-body">
         <div class="flex items-center" style="justify-content: space-between; gap: 12px;">
           <div>
-            <h4>Chunked-progress sidecars</h4>
+            <h4>Leftover script progress files</h4>
             <p class="text-muted hint">
-              Per-episode <code>{code}_chunked-progress.json</code> files
-              written during long script generations. Track which chapters
-              have landed so a cancelled / crashed run can resume from
-              where it left off. Safe to delete once the episode's
-              <code>{code}_Script_Narration.docx</code> is complete.
+              While a long script is being written, Story keeps a small
+              progress file for that episode. If the writing is stopped or
+              the app crashes, the script carries on from the last finished
+              chapter instead of starting over. Once the episode's script is
+              finished, the file is no longer needed.
             </p>
             <p class="text-muted voice-helper-line">
-              💡 Only sidecars whose chapters_done covers the total AND whose
-              unified narration exists are listed as eligible. In-progress
-              runs are never touched by this cleanup.
+              💡 Click <strong>Scan</strong> to find them, then <strong>Clean Up</strong>
+              to remove the ones from finished scripts. Scripts still being
+              written are never touched, and scripts, audio and images always stay.
             </p>
           </div>
           <div class="flex gap-2">
             <button class="btn btn-secondary btn-sm" :disabled="sidecarScanLoading" @click="scanChunkedSidecars">
-              {{ sidecarScanLoading ? 'Scanning…' : (sidecarScan ? '↻ Rescan' : 'Scan') }}
+              {{ sidecarScanLoading ? 'Scanning…' : (sidecarScan ? '↻ Scan Again' : 'Scan') }}
             </button>
             <button
               class="btn btn-primary btn-sm"
               :disabled="!sidecarScan || sidecarCleanupRunning || sidecarScan.eligible_count === 0"
-              :title="!sidecarScan ? 'Run a scan first' : sidecarScan.eligible_count === 0 ? 'No eligible sidecars to clean up' : `Delete ${sidecarScan.eligible_count} sidecar(s) — frees ${formatBytes(sidecarScan.reclaimable_bytes)}`"
+              :title="!sidecarScan ? 'Click Scan first' : sidecarScan.eligible_count === 0 ? 'Nothing to remove — no finished script has a leftover file' : `Remove ${sidecarScan.eligible_count} leftover file(s) — frees ${formatBytes(sidecarScan.reclaimable_bytes)}`"
               @click="cleanupAllChunkedSidecars"
             >
               {{ sidecarCleanupRunning
                 ? 'Cleaning…'
                 : sidecarScan && sidecarScan.eligible_count > 0
-                  ? `Clean up ${sidecarScan.eligible_count} eligible (${formatBytes(sidecarScan.reclaimable_bytes)})`
-                  : 'Clean up eligible' }}
+                  ? `Clean Up ${sidecarScan.eligible_count} Finished (${formatBytes(sidecarScan.reclaimable_bytes)})`
+                  : 'Clean Up Finished' }}
             </button>
           </div>
         </div>
 
         <div v-if="sidecarScan" class="storage-summary mt-2">
-          <span><strong>Scanned:</strong> {{ sidecarScan.episodes.length }} episode{{ sidecarScan.episodes.length === 1 ? '' : 's' }}</span>
+          <span><strong>Checked:</strong> {{ sidecarScan.episodes.length }} episode{{ sidecarScan.episodes.length === 1 ? '' : 's' }}</span>
           <span class="dot">·</span>
-          <span><strong>Eligible:</strong> {{ sidecarScan.eligible_count }}</span>
+          <span><strong>Safe to remove:</strong> {{ sidecarScan.eligible_count }}</span>
           <span class="dot">·</span>
-          <span><strong>Reclaimable:</strong> {{ formatBytes(sidecarScan.reclaimable_bytes) }}</span>
+          <span><strong>Space you get back:</strong> {{ formatBytes(sidecarScan.reclaimable_bytes) }}</span>
         </div>
 
         <div v-if="sidecarScan && sidecarScan.episodes.some(e => e.sidecar_present)" class="storage-table mt-2">
           <div class="storage-row storage-head">
-            <span class="col-code">Code</span>
-            <span class="col-title">Status</span>
+            <span class="col-code">Episode</span>
+            <span class="col-title">Script</span>
             <span class="col-final">Size</span>
             <span class="col-actions"></span>
           </div>
@@ -1592,15 +1589,15 @@
           >
             <span class="col-code"><strong>{{ row.episode_code }}</strong></span>
             <span class="col-title" :title="row.reason || ''">
-              <span v-if="row.eligible" class="upload-badge ok">✓ eligible</span>
-              <span v-else class="text-muted">{{ row.reason || `${row.chapters_done || 0}/${row.total_chapters || 0} chapters` }}</span>
+              <span v-if="row.eligible" class="upload-badge ok">✓ finished, safe to remove</span>
+              <span v-else class="text-muted">{{ row.reason || `${row.chapters_done || 0}/${row.total_chapters || 0} chapters written` }}</span>
             </span>
             <span class="col-final">{{ formatBytes(row.sidecar_size_bytes || 0) }}</span>
             <span class="col-actions">
               <button
                 class="btn btn-ghost btn-sm"
                 :disabled="!row.eligible || sidecarCleanupRunning"
-                :title="row.eligible ? `Delete this sidecar (frees ${formatBytes(row.sidecar_size_bytes || 0)})` : 'Not eligible'"
+                :title="row.eligible ? `Remove this file (frees ${formatBytes(row.sidecar_size_bytes || 0)})` : 'Kept — this script is not finished yet'"
                 @click="cleanupOneSidecar(row.episode_code)"
               >
                 Clean Up
@@ -1611,7 +1608,7 @@
 
         <div v-if="lastSidecarCleanup" class="storage-result mt-2">
           <strong>Cleanup:</strong>
-          {{ lastSidecarCleanup.deleted.length }} sidecar(s) deleted, freed {{ formatBytes(lastSidecarCleanup.total_bytes_freed) }}.
+          {{ lastSidecarCleanup.deleted.length }} leftover file(s) removed, freed {{ formatBytes(lastSidecarCleanup.total_bytes_freed) }}.
           <span v-if="lastSidecarCleanup.skipped.length">{{ lastSidecarCleanup.skipped.length }} skipped.</span>
         </div>
         </div>
@@ -1685,11 +1682,10 @@
       </div>
     </Modal>
 
-    <Teleport to="body">
-      <div v-if="reseasonState.open" class="reseason-modal-backdrop" @click="closeReseasonPreview" />
-      <div v-if="reseasonState.open" class="reseason-modal" role="dialog" aria-label="Rebalance season folders" @click.stop>
+    <Modal :visible="reseasonState.open" size="lg" dialog-class="modal-flush" labelledby="reseason-title" @close="closeReseasonPreview">
+      <div class="reseason-modal">
         <div class="reseason-modal-header">
-          <strong>↻ Rebalance season folders</strong>
+          <strong id="reseason-title">↻ Rebalance season folders</strong>
           <button class="reseason-modal-close" type="button" title="Close" @click="closeReseasonPreview">✕</button>
         </div>
         <div class="reseason-modal-body">
@@ -1750,12 +1746,12 @@
             {{ reseasonState.running
               ? 'Rebalancing…'
               : (reseasonState.preview.moves.length === 0
-                ? 'Save new size'
-                : `Rebalance ${reseasonState.preview.moves.length} folder${reseasonState.preview.moves.length === 1 ? '' : 's'}`) }}
+                ? 'Save New Size'
+                : `Rebalance ${reseasonState.preview.moves.length} Folder${reseasonState.preview.moves.length === 1 ? '' : 's'}`) }}
           </button>
         </div>
       </div>
-    </Teleport>
+    </Modal>
   </div>
 </template>
 
@@ -2278,7 +2274,7 @@ async function submitNicheCreate(): Promise<void> {
 
 async function confirmDeleteNiche(n: { id: string; name: string; project_count?: number }): Promise<void> {
   if (n.project_count && n.project_count > 0) {
-    showError(`Cannot delete "${n.name}" — ${n.project_count} project(s) still reference it. Change those projects' niches first.`)
+    showError(`Cannot delete "${n.name}" — ${n.project_count} channel(s) still reference it. Change those channels' niches first.`)
     return
   }
   const ok = await ask({
@@ -2461,8 +2457,8 @@ async function saveMediaRoot() {
     stampSaved('mediaRoot')
     if (val) { await checkMediaRoot() } else { mediaRootStatus.value = ''; mediaRootOk.value = false }
     success(val
-      ? 'External media root saved — new media for this project will be written there.'
-      : 'External media root cleared — media stays in the project tree.')
+      ? 'External media root saved — new media for this channel will be written there.'
+      : 'External media root cleared — media stays in the channel folder.')
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to save external media root')
   } finally {
@@ -2473,8 +2469,8 @@ async function saveMediaRoot() {
 async function clearMediaRoot() {
   // The option is retired for projects without it, so clearing is one-way.
   if (!await ask({
-    title: 'Stop using the other drive for this project?',
-    message: 'Story Studio looks for this project\'s media in the project folder again. Files already on the other drive are not moved back. Once cleared, this cannot be turned on again.',
+    title: 'Stop using the other drive for this channel?',
+    message: 'Story Studio looks for this channel\'s media in the channel folder again. Files already on the other drive are not moved back. Once cleared, this cannot be turned on again.',
     confirmLabel: 'Clear',
     danger: true,
   })) return
@@ -2546,7 +2542,7 @@ async function scanChunkedSidecars() {
     )
     lastSidecarCleanup.value = null
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Sidecar scan failed')
+    showError(e?.data?.detail || e?.message || 'Could not check for leftover script progress files')
   } finally {
     sidecarScanLoading.value = false
   }
@@ -2572,7 +2568,7 @@ async function cleanupAllChunkedSidecars() {
     // ones stay).
     await scanChunkedSidecars()
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Sidecar cleanup failed')
+    showError(e?.data?.detail || e?.message || 'Could not remove the leftover script progress files')
   } finally {
     sidecarCleanupRunning.value = false
   }
@@ -2593,7 +2589,7 @@ async function cleanupOneSidecar(episode_code: string) {
     )
     await scanChunkedSidecars()
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Sidecar cleanup failed')
+    showError(e?.data?.detail || e?.message || 'Could not remove the leftover script progress files')
   } finally {
     sidecarCleanupRunning.value = false
   }
@@ -2612,12 +2608,12 @@ async function migrateMediaToRoot() {
     )
     const totalFiles = plan.folders.reduce((s, f) => s + f.files, 0)
     const totalBytes = plan.folders.reduce((s, f) => s + f.bytes, 0)
-    if (totalFiles === 0) { info('Nothing to migrate — no media found in the project tree.'); return }
+    if (totalFiles === 0) { info('Nothing to migrate — no media found in the channel folder.'); return }
     const ok = await ask({
-      title: 'Move project media?',
+      title: 'Move channel media?',
       message: `Move ${totalFiles} media file(s) (${formatBytes(totalBytes)}) across ${plan.folders.length} folder(s) ` +
-      `from the project tree to:\n\n${mediaRootSavedValue.value}\n\n` +
-      `Files are copied, verified, then removed from the project tree. ` +
+      `from the channel folder to:\n\n${mediaRootSavedValue.value}\n\n` +
+      `Files are copied, verified, then removed from the channel folder. ` +
       `Keep the drive connected until it finishes. This is resumable if interrupted.`,
       confirmLabel: `Move ${totalFiles} files`, danger: true,
     })
@@ -3678,7 +3674,7 @@ const introStandards = ref('')
 
 // ── Standards sub-tabs, templates, and presets ────────────────────────────
 const standardsSubTabs = [
-  { id: 'production', label: 'Project instructions' },
+  { id: 'production', label: 'Channel instructions' },
   { id: 'intro', label: 'Episode intro rules' },
 ] as const
 const standardsSubTab = ref<'production' | 'intro'>('production')
@@ -3763,7 +3759,7 @@ const currentStandardDoc = computed(() => {
     }
   }
   return {
-      title: 'Optional project instructions',
+      title: 'Optional channel instructions',
       description: 'Use this only for channel-specific facts, terminology, exclusions, or recurring production rules. It is appended after the Series Formula and cannot replace Formula-owned voice, point of view, or structure.',
       placeholder: 'e.g. always use Khmer place names as written here; do not mention sponsors; pronounce these names this way…',
   }
@@ -4004,7 +4000,7 @@ watch(artStyleSelection, async (next, prev) => {
     await put(`/projects/${targetSlug}/settings/config`, payload)
     if (slug.value !== targetSlug || artStyleRouteEpoch !== routeEpoch) return
     await refreshConfig(targetSlug)
-    artStyleSaveMessage.value = activeId ? 'Art style applied to this project' : 'Art style cleared'
+    artStyleSaveMessage.value = activeId ? 'Art style applied to this channel' : 'Art style cleared'
     setTimeout(() => { artStyleSaveMessage.value = '' }, 2500)
   } catch (e: any) {
     if (slug.value !== targetSlug || artStyleRouteEpoch !== routeEpoch) return
@@ -4057,7 +4053,7 @@ async function revealInFinder() {
   const ok = await askSkippable({
     skipKey: 'reveal_folder',
     title: 'Open in Finder?',
-    message: `This will open the project folder in ${browser}:\n${projectLocation.value}`,
+    message: `This will open the channel folder in ${browser}:\n${projectLocation.value}`,
     confirmLabel: 'Open',
   })
   if (!ok) return
@@ -4429,7 +4425,7 @@ async function saveProject(requestedSection?: ProjectSettingsSaveSection): Promi
     // Mutate only the acknowledged fields in place. Replacing the whole refs
     // would hydrate every section and discard drafts hidden behind another link.
     stampSaved(`project_${section}`)
-    success(`${section === 'identity' ? 'Project identity' : section === 'publishing' ? 'Publishing defaults' : 'Project files'} saved!`)
+    success(`${section === 'identity' ? 'Channel identity' : section === 'publishing' ? 'Publishing defaults' : 'Channel files'} saved!`)
     return true
   } catch (e: any) {
     showError(e.data?.detail || 'Failed to save')
@@ -4444,8 +4440,8 @@ async function deleteProject() {
     title: `Hide "${project.value?.name}" from the app?`,
     message:
       'Files stay on disk — only the registration is removed. ' +
-      'You can restore the project anytime, or permanently delete it later from the home-page Hidden channels panel.',
-    confirmLabel: 'Hide Project',
+      'You can restore the channel anytime, or permanently delete it later from the home-page Hidden channels panel.',
+    confirmLabel: 'Hide Channel',
     danger: false,
   })
   if (!ok) return
@@ -4460,7 +4456,7 @@ async function deleteProject() {
     if (result?.orphan_path) {
       const reveal = await ask({
         title: 'Files are still on disk',
-        message: `Your files are still at:\n\n${result.orphan_path}\n\nClick "Open in Finder" to reveal the folder, or "Got it" to dismiss. You can manage hidden projects from the home page anytime.`,
+        message: `Your files are still at:\n\n${result.orphan_path}\n\nClick "Open in Finder" to reveal the folder, or "Got it" to dismiss. You can manage hidden channels from the home page anytime.`,
         confirmLabel: 'Open in Finder',
         cancelLabel: 'Got It',
         danger: false,
@@ -4475,7 +4471,7 @@ async function deleteProject() {
     }
     navigateTo('/')
   } catch (e: any) {
-    showError(e.data?.detail || 'Failed to hide project')
+    showError(e.data?.detail || 'Failed to hide channel')
   }
 }
 </script>
@@ -5167,21 +5163,7 @@ async function deleteProject() {
   color: var(--text-muted);
 }
 
-.modal-overlay {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,0.6);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 2000;
-}
-.modal-small {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 24px;
-  width: 420px;
-  max-width: calc(100vw - 48px);
-}
-.modal-small h3 { font-size: 16px; font-weight: 600; margin: 0; }
+.modal-small-title { font-size: 16px; font-weight: 600; margin: 0; }
 
 .path-display {
   display: inline-block;
@@ -5196,20 +5178,6 @@ async function deleteProject() {
   max-width: 100%;
 }
 
-/* Move-asset-location dialog. Uses .modal-overlay above. .modal is a
-   one-off here because most dialogs in this file inline their sizing
-   on .modal-small; the asset-move modal needs more room for the
-   blocker list + paths so we bake a wider variant. */
-.modal {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 24px;
-  width: 100%;
-  max-height: calc(100vh - 80px);
-  overflow-y: auto;
-}
-
 .badge-warning {
   background: rgba(234, 179, 8, 0.15); color: #eab308;
   border: 1px solid rgba(234, 179, 8, 0.3);
@@ -5220,25 +5188,7 @@ async function deleteProject() {
 
 /* v1.0.45 — Reseason preview modal. Same shape as Compact's preview
    modal (defined in upload.vue scope) — small, scrollable list of
-   moves + a Confirm. Lives at the page root via Teleport so it
-   overlays everything. */
-.reseason-modal-backdrop {
-  position: fixed; inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 999;
-}
-.reseason-modal {
-  position: fixed; top: 50%; left: 50%;
-  transform: translate(-50%, -50%);
-  width: min(620px, calc(100vw - 32px));
-  max-height: calc(100vh - 64px);
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
-  display: flex; flex-direction: column;
-  z-index: 1000;
-}
+   moves + a Confirm. The box is the shared <Modal> (modal-flush). */
 .reseason-modal-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 12px 16px;
@@ -5311,7 +5261,7 @@ async function deleteProject() {
   transition: border-color 0.15s;
 }
 .niche-lib-tile.tile-builtin { border-left-color: var(--accent, #6c8fff); }
-.niche-lib-tile.tile-custom { border-left-color: rgba(240, 198, 116, 0.85); }
+.niche-lib-tile.tile-custom { border-left-color: color-mix(in srgb, var(--accent) 85%, transparent); }
 .niche-lib-tile.tile-active {
   background: rgba(108, 143, 255, 0.06);
   border-color: var(--accent, #6c8fff);
@@ -5335,7 +5285,7 @@ async function deleteProject() {
   letter-spacing: 0.04em;
 }
 .niche-lib-tile .badge-builtin { background: rgba(108, 143, 255, 0.12); color: var(--accent, #6c8fff); }
-.niche-lib-tile .badge-custom { background: rgba(240, 198, 116, 0.14); color: rgba(240, 198, 116, 0.95); }
+.niche-lib-tile .badge-custom { background: color-mix(in srgb, var(--accent) 14%, transparent); color: color-mix(in srgb, var(--accent) 95%, transparent); }
 .niche-lib-tile .badge-active { background: rgba(108, 143, 255, 0.20); color: var(--accent, #6c8fff); font-weight: 500; }
 .niche-lib-tile .tile-tagline {
   margin: 0;

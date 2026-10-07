@@ -23,12 +23,18 @@ const FOCUSABLE = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(',')
 
+// Open traps, newest last. Only the newest handles keys, so Escape in a
+// picker opened from inside another dialog closes just the picker.
+const openTraps: object[] = []
+
 export function useFocusTrap(
   containerRef: Ref<HTMLElement | null>,
   active: Ref<boolean>,
   onEscape?: () => void,
 ) {
   let previouslyFocused: Element | null = null
+  const trap = {}
+  const release = () => { const i = openTraps.indexOf(trap); if (i >= 0) openTraps.splice(i, 1) }
 
   function getFocusable(): HTMLElement[] {
     const el = containerRef.value
@@ -38,7 +44,7 @@ export function useFocusTrap(
   }
 
   function onKeyDown(ev: KeyboardEvent) {
-    if (!active.value) return
+    if (!active.value || openTraps[openTraps.length - 1] !== trap) return
 
     if (ev.key === 'Escape') {
       ev.preventDefault()
@@ -71,6 +77,7 @@ export function useFocusTrap(
     if (typeof document === 'undefined') return
     if (isActive) {
       previouslyFocused = document.activeElement
+      openTraps.push(trap)
       // Focus the first focusable element on next tick (after modal renders)
       nextTick(() => {
         const focusable = getFocusable()
@@ -79,6 +86,7 @@ export function useFocusTrap(
       document.addEventListener('keydown', onKeyDown)
     } else {
       document.removeEventListener('keydown', onKeyDown)
+      release()
       // Restore focus to the element that opened the modal
       if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus()
       previouslyFocused = null
@@ -89,5 +97,6 @@ export function useFocusTrap(
     if (typeof document !== 'undefined') {
       document.removeEventListener('keydown', onKeyDown)
     }
+    release()
   })
 }

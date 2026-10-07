@@ -6,6 +6,7 @@
       description="Choose the work once, preflight every episode, and let each production chain advance safely through the queue."
     >
       <template #aside>
+        <div class="pipeline-hero-aside">
         <div class="workspace-metrics">
           <span class="workspace-metric"><strong>{{ selectedEpisodes.size }}</strong> episodes selected</span>
           <span class="workspace-metric"><strong>{{ checkedStepCount }}</strong> steps selected</span>
@@ -22,6 +23,13 @@
           >
             <strong>{{ blockingIssues.length }}</strong> setup blockers
           </span>
+        </div>
+        <UpdatedAgo
+          :at="episodesLoadedAt"
+          :busy="epLoading || epRevalidating"
+          title="Refresh episode statuses. Shift-click to rebuild every row — slower, use after files change on disk outside the app."
+          @refresh="onRefreshClick"
+        />
         </div>
       </template>
     </WorkspaceHero>
@@ -48,7 +56,7 @@
       </TopActionBar>
       <p class="pipeline-command-copy">
         Each episode follows the <strong>{{ chainLabel }}</strong> chain in order while separate episodes share the available queue capacity.
-        Preset choices stay pinned to this project, and completed work is skipped unless you explicitly force a re-run.
+        Preset choices stay pinned to this channel, and completed work is skipped unless you explicitly force a re-run.
       </p>
       <p class="pipeline-command-copy pipeline-command-hint">
         <strong>Run Batch</strong> queues the selected steps for the selected episodes and skips anything already finished.
@@ -56,7 +64,7 @@
         Both ask before anything starts.
       </p>
       <WorkspaceNotice v-if="formatError" tone="warning" title="Production flow unavailable">
-        {{ formatError }} Stage selection and batch actions stay disabled until the project format is available.
+        {{ formatError }} Stage selection and batch actions stay disabled until the channel format is available.
       </WorkspaceNotice>
     </div>
 
@@ -73,7 +81,7 @@
     <WorkspaceSection
       eyebrow="Stage selection"
       title="Steps to run"
-      description="Nothing is selected automatically. Choose stages manually or use a safe shortcut; every selected stage keeps its project-level preset until you change it."
+      description="Nothing is selected automatically. Choose stages manually or use a safe shortcut; every selected stage keeps its channel-level preset until you change it."
     >
       <template #actions>
         <div class="step-selection-actions" role="group" aria-label="Stage selection shortcuts">
@@ -220,7 +228,7 @@
                 <strong>{{ entry.label }}</strong>
               </div>
               <div class="step-external-note">{{ entry.note }}</div>
-              <NuxtLink :to="`/projects/${slug}${entry.link}`" class="preset-link">Open page →</NuxtLink>
+              <NuxtLink :to="`/projects/${slug}${entry.link}`" class="preset-link">Open Page →</NuxtLink>
             </div>
           </div>
         </template>
@@ -328,9 +336,6 @@
           <span class="ep-actions-divider" aria-hidden="true" />
 
           <button class="btn btn-sm btn-secondary" @click="selectNone">Clear</button>
-          <button class="btn btn-sm btn-ghost" :disabled="epLoading || epRevalidating" @click="onRefreshClick" title="Refresh episode statuses. Shift-click to rebuild every row — slower, use after files change on disk outside the app.">
-            {{ (epLoading || epRevalidating) ? '⟳ Refreshing…' : '↻ Refresh' }}
-          </button>
         </div>
       </template>
 
@@ -440,7 +445,7 @@
 
       <!-- E-06 (DS-09) — a failed read is not "no accepted ideas". -->
       <div v-else-if="!episodes.length && epError" class="text-muted text-md mt-2">
-        Could not load this project's accepted ideas. Nothing was changed.
+        Could not load this channel's accepted ideas. Nothing was changed.
         <button class="btn btn-sm btn-secondary" @click="refreshEpisodes">Retry</button>
       </div>
 
@@ -631,6 +636,19 @@
           · showing <strong>{{ sortedFilteredEpisodes.length }}</strong> after filter/sort
         </template>
       </div>
+
+      <!-- Stays in view while the long episode list scrolls; same action as the top Run Batch. -->
+      <div v-if="episodes.length" class="pipeline-sticky-run">
+        <span><strong>{{ selectedEpisodes.size }}</strong> episode{{ selectedEpisodes.size === 1 ? '' : 's' }} · <strong>{{ checkedStepCount }}</strong> step{{ checkedStepCount === 1 ? '' : 's' }} selected</span>
+        <span v-if="!canRun && pipelineGenerateStatus" class="pipeline-sticky-run-status">{{ pipelineGenerateStatus }}</span>
+        <button
+          type="button"
+          class="btn btn-primary"
+          :disabled="!canRun"
+          title="Queue the selected steps for the selected episodes. Asks before anything starts."
+          @click="openRunConfirm"
+        >{{ submitting || preflighting ? 'Checking…' : `Run Batch (${selectedEpisodes.size})` }}</button>
+      </div>
     </WorkspaceSection>
 
     <WorkspaceSection
@@ -660,7 +678,7 @@
         <p>{{ pipelineQualityDescription }}</p>
       </div>
       <p v-if="pipelineQualityMode === 'off'" class="text-muted text-sm mt-2">
-        Turn on Flag issues or Check and repair in Project Settings before checking a backlog.
+        Turn on Flag issues or Check and repair in Channel Settings before checking a backlog.
       </p>
       <p v-else class="text-muted text-sm mt-2">
         The check reads completed chapter audio and saved subtitle evidence only. It does not call a provider or spend credits.
@@ -681,7 +699,7 @@
             v-if="result.review > 0"
             :to="`/projects/${slug}/audio?episode_id=${encodeURIComponent(result.episode)}`"
             class="btn btn-sm btn-secondary"
-          >Review audio</NuxtLink>
+          >Review Audio</NuxtLink>
         </li>
       </ul>
     </WorkspaceSection>
@@ -785,7 +803,7 @@
         <button class="btn btn-secondary" :disabled="submitting" @click="closeConfirm()">Cancel</button>
         <button class="btn btn-primary" :disabled="submitting || preflighting || preflightEligibleCount === 0" @click="submit">
           <LoadingSpinner v-if="submitting" size="sm" />
-          {{ preflighting ? 'Checking…' : (submitting ? 'Queuing…' : (repairMode ? 'Start repair · may use credits' : (forceRerun ? 'Start batch (force)' : 'Start batch'))) }}
+          {{ preflighting ? 'Checking…' : (submitting ? 'Queuing…' : (repairMode ? 'Start Repair · May Use Credits' : (forceRerun ? 'Start Batch (Force)' : 'Start Batch'))) }}
         </button>
       </div>
     </Modal>
@@ -804,12 +822,18 @@ import { localMediaStatusLabel, type LocalMediaCleanupStatus } from '~/composabl
 import { episodeStepJobStates } from '~/utils/episode-step-jobs'
 import type { AudioQualityMode, AudioQualityPlan } from '~/types/audio-quality'
 import { ESTIMATE_STEPS, estimateBatchUsd, formatUsd, stepQuantity, type EstimateStep } from '~/utils/genstudio-price-usd'
+import { episodesFromQuery } from '~/utils/board-selection'
+import { readQueryState, sameQuery, writeQueryState } from '~/utils/route-query-state'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Pipeline')
 
 const route = useRoute()
+const router = useRouter()
 const slug = computed(() => route.params.slug as string)
+// Search, filters and page live in the URL too, so Back and reload keep the owner's place.
+const PLACE = { search: '', sort: 'code-asc', show: 'all', rows: 10, page: 1 }
+const place = readQueryState(route.query, PLACE)
 const { get, post, patch: patchApi } = useApi()
 const { success, error: showError, info: showInfo } = useToast()
 const { ask } = useConfirm()
@@ -841,13 +865,13 @@ async function loadVisualSource(): Promise<void> {
     if (request !== formatRequest || projectSlug !== slug.value) return
     const source = visualSourceFromFormat(f)
     if (!source) {
-      formatError.value = 'The project returned an unknown production format. Refresh this project before choosing batch work.'
+      formatError.value = 'The channel returned an unknown production format. Refresh this channel before choosing batch work.'
       return
     }
     visualSource.value = source
   } catch (error: any) {
     if (request !== formatRequest || projectSlug !== slug.value) return
-    formatError.value = error?.data?.detail || error?.message || 'Could not load this project’s production format.'
+    formatError.value = error?.data?.detail || error?.message || 'Could not load this channel’s production format.'
   }
 }
 const isTimestampDriven = computed(() => visualSource.value === 'timestamp-driven')
@@ -956,7 +980,7 @@ const stepsMeta: StepMeta[] = [
   { id: 'metadata',          label: 'YouTube Finalizer', icon: '📄', link: '/metadata',       presetList: 'metadata_presets',        presetActive: 'metadata_last_preset' },
   { id: 'character_sheet',   label: 'Character Sheet',   icon: '🎭', link: '/character-sheet', presetList: 'continuity_page_presets', presetActive: 'continuity_page_last_preset_continuity-page' },
   { id: 'scene_plan',        label: 'Scene Plan',        icon: '📚', link: '/scene-plan',     presetList: 'scene_plan_presets',      presetActive: 'scene_plan_last_preset_scene-plan' },
-  { id: 'contextual_cues',   label: 'Contextual Cues',   icon: '🏷️', link: '/contextual-cues', presetList: 'contextual_cues_presets', presetActive: 'contextual_cues_last_preset_contextual-cues', optional: true, warning: 'Optional project feature — a review preset pauses Pipeline here; an auto-approve preset continues after validated proposals.' },
+  { id: 'contextual_cues',   label: 'Contextual Cues',   icon: '🏷️', link: '/contextual-cues', presetList: 'contextual_cues_presets', presetActive: 'contextual_cues_last_preset_contextual-cues', optional: true, warning: 'Optional channel feature — a review preset pauses Pipeline here; an auto-approve preset continues after validated proposals.' },
   { id: 'scene_review',      label: 'Scene Review (render)', icon: '✅', link: '/scene-review', presetList: 'scene_review_genstudio_presets', presetActive: 'scene_review_genstudio_last_preset_scene-review' },
   { id: 'motion_review',     label: 'Motion Clips (optional image to video)', icon: '🎬', link: '/motion-review', presetList: 'motion_review_presets', presetActive: 'motion_review_last_preset_motion-review', costly: true, optional: true, warning: 'Optional — skip to assemble with still images. Generates one image-to-video clip per ready scene when selected; provider charges apply' },
   { id: 'video_assembly',    label: 'Final Video',       icon: '🎞', link: '/video-assembly', presetList: 'video_bundle_presets',    presetActive: 'video_bundle_last_preset' },
@@ -1500,6 +1524,16 @@ function restoreEpisodeSelection() {
   catch { /* no sessionStorage or a corrupt entry: start empty */ }
 }
 restoreEpisodeSelection()
+// Production Board → "Open in Pipeline" hands over `?episodes=EP0001,EP0002`: that
+// selection replaces the remembered one, and the key leaves the URL once applied.
+const linkedEpisodes = episodesFromQuery(route.query.episodes)
+if (linkedEpisodes.length) {
+  selectedEpisodes.clear()
+  for (const code of linkedEpisodes) selectedEpisodes.add(code)
+  const query = { ...route.query }
+  delete query.episodes
+  void router.replace({ query })
+}
 watch(() => [...selectedEpisodes].sort().join(','), () => {
   try { sessionStorage.setItem(episodeSelectionKey(), JSON.stringify([...selectedEpisodes])) } catch { /* selection just won't persist */ }
 })
@@ -1516,7 +1550,11 @@ const {
   revalidateAfterMutation,
   updateEpisode,
   error: epError,
+  isRemembered: epRemembered,
 } = useEpisodes(slug)
+// When the rows on screen were last read (rows remembered from the last launch don't count).
+const episodesLoadedAt = ref<number | null>(episodes.value.length && !epRemembered.value ? Date.now() : null)
+watch(episodes, () => { if (!epRemembered.value) episodesLoadedAt.value = Date.now() })
 watch(episodes, (list) => {
   if (!list.length) return
   const known = new Set(list.map(ep => ep.episode_code))
@@ -1588,7 +1626,7 @@ const pipelineQualityDescription = computed(() => pipelineQualityMode.value === 
   ? 'Find chapters that need review, then open Audio to choose the current narration model and voice before any quoted repair.'
   : pipelineQualityMode.value === 'flag_issues'
     ? 'Flag chapters whose saved source and transcript evidence needs review.'
-    : 'Audio quality review is disabled for this project.')
+    : 'Audio quality review is disabled for this channel.')
 const selectedEpisodeCodes = computed(() => [...selectedEpisodes].sort())
 const selectedEpisodeScopeKey = computed(() => selectedEpisodeCodes.value.join(','))
 const pipelineQualityHasRetry = computed(() => selectedEpisodeCodes.value.some(code =>
@@ -1599,9 +1637,9 @@ const pipelineQualityActionLabel = computed(() => {
   if (pipelineQualityChecking.value) {
     return `Checking ${pipelineQualityCompleted.value} of ${selectedEpisodes.size}…`
   }
-  if (pipelineQualityMode.value === 'off') return 'Audio quality is off'
-  if (!selectedEpisodes.size) return 'Select episodes to check'
-  return pipelineQualityHasRetry.value ? 'Retry unfinished checks' : 'Check selected episodes'
+  if (pipelineQualityMode.value === 'off') return 'Audio Quality Is Off'
+  if (!selectedEpisodes.size) return 'Select Episodes to Check'
+  return pipelineQualityHasRetry.value ? 'Retry Unfinished Checks' : 'Check Selected Episodes'
 })
 
 watch(selectedEpisodeScopeKey, () => {
@@ -1724,13 +1762,13 @@ watch(visibleSteps, () => {
   }
 })
 
-const sortKey = ref<SortKey>('code-asc')
-const filterMode = ref<FilterMode>('all')
-const pageSize = ref(10)
-const currentPage = ref(1)
+const sortKey = ref<SortKey>(place.sort as SortKey)
+const filterMode = ref<FilterMode>(place.show as FilterMode)
+const pageSize = ref([10, 25, 50, 100].includes(place.rows) ? place.rows : 10)
+const currentPage = ref(place.page)
 // Free-text search across episode_code + title. Mirrors the Ideas page's
 // search box. Pure derivation; no network call. Empty string = no filter.
-const searchQuery = ref('')
+const searchQuery = ref(place.search)
 
 // Count missing CORE steps per episode. Video (AI per-scene generation)
 // is opt-in and costly, so it's excluded. video_assembly IS included —
@@ -1881,6 +1919,12 @@ watch([filterMode, sortKey, searchQuery], () => { currentPage.value = 1 })
 // Clamp if the filtered list shrinks below the current page (e.g. episode
 // finished and was filtered out of the missing-only view).
 watch(totalPages, (tp) => { if (currentPage.value > tp) currentPage.value = tp })
+watch(() => writeQueryState(route.query, {
+  search: searchQuery.value.trim(), sort: sortKey.value, show: filterMode.value, rows: pageSize.value, page: currentPage.value,
+}, PLACE), query => {
+  // Only while this page is the current route — never write pipeline keys into the page being opened.
+  if (router.currentRoute.value.path === route.path && !sameQuery(query, route.query)) void router.replace({ query })
+})
 
 const selectButtonTitle = computed(() => filterMode.value === 'missing-only'
   ? 'Select every episode currently shown (after the missing-only filter) that has a missing checked step'
@@ -2070,7 +2114,7 @@ function researchNote(status: Record<string, unknown> | undefined): string {
   const who = by === 'pipeline-auto'
     ? 'claims auto-accepted by the Pipeline, not read by a person'
     : by === 'auto-approval'
-      ? 'claims auto-approved by this project’s setting, not read by a person'
+      ? 'claims auto-approved by this channel’s setting, not read by a person'
       : 'claims reviewed'
   return s.research_has_usable_claims ? ` — ${who}` : ` — ${who}, none kept`
 }
@@ -2289,7 +2333,7 @@ if (typeof window !== 'undefined') {
 // ── Validation ─────────────────────────────────────────────────────────
 const blockingIssues = computed<string[]>(() => {
   const issues: string[] = []
-  if (!visualSource.value) issues.push(formatError.value || 'Loading this project’s production format.')
+  if (!visualSource.value) issues.push(formatError.value || 'Loading this channel’s production format.')
   if (checkedStepCount.value === 0) issues.push('Pick at least one step to run.')
   if (selectedEpisodes.size === 0) issues.push('Select at least one episode.')
   for (const ep of episodes.value) {
@@ -2688,14 +2732,14 @@ async function submit() {
   border-radius: var(--radius-sm);
   transition: border-color 0.15s, background 0.15s;
 }
-.step-tile.selected { border-color: var(--accent); background: rgba(240, 198, 116, 0.06); }
-.step-tile.missing  { border-color: rgb(180, 83, 9); background: rgba(245, 158, 11, 0.08); }
+.step-tile.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.step-tile.missing  { border-color: color-mix(in srgb, var(--warning) 60%, var(--border)); background: color-mix(in srgb, var(--warning) 8%, transparent); }
 .step-tile.costly { border-style: dashed; }
 .step-tile.policy-expanded { grid-column: 1 / -1; }
 .step-tile.disabled { opacity: 0.55; cursor: not-allowed; }
 .step-tile.disabled .step-toggle { cursor: not-allowed; }
 .step-toggle { align-self: flex-start; flex: 0 0 auto; margin-top: 2px; }
-.step-warning { margin-top: 4px; font-size: var(--font-xs); color: rgb(180, 83, 9); }
+.step-warning { margin-top: 4px; font-size: var(--font-xs); color: color-mix(in srgb, var(--warning) 70%, var(--text-primary)); }
 .step-body { flex: 1; }
 .step-head { display: flex; align-items: center; gap: 8px; }
 .step-icon { font-size: 16px; }
@@ -2727,7 +2771,7 @@ async function submit() {
 }
 .step-preset-select:disabled { opacity: 0.6; cursor: progress; }
 .preset-name { color: var(--accent); font-weight: 500; }
-.preset-missing { color: rgb(180, 83, 9); font-size: var(--font-xs); }
+.preset-missing { color: color-mix(in srgb, var(--warning) 70%, var(--text-primary)); font-size: var(--font-xs); }
 .preset-link { color: var(--accent); text-decoration: underline; font-size: var(--font-xs); }
 .step-preset-none { font-size: var(--font-xs); color: var(--text-muted); font-style: italic; }
 .step-model-policy { margin-top: 8px; font-size: var(--font-xs); }
@@ -2739,7 +2783,7 @@ async function submit() {
 .step-model-policy-candidate { display: grid; gap: 4px; }
 .step-model-policy-candidate :deep(.form-group) { margin: 0; }
 .step-model-policy-limits { margin: 0; color: var(--text-muted); line-height: 1.4; }
-.step-model-policy-error { margin: 0; color: rgb(180, 83, 9); }
+.step-model-policy-error { margin: 0; color: color-mix(in srgb, var(--warning) 70%, var(--text-primary)); }
 
 @media (max-width: 560px) {
   .step-model-policy-candidates { grid-template-columns: minmax(0, 1fr); }
@@ -2762,7 +2806,7 @@ async function submit() {
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
-.episode-row.selected { border-color: var(--accent); background: rgba(240, 198, 116, 0.06); }
+.episode-row.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .episode-row:hover { border-color: var(--accent); }
 .ep-main { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .ep-head { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
@@ -2834,6 +2878,29 @@ async function submit() {
 .ep-pill.pending { opacity: 0.4; filter: grayscale(1); }
 
 .selection-summary { padding: 4px 2px; }
+.pipeline-hero-aside { display: grid; justify-items: end; gap: 10px; }
+.pipeline-sticky-run {
+  position: sticky;
+  bottom: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+}
+.pipeline-sticky-run strong { color: var(--text-primary); }
+.pipeline-sticky-run-status { flex: 1 1 200px; color: var(--text-muted); font-size: var(--font-xs); }
+.pipeline-sticky-run .btn { margin-left: auto; }
+/* A disabled amber button turns muddy brown on dark; show it as plainly unavailable instead. */
+.pipeline-sticky-run .btn:disabled { background: var(--bg-tertiary); border-color: var(--border); color: var(--text-muted); opacity: 1; cursor: not-allowed; }
 
 .pipeline-quality-actions {
   display: flex;
@@ -3082,7 +3149,7 @@ async function submit() {
    whole-episode mark-done). Subtle yellow ring distinguishes "manual" from
    "file-detected" without losing the green/grey done/missing distinction. */
 .ep-pill.manual {
-  outline: 1px solid rgba(240, 198, 116, 0.6);
+  outline: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
   outline-offset: 1px;
 }
 

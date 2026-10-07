@@ -106,9 +106,10 @@
       title="Earlier image request needs a decision"
     >
       The Gateway could not confirm whether {{ replaceableUncertainJob.params.manual_image_finish.uncertain_scene_ids.length === 1 ? 'an earlier image was' : `${replaceableUncertainJob.params.manual_image_finish.uncertain_scene_ids.length} earlier images were` }} made.
-      <strong>Check again</strong> asks for the earlier result instead of ordering it again (other scenes still missing in this job are made as usual). <strong>Replace anyway</strong> orders a new one and may charge again.
+      <strong>Check Again</strong> asks for the earlier result instead of ordering it again (other scenes still missing in this job are made as usual). <strong>Replace anyway</strong> orders a new one and may charge again.
       <template #actions>
-        <button class="btn btn-sm btn-secondary" :disabled="checkingUncertain || replacingUncertain" @click="checkUncertainAgain">
+        <!-- The safe choice leads: it costs nothing and never orders twice. -->
+        <button class="btn btn-sm btn-primary" :disabled="checkingUncertain || replacingUncertain" @click="checkUncertainAgain">
           {{ checkingUncertain ? 'Checking…' : 'Check Again' }}
         </button>
         <button class="btn btn-sm btn-warn" :disabled="replacingUncertain || checkingUncertain" @click="replaceUncertainImages">
@@ -391,7 +392,7 @@
         </div>
         <div class="sr-health-list">
           <button
-            v-for="p in problemScenes"
+            v-for="p in shownProblemScenes"
             :key="p.scene.id"
             class="sr-health-chip"
             :title="`Jump to scene #${p.index} — ${p.reasons.join(', ')}`"
@@ -399,6 +400,12 @@
           >
             #{{ p.index }} <span class="sr-health-why">{{ p.reasons.join(' · ') }}</span>
           </button>
+          <button
+            v-if="hiddenProblemCount > 0"
+            type="button"
+            class="sr-health-chip sr-health-more"
+            @click="showAllProblems = true"
+          >+{{ hiddenProblemCount }} more</button>
         </div>
       </div>
 
@@ -936,6 +943,12 @@ const problemScenes = computed(() => {
   })
   return list
 })
+/** The first 12 attention chips, then "+N more": an episode with 300 flagged scenes buried the page. */
+const PROBLEM_CHIP_LIMIT = 12
+const showAllProblems = ref(false)
+watch(episodeId, () => { showAllProblems.value = false })
+const shownProblemScenes = computed(() => showAllProblems.value ? problemScenes.value : problemScenes.value.slice(0, PROBLEM_CHIP_LIMIT))
+const hiddenProblemCount = computed(() => problemScenes.value.length - shownProblemScenes.value.length)
 const problemIds = computed(() => new Set(problemScenes.value.map(p => p.scene.id)))
 /**
  * Why these exact scenes cannot be rendered yet, or '' when they can. The
@@ -2271,9 +2284,9 @@ watch([slug, episodeId], () => {
 /* v1.0.245 — Plan-health banner + flagged rows. */
 .sr-health {
   padding: 10px 12px;
-  border: 1px solid rgba(224, 162, 58, 0.4);
-  border-left: 3px solid #e0a23a;
-  background: rgba(224, 162, 58, 0.08);
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+  border-left: 3px solid var(--warning);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
   border-radius: 8px;
 }
 .sr-health-head { font-size: 13px; font-weight: 600; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
@@ -2282,12 +2295,13 @@ watch([slug, episodeId], () => {
 .sr-health-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .sr-health-chip {
   font-size: var(--font-xs); padding: 3px 9px; border-radius: 999px;
-  border: 1px solid rgba(224, 162, 58, 0.45); background: rgba(224, 162, 58, 0.1);
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent); background: color-mix(in srgb, var(--warning) 10%, transparent);
   color: var(--text-primary); cursor: pointer;
 }
-.sr-health-chip:hover { border-color: #e0a23a; background: rgba(224, 162, 58, 0.2); }
+.sr-health-chip:hover { border-color: var(--warning); background: color-mix(in srgb, var(--warning) 20%, transparent); }
+.sr-health-more { font-weight: 600; }
 .sr-health-why { color: var(--text-muted); }
-.sr-row-problem { border-left: 3px solid #e0a23a; }
+.sr-row-problem { border-left: 3px solid var(--warning); }
 .sr-row-flash { animation: sr-row-flash-kf 1.4s ease; }
 @keyframes sr-row-flash-kf {
   0%, 100% { box-shadow: 0 0 0 0 rgba(240, 180, 41, 0); }

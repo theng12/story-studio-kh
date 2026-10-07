@@ -461,7 +461,7 @@
              source path — useful when the project has multiple music
              folders or files with similar names across them. -->
         <div v-if="scannedMusicFiles.length" class="quick-add-music mt-1">
-          <span class="text-muted text-xs">Found in project:</span>
+          <span class="text-muted text-xs">Found in channel:</span>
           <div class="flex gap-2 mt-1 flex-wrap">
             <button v-for="mf in scannedMusicFiles" :key="mf.path"
               class="btn btn-sm btn-secondary"
@@ -598,7 +598,7 @@
         Stack any number of ambient loops (rain, fire crackle, distant thunder, wind) — each plays
         <strong>simultaneously at its own volume</strong> alongside narration, music, and background noise.
         Different from <em>Background Music</em> above (which plays its files one after another as a single bed).
-        Drop sources into the project's <code>ambient/</code> folder, then click <strong>+ Add Track</strong>.
+        Drop sources into the channel's <code>ambient/</code> folder, then click <strong>+ Add Track</strong>.
       </p>
 
       <div v-if="ambientTracks.length" class="mt-2" style="display: flex; flex-direction: column; gap: 8px;">
@@ -664,7 +664,7 @@
         <button
           type="button"
           class="btn btn-sm btn-secondary"
-          title="Open the project's ambient/ folder so you can drop new audio loops in"
+          title="Open the channel's ambient/ folder so you can drop new audio loops in"
           @click="openAmbientFolder"
         >📁 Open Ambient Folder</button>
         <button
@@ -675,14 +675,10 @@
         >🔄 Refresh</button>
       </div>
 
-      <div
-        v-if="showAmbientPicker"
-        class="modal-overlay"
-        @click.self="showAmbientPicker = false"
-      >
-        <div class="modal-content" style="max-width: 600px;">
+      <Modal :visible="showAmbientPicker" size="md" labelledby="ambient-picker-title" @close="showAmbientPicker = false">
+        <div>
           <div class="flex gap-2 items-center" style="margin-bottom: 12px;">
-            <h3 style="margin: 0; flex: 1;">Pick an ambient track</h3>
+            <h3 id="ambient-picker-title" style="margin: 0; flex: 1;">Pick an ambient track</h3>
             <button type="button" class="btn btn-sm btn-secondary" @click="showAmbientPicker = false">✕ Close</button>
           </div>
           <div v-if="ambientLibraryLoading" class="text-muted text-sm">Scanning ambient/ folder…</div>
@@ -717,7 +713,7 @@
             Source folder: <code class="wrap-path">{{ ambientLibraryDir }}</code>
           </p>
         </div>
-      </div>
+      </Modal>
     </div>
     </section>
 
@@ -2052,7 +2048,7 @@ onUnmounted(() => {
 .np-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
 .np-desc { font-size: var(--font-xs); color: var(--text-muted); }
 
-.summary-bar { padding: 10px 14px; background: var(--accent-dim); border-radius: var(--radius-sm); font-size: 13px; color: var(--accent); font-weight: 500; border: 1px solid rgba(240, 198, 116, 0.2); }
+.summary-bar { padding: 10px 14px; background: var(--accent-dim); border-radius: var(--radius-sm); font-size: 13px; color: var(--accent); font-weight: 500; border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent); }
 
 .summary-panel { padding: 16px; background: var(--bg-tertiary); border-radius: var(--radius-md); border: 1px solid var(--border); }
 .summary-grid { display: flex; flex-direction: column; gap: 6px; }
@@ -2087,8 +2083,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background: rgba(240, 198, 116, 0.05);
-  border-left: 3px solid rgba(240, 198, 116, 0.55);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 55%, transparent);
 }
 .preset-path-check.is-critical {
   background: rgba(226, 92, 92, 0.06);

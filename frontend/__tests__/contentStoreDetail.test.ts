@@ -477,9 +477,9 @@ describe('Content Store proof route contract', () => {
     assert.doesNotMatch(route, /project selection|select a project/i)
   })
 
-  test('returns to the Store when Escape leaves the proof route', () => {
-    assert.match(route, /event\.key === 'Escape'/)
-    assert.match(route, /navigateTo\('\/content-store'\)/)
+  test('leaves the proof route through PlainBackLink, which yields Escape to an open dialog', () => {
+    assert.match(route, /<PlainBackLink label="Back to Content Store" fallback="\/content-store" \/>/)
+    assert.doesNotMatch(route, /event\.key === 'Escape'/, 'no page-level Escape handler to fight the purchase dialog')
   })
 
   test('keeps the nested proof outlet mounted for direct route resolution', () => {
@@ -496,8 +496,7 @@ describe('Content Store proof route contract', () => {
 
   test('uses a solid 3px focus outline for the dialog close control and 44px text-link targets', () => {
     assert.match(purchaseDialog, /\.dialog-close:focus-visible\s*\{\s*outline:\s*3px solid var\(--accent\);\s*outline-offset:\s*2px;\s*box-shadow:\s*none;/)
-    assert.match(storePage, /\.back-link\s*\{[^}]*min-height:\s*44px/)
-    assert.match(route, /\.back-link\s*\{[^}]*min-height:\s*44px/)
+    assert.match(storePage, /<PlainBackLink label="Back to Channels" fallback="\/" \/>/)
     assert.match(readFileSync(fileURLToPath(new URL('../components/content-store/ContentProductCard.vue', import.meta.url)), 'utf8'), /\.proof-action\s*\{[^}]*min-height:\s*44px/)
   })
 })

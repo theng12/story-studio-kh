@@ -1781,7 +1781,7 @@ type RendererJob = Omit<Job, 'paid_image_replacement_attempts' | 'generation_rep
 }
 
 export const PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE =
-  'This image was not made, and nothing new was sent or charged. Press “Redo failed jobs” on the Jobs page to make it again.'
+  'This image was not made, and nothing new was sent or charged. Press “Retry Failed Jobs” on the Jobs page to make it again.'
 
 export function recordPaidImageReplacementPublicReason(
   job: Job,

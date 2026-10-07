@@ -31,8 +31,10 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 </script>
 
 <style scoped>
+/* Its own line at the top-left, whatever follows it (an inline eyebrow used to run into it). */
 .plain-back-link {
-  display: inline-flex;
+  display: flex;
+  width: fit-content;
   align-items: center;
   min-height: 44px;
   margin-bottom: 8px;

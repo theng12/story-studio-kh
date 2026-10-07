@@ -62,9 +62,9 @@ describe('project open', () => {
 describe('refresh buttons', () => {
   test('Board ↻ is paced; Shift-click is the full rebuild', () => {
     const board = source('../pages/projects/[slug]/board.vue')
-    assert.match(board, /@click="onRefreshClick"/)
+    // The "Updated N min ago · Refresh" caption carries the button and its busy state.
+    assert.match(board, /<UpdatedAgo[^>]*:busy="loading \|\| isRevalidating"[^>]*@refresh="onRefreshClick"/)
     assert.match(board, /event\.shiftKey \? refresh\(\) : revalidate\(\)/)
-    assert.match(board, /v-if="isRevalidating && episodes\.length"[^>]*>Updating…</)
   })
 
   test('Pipeline ↻ and EpisodeSelector ↻ are paced; Shift-click is the full rebuild', () => {

@@ -59,13 +59,13 @@
         <div class="mp-row" style="justify-content: space-between">
           <div class="mp-row">
             <input v-model="q" class="mp-inp" style="width: 240px" placeholder="Search titles, briefs, scene ideas…" aria-label="Search songs">
-            <button type="button" class="mp-chip" :class="{ on: fFree }" @click="fFree = !fFree">Free for next episode</button>
+            <button type="button" class="mp-chip" :class="{ on: fFree }" @click="fFree = !fFree">Free for Next Episode</button>
             <select v-model="fMood" class="mp-inp" aria-label="Mood"><option value="">Mood</option><option v-for="v in values('mood')" :key="v">{{ v }}</option></select>
             <select v-model="fEnsemble" class="mp-inp" aria-label="Ensemble"><option value="">Ensemble</option><option v-for="v in values('ensemble')" :key="v">{{ v }}</option></select>
             <select v-model="fBand" class="mp-inp" aria-label="Tempo"><option value="">Tempo</option><option v-for="b in bands" :key="b.id" :value="b.id">{{ b.label }}</option></select>
             <select v-model="fKey" class="mp-inp" aria-label="Key"><option value="">Key</option><option v-for="v in values('key')" :key="v">{{ v }}</option></select>
             <select v-model.number="fRating" class="mp-inp" aria-label="Rating"><option :value="0">Rating</option><option v-for="r in 5" :key="r" :value="r">{{ r }}★ and up</option></select>
-            <button type="button" class="mp-chip" :class="{ on: fNever }" @click="fNever = !fNever">Never played</button>
+            <button type="button" class="mp-chip" :class="{ on: fNever }" @click="fNever = !fNever">Never Played</button>
             <button type="button" class="mp-chip" :class="{ on: fRejected }" @click="fRejected = !fRejected">Rejected</button>
           </div>
           <select v-model="sort" class="mp-inp" aria-label="Sort">

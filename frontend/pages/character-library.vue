@@ -84,13 +84,22 @@
       </article>
     </div>
 
-    <!-- No close-on-backdrop-click: a stray click must not throw away typing. -->
-    <div v-if="editorOpen" class="editor-backdrop">
+    <!-- No close-on-backdrop-click: a stray click must not throw away typing.
+         Escape closes only while nothing has been changed. -->
+    <Modal
+      :visible="editorOpen"
+      size="xxl"
+      dialog-class="modal-flush"
+      :close-on-backdrop="false"
+      :close-on-escape="!editorDirty"
+      labelledby="character-editor-title"
+      @close="closeEditor"
+    >
       <form class="character-editor" @submit.prevent="saveCharacter">
         <header class="editor-header">
           <div>
             <span class="workspace-section-eyebrow">{{ editing ? 'Edit shared record' : 'Create shared record' }}</span>
-            <h2>{{ editing ? editing.name : 'New channel character' }}</h2>
+            <h2 id="character-editor-title">{{ editing ? editing.name : 'New channel character' }}</h2>
           </div>
           <button type="button" class="btn btn-sm btn-secondary" @click="closeEditor">Close</button>
         </header>
@@ -217,7 +226,7 @@
           <button class="btn btn-primary" :disabled="saving || !canSave">{{ saving ? 'Saving…' : 'Save Character' }}</button>
         </footer>
       </form>
-    </div>
+    </Modal>
   </div>
 </template>
 
@@ -285,6 +294,10 @@ const selectedChannels = ref(new Set<string>())
 const voiceProfiles = reactive<Record<string, CharacterSpeech>>({})
 const pendingReference = ref<File | null>(null)
 const canSave = computed(() => !!draft.name.trim() && !!draft.description.trim())
+const editorSnapshot = ref('')
+// profileFor() adds empty profiles while rendering, so only filled ones count.
+const editorState = () => JSON.stringify([draft, [...selectedChannels.value], Object.entries(voiceProfiles).filter(([, p]) => Object.values(p).some(Boolean)), !!pendingReference.value])
+const editorDirty = computed(() => editorOpen.value && editorState() !== editorSnapshot.value)
 
 function resetEditor() {
   draft.name = ''
@@ -300,6 +313,7 @@ function openCreate() {
   editing.value = null
   if (channelFilter.value && channelFilter.value !== '__unassigned') toggleChannel(channelFilter.value)
   editorOpen.value = true
+  editorSnapshot.value = editorState()
 }
 
 function openEdit(character: Character) {
@@ -313,6 +327,7 @@ function openEdit(character: Character) {
     voiceProfiles[slug] = { ...(character.channel_profiles?.[slug]?.speech || {}) }
   }
   editorOpen.value = true
+  editorSnapshot.value = editorState()
   void loadVisionCaps()
 }
 
@@ -565,12 +580,12 @@ function initials(name: string): string {
 .character-heading { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; }.character-heading h2 { margin: 3px 0 0; font-size: 19px; }
 .character-kicker { color: var(--accent); font-size: var(--font-xs); text-transform: uppercase; letter-spacing: .12em; }.character-copy p { color: var(--text-muted); line-height: 1.55; font-size: 12px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .channel-chip-row { display: flex; flex-wrap: wrap; gap: 6px; }.channel-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid rgba(245,193,88,.3); border-radius: 999px; padding: 4px 8px; font-size: var(--font-xs); color: var(--text); background: rgba(245,193,88,.07); }.channel-chip.is-muted { color: var(--text-muted); border-color: var(--border); }.voice-dot { color: #63d995; font-size: var(--font-xs); text-transform: uppercase; letter-spacing: .08em; }
-.editor-backdrop { position: fixed; inset: 0; z-index: 300; padding: 28px; display: flex; align-items: center; justify-content: center; background: rgba(3,6,12,.78); backdrop-filter: blur(10px); }
-.character-editor { width: min(980px, 100%); max-height: calc(100vh - 56px); display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 18px; overflow: hidden; background: var(--bg-primary); box-shadow: 0 30px 90px rgba(0,0,0,.5); }
-.editor-header, .editor-footer { display: flex; align-items: center; gap: 10px; padding: 18px 22px; background: var(--bg-secondary); border-bottom: 1px solid var(--border); }.editor-header { justify-content: space-between; }.editor-header h2 { margin: 3px 0 0; }.editor-footer { border-top: 1px solid var(--border); border-bottom: 0; }.editor-spacer { flex: 1; }
-.editor-scroll { overflow-y: auto; padding: 4px 22px 22px; }.editor-section { display: grid; grid-template-columns: 46px 1fr; gap: 14px; padding: 24px 0; border-bottom: 1px solid var(--border); }.editor-section:last-child { border-bottom: 0; }.section-number { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; color: var(--accent); background: rgba(245,193,88,.11); font: 700 11px monospace; }.section-body h3 { margin: 3px 0 5px; }.section-help, .form-group small { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.5; }.field-grid, .voice-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }.form-group { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; font-size: 12px; }.file-input { padding: 8px; }
+/* The box is the shared <Modal> (modal-flush); it scrolls, header and footer stick. */
+.character-editor { background: var(--bg-primary); }
+.editor-header, .editor-footer { position: sticky; z-index: 1; display: flex; align-items: center; gap: 10px; padding: 18px 22px; background: var(--bg-secondary); border-bottom: 1px solid var(--border); }.editor-header { top: 0; }.editor-footer { bottom: 0; }.editor-header { justify-content: space-between; }.editor-header h2 { margin: 3px 0 0; }.editor-footer { border-top: 1px solid var(--border); border-bottom: 0; }.editor-spacer { flex: 1; }
+.editor-scroll { padding: 4px 22px 22px; }.editor-section { display: grid; grid-template-columns: 46px 1fr; gap: 14px; padding: 24px 0; border-bottom: 1px solid var(--border); }.editor-section:last-child { border-bottom: 0; }.section-number { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; color: var(--accent); background: rgba(245,193,88,.11); font: 700 11px monospace; }.section-body h3 { margin: 3px 0 5px; }.section-help, .form-group small { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.5; }.field-grid, .voice-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }.form-group { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; font-size: 12px; }.file-input { padding: 8px; }
 .channel-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; margin-top: 14px; }.channel-option { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; background: var(--bg-secondary); }.channel-option.selected { border-color: var(--accent); background: rgba(245,193,88,.08); }.channel-option span, .channel-option small { display: block; }.channel-option small { color: var(--text-muted); margin-top: 2px; }
 .voice-profile-list { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }.voice-profile-card { padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-secondary); }.voice-profile-title { display: flex; justify-content: space-between; gap: 10px; }.voice-profile-title div span { display: block; color: var(--text-muted); font-size: var(--font-xs); margin-top: 2px; }.profile-state { color: var(--text-muted); font-size: var(--font-xs); text-transform: uppercase; letter-spacing: .09em; }.profile-state.ready { color: #63d995; }.voice-picker-field :deep(.voice-picker) { width: 100%; }.reference-strip { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }.reference-card { width: 132px; display: flex; flex-direction: column; gap: 6px; }.reference-strip img, .reference-preview-error { width: 132px; height: 132px; object-fit: cover; border-radius: 10px; border: 1px solid var(--border); }.reference-preview-error { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 8px; padding: 12px; background: rgba(231, 103, 103, .08); color: var(--text-muted); font-size: var(--font-xs); overflow-wrap: anywhere; }.reference-preview-error strong { color: #f08f8f; font-size: var(--font-xs); }.reference-actions { display: flex; align-items: center; gap: 6px; }
 .reference-filename { overflow: hidden; color: var(--text-muted); font-size: var(--font-xs); text-overflow: ellipsis; white-space: nowrap; }.vision-control { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px; align-items: center; margin-top: 12px; }.vision-control label { font-size: 12px; color: var(--text-muted); }
-@media (max-width: 760px) { .roster-toolbar, .field-grid, .voice-fields { grid-template-columns: 1fr; }.character-grid { grid-template-columns: 1fr; }.character-tile { grid-template-columns: 90px 1fr; }.editor-backdrop { padding: 8px; }.editor-section { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .roster-toolbar, .field-grid, .voice-fields { grid-template-columns: 1fr; }.character-grid { grid-template-columns: 1fr; }.character-tile { grid-template-columns: 90px 1fr; }.editor-section { grid-template-columns: 1fr; } }
 </style>

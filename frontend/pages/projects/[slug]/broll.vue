@@ -24,7 +24,7 @@
       :presets="brollPresets"
       v-model:episode-id="form.episode_id"
       filter-field="broll_picked"
-      generate-label="Pick B-Roll for this episode"
+      generate-label="Pick B-Roll for This Episode"
       :generate-loading="picking"
       :generate-disabled="!!pickDisabledReason || picking"
       :generate-status="picking ? `Selecting clips for ${form.episode_id}…` : pickDisabledReason"

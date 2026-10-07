@@ -104,7 +104,7 @@ test('automatic selection follows current filtered eligibility and can target ne
 
 test('selection controls are available for both active and history cards', () => {
   assert.equal((source.match(/@change="toggleCleanupJob\(job\)"/g) || []).length, 2)
-  assert.match(source, /Select needs attention/)
-  assert.match(source, /Select all matching/)
-  assert.match(source, /Abandon and clear/)
+  assert.match(source, /Select Needs Attention/)
+  assert.match(source, /Select All Matching/)
+  assert.match(source, /Abandon and Remove From List/)
 })

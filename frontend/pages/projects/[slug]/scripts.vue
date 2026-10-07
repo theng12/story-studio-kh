@@ -19,7 +19,7 @@
       :presets="scriptPresets"
       v-model:episode-id="form.episode_id"
       filter-field="script"
-      generate-label="Create outline"
+      generate-label="Create Outline"
       :generate-loading="submitting || scriptJobActiveForEpisode"
       :generate-disabled="!canSubmit"
       :generate-status="scriptJobActiveForEpisode ? `Building outline for ${form.episode_id}…` : submitDisabledReason"
@@ -56,7 +56,7 @@
           />
           <span class="text-muted text-xs">
             {{ byoMode === 'script'
-              ? 'Imported as this episode\'s script — the old script moves to the project\'s _trash folder.'
+              ? 'Imported as this episode\'s script — the old script moves to the channel\'s _trash folder.'
               : 'Imported as an approved outline — overwrites any existing outline. Then use Expand Chapters (Outline tab).' }}
           </span>
         </div>
@@ -163,7 +163,7 @@
             <strong>{{ activeNarratorLabel }}</strong>
             <span>{{ activeNarratorDescription }}</span>
             <button v-if="availableNarratorStyles.length > 1 || customStyles.length" type="button" class="link-btn" @click="narratorOverrideOpen = !narratorOverrideOpen">
-              {{ narratorOverrideOpen ? 'Hide override' : 'Change for this episode' }}
+              {{ narratorOverrideOpen ? 'Hide Override' : 'Change for This Episode' }}
             </button>
           </div>
           <div v-if="narratorOverrideOpen" class="mt-1">
@@ -200,7 +200,7 @@
         <div class="formula-rules-head">
           <div>
             <span class="formula-rules-kicker">Formula active</span>
-            <strong>{{ nicheContext?.catalogName || nicheContext?.name || 'Project formula' }}</strong>
+            <strong>{{ nicheContext?.catalogName || nicheContext?.name || 'Channel formula' }}</strong>
             <span v-if="nicheContext?.tagline" class="text-muted"> — {{ nicheContext.tagline }}</span>
           </div>
           <span class="formula-rules-summary">{{ scriptContextSummary }}</span>
@@ -327,13 +327,13 @@
             class="link-btn recency-toggle"
             @click="showRecencyDetail = !showRecencyDetail"
           >
-            {{ showRecencyDetail ? 'Hide' : 'See list' }} {{ showRecencyDetail ? '↑' : '↓' }}
+            {{ showRecencyDetail ? 'Hide' : 'See List' }} {{ showRecencyDetail ? '↑' : '↓' }}
           </button>
           <NuxtLink
             v-if="recencyState.log_size > 0"
             :to="`/projects/${slug}/recency`"
             class="link-btn recency-toggle"
-            title="Manage every recency entry on this project — search, filter, remove individual items"
+            title="Manage every recency entry on this channel — search, filter, remove individual items"
           >Manage log →</NuxtLink>
         </div>
         <div class="recency-controls">
@@ -362,7 +362,7 @@
             :disabled="recencyClearing"
             @click="clearRecencyLog"
           >
-            {{ recencyClearing ? 'Clearing…' : `Clear log (${recencyState.log_size} entries)` }}
+            {{ recencyClearing ? 'Clearing…' : `Clear Log (${recencyState.log_size} Entries)` }}
           </button>
         </div>
         <div v-if="recencyState.recent_items.length === 0" class="text-muted recency-empty">
@@ -604,23 +604,20 @@
     </div><!-- /Script tab -->
 
     <!-- Save custom style preset modal (replaces blocked window.prompt) -->
-    <div v-if="showSaveStyle" class="modal-overlay" @click.self="showSaveStyle = false">
-      <div class="modal-small">
-        <h3>Save style preset</h3>
-        <p class="text-muted text-sm mt-1 mb-2">Give this narrator style a name so you can reuse it.</p>
-        <input
-          v-model="newStyleName"
-          class="input"
-          placeholder="e.g. Cozy Grandma, Dark Noir"
-          @keyup.enter.stop.prevent="confirmSaveCustomStyle"
-          @keydown.escape="showSaveStyle = false"
-        />
-        <div class="flex gap-2 mt-2 justify-end">
-          <button class="btn btn-secondary" @click="showSaveStyle = false">Cancel</button>
-          <button class="btn btn-primary" :disabled="!newStyleName.trim()" @click="confirmSaveCustomStyle">Save</button>
-        </div>
+    <Modal :visible="showSaveStyle" :close-on-backdrop="false" labelledby="save-style-title" @close="showSaveStyle = false">
+      <h3 id="save-style-title" class="modal-small-title">Save Style Preset</h3>
+      <p class="text-muted text-sm mt-1 mb-2">Give this narrator style a name so you can reuse it.</p>
+      <input
+        v-model="newStyleName"
+        class="input"
+        placeholder="e.g. Cozy Grandma, Dark Noir"
+        @keyup.enter.stop.prevent="confirmSaveCustomStyle"
+      />
+      <div class="flex gap-2 mt-2 justify-end">
+        <button class="btn btn-secondary" @click="showSaveStyle = false">Cancel</button>
+        <button class="btn btn-primary" :disabled="!newStyleName.trim()" @click="confirmSaveCustomStyle">Save</button>
       </div>
-    </div>
+    </Modal>
 
   </div>
 </template>
@@ -706,7 +703,7 @@ async function importContent(): Promise<void> {
     const ok = await ask({
       title: replacingScript ? `Replace ${ep}'s script?` : `Replace ${ep}'s outline?`,
       message: replacingScript
-        ? `${ep}'s current chapters, introduction, narration and outline move to this project's _trash folder, and your pasted script takes their place.`
+        ? `${ep}'s current chapters, introduction, narration and outline move to this channel's _trash folder, and your pasted script takes their place.`
         : `${ep}'s current outline, including any edits you made to it, is replaced by the pasted outline.`,
       confirmLabel: 'Replace',
       danger: true,
@@ -1158,7 +1155,7 @@ async function saveRecencyLookback() {
 
 async function clearRecencyLog() {
   if (recencyClearing.value) return
-  if (!confirm('Clear the entire recency log for this project? The LLM will be free to repeat recent items on the next generation.')) return
+  if (!confirm('Clear the entire recency log for this channel? The LLM will be free to repeat recent items on the next generation.')) return
   recencyClearing.value = true
   try {
     await del(`/projects/${slug.value}/recency`)
@@ -2449,7 +2446,7 @@ onMounted(() => { setTimeout(() => { pageReadyForAutoIntro.value = true }, 1500)
 /* Primary-field highlight: shows the user which input is driving the calculation */
 .is-primary .input {
   border-color: var(--accent);
-  box-shadow: 0 0 0 1px rgba(240, 198, 116, 0.25);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
 }
 .primary-badge {
   font-size: var(--font-xs);
@@ -2586,20 +2583,6 @@ onMounted(() => { setTimeout(() => { pageReadyForAutoIntro.value = true }, 1500)
 .progress-fill { height: 100%; background: var(--accent); border-radius: 2px; animation: progressIndeterminate 1.5s ease-in-out infinite; }
 @keyframes progressIndeterminate { 0% { width: 0%; margin-left: 0; } 50% { width: 60%; margin-left: 20%; } 100% { width: 0%; margin-left: 100%; } }
 
-.modal-overlay {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,0.6);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 2000;
-}
-.modal-small {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 24px;
-  width: 420px;
-  max-width: calc(100vw - 48px);
-}
-.modal-small h3 { font-size: 16px; font-weight: 600; margin: 0; }
+.modal-small-title { font-size: 16px; font-weight: 600; margin: 0; }
 
 </style>

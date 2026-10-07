@@ -28,16 +28,16 @@ export const featureGuides: Record<string, FeatureGuide> = {
     tips: ['Use authenticated Server Mode over a private network such as Tailscale.', 'Never expose the Story Studio server port directly to the public internet.'],
   },
   projects: {
-    title: 'Projects',
-    summary: 'Create, open, and recover Story Studio channels. Each project keeps its own episodes, presets, styles, and production files.',
-    workflow: ['Open an existing project, or put its folder in your projects folder for it to appear.', 'Create a project when starting a new channel.', 'Use Settings inside a project for channel-specific configuration.'],
+    title: 'Channels',
+    summary: 'Create, open, and recover Story Studio channels. Each channel keeps its own episodes, presets, styles, and production files.',
+    workflow: ['Open an existing channel, or put its folder in your channels folder for it to appear.', 'Create a channel when starting a new one.', 'Use Settings inside a channel for channel-specific configuration.'],
     topics: [
-      { title: 'Project card', purpose: 'Opens that channel workspace and shows whether its folder is available.', useWhen: 'Use it whenever you want to continue production for a channel.' },
+      { title: 'Channel card', purpose: 'Opens that channel workspace and shows whether its folder is available.', useWhen: 'Use it whenever you want to continue production for a channel.' },
       // v1.4.2 — this described a button removed on 2026-08-08. Project
       // discovery is a filesystem scan, so the honest answer is where to put the
       // folder, not which button to press.
-      { title: 'Adding a project that already exists on disk', purpose: 'Story Studio finds any folder in your projects folder that contains a project.json, so a project you copied or restored appears on its own.', useWhen: 'Use after restoring a backup or moving a project between Macs. Settings → Files & maintenance shows where your Library is.' },
-      { title: 'Hidden channels', purpose: 'Lists channels removed from the list with Hide project, and restores them without touching any files.', useWhen: 'Use when a channel you hid needs to come back.' },
+      { title: 'Adding a channel that already exists on disk', purpose: 'Story Studio finds any folder in your channels folder that contains a project.json, so a channel you copied or restored appears on its own.', useWhen: 'Use after restoring a backup or moving a channel between Macs. Settings → Files & maintenance shows where your Library is.' },
+      { title: 'Hidden channels', purpose: 'Lists channels removed from the list with Hide Channel, and restores them without touching any files.', useWhen: 'Use when a channel you hid needs to come back.' },
       { title: 'New Project', purpose: 'Creates the channel structure, production format, and initial settings.', effect: 'A new project folder and project record are created.' },
       { title: 'Usage', purpose: 'Shows your GenStudio credits: what is set aside for running jobs and what finished jobs actually cost.' },
       { title: 'Settings', purpose: 'Opens settings that belong to this Mac, including appearance, remote access, and the Gateway connection.' },
@@ -396,16 +396,16 @@ export const featureGuides: Record<string, FeatureGuide> = {
     tips: ['Offline external drives remain registered and can be rescanned when reconnected.', 'Keep source licensing information with every asset intended for customer-facing production.'],
   },
   usage: {
-    title: 'GenStudio Credits',
-    summary: 'Your GenStudio credit balance and what recent jobs were charged, exactly as the Gateway reports them. Story Studio never works out prices itself.',
-    workflow: ['Press Refresh for the latest figures.', 'Check the balance and what is held for running jobs.', 'Look through recent jobs to see what each one was charged or refunded.'],
+    title: 'Usage',
+    summary: 'What your Gateway reports: credits, how many jobs are running or waiting, and its most recent jobs. Story Studio never works out prices itself.',
+    workflow: ['Press Refresh for the latest figures.', 'Check how many jobs are running now and how many are waiting.', 'Look through recent Gateway jobs to see what ran, on which model, and how it ended.'],
     topics: [
       { title: 'Available', purpose: 'Credits you can spend on new paid jobs. Free local work on your own Macs does not use them.' },
-      { title: 'Held credits', purpose: 'The most a running job can cost, set aside until it finishes.' },
-      { title: 'Charged credits', purpose: 'What Gateway actually charged once the job finished.' },
-      { title: 'Refunded credits', purpose: 'Held credits given back — unused, cancelled, or a failure that is not charged.' },
+      { title: 'Running now', purpose: 'Jobs the Gateway is working on, out of how many it can run at once.' },
+      { title: 'Waiting', purpose: 'Jobs queued at the Gateway until a slot frees up.' },
+      { title: 'Held / charged / refunded', purpose: 'Shown only when a job moved credits: what was set aside, what was charged, and what came back.' },
     ],
-    tips: ['If the page cannot load, check the Gateway app is running, then press Try again.', 'A balance of 0 only matters for paid cloud work; jobs on your own Macs are free.'],
+    tips: ['If the page cannot load, check the Gateway app is running, then press Try Again.', 'A balance of 0 only matters for paid cloud work; jobs on your own Macs are free.'],
   },
   'content-store': {
     title: 'Content Store',
