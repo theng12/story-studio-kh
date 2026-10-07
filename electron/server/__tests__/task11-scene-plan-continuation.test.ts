@@ -4,6 +4,7 @@ import path from 'node:path'
 import { after, before, test } from 'node:test'
 
 import { useTempDataDir } from './_helpers.js'
+import { isNonRetryableError } from '../services/job-retry-policy.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
 
 const temp = await useTempDataDir()
@@ -18,7 +19,7 @@ const { stampFromCues } = await import('../lib/scene-plan-timeline.js')
 const { resolveEpisodePathsByCode } = await import('../services/utils.js')
 const { resolveStepParams } = await import('../routes/pipeline.js')
 await import('../providers/text/genstudio.js')
-const { runScenePlanJob } = await import('../generators/scene-plan.js')
+const { runScenePlanJob, subtitleCoverageGapError } = await import('../generators/scene-plan.js')
 
 let fixtureNumber = 0
 let jobNumber = 0
@@ -300,11 +301,16 @@ for (const entry of [{
     queuePromptResult([fixture.preservedId, fixture.missingId])
     const before = await fs.readFile(fixture.planPath, 'utf8')
 
+    const job = pipelineJob(fixture)
     await assert.rejects(
-      runScenePlanJob(pipelineJob(fixture)),
-      error => error instanceof Error && /rebuild.*timeline/i.test(error.message),
+      runScenePlanJob(job),
+      error => error instanceof Error && /rebuild.*timeline/i.test(error.message)
+        // Running again reads the same plan and stops here again: no retry waits.
+        && isNonRetryableError(error),
       `${entry.label} incompatibility must require an intentional timeline rebuild`,
     )
+    assert.deepEqual((job.result as any)?.attention, { kind: 'scene_plan_rebuild', workspace: 'scene-plan', episode_id: job.episode_id },
+      'Jobs offers the one-click Rebuild Timeline')
 
     assert.equal(await fs.readFile(fixture.planPath, 'utf8'), before)
     assert.equal(chatSubmissions().length, 0)
@@ -468,8 +474,17 @@ test('ordinary first-run planning refuses to overwrite a plan that appears befor
   })
   queuePromptResult([fixture.missingId])
 
-  await assert.rejects(runScenePlanJob(pipelineJob(fixture)), /plan appeared.*retry/i)
+  await assert.rejects(runScenePlanJob(pipelineJob(fixture)), error => error instanceof Error
+    && /plan appeared.*retry/i.test(error.message) && !isNonRetryableError(error))
 
   assert.equal(await fs.readFile(fixture.planPath, 'utf8'), before)
   assert.equal(chatSubmissions().length, 0)
+})
+
+test('a subtitle coverage gap says which button to press and skips the retry waits', () => {
+  const error = subtitleCoverageGapError({ gap_sec: 37.6, previous_end_sec: 17.9, next_start_sec: 55.5, section_slugs: ['Chapter_03'] })
+  assert.ok(isNonRetryableError(error), 'retrying cannot add cues')
+  assert.match(error.message, /press “Re-transcribe Chapter 03” \(or “Re-narrate Chapter 3” if the narration is silent there\), then press Retry/)
+  assert.match(subtitleCoverageGapError({ gap_sec: 40, previous_end_sec: 0, next_start_sec: 40, section_slugs: [] }).message,
+    /press “Re-transcribe” on the chapter it lists/)
 })

@@ -1007,6 +1007,12 @@
               {{ customerJobText(job.error, job) }}
             </div>
             <p v-if="paidReplacementAttemptMessage(job)" class="text-muted text-xs">{{ paidReplacementAttemptMessage(job) }}</p>
+            <div v-if="needsTimelineRebuild(job)" class="job-attention-links">
+              <button type="button" class="btn btn-sm btn-primary" :disabled="rebuildingTimelines.has(job.job_id)" @click="rebuildTimeline(job)">
+                {{ rebuildingTimelines.has(job.job_id) ? 'Starting…' : 'Rebuild Timeline' }}
+              </button>
+              <span class="text-muted text-xs">Makes a new scene timeline from the current subtitles and rhythm. Then press Retry here to make the prompts.</span>
+            </div>
             <details v-if="jobAttentionLinks(job).length" class="job-attention-details disclosure">
               <summary>{{ jobAttentionLinks(job).length }} affected item{{ jobAttentionLinks(job).length === 1 ? '' : 's' }} · Review affected items</summary>
               <div class="job-attention-links">
@@ -2985,6 +2991,34 @@ function exactLegacyIssue(itemId: unknown, state: 'missing' | 'invalid') {
   return typeof itemId === 'string' && /^[A-Za-z0-9_-]+$/.test(itemId)
     ? { item_id: itemId, state }
     : null
+}
+
+// A saved Scene Plan the job cannot continue (e.g. no pacing snapshot): retrying stops at the
+// same place, so offer the one fix right here.
+const rebuildingTimelines = ref<Set<string>>(new Set())
+function needsTimelineRebuild(job: RJob): boolean {
+  const attention = (job.result as any)?.attention
+  return job.type === 'scene_plan_run' && job.status === 'error' && attention?.kind === 'scene_plan_rebuild' && !!job.episode_id
+}
+async function rebuildTimeline(job: RJob): Promise<void> {
+  const ok = await useConfirm().ask({
+    title: `Rebuild ${job.episode_id}'s timeline?`,
+    message: 'This replaces every scene with new ones cut from the current subtitles and the episode’s chosen rhythm. Saved prompts and approvals stop being attached to scenes (image files stay on disk).',
+    confirmLabel: 'Rebuild Timeline',
+    danger: true,
+  })
+  if (!ok) return
+  rebuildingTimelines.value = new Set([...rebuildingTimelines.value, job.job_id])
+  try {
+    await post(`/projects/${jobProjectSlug(job)}/scene-plan/${encodeURIComponent(job.episode_id!)}/run`, { stage: 'timeline' })
+    success(`Rebuilding ${job.episode_id}'s timeline. Press Retry on this job when it finishes.`)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Could not start the timeline rebuild')
+  } finally {
+    const next = new Set(rebuildingTimelines.value)
+    next.delete(job.job_id)
+    rebuildingTimelines.value = next
+  }
 }
 
 function jobAttentionSummary(job: RJob): string {

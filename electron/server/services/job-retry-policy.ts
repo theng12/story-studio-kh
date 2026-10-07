@@ -186,3 +186,16 @@ export function resolveJobAutoRetryPolicy(
 
   return MANUAL_ONLY
 }
+
+/**
+ * An error that the same job cannot get past by running again: a preflight or input problem
+ * (a plan saved without its pacing snapshot, a subtitle coverage gap). Marked errors skip the
+ * automatic retry delays and fail at once with the fix in their message.
+ */
+export function nonRetryable<E extends Error>(error: E): E {
+  return Object.assign(error, { retryable: false })
+}
+
+export function isNonRetryableError(error: unknown): boolean {
+  return (error as { retryable?: unknown } | null)?.retryable === false
+}

@@ -23,7 +23,7 @@ import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import type { Job, JobRemoteCancellation, JobRemoteOperation, JobStats, JobType, PaidImageReplacementAttempt, PaidImageReplacementPolicySnapshot } from '../models/types.js'
 import { assertJobDidNotDeclareIncomplete } from './job-completion.js'
 import { jobStreamSignature } from './job-stream-signature.js'
-import { isLocalTextModel, resolveJobAutoRetryPolicy } from './job-retry-policy.js'
+import { isLocalTextModel, isNonRetryableError, resolveJobAutoRetryPolicy } from './job-retry-policy.js'
 import { getAppSetting, getPaidImageReplacementSetting, onAppSettingWritten, setAppSetting } from './app-settings.js'
 import { classifyJobControl, classifyJobControls } from './job-control.js'
 import { getJobCancellationAuditor, hasJobCancellationAuditor } from './job-cancellation-auditors.js'
@@ -3711,7 +3711,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
             lastAttempt = attempt + retryPolicy.max_attempts - 1
             job.auto_retry.max_attempts = lastAttempt
           }
-          if (!retryPolicy.eligible || attempt >= lastAttempt) break
+          if (!retryPolicy.eligible || attempt >= lastAttempt || isNonRetryableError(error)) break
 
           const delayIndex = attempt - (lastAttempt - retryPolicy.max_attempts) - 1
           const delayMs = retryPolicy.delays_ms[delayIndex] ?? retryPolicy.delays_ms.at(-1) ?? 2_000
@@ -3728,7 +3728,9 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       }
 
       if (!completed) {
-        if (job.auto_retry?.eligible) {
+        if (isNonRetryableError(finalError)) {
+          job.output_lines.push('ℹ Automatic retry skipped: running this job again would stop at the same point. Fix what the error names, then press Retry.')
+        } else if (job.auto_retry?.eligible) {
           job.auto_retry.exhausted = true
           job.output_lines.push(`✗ Auto-retry exhausted after ${lastAttempt} attempts. Verified partial files remain on disk; manual Retry starts another recovery cycle.`)
         } else {
