@@ -40,6 +40,7 @@ test('defines the closed lifecycle vocabulary and safe public foundation errors'
     'YOUTUBE_OAUTH_TIMEOUT',
     'YOUTUBE_OAUTH_CANCELLED',
     'YOUTUBE_OAUTH_FLOW_UNKNOWN',
+    'YOUTUBE_STATUS_UNCHECKED',
   ])
 
   const error = new YouTubeFoundationError(

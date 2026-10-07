@@ -22,6 +22,7 @@ import { generateAudioMerge } from '../generators/audio-merge.js'
 import { generateMetadata } from '../generators/metadata.js'
 import { generateSubtitlesTranscribe } from '../generators/subtitles.js'
 import { startEpisodeRecovery } from '../services/episode-recovery.js'
+import { startYouTubeStatusSync } from '../services/youtube-status-sync.js'
 import { invalidateForFinishedJob } from '../services/episode-status-cache.js'
 import { settleAfterSuccess } from '../services/stale-failures.js'
 import { generateYoutubeUpload } from '../generators/youtube-upload.js'
@@ -404,6 +405,8 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
     void initializeQueuePauseState()
       .then(() => resumeInterruptedJobsAtBoot())
       .then(() => startEpisodeRecovery())
+      // Follows accepted uploads to "ready" without anyone pressing a button.
+      .then(() => startYouTubeStatusSync())
       .catch(e => console.warn('[boot] failed to initialize durable queue state:', e?.message))
     // The durable recovery scan is chained after queue-hold restoration above,
     // so a user-paused queue cannot race and start work during app boot.

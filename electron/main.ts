@@ -716,6 +716,15 @@ void electronApp.whenReady().then(async () => {
     // privacy-sensitive heap snapshots.
     startMemoryWatchdog()
 
+    // YouTube sign-in about to lapse (7-day Testing-status apps): same channels as job notices.
+    try {
+      const { setYouTubeNoticeDispatcher } = await import('./server/services/youtube-status-sync.js')
+      const { getNotifierSettings } = await import('./server/services/job-notifier.js')
+      setYouTubeNoticeDispatcher(async notice => dispatchNotification(notice, 'youtube', await getNotifierSettings()))
+    } catch (e) {
+      logCrash('youtube-notice', e)
+    }
+
     // Daily digest scheduler (v1.0.62+). Ticks every minute; fires
     // the digest at the user's configured local time once per day.
     // Wired with a dispatcher that fans out to whichever channels

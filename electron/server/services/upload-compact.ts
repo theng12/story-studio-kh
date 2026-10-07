@@ -31,6 +31,7 @@
  */
 
 import fs from 'fs/promises'
+import { trashCopiedSourceSync } from '../lib/trash-move.js'
 import path from 'path'
 import { existsSync } from 'fs'
 import * as pm from './project-manager.js'
@@ -210,7 +211,8 @@ export async function compactAcceptedEpisodes(slug: string): Promise<CompactResu
         } catch (e: any) {
           if (e?.code === 'EXDEV') {
             await copyDirRecursive(oldPaths.episode_dir, newPaths.episode_dir)
-            await fs.rm(oldPaths.episode_dir, { recursive: true, force: true })
+            // Never deleted: the source waits in _trash on its own drive.
+            trashCopiedSourceSync(oldPaths.episode_dir, pm.getProjectDir(slug)!, slug, oldPaths.output_root)
           } else if (e?.code === 'ENOTEMPTY' || e?.code === 'EEXIST' || e?.code === 'EISDIR') {
             errors.push({
               stage: `rename ${r.old_code} → ${r.new_code}`,

@@ -35,3 +35,25 @@ export function moveToTrashSync(file: string, target: string): string {
 function exists(p: string): boolean {
   try { lstatSync(p); return true } catch { return false }
 }
+
+/**
+ * Where the SOURCE of a folder move that crossed drives goes once its copy is
+ * complete: a `_trash` on the source's own drive, never `fs.rm` (renumber,
+ * compact and reseason used to delete it). Inside the project →
+ * `<project>/_trash/moved/<relative>`; under `anchor` (the Library output root
+ * or the exports root) → `trashRootFor(anchor)/<relative>`; otherwise beside it.
+ */
+export function trashCopiedSourceSync(source: string, projectDir: string, slug: string, anchor?: string): string {
+  const under = (root: string) => {
+    const rel = path.relative(root, source)
+    return rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel : null
+  }
+  const inProject = under(projectDir)
+  const inAnchor = anchor ? under(anchor) : null
+  const target = inProject
+    ? path.join(projectDir, '_trash', 'moved', inProject)
+    : inAnchor
+      ? path.join(trashRootFor(anchor!, projectDir, slug), 'moved', inAnchor)
+      : path.join(path.dirname(source), '_trash', slug, path.basename(source))
+  return moveToTrashSync(source, target)
+}

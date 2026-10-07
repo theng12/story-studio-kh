@@ -1000,3 +1000,134 @@ describe('Narration parts (Free up space, owner decision 2026-10-06)', () => {
     assert.ok(existsSync(seeded.kept), 'never archived, never removed')
   })
 })
+
+async function assignChannel(): Promise<void> {
+  await connections.configureYouTubeApplication({ client_id: 'cleanup-client', client_secret: 'cleanup-secret' })
+  await saveYouTubeChannelGrantForTest({
+    channel: { channel_id: CHANNEL, title: 'Cleanup Channel', granted_scopes: ['youtube.upload'] },
+    tokens: { access_token: 'access', refresh_token: 'refresh', expires_at: Date.now() + 3_600_000 },
+  })
+  await connections.assignProjectYouTubeChannel({ project_slug: SLUG, channel_id: CHANNEL, expected_previous_channel_id: null })
+}
+
+describe('Convert PNG Scenes to JPEG (owner 2026-10-07)', () => {
+  test('works on an episode that is not uploaded, mid-production: same names, still reviews and assembles', async () => {
+    const episode = await seedEpisode('EP0001')
+    await seedEpisode('EP0002')
+    const scenes = ['s001', 's002'].map(id => path.join(episode.paths.bg_dir, `${id}.png`))
+    await Promise.all(scenes.map(file => scenePng(file)))
+    const alreadyJpeg = path.join(episode.paths.bg_dir, 's003.png')
+    await sharp({ create: { width: 64, height: 36, channels: 3, background: '#000' } }).jpeg().toFile(alreadyJpeg)
+    const planPath = path.join(episode.paths.episode_dir, 'scene_plan.json')
+    await fs.writeFile(planPath, JSON.stringify({ scenes: scenes.map((file, index) => ({ id: `s00${index + 1}`, image_path: file, approved: true })) }))
+    const planBefore = await fs.readFile(planPath, 'utf8')
+    const originals = await Promise.all(scenes.map(file => fs.readFile(file)))
+    const mtimes = await Promise.all(scenes.map(async file => Math.floor((await fs.stat(file)).mtimeMs)))
+
+    const listed = await cleanup.listMediaCleanupEpisodes(SLUG)
+    assert.deepEqual(listed.all_episodes.map(row => row.episode_code), ['EP0001', 'EP0002'], 'every accepted episode can convert')
+
+    const started = await cleanup.startMediaCleanupPreview(SLUG, { episode_codes: ['EP0001'], categories: undefined, preset: 'convert_png' })
+    const checked = await waitForOperation(started.operation_id)
+    assert.equal(checked.status, 'completed', checked.error)
+    const bill = checked.preview!
+    assert.equal(bill.preset, 'convert_png')
+    assert.deepEqual(bill.files.map(file => file.path).sort(), [...scenes].sort(), 'real PNGs only; JPEG bytes under .png are not listed')
+    const before = originals.reduce((n, b) => n + b.length, 0)
+    assert.equal(bill.estimate.compress_bytes_before, before, 'the saving is shown before anything runs')
+    assert.ok(bill.estimate.compress_bytes_after < before)
+    await assert.rejects(() => cleanup.startMediaCleanupRun(SLUG, { preview_id: bill.preview_id, mode: 'remove' }), /only runs as a conversion/)
+
+    const operation = await run(bill.preview_id, 'compress')
+    assert.equal(operation.status, 'completed', operation.error)
+    assert.equal(operation.result?.compressed_count, 2, JSON.stringify(operation.result?.items))
+
+    const { resolveSceneImageReadPath } = await import('../generators/scene-image.js')
+    const { stillDecoderArgs } = await import('../lib/ffmpeg-utils.js')
+    const { assertDecodableImage } = await import('../lib/image-validation.js')
+    for (const [index, file] of scenes.entries()) {
+      // Scene Review / Video Assembly read `<scene id>.png` and sniff real bytes.
+      assert.equal(await resolveSceneImageReadPath(SLUG, 'EP0001', episode.paths.episode_dir, `s00${index + 1}`), file)
+      assert.deepEqual(await stillDecoderArgs(file), ['-c:v', 'mjpeg'])
+      const info = await assertDecodableImage(file)
+      assert.deepEqual([info.width, info.height, info.format], [640, 360, 'jpeg'])
+      assert.equal(Math.floor((await fs.stat(file)).mtimeMs), mtimes[index], 'mtime kept: nothing looks stale or newer')
+      assert.deepEqual(await fs.readFile(path.join(trashDir(), 'images', 'scene_images', path.basename(file))), originals[index])
+    }
+    assert.equal(await fs.readFile(planPath, 'utf8'), planBefore, 'scene_plan.json needs no change: every reference still resolves')
+    assert.equal((await cleanup.readLocalMediaCleanupStatus(SLUG, 'EP0001')).state, 'available', 'a format change is not removed media')
+  })
+})
+
+describe('Free up space says why an uploaded episode is not offered', () => {
+  async function legacySidecar(episode: Awaited<ReturnType<typeof seedEpisode>>, check?: { upload_status: string }) {
+    const sidecars = await import('../services/upload-sidecar.js')
+    await sidecars.writeSidecar(SLUG, episode.code, episode.title, {
+      platform: 'youtube', video_id: `legacy-${episode.code}`, account_id: 'old', channel_id: CHANNEL,
+      uploaded_at: new Date().toISOString(), last_sync_at: '', scheduled_for: null, privacy_status: 'public',
+      title: episode.title, description: '', tags: [], thumbnail_set: true,
+      ...(check ? { youtube_check: { checked_at: new Date().toISOString(), upload_status: check.upload_status, channel_id: CHANNEL } } : {}),
+    })
+  }
+
+  test('an upload not yet confirmed by YouTube, or from before receipts, is listed with its reason', async () => {
+    const accepted = await seedEpisode('EP0001')
+    const legacy = await seedEpisode('EP0002')
+    await assignChannel()
+    const opened = await operations.createYouTubeOperation({
+      project_slug: SLUG, episode_code: accepted.code, channel_id: CHANNEL,
+      source_revision: 'src', metadata_revision: 'meta', origin: 'manual', final_action: 'manual_upload',
+    })
+    await operations.acceptYouTubeOperation({
+      project_slug: SLUG, operation_id: opened.operation_id, expected_revision: opened.revision,
+      channel_id: CHANNEL, video_id: 'video-accepted', accepted_at: new Date().toISOString(),
+      final_payload: { snippet_json: '{}', status_json: '{}', source_sha256: 'a'.repeat(64) },
+    })
+    await legacySidecar(legacy)
+
+    const listed = await cleanup.listMediaCleanupEpisodes(SLUG)
+    assert.equal(listed.episodes.length, 0)
+    const reasons = Object.fromEntries(listed.not_offered.map(row => [row.episode_code, row.reason]))
+    assert.match(reasons.EP0001!, /not confirmed this upload yet — press Check All Uploads/)
+    assert.match(reasons.EP0002!, /before Story Studio kept upload receipts — press Check All Uploads/)
+    assert.ok(listed.blocked_reasons.some(line => /^1 uploaded episode: YouTube has not confirmed/.test(line)), listed.blocked_reasons.join(' | '))
+  })
+
+  test('after Check All Uploads confirms a legacy upload, its final video is freeable to _trash', async () => {
+    const episode = await seedEpisode('EP0001')
+    await assignChannel()
+    await legacySidecar(episode, { upload_status: 'processed' })
+
+    const listed = await cleanup.listMediaCleanupEpisodes(SLUG)
+    assert.deepEqual(listed.episodes.map(row => [row.episode_code, row.video_id]), [['EP0001', 'legacy-EP0001']])
+
+    let checks = 0
+    __setYouTubeTransportForTests((async () => {
+      checks += 1
+      return new Response(JSON.stringify({ items: [{ id: 'legacy-EP0001', status: { uploadStatus: 'processed', privacyStatus: 'public' }, snippet: { channelId: CHANNEL, title: episode.title } }] }),
+        { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as typeof fetch)
+    const bill = await preview(['EP0001'], ['final_video'])
+    assert.deepEqual(bill.files.map(file => file.path), [episode.final])
+    const operation = await run(bill.preview_id, 'remove')
+    assert.equal(operation.status, 'completed', operation.error)
+    assert.equal(operation.result?.removed_count, 1, JSON.stringify(operation.result?.items))
+    assert.ok(checks >= 2, 'YouTube is asked afresh at review and again before the move')
+    assert.ok(!existsSync(episode.final))
+    assert.equal(await fs.readFile(path.join(trashDir(), 'final_video', 'final_video', path.basename(episode.final)), 'utf8'), `final-${episode.code}`)
+
+    // A final changed after the upload is never offered.
+    await fs.writeFile(episode.final, 'new render')
+    const later = await preview(['EP0001'], ['final_video'])
+    assert.equal(later.files.length, 0)
+  })
+
+  test('a legacy upload YouTube no longer has is not offered, and says so', async () => {
+    const episode = await seedEpisode('EP0001')
+    await assignChannel()
+    await legacySidecar(episode, { upload_status: 'not_found' })
+    const listed = await cleanup.listMediaCleanupEpisodes(SLUG)
+    assert.equal(listed.episodes.length, 0)
+    assert.match(listed.not_offered[0]!.reason, /YouTube no longer has this video/)
+  })
+})

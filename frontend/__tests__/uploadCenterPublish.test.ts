@@ -232,7 +232,7 @@ describe('Upload Center Publish', () => {
   test('nothing checks YouTube on load — only the explicit action does', async () => {
     const mounted = await mount({ operations: [READY_OP] })
     assert.equal(mounted.calls.some(c => c.path.includes('/refresh')), false)
-    assert.match(mounted.text(), /Nothing here checks on its own/)
+    assert.match(mounted.text(), /checks unfinished uploads with YouTube every 30 minutes/)
     assert.match(mounted.text(), /YouTube checked .*cleanup verifies again/)
     assert.doesNotMatch(mounted.text(), /safe to clear/i)
     mounted.destroy()
@@ -250,6 +250,20 @@ describe('Upload Center Publish', () => {
     assert.match(mounted.text(), /did not return this video/)
     assert.match(mounted.text(), /last known state is kept/)
     mounted.destroy()
+  })
+
+  test('YouTube answering without the video says "not found", never "could not check"', async () => {
+    const mounted = await mount({
+      operations: [READY_OP],
+      refresh: { state: { lifecycle: 'status_unavailable', processing: { provider_status: 'not_found' } }, persisted: false },
+    })
+    const check = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Check on YouTube'))!
+    check.click()
+    for (let i = 0; i < 6; i++) await nextTick()
+    const text = mounted.text()
+    mounted.destroy()
+    assert.match(text, /does not have this video \(deleted or removed\)/)
+    assert.doesNotMatch(text, /could not be checked/i)
   })
 
   test('the preview shows the exact payload and itemizes every change applied', async () => {
@@ -1887,7 +1901,11 @@ describe('Upload Center Publish', () => {
     assert.match(mounted.text(), /Reconnect this channel in Settings/)
     // Local records stay readable — losing YouTube costs freshness, not access.
     assert.match(mounted.text(), /EP0001/)
+    // One click to the channel row's Reconnect, never Disconnect → Connect.
+    const links = [...mounted.el.querySelectorAll('a')].filter(a => a.textContent!.trim() === 'Reconnect')
     mounted.destroy()
+    assert.ok(links.length >= 1)
+    assert.ok(links.every(a => /settings#youtube$/.test(a.getAttribute('href') || '')))
   })
 
   test('remote checks are disabled when today’s allowance is used up', async () => {

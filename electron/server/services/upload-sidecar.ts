@@ -101,6 +101,17 @@ export interface UploadSidecar {
    * value — see `markSidecarDeleted` callers.
    */
   deleted_reason?: DeletedReason | string
+  /**
+   * What YouTube said about this video at the last "Check All Uploads".
+   * `upload_status` is YouTube's own word (`processed`, `uploaded`, …) or
+   * `not_found` when the owner's request came back without it. Only written
+   * from an answer; a request that failed writes nothing.
+   */
+  youtube_check?: {
+    checked_at: string
+    upload_status: string
+    channel_id: string | null
+  }
 }
 
 function sidecarPath(episodeDir: string, platform: UploadPlatform): string {
@@ -190,6 +201,27 @@ export async function readSidecarStrict(slug: string, episode_code: string, plat
   const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episode_code, `${platform}_upload.json`, cache)
   const p = sidecarPath(paths.episode_dir, platform)
   return readSidecarAtPathStrict(p)
+}
+
+/**
+ * Record a YouTube status answer on the sidecar the code-based reader finds,
+ * under its lock, leaving every other field as it is on disk. A sidecar that
+ * changed video meanwhile is left alone.
+ */
+export async function recordSidecarYouTubeCheck(
+  slug: string,
+  episode_code: string,
+  video_id: string,
+  check: NonNullable<UploadSidecar['youtube_check']>,
+): Promise<boolean> {
+  const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episode_code, 'youtube_upload.json')
+  const p = sidecarPath(paths.episode_dir, 'youtube')
+  return withLock(p, async () => {
+    const current = await readSidecarAtPathStrict(p)
+    if (!current || current.video_id !== video_id) return false
+    await writeJsonAtomic(p, { ...current, youtube_check: check })
+    return true
+  })
 }
 
 export async function writeSidecar(slug: string, episode_code: string, fallback_title: string, sidecar: UploadSidecar): Promise<void> {

@@ -354,6 +354,17 @@ function claimFlow(flow_id: string): PendingFlow | null {
   return flow
 }
 
+/** Google's own error word (`invalid_grant`, …), lowercased; '' when there is none. */
+function providerErrorCode(error: unknown): string {
+  if (!error || typeof error !== 'object') return ''
+  const value = error as Record<string, unknown>
+  const code = [value.code, value.error, value.error_code].find(candidate => typeof candidate === 'string') as string | undefined
+  return code?.toLowerCase() || ''
+}
+
+/** Only these mean the grant itself is gone and the owner must sign in again. */
+export const OAUTH_GRANT_REVOKED_CODES: ReadonlySet<string> = new Set(['invalid_grant', 'invalid_client'])
+
 function mapProviderError(error: unknown): OAuthTerminalErrorCode {
   if (error instanceof TypeError) return 'YOUTUBE_OAUTH_UNAVAILABLE'
   if (error && typeof error === 'object') {
@@ -362,10 +373,8 @@ function mapProviderError(error: unknown): OAuthTerminalErrorCode {
       ?? (value.response && typeof value.response === 'object'
         ? (value.response as Record<string, unknown>).status
         : undefined))
-    if (Number.isFinite(status) && status >= 500) return 'YOUTUBE_OAUTH_UNAVAILABLE'
-    const providerCode = [value.code, value.error, value.error_code]
-      .find(candidate => typeof candidate === 'string') as string | undefined
-    const normalizedCode = providerCode?.toLowerCase() || ''
+    if (Number.isFinite(status) && (status >= 500 || status === 429 || status === 408)) return 'YOUTUBE_OAUTH_UNAVAILABLE'
+    const normalizedCode = providerErrorCode(error)
     if (normalizedCode === 'access_denied') return 'YOUTUBE_OAUTH_CANCELLED'
     if (normalizedCode === 'invalid_grant' || normalizedCode === 'invalid_client'
       || normalizedCode === 'unauthorized_client' || normalizedCode === 'invalid_request') {
@@ -760,8 +769,11 @@ async function productionRefreshTransport(input: {
     body: body.toString(),
   })
   if (!resp.ok) {
-    const error = new Error('OAuth token refresh was rejected') as Error & { status?: number }
+    const body = await resp.json().catch(() => null) as { error?: unknown } | null
+    const error = new Error('OAuth token refresh was rejected') as Error & { status?: number; error?: string }
     error.status = resp.status
+    // Google's error word only (`invalid_grant`): it decides Reconnect vs retry.
+    if (typeof body?.error === 'string') error.error = body.error
     throw error
   }
   const data = await resp.json() as Record<string, unknown>
@@ -795,7 +807,10 @@ export async function refreshAccessToken(input: {
       client_secret: input.client_secret,
     })
   } catch (error) {
-    throw terminalError(mapProviderError(error))
+    // `code` says whether a retry can help (YOUTUBE_OAUTH_UNAVAILABLE);
+    // `provider_error` says whether the grant is gone (OAUTH_GRANT_REVOKED_CODES).
+    const code = mapProviderError(error)
+    throw Object.assign(terminalError(code), { code, provider_error: providerErrorCode(error) })
   }
 
   if (!response || typeof response !== 'object'

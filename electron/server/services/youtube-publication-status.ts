@@ -11,7 +11,8 @@
 
 import type { YouTubeVideoLifecycle } from '../contracts/youtube-upload-center.js'
 import type { VideoPublicationDetails } from '../lib/youtube-client.js'
-import { listVideoPublicationDetails, registryCredentialFor } from '../lib/youtube-client.js'
+import { listRecentUploads, listVideoPublicationDetails, registryCredentialFor } from '../lib/youtube-client.js'
+import { YouTubeFoundationError } from '../contracts/youtube-upload-center.js'
 import { getProjectYouTubeAssignment } from './youtube-connection-store.js'
 import {
   listYouTubeOperations,
@@ -42,17 +43,34 @@ export interface YouTubePublicationState {
   }
 }
 
+/** `provider_status` written when YouTube answered and the video was not in the answer. */
+export const YOUTUBE_VIDEO_NOT_FOUND = 'not_found'
+
 /**
- * `details === null` means the video did not come back. That is "we could not
- * see it", not a state YouTube reported — hence `status_unavailable`, which
- * the persist step refuses to write over a terminal answer.
+ * YouTube itself confirmed the video is gone: it answered the channel owner's
+ * own request without the video (`not_found`), or reported it `deleted`.
+ * "We could not reach YouTube" never gets here — a failed request writes
+ * nothing — and only this answer may offer a new upload.
+ */
+export function isConfirmedGoneFromYouTube(record: { lifecycle: string; processing?: { provider_status?: string } }): boolean {
+  return record.lifecycle === 'status_unavailable'
+    && (record.processing?.provider_status === YOUTUBE_VIDEO_NOT_FOUND || record.processing?.provider_status === 'deleted')
+}
+
+/**
+ * `details === null` means YouTube answered the owner's request and the video
+ * was not in it: the channel owner sees every one of their videos, private or
+ * processing, so that is "not found", recorded as `provider_status:
+ * not_found`. It is still `status_unavailable`, which the persist step refuses
+ * to write over a terminal answer. A request that FAILED never reaches this
+ * function — callers write nothing for it ("couldn't check").
  */
 export function mapYouTubePublicationState(
   details: VideoPublicationDetails | null,
   checked_at: string = new Date().toISOString(),
 ): YouTubePublicationState {
   if (!details) {
-    return { lifecycle: 'status_unavailable', processing: { checked_at } }
+    return { lifecycle: 'status_unavailable', processing: { checked_at, provider_status: YOUTUBE_VIDEO_NOT_FOUND } }
   }
 
   const provider_status = details.uploadStatus
@@ -168,16 +186,24 @@ export interface ProjectSyncResult {
 function classifySyncFailure(error: unknown): RemoteSyncState['error_code'] {
   const code = (error as { code?: string } | null)?.code
   if (code === 'YOUTUBE_QUOTA_EXHAUSTED') return 'quota_exhausted'
+  // Google answered and refused the sign-in: not the network. (Recording a new
+  // code would make older builds read the project state as corrupt.)
+  if (code === 'YOUTUBE_RECONNECT_REQUIRED') return 'provider_error'
+  if (code === 'YOUTUBE_TOKEN_REFRESH_FAILED') return (error as { transient?: boolean }).transient ? 'offline' : 'provider_error'
   const message = error instanceof Error ? error.message : String(error)
   // youtube-client throws this exact shape once YouTube has actually answered.
   if (/failed \(\d{3}\)/.test(message) || /quota/i.test(message)) return 'provider_error'
   return 'offline'
 }
 
-/** One deliberate whole-project refresh, batched by the client in groups of 50. */
+/** Accepted by YouTube but not yet a final answer: what the background check follows. */
+export const PENDING_YOUTUBE_LIFECYCLES: ReadonlySet<YouTubeVideoLifecycle> = new Set(['accepted', 'processing'])
+
+/** One whole-project refresh, batched by the client in groups of 50. `only_pending` limits it to unfinished uploads. */
 export async function syncProjectYouTubePublicationStates(input: {
   project_slug: string
   account_id: string
+  only_pending?: boolean
 }): Promise<ProjectSyncResult> {
   const assignment = await getProjectYouTubeAssignment(input.project_slug)
   if (!assignment) throw new Error('Assign a YouTube channel before syncing publication state.')
@@ -186,7 +212,8 @@ export async function syncProjectYouTubePublicationStates(input: {
     throw new Error('The YouTube credential does not match this project’s assigned channel.')
   }
   const records = (await listYouTubeOperations(input.project_slug))
-    .filter(record => record.channel_id === channelId && !!record.video_id)
+    .filter(record => record.channel_id === channelId && !!record.video_id
+      && (!input.only_pending || PENDING_YOUTUBE_LIFECYCLES.has(record.lifecycle)))
 
   if (!records.length) return { channel_id: channelId, checked: 0, updated: 0, outcome: 'ok' }
 
@@ -201,6 +228,14 @@ export async function syncProjectYouTubePublicationStates(input: {
     // The request itself failed, so nothing was learned about any video. The
     // local records are left exactly as they were.
     return { channel_id: channelId, checked: 0, updated: 0, outcome: 'failed', error_code: classifySyncFailure(error) }
+  }
+
+  // The owner's own credential sees every video on the channel. An answer
+  // holding NONE of several known uploads is far likelier a token for another
+  // Google account than a channel emptied overnight: nothing is concluded.
+  const distinct = new Set(records.map(record => record.video_id!))
+  if (distinct.size >= 3 && !records.some(record => details[record.video_id!])) {
+    return { channel_id: channelId, checked: 0, updated: 0, outcome: 'failed', error_code: 'provider_error' }
   }
 
   let updated = 0
@@ -237,5 +272,46 @@ export async function syncProjectYouTubePublicationStates(input: {
     checked: records.length,
     updated,
     outcome: failedWrites > 0 ? 'partial' : 'ok',
+  }
+}
+
+function comparableTitle(title: string | undefined): string {
+  return (title || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+/**
+ * The duplicate guard before an episode may be uploaded again. YouTube must
+ * CONFIRM that every video this episode is known by is gone, and no video on
+ * the channel may carry one of the episode's titles. "Could not ask" refuses
+ * too — only a confirmed answer opens the door. (TN0162/TN0163 each have two
+ * video ids: an earlier "not returned" answer was enough to upload again.)
+ */
+export async function assertSafeToUploadAgain(input: {
+  project_slug: string
+  account_id: string
+  video_ids: string[]
+  titles: string[]
+}): Promise<void> {
+  const ids = [...new Set(input.video_ids.filter(Boolean))]
+  const unchecked = (error: unknown) => new YouTubeFoundationError(409, 'YOUTUBE_STATUS_UNCHECKED',
+    `Story Studio could not check YouTube (${error instanceof Error ? error.message : String(error)}). Nothing changed; try again.`)
+  let details: Record<string, VideoPublicationDetails>
+  let uploads: Awaited<ReturnType<typeof listRecentUploads>>
+  try {
+    details = await listVideoPublicationDetails(input.project_slug, input.account_id, ids)
+    uploads = await listRecentUploads(input.project_slug, input.account_id, { maxPages: 10 })
+  } catch (error) {
+    throw unchecked(error)
+  }
+  const still = ids.find(id => details[id] && details[id]!.uploadStatus !== 'deleted')
+  if (still) {
+    throw new YouTubeFoundationError(409, 'YOUTUBE_ALREADY_PUBLISHED',
+      `YouTube still has video ${still} (${details[still]!.uploadStatus || 'status not given'}). Delete it in YouTube Studio first, or keep it; nothing was changed here.`)
+  }
+  const wanted = new Set(input.titles.map(comparableTitle).filter(Boolean))
+  const twin = uploads.videos.find(video => !!video.videoId && !ids.includes(video.videoId) && wanted.has(comparableTitle(video.title)))
+  if (twin) {
+    throw new YouTubeFoundationError(409, 'YOUTUBE_ALREADY_PUBLISHED',
+      `Video ${twin.videoId} on this channel already has the title “${twin.title}”, so this episode may already be uploaded. Link it in Upload Center → Reconcile instead of uploading again.`)
   }
 }

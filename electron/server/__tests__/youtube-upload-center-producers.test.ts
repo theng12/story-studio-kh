@@ -183,7 +183,7 @@ test('a token refresh carries the previous scope forward', async () => {
 
   // The single registry refresh site must carry scope forward. The retired
   // per-project credential store is deliberately absent.
-  const calls = [...client.matchAll(/const fresh = await refreshAccessToken\(/g)]
+  const calls = [...client.matchAll(/fresh = await refreshAccessToken\(/g)]
   assert.equal(calls.length, 1, 'expected exactly one registry refresh site')
   for (const match of calls) {
     const body = client.slice(match.index!, client.indexOf('})', match.index!))

@@ -133,6 +133,7 @@ function decodeChannel(value: unknown, expectedChannelId: string): YouTubeChanne
   assertNonEmptyString(value.connected_at)
   assertNonEmptyString(value.updated_at)
   if (value.last_refresh_at !== undefined) assertNonEmptyString(value.last_refresh_at)
+  if (value.authorized_at !== undefined) assertNonEmptyString(value.authorized_at)
   if (!Array.isArray(value.granted_scopes) || !value.granted_scopes.every(scope => typeof scope === 'string')) {
     throw corruptRegistryError()
   }
@@ -148,6 +149,8 @@ function decodeChannel(value: unknown, expectedChannelId: string): YouTubeChanne
     connected_at: value.connected_at,
     updated_at: value.updated_at,
     ...(value.last_refresh_at !== undefined ? { last_refresh_at: value.last_refresh_at } : {}),
+    ...(value.authorized_at !== undefined ? { authorized_at: value.authorized_at } : {}),
+    ...(value.seven_day_sign_in === true ? { seven_day_sign_in: true } : {}),
     granted_scopes: [...value.granted_scopes],
     status: value.status as YouTubeChannelStatus,
   }
@@ -641,6 +644,9 @@ export async function saveYouTubeChannelGrant(input: {
       connected_at: existing?.connected_at ?? now,
       updated_at: now,
       last_refresh_at: now,
+      authorized_at: now,
+      // A reconnect keeps what was learned about this OAuth app's token lifetime.
+      ...(existing?.seven_day_sign_in ? { seven_day_sign_in: true } : {}),
       granted_scopes: [...grant.grantedScopes],
       status: grantedStatus,
     }
@@ -693,7 +699,11 @@ export async function saveYouTubeChannelTokens(input: {
         || current.access_token !== input.expected_access_token) return false
     }
     const next = cloneRegistry(registry)
-    next.channels[channelId] = { ...channel, last_refresh_at: new Date().toISOString() }
+    const refreshed: YouTubeChannelRecord = { ...channel, last_refresh_at: new Date().toISOString() }
+    // A grant still renewing well past 7 days is not the Testing-status kind
+    // (the owner moved the app to production and reconnected).
+    if (refreshed.seven_day_sign_in && grantAgeMs(refreshed) > 8 * DAY_MS) delete refreshed.seven_day_sign_in
+    next.channels[channelId] = refreshed
     await persistRegistryTransaction(filePath, next, (youtube) => {
       const channelTokens = { ...(youtube.channel_tokens ?? {}) }
       channelTokens[channelId] = { application_id: application.application_id, ...input.tokens }
@@ -757,6 +767,36 @@ export async function readYouTubeRequestCredentialForServer(
       client_secret: client.client_secret,
       tokens: cloneTokenBundle(token),
     }
+  })
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/** Time since the owner last completed consent; records written before `authorized_at` use `updated_at`. */
+export function grantAgeMs(channel: Pick<YouTubeChannelRecord, 'authorized_at' | 'updated_at'>, now = Date.now()): number {
+  return now - Date.parse(channel.authorized_at ?? channel.updated_at)
+}
+
+/**
+ * Google refused this channel's refresh token (`invalid_grant`/`invalid_client`):
+ * the grant is gone, so the channel row offers Reconnect. A refusal 6–10 days
+ * after consent is the 7-day Testing-status expiry, remembered so the app can
+ * say "Signed in until ~date" and warn a day ahead next time.
+ */
+export async function markYouTubeChannelSignInExpired(channel_id: string, now = Date.now()): Promise<void> {
+  const channelId = requireCredential(channel_id, 'channel_id')
+  assertWritableMapKey(channelId, 'channel_id')
+  const filePath = youtubeConnectionsPath()
+  await withCrossProcessLock(filePath, async () => {
+    await recoverPendingRegistryTransaction(filePath)
+    const registry = await readRegistryUnlocked(filePath)
+    const current = Object.prototype.hasOwnProperty.call(registry.channels, channelId) ? registry.channels[channelId] : undefined
+    if (!current) return
+    const age = grantAgeMs(current, now)
+    current.status = 'reconnect_required'
+    current.updated_at = new Date(now).toISOString()
+    if (age >= 6 * DAY_MS && age <= 10 * DAY_MS) current.seven_day_sign_in = true
+    await writeRegistryUnlocked(filePath, registry)
   })
 }
 

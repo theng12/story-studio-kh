@@ -15,7 +15,10 @@ import * as jq from './job-queue.js'
 import * as pm from './project-manager.js'
 import { getProjectYouTubeAssignment } from './youtube-connection-store.js'
 import { withFinalVideoPathLock } from './final-video-lock.js'
-import { registryCredentialFor } from '../lib/youtube-client.js'
+import { listVideoPublicationDetails, registryCredentialFor } from '../lib/youtube-client.js'
+import { clearImageValidationCache } from '../lib/image-validation.js'
+import { readSidecarStrict, type UploadSidecar } from './upload-sidecar.js'
+import { isYouTubeVideoRemoved } from './youtube-project-publishing-store.js'
 import { exportsAnchorFor, resolveExternalFinalVideoDir } from './external-video-store.js'
 import { resolveAssetPath } from './path-resolver.js'
 import { narrationPartsToFree, PARTS_DIRNAME, trashEpisodeParts, trashTargetFor } from './chapter-parts.js'
@@ -27,7 +30,7 @@ import {
   type ProjectFactsCache,
 } from './utils.js'
 import { readYouTubeRetentionStores, youtubeRetentionEvidenceFor, youtubeRetentionProofForFile } from './youtube-remote-video.js'
-import { syncYouTubePublicationState } from './youtube-publication-status.js'
+import { isConfirmedGoneFromYouTube, syncYouTubePublicationState } from './youtube-publication-status.js'
 import { resolveYouTubeSourceRevision } from './youtube-source-video.js'
 
 export const MEDIA_CLEANUP_SIDECAR = 'local_media_cleanup.json'
@@ -48,6 +51,17 @@ export const ARCHIVE_EPISODE_CATEGORIES: MediaCleanupCategory[] = ['images', 'ch
 const JPEG_SIZE_RATIO = 0.117
 const MIN_COMPRESSION_GAIN = 0.8
 const ALREADY_JPEG = 'Already a JPEG.'
+/**
+ * "Convert PNG Scenes to JPEG": scene images only, ANY episode, uploaded or not.
+ * It changes the file format and nothing else — the JPEG keeps the ORIGINAL
+ * filename (the app sniffs real bytes, exactly as "Smaller files" already
+ * stores new scenes), its dimensions and its mtime — so scene_plan,
+ * task-manifest, review approvals and Video Assembly inputs need no update and
+ * nothing is regenerated. Originals go to `_trash`.
+ */
+export const CONVERT_PNG_PRESET = 'convert_png'
+/** Upload proof for an upload made before receipts existed, once "Check All Uploads" confirmed it. */
+const LEGACY_PROOF_PREFIX = 'legacy_sidecar:'
 
 export interface MediaCleanupUploadProof {
   platform: 'youtube'
@@ -92,7 +106,7 @@ export interface MediaCleanupPreview {
   files: MediaCleanupFile[]
   total_bytes: number
   blocked_reasons: string[]
-  preset?: 'archive_episode'
+  preset?: 'archive_episode' | typeof CONVERT_PNG_PRESET
   /** The `_trash` folder(s) removed files land in, shown in the confirm text so the owner never has to choose a destination. */
   trash_roots: string[]
   /** What `compress` mode would do; the JPEG figure is an estimate from the measured ratio. */
@@ -278,6 +292,7 @@ function validateCategories(value: unknown): MediaCleanupCategory[] {
 
 function resolveCategories(input: { categories: unknown; preset?: unknown }): MediaCleanupCategory[] {
   if (input.preset === undefined || input.preset === null || input.preset === '') return validateCategories(input.categories)
+  if (input.preset === CONVERT_PNG_PRESET) return ['images']
   if (input.preset !== 'archive_episode') throw fail('Unknown media cleanup preset.')
   return [...ARCHIVE_EPISODE_CATEGORIES]
 }
@@ -292,14 +307,81 @@ function validateEpisodeCodes(value: unknown): string[] {
 interface UploadInventory {
   channel_id: string | null
   records: Awaited<ReturnType<typeof readYouTubeRetentionStores>>['records']
+  /** Legacy (pre-receipt) uploads YouTube confirmed `processed` on this channel. */
+  legacy: Map<string, MediaCleanupUploadProof>
+  /** Why an uploaded episode has no proof yet, by code — shown instead of silence. */
+  why: Map<string, string>
 }
 
-async function loadUploadInventory(slug: string): Promise<UploadInventory> {
+const CHECK_ALL = 'press Check All Uploads (Upload Center) so YouTube can confirm it'
+
+function operationWhy(record: UploadInventory['records'][number]): string {
+  switch (record.lifecycle) {
+    case 'accepted':
+    case 'processing': return `YouTube has not confirmed this upload yet — ${CHECK_ALL}.`
+    case 'failed': return 'YouTube reports this upload failed.'
+    case 'rejected': return 'YouTube rejected this upload.'
+    case 'status_unavailable': return isConfirmedGoneFromYouTube(record)
+      ? 'YouTube no longer has this video.'
+      : `YouTube's last answer about this upload was unclear — ${CHECK_ALL}.`
+    default: return 'The upload has not finished.'
+  }
+}
+
+/** The legacy proof, or why there is none. Only YouTube's own `processed` answer on this channel counts. */
+function legacyProof(
+  sidecar: UploadSidecar | null,
+  channel: string,
+  state: Awaited<ReturnType<typeof readYouTubeRetentionStores>>['state'],
+  code: string,
+): MediaCleanupUploadProof | string | null {
+  const videoId = sidecar?.video_id?.trim()
+  if (!sidecar || !videoId) return null
+  if (sidecar.deleted_at || isYouTubeVideoRemoved(state, code, sidecar.channel_id || channel, videoId)) return 'Its YouTube video is marked as deleted.'
+  const check = sidecar.youtube_check
+  if ((sidecar.channel_id || check?.channel_id) && (sidecar.channel_id || check?.channel_id) !== channel) {
+    return 'It was uploaded to a different YouTube channel.'
+  }
+  if (!check) return `Uploaded before Story Studio kept upload receipts — ${CHECK_ALL}.`
+  if (check.upload_status !== 'processed' || check.channel_id !== channel) {
+    return check.upload_status === 'not_found'
+      ? 'YouTube no longer has this video.'
+      : `YouTube's last answer was "${check.upload_status}", not processed — ${CHECK_ALL}.`
+  }
+  if (!Number.isFinite(Date.parse(sidecar.uploaded_at))) return 'Its upload receipt has no upload time.'
+  return {
+    platform: 'youtube', video_id: videoId, operation_id: `${LEGACY_PROOF_PREFIX}${videoId}`,
+    channel_id: channel, uploaded_at: sidecar.uploaded_at,
+  }
+}
+
+async function loadUploadInventory(slug: string, codes?: string[]): Promise<UploadInventory> {
   const [assignment, stores] = await Promise.all([
     getProjectYouTubeAssignment(slug),
     readYouTubeRetentionStores(slug),
   ])
-  return { channel_id: assignment?.channel_id ?? null, records: stores.records }
+  const channel = assignment?.channel_id ?? null
+  const legacy = new Map<string, MediaCleanupUploadProof>()
+  const why = new Map<string, string>()
+  if (!channel) return { channel_id: null, records: stores.records, legacy, why }
+  const wanted = codes ?? (await im.getIdeas(slug, 'accepted'))
+    .map(idea => String(idea.episode_code || '').toUpperCase()).filter(Boolean)
+  for (const code of wanted) {
+    const records = stores.records.filter(record => record.episode_code.toUpperCase() === code && !!record.video_id)
+    if (records.length) {
+      // The operation record rules when there is one.
+      const onChannel = records.filter(record => record.channel_id === channel)
+        .sort((a, b) => Date.parse(b.accepted_at || '') - Date.parse(a.accepted_at || ''))
+      if (!onChannel.some(record => record.lifecycle === 'ready')) {
+        why.set(code, onChannel[0] ? operationWhy(onChannel[0]) : 'It was uploaded to a different YouTube channel.')
+      }
+      continue
+    }
+    const found = legacyProof(await readSidecarStrict(slug, code, 'youtube').catch(() => null), channel, stores.state, code)
+    if (typeof found === 'string') why.set(code, found)
+    else if (found) legacy.set(code, found)
+  }
+  return { channel_id: channel, records: stores.records, legacy, why }
 }
 
 function currentUploadProof(code: string, inventory: UploadInventory): MediaCleanupUploadProof | null {
@@ -319,19 +401,22 @@ function currentUploadProof(code: string, inventory: UploadInventory): MediaClea
     operation_id: record.operation_id,
     channel_id: record.channel_id,
     uploaded_at: record.accepted_at!,
-  } : null
+  } : inventory.legacy.get(code.toUpperCase()) ?? null
 }
 
 export async function listMediaCleanupEpisodes(slug: string): Promise<{
   /** Uploaded episodes, plus not-uploaded ones with kept narration parts (`video_id` null: only Narration parts apply). */
   episodes: Array<{ episode_code: string; title: string; video_id: string | null; local_media_status: LocalMediaCleanupStatus }>
+  /** Why there is less (or nothing) to offer, in counts the owner can act on. */
   blocked_reasons: string[]
+  /** Uploaded episodes that are NOT offered, each with its reason. */
+  not_offered: Array<{ episode_code: string; title: string; reason: string }>
+  /** Every accepted episode: "Convert PNG Scenes to JPEG" applies to all of them. */
+  all_episodes: Array<{ episode_code: string; title: string }>
 }> {
   if (!await pm.getProject(slug)) throw fail('Project not found', 404)
-  const [accepted, inventory] = await Promise.all([
-    im.getIdeas(slug, 'accepted'),
-    loadUploadInventory(slug),
-  ])
+  const accepted = await im.getIdeas(slug, 'accepted')
+  const inventory = await loadUploadInventory(slug, accepted.map(idea => String(idea.episode_code || '').toUpperCase()).filter(Boolean))
   const projectFacts = createProjectFactsCache(slug)
   const episodes = (await Promise.all(accepted.map(async (idea) => {
     const code = String(idea.episode_code || '').toUpperCase()
@@ -345,7 +430,21 @@ export async function listMediaCleanupEpisodes(slug: string): Promise<{
       local_media_status: await readLocalMediaCleanupStatus(slug, code, projectFacts),
     }
   }))).filter((episode): episode is NonNullable<typeof episode> => episode !== null)
-  return { episodes, blocked_reasons: [] }
+  const titleOf = new Map(accepted.map(idea => [String(idea.episode_code || '').toUpperCase(), idea.title || String(idea.episode_code)]))
+  const notOffered = [...inventory.why].map(([code, reason]) => ({ episode_code: code, title: titleOf.get(code) || code, reason }))
+  const counts = new Map<string, number>()
+  for (const row of notOffered) counts.set(row.reason, (counts.get(row.reason) ?? 0) + 1)
+  const blocked = [...counts].sort((a, b) => b[1] - a[1])
+    .map(([reason, count]) => `${count} uploaded ${count === 1 ? 'episode' : 'episodes'}: ${reason}`)
+  if (!inventory.channel_id) blocked.unshift('This project has no YouTube channel assigned, so no upload can be confirmed. Assign one in Settings → YouTube.')
+  else if (!episodes.some(episode => episode.video_id) && !notOffered.length) blocked.unshift('No episode of this project has been uploaded to YouTube yet.')
+  return {
+    episodes,
+    blocked_reasons: blocked,
+    not_offered: notOffered,
+    all_episodes: accepted.filter(idea => idea.episode_code)
+      .map(idea => ({ episode_code: String(idea.episode_code).toUpperCase(), title: idea.title || String(idea.episode_code) })),
+  }
 }
 
 async function hasNarrationParts(slug: string, code: string, cache: ProjectFactsCache): Promise<boolean> {
@@ -412,6 +511,15 @@ async function rootsFor(slug: string, code: string, title: string, categories: M
   return roots
 }
 
+function isPngFile(file: string): boolean {
+  let fd: number | undefined
+  try {
+    fd = openSync(file, 'r')
+    const head = Buffer.alloc(4)
+    return readSync(fd, head, 0, 4, 0) === 4 && head.readUInt32BE(0) === 0x89504e47
+  } catch { return false } finally { if (fd !== undefined) closeSync(fd) }
+}
+
 function isJpegFile(file: string): boolean {
   let fd: number | undefined
   try {
@@ -428,9 +536,11 @@ async function sha256(file: string): Promise<string> {
 
 async function discoverRoot(
   spec: RootSpec,
-  proof: MediaCleanupUploadProof,
+  /** Null only for "Convert PNG Scenes to JPEG", which needs no upload. */
+  proof: MediaCleanupUploadProof | null,
   shouldStop: () => boolean,
   episodeCode: string,
+  pngOnly = false,
 ): Promise<{ files: MediaCleanupFile[]; excluded: MediaCleanupEpisodePreview['excluded'] }> {
   const files: MediaCleanupFile[] = []
   const excluded: MediaCleanupEpisodePreview['excluded'] = []
@@ -480,6 +590,8 @@ async function discoverRoot(
       }
       if (entry.isDirectory()) { if (entry.name !== spec.skip_dir) await walk(full); continue }
       if (!entry.isFile() || !spec.accepts(entry.name)) continue
+      // Converting needs real PNG bytes; a JPEG (even under .png) is never hashed or listed.
+      if (pngOnly && !isPngFile(full)) continue
       const stat = await fs.lstat(full)
       if (!stat.isFile() || stat.isSymbolicLink()) {
         excluded.push({ path: full, category: spec.category, reason: 'Only regular files may be cleaned.' })
@@ -489,7 +601,7 @@ async function discoverRoot(
         excluded.push({ path: full, category: spec.category, reason: 'Files with another hard link are shared and were left alone.' })
         continue
       }
-      if (Math.floor(stat.mtimeMs) > Date.parse(proof.uploaded_at)) {
+      if (proof && Math.floor(stat.mtimeMs) > Date.parse(proof.uploaded_at)) {
         excluded.push({ path: full, category: spec.category, reason: 'This media is newer than the verified upload and may be regenerated.' })
         continue
       }
@@ -515,6 +627,21 @@ async function discoverRoot(
 async function verifyFinalProof(slug: string, code: string, title: string, file: MediaCleanupFile): Promise<string | null> {
   const assignment = await getProjectYouTubeAssignment(slug)
   if (!assignment) return 'No current YouTube channel is assigned.'
+  if (file.upload_proof?.operation_id.startsWith(LEGACY_PROOF_PREFIX)) {
+    // Uploaded before receipts recorded a content hash, so the local file is
+    // matched the way archive proofs are: not changed after the upload time
+    // (checked when listed and again before moving). YouTube is asked afresh,
+    // and the file only ever moves to _trash, so nothing is lost.
+    try {
+      const details = (await listVideoPublicationDetails(slug, registryCredentialFor(assignment.channel_id), [file.upload_proof.video_id]))[file.upload_proof.video_id]
+      if (!details) return 'YouTube no longer has this video.'
+      if (details.uploadStatus !== 'processed') return `YouTube currently reports ${details.uploadStatus || 'no status'}.`
+      if (details.channelId !== assignment.channel_id) return 'YouTube did not confirm the video on the current channel.'
+    } catch {
+      return 'YouTube could not freshly verify the uploaded final video.'
+    }
+    return null
+  }
   const evidence = await youtubeRetentionEvidenceFor(slug, code, title)
   const exact = await youtubeRetentionProofForFile(evidence, file.path)
   if (!exact.usable || !file.upload_proof || exact.operation_id !== file.upload_proof.operation_id
@@ -571,9 +698,10 @@ async function buildPreview(
 ): Promise<MediaCleanupPreview> {
   const categories = resolveCategories(input)
   const codes = validateEpisodeCodes(input.episode_codes)
+  const convert = input.preset === CONVERT_PNG_PRESET
   if (!await pm.getProject(slug)) throw fail('Project not found', 404)
   const accepted = await im.getIdeas(slug, 'accepted')
-  const inventory = await loadUploadInventory(slug)
+  const inventory = await loadUploadInventory(slug, codes)
   const acceptedByCode = new Map(accepted.map(idea => [String(idea.episode_code || '').toUpperCase(), idea]))
   const unknown = codes.filter(code => !acceptedByCode.has(code))
   if (unknown.length) throw fail(`No accepted episode matches ${unknown.join(', ')}.`, 404)
@@ -591,8 +719,8 @@ async function buildPreview(
     }
     // Narration parts need no upload (owner decision 2026-10-06): any episode with a joined chapter may free them.
     const partsOnly = !proof && !input.preset && categories.includes('narration_parts')
-    if (!proof && !partsOnly) {
-      episode.blocked_reasons.push('This episode has no ready canonical upload on the current YouTube channel.')
+    if (!proof && !partsOnly && !convert) {
+      episode.blocked_reasons.push(inventory.why.get(code) || 'This episode has no ready canonical upload on the current YouTube channel.')
     } else {
       const idea = acceptedByCode.get(code)!
       if (categories.includes('narration_parts')) episode.files.push(...await narrationPartsFiles(slug, code, proof))
@@ -600,7 +728,7 @@ async function buildPreview(
         episode.blocked_reasons.push('Not uploaded yet: only its narration parts are offered.')
       }
       for (const root of partsOnly ? [] : await rootsFor(slug, code, idea.title || '', categories.filter(category => category !== 'narration_parts'))) {
-        const discovered = await discoverRoot(root, proof!, () => operation.stop_requested === true, code)
+        const discovered = await discoverRoot(root, convert ? null : proof!, () => operation.stop_requested === true, code, convert)
         // A loose part already offered as a narration part is not listed twice.
         episode.files.push(...discovered.files.filter(file => !episode.files.some(listed => listed.path === file.path)))
         episode.excluded.push(...discovered.excluded)
@@ -634,6 +762,7 @@ async function buildPreview(
     total_bytes: files.reduce((sum, file) => sum + file.bytes, 0),
     blocked_reasons: [...new Set(episodeResults.flatMap(episode => episode.blocked_reasons))],
     ...(input.preset === 'archive_episode' ? { preset: 'archive_episode' as const } : {}),
+    ...(convert ? { preset: CONVERT_PNG_PRESET } : {}),
     trash_roots: [...new Set(files.map((file) => {
       const at = file.trash_path.indexOf(`${path.sep}_trash${path.sep}`)
       return at < 0 ? path.dirname(file.trash_path) : file.trash_path.slice(0, at + '/_trash'.length)
@@ -978,7 +1107,7 @@ function trashReviewedFile(file: MediaCleanupFile): string {
 }
 
 async function uploadProofStillCurrent(slug: string, code: string, file: MediaCleanupFile): Promise<string | null> {
-  const proof = currentUploadProof(code, await loadUploadInventory(slug))
+  const proof = currentUploadProof(code, await loadUploadInventory(slug, [code.toUpperCase()]))
   if (!proof) return 'The ready canonical upload is no longer available on the current channel.'
   if (proof.operation_id !== file.upload_proof?.operation_id
     || proof.video_id !== file.upload_proof.video_id
@@ -1000,11 +1129,13 @@ async function mutateReviewedFile(
   const active = await relevantActiveJobs(slug, code, [file.category])
   if (active.length) return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason: `Active ${active.map(job => job.type).join(', ')} work started after preview.` }
   if (file.category === 'narration_parts') return trashReviewedNarrationParts(slug, code, file, mode)
-  const staleUpload = await uploadProofStillCurrent(slug, code, file)
+  // Converting PNG scenes needs no upload: the image itself is kept, as a JPEG.
+  const formatOnly = preview.preset === CONVERT_PNG_PRESET
+  const staleUpload = formatOnly ? null : await uploadProofStillCurrent(slug, code, file)
   if (staleUpload) return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason: staleUpload }
   const changed = await exactFileStillReviewed(file)
   if (changed) return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason: changed }
-  if (Math.floor((await fs.stat(file.path)).mtimeMs) > Date.parse(file.upload_proof!.uploaded_at)) {
+  if (!formatOnly && Math.floor((await fs.stat(file.path)).mtimeMs) > Date.parse(file.upload_proof!.uploaded_at)) {
     return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason: 'The file is newer than its upload proof.' }
   }
   if (file.category === 'final_video') {
@@ -1013,15 +1144,17 @@ async function mutateReviewedFile(
     if (reason) return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason }
   }
 
-  const entryBase: Omit<MediaCleanupSidecarEntry, 'outcome' | 'updated_at'> = {
+  const entryBase: Omit<MediaCleanupSidecarEntry, 'outcome' | 'updated_at' | 'upload_proof'> & { upload_proof: MediaCleanupUploadProof | null } = {
     entry_id: randomUUID(), source_path: file.path, relative_path: file.relative_path,
     source_kind: file.source_kind,
     category: file.category, bytes: file.bytes, bytes_reclaimed: 0, sha256: file.sha256,
     preview_id: preview.preview_id, operation_id: operation.id, mode,
-    recorded_at: isoNow(), upload_proof: file.upload_proof!,
+    recorded_at: isoNow(), upload_proof: file.upload_proof,
   }
 
-  if (mode === 'compress' && file.category === 'images') return compressReviewedImage(slug, code, file, entryBase)
+  if (mode === 'compress' && file.category === 'images') return compressReviewedImage(slug, code, file, entryBase, formatOnly)
+  if (!file.upload_proof) return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason: 'Only converting scene images works without an upload.' }
+  const recorded = { ...entryBase, upload_proof: file.upload_proof }
 
   if (mode === 'archive') {
     const target = archiveDestinationFor(destination!, slug, code, file)
@@ -1053,7 +1186,7 @@ async function mutateReviewedFile(
       }
       await fs.rename(partial, target)
       const pending: MediaCleanupSidecarEntry = {
-        ...entryBase, bytes_reclaimed: sameDevice ? 0 : file.bytes,
+        ...recorded, bytes_reclaimed: sameDevice ? 0 : file.bytes,
         destination_path: target, outcome: 'pending_archive', updated_at: isoNow(),
       }
       await putSidecarEntry(slug, code, pending)
@@ -1087,7 +1220,7 @@ async function mutateReviewedFile(
     }
   }
 
-  const pending: MediaCleanupSidecarEntry = { ...entryBase, outcome: 'pending_remove', updated_at: isoNow() }
+  const pending: MediaCleanupSidecarEntry = { ...recorded, outcome: 'pending_remove', updated_at: isoNow() }
   try {
     await putSidecarEntry(slug, code, pending)
     const activeBeforeRemove = await relevantActiveJobs(slug, code, [file.category])
@@ -1135,7 +1268,8 @@ async function compressReviewedImage(
   slug: string,
   code: string,
   file: MediaCleanupFile,
-  entryBase: Omit<MediaCleanupSidecarEntry, 'outcome' | 'updated_at'>,
+  entryBase: Omit<MediaCleanupSidecarEntry, 'outcome' | 'updated_at' | 'upload_proof'> & { upload_proof: MediaCleanupUploadProof | null },
+  formatOnly = false,
 ): Promise<MediaCleanupRunResult['items'][number]> {
   const item = (over: Partial<MediaCleanupRunResult['items'][number]> & { outcome: MediaCleanupRunResult['items'][number]['outcome'] }) =>
     ({ path: file.path, category: file.category, bytes_reclaimed: 0, bytes_moved: 0, ...over })
@@ -1157,10 +1291,14 @@ async function compressReviewedImage(
       await fs.rm(partial, { force: true })
       return item({ outcome: 'skipped', reason: 'Compression would save less than 20%.' })
     }
-    pending = { ...entryBase, outcome: 'pending_remove', updated_at: isoNow() }
-    await putSidecarEntry(slug, code, pending)
+    // Upload-backed shrinking is recorded in the episode's cleanup record; a
+    // plain format conversion keeps the image, so there is nothing to record.
+    if (entryBase.upload_proof) {
+      pending = { ...entryBase, upload_proof: entryBase.upload_proof, outcome: 'pending_remove', updated_at: isoNow() }
+      await putSidecarEntry(slug, code, pending)
+    }
     const stillIdle = await relevantActiveJobs(slug, code, [file.category])
-    const stillCurrent = await uploadProofStillCurrent(slug, code, file)
+    const stillCurrent = formatOnly ? null : await uploadProofStillCurrent(slug, code, file)
     if (stillIdle.length || stillCurrent) throw new Error(stillCurrent || `Active ${stillIdle.map(job => job.type).join(', ')} work started before compression.`)
     const changed = await exactFileStillReviewed(file)
     if (changed) throw new Error(changed)
@@ -1170,12 +1308,14 @@ async function compressReviewedImage(
     try {
       renameSync(partial, file.path)
       utimesSync(file.path, file.mtime_ms / 1000, file.mtime_ms / 1000)
+      clearImageValidationCache(file.path)
     } catch (error) {
       try { renameSync(trashed, file.path) } catch { /* the original is still in _trash */ }
       throw error
     }
     try {
-      await putSidecarEntry(slug, code, { ...pending, outcome: 'compressed', destination_path: trashed, updated_at: isoNow() })
+      if (pending) await putSidecarEntry(slug, code, { ...pending, outcome: 'compressed', destination_path: trashed, updated_at: isoNow() })
+      else await invalidateEpisodeRow(slug, code)
     } catch (error: any) {
       return item({ outcome: 'pending', bytes_moved: file.bytes, bytes_after: bytesAfter, destination_path: trashed, reason: error?.message || String(error) })
     }
@@ -1231,7 +1371,7 @@ async function runPreview(
   } finally {
     if (mode === 'compress') { sharp.concurrency(priorConcurrency); sharp.cache(true) }
   }
-  if (preview.preset && !operation.stop_requested) {
+  if (preview.preset === 'archive_episode' && !operation.stop_requested) {
     for (const episode of preview.episodes) {
       const mine = result.items.filter(item => episode.files.some(file => file.path === item.path))
       const clean = episode.files.length === mine.length && mine.every(item =>
@@ -1254,7 +1394,9 @@ export async function startMediaCleanupRun(
   }
   if (consumedPreviews.has(previewId)) throw fail('That media cleanup preview was already used. Check the files again.', 409)
   if (input.mode !== 'archive' && input.mode !== 'remove' && input.mode !== 'compress') throw fail('Choose archive, remove or compress.')
-  if (preview.preset && input.mode !== 'compress') throw fail('The Archive episode preset only runs as shrink-and-trash.')
+  if (preview.preset && input.mode !== 'compress') throw fail(preview.preset === CONVERT_PNG_PRESET
+    ? 'Converting PNG scenes only runs as a conversion.'
+    : 'The Archive episode preset only runs as shrink-and-trash.')
   let destination: string | undefined
   if (input.mode === 'archive') {
     if (typeof input.destination !== 'string' || !input.destination.trim()) throw fail('Choose an archive destination.')

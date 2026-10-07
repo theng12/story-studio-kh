@@ -48,6 +48,7 @@ import { withFinalVideoPathLock } from './final-video-lock.js'
 import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import {
   exportsAnchorFor,
+  getExternalFinalVideoRoot,
   getChannelExportsBase,
   resolveExternalFinalVideoDir,
 } from './external-video-store.js'
@@ -101,11 +102,65 @@ export interface StorageAuditResult {
   project_bytes_external_final_video: number
   /** Regenerable review-grid thumbnails under `<project>/.cache/thumbs`; not part of any episode. */
   project_bytes_thumbnail_cache: number
+  /** Free disk and what waits in `_trash` (the owner empties it himself). */
+  space: StorageSpaceSummary
   /** True when external_final_video_root is configured (drives UI hints). */
   external_root_configured: boolean
   /** The configured root path (resolved with ~ expansion). Empty if unset. */
   external_root: string
   episodes: StorageEntry[]
+}
+
+export interface StorageSpaceSummary {
+  /** Free space on the drive holding the project folder; null when it could not be measured (never 0 for "unknown"). */
+  free_bytes: number | null
+  /** This project's `_trash` folders (project, media drive, exports folder). */
+  project_trash_bytes: number
+  /** Every project's `_trash` plus the Library's own `_trash`. */
+  library_trash_bytes: number
+}
+
+/** Free bytes on the drive holding `dir`, or null when the drive cannot be asked. */
+export async function measureFreeBytes(dir: string): Promise<number | null> {
+  try {
+    const stat = await fs.statfs(dir)
+    return Number(stat.bsize) * Number(stat.bavail)
+  } catch { return null }
+}
+
+/** Every `_trash` that belongs to one project: its own, and the ones on a media drive or the exports folder. */
+async function projectTrashDirs(slug: string): Promise<string[]> {
+  const projectDir = pm.getProjectDir(slug)
+  if (!projectDir) return []
+  const dirs = [path.join(projectDir, '_trash')]
+  const meta = await pm.getProject(slug).catch(() => null) as { media_root?: string; output_root?: string } | null
+  if (meta?.media_root) {
+    try {
+      const { resolveAssetPath } = await import('./path-resolver.js')
+      const anchor = resolveAssetPath(String(meta.media_root), await pm.getProjectOutputRoot(slug) || projectDir)
+      if (anchor) dirs.push(trashRootFor(anchor, projectDir, slug))
+    } catch { /* media drive not defined on this Mac */ }
+  }
+  const exportsRoot = await getExternalFinalVideoRoot().catch(() => '')
+  if (exportsRoot) dirs.push(trashRootFor(exportsRoot, projectDir, slug))
+  return [...new Set(dirs.map(dir => path.resolve(dir)))]
+}
+
+/** Free disk and `_trash` sizes for Settings → Free up space and "What's using space". */
+export async function storageSpaceSummary(slug: string): Promise<StorageSpaceSummary> {
+  const projectDir = pm.getProjectDir(slug)
+  if (!projectDir) throw new Error('Project not found')
+  const sizeOf = async (dirs: string[]) => (await Promise.all(dirs.map(dirSize))).reduce((a, b) => a + b, 0)
+  const project = await sizeOf(await projectTrashDirs(slug))
+  const others: string[] = [path.join(pm.projectsRoot(), '_trash')]
+  for (const summary of await pm.listProjects().catch(() => [])) {
+    if (summary.slug !== slug) others.push(...await projectTrashDirs(summary.slug))
+  }
+  return {
+    free_bytes: await measureFreeBytes(projectDir),
+    project_trash_bytes: project,
+    library_trash_bytes: project + await sizeOf([...new Set(others.map(dir => path.resolve(dir)))]),
+  }
 }
 
 const VIDEO_EXTS = new Set(['.mp4', '.mov', '.webm', '.mkv', '.m4v'])
@@ -135,7 +190,7 @@ function isPerSceneClipName(code: string, name: string): boolean {
  * any read failure — never throws (the audit shouldn't crash a single
  * page load over a permission glitch on a stray subfolder).
  */
-async function dirSize(dir: string): Promise<number> {
+export async function dirSize(dir: string): Promise<number> {
   if (!existsSync(dir)) return 0
   let total = 0
   try {
@@ -229,12 +284,16 @@ export async function auditProjectStorage(slug: string): Promise<StorageAuditRes
 
     // Audio (per-chapter chunks + merged) and images (scenes + thumbs)
     // — these are bulk numbers; the user isn't cleaning at this level.
-    const [audioBytes, partsBytes, mergedBytes, sceneBytes, thumbBytes] = await Promise.all([
+    const [audioBytes, partsBytes, mergedBytes, sceneBytes, thumbBytes, motionClipBytes] = await Promise.all([
       dirSize(paths.audio_dir),
       dirSize(path.join(paths.audio_dir, PARTS_DIRNAME)),
       dirSize(paths.merged_audio_dir),
       dirSize(paths.bg_dir),
       dirSize(paths.thumb_dir),
+      // "11 Video Assets": the per-scene image-to-video clips, often the
+      // heaviest folder after the final video. It used to be missing here.
+      paths.video_assets_dir && path.resolve(paths.video_assets_dir) !== path.resolve(paths.video_dir)
+        ? dirSize(paths.video_assets_dir) : Promise.resolve(0),
     ])
 
     // "Other" = sum of script + scene_prompts + thumb_prompts +
@@ -303,7 +362,8 @@ export async function auditProjectStorage(slug: string): Promise<StorageAuditRes
     const audioTotal = audioBytes + mergedBytes
     const imageTotal = sceneBytes + thumbBytes
     const otherTotal = scriptBytes + scenePromptsBytes + thumbPromptsBytes + metadataBytes + subtitlesBytes
-    const total = v.bytes_final_video + v.bytes_per_scene_clips + v.bytes_other_video
+    const clipsTotal = v.bytes_per_scene_clips + motionClipBytes
+    const total = v.bytes_final_video + clipsTotal + v.bytes_other_video
       + audioTotal + imageTotal + otherTotal
 
     return {
@@ -312,7 +372,7 @@ export async function auditProjectStorage(slug: string): Promise<StorageAuditRes
       project_episode_dir: paths.episode_dir,
       external_episode_dir: externalEpisodeDir,
       bytes_final_video: v.bytes_final_video,
-      bytes_per_scene_clips: v.bytes_per_scene_clips,
+      bytes_per_scene_clips: clipsTotal,
       bytes_audio: audioTotal,
       bytes_narration_parts: partsBytes,
       bytes_images: imageTotal,
@@ -356,6 +416,7 @@ export async function auditProjectStorage(slug: string): Promise<StorageAuditRes
     project_bytes_narration_parts: projectBytesParts,
     project_bytes_external_final_video: projectBytesExternalFinal,
     project_bytes_thumbnail_cache: await thumbCacheBytes(pm.getProjectDir(slug) || ''),
+    space: await storageSpaceSummary(slug),
     external_root_configured: !!externalRoot,
     external_root: externalRoot,
     episodes: results,

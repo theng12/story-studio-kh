@@ -24,6 +24,7 @@
  */
 
 import fs from 'fs/promises'
+import { trashCopiedSourceSync } from '../lib/trash-move.js'
 import { existsSync } from 'fs'
 import path from 'path'
 import * as pm from './project-manager.js'
@@ -114,7 +115,8 @@ export async function renameAcceptedEpisode(
         // Cross-device fallback (rare on macOS but possible if the
         // Library sits on a different volume).
         await copyDirRecursive(oldPaths.episode_dir, newPaths.episode_dir)
-        await fs.rm(oldPaths.episode_dir, { recursive: true, force: true })
+        // Never deleted: the source waits in _trash on its own drive.
+        trashCopiedSourceSync(oldPaths.episode_dir, pm.getProjectDir(slug)!, slug, oldPaths.output_root)
       } else {
         throw e
       }

@@ -175,10 +175,12 @@ export function humanizeBackendError(e: unknown, fallback?: string): HumanizedEr
   // independently, so a stable machine-matchable `code` lets the frontend
   // collapse the flood into ONE "reconnect the account" banner instead of
   // six identical raw-stack error toasts.
-  if (/invalid_grant|Token has been expired or revoked|Token refresh failed/i.test(rawMessage)) {
+  // Only a refused GRANT is "expired": a refresh that merely could not reach
+  // Google is retried and says so, and must not send the owner to Reconnect.
+  if (/invalid_grant|expired or (was )?revoked/i.test(rawMessage)) {
     return {
-      detail: 'YouTube session expired — the account\'s token was expired or revoked by Google.',
-      hint: 'Open Upload Center → Accounts, Disconnect the account, then Connect it again. Everything else resumes automatically.',
+      detail: 'YouTube sign-in expired — Google expired or revoked this channel\'s sign-in.',
+      hint: 'Press Reconnect for this channel in Settings → YouTube. Its settings, playlists and project links are kept.',
       code: 'youtube_auth_expired',
     }
   }
