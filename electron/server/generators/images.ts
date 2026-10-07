@@ -372,7 +372,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
   // The key is resolved first because the model's capabilities now come from
   // the live GenStudio catalogue rather than a synthesised constant.
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) throw new Error('Add the Gateway key in Settings before generating images.')
+  if (!apiKey) throw new Error('Add the Gateway API Key in Settings before generating images.')
   const modelConfig = await resolveImageModelConfig(config, modelName, apiKey)
   if (!modelConfig) throw new Error(`Unknown image model: ${modelName}`)
   const resolvedModelConfig: ImageModelConfig = modelConfig

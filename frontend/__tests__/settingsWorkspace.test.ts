@@ -221,12 +221,12 @@ describe('Settings workspace navigation', () => {
     // permission-scope list is jargon he cannot act on. The key test still reports the Content Store.
     assert.match(thisMacSettingsSource, /<h4>Gateway<\/h4>/)
     assert.match(thisMacSettingsSource, /Your GatewayKH on this Mac or network — it runs your free local models/)
-    assert.match(thisMacSettingsSource, /Copy it from GatewayKH → Settings/)
+    assert.match(thisMacSettingsSource, /Copy it from Gateway → Settings → Gateway API Key/)
     assert.match(thisMacSettingsSource, /connections: 'Gateway connection'/)
     assert.match(thisMacSettingsSource, /Content Store: \{\{/)
     assert.doesNotMatch(thisMacSettingsSource, /<code>content:purchase<\/code>|Required scopes|GenStudio API key<\/label>/)
     assert.doesNotMatch(thisMacSettingsSource, /Sole AI boundary|Test scopes/)
-    assert.doesNotMatch(thisMacSettingsSource, /one scoped key|Scoped API key|Scoped Gateway key saved/i)
+    assert.doesNotMatch(thisMacSettingsSource, /one scoped key|Scoped API key|Scoped Gateway API Key saved/i)
     assert.doesNotMatch(thisMacSettingsSource, /\/v1\/api-keys|\/reveal/)
   })
 

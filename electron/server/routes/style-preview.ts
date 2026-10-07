@@ -90,7 +90,7 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
     return res.status(400).json({
-      detail: 'No Gateway key is saved. Add one in Settings → App & Connections.',
+      detail: 'No Gateway API Key is saved. Add one in Settings → App & Connections.',
     })
   }
 

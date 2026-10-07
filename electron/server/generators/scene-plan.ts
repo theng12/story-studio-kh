@@ -446,7 +446,7 @@ export async function requireScenePlanGenStudioModel(selectedModel: string): Pro
 export async function getScenePlanGenStudioModel(selectedModel: string): Promise<GenStudioChatModel> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
-    throw new Error('Add a Gateway key in Settings → This Mac before generating scene prompts.')
+    throw new Error('Add a Gateway API Key in Settings → This Mac before generating scene prompts.')
   }
   const catalog = await listGenStudioChatModels(apiKey)
   const modelId = resolveScenePlanCatalogModel(selectedModel, catalog)
@@ -463,7 +463,7 @@ export async function getScenePlanGenStudioModel(selectedModel: string): Promise
 
 async function getScenePlanPolicyPlanningModel(policy: NonNullable<ReturnType<typeof pipelinePolicyForJob>>): Promise<GenStudioChatModel> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) throw new Error('Add a Gateway key in Settings → This Mac before generating scene prompts.')
+  if (!apiKey) throw new Error('Add a Gateway API Key in Settings → This Mac before generating scene prompts.')
   const catalog = await listGenStudioChatModels(apiKey)
   const candidates = [policy.assigned_model, ...policy.models.filter(model => model !== policy.assigned_model)]
   for (const candidateId of candidates) {
@@ -1588,7 +1588,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             pipelinePolicyCheckpointKey: requestIdentity,
             beforeModelAttempt: async selected => {
               const apiKey = await getApiKey('genstudio').catch(() => '')
-              if (!apiKey) throw new Error('Add a Gateway key in Settings → This Mac before generating scene prompts.')
+              if (!apiKey) throw new Error('Add a Gateway API Key in Settings → This Mac before generating scene prompts.')
               const live = (await listGenStudioChatModels(apiKey)).find(candidate => candidate.id === selected)
               if (!live || !live.available) throw new GenStudioChatProductUnavailableError(selected)
               assertScenePromptPackCapability(live, input.maxTokens, input.sceneIds.length)

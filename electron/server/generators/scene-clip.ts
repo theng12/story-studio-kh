@@ -333,7 +333,7 @@ export async function requireSceneClipGenStudioCatalogModel(
 ): Promise<{ apiKey: string; modelId: string; model: GenStudioVideoModel }> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
-    throw new Error('Add a Gateway key in Settings → This Mac before generating motion clips.')
+    throw new Error('Add a Gateway API Key in Settings → This Mac before generating motion clips.')
   }
   const catalog = await listGenStudioVideoModels(apiKey)
   const modelId = resolveSceneClipCatalogModel(selectedModel, catalog)

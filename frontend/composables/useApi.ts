@@ -133,7 +133,20 @@ function waitForBootReady(): Promise<void> {
     const deadline = Date.now() + BOOT_READY_TIMEOUT_MS
     while (Date.now() < deadline) {
       try {
-        const r: any = await $fetch('/api/health')
+        const remaining = deadline - Date.now()
+        const controller = new AbortController()
+        let timer: ReturnType<typeof setTimeout> | undefined
+        let r: any
+        try {
+          r = await Promise.race([
+            $fetch('/api/health', { signal: controller.signal, timeout: remaining, retry: 0 }),
+            new Promise(resolve => {
+              timer = setTimeout(() => { controller.abort(); resolve(undefined) }, remaining)
+            }),
+          ])
+        } finally {
+          clearTimeout(timer)
+        }
         // The flag is added by the boot-migrations module after every
         // async migration settles. Older bundled backends without the
         // flag treat it as undefined → we accept any 200 as ready so
@@ -142,7 +155,9 @@ function waitForBootReady(): Promise<void> {
           return
         }
       } catch { /* backend still starting — keep polling */ }
-      await new Promise((resolve) => setTimeout(resolve, BOOT_READY_POLL_MS))
+      const remaining = deadline - Date.now()
+      if (remaining <= 0) break
+      await new Promise((resolve) => setTimeout(resolve, Math.min(BOOT_READY_POLL_MS, remaining)))
     }
     // Timed out. Let calls proceed; if they fail it's a real error worth
     // surfacing rather than a "still loading" silence.

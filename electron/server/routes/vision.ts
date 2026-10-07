@@ -98,7 +98,7 @@ router.get('/projects/:slug/thumbnail-reference/vision-models', async (req, res)
   if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
   try {
     const apiKey = await getApiKey('genstudio')
-    if (!apiKey) return res.status(400).json({ detail: 'Add a Gateway key first.' })
+    if (!apiKey) return res.status(400).json({ detail: 'Add a Gateway API Key first.' })
     const models = (await listChatModels(apiKey)).filter(eligibleThumbnailVisionModel).map(model => ({
       id: model.id, display_name: model.display_name, supported_detail_levels: model.supported_detail_levels,
       cost_tier: model.cost_tier,
@@ -142,7 +142,7 @@ router.post('/projects/:slug/thumbnail-reference/analyze', async (req, res) => {
   if (!sourcePath || !modelId) return res.status(400).json({ detail: 'source_path and model_id are required' })
   try {
     const apiKey = await getApiKey('genstudio')
-    if (!apiKey) return res.status(400).json({ detail: 'Add a Gateway key first.' })
+    if (!apiKey) return res.status(400).json({ detail: 'Add a Gateway API Key first.' })
     const model = (await listChatModels(apiKey)).find(item => item.id === modelId && eligibleThumbnailVisionModel(item))
     if (!model) return res.status(422).json({ detail: 'Select a currently available vision model that supports structured JSON output.' })
     const mime = imageMime(sourcePath)

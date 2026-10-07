@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.260 — 2026-10-07
+
+- API key is now called Gateway API Key; the release signing key is now the App Update Key
+- Video Assembly skips already-portable path requests, resolves independent paths together, and keeps newer episode choices when an older request finishes.
+- Cold audio scans use bounded parallel probes; simultaneous reads of the same file share one probe.
+- Content Pack listings recheck installed and recovery trees after nested files change.
+- Startup health checks and stalled update downloads release their shared waits within a deadline, so controls and later checks can proceed.
+- A fresh Gateway Update Now request is acknowledged only after a verified update attempt starts; old rollback reports cannot consume it.
+
 ## v1.4.259 — 2026-10-07
 
 **Updates from the Gateway**

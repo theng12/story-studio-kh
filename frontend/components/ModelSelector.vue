@@ -21,7 +21,7 @@
     />
     <p v-if="loadError" class="catalog-message">{{ loadError }}</p>
     <p v-if="emptyCatalogNeedsSetup" class="catalog-message">
-      No Gateway key is configured, so LLM models cannot load.
+      No Gateway API Key is configured, so LLM models cannot load.
       <button type="button" class="catalog-action" @click="appSettingsModal.open('connections')">Open Connection Settings</button>
     </p>
     <!-- The saved product is gone from the catalogue. Body text in the flow,
@@ -175,7 +175,7 @@ const emptyCatalogState = ref<EmptyCatalogState>('')
 const appSettingsModal = useAppSettingsModal()
 const emptyCatalogNeedsSetup = computed(() => emptyCatalogState.value === 'setup')
 const emptyCatalogLabel = computed(() => {
-  if (emptyCatalogState.value === 'setup') return 'Add a Gateway key in Settings to load LLM models.'
+  if (emptyCatalogState.value === 'setup') return 'Add a Gateway API Key in Settings to load LLM models.'
   return allModels.value.length === 0 && !loading.value ? 'No LLM models are currently available.' : ''
 })
 /**

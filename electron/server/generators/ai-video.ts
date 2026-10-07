@@ -182,7 +182,7 @@ export async function generateAiVideo(job: Job): Promise<void> {
   const provider = providerMaybe!
 
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) throw new Error('No Gateway key configured. Add it in Settings → This Mac.')
+  if (!apiKey) throw new Error('No Gateway API Key configured. Add it in Settings → This Mac.')
 
   const mode = 'frames' as const
   if (req.mode && req.mode !== mode) {

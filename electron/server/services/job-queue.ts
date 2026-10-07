@@ -708,7 +708,7 @@ function reportUnverifiedTranscriptionAbsence(job: Job): void {
  * checking (NEW-01).
  */
 const MISSING_KEY_RECONCILIATION_DETAIL =
-  'The Gateway key is not available on this Mac, so this cancellation cannot be confirmed yet. Add it in Settings → This Mac.'
+  'The Gateway API Key is not available on this Mac, so this cancellation cannot be confirmed yet. Add it in Settings → This Mac.'
 
 /**
  * Reconciliation has its own persisted set, not a queue worker slot. This is
@@ -732,7 +732,7 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
       // this same line — and rewrite jobs.json — once per tick for as long as
       // the job waited. State the fact once, and write only when this pass
       // actually changed something.
-      const line = 'Cancellation is waiting for the Gateway key to be available on this Mac.'
+      const line = 'Cancellation is waiting for the Gateway API Key to be available on this Mac.'
       let changed = false
       if (!job.output_lines.slice(-8).includes(line)) {
         job.output_lines.push(line)
@@ -900,7 +900,7 @@ async function refreshFinishedJobProviderEvidence(jobId: string): Promise<void> 
 
     const apiKey = await getApiKey('genstudio').catch(() => '')
     if (!apiKey) {
-      await recordHistoryEvidenceCheck(job, 'unreachable', previous, 'The Gateway key is not available on this Mac, so the provider could not be asked.')
+      await recordHistoryEvidenceCheck(job, 'unreachable', previous, 'The Gateway API Key is not available on this Mac, so the provider could not be asked.')
       return
     }
 

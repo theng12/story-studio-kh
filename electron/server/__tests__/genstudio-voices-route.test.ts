@@ -23,7 +23,7 @@ after(async () => {
 test('Gateway voice discovery requires a saved key', async () => {
   const response = await request(app).get('/api/app-settings/genstudio/voices')
   assert.equal(response.status, 400)
-  assert.match(response.body.detail, /Gateway key/)
+  assert.match(response.body.detail, /Gateway API Key/)
 })
 
 test('Gateway voice discovery forwards the saved bearer key and catalog', async () => {
@@ -387,7 +387,7 @@ test('Gateway transcription discovery uses the same scoped boundary key', async 
   ])
 })
 
-test('Gateway key test proves every Story Studio catalog and generation scope', async () => {
+test('Gateway API Key test proves every Story Studio catalog and generation scope', async () => {
   const visited: string[] = []
   globalThis.fetch = async (input, init) => {
     const url = String(input)
@@ -434,7 +434,7 @@ test('Gateway key test proves every Story Studio catalog and generation scope', 
   ])
 })
 
-test('Gateway key test names content:read and never probes the debit endpoint', async () => {
+test('Gateway API Key test names content:read and never probes the debit endpoint', async () => {
   const visited: string[] = []
   globalThis.fetch = async (input) => {
     const url = String(input)
@@ -460,7 +460,7 @@ test('Gateway key test names content:read and never probes the debit endpoint', 
   assert.ok(!visited.some(url => url.includes('/v1/content/quotes')), 'a key test does not need to create a quote')
 })
 
-test('Gateway key test names music:generate when the music catalog is not authorized', async () => {
+test('Gateway API Key test names music:generate when the music catalog is not authorized', async () => {
   globalThis.fetch = async (input) => {
     const url = String(input)
     if (url.endsWith('/v1/music/models')) {
@@ -481,7 +481,7 @@ test('Gateway key test names music:generate when the music catalog is not author
   assert.match(response.body.message, /music:generate/)
 })
 
-test('Gateway key test names the first missing scope without submitting work', async () => {
+test('Gateway API Key test names the first missing scope without submitting work', async () => {
   globalThis.fetch = async (input) => {
     const url = String(input)
     if (url.endsWith('/v1/chat/responses/story-studio-key-probe')) {
@@ -522,7 +522,7 @@ test('GenStudio usage failures name the supported usage:read scope actionably', 
 
   assert.equal(response.body.code, 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE')
   assert.match(response.body.detail, /invalid or missing usage:read/i)
-  assert.match(response.body.detail, /Gateway key with usage:read/i)
+  assert.match(response.body.detail, /Gateway API Key with usage:read/i)
   assert.match(response.body.detail, /all-access keys already include it/i)
   assert.doesNotMatch(response.body.detail, /after Gateway exposes/i)
   assert.deepEqual(visited, ['http://127.0.0.1:8787/v1/account/overview'])

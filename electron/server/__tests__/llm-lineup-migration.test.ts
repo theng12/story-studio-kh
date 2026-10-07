@@ -95,7 +95,7 @@ test('it runs once: the record is kept, and an unreachable Gateway is retried la
 test('opening the project runs the migration, and closing the notice keeps it closed', async () => {
   process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
   const app = (await import('../app.js')).app
-  // No Gateway key in this sandbox, so no pools are visible: the first model is kept.
+  // No Gateway API Key in this sandbox, so no pools are visible: the first model is kept.
   const slug = await projectWith('Opened', { enabled: true, models: ['gemini-a', 'gemini-b'], prefer_savings: true })
   const opened = await request(app).get(`/api/projects/${slug}/settings/config`)
   assert.equal(opened.status, 200)

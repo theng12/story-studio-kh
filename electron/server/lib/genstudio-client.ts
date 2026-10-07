@@ -3368,7 +3368,7 @@ function requestUrl(baseUrl: string, value: string): string {
 }
 
 function authorization(apiKey: string): Record<string, string> {
-  if (!apiKey.trim()) throw new Error('No Gateway key configured. Open Settings → This Mac → API Keys.')
+  if (!apiKey.trim()) throw new Error('No Gateway API Key configured. Open Settings → This Mac → Gateway API Key.')
   return { Authorization: `Bearer ${apiKey.trim()}`, 'X-Caller': STORY_CALLER }
 }
 
@@ -3901,11 +3901,11 @@ export class GenStudioApiError extends Error {
       : capacityMessage
       ? capacityMessage
       : status === 401
-      ? `The Gateway did not accept this API key: ${detail}. Save a valid account key in Settings → This Mac.`
+      ? `The Gateway did not accept this Gateway API Key: ${detail}. Save a valid Gateway API Key in Settings → This Mac.`
       : status === 402
         ? `The Gateway has insufficient credits for this request: ${detail}. Add credits, then Retry.`
         : status === 403
-          ? `This Gateway key or account is not allowed to use the selected product: ${detail}. Check its scopes and product access.`
+          ? `This Gateway API Key or account is not allowed to use the selected product: ${detail}. Check its scopes and product access.`
           : status === 422
             ? `The Gateway rejected the product request before generation: ${detail}. Review the selected model and its output contract.`
             : status === 429

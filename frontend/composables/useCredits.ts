@@ -67,7 +67,7 @@ export function useCredits() {
         genstudioConfigured.value = keys.providers.some(row => row.providerId === 'genstudio' && row.hasKey)
         if (!genstudioConfigured.value) {
           forgetStanding()
-          usageError.value = 'Gateway key is not configured.'
+          usageError.value = 'Gateway API Key is not configured.'
           return
         }
         const usage = await get<{

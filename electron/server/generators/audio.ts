@@ -389,7 +389,7 @@ async function runActiveAudioQualityCheck(job: Job, req: GenerateAudioRequest, m
   const checkRoot = path.resolve(paths.episode_dir, active.staging_dir)
   if (checkRoot !== expectedRoot) throw new Error('The active-audio quality check staging path is invalid.')
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) throw new Error('No Gateway key configured. Add it in Settings → This Mac.')
+  if (!apiKey) throw new Error('No Gateway API Key configured. Add it in Settings → This Mac.')
   const narrationPath = await findNarrationFile(job.project_slug, job.episode_id)
   const { inspectAudioQualityActionScope } = await import('../services/audio-quality.js')
   const proveScope = async () => {
@@ -583,7 +583,7 @@ export async function generateAudio(job: Job): Promise<void> {
   // per-provider paths it used to select are gone — so it is no longer read
   // here; `audio-genstudio-only.test.ts` pins the invariant instead.
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) throw new Error('No Gateway key configured. Add it in Settings → This Mac.')
+  if (!apiKey) throw new Error('No Gateway API Key configured. Add it in Settings → This Mac.')
 
   // `maximum_input_characters` belongs to the model, is read fresh on every
   // run, and is never remembered between runs. Without it Story Studio has no

@@ -417,7 +417,7 @@ async function generateAllSamples(): Promise<void> {
   } finally {
     renderingAll.value = false
     if (liveSamples.value.every(s => !s.url)) {
-      renderError.value = 'No samples rendered. Check the selected model or API key.'
+      renderError.value = 'No samples rendered. Check the selected model or Gateway API Key.'
     }
   }
 }

@@ -255,8 +255,8 @@ function nodeKey(packId: string, version: string): string {
 const verifiedVersionMemo = new Map<string, { fingerprint: string; verified: VerifiedContentPack }>()
 
 
-/** Every path under a version root with its size, mtime and mode, hashed. */
-async function installedTreeFingerprint(installPath: string): Promise<string> {
+/** Every path under a version root with its size, timestamps, inode and mode, hashed. */
+export async function installedTreeFingerprint(installPath: string): Promise<string> {
   const parts: string[] = []
   // One awaited stat per entry made this ~1,000 sequential event-loop turns
   // per Store overview across 115 installed packs; on a busy server each turn
@@ -269,7 +269,7 @@ async function installedTreeFingerprint(installPath: string): Promise<string> {
     for (const [index, entry] of entries.entries()) {
       const full = path.join(dir, entry.name)
       const info = infos[index]!
-      parts.push(`${full}\u0000${info.size}\u0000${info.mtimeMs}\u0000${info.mode}`)
+      parts.push(`${full}\u0000${info.size}\u0000${info.mtimeMs}\u0000${info.ctimeMs}\u0000${info.ino}\u0000${info.mode}`)
       if (info.isDirectory()) await walk(full)
     }
   }

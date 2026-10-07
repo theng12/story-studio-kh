@@ -259,7 +259,7 @@ describe('web mode when nothing in the catalogue qualifies', () => {
 })
 
 describe('Pipeline web research recovery', () => {
-  it('reads the saved Gateway key without a current catalogue lookup or replacement POST', async () => {
+  it('reads the saved Gateway API Key without a current catalogue lookup or replacement POST', async () => {
     const { setGenStudioUrl } = await import('../services/app-settings.js')
     const { setApiKey } = await import('../services/app-secrets-store.js')
     const { clearGenStudioCatalogCache } = await import('../lib/genstudio-client.js')

@@ -46,7 +46,7 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
   if (!apiKey) {
     return res.status(400).json({
       code: 'GENSTUDIO_KEY_REQUIRED',
-      detail: 'No Gateway key configured. Add it in Settings → This Mac.',
+      detail: 'No Gateway API Key configured. Add it in Settings → This Mac.',
     })
   }
 
@@ -130,7 +130,7 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
   if (!apiKey) {
     return res.status(400).json({
       code: 'GENSTUDIO_KEY_REQUIRED',
-      detail: 'No Gateway key configured. Add it in Settings → This Mac.',
+      detail: 'No Gateway API Key configured. Add it in Settings → This Mac.',
     })
   }
   const resolvedVoiceId = typeof voice_id === 'string' ? voice_id.trim() : ''
@@ -177,7 +177,7 @@ async function quoteCandidateTts(input: {
   slug: string; code: string; modelId: string; voiceId: string; sections: string[]; speed?: unknown; controls?: unknown
 }): Promise<Record<string, unknown>> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) throw new Error('No Gateway key configured.')
+  if (!apiKey) throw new Error('No Gateway API Key configured.')
   const ttsModel = (await listGenStudioTtsModels(apiKey)).find(model => model.id === input.modelId)
   if (!ttsModel || !ttsModel.generation_enabled || ttsModel.locked) throw new Error('The selected voice model is no longer available for generation.')
   const voices = await listGenStudioVoices(apiKey, { modelId: input.modelId })
@@ -240,7 +240,7 @@ router.post('/projects/:slug/episodes/:code/tts-quote', async (req, res) => {
     if (!apiKey) {
       return res.status(400).json({
         code: 'GENSTUDIO_KEY_REQUIRED',
-        detail: 'No Gateway key configured. Add it in Settings → This Mac.',
+        detail: 'No Gateway API Key configured. Add it in Settings → This Mac.',
       })
     }
 
@@ -782,7 +782,7 @@ router.post('/projects/:slug/episodes/:code/audio-quality/confirm', async (req, 
     }
     const configuredAlternateModel = config.audio_quality.alternate_transcription_model?.trim() || ''
     const apiKey = await getApiKey('genstudio').catch(() => '')
-    if (!apiKey) return res.status(400).json({ code: 'GENSTUDIO_KEY_REQUIRED', detail: 'No Gateway key configured. Add it in Settings → This Mac.' })
+    if (!apiKey) return res.status(400).json({ code: 'GENSTUDIO_KEY_REQUIRED', detail: 'No Gateway API Key configured. Add it in Settings → This Mac.' })
     const [ttsModels, voices, transcriptionModels] = await Promise.all([
       listGenStudioTtsModels(apiKey),
       listGenStudioVoices(apiKey, { modelId: model }),
@@ -934,7 +934,7 @@ router.post('/projects/:slug/episodes/:code/audio-quality/active-check/quote', a
     const alternateModel = config.audio_quality.alternate_transcription_model?.trim() || ''
     if (!alternateModel) return res.status(409).json({ detail: 'Choose a published alternate transcription model in Project Settings first.' })
     const apiKey = await getApiKey('genstudio').catch(() => '')
-    if (!apiKey) return res.status(400).json({ code: 'GENSTUDIO_KEY_REQUIRED', detail: 'No Gateway key configured. Add it in Settings → This Mac.' })
+    if (!apiKey) return res.status(400).json({ code: 'GENSTUDIO_KEY_REQUIRED', detail: 'No Gateway API Key configured. Add it in Settings → This Mac.' })
     const eligible = (await listGenStudioTranscriptionModels(apiKey)).find(model => model.id === alternateModel)
     if (!eligible || !eligible.available || eligible.qualification_only) {
       return res.status(409).json({ detail: 'The selected alternate transcription model is no longer available. Refresh Settings and choose another model.' })

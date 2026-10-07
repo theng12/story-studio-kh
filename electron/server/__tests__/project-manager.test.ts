@@ -209,7 +209,7 @@ describe('getConfig / getSafeConfig / updateApiKeys', () => {
     assert.equal(c, null)
   })
 
-  test('updateApiKeys persists the Gateway key; getConfig returns it', async () => {
+  test('updateApiKeys persists the Gateway API Key; getConfig returns it', async () => {
     const p = await pm.createProject({ name: 'APITest' })
     await pm.updateApiKeys(p.slug, { genstudio_api_key: 'gs-test123' })
     const config = await pm.getConfig(p.slug)
@@ -221,7 +221,7 @@ describe('getConfig / getSafeConfig / updateApiKeys', () => {
     await pm.updateApiKeys(p.slug, { genstudio_api_key: 'gs-secret' })
     const safe = await pm.getSafeConfig(p.slug) as any
     // Should NOT contain actual keys
-    assert.ok(!JSON.stringify(safe).includes('gs-secret'), 'safe config must not leak the Gateway key')
+    assert.ok(!JSON.stringify(safe).includes('gs-secret'), 'safe config must not leak the Gateway API Key')
   })
 
   test('recognizes hyphenated typed preset pointers without reviving retired model aliases', () => {

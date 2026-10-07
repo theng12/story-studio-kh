@@ -167,7 +167,7 @@ router.post('/lettering-styles/preview', validateBody(PreviewSchema), async (req
 
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
-    return res.status(400).json({ detail: 'No Gateway key is saved. Add one in Settings → App & Connections.' })
+    return res.status(400).json({ detail: 'No Gateway API Key is saved. Add one in Settings → App & Connections.' })
   }
 
   let catalog

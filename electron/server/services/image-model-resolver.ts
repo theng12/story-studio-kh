@@ -317,7 +317,7 @@ export async function resolveImageModelConfig(
   const resolvedModelId = resolveGenStudioModelId('image', modelId)
   if (!resolvedModelId) return undefined
   if (!apiKey.trim()) {
-    throw new Error('Add the Gateway key in Settings before generating images.')
+    throw new Error('Add the Gateway API Key in Settings before generating images.')
   }
   // Alias-aware: a saved raw id still resolves after GenStudio republishes the
   // product under its customer handle.

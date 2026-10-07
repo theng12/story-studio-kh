@@ -112,7 +112,7 @@ export function filterByInstallState(
 
 /**
  * One plain sentence when an install failed for a reason that will hit EVERY pack
- * (Keychain unavailable, Gateway key refused or missing, Gateway not answering,
+ * (Keychain unavailable, Gateway API Key refused or missing, Gateway not answering,
  * disk full), or null for a failure of that one pack. A batch stops at the first
  * such failure: the other 167 would only fail the same way.
  */
@@ -125,7 +125,7 @@ export function systematicInstallFailure(
     return 'This Mac’s Keychain is not available, so Content Packs cannot be installed. Sign in to macOS and unlock the Keychain, restart Story Studio, then try again.'
   }
   if (code === 'CONTENT_STORE_SCOPE_REQUIRED' || code === 'CONTENT_STORE_KEY_REQUIRED' || error.status === 401 || error.status === 403) {
-    return 'The Gateway did not accept this Mac’s key. Open Settings, check the Gateway key, then try again.'
+    return 'The Gateway did not accept this Mac’s key. Open Settings, check the Gateway API Key, then try again.'
   }
   if (code === 'GATEWAY_UNREACHABLE') {
     return 'The Gateway is not answering. Open the Gateway app, then try again.'

@@ -70,8 +70,8 @@
           <button class="btn btn-secondary btn-sm" :disabled="busy === 'url'" @click="saveUrl">{{ busy === 'url' ? 'Saving…' : 'Save URL' }}</button>
         </div>
 
-        <label for="genstudio-key">Gateway key</label>
-        <p class="masked">Copy it from GatewayKH → Settings and paste it here.</p>
+        <label for="genstudio-key">Gateway API Key</label>
+        <p class="masked">Copy it from Gateway → Settings → Gateway API Key and paste it here.</p>
         <div class="field-row">
           <input id="genstudio-key" v-model="keyDraft" class="input" type="password" placeholder="gsk_…" autocomplete="off" spellcheck="false" />
           <button class="btn btn-primary btn-sm" :disabled="busy !== '' || !keyDraft.trim()" @click="saveKey">{{ busy === 'save' ? 'Saving…' : 'Save Key' }}</button>
@@ -195,7 +195,7 @@ async function saveKey(): Promise<void> {
   try {
     await put('/app-settings/api-keys/genstudio', { apiKey })
     keyDraft.value = ''
-    result.value = { kind: 'ok', message: 'Gateway key saved.' }
+    result.value = { kind: 'ok', message: 'Gateway API Key saved.' }
     // A failed re-read is not a failed save: it must not turn this into "Could not save the key."
     await load().catch(() => undefined)
     void refreshConnection()
@@ -234,11 +234,11 @@ async function testKey(): Promise<void> {
 }
 
 async function removeKey(): Promise<void> {
-  if (!await ask({ title: 'Remove the Gateway key?', message: 'Nothing can be generated until a Gateway key is saved again.', confirmLabel: 'Remove Key', danger: true })) return
+  if (!await ask({ title: 'Remove the Gateway API Key?', message: 'Nothing can be generated until a Gateway API Key is saved again.', confirmLabel: 'Remove Key', danger: true })) return
   busy.value = 'remove'; result.value = null
   try {
     await del('/app-settings/api-keys/genstudio')
-    result.value = { kind: 'ok', message: 'Gateway key removed.' }
+    result.value = { kind: 'ok', message: 'Gateway API Key removed.' }
     await load().catch(() => undefined)
   } catch (error: any) {
     result.value = { kind: 'err', message: error?.data?.detail || error?.message || 'Could not remove the key.' }

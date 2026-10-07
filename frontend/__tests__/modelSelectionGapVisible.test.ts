@@ -280,8 +280,8 @@ const catalogWithoutThePin = [
 describe('ModelSelector — a pinned model that left the catalogue', () => {
   test('distinguishes an empty catalogue caused by missing setup from a search miss', async () => {
     const { host, unmount } = await mountModelSelector('', [])
-    assert.match(String(menuProps.emptyCatalogLabel), /Add a Gateway key/)
-    assert.match(host.querySelector('.catalog-message')?.textContent || '', /No Gateway key is configured/)
+    assert.match(String(menuProps.emptyCatalogLabel), /Add a Gateway API Key/)
+    assert.match(host.querySelector('.catalog-message')?.textContent || '', /No Gateway API Key is configured/)
     assert.ok(host.querySelector('.catalog-action'), 'the setup message must offer a usable action')
     unmount()
   })

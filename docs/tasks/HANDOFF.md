@@ -1,5 +1,15 @@
 # HANDOFF — Story Studio KH
 
+## Current work — 2026-10-07 (1.4.260 remediation candidate)
+
+Candidate source builds on `3e1fb6bc` / 1.4.259. Audit loading repairs skip portable normalization no-ops, bound independent path requests and audio probes, coalesce same-file duration probes, reject stale episode/path results, and invalidate signed catalogue listings on nested file changes. Boot health requests have a real 15-second ceiling; updater headers/body have a 30-second inactivity and 15-minute total ceiling and keep retryable partials recoverable. Gateway manual update commands carry an additive request receipt, persisted together with the actual verified download attempt and reported across failure/rollback/restart. An old failure cannot acknowledge a fresh command.
+
+API key is now called Gateway API Key; the release signing key is now the App Update Key. Settings → This Mac names the connection credential; About → Updates shows the first 16 fingerprint characters and points to Gateway → Settings → App Update Key. Code identifiers and existing credential/signing fields remain unchanged.
+
+Source gates for this source revision pass. Lint, typecheck, changelog, typography, security, model-drift and release source checks exited 0. Backend completed 631/631 files and 6,319 tests (6,315 pass, 0 fail/cancelled, 4 skip); frontend completed 294/294 files and 2,472 tests (all pass); Content Packs completed 38/38 files and 368 tests (366 pass, 0 fail/cancelled, 2 skip). The full backend log also records the configured projects root byte-identical. Evidence and the remaining delivery state are in `/build/Developer/_orchestra/codex-remediation-20261007/story-delivery-receipt.json`.
+
+At source verification, UI and package validation were pending coordinator integration. The first retained baseline UI attempt is invalid because its synthetic profile had no configured Library and route middleware correctly redirected it to Welcome before Video Assembly mounted; the external seed/harness was corrected but had not been rerun. Current delivery status and exact commit, artifact and installation evidence are authoritative in `/build/Developer/_orchestra/codex-remediation-20261007/story-delivery-receipt.json`. At that checkpoint, the mini's read-only health check reported 1.4.259; the old pending-install note below is historical, not current evidence.
+
 ## Current work — 2026-10-07 (1.4.259 assembled)
 
 Source release **1.4.259** builds on `cb0ce422` / 1.4.258 (its approach kept: re-narrate → transcribe repaired chapters → one Audio Assembly → local stitch) and merges, `--no-ff` in this order: `fix/retry-restart-stuck` (auto-retry per owner policy, restart resumes writing steps/uploads, install waits for running jobs, Quit asks first, stale subtitles count as missing in recovery), `feat/self-contained-channels`, `fix/done-means-done`, `fix/youtube-and-storage`, `perf/next-tier` (S1–S15), `fix/ux-sweep` and `feat/remote-update`.
@@ -200,6 +210,6 @@ Each is an instruction, not advice.
 
 | What | Where it actually lives |
 |---|---|
-| Gateway / provider API key | The app's own secret store — **Settings → This Mac → API keys**; written to `app-secrets.json` under the app's `--user-data-dir` on the owner's machine. Ask the owner; he holds it. |
+| Gateway API Key | The app's own secret store — **Settings → This Mac → Gateway API Key**; written to `app-secrets.json` under the app's `--user-data-dir` on the owner's machine. Ask the owner; he holds it. |
 | YouTube credentials | The owner (connected through the app's own connection flow, never by hand here). |
 | Acceptance harness key | The mock gateway publishes its own fixture key (`MOCK_GENSTUDIO_FULL_KEY` in the test fixture). It is a test constant, not a secret. |

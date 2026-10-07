@@ -8,7 +8,7 @@
 
     <div v-if="open" class="gs-req-body">
       <p class="gs-req-note">
-        Exactly what Story Studio submitted, minus credentials — the API key and the
+        Exactly what Story Studio submitted, minus credentials — the Gateway API Key and the
         Authorization header are never captured.
       </p>
 

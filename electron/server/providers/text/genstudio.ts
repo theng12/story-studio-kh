@@ -20,7 +20,7 @@ const genstudioProvider: TextProvider = {
 
   async callText(request: TextGenerationRequest): Promise<string> {
     if (!request.apiKey) {
-      throw new Error('No Gateway key configured. Add one in Settings -> API Keys.')
+      throw new Error('No Gateway API Key configured. Add one in Settings → This Mac.')
     }
     if (request.images?.length) {
       throw new Error('The selected Gateway text model does not publish image-input support.')

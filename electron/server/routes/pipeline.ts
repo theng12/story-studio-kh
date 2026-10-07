@@ -1399,7 +1399,7 @@ async function resolvePipelineTranscriptionParams(
   if (params.method === 'script') return { method: 'script' }
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey.trim()) {
-    throw new Error('Transcription is not configured. Add an API key in Settings → This Mac → API Keys.')
+    throw new Error('Transcription is not configured. Add the Gateway API Key in Settings → This Mac.')
   }
   let models: Awaited<ReturnType<typeof listTranscriptionModels>>
   try {
@@ -1828,7 +1828,7 @@ function repairRequestError(request: ReturnType<typeof parseBatchRequest>): stri
 async function validatePipelinePoliciesAgainstCatalogue(policies: PipelineModelPolicies): Promise<string | null> {
   if (!Object.keys(policies).length) return null
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) return 'model_policies requires a configured Gateway key so each selected product can be checked before submission.'
+  if (!apiKey) return 'model_policies requires a configured Gateway API Key so each selected product can be checked before submission.'
   let catalogue
   try {
     catalogue = await listChatModels(apiKey)

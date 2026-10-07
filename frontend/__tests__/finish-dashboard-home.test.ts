@@ -15,7 +15,7 @@ const script = home.slice(home.indexOf('<script setup'), home.indexOf('<style sc
 // restore against a real backend.
 describe('channel list cards', () => {
   test('the key pill says what it knows, not "Ready"', () => {
-    assert.match(template, /project\.has_api_keys \? 'Key connected' : 'Needs Gateway key'/)
+    assert.match(template, /project\.has_api_keys \? 'Key connected' : 'Needs Gateway API Key'/)
     assert.doesNotMatch(template, /'Ready' : 'Setup needed'/)
   })
 
@@ -23,7 +23,7 @@ describe('channel list cards', () => {
     assert.match(script, /return !!project\.status && project\.status !== 'ready'/)
     assert.match(template, /v-if="isFolderUnreadable\(project\)"[\s\S]*Can't read this channel's folder/)
     // unreadable is tested before the key pill
-    assert.ok(template.indexOf('isFolderUnreadable(project)') < template.indexOf('Needs Gateway key'))
+    assert.ok(template.indexOf('isFolderUnreadable(project)') < template.indexOf('Needs Gateway API Key'))
     // and the server really does answer 'downloading' with has_api_keys false for it
     const manager = source('../../electron/server/services/project-manager.ts')
     assert.match(manager, /has_api_keys: false,[\s\S]{0,400}status: 'downloading'/)

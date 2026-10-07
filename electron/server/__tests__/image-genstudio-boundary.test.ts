@@ -19,7 +19,7 @@ const generationFiles = [
 test('every reachable Story image generator is pinned to the Gateway boundary', async () => {
   for (const relative of generationFiles) {
     const source = await fs.readFile(path.join(serverRoot, relative), 'utf8')
-    assert.match(source, /getApiKey\('genstudio'\)/, `${relative} must use the scoped Gateway key`)
+    assert.match(source, /getApiKey\('genstudio'\)/, `${relative} must use the scoped Gateway API Key`)
     assert.match(source, /getImageProvider\('genstudio-image'\)/, `${relative} must use the Gateway adapter`)
     assert.doesNotMatch(source, /resolveApiKeyForProvider|getHubBackend|renderImageBatchViaHub|runOnPool\s*\(/)
     assert.doesNotMatch(source, /getApiKey\(['"](?:kie|fal|openai|imagestudio)['"]\)/)

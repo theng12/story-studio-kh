@@ -14,7 +14,7 @@ describe('useApi authentication boundary', () => {
       error.status = 401
       error.data = {
         code: 'CONTENT_STORE_SCOPE_REQUIRED',
-        detail: 'The active Gateway key was not accepted for required content:read access.',
+        detail: 'The active Gateway API Key was not accepted for required content:read access.',
       }
       throw error
     }
@@ -31,7 +31,7 @@ describe('useApi authentication boundary', () => {
       error.status = 401
       error.data = {
         code: 'CONTENT_STORE_SCOPE_REQUIRED',
-        detail: 'The active Gateway key was not accepted for required content:read access.',
+        detail: 'The active Gateway API Key was not accepted for required content:read access.',
       }
       throw error
     }

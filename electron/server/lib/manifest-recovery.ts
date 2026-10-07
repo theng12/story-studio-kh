@@ -89,7 +89,7 @@ export async function tryRecoverImageFromManifestEntry(
   if (entry.provider !== 'genstudio-image' && entry.provider !== 'genstudio') {
     throw new Error('This image job comes from an older version of Story Studio. Generate the image again.')
   }
-  if (!apiKey) throw new Error('A Gateway key is required to reconnect to this image job.')
+  if (!apiKey) throw new Error('A Gateway API Key is required to reconnect to this image job.')
   // Cheapest possible check: we already recorded this job as terminal, so do not
   // spend a round-trip re-reading a 6-day-old failure.
   if (isTerminalGenStudioImageTaskFailure(entry)) {

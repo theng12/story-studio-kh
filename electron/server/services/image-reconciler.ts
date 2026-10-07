@@ -134,7 +134,7 @@ async function recoverOne(
       return {
         filename: expected.filename,
         status: 'error',
-        reason: 'The saved Gateway key is unavailable.',
+        reason: 'The saved Gateway API Key is unavailable.',
         task_id: entry.task_id,
       }
     }

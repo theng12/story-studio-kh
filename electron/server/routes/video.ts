@@ -1473,7 +1473,7 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
     const apiKey = await getApiKey('genstudio').catch(() => '')
     if (!apiKey.trim()) {
       return res.status(400).json({
-        detail: 'Transcription is not configured. Add an API key in Settings → This Mac → API Keys.',
+        detail: 'Transcription is not configured. Add the Gateway API Key in Settings → This Mac.',
       })
     }
     let models

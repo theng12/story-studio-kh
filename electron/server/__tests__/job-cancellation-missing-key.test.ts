@@ -33,7 +33,7 @@ import { sleep, waitFor } from './_timing.js'
 const RECONCILE_INTERVAL_MS = 5_000
 /** The packet requires at least three whole retry intervals. */
 const OBSERVED_INTERVALS = 3
-const WAITING_LINE = /Cancellation is waiting for the Gateway key/
+const WAITING_LINE = /Cancellation is waiting for the Gateway API Key/
 
 let cleanup: () => Promise<void>
 let tempDir: string
@@ -264,7 +264,7 @@ test('missing key: the primary cancellation control names the key, not just "Che
   const control = classifyJobControl(loaded, { remoteCancellationAudited: true })
   const copy = `${control.label} ${control.reason}`
 
-  assert.match(copy, /Gateway key/,
+  assert.match(copy, /Gateway API Key/,
     'the control the customer presses must say the key is missing, not only that something is being checked')
   assert.match(copy, /Settings/,
     'it must say where to fix it — the whole point of naming the cause')

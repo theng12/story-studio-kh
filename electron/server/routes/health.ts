@@ -112,7 +112,7 @@ router.get('/models', async (_req, res) => {
   // sentence the customer can act on; this endpoint was the only one in the file
   // that spelled "I don't know" as an empty list (AGENTS.md §6).
   if (!apiKey) {
-    return res.status(400).json({ detail: 'Add a Gateway key in Settings → This Mac.' })
+    return res.status(400).json({ detail: 'Add a Gateway API Key in Settings → This Mac.' })
   }
   try {
     const models = (await listGenStudioChatModels(apiKey)).map(model => ({

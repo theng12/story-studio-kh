@@ -365,7 +365,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
   if (!model) throw new Error('Choose a live Gateway model in Contextual Cues before proposing cues.')
 
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) throw new Error('Contextual Cues needs a configured Gateway key.')
+  if (!apiKey) throw new Error('Contextual Cues needs a configured Gateway API Key.')
   const cuesPolicy = pipelinePolicyForJob(job.params, 'contextual_cues')
   const cuesCheckpoint = pipelinePolicyCheckpointStore(job.params, () => checkpointJobState(job))
   const baseFingerprint = contextualCueProgressFingerprint(plan, settings)

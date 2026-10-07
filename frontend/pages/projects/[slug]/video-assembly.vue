@@ -5954,6 +5954,7 @@ function pickTitleImage(filePath: string) {
 async function collapseToPortablePath(input: string, adopt = false): Promise<string> {
   const raw = String(input || '').trim()
   if (!raw) return ''
+  if (!adopt && /^\$\{(?:CHANNEL|PROJECT|ASSET)\}(?:\/.*)?$/.test(raw)) return raw
   try {
     const r = await post<{ output: string }>(`/system/resolve-asset-path`, {
       path: raw,
@@ -5966,22 +5967,32 @@ async function collapseToPortablePath(input: string, adopt = false): Promise<str
   }
 }
 
+let pathNormalizationSequence = 0
 async function normalizeVideoAssemblyPathsInState(): Promise<void> {
-  if (intro.video_path) intro.video_path = await collapseToPortablePath(intro.video_path)
-  if (outro.video_path) outro.video_path = await collapseToPortablePath(outro.video_path)
-  if (titleImage.image_path) titleImage.image_path = await collapseToPortablePath(titleImage.image_path)
-  if (logo.image_path) logo.image_path = await collapseToPortablePath(logo.image_path)
-  if (chromaKey.source_path) chromaKey.source_path = await collapseToPortablePath(chromaKey.source_path)
-  if (frame.background_path) frame.background_path = await collapseToPortablePath(frame.background_path)
-  if (titleCard.background_media_path) titleCard.background_media_path = await collapseToPortablePath(titleCard.background_media_path)
-  if (outroCard.background_media_path) outroCard.background_media_path = await collapseToPortablePath(outroCard.background_media_path)
-  if (compilationLayout.backgroundPlate.source_path) {
-    compilationLayout.backgroundPlate.source_path = await collapseToPortablePath(compilationLayout.backgroundPlate.source_path)
-  }
-  for (const clip of timelineClips.value) {
-    if (clip.video_path) clip.video_path = await collapseToPortablePath(clip.video_path)
-    if (clip.image_path) clip.image_path = await collapseToPortablePath(clip.image_path)
-  }
+  const request = ++pathNormalizationSequence
+  const scope = videoEpisodeSequence
+  const project = slug.value
+  const episode = episodeId.value
+  const root = episodesRoot.value
+  const fields: Array<[Record<string, any>, string]> = [
+    [intro, 'video_path'], [outro, 'video_path'], [titleImage, 'image_path'], [logo, 'image_path'],
+    [chromaKey, 'source_path'], [frame, 'background_path'], [titleCard, 'background_media_path'],
+    [outroCard, 'background_media_path'], [compilationLayout.backgroundPlate, 'source_path'],
+    ...timelineClips.value.flatMap(clip => [[clip, 'video_path'], [clip, 'image_path']] as Array<[Record<string, any>, string]>),
+  ]
+  const snapshots = fields.map(([target, key]) => ({ target, key, original: target[key] }))
+  // Four independent path requests at a time; edits and newer episode/bundle loads win.
+  let cursor = 0
+  await Promise.all(Array.from({ length: Math.min(4, snapshots.length) }, async () => {
+    while (cursor < snapshots.length) {
+      const { target, key, original } = snapshots[cursor++]!
+      if (!original) continue
+      const normalized = await collapseToPortablePath(original)
+      if (request === pathNormalizationSequence && scope === videoEpisodeSequence
+        && project === slug.value && episode === episodeId.value && root === episodesRoot.value
+        && target[key] === original) target[key] = normalized
+    }
+  }))
 }
 
 // Asset scan + ffmpeg check + preset load/save were 150+ lines of orchestration
@@ -6420,6 +6431,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  pathNormalizationSequence++
   window.removeEventListener('keydown', handleWizardShortcut)
 })
 </script>

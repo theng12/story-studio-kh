@@ -115,14 +115,14 @@ function humanizeError(raw: string): string {
   // since the GenStudio-only migration no backend string names any of them —
   // every generation travels over one gateway and `hasAnyTextProviderKey()`
   // checks one key. So it now matches the messages the backend actually emits
-  // and states the one true thing: the missing key is the GenStudio API key.
+  // and states the one true thing: the missing connection key is the Gateway API Key.
   if (/\bNo\b[^.]{0,40}\bAPI key configured\b/i.test(s)) {
-    return 'Gateway key missing. Add it in Settings → This Mac.'
+    return 'Gateway API Key missing. Add it in Settings → This Mac.'
   }
 
   // Auth errors
   if (HTTP_401.test(s) || /invalid.*api[ _]?key|unauthori[sz]ed|invalid x-api-key|Incorrect API key/i.test(s)) {
-    return 'API key is invalid or expired. Check it in Settings → This Mac.'
+    return 'Gateway API Key is invalid or expired. Check it in Settings → This Mac.'
   }
 
   // Rate limits
