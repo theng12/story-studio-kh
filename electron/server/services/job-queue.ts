@@ -1909,11 +1909,13 @@ async function hydrateProjectBaseline(projectSlug: string, state: ProjectPersist
   if (!state.hydratePromise) {
     const p = jobsPath(projectSlug)
     state.hydratePromise = withLock(p, async () => {
-      assertWriteIsolatedInTests(p, 'job-queue')
-      if (jobFileLockProbeForTesting) await jobFileLockProbeForTesting('hydrate', p)
-      jobPersistenceCounters.project_snapshot_reads++
       let durable: Job[] = []
+      // Every failure clears the cached promise. A rejected one left behind (with no baseline)
+      // made _waitForJobPersistenceForTesting spin on it forever as a pure microtask loop.
       try {
+        assertWriteIsolatedInTests(p, 'job-queue')
+        if (jobFileLockProbeForTesting) await jobFileLockProbeForTesting('hydrate', p)
+        jobPersistenceCounters.project_snapshot_reads++
         if (existsSync(p)) {
           const parsed = JSON.parse(await fs.readFile(p, 'utf-8')) as { jobs?: unknown }
           if (!Array.isArray(parsed.jobs)) throw new Error('jobs.json does not contain a jobs array')
@@ -1932,6 +1934,10 @@ async function hydrateProjectBaseline(projectSlug: string, state: ProjectPersist
 async function drainProjectPersistence(projectSlug: string, state: ProjectPersistenceState): Promise<void> {
   let failedRevision = state.durableRevision
   let retryAfterFailure = false
+  // Yield first: a throw before the first await would run `finally` (state.writing = null) before
+  // startProjectPersistence stores this promise, leaving a settled `writing` that is never cleared,
+  // so this project's jobs.json would never be written again.
+  await Promise.resolve()
   try {
     while (state.dirty) {
       // S4: soft (progress) checkpoints alone wait until the last write is ≥1 s old, so a render's
