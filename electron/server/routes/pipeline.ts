@@ -1771,7 +1771,7 @@ router.get('/projects/:slug/pipeline/pending-approvals', async (req, res) => {
       // folder, so consolidated and not-yet-consolidated episodes both count.
       const namedDir = await resolveSceneImagesDir(slug, code, paths.episode_dir, facts).catch(() => '')
       const legacyDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
-      const listed = await Promise.all([namedDir, legacyDir].map(dir => dir ? fs.readdir(dir).catch(() => [] as string[]) : []))
+      const listed = await Promise.all([namedDir, legacyDir].map(dir => dir ? fs.readdir(dir).catch(() => [] as string[]) : Promise.resolve([] as string[])))
       const files = new Set(listed.flat())
       const withImage = scenes.filter(s => files.has(`${s.id}.png`)).length
       if (withImage === 0) return null              // nothing rendered yet — can't approve
