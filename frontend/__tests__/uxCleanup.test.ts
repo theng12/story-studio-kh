@@ -27,7 +27,7 @@ describe('focused workspace UX', () => {
   })
 
   test('the full project-aware workflow remains directly visible in the sidebar', () => {
-    for (const label of ['Dashboard', 'Ideas Generator', 'Pipeline', 'Production Board', 'YouTube Upload', 'Project Jobs', 'All Jobs', 'Settings', 'All Projects']) {
+    for (const label of ['Dashboard', 'Ideas Generator', 'Pipeline', 'Production Board', 'YouTube Upload', 'Jobs', 'All Jobs', 'Settings', 'All Channels']) {
       assert.ok(dashboard.includes(label), `missing primary destination: ${label}`)
     }
     assert.match(dashboard, /<span class="nav-section-label">Workflow<\/span>/)
