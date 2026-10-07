@@ -271,8 +271,25 @@ export interface FFmpegStatus {
   hw_encoders: { h264: boolean; h265: boolean }
 }
 
+// S13: three ffmpeg spawns per project open. The answer is a fact of the binary, so it is kept per
+// resolved path + size + mtime: an install, update or switch to another binary misses it. A
+// not-installed answer is never kept, so a binary that appears later is seen on the next call.
+let statusMemo: { key: string; status: Promise<FFmpegStatus> } | null = null
+
 export async function getFFmpegStatus(): Promise<FFmpegStatus> {
   const ffmpegBin = await getFFmpegPath()
+  const info = await fs.stat(ffmpegBin).catch(() => null)
+  const key = info ? `${ffmpegBin}\u0000${info.size}\u0000${info.mtimeMs}` : null
+  if (key && statusMemo?.key === key) return structuredClone(await statusMemo.status)
+  const status = probeFFmpegStatus(ffmpegBin)
+  if (key) {
+    statusMemo = { key, status }
+    void status.then(result => { if (!result.installed && statusMemo?.status === status) statusMemo = null }, () => { statusMemo = null })
+  }
+  return structuredClone(await status)
+}
+
+async function probeFFmpegStatus(ffmpegBin: string): Promise<FFmpegStatus> {
   const result: FFmpegStatus = {
     installed: false,
     source: 'not-found',
@@ -899,4 +916,5 @@ async function downloadBinary(
 export function clearFFmpegCache(): void {
   _ffmpegPath = null
   _ffprobePath = null
+  statusMemo = null
 }
