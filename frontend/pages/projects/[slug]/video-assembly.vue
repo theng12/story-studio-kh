@@ -6764,7 +6764,7 @@ onUnmounted(() => {
 .pos-cell.active .pos-dot { background: var(--accent); }
 
 /* Summary bar */
-.summary-bar { padding: 10px 14px; background: var(--accent-dim); border-radius: var(--radius-sm); font-size: 13px; color: var(--accent); font-weight: 500; border: 1px solid rgba(240, 198, 116, 0.2); }
+.summary-bar { padding: 10px 14px; background: var(--accent-dim); border-radius: var(--radius-sm); font-size: 13px; color: var(--accent); font-weight: 500; border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent); }
 
 /* Collapsible sections */
 .collapsible { border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; }
@@ -6998,8 +6998,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background: rgba(240, 198, 116, 0.05);
-  border-left: 3px solid rgba(240, 198, 116, 0.55);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 55%, transparent);
 }
 .preset-path-check.is-critical {
   background: rgba(226, 92, 92, 0.06);

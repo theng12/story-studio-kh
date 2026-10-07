@@ -2446,7 +2446,7 @@ onMounted(() => { setTimeout(() => { pageReadyForAutoIntro.value = true }, 1500)
 /* Primary-field highlight: shows the user which input is driving the calculation */
 .is-primary .input {
   border-color: var(--accent);
-  box-shadow: 0 0 0 1px rgba(240, 198, 116, 0.25);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
 }
 .primary-badge {
   font-size: var(--font-xs);

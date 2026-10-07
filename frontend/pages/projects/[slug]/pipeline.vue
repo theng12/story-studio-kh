@@ -3149,7 +3149,7 @@ async function submit() {
    whole-episode mark-done). Subtle yellow ring distinguishes "manual" from
    "file-detected" without losing the green/grey done/missing distinction. */
 .ep-pill.manual {
-  outline: 1px solid rgba(240, 198, 116, 0.6);
+  outline: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
   outline-offset: 1px;
 }
 

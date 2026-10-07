@@ -5231,7 +5231,7 @@ async function deleteProject() {
   transition: border-color 0.15s;
 }
 .niche-lib-tile.tile-builtin { border-left-color: var(--accent, #6c8fff); }
-.niche-lib-tile.tile-custom { border-left-color: rgba(240, 198, 116, 0.85); }
+.niche-lib-tile.tile-custom { border-left-color: color-mix(in srgb, var(--accent) 85%, transparent); }
 .niche-lib-tile.tile-active {
   background: rgba(108, 143, 255, 0.06);
   border-color: var(--accent, #6c8fff);
@@ -5255,7 +5255,7 @@ async function deleteProject() {
   letter-spacing: 0.04em;
 }
 .niche-lib-tile .badge-builtin { background: rgba(108, 143, 255, 0.12); color: var(--accent, #6c8fff); }
-.niche-lib-tile .badge-custom { background: rgba(240, 198, 116, 0.14); color: rgba(240, 198, 116, 0.95); }
+.niche-lib-tile .badge-custom { background: color-mix(in srgb, var(--accent) 14%, transparent); color: color-mix(in srgb, var(--accent) 95%, transparent); }
 .niche-lib-tile .badge-active { background: rgba(108, 143, 255, 0.20); color: var(--accent, #6c8fff); font-weight: 500; }
 .niche-lib-tile .tile-tagline {
   margin: 0;

@@ -3265,7 +3265,7 @@ async function confirmCompact() {
   padding: 16px;
   overflow: visible;
   background:
-    radial-gradient(circle at 92% 0%, rgba(240, 198, 116, 0.08), transparent 30%),
+    radial-gradient(circle at 92% 0%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 30%),
     var(--bg-secondary);
 }
 .generator-title { margin: 0 0 12px; font-size: 18px; }
@@ -3721,7 +3721,7 @@ async function confirmCompact() {
   transition: border-color 0.12s, background 0.12s;
 }
 .code-option:hover { border-color: var(--accent); }
-.code-option.active { border-color: var(--accent); background: rgba(240, 198, 116, 0.06); }
+.code-option.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .code-option input { margin-right: 2px; cursor: pointer; }
 .code-option strong { color: var(--text-primary); }
 .code-hint { color: var(--text-muted); font-size: var(--font-xs); }
@@ -3744,7 +3744,7 @@ async function confirmCompact() {
 .asset-name { flex: 1; color: var(--text-secondary); }
 .asset-count {
   font-size: var(--font-xs); color: var(--accent);
-  background: rgba(240, 198, 116, 0.12);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
   padding: 0 6px; border-radius: 999px;
 }
 .import-info {
@@ -3778,7 +3778,7 @@ async function confirmCompact() {
 .import-mode-option:hover { border-color: var(--accent); }
 .import-mode-option.active {
   border-color: var(--accent);
-  background: rgba(240, 198, 116, 0.08);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 .import-mode-option input { grid-row: span 2; align-self: center; }
 .import-mode-label { font-size: 13px; font-weight: 600; }
@@ -3839,7 +3839,7 @@ async function confirmCompact() {
   font-size: 12px; font-weight: 600;
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(240, 198, 116, 0.18);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
   color: var(--accent);
 }
 .bulk-bar-enter-active, .bulk-bar-leave-active {
@@ -4190,9 +4190,9 @@ async function confirmCompact() {
 .hydration-banner {
   margin-top: 12px;
   padding: 10px 14px;
-  background: rgba(240, 198, 116, 0.08);
-  border: 1px solid rgba(240, 198, 116, 0.30);
-  border-left: 3px solid rgba(240, 198, 116, 0.80);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 80%, transparent);
   border-radius: var(--radius-sm, 4px);
   font-size: 13px;
   line-height: 1.5;
@@ -4239,8 +4239,8 @@ async function confirmCompact() {
   gap: 6px;
 }
 .effective-state-card.has-warning {
-  border-left-color: rgba(240, 198, 116, 0.85);
-  background: rgba(240, 198, 116, 0.04);
+  border-left-color: color-mix(in srgb, var(--accent) 85%, transparent);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
 }
 .effective-row {
   display: flex;
@@ -4273,9 +4273,9 @@ async function confirmCompact() {
 .effective-fallback-tag,
 .effective-override-tag {
   font-size: var(--font-xs);
-  color: rgba(240, 198, 116, 0.95);
+  color: color-mix(in srgb, var(--accent) 95%, transparent);
   padding: 1px 8px;
-  background: rgba(240, 198, 116, 0.10);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
   border-radius: 999px;
 }
 .effective-override-tag {
@@ -4330,9 +4330,9 @@ async function confirmCompact() {
 .context-detail-hint { margin: 0 0 0 74px; line-height: 1.4; }
 .context-override-tag {
   font-size: var(--font-xs);
-  color: rgba(240, 198, 116, 0.95);
+  color: color-mix(in srgb, var(--accent) 95%, transparent);
   padding: 1px 8px;
-  background: rgba(240, 198, 116, 0.10);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
   border-radius: 999px;
 }
 .context-override-tag { color: var(--accent, #6c8fff); background: rgba(108, 143, 255, 0.10); }
