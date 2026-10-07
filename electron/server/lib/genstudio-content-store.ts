@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 
+import { STORY_CALLER } from './machine-name.js'
 import { getGenStudioUrl } from '../services/app-settings.js'
 export { resolveStoryStudioVersion } from './app-version.js'
 
@@ -1401,6 +1402,7 @@ async function requestOnce<T>(options: RequestOptions<T>): Promise<T> {
   const headers: Record<string, string> = {
     Accept: 'application/json',
     Authorization: `Bearer ${options.apiKey}`,
+    'X-Caller': STORY_CALLER,
   }
   if (options.body !== undefined) headers['Content-Type'] = 'application/json'
   if (options.idempotencyKey !== undefined) headers['Idempotency-Key'] = options.idempotencyKey

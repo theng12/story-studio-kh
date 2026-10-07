@@ -13,6 +13,8 @@
   <!-- v1.0.77 — What's New modal. Auto-shows once per upgrade; can also
        be opened manually from the sidebar version badge or Help menu. -->
   <WhatsNewModal />
+  <!-- Remote update ready / draining / installing (services/app-update.ts). -->
+  <AppUpdateBanner />
 </template>
 
 <script setup lang="ts">
