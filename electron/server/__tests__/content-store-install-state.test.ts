@@ -4,12 +4,12 @@ import { afterEach, describe, test } from 'node:test'
 
 import JSZip from 'jszip'
 
-import { installContentPack } from '../content-packs/installer.js'
+import { forgetVerifiedContentPackVersions, installContentPack, verifyInstalledContentPackVersion } from '../content-packs/installer.js'
 import { uninstallContentPackVersion } from '../content-packs/lifecycle.js'
 import { createContentPackKeyring } from '../content-packs/keyring.js'
 import { listCatalogEntries } from '../content-packs/registry.js'
 import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
-import { mutateContentPackState } from '../content-packs/state.js'
+import { mutateContentPackState, readContentPackState } from '../content-packs/state.js'
 import { recordVerifiedContentRestore, resolveVerifiedContentStoreSigningKey } from '../content-store/commerce-state.js'
 import { canonicalizeContentStoreObject } from '../lib/genstudio-content-store.js'
 import { resolveContentStoreInstallSnapshot } from '../services/content-store-install-state.js'
@@ -200,5 +200,34 @@ describe('Content Store installed-library lifecycle matrix', () => {
     await new Promise(resolve => setTimeout(resolve, 20)); assert.equal(resolved, false)
     releaseRemoval(); await removal
     assert.deepEqual((await overview).installed, [])
+  })
+})
+
+describe('Store-attested verification memo is keyed on the resolved signing key', () => {
+  test('an unchanged key reuses the memo with no time limit; a rotated key misses it at once', async (t) => {
+    const paths = await isolated()
+    const packId = 'com.storystudio.matrix.memo-key'
+    const installed = await storeInstall(paths, packId, '1.0.0')
+    const record = (await readContentPackState(paths)).packs[packId]!.versions[installed.version]!
+    let key = commercePublicKey
+    let calls = 0
+    const resolver = async () => { calls += 1; return key }
+
+    forgetVerifiedContentPackVersions()
+    const first = await verifyInstalledContentPackVersion(record, policy, resolver)
+    // Past the old 60 s TTL: the same key must still hit (no re-hash of every pack once a minute).
+    t.mock.timers.enable({ apis: ['Date'], now: Date.now() + 10 * 60_000 })
+    const second = await verifyInstalledContentPackVersion(record, policy, resolver)
+    t.mock.timers.reset()
+    assert.equal(second, first, 'same resolved key + same tree must reuse the verification')
+    assert.ok(calls >= 2, 'the key is resolved on every check, so rotation is seen immediately')
+
+    // Rotated/revoked: a different key misses the memo and fails verification.
+    key = publicKeyBase64(generateKeyPairSync('ed25519'))
+    await assert.rejects(verifyInstalledContentPackVersion(record, policy, resolver))
+    // A resolver that throws (revoked) never serves the memo either.
+    key = commercePublicKey
+    await verifyInstalledContentPackVersion(record, policy, resolver)
+    await assert.rejects(verifyInstalledContentPackVersion(record, policy, async () => { throw new Error('revoked') }), /revoked/)
   })
 })

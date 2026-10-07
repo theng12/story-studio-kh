@@ -252,29 +252,8 @@ function nodeKey(packId: string, version: string): string {
  * the full verification. It is per-process and never persisted, so a restart
  * re-verifies from scratch, as does boot recovery.
  */
-const verifiedVersionMemo = new Map<string, { fingerprint: string; verified: VerifiedContentPack; at: number }>()
+const verifiedVersionMemo = new Map<string, { fingerprint: string; verified: VerifiedContentPack }>()
 
-/**
- * How long a verification made through a KEY RESOLVER is trusted.
- *
- * `verificationIdentity` returns `'resolver'` for a resolver-backed policy
- * because a closure's behaviour cannot be inspected, and that used to set the
- * whole fingerprint to `null` — disabling the memo outright. Story Studio
- * always runs resolver-backed (the Content Store key anchor), so the memo never
- * applied in production and EVERY catalogue request re-read and re-hashed all
- * 115 installed packs from disk. Measured on the owner's library: `GET /niches`
- * median **10.9 s**, `/visual-styles` 12.9 s, `/topic-packs` 12.4 s, all while
- * idle — 2017 requests over 3 s in four days of logs.
- *
- * The memo is now allowed for resolver-backed verification, bounded by this
- * TTL. What still protects the result is the FINGERPRINT, which covers every
- * file's size, mtime and mode — so an install, uninstall, replacement,
- * truncation or permission change misses the memo immediately, resolver or not.
- * The single thing the TTL bounds is a ROTATED OR REVOKED SIGNING KEY: a pack
- * verified under the old key stays trusted for at most this long. That is the
- * deliberate trade, and it is why the window is short rather than indefinite.
- */
-const RESOLVER_VERIFICATION_TTL_MS = 60_000
 
 /** Every path under a version root with its size, mtime and mode, hashed. */
 async function installedTreeFingerprint(installPath: string): Promise<string> {
@@ -299,22 +278,36 @@ async function installedTreeFingerprint(installPath: string): Promise<string> {
 }
 
 /**
- * The policy and the signing-key resolver are part of the answer, so they are
- * part of the key. A different keyring may legitimately reach a different
- * verdict about the same archive.
+ * The policy and the signing key are part of the answer, so they are part of
+ * the key. A different keyring may legitimately reach a different verdict about
+ * the same archive.
+ *
+ * A Store-attested pack verified through a resolver is keyed on the key the
+ * resolver returns NOW, so a rotated or revoked key misses the memo at once.
+ * (Until 1.4.258 a resolver set a 60 s TTL instead, which re-hashed every
+ * installed pack once a minute: 2–4 min Video Assembly catalogues on the mini.)
+ * Returns null when the key cannot be resolved; the full path then fails loudly.
  */
-function verificationIdentity(
+async function verificationIdentity(
+  installed: Pick<ContentPackInstalledVersion, 'source' | 'delivery_attestation'>,
   policy: ContentPackVerificationPolicy,
   resolveSigningKey?: ContentPackInstallOptions['resolveGenStudioSigningKey'],
-): string {
+): Promise<string | null> {
   const publishers = [...policy.publisherKeys.entries()]
     .map(([id, key]) => `${id}\u0000${key.publisherId}\u0000${key.publicKeyPem}`)
     .sort()
     .join('\n')
   const limits = JSON.stringify(policy.limits ?? {})
-  // A resolver is a closure whose behaviour we cannot inspect, so its presence
-  // disables the memo rather than being assumed stable.
-  return resolveSigningKey ? 'resolver' : sha256(Buffer.from(`${publishers}\n${limits}`, 'utf8'))
+  let signingKey = ''
+  // model-drift-allow: Frozen Content Store source discriminator selects receipt-attested archive verification.
+  if (resolveSigningKey && installed.source === 'genstudio-store') {
+    try {
+      signingKey = await resolveSigningKey(ContentPackDeliveryAttestationSchema.parse(installed.delivery_attestation))
+    } catch {
+      return null
+    }
+  }
+  return sha256(Buffer.from(`${publishers}\n${limits}\n${signingKey}`, 'utf8'))
 }
 
 /**
@@ -356,16 +349,11 @@ export async function verifyInstalledContentPackVersion(
     throw unusableVersion('missing-on-disk', 'Content Pack immutable version is missing on disk',
       `version directory is absent: ${installed.install_path}`, identity)
   }
-  const verificationKey = verificationIdentity(policy, resolveSigningKey)
-  // `'resolver'` is a STABLE string, so it belongs in the fingerprint rather than
-  // nulling it. A resolver-backed result is additionally bounded by the TTL above.
-  const resolverBased = verificationKey === 'resolver'
-  const fingerprint = `${installed.archive_sha256}\u0000${verificationKey}\u0000${await installedTreeFingerprint(installed.install_path)}`
+  const verificationKey = await verificationIdentity(installed, policy, resolveSigningKey)
+  const fingerprint = verificationKey === null ? null
+    : `${installed.archive_sha256}\u0000${verificationKey}\u0000${await installedTreeFingerprint(installed.install_path)}`
   const remembered = verifiedVersionMemo.get(installed.install_path)
-  if (remembered && remembered.fingerprint === fingerprint
-    && (!resolverBased || Date.now() - remembered.at < RESOLVER_VERIFICATION_TTL_MS)) {
-    return remembered.verified
-  }
+  if (fingerprint !== null && remembered && remembered.fingerprint === fingerprint) return remembered.verified
   const archivePath = resolveVerifiedPackFile(installed.install_path, 'content/archive.sspack')
   const archiveBytes = await fs.readFile(archivePath)
   if (sha256(archiveBytes) !== installed.archive_sha256) {
@@ -384,7 +372,7 @@ export async function verifyInstalledContentPackVersion(
         `at ${target}`, identity)
     }
   }
-  verifiedVersionMemo.set(installed.install_path, { fingerprint, verified, at: Date.now() })
+  if (fingerprint !== null) verifiedVersionMemo.set(installed.install_path, { fingerprint, verified })
   return verified
 }
 
