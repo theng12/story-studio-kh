@@ -50,13 +50,13 @@ function plistVersion(app: string): string {
     path.join(app, 'Contents', 'Info.plist')]).toString().trim()
 }
 
-function fakeQueue(running = 0, paused = false) {
+function fakeQueue(running = 0, paused = false, queued = 0) {
   const q = {
-    paused, runningCount: running, calls: [] as boolean[],
+    paused, runningCount: running, queued, pausedJobs: 0, calls: [] as boolean[],
     isPaused: () => q.paused,
     setPaused: async (p: boolean) => { q.calls.push(p); q.paused = p },
     running: () => q.runningCount,
-    summary: () => ({ running: q.runningCount, queued: 3, paused: 0 }),
+    summary: () => ({ running: q.runningCount, queued: q.queued, paused: q.pausedJobs }),
   }
   return q
 }
@@ -120,7 +120,7 @@ describe('signature', () => {
 })
 
 describe('download, stage, drain and resume', () => {
-  test('a newer release is downloaded, checked, staged without quarantine, then drained', async () => {
+  test('a newer release is downloaded, checked, staged without quarantine, then waits for the queue without pausing it', async () => {
     const src = fs.mkdtempSync(path.join(tmp.dir, 'src-'))
     makeApp(src, '1.4.258')
     const zip = path.join(tmp.dir, 'Story Studio KH 1.4.258.zip')
@@ -137,14 +137,13 @@ describe('download, stage, drain and resume', () => {
     await updater.handleOffer({ release, publisher: { public_key_base64: PUB } })
     const state = updater.readState()
     assert.equal(settings.trusted_publisher_key, PUB)
-    assert.equal(state.phase, 'draining')
+    assert.equal(state.phase, 'ready', 'two jobs run: an automatic install waits')
     assert.equal(plistVersion(state.staged_app!), '1.4.258')
     // A file this process wrote carries no quarantine attribute (the reason no `xattr -d` is needed).
     const downloaded = path.join(updater.updateDir(), 'staging', '1.4.258', release.filename)
     assert.throws(() => execFileSync('/usr/bin/xattr', ['-p', 'com.apple.quarantine', downloaded], { stdio: 'pipe' }))
-    // The queue was paused by the updater, and it is the updater's to resume.
-    assert.deepEqual(queue.calls, [true])
-    assert.equal(state.we_paused, true)
+    assert.deepEqual(queue.calls, [], 'an automatic install never pauses the queue')
+    assert.ok(!state.we_paused)
   })
 
   test('a download that is not fully available yet is "not ready": nothing is failed, the next check retries', async () => {
@@ -246,7 +245,7 @@ describe('download, stage, drain and resume', () => {
   }
 
   test('an owner Resume during the drain wins: the update waits for Install Now', async () => {
-    ready()
+    ready({ install_requested: true })
     const queue = fakeQueue(1)
     updater._configureForTesting(options(queue))
     await updater.maybeInstall()
@@ -262,7 +261,7 @@ describe('download, stage, drain and resume', () => {
   })
 
   test('a queue the owner had already paused is drained but never resumed by the updater', async () => {
-    ready()
+    ready({ install_requested: true })
     const queue = fakeQueue(1, true)
     updater._configureForTesting(options(queue))
     await updater.maybeInstall()
@@ -270,16 +269,128 @@ describe('download, stage, drain and resume', () => {
     assert.deepEqual(queue.calls, [])
   })
 
-  test('the idle window waits while anything runs; auto-install off waits for Install Now', async () => {
+  test('auto-install off waits for Install Now, even with an empty queue', async () => {
     ready()
-    settings.install_window = 'idle'
-    updater._configureForTesting(options(fakeQueue(1)))
-    await updater.maybeInstall()
-    assert.equal(updater.readState().phase, 'ready')
-    settings.install_window = 'drain'
     settings.auto_install = false
+    updater._configureForTesting(options(fakeQueue(), { idleSettleMs: 0 }))
+    await updater.maybeInstall()
     await updater.maybeInstall()
     assert.equal(updater.readState().phase, 'ready')
+  })
+})
+
+describe('install when the queue is empty (owner, 2026-10-08)', () => {
+  function ready() {
+    const target = makeApp(path.join(tmp.dir, 'Applications'), '1.4.257')
+    const staged = makeApp(fs.mkdtempSync(path.join(tmp.dir, 'staged-')), '1.4.258')
+    updater.writeState({ phase: 'ready', release: signed(), staged_app: staged })
+    return target
+  }
+  /**
+   * The real helper, against a temp target, with a stand-in pid and a relaunch that reports
+   * healthy. Time is the test's: `clock.t` is what the updater reads, each `maybeInstall()` call
+   * stands for one 30-second recheck, and the timer's own recheck is pushed out of the way.
+   */
+  const clock = { t: 0 }
+  function wired(queue: ReturnType<typeof fakeQueue>, extra: Partial<updater.UpdaterOptions> = {}) {
+    const quitter = spawn('/bin/sleep', ['1'])
+    const state = path.join(updater.updateDir(), 'state.json')
+    clock.t = 1_000_000
+    updater._configureForTesting(options(queue, {
+      idlePollMs: 3_600_000, idleSettleMs: updater.IDLE_SETTLE_MS, now: () => clock.t,
+      relaunchCommand: `printf '{"phase":"installed","release":{"version":"1.4.258"}}' > ${JSON.stringify(state)}`,
+      helperEnv: { SU_PID: String(quitter.pid), SU_HEALTH_SECONDS: '5' },
+      ...extra,
+    }))
+  }
+  const recheck = async (advanceMs: number) => { clock.t += advanceMs; await updater.maybeInstall() }
+
+  test('waits, pausing nothing, while a job runs or is queued; installs once the queue stays empty', async () => {
+    const target = ready()
+    const queue = fakeQueue(1)
+    wired(queue)
+    await recheck(0)
+    await recheck(10 * 60_000)
+    assert.equal(updater.readState().phase, 'ready', 'a running job keeps it waiting, with no time limit')
+    assert.equal((await updater.status()).jobs_left, 1)
+    queue.runningCount = 0; queue.queued = 2
+    await recheck(10 * 60_000)
+    assert.equal(updater.readState().phase, 'ready', 'queued jobs keep it waiting')
+    assert.deepEqual(queue.calls, [], 'nothing was paused')
+    queue.queued = 0
+    await recheck(30_000) // the first empty look
+    assert.equal(updater.readState().phase, 'ready', 'empty for a moment is not yet idle')
+    await recheck(updater.IDLE_SETTLE_MS) // still empty a minute later: install
+    assert.equal(updater.readState().phase, 'installing')
+    const result = path.join(updater.updateDir(), 'helper-result.json')
+    await waitFor(() => fs.existsSync(result), { label: 'the helper result' })
+    assert.equal(JSON.parse(fs.readFileSync(result, 'utf8')).outcome, 'installed')
+    assert.equal(plistVersion(target), '1.4.258')
+    assert.deepEqual(queue.calls, [], 'still nothing paused')
+  })
+
+  test('a job that arrives while the queue settles restarts the wait', async () => {
+    ready()
+    const queue = fakeQueue()
+    wired(queue)
+    await recheck(0) // empty
+    queue.queued = 1 // the next pipeline step lands in the gap
+    await recheck(30_000)
+    queue.queued = 0
+    await recheck(30_000) // empty again: the minute starts over here
+    await recheck(30_000) // 90 s since the first empty look, 30 s since the last busy one
+    assert.equal(updater.readState().phase, 'ready')
+    await recheck(30_000)
+    assert.equal(updater.readState().phase, 'installing')
+    const result = path.join(updater.updateDir(), 'helper-result.json')
+    await waitFor(() => fs.existsSync(result), { label: 'the helper result' })
+  })
+
+  test('the race: a job that sneaks in right before the swap stops it; nothing is spawned', async () => {
+    ready()
+    const queue = fakeQueue(0, false, 1)
+    wired(queue)
+    assert.equal(await updater.install('idle'), false)
+    const state = updater.readState()
+    assert.equal(state.phase, 'ready')
+    assert.equal(fs.existsSync(path.join(updater.updateDir(), 'swap-app.sh')), false)
+    assert.equal(updater.isQuittingForUpdate(), false)
+  })
+
+  test('a queue the owner paused with jobs still in it keeps the update waiting, and says so', async () => {
+    ready()
+    const queue = fakeQueue(0, true, 2)
+    queue.pausedJobs = 1
+    wired(queue)
+    await recheck(0)
+    await recheck(24 * 60 * 60_000)
+    assert.equal(updater.readState().phase, 'ready')
+    assert.deepEqual(queue.calls, [])
+    const status = await updater.status()
+    assert.equal(status.jobs_left, 3)
+    assert.equal(status.queue_paused, true)
+  })
+
+  test('Install Now drains: pause the queue, wait for running jobs, install', async () => {
+    ready()
+    const queue = fakeQueue(1, false, 4)
+    wired(queue)
+    await updater.installNow()
+    assert.equal(updater.readState().phase, 'draining')
+    assert.deepEqual(queue.calls, [true])
+    queue.runningCount = 0 // queued jobs stay queued (held) and resume after the restart
+    await waitFor(() => updater.readState().phase === 'installing', { label: 'the drained install', timeoutMs: 15_000 })
+    const result = path.join(updater.updateDir(), 'helper-result.json')
+    await waitFor(() => fs.existsSync(result), { label: 'the helper result' })
+  })
+
+  test('housekeeping never counts: it is not a queue job, and finished history is not work', async () => {
+    const { JOB_TYPES } = await import('../models/types.js')
+    // The YouTube status sync, digests, the recovery recheck and quota rechecks run on timers. If a
+    // job type for one of them is ever added, jobsLeft() must learn to leave it out.
+    assert.deepEqual(JOB_TYPES.filter(t => /sync|digest|recover|recheck|housekeep|schedul|status/.test(t)), [])
+    assert.equal(updater.jobsLeft({ ...fakeQueue(), summary: () => ({ running: 0, queued: 0, paused: 0 }) }), 0)
+    assert.equal(updater.jobsLeft({ ...fakeQueue(), summary: () => ({ running: 1, queued: 2, paused: 3 }) }), 6)
   })
 })
 
@@ -404,20 +515,21 @@ describe('swap helper (temp dir)', () => {
     return {
       target, staged, state,
       env: {
-        SU_PID: String(quitter.pid), SU_TARGET: target, SU_STAGED: staged, SU_TRASH: path.join(tmp.dir, '_trash', 'app'),
+        SU_PID: String(quitter.pid), SU_TARGET: target, SU_STAGED: staged, SU_TRASH: updater.appTrashDir(),
         SU_STATE: state, SU_RESULT: path.join(tmp.dir, 'result.json'), SU_LOG: path.join(tmp.dir, 'helper.log'),
         SU_VERSION: '1.4.258', SU_OLD_VERSION: '1.4.257', SU_LABEL: 'test.never.loaded', SU_HEALTH_SECONDS: '3',
       },
     }
   }
 
-  test('waits for the app to quit, keeps the old app in _trash, swaps, relaunches, sees it healthy', async () => {
+  test('waits for the app to quit, keeps the old app in the Trash Folder, swaps, relaunches, sees it healthy', async () => {
     const l = layout()
     // The "relaunched app" reports healthy the way the real one does: by writing its state file.
     const relaunch = `printf '{"phase":"installed","release":{"version":"1.4.258"}}' > ${JSON.stringify(l.state)}`
     await runHelper({ ...l.env, SU_RELAUNCH: relaunch })
     assert.equal(plistVersion(l.target), '1.4.258')
-    assert.equal(plistVersion(path.join(tmp.dir, '_trash', 'app', 'Story Studio KH.app-1.4.257')), '1.4.257')
+    assert.equal(plistVersion(path.join(updater.appTrashDir(), 'Story Studio KH.app-1.4.257')), '1.4.257')
+    assert.equal(fs.existsSync(updater.trashDir()), false, 'the owner\'s _trash is not used')
     assert.equal(JSON.parse(fs.readFileSync(l.env.SU_RESULT, 'utf8')).outcome, 'installed')
     assert.equal(fs.existsSync(l.staged), false)
   })
@@ -426,13 +538,64 @@ describe('swap helper (temp dir)', () => {
     const l = layout()
     await runHelper({ ...l.env, SU_RELAUNCH: `echo relaunch "$1" >> ${JSON.stringify(path.join(tmp.dir, 'relaunches'))}` })
     assert.equal(plistVersion(l.target), '1.4.257')
-    const trash = fs.readdirSync(path.join(tmp.dir, '_trash', 'app'))
+    const trash = fs.readdirSync(updater.appTrashDir())
     assert.ok(trash.some(n => n.startsWith('Story Studio KH.app-1.4.258-failed-')), trash.join(','))
     assert.equal(JSON.parse(fs.readFileSync(l.env.SU_RESULT, 'utf8')).outcome, 'rolled_back')
     // The relaunch command runs in the background; give the second one a moment to land.
     const relaunches = () => fs.readFileSync(path.join(tmp.dir, 'relaunches'), 'utf8').trim().split('\n').length
     await waitFor(() => relaunches() >= 2, { label: 'the second relaunch' })
     assert.equal(relaunches(), 2)
+  })
+
+  test('a Trash Folder on another volume is never copied into: the old app waits beside the target', async () => {
+    // A small disk image stands in for a data folder on another drive than /Applications.
+    const image = path.join(tmp.dir, 'other.dmg')
+    const mount = path.join(tmp.dir, 'other-volume')
+    fs.mkdirSync(mount)
+    execFileSync('/usr/bin/hdiutil', ['create', '-quiet', '-size', '4m', '-fs', 'HFS+', '-volname', 'other', image])
+    execFileSync('/usr/bin/hdiutil', ['attach', '-quiet', '-nobrowse', '-noautoopen', '-mountpoint', mount, image])
+    try {
+      const trash = path.join(mount, 'Trash Folder', '2026-10-08', 'app')
+      const apps = path.join(tmp.dir, 'Applications')
+      // Healthy: the previous app waited beside the target and is then removed; nothing crossed over.
+      let l = layout()
+      const healthy = `printf '{"phase":"installed","release":{"version":"1.4.258"}}' > ${JSON.stringify(l.state)}`
+      await runHelper({ ...l.env, SU_TRASH: trash, SU_RELAUNCH: healthy })
+      assert.equal(JSON.parse(fs.readFileSync(l.env.SU_RESULT, 'utf8')).outcome, 'installed')
+      assert.equal(plistVersion(l.target), '1.4.258')
+      assert.deepEqual(fs.readdirSync(apps), ['Story Studio KH.app'])
+      assert.deepEqual(fs.readdirSync(trash), [])
+      // Never healthy: rollback still finds the previous app beside the target.
+      fs.renameSync(l.target, path.join(tmp.dir, 'spent.app'))
+      l = layout()
+      await runHelper({ ...l.env, SU_TRASH: trash, SU_RELAUNCH: 'true' })
+      assert.equal(JSON.parse(fs.readFileSync(l.env.SU_RESULT, 'utf8')).outcome, 'rolled_back')
+      assert.equal(plistVersion(l.target), '1.4.257')
+      assert.deepEqual(fs.readdirSync(apps), ['Story Studio KH.app'])
+      assert.deepEqual(fs.readdirSync(trash), [])
+    } finally {
+      execFileSync('/usr/bin/hdiutil', ['detach', '-quiet', '-force', mount])
+    }
+  })
+
+  test('install() hands the helper today\'s Trash Folder, and the old app lands there', async () => {
+    const target = makeApp(path.join(tmp.dir, 'Applications'), '1.4.257')
+    const staged = makeApp(fs.mkdtempSync(path.join(tmp.dir, 'staged-')), '1.4.258')
+    updater.writeState({ phase: 'ready', release: signed(), staged_app: staged })
+    const quitter = spawn('/bin/sleep', ['1'])
+    const state = path.join(updater.updateDir(), 'state.json')
+    updater._configureForTesting(options(fakeQueue(), {
+      relaunchCommand: `printf '{"phase":"installed","release":{"version":"1.4.258"}}' > ${JSON.stringify(state)}`,
+      helperEnv: { SU_PID: String(quitter.pid), SU_HEALTH_SECONDS: '5' },
+    }))
+    await updater.install()
+    const result = path.join(updater.updateDir(), 'helper-result.json')
+    await waitFor(() => fs.existsSync(result), { label: 'the helper result' })
+    assert.equal(JSON.parse(fs.readFileSync(result, 'utf8')).outcome, 'installed')
+    assert.equal(plistVersion(target), '1.4.258')
+    assert.match(updater.appTrashDir(), /Trash Folder\/\d{4}-\d{2}-\d{2}\/app$/)
+    assert.equal(plistVersion(path.join(updater.appTrashDir(), 'Story Studio KH.app-1.4.257')), '1.4.257')
+    assert.equal(fs.existsSync(path.join(updater.trashDir(), 'app')), false)
   })
 
   test('an app that does not quit is never replaced', async () => {
@@ -444,6 +607,33 @@ describe('swap helper (temp dir)', () => {
     assert.equal(plistVersion(l.target), '1.4.257')
     assert.equal(fs.existsSync(l.staged), true)
     assert.equal(JSON.parse(fs.readFileSync(l.env.SU_RESULT, 'utf8')).outcome, 'failed')
+  })
+})
+
+describe('the self-emptying Trash Folder', () => {
+  test('only dated folders inside it older than 15 days are deleted; _trash and everything else stay', async () => {
+    const now = Date.parse('2026-10-08T12:00:00Z')
+    const put = (...p: string[]) => { fs.mkdirSync(path.join(...p), { recursive: true }); fs.writeFileSync(path.join(...p, 'f'), 'x') }
+    const tf = updater.trashFolder()
+    for (const day of ['2026-09-01', '2026-09-22', '2026-09-23', '2026-10-08']) put(tf, day, 'app', 'Story Studio KH.app-1')
+    put(tf, 'notes')                                      // not a date: not ours to judge
+    put(updater.trashDir(), 'app', 'Story Studio KH.app-1.4.250') // the owner's _trash
+    put(updater.trashDir(), '2026-01-01')                 // a dated name in _trash is still his
+    const outside = path.join(tmp.dir, 'outside'); put(outside)
+    fs.symlinkSync(outside, path.join(tf, '2026-01-02')) // a dated symlink is never followed
+    fs.writeFileSync(path.join(tf, '2026-01-03'), 'a file, not a folder')
+
+    assert.deepEqual(await updater.purgeTrashFolder(now), ['2026-09-01', '2026-09-22'])
+    assert.deepEqual(fs.readdirSync(tf).sort(), ['2026-01-02', '2026-01-03', '2026-09-23', '2026-10-08', 'notes'])
+    assert.ok(fs.existsSync(path.join(updater.trashDir(), 'app', 'Story Studio KH.app-1.4.250', 'f')))
+    assert.ok(fs.existsSync(path.join(updater.trashDir(), '2026-01-01', 'f')))
+    assert.ok(fs.existsSync(path.join(outside, 'f')))
+    assert.equal(updater.appTrashDir(now), path.join(tf, '2026-10-08', 'app'))
+    assert.equal(path.dirname(tf), updater.dataDir())
+  })
+
+  test('no Trash Folder yet is nothing to do', async () => {
+    assert.deepEqual(await updater.purgeTrashFolder(), [])
   })
 })
 

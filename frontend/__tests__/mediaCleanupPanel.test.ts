@@ -221,7 +221,7 @@ test('shows free disk and _trash sizes, why uploads are not offered, and checks 
   let listCalls = 0
   const ui = await mount({
     get: async (url: string) => {
-      if (url.endsWith('/space')) return { free_bytes: 5 * 1024 ** 3, project_trash_bytes: 2 * 1024 ** 3, library_trash_bytes: 3 * 1024 ** 3 }
+      if (url.endsWith('/space')) return { free_bytes: 5 * 1024 ** 3, project_trash_bytes: 2 * 1024 ** 3, library_trash_bytes: 3 * 1024 ** 3, app_trash_bytes: 1024 ** 3 }
       listCalls++
       return { episodes: [], blocked_reasons: ['2 uploaded episodes: YouTube has not confirmed this upload yet — press Check All Uploads (Upload Center) so YouTube can confirm it.'],
         not_offered: [{ episode_code: 'EP0001', title: 'One', reason: 'YouTube has not confirmed this upload yet.' }, { episode_code: 'EP0002', title: 'Two', reason: 'YouTube no longer has this video.' }],
@@ -235,6 +235,7 @@ test('shows free disk and _trash sizes, why uploads are not offered, and checks 
     assert.match(text, /Free on this drive: 5\.00 GB/)
     assert.match(text, /this project’s _trash: 2\.00 GB/)
     assert.match(text, /every project’s _trash: 3\.00 GB/)
+    assert.match(text, /Old app copies from updates: 1\.00 GB \(empties itself after 15 days\)/)
     assert.match(text, /Nothing can be freed here yet\. The reasons are listed above\./)
     assert.match(text, /press Check All Uploads/)
     assert.match(text, /2 uploaded episodes are not offered — see why/)

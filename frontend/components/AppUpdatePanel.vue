@@ -2,7 +2,7 @@
   <section class="card settings-panel app-update-panel" data-setting="app-update">
     <header class="settings-card-head">
       <h3>Updates</h3>
-      <p>Story Studio checks the Gateway for a new version every 30 minutes (and at startup), installs it when the queue is drained, and restarts itself.</p>
+      <p>Story Studio checks the Gateway for a new version every 30 minutes (and at startup), installs it once the queue is empty (nothing running, queued or paused) without pausing anything, and restarts itself.</p>
     </header>
 
     <div v-if="!status" class="text-muted">Loading…</div>
@@ -21,20 +21,13 @@
           class="btn btn-primary btn-sm"
           :disabled="!!busy"
           title="Pause the queue, let running jobs finish (up to 30 minutes), install, restart and resume"
-          @click="act('install')"
+          @click="installNow"
         >{{ busy === 'install' ? 'Starting…' : 'Install Now' }}</button>
       </div>
 
       <label class="app-update-field">
         <input type="checkbox" :checked="status.settings.auto_install" :disabled="!!busy" @change="save({ auto_install: ($event.target as HTMLInputElement).checked })">
         Install updates automatically
-      </label>
-      <label class="app-update-field">
-        When to install
-        <select class="input" :value="status.settings.install_window" :disabled="!!busy" @change="save({ install_window: ($event.target as HTMLSelectElement).value })">
-          <option value="drain">Anytime: pause the queue and wait for running jobs</option>
-          <option value="idle">Only when no jobs are running</option>
-        </select>
       </label>
       <label class="app-update-field">
         <input type="checkbox" :checked="status.open_at_login" :disabled="!!busy" @change="setLogin(($event.target as HTMLInputElement).checked)">
@@ -54,6 +47,8 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useConfirm } from '~/composables/useConfirm'
+import { installNowQuestion, waitingForQueueText } from '~/utils/app-update'
 
 interface UpdateStatus {
   enabled: boolean
@@ -65,13 +60,16 @@ interface UpdateStatus {
   held?: boolean
   last_check_at?: number | null
   last_check_error?: string | null
-  settings: { auto_install: boolean; install_window: 'drain' | 'idle' }
+  settings: { auto_install: boolean }
+  jobs_left?: number
+  queue_paused?: boolean
   trusted_fingerprint: string | null
   open_at_login: boolean
 }
 
 const { get, put, post } = useApi()
 const { success, error: showError } = useToast()
+const { ask } = useConfirm()
 const status = ref<UpdateStatus | null>(null)
 const busy = ref('')
 
@@ -83,7 +81,9 @@ const headline = computed(() => {
   if (!s.enabled) return 'Updates are checked only in the installed app.'
   switch (s.phase) {
     case 'downloading': return `Downloading ${version.value}…`
-    case 'ready': return s.held ? `${version.value} is ready; it waits for Install Now because you resumed the queue.` : `${version.value} is ready.`
+    case 'ready': return s.held ? `${version.value} is ready; it waits for Install Now because you resumed the queue.`
+      : !s.settings.auto_install ? `${version.value} is ready.`
+        : waitingForQueueText(version.value, s.jobs_left ?? 0, !!s.queue_paused)
     case 'draining': return `Installing ${version.value} once running jobs stop. The queue is paused for the update.`
     case 'installing': return `Installing ${version.value}; Story Studio restarts.`
     case 'installed': return `Up to date: ${s.current_version} was installed remotely.`
@@ -115,6 +115,12 @@ async function act(kind: 'check' | 'install' | 'trust') {
   }
 }
 
+async function installNow() {
+  const question = installNowQuestion(version.value, status.value?.jobs_left ?? 0)
+  if (question && !await ask({ ...question, confirmLabel: 'Install Now', danger: false })) return
+  await act('install')
+}
+
 async function save(patch: Record<string, unknown>) {
   busy.value = 'save'
   try { status.value = await put<UpdateStatus>('/app-update/settings', patch) } catch (e: any) {
@@ -137,5 +143,4 @@ onMounted(() => { void load().catch(() => {}) })
 .app-update-key-hint { display: block; margin-block: var(--space-2); }
 .app-update-actions { margin: var(--space-2, 8px) 0; }
 .app-update-field { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
-.app-update-field select { max-width: 360px; }
 </style>

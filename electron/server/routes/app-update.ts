@@ -3,8 +3,8 @@
  *
  *   GET  /app-update/status          state, settings, pinned key fingerprint, Open at Login
  *   POST /app-update/check           Check Now
- *   POST /app-update/install-now     drain and install the staged release
- *   PUT  /app-update/settings        { auto_install?, install_window? }
+ *   POST /app-update/install-now     drain and install the staged release (automatic installs wait for an empty queue)
+ *   PUT  /app-update/settings        { auto_install? }
  *   POST /app-update/trust-new-key   forget the pinned release key (the next check pins the new one)
  *   PUT  /app-update/open-at-login   { enabled }
  */
@@ -85,7 +85,6 @@ router.put('/app-update/settings', handle(async (req) => {
   const body = req.body || {}
   const patch: Partial<updater.UpdateSettings> = {}
   if (typeof body.auto_install === 'boolean') patch.auto_install = body.auto_install
-  if (body.install_window === 'drain' || body.install_window === 'idle') patch.install_window = body.install_window
   await saveSettings(patch)
   await updater.maybeInstall().catch(() => {})
   return updater.status()

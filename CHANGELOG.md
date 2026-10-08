@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.261 — 2026-10-08
+
+- Updates wait for your work: a downloaded update no longer pauses the queue. It waits until nothing is running, queued or paused, then installs and restarts. Settings → About → Updates shows "Update … ready — installs when the queue is empty (N jobs left)", and says so when a paused queue still holds jobs. Install Now still pauses the queue, lets running jobs finish and installs; it asks first when jobs are in the queue. The "When to install" choice is gone.
+- Old app copies left behind by updates now clean themselves up, like Studio Hub: the previous version waits in Story's Trash Folder for 15 days (so an update can still be rolled back), then is deleted. Your own `_trash` folder is never touched, including the old copies already in it.
+- Free up space shows how much the old app copies take, and that they empty themselves after 15 days.
+
 ## v1.4.260 — 2026-10-07
 
 - API key is now called Gateway API Key; the release signing key is now the App Update Key

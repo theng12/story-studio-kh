@@ -14,13 +14,20 @@
  *    `com.apple.quarantine` defensively (a file Story writes itself is not quarantined: only apps
  *    with `LSFileQuarantineEnabled`, such as browsers, add it), check the bundle reports the signed
  *    version and passes `codesign --verify`.
- * 4. **Drain**, the same policy as `scripts/release/install-local.sh`: pause the queue (a
- *    queue-origin pause; jobs the owner paused stay paused, and a queue he had already paused is
- *    left as his), let running work finish or reach its safe point, up to 30 minutes, then install.
- *    If he presses Resume during the drain, his choice wins: the update waits for Install Now.
+ * 4. **Wait for an empty queue** (owner, 2026-10-08): an automatic install pauses nothing. It waits,
+ *    with no time limit, until no job is running, queued or paused (`jobsLeft`), rechecking every
+ *    30 seconds, and installs once the queue has stayed empty for a minute (a pipeline's next step
+ *    lands in that gap), checking once more right before the swap. A queue the owner paused while
+ *    it still holds jobs keeps it waiting. **Install Now** drains instead, the same policy as
+ *    `scripts/release/install-local.sh`: pause the queue (a queue-origin pause; jobs the owner
+ *    paused stay paused, and a queue he had already paused is left as his), let running work finish
+ *    or reach its safe point, up to 30 minutes, then install. If he presses Resume during the drain,
+ *    his choice wins: the update waits for Install Now.
  * 5. **Swap** with a detached helper (`helperScript`) after this app quits normally: the installed
- *    bundle goes to `<data>/_trash/app/` (never deleted), the new one moves into place, and the
- *    app is relaunched (through the login agent when it is installed, so it stays supervised).
+ *    bundle goes to the self-emptying Trash Folder, `<data>/Trash Folder/<UTC date>/app/`, which
+ *    Story deletes 15 days later (`purgeTrashFolder`, as Studio Hub does); the new one moves into
+ *    place, and the app is relaunched (through the login agent when it is installed, so it stays
+ *    supervised). `<data>/_trash` stays the owner's: nothing there is ever deleted.
  * 6. **Health**: the new version reports `installed` here once it has booted and answered its own
  *    `/api/health`; the helper waits for that and otherwise puts the old app back.
  *
@@ -62,8 +69,6 @@ export interface ReleaseDescriptor {
 
 export interface UpdateSettings {
   auto_install: boolean
-  /** `drain`: pause the queue and install once running work stops. `idle`: only when nothing runs. */
-  install_window: 'drain' | 'idle'
   /** The publisher key pinned on first sight (base64 of the raw 32 bytes). */
   trusted_publisher_key?: string
 }
@@ -110,6 +115,9 @@ export const FAILED_RETRY_AFTER_MS = 2 * CHECK_INTERVAL_MS
 // ponytail: one fixed drain ceiling (install-local.sh's default); make it a setting if 30 min is wrong.
 export const DRAIN_TIMEOUT_MS = 30 * 60_000
 const DRAIN_POLL_MS = 5_000
+export const IDLE_POLL_MS = 30_000
+/** The queue must stay empty this long, so the gap between two pipeline steps is not "idle". */
+export const IDLE_SETTLE_MS = 60_000
 const HEALTH_SECONDS = 300
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex')
 
@@ -118,6 +126,30 @@ const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex')
 export function dataDir(): string { return path.dirname(resolveAppSettingsPath()) }
 export function updateDir(): string { return path.join(dataDir(), 'app-update') }
 export function trashDir(): string { return path.join(dataDir(), '_trash') }
+/** The self-emptying Trash Folder (Studio Hub's pattern): dated `<UTC date>/` folders, deleted after 15 days. */
+export function trashFolder(): string { return path.join(dataDir(), 'Trash Folder') }
+export const TRASH_FOLDER_DAYS = 15
+const utcDate = (ms: number) => new Date(ms).toISOString().slice(0, 10)
+/** Where the swap helper keeps the replaced app (and a failed new one) today. */
+export function appTrashDir(now = Date.now()): string { return path.join(trashFolder(), utcDate(now), 'app') }
+
+/**
+ * The one hard delete in Story Studio: dated Trash Folder subfolders older than 15 days (a folder
+ * named for exactly 15 days ago is kept, as in the Hub). Only `YYYY-MM-DD` directories directly
+ * inside the Trash Folder; anything else there, `_trash`, and everything outside are never touched.
+ */
+export async function purgeTrashFolder(now = Date.now()): Promise<string[]> {
+  const oldestKept = utcDate(now - TRASH_FOLDER_DAYS * 86_400_000)
+  const names = await fsp.readdir(trashFolder()).catch(() => [] as string[])
+  const purged: string[] = []
+  for (const name of names.sort()) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(name) || name >= oldestKept) continue
+    const day = path.join(trashFolder(), name)
+    if (!(await fsp.lstat(day).catch(() => null))?.isDirectory()) continue // never follows a symlink
+    await fsp.rm(day, { recursive: true, force: true }).then(() => purged.push(name), () => {})
+  }
+  return purged
+}
 function statePath(): string { return path.join(updateDir(), 'state.json') }
 function resultPath(): string { return path.join(updateDir(), 'helper-result.json') }
 
@@ -169,7 +201,8 @@ export function compareVersions(a: string, b: string): number {
 
 /**
  * The detached swap helper. Inputs arrive as `SU_*` environment variables, so nothing is quoted
- * into the script. It never deletes: both the replaced app and a failed new one go to `SU_TRASH`.
+ * into the script. The replaced app and a failed new one go to `SU_TRASH` (today's Trash Folder),
+ * by a same-volume rename only; see the one exception below for a Trash Folder on another volume.
  */
 export function helperScript(): string {
   return `#!/bin/bash
@@ -206,6 +239,18 @@ if kill -0 "$SU_PID" 2>/dev/null; then result failed "Story Studio did not quit,
 
 if ! mkdir -p "$SU_TRASH"; then result failed "Could not create $SU_TRASH; nothing was replaced."; relaunch; exit 1; fi
 KEEP="$SU_TRASH/Story Studio KH.app-$SU_OLD_VERSION"
+FAILED="$SU_TRASH/Story Studio KH.app-$SU_VERSION-failed-$(date +%Y%m%d%H%M%S)"
+APART=
+# ponytail: a Trash Folder on another volume than the app would make every mv here a multi-GB copy.
+# Then, as the Hub installer does, the old app waits beside the target (same volume, still the rollback
+# copy) and is deleted only once the new one reported healthy; a failed new one is deleted too.
+# The single case where Story deletes an app without the 15 days; same-volume is the normal one.
+if [ "$(stat -f %d "$(dirname "$SU_TARGET")")" != "$(stat -f %d "$SU_TRASH")" ]; then
+  APART=1
+  KEEP="$(dirname "$SU_TARGET")/.Story Studio KH.app-$SU_OLD_VERSION-previous"
+  FAILED="$(dirname "$SU_TARGET")/.Story Studio KH.app-$SU_VERSION-failed-$(date +%Y%m%d%H%M%S)"
+  log "the Trash Folder is on another volume; the previous app waits at $KEEP until $SU_VERSION is healthy"
+fi
 [ -e "$KEEP" ] && KEEP="$KEEP-$(date +%Y%m%d%H%M%S)"
 if ! mv "$SU_TARGET" "$KEEP"; then
   result failed "Could not move the installed app aside (macOS may need App Management allowed for Story Studio KH); nothing was replaced."
@@ -219,7 +264,10 @@ fi
 log "swapped; the previous app is kept at $KEEP"
 relaunch
 for _ in $(seq 1 "\${SU_HEALTH_SECONDS:-${HEALTH_SECONDS}}"); do
-  if healthy; then result installed "$SU_VERSION is running."; exit 0; fi
+  if healthy; then
+    [ -n "$APART" ] && rm -rf "$KEEP" && log "removed the previous app at $KEEP (another volume than the Trash Folder)"
+    result installed "$SU_VERSION is running."; exit 0
+  fi
   sleep 1
 done
 
@@ -227,8 +275,8 @@ log "$SU_VERSION never reported healthy; putting $SU_OLD_VERSION back"
 pkill -TERM -f "$SU_TARGET/Contents/MacOS/" 2>/dev/null
 for _ in $(seq 1 60); do pgrep -f "$SU_TARGET/Contents/MacOS/" >/dev/null || break; sleep 1; done
 pkill -KILL -f "$SU_TARGET/Contents/MacOS/" 2>/dev/null
-FAILED="$SU_TRASH/Story Studio KH.app-$SU_VERSION-failed-$(date +%Y%m%d%H%M%S)"
 if mv "$SU_TARGET" "$FAILED" && mv "$KEEP" "$SU_TARGET"; then
+  [ -n "$APART" ] && rm -rf "$FAILED"
   result rolled_back "$SU_VERSION did not start within \${SU_HEALTH_SECONDS:-${HEALTH_SECONDS}} seconds; $SU_OLD_VERSION is back."
 else
   result failed "$SU_VERSION did not start and the previous app could not be put back; it is at $KEEP."
@@ -290,6 +338,10 @@ export interface UpdaterOptions {
   gateway(): Promise<{ url: string; key: string }>
   channels(): Promise<number | null>
   fetch?: typeof fetch
+  /** Test hooks: the empty-queue recheck and settle times, and the clock they read. */
+  idlePollMs?: number
+  idleSettleMs?: number
+  now?: () => number
   /** Test hook: the helper's relaunch command (`$1` is the app path). */
   relaunchCommand?: string
   helperEnv?: Record<string, string>
@@ -298,6 +350,8 @@ export interface UpdaterOptions {
 let opts: UpdaterOptions | null = null
 let checking: Promise<UpdateState> | null = null
 let drainTimer: NodeJS.Timeout | null = null
+let idleTimer: NodeJS.Timeout | null = null
+let idleSince: number | null = null
 let quittingForUpdate = false
 
 /** main.ts's quit path asks this so a "jobs are running, quit?" question never blocks an update. */
@@ -307,7 +361,6 @@ export function defaultSettings(raw: unknown): UpdateSettings {
   const v = (raw && typeof raw === 'object' ? raw : {}) as Partial<UpdateSettings>
   return {
     auto_install: v.auto_install !== false,
-    install_window: v.install_window === 'idle' ? 'idle' : 'drain',
     ...(typeof v.trusted_publisher_key === 'string' ? { trusted_publisher_key: v.trusted_publisher_key } : {}),
   }
 }
@@ -584,15 +637,36 @@ export async function verifyCodeSignature(app: string): Promise<void> {
   }
 }
 
-/** Start or continue the drain when the settings (or Install Now) allow it. */
+/**
+ * Jobs still in the queue: running, queued (a quota wait included), or paused by the owner or the
+ * queue. Housekeeping is never counted because none of it is a queue job: the YouTube status sync,
+ * the digest scheduler, the episode-recovery recheck, quota rechecks and this updater's own check
+ * all run on their own timers. (Retries that recovery queues are real work and do count.)
+ */
+export function jobsLeft(queue: QueueControl): number {
+  const s = queue.summary()
+  return s.running + s.queued + s.paused
+}
+
+/**
+ * Automatic: install once the queue has been empty for IDLE_SETTLE_MS, pausing nothing; recheck
+ * every IDLE_POLL_MS meanwhile. Install Now (`install_requested`): start or continue the drain.
+ */
 export async function maybeInstall(): Promise<void> {
   const o = opts!
   const state = readState()
   if (state.phase !== 'ready' && state.phase !== 'draining') return
-  const settings = await o.getSettings()
-  if (!state.install_requested && (!settings.auto_install || state.held)) return
-  const window = state.install_requested ? 'drain' : settings.install_window
-  if (window === 'idle' && state.phase === 'ready' && o.queue.running() > 0) return
+  if (!state.install_requested && state.phase === 'ready') {
+    const settings = await o.getSettings()
+    if (!settings.auto_install || state.held) return
+    const now = o.now?.() ?? Date.now()
+    if (jobsLeft(o.queue) > 0) idleSince = null
+    else idleSince ??= now
+    if (idleSince === null || now - idleSince < (o.idleSettleMs ?? IDLE_SETTLE_MS)) return watchIdle()
+    idleSince = null
+    if (!await install('idle').catch(e => { markFailed(e); return true })) watchIdle()
+    return
+  }
   if (state.phase === 'ready') {
     let wePaused = !!state.we_paused
     if (!o.queue.isPaused()) {
@@ -602,6 +676,12 @@ export async function maybeInstall(): Promise<void> {
     patchState({ phase: 'draining', drain_started_at: Date.now(), we_paused: wePaused })
   }
   watchDrain()
+}
+
+function watchIdle(): void {
+  if (idleTimer) return
+  idleTimer = setTimeout(() => { idleTimer = null; void maybeInstall().catch(() => {}) }, opts?.idlePollMs ?? IDLE_POLL_MS)
+  idleTimer.unref?.()
 }
 
 function watchDrain(): void {
@@ -637,12 +717,15 @@ export async function installNow(): Promise<UpdateState> {
   return readState()
 }
 
-export async function install(): Promise<void> {
+/** Hand over to the swap helper and quit. `idle`: false, and nothing happens, if a job sneaked in. */
+export async function install(mode: 'idle' | 'drain' = 'drain'): Promise<boolean> {
   const o = opts!
   const state = readState()
   if (!state.release || !state.staged_app || !fs.existsSync(state.staged_app)) {
     throw new Error('The staged update is missing; it is downloaded again on the next check.')
   }
+  // The last look before the swap; from here to the spawn nothing else runs.
+  if (mode === 'idle' && jobsLeft(o.queue) > 0) return false
   const script = path.join(updateDir(), 'swap-app.sh')
   fs.writeFileSync(script, helperScript(), { mode: 0o755 })
   writeState({ ...state, phase: 'installing', from_version: o.currentVersion, error: null, installing_at: Date.now() })
@@ -655,7 +738,7 @@ export async function install(): Promise<void> {
       SU_PID: String(process.pid),
       SU_TARGET: o.appBundle,
       SU_STAGED: state.staged_app,
-      SU_TRASH: path.join(trashDir(), 'app'),
+      SU_TRASH: appTrashDir(),
       SU_STATE: statePath(),
       SU_RESULT: resultPath(),
       SU_LOG: path.join(updateDir(), 'helper.log'),
@@ -675,13 +758,15 @@ export async function install(): Promise<void> {
     markFailed('Story Studio did not quit for the update; nothing was replaced.')
     void releaseOurPause()
   }, 6 * 60_000).unref()
+  return true
 }
 
 let timer: NodeJS.Timeout | null = null
 /** Boot settle, a check-in shortly after startup, then every 30 minutes (and on Check Now). */
 export async function startAppUpdater(options: UpdaterOptions): Promise<void> {
   await onBoot(options)
-  const tick = () => { void checkNow() }
+  // The Trash Folder empties itself shortly after startup and on every check (it never throws).
+  const tick = () => { void purgeTrashFolder(); void checkNow() }
   setTimeout(tick, 15_000).unref()
   timer = setInterval(tick, CHECK_INTERVAL_MS)
   timer.unref()
@@ -698,6 +783,8 @@ export async function status(): Promise<Record<string, unknown>> {
     machine: machineName(),
     ...state,
     settings: rest,
+    jobs_left: opts ? jobsLeft(opts.queue) : 0,
+    queue_paused: opts ? opts.queue.isPaused() : false,
     trusted_fingerprint: trusted_publisher_key ? fingerprint(trusted_publisher_key) : null,
     open_at_login: openAtLogin(),
   }
@@ -709,6 +796,9 @@ export function _resetForTesting(): void {
   checking = null
   if (drainTimer) clearTimeout(drainTimer)
   drainTimer = null
+  if (idleTimer) clearTimeout(idleTimer)
+  idleTimer = null
+  idleSince = null
   if (timer) clearInterval(timer)
   timer = null
   quittingForUpdate = false

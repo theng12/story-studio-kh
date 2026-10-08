@@ -28,6 +28,7 @@ import { constants, existsSync } from 'fs'
 import path from 'path'
 import * as pm from './project-manager.js'
 import { thumbCacheBytes } from '../lib/thumbnail-cache.js'
+import { trashFolder } from './app-update.js'
 import { PARTS_DIRNAME } from './chapter-parts.js'
 import * as im from './idea-manager.js'
 import { createProjectFactsCache, resolveEpisodePaths } from './utils.js'
@@ -118,6 +119,8 @@ export interface StorageSpaceSummary {
   project_trash_bytes: number
   /** Every project's `_trash` plus the Library's own `_trash`. */
   library_trash_bytes: number
+  /** Old app copies in the self-emptying Trash Folder (deleted after 15 days, see app-update.ts). */
+  app_trash_bytes: number
 }
 
 /** Free bytes on the drive holding `dir`, or null when the drive cannot be asked. */
@@ -160,6 +163,7 @@ export async function storageSpaceSummary(slug: string): Promise<StorageSpaceSum
     free_bytes: await measureFreeBytes(projectDir),
     project_trash_bytes: project,
     library_trash_bytes: project + await sizeOf([...new Set(others.map(dir => path.resolve(dir)))]),
+    app_trash_bytes: await dirSize(trashFolder()),
   }
 }
 

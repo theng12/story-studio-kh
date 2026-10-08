@@ -1,7 +1,7 @@
 <template>
   <div v-if="text" class="app-update-banner" role="status">
     <span>{{ text }}</span>
-    <button v-if="status?.phase === 'ready'" class="btn btn-primary btn-sm" :disabled="busy" @click="installNow">
+    <button v-if="status?.phase === 'ready'" class="btn btn-primary btn-sm" :disabled="busy" title="Pause the queue, let running jobs finish (up to 30 minutes), install, restart and resume" @click="installNow">
       {{ busy ? 'Starting…' : 'Install Now' }}
     </button>
   </div>
@@ -10,28 +10,31 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { createVisibleInterval } from '~/composables/useVisibleInterval'
+import { useConfirm } from '~/composables/useConfirm'
+import { installNowQuestion, waitingForQueueText } from '~/utils/app-update'
 
 interface UpdateBannerStatus {
   phase: string
   held?: boolean
   release?: { version: string } | null
-  settings?: { auto_install: boolean; install_window: string }
+  settings?: { auto_install: boolean }
+  jobs_left?: number
+  queue_paused?: boolean
 }
 
 const { get, post } = useApi()
 const status = ref<UpdateBannerStatus | null>(null)
 const busy = ref(false)
+const { ask } = useConfirm()
 
-/** "Update ready — installs when idle / Install Now", and the drain while it runs. */
+/** "Update ready — installs when the queue is empty / Install Now", and the drain while it runs. */
 const text = computed(() => {
   const s = status.value
   const v = s?.release?.version
   if (!s || !v) return ''
   if (s.phase === 'ready') {
     if (s.held || !s.settings?.auto_install) return `Story Studio ${v} is ready.`
-    return s.settings.install_window === 'idle'
-      ? `Story Studio ${v} is ready. It installs when no jobs are running.`
-      : `Story Studio ${v} is ready. It installs when the queue is idle.`
+    return waitingForQueueText(v, s.jobs_left ?? 0, !!s.queue_paused)
   }
   if (s.phase === 'draining') return `Installing Story Studio ${v} once running jobs stop. The queue is paused for the update and resumes after it.`
   if (s.phase === 'installing') return `Installing Story Studio ${v}. It restarts in a moment.`
@@ -43,6 +46,8 @@ async function load() {
 }
 
 async function installNow() {
+  const question = installNowQuestion(status.value?.release?.version || '', status.value?.jobs_left ?? 0)
+  if (question && !await ask({ ...question, confirmLabel: 'Install Now', danger: false })) return
   busy.value = true
   try { status.value = await post<UpdateBannerStatus>('/app-update/install-now', {}) } finally { busy.value = false }
 }

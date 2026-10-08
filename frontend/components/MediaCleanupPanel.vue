@@ -12,6 +12,7 @@
       · Waiting in this project’s <code>_trash</code>: <strong>{{ formatBytes(space.project_trash_bytes) }}</strong>
       · In every project’s <code>_trash</code>: <strong>{{ formatBytes(space.library_trash_bytes) }}</strong>
       <small>(space comes back when you empty <code>_trash</code>)</small>
+      · Old app copies from updates: <strong>{{ formatBytes(space.app_trash_bytes ?? 0) }}</strong> <small>(empties itself after 15 days)</small>
     </p>
     <p v-if="checkResult" class="cleanup-hint" role="status">{{ checkResult }}</p>
     <p v-if="error" class="cleanup-error" role="alert">{{ error }} <button v-if="operation" class="btn btn-sm" :disabled="polling" @click="pollOperation">Check Progress Again</button></p>
@@ -111,7 +112,7 @@ interface ReviewedFile { path: string; relative_path: string; bytes: number; cat
 interface Estimate { compress_files: number; compress_bytes_before: number; compress_bytes_after: number; already_jpeg_files: number; trash_files: number; trash_bytes: number }
 interface Preview { preview_id: string; project_slug: string; total_bytes: number; preset?: 'archive_episode' | 'convert_png'; trash_roots?: string[]; estimate?: Estimate; files: ReviewedFile[]; blocked_reasons: string[]; episodes: { episode_code: string; files: ReviewedFile[]; excluded?: { path: string; reason: string }[]; blocked_reasons: string[] }[] }
 interface Operation { id: string; project_slug: string; kind: 'preview' | 'run'; status: string; stage: string | null; done: number; total: number; current: string; error?: string; preview?: Preview; result?: { items?: Array<{ path?: string; source_path?: string; file?: string; status?: string; outcome?: string; reason?: string }>; bytes_reclaimed?: number; bytes_freed?: number; bytes_moved?: number; bytes_trashed?: number; bytes_after?: number } }
-interface Space { free_bytes: number | null; project_trash_bytes: number; library_trash_bytes: number }
+interface Space { free_bytes: number | null; project_trash_bytes: number; library_trash_bytes: number; app_trash_bytes?: number }
 interface Leftover { kind: 'audio_quality_copy' | 'render_scratch'; episode_code: string; path: string; bytes: number }
 const props = defineProps<{ slug: string }>()
 const { get, post } = useApi()
