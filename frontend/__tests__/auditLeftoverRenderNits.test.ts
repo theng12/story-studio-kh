@@ -15,8 +15,10 @@ test('Contextual Cues: setup controls wrap instead of clipping Density; cue cont
   assert.match(cues, /\.cue-meta \{ grid-column:1\/-1; display:grid; grid-template-columns:repeat\(auto-fill, minmax\(9\.5rem, 1fr\)\)/)
 })
 
-test('Script Generator caps its readable width on wide screens', () => {
-  assert.match(page('scripts'), /\.scripts-workspace \{ --workspace-max: 1360px; \}/)
+test('Script Generator uses the full workspace width like the other generators; only its prose keeps a readable measure', () => {
+  const scripts = page('scripts')
+  assert.doesNotMatch(scripts, /--workspace-max:/)
+  assert.match(scripts, /\.scripts-workspace :deep\(:is\(\.preview-content, \.chp-preview-content\)\) \{ max-width: var\(--prose-max\); \}/)
 })
 
 test('Ideas never shows a raw format id when the format list fails to load', () => {

@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.263 — 2026-10-09
+
+- The Script Generator now uses the full page width, like the other generator pages. On wide screens it was narrower, with empty space on both sides.
+- Script text in Script Preview and in a chapter's preview keeps a comfortable line length, so long lines stay easy to read on wide screens.
+
 ## v1.4.262 — 2026-10-08
 
 - Publish dates follow episode order. When a finished episode is scheduled automatically, or you apply the upload plan, the planned dates of videos not yet on YouTube are shared out lowest episode first. If 173 finishes after 245 and 390, it now takes the earliest of those dates and 245 and 390 move later. The Upload Center says "Dates follow episode order; N episodes shifted" when that happens.
