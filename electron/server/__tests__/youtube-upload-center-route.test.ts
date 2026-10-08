@@ -3439,12 +3439,18 @@ test('Upload Center plan assigns only missing rows and refuses a stale preview w
   assert.equal(saved.status, 200, JSON.stringify(saved.body))
   const schedule = await uploadPlans.readItemSchedule(slug)
   assert.equal(schedule[first.episodeCode], firstClaim)
-  assert.equal(schedule[later.episodeCode], laterClaim)
-  assert.equal(schedule[second.episodeCode], saved.body.assignments[0].publishAt)
+  // 1.4.262: dates follow episode order. `second` is the lower code, so it
+  // takes the later claim's date and `later` moves to the new plan slot.
+  assert.equal(schedule[second.episodeCode], laterClaim)
+  assert.deepEqual(saved.body.order_shifted, [second.episodeCode, later.episodeCode])
+  const movedLater = saved.body.assignments.find((entry: any) => entry.episode_code === later.episodeCode)
+  assert.equal(movedLater.previous_publish_at, laterClaim)
+  assert.equal(schedule[later.episodeCode], movedLater.publishAt)
+  assert.ok(Date.parse(schedule[later.episodeCode]!) > Date.parse(laterClaim))
   assert.equal(fake.calls.length, 0)
 })
 
-test('Upload Center plan replaces overdue local claims while leaving future claims in place', async () => {
+test('Upload Center plan replaces overdue local claims and keeps future local claims in episode order', async () => {
   const slug = await registryOnlyProject()
   const overdue = await acceptedEpisode(slug)
   const missing = await acceptedEpisode(slug)
@@ -3476,8 +3482,10 @@ test('Upload Center plan replaces overdue local claims while leaving future clai
   })
   assert.equal(preview.status, 200, JSON.stringify(preview.body))
   assert.deepEqual(preview.body.skipped_existing, [future.episodeCode])
+  // `future` keeps no fixed date: dates follow episode order, so it shifts
+  // behind the two lower-numbered episodes being planned.
   assert.deepEqual(new Set(preview.body.assignments.map((entry: any) => entry.episode_code)),
-    new Set([overdue.episodeCode, missing.episodeCode]))
+    new Set([overdue.episodeCode, missing.episodeCode, future.episodeCode]))
   assert.ok(preview.body.assignments.every((entry: any) => Date.parse(entry.publishAt) > Date.now()))
   assert.equal(preview.body.latest_existing_claim, futureClaim)
 
@@ -3527,8 +3535,10 @@ test('Upload Center plan replaces overdue local claims while leaving future clai
   const schedule = await uploadPlans.readItemSchedule(slug)
   assert.equal(schedule[overdue.episodeCode], saved.body.assignments.find((entry: any) => entry.episode_code === overdue.episodeCode).publishAt)
   assert.equal(schedule[missing.episodeCode], saved.body.assignments.find((entry: any) => entry.episode_code === missing.episodeCode).publishAt)
-  assert.equal(schedule[future.episodeCode], futureClaim)
-  assert.equal(schedule[later.episodeCode], laterClaim)
+  assert.equal(schedule[overdue.episodeCode], futureClaim)
+  assert.equal(schedule[missing.episodeCode], laterClaim)
+  const inOrder = [overdue, missing, future, later].map(episode => Date.parse(schedule[episode.episodeCode]!))
+  assert.ok(inOrder.every((at, index) => index === 0 || inOrder[index - 1]! < at), JSON.stringify(schedule))
   await pm.updateConfig(slug, { [uploadPlans.LEGACY_SCHEDULE_FIELD]: { [legacy.episodeCode]: overdueClaim } } as any)
   const legacyPreview = await request(app).post(`/api/projects/${slug}/youtube/plan/preview`).send({
     plan_id: plan.id, expected_channel_id: CHANNEL, episode_codes: [legacy.episodeCode],

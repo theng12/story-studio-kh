@@ -265,7 +265,10 @@ describe('durable paid image waits across boot', () => {
       let calls = 0
       jq.registerExecutor('continuity_render', async () => { calls++ })
       await (await import('../services/app-settings.js')).setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 10 })
+      // The updater's idle gate reads this: before the boot scan the queue only looks empty.
+      assert.equal(jq.areBootJobsLoaded(), false)
       await jq.resumeInterruptedJobsAtBoot()
+      assert.equal(jq.areBootJobsLoaded(), true)
       assert.equal(timers.length, 1)
       await jq.pauseJob(job.job_id, 'manual')
       assert.equal(cleared, 1)

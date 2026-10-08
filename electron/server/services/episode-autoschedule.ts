@@ -15,6 +15,11 @@
  * upload"), and it is also what makes this safe to run unattended — a bad
  * render cannot reach a channel.
  *
+ * EPISODE ORDER (1.4.262). After the new slot is written, the future dates of
+ * episodes not on YouTube yet are dealt back out in episode-code order
+ * (`upload-plans.episodeOrderShifts`), so finishing 173 after 245 and 390 puts
+ * 173 first. Episodes uploading or already on YouTube keep their dates.
+ *
  * ── On the claim-walk ──
  *
  * `POST /upload/plans/:id/apply` and its preview need the same "find the
@@ -27,10 +32,20 @@
  * it. The drift alarm that guarded the duplicate is gone with the duplicate.
  */
 
+import path from 'node:path'
+
+import { withLock } from '../lib/atomic-store.js'
 import * as plans from './upload-plans.js'
-import { readSidecarRaw } from './upload-sidecar.js'
+import * as im from './idea-manager.js'
+import { getProjectDir } from './project-manager.js'
+import { readSidecarRaw, readSidecarStrict, setScheduledFor } from './upload-sidecar.js'
 import type { UploadPlatform } from './upload-store.js'
+import { createProjectFactsCache } from './utils.js'
+import { getProjectYouTubeAssignment } from './youtube-connection-store.js'
 import { resolveYouTubeCredential } from './youtube-credential.js'
+import { listYouTubeOperations } from './youtube-operation-store.js'
+import { readYouTubeProjectPublishingState } from './youtube-project-publishing-store.js'
+import { remoteVideoFor } from './youtube-remote-video.js'
 
 export interface AutoScheduleResult {
   scheduled: boolean
@@ -40,6 +55,62 @@ export interface AutoScheduleResult {
   plan_name?: string
   /** Why nothing happened, in words a person can act on. */
   reason?: string
+  /** Other episodes whose date moved so dates follow episode order. */
+  order_shifted?: string[]
+}
+
+/**
+ * Future dates Story may still move: the episode is not uploading and has no
+ * video on the channel. Anything already on YouTube keeps its date, and so does
+ * an episode whose upload record cannot be read (it might be on YouTube).
+ */
+export async function movableLocalClaims(
+  slug: string,
+  channelId: string,
+  schedule: Readonly<Record<string, string>>,
+  now: number = Date.now(),
+): Promise<Record<string, string>> {
+  const { getJobs } = await import('./job-queue.js')
+  const [jobs, operations, publishingState, ideas] = await Promise.all([
+    getJobs(slug, { type: 'youtube_upload' }),
+    listYouTubeOperations(slug),
+    readYouTubeProjectPublishingState(slug),
+    im.getIdeas(slug, 'accepted'),
+  ])
+  const uploading = new Set(jobs
+    .filter(job => ['queued', 'running', 'paused'].includes(job.status))
+    .map(job => job.episode_id))
+  const titles = new Map(ideas.filter(idea => !!idea.episode_code).map(idea => [idea.episode_code!, idea.title || '']))
+  const facts = createProjectFactsCache(slug)
+  const out: Record<string, string> = {}
+  for (const [code, at] of Object.entries(schedule)) {
+    if (!titles.has(code) || uploading.has(code) || !(Date.parse(at) > now)) continue
+    try {
+      if (await remoteVideoFor(slug, code, titles.get(code)!, channelId, operations, publishingState, facts)) continue
+    } catch {
+      continue
+    }
+    out[code] = at
+  }
+  return out
+}
+
+/** Hand the movable future dates back out in episode order; returns what moved. */
+async function keepEpisodeOrder(slug: string, channelId: string): Promise<Record<string, string>> {
+  const movable = await movableLocalClaims(slug, channelId, await plans.readItemSchedule(slug))
+  const shifts = plans.episodeOrderShifts(movable)
+  const codes = plans.orderEpisodeCodes(Object.keys(shifts))
+  if (!codes.length) return shifts
+  const titles = new Map((await im.getIdeas(slug, 'accepted'))
+    .filter(idea => !!idea.episode_code).map(idea => [idea.episode_code!, idea.title || '']))
+  const expected: Record<string, string | null> = {}
+  for (const code of codes) expected[code] = (await readSidecarStrict(slug, code, 'youtube'))?.scheduled_for ?? null
+  await plans.applyScheduleAssignmentsWithRollback(
+    codes.map(code => ({ episode_code: code, publishAt: shifts[code]! })),
+    expected,
+    (code, scheduledFor, previous) => setScheduledFor(slug, code, titles.get(code) || '', 'youtube', scheduledFor, previous),
+  )
+  return shifts
 }
 
 /**
@@ -116,19 +187,32 @@ export async function scheduleEpisodeWithActivePlan(
     }
   }
 
-  const minStartDate = await latestFutureClaim(slug, platform, code)
-  const slots = plans.computeSlots(plan.schedule, 1, { minStartDate })
-  if (!slots.length) {
+  const write = async (): Promise<AutoScheduleResult> => {
+    const minStartDate = await latestFutureClaim(slug, platform, code)
+    const slots = plans.computeSlots(plan.schedule, 1, { minStartDate })
+    if (!slots.length) {
+      return {
+        scheduled: false, episode_code: code, plan_id: plan.id, plan_name: plan.name,
+        reason: `Plan "${plan.name}" has no free slot left within its horizon. `
+          + 'Extend its end date, or add weekdays so it produces slots more often.',
+      }
+    }
+    let publish_at = slots[0]!
+    const existing = await plans.readItemSchedule(slug)
+    await plans.writeItemSchedule(slug, { ...existing, [code]: publish_at })
+    // Dates follow episode order: a lower-numbered episode finishing late takes
+    // the earliest movable date and later-numbered ones shift later.
+    const channelId = platform === 'youtube' ? (await getProjectYouTubeAssignment(slug))?.channel_id : null
+    const shifts = channelId ? await keepEpisodeOrder(slug, channelId) : {}
+    publish_at = shifts[code] ?? publish_at
+    const order_shifted = Object.keys(shifts).filter(other => other !== code)
     return {
-      scheduled: false, episode_code: code, plan_id: plan.id, plan_name: plan.name,
-      reason: `Plan "${plan.name}" has no free slot left within its horizon. `
-        + 'Extend its end date, or add weekdays so it produces slots more often.',
+      scheduled: true, episode_code: code, publish_at, plan_id: plan.id, plan_name: plan.name,
+      ...(order_shifted.length ? { order_shifted: plans.orderEpisodeCodes(order_shifted) } : {}),
     }
   }
-
-  const publish_at = slots[0]!
-  const existing = await plans.readItemSchedule(slug)
-  await plans.writeItemSchedule(slug, { ...existing, [code]: publish_at })
-
-  return { scheduled: true, episode_code: code, publish_at, plan_id: plan.id, plan_name: plan.name }
+  // The Upload Center's plan routes hold this lock too, so an apply and a
+  // finished render never reorder the same dates at once.
+  const projectDir = getProjectDir(slug)
+  return projectDir ? withLock(path.join(projectDir, 'youtube', 'upload-center-plan.lock'), write) : write()
 }

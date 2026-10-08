@@ -384,6 +384,24 @@ describe('install when the queue is empty (owner, 2026-10-08)', () => {
     await waitFor(() => fs.existsSync(result), { label: 'the helper result' })
   })
 
+  test('the startup race: an empty queue before the boot scan has loaded saved jobs is not idle', async () => {
+    ready()
+    let loaded = false
+    const queue = { ...fakeQueue(), loaded: () => loaded }
+    wired(queue as any)
+    await recheck(0)
+    await recheck(10 * 60_000)
+    assert.equal(updater.readState().phase, 'ready', 'saved jobs may still be on disk')
+    assert.equal(await updater.install('idle'), false, 'the last look before the swap checks it too')
+    loaded = true // the scan found nothing: now it is really empty
+    await recheck(30_000)
+    assert.equal(updater.readState().phase, 'ready', 'the settle minute starts only once loaded')
+    await recheck(updater.IDLE_SETTLE_MS)
+    assert.equal(updater.readState().phase, 'installing')
+    const result = path.join(updater.updateDir(), 'helper-result.json')
+    await waitFor(() => fs.existsSync(result), { label: 'the helper result' })
+  })
+
   test('housekeeping never counts: it is not a queue job, and finished history is not work', async () => {
     const { JOB_TYPES } = await import('../models/types.js')
     // The YouTube status sync, digests, the recovery recheck and quota rechecks run on timers. If a
@@ -466,6 +484,21 @@ describe('boot settle', () => {
     assert.equal(state.phase, 'installed')
     assert.deepEqual(queue.calls, [false])
     assert.equal(updater.readState().we_paused, false)
+  })
+
+  test('download leftovers go to the self-emptying Trash Folder; what is already in _trash stays', async () => {
+    const staging = path.join(updater.updateDir(), 'staging', '1.4.258')
+    fs.mkdirSync(staging, { recursive: true })
+    fs.writeFileSync(path.join(staging, 'Story Studio KH 1.4.258.zip'), 'x')
+    const old = path.join(updater.trashDir(), 'app-update', 'staging-1.4.257-1')
+    fs.mkdirSync(old, { recursive: true })
+    updater.writeState({ phase: 'installing', release: signed(), installing_at: Date.now() })
+    const fetch = (async () => new Response(JSON.stringify({ status: 'ok', version: '1.4.258', boot_complete: true }))) as any
+    await updater.onBoot(options(fakeQueue(), { currentVersion: '1.4.258', fetch }))
+    assert.equal(fs.existsSync(staging), false)
+    const today = path.join(updater.trashFolder(), new Date().toISOString().slice(0, 10), 'app-update')
+    assert.equal(fs.readdirSync(today).filter(name => name.startsWith('1.4.258-')).length, 1)
+    assert.deepEqual(fs.readdirSync(path.join(updater.trashDir(), 'app-update')), ['staging-1.4.257-1'], '_trash is left alone')
   })
 
   test('the old version came back: rolled back, the version is skipped, the queue resumed', async () => {

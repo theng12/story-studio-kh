@@ -1285,7 +1285,7 @@ interface UploadPlan {
 }
 interface PlanAssignment { episode_code: string; publishAt: string; previous_publish_at?: string }
 
-async function assignPlanDates(episodeCodes: string[], busyLabel: string): Promise<{ assignments: PlanAssignment[]; timezone: string } | null> {
+async function assignPlanDates(episodeCodes: string[], busyLabel: string): Promise<{ assignments: PlanAssignment[]; order_shifted: string[]; timezone: string } | null> {
   const channelId = assignedChannel.value?.channel_id
   if (!episodeCodes.length || !channelId || busy.value) return null
   const action = beginAction(busyLabel)
@@ -1313,12 +1313,12 @@ async function assignPlanDates(episodeCodes: string[], busyLabel: string): Promi
       .join('\n')
     const confirmed = await ask({
       title: previewResult.assignments.length === 1 ? `Use the next ${plan.name} date?` : `Review planned dates for ${previewResult.assignments.length} videos?`,
-      message: `The plan currently proposes:\n${proposedDates}\n\nExisting future bookings stay in place; new dates follow them in the channel’s cadence. Story Studio will check current claims again before saving. These are local planned dates; each YouTube upload or existing private video still needs its own confirmation.`,
+      message: `The plan currently proposes:\n${proposedDates}\n\nDates follow episode order: videos not on YouTube yet share the planned dates lowest episode first, so a later-numbered video can move later. Videos already on YouTube keep their dates. Story Studio will check current claims again before saving. These are local planned dates; each YouTube upload or existing private video still needs its own confirmation.`,
       confirmLabel: previewResult.assignments.length === 1 ? 'Use Planned Date' : 'Save Planned Dates',
     })
     if (!actionIsCurrent(action)) return null
     if (!confirmed) return null
-    const applied = await post<{ assignments: PlanAssignment[]; skipped_existing: string[] }>(
+    const applied = await post<{ assignments: PlanAssignment[]; order_shifted?: string[]; skipped_existing: string[] }>(
       `/projects/${action.slug}/youtube/plan/apply`,
       {
         plan_id: plan.id,
@@ -1332,10 +1332,15 @@ async function assignPlanDates(episodeCodes: string[], busyLabel: string): Promi
     if (!applied.assignments.length || applied.assignments.some(item => !isFutureIso(item.publishAt))) {
       throw new Error('The upload plan did not save future dates for these videos.')
     }
-    return { assignments: applied.assignments, timezone: zone }
+    return { assignments: applied.assignments, order_shifted: applied.order_shifted ?? [], timezone: zone }
   } finally {
     if (actionIsCurrent(action)) busy.value = ''
   }
+}
+
+/** One line for the Upload Center when keeping episode order moved dates. */
+function orderNote(shifted: string[]): string {
+  return shifted.length ? `Dates follow episode order; ${shifted.length} episode${shifted.length === 1 ? '' : 's'} shifted. ` : ''
 }
 
 async function useNextPlanSlot(): Promise<void> {
@@ -1349,6 +1354,8 @@ async function useNextPlanSlot(): Promise<void> {
     if (!saved) throw new Error('The upload plan did not save a date for this episode.')
     const episode = episodes.value.find(item => item.episode_code === episodeCode)
     if (episode) episode.plan = { scheduled_at: saved.publishAt, timezone: result.timezone }
+    const others = result.order_shifted.filter(code => code !== episodeCode)
+    if (others.length) planResult.value = { kind: 'ok', message: `${orderNote(others)}Refresh List to see their new dates.` }
     timingMode.value = 'planned'
     await rebuildTimingPreview('planned')
   } catch (error: any) {
@@ -1377,7 +1384,7 @@ async function planUnscheduledVideos(episodeCodes?: string[]): Promise<void> {
     await load()
     planResult.value = {
       kind: 'ok',
-      message: `Saved local planned dates for ${result.assignments.length} video${result.assignments.length === 1 ? '' : 's'}. YouTube has not been changed; confirm each upload or private-video schedule separately.`,
+      message: `Saved local planned dates for ${result.assignments.length} video${result.assignments.length === 1 ? '' : 's'}. ${orderNote(result.order_shifted)}YouTube has not been changed; confirm each upload or private-video schedule separately.`,
     }
   } catch (error: any) {
     planResult.value = { kind: 'err', message: error?.data?.detail || error?.message || 'Could not plan those videos.' }

@@ -232,6 +232,26 @@ export function orderEpisodeCodes(codes: unknown[]): string[] {
   )
 }
 
+/**
+ * Publish dates follow episode order (owner, 2026-10-08: "I assembled 172, then
+ * 245, then 390 … now 173–176 stay behind 245 and 390").
+ *
+ * `claims` must hold only FUTURE dates of episodes Story may still move (not
+ * uploading, not on YouTube). The same dates are handed back out in
+ * episode-code order, so the lowest code gets the earliest date. No new date is
+ * made, so the plan horizon and "never earlier than now" hold automatically.
+ * Returns only the episodes whose date changes.
+ */
+export function episodeOrderShifts(claims: Readonly<Record<string, string>>): Record<string, string> {
+  const codes = orderEpisodeCodes(Object.keys(claims))
+  const dates = codes.map(code => claims[code]!).sort((a, b) => Date.parse(a) - Date.parse(b))
+  const shifts: Record<string, string> = {}
+  codes.forEach((code, index) => {
+    if (claims[code] !== dates[index]) shifts[code] = dates[index]!
+  })
+  return shifts
+}
+
 export async function listPlans(slug: string): Promise<UploadPlan[]> {
   const config = (await pm.getConfig(slug)) as any
   const plans = config?.upload_plans

@@ -17,7 +17,8 @@
  * 4. **Wait for an empty queue** (owner, 2026-10-08): an automatic install pauses nothing. It waits,
  *    with no time limit, until no job is running, queued or paused (`jobsLeft`), rechecking every
  *    30 seconds, and installs once the queue has stayed empty for a minute (a pipeline's next step
- *    lands in that gap), checking once more right before the swap. A queue the owner paused while
+ *    lands in that gap), checking once more right before the swap. The queue only counts as empty
+ *    once the boot scan has loaded every channel's saved jobs (`areBootJobsLoaded`). A queue the owner paused while
  *    it still holds jobs keeps it waiting. **Install Now** drains instead, the same policy as
  *    `scripts/release/install-local.sh`: pause the queue (a queue-origin pause; jobs the owner
  *    paused stay paused, and a queue he had already paused is left as his), let running work finish
@@ -27,7 +28,8 @@
  *    bundle goes to the self-emptying Trash Folder, `<data>/Trash Folder/<UTC date>/app/`, which
  *    Story deletes 15 days later (`purgeTrashFolder`, as Studio Hub does); the new one moves into
  *    place, and the app is relaunched (through the login agent when it is installed, so it stays
- *    supervised). `<data>/_trash` stays the owner's: nothing there is ever deleted.
+ *    supervised). Download leftovers go to the same Trash Folder (`<UTC date>/app-update/`).
+ *    `<data>/_trash` stays the owner's: nothing there is ever deleted.
  * 6. **Health**: the new version reports `installed` here once it has booted and answered its own
  *    `/api/health`; the helper waits for that and otherwise puts the old app back.
  *
@@ -308,10 +310,13 @@ function patchState(patch: Partial<UpdateState>): UpdateState {
   return writeState({ ...readState(), ...patch })
 }
 
-/** Move something aside into `_trash/<bucket>/`, never delete it. */
-async function toTrash(target: string, bucket: string): Promise<void> {
+/**
+ * Move something aside, never delete it: into `_trash/<bucket>/`, or with `selfEmptying` into
+ * today's Trash Folder (`<UTC date>/<bucket>/`), which `purgeTrashFolder` empties after 15 days.
+ */
+async function toTrash(target: string, bucket: string, selfEmptying = false): Promise<void> {
   if (!fs.existsSync(target)) return
-  const dir = path.join(trashDir(), bucket)
+  const dir = selfEmptying ? path.join(trashFolder(), utcDate(Date.now()), bucket) : path.join(trashDir(), bucket)
   await fsp.mkdir(dir, { recursive: true })
   await fsp.rename(target, path.join(dir, `${path.basename(target)}-${Date.now()}`))
 }
@@ -323,6 +328,8 @@ export interface QueueControl {
   setPaused(paused: boolean): Promise<void>
   running(): number
   summary(): { running: number; queued: number; paused: number }
+  /** False until the boot scan has loaded every channel's saved jobs; the queue only looks empty before that. */
+  loaded?(): boolean
 }
 
 export interface UpdaterOptions {
@@ -382,7 +389,7 @@ export async function onBoot(options: UpdaterOptions): Promise<UpdateState> {
     const next = patchState({ phase: 'installed', installed_at: Date.now(), error: null, staged_app: null,
       install_requested: false, held: false })
     await releaseOurPause()
-    await toTrash(path.join(updateDir(), 'staging', target), 'app-update').catch(() => {})
+    await toTrash(path.join(updateDir(), 'staging', target), 'app-update', true).catch(() => {})
     return next
   }
   let detail = `${target} did not start; ${options.currentVersion} is running.`
@@ -562,7 +569,8 @@ async function download(release: ReleaseDescriptor, file: string): Promise<boole
 
 async function stage(release: ReleaseDescriptor, requestId: string | null = null): Promise<void> {
   const dir = path.join(updateDir(), 'staging', release.version)
-  await toTrash(dir, 'app-update')
+  // Each download is ~240 MB; its leftovers go to the self-emptying Trash Folder, not `_trash`.
+  await toTrash(dir, 'app-update', true)
   await fsp.mkdir(dir, { recursive: true })
   patchState({ phase: 'downloading', release, error: null, staged_app: null, held: false,
     gateway_update_request_id: requestId })
@@ -648,6 +656,11 @@ export function jobsLeft(queue: QueueControl): number {
   return s.running + s.queued + s.paused
 }
 
+/** Idle means an empty queue AFTER the boot scan has loaded the saved jobs (about 75 s on a big Library). */
+function queueIdle(queue: QueueControl): boolean {
+  return queue.loaded?.() !== false && jobsLeft(queue) === 0
+}
+
 /**
  * Automatic: install once the queue has been empty for IDLE_SETTLE_MS, pausing nothing; recheck
  * every IDLE_POLL_MS meanwhile. Install Now (`install_requested`): start or continue the drain.
@@ -660,7 +673,7 @@ export async function maybeInstall(): Promise<void> {
     const settings = await o.getSettings()
     if (!settings.auto_install || state.held) return
     const now = o.now?.() ?? Date.now()
-    if (jobsLeft(o.queue) > 0) idleSince = null
+    if (!queueIdle(o.queue)) idleSince = null
     else idleSince ??= now
     if (idleSince === null || now - idleSince < (o.idleSettleMs ?? IDLE_SETTLE_MS)) return watchIdle()
     idleSince = null
@@ -725,7 +738,7 @@ export async function install(mode: 'idle' | 'drain' = 'drain'): Promise<boolean
     throw new Error('The staged update is missing; it is downloaded again on the next check.')
   }
   // The last look before the swap; from here to the spawn nothing else runs.
-  if (mode === 'idle' && jobsLeft(o.queue) > 0) return false
+  if (mode === 'idle' && !queueIdle(o.queue)) return false
   const script = path.join(updateDir(), 'swap-app.sh')
   fs.writeFileSync(script, helperScript(), { mode: 0o755 })
   writeState({ ...state, phase: 'installing', from_version: o.currentVersion, error: null, installing_at: Date.now() })

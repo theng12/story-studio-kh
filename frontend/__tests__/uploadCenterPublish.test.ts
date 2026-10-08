@@ -706,7 +706,7 @@ describe('Upload Center Publish', () => {
         active: { 'youtube:registry:UC-x': 'plan-1' },
       },
       planPreview: { assignments, skipped_existing: [] },
-      planApply: { assignments, skipped_existing: [] },
+      planApply: { assignments, order_shifted: ['EP0001', 'EP0002'], skipped_existing: [] },
     })
     assert.match(mounted.text(), /Missed plan/)
     assert.match(mounted.text(), /Plan Missing or Missed Dates \(1\)/)
@@ -719,7 +719,8 @@ describe('Upload Center Publish', () => {
     assert.deepEqual(preview.body.episode_codes, ['EP0001'], 'future bookings are not selected')
     assert.ok(mounted.confirms[0].message.includes(past), 'review states the date being replaced')
     assert.ok(mounted.confirms[0].message.includes(future), 'review states the proposed date')
-    assert.match(mounted.confirms[0].message, /Existing future bookings stay in place/)
+    assert.match(mounted.confirms[0].message, /Dates follow episode order/)
+    assert.match(mounted.text(), /Dates follow episode order; 2 episodes shifted\./)
     assert.equal(mounted.calls.some(call => call.path.endsWith('/youtube/upload')), false)
     assert.equal(mounted.calls.filter(call => call.path.endsWith('/youtube/plan/apply')).length, 1)
     mounted.destroy()

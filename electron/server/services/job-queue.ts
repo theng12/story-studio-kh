@@ -3292,6 +3292,14 @@ async function continueInterruptedPipeline(job: Job): Promise<void> {
   }
 }
 
+let bootJobsLoaded = false
+/**
+ * True once the boot scan has loaded every project's saved jobs (or given up
+ * trying). Until then the in-memory queue can look empty while queued work is
+ * still on disk, so the updater must not read that as idle.
+ */
+export function areBootJobsLoaded(): boolean { return bootJobsLoaded }
+
 /**
  * Eager boot scan for checkpointed GenStudio work. Ordinary job history is loaded
  * lazily per project, but recovery cannot depend on somebody opening the Jobs
@@ -3312,6 +3320,7 @@ export async function resumeInterruptedJobsAtBoot(): Promise<void> {
       if (typeof project?.slug === 'string' && project.slug) await loadPersistedJobs(project.slug)
     }
   } finally {
+    bootJobsLoaded = true
     imageEpisodeBootAdmissionHolds = Math.max(0, imageEpisodeBootAdmissionHolds - 1)
     if (imageEpisodeBootAdmissionHolds === 0) pumpImageEpisodeGroup(imageEpisodeConcurrency)
   }

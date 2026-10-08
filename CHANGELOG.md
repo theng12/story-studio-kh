@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.262 — 2026-10-08
+
+- Publish dates follow episode order. When a finished episode is scheduled automatically, or you apply the upload plan, the planned dates of videos not yet on YouTube are shared out lowest episode first. If 173 finishes after 245 and 390, it now takes the earliest of those dates and 245 and 390 move later. The Upload Center says "Dates follow episode order; N episodes shifted" when that happens.
+- Videos already on YouTube (uploaded, scheduled or public) and videos being uploaded keep their dates. Nothing is sent to YouTube. No date moves earlier than now or past the end of your plan.
+- Old update downloads now go to Story's self-emptying Trash Folder and are deleted after 15 days, instead of piling up (about 240 MB each) in `_trash`. What is already in `_trash` stays yours.
+- After a restart, an update no longer installs before Story has finished loading the job queue. Until then the queue can look empty while saved jobs are still on disk.
+
 ## v1.4.261 — 2026-10-08
 
 - Updates wait for your work: a downloaded update no longer pauses the queue. It waits until nothing is running, queued or paused, then installs and restarts. Settings → About → Updates shows "Update … ready — installs when the queue is empty (N jobs left)", and says so when a paused queue still holds jobs. Install Now still pauses the queue, lets running jobs finish and installs; it asks first when jobs are in the queue. The "When to install" choice is gone.

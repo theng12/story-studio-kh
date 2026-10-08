@@ -75,12 +75,13 @@ import { createProjectFactsCache, resolveEpisodePaths } from '../services/utils.
 import { findYouTubeSourceVideoPath, resolveYouTubeSourceRevisionCached } from '../services/youtube-source-video.js'
 import { getUploadMode } from '../services/upload-store.js'
 import {
-  applyScheduleAssignmentsWithRollback, computeSlots, getActivePlanId, getPlan,
+  applyScheduleAssignmentsWithRollback, computeSlots, episodeOrderShifts, getActivePlanId, getPlan,
   latestFutureProjectClaimMs, listPlans, localDayKeyInTz, orderEpisodeCodes,
   readItemSchedule, UploadScheduleBatchWriteError,
 } from '../services/upload-plans.js'
 import { readSidecarStrict, setScheduledFor } from '../services/upload-sidecar.js'
 import { remoteVideoFor, alreadyOnYouTubeReason, OPEN_LIFECYCLES } from '../services/youtube-remote-video.js'
+import { movableLocalClaims } from '../services/episode-autoschedule.js'
 import * as im from '../services/idea-manager.js'
 import { getProjectDir } from '../services/project-manager.js'
 import { COMPARED_FIELDS, compareYouTubeVideo } from '../services/youtube-metadata-comparison.js'
@@ -2453,6 +2454,8 @@ type UploadCenterPlanPreview = {
   channel_id: string
   ordered_episode_codes: string[]
   assignments: UploadCenterPlanAssignment[]
+  /** Episodes whose date differs from plain walk order because dates follow episode order. */
+  order_shifted: string[]
   skipped_existing: string[]
   latest_existing_claim: string | null
   schedule: Record<string, string>
@@ -2569,15 +2572,33 @@ async function previewUploadCenterPlan(
   }
   const past = slots.find(slot => Date.parse(slot) <= now)
   if (past) throw scheduleRouteError(400, `Plan "${plan.name}" produced a past publish time (${past}).`)
+
+  // Dates follow episode order. The new slots and every future date of an
+  // episode not on YouTube yet are handed back out in episode-code order, so a
+  // lower-numbered episode planned late takes the earliest of them. Episodes
+  // already on YouTube or uploading are not in the pool and keep their dates.
+  const fresh: Record<string, string> = {}
+  candidates.forEach((code, index) => { fresh[code] = slots[index]! })
+  const movable = candidates.length ? await movableLocalClaims(slug, channelId, schedule, now) : {}
+  for (const code of candidateCodes) delete movable[code]
+  const shifts = episodeOrderShifts({ ...movable, ...fresh })
+  const shiftedExisting = Object.keys(shifts).filter(code => !candidateCodes.has(code))
+  for (const code of shiftedExisting) {
+    sidecar_schedule[code] = (await readSidecarStrict(slug, code, 'youtube', facts))?.scheduled_for ?? null
+  }
+  const assigned = orderEpisodeCodes([...candidates, ...shiftedExisting])
   return {
     plan_id: plan.id,
     channel_id: channelId,
     ordered_episode_codes: requested,
-    assignments: candidates.map((episode_code, index) => ({
+    assignments: assigned.map(episode_code => ({
       episode_code,
-      publishAt: slots[index]!,
-      ...(overdueCodes.has(episode_code) ? { previous_publish_at: schedule[episode_code]! } : {}),
+      publishAt: shifts[episode_code] ?? fresh[episode_code]!,
+      ...(overdueCodes.has(episode_code) || !candidateCodes.has(episode_code)
+        ? { previous_publish_at: schedule[episode_code]! }
+        : {}),
     })),
+    order_shifted: orderEpisodeCodes(Object.keys(shifts)),
     skipped_existing,
     latest_existing_claim: latestMs ? new Date(latestMs).toISOString() : null,
     schedule,
@@ -2586,8 +2607,8 @@ async function previewUploadCenterPlan(
 }
 
 function publicPlanPreview(preview: UploadCenterPlanPreview) {
-  const { plan_id, channel_id, ordered_episode_codes, assignments, skipped_existing, latest_existing_claim } = preview
-  return { plan_id, channel_id, ordered_episode_codes, assignments, skipped_existing, latest_existing_claim }
+  const { plan_id, channel_id, ordered_episode_codes, assignments, order_shifted, skipped_existing, latest_existing_claim } = preview
+  return { plan_id, channel_id, ordered_episode_codes, assignments, order_shifted, skipped_existing, latest_existing_claim }
 }
 
 function sameAssignments(actual: UploadCenterPlanAssignment[], expected: unknown): boolean {
