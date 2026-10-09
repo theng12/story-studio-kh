@@ -930,8 +930,8 @@ router.post('/app-settings/server-mode/rotate-sessions', refuseAutomationKey, as
 })
 
 // Automation keys. The plaintext key is in this one response only. A request
-// authenticated BY a key may revoke keys but not mint new ones, so a leaked key
-// cannot plant a replacement that survives its own revocation.
+// authenticated BY a key can neither mint nor revoke keys: a leaked key cannot plant a
+// replacement, nor lock out the owner's other agents. Only the password session manages keys.
 router.post('/app-settings/server-mode/automation-keys', refuseAutomationKey, async (req: any, res) => {
   try {
     res.status(201).json(await createServerModeAutomationKey(req.body?.label))
@@ -940,7 +940,7 @@ router.post('/app-settings/server-mode/automation-keys', refuseAutomationKey, as
   }
 })
 
-router.delete('/app-settings/server-mode/automation-keys/:id', async (req, res) => {
+router.delete('/app-settings/server-mode/automation-keys/:id', refuseAutomationKey, async (req, res) => {
   try {
     res.json(await revokeServerModeAutomationKey(String(req.params.id)))
   } catch (e: any) {

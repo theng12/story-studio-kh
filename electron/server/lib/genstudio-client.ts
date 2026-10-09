@@ -898,6 +898,8 @@ export class GenStudioTtsArtifactUnavailableError extends GenStudioArtifactUnava
       status
         ? `Could not download the audio from the Gateway (HTTP ${status})${detail ? ` — ${detail}` : ''}: `
           + `job ${jobId} no longer serves its artifact. Retry submits a new job.`
+        : detail && detail !== 'the job completed without a download URL'
+        ? `The audio from Gateway job ${jobId} is unusable (${detail}). Retry submits a new job.`
         : `Gateway job completed without an audio download URL: job ${jobId} `
           + 'no longer serves its artifact. Retry submits a new job.',
     )
@@ -3568,6 +3570,16 @@ const SUBMISSION_UNCERTAIN_CODES: ReadonlySet<string> = new Set([
 ])
 export function isSubmissionUncertainCode(code: unknown): boolean {
   return typeof code === 'string' && SUBMISSION_UNCERTAIN_CODES.has(code.trim().toUpperCase())
+}
+
+/**
+ * An operator closed the gateway's unknown-outcome hold on this job ("Resolve All Needing
+ * Recovery"): the attempt is abandoned and its result is never collected. Collecting the same
+ * job again answers the same failure forever, so the only way forward is a fresh request.
+ */
+const CLOSED_HOLD_CODES: ReadonlySet<string> = new Set(['HOLD_CLOSED', 'DISCARDED_UNCERTAIN'])
+export function isClosedHoldCode(code: unknown): boolean {
+  return typeof code === 'string' && CLOSED_HOLD_CODES.has(code.trim().toUpperCase())
 }
 
 /**
@@ -9319,59 +9331,72 @@ async function completeTtsJobToFile(
   // ffmpeg identifies it by content, and Story's MP3 chapter below is written either way.
   const tempPath = path.join(os.tmpdir(), `genstudio-audio-${randomUUID()}.${request.outputFormat === 'm4a' ? 'm4a' : 'wav'}`)
   try {
-    let downloaded = false
-    let downloadError: unknown
-    for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS && !downloaded; attempt++) {
-      try {
-        const audioResponse = await fetch(requestUrl(baseUrl, completed.audio_url), {
-          headers: authorization(apiKey),
-          signal: operationSignal(request.signal, deadline, GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS),
-        })
-        if (!audioResponse.ok) {
-          // A gone artifact is terminal: replaying the idempotency key returns
-          // the same settled job with the same missing bytes.
-          if (audioResponse.status === 404 || audioResponse.status === 410) {
-            throw new GenStudioTtsArtifactUnavailableError(completed.id, audioResponse.status)
-          }
-          const error = new Error(`Could not download the audio from the Gateway (HTTP ${audioResponse.status})`)
-          if (!retryableStatus(audioResponse.status)) throw error
-          downloadError = error
-        } else {
-          const body = audioResponse.body as ReadableStream<Uint8Array> | null
-          if (!body) throw new Error('The Gateway sent an empty audio download')
-          const file = await fs.open(tempPath, 'w')
-          let received = 0
-          try {
-            const reader = body.getReader()
-            for (;;) {
-              const { done, value } = await reader.read()
-              if (done) break
-              if (value) {
-                await file.write(value)
-                received += value.length
-                request.onProgress?.(received, Number(audioResponse.headers.get('content-length')) || undefined)
-              }
+    // Every download is checked before use: non-empty, then ffprobe must find an audio stream. A bad
+    // one is fetched once more (the Gateway keeps its artifacts); still bad means the stored result
+    // itself is unusable — EP0038, 2026-10-09: a 0-byte m4a the Gateway stored as `succeeded`, which
+    // every Retry collected again and fed to ffmpeg ("moov atom not found").
+    let signature: string | null = null
+    for (let fetchRound = 1; fetchRound <= 2 && !signature; fetchRound++) {
+      let downloaded = false
+      let downloadError: unknown
+      for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS && !downloaded; attempt++) {
+        try {
+          const audioResponse = await fetch(requestUrl(baseUrl, completed.audio_url), {
+            headers: authorization(apiKey),
+            signal: operationSignal(request.signal, deadline, GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS),
+          })
+          if (!audioResponse.ok) {
+            // A gone artifact is terminal: replaying the idempotency key returns
+            // the same settled job with the same missing bytes.
+            if (audioResponse.status === 404 || audioResponse.status === 410) {
+              throw new GenStudioTtsArtifactUnavailableError(completed.id, audioResponse.status)
             }
-          } finally {
-            await file.close()
+            const error = new Error(`Could not download the audio from the Gateway (HTTP ${audioResponse.status})`)
+            if (!retryableStatus(audioResponse.status)) throw error
+            downloadError = error
+          } else {
+            const body = audioResponse.body as ReadableStream<Uint8Array> | null
+            if (!body) throw new Error('The Gateway sent an empty audio download')
+            const file = await fs.open(tempPath, 'w')
+            let received = 0
+            try {
+              const reader = body.getReader()
+              for (;;) {
+                const { done, value } = await reader.read()
+                if (done) break
+                if (value) {
+                  await file.write(value)
+                  received += value.length
+                  request.onProgress?.(received, Number(audioResponse.headers.get('content-length')) || undefined)
+                }
+              }
+            } finally {
+              await file.close()
+            }
+            downloaded = true
           }
-          downloaded = true
+        } catch (error) {
+          if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
+          if (error instanceof GenStudioArtifactUnavailableError) throw error
+          downloadError = error
         }
-      } catch (error) {
-        if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
-        if (error instanceof GenStudioArtifactUnavailableError) throw error
-        downloadError = error
+        if (!downloaded && attempt < NETWORK_RETRY_ATTEMPTS) {
+          await fs.rm(tempPath, { force: true }).catch(() => {})
+          await retryDelay(attempt, request, deadline)
+        }
       }
-      if (!downloaded && attempt < NETWORK_RETRY_ATTEMPTS) {
-        await fs.rm(tempPath, { force: true }).catch(() => {})
-        await retryDelay(attempt, request, deadline)
+      if (!downloaded) throw downloadError instanceof Error ? downloadError : new Error('Could not download the audio from the Gateway')
+      const bytes = (await fs.stat(tempPath).catch(() => null))?.size || 0
+      signature = bytes > 0 ? await probeAudioSignature(tempPath) : null
+      if (!signature && fetchRound === 1) await fs.rm(tempPath, { force: true }).catch(() => {})
+      if (!signature && fetchRound === 2) {
+        throw new GenStudioTtsArtifactUnavailableError(completed.id, 0, bytes > 0 ? `${bytes} bytes with no readable audio` : 'the stored file is empty')
       }
     }
-    if (!downloaded) throw downloadError instanceof Error ? downloadError : new Error('Could not download the audio from the Gateway')
     await fs.mkdir(path.dirname(outPath), { recursive: true })
     // Cloud providers already deliver MP3 (the Hub delivers WAV): re-encoding one to 96 kbps MP3 is a
     // second lossy pass and a few seconds of CPU per chunk for nothing, so keep its bytes as they are.
-    if ((await probeAudioSignature(tempPath))?.startsWith('mp3,')) {
+    if (signature?.startsWith('mp3,')) {
       const staged = `${outPath}.partial-${process.pid}`
       try {
         await fs.copyFile(tempPath, staged)

@@ -175,7 +175,7 @@ An agent drives the server with its own key instead of your password.
    `X-Story-Key: <key>` works too. `/api/health` needs no key; `/api/auth/me` is the one to check that the key works.
 
 How it behaves:
-- A key can do what your signed-in browser does with your projects, but it **can't change sign-in settings**: password, Server Mode on/off, port and bind, the sign-in limit, **Sign Out Everywhere**, and creating keys all answer 403. It can revoke a key.
+- A key can do what your signed-in browser does with your projects, but it **can't change sign-in settings**: password, Server Mode on/off, port and bind, the sign-in limit, **Sign Out Everywhere**, and creating or revoking keys all answer 403. Only your password session manages keys.
 - **Revoke** in the same list takes effect on the next request. **Sign Out Everywhere** and **Change Password** do not revoke keys. `npm run reset-server-auth` (the emergency reset) removes every key and writes a `reset` line to the audit file.
 - A wrong, malformed or revoked key gets 401 and counts toward the same per-computer limit as password sign-ins; over the limit the answer is 429 for a minute, even for a valid key.
 - Keys work only in server mode. In desktop mode the header is ignored.

@@ -125,8 +125,8 @@ test('revocation is immediate; rotating the session secret does not revoke', asy
   assert.match(audit, /"event":"revoked"/)
 })
 
-test('a key cannot change sign-in settings or mint keys, but can revoke one', async () => {
-  const { key } = await createKey('agent')
+test('a key cannot change sign-in settings, mint keys or revoke keys', async () => {
+  const { key, id: own } = await createKey('agent')
   const { id: other } = await createKey('spare')
   // last_used_at may legitimately move; nothing else may.
   const signIn = async () => {
@@ -141,15 +141,16 @@ test('a key cannot change sign-in settings or mint keys, but can revoke one', as
     request(app).put('/api/app-settings/server-mode/rate-limit').send({ login_max_attempts_per_minute: 1000 }),
     request(app).post('/api/app-settings/server-mode/rotate-sessions'),
     request(app).post('/api/app-settings/server-mode/automation-keys').send({ label: 'persistence' }),
+    request(app).delete(`/api/app-settings/server-mode/automation-keys/${other}`),
+    request(app).delete(`/api/app-settings/server-mode/automation-keys/${own}`),
   ]
   for (const req of refused) {
     const res = await req.set('Authorization', `Bearer ${key}`).expect(403)
     assert.equal(res.body.detail, "Automation keys can't change sign-in settings — use your password session.")
   }
-  assert.deepEqual(await signIn(), before, 'no sign-in setting changed')
-  await request(app).delete(`/api/app-settings/server-mode/automation-keys/${other}`)
-    .set('Authorization', `Bearer ${key}`).expect(200)
+  assert.deepEqual(await signIn(), before, 'no sign-in setting changed and no key was revoked')
   // The owner's own session still can.
+  await request(app).delete(`/api/app-settings/server-mode/automation-keys/${other}`).set('x-test-peer', '127.0.0.1').expect(200)
   await request(app).put('/api/app-settings/server-mode/rate-limit').set('x-test-peer', '127.0.0.1')
     .send({ login_max_attempts_per_minute: 30 }).expect(200)
 })

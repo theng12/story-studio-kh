@@ -75,6 +75,8 @@ export interface MockGenStudioScenario {
   /** Video only. A real artifact fixture lets generator tests exercise media
    * validation without making a provider request. */
   videoArtifact?: Buffer
+  /** TTS only. Bytes served for the audio download (a truncated container, say); silent WAV when absent. */
+  audioArtifact?: Buffer
 }
 
 export interface MockGenStudioRequest {
@@ -95,13 +97,14 @@ export interface MockGenStudioSubmission {
 }
 
 interface StoredScenario extends Required<Omit<MockGenStudioScenario,
-  'failureCode' | 'routingStatusCode' | 'outputText' | 'finishReason' | 'envelope' | 'videoArtifact'>> {
+  'failureCode' | 'routingStatusCode' | 'outputText' | 'finishReason' | 'envelope' | 'videoArtifact' | 'audioArtifact'>> {
   failureCode: string | null
   routingStatusCode: string | null
   outputText: string
   finishReason: string
   envelope: Record<string, unknown>
   videoArtifact: Buffer
+  audioArtifact?: Buffer
 }
 
 interface MockJob {
@@ -334,6 +337,7 @@ function normalizeScenario(
         : 0,
     dropFirstCancellationResponse: scenario.dropFirstCancellationResponse === true,
     videoArtifact: scenario.videoArtifact || TINY_MP4,
+    ...(scenario.audioArtifact ? { audioArtifact: scenario.audioArtifact } : {}),
   }
 }
 
@@ -683,6 +687,11 @@ export class MockGenStudioService {
   clearQueuedScenarios(operation?: MockGenStudioOperation): void {
     if (operation) this.queuedScenarios.delete(operation)
     else this.queuedScenarios.clear()
+  }
+
+  /** Change what an existing job reports from now on (an operator closing its hold, say). */
+  patchJobScenario(jobId: string, patch: Partial<MockGenStudioScenario>): void {
+    Object.assign(this.requireJob(jobId).scenario, patch)
   }
 
   jobCount(operation?: MockGenStudioOperation): number {
@@ -1432,6 +1441,7 @@ export class MockGenStudioService {
     }
     return {
       ...base,
+      ...job.scenario.envelope,
       // ClientTTSJobResponse publishes released_credits.
       released_credits: state === 'succeeded' || state === 'failed' || job.cancelled ? job.credits.returned : null,
       cancellable: !job.cancelled && (state === 'accepted' || state === 'reserved'),
@@ -1813,7 +1823,7 @@ export class MockGenStudioService {
           response.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': String(ONE_PIXEL_PNG.length) })
           response.end(ONE_PIXEL_PNG)
         } else if (artifact.kind === 'audio' || artifact.kind === 'music') {
-          const wav = silentWav()
+          const wav = (artifact.kind === 'audio' && artifact.job.scenario.audioArtifact) || silentWav()
           response.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': String(wav.length) })
           response.end(wav)
         } else if (artifact.kind === 'video') {

@@ -18,6 +18,7 @@ import {
   isGenStudioInsufficientCredits,
   isGenStudioRouteExhausted,
   evidenceHoldsUnknownOutcome,
+  isClosedHoldCode,
   recoverTtsToFile as recoverTtsGenStudio,
   listTtsModels as listGenStudioTtsModels,
   listVoices as listGenStudioVoices,
@@ -1230,6 +1231,7 @@ export async function generateAudio(job: Job): Promise<void> {
     })
     publishProgress()
     let fleetBusyRetries = 0
+    let askedAfreshForDeadResult = false
     let maxAttempts = TTS_ROUTE_RETRY_MAX_ATTEMPTS
     try {
       for (let attempt = 1; ; attempt++) {
@@ -1265,13 +1267,34 @@ export async function generateAudio(job: Job): Promise<void> {
           // job state; this covers the succeeded-but-artifact-gone case, which
           // has no state change.
           if (e instanceof GenStudioArtifactUnavailableError && e.modality === 'tts') {
+            // Keep the request's identity (input hash, key, model): without it the next Retry no
+            // longer recognises this entry as its own, re-sends the original key and the Gateway
+            // hands back the same dead job.
+            const persisted = (await readManifest(audioDir).catch(() => null))?.tasks[chunkFilename]
             await recordTask(audioDir, chunkFilename, {
+              ...(persisted?.task_id === e.jobId ? persisted : { input_hash: inputHash }),
               provider: 'genstudio',
               task_id: e.jobId,
-              submitted_at: new Date().toISOString(),
+              submitted_at: persisted?.submitted_at || new Date().toISOString(),
               operation: 'tts',
               last_state: 'artifact_expired',
             }).catch(() => { /* evidence write must never mask the real failure */ })
+          }
+
+          // A RESULT THAT CAN NEVER BE USED: an operator closed the Gateway's unknown-outcome hold
+          // (HOLD_CLOSED), or the stored audio is gone, empty or unreadable even on a second
+          // download. Collecting that request again answers the same way forever: EP0045 hit
+          // HOLD_CLOSED on all 3 auto-retries, EP0038 re-downloaded the same 0-byte m4a 3 times
+          // (2026-10-09). Free fleet work drops the saved request and asks afresh, once per part per
+          // run; paid voices stay manual — the part fails and its Retry sends a new request.
+          const deadResult = isClosedHoldCode(e?.failureCode)
+            || (e instanceof GenStudioArtifactUnavailableError && e.modality === 'tts')
+          if (deadResult && !askedAfreshForDeadResult && isFreeFleetModelId(genStudioModelId)) {
+            askedAfreshForDeadResult = true
+            job.output_lines.push(`  ${chunkFilename}: the earlier result can't be used (${e?.failureCode || 'unusable audio'}); asking for it again, free on your own Macs.`)
+            submissionIdentity = nextTtsRouteRetryIdentity(submissionIdentity, e.jobId || chunkFilename)
+            recoveryEntry = null
+            continue
           }
 
           // THE FAILURES WORTH ASKING AGAIN ABOUT — both of which prove no

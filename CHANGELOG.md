@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.265 — 2026-10-09
+
+- Narration no longer keeps collecting a Gateway result that can never come. When an earlier request was closed at the Gateway (for example by "Resolve All Needing Recovery" after a Gateway restart), Story used to collect that same request on every retry and fail each time with HOLD_CLOSED. Now narration on your own Macs drops it and asks again straight away. Paid voices are never asked again by themselves: the part fails, and pressing Retry sends a new request.
+- Every narration download is checked before it is used: it must not be empty, and it must hold readable audio. A bad one is downloaded once more. If it is still bad, narration on your own Macs makes that part again, and paid voices leave it for your Retry. Before, an empty file stored at the Gateway failed every retry with "FFmpeg exited with code 183 … moov atom not found".
+- Retry after a narration download failed now sends a new request. It used to send the original request again and get the same broken result back.
+- Automation keys can no longer revoke keys. Only your password session can create or revoke them.
+
 ## v1.4.264 — 2026-10-09
 
 - Narration starts the next episode early. When a running episode has 20 or fewer parts left, the next queued episode starts beside it, so your Macs don't sit idle while the last parts finish. At most one extra episode starts this way (with 2 at a time set, never more than 3). Queue order, your pauses and the paid-work rules are unchanged.
