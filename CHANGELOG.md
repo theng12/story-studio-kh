@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.271 — 2026-10-09
+
+- Music channels can write each song's title into its own picture. Turn on "Song title on each picture" under Scenes on the Music Formula page (or for one episode in Episode Builder). The picture then shows the song's exact title as natural lettering, such as a chalkboard sign, window lettering or a menu card, still with no people. It works with one picture per song. Use Qwen Image for it: Episode Builder warns when the picked image model draws text poorly (FLUX Klein, Z-Image).
+- The Music Formula page has a new "Scene settings" box: the places your pictures are set in, one per line (for example 30 different cosy cafés). Every picture in an episode gets a different one, two pictures side by side never share one, and every place is used once before any repeats. A picture keeps its place when you reorder songs. Song titles and song themes are not affected, and an empty box keeps pictures on each song's own scene idea.
+- YouTube status refresh no longer fails with "invalid remote_snapshot.description" for videos whose description has line breaks. TerraNash uploads could not refresh or sync their status because of this.
+
 ## v1.4.270 — 2026-10-09
 
 - Finished videos are now as loud as YouTube plays them: -14 LUFS with the loudest peak at -1 dBTP. YouTube plays everything at -14 LUFS and never turns a quieter video up, and Night Atlas Mythology EP0001 measured -24.2 LUFS. Video Assembly measures the whole soundtrack once and brings it to the level with one volume change; only when that would push the peaks over -1 dBTP does a peak limiter step in. Episodes whose audio is already merged get it too. The narration stays on top and the music stays underneath.
