@@ -96,6 +96,7 @@ import {
 } from '../services/episode-effects.js'
 import { listSceneEffectLibrary } from '../services/style-effect-loader.js'
 import { requireJobCompletion, declareJobDegraded } from '../services/job-completion.js'
+import { nonRetryable } from '../services/job-retry-policy.js'
 import {
   assertContextualCueReadiness,
   normalizeContextualCueConfig,
@@ -2897,7 +2898,7 @@ export async function generateVideo(job: Job): Promise<void> {
     const outputFile = path.join(tempDir, `${code}_video_${timestamp}.${format}`)
 
     // Concat all scene clips into a single intermediate MP4 (stream copy, near-instant)
-    const intermediateVideoPath = await concatToIntermediate(concatListPath, tempDir, job)
+    const intermediateVideoPath = await concatToIntermediate(concatListPath, tempDir, job, totalRenderDuration)
 
     // Track whether the final encode succeeded so the finally block can
     // remove a partial `outputFile` on failure. Before this, a watchdog
@@ -3685,6 +3686,7 @@ export async function prepareSceneClips(
         // The clip's own window: the plan already decided it, and the timeline was given the same
         // number, so a reveal that rendered to any other length would drift from the script.
         windowSeconds: duration,
+        tailSeconds: renderDuration - duration,
         narrationSeconds: (scene as { __scene_plan_duration?: boolean }).__scene_plan_duration
           ? duration
           : undefined,
@@ -5157,8 +5159,22 @@ export async function premixAudio(opts: PremixAudioOpts): Promise<string> {
 
 // ── Concat to Intermediate (stream-copy all clips into single MP4) ───────
 
+/**
+ * Preflight before the long encode: the final pass maps the intermediate video as-is (no padding),
+ * so a video timeline shorter than the render cannot pass the output check on any encoder tier.
+ * Stop here, once, without the automatic retries that would rebuild the same short timeline.
+ */
+export function assertIntermediateCoversRender(videoSec: number, expectedSec: number): void {
+  if (videoSec >= expectedSec - 1) return
+  throw nonRetryable(new Error(
+    `The joined scene video is ${videoSec.toFixed(1)}s but this render needs ${expectedSec.toFixed(1)}s, `
+    + 'so the scene clips did not join to full length. Stopped before encoding: running it again would '
+    + 'stop at the same point. Send the job log to support.',
+  ))
+}
+
 async function concatToIntermediate(
-  concatListPath: string, tempDir: string, job: Job,
+  concatListPath: string, tempDir: string, job: Job, expectedSec: number,
 ): Promise<string> {
   const outputPath = path.join(tempDir, 'intermediate_video.mp4')
   job.output_lines.push('Concatenating scene clips into intermediate video...')
@@ -5187,6 +5203,7 @@ async function concatToIntermediate(
       minDurationSec: 1,
     })
     job.output_lines.push(`Intermediate video concat complete · ${summarizeMedia(info)}`)
+    assertIntermediateCoversRender(info.videoDurationSec ?? info.durationSec, expectedSec)
   } catch (e: any) {
     // Re-throw with the concat list contents so the user can see which
     // input clips fed the broken intermediate. The temp dir is preserved

@@ -134,26 +134,36 @@ export function redactSecrets(text: string, ...secrets: Array<string | undefined
   return out
 }
 
-/** Deep-clone JSON-like diagnostic data while removing secret-bearing keys. */
-export function redactSensitiveValue<T>(value: T, seen = new WeakSet<object>()): T {
+/**
+ * Deep-clone JSON-like diagnostic data while removing secret-bearing keys.
+ *
+ * `ancestors` holds only the objects on the path from the root to this value, so a real cycle
+ * becomes '[CIRCULAR]' but an object merely referenced twice (a Pipeline's shared `pacing`) is
+ * copied both times. Before 1.4.266 this was a global "seen" set, and every second reference
+ * was saved to jobs.json as the string '[CIRCULAR]'.
+ */
+export function redactSensitiveValue<T>(value: T, ancestors = new WeakSet<object>()): T {
   if (typeof value === 'string') return redactSecrets(value) as T
   if (value == null || typeof value !== 'object') return value
   if (Buffer.isBuffer(value)) return '[BINARY]' as T
   if (value instanceof Date) return value.toISOString() as T
-  if (seen.has(value as object)) return '[CIRCULAR]' as T
-  seen.add(value as object)
-
-  if (Array.isArray(value)) {
-    return value.map(item => redactSensitiveValue(item, seen)) as T
-  }
-
-  const out: Record<string, unknown> = {}
-  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-    if (isSensitiveFieldName(key)) {
-      out[key] = item ? REDACTED : item
-    } else {
-      out[key] = redactSensitiveValue(item, seen)
+  if (ancestors.has(value as object)) return '[CIRCULAR]' as T
+  ancestors.add(value as object)
+  try {
+    if (Array.isArray(value)) {
+      return value.map(item => redactSensitiveValue(item, ancestors)) as T
     }
+
+    const out: Record<string, unknown> = {}
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      if (isSensitiveFieldName(key)) {
+        out[key] = item ? REDACTED : item
+      } else {
+        out[key] = redactSensitiveValue(item, ancestors)
+      }
+    }
+    return out as T
+  } finally {
+    ancestors.delete(value as object)
   }
-  return out as T
 }

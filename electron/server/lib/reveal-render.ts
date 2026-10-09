@@ -34,6 +34,12 @@ export interface RenderRevealInput {
   height: number
   fps: number
   crf?: number
+  /**
+   * Seconds of the last frame held after the window. Plan-strict crossfades time every dissolve as
+   * if each clip ran window + transition (video.ts `renderDuration`); a reveal clip without that
+   * tail ends exactly where the next dissolve starts, and FFmpeg then ends the whole chunk there.
+   */
+  tailSeconds?: number
   timeoutMs?: number
   /** Test seam: production always runs the real FFmpeg. */
   run?: (args: string[], options: { timeoutMs?: number }) => Promise<unknown>
@@ -101,6 +107,14 @@ export async function renderRevealClip(input: RenderRevealInput): Promise<Render
   const timeoutMs = input.timeoutMs ?? 10 * 60_000
   const encoder = revealEncoderArgs({ fps: input.fps, crf: input.crf ?? 20 })
   const decoder = await stillDecoderArgs(input.imagePath)
+  const tail = Math.max(0, input.tailSeconds ?? 0)
+  const withTail = (c: CompiledReveal) => tail > 0
+    ? {
+        filters: [...c.filters, `[${c.output}]tpad=stop_mode=clone:stop_duration=${tail.toFixed(3)}[reveal_tail]`],
+        output: 'reveal_tail',
+        duration: c.duration + tail,
+      }
+    : { filters: c.filters, output: c.output, duration: c.duration }
 
   // ── Hybrid: native drift, FFmpeg wipes ──────────────────────────────────────
   if (input.native) {
@@ -118,14 +132,15 @@ export async function renderRevealClip(input: RenderRevealInput): Promise<Render
     })
     if (drift.rendered) {
       const compiled = compileSceneReveal(doc, { w: input.width, h: input.height, fps: input.fps, timing, prerenderedPicture: true })
+      const graph = withTail(compiled)
       const imageField = doc.field.mode === 'image'
       const args = [
         '-y',
         '-i', input.native.driftPath,
         ...(imageField ? [...decoder, '-i', input.imagePath] : []),
-        '-filter_complex', compiled.filters.join(';'),
-        '-map', `[${compiled.output}]`,
-        '-t', String(compiled.duration),
+        '-filter_complex', graph.filters.join(';'),
+        '-map', `[${graph.output}]`,
+        '-t', String(graph.duration),
         ...encoder,
         input.outPath,
       ]
@@ -148,13 +163,14 @@ export async function renderRevealClip(input: RenderRevealInput): Promise<Render
   // cloning that same frame. Looping the input would make zoompan multiply the
   // clip by the number of times the image arrived — the "stuck at 1/160" shape
   // of defect this app already fixed once in `prepareSceneClips`.
+  const graph = withTail(compiled)
   const args = [
     '-y',
     ...decoder,
     '-i', input.imagePath,
-    '-filter_complex', compiled.filters.join(';'),
-    '-map', `[${compiled.output}]`,
-    '-t', String(compiled.duration),
+    '-filter_complex', graph.filters.join(';'),
+    '-map', `[${graph.output}]`,
+    '-t', String(graph.duration),
     ...encoder,
     input.outPath,
   ]

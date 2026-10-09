@@ -9,6 +9,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { EventEmitter } from 'events'
 import { redactSensitiveValue } from '../lib/redact-secrets.js'
+import { repairCircularParams } from '../lib/circular-params-repair.js'
 import { deactivateSceneRenderStatus } from './scene-render-status.js'
 import { boundGenStudioRequestPreviews, pendingGenStudioEntryId, type GenStudioRequestPreview } from '../lib/genstudio-request-preview.js'
 import { AsyncLocalStorage } from 'async_hooks'
@@ -3027,13 +3028,17 @@ async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
   try {
     if (existsSync(p)) {
       const data = JSON.parse(await fs.readFile(p, 'utf-8'))
+      // Settings a pre-1.4.266 save turned into '[CIRCULAR]' are restored before anything resumes.
+      const repairedOnLoad = Array.isArray(data.jobs)
+        ? repairCircularParams(data.jobs, [...data.jobs, ...jobs.values()])
+        : new Set<string>()
       for (const j of data.jobs || []) {
         if (!jobs.has(j.job_id)) {
           // Durable queued jobs keep their identity and rejoin their lane.
           // Previously-running jobs need a provider checkpoint to recover;
           // otherwise they become a loud interrupted error. Persist every
           // mutation so jobs.json and the in-memory queue cannot disagree.
-          let mutated = false
+          let mutated = repairedOnLoad.has(j.job_id)
           if (j.status === 'queued') {
             if (hasUnsettledProviderEvidence(j)) {
               j.status = 'running'
@@ -3666,7 +3671,7 @@ async function dispatchChainLink(job: Job, nextStep: any, rest: unknown[]): Prom
   try {
     const batchId = job.params.pipeline_batch_id
     const nextParams = {
-      ...(nextStep.params || {}),
+      ...structuredClone(nextStep.params || {}),
       episode_id: job.episode_id,
       pipeline_chain: rest,
       ...(batchId ? { pipeline_batch_id: batchId } : {}),
@@ -5804,6 +5809,8 @@ export function retryTerminalJob(
   }
 
   const retryParams = structuredClone(replacementParams || original.params || {})
+  // Settings a pre-1.4.266 save turned into '[CIRCULAR]' come back from the job's own run.
+  repairCircularParams([{ ...original, params: retryParams }], [...jobs.values()])
   // v1.4.41 retired the old combined image lane. Its thumbnail shape remains
   // a supported customer action, so move only that exact legacy shape onto the
   // current lane. Scene modes stay rejected before either history mutation.

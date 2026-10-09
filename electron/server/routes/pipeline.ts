@@ -2371,7 +2371,9 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
 
     // Every link carries the same immutable episode decision. Later settings
     // edits cannot retarget a queued chain or widen its motion work.
-    for (const link of chain) link.params = { ...link.params, ...visualSettings }
+    // Each link gets its own copy: shared objects across links were what the
+    // pre-1.4.266 redactor saved as '[CIRCULAR]'.
+    for (const link of chain) link.params = { ...link.params, ...structuredClone(visualSettings) }
     stampPipelineStepFacts(chain, visualSettings.visual_source, preflight.musicChannel)
 
     if (repairMissing) {

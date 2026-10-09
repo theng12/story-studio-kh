@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.266 — 2026-10-09
+
+- Pipeline Scene Plan no longer fails with "pacing must be an object" after Story restarts. A saved Pipeline step lost its pacing and motion settings whenever Story restarted while that Pipeline was still running, so the Scene Plan later in the chain failed 3 times in a row. Settings are now saved whole. Jobs saved by older versions are repaired when Story starts and when you press Retry: each setting is taken from the same episode's earlier Pipeline step, or failing that from another episode in the same Pipeline run. A plain Retry of the failed Scene Plan now works.
+- Video Assembly with reveal effects and crossfades now makes the whole video. With Scene Plan timing, a reveal scene ended exactly where the next crossfade had to start, so each group of 48 scenes kept only its first scene or two. EP0001's 140-minute render came out 4 minutes long and failed every encoder and every automatic retry. Reveal scenes now run on under the crossfade like every other scene.
+- If the joined scene video is ever much shorter than the audio, Video Assembly stops right away with a clear message, before the long encode. It no longer tries 4 encoders 3 times over (about an hour) for a result that cannot work.
+
 ## v1.4.265 — 2026-10-09
 
 - Narration no longer keeps collecting a Gateway result that can never come. When an earlier request was closed at the Gateway (for example by "Resolve All Needing Recovery" after a Gateway restart), Story used to collect that same request on every retry and fail each time with HOLD_CLOSED. Now narration on your own Macs drops it and asks again straight away. Paid voices are never asked again by themselves: the part fails, and pressing Retry sends a new request.
