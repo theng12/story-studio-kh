@@ -162,3 +162,34 @@ test('plan preview and apply give the selection and existing local dates episode
   assert.equal(got[0], '2030-01-06T12:00:00.000Z', 'lowest code takes the earliest movable date')
   assert.equal((await plans.readItemSchedule(slug))[code['uploaded']!], '2030-01-05T12:00:00.000Z')
 })
+
+// v1.4.268 — a plan whose rhythm changes on a date. Tuesdays at 12:00 until
+// 2030-01-07, then every day at 18:00 until 2030-01-10 (the plan horizon).
+const PHASED: UploadSchedule = {
+  weekdays: [2], time_local: '12:00', timezone: 'UTC', start_date: '2030-01-01', end_date: '2030-01-07',
+  phases: [{ start_date: '2030-01-08', end_date: '2030-01-10', weekdays: [0, 1, 2, 3, 4, 5, 6], time_local: '18:00' }],
+}
+
+test('episode order is kept across a phase boundary, and the last phase ends the plan', async () => {
+  const { slug, code } = await scenario(PHASED)
+  for (const name of ['390', '245', '172', '173']) {
+    const result = await scheduleEpisodeWithActivePlan(slug, code[name]!, 'youtube')
+    assert.equal(result.scheduled, true, result.reason)
+  }
+  assert.deepEqual(await dates(slug, ['172', '173', '245', '390'].map(n => code[n]!)), [
+    '2030-01-01T12:00:00.000Z', '2030-01-08T18:00:00.000Z', '2030-01-09T18:00:00.000Z', '2030-01-10T18:00:00.000Z',
+  ])
+  const before = await plans.readItemSchedule(slug)
+  const full = await scheduleEpisodeWithActivePlan(slug, code['174']!, 'youtube')
+  assert.equal(full.scheduled, false, 'no slot past the last phase')
+  assert.deepEqual(await plans.readItemSchedule(slug), before)
+})
+
+test('Edit Planned Dates lays dates out on the phase each day falls in', async () => {
+  const { slug, planId, code } = await scenario(PHASED)
+  for (const name of ['172', '173']) await scheduleEpisodeWithActivePlan(slug, code[name]!, 'youtube')
+  const body = { plan_id: planId, expected_channel_id: CHANNEL, episode_codes: [code['172']!, code['173']!], start_date: '2030-01-07' }
+  const preview = await request(app).post(`/api/projects/${slug}/youtube/plan/relayout/preview`).send(body)
+  assert.equal(preview.status, 200, JSON.stringify(preview.body))
+  assert.deepEqual(preview.body.assignments.map((a: any) => a.publishAt), ['2030-01-08T18:00:00.000Z', '2030-01-09T18:00:00.000Z'])
+})

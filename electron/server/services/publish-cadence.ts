@@ -262,6 +262,7 @@ export async function saveChannelSchedule(slug: string, input: ChannelScheduleIn
   if (!input.schedule.start_date) delete (draft.schedule as any).start_date
   if (!input.schedule.end_date) delete (draft.schedule as any).end_date
   if (!input.schedule.interval_weeks) delete (draft.schedule as any).interval_weeks
+  if (!input.schedule.phases?.length) delete draft.schedule.phases
   const problem = plans.validateUploadPlanDraft(draft)
   if (problem) throw badRequest(problem)
   const saved = await plans.upsertPlan(slug, draft)

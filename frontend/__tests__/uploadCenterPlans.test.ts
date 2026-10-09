@@ -155,6 +155,38 @@ describe('Upload Center Plans', () => {
     mounted.destroy()
   })
 
+  test('adds a "then from <date>" phase and saves it on the plan (1.4.268)', async () => {
+    const mounted = await mount({ plans: { plans: [plan()], active: { 'youtube:registry:UC-x': 'plan-1' } } })
+    button(mounted.el, 'Change the Schedule From a Later Date…').click()
+    await ticks()
+    const phase = mounted.el.querySelector('fieldset.se-phase') as HTMLElement
+    assert.ok(phase, 'the later schedule editor is shown')
+    input(phase.querySelector('input[type="date"]') as HTMLInputElement, '2027-01-01')
+    button(phase, 'Mon').click()
+    button(phase, 'Wed').click()
+    await ticks()
+    mounted.el.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await ticks()
+    const save = mounted.calls.find(call => call.method === 'POST')!
+    assert.deepEqual(save.body.schedule.phases, [{ start_date: '2027-01-01', weekdays: [1, 3, 5], time_local: '18:00' }])
+    assert.match(mounted.text(), /then from 2027-01-01: Mon, Wed, Fri at 18:00/)
+    mounted.destroy()
+  })
+
+  test('shows a saved phase and clears it when removed', async () => {
+    const phased = plan({ schedule: { weekdays: [5], time_local: '18:00', timezone: 'Asia/Phnom_Penh', interval_weeks: 1, end_date: '2026-12-31', phases: [{ start_date: '2027-01-01', weekdays: [2, 4], time_local: '20:30' }] } })
+    const mounted = await mount({ plans: { plans: [phased], active: { 'youtube:registry:UC-x': 'plan-1' } } })
+    assert.match(mounted.text(), /Fri · 18:00 · Asia\/Phnom_Penh · every week · then from 2027-01-01: Tue, Thu at 20:30/)
+    assert.equal(mounted.el.querySelectorAll('fieldset.se-phase').length, 1)
+    button(mounted.el, 'Remove This Change').click()
+    await ticks()
+    mounted.el.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await ticks()
+    const save = mounted.calls.find(call => call.method === 'POST')!
+    assert.equal('phases' in save.body.schedule, false, 'a removed phase is really removed')
+    mounted.destroy()
+  })
+
   test('activates an already saved plan with an explicit local action', async () => {
     const first = plan()
     const second = plan({ id: 'plan-2', name: 'Weekend uploads', schedule: { weekdays: [6], time_local: '10:00', timezone: 'Asia/Phnom_Penh' } })

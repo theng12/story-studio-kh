@@ -11,8 +11,15 @@ export interface UploadScheduleShape {
   monthly_day?: number
   start_date?: string
   end_date?: string
+  /** Later rhythms, each from its own start date (v1.4.268). */
+  phases?: SchedulePhaseShape[]
   [key: string]: unknown
 }
+
+export interface SchedulePhaseShape { start_date: string; end_date?: string; weekdays: number[]; time_local: string }
+
+/** "Then from <date>: <days> at <time>", optionally until a date. */
+export interface PhaseDraft { startDate: string; endDate: string; weekdays: number[]; timeLocal: string }
 
 export interface ScheduleDraft {
   name: string
@@ -24,6 +31,7 @@ export interface ScheduleDraft {
   timezone: string
   startDate: string
   endDate: string
+  phases: PhaseDraft[]
 }
 
 export const WEEKDAYS = [
@@ -47,7 +55,7 @@ export function timezoneOptions(current = ''): string[] {
 export function emptyDraft(): ScheduleDraft {
   return {
     name: '', mode: 'weekly', weekdays: [], intervalWeeks: 1, monthlyDay: 1,
-    timeLocal: '18:00', timezone: deviceTimezone(), startDate: '', endDate: '',
+    timeLocal: '18:00', timezone: deviceTimezone(), startDate: '', endDate: '', phases: [],
   }
 }
 
@@ -64,6 +72,12 @@ export function draftFromSchedule(schedule: Partial<UploadScheduleShape> | null 
     timezone: schedule.timezone || deviceTimezone(),
     startDate: schedule.start_date || '',
     endDate: schedule.end_date || '',
+    phases: (Array.isArray(schedule.phases) ? schedule.phases : []).map(phase => ({
+      startDate: phase.start_date || '',
+      endDate: phase.end_date || '',
+      weekdays: Array.isArray(phase.weekdays) ? [...phase.weekdays] : [],
+      timeLocal: phase.time_local || '18:00',
+    })),
   }
 }
 
@@ -94,19 +108,39 @@ export function scheduleFromDraft(d: ScheduleDraft, opts: { requireName?: boolea
   else schedule.monthly_day = d.monthlyDay
   if (d.startDate) schedule.start_date = d.startDate
   if (d.endDate) schedule.end_date = d.endDate
+  let previous = d.startDate
+  for (const phase of d.phases || []) {
+    if (!phase.startDate) return { ok: false, error: 'Choose the date the later schedule starts.' }
+    if (previous && phase.startDate <= previous) return { ok: false, error: 'A later schedule must start after the one before it.' }
+    if (!phase.weekdays.length) return { ok: false, error: 'Pick at least one day for the later schedule.' }
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(phase.timeLocal)) return { ok: false, error: 'Choose a valid time for the later schedule.' }
+    if (phase.endDate && phase.endDate < phase.startDate) return { ok: false, error: 'The later schedule must end on or after its start date.' }
+    previous = phase.startDate
+  }
+  if (d.phases?.length) {
+    schedule.phases = d.phases.map(phase => ({
+      start_date: phase.startDate,
+      ...(phase.endDate ? { end_date: phase.endDate } : {}),
+      weekdays: [...phase.weekdays].sort((a, b) => a - b),
+      time_local: phase.timeLocal,
+    }))
+  }
   return { ok: true, schedule }
 }
 
-/** "Tue, Thu, Sat · 19:30 · Asia/Phnom_Penh · every week" */
+const dayLabels = (days: number[]): string => days.map(day => WEEKDAYS.find(item => item.value === day)?.label).filter(Boolean).join(', ')
+
+/** "Tue, Thu, Sat · 19:30 · Asia/Phnom_Penh · every week · then from 2027-01-01: Mon, Wed, Fri at 20:00" */
 export function scheduleSummary(schedule: Partial<UploadScheduleShape> | null | undefined): string {
   if (!schedule) return 'No schedule yet'
   const time = `${schedule.time_local || '18:00'} · ${schedule.timezone || 'UTC'}`
+  const later = (schedule.phases || []).map(phase =>
+    ` · then from ${phase.start_date}: ${dayLabels(phase.weekdays || [])} at ${phase.time_local}${phase.end_date ? ` until ${phase.end_date}` : ''}`).join('')
   if (schedule.weekdays?.length) {
-    const days = schedule.weekdays.map(day => WEEKDAYS.find(item => item.value === day)?.label).filter(Boolean).join(', ')
     const interval = Math.max(1, Number(schedule.interval_weeks) || 1)
-    return `${days} · ${time} · ${interval === 1 ? 'every week' : `every ${interval} weeks`}`
+    return `${dayLabels(schedule.weekdays)} · ${time} · ${interval === 1 ? 'every week' : `every ${interval} weeks`}${later}`
   }
-  return `Day ${schedule.monthly_day || 1} of each month · ${time}`
+  return `Day ${schedule.monthly_day || 1} of each month · ${time}${later}`
 }
 
 /** Roughly how many episodes a month the schedule produces. */

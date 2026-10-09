@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.268 — 2026-10-09
+
+- An upload plan can now change its rhythm on a date. In Settings → Publishing or Upload Center → Plans, press "Change the Schedule From a Later Date…" and set "then from <date>: <days> at <time>", for example Mon and Thu until 31 Dec, then Mon, Wed and Fri from 1 Jan. The plan uses each rhythm on its own dates, in the same time zone. The plan's summary shows both rhythms.
+- The plan ends on the last rhythm's end date, if it has one. A plan with one rhythm works exactly as before.
+- Planning dates, Edit Planned Dates, and dates that follow episode order all work across the change: each date lands on the days and time of the rhythm it falls in.
+
 ## v1.4.267 — 2026-10-09
 
 - Video Assembly keeps its place when Story Studio stops in the middle of a render. The final render, the longest step (about 93% of a TerraNash episode), is now made in 3-minute pieces, and each piece is saved as soon as it is finished. After an update, a crash, Quit or a power cut, Video Assembly carries on from the first unfinished piece, so at most about 3 minutes of rendering is done again instead of the whole video. The pieces are joined without re-encoding into one video with the same picture and sound: on a test with TerraNash's effects, every frame matched the video made in one piece.

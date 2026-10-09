@@ -118,6 +118,21 @@ describe('channel with a YouTube channel assigned', () => {
     assert.deepEqual(after.body.cadence.schedule.weekdays, [0])
   })
 
+  test('a later phase is saved on the active plan, kept out of the seed, and clears when left out (1.4.268)', async () => {
+    const phases = [{ start_date: '2027-01-01', weekdays: [1, 3, 5], time_local: '20:00' }]
+    const saved = await request(app).put(`/api/projects/${slug}/publishing-schedule`)
+      .send({ schedule: { ...weekly([1, 4], '20:00'), start_date: '2026-10-09', end_date: '2026-12-31', phases } })
+    assert.equal(saved.status, 200, JSON.stringify(saved.body))
+    assert.deepEqual(saved.body.plan.schedule.phases, phases)
+    assert.equal(saved.body.cadence.schedule.phases, undefined, 'dated phases belong to the plan, not the seed')
+    const bad = await request(app).put(`/api/projects/${slug}/publishing-schedule`)
+      .send({ schedule: { ...weekly([1]), start_date: '2027-02-01', phases } })
+    assert.equal(bad.status, 400, 'a phase must start after the plan does')
+    const cleared = await request(app).put(`/api/projects/${slug}/publishing-schedule`).send({ schedule: weekly([1, 4]) })
+    assert.equal(cleared.body.plan.schedule.phases, undefined)
+    assert.equal((await plansOf(slug)).length, 1)
+  })
+
   test('an invalid schedule is refused with a plain 400 and changes nothing', async () => {
     const res = await request(app).put(`/api/projects/${slug}/publishing-schedule`).send({ schedule: { weekdays: [], time_local: '18:00', timezone: 'Asia/Phnom_Penh' } })
     assert.equal(res.status, 400)

@@ -10,6 +10,8 @@
  *   2. Interval          — "every N weeks" applied on top of (1).
  *   3. Monthly           — OR a day-of-month override (mutually exclusive
  *                          with weekdays; if both provided, weekdays win).
+ *   4. Phases (1.4.268)  — later rhythms that take over on a date
+ *                          ("then from 2027-01-01: Mon, Wed, Fri at 20:00").
  *
  * Computed output: list of `{ position, publishAt }` tuples for a given
  * queue of N items, starting from the plan's start_date (or "now") and
@@ -40,6 +42,23 @@ export interface UploadSchedule {
   start_date?: string
   /** YYYY-MM-DD upper bound (inclusive). Optional. */
   end_date?: string
+  /**
+   * Later rhythms, in date order (v1.4.268). The fields above are the first
+   * phase; each entry here takes over from its own `start_date` ("then from
+   * 2027-01-01: Mon, Wed, Fri at 20:00"). Timezone and `interval_weeks` are
+   * shared. The plan horizon is the LAST phase's `end_date`. Absent or empty
+   * means the single-pattern schedule, unchanged.
+   */
+  phases?: UploadSchedulePhase[]
+}
+
+export interface UploadSchedulePhase {
+  /** YYYY-MM-DD (inclusive) in the schedule's timezone. */
+  start_date: string
+  /** YYYY-MM-DD (inclusive). Optional; on the last phase it is the plan horizon. */
+  end_date?: string
+  weekdays: number[]
+  time_local: string
 }
 
 export interface UploadPlanDefaults {
@@ -198,6 +217,8 @@ export function validateUploadPlanDraft(value: unknown): string | null {
     && schedule.end_date < schedule.start_date) {
     return 'schedule.end_date must be on or after start_date'
   }
+  const phaseProblem = validatePhases(schedule)
+  if (phaseProblem) return phaseProblem
 
   const defaults = value.defaults
   if (defaults.privacy_status !== 'private'
@@ -210,6 +231,30 @@ export function validateUploadPlanDraft(value: unknown): string | null {
   }
   if (typeof defaults.made_for_kids !== 'undefined' && typeof defaults.made_for_kids !== 'boolean') {
     return 'defaults.made_for_kids must be a boolean'
+  }
+  return null
+}
+
+function validatePhases(schedule: { start_date?: unknown; phases?: unknown }): string | null {
+  if (schedule.phases === undefined || schedule.phases === null) return null
+  if (!Array.isArray(schedule.phases)) return 'schedule.phases must be an array'
+  let previous: string | undefined = isValidCalendarDate(schedule.start_date) ? schedule.start_date : undefined
+  for (const [index, phase] of schedule.phases.entries()) {
+    const at = `schedule.phases[${index}]`
+    if (!isRecord(phase)) return `${at} must be an object`
+    if (!isValidCalendarDate(phase.start_date)) return `${at}.start_date must be a valid YYYY-MM-DD date`
+    if (previous && phase.start_date <= previous) return `${at}.start_date must be after the previous phase starts`
+    if (isOptionalValue(phase.end_date) && (!isValidCalendarDate(phase.end_date) || phase.end_date < phase.start_date)) {
+      return `${at}.end_date must be a valid date on or after its start_date`
+    }
+    if (!Array.isArray(phase.weekdays) || !phase.weekdays.length || !phase.weekdays.every((day: unknown) =>
+      typeof day === 'number' && Number.isInteger(day) && day >= 0 && day <= 6)) {
+      return `${at}.weekdays must contain at least one integer from 0 to 6`
+    }
+    if (typeof phase.time_local !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(phase.time_local)) {
+      return `${at}.time_local must be a valid 24-hour HH:MM time`
+    }
+    previous = phase.start_date
   }
   return null
 }
@@ -420,11 +465,24 @@ export function computeSlots(
   // style) falls back to UTC so compute proceeds with reasonable behavior
   // rather than crashing the whole route handler.
   const tz = isValidTimezone(schedule.timezone) ? schedule.timezone : 'UTC'
-  const [hh, mm] = parseTime(schedule.time_local)
   const planStartDate = schedule.start_date
     ? parseDateInTz(schedule.start_date, tz)
     : startOfDayInTz(new Date(), tz)
-  const endDate = schedule.end_date ? parseDateInTz(schedule.end_date, tz) : null
+  // Phases (v1.4.268): the top-level fields are the first one; each later one
+  // rules from its own start_date. A day past a phase's end_date and before the
+  // next phase starts is simply not a slot day. The last phase's end_date is
+  // the plan horizon, so a plan without phases walks exactly as before.
+  const phases = [schedule, ...(Array.isArray(schedule.phases) ? schedule.phases : [])].map((phase, index) => {
+    const weekdays = new Set((phase.weekdays || []).filter(d => d >= 0 && d <= 6))
+    return {
+      from: index === 0 ? null : parseDateInTz(phase.start_date!, tz),
+      to: phase.end_date ? parseDateInTz(phase.end_date, tz) : null,
+      time: parseTime(phase.time_local),
+      weekdays,
+      monthly: index === 0 && weekdays.size === 0 && schedule.monthly_day != null,
+    }
+  })
+  const endDate = phases.at(-1)!.to
 
   // Walk start: optionally advanced past the latest existing claim.
   // We move to the start of the day AFTER `minStartDate` in tz so a
@@ -449,8 +507,6 @@ export function computeSlots(
   // any reasonable plan horizon without unbounded iteration.
   const MAX_DAYS = 365 * 2
   const interval = Math.max(1, schedule.interval_weeks || 1)
-  const weekdaysSet = new Set((schedule.weekdays || []).filter(d => d >= 0 && d <= 6))
-  const monthlyMode = weekdaysSet.size === 0 && schedule.monthly_day != null
   const blocked = options?.blockedDays
     ? (options.blockedDays instanceof Set ? options.blockedDays : new Set(options.blockedDays))
     : null
@@ -465,13 +521,17 @@ export function computeSlots(
   let daysWalked = 0
   while (slots.length < count && daysWalked < MAX_DAYS) {
     if (endDate && cursor > endDate) break
+    let phase = phases[0]!
+    for (const later of phases) if (later.from && later.from <= cursor) phase = later
     const weekday = weekdayInTz(cursor, tz)
     const dayOfMonth = dayOfMonthInTz(cursor, tz)
 
     let matches = false
-    if (monthlyMode) {
+    if (phase.to && cursor > phase.to) {
+      // Between a phase's end_date and the next phase's start: no slot day.
+    } else if (phase.monthly) {
       matches = dayOfMonth === schedule.monthly_day
-    } else if (weekdaysSet.has(weekday)) {
+    } else if (phase.weekdays.has(weekday)) {
       if (interval === 1) {
         matches = true
       } else {
@@ -489,7 +549,7 @@ export function computeSlots(
         daysWalked++
         continue
       }
-      const slot = isoAtTz(cursor, hh, mm, tz)
+      const slot = isoAtTz(cursor, phase.time[0], phase.time[1], tz)
       if (!options?.notBefore || Date.parse(slot) > options.notBefore.getTime()) slots.push(slot)
     }
 

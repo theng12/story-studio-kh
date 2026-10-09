@@ -9,7 +9,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { computeSlots, orderEpisodeCodes } from '../services/upload-plans.js'
+import { computeSlots, orderEpisodeCodes, validateUploadPlanDraft } from '../services/upload-plans.js'
 
 describe('orderEpisodeCodes — deterministic schedule assignment', () => {
   test('sorts naturally regardless of checkbox click order', () => {
@@ -307,5 +307,67 @@ describe('computeSlots — blocked days (re-lay around existing bookings)', () =
       computeSlots(phnomPenh, 1, { blockedDays: ['2026-09-15'] }),
       ['2026-09-15T18:00:00.000Z'],
     )
+  })
+})
+
+// v1.4.268 — schedule phases. Night Atlas History: Mon/Thu until the end of
+// 2026, then Mon/Wed/Fri from 1 Jan 2027, Asia/Phnom_Penh (UTC+7, no DST).
+describe('computeSlots — phases', () => {
+  const HISTORY = {
+    weekdays: [1, 4], time_local: '20:00', timezone: 'Asia/Phnom_Penh',
+    start_date: '2026-12-21', end_date: '2026-12-31',
+    phases: [{ start_date: '2027-01-01', weekdays: [1, 3, 5], time_local: '20:30' }],
+  }
+
+  test('slots cross the phase boundary with each phase\'s days and time', () => {
+    assert.deepEqual(computeSlots(HISTORY, 8), [
+      '2026-12-21T13:00:00.000Z', // Mon 20:00
+      '2026-12-24T13:00:00.000Z', // Thu
+      '2026-12-28T13:00:00.000Z', // Mon
+      '2026-12-31T13:00:00.000Z', // Thu — last day of the first phase
+      '2027-01-01T13:30:00.000Z', // Fri 20:30 — the later phase
+      '2027-01-04T13:30:00.000Z', // Mon
+      '2027-01-06T13:30:00.000Z', // Wed
+      '2027-01-08T13:30:00.000Z', // Fri
+    ])
+  })
+
+  test('the first phase\'s end_date is not the horizon; the last phase\'s is', () => {
+    const open = computeSlots(HISTORY, 200)
+    assert.equal(open.length > 60, true, 'an open-ended last phase keeps producing slots')
+    const capped = computeSlots({ ...HISTORY, phases: [{ ...HISTORY.phases[0]!, end_date: '2027-01-06' }] }, 50)
+    assert.equal(capped.length, 7)
+    assert.equal(capped.at(-1), '2027-01-06T13:30:00.000Z')
+  })
+
+  test('a gap between phases produces no slots', () => {
+    const slots = computeSlots({ ...HISTORY, end_date: '2026-12-24' }, 4)
+    assert.deepEqual(slots.slice(0, 3), ['2026-12-21T13:00:00.000Z', '2026-12-24T13:00:00.000Z', '2027-01-01T13:30:00.000Z'])
+  })
+
+  test('a walk that starts inside a later phase uses that phase (Edit Planned Dates, resume)', () => {
+    // Edit Planned Dates overrides start_date; a resume uses minStartDate.
+    assert.deepEqual(computeSlots({ ...HISTORY, start_date: '2027-01-05' }, 2), ['2027-01-06T13:30:00.000Z', '2027-01-08T13:30:00.000Z'])
+    assert.deepEqual(
+      computeSlots(HISTORY, 2, { minStartDate: new Date('2026-12-31T13:00:00.000Z'), blockedDays: ['2027-01-04'] }),
+      ['2027-01-01T13:30:00.000Z', '2027-01-06T13:30:00.000Z'],
+    )
+  })
+
+  test('a single-pattern plan is unchanged with phases absent or empty', () => {
+    const legacy = { weekdays: [1, 4], time_local: '20:00', timezone: 'Asia/Phnom_Penh', start_date: '2026-12-21', end_date: '2027-01-31', interval_weeks: 2 }
+    const expected = computeSlots(legacy, 20)
+    assert.equal(expected.length, 6)
+    assert.deepEqual(computeSlots({ ...legacy, phases: [] }, 20), expected)
+    assert.equal(validateUploadPlanDraft({ name: 'x', account_id: 'a', schedule: legacy, defaults: { privacy_status: 'private' } }), null)
+  })
+
+  test('the save boundary refuses phases out of order or without days', () => {
+    const draft = (phases: unknown) => ({ name: 'x', account_id: 'a', schedule: { ...HISTORY, phases }, defaults: { privacy_status: 'private' } })
+    assert.equal(validateUploadPlanDraft(draft(HISTORY.phases)), null)
+    assert.match(validateUploadPlanDraft(draft([{ ...HISTORY.phases[0], start_date: '2026-12-01' }]))!, /after the previous phase/)
+    assert.match(validateUploadPlanDraft(draft([{ ...HISTORY.phases[0], weekdays: [] }]))!, /weekdays/)
+    assert.match(validateUploadPlanDraft(draft([{ ...HISTORY.phases[0], end_date: '2026-12-31' }]))!, /end_date/)
+    assert.match(validateUploadPlanDraft(draft({}))!, /must be an array/)
   })
 })

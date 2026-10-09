@@ -88,6 +88,7 @@ interface UploadSchedule {
   monthly_day?: number
   start_date?: string
   end_date?: string
+  phases?: Array<{ start_date: string; end_date?: string; weekdays: number[]; time_local: string }>
   [key: string]: unknown
 }
 interface UploadPlan {
@@ -169,7 +170,7 @@ function validatedSchedule(): UploadSchedule | null {
   if ('error' in result) { formError.value = result.error; return null }
   // Keep any fields this editor does not show, but let cleared ones clear.
   const kept = { ...(selected.value?.schedule || {}) } as UploadSchedule
-  for (const key of ['interval_weeks', 'monthly_day', 'start_date', 'end_date']) delete kept[key]
+  for (const key of ['interval_weeks', 'monthly_day', 'start_date', 'end_date', 'phases']) delete kept[key]
   return { ...kept, ...result.schedule } as UploadSchedule
 }
 async function save(): Promise<void> {

@@ -26,7 +26,7 @@
           :class="{ on: draft.weekdays.includes(day.value) }"
           :aria-pressed="draft.weekdays.includes(day.value)"
           :disabled="disabled"
-          @click="toggleDay(day.value)"
+          @click="draft.weekdays = toggled(draft.weekdays, day.value)"
         >{{ day.label }}</button>
       </div>
     </div>
@@ -59,6 +59,38 @@
       <label class="se-field"><span>Ends on (optional)</span><input v-model="draft.endDate" type="date" :disabled="disabled" /></label>
     </div>
 
+    <!-- v1.4.268: "then from <date>: <days> at <time>" — a later rhythm on the same plan. -->
+    <template v-if="showDates">
+      <fieldset v-for="(phase, index) in draft.phases" :key="index" class="se-phase">
+        <legend>Then from {{ phase.startDate || '…' }}</legend>
+        <div class="se-row">
+          <label class="se-field"><span>Starts on</span><input v-model="phase.startDate" type="date" required :disabled="disabled" /></label>
+          <label class="se-field"><span>Time of day</span><input v-model="phase.timeLocal" type="time" required :disabled="disabled" /></label>
+          <label class="se-field"><span>Ends on (optional)</span><input v-model="phase.endDate" type="date" :disabled="disabled" /></label>
+        </div>
+        <div class="se-days" :aria-label="`Days from ${phase.startDate || 'the later date'}`">
+          <button
+            v-for="day in WEEKDAYS"
+            :key="day.value"
+            type="button"
+            class="se-day"
+            :class="{ on: phase.weekdays.includes(day.value) }"
+            :aria-pressed="phase.weekdays.includes(day.value)"
+            :disabled="disabled"
+            @click="phase.weekdays = toggled(phase.weekdays, day.value)"
+          >{{ day.label }}</button>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm se-remove" :disabled="disabled" @click="draft.phases.splice(index, 1)">Remove This Change</button>
+      </fieldset>
+      <button
+        v-if="!draft.phases.length"
+        type="button"
+        class="btn btn-ghost btn-sm se-add"
+        :disabled="disabled"
+        @click="draft.phases.push({ startDate: '', endDate: '', weekdays: [...draft.weekdays], timeLocal: draft.timeLocal })"
+      >Change the Schedule From a Later Date…</button>
+    </template>
+
     <p class="se-maths">
       <template v-if="perMonth">About <strong>{{ perMonth }}</strong> {{ perMonth === 1 ? 'episode' : 'episodes' }} a month.</template>
       <template v-else>Pick at least one day — a schedule with no days never produces a slot.</template>
@@ -85,11 +117,8 @@ const perMonth = computed(() => {
   return result.ok ? episodesPerMonth(result.schedule) : 0
 })
 
-function toggleDay(day: number): void {
-  const next = draft.value.weekdays.includes(day)
-    ? draft.value.weekdays.filter(d => d !== day)
-    : [...draft.value.weekdays, day]
-  draft.value.weekdays = next.sort((a, b) => a - b)
+function toggled(days: number[], day: number): number[] {
+  return (days.includes(day) ? days.filter(d => d !== day) : [...days, day]).sort((a, b) => a - b)
 }
 </script>
 
@@ -115,6 +144,9 @@ function toggleDay(day: number): void {
 .se-day:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .se-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
 .se-tz { grid-column: span 2; }
+.se-phase { display: grid; gap: 10px; min-width: 0; margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; }
+.se-phase legend { padding: 0 4px; color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+.se-remove, .se-add { justify-self: start; }
 .se-maths { margin: 0; color: var(--text-muted); font-size: 12px; }
 @media (max-width: 700px) { .se-tz { grid-column: auto; } }
 </style>
