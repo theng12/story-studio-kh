@@ -323,3 +323,36 @@ export async function computeStoryStartSec(
     intro_label: sections[introIndex]?.slug || 'Introduction',
   }
 }
+
+/**
+ * Seconds a Scene Plan must move to sit on the merged audio's clock (1.4.272).
+ *
+ * A plan is cut from the stitched transcript, so a plan built after the merge
+ * already carries the lead-in, and its last scene ends where the merged audio
+ * ends. A plan built BEFORE a music lead-in was added (every Pipeline merge
+ * before 1.4.270) was timed from narration at 0 s, so it ends exactly the
+ * lead-in short of the merged audio. That tail is the evidence: shift only when
+ * it matches the lead-in the merge itself recorded (never the current preset).
+ * Any other tail is left alone and the coverage check judges it as before.
+ */
+export function scenePlanLeadInShiftSec(
+  scenes: Array<{ end_sec: number }>,
+  mergedLeadInSec: number | null | undefined,
+  mergedDurationSec: number | null | undefined,
+): number {
+  const lead = Number(mergedLeadInSec)
+  const duration = Number(mergedDurationSec)
+  if (!scenes.length || !Number.isFinite(lead) || lead < 0.05 || !Number.isFinite(duration)) return 0
+  const tail = duration - Math.max(...scenes.map(scene => Number(scene.end_sec) || 0))
+  return Math.abs(tail - lead) <= 1 ? Math.round(lead * 1000) / 1000 : 0
+}
+
+/** Every scene moves by the lead-in; the first keeps its start, so its picture shows during the intro. */
+export function shiftScenesForLeadIn<T extends { start_sec: number; end_sec: number }>(scenes: T[], shiftSec: number): T[] {
+  if (!(shiftSec > 0)) return scenes
+  return scenes.map((scene, index) => ({
+    ...scene,
+    start_sec: index === 0 ? scene.start_sec : scene.start_sec + shiftSec,
+    end_sec: scene.end_sec + shiftSec,
+  }))
+}

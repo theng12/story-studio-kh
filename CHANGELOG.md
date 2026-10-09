@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.272 — 2026-10-10
+
+- Video Assembly now handles a music intro. When the merged audio starts with music on its own before the narration (Night Atlas: 8 seconds), the first picture shows during the intro and every other picture moves later by the same amount, so each one still lands on its words. This fixes "8.0s of narration has no planned scene" on episodes whose Scene Plan was made before the intro was added (Night Atlas Science EP0001). No scenes are re-made and nothing is paid for. Effects, reveals, contextual cues and sound design move with their scenes; captions and YouTube chapters already followed the intro and are not moved twice. A real gap between scenes still stops the render, and the job log says when the intro shift was applied.
+- A final render of one of these episodes that was interrupted on an older version renders again from the start instead of resuming with the old timing.
+
 ## v1.4.271 — 2026-10-09
 
 - Music channels can write each song's title into its own picture. Turn on "Song title on each picture" under Scenes on the Music Formula page (or for one episode in Episode Builder). The picture then shows the song's exact title as natural lettering, such as a chalkboard sign, window lettering or a menu card, still with no people. It works with one picture per song. Use Qwen Image for it: Episode Builder warns when the picked image model draws text poorly (FLUX Klein, Z-Image).

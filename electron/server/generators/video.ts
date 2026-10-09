@@ -124,6 +124,7 @@ import {
   describeMergedAudioOpening,
   type MergedAudioOpening,
 } from '../services/merged-audio-opening.js'
+import { scenePlanLeadInShiftSec, shiftScenesForLeadIn } from '../lib/intro-lead-in.js'
 import {
   buildImagePoolPlayOrder,
   readVideoVisualSource,
@@ -1095,6 +1096,9 @@ export interface ScannedAssets {
     /** v1.3.1 — present when the reserve was probed from the real opening
      *  clips at plan time, so it already equals `preSceneDuration`. */
     opening_source?: 'measured'
+    /** 1.4.272 — seconds every scene after the first was moved so a plan timed
+     *  before a music lead-in sits on the merged audio's clock. Absent when none. */
+    audio_lead_in_shift_sec?: number
     plan_duration_sec: number
     audio_duration_sec: number
     approved: number
@@ -1469,6 +1473,34 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
     result.scene_sources!.image_pool = result.scenes.length
   }
 
+  // 1.4.272 — the ONE place the plan meets the merged audio. A plan timed from
+  // narration at 0 s, rendered over audio with a music lead-in, moves onto the
+  // audio's clock here: scene 1 holds through the intro, every other scene (and
+  // so every duration, reveal, effect window and the coverage check below)
+  // shifts by the lead-in the merge recorded. Captions are already on the
+  // merged clock and are not touched.
+  let leadInShiftSec = 0
+  if (scannedPlan) {
+    leadInShiftSec = scenePlanLeadInShiftSec(
+      scannedPlan.scenes, result.merged_audio[0]?.opening?.lead_in_sec, result.merged_audio[0]?.duration,
+    )
+    if (leadInShiftSec > 0) {
+      scannedPlan = {
+        ...scannedPlan,
+        scenes: shiftScenesForLeadIn(scannedPlan.scenes, leadInShiftSec),
+        total_duration_sec: (Number(scannedPlan.total_duration_sec) || 0) + leadInShiftSec,
+      }
+      const shifted = new Map(scannedPlan.scenes.map(scene => [scene.id, scene]))
+      for (const row of result.scenes) {
+        const scene = row.source === 'scene_plan' ? shifted.get(row.plan_scene_id!) : undefined
+        if (!scene) continue
+        row.start_sec = scene.start_sec
+        row.end_sec = scene.end_sec
+        row.duration_sec = Math.max(0, scene.end_sec - scene.start_sec)
+      }
+    }
+  }
+
   if (scannedPlan) {
     const audioDuration = Number(result.merged_audio[0]?.duration || result.narration_full?.duration || scannedPlan.total_duration_sec || 0)
     const openingReserved = scannedPlan.opening_mode === 'branded-opening'
@@ -1491,6 +1523,8 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
       opening_mode: scannedPlan.opening_mode === 'branded-opening' ? 'branded-opening' : 'from-start',
       opening_reserved_sec: openingReserved,
       ...(scannedPlan.opening_source === 'measured' ? { opening_source: 'measured' as const } : {}),
+      // Present only when a shift was applied, so an episode without one keeps its render identity.
+      ...(leadInShiftSec > 0 ? { audio_lead_in_shift_sec: leadInShiftSec } : {}),
       plan_duration_sec: Number(scannedPlan.total_duration_sec) || 0,
       audio_duration_sec: audioDuration,
       approved: scannedPlan.scenes.filter(scene => scene.approved).length,
@@ -1900,13 +1934,25 @@ export async function prepareUnifiedVideoAssemblyInputs(
     audioDir: cuePaths.audio_dir,
   })
   await assertSubtitleFileBelongsToEpisode(slug, episodeId, cuePaths.episode_dir, req, job)
-  await hydrateEpisodeRenderCues(slug, episodeId, req, job)
+  const leadInShiftSec = timing.audio_lead_in_shift_sec || 0
+  if (leadInShiftSec > 0) {
+    job?.output_lines.push(
+      `Music lead-in: the merged audio plays ${leadInShiftSec.toFixed(2)}s before the narration, but this Scene Plan was timed `
+      + `from narration at 0s. Scene 1 holds through the intro and every later scene moves ${leadInShiftSec.toFixed(2)}s; `
+      + 'captions already follow the merged audio. Nothing is re-made.',
+    )
+  }
+  await hydrateEpisodeRenderCues(slug, episodeId, req, job, false, leadInShiftSec)
   return assets
 }
 
 async function hydrateEpisodeRenderCues(
-  slug: string, episodeId: string, req: GenerateVideoRequest, job?: Job, allowMissing = false,
+  slug: string, episodeId: string, req: GenerateVideoRequest, job?: Job, allowMissing = false, leadInShiftSec = 0,
 ): Promise<void> {
+  // Cues are reviewed on the plan's clock; a lead-in shift moves them with their scenes.
+  const onAudioClock = <T extends { start_sec: number; end_sec?: number }>(cue: T): T => (leadInShiftSec > 0
+    ? { ...cue, start_sec: cue.start_sec + leadInShiftSec, ...(typeof cue.end_sec === 'number' ? { end_sec: cue.end_sec + leadInShiftSec } : {}) }
+    : cue)
   const cueConfig = normalizeContextualCueConfig((await pm.getConfig(slug))?.contextual_cues)
   const cuePaths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
   const planPath = await resolveScenePlanPath(slug, episodeId, cuePaths.episode_dir)
@@ -1930,7 +1976,7 @@ async function hydrateEpisodeRenderCues(
   }
   const plan = JSON.parse(await fs.readFile(planPath, 'utf8')) as ScenePlan
   const cueTimeline = await readContextualCueTimeline(planPath)
-  req.contextual_cues = assertContextualCueReadiness(cueConfig, cueTimeline, plan, req.subtitles)
+  req.contextual_cues = assertContextualCueReadiness(cueConfig, cueTimeline, plan, req.subtitles).map(onAudioClock)
   // Rendering with none is allowed, but never silent: an optional feature that
   // is switched on and contributes nothing has to say so, or its absence in the
   // finished video reads as a bug.
@@ -1944,7 +1990,7 @@ async function hydrateEpisodeRenderCues(
   if (cueGate.note && job) noteRender(job, cueGate.note)
   const soundConfig = normalizeSoundDesignConfig((await pm.getConfig(slug))?.sound_design)
   const soundTimeline = await readSoundDesignTimeline(planPath)
-  const approvedSoundCues = assertSoundDesignReadiness(soundConfig, soundTimeline, plan)
+  const approvedSoundCues = assertSoundDesignReadiness(soundConfig, soundTimeline, plan).map(onAudioClock)
   const soundGate = switchedOnCueGate('Sound Design', episodeId, {
     enabled: soundConfig.enabled, timeline: soundTimeline, approved: approvedSoundCues.length,
   })
