@@ -3442,9 +3442,38 @@ function pumpImageEpisodeGroup(limit: number): void {
   }
 }
 
+/**
+ * Mac mini (16 GB): a running media cleanup holds NEW Video Assembly starts so a
+ * render never overlaps its image re-encoding. Held jobs stay queued (a resumed
+ * paused one re-enters as queued too) and start through `pump` on release.
+ */
+let videoAssemblyStartHolds = 0
+
+const HELD_FOR_CLEANUP_LINE = 'Waiting for cleanup to finish. This render starts on its own when the media cleanup ends.'
+
+export function holdVideoAssemblyStarts(): () => void {
+  videoAssemblyStartHolds++
+  pump('video_assembly') // labels anything already queued
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    videoAssemblyStartHolds--
+    if (videoAssemblyStartHolds === 0) pump('video_assembly')
+  }
+}
+
 function pump(type: JobType): void {
   queuePumpObserverForTesting?.(type)
   if (queuePaused) return  // network is down; jobs wait
+  if (type === 'video_assembly' && videoAssemblyStartHolds > 0) {  // a media cleanup is running
+    for (const job of queues.video_assembly.pending) {
+      if (job.output_lines.at(-1) === HELD_FOR_CLEANUP_LINE) continue
+      job.output_lines.push(HELD_FOR_CLEANUP_LINE)
+      emitUpdate(job)
+    }
+    return
+  }
   const q = queues[type]
   const next = q.pending[0]
   const group = groupOf(type, next)

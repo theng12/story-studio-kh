@@ -873,7 +873,7 @@ describe('compress scene images (Archive episode)', () => {
     assert.equal((await preview(['EP0001'], ['chapter_audio'])).files.length, 0)
   })
 
-  test('is refused for an episode with no verified upload, and while any video render runs on this Mac', async () => {
+  test('is refused for an episode with no verified upload, and while a video render runs anywhere on this Mac', async () => {
     const episode = await seedEpisode('EP0001')
     const scene = path.join(episode.paths.bg_dir, 'scene-01.png')
     await scenePng(scene)
@@ -915,6 +915,99 @@ describe('compress scene images (Archive episode)', () => {
       (error: any) => error?.statusCode === 409 && /already running on this Mac/.test(error.message),
     )
     await waitForOperation(first.operation_id)
+  })
+})
+
+// ── 1.4.273: only a RUNNING Video Assembly blocks cleanup; a cleanup run holds new assembly starts ──
+describe('Video Assembly gate (Mac mini, 16 GB)', () => {
+  async function uploadedScenes(count = 1) {
+    const episode = await seedEpisode('EP0001')
+    const scenes = Array.from({ length: count }, (_, i) => path.join(episode.paths.bg_dir, `scene-0${i + 1}.png`))
+    for (const scene of scenes) { await scenePng(scene); await makeOlder(scene) }
+    await markUploaded(episode)
+    return scenes
+  }
+  const assembly = (episode_id: string, project_slug = 'some-other-project') => jq.enqueuePreparedForTest({
+    project_slug, type: 'video_assembly', episode_id, title: `render ${episode_id}`, params: {},
+  })
+
+  test('a queued or paused Video Assembly elsewhere does not block the cleanup', async () => {
+    const [scene] = await uploadedScenes()
+    jq.registerExecutor('video_assembly', async () => {})
+    const releaseTestHold = jq.holdVideoAssemblyStarts() // keeps the render queued, as if its slot were busy
+    const queued = assembly('ZZ0001')
+    const paused = assembly('ZZ0002')
+    try {
+      await jq.pauseJob(paused.job_id)
+      assert.equal(jq.getJob(queued.job_id)?.status, 'queued')
+      assert.equal(jq.getJob(paused.job_id)?.status, 'paused')
+      const operation = await run((await preview(['EP0001'], ['images'])).preview_id, 'compress')
+      assert.equal(operation.status, 'completed', operation.error)
+      assert.equal(operation.result?.compressed_count, 1, JSON.stringify(operation.result?.items))
+      assert.equal(await isJpegBytes(scene!), true)
+    } finally {
+      releaseTestHold()
+      await waitForTerminalJob(queued.job_id)
+      await jq.resumeJob(paused.job_id)
+      await waitForTerminalJob(paused.job_id)
+    }
+  })
+
+  test("the episode's own queued job still blocks it", async () => {
+    const [scene] = await uploadedScenes()
+    jq.registerExecutor('video_assembly', async () => {})
+    const releaseTestHold = jq.holdVideoAssemblyStarts()
+    const own = assembly('EP0001', SLUG)
+    try {
+      assert.equal(jq.getJob(own.job_id)?.status, 'queued')
+      const started = await cleanup.startMediaCleanupPreview(SLUG, { episode_codes: ['EP0001'], categories: ['images'] })
+      const blocked = await waitForOperation(started.operation_id)
+      assert.equal(blocked.status, 'failed')
+      assert.match(blocked.error || '', /EP0001 has active video_assembly/i)
+    } finally {
+      releaseTestHold()
+      await waitForTerminalJob(own.job_id)
+    }
+    assert.equal(await isJpegBytes(scene!), false)
+  })
+
+  test('a Video Assembly queued during the cleanup waits, then starts once the cleanup ends', async () => {
+    const scenes = await uploadedScenes(2)
+    let operationId = ''
+    let cleanupStatusWhenRenderStarted: string | undefined
+    jq.registerExecutor('video_assembly', async () => {
+      cleanupStatusWhenRenderStarted = cleanup.getMediaCleanupOperation(SLUG, operationId)?.status
+    })
+    let late: ReturnType<typeof assembly> | undefined
+    let lateStatusDuringCleanup: string | undefined
+    let lateLinesDuringCleanup: string[] = []
+    const restore = cleanup._setMediaCleanupHooksForTests({
+      afterFile: async () => {
+        if (late) {
+          lateStatusDuringCleanup = jq.getJob(late.job_id)?.status
+          lateLinesDuringCleanup = jq.getJob(late.job_id)?.output_lines ?? []
+          return
+        }
+        late = assembly('ZZ0003') // the next file's re-encode gives the queue every chance to start it
+      },
+    })
+    try {
+      const bill = await preview(['EP0001'], ['images'])
+      operationId = (await cleanup.startMediaCleanupRun(SLUG, { preview_id: bill.preview_id, mode: 'compress' })).operation_id
+      const operation = await waitForOperation(operationId)
+      assert.equal(operation.status, 'completed', operation.error)
+      assert.equal(operation.result?.compressed_count, 2, 'a queued render does not stop the next file')
+      for (const scene of scenes) assert.equal(await isJpegBytes(scene), true)
+      assert.equal(lateStatusDuringCleanup, 'queued', 'held in the queue while the cleanup ran')
+      assert.equal(lateLinesDuringCleanup.filter(line => /^Waiting for cleanup to finish/.test(line)).length, 1,
+        'the owner sees why it waits, once')
+      await waitForTerminalJob(late!.job_id)
+      assert.equal(jq.getJob(late!.job_id)?.status, 'done', 'started normally afterwards, not lost')
+      assert.equal(cleanupStatusWhenRenderStarted, 'completed')
+    } finally {
+      restore()
+      if (late) await waitForTerminalJob(late.job_id)
+    }
   })
 })
 

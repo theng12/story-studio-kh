@@ -468,8 +468,10 @@ async function relevantActiveJobs(slug: string, code: string, categories: MediaC
   const own = jobs.filter(job => String(job.episode_id || '').toUpperCase() === code.toUpperCase()
     && ACTIVE_STATUSES.has(job.status))
   // The Mac mini has 16 GB: re-encoding images must not overlap a video render
-  // for ANY project, so an active Video Assembly anywhere refuses the work.
-  return [...own, ...jq.activeJobsOfType('video_assembly').filter(job => !own.includes(job as any))]
+  // for ANY project, so a RUNNING Video Assembly elsewhere refuses the work.
+  // Queued or paused ones do not: a cleanup run holds new assembly starts.
+  return [...own, ...jq.activeJobsOfType('video_assembly').filter(job => job.status === 'running'
+    && !(job.project_slug === slug && String(job.episode_id || '').toUpperCase() === code.toUpperCase()))]
 }
 
 async function assertScopesIdle(slug: string, codes: string[], categories: MediaCleanupCategory[]): Promise<void> {
@@ -1408,11 +1410,16 @@ export async function startMediaCleanupRun(
   setImmediate(() => void (async () => {
     operation.status = 'running'
     operation.updated_at = isoNow()
+    // Hold new Video Assembly starts BEFORE runPreview's idle check, so none can
+    // start between the check and the work; queued ones start when this ends.
+    const releaseAssemblyHold = jq.holdVideoAssemblyStarts()
     try {
       operation.result = await runPreview(slug, preview, operation, input.mode as MediaCleanupMode, destination)
       finishOperation(operation, operation.stop_requested ? 'stopped' : 'completed')
     } catch (error) {
       finishOperation(operation, 'failed', error)
+    } finally {
+      releaseAssemblyHold()
     }
   })())
   return { operation_id: operation.id }

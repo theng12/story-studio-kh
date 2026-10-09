@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.273 — 2026-10-10
+
+- Free up space (Archive episode, Convert PNG Scenes to JPEG) now runs while other channels have Video Assembly jobs waiting. It used to refuse whenever any render anywhere was queued or paused, which on a busy Mac mini meant it could never run. Now only a render that is actually running stops it. Any work queued or paused for the episode being cleaned still stops it, as before.
+- Cleanup and a render still never run at the same time. While a cleanup runs, a Video Assembly that would start waits in the queue and says "Waiting for cleanup to finish". It starts on its own as soon as the cleanup ends or is stopped. Nothing is lost or needs restarting.
+
 ## v1.4.272 — 2026-10-10
 
 - Video Assembly now handles a music intro. When the merged audio starts with music on its own before the narration (Night Atlas: 8 seconds), the first picture shows during the intro and every other picture moves later by the same amount, so each one still lands on its words. This fixes "8.0s of narration has no planned scene" on episodes whose Scene Plan was made before the intro was added (Night Atlas Science EP0001). No scenes are re-made and nothing is paid for. Effects, reveals, contextual cues and sound design move with their scenes; captions and YouTube chapters already followed the intro and are not moved twice. A real gap between scenes still stops the render, and the job log says when the intro shift was applied.
