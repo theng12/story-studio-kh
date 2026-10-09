@@ -39,6 +39,8 @@ export interface VariableScenePacing extends ScenePacingBand {
 export type ScenePacing = UniformScenePacing | VariableScenePacing
 
 export class ScenePacingValidationError extends Error {
+  /** Bad input: running the job again stops here again, so no automatic retry (services/job-retry-policy.ts isNonRetryableError). */
+  readonly retryable = false
   constructor(message: string) {
     super(message)
     this.name = 'ScenePacingValidationError'

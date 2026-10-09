@@ -88,6 +88,8 @@ test('a created key is shown once, stored only as a hash, and opens a protected 
   // Use is persisted (once, not per request) and audited without the key.
   await waitFor(async () => !!JSON.parse(await fs.readFile(settingsFile, 'utf8')).server_mode.automation_keys[0].last_used_at,
     { label: 'last_used_at recorded' })
+  // The audit line is appended just after the settings write: wait for it too.
+  await waitFor(async () => (await fs.readFile(auditFile, 'utf8')).includes('"used"'), { label: 'audit "used" line' })
   const audit = await fs.readFile(auditFile, 'utf8')
   assert.ok(!audit.includes(key))
   const lines = audit.trim().split('\n').map((l) => JSON.parse(l))

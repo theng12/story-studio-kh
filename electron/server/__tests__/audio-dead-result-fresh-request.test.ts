@@ -187,3 +187,50 @@ void test('paid voices are never regenerated automatically; the owner\'s Retry s
   assert.equal(service.providerSubmissionCount('tts'), start + 3)
   assert.equal((await paid.part2Task())?.last_state, 'failed')
 })
+
+void test('Audio Repair: a dead saved request is not collected again; free fleet asks afresh, paid stays manual (1.4.269)', async () => {
+  const { reconcileAudio } = await import('../services/audio-reconciler.js')
+  const { recordTask } = await import('../services/task-manifest.js')
+  for (const modelId of [FLEET, PAID]) {
+    const ep = await episode(modelId)
+    // A run that left part 2 missing (no automatic retry here, to keep the test short).
+    service.queueScenario('tts', { states: ['accepted', 'succeeded'] })
+    service.queueScenario('tts', { states: ['accepted', 'failed'], failureCode: 'provider_error', finalCredits: 0 })
+    service.queueScenario('tts', { states: ['accepted', 'succeeded'] })
+    const made = await ep.settled((await jq.enqueue({ project_slug: ep.project.slug, type: 'audio', episode_id: 'EP001', title: 'Narration',
+      params: { episode_id: 'EP001', model: modelId, voice: 'mock-voice', sections: 'Chapter_01', speed: 1, force: false, no_overwrite: false, auto_retry: false } })).job_id)
+    assert.equal(made.status, 'error', lines(made))
+    // Its saved request as an interrupted run leaves it (outcome not known yet), and the Gateway
+    // has since closed that request's hold.
+    const saved = (await ep.part2Task())!
+    const dead = saved.task_id!
+    await recordTask(ep.audioDir, PART2, { ...saved, last_state: 'running' })
+    service.patchJobScenario(dead, { failureCode: 'HOLD_CLOSED' })
+    service.queueScenario('tts', { states: ['accepted', 'succeeded'] })
+    const before = service.providerSubmissionCount('tts')
+
+    const repair = await reconcileAudio(ep.project.slug, 'EP001')
+    assert.equal(repair.recovered, 0, repair.logs.join('\n'))
+    assert.match(repair.outcomes[0]!.reason!, /HOLD_CLOSED/)
+    assert.equal((await ep.part2Task())?.last_state, 'failed', 'the dead key is dropped: the next run sends a new one')
+    if (modelId === FLEET) {
+      assert.match(repair.outcomes[0]!.reason!, /asking for it again, free on your own Macs/)
+      assert.ok(repair.fresh_job_id, repair.logs.join('\n'))
+      const fresh = await ep.settled(repair.fresh_job_id!)
+      assert.equal(fresh.status, 'done', lines(fresh))
+      assert.equal(service.providerSubmissionCount('tts'), before + 1, 'one fresh request')
+      assert.notEqual((await ep.part2Task())?.task_id, dead)
+      assert.match(lines(fresh), /Joined 3 parts of Chapter 01/)
+    } else {
+      assert.match(repair.outcomes[0]!.reason!, /a paid voice is never asked again by itself/)
+      assert.equal(repair.fresh_job_id, undefined)
+      assert.equal(service.providerSubmissionCount('tts'), before, 'nothing bought')
+      // Pressed again: the ended request is not even asked about.
+      const polls = service.pollCount(dead)
+      const again = await reconcileAudio(ep.project.slug, 'EP001')
+      assert.match(again.outcomes[0]!.reason!, /the request ended/)
+      assert.equal(service.pollCount(dead), polls, 'the Gateway was not contacted for it')
+      service.clearQueuedScenarios('tts')
+    }
+  }
+})

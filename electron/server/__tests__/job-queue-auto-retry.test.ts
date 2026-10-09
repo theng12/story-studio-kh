@@ -149,6 +149,21 @@ describe('queue-owned local retries', () => {
     await jq._waitForJobPersistenceForTesting()
   })
 
+  test('bad Scene Plan input is certain to fail: pacing, subtitle style, scene effect, continuity.json', async () => {
+    const { isNonRetryableError } = await import('../services/job-retry-policy.js')
+    const { parseScenePacing } = await import('../contracts/pacing.js')
+    const { SubtitleStyleValidationError } = await import('../contracts/subtitle-style-schema.js')
+    const { SceneEffectValidationError } = await import('../contracts/scene-effects-schema.js')
+    const { resolveScenePlanRepairPacing } = await import('../services/scene-plan-pacing.js')
+    const thrown = (fn: () => unknown) => { try { fn() } catch (error) { return error } }
+    assert.ok(isNonRetryableError(thrown(() => parseScenePacing('[CIRCULAR]'))), 'pacing must be an object')
+    assert.ok(isNonRetryableError(new SubtitleStyleValidationError(['x'])))
+    assert.ok(isNonRetryableError(new SceneEffectValidationError(['x'])))
+    assert.ok(isNonRetryableError(thrown(() => resolveScenePlanRepairPacing(undefined, '{not json'))))
+    assert.ok(isNonRetryableError(thrown(() => resolveScenePlanRepairPacing(undefined, '{"pacing":"[CIRCULAR]"}'))))
+    assert.ok(!isNonRetryableError(new Error('Gateway timed out')), 'everything else still retries')
+  })
+
   test('a writing request with no known outcome is not asked again in place; Retry reconnects by its key', async () => {
     const project = await pm.createProject({ name: 'Unknown chat outcome' })
     let attempts = 0

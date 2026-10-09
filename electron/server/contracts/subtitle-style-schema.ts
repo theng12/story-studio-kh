@@ -135,6 +135,8 @@ export const SubtitleStylePatchSchema = z.object({
 }).strict()
 
 export class SubtitleStyleValidationError extends Error {
+  /** Bad input: running the job again stops here again, so no automatic retry (services/job-retry-policy.ts isNonRetryableError). */
+  readonly retryable = false
   readonly issues: string[]
   constructor(issues: string[]) {
     super(`Subtitle style is not valid: ${issues.join('; ')}`)

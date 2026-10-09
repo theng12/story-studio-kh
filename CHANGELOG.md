@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.269 — 2026-10-09
+
+- Once the final video has been checked, its 3-minute render pieces are deleted right away instead of going to the Trash Folder. They are working files, and the finished video is the real output. The video job says how much space this freed. If the render or the check fails, the pieces are kept so the render can carry on from where it stopped.
+- A Scene Plan with bad settings (for example "pacing must be an object") now fails at once with the fix in its message, instead of being tried 3 more times. The same goes for a bad subtitle style, a bad scene effect, or a continuity.json that cannot be read as settings.
+- Audio Repair no longer tries to collect a result that can never come. If an earlier request was closed at the Gateway (HOLD_CLOSED or discarded), or its audio is gone or unreadable, Repair drops that request. Narration on your own Macs then asks for those parts again straight away, and the chapter is joined when they arrive. Paid voices are never asked again by themselves: Generate missing sends the new request when you are ready.
+
 ## v1.4.268 — 2026-10-09
 
 - An upload plan can now change its rhythm on a date. In Settings → Publishing or Upload Center → Plans, press "Change the Schedule From a Later Date…" and set "then from <date>: <days> at <time>", for example Mon and Thu until 31 Dec, then Mon, Wed and Fri from 1 Jan. The plan uses each rhythm on its own dates, in the same time zone. The plan's summary shows both rhythms.

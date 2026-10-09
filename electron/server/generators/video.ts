@@ -219,16 +219,22 @@ async function autoScheduleFinishedEpisode(
   }
 }
 
-/** After a verified final: the render's segments go to the self-emptying Trash Folder (15 days), never `_trash`. */
-async function trashFinalSegments(workDir: string, code: string, job: Job): Promise<void> {
+/**
+ * Owner decision 2026-10-09: once the final video is verified and in place, the render's segments
+ * are deleted right away (not the Trash Folder). Working files only; the one exception to "never
+ * delete". Callers run this only after verifyFinalVideo, so any failure keeps them for a resume.
+ */
+export async function deleteFinalSegments(workDir: string, job: Job): Promise<void> {
   const dir = path.join(workDir, 'final_segments')
   if (!existsSync(dir)) return
   try {
-    const { moveToTrashFolder } = await import('../services/app-update.js')
-    await moveToTrashFolder(dir, `video-segments/${code}`)
+    const names = await fs.readdir(dir)
+    const sizes = await Promise.all(names.map(name => fs.stat(path.join(dir, name)).then(s => s.size, () => 0)))
+    await fs.rm(dir, { recursive: true, force: true })
+    job.output_lines.push(`Final render: deleted ${names.length} segment file(s), ${formatBytes(sizes.reduce((a, b) => a + b, 0))} freed.`)
   } catch (e) {
-    // The work folder is removed with the run anyway; a failed move only means it goes sooner.
-    job.output_lines.push(`Final render segments could not move to the Trash Folder (${(e as Error)?.message || e}); they are removed with the work folder.`)
+    // The work folder is removed with the run anyway.
+    job.output_lines.push(`Final render segments could not be deleted (${(e as Error)?.message || e}); they are removed with the work folder.`)
   }
 }
 
@@ -615,7 +621,7 @@ async function finishFinalVideo(ctx: {
 
   resolvedOutputPath = await selfHealFinalPromotion(resolvedOutputPath, projectTreeFinalPath, finalName, job)
   await verifyFinalVideo(job, resolvedOutputPath, finalName, totalRenderDuration)
-  await trashFinalSegments(tempDir, code, job)
+  await deleteFinalSegments(tempDir, job)
   await writeVideoAssemblySourceStamp(
     resolvedOutputPath,
     code,

@@ -12,6 +12,13 @@ import {
 import type { SceneMotionProfile } from '../models/types.js'
 import { getEffectiveFormat } from './format-loader.js'
 import { readProjectStartingPacing } from './formula-starting-defaults.js'
+import { isNonRetryableError, nonRetryable } from './job-retry-policy.js'
+
+/** Bad JSON or bad pacing fails the same way on every run (no auto-retry); a read error may not. */
+function continuityError(error: unknown): Error {
+  const wrapped = new Error(`continuity.json: ${error instanceof Error ? error.message : String(error)}`)
+  return error instanceof SyntaxError || isNonRetryableError(error) ? nonRetryable(wrapped) : wrapped
+}
 
 export interface ScenePlanPacing {
   min_sec: number
@@ -52,10 +59,10 @@ export function resolveScenePlanRepairPacing(
   try {
     config = JSON.parse(continuityText)
   } catch (error) {
-    throw new Error(`continuity.json: ${error instanceof Error ? error.message : String(error)}`)
+    throw continuityError(error)
   }
   if (!config || typeof config !== 'object' || Array.isArray(config)) {
-    throw new Error('continuity.json must contain an object')
+    throw nonRetryable(new Error('continuity.json must contain an object'))
   }
   const source = config as Record<string, unknown>
   if (!Object.prototype.hasOwnProperty.call(source, 'pacing')) return { ...LEGACY_SNAPSHOTLESS_REPAIR_PACING }
@@ -82,7 +89,7 @@ export async function resolveScenePlanPacing(
       const config = JSON.parse(await fs.readFile(continuityPath, 'utf-8'))
       pacing = scenePlanPacing(parseScenePacing(config?.pacing))
     } catch (error) {
-      throw new Error(`continuity.json: ${error instanceof Error ? error.message : String(error)}`)
+      throw continuityError(error)
     }
     return { pacing, formula_motion_profile }
   }

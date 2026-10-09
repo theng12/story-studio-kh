@@ -18,7 +18,8 @@ import fs from 'fs/promises'
 import path from 'path'
 import { parseNarrationDocx } from '../lib/docx-parser.js'
 import { normalizeForTts } from '../lib/tts-text.js'
-import { findNarrationFile, episodeDirForNarration, resolveAudioDir } from '../generators/audio.js'
+import { findNarrationFile, episodeDirForNarration, resolveAudioDir, isTerminalGenStudioTaskFailure } from '../generators/audio.js'
+import { isFreeFleetModelId } from '../contracts/provider-task-state.js'
 import type { ProjectFactsCache } from './utils.js'
 import { readManifest, recordTask } from './task-manifest.js'
 import { readAudioTtsModelRecord } from './audio-tts-model-record.js'
@@ -26,6 +27,8 @@ import { readAudioQualityProvenance } from './audio-quality-store.js'
 import { hashSubtitleAudioSources } from './subtitle-completion.js'
 import {
   recoverTtsToFile as recoverGenStudioTtsToFile,
+  GenStudioArtifactUnavailableError,
+  isClosedHoldCode,
   splitGenStudioApiRequests,
   listTtsModels as listGenStudioTtsModels,
 } from '../lib/genstudio-client.js'
@@ -74,6 +77,8 @@ export interface ReconcileResult {
   logs: string[]
   /** The audio job Repair queued to activate and join chapters whose parts are all on disk. */
   join_job_id?: string
+  /** Free fleet parts whose saved request is dead (1.4.269): one fresh run asks for them again. */
+  fresh_job_id?: string
 }
 
 function isMissing(error: unknown): boolean {
@@ -507,6 +512,22 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
     outcomes.push({ filename, status: 'failed', task_id, reason })
     logs.push(`✗ ${filename}: ${reason}`)
   }
+  // The same rule as generation (1.4.265): a saved request that ended, whose hold an operator closed
+  // (HOLD_CLOSED / DISCARDED_UNCERTAIN), or whose audio is gone or unusable answers the same way on
+  // every collect. Its key is dropped (a terminal last_state makes the next run send a new one);
+  // free fleet parts are asked for again right away, paid voices wait for the owner's Retry.
+  const freshParts: string[] = []
+  let freshModel = ''
+  const deadResult = (filename: string, entry: typeof manifest.tasks[string], why: string) => {
+    if (entry.model_id && isFreeFleetModelId(entry.model_id) && (!freshModel || freshModel === entry.model_id)) {
+      freshModel = entry.model_id
+      freshParts.push(filename)
+      fail(filename, entry.task_id, `The earlier result can't be used (${why}); asking for it again, free on your own Macs.`)
+    } else {
+      fail(filename, entry.task_id, `The earlier result can't be used (${why}). Generate missing sends a new request`
+        + (isFreeFleetModelId(entry.model_id) ? '.' : '; a paid voice is never asked again by itself.'))
+    }
+  }
 
   for (const filename of status.missing) {
     const entry = manifest.tasks[filename]
@@ -535,6 +556,10 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
       fail(filename, entry.task_id, 'No Gateway API Key configured. Add it in Settings → This Mac.')
       continue
     }
+    if (isTerminalGenStudioTaskFailure(entry)) {
+      deadResult(filename, entry, entry.last_state === 'artifact_expired' ? 'the audio is gone' : 'the request ended')
+      continue
+    }
     const chunk = expectedByName.get(filename)!
     try {
       await recoverGenStudioTtsToFile(apiKey, chunk.fullPath, entry.task_id, {
@@ -547,13 +572,21 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
       outcomes.push({ filename, status: 'recovered', task_id: entry.task_id })
       logs.push(`✓ ${filename}: reclaimed from the Gateway (task ${entry.task_id.slice(0, 12)}…)`)
     } catch (e: any) {
+      const unusable = e instanceof GenStudioArtifactUnavailableError && e.modality === 'tts'
+      if (unusable || isClosedHoldCode(e?.failureCode)) {
+        await recordTask(status.audio_dir, filename, { ...entry, last_state: unusable ? 'artifact_expired' : 'failed' })
+        deadResult(filename, entry, unusable ? 'unusable audio' : e.failureCode)
+        continue
+      }
       fail(filename, entry.task_id, `Gateway recovery failed: ${e.message}`)
     }
   }
 
   const still_missing = status.missing.length - recovered
   logs.push(`Done: recovered ${recovered}, still missing ${still_missing}.`)
-  const join_job_id = recovered ? await queueJoin(slug, episodeId, await getAudioStatus(slug, episodeId), logs) : null
+  // A fresh run also joins any chapter it completes, so it replaces the join-only run.
+  const fresh_job_id = freshParts.length ? await queueFresh(slug, episodeId, freshModel, freshParts, logs) : null
+  const join_job_id = recovered && !fresh_job_id ? await queueJoin(slug, episodeId, await getAudioStatus(slug, episodeId), logs) : null
 
   return {
     total_expected: status.expected.length,
@@ -563,6 +596,7 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
     outcomes,
     logs,
     ...(join_job_id ? { join_job_id } : {}),
+    ...(fresh_job_id ? { fresh_job_id } : {}),
   }
 }
 
@@ -579,33 +613,51 @@ async function queueJoin(slug: string, episodeId: string, status: AudioStatus, l
   const firstPart = status.expected.find(chunk => chunk.totalChunks > 1
     && chunk.filename.toLowerCase().startsWith(`${code}_${status.awaiting_join[0]}_part`.toLowerCase()))
   const model = firstPart ? (await readManifest(status.audio_dir)).tasks[firstPart.filename]?.model_id : undefined
+  const queued = await queueLikeLastRun(slug, code, model, status.awaiting_join, `Audio (join ${names})`, { join_only: true })
+  logs.push(queued === 'no-run'
+    ? `${names}: every part is here but the chapter is not joined yet. Generate missing joins it without making anything again.`
+    : queued === 'busy'
+    ? `${names}: every part is here but the chapter is not joined yet. An audio job is running for this episode; press Repair again when it ends.`
+    : `${names}: every part is here; joining them into the chapter now (nothing is made or charged).`)
+  return queued === 'no-run' || queued === 'busy' ? null : queued
+}
+
+/** Free fleet parts whose saved request is dead: one ordinary run for their chapters makes only what is missing. */
+async function queueFresh(slug: string, episodeId: string, model: string, filenames: string[], logs: string[]): Promise<string | null> {
+  const code = episodeId.toUpperCase()
+  const prefix = new RegExp(`^${code}_`, 'i')
+  const sections = [...new Set(filenames.map(name => name.replace(prefix, '').replace(/(_part\d+)?\.mp3$/i, '')))]
+  const queued = await queueLikeLastRun(slug, code, model, sections, `Audio (ask again: ${sections.join(', ').replaceAll('_', ' ')})`, {})
+  logs.push(queued === 'no-run'
+    ? `${filenames.length} part(s) need a new request. Generate missing sends it, free on your own Macs.`
+    : queued === 'busy'
+    ? `${filenames.length} part(s) need a new request. An audio job is running for this episode; press Repair again when it ends.`
+    : `Asking again for ${filenames.length} part(s) with a new request, free on your own Macs.`)
+  return queued === 'no-run' || queued === 'busy' ? null : queued
+}
+
+/** Enqueue an audio run with the settings of the episode's latest run on `model`. */
+async function queueLikeLastRun(slug: string, code: string, model: string | undefined, sections: string[], title: string, extra: Record<string, unknown>): Promise<string | 'no-run' | 'busy'> {
   const jq = await import('./job-queue.js')
   const made = (await jq.findJobs(slug, job => job.type === 'audio' && (job.episode_id || '').toUpperCase() === code
       && job.params?.model === model && typeof job.params?.voice === 'string'
       && !job.params.quality_repair && !job.params.quality_check))
     .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0]
-  if (!made) {
-    logs.push(`${names}: every part is here but the chapter is not joined yet. Generate missing joins it without making anything again.`)
-    return null
-  }
-  if (jq.isDuplicate(slug, made.episode_id, 'audio')) {
-    logs.push(`${names}: every part is here but the chapter is not joined yet. An audio job is running for this episode; press Repair again when it ends.`)
-    return null
-  }
+  if (!made) return 'no-run'
+  if (jq.isDuplicate(slug, made.episode_id, 'audio')) return 'busy'
   const p = made.params
   const job = await jq.enqueue({
     project_slug: slug,
     type: 'audio',
     episode_id: made.episode_id,
-    title: `Audio (join ${names})`,
+    title,
     params: {
       episode_id: made.episode_id, model: p.model, voice: p.voice, speed: p.speed,
       ...(p.controls ? { controls: p.controls } : {}),
       ...(p.paragraph_pause_sec !== undefined ? { paragraph_pause_sec: p.paragraph_pause_sec } : {}),
       ...(p.sentence_pause_sec !== undefined ? { sentence_pause_sec: p.sentence_pause_sec } : {}),
-      sections: status.awaiting_join.join(','), force: false, no_overwrite: false, join_only: true,
+      sections: sections.join(','), force: false, no_overwrite: false, ...extra,
     },
   })
-  logs.push(`${names}: every part is here; joining them into the chapter now (nothing is made or charged).`)
   return job.job_id
 }

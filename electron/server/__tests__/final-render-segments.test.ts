@@ -329,3 +329,20 @@ describe('a final render interrupted by an update', () => {
   })
 })
 
+
+describe('segments after a verified final (owner decision 2026-10-09)', () => {
+  test('deleted right away with one size line, and only after verifyFinalVideo', async () => {
+    const { deleteFinalSegments } = await import('../generators/video.js')
+    const dir = await getWorkTempDir('seg-del', 'EP5')
+    await fs.mkdir(path.join(dir, 'final_segments'))
+    await fs.writeFile(path.join(dir, 'final_segments', segmentFileName(0)), Buffer.alloc(2048))
+    await fs.writeFile(path.join(dir, 'final_segments', segmentFileName(1)), Buffer.alloc(2048))
+    const job = { output_lines: [] as string[] } as unknown as Job
+    await deleteFinalSegments(dir, job)
+    await assert.rejects(fs.stat(path.join(dir, 'final_segments')), 'gone, not moved to the Trash Folder')
+    assert.deepEqual(job.output_lines, ['Final render: deleted 2 segment file(s), 4 KB freed.'])
+    const src = await fs.readFile(new URL('../generators/video.ts', import.meta.url), 'utf8')
+    const finish = src.slice(src.indexOf('async function finishFinalVideo('), src.indexOf('async function verifyFinalVideo('))
+    assert.ok(finish.indexOf('await verifyFinalVideo(') < finish.indexOf('await deleteFinalSegments('), 'a failed check keeps the segments')
+  })
+})

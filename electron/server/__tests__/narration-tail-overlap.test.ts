@@ -105,9 +105,7 @@ test('with the global queue paused nothing starts early', async () => {
     running.delete(job.episode_id)
   })
   jq.setAudioEpisodeConcurrency(1)
-  for (const ep of ['EP001', 'EP002']) {
-    jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'audio', episode_id: ep, title: ep, params: {} })
-  }
+  const ids = ['EP001', 'EP002'].map(ep => jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'audio', episode_id: ep, title: ep, params: {} }).job_id)
   await waitFor(() => running.size === 1)
   await jq.setQueuePaused(true)
   running.get('EP001')!.item_progress = { total: 10, completed: 9, failed: 0, concurrency: 4, active: [] }
@@ -115,8 +113,11 @@ test('with the global queue paused nothing starts early', async () => {
   await settle()
   assert.equal(running.size, 1, 'the pause wins over the tail')
   await jq.setQueuePaused(false)
-  releases.splice(0).forEach(release => release())
-  await waitFor(() => running.has('EP002'))
-  releases.splice(0).forEach(release => release())
-  await waitFor(() => running.size === 0)
+  // EP001 got a queue pause while running, so it ends as a paused checkpoint and runs once more
+  // (the designed resume: only missing parts). Release every run until both jobs are done.
+  await waitFor(() => {
+    releases.splice(0).forEach(release => release())
+    return ids.every(id => jq.getJob(id)?.status === 'done')
+  }, 10_000)
+  assert.equal(running.size, 0)
 })

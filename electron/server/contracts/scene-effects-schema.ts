@@ -337,6 +337,8 @@ export const SceneOverlayDocumentSchema = z.discriminatedUnion('kind', [
 // ── Errors ──────────────────────────────────────────────────────────────────
 
 export class SceneEffectValidationError extends Error {
+  /** Bad input: running the job again stops here again, so no automatic retry (services/job-retry-policy.ts isNonRetryableError). */
+  readonly retryable = false
   readonly issues: string[]
   constructor(issues: string[]) {
     super(`Scene effect is not valid: ${issues.join('; ')}`)
