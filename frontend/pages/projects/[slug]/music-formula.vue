@@ -144,6 +144,10 @@
             <span v-if="e.scenes.mode === 'every-minutes'" class="mp-row"><input v-model.number="e.scenes.minutes" type="number" min="1" class="mp-inp narrow" aria-label="Minutes per scene"> min</span>
           </div>
           <p class="mp-hint">Scene changes always land on a song boundary.</p>
+          <label v-if="e.scenes.mode === 'per-song'" class="mp-check" style="margin-top: 8px">
+            <input v-model="e.scenes.title_on_scene" type="checkbox"> Song title on each picture
+            <span class="mp-hint">Each picture shows its song's title, drawn into the scene (a sign, a window, a menu card). Use Qwen Image; FLUX Klein spells text poorly.</span>
+          </label>
 
           <div class="mp-grid3" style="margin-top: 12px">
             <div>
@@ -242,6 +246,13 @@
           </table>
         </section>
 
+        <section class="card workspace-section mp-card">
+          <h3>Scene settings</h3>
+          <p class="mp-hint">Where the pictures are set, one per line (for example 30 different cosy cafés). Every picture in an episode gets a different one, spread across the list. Empty = each picture follows its song's scene idea. Song titles are not affected.</p>
+          <textarea v-model="settingsText" class="mp-inp" rows="8" style="width: 100%; margin-top: 8px; resize: vertical" aria-label="Scene settings, one per line" placeholder="Rainy window booth&#10;Rooftop café at dusk&#10;Kyoto kissaten" />
+          <p class="mp-hint">{{ sceneSettingsList.length ? `${sceneSettingsList.length} setting${sceneSettingsList.length === 1 ? '' : 's'}${e.scenes.mode === 'per-song' && perEpisode > sceneSettingsList.length ? ` — fewer than the ≈ ${perEpisodeText} songs per episode, so some repeat (never side by side)` : ''}.` : 'No list: pictures follow each song\'s scene idea.' }}</p>
+        </section>
+
         <section v-if="worlds.length" class="card workspace-section mp-card">
           <h3>Scene worlds</h3>
           <p class="mp-hint">From this formula's {{ worlds.length }} worlds — each song's scene idea is written in one of these.</p>
@@ -312,7 +323,11 @@ const targetMin = computed({ get: () => Math.round(e.target_length_s / 60), set:
 const sharePct = computed({ get: () => Math.round(f.variety.max_title_word_share * 1000) / 10, set: (v: number) => { f.variety.max_title_word_share = Number(v) / 100 } })
 const simPct = computed({ get: () => Math.round(f.variety.max_similarity * 100), set: (v: number) => { f.variety.max_similarity = Number(v) / 100 } })
 
-const state = () => JSON.stringify({ f, e, minText: minText.value, maxText: maxText.value })
+const settingsText = ref('')
+// Same rules as the server (SceneSettingsSchema): trimmed, duplicates (any case) dropped.
+const sceneSettingsList = computed(() => settingsText.value.split('\n').map(s => s.trim()).filter(Boolean)
+  .filter((s, i, all) => all.findIndex(x => x.toLowerCase() === s.toLowerCase()) === i))
+const state = () => JSON.stringify({ f, e, minText: minText.value, maxText: maxText.value, settings: settingsText.value })
 const dirty = computed(() => !!snapshot && state() !== snapshot)
 const invalid = computed(() => {
   const a = parseClock(minText.value); const b = parseClock(maxText.value)
@@ -320,6 +335,8 @@ const invalid = computed(() => {
   if (a > b) return 'The shortest song must not be longer than the longest.'
   for (const ax of weightedAxes) if (!f[ax.key].some((v: any) => v.weight > 0)) return `${ax.label} needs at least one value with a weight above 0.`
   if (!f.tempo_bands.some((b: any) => b.weight > 0)) return 'Add at least one tempo band with a weight above 0.'
+  if (sceneSettingsList.value.length > 200) return 'At most 200 scene settings.'
+  if (sceneSettingsList.value.some(s => s.length < 2 || s.length > 160)) return 'Each scene setting needs 2 to 160 characters.'
   if (f.tempo_bands.some((b: any) => !(b.min_bpm <= b.max_bpm))) return 'A tempo band must not start above where it ends.'
   return ''
 })
@@ -372,6 +389,7 @@ async function load() {
     Object.assign(f, clone(mf.songFormula || STARTING_SONG_FORMULA))
     Object.assign(e, clone({ ...STARTING_EPISODE_DEFAULTS, ...(mf.episodeDefaults || {}) }))
     saved.value = !!mf.songFormula
+    settingsText.value = Array.isArray(mf.sceneSettings) ? mf.sceneSettings.join('\n') : ''
     minText.value = clock(f.length_s.min); maxText.value = clock(f.length_s.max)
     if (niche.value) pool.value = await get(`/projects/${slug.value}/song-pool`).catch(() => null)
     snapshot = saved.value ? state() : 'unsaved'
@@ -383,7 +401,7 @@ async function save() {
   busy.value = true
   try {
     f.length_s = { min: parseClock(minText.value), max: parseClock(maxText.value) }
-    const r = await patch<{ niche: any }>(`/niches/${encodeURIComponent(niche.value.id)}/music-format?project_slug=${encodeURIComponent(slug.value)}`, { songFormula: f, episodeDefaults: e })
+    const r = await patch<{ niche: any }>(`/niches/${encodeURIComponent(niche.value.id)}/music-format?project_slug=${encodeURIComponent(slug.value)}`, { songFormula: f, episodeDefaults: e, sceneSettings: sceneSettingsList.value.length ? sceneSettingsList.value : null })
     niche.value = r.niche; saved.value = true; snapshot = state()
     pool.value = await get(`/projects/${slug.value}/song-pool`).catch(() => pool.value)
     success('Formula saved. New songs and episodes use it from now on.')

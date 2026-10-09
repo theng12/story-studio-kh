@@ -23,6 +23,7 @@ import { getEffectiveNiche } from './niche-loader.js'
 import {
   MUSIC_EPISODE_FILENAME,
   STARTING_EPISODE_SETTINGS,
+  assignSceneSettings,
   buildScenePrompt,
   buildTimeline,
   groupScenes,
@@ -83,9 +84,9 @@ export async function episodeDirFor(slug: string, code: string): Promise<string>
 }
 
 /** The channel's starting values: code starting values ← formula `musicFormat.episodeDefaults`. */
-export async function channelStartingSettings(slug: string): Promise<{ settings: EpisodeSettings; music_channel: boolean; themes: string[] }> {
+export async function channelStartingSettings(slug: string): Promise<{ settings: EpisodeSettings; music_channel: boolean; themes: string[]; scene_settings: string[] }> {
   const niche = await getEffectiveNiche(slug).catch(() => null) as {
-    musicFormat?: { episodeDefaults?: { scene_themes?: unknown }; registers?: Record<string, { label?: string }> }
+    musicFormat?: { episodeDefaults?: { scene_themes?: unknown }; registers?: Record<string, { label?: string }>; sceneSettings?: unknown }
   } | null
   const format = niche?.musicFormat
   // Theme suggestions: the formula's scene themes, then its registers (SPEC §5).
@@ -97,6 +98,9 @@ export async function channelStartingSettings(slug: string): Promise<{ settings:
     settings: format?.episodeDefaults ? settingsFromEpisodeDefaults(format.episodeDefaults) : { ...STARTING_EPISODE_SETTINGS },
     music_channel: !!format,
     themes: [...new Set(themes)],
+    scene_settings: Array.isArray(format?.sceneSettings)
+      ? format!.sceneSettings.filter((s): s is string => typeof s === 'string' && !!s.trim())
+      : [],
   }
 }
 
@@ -239,7 +243,7 @@ export async function loadEpisodeContext(slug: string, code: string, settings: E
 }
 
 /** Timeline + scenes for a list of songs (stored lengths, or the measured stitch when it still matches). */
-export function planEpisode(doc: MusicEpisodeDoc, byKey: ReadonlyMap<string, BuilderSong>) {
+export function planEpisode(doc: MusicEpisodeDoc, byKey: ReadonlyMap<string, BuilderSong>, sceneSettings: readonly string[] = []) {
   const rows = doc.songs.map(ref => byKey.get(songKey(ref)))
   const keys = doc.songs.map(songKey)
   const built = doc.built && doc.built.song_keys.join('\n') === keys.join('\n') ? doc.built : null
@@ -248,6 +252,7 @@ export function planEpisode(doc: MusicEpisodeDoc, byKey: ReadonlyMap<string, Bui
     : buildTimeline(rows.map(song => song?.duration_s || 0), doc.settings.join)
   const breaks = new Set(doc.scene_breaks.map(key => keys.indexOf(key)).filter(i => i > 0))
   const groups = groupScenes(timeline.starts, timeline.total, doc.settings.scenes, breaks)
+  const settingOf = assignSceneSettings(groups.map(group => sceneIdFor(doc.songs[group[0]!]!)), sceneSettings)
   const scenes = groups.map((group, index) => {
     const first = doc.songs[group[0]!]!
     const id = sceneIdFor(first)
@@ -260,7 +265,15 @@ export function planEpisode(doc: MusicEpisodeDoc, byKey: ReadonlyMap<string, Bui
       end_sec: index + 1 < groups.length ? timeline.starts[groups[index + 1]![0]!]! : timeline.total,
       song_keys: group.map(i => keys[i]!),
       titles: group.map(i => rows[i]?.title || doc.songs[i]!.song_id),
-      prompt: custom || buildScenePrompt({ sceneIdea: firstSong?.scene_idea, title: firstSong?.title || first.song_id, theme: doc.settings.theme }),
+      prompt: custom || buildScenePrompt({
+        sceneIdea: firstSong?.scene_idea,
+        title: firstSong?.title || first.song_id,
+        theme: doc.settings.theme,
+        setting: settingOf[index],
+        mood: firstSong?.mood,
+        // A picture shared by several songs would name only the first one, so it stays text-free.
+        titleOnScene: doc.settings.scenes.title_on_scene && group.length === 1 && !!firstSong?.title,
+      }),
       prompt_is_custom: !!custom,
       // Drives "every '<theme>' scene" effects (feat/music-effects): the episode theme, else the song's.
       theme: doc.settings.theme.trim() || firstSong?.theme?.trim() || '',
@@ -297,7 +310,7 @@ export async function buildEpisodeView(slug: string, code: string): Promise<Epis
     visual_style: style,
   }
   if (!doc) return view
-  const { timeline, scenes } = planEpisode(doc, ctx.byKey)
+  const { timeline, scenes } = planEpisode(doc, ctx.byKey, channel.scene_settings)
   const sceneOfKey = new Map(scenes.flatMap(scene => scene.song_keys.map(key => [key, scene.id] as const)))
   doc.songs.forEach((ref, i) => {
     const song = ctx.byKey.get(songKey(ref))
@@ -417,7 +430,7 @@ export async function writeDerivedScenePlan(
 ): Promise<ScenePlan> {
   const episodeDir = await episodeDirFor(slug, code)
   const planPath = await resolveScenePlanPath(slug, code, episodeDir)
-  const { timeline, scenes } = planEpisode(doc, byKey)
+  const { timeline, scenes } = planEpisode(doc, byKey, (await channelStartingSettings(slug)).scene_settings)
   await fs.mkdir(path.dirname(planPath), { recursive: true })
   return withLock(planPath, async () => {
     const previous = existsSync(planPath)

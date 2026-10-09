@@ -32,7 +32,8 @@ export interface EpisodeSettings {
   /** No-repeat window, counted in this channel's episodes. */
   no_repeat_episodes: number
   order: OrderMode
-  scenes: { mode: SceneMode; count: number; minutes: number }
+  /** title_on_scene: each one-song scene's picture shows that song's title as lettering. */
+  scenes: { mode: SceneMode; count: number; minutes: number; title_on_scene: boolean }
   /** One theme for this episode; free text or a register/world name. */
   theme: string
   join: { style: JoinStyle; seconds: number }
@@ -55,7 +56,7 @@ export const STARTING_EPISODE_SETTINGS: EpisodeSettings = {
   target_length_s: 65 * 60,
   no_repeat_episodes: 30,
   order: 'smooth',
-  scenes: { mode: 'per-song', count: 12, minutes: 5 },
+  scenes: { mode: 'per-song', count: 12, minutes: 5, title_on_scene: false },
   theme: '',
   join: { style: 'crossfade', seconds: 3 },
   scene_change: { transition: 'crossfade', seconds: 4 },
@@ -101,6 +102,7 @@ export function normalizeEpisodeSettings(raw: unknown, base: EpisodeSettings = S
       mode: oneOf(scenes.mode, ['per-song', 'count', 'every-minutes', 'manual'] as const, base.scenes.mode),
       count: Math.round(num(scenes.count, 1, 500, base.scenes.count)),
       minutes: num(scenes.minutes, 0.5, 120, base.scenes.minutes),
+      title_on_scene: typeof scenes.title_on_scene === 'boolean' ? scenes.title_on_scene : base.scenes.title_on_scene,
     },
     theme: text(r.theme, 120, base.theme),
     join: {
@@ -132,7 +134,7 @@ export function settingsFromEpisodeDefaults(defaults: unknown): EpisodeSettings 
     pools: d.pools,
     target_length_s: d.target_length_s,
     no_repeat_episodes: d.no_repeat_episodes,
-    scenes: { mode: scenes.mode, count: scenes.count, minutes: scenes.minutes },
+    scenes: { mode: scenes.mode, count: scenes.count, minutes: scenes.minutes, title_on_scene: scenes.title_on_scene },
     theme: Array.isArray(d.scene_themes) ? d.scene_themes.find((t: unknown) => typeof t === 'string' && t.trim()) : undefined,
     join: d.join && typeof d.join === 'object' ? { style: d.join.style, seconds: d.join.seconds } : undefined,
     scene_change: d.scene_change,
@@ -477,7 +479,7 @@ function nearestSongStart(starts: readonly number[], at: number): number {
 export function groupScenes(
   starts: readonly number[],
   total: number,
-  scenes: EpisodeSettings['scenes'],
+  scenes: Pick<EpisodeSettings['scenes'], 'mode' | 'count' | 'minutes'>,
   manualBreaks: ReadonlySet<number> = new Set(),
 ): number[][] {
   const n = starts.length
@@ -507,17 +509,59 @@ export function sceneIdFor(firstSong: SongRef): string {
 }
 
 /**
- * SPEC §5 scene prompt: the song's scene idea + the episode theme + the channel's
- * visual style + "no people, no text".
+ * Which scene setting each scene's picture is set in. Order-independent and stable: each scene
+ * prefers a slot from its id and takes the next free one, so every setting is used once before
+ * any repeats, a reorder keeps every picture, and a re-draw moves only the scenes that collide.
+ * Neighbours never share a setting when the list has two or more.
  */
-export function buildScenePrompt(input: { sceneIdea?: string; title: string; theme?: string; style?: string }): string {
-  const idea = input.sceneIdea?.trim().replace(/[.\s]+$/, '')
+export function assignSceneSettings(sceneIds: readonly string[], list: readonly string[]): string[] {
+  const n = list.length
+  if (!n) return sceneIds.map(() => '')
+  const slot: number[] = []
+  let taken = new Set<number>()
+  for (const i of sceneIds.map((_, i) => i).sort((a, b) => sceneIds[a]!.localeCompare(sceneIds[b]!))) {
+    if (taken.size === n) taken = new Set()
+    let k = createHash('sha256').update(sceneIds[i]!).digest().readUInt32BE(0) % n
+    while (taken.has(k)) k = (k + 1) % n
+    taken.add(k)
+    slot[i] = k
+  }
+  // Only possible when the episode has more scenes than the list has settings.
+  for (let i = 1; i < slot.length && n > 1; i++) {
+    if (slot[i] !== slot[i - 1]) continue
+    let k = (slot[i]! + 1) % n
+    while (k === slot[i - 1] || (n > 2 && k === slot[i + 1])) k = (k + 1) % n
+    slot[i] = k
+  }
+  return slot.map(k => list[k]!)
+}
+
+/** The words a title-on-scene prompt adds (also told to Polish Scene Prompts). */
+export function sceneTitleClause(title: string): string {
+  const t = title.trim().replace(/"/g, "'")
+  return `the title "${t}" written once as clean, legible lettering that suits the picture (a chalkboard sign, window lettering or a menu card), spelled exactly "${t}", no other text`
+}
+
+/**
+ * SPEC §5 scene prompt: the song's scene idea + the episode theme + the channel's
+ * visual style + "no people, no text". A scene `setting` from the formula's list replaces the
+ * song's scene idea (with the song's mood, so two songs in alike places still differ). With
+ * `titleOnScene` the picture shows the song's title as lettering instead of "no text";
+ * "no people" stays.
+ */
+export function buildScenePrompt(input: {
+  sceneIdea?: string; title: string; theme?: string; style?: string; titleOnScene?: boolean; setting?: string; mood?: string
+}): string {
+  const setting = input.setting?.trim().replace(/[.\s]+$/, '')
+  const idea = setting || input.sceneIdea?.trim().replace(/[.\s]+$/, '')
     || `A quiet, atmospheric scene that matches the music "${input.title.trim()}"`
+  const titled = !!input.titleOnScene && !!input.title.trim()
   return [
     idea,
+    setting && input.mood?.trim() ? `${input.mood.trim().toLowerCase()} atmosphere` : '',
     input.theme?.trim() ? `${input.theme.trim()} mood` : '',
     input.style?.trim() || '',
-    'no people, no text',
+    titled ? `no people, ${sceneTitleClause(input.title)}` : 'no people, no text',
   ].filter(Boolean).join(', ')
 }
 

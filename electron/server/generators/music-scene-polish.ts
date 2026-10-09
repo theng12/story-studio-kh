@@ -15,6 +15,7 @@ import {
   readEpisodeDoc,
   saveEpisodeDoc,
 } from '../services/music-episode-store.js'
+import { sceneTitleClause } from '../services/music-episode.js'
 import type { Job } from '../models/types.js'
 
 export const POLISHED_PROMPT_MAX_CHARS = 2000
@@ -48,20 +49,25 @@ export function buildScenePolishPrompt(input: {
   theme: string
   style: string
   never: string[]
-  scenes: Array<{ id: string; prompt: string; songs: string[] }>
+  /** Set per scene when its picture shows the song's title (title on scene, one-song scenes). */
+  scenes: Array<{ id: string; prompt: string; songs: string[]; title?: string }>
 }): string {
+  const titled = input.scenes.some(scene => scene.title)
   return [
     'You polish picture prompts for an instrumental music video. Each scene is one still picture shown while its songs play;',
     'a text-to-image model (Z-Image / FLUX) draws it at 1280x720 and a slow camera drift moves over it.',
     '',
     'Rewrite each prompt so it is vivid, concrete and paintable: one place, its light, weather, season, colours and one focal point.',
-    'Keep the original idea and mood. One or two sentences, under 400 characters. Keep "no people, no text" (no figures, no lettering, no logos).',
+    titled
+      ? 'Keep the original idea and mood. One or two sentences, under 400 characters. Keep "no people" (no figures). '
+        + `A scene marked "title on picture" must end with: ${sceneTitleClause('<that title>')}. Other scenes keep "no text" (no lettering, no logos).`
+      : 'Keep the original idea and mood. One or two sentences, under 400 characters. Keep "no people, no text" (no figures, no lettering, no logos).',
     input.theme ? `Episode theme: ${input.theme}.` : '',
     input.style ? `Channel visual style (keep consistent across scenes): ${input.style}` : '',
     input.never.length ? `Never include: ${input.never.join(', ')}.` : '',
     '',
     'Scenes (id, songs, current prompt):',
-    ...input.scenes.map(scene => `- ${scene.id} [${scene.songs.join(' · ')}]: ${scene.prompt}`),
+    ...input.scenes.map(scene => `- ${scene.id} [${scene.songs.join(' · ')}]${scene.title ? ` (title on picture: "${scene.title}")` : ''}: ${scene.prompt}`),
     '',
     'Return only JSON: {"scenes":[{"id":"<id>","prompt":"<polished prompt>"}]} with every id exactly once.',
   ].join('\n')
@@ -101,7 +107,10 @@ export async function generateMusicScenePolish(job: Job): Promise<void> {
     theme: doc.settings.theme,
     style: view.visual_style,
     never,
-    scenes: scenes.map(scene => ({ id: scene.id, prompt: scene.prompt, songs: scene.song_keys.map(k => titleOf.get(k) || k) })),
+    scenes: scenes.map(scene => {
+      const title = doc.settings.scenes.title_on_scene && scene.song_keys.length === 1 ? titleOf.get(scene.song_keys[0]!) : undefined
+      return { id: scene.id, prompt: scene.prompt, songs: scene.song_keys.map(k => titleOf.get(k) || k), ...(title ? { title } : {}) }
+    }),
   })
   job.output_lines.push(`Polishing ${scenes.length} scene prompt(s) with ${model}. Nothing is drawn; review them, then make the pictures.`)
   job.progress = 10

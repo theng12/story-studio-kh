@@ -56,6 +56,8 @@ export const EpisodeDefaultsSchema = z.object({
     mode: z.enum(['per-song', 'count', 'every-minutes', 'manual']),
     count: z.number().int().min(1).max(500).optional(),
     minutes: z.number().min(0.5).max(600).optional(),
+    /** Draw each song's title as lettering in its own picture (one-per-song scenes). */
+    title_on_scene: z.boolean().optional(),
   }),
   scene_themes: z.array(z.string().trim().min(1).max(120)).max(50),
   scene_change: z.object({ transition: z.string().trim().min(1).max(60), seconds: z.number().min(0).max(30) }),
@@ -71,10 +73,22 @@ export const EpisodeDefaultsSchema = z.object({
 }).strict()
 export type EpisodeDefaults = z.infer<typeof EpisodeDefaultsSchema>
 
+/**
+ * The places this channel's scene pictures are set in (e.g. 30 different cosy cafés), one per
+ * picture, spread across the list. Separate from the song themes, which stay as they are.
+ * Duplicates (ignoring case) are dropped; null on save = no list (pictures follow each song's
+ * scene idea, as before).
+ */
+export const SceneSettingsSchema = z.array(z.string().trim().min(2, 'A scene setting needs at least 2 characters').max(160, 'A scene setting is at most 160 characters'))
+  .transform(list => list.filter((w, i) => list.findIndex(x => x.toLowerCase() === w.toLowerCase()) === i))
+  .pipe(z.array(z.string()).min(1, 'Give at least one scene setting').max(200, 'At most 200 scene settings'))
+
 export const MusicFormatPatchSchema = z.object({
   songFormula: SongFormulaSchema.optional(),
   episodeDefaults: EpisodeDefaultsSchema.optional(),
-}).strict().refine(p => p.songFormula || p.episodeDefaults, { message: 'Nothing to save' })
+  sceneSettings: SceneSettingsSchema.nullable().optional(),
+}).strict().refine(p => p.songFormula || p.episodeDefaults || p.sceneSettings !== undefined, { message: 'Nothing to save' })
+
 
 const w = (value: string, weight = 1): Weighted => ({ value, weight })
 

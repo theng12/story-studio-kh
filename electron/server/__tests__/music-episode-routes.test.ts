@@ -240,4 +240,22 @@ describe('Episode Builder', () => {
     assert.equal(open.body.songs.length, 4, 'window 0 = repeats allowed')
     assert.ok(existsSync(path.join(tmp.dir, 'projects', slug, 'music-episodes.json')))
   })
+
+  test('scene settings and the song title reach the picture prompt and the Scene Plan', async () => {
+    const eff = await request(app).get(`/api/projects/${pianoSlug}/effective-niche`)
+    const saved = await request(app).patch(`/api/niches/${encodeURIComponent(eff.body.niche.id)}/music-format?project_slug=${pianoSlug}`)
+      .send({ sceneSettings: ['Rainy window booth', 'Rooftop café at dusk'] })
+    assert.equal(saved.status, 200, JSON.stringify(saved.body))
+    const created = await request(app).post(`/api/projects/${pianoSlug}/music-episodes`).send({ title: 'Café Nights' })
+    assert.equal(created.status, 201, JSON.stringify(created.body))
+    const drawn = await request(app).post(`/api/projects/${pianoSlug}/music-episodes/${created.body.code}/draw`).send({
+      settings: { pools: ['pool_piano'], target_length_s: 20, order: 'manual', scenes: { mode: 'per-song', title_on_scene: true } },
+    })
+    assert.equal(drawn.status, 200, JSON.stringify(drawn.body))
+    const prompt: string = drawn.body.scenes[0].prompt
+    assert.match(prompt, /^(Rainy window booth|Rooftop café at dusk), tender atmosphere, /)
+    assert.doesNotMatch(prompt, /Moonlight on a quiet lake/, "the setting replaces the song's scene idea")
+    assert.match(prompt, /no people, the title "Title p_a" written once/)
+    assert.doesNotMatch(prompt, /no text/)
+  })
 })

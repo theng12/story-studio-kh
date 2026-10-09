@@ -80,6 +80,8 @@
             </div>
             <div v-if="settings.scenes.mode === 'count'" class="eb-inline eb-sub"><input v-model.number="settings.scenes.count" type="number" min="1" max="500" class="input eb-num" aria-label="Number of scenes" @change="saveSettings"> scenes</div>
             <div v-if="settings.scenes.mode === 'every-minutes'" class="eb-inline eb-sub">every <input v-model.number="settings.scenes.minutes" type="number" min="0.5" max="120" step="0.5" class="input eb-num" aria-label="Minutes per scene" @change="saveSettings"> min</div>
+            <label v-if="settings.scenes.mode === 'per-song'" class="eb-check eb-sub"><input v-model="settings.scenes.title_on_scene" type="checkbox" @change="saveSettings"> Song title on each picture</label>
+            <div v-if="titleModelNote" class="eb-hint">{{ titleModelNote }}</div>
           </div>
           <div class="eb-field">
             <label class="eb-label" for="eb-theme">Theme</label>
@@ -375,7 +377,7 @@
     <!-- Polish scene prompts: the writing model is picked here, at the click -->
     <Modal :visible="!!polish" size="md" labelledby="eb-polish-title" @close="polish = null">
       <h3 id="eb-polish-title" class="eb-dialog-title">Polish {{ polish?.sceneIds.length ? `Scene ${selectedScene?.scene_index}` : `All ${view?.scenes.length || 0} Scene` }} Prompt{{ polish?.sceneIds.length ? '' : 's' }}</h3>
-      <p class="eb-hint">The writing model you pick rewrites the prompt{{ polish?.sceneIds.length ? '' : 's' }} to be more vivid and paintable, keeping each scene's idea, the theme and “no people, no text”. Each result is saved as the scene's own prompt; “Use the Song's Scene Idea” undoes it. No picture is made.</p>
+      <p class="eb-hint">The writing model you pick rewrites the prompt{{ polish?.sceneIds.length ? '' : 's' }} to be more vivid and paintable, keeping each scene's idea, the theme and “no people” (and “no text”, or the song title when “Song title on each picture” is on). Each result is saved as the scene's own prompt; “Use the Song's Scene Idea” undoes it. No picture is made.</p>
       <div class="eb-top">
         <ModelSelector v-model="polishForm.model" :project-slug="slug" label="Writing model" writing-step />
       </div>
@@ -399,7 +401,7 @@ type SceneMode = 'per-song' | 'count' | 'every-minutes' | 'manual'
 type Join = 'crossfade' | 'butt' | 'silence'
 interface Settings {
   pools: string[]; target_length_s: number; no_repeat_episodes: number; order: Order
-  scenes: { mode: SceneMode; count: number; minutes: number }; theme: string
+  scenes: { mode: SceneMode; count: number; minutes: number; title_on_scene: boolean }; theme: string
   join: { style: Join; seconds: number }; scene_change: { transition: string; seconds: number }
   frame_rate: number; resolution: '720p' | '1080p'; loudness_lufs: number; true_peak_db: number
   upscale_sharpen: 'off' | 'light'; still_no_repeat_episodes: number
@@ -460,7 +462,7 @@ const transitionOptions = ref<Array<{ id: string; label: string }>>([{ id: 'none
 function blankSettings(): Settings {
   return {
     pools: [], target_length_s: 3900, no_repeat_episodes: 30, order: 'smooth',
-    scenes: { mode: 'per-song', count: 12, minutes: 5 }, theme: '', join: { style: 'crossfade', seconds: 3 },
+    scenes: { mode: 'per-song', count: 12, minutes: 5, title_on_scene: false }, theme: '', join: { style: 'crossfade', seconds: 3 },
     scene_change: { transition: 'crossfade', seconds: 4 }, frame_rate: 24, resolution: '720p', loudness_lufs: -14, true_peak_db: -1,
     upscale_sharpen: 'light', still_no_repeat_episodes: 0,
   }
@@ -532,6 +534,12 @@ useRememberedForm('episode-builder-images', slug, imageForm)
 const { models: imageModels } = useGenStudioImageModels()
 const selectedImageModel = computed(() => findGenStudioProduct(imageModels.value, imageForm.value.model))
 const outputOption = ref<OutputOptionChoice | null>(null)
+// Title on scene needs a model that can spell: Qwen Image does; FLUX Klein and Z-Image garble lettering.
+const titleModelNote = computed(() => {
+  if (settings.value.scenes.mode !== 'per-song' || !settings.value.scenes.title_on_scene) return ''
+  if (!imageForm.value.model) return 'Pick Qwen Image below: it writes titles cleanly.'
+  return /qwen/i.test(`${imageForm.value.model} ${selectedImageModel.value?.display_name || ''}`) ? '' : 'This image model draws text poorly. Qwen Image spells titles best.'
+})
 
 function isActive(job: any): boolean { return job && ['queued', 'running', 'paused'].includes(job.status) }
 function clock(sec: number): string {

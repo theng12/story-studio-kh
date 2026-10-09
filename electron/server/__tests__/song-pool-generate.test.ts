@@ -75,6 +75,25 @@ describe('Music Formula save', () => {
     assert.equal(eff.body.niche.musicFormat.episodeDefaults.join.style, 'crossfade')
   })
 
+  test('scene settings save on this channel only; the built-in worlds and formula stay as they are', async () => {
+    const empty = await request(app).patch(`/api/niches/music-mix/music-format?project_slug=${slug}`).send({ sceneSettings: [] })
+    assert.equal(empty.status, 400, 'an empty list is refused')
+    const eff0 = await request(app).get(`/api/projects/${slug}/effective-niche`)
+    const id = encodeURIComponent(eff0.body.niche.id)
+    const r = await request(app).patch(`/api/niches/${id}/music-format`).send({ sceneSettings: ['Kyoto kissaten', ' kyoto kissaten', 'Rooftop café at dusk'] })
+    assert.equal(r.status, 200, JSON.stringify(r.body))
+    const eff = await request(app).get(`/api/projects/${slug}/effective-niche`)
+    assert.deepEqual(eff.body.niche.musicFormat.sceneSettings, ['Kyoto kissaten', 'Rooftop café at dusk'])
+    assert.equal(eff.body.niche.musicFormat.worlds.length, 90, 'song themes are untouched')
+    assert.deepEqual(eff.body.niche.musicFormat.songFormula.length_s, { min: 60, max: 61 }, 'the song formula is untouched')
+    const builtin = await request(app).get('/api/niches/music-mix')
+    assert.equal(builtin.body.musicFormat.sceneSettings, undefined, 'the built-in formula has no list')
+    const cleared = await request(app).patch(`/api/niches/${id}/music-format`).send({ sceneSettings: null })
+    assert.equal(cleared.status, 200)
+    assert.equal(cleared.body.niche.musicFormat.sceneSettings, undefined)
+    assert.equal((await request(app).patch(`/api/niches/${id}/music-format`).send({ sceneSettings: ['Kyoto kissaten', 'Rooftop café at dusk'] })).status, 200)
+  })
+
   test('Duplicate As New Channel makes a named copy nothing points at yet', async () => {
     const eff = await request(app).get(`/api/projects/${slug}/effective-niche`)
     const r = await request(app).post(`/api/niches/${encodeURIComponent(eff.body.niche.id)}/duplicate-music-channel`).send({ name: 'Piano Channel' })

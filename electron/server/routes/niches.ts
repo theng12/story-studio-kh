@@ -383,7 +383,8 @@ router.patch('/niches/:id/episode-shape', async (req, res) => {
  * Save a music channel's song formula and/or episode starting values (music format, phase 1).
  *
  * A MERGE into `musicFormat`, like `episode-shape`: registers, worlds and every other key of the
- * stored Formula are carried across untouched. A built-in is forked into a `user:` copy pointed
+ * stored Formula are carried across untouched. `sceneSettings` (the places the scene pictures
+ * are set in) is saved alongside; `null` removes it again. A built-in is forked into a `user:` copy pointed
  * at the project, so the edit lands where this project reads it.
  */
 router.patch('/niches/:id/music-format', async (req, res) => {
@@ -409,6 +410,8 @@ router.patch('/niches/:id/music-format', async (req, res) => {
     const next: any = { ...current, id: forkId, builtin: false, musicFormat: { ...((current as any).musicFormat || {}) } }
     if (parsed.data.songFormula) next.musicFormat.songFormula = parsed.data.songFormula
     if (parsed.data.episodeDefaults) next.musicFormat.episodeDefaults = parsed.data.episodeDefaults
+    if (parsed.data.sceneSettings) next.musicFormat.sceneSettings = parsed.data.sceneSettings
+    else if (parsed.data.sceneSettings === null) delete next.musicFormat.sceneSettings
     await saveUserForkDocument(forkId, next, contentPackOptions)
     nl.invalidateNicheCache(forkId)
     res.json({ id: forkId, forked_from: isUserForkId(requestedId) ? null : requestedId, niche: next })
