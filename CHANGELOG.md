@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.264 — 2026-10-09
+
+- Narration starts the next episode early. When a running episode has 20 or fewer parts left, the next queued episode starts beside it, so your Macs don't sit idle while the last parts finish. At most one extra episode starts this way (with 2 at a time set, never more than 3). Queue order, your pauses and the paid-work rules are unchanged.
+- Subtitles now fix skipped sentences themselves. When the subtitle check finds that the narration skipped script sentences, Story narrates only the part that holds them again on your own Macs, then makes that chapter's subtitles again. Each chapter gets at most 2 automatic tries; after that the job says the chapter is left for you. Paid voices are never redone automatically. The job output says what was redone.
+- Video Assembly uses your Mac's hardware video encoder (Apple Media Engine) when no encoding effort is saved, and changing the quality no longer switches a hardware render back to a CPU preset. If the hardware encoder can't start, the CPU encoder takes over by itself. Saved settings are kept: a channel that saved "Ultrafast" still renders on the CPU until you choose "Fast (hardware)".
+- The video job now says which encoder made the video: "Encoder: hardware (VideoToolbox h264)" or "Encoder: software (libx264)", with the reason when the hardware encoder could not be used. The encoding progress line shows it too.
+- The Presentation Frame's rounded corners are about 3 times faster to render and look exactly the same. On a test with TerraNash's effects, 8 minutes of video took 117 s instead of 331 s. Turning the frame off is faster still (50 s).
+- A custom logo position now lands where the preview shows it at every size. The X/Y numbers are set on a 1920 × 1080 preview; a 720p video used them unscaled, so a logo at X 1650 was drawn off the right edge. Logos are also kept inside the picture.
+- New logo Shape setting (Video Assembly → Effects & Overlays → Logo Overlay): None (as before), Rounded corners (with a corner size), or Circle. The shape is cut once per video, so it adds no render time, and the preview shows it.
+
 ## v1.4.263 — 2026-10-09
 
 - The Script Generator now uses the full page width, like the other generator pages. On wide screens it was narrower, with empty space on both sides.

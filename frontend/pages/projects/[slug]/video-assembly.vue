@@ -1321,6 +1321,18 @@
                 <SliderWithNumber v-model="logo.scale" :min="1" :max="50" :step="1" suffix="%" />
               </div>
               <div class="form-group mt-1">
+                <label>Shape</label>
+                <select v-model="logo.shape" class="select" aria-label="Logo shape">
+                  <option value="none">None — as the image is</option>
+                  <option value="rounded">Rounded corners</option>
+                  <option value="circle">Circle</option>
+                </select>
+              </div>
+              <div v-if="logo.shape === 'rounded'" class="form-group mt-1">
+                <label>Corner radius ({{ logo.corner_radius_pct }}% of the shorter side)</label>
+                <SliderWithNumber v-model="logo.corner_radius_pct" :min="1" :max="50" :step="1" suffix="%" />
+              </div>
+              <div class="form-group mt-1">
                 <label>Margin ({{ logo.margin }}px)</label>
                 <input v-model.number="logo.margin" type="number" min="0" max="200" class="input input-sm input-w-80" />
               </div>
@@ -3168,6 +3180,9 @@ const logo = reactive({
   scale: 10,
   margin: 20,
   hide_during_intro: true,
+  // 1.4.264 — logo shape: none (as before), rounded corners, or a circle.
+  shape: 'none' as 'none' | 'rounded' | 'circle',
+  corner_radius_pct: 20,
 })
 
 const intro = reactive({
@@ -4802,7 +4817,7 @@ const effectsPresets = usePresets({
   }),
   apply: (data: any) => {
     if (!data) return
-    if (data.logo) Object.assign(logo, data.logo)
+    if (data.logo) Object.assign(logo, { shape: 'none', corner_radius_pct: 20 }, data.logo) // a preset saved before 1.4.264 has no shape
     if (data.color_grading) Object.assign(colorGrading, data.color_grading)
     if (data.vignette) Object.assign(vignette, data.vignette)
     if (data.film_grain) Object.assign(filmGrain, data.film_grain)
@@ -4970,7 +4985,7 @@ function snapshotEffectsData() {
 }
 function applyEffectsData(data: any) {
   if (!data) return
-  if (data.logo) Object.assign(logo, data.logo)
+  if (data.logo) Object.assign(logo, { shape: 'none', corner_radius_pct: 20 }, data.logo) // a preset saved before 1.4.264 has no shape
   if (data.color_grading) Object.assign(colorGrading, data.color_grading)
   if (data.vignette) Object.assign(vignette, data.vignette)
   if (data.film_grain) Object.assign(filmGrain, data.film_grain)
@@ -5578,6 +5593,9 @@ const activeQuickPreset = computed(() => {
  * afterwards. Compact defaults to ultrafast for iteration speed.
  */
 function onQualityChange() {
+  // 1.4.264 — hardware stays hardware: the quality tier sets its q:v instead of
+  // silently switching the render back to a CPU preset.
+  if (exportSettings.encoding_effort === 'hardware' && ffmpegStatus.value?.hw_encoders?.h264) return
   const def = DEFAULT_EFFORT_FOR_QUALITY[exportSettings.quality]
   if (def) exportSettings.encoding_effort = def
 }
@@ -5846,6 +5864,10 @@ const logoEffectPreviewStyle = computed(() => {
     objectFit: 'contain',
     pointerEvents: 'none',
   }
+  // Same cut as the render (lib/logo-shape.ts): a centre-fitted circle, or corners
+  // rounded by a share of the shorter side (shown here as a share of each side).
+  if (logo.shape === 'circle') Object.assign(style, { aspectRatio: '1', objectFit: 'cover', borderRadius: '50%' })
+  else if (logo.shape === 'rounded') style.borderRadius = `${Math.max(1, Math.min(50, Number(logo.corner_radius_pct) || 20))}%`
   if (logo.position === 'custom') {
     style.left = `${(logo.custom_x / 1920) * 100}%`
     style.top = `${(logo.custom_y / 1080) * 100}%`

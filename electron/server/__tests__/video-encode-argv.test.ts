@@ -205,7 +205,7 @@ describe('buildEncoderArgs — codec/format matrix', () => {
     assert.equal(args[idx + 1], '+faststart')
   })
 
-  test('hardware effort routes through h264_videotoolbox with q:v + allow_sw', () => {
+  test('hardware effort routes through h264_videotoolbox with q:v', () => {
     // Hardware path is a separate code branch — pin its argv shape so a
     // refactor to buildEncoderArgs doesn't silently revert to libx264 or
     // drop the software-fallback flag.
@@ -220,11 +220,9 @@ describe('buildEncoderArgs — codec/format matrix', () => {
     // No -crf or -preset on the hardware path — those are libx264 flags.
     assert.equal(args.indexOf('-crf'), -1, 'hardware path must not emit -crf')
     assert.equal(args.indexOf('-preset'), -1, 'hardware path must not emit libx264 -preset')
-    // Software-fallback flag must be present so ffmpeg can transparently
-    // recover when videotoolbox can't open a session.
-    const swi = args.indexOf('-allow_sw')
-    assert.notEqual(swi, -1, 'must set -allow_sw 1 for software fallback')
-    assert.equal(args[swi + 1], '1')
+    // 1.4.264: no `-allow_sw`. Apple's silent software encoder would make the
+    // job's "Encoder: hardware" line untrue; the libx264 tier is the fallback.
+    assert.equal(args.indexOf('-allow_sw'), -1)
     // Audio + faststart parity with the libx264 path.
     assert.notEqual(args.indexOf('-movflags'), -1)
   })

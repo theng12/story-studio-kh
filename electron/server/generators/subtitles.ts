@@ -1090,6 +1090,10 @@ async function transcribePerChapter(
       + skippedSentences.map(chapter => `${subtitleChapterLabel(chapter.slug)}: ${chapter.sentences.length}`).join(', ')
       + `. First: "${skippedSentences[0].sentences[0].slice(0, 120)}". Open Subtitles to listen, then Re-narrate that chapter.`,
     )
+    // Free voices redo just the skipping part, then these subtitles (capped; paid stays manual).
+    const { queueAutoRenarrate } = await import('./audio.js')
+    await queueAutoRenarrate(job, skippedSentences)
+      .catch((error: any) => job.output_lines.push(`Automatic re-narration was not started (${error?.message || error}).`))
   }
 
   if (!scopeComplete || (!explicitlyScoped && !episodeComplete)) {

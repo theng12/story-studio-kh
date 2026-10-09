@@ -1,0 +1,29 @@
+/**
+ * A custom logo X/Y is typed on the 1920×1080 preview. TerraNash saved x=1650,
+ * y=80 and renders at 720p, where that put the logo past the right edge of a
+ * 1280-wide frame. It now scales to the canvas and stays on it.
+ */
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { scaleAuthoredPosition, calculateLogoPosition } from '../lib/video-effects.js'
+
+test('TerraNash x=1650,y=80 lands where the preview shows it, at 720p and 1080p', () => {
+  // 720p: logo is 8 % of 1280 = 102 px wide.
+  assert.deepEqual(calculateLogoPosition('custom', 50, scaleAuthoredPosition(1650, 1280, 1920, 102), scaleAuthoredPosition(80, 720, 1080)), { x: '1100', y: '53' })
+  assert.deepEqual(calculateLogoPosition('custom', 50, scaleAuthoredPosition(1650, 1920, 1920, 154), scaleAuthoredPosition(80, 1080, 1080)), { x: '1650', y: '80' }, '1080p unchanged')
+})
+
+test('a position past the edge is kept on the canvas; no custom value stays undefined', () => {
+  assert.equal(scaleAuthoredPosition(1900, 1920, 1920, 154), 1766)
+  assert.equal(scaleAuthoredPosition(-20, 1280, 1920, 102), 0)
+  assert.equal(scaleAuthoredPosition(undefined, 1280, 1920), undefined)
+  assert.deepEqual(calculateLogoPosition('custom', 20, scaleAuthoredPosition(undefined, 1280, 1920), 10), calculateLogoPosition('custom', 20), 'falls back to the anchor like before')
+})
+
+test('the render passes the scaled values', async () => {
+  const source = await readFile(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'generators', 'video.ts'), 'utf8')
+  assert.match(source, /scaleAuthoredPosition\(logo\.custom_x, w, 1920, logoW\), scaleAuthoredPosition\(logo\.custom_y, h, 1080\)/)
+})

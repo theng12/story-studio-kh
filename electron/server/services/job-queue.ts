@@ -1662,9 +1662,33 @@ function groupLimit(group: string): number {
   if (group === LOCAL_LLM_GROUP) return Number.POSITIVE_INFINITY
   if (group === SUBTITLE_TRANSCRIBE_GROUP) return subtitleTranscribeConcurrency
   if (group === THUMBNAIL_EPISODE_GROUP) return thumbnailEpisodeConcurrency
-  if (group === AUDIO_EPISODE_GROUP) return audioEpisodeConcurrency
+  if (group === AUDIO_EPISODE_GROUP) return audioEpisodeConcurrency + (narrationTailRunning() ? 1 : 0)
   if (FLEET_EPISODE_GROUPS.has(group)) return imageEpisodeConcurrency
   return 1
+}
+
+/**
+ * Owner, 2026-10-09: "Start next episode early." Narration is admitted like the
+ * scene-image tail (`attemptAdaptiveImageTailAdmission`): while a running
+ * episode is down to its last few parts it can no longer fill the fleet, so ONE
+ * extra queued episode may start beside the owner's number. Never more than his
+ * number plus one, in queue order; the global pause and per-job pauses still win.
+ * ponytail: a fixed count of unfinished parts (overnight tails: median 5.5 min,
+ * max 48); make it a share of the episode's fan-out if part sizes change a lot.
+ */
+export const NARRATION_TAIL_PARTS = 20
+function narrationTailRunning(): boolean {
+  for (const id of activeRunJobIds) {
+    const job = jobs.get(id)
+    const progress = job?.item_progress
+    if (job?.type !== 'audio' || job.status !== 'running' || job.pause_requested || !progress || !(progress.total > 0)) continue
+    if (progress.total - progress.completed - progress.failed <= NARRATION_TAIL_PARTS) return true
+  }
+  return false
+}
+/** Called as narration parts finish: admits the next episode once a running one reaches its tail. */
+export function noteNarrationProgress(): void {
+  pump('audio')
 }
 
 // ── Persistence ─────────────────────────────────────────────────────────────

@@ -54,16 +54,26 @@ export function buildVideoFrameFilter(options: VideoFrameFilterOptions): string[
   const media = `${prefix}media`
   const bg = `${prefix}bg`
   const borderLayer = `${prefix}border`
-  const rounded = radius > 0
-    ? `,format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lt(X,${radius})*lt(Y,${radius}),if(lte(pow(X-${radius},2)+pow(Y-${radius},2),${radius * radius}),255,0),if(gte(X,W-${radius})*lt(Y,${radius}),if(lte(pow(X-(W-${radius}),2)+pow(Y-${radius},2),${radius * radius}),255,0),if(lt(X,${radius})*gte(Y,H-${radius}),if(lte(pow(X-${radius},2)+pow(Y-(H-${radius}),2),${radius * radius}),255,0),if(gte(X,W-${radius})*gte(Y,H-${radius}),if(lte(pow(X-(W-${radius}),2)+pow(Y-(H-${radius}),2),${radius * radius}),255,0),255))))'`
-    : ',format=rgba'
+  // The rounded-corner alpha, computed ONCE: one frame of `geq`, looped, merged
+  // per frame. A per-frame `geq` over every pixel was about two-thirds of a
+  // TerraNash render (1.4.264, measured); the output is pixel-identical.
+  const mask = `${prefix}mask`
+  const rgb = `${prefix}rgb`
+  const corners = `if(lt(X,${radius})*lt(Y,${radius}),if(lte(pow(X-${radius},2)+pow(Y-${radius},2),${radius * radius}),255,0),if(gte(X,W-${radius})*lt(Y,${radius}),if(lte(pow(X-(W-${radius}),2)+pow(Y-${radius},2),${radius * radius}),255,0),if(lt(X,${radius})*gte(Y,H-${radius}),if(lte(pow(X-${radius},2)+pow(Y-(H-${radius}),2),${radius * radius}),255,0),if(gte(X,W-${radius})*gte(Y,H-${radius}),if(lte(pow(X-(W-${radius}),2)+pow(Y-(H-${radius}),2),${radius * radius}),255,0),255))))`
+  const mediaChain = radius > 0
+    ? [
+        `${inputLabel}scale=${innerW}:${innerH}:force_original_aspect_ratio=${fit}${fitTail},format=rgba[${rgb}]`,
+        `color=c=white:s=${innerW}x${innerH}:r=${Math.max(1, Math.round(fps))},trim=end_frame=1,format=gray,geq=lum='${corners}',loop=loop=-1:size=1[${mask}]`,
+        `[${rgb}][${mask}]alphamerge=shortest=1[${media}]`,
+      ]
+    : [`${inputLabel}scale=${innerW}:${innerH}:force_original_aspect_ratio=${fit}${fitTail},format=rgba[${media}]`]
 
   const backgroundChain = backgroundInputLabel
     ? `${backgroundInputLabel}setpts=PTS-STARTPTS,scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1[${bg}]`
     : `color=c=${background}:s=${width}x${height}:r=${Math.max(1, Math.round(fps))}[${bg}]`
 
   return [
-    `${inputLabel}scale=${innerW}:${innerH}:force_original_aspect_ratio=${fit}${fitTail}${rounded}[${media}]`,
+    ...mediaChain,
     backgroundChain,
     `[${bg}]drawbox=x=${outerX}:y=${outerY}:w=${outerW}:h=${outerH}:color=${border}:t=fill[${borderLayer}]`,
     `[${borderLayer}][${media}]overlay=${innerX}:${innerY}:shortest=1,format=yuv420p${outputLabel}`,

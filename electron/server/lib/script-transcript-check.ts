@@ -47,6 +47,19 @@ export function transcriptText(srt: string): string {
     .join(' ')
 }
 
+/** Index of the text that holds most of `sentence`'s words (first on a tie): which narration part said it. */
+export function partHoldingSentence(sentence: string, partTexts: string[]): number {
+  const own = words(sentence)
+  let best = 0
+  let bestShare = -1
+  partTexts.forEach((text, index) => {
+    const there = new Set(words(text))
+    const share = own.filter(word => there.has(word)).length / Math.max(1, own.length)
+    if (share > bestShare) { best = index; bestShare = share }
+  })
+  return best
+}
+
 export function findMissingSentences(scriptMarkdown: string, srt: string): string[] {
   const heard = new Set(words(transcriptText(srt)))
   return scriptSentences(scriptMarkdown).filter(sentence => {

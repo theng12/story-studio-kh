@@ -61,6 +61,8 @@ import { AudioQualityVerificationCreditCeilingError, verifyAudioQualityCandidate
 import { promoteAudioQualityCandidate, readAudioQualityProvenance, updateAudioQualityProvenance } from '../services/audio-quality-store.js'
 import { readAudioTtsModelRecord, writeAudioTtsModelRecord, type AudioTtsModelRecord } from '../services/audio-tts-model-record.js'
 import { consolidateChapterParts, keptPartPath, partsDir, seamPauseRule } from '../services/chapter-parts.js'
+import { partHoldingSentence, type ChapterMissingSentences } from '../lib/script-transcript-check.js'
+import { isFreeFleetModelId } from '../contracts/provider-task-state.js'
 import type {
   GenerateAudioRequest, Job, AudioModelConfig, JobItemAttempt,
 } from '../models/types.js'
@@ -803,6 +805,8 @@ export async function generateAudio(job: Job): Promise<void> {
     sectionSlug: string
     chunkText: string
     outputPath: string
+    /** A part the subtitles showed skipped sentences: made again under a fresh request identity. */
+    redo?: boolean
   }
   const tasks: ChunkTask[] = []
 
@@ -840,13 +844,23 @@ export async function generateAudio(job: Job): Promise<void> {
     const activeSources = activeChapters[section.slug]?.source_files
     const joined = chunks.length > 1 && activeSources?.length === 1 && activeSources[0] === filename && existsSync(savePath)
     const partsCleared = joined && !existsSync(partsDir(audioDir, `${code}_${section.slug}`))
+    // Subtitles found sentences this chapter skipped: narrate again only the part(s) that hold them
+    // (every part when the kept parts were cleared away, since the chapter could not be re-joined).
+    const redoSentences = req.redo_sentences?.[section.slug] || []
+    const redoParts = new Set(partsCleared
+      ? redoSentences.length ? chunks.map((_, index) => index) : []
+      : redoSentences.map(sentence => partHoldingSentence(sentence, chunks)))
+    if (redoParts.size) {
+      job.output_lines.push(`  Narrating ${chunks.length > 1 ? `part ${[...redoParts].map(part => part + 1).join(', ')} of ${chunks.length}` : 'it'} again: the subtitles show ${redoSentences.length} skipped sentence${redoSentences.length === 1 ? '' : 's'}.`)
+    }
     for (let i = 0; i < chunks.length; i++) {
       let chunkPath = chunks.length > 1 ? savePath.replace('.mp3', `_part${i + 1}.mp3`) : savePath
       const kept = joined && (partsCleared || !!await keptPartPath(audioDir, `${code}_${section.slug}`, i + 1))
+      const redo = redoParts.has(i)
 
       // Only skip on a non-empty existing file. A zero-byte leftover from a
       // prior failure must be regenerated, not treated as a cache hit.
-      if (kept || await fileExistsWithContent(chunkPath)) {
+      if (!redo && (kept || await fileExistsWithContent(chunkPath))) {
         if (req.no_overwrite) {
           let v = 2
           while (existsSync(chunkPath.replace('.mp3', `_v${v}.mp3`))) v++
@@ -865,6 +879,7 @@ export async function generateAudio(job: Job): Promise<void> {
         sectionSlug: section.slug,
         chunkText: chunks[i]!,
         outputPath: chunkPath,
+        ...(redo ? { redo: true } : {}),
       })
     }
   }
@@ -925,6 +940,8 @@ export async function generateAudio(job: Job): Promise<void> {
       // entry is replaced in place.
       active: [...activeTasks.values()].sort((a, b) => a.label.localeCompare(b.label)),
     }
+    // Near the end of this episode the next queued one may start (job-queue NARRATION_TAIL_PARTS).
+    jq.noteNarrationProgress()
   }
   publishProgress()
 
@@ -1180,7 +1197,7 @@ export async function generateAudio(job: Job): Promise<void> {
     // therefore cannot replay the old active-base TTS task on its first run.
     // Its exception is recovery only: once its own action-scoped request was
     // accepted and checkpointed, a restart must reclaim that exact task.
-    const explicitRegeneration = req.force === true
+    const explicitRegeneration = req.force === true || task.redo === true
     // Explicit Regenerate/New version work owns the current Story job's fresh
     // identity and must never adopt a successful task from an older run.
     // Ordinary retries retain unfinished accepted work; terminal provider
@@ -1841,4 +1858,69 @@ export async function queueSubtitlesAfterNarration(job: Job, sectionSlugs: strin
     job.result = { ...job.result, subtitles_job_id: queued.job_id }
     job.output_lines.push(`New subtitles for ${label} queued (${queued.job_id}).`)
   })
+}
+
+/** Owner, 2026-10-09: "Let subtitles catch it." Automatic redos per chapter before it is left for him. */
+export const AUTO_RENARRATE_MAX = 2
+
+/**
+ * The subtitle check found script sentences the narration skipped (8 GB Macs skip
+ * the Mac's own Whisper check). On the free fleet, narrate again only the part(s)
+ * holding them, then their subtitles (`then_subtitles`, the Re-narrate chain).
+ * Paid voices stay manual (services/job-retry-policy.ts). Each chapter gets at
+ * most AUTO_RENARRATE_MAX automatic redos, counted from job history, so a voice
+ * that keeps skipping can never loop; after that the chapter is left for the owner.
+ */
+export async function queueAutoRenarrate(subtitleJob: Job, skipped: ChapterMissingSentences[]): Promise<void> {
+  if (!skipped.length) return
+  const { project_slug, episode_id } = subtitleJob
+  const label = (slugs: string[]) => slugs.map(slug => slug.replaceAll('_', ' ')).join(', ')
+  const say = (line: string) => subtitleJob.output_lines.push(line)
+  const narrations = (await jq.getJobs(project_slug, { type: 'audio' })).filter(other => other.episode_id === episode_id)
+  if (narrations.some(other => other.params?.auto_renarrate_from === subtitleJob.job_id)) return
+  // The voice to redo with: the episode's latest finished ordinary narration.
+  const source = narrations
+    .filter(other => other.status === 'done' && typeof other.params?.model === 'string' && other.params.model.trim()
+      && !other.params.no_overwrite && !other.params.quality_repair && !other.params.quality_check)
+    .sort((a, b) => String(b.finished_at || '').localeCompare(String(a.finished_at || '')))[0]
+  const slugs = skipped.map(chapter => chapter.slug)
+  if (!source) {
+    say(`ℹ ${label(slugs)} not re-narrated automatically: no earlier narration of this episode is on record.`)
+    return
+  }
+  const model: string = source.params.model.trim()
+  const paths = await resolveEpisodePathsByCodeWithSidecar(project_slug, episode_id, 'audio_chapters.json').catch(() => null)
+  const active = paths ? (await readAudioQualityProvenance(paths.episode_dir).catch(() => null))?.chapters || {} : {}
+  const redo: Record<string, string[]> = {}
+  const paid: string[] = []
+  const capped: string[] = []
+  for (const chapter of skipped) {
+    const chapterModel = active[chapter.slug]?.tts?.model_id || model
+    if (!isFreeFleetModelId(model.toLowerCase()) || chapterModel !== model) paid.push(chapter.slug)
+    else if (narrations.filter(other => other.params?.redo_sentences?.[chapter.slug]).length >= AUTO_RENARRATE_MAX) capped.push(chapter.slug)
+    else redo[chapter.slug] = chapter.sentences
+  }
+  if (paid.length) say(`ℹ ${label(paid)} not re-narrated automatically: a paid voice stays manual. Listen on Subtitles, then Re-narrate.`)
+  if (capped.length) {
+    say(`⚠ ${label(capped)} still skip${capped.length === 1 ? 's' : ''} script sentences after ${AUTO_RENARRATE_MAX} automatic re-narrations. Left for you: listen on Subtitles, then Re-narrate by hand.`)
+    subtitleJob.result = { ...subtitleJob.result, renarrate_needs_owner: capped }
+  }
+  const redoSlugs = Object.keys(redo)
+  if (!redoSlugs.length) return
+  if (narrations.some(other => other.status === 'queued' || other.status === 'running')) {
+    say(`ℹ ${label(redoSlugs)} not re-narrated automatically now: this episode already has narration queued or running.`)
+    return
+  }
+  const params: Record<string, any> = { ...source.params }
+  for (const key of ['force', 'no_overwrite', 'operation_id', 'generation_action', 'generation_action_fingerprint', 'quality_repair', 'quality_check',
+    'join_only', 'genstudio_recovery', 'redo_sentences', 'auto_renarrate_from', 'then_subtitles', 'sections']) delete params[key]
+  const tries = Math.max(...redoSlugs.map(slug => narrations.filter(other => other.params?.redo_sentences?.[slug]).length)) + 1
+  const queued = await jq.enqueue({
+    project_slug, episode_id, type: 'audio',
+    title: `Re-narrate skipped sentences (${label(redoSlugs)})`,
+    params: { ...params, episode_id, sections: redoSlugs.join(','), force: false, then_subtitles: true, redo_sentences: redo, auto_renarrate_from: subtitleJob.job_id },
+    dedupeParams: queuedParams => queuedParams?.auto_renarrate_from === subtitleJob.job_id,
+  })
+  subtitleJob.result = { ...subtitleJob.result, auto_renarrate_job_id: queued.job_id }
+  say(`↻ Re-narrating only the part(s) of ${label(redoSlugs)} that skipped sentences, on the free fleet (automatic try ${tries} of ${AUTO_RENARRATE_MAX}); new subtitles follow (${queued.job_id}).`)
 }

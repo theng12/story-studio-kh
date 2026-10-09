@@ -116,6 +116,18 @@ export { buildColorGradingFilters } from './color-grade.js'
  * coordinate pair the customer typed, and only the Video Assembly logo control
  * offers it.
  */
+/**
+ * A custom logo X/Y is typed against the 1920×1080 preview (video-assembly.vue
+ * `logoEffectPreviewStyle` places it at value/1920 and value/1080), so it is
+ * scaled to the canvas being rendered and kept on it. Before 1.4.264 a 720p
+ * render used the 1080p number as-is: TerraNash's x=1650 put the logo past the
+ * right edge of a 1280-wide frame.
+ */
+export function scaleAuthoredPosition(value: number | undefined, canvasSpan: number, authoredSpan: number, size = 0): number | undefined {
+  if (value === undefined || !Number.isFinite(value)) return undefined
+  return Math.max(0, Math.min(Math.max(0, canvasSpan - size), Math.round(value * canvasSpan / authoredSpan)))
+}
+
 export function calculateLogoPosition(
   position: string,
   margin: number,

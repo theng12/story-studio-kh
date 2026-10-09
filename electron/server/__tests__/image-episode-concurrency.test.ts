@@ -121,7 +121,7 @@ describe('every kind of fleet work is pipelined, not just images', () => {
     assert.match(body, /const FLEET_EPISODE_GROUPS[\s\S]{0,200}?IMAGE_EPISODE_GROUP, THUMBNAIL_EPISODE_GROUP, VIDEO_EPISODE_GROUP, AUDIO_EPISODE_GROUP/)
     assert.match(body, /if \(FLEET_EPISODE_GROUPS\.has\(group\)\) return imageEpisodeConcurrency/,
       'image and video share the scene-image dial')
-    assert.match(body, /if \(group === AUDIO_EPISODE_GROUP\) return audioEpisodeConcurrency\n\s*if \(FLEET_EPISODE_GROUPS/,
+    assert.match(body, /if \(group === AUDIO_EPISODE_GROUP\) return audioEpisodeConcurrency( \+ \(narrationTailRunning\(\) \? 1 : 0\))?\n\s*if \(FLEET_EPISODE_GROUPS/,
       'narration has its own dial, read before the shared one')
   })
 
@@ -288,7 +288,7 @@ describe('thumbnails do not spend the local fleet\'s budget', () => {
     // cosmetic.
     assert.match(
       body,
-      /if \(group === THUMBNAIL_EPISODE_GROUP\) return thumbnailEpisodeConcurrency\n(?:\s*if \(group === AUDIO_EPISODE_GROUP\) return audioEpisodeConcurrency\n)?\s*if \(FLEET_EPISODE_GROUPS\.has\(group\)\) return imageEpisodeConcurrency/,
+      /if \(group === THUMBNAIL_EPISODE_GROUP\) return thumbnailEpisodeConcurrency\n(?:\s*if \(group === AUDIO_EPISODE_GROUP\) return audioEpisodeConcurrency[^\n]*\n)?\s*if \(FLEET_EPISODE_GROUPS\.has\(group\)\) return imageEpisodeConcurrency/,
     )
   })
 

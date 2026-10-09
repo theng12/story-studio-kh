@@ -3025,6 +3025,11 @@ export interface GenerateAudioRequest {
   }
   /** Re-narrate: once the narration is saved, re-make these chapters' subtitles (generators/audio.ts). */
   then_subtitles?: boolean
+  /**
+   * Server-only (automatic subtitle redo, 1.4.264): per chapter, the script sentences its
+   * subtitles show were skipped. Only the part(s) holding them are narrated again.
+   */
+  redo_sentences?: Record<string, string[]>
   /** Server-only (Repair): activate and join chapters whose parts are all on disk; never submits TTS. */
   join_only?: boolean
   /** Join pauses inside a chapter, seconds (Audio Generator; default from the Series Formula). */
@@ -3245,6 +3250,10 @@ export interface VideoLogoConfig {
   scale: number        // 0.01-1.0 relative to video width
   margin: number       // pixels from edge
   hide_during_intro: boolean
+  /** 1.4.264: cut the logo to rounded corners or a circle (made once per render). Absent = 'none'. */
+  shape?: 'none' | 'rounded' | 'circle'
+  /** Rounded corners: radius as a % of the logo's shorter side (1–50, default 20). */
+  corner_radius_pct?: number
 }
 
 export interface VideoIntroConfig {

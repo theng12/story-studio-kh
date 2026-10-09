@@ -327,6 +327,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
         scale: s.logo.scale / 100,
         margin: s.logo.margin,
         hide_during_intro: s.logo.hide_during_intro,
+        ...(s.logo.shape && s.logo.shape !== 'none' ? { shape: s.logo.shape, corner_radius_pct: s.logo.corner_radius_pct } : {}),
       }
     }
 

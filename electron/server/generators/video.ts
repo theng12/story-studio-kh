@@ -65,6 +65,7 @@ import {
 import { resolveSceneImagesDir } from './scene-image.js'
 import { resolveVideoAssetsDir } from './scene-clip.js'
 import { buildVideoFrameFilter } from '../lib/video-frame-filter.js'
+import { logoCornerRadiusPct, logoShapeOf, writeShapedLogo } from '../lib/logo-shape.js'
 import { displayAspectRatio, frameTextUnit, resolveRenderCanvas } from '../lib/render-canvas.js'
 import { inspectSourceAspect } from '../lib/source-aspect.js'
 import { buildContextualCueDrawtextFilters } from '../lib/contextual-cue-filters.js'
@@ -77,6 +78,7 @@ import {
   buildLetterboxFilter,
   calculateLogoPosition,
   computeVignetteAngle,
+  scaleAuthoredPosition,
 } from '../lib/video-effects.js'
 import { compileSceneOverlay, letterboxBarHeight, overlayLoopShapes } from '../lib/scene-effect-compiler.js'
 import { assertNoUnavailablePackOverlays, resolveAppliedOverlays } from '../contracts/scene-effect-presets.js'
@@ -375,6 +377,36 @@ export function videoBitrateCapKbps(value: unknown): number {
   return Number.isFinite(kbps) && kbps >= 500 ? Math.min(100_000, Math.round(kbps)) : 0
 }
 
+/**
+ * Owner, 2026-10-09: "set up the hardware encoder for video assembly." With no saved
+ * encoding effort the final encode uses the Media Engine (the existing `hardware`
+ * path: q:v from the quality tier, libx264 fallback tier). A saved effort — even a
+ * CPU preset — is the owner's choice and wins; so do HEVC and WebM, which this path
+ * does not encode.
+ */
+export function defaultEncodingEffort(
+  req: { encoding_effort?: string; codec?: string; format?: string },
+  hw: { h264: boolean } | undefined,
+): 'hardware' | undefined {
+  if (req.encoding_effort || req.codec === 'h265' || req.format === 'webm' || !hw?.h264) return undefined
+  return 'hardware'
+}
+
+/** `hardware (VideoToolbox h264)` or `software (libx264)`, read from the encode argv. */
+export function encoderKind(argv: readonly string[]): string {
+  const codec = argv[argv.indexOf('-c:v') + 1] || 'unknown'
+  return codec.endsWith('_videotoolbox') ? `hardware (VideoToolbox ${codec.replace('_videotoolbox', '')})` : `software (${codec})`
+}
+
+/** The job line that says which encoder made the final video, and why software when hardware was wanted. */
+export function describeEncoder(argv: readonly string[], hardwareWanted: boolean, failure?: { message?: string; stderr?: string } | null): string {
+  const kind = encoderKind(argv)
+  if (kind.startsWith('hardware') || !hardwareWanted) return `Encoder: ${kind}`
+  const reason = (failure?.stderr || '').split('\n').map(line => line.trim()).filter(Boolean).at(-1)
+    || failure?.message || 'the hardware encode did not finish'
+  return `Encoder: ${kind} — hardware unavailable: ${reason.slice(0, 200)}`
+}
+
 export function buildEncoderArgs(opts: {
   codec: 'h264' | 'h265'
   format: 'mp4' | 'mov' | 'webm' | string
@@ -412,10 +444,9 @@ export function buildEncoderArgs(opts: {
       ...(cap
         ? ['-b:v', `${cap}k`, '-maxrate', `${Math.round(cap * 1.5)}k`, '-bufsize', `${cap * 2}k`]
         : ['-q:v', crfToVideotoolboxQ(crf).toString()]),
-      // Permit ffmpeg's own software fallback if the hardware path
-      // can't open the session — a second safety net beneath the
-      // tier-2/3 recovery chain.
-      '-allow_sw', '1',
+      // No `-allow_sw` (1.4.264): Apple's own silent software encoder would
+      // make "Encoder: hardware" untrue. If the Media Engine cannot start,
+      // the encode fails and the libx264 tier takes over and says so.
       '-c:a', 'aac', '-b:a', '192k',
       '-pix_fmt', 'yuv420p',
       '-movflags', '+faststart',
@@ -1515,6 +1546,10 @@ export async function generateVideo(job: Job): Promise<void> {
   const canDrawtext = ffmpegCheck.has_drawtext
   if (!canDrawtext) {
     job.output_lines.push('Warning: drawtext filter not available — text overlays will be skipped')
+  }
+  if (defaultEncodingEffort(req, ffmpegCheck.hw_encoders)) {
+    req.encoding_effort = 'hardware'
+    job.output_lines.push('Encoder: Apple Media Engine (h264_videotoolbox) by default; the CPU encoder takes over by itself if it cannot start.')
   }
 
   // Resolve output directory
@@ -5319,7 +5354,20 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   if (logo?.enabled && logo.image_path) {
     const avail = checkAssetAvailability(logo.image_path, 'logo.image_path')
     if (avail.status === 'available') {
-      args.push('-i', logo.image_path)
+      // A rounded or circle logo is cut once into a still PNG at its rendered size (lib/logo-shape.ts).
+      let logoPath = logo.image_path
+      const shape = logoShapeOf(logo.shape)
+      if (shape !== 'none') {
+        const shaped = path.join(path.dirname(videoInputPath), `logo-${shape}.png`)
+        try {
+          await writeShapedLogo(logo.image_path, shaped, Math.round(w * (logo.scale || 0.1)), shape, logo.corner_radius_pct)
+          logoPath = shaped
+          job.output_lines.push(`Logo shape: ${shape === 'circle' ? 'circle' : `rounded corners (${logoCornerRadiusPct(logo.corner_radius_pct)}%)`}`)
+        } catch (error: any) {
+          job.output_lines.push(`Logo shape could not be made (${error?.message || error}); the logo is shown as it is.`)
+        }
+      }
+      args.push('-i', logoPath)
       logoInputIdx = nextInputIdx++
       hasLogo = true
     } else {
@@ -5837,7 +5885,8 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   // the exclude-intro feature.
   if (hasLogo && logo) {
     const logoW = Math.round(w * (logo.scale || 0.1))
-    const pos = calculateLogoPosition(logo.position, logo.margin || 20, logo.custom_x, logo.custom_y)
+    const pos = calculateLogoPosition(logo.position, logo.margin || 20,
+      scaleAuthoredPosition(logo.custom_x, w, 1920, logoW), scaleAuthoredPosition(logo.custom_y, h, 1080))
     const opacity = logo.opacity ?? 1
 
     const lp = vn()
@@ -6017,7 +6066,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
           if (targetDuration > 0) {
             const progress = Math.min(99, Math.round((currentTime / targetDuration) * 100))
             job.progress = progress
-            const progressLine = `Encoding: ${progress}% (${currentTime.toFixed(1)}s / ${targetDuration.toFixed(1)}s)`
+            const progressLine = `Encoding: ${progress}% (${currentTime.toFixed(1)}s / ${targetDuration.toFixed(1)}s) · ${encoderKind(encodeArgs)}`
             const lastIdx = job.output_lines.length - 1
             if (lastIdx >= 0 && job.output_lines[lastIdx].startsWith('Encoding:')) {
               job.output_lines[lastIdx] = progressLine
@@ -6247,6 +6296,10 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     throw lastError || new Error('Final composition failed at all tiers')
   }
 
+  // The owner asked "how do I know if it's using the hardware or just the software?"
+  const encoderLine = describeEncoder(succeededTier.build(), effort === 'hardware', lastError)
+  job.output_lines.push(encoderLine)
+  job.result = { ...(job.result || {}), encoder: encoderLine.replace(/^Encoder: /, '') }
   if (succeededTier !== tiers[0]) {
     job.output_lines.push(`✓ Final video produced via recovery tier — ${succeededTier.degraded || succeededTier.label}`)
     // A recovery tier that bypassed the filter graph delivered a playable file
