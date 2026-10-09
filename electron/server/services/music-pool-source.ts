@@ -19,6 +19,8 @@ export interface ResolvedPoolSong extends BuilderSong {
   path: string
   lufs?: number
   episodes: EpisodeUse[]
+  /** Ids of duplicate entries folded into this song (song-pool.ts `mergeDuplicateFiles`). */
+  merged_ids?: string[]
 }
 
 function resolveSongs(projectSlug: string, pool: songPool.SongPoolFile): ResolvedPoolSong[] {
@@ -38,6 +40,7 @@ function resolveSongs(projectSlug: string, pool: songPool.SongPoolFile): Resolve
     ...(typeof song.lufs === 'number' && Number.isFinite(song.lufs) ? { lufs: song.lufs } : {}),
     plays: song.episodes.length,
     episodes: song.episodes,
+    ...(song.merged_ids?.length ? { merged_ids: song.merged_ids } : {}),
   }))
 }
 

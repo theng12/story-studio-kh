@@ -5952,6 +5952,8 @@ export interface GenStudioMusicRequest extends GenStudioOperationContext {
   outputFormat?: 'm4a'
   /** Sent only when the caller states one (the Song Pool does, so a retake is a new seed). */
   seed?: number
+  /** 1.4.270 — Gateway 0.2.165+ `priority`: 'background' runs only on idle Macs. Not part of the idempotency key. */
+  priority?: 'background'
   idempotencyKey?: string
   isCancelled?: () => boolean
   onJobAccepted?: (jobId: string, idempotencyKey: string) => Promise<void> | void
@@ -6234,6 +6236,7 @@ export async function generateMusicWithGenStudio(
         ...(request.durationSeconds ? { duration_seconds: request.durationSeconds } : {}),
         ...(request.outputFormat ? { output_format: request.outputFormat } : {}),
         ...(request.seed !== undefined ? { seed: request.seed } : {}),
+        ...(request.priority ? { priority: request.priority } : {}),
       }),
     },
     request,
@@ -6253,6 +6256,48 @@ export async function generateMusicWithGenStudio(
     if (!shouldReconnectAcceptedTask(error, request)) throw error
     await request.onReconnect?.(submitted.id, error instanceof Error ? error.message : String(error))
     return recoverMusicWithGenStudioAdmitted(apiKey, submitted.id, request)
+  }
+}
+
+/** One fleet model's live numbers from Gateway 0.2.165's `/v1/fleet/capacity`. */
+export interface GenStudioFleetModelCapacity {
+  eligible_macs: number
+  idle_macs: number
+  running: { normal: number; background: number }
+  queued: { normal: number; background: number }
+}
+
+/**
+ * The fleet's live capacity for one model. `supported: false` = this Gateway has no capacity
+ * endpoint (404: older than 0.2.165, so it has no background class either). `model: null` = the
+ * model is not a fleet model (a cloud lane). Not cached: the Gateway caches it for 5 s itself.
+ */
+export async function readFleetCapacity(apiKey: string, modality: string, modelId: string): Promise<
+  { supported: false } | { supported: true; model: GenStudioFleetModelCapacity | null }
+> {
+  const baseUrl = await getGenStudioUrl()
+  const query = `modality=${encodeURIComponent(modality)}&model=${encodeURIComponent(modelId)}`
+  try {
+    const body = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/fleet/capacity?${query}`, apiKey,
+      'Gateway fleet capacity could not be reached after automatic reconnect attempts.') as { models?: unknown }
+    type Row = { id?: unknown; model_id?: unknown; eligible_macs?: unknown; idle_macs?: unknown
+      running?: { normal?: unknown; background?: unknown }; queued?: { normal?: unknown; background?: unknown } }
+    const bare = modelId.split('::').pop()
+    const row = (Array.isArray(body?.models) ? body.models as Row[] : [])
+      .find(m => m?.id === modelId || m?.model_id === bare)
+    const n = (v: unknown) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.floor(Number(v)) : 0)
+    return {
+      supported: true,
+      model: row ? {
+        eligible_macs: n(row.eligible_macs),
+        idle_macs: n(row.idle_macs),
+        running: { normal: n(row.running?.normal), background: n(row.running?.background) },
+        queued: { normal: n(row.queued?.normal), background: n(row.queued?.background) },
+      } : null,
+    }
+  } catch (error) {
+    if (error instanceof GenStudioApiError && error.status === 404) return { supported: false }
+    throw error
   }
 }
 

@@ -1246,6 +1246,9 @@ export function resolveStepParams(
       ...(liveAmbient.length ? { ambient_tracks: liveAmbient } : {}),
       gap_duration: data.gap_duration ?? fmtMerge?.gapDurationSec,
       normalize_volume: data.normalize_volume ?? fmtMerge?.normalizeVolume,
+      // 1.4.270 — the page sends these too; a batch merge used to drop them (voice volume back to 100%).
+      ...(pct(data.narration_volume) !== undefined ? { narration_volume: pct(data.narration_volume) } : {}),
+      ...(typeof data.chunk_silence_sec === 'number' && data.chunk_silence_sec > 0 ? { chunk_silence_sec: data.chunk_silence_sec } : {}),
     }
   }
   if (step === 'metadata') {
@@ -1542,7 +1545,7 @@ export function flattenVideoAssemblyBundle(
   // `aspect_ratio` joined this list in 1.4.19. It shipped on the page in
   // 1.4.15 and was never added here, so every batch render was 16:9 whatever
   // the channel asked for — a one-click Short was impossible, silently.
-  for (const k of ['resolution', 'aspect_ratio', 'quality', 'fps', 'encoding_effort', 'codec', 'format', 'video_bitrate_kbps', 'upscale_sharpen']) {
+  for (const k of ['resolution', 'aspect_ratio', 'quality', 'fps', 'encoding_effort', 'codec', 'format', 'video_bitrate_kbps', 'upscale_sharpen', 'loudness_lufs', 'true_peak_db']) {
     if (exportS[k] !== undefined) out[k] = exportS[k]
   }
   // ── Timeline slot

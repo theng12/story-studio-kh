@@ -15,7 +15,6 @@ import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 import { findDirLevelOrder } from '../lib/dir-search.js'
-import { homogenizeForConcat } from '../lib/audio-concat.js'
 import { spawn } from 'child_process'
 import * as pm from '../services/project-manager.js'
 import { trackChild } from '../services/job-queue.js'
@@ -25,6 +24,9 @@ import { episodeDirNameMatchesCode } from '../services/asset-status.js'
 import { runFfmpeg, getAudioDuration, formatConcatFileLine, appendCappedTail } from '../lib/ffmpeg-utils.js'
 import { getWorkTempDir } from '../lib/work-tempdir.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
+import { MIX_LIMITER } from '../lib/final-loudness.js'
+import { buildMusicBed, MUSIC_REFERENCE_LUFS } from '../lib/music-bed.js'
+import { measureLoudness } from './music-episode-build.js'
 import type {
   AudioMergeRequest, Job,
   VideoMusicConfig, VideoBackgroundNoise, AmbientTrack,
@@ -725,6 +727,18 @@ export async function generateAudioMerge(job: Job): Promise<void> {
       .map((c, i) => tryResolve(c, `chapters[${i}]`) || '')
       .filter(Boolean)
   }
+  // Music Pool without a named track (a Pipeline batch): the same pick the page shows, recorded after a good merge.
+  if (req.music?.enabled && !req.music_pool_track) {
+    const { pickPoolMusic } = await import('../services/music-pool.js')
+    const pool = await pickPoolMusic(project_slug, code, req.music)
+    if (pool) {
+      req.music = pool.music
+      req.music_pool_track = pool.track.filename
+      job.output_lines.push(`Music pool: "${pool.track.filename}" for ${code} (${pool.reason}).`)
+    } else if (!req.music.files?.length) {
+      job.output_lines.push('Background music is on, but the Music Pool has no track to give (empty, all switched off, or set to manual); merging without music.')
+    }
+  }
   if (req.music?.files?.length) {
     req.music.files = req.music.files
       .map((f, i) => tryResolve(f, `music.files[${i}]`) || '')
@@ -1014,7 +1028,7 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     }
 
     // 5. Mix with music and/or noise
-    const musicEnabled = req.music?.enabled && req.music.files.length > 0
+    const musicEnabled = req.music?.enabled && (req.music.files?.length ?? 0) > 0
     const noiseEnabled = req.background_noise?.enabled
 
     const writeMode = req.write_mode === 'new' ? 'new' : 'overwrite'
@@ -1150,7 +1164,7 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     // when it accepted the cycler's pick; this fires once per success-
     // ful merge to keep the pool state honest. Non-fatal: a failure to
     // record doesn't undo the merge.
-    const poolTrack = (req as any).music_pool_track
+    const poolTrack = req.music_pool_track
     if (typeof poolTrack === 'string' && poolTrack) {
       try {
         const { recordPick } = await import('../services/music-pool.js')
@@ -1246,31 +1260,17 @@ async function mixAudioLayers(opts: MixOptions): Promise<void> {
 
   // Input 1 (optional): background music
   if (music) {
-    let musicInputPath: string
-
     const cleanedFiles = music.files.map(f => unescapeShellPath(f)!).filter(Boolean)
-
-    if (cleanedFiles.length > 1) {
-      // Concatenate multiple music files first
-      job.output_lines.push(`  Concatenating ${cleanedFiles.length} music files...`)
-      const musicListPath = path.join(tempDir, 'music_list.txt')
-      const { files: concatInputs, reencoded } = await homogenizeForConcat(cleanedFiles, path.join(tempDir, 'music_norm'))
-      if (reencoded) job.output_lines.push(`  Music files differ in format; re-encoded ${reencoded} to one format so none are dropped`)
-      const musicLines = concatInputs.map(f => escPath(f))
-      await fs.writeFile(musicListPath, musicLines.join('\n') + '\n')
-
-      const musicConcatPath = path.join(tempDir, 'music_concat.mp3')
-      await runFfmpeg([
-        '-y', '-f', 'concat', '-safe', '0',
-        '-i', musicListPath,
-        '-af', 'aresample=44100',
-        '-c:a', 'libmp3lame', '-b:a', '192k',
-        musicConcatPath,
-      ], { timeoutMs: audioMergeTimeoutMs() })
-      musicInputPath = musicConcatPath
-    } else {
-      musicInputPath = cleanedFiles[0]!
-    }
+    // 1.4.270 — every track levelled (cached), crossfaded joins, a loop point that never hard-cuts.
+    const musicInputPath = await buildMusicBed(cleanedFiles, tempDir, line => job.output_lines.push(line))
+    // The volume setting is the bed's level relative to the narration as it plays: 100% = as loud as
+    // the voice, 11% = 19 dB under it. Measured, so it holds for any voice and any narration volume.
+    const narrationLufs = (await measureLoudness(narrationPath, { truePeak: false })).lufs
+    const bedOffsetDb = narrationLufs !== null && narrationLufs > -69
+      ? narrationLufs + 20 * Math.log10(Math.max(narrationVolume, 0.01)) - MUSIC_REFERENCE_LUFS
+      : 0
+    job.output_lines.push(`  Music bed: ${Math.round(music.volume * 100)}% = ${(20 * Math.log10(Math.max(music.volume, 0.001))).toFixed(1)} dB `
+      + `relative to the narration${narrationLufs !== null ? ` (narration ${narrationLufs.toFixed(1)} LUFS)` : ''}.`)
 
     // Loop music to fill duration
     inputs.push('-stream_loop', '-1', '-i', musicInputPath)
@@ -1295,7 +1295,7 @@ async function mixAudioLayers(opts: MixOptions): Promise<void> {
       )
       filterParts.push(
         `[${inputIdx}:a]atrim=0:${totalDur.toFixed(2)},asetpts=PTS-STARTPTS,` +
-        `aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp,` +
+        `aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp,volume=${bedOffsetDb.toFixed(2)}dB,` +
         `volume='${env}':eval=frame[bgm2]`,
       )
       job.output_lines.push(
@@ -1304,7 +1304,7 @@ async function mixAudioLayers(opts: MixOptions): Promise<void> {
     } else {
       filterParts.push(
         `[${inputIdx}:a]atrim=0:${totalDur.toFixed(2)},asetpts=PTS-STARTPTS,` +
-        `aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp,` +
+        `aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp,volume=${bedOffsetDb.toFixed(2)}dB,` +
         `volume=${musicVol}[bgm]`,
       )
 
@@ -1314,20 +1314,11 @@ async function mixAudioLayers(opts: MixOptions): Promise<void> {
       )
     }
 
-    // Apply fade in/out
-    let musicLabel = 'bgm2'
-    if (music.fade_in > 0 || music.fade_out > 0) {
-      const fadeFilters: string[] = []
-      if (music.fade_in > 0) {
-        fadeFilters.push(`afade=t=in:st=0:d=${music.fade_in}`)
-      }
-      if (music.fade_out > 0) {
-        const fadeOutStart = Math.max(0, totalDur - music.fade_out)
-        fadeFilters.push(`afade=t=out:st=${fadeOutStart.toFixed(2)}:d=${music.fade_out}`)
-      }
-      filterParts.push(`[bgm2]${fadeFilters.join(',')}[bgm3]`)
-      musicLabel = 'bgm3'
-    }
+    // Fade the bed in and out (at least 2 s / 3 s: the music never starts or stops with a cut).
+    const fadeIn = Math.max(2, music.fade_in || 0)
+    const fadeOut = Math.max(3, music.fade_out || 0)
+    filterParts.push(`[bgm2]afade=t=in:st=0:d=${fadeIn},afade=t=out:st=${Math.max(0, totalDur - fadeOut).toFixed(2)}:d=${fadeOut}[bgm3]`)
+    const musicLabel = 'bgm3'
 
     mixInputLabels.push(`[${musicLabel}]`)
     inputIdx++
@@ -1423,12 +1414,14 @@ async function mixAudioLayers(opts: MixOptions): Promise<void> {
     job.output_lines.push(`  Ambient tracks: ${liveAmbient.length} layer(s)`)
   }
 
-  // amix all streams together
+  // amix all streams together. normalize=0 keeps each layer at the volume its setting names (amix's
+  // default divides every input by the number of inputs: a 150% voice became 75% under music). The
+  // limiter (delay-compensated, no auto-level) only touches peaks over -1 dBFS so the louder sum cannot clip.
   const streamCount = mixInputLabels.length
   const mixInput = mixInputLabels.join('')
   filterParts.push(
-    `${mixInput}amix=inputs=${streamCount}:duration=longest:dropout_transition=2,` +
-    `aformat=channel_layouts=stereo:sample_fmts=fltp:sample_rates=44100[out]`,
+    `${mixInput}amix=inputs=${streamCount}:duration=longest:dropout_transition=2:normalize=0,` +
+    `${MIX_LIMITER},aformat=channel_layouts=stereo:sample_fmts=fltp:sample_rates=44100[out]`,
   )
 
   const filterComplex = filterParts.join(';')

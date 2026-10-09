@@ -27,6 +27,7 @@ import fs from 'fs/promises'
 import path from 'path'
 
 import { runFfmpeg } from '../lib/ffmpeg-utils.js'
+import { musicWindowSizer, runRollingWindow } from '../lib/music-window.js'
 
 import * as jq from '../services/job-queue.js'
 import { resolveOutputFormat } from '../services/generation-compression.js'
@@ -331,15 +332,27 @@ export async function generateMusicLibraryTracks(job: Job): Promise<void> {
     { lyrics: sings },
   )
   const briefId = params.brief_id || `brief-${job.job_id.slice(-10)}`
+  // 1.4.270 — a rolling window sized to the fleet (lib/music-window.ts) instead of one request at a
+  // time. Saved files and failures are reported in plan order.
   job.item_progress = { total: planned.length, completed: 0, failed: 0, concurrency: 1, active: [] }
   job.output_lines.push(
     `Adding ${planned.length} track request(s) to the library. `
     + 'Each request returns every variation the model produces, and all of them are kept.',
   )
+  const sizer = await musicWindowSizer(apiKey, model.id, line => job.output_lines.push(line))
+  const priority = sizer.priority
+  const windowNow = async (inFlight: number): Promise<number> => {
+    const size = Math.min(planned.length, await sizer.size(inFlight))
+    job.item_progress!.concurrency = size
+    return size
+  }
 
-  const saved: string[] = []
-  const failures: string[] = []
-  for (const [index, plan] of planned.entries()) {
+  const savedByIndex: string[][] = planned.map(() => [])
+  const failuresByIndex: (string | undefined)[] = planned.map(() => undefined)
+  // A cancel, a pause or running out of credits stops every request: none of the others start, the
+  // ones in flight stop at their next check, and the run waits for them before it ends.
+  let stop: unknown = null
+  const runOne = async (plan: (typeof planned)[number], index: number): Promise<void> => {
     if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
     jq.throwIfPauseRequested(job.job_id)
     let attemptNum = 1
@@ -349,10 +362,9 @@ export async function generateMusicLibraryTracks(job: Job): Promise<void> {
       // to refuse it.
       const reason = `${model.display_name} sings from lyrics and none were written for this song. `
         + 'Pick a writing model so the planner can write them.'
-      failures.push(`${plan.title}: ${reason}`)
+      failuresByIndex[index] = `${plan.title}: ${reason}`
       job.output_lines.push(`✗ ${plan.title} skipped: ${reason}`)
-      job.item_progress.completed = index + 1
-      continue
+      return
     }
     // How long a track to ask for: the owner's length (default four minutes) for an instrumental
     // model, what the lyrics need for one that sings; only for a model that publishes a length.
@@ -372,6 +384,7 @@ export async function generateMusicLibraryTracks(job: Job): Promise<void> {
           ...(length ? { durationSeconds: length.seconds } : {}),
           modelId: model.id,
           ...(outputFormat ? { outputFormat } : {}),
+          ...(priority ? { priority } : {}),
           requestIdentity: `${job.project_slug}:music:${briefId}:${index}${retryScope ? `:${retryScope}` : ''}`,
           isCancelled: () => jq.isCancelled(job.job_id),
         })
@@ -412,7 +425,7 @@ export async function generateMusicLibraryTracks(job: Job): Promise<void> {
             genstudio_job_id: result.jobId,
             added_at: new Date().toISOString(),
           })
-          saved.push(filename)
+          savedByIndex[index]!.push(filename)
         }
         job.output_lines.push(
           `✓ ${plan.title} — ${result.tracks.length} track(s) saved`
@@ -447,14 +460,31 @@ export async function generateMusicLibraryTracks(job: Job): Promise<void> {
           }
         }
         const reason = error instanceof Error ? error.message : String(error)
-        failures.push(`${plan.title}: ${reason}`)
+        failuresByIndex[index] = `${plan.title}: ${reason}`
         job.output_lines.push(`✗ ${plan.title} failed: ${reason}. Continuing with the rest.`)
         break
       }
     }
-    job.item_progress.completed = index + 1
-    job.progress = Math.round(((index + 1) / planned.length) * 100)
   }
+  await runRollingWindow(planned, windowNow, async (plan, index) => {
+    if (stop) return
+    const attempt = { label: plan.title, key: `track-${index}`, state: 'running' as const, attempt: 1, max_attempts: 1 }
+    job.item_progress!.active.push(attempt)
+    try {
+      await runOne(plan, index)
+    } catch (error) {
+      stop ??= error
+      return
+    } finally {
+      job.item_progress!.active = job.item_progress!.active.filter(a => a !== attempt)
+    }
+    if (failuresByIndex[index]) job.item_progress!.failed++
+    else job.item_progress!.completed++
+    job.progress = Math.round(((job.item_progress!.completed + job.item_progress!.failed) / planned.length) * 100)
+  }, () => !!stop)
+  if (stop) throw stop
+  const saved = savedByIndex.flat()
+  const failures = failuresByIndex.filter((f): f is string => !!f)
 
   job.result = { saved_tracks: saved, brief_id: briefId, requests: planned.length }
   requireJobCompletion(job, {

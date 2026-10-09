@@ -50,6 +50,7 @@ describe('narration lead-in for an unreserved opening', () => {
       targetDuration: 4,
       tempDir: dir,
       job: { output_lines: [] } as any,
+      loudness: { lufs: -14, true_peak_db: -1 },
     })
     const detect = (start: number, len: number): number => {
       const r = spawnSync('ffmpeg', ['-hide_banner', '-ss', String(start), '-t', String(len), '-i', out, '-af', 'volumedetect', '-f', 'null', '-'], { encoding: 'utf8' })

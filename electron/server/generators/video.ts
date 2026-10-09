@@ -105,6 +105,8 @@ import {
 import { listSceneEffectLibrary } from '../services/style-effect-loader.js'
 import { requireJobCompletion, declareJobDegraded } from '../services/job-completion.js'
 import { nonRetryable } from '../services/job-retry-policy.js'
+import { EBUR128_FILTER, measureLoudness, parseEbur128Summary } from './music-episode-build.js'
+import { correctLevelPlan, finalLoudnessIssue, levelFilter, levelPlan, loudnessTarget, type LoudnessTarget } from '../lib/final-loudness.js'
 import {
   assertContextualCueReadiness,
   normalizeContextualCueConfig,
@@ -562,6 +564,7 @@ async function finishFinalVideo(ctx: {
   totalRenderDuration: number
   visualSource: Parameters<typeof writeVideoAssemblySourceStamp>[2]
   imagePool: Parameters<typeof writeVideoAssemblySourceStamp>[3]
+  loudness: LoudnessTarget
 }): Promise<void> {
   const { job, project_slug, code, titleHint, videoDir, format, tempDir, outputFile, totalRenderDuration, visualSource, imagePool } = ctx
   const finalName = `${code}_final_video.${format}`
@@ -620,7 +623,7 @@ async function finishFinalVideo(ctx: {
   }
 
   resolvedOutputPath = await selfHealFinalPromotion(resolvedOutputPath, projectTreeFinalPath, finalName, job)
-  await verifyFinalVideo(job, resolvedOutputPath, finalName, totalRenderDuration)
+  await verifyFinalVideo(job, resolvedOutputPath, finalName, totalRenderDuration, ctx.loudness)
   await deleteFinalSegments(tempDir, job)
   await writeVideoAssemblySourceStamp(
     resolvedOutputPath,
@@ -647,7 +650,7 @@ async function finishFinalVideo(ctx: {
   await recordMusicEpisodePlays(job, project_slug, code)
 }
 
-async function verifyFinalVideo(job: Job, outputPath: string, finalName: string, plannedSec: number): Promise<void> {
+async function verifyFinalVideo(job: Job, outputPath: string, finalName: string, plannedSec: number, loudness: LoudnessTarget): Promise<void> {
   const valid = path.basename(outputPath) === finalName && fileExistsNonEmpty(outputPath)
   // 2026-10-07 — a file on disk is not proof of a finished render: its length
   // must match the plan (narration + opening + outro + tail).
@@ -660,6 +663,22 @@ async function verifyFinalVideo(job: Job, outputPath: string, finalName: string,
       ? 'The file was kept so you can look at it. Retry renders it again.'
       : 'The encoded file was retained when possible. Retry promotion or import it as the canonical final.',
   })
+  await verifyFinalLoudness(job, outputPath, loudness)
+}
+
+/** Measure the finished video's audio and fail when it missed the level it was mixed to (1.4.270). */
+export async function verifyFinalLoudness(job: Job, outputPath: string, target: LoudnessTarget): Promise<void> {
+  const measured = await measureLoudness(outputPath)
+  if (measured.lufs !== null && measured.true_peak_db !== null) {
+    job.output_lines.push(`Final loudness: ${measured.lufs.toFixed(1)} LUFS, peak ${measured.true_peak_db.toFixed(1)} dBTP`)
+    job.result = { ...(job.result || {}), final_loudness: { lufs: measured.lufs, true_peak_db: measured.true_peak_db } }
+  }
+  const issue = finalLoudnessIssue(measured, target)
+  // Rendering again gives the same audio, so this fails once instead of using up the automatic retries.
+  if (issue) {
+    throw nonRetryable(new Error(`The final video's sound is not at its target level: ${issue}. `
+      + 'The file was kept so you can listen to it. Send the job log to support.'))
+  }
 }
 
 /** A feature that was switched on but rendered without, by a reviewer's choice — reported in the result, not only the log. */
@@ -2039,6 +2058,11 @@ export async function generateVideo(job: Job): Promise<void> {
   // Keep the resolved authoritative inputs before Sound Design replaces the
   // narration path with a freshly mixed derivative. The source narration,
   // cue identities, and settings are what make scene clips reusable.
+  // Final loudness (1.4.270): resolved onto the request so it is part of the render's identity. A final
+  // render begun by an older version (not levelled) is then rendered again rather than resumed.
+  const loudness = loudnessTarget(req)
+  req.loudness_lufs = loudness.lufs
+  req.true_peak_db = loudness.true_peak_db
   const renderFingerprintRequest = structuredClone(req)
 
   const names = await resolveSubfolderNames(project_slug, code)
@@ -2334,7 +2358,7 @@ export async function generateVideo(job: Job): Promise<void> {
         await finishFinalVideo({
           job, project_slug, code, titleHint: titleHint || '', videoDir, format, tempDir,
           outputFile, totalRenderDuration: carriedFinalStage.total_render_sec,
-          visualSource: authoritativeAssets.visual_source || 'scene_plan', imagePool: authoritativeAssets.image_pool,
+          visualSource: authoritativeAssets.visual_source || 'scene_plan', imagePool: authoritativeAssets.image_pool, loudness,
         })
         succeeded = true
         return
@@ -2453,7 +2477,7 @@ export async function generateVideo(job: Job): Promise<void> {
         narrationVolume: req.narration_volume ?? 1.0,
         musicFilePath, musicConfig: req.music,
         backgroundNoise: req.background_noise,
-        targetDuration: totalRenderDuration, tempDir, job,
+        targetDuration: totalRenderDuration, tempDir, job, loudness,
       })
 
       // 4. Final composition + rename, mirroring the standard flow's
@@ -2549,7 +2573,7 @@ export async function generateVideo(job: Job): Promise<void> {
       }
 
       compResolvedPath = await selfHealFinalPromotion(compResolvedPath, compProjectTreeFinalPath, compFinalName, job)
-      await verifyFinalVideo(job, compResolvedPath, compFinalName, totalRenderDuration)
+      await verifyFinalVideo(job, compResolvedPath, compFinalName, totalRenderDuration, loudness)
       await writeVideoAssemblySourceStamp(
         compResolvedPath,
         code,
@@ -3367,7 +3391,7 @@ export async function generateVideo(job: Job): Promise<void> {
       narrationDelaySec: narrationLeadInSec,
       musicFilePath, musicConfig: req.music,
       backgroundNoise: req.background_noise,
-      targetDuration: totalRenderDuration, tempDir, job,
+      targetDuration: totalRenderDuration, tempDir, job, loudness,
     })
 
     // 12. Run final composition (simple: concat video + premixed audio + logo/effects)
@@ -3470,7 +3494,7 @@ export async function generateVideo(job: Job): Promise<void> {
     //   the user from getting a final video.
     await finishFinalVideo({
       job, project_slug, code, titleHint: titleHint || '', videoDir, format, tempDir, outputFile, totalRenderDuration,
-      visualSource: authoritativeAssets.visual_source || 'scene_plan', imagePool: authoritativeAssets.image_pool,
+      visualSource: authoritativeAssets.visual_source || 'scene_plan', imagePool: authoritativeAssets.image_pool, loudness,
     })
 
     succeeded = true
@@ -5432,13 +5456,15 @@ interface PremixAudioOpts {
   targetDuration: number
   tempDir: string
   job: Job
+  /** The level the whole mix is brought to (lib/final-loudness.ts). */
+  loudness: LoudnessTarget
 }
 
 export async function premixAudio(opts: PremixAudioOpts): Promise<string> {
   const {
     narrationPath, narrationVolume,
     musicFilePath, musicConfig, backgroundNoise,
-    targetDuration, tempDir, job,
+    targetDuration, tempDir, job, loudness,
   } = opts
   const narrationDelayMs = Math.max(0, Math.round((opts.narrationDelaySec || 0) * 1000))
   // Where the narration ENDS on the composed timeline (music swells after it).
@@ -5533,24 +5559,49 @@ export async function premixAudio(opts: PremixAudioOpts): Promise<string> {
     audioStreams.push('[amb]')
   }
 
-  // Mix all streams
-  if (audioStreams.length > 1) {
-    filterParts.push(
-      `${audioStreams.join('')}amix=inputs=${audioStreams.length}:duration=first:dropout_transition=2,aformat=sample_fmts=s16:channel_layouts=stereo:sample_rates=44100[aout]`
-    )
-  } else {
-    filterParts.push('[narr]aformat=sample_fmts=s16:channel_layouts=stereo:sample_rates=44100[aout]')
-  }
-
-  args.push('-filter_complex', filterParts.join(';\n'))
-  args.push('-map', '[aout]')
-  args.push('-c:a', 'pcm_s16le')  // Uncompressed WAV for maximum compatibility
-  args.push('-t', targetDuration.toString())
-  args.push(outputPath)
+  // Mix all streams. normalize=0: amix otherwise divides every input by the number of inputs, so a
+  // 150% voice came out at 75% under music and 50% under music and noise (1.4.270).
+  filterParts.push(audioStreams.length > 1
+    ? `${audioStreams.join('')}amix=inputs=${audioStreams.length}:duration=first:dropout_transition=2:normalize=0[mix]`
+    : '[narr]anull[mix]')
+  const graph = filterParts.join(';\n')
+  const T = targetDuration.toString()
 
   job.output_lines.push(`Pre-mixing audio: ${audioStreams.length} stream(s) → ${Math.round(targetDuration)}s WAV`)
 
-  await runFfmpeg(args)
+  // Loudness, pass 1: measure the whole mix once. The final render (segmented or not) muxes this
+  // one file, so every segment shares the same level.
+  const measured = parseEbur128Summary(await runFfmpeg([
+    ...args, '-filter_complex', `${graph};\n[mix]${EBUR128_FILTER}[m]`, '-map', '[m]', '-t', T, '-f', 'null', '-',
+  ]))
+  // Pass 2: level it. The floating-point mix cannot clip before this; the plan holds the peak ceiling.
+  const write = (level: string) => runFfmpeg([
+    ...args,
+    '-filter_complex', `${graph};\n[mix]${level}aresample=44100,aformat=sample_fmts=s16:channel_layouts=stereo:sample_rates=44100[aout]`,
+    '-map', '[aout]', '-c:a', 'pcm_s16le', '-t', T, outputPath,  // uncompressed WAV for maximum compatibility
+  ])
+  let plan = levelPlan(loudness, measured)
+  if (!plan) {
+    await write('')
+    job.output_lines.push('Loudness: the mix is silent or could not be measured, so its level was left as it is.')
+  } else {
+    const gain = (db: number) => `${db >= 0 ? '+' : ''}${db.toFixed(1)} dB`
+    job.output_lines.push(`Loudness: the mix measured ${measured.lufs!.toFixed(1)} LUFS, peak ${measured.true_peak_db!.toFixed(1)} dBTP; `
+      + `bringing it to ${loudness.lufs} LUFS with a ${loudness.true_peak_db} dBTP ceiling `
+      + (plan.limit_db === null
+        ? `by one volume change of ${gain(plan.gain_db)}.`
+        : `with ${gain(plan.gain_db)} and a peak limiter (one volume change alone would push the peaks over the ceiling).`))
+    await write(`${levelFilter(plan)},`)
+    // Limiting takes a little loudness away: measure the result and correct, at most twice.
+    for (let pass = 0; plan.limit_db !== null && pass < 2; pass++) {
+      const got = await measureLoudness(outputPath)
+      const next = correctLevelPlan(plan, loudness, got)
+      if (!next) break
+      job.output_lines.push(`Loudness: came out at ${got.lufs!.toFixed(1)} LUFS, peak ${got.true_peak_db!.toFixed(1)} dBTP; correcting to ${gain(next.gain_db)}.`)
+      plan = next
+      await write(`${levelFilter(plan)},`)
+    }
+  }
 
   // Validate the premixed WAV before handing off to the final encode. A
   // 0-byte WAV here means the audio filter chain failed silently (rare,

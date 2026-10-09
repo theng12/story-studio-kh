@@ -105,3 +105,17 @@ describe('resolveStepParams audio_merge — ambient_tracks volume', () => {
     assert.equal(tracks[0].id, 'a')
   })
 })
+
+describe('resolveStepParams audio_merge — voice volume and part pauses (1.4.270)', () => {
+  test('a batch merge keeps the preset\'s voice volume and part pause, like the page', () => {
+    const params = resolveStepParams('audio_merge', 'EP0001', '', fakePreset({ narration_volume: 150, chunk_silence_sec: 0.5 }))
+    assert.equal(params.narration_volume, 1.5)
+    assert.equal(params.chunk_silence_sec, 0.5)
+  })
+  test('the Music Pool source travels to the merge, which picks the track', () => {
+    const params = resolveStepParams('audio_merge', 'EP0001', '', fakePreset({ music: { enabled: true, source: 'pool', files: [], volume: 11 } }))
+    assert.equal(params.music.source, 'pool')
+    assert.equal(params.music.volume, 0.11)
+    assert.equal('narration_volume' in resolveStepParams('audio_merge', 'EP0001', '', fakePreset({})), false)
+  })
+})

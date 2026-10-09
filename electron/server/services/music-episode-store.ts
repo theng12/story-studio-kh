@@ -233,7 +233,9 @@ export async function loadEpisodeContext(slug: string, code: string, settings: E
   for (const windowCode of window) {
     for (const key of drafts.byCode.get(windowCode) || []) if (!blocked.has(key)) blocked.set(key, windowCode)
   }
-  return { pools, missing_pools, songs, byKey: new Map(songs.map(s => [songKey(s), s])), blocked, window_codes: window }
+  // A plan may still name a duplicate entry that was folded into its song (1.4.270): resolve it too.
+  const byKey = new Map(songs.flatMap(s => [s, ...(s.merged_ids || []).map(id => ({ ...s, id }))].map(row => [songKey(row), s] as const)))
+  return { pools, missing_pools, songs, byKey, blocked, window_codes: window }
 }
 
 /** Timeline + scenes for a list of songs (stored lengths, or the measured stitch when it still matches). */

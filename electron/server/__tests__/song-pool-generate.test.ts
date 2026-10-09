@@ -128,6 +128,62 @@ describe('generating songs', () => {
     assert.equal(new Set(songs.map((s: any) => s.combo_key)).size, 3)
   })
 
+  test('1.4.270: pool reads during generation never index a new song twice', async () => {
+    service.queueScenario('chat', { outputText: writerAnswer(3) })
+    const sp = await import('../services/song-pool.js')
+    const { generateSongPool } = await import('../generators/song-pool-generate.js')
+    const job = fakeJob({ mode: 'new', count: 3, writer_model: 'mock-chat-v1', music_model: 'mock-music-v1', in_flight: 3, batch_id: 'b_race' })
+    let done = false
+    let reads = 0
+    const seenAsFolder = new Set<string>()
+    const reader = (async () => {
+      while (!done) {
+        for (const song of (await sp.readPool(slug)).songs) if (song.source === 'folder') seenAsFolder.add(song.file)
+        reads++
+        await new Promise(r => setTimeout(r, 1))
+      }
+    })()
+    try { await generateSongPool(job) } finally { done = true; await reader }
+    assert.equal(job.result.complete, true, job.output_lines.join('\n'))
+    assert.ok(reads > 5, `the reader ran during generation (${reads} reads)`)
+    const pool = await poolFile()
+    const files = pool.songs.filter((s: any) => s.status !== 'rejected').map((s: any) => s.file)
+    assert.equal(new Set(files).size, files.length, 'one entry per file')
+    const made = pool.songs.filter((s: any) => job.result.saved_tracks.includes(s.file))
+    assert.equal(made.length, 3)
+    assert.ok(made.every((s: any) => s.source === 'generated' && s.batch_id === 'b_race'))
+    assert.deepEqual(made.filter((s: any) => seenAsFolder.has(s.file)).map((s: any) => s.file), [], 'no read saw a half-made file')
+  })
+
+  test('1.4.270: a pool with folder duplicates is repaired on load; plays merge, the file stays, old ids still resolve', async () => {
+    const sp = await import('../services/song-pool.js')
+    const pool = await poolFile()
+    const real = pool.songs.find((s: any) => s.batch_id === 'b_race')
+    const dir = sp.poolDir(slug)!
+    const use = { code: 'CE0007', project_slug: slug, used_at: '2026-10-01T00:00:00.000Z' }
+    // As an older build left it: a folder entry for the same file (drawn into an episode), and a second
+    // one an earlier clean-up switched off and tagged.
+    pool.songs.push(
+      { id: 's_folder_dup', file: real.file, status: 'ready', enabled: true, title: real.file, tags: [], source: 'folder', created_at: real.created_at, rating: 4, episodes: [use] },
+      { id: 's_tagged_dup', file: real.file, status: 'ready', enabled: false, title: real.file, tags: ['duplicate-index'], source: 'folder', created_at: real.created_at, rating: null, episodes: [] },
+    )
+    await fs.writeFile(path.join(dir, 'library.json'), JSON.stringify(pool))
+    const repaired = await sp.readPool(slug)
+    const rows = repaired.songs.filter(s => s.file === real.file)
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0]!.id, real.id)
+    assert.equal(rows[0]!.enabled, true)
+    assert.equal(rows[0]!.rating, 4)
+    assert.deepEqual(rows[0]!.episodes.map(e => e.code), ['CE0007'])
+    assert.deepEqual(rows[0]!.merged_ids?.sort(), ['s_folder_dup', 's_tagged_dup'])
+    assert.ok(!rows[0]!.tags.includes('duplicate-index'))
+    await fs.access(path.join(dir, real.file))
+    // An episode plan that still names the folded id resolves to the kept song.
+    const { loadEpisodeContext } = await import('../services/music-episode-store.js')
+    const ctx = await loadEpisodeContext(slug, 'CE0099', { ...STARTING_EPISODE_DEFAULTS, pools: [] } as any)
+    assert.equal(ctx.byKey.get(`${repaired.pool_id}/s_folder_dup`)?.id, real.id)
+  })
+
   test('partial run fails loudly; Retry makes only the missing song and never rewrites a brief', async () => {
     service.queueScenario('chat', { outputText: writerAnswer(2) })
     service.queueScenario('music', {})

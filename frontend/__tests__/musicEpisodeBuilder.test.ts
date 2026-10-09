@@ -101,7 +101,7 @@ describe('Video Assembly "Music episode" settings', () => {
   })
 })
 
-test('an export preset saved before the bitrate cap means no cap', () => {
-  assert.equal((assembly.match(/Object\.assign\(exportSettings, \{ video_bitrate_kbps: 0, upscale_sharpen: 'off' \}/g) || []).length, 3)
+test('an export preset saved before the bitrate cap means no cap (and, 1.4.270, the default sound level)', () => {
+  assert.equal((assembly.match(/Object\.assign\(exportSettings, \{ video_bitrate_kbps: 0, upscale_sharpen: 'off', loudness_lufs: -14, true_peak_db: -1 \}/g) || []).length, 3)
   assert.match(read('../composables/useVideoAssemblyIo.ts'), /video_bitrate_kbps: s\.exportSettings\.video_bitrate_kbps/)
 })

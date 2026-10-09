@@ -3379,6 +3379,8 @@ export interface VideoSceneRecycling {
 
 export interface VideoMusicConfig {
   enabled: boolean
+  /** Audio Assembly presets: 'pool' = the project's Music Pool picks one track per episode. */
+  source?: 'pool' | 'manual'
   files: string[]              // multiple .mp3 paths
   volume: number               // 0-1 during narration
   post_narration_volume: number // 0-1 after narration ends
@@ -3748,6 +3750,9 @@ export interface GenerateVideoRequest {
   /** Optional video bitrate cap in kbit/s (0/absent = quality-based, the long-standing behaviour).
    *  Hardware encodes target it; software encodes keep their CRF and cap peaks at it. */
   video_bitrate_kbps?: number
+  /** Final loudness (1.4.270): integrated LUFS target and true-peak ceiling (dBTP). Absent = -14 / -1. */
+  loudness_lufs?: number
+  true_peak_db?: number
   /** Light sharpening of stills smaller than the canvas while they are upscaled (e.g. 720p scenes in a
    *  1080p render). Absent/'off' = unchanged. Once per still, never per frame. */
   upscale_sharpen?: 'off' | 'light'
@@ -3900,6 +3905,8 @@ export interface AudioMergeRequest {
   ambient_tracks?: AmbientTrack[]
   narration_volume?: number    // 0-1, default 1.0
   write_mode?: 'overwrite' | 'new'  // how to handle an existing merged output; default 'overwrite'
+  /** The Music Pool track this merge uses (the page's pick, or the merge's own for a Pipeline run); recorded after a good merge. */
+  music_pool_track?: string
   /**
    * Server-only follow-up after a verified audio-quality candidate is selected.
    * Browser requests are stripped at the route boundary.  The merge keeps its

@@ -281,6 +281,8 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
       codec: s.exportSettings.codec,
       ...(s.exportSettings.video_bitrate_kbps ? { video_bitrate_kbps: s.exportSettings.video_bitrate_kbps } : {}),
       ...(s.exportSettings.upscale_sharpen === 'light' ? { upscale_sharpen: 'light' } : {}),
+      loudness_lufs: s.exportSettings.loudness_lufs ?? -14,
+      true_peak_db: s.exportSettings.true_peak_db ?? -1,
       format: s.exportSettings.format,
       scene_animation: { ...s.sceneAnimation },
       animation_pool: s.sceneAnimation.pool,

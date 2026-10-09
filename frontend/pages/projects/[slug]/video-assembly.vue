@@ -2627,6 +2627,28 @@
           </p>
         </div>
 
+        <!-- 1.4.270 — final sound level (owner decision 2026-10-09: -14 LUFS, all channels) -->
+        <div class="form-group">
+          <label>Sound Level</label>
+          <select v-model.number="exportSettings.loudness_lufs" class="select" data-testid="loudness-lufs">
+            <option :value="-14">-14 LUFS — YouTube's playback level (default)</option>
+            <option :value="-16">-16 LUFS — a little quieter</option>
+            <option :value="-18">-18 LUFS — quieter</option>
+            <option :value="-12">-12 LUFS — a little louder</option>
+          </select>
+          <label class="mt-1">Loudest Peak</label>
+          <select v-model.number="exportSettings.true_peak_db" class="select" data-testid="true-peak-db">
+            <option :value="-1">-1 dBTP (default)</option>
+            <option :value="-1.5">-1.5 dBTP</option>
+            <option :value="-2">-2 dBTP</option>
+          </select>
+          <p class="text-muted text-sm mt-1">
+            The finished video's whole soundtrack is brought to this level, with the narration still on top and the
+            music underneath. YouTube plays everything at -14 LUFS and never turns a quieter video up, so a quieter
+            setting means a quieter video for viewers. The level is checked again after the render.
+          </p>
+        </div>
+
         <!-- Codec -->
         <div class="form-group">
           <label>Codec</label>
@@ -4588,6 +4610,9 @@ const exportSettings = reactive<{
   video_bitrate_kbps: number
   /** Light sharpening of smaller stills while they are upscaled. 'off' = as before. */
   upscale_sharpen: 'off' | 'light'
+  /** 1.4.270 — the finished video's sound level (integrated LUFS) and peak ceiling (dBTP). */
+  loudness_lufs: number
+  true_peak_db: number
 }>({
   resolution: '1080p',
   // 16:9 until the channel's format says otherwise (seeded below) or he picks.
@@ -4599,6 +4624,8 @@ const exportSettings = reactive<{
   format: 'mp4',
   video_bitrate_kbps: 0,
   upscale_sharpen: 'off',
+  loudness_lufs: -14,
+  true_peak_db: -1,
 })
 
 /**
@@ -4892,7 +4919,7 @@ const exportPresets = usePresets({
   configKey: 'export',
   snapshot: () => ({ ...exportSettings }),
   // A preset saved before the bitrate cap existed means "no cap", not "keep whatever is on screen".
-  apply: (data: any) => { if (data) Object.assign(exportSettings, { video_bitrate_kbps: 0, upscale_sharpen: 'off' }, data) },
+  apply: (data: any) => { if (data) Object.assign(exportSettings, { video_bitrate_kbps: 0, upscale_sharpen: 'off', loudness_lufs: -14, true_peak_db: -1 }, data) },
 })
 
 // --------------- Bundle preset (one-click apply across all 5 slots) ------
@@ -5076,7 +5103,7 @@ function applyMusicEpisodeSettings() {
 }
 
 function snapshotExportData() { return { ...exportSettings } }
-function applyExportData(data: any) { if (data) Object.assign(exportSettings, { video_bitrate_kbps: 0, upscale_sharpen: 'off' }, data) }
+function applyExportData(data: any) { if (data) Object.assign(exportSettings, { video_bitrate_kbps: 0, upscale_sharpen: 'off', loudness_lufs: -14, true_peak_db: -1 }, data) }
 
 const videoBundlePresets = usePresets({
   slug: slug.value,
@@ -5531,7 +5558,7 @@ function hardwareCardTooltip(preset: QuickExportPreset): string {
 }
 
 function applyQuickPreset(preset: QuickExportPreset) {
-  Object.assign(exportSettings, { video_bitrate_kbps: 0, upscale_sharpen: 'off' }, preset.settings)
+  Object.assign(exportSettings, { video_bitrate_kbps: 0, upscale_sharpen: 'off', loudness_lufs: -14, true_peak_db: -1 }, preset.settings)
   // Quick presets deliberately aren't saved export presets — they're just
   // in-memory defaults. Clear any lingering active export-preset pointer so
   // the bundle preset's snapshot doesn't record a stale pointer to a

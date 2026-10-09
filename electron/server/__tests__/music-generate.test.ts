@@ -139,7 +139,8 @@ describe('the run stops for the right things and continues for the rest', () => 
   test('one failed track does not abandon the others', async () => {
     const body = await readFile(SRC, 'utf8')
     assert.match(body, /Continuing with the rest/)
-    assert.match(body, /failures\.push/)
+    // 1.4.270: tracks run concurrently; failures are kept per track (behaviour: music-generate-concurrent.test.ts).
+    assert.match(body, /failuresByIndex\[index\] = /)
   })
 
   test('cancel and pause are read before each request and inside the wait', async () => {

@@ -468,6 +468,7 @@ export class MockGenStudioService {
   }
 
   reset(): void {
+    this.fleetCapacity = null
     this.requests.length = 0
     this.submissions.length = 0
     this.queuedScenarios.clear()
@@ -520,6 +521,12 @@ export class MockGenStudioService {
   }
 
   /** Test-only catalogue seam for a generator revalidating saved durations. */
+  /** Gateway 0.2.165 `/v1/fleet/capacity` models; null = an older Gateway (404). Cleared by reset(). */
+  fleetCapacity: Array<Record<string, unknown>> | null = null
+  setFleetCapacity(models: Array<Record<string, unknown>> | null): void {
+    this.fleetCapacity = models
+  }
+
   setVideoModels(models: Array<Record<string, unknown>>): void {
     this.videoModels = structuredClone(models)
   }
@@ -1941,6 +1948,10 @@ export class MockGenStudioService {
         controls: ['temperature', 'top_p', 'max_output_tokens'], activation_blockers: [],
         supports_structured_output: true, structured_output_mode: 'request_json_schema',
       }])
+      return true
+    }
+    if (pathname === '/v1/fleet/capacity' && this.fleetCapacity) {
+      json(response, 200, { generated_at: Date.now() / 1000, max_queued_jobs: 256, models: this.fleetCapacity })
       return true
     }
     if (pathname === '/v1/music/models') {

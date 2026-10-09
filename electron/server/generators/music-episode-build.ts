@@ -89,24 +89,39 @@ export function buildEpisodeStitchArgs(
   ]
 }
 
-export interface LoudnessMeasurement { lufs: number | null; true_peak_db: number | null }
+export interface LoudnessMeasurement {
+  lufs: number | null
+  true_peak_db: number | null
+  /** Loudness range (LU) and the integrated gating threshold (LUFS): what loudnorm's second pass needs. */
+  lra?: number | null
+  threshold?: number | null
+}
+
+const UNMEASURED: LoudnessMeasurement = { lufs: null, true_peak_db: null, lra: null, threshold: null }
 
 /** Parse ffmpeg's ebur128 summary. `null` = not measurable, never a made-up zero. */
 export function parseEbur128Summary(stderr: string): LoudnessMeasurement {
   const summary = stderr.slice(stderr.lastIndexOf('Summary:'))
-  const lufs = summary.match(/I:\s+(-?\d+(?:\.\d+)?) LUFS/)
+  const num = (re: RegExp) => { const m = summary.match(re); return m ? Number(m[1]) : null }
   const peak = summary.match(/True peak:\s+Peak:\s+(-?\d+(?:\.\d+)?|-inf) dBFS/)
   return {
-    lufs: lufs ? Number(lufs[1]) : null,
+    lufs: num(/I:\s+(-?\d+(?:\.\d+)?) LUFS/),
     true_peak_db: peak && peak[1] !== '-inf' ? Number(peak[1]) : null,
+    lra: num(/LRA:\s+(-?\d+(?:\.\d+)?) LU\b/),
+    threshold: num(/I:\s+-?\d+(?:\.\d+)? LUFS\s+Threshold:\s+(-?\d+(?:\.\d+)?) LUFS/),
   }
 }
 
-/** Integrated loudness + true peak of one file (ffmpeg ebur128). */
-export async function measureLoudness(filePath: string): Promise<LoudnessMeasurement> {
+/** The ebur128 filter that `parseEbur128Summary` reads: true peak on, per-frame lines kept out of the log. */
+export const EBUR128_FILTER = 'ebur128=peak=true:framelog=verbose'
+
+/** Integrated loudness + true peak of one file's audio (ffmpeg ebur128; video is not decoded). */
+export async function measureLoudness(filePath: string, opts: { truePeak?: boolean } = {}): Promise<LoudnessMeasurement> {
   const bin = await getFFmpegPath()
+  // Without true peak it is about 6x faster (7 s instead of 40 s for 2.5 h); the peak then reads null.
+  const filter = opts.truePeak === false ? 'ebur128=framelog=verbose' : EBUR128_FILTER
   return new Promise(resolve => {
-    const proc = spawn(bin, ['-hide_banner', '-nostdin', '-i', filePath, '-af', 'ebur128=peak=true', '-f', 'null', '-'], {
+    const proc = spawn(bin, ['-hide_banner', '-nostdin', '-i', filePath, '-vn', '-af', filter, '-f', 'null', '-'], {
       stdio: ['ignore', 'ignore', 'pipe'],
     })
     jq.trackChild(proc)
@@ -115,8 +130,8 @@ export async function measureLoudness(filePath: string): Promise<LoudnessMeasure
       stderr += chunk.toString()
       if (stderr.length > 512 * 1024) stderr = stderr.slice(-256 * 1024)
     })
-    proc.on('error', () => resolve({ lufs: null, true_peak_db: null }))
-    proc.on('close', code => resolve(code === 0 ? parseEbur128Summary(stderr) : { lufs: null, true_peak_db: null }))
+    proc.on('error', () => resolve(UNMEASURED))
+    proc.on('close', code => resolve(code === 0 ? parseEbur128Summary(stderr) : UNMEASURED))
   })
 }
 

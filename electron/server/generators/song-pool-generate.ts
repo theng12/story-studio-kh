@@ -14,6 +14,7 @@
  * Runs as the existing `music_generate` job type with `params.song_pool: true`, so the lane,
  * label, cancel and completion audit (`auditMusicLibraryTopUp`) all apply unchanged.
  */
+import { musicWindowSizer, runRollingWindow } from '../lib/music-window.js'
 import fs from 'fs/promises'
 import path from 'path'
 
@@ -111,19 +112,6 @@ export function briefFromSong(s: sp.SongRecord, seed: number, edits: SongPoolGen
   return { ...cell, title: f.title, line: f.line, scene_idea: f.scene_idea || s.scene_idea || '', prompt: assemblePrompt(cell, f.line, maxPromptChars) }
 }
 
-async function runPool<T>(items: T[], width: number, stop: () => boolean, worker: (item: T) => Promise<void>): Promise<void> {
-  let cursor = 0
-  let fatal: unknown
-  const lane = async () => {
-    while (cursor < items.length && !stop() && !fatal) {
-      const item = items[cursor++]!
-      try { await worker(item) } catch (e) { fatal = e }
-    }
-  }
-  await Promise.all(Array.from({ length: Math.max(1, Math.min(width, items.length)) }, lane))
-  if (fatal) throw fatal
-}
-
 export async function generateSongPool(job: Job): Promise<void> {
   const params = job.params as unknown as SongPoolGenerateParams
   const slug = job.project_slug
@@ -210,9 +198,18 @@ export async function generateSongPool(job: Job): Promise<void> {
   const todo = batch.items.filter(i => i.brief && !i.song_id)
   const width = Math.max(1, Math.min(256, Math.floor(Number(params.in_flight) || 1)))
   job.item_progress = { total: batch.items.length, completed: batch.items.filter(i => i.song_id).length, failed: 0, concurrency: width, active: [] }
-  job.output_lines.push(`Making ${todo.length} song(s) on the fleet with ${model.display_name}, ${width} at a time. Songs appear in the pool as they finish.`)
+  job.output_lines.push(`Making ${todo.length} song(s) on the fleet with ${model.display_name}. Songs appear in the pool as they finish.`)
+  // 1.4.270 — a rolling window sized to the fleet (lib/music-window.ts).
+  // Its "at once" number now applies only on a Gateway that cannot report the fleet's capacity.
+  const sizer = await musicWindowSizer(apiKey, model.id, line => job.output_lines.push(line), width)
+  const priority = sizer.priority
+  const windowNow = async (inFlight: number): Promise<number> => {
+    const size = Math.min(todo.length, await sizer.size(inFlight))
+    job.item_progress!.concurrency = size
+    return size
+  }
 
-  await runPool(todo, width, stopped, async (it) => {
+  await runRollingWindow(todo, windowNow, async (it) => {
     const brief = it.brief!
     const started = Date.now()
     const length = musicDurationPlan(model, { requestedSeconds: brief.length_s })
@@ -225,7 +222,7 @@ export async function generateSongPool(job: Job): Promise<void> {
         try {
           const result = await generateMusicWithGenStudio(apiKey, {
             title: brief.title, prompt: brief.prompt, instrumental: true, durationSeconds: length.seconds,
-            modelId: model.id, seed: brief.seed, ...(outputFormat ? { outputFormat } : {}),
+            modelId: model.id, seed: brief.seed, ...(outputFormat ? { outputFormat } : {}), ...(priority ? { priority } : {}),
             requestIdentity: `${slug}:song-pool:${params.batch_id}:${brief.combo_key || brief.title}:${brief.seed}${retryScope ? `:${retryScope}` : ''}`,
             isCancelled: () => jq.isCancelled(job.job_id),
           })
@@ -233,12 +230,18 @@ export async function generateSongPool(job: Job): Promise<void> {
           const group = result.tracks.length > 1 ? siblingGroupForJob(result.jobId) : undefined
           for (const [take, track] of result.tracks.entries()) {
             const body = await downloadGenStudioMusicTrack(track.url, result.downloadHeaders, { isCancelled: () => jq.isCancelled(job.job_id) }, take + 1)
-            const { filename, warning } = await saveMusicTrack(dir, brief.title, result.jobId, take + 1, body)
+            // Saved, trimmed and measured in a hidden folder the pool never scans; it moves into the pool
+            // folder under the pool lock, in the same step that adds its entry (1.4.270: a pool read in
+            // between used to index the half-made file as a second, "folder" song).
+            const staging = path.join(dir, '.incoming')
+            await fs.mkdir(staging, { recursive: true })
+            const { filename, warning } = await saveMusicTrack(staging, brief.title, result.jobId, take + 1, body)
             if (warning) job.output_lines.push(`⚠ ${filename}: ${warning}`)
-            const check = await checkSong(path.join(dir, filename), { trim: variety.trim_silence !== false })
+            const check = await checkSong(path.join(staging, filename), { trim: variety.trim_silence !== false })
             const flagged = check.gap && check.gap.length > Number(variety.flag_gap_s || 5) ? check.gap : null
             const id = sp.newSongId()
-            await sp.updatePool(slug, p => {
+            await sp.updatePool(slug, async p => {
+              await fs.rename(path.join(staging, filename), path.join(dir, filename))
               p.songs.push({
                 id, file: filename, status: 'ready', enabled: true,
                 title: take ? `${brief.title} (take ${take + 1})` : brief.title,
@@ -258,6 +261,8 @@ export async function generateSongPool(job: Job): Promise<void> {
                 generation_s: Math.round((Date.now() - started) / 1000),
                 rating: null, episodes: [],
               })
+              // Adding is idempotent: an entry already indexed for this file folds into this one.
+              sp.mergeDuplicateFiles(p)
               // Regenerate keeps the old take, disabled, until the owner removes it.
               if (it.take_of) { const old = p.songs.find(s => s.id === it.take_of); if (old) old.enabled = false }
             })
@@ -294,7 +299,7 @@ export async function generateSongPool(job: Job): Promise<void> {
       job.item_progress!.active = (job.item_progress!.active || []).filter(t => t.key !== brief.seed.toString())
       job.progress = Math.round((job.item_progress!.completed / Math.max(1, batch!.items.length)) * 100)
     }
-  })
+  }, stopped)
   if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
   jq.throwIfPauseRequested(job.job_id)
 

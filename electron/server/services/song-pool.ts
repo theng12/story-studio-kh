@@ -69,6 +69,8 @@ export interface SongRecord {
   episodes: EpisodeUse[]
   /** Recomputed on every read: the audio file is not in the folder. */
   file_missing?: boolean
+  /** Ids of duplicate entries for the same file that were folded into this one (1.4.270). */
+  merged_ids?: string[]
 }
 
 export interface SongPoolFile {
@@ -136,6 +138,49 @@ async function migrate(slug: string): Promise<SongPoolFile> {
   }
 }
 
+/** Tag an earlier repair put on a duplicate it switched off; that "off" was never the owner's choice. */
+export const DUPLICATE_INDEX_TAG = 'duplicate-index'
+
+/**
+ * 1.4.270 — one entry per audio file. Before 1.4.270 a pool read while the generator was still
+ * trimming a new file indexed it as an unknown "folder" song, and then the real entry was added too,
+ * so a draw could put one song into an episode twice. Every "folder" entry for a file that has
+ * another entry (not rejected) is folded into it: the newest generated entry wins (else the first
+ * entry), plays and ratings are
+ * merged, and the folded ids are kept in `merged_ids` so episode plans that name them still resolve.
+ * An entry switched off and tagged `duplicate-index` by an earlier clean-up does not switch the
+ * merged song off. No audio file is touched. Returns true when anything was folded.
+ */
+export function mergeDuplicateFiles(pool: SongPoolFile): boolean {
+  const byFile = new Map<string, SongRecord[]>()
+  for (const song of pool.songs) {
+    if (song.status === 'rejected') continue
+    byFile.set(song.file, [...(byFile.get(song.file) || []), song])
+  }
+  const drop = new Set<SongRecord>()
+  for (const group of byFile.values()) {
+    if (group.length < 2) continue
+    const keep = [...group].reverse().find(song => song.source === 'generated') ?? group[0]!
+    const folded = group.filter(song => song === keep || song.source === 'folder')
+    if (folded.length < 2) continue
+    const owned = folded.filter(song => !song.tags.includes(DUPLICATE_INDEX_TAG))
+    for (const other of folded) {
+      if (other === keep) continue
+      for (const use of other.episodes) {
+        if (!keep.episodes.some(e => e.code === use.code && e.project_slug === use.project_slug)) keep.episodes.push(use)
+      }
+      keep.rating ??= other.rating
+      keep.merged_ids = [...new Set([...(keep.merged_ids || []), ...(other.merged_ids || []), other.id])]
+      drop.add(other)
+    }
+    // The kept entry's own on/off is the owner's choice unless an earlier clean-up set it.
+    if (keep.tags.includes(DUPLICATE_INDEX_TAG)) keep.enabled = owned.length ? owned.some(song => song.enabled) : true
+    keep.tags = [...new Set(folded.flatMap(song => song.tags))].filter(tag => tag !== DUPLICATE_INDEX_TAG)
+  }
+  if (drop.size) pool.songs = pool.songs.filter(song => !drop.has(song))
+  return drop.size > 0
+}
+
 /** Load, migrate and reconcile with the folder. Caller holds the lock. */
 async function loadLocked(slug: string): Promise<{ pool: SongPoolFile; changed: boolean }> {
   const dir = requireDir(slug)
@@ -169,6 +214,7 @@ async function loadLocked(slug: string): Promise<{ pool: SongPoolFile; changed: 
     })
     changed = true
   }
+  if (mergeDuplicateFiles(pool)) changed = true
   if (pool.project_slug !== slug) { pool.project_slug = slug; changed = true }
   return { pool, changed }
 }
@@ -229,7 +275,7 @@ export async function recordEpisodeUse(poolSlug: string, songIds: string[], use:
   await updatePool(poolSlug, pool => {
     const ids = new Set(songIds)
     for (const s of pool.songs) {
-      if (!ids.has(s.id)) continue
+      if (!ids.has(s.id) && !s.merged_ids?.some(id => ids.has(id))) continue
       const hit = s.episodes.find(e => e.code === use.code && e.project_slug === use.project_slug)
       if (hit) hit.used_at = use.used_at
       else s.episodes.push({ ...use })

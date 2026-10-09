@@ -1419,6 +1419,14 @@ const LLM_GROUP = 'llm'
 const LOCAL_LLM_GROUP = 'local_llm'
 const SUBTITLE_TRANSCRIBE_GROUP = 'subtitle_transcribe'
 /**
+ * 1.4.270 — music top-ups for up to 3 projects at once (was one job app-wide). The enqueue duplicate
+ * guard (project + episode + type) already keeps it to one music job per project. Each job keeps up
+ * to 6 requests in flight (generators/music-generate.ts), so at most 18 music requests reach the
+ * fleet; past that the Gateway's own fleet-busy waits take over.
+ */
+const MUSIC_GENERATE_GROUP = 'music_generate'
+export const MUSIC_PROJECTS_AT_ONCE = 3
+/**
  * v1.4.39 — the image episode group.
  *
  * MEASURED 2026-08-23. The owner queued 50 Scene Review jobs at 100+ images an
@@ -1561,6 +1569,7 @@ function usesLocalTextFleet(job: Job | undefined): boolean {
 
 function groupOf(type: JobType, job?: Job): string {
   if (type === 'subtitles_transcribe') return SUBTITLE_TRANSCRIBE_GROUP
+  if (type === 'music_generate') return MUSIC_GENERATE_GROUP
   if (usesLocalTextFleet(job)) return LOCAL_LLM_GROUP
   if (IMAGE_EPISODE_TYPES.has(type)) return IMAGE_EPISODE_GROUP
   if (THUMBNAIL_EPISODE_TYPES.has(type)) return THUMBNAIL_EPISODE_GROUP
@@ -1662,6 +1671,7 @@ function groupLimit(group: string): number {
   // the machine queue and backpressure.
   if (group === LOCAL_LLM_GROUP) return Number.POSITIVE_INFINITY
   if (group === SUBTITLE_TRANSCRIBE_GROUP) return subtitleTranscribeConcurrency
+  if (group === MUSIC_GENERATE_GROUP) return MUSIC_PROJECTS_AT_ONCE
   if (group === THUMBNAIL_EPISODE_GROUP) return thumbnailEpisodeConcurrency
   if (group === AUDIO_EPISODE_GROUP) return audioEpisodeConcurrency + (narrationTailRunning() ? 1 : 0)
   if (FLEET_EPISODE_GROUPS.has(group)) return imageEpisodeConcurrency
@@ -3440,7 +3450,7 @@ function pump(type: JobType): void {
   const group = groupOf(type, next)
   if (group === IMAGE_EPISODE_GROUP) {
     pumpImageEpisodeGroup(groupLimit(group))
-  } else if (group === LLM_GROUP || group === LOCAL_LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP || FLEET_EPISODE_GROUPS.has(group)) {
+  } else if (group === LLM_GROUP || group === LOCAL_LLM_GROUP || group === MUSIC_GENERATE_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP || FLEET_EPISODE_GROUPS.has(group)) {
     while (q.pending.length > 0 && (groupActive[group] || 0) < groupLimit(group)) {
       if (groupOf(type, q.pending[0]) !== group) break
       // Chapter checks for one episode share subtitle manifests and output paths.
@@ -3476,6 +3486,7 @@ function pump(type: JobType): void {
 function pumpGroup(group: string): void {
   if (group === LLM_GROUP || group === LOCAL_LLM_GROUP) for (const t of LLM_TYPES) pump(t)
   else if (group === SUBTITLE_TRANSCRIBE_GROUP) pump('subtitles_transcribe')
+  else if (group === MUSIC_GENERATE_GROUP) pump('music_generate')
   // A freed image slot can be taken by either image type through one fair pump.
   else if (group === IMAGE_EPISODE_GROUP) pumpImageEpisodeGroup(groupLimit(group))
   else if (FLEET_EPISODE_GROUPS.has(group)) for (const t of fleetEpisodeTypesFor(group)) pump(t)
@@ -3484,7 +3495,7 @@ function pumpGroup(group: string): void {
 /** Release the slot a finished job held, then pull in the next work. */
 function releaseSlot(type: JobType, job: Job): void {
   const group = groupOf(type, job)
-  if (group === LLM_GROUP || group === LOCAL_LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP || FLEET_EPISODE_GROUPS.has(group)) {
+  if (group === LLM_GROUP || group === LOCAL_LLM_GROUP || group === MUSIC_GENERATE_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP || FLEET_EPISODE_GROUPS.has(group)) {
     if (group === IMAGE_EPISODE_GROUP) activeImageEpisodeJobIds.delete(job.job_id)
     groupActive[group] = Math.max(0, (groupActive[group] || 0) - 1)
     queuePumpObserverForTesting?.(type, job.job_id)

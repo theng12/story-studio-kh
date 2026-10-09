@@ -31,6 +31,7 @@ import { existsSync } from 'fs'
 import fsp from 'fs/promises'
 import { spawn } from 'child_process'
 import { appendCappedTail, stillDecoderArgs } from '../lib/ffmpeg-utils.js'
+import { MIX_LIMITER } from '../lib/final-loudness.js'
 import * as pm from '../services/project-manager.js'
 import * as bp from '../services/broll-pool-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -487,7 +488,8 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
     const aConcatLabels = clipPaths.map((_, i) => `[a${i}]`).join('')
     filterParts.push(`${aConcatLabels}concat=n=${clipPaths.length}:v=0:a=1[aconcat]`)
     filterParts.push(`[aconcat]volume=${(broll_volume / 100).toFixed(3)}[aducked]`)
-    filterParts.push(`[aducked][${narrationInputIdx}:a]amix=inputs=2:duration=longest:dropout_transition=0[aout]`)
+    // normalize=0: the narration stays at full level instead of being halved by amix (1.4.270).
+    filterParts.push(`[aducked][${narrationInputIdx}:a]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,${MIX_LIMITER}[aout]`)
     audioMapTarget = '[aout]'
   }
 

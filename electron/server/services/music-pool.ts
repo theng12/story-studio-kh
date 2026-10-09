@@ -27,10 +27,12 @@
 
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
+import { createHash } from 'crypto'
 import path from 'path'
 import * as pm from './project-manager.js'
 import { moveToTrashSync } from '../lib/trash-move.js'
 import type {
+  VideoMusicConfig,
   MusicPoolTrack,
   MusicPoolUsageEntry,
   ProjectConfig,
@@ -209,7 +211,8 @@ export async function peekNext(slug: string, episode_code: string): Promise<{ tr
   void reversed // silence unused-var lint; the loop walks state.recent_usage directly
   const fresh = eligible.filter(t => !recentFilenames.has(t.filename))
   if (fresh.length > 0) {
-    const pick = fresh[Math.floor(Math.random() * fresh.length)]!
+    // Seeded by the episode code, so the page's preview and a Pipeline merge pick the same track.
+    const pick = fresh[createHash('sha256').update(episode_code).digest().readUInt32BE(0) % fresh.length]!
     return {
       track: pick,
       reason: `random pick from ${fresh.length} of ${eligible.length} (avoiding last ${recentEpisodes.size} episodes' tracks)`,
@@ -221,6 +224,39 @@ export async function peekNext(slug: string, episode_code: string): Promise<{ tr
   return {
     track: byLast[0]!,
     reason: `pool exhausted — picking least-recently-used (${byLast[0]!.label})`,
+  }
+}
+
+/**
+ * Background music set to "Music Pool" without a file (a Pipeline batch: its Audio Assembly preset
+ * keeps the source, not a track) gets the track the Audio Assembly page would show for this
+ * episode, with that track's own levels. Null when the request names its own files (the page sends
+ * its pick as a file) or the pool has nothing to give.
+ */
+export async function pickPoolMusic(
+  slug: string,
+  episode_code: string,
+  music: VideoMusicConfig | undefined,
+): Promise<{ music: VideoMusicConfig; track: PoolTrack; reason: string } | null> {
+  if (!music?.enabled) return null
+  // Older presets carry no source; an empty file list there means the pool, as on the page.
+  const source = music.source ?? (music.files?.length ? 'manual' : 'pool')
+  if (source !== 'pool') return null
+  const picked = await peekNext(slug, episode_code)
+  if (!picked) return null
+  const { track } = picked
+  const pct = (v: number | undefined, fallback: number) => typeof v === 'number' ? v / 100 : fallback
+  return {
+    track,
+    reason: picked.reason,
+    music: {
+      ...music,
+      files: [track.path],
+      volume: pct(track.volume, music.volume),
+      post_narration_volume: pct(track.post_narration_volume, music.post_narration_volume),
+      fade_in: track.fade_in ?? music.fade_in,
+      fade_out: track.fade_out ?? music.fade_out,
+    },
   }
 }
 
