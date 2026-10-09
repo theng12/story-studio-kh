@@ -14,16 +14,18 @@
  *    `com.apple.quarantine` defensively (a file Story writes itself is not quarantined: only apps
  *    with `LSFileQuarantineEnabled`, such as browsers, add it), check the bundle reports the signed
  *    version and passes `codesign --verify`.
- * 4. **Wait for an empty queue** (owner, 2026-10-08): an automatic install pauses nothing. It waits,
- *    with no time limit, until no job is running, queued or paused (`jobsLeft`), rechecking every
- *    30 seconds, and installs once the queue has stayed empty for a minute (a pipeline's next step
- *    lands in that gap), checking once more right before the swap. The queue only counts as empty
- *    once the boot scan has loaded every channel's saved jobs (`areBootJobsLoaded`). A queue the owner paused while
- *    it still holds jobs keeps it waiting. **Install Now** drains instead, the same policy as
- *    `scripts/release/install-local.sh`: pause the queue (a queue-origin pause; jobs the owner
- *    paused stay paused, and a queue he had already paused is left as his), let running work finish
- *    or reach its safe point, up to 30 minutes, then install. If he presses Resume during the drain,
- *    his choice wins: the update waits for Install Now.
+ * 4. **Install promptly** (owner, 2026-10-09: "please force all future updates so we don't have to
+ *    wait"; this replaced 1.4.261's wait for an empty queue). Work resumes after a restart: Video
+ *    Assembly from its saved segments (1.4.265), the other resumable jobs through the boot scan.
+ *    So once the release is staged and the boot scan has loaded the saved jobs (`loaded`), the
+ *    updater pauses new intake (a queue-origin pause; jobs the owner paused stay paused) and waits
+ *    only for (a) Gateway submissions already sent to be answered, so each has the task id it is
+ *    recovered by (`inFlightSubmits`, at most SUBMIT_SETTLE_MS), and (b) running jobs a restart
+ *    would NOT continue (`wouldNotResume`, the boot scan's own rule), which are never interrupted.
+ *    Then it installs. A queue the owner paused himself is his: the update waits for him to resume
+ *    it or press Install Now. If he presses Resume during the wait, his choice wins: the update
+ *    waits for Install Now. **Install Now** takes the same path but goes ahead after 30 minutes
+ *    even if a job that cannot resume is still running.
  * 5. **Swap** with a detached helper (`helperScript`) after this app quits normally: the installed
  *    bundle goes to the self-emptying Trash Folder, `<data>/Trash Folder/<UTC date>/app/`, which
  *    Story deletes 15 days later (`purgeTrashFolder`, as Studio Hub does); the new one moves into
@@ -117,9 +119,10 @@ export const FAILED_RETRY_AFTER_MS = 2 * CHECK_INTERVAL_MS
 // ponytail: one fixed drain ceiling (install-local.sh's default); make it a setting if 30 min is wrong.
 export const DRAIN_TIMEOUT_MS = 30 * 60_000
 const DRAIN_POLL_MS = 5_000
+/** How often a staged update looks again while the owner's own queue pause holds it. */
 export const IDLE_POLL_MS = 30_000
-/** The queue must stay empty this long, so the gap between two pipeline steps is not "idle". */
-export const IDLE_SETTLE_MS = 60_000
+// ponytail: one fixed bound; a submission answers in seconds, and boot recovery reconciles a later one by its key.
+export const SUBMIT_SETTLE_MS = 2 * 60_000
 const HEALTH_SECONDS = 300
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex')
 
@@ -314,6 +317,11 @@ function patchState(patch: Partial<UpdateState>): UpdateState {
  * Move something aside, never delete it: into `_trash/<bucket>/`, or with `selfEmptying` into
  * today's Trash Folder (`<UTC date>/<bucket>/`), which `purgeTrashFolder` empties after 15 days.
  */
+/** Into today's self-emptying Trash Folder (`<UTC date>/<bucket>/`): Video Assembly's finished render segments. */
+export function moveToTrashFolder(target: string, bucket: string): Promise<void> {
+  return toTrash(target, bucket, true)
+}
+
 async function toTrash(target: string, bucket: string, selfEmptying = false): Promise<void> {
   if (!fs.existsSync(target)) return
   const dir = selfEmptying ? path.join(trashFolder(), utcDate(Date.now()), bucket) : path.join(trashDir(), bucket)
@@ -328,8 +336,12 @@ export interface QueueControl {
   setPaused(paused: boolean): Promise<void>
   running(): number
   summary(): { running: number; queued: number; paused: number }
-  /** False until the boot scan has loaded every channel's saved jobs; the queue only looks empty before that. */
+  /** False until the boot scan has loaded every channel's saved jobs; nothing is judged before that. */
   loaded?(): boolean
+  /** Gateway submissions sent and not yet answered (lib/inflight-submits.ts). */
+  inFlightSubmits?(): number
+  /** Types of the running jobs a restart would not continue (job-queue `runningJobsThatWouldNotResume`). */
+  wouldNotResume?(): Promise<string[]>
 }
 
 export interface UpdaterOptions {
@@ -345,9 +357,9 @@ export interface UpdaterOptions {
   gateway(): Promise<{ url: string; key: string }>
   channels(): Promise<number | null>
   fetch?: typeof fetch
-  /** Test hooks: the empty-queue recheck and settle times, and the clock they read. */
+  /** Test hooks: the recheck while the owner's pause holds the update, the wait's poll, and the clock. */
   idlePollMs?: number
-  idleSettleMs?: number
+  drainPollMs?: number
   now?: () => number
   /** Test hook: the helper's relaunch command (`$1` is the app path). */
   relaunchCommand?: string
@@ -358,7 +370,6 @@ let opts: UpdaterOptions | null = null
 let checking: Promise<UpdateState> | null = null
 let drainTimer: NodeJS.Timeout | null = null
 let idleTimer: NodeJS.Timeout | null = null
-let idleSince: number | null = null
 let quittingForUpdate = false
 
 /** main.ts's quit path asks this so a "jobs are running, quit?" question never blocks an update. */
@@ -656,37 +667,36 @@ export function jobsLeft(queue: QueueControl): number {
   return s.running + s.queued + s.paused
 }
 
-/** Idle means an empty queue AFTER the boot scan has loaded the saved jobs (about 75 s on a big Library). */
-function queueIdle(queue: QueueControl): boolean {
-  return queue.loaded?.() !== false && jobsLeft(queue) === 0
+/** What a prompt install is still waiting for: submissions in flight, and running jobs that would not resume. */
+async function waitingFor(queue: QueueControl): Promise<{ submits: number; jobs: string[] }> {
+  return {
+    submits: queue.inFlightSubmits?.() ?? 0,
+    // A queue without the boot rule (tests, older wiring) waits for every running job, as Install Now did.
+    jobs: queue.wouldNotResume ? await queue.wouldNotResume() : Array<string>(queue.running()).fill('job'),
+  }
 }
 
 /**
- * Automatic: install once the queue has been empty for IDLE_SETTLE_MS, pausing nothing; recheck
- * every IDLE_POLL_MS meanwhile. Install Now (`install_requested`): start or continue the drain.
+ * A staged release installs promptly (see 4. at the top): automatically once the saved jobs are
+ * loaded and the owner has not paused the queue himself; at once on Install Now. Both pause new
+ * intake and wait in `watchDrain`.
  */
 export async function maybeInstall(): Promise<void> {
   const o = opts!
   const state = readState()
   if (state.phase !== 'ready' && state.phase !== 'draining') return
-  if (!state.install_requested && state.phase === 'ready') {
-    const settings = await o.getSettings()
-    if (!settings.auto_install || state.held) return
-    const now = o.now?.() ?? Date.now()
-    if (!queueIdle(o.queue)) idleSince = null
-    else idleSince ??= now
-    if (idleSince === null || now - idleSince < (o.idleSettleMs ?? IDLE_SETTLE_MS)) return watchIdle()
-    idleSince = null
-    if (!await install('idle').catch(e => { markFailed(e); return true })) watchIdle()
-    return
-  }
   if (state.phase === 'ready') {
+    if (!state.install_requested) {
+      const settings = await o.getSettings()
+      if (!settings.auto_install || state.held) return
+      if (o.queue.loaded?.() === false || (o.queue.isPaused() && !state.we_paused)) return watchIdle()
+    }
     let wePaused = !!state.we_paused
     if (!o.queue.isPaused()) {
       await o.queue.setPaused(true)
       wePaused = true
     }
-    patchState({ phase: 'draining', drain_started_at: Date.now(), we_paused: wePaused })
+    patchState({ phase: 'draining', drain_started_at: o.now?.() ?? Date.now(), we_paused: wePaused })
   }
   watchDrain()
 }
@@ -709,12 +719,15 @@ function watchDrain(): void {
       patchState({ phase: 'ready', held: true, we_paused: false, install_requested: false, drain_started_at: null })
       return
     }
-    const timedOut = Date.now() - (state.drain_started_at || 0) > DRAIN_TIMEOUT_MS
-    if (o.queue.running() === 0 || timedOut) {
+    const waited = (o.now?.() ?? Date.now()) - (state.drain_started_at || 0)
+    const left = await waitingFor(o.queue)
+    const submitsSettled = left.submits === 0 || waited > SUBMIT_SETTLE_MS
+    const ownerOverride = !!state.install_requested && waited > DRAIN_TIMEOUT_MS
+    if ((submitsSettled && left.jobs.length === 0) || ownerOverride) {
       await install().catch(e => markFailed(e))
       return
     }
-    drainTimer = setTimeout(() => { void tick() }, DRAIN_POLL_MS)
+    drainTimer = setTimeout(() => { void tick() }, o.drainPollMs ?? DRAIN_POLL_MS)
     drainTimer.unref?.()
   }
   drainTimer = setTimeout(() => { void tick() }, 0)
@@ -730,15 +743,13 @@ export async function installNow(): Promise<UpdateState> {
   return readState()
 }
 
-/** Hand over to the swap helper and quit. `idle`: false, and nothing happens, if a job sneaked in. */
-export async function install(mode: 'idle' | 'drain' = 'drain'): Promise<boolean> {
+/** Hand over to the swap helper and quit. */
+export async function install(): Promise<boolean> {
   const o = opts!
   const state = readState()
   if (!state.release || !state.staged_app || !fs.existsSync(state.staged_app)) {
     throw new Error('The staged update is missing; it is downloaded again on the next check.')
   }
-  // The last look before the swap; from here to the spawn nothing else runs.
-  if (mode === 'idle' && !queueIdle(o.queue)) return false
   const script = path.join(updateDir(), 'swap-app.sh')
   fs.writeFileSync(script, helperScript(), { mode: 0o755 })
   writeState({ ...state, phase: 'installing', from_version: o.currentVersion, error: null, installing_at: Date.now() })
@@ -798,6 +809,7 @@ export async function status(): Promise<Record<string, unknown>> {
     settings: rest,
     jobs_left: opts ? jobsLeft(opts.queue) : 0,
     queue_paused: opts ? opts.queue.isPaused() : false,
+    waiting_for: opts && state.phase === 'draining' ? await waitingFor(opts.queue) : null,
     trusted_fingerprint: trusted_publisher_key ? fingerprint(trusted_publisher_key) : null,
     open_at_login: openAtLogin(),
   }
@@ -811,7 +823,6 @@ export function _resetForTesting(): void {
   drainTimer = null
   if (idleTimer) clearTimeout(idleTimer)
   idleTimer = null
-  idleSince = null
   if (timer) clearInterval(timer)
   timer = null
   quittingForUpdate = false

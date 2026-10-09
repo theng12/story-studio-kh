@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.267 — 2026-10-09
+
+- Video Assembly keeps its place when Story Studio stops in the middle of a render. The final render, the longest step (about 93% of a TerraNash episode), is now made in 3-minute pieces, and each piece is saved as soon as it is finished. After an update, a crash, Quit or a power cut, Video Assembly carries on from the first unfinished piece, so at most about 3 minutes of rendering is done again instead of the whole video. The pieces are joined without re-encoding into one video with the same picture and sound: on a test with TerraNash's effects, every frame matched the video made in one piece.
+- A render that was interrupted is finished with exactly the settings it started with, even after an update, as long as the episode's files and settings have not changed. If they have, the video is made again from the start, as before.
+- Two effects are random, and their random pattern starts again at the point where a render resumed: film grain and the vignette's very fine dither (less than one shade of brightness). It looks the same.
+- A long still image at the end of a video (TerraNash's 60-minute background after the story) is now rendered once for 30 seconds and repeated, instead of being drawn frame by frame for the whole hour. This only happens when nothing moves on it: no captions, cues or effects reach it. On the Mac mini (measured on 1.4.262) the still rendered at about 1.2 times real time, so a 60-minute still took about 50 minutes of the final render and a 120-minute one about 1 hour 45 minutes; now it takes under a minute.
+- Finished pieces go to Story's self-emptying Trash Folder once the final video is checked (deleted after 15 days).
+- Updates now install as soon as they are ready. Story pauses new work, waits for requests already sent to the Gateway to be answered (at most 2 minutes), lets any job that cannot pick up where it stopped finish first, then installs and restarts, and everything else resumes after the restart. Settings → About → Updates now says "Installs as soon as it's ready (work resumes after the restart)". Install Now still works, and if you paused the queue yourself, the update waits for you.
+
 ## v1.4.266 — 2026-10-09
 
 - Pipeline Scene Plan no longer fails with "pacing must be an object" after Story restarts. A saved Pipeline step lost its pacing and motion settings whenever Story restarted while that Pipeline was still running, so the Scene Plan later in the chain failed 3 times in a row. Settings are now saved whole. Jobs saved by older versions are repaired when Story starts and when you press Retry: each setting is taken from the same episode's earlier Pipeline step, or failing that from another episode in the same Pipeline run. A plain Retry of the failed Scene Plan now works.

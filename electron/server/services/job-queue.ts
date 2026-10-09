@@ -3125,60 +3125,13 @@ async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
               continue
             }
             observePersistedRunningJobLoadStage(j, 'ordinary-recovery')
-            const genStudioRecovery = j.params?.genstudio_recovery
-            const genStudioAssets = genStudioRecovery?.version === 1
-              && genStudioRecovery?.route === 'genstudio'
-              && genStudioRecovery?.assets
-              && typeof genStudioRecovery.assets === 'object'
-              ? Object.values(genStudioRecovery.assets) as Array<Record<string, unknown>>
-              : []
-            const recoverableGenStudio = ['audio', 'subtitles_transcribe'].includes(j.type)
-              && !!queues[j.type as JobType]?.executor
-              && genStudioAssets.some(asset => (
-                (asset?.operation === 'tts' || asset?.operation === 'transcription')
-                && typeof asset?.idempotency_key === 'string'
-                && asset.idempotency_key.startsWith('story-')
-                && asset?.state !== 'failed'
-              ))
-            // v1.4.81 — image-episode work resumes for the same reason audio
-            // does, and the machinery is already built and proven; this type
-            // was simply never added to it.
-            //
-            // Before this, a scene render caught by a restart stayed `running`
-            // forever on the reconcile-only path below: never re-executed,
-            // never failed, holding no lane — so the scheduler saw free lanes
-            // and started NEW episodes while the interrupted ones sat there.
-            // The owner watched three become six. Reclaiming the images he had
-            // already paid for then depended on him noticing and clicking Retry.
-            //
-            // Requeueing cannot spend more than the status quo: Retry runs this
-            // same executor with the same disk-based skip and the same manifest
-            // reclaim. It only does it automatically, and sooner — which matters,
-            // because a provider artifact that expires is money that cannot be
-            // collected at all. Note this branch also restores the owner's
-            // stated order for free: these jobs are pushed into `pending` here,
-            // during load, ahead of the boot `pump()` below, so plain FIFO gives
-            // them their lanes back before any never-started job is admitted.
-            const recoverableImageEpisode = IMAGE_EPISODE_TYPES.has(j.type as JobType)
-              && !!queues[j.type as JobType]?.executor
-              && hasStableImageOutputIdentity(j)
-              && hasReclaimableImageEvidence(j)
-            const recoverableVideoAssembly = j.type === 'video_assembly'
-              && !!queues.video_assembly.executor
-              && !!(await getValidVideoAssemblyCheckpoint(j, ['running']))
-            // Audio Assembly is local FFmpeg work with no provider request: re-running it costs
-            // nothing and rebuilds the same file. Before, a restart left it "Interrupted by app
-            // restart" and the owner had to find it and press Generate again (Dreamlands E2E).
-            const recoverableLocalMerge = j.type === 'audio_merge' && !!queues.audio_merge?.executor
-            // Writing work keeps every answer it saved and reconnects to an earlier request by its
-            // saved key where it has one (Scene Plan prompts, Pipeline policy steps); an upload
-            // resumes its saved YouTube session. Neither should wait for someone to press Retry.
-            // A provider request that may have settled is reconciled first (H-17), never re-run.
-            const recoverableChat = isChatTextJob(j.type) && !!queues[j.type as JobType]?.executor
-              && !requiresCancellationReconciliation(j)
-            const recoverableUpload = j.type === 'youtube_upload' && !!queues.youtube_upload?.executor
-            if ((recoverableGenStudio || recoverableImageEpisode || recoverableVideoAssembly || recoverableLocalMerge
-              || recoverableChat || recoverableUpload) && !hasCancellationContext(j)) {
+            const recovery = await bootRecoveryKind(j)
+            const recoverableVideoAssembly = recovery === 'video'
+            const recoverableLocalMerge = recovery === 'merge'
+            const recoverableChat = recovery === 'chat'
+            const recoverableUpload = recovery === 'upload'
+            const recoverableImageEpisode = recovery === 'image'
+            if (recovery && !hasCancellationContext(j)) {
               j.status = 'queued'
               // Keep the original admission timestamp so the fair image pump
               // recognises this as recovery work ahead of fresh FIFO.
@@ -3193,7 +3146,7 @@ async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
                 : recoverableChat
                 ? '↻ Story Studio restarted — picking this step up where it stopped. Saved answers are kept and an earlier request is collected by its saved key where it has one.'
                 : recoverableVideoAssembly
-                ? '↻ Story Studio restarted — resuming local Video Assembly from its validated scene-clip checkpoint. Missing or invalid clips and every later stage will be rebuilt.'
+                ? '↻ Story Studio restarted — resuming local Video Assembly from its checkpoint. A final render already under way continues from its last finished segment; otherwise saved scene clips are reused and the later stages are rebuilt.'
                 : recoverableImageEpisode
                   ? '↻ Story Studio restarted — resuming this render. Every image the Gateway already finished will be reclaimed from its saved task id at no extra credits, and only genuinely missing scenes will be submitted.'
                   : '↻ Story Studio restarted — picking this job up where it stopped. Requests already sent are reused, so nothing is made twice.')
@@ -3328,6 +3281,88 @@ let bootJobsLoaded = false
  * still on disk, so the updater must not read that as idle.
  */
 export function areBootJobsLoaded(): boolean { return bootJobsLoaded }
+
+/**
+ * How a job found `running` at boot is picked up again, or null when it is not (it ends
+ * "Interrupted by app restart" or waits for a provider reconcile). Shared by the boot scan and the
+ * prompt updater (`runningJobsThatWouldNotResume`), so the two can never disagree.
+ */
+async function bootRecoveryKind(j: Job): Promise<'merge' | 'upload' | 'chat' | 'video' | 'image' | 'genstudio' | null> {
+  const genStudioRecovery = j.params?.genstudio_recovery
+  const genStudioAssets = genStudioRecovery?.version === 1
+    && genStudioRecovery?.route === 'genstudio'
+    && genStudioRecovery?.assets
+    && typeof genStudioRecovery.assets === 'object'
+    ? Object.values(genStudioRecovery.assets) as Array<Record<string, unknown>>
+    : []
+  const recoverableGenStudio = ['audio', 'subtitles_transcribe'].includes(j.type)
+    && !!queues[j.type as JobType]?.executor
+    && genStudioAssets.some(asset => (
+      (asset?.operation === 'tts' || asset?.operation === 'transcription')
+      && typeof asset?.idempotency_key === 'string'
+      && asset.idempotency_key.startsWith('story-')
+      && asset?.state !== 'failed'
+    ))
+  // v1.4.81 — image-episode work resumes for the same reason audio
+  // does, and the machinery is already built and proven; this type
+  // was simply never added to it.
+  //
+  // Before this, a scene render caught by a restart stayed `running`
+  // forever on the reconcile-only path below: never re-executed,
+  // never failed, holding no lane — so the scheduler saw free lanes
+  // and started NEW episodes while the interrupted ones sat there.
+  // The owner watched three become six. Reclaiming the images he had
+  // already paid for then depended on him noticing and clicking Retry.
+  //
+  // Requeueing cannot spend more than the status quo: Retry runs this
+  // same executor with the same disk-based skip and the same manifest
+  // reclaim. It only does it automatically, and sooner — which matters,
+  // because a provider artifact that expires is money that cannot be
+  // collected at all. Note this branch also restores the owner's
+  // stated order for free: these jobs are pushed into `pending` here,
+  // during load, ahead of the boot `pump()` below, so plain FIFO gives
+  // them their lanes back before any never-started job is admitted.
+  const recoverableImageEpisode = IMAGE_EPISODE_TYPES.has(j.type as JobType)
+    && !!queues[j.type as JobType]?.executor
+    && hasStableImageOutputIdentity(j)
+    && hasReclaimableImageEvidence(j)
+  const recoverableVideoAssembly = j.type === 'video_assembly'
+    && !!queues.video_assembly.executor
+    && !!(await getValidVideoAssemblyCheckpoint(j, ['running']))
+  // Audio Assembly is local FFmpeg work with no provider request: re-running it costs
+  // nothing and rebuilds the same file. Before, a restart left it "Interrupted by app
+  // restart" and the owner had to find it and press Generate again (Dreamlands E2E).
+  const recoverableLocalMerge = j.type === 'audio_merge' && !!queues.audio_merge?.executor
+  // Writing work keeps every answer it saved and reconnects to an earlier request by its
+  // saved key where it has one (Scene Plan prompts, Pipeline policy steps); an upload
+  // resumes its saved YouTube session. Neither should wait for someone to press Retry.
+  // A provider request that may have settled is reconciled first (H-17), never re-run.
+  const recoverableChat = isChatTextJob(j.type) && !!queues[j.type as JobType]?.executor
+    && !requiresCancellationReconciliation(j)
+  const recoverableUpload = j.type === 'youtube_upload' && !!queues.youtube_upload?.executor
+  return recoverableLocalMerge ? 'merge'
+    : recoverableUpload ? 'upload'
+    : recoverableChat ? 'chat'
+    : recoverableVideoAssembly ? 'video'
+    : recoverableImageEpisode ? 'image'
+    : recoverableGenStudio ? 'genstudio'
+    : null
+}
+
+/**
+ * 1.4.265 — running jobs that a restart would NOT continue where they stopped. A prompt update
+ * (services/app-update.ts) waits for these to finish instead of interrupting them. Paid image
+ * waits and commits are counted here too: their own boot branches are careful, not seamless.
+ */
+export async function runningJobsThatWouldNotResume(): Promise<Job[]> {
+  const left: Job[] = []
+  for (const j of jobs.values()) {
+    if (j.status !== 'running') continue
+    if (hasCancellationContext(j) || getValidPaidImageWait(j) || hasPaidImageCommitAttempt(j)
+      || !(await bootRecoveryKind(j))) left.push(j)
+  }
+  return left
+}
 
 /**
  * Eager boot scan for checkpointed GenStudio work. Ordinary job history is loaded

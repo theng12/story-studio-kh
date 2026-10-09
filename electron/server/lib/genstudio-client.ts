@@ -5,6 +5,7 @@
  * Studio URL, token, worker list, or direct provider connection.
  */
 
+import { submitSent } from './inflight-submits.js'
 import { STORY_CALLER } from './machine-name.js'
 import fs from 'fs/promises'
 import os from 'os'
@@ -4154,9 +4155,13 @@ async function requestJsonWithRetry(
     try {
       let response: Response
       let raw: string
+      // A POST is a submission from the moment it is sent until its answer (with the task id) is
+      // read: a prompt update waits for that (lib/inflight-submits.ts).
+      let answered: () => void = () => {}
       try {
         const send = () => {
           physicalPostStarted = true
+          if (init.method === 'POST') { answered(); answered = submitSent() }
           return fetch(url, { ...init, signal: operationSignal(request.signal, deadline, operationTimeoutMs) })
         }
         response = await (init.method === 'POST' && request.withPost ? request.withPost(send) : send())
@@ -4166,6 +4171,8 @@ async function requestJsonWithRetry(
           throw new GenStudioTransportTimeoutError(error)
         }
         throw error
+      } finally {
+        answered?.()
       }
       let body: any = {}
       if (raw) {

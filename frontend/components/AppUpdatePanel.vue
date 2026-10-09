@@ -2,7 +2,7 @@
   <section class="card settings-panel app-update-panel" data-setting="app-update">
     <header class="settings-card-head">
       <h3>Updates</h3>
-      <p>Story Studio checks the Gateway for a new version every 30 minutes (and at startup), installs it once the queue is empty (nothing running, queued or paused) without pausing anything, and restarts itself.</p>
+      <p>Story Studio checks the Gateway for a new version every 30 minutes (and at startup). {{ PROMPT_INSTALL_TEXT }}: new work pauses, requests already sent to the Gateway are answered first, a job that cannot pick up where it stopped is allowed to finish, then it restarts itself and lifts its pause.</p>
     </header>
 
     <div v-if="!status" class="text-muted">Loading…</div>
@@ -20,7 +20,7 @@
           v-if="canInstall"
           class="btn btn-primary btn-sm"
           :disabled="!!busy"
-          title="Pause the queue, let running jobs finish (up to 30 minutes), install, restart and resume"
+          title="Pause new work, let jobs that cannot resume finish (up to 30 minutes), install, restart and resume"
           @click="installNow"
         >{{ busy === 'install' ? 'Starting…' : 'Install Now' }}</button>
       </div>
@@ -48,7 +48,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useConfirm } from '~/composables/useConfirm'
-import { installNowQuestion, waitingForQueueText } from '~/utils/app-update'
+import { PROMPT_INSTALL_TEXT, installNowQuestion, readyText, waitingText } from '~/utils/app-update'
 
 interface UpdateStatus {
   enabled: boolean
@@ -63,6 +63,7 @@ interface UpdateStatus {
   settings: { auto_install: boolean }
   jobs_left?: number
   queue_paused?: boolean
+  waiting_for?: { submits: number; jobs: string[] } | null
   trusted_fingerprint: string | null
   open_at_login: boolean
 }
@@ -83,8 +84,8 @@ const headline = computed(() => {
     case 'downloading': return `Downloading ${version.value}…`
     case 'ready': return s.held ? `${version.value} is ready; it waits for Install Now because you resumed the queue.`
       : !s.settings.auto_install ? `${version.value} is ready.`
-        : waitingForQueueText(version.value, s.jobs_left ?? 0, !!s.queue_paused)
-    case 'draining': return `Installing ${version.value} once running jobs stop. The queue is paused for the update.`
+        : readyText(version.value, !!s.queue_paused)
+    case 'draining': return waitingText(version.value, s.waiting_for)
     case 'installing': return `Installing ${version.value}; Story Studio restarts.`
     case 'installed': return `Up to date: ${s.current_version} was installed remotely.`
     case 'rolled_back': return `${version.value} did not start, so ${s.current_version} was put back.`
@@ -107,7 +108,7 @@ async function act(kind: 'check' | 'install' | 'trust') {
   try {
     const path = kind === 'check' ? '/app-update/check' : kind === 'install' ? '/app-update/install-now' : '/app-update/trust-new-key'
     status.value = await post<UpdateStatus>(path, {})
-    if (kind === 'install') success('Installing once running jobs stop')
+    if (kind === 'install') success('Installing; work resumes after the restart')
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'The update action failed')
   } finally {

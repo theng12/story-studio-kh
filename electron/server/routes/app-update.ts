@@ -3,7 +3,7 @@
  *
  *   GET  /app-update/status          state, settings, pinned key fingerprint, Open at Login
  *   POST /app-update/check           Check Now
- *   POST /app-update/install-now     drain and install the staged release (automatic installs wait for an empty queue)
+ *   POST /app-update/install-now     install the staged release now (automatic installs are prompt too; see services/app-update.ts)
  *   PUT  /app-update/settings        { auto_install? }
  *   POST /app-update/trust-new-key   forget the pinned release key (the next check pins the new one)
  *   PUT  /app-update/open-at-login   { enabled }
@@ -16,7 +16,8 @@ import path from 'node:path'
 import * as updater from '../services/app-update.js'
 import { getAppSetting, setAppSetting, getGenStudioUrl } from '../services/app-settings.js'
 import { getApiKey } from '../services/app-secrets-store.js'
-import { areBootJobsLoaded, getQueueStats, initializeQueuePauseState, isQueuePaused, setQueuePaused } from '../services/job-queue.js'
+import { areBootJobsLoaded, getQueueStats, initializeQueuePauseState, isQueuePaused, runningJobsThatWouldNotResume, setQueuePaused } from '../services/job-queue.js'
+import { inFlightSubmits } from '../lib/inflight-submits.js'
 import { projectsRoot } from '../services/project-manager.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 
@@ -61,6 +62,8 @@ export async function startStoryUpdater(input: {
       running: () => getQueueStats().running,
       summary: () => { const s = getQueueStats(); return { running: s.running, queued: s.queued, paused: s.paused } },
       loaded: areBootJobsLoaded,
+      inFlightSubmits,
+      wouldNotResume: async () => (await runningJobsThatWouldNotResume()).map(job => job.type),
     },
     getSettings,
     saveSettings,

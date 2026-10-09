@@ -11,6 +11,36 @@ export interface VideoAssemblyCompletedSceneClip {
   render_duration_sec: number
 }
 
+/** One finished segment of the final render (1.4.265, lib/segmented-render.ts). */
+export interface VideoAssemblyFinalSegment {
+  index: number
+  start_sec: number
+  end_sec: number
+  path: string
+  bytes: number
+  sha256: string
+}
+
+export interface VideoAssemblyFinalSegments {
+  /** Hash of the inputs, the encoder settings and the segment plan. Any change re-renders every segment. */
+  fingerprint: string
+  segments: VideoAssemblyFinalSegment[]
+}
+
+/**
+ * The final render's exact command and the work-folder files it reads (1.4.265). After a restart or
+ * an update, an episode whose inputs and settings are unchanged (`inputs`: the render fingerprint
+ * without the app version) finishes this render as it began instead of starting over.
+ */
+export interface VideoAssemblyFinalStage {
+  inputs: string
+  argv: string[]
+  /** Work-folder file name → sha256 (the intermediate video, the audio, the burned subtitles, a shaped logo). */
+  files: Record<string, string>
+  total_render_sec: number
+  still_tail_from: number | null
+}
+
 export interface VideoAssemblyCheckpoint {
   version: 1
   job_id: string
@@ -19,6 +49,46 @@ export interface VideoAssemblyCheckpoint {
   work_dir: string
   render_fingerprint: string
   completed_scene_clips: VideoAssemblyCompletedSceneClip[]
+  final_segments?: VideoAssemblyFinalSegments
+  final_stage?: VideoAssemblyFinalStage
+}
+
+const SHA256_RE = /^[a-f0-9]{64}$/
+
+function finalSegmentPath(workDir: string, index: number): string {
+  return path.join(workDir, 'final_segments', `final_seg_${String(index).padStart(4, '0')}.mp4`)
+}
+
+function validFinalStage(value: unknown): boolean {
+  if (value === undefined) return true
+  const stage = value as Record<string, unknown> | null
+  return !!stage && typeof stage === 'object'
+    && typeof stage.inputs === 'string' && SHA256_RE.test(stage.inputs)
+    && Array.isArray(stage.argv) && stage.argv.length > 0 && stage.argv.every(arg => typeof arg === 'string')
+    && !!stage.files && typeof stage.files === 'object'
+    && Object.entries(stage.files as Record<string, unknown>).every(([name, sha]) => (
+      name === path.basename(name) && !name.startsWith('.') && typeof sha === 'string' && SHA256_RE.test(sha)))
+    && typeof stage.total_render_sec === 'number' && Number.isFinite(stage.total_render_sec) && stage.total_render_sec > 0
+    && (stage.still_tail_from === null || (typeof stage.still_tail_from === 'number' && Number.isFinite(stage.still_tail_from)))
+}
+
+function validFinalSegments(value: unknown, workDir: string): boolean {
+  if (value === undefined) return true
+  const group = value as Record<string, unknown> | null
+  if (!group || typeof group !== 'object' || typeof group.fingerprint !== 'string'
+    || !SHA256_RE.test(group.fingerprint) || !Array.isArray(group.segments)) return false
+  const indexes = new Set<number>()
+  return group.segments.every((value) => {
+    const seg = value as Record<string, unknown> | null
+    if (!seg || typeof seg !== 'object' || !Number.isInteger(seg.index) || (seg.index as number) < 0
+      || indexes.has(seg.index as number)) return false
+    indexes.add(seg.index as number)
+    return typeof seg.start_sec === 'number' && typeof seg.end_sec === 'number'
+      && Number.isFinite(seg.start_sec) && Number.isFinite(seg.end_sec) && seg.end_sec > seg.start_sec
+      && Number.isInteger(seg.bytes) && (seg.bytes as number) > 0
+      && typeof seg.sha256 === 'string' && SHA256_RE.test(seg.sha256)
+      && seg.path === finalSegmentPath(workDir, seg.index as number)
+  })
 }
 
 const CHECKPOINT_KEY = 'video_assembly_checkpoint'
@@ -55,7 +125,7 @@ function structurallyValidCheckpoint(value: unknown): value is VideoAssemblyChec
     if (clip.clip_path !== expectedPath) return false
     indexes.add(clip.scene_index as number)
   }
-  return true
+  return validFinalSegments(row.final_segments, row.work_dir) && validFinalStage(row.final_stage)
 }
 
 async function isCanonicalOwnedWorkDir(checkpoint: VideoAssemblyCheckpoint): Promise<boolean> {
@@ -168,6 +238,7 @@ export function createVideoAssemblyCheckpoint(
   workDir: string,
   renderFingerprint: string,
   completedSceneClips: VideoAssemblyCompletedSceneClip[] = [],
+  finalSegments?: VideoAssemblyFinalSegments,
 ): VideoAssemblyCheckpoint {
   return {
     version: 1,
@@ -177,7 +248,58 @@ export function createVideoAssemblyCheckpoint(
     work_dir: workDir,
     render_fingerprint: renderFingerprint,
     completed_scene_clips: completedSceneClips,
+    ...(finalSegments ? { final_segments: finalSegments } : {}),
   }
+}
+
+/**
+ * Move the final render's work files into the fresh work dir and point its command there. Null when
+ * any of them is missing or changed (sha256): the episode then renders from the start as before.
+ */
+export async function moveCheckpointFinalStage(
+  checkpoint: VideoAssemblyCheckpoint,
+  workDir: string,
+): Promise<VideoAssemblyFinalStage | null> {
+  const stage = checkpoint.final_stage
+  if (!stage) return null
+  const { sha256File } = await import('./segmented-render.js')
+  const { escapeFilterPath } = await import('./ffmpeg-utils.js')
+  for (const [name, sha] of Object.entries(stage.files)) {
+    const target = path.join(workDir, name)
+    try {
+      await fs.rename(path.join(checkpoint.work_dir, name), target)
+      if (await sha256File(target) !== sha) return null
+    } catch {
+      return null
+    }
+  }
+  const swap = (arg: string) => arg.split(escapeFilterPath(checkpoint.work_dir)).join(escapeFilterPath(workDir))
+    .split(checkpoint.work_dir).join(workDir)
+  return { ...stage, argv: stage.argv.map(swap) }
+}
+
+/**
+ * Move a checkpoint's finished final-render segments into the fresh work dir, before
+ * `moveCheckpointSceneClips` drops the old one. Each is checked again (size and sha256) when the
+ * final render resumes; one that cannot be moved is rendered again.
+ */
+export async function moveCheckpointFinalSegments(
+  checkpoint: VideoAssemblyCheckpoint,
+  workDir: string,
+): Promise<VideoAssemblyFinalSegments | undefined> {
+  const group = checkpoint.final_segments
+  if (!group) return undefined
+  if (path.resolve(checkpoint.work_dir) === path.resolve(workDir)) return group
+  const segments: VideoAssemblyFinalSegment[] = []
+  await fs.mkdir(path.join(workDir, 'final_segments'), { recursive: true })
+  for (const seg of group.segments) {
+    const target = finalSegmentPath(workDir, seg.index)
+    try {
+      await fs.rename(seg.path, target)
+      segments.push({ ...seg, path: target })
+    } catch { /* missing or unmovable: rendered again */ }
+  }
+  return { fingerprint: group.fingerprint, segments }
 }
 
 /**

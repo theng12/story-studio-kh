@@ -56,15 +56,23 @@ import {
   createVideoAssemblyCheckpoint,
   findReusableVideoAssemblySceneClips,
   getValidVideoAssemblyCheckpoint,
+  moveCheckpointFinalSegments,
+  moveCheckpointFinalStage,
   moveCheckpointSceneClips,
   setVideoAssemblyCheckpoint,
   validateVideoAssemblySceneClip,
   type VideoAssemblyCheckpoint,
   type VideoAssemblyCompletedSceneClip,
+  type VideoAssemblyFinalSegment,
+  type VideoAssemblyFinalStage,
 } from '../lib/video-assembly-checkpoint.js'
 import { resolveSceneImagesDir } from './scene-image.js'
 import { resolveVideoAssetsDir } from './scene-clip.js'
 import { buildVideoFrameFilter } from '../lib/video-frame-filter.js'
+import {
+  FINAL_SEGMENT_SEC, STILL_TAIL_LOOP_SEC, canResumeGraph, concatMuxArgs, frameSecFromFramemd5, hashJson, planFinalSegments, segmentCount,
+  segmentRange, segmentRenderArgs, sha256File, splitOneShotArgv, workFolderIdentity,
+} from '../lib/segmented-render.js'
 import { logoCornerRadiusPct, logoShapeOf, writeShapedLogo } from '../lib/logo-shape.js'
 import { displayAspectRatio, frameTextUnit, resolveRenderCanvas } from '../lib/render-canvas.js'
 import { inspectSourceAspect } from '../lib/source-aspect.js'
@@ -209,6 +217,428 @@ async function autoScheduleFinishedEpisode(
   } catch (e: any) {
     job.output_lines.push(`Could not write a publish time (${e?.message || e}) — the video is fine.`)
   }
+}
+
+/** After a verified final: the render's segments go to the self-emptying Trash Folder (15 days), never `_trash`. */
+async function trashFinalSegments(workDir: string, code: string, job: Job): Promise<void> {
+  const dir = path.join(workDir, 'final_segments')
+  if (!existsSync(dir)) return
+  try {
+    const { moveToTrashFolder } = await import('../services/app-update.js')
+    await moveToTrashFolder(dir, `video-segments/${code}`)
+  } catch (e) {
+    // The work folder is removed with the run anyway; a failed move only means it goes sooner.
+    job.output_lines.push(`Final render segments could not move to the Trash Folder (${(e as Error)?.message || e}); they are removed with the work folder.`)
+  }
+}
+
+type EncodeProgress = { offsetSec: number; totalSec: number; label?: () => string }
+
+/** 1.4.265 — the job's checkpoint, how to save it, and what the episode's inputs are (for a resumed final render). */
+export type FinalSegmentation = {
+  checkpoint: VideoAssemblyCheckpoint
+  persist: () => Promise<void>
+  /** The render fingerprint without the app version: the same inputs and settings after an update. */
+  inputsFingerprint: string
+  /** tests only */
+  segmentSec?: number
+}
+
+// Run the encode. Wrapped in a helper so we can retry once with H.264
+// if libx265 returns the EINVAL signature — some concat intermediates
+// with mixed colour metadata trigger `return code -22` at x265 init even
+// when every clip individually is valid. Falling back is nicer than
+// failing the whole job outright; the user ends up with an H.264 .mp4
+// rather than no video at all. On any other failure mode, the error
+// propagates (no retry).
+async function spawnFinalEncode(
+  job: Job,
+  targetDuration: number,
+  encodeArgs: string[],
+  progress: EncodeProgress = { offsetSec: 0, totalSec: targetDuration },
+): Promise<void> {
+  // Resolve the bundled/installed ffmpeg path BEFORE spawning. Packaged Macs
+  // without Homebrew's `/opt/homebrew/bin/ffmpeg` in PATH previously hit
+  // `spawn ffmpeg ENOENT` at this line — the bundled binary inside
+  // `.app/Contents/Resources/ffmpeg/` was never consulted because this
+  // caller passed a bare string. All three encode tiers share this helper,
+  // so the ENOENT repeated identically across the recovery chain.
+  const ffmpegBin = await getFFmpegPath()
+
+  // Wall-clock watchdog. This spawn can take hours on long-form renders
+  // (sleep-story channels routinely append 2-3 hours of ambient tail
+  // to a 30-min narration), but a pathological input — malformed
+  // chapter MP3, CMYK title image, FFmpeg 8 edge case — can also hang
+  // it indefinitely. The job queue serialises video jobs, so a stuck
+  // encode pins the slot forever and nothing else runs.
+  //
+  // Scale the watchdog with the actual output `-t` so a 2.5-hour
+  // render gets ~3.5h of budget, while a short 5-min clip still has
+  // a reasonable safety net. Formula:
+  //   floor: 30 min (matches the previous fixed default)
+  //   scaled: 1.5× output duration + 5 min buffer
+  //   ceiling: 12 hours (truly hung after this much)
+  // The env override `STORY_STUDIO_FFMPEG_TIMEOUT_MS` still wins
+  // unconditionally — power users with custom workflows can pin a
+  // value that ignores the scaling.
+  const timeoutMs = computeWatchdogMs(targetDuration, process.env.STORY_STUDIO_FFMPEG_TIMEOUT_MS)
+  const timeoutMin = Math.round(timeoutMs / 60_000)
+  job.output_lines.push(`FFmpeg watchdog: ${timeoutMin} min for ${(targetDuration / 60).toFixed(1)} min output`)
+
+  await new Promise<void>((resolve, reject) => {
+    const proc = spawn(ffmpegBin, withX264ThreadCap(encodeArgs), {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    lowerFfmpegPriority(proc)
+    // Track for cancellation — the final encode pass is the longest ffmpeg
+    // run in the entire pipeline (minutes), so this is the most important
+    // cancellable child in the app.
+    trackChild(proc)
+
+    let stderr = ''
+
+    let watchdogKilled = false
+    const termTimer = setTimeout(() => {
+      watchdogKilled = true
+      try { proc.kill('SIGTERM') } catch { /* exited */ }
+      const killTimer = setTimeout(() => {
+        try { proc.kill('SIGKILL') } catch { /* exited */ }
+      }, 5000)
+      proc.once('close', () => clearTimeout(killTimer))
+    }, timeoutMs)
+
+    proc.stderr.on('data', (data: Buffer) => {
+      const line = data.toString()
+      stderr = appendCappedTail(stderr, line)
+
+      const timeMatch = line.match(/time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})/)
+      if (timeMatch) {
+        const hours = parseInt(timeMatch[1])
+        const minutes = parseInt(timeMatch[2])
+        const seconds = parseInt(timeMatch[3])
+        const ms = parseInt(timeMatch[4])
+        const currentTime = hours * 3600 + minutes * 60 + seconds + ms / 100 + progress.offsetSec
+
+        if (progress.totalSec > 0) {
+          const percent = Math.min(99, Math.round((currentTime / progress.totalSec) * 100))
+          job.progress = percent
+          const progressLine = `Encoding: ${percent}% (${currentTime.toFixed(1)}s / ${progress.totalSec.toFixed(1)}s) · ${encoderKind(encodeArgs)}${progress.label?.() ?? ''}`
+          const lastIdx = job.output_lines.length - 1
+          if (lastIdx >= 0 && job.output_lines[lastIdx].startsWith('Encoding:')) {
+            job.output_lines[lastIdx] = progressLine
+          } else {
+            job.output_lines.push(progressLine)
+          }
+        }
+      }
+    })
+
+    proc.on('error', (err) => {
+      clearTimeout(termTimer)
+      reject(new Error(`FFmpeg failed to start: ${err.message}`))
+    })
+
+    proc.on('close', (code, signal) => {
+      clearTimeout(termTimer)
+      if (code === 0) {
+        resolve()
+        return
+      }
+      // Watchdog first — distinct message so the job log disambiguates
+      // a queue-blocking hang from a user-initiated cancel (which also
+      // arrives with signal=SIGTERM). Tag the error so the recovery
+      // chain can decide not to retry (a watchdog kill on tier 1 almost
+      // certainly means tiers 2/3 will hang the same way).
+      if (watchdogKilled) {
+        const minutes = Math.max(1, Math.round(timeoutMs / 60_000))
+        const lines = stderr.split('\n').filter(l => l.trim())
+        const tail = lines.slice(-5).join('\n') || '(no stderr captured)'
+        const err = new Error(
+          `FFmpeg exceeded ${minutes}-minute wall-clock watchdog — job killed to free the queue. Last stderr: ${tail}`,
+        )
+        ;(err as any).watchdog = true
+        ;(err as any).stderr = stderr
+        reject(err)
+        return
+      }
+      // Killed by cancel: surface a clean message, not an exit-code diagnostic.
+      if (signal === 'SIGTERM' || signal === 'SIGKILL') {
+        reject(new Error(`FFmpeg killed (${signal})`))
+        return
+      }
+      // Preserve stderr on the Error object so the retry decision can
+      // inspect it. Input paths go straight into the job log for repro.
+      const lines = stderr.split('\n').filter(l => l.trim())
+      const errorLine = lines.slice(-5).join('\n')
+      const err = new Error(`FFmpeg exited with code ${code}:\n${errorLine}`)
+      ;(err as any).stderr = stderr
+      ;(err as any).exitCode = code
+      reject(err)
+    })
+  })
+}
+
+
+// Validate the output file passed by `ffmpeg exit 0` actually contains
+// a usable video stream. A 0-byte mp4 from a stream-with-no-packets
+// scenario passes the exit-code check but is useless. We re-throw with
+// a stderr-shaped Error so the next tier's `shouldRun` can inspect it.
+async function validateFinalOutput(outputFile: string, targetDuration: number): Promise<void> {
+  if (!fileExistsNonEmpty(outputFile)) {
+    const err: any = new Error(`Encoder exited 0 but output file is missing or empty: ${outputFile}`)
+    err.stderr = 'output file empty after encode'
+    throw err
+  }
+  try {
+    const info = await getMediaInfo(outputFile)
+    // The container duration can follow the longer premixed audio track,
+    // even when the visual stream stopped early. Use the independently
+    // probed video duration whenever ffprobe supplies it so a short concat
+    // cannot be promoted as a complete render.
+    const videoEndsEarly = info.videoDurationSec !== undefined
+      && info.videoDurationSec < targetDuration - 0.25
+    if (!info.hasVideo || info.durationSec < 1 || videoEndsEarly) {
+      const err: any = new Error(
+        `Encoder exited 0 but output is unusable: ${summarizeMedia(info)}`
+          + (videoEndsEarly
+            ? ` (video ${info.videoDurationSec!.toFixed(3)}s, expected ${targetDuration.toFixed(3)}s)`
+            : '')
+      )
+      err.stderr = 'output validation failed'
+      throw err
+    }
+  } catch (e: any) {
+    // Re-throw with .stderr so tier shouldRun checks still work.
+    if (e?.stderr) throw e
+    const err: any = new Error(`ffprobe rejected encoder output: ${e.message}`)
+    err.stderr = `ffprobe: ${e.message}`
+    throw err
+  }
+}
+
+
+/** Finish a final render that a restart or an update interrupted, with its own saved command. Returns the encoded file. */
+export async function resumeSavedFinalRender(
+  job: Job,
+  stage: VideoAssemblyFinalStage,
+  segmentation: FinalSegmentation,
+  format: string,
+): Promise<string> {
+  const argv = stage.argv
+  await runSegmentedFinal({
+    job, argv, targetDuration: stage.total_render_sec, format, stillTailFrom: stage.still_tail_from, segmentation,
+    runEncode: (encodeArgs, progress) => spawnFinalEncode(job, stage.total_render_sec, encodeArgs, progress),
+  })
+  await validateFinalOutput(argv.at(-1)!, stage.total_render_sec)
+  const encoderLine = describeEncoder(argv, false)
+  job.output_lines.push(encoderLine)
+  job.result = { ...(job.result || {}), encoder: encoderLine.replace(/^Encoder: /, '') }
+  return argv.at(-1)!
+}
+
+/**
+ * The final encode in checkpointed segments (lib/segmented-render.ts): plan, keep every finished
+ * segment that still matches, render from the first missing one, record each as it lands, then join
+ * them without re-encoding and mux the audio. A render that cannot be cut renders in one piece.
+ */
+async function runSegmentedFinal(ctx: {
+  job: Job
+  /** The one-shot argv of the encode tier (`… -t T output`). */
+  argv: string[]
+  targetDuration: number
+  format: string
+  stillTailFrom: number | null
+  segmentation?: FinalSegmentation
+  runEncode: (argv: string[], progress?: EncodeProgress) => Promise<void>
+}): Promise<void> {
+  const { job, argv, targetDuration, format, stillTailFrom, segmentation, runEncode } = ctx
+  const split = segmentation && format !== 'webm' ? splitOneShotArgv(argv) : null
+  if (!segmentation || !split || !canResumeGraph(split.graph)) return runEncode(argv)
+  const outputFile = split.output
+  const workDir = path.dirname(outputFile)
+  const checkpoint = segmentation.checkpoint
+  // The output's own frame grid (a still frame board drives it at 25 fps): two frames are enough.
+  const probe = path.join(workDir, 'final_probe.framemd5')
+  const probeArgs = [...split.pre]
+  probeArgs.splice(split.graph_index, 0, '-filter_complex', split.graph)
+  await runFfmpeg([...probeArgs, '-map', '[vout]', '-frames:v', '2', '-f', 'framemd5', probe])
+  const frameSec = frameSecFromFramemd5(await fs.readFile(probe, 'utf8').catch(() => ''))
+  if (!frameSec) return runEncode(argv)
+  const plan = planFinalSegments(targetDuration, frameSec, { stillTailFromSec: stillTailFrom, segmentSec: segmentation.segmentSec })
+  const count = segmentCount(plan)
+  // What this render reads from the work folder, by sha256 (the audio too: the final join needs it).
+  const identity = await workFolderIdentity(argv, workDir, outputFile)
+  const videoFiles = Object.fromEntries(Object.entries(identity.files).filter(([name]) => name !== path.basename(split.audio_input)))
+  // Segments are video only, so the audio is not part of what makes them valid.
+  const fingerprint = hashJson({ version: 1, inputs: segmentation.inputsFingerprint, plan, argv: identity.argv, files: videoFiles })
+  // The exact command, so a restart (or an update) finishes this render as it began (generateVideo).
+  checkpoint.final_stage = {
+    inputs: segmentation.inputsFingerprint, argv, files: identity.files,
+    total_render_sec: targetDuration, still_tail_from: stillTailFrom,
+  }
+  const segDir = path.join(workDir, 'final_segments')
+  await fs.mkdir(segDir, { recursive: true })
+  const saved = checkpoint.final_segments
+  const kept: VideoAssemblyFinalSegment[] = []
+  if (saved?.fingerprint === fingerprint) {
+    for (let index = 0; index < count; index++) {
+      const seg = saved.segments.find(s => s.index === index)
+      const range = segmentRange(plan, index)
+      if (!seg || Math.abs(seg.start_sec - range.start_sec) > 1e-6 || Math.abs(seg.end_sec - range.end_sec) > 1e-6
+        || (await fs.stat(seg.path).catch(() => null))?.size !== seg.bytes
+        || await sha256File(seg.path).catch(() => '') !== seg.sha256) break
+      kept.push(seg)
+    }
+  } else if (saved?.segments.length) {
+    job.output_lines.push(`Final render: the ${saved.segments.length} saved segment(s) were made with different inputs or settings, so every segment is rendered again.`)
+  }
+  checkpoint.final_segments = { fingerprint, segments: kept }
+  await segmentation.persist()
+  const minutes = (sec: number) => `${(sec / 60).toFixed(1)} min`
+  job.output_lines.push(`Final render: ${count} segment(s) of up to ${minutes(FINAL_SEGMENT_SEC)}, each saved as it finishes`
+    + (plan.tail_loop
+      ? `; the still image from ${minutes(plan.tail_loop.from_sec)} on is rendered once for ${STILL_TAIL_LOOP_SEC}s and repeated (${plan.tail_loop.repeats + 1}×), so ${minutes(plan.render_end_sec)} is rendered for a ${minutes(targetDuration)} video.`
+      : '.'))
+  const from = kept.length
+  if (from) job.output_lines.push(`Final render: resuming at segment ${from + 1} of ${count}; ${from} finished segment(s) (${minutes(segmentRange(plan, from).start_sec)}) are kept.`)
+
+  if (from < count) {
+    const listPath = path.join(workDir, `final_segments_${Date.now()}.csv`)
+    const group = checkpoint.final_segments
+    let recording = Promise.resolve()
+    const record = () => {
+      recording = recording.then(async () => {
+        const listed = (await fs.readFile(listPath, 'utf8').catch(() => '')).split('\n')
+        for (const name of listed.map(line => line.split(',')[0]!.trim())) {
+          const match = /^final_seg_(\d{4})\.mp4$/.exec(name)
+          if (!match || group.segments.some(seg => seg.index === Number(match[1]))) continue
+          const file = path.join(segDir, name)
+          group.segments.push({ index: Number(match[1]), ...segmentRange(plan, Number(match[1])), path: file,
+            bytes: (await fs.stat(file)).size, sha256: await sha256File(file) })
+          await segmentation.persist()
+        }
+      }).catch(() => { /* the next look, or the final one, records it */ })
+      return recording
+    }
+    const timer = setInterval(() => { void record() }, 5_000)
+    try {
+      await runEncode(
+        segmentRenderArgs(split, plan, from, path.join(segDir, 'final_seg_%04d.mp4'), listPath),
+        { offsetSec: segmentRange(plan, from).start_sec, totalSec: plan.render_end_sec,
+          label: () => ` · segment ${Math.min(count, group.segments.length + 1)}/${count}` },
+      )
+    } finally {
+      clearInterval(timer)
+      await record()
+    }
+  }
+  const segments = checkpoint.final_segments.segments.sort((a, b) => a.index - b.index)
+  if (segments.length !== count || segments.some((seg, index) => seg.index !== index)) throw new Error(`The final render stopped after ${segments.length} of ${count} segments.`)
+  const concatList = path.join(workDir, 'final_concat.txt')
+  await fs.writeFile(concatList, plan.order.map(index => formatConcatFileLine(segments[index]!.path)).join('\n') + '\n')
+  job.output_lines.push(`Final render: joining ${count} segment(s) without re-encoding and adding the audio.`)
+  await runFfmpeg(concatMuxArgs(split, concatList))
+}
+
+/**
+ * Promote the encoded file to the episode's final video, check it, and finish the job: shared by a
+ * full render and a final render resumed after a restart or an update (1.4.265).
+ */
+async function finishFinalVideo(ctx: {
+  job: Job
+  project_slug: string
+  code: string
+  titleHint: string
+  videoDir: string
+  format: string
+  tempDir: string
+  outputFile: string
+  totalRenderDuration: number
+  visualSource: Parameters<typeof writeVideoAssemblySourceStamp>[2]
+  imagePool: Parameters<typeof writeVideoAssemblySourceStamp>[3]
+}): Promise<void> {
+  const { job, project_slug, code, titleHint, videoDir, format, tempDir, outputFile, totalRenderDuration, visualSource, imagePool } = ctx
+  const finalName = `${code}_final_video.${format}`
+  const projectTreeFinalPath = path.join(videoDir, finalName)
+  let finalPath = projectTreeFinalPath
+  try {
+    const { ensureExternalFinalVideoDir } = await import('../services/external-video-store.js')
+    // titleHint is the project's canonical title for this episode
+    // (loaded from ideas store earlier in this function); falls back
+    // to the code-only folder name when missing.
+    const externalDir = await ensureExternalFinalVideoDir(project_slug, code, titleHint || '')
+    if (externalDir) {
+      finalPath = path.join(externalDir, finalName)
+      job.output_lines.push(`External final-video root configured → ${finalPath}`)
+    }
+  } catch (e: any) {
+    // Logging only; treat as fallback to project tree.
+    job.output_lines.push(`External path resolve failed (${e?.message || e}); using project tree`)
+  }
+
+  let resolvedOutputPath = outputFile
+  try {
+    await withFinalVideoPathLock(finalPath, () => fs.rename(outputFile, finalPath))
+    resolvedOutputPath = finalPath
+    job.output_lines.push(`Renamed to: ${finalName}`)
+  } catch (e: any) {
+    // First failure mode: external path is on a different filesystem
+    // (EXDEV). Fall back to copy + remove so the user still gets a
+    // final at their chosen location.
+    if (e?.code === 'EXDEV' && finalPath !== projectTreeFinalPath) {
+      try {
+        await withFinalVideoPathLock(finalPath, async () => {
+          await fs.copyFile(outputFile, finalPath)
+          await fs.rm(outputFile, { force: true })
+        })
+        resolvedOutputPath = finalPath
+        job.output_lines.push(`Copied to external (cross-device): ${finalName}`)
+      } catch (copyErr: any) {
+        // External-copy failure → fall back to project-tree rename so
+        // we don't lose the file the user just spent compute on.
+        job.output_lines.push(`Warning: external copy failed (${copyErr.message || copyErr}); falling back to project tree`)
+        try {
+          await withFinalVideoPathLock(projectTreeFinalPath, () => fs.rename(outputFile, projectTreeFinalPath))
+          resolvedOutputPath = projectTreeFinalPath
+          job.output_lines.push(`Renamed to: ${finalName} (project tree fallback)`)
+        } catch (fallbackErr: any) {
+          job.output_lines.push(`Warning: final rename skipped (${fallbackErr.message || 'unknown error'})`)
+        }
+      }
+    } else {
+      // Cloud-synced filesystems (iCloud, Dropbox) sometimes reject rename
+      // with EPERM. Keep the timestamped file as the canonical output in
+      // that case — the render is still usable.
+      job.output_lines.push(`Warning: final rename skipped (${e.message || 'unknown error'})`)
+    }
+  }
+
+  resolvedOutputPath = await selfHealFinalPromotion(resolvedOutputPath, projectTreeFinalPath, finalName, job)
+  await verifyFinalVideo(job, resolvedOutputPath, finalName, totalRenderDuration)
+  await trashFinalSegments(tempDir, code, job)
+  await writeVideoAssemblySourceStamp(
+    resolvedOutputPath,
+    code,
+    visualSource,
+    imagePool,
+  )
+  job.progress = 100
+  job.output_lines.push(`Video saved: ${path.basename(resolvedOutputPath)}`)
+  job.output_lines.push(`Full path: ${resolvedOutputPath}`)
+  job.output_dir = path.dirname(resolvedOutputPath)
+
+  // Invalidate the episode-status cache so the next /episodes call
+  // recomputes status.video_assembly. The chokidar watcher catches
+  // writes inside the project tree, but when the final video lands
+  // at an external path (eg ~/Downloads/YouTube - Channels/...) the
+  // watcher never fires — so we must signal the cache explicitly.
+  try {
+    const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+    episodeStatusCache.invalidate(project_slug, code)
+  } catch { /* best-effort — not worth failing the job over */ }
+
+  await autoScheduleFinishedEpisode(job, project_slug, code)
+  await recordMusicEpisodePlays(job, project_slug, code)
 }
 
 async function verifyFinalVideo(job: Job, outputPath: string, finalName: string, plannedSec: number): Promise<void> {
@@ -1809,8 +2239,8 @@ export async function generateVideo(job: Job): Promise<void> {
         library: sceneEffectLibrary.reveals,
       })
     : undefined
-  const renderFingerprint = sceneEffectLibrary
-    ? await buildVideoAssemblyRenderFingerprint({
+  const renderState = sceneEffectLibrary
+    ? {
         request: renderFingerprintRequest,
         authoritative_scene_plan: authoritativeAssets.scene_plan_timing,
         canvas: { w, h },
@@ -1821,14 +2251,20 @@ export async function generateVideo(job: Job): Promise<void> {
         ffmpeg_version: ffmpegCheck.version,
         // A saved clip made by one scene renderer must not be mixed with clips from the other on resume.
         scene_clip_renderer: (await probeNativeSceneClip()).available ? `native-v${NATIVE_SCENE_CLIP_VERSION}` : 'ffmpeg',
-        app_version: await resolveStoryStudioVersion(),
         resolved_sound_design_cues: resolvedSoundDesignCues,
         resolved_scene_effect_library: sceneEffectLibrary,
         resolved_scene_animation: resolvedSceneAnimation,
         resolved_scene_reveals: resolvedSceneReveals,
         content_pack_provenance: job.content_pack_provenance || [],
-      })
+      }
     : null
+  // Scene clips are reused only by the same app version. A final render that was already running is
+  // finished with its own saved command after any restart or update, as long as the episode's inputs
+  // and settings are unchanged (1.4.265): that check leaves the app version out.
+  const renderFingerprint = renderState
+    ? await buildVideoAssemblyRenderFingerprint({ ...renderState, app_version: await resolveStoryStudioVersion() })
+    : null
+  const inputsFingerprint = renderState ? await buildVideoAssemblyRenderFingerprint(renderState) : null
   const savedCheckpoint = renderFingerprint
     ? await getValidVideoAssemblyCheckpoint(job, ['running'])
     : null
@@ -1836,8 +2272,16 @@ export async function generateVideo(job: Job): Promise<void> {
   // Every attempt gets a FRESH temp dir: an encoder orphaned by a crash may
   // still be writing into the old one. Verified checkpoint clips move across.
   const tempDir = await getWorkTempDir(project_slug, code)
-  const carriedSceneClips = matchingCheckpoint
-    ? await moveCheckpointSceneClips(matchingCheckpoint, tempDir)
+  // A final render already under way: its files and finished segments move first (moving the scene
+  // clips drops the old folder).
+  const carriedFinalStage = savedCheckpoint?.final_stage && savedCheckpoint.final_stage.inputs === inputsFingerprint
+    ? await moveCheckpointFinalStage(savedCheckpoint, tempDir)
+    : null
+  const carriedFinalSegments = carriedFinalStage
+    ? await moveCheckpointFinalSegments(savedCheckpoint!, tempDir)
+    : undefined
+  const carriedSceneClips = matchingCheckpoint || savedCheckpoint?.final_stage
+    ? await moveCheckpointSceneClips(matchingCheckpoint ?? { ...savedCheckpoint!, completed_scene_clips: [] }, tempDir)
     : []
   const videoAssemblyCheckpoint = renderFingerprint
     ? createVideoAssemblyCheckpoint(
@@ -1845,8 +2289,10 @@ export async function generateVideo(job: Job): Promise<void> {
         tempDir,
         renderFingerprint,
         carriedSceneClips,
+        carriedFinalSegments,
       )
     : null
+  if (videoAssemblyCheckpoint && carriedFinalStage) videoAssemblyCheckpoint.final_stage = carriedFinalStage
   if (videoAssemblyCheckpoint) {
     setVideoAssemblyCheckpoint(job, videoAssemblyCheckpoint)
     await checkpointJobState(job)
@@ -1862,8 +2308,38 @@ export async function generateVideo(job: Job): Promise<void> {
     job.output_lines.push(`Debug mode ON — temp dir will be preserved: ${tempDir}`)
   }
   let succeeded = false
+  const finalSegmentation = (): FinalSegmentation | undefined => (videoAssemblyCheckpoint && inputsFingerprint ? {
+    checkpoint: videoAssemblyCheckpoint,
+    inputsFingerprint,
+    persist: async () => {
+      setVideoAssemblyCheckpoint(job, videoAssemblyCheckpoint)
+      await checkpointJobProgress(job)
+    },
+  } : undefined)
 
   try {
+    if (carriedFinalStage && videoAssemblyCheckpoint) {
+      // The final render was already running: finish it with its own command. Everything before it
+      // (scene clips, the timeline, the audio mix) is already in the saved work files.
+      job.output_lines.push(`Recovery: the final render was under way; finishing it with its saved command`
+        + ` (${carriedFinalSegments?.segments.length || 0} finished segment(s) moved into a fresh work folder).`)
+      try {
+        const outputFile = await resumeSavedFinalRender(job, carriedFinalStage, finalSegmentation()!, format)
+        await finishFinalVideo({
+          job, project_slug, code, titleHint: titleHint || '', videoDir, format, tempDir,
+          outputFile, totalRenderDuration: carriedFinalStage.total_render_sec,
+          visualSource: authoritativeAssets.visual_source || 'scene_plan', imagePool: authoritativeAssets.image_pool,
+        })
+        succeeded = true
+        return
+      } catch (e) {
+        // Next time it renders from the start, the way it always did.
+        delete videoAssemblyCheckpoint.final_stage
+        delete videoAssemblyCheckpoint.final_segments
+        throw e
+      }
+    }
+
     if (resolvedSoundDesignCues.length) {
       job.output_lines.push(`Sound Design: mixing ${resolvedSoundDesignCues.length} approved cue(s) into narration…`)
       const basePath = req.merged_audio_path!
@@ -2460,7 +2936,7 @@ export async function generateVideo(job: Job): Promise<void> {
     // `buildConcatList` can emit the right set at each insertion point.
     // Failures are isolated per-clip: a missing file warns + skips that row
     // rather than aborting the job — consistent with intro/outro handling.
-    const timelineClipsByAnchor: Record<TimelineAnchor, Array<{ path: string; duration: number }>> = {
+    const timelineClipsByAnchor: Record<TimelineAnchor, Array<{ path: string; duration: number; still?: boolean }>> = {
       before_intro: [],
       after_intro: [],
       after_scenes: [],
@@ -2491,7 +2967,7 @@ export async function generateVideo(job: Job): Promise<void> {
         try {
           const preparedPath = await prepareTimelineClip(clip, idx, resW, resH, quality, tempDir, job)
           const dur = (await getAudioDuration(preparedPath)) || 0
-          timelineClipsByAnchor[clip.anchor].push({ path: preparedPath, duration: dur })
+          timelineClipsByAnchor[clip.anchor].push({ path: preparedPath, duration: dur, ...(isStatic ? { still: true } : {}) })
         } catch (e: any) {
           throw new Error(`Timeline clip ${idx + 1} (${clip.anchor}) could not be prepared: ${e.message}. Replace the file, or switch that clip off, then retry.`)
         }
@@ -2899,6 +3375,11 @@ export async function generateVideo(job: Job): Promise<void> {
 
     // Concat all scene clips into a single intermediate MP4 (stream copy, near-instant)
     const intermediateVideoPath = await concatToIntermediate(concatListPath, tempDir, job, totalRenderDuration)
+    // A static after-outro image is the very end of the intermediate; where it starts lets the final
+    // render loop it instead of drawing every frame of it (runFinalComposition decides if it may).
+    const lastAfterOutro = timelineClipsByAnchor.after_outro.at(-1)
+    const intermediateSec = lastAfterOutro?.still ? await getAudioDuration(intermediateVideoPath).catch(() => null) : null
+    const stillTailFromSec = lastAfterOutro && intermediateSec ? Math.max(0, intermediateSec - lastAfterOutro.duration) : undefined
 
     // Track whether the final encode succeeded so the finally block can
     // remove a partial `outputFile` on failure. Before this, a watchdog
@@ -2949,6 +3430,8 @@ export async function generateVideo(job: Job): Promise<void> {
         encodingEffort: req.encoding_effort,
         codec: req.codec,
         videoBitrateKbps: req.video_bitrate_kbps,
+        stillTailFromSec,
+        segmentation: finalSegmentation(),
         job,
       })
       encodeSucceeded = true
@@ -2979,86 +3462,10 @@ export async function generateVideo(job: Job): Promise<void> {
     //   opted in. Falls back to the project-tree path if the external
     //   write fails (cross-device error, perms, etc.) — never blocks
     //   the user from getting a final video.
-    const finalName = `${code}_final_video.${format}`
-    const projectTreeFinalPath = path.join(videoDir, finalName)
-    let finalPath = projectTreeFinalPath
-    try {
-      const { ensureExternalFinalVideoDir } = await import('../services/external-video-store.js')
-      // titleHint is the project's canonical title for this episode
-      // (loaded from ideas store earlier in this function); falls back
-      // to the code-only folder name when missing.
-      const externalDir = await ensureExternalFinalVideoDir(project_slug, code, titleHint || '')
-      if (externalDir) {
-        finalPath = path.join(externalDir, finalName)
-        job.output_lines.push(`External final-video root configured → ${finalPath}`)
-      }
-    } catch (e: any) {
-      // Logging only; treat as fallback to project tree.
-      job.output_lines.push(`External path resolve failed (${e?.message || e}); using project tree`)
-    }
-
-    let resolvedOutputPath = outputFile
-    try {
-      await withFinalVideoPathLock(finalPath, () => fs.rename(outputFile, finalPath))
-      resolvedOutputPath = finalPath
-      job.output_lines.push(`Renamed to: ${finalName}`)
-    } catch (e: any) {
-      // First failure mode: external path is on a different filesystem
-      // (EXDEV). Fall back to copy + remove so the user still gets a
-      // final at their chosen location.
-      if (e?.code === 'EXDEV' && finalPath !== projectTreeFinalPath) {
-        try {
-          await withFinalVideoPathLock(finalPath, async () => {
-            await fs.copyFile(outputFile, finalPath)
-            await fs.rm(outputFile, { force: true })
-          })
-          resolvedOutputPath = finalPath
-          job.output_lines.push(`Copied to external (cross-device): ${finalName}`)
-        } catch (copyErr: any) {
-          // External-copy failure → fall back to project-tree rename so
-          // we don't lose the file the user just spent compute on.
-          job.output_lines.push(`Warning: external copy failed (${copyErr.message || copyErr}); falling back to project tree`)
-          try {
-            await withFinalVideoPathLock(projectTreeFinalPath, () => fs.rename(outputFile, projectTreeFinalPath))
-            resolvedOutputPath = projectTreeFinalPath
-            job.output_lines.push(`Renamed to: ${finalName} (project tree fallback)`)
-          } catch (fallbackErr: any) {
-            job.output_lines.push(`Warning: final rename skipped (${fallbackErr.message || 'unknown error'})`)
-          }
-        }
-      } else {
-        // Cloud-synced filesystems (iCloud, Dropbox) sometimes reject rename
-        // with EPERM. Keep the timestamped file as the canonical output in
-        // that case — the render is still usable.
-        job.output_lines.push(`Warning: final rename skipped (${e.message || 'unknown error'})`)
-      }
-    }
-
-    resolvedOutputPath = await selfHealFinalPromotion(resolvedOutputPath, projectTreeFinalPath, finalName, job)
-    await verifyFinalVideo(job, resolvedOutputPath, finalName, totalRenderDuration)
-    await writeVideoAssemblySourceStamp(
-      resolvedOutputPath,
-      code,
-      authoritativeAssets.visual_source || 'scene_plan',
-      authoritativeAssets.image_pool,
-    )
-    job.progress = 100
-    job.output_lines.push(`Video saved: ${path.basename(resolvedOutputPath)}`)
-    job.output_lines.push(`Full path: ${resolvedOutputPath}`)
-    job.output_dir = path.dirname(resolvedOutputPath)
-
-    // Invalidate the episode-status cache so the next /episodes call
-    // recomputes status.video_assembly. The chokidar watcher catches
-    // writes inside the project tree, but when the final video lands
-    // at an external path (eg ~/Downloads/YouTube - Channels/...) the
-    // watcher never fires — so we must signal the cache explicitly.
-    try {
-      const { episodeStatusCache } = await import('../services/episode-status-cache.js')
-      episodeStatusCache.invalidate(project_slug, code)
-    } catch { /* best-effort — not worth failing the job over */ }
-
-    await autoScheduleFinishedEpisode(job, project_slug, code)
-    await recordMusicEpisodePlays(job, project_slug, code)
+    await finishFinalVideo({
+      job, project_slug, code, titleHint: titleHint || '', videoDir, format, tempDir, outputFile, totalRenderDuration,
+      visualSource: authoritativeAssets.visual_source || 'scene_plan', imagePool: authoritativeAssets.image_pool,
+    })
 
     succeeded = true
 
@@ -5311,8 +5718,17 @@ interface CompositionOpts {
   codec?: 'h264' | 'h265'
   /** Optional bitrate cap, kbit/s (see buildEncoderArgs). */
   videoBitrateKbps?: number
+  /**
+   * 1.4.265 — render in checkpointed segments that a restart keeps (lib/segmented-render.ts).
+   * Absent (compilation layout, no checkpoint): one piece, exactly as before.
+   */
+  segmentation?: FinalSegmentation
+  /** Where a still image that runs to the end of the video begins (a static after-outro clip). */
+  stillTailFromSec?: number
   job: Job
 }
+
+export { runFinalComposition as _runFinalCompositionForTesting }
 
 async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   const {
@@ -5769,7 +6185,10 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   // 6b. Subtitles (libass burn-in). Placed after letterbox so subtitles
   //     sit inside the safe area; placed before the logo so the logo
   //     always renders on top.
+  // When the last burned caption ends (a still tail is only looped after it). Unknown = never.
+  let captionsEndSec = 0
   if (subtitles?.enabled && subtitles.srt_path && existsSync(subtitles.srt_path)) {
+    captionsEndSec = Infinity
     const { buildSubtitleAssDocument, parseSrt } = await import('../lib/subtitle-builder.js')
     const { normalizeSubtitleStyle, assOnlySubtitleFeatures } = await import('../contracts/subtitle-style.js')
     // v1.1.0 — ONE renderer. Every style now burns through the full ASS
@@ -5785,6 +6204,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     {
       try {
         const cues = parseSrt(await fs.readFile(subtitles.srt_path, 'utf-8'))
+        captionsEndSec = cues.reduce((end, cue) => Math.max(end, cue.end_sec), 0)
         if (cues.length) {
           // Word timings are derived AFTER any intro offset is already baked
           // into the cue timestamps (see the note below) — the derivation reads
@@ -5792,7 +6212,8 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
           // upstream rather than re-deriving from an unshifted timeline.
           const rendered = buildSubtitleAssDocument(cues, style, { width: w, height: h })
           if (!rendered.events) throw new Error('subtitle document contained no events')
-          const assPath = path.join(os.tmpdir(), `ssk-subs-${Date.now()}.ass`)
+          // In the job's own work folder under a fixed name, so a resumed render sees the same command.
+          const assPath = path.join(path.dirname(videoInputPath), 'subtitles-burn.ass')
           await fs.writeFile(assPath, rendered.ass, 'utf-8')
           generatedSubtitleFiles.push(assPath)
           // NOTE: do NOT append `gateEnable` here. FFmpeg's libass filters
@@ -6010,134 +6431,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     }
   }
 
-  // Run the encode. Wrapped in a helper so we can retry once with H.264
-  // if libx265 returns the EINVAL signature — some concat intermediates
-  // with mixed colour metadata trigger `return code -22` at x265 init even
-  // when every clip individually is valid. Falling back is nicer than
-  // failing the whole job outright; the user ends up with an H.264 .mp4
-  // rather than no video at all. On any other failure mode, the error
-  // propagates (no retry).
-  async function runEncode(encodeArgs: string[]): Promise<void> {
-    // Resolve the bundled/installed ffmpeg path BEFORE spawning. Packaged Macs
-    // without Homebrew's `/opt/homebrew/bin/ffmpeg` in PATH previously hit
-    // `spawn ffmpeg ENOENT` at this line — the bundled binary inside
-    // `.app/Contents/Resources/ffmpeg/` was never consulted because this
-    // caller passed a bare string. All three encode tiers share this helper,
-    // so the ENOENT repeated identically across the recovery chain.
-    const ffmpegBin = await getFFmpegPath()
-
-    // Wall-clock watchdog. This spawn can take hours on long-form renders
-    // (sleep-story channels routinely append 2-3 hours of ambient tail
-    // to a 30-min narration), but a pathological input — malformed
-    // chapter MP3, CMYK title image, FFmpeg 8 edge case — can also hang
-    // it indefinitely. The job queue serialises video jobs, so a stuck
-    // encode pins the slot forever and nothing else runs.
-    //
-    // Scale the watchdog with the actual output `-t` so a 2.5-hour
-    // render gets ~3.5h of budget, while a short 5-min clip still has
-    // a reasonable safety net. Formula:
-    //   floor: 30 min (matches the previous fixed default)
-    //   scaled: 1.5× output duration + 5 min buffer
-    //   ceiling: 12 hours (truly hung after this much)
-    // The env override `STORY_STUDIO_FFMPEG_TIMEOUT_MS` still wins
-    // unconditionally — power users with custom workflows can pin a
-    // value that ignores the scaling.
-    const timeoutMs = computeWatchdogMs(targetDuration, process.env.STORY_STUDIO_FFMPEG_TIMEOUT_MS)
-    const timeoutMin = Math.round(timeoutMs / 60_000)
-    job.output_lines.push(`FFmpeg watchdog: ${timeoutMin} min for ${(targetDuration / 60).toFixed(1)} min output`)
-
-    await new Promise<void>((resolve, reject) => {
-      const proc = spawn(ffmpegBin, withX264ThreadCap(encodeArgs), {
-        stdio: ['ignore', 'pipe', 'pipe'],
-      })
-      lowerFfmpegPriority(proc)
-      // Track for cancellation — the final encode pass is the longest ffmpeg
-      // run in the entire pipeline (minutes), so this is the most important
-      // cancellable child in the app.
-      trackChild(proc)
-
-      let stderr = ''
-
-      let watchdogKilled = false
-      const termTimer = setTimeout(() => {
-        watchdogKilled = true
-        try { proc.kill('SIGTERM') } catch { /* exited */ }
-        const killTimer = setTimeout(() => {
-          try { proc.kill('SIGKILL') } catch { /* exited */ }
-        }, 5000)
-        proc.once('close', () => clearTimeout(killTimer))
-      }, timeoutMs)
-
-      proc.stderr.on('data', (data: Buffer) => {
-        const line = data.toString()
-        stderr = appendCappedTail(stderr, line)
-
-        const timeMatch = line.match(/time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})/)
-        if (timeMatch) {
-          const hours = parseInt(timeMatch[1])
-          const minutes = parseInt(timeMatch[2])
-          const seconds = parseInt(timeMatch[3])
-          const ms = parseInt(timeMatch[4])
-          const currentTime = hours * 3600 + minutes * 60 + seconds + ms / 100
-
-          if (targetDuration > 0) {
-            const progress = Math.min(99, Math.round((currentTime / targetDuration) * 100))
-            job.progress = progress
-            const progressLine = `Encoding: ${progress}% (${currentTime.toFixed(1)}s / ${targetDuration.toFixed(1)}s) · ${encoderKind(encodeArgs)}`
-            const lastIdx = job.output_lines.length - 1
-            if (lastIdx >= 0 && job.output_lines[lastIdx].startsWith('Encoding:')) {
-              job.output_lines[lastIdx] = progressLine
-            } else {
-              job.output_lines.push(progressLine)
-            }
-          }
-        }
-      })
-
-      proc.on('error', (err) => {
-        clearTimeout(termTimer)
-        reject(new Error(`FFmpeg failed to start: ${err.message}`))
-      })
-
-      proc.on('close', (code, signal) => {
-        clearTimeout(termTimer)
-        if (code === 0) {
-          resolve()
-          return
-        }
-        // Watchdog first — distinct message so the job log disambiguates
-        // a queue-blocking hang from a user-initiated cancel (which also
-        // arrives with signal=SIGTERM). Tag the error so the recovery
-        // chain can decide not to retry (a watchdog kill on tier 1 almost
-        // certainly means tiers 2/3 will hang the same way).
-        if (watchdogKilled) {
-          const minutes = Math.max(1, Math.round(timeoutMs / 60_000))
-          const lines = stderr.split('\n').filter(l => l.trim())
-          const tail = lines.slice(-5).join('\n') || '(no stderr captured)'
-          const err = new Error(
-            `FFmpeg exceeded ${minutes}-minute wall-clock watchdog — job killed to free the queue. Last stderr: ${tail}`,
-          )
-          ;(err as any).watchdog = true
-          ;(err as any).stderr = stderr
-          reject(err)
-          return
-        }
-        // Killed by cancel: surface a clean message, not an exit-code diagnostic.
-        if (signal === 'SIGTERM' || signal === 'SIGKILL') {
-          reject(new Error(`FFmpeg killed (${signal})`))
-          return
-        }
-        // Preserve stderr on the Error object so the retry decision can
-        // inspect it. Input paths go straight into the job log for repro.
-        const lines = stderr.split('\n').filter(l => l.trim())
-        const errorLine = lines.slice(-5).join('\n')
-        const err = new Error(`FFmpeg exited with code ${code}:\n${errorLine}`)
-        ;(err as any).stderr = stderr
-        ;(err as any).exitCode = code
-        reject(err)
-      })
-    })
-  }
+  const runEncode = (encodeArgs: string[], progress?: EncodeProgress) => spawnFinalEncode(job, targetDuration, encodeArgs, progress)
 
   // ── Recovery chain ─────────────────────────────────────────────────────
   //
@@ -6247,48 +6541,32 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     },
   ]
 
-  // Validate the output file passed by `ffmpeg exit 0` actually contains
-  // a usable video stream. A 0-byte mp4 from a stream-with-no-packets
-  // scenario passes the exit-code check but is useless. We re-throw with
-  // a stderr-shaped Error so the next tier's `shouldRun` can inspect it.
-  async function validateEncodedOutput(): Promise<void> {
-    if (!fileExistsNonEmpty(outputFile)) {
-      const err: any = new Error(`Encoder exited 0 but output file is missing or empty: ${outputFile}`)
-      err.stderr = 'output file empty after encode'
-      throw err
-    }
-    try {
-      const info = await getMediaInfo(outputFile)
-      // The container duration can follow the longer premixed audio track,
-      // even when the visual stream stopped early. Use the independently
-      // probed video duration whenever ffprobe supplies it so a short concat
-      // cannot be promoted as a complete render.
-      const videoEndsEarly = info.videoDurationSec !== undefined
-        && info.videoDurationSec < targetDuration - 0.25
-      if (!info.hasVideo || info.durationSec < 1 || videoEndsEarly) {
-        const err: any = new Error(
-          `Encoder exited 0 but output is unusable: ${summarizeMedia(info)}`
-            + (videoEndsEarly
-              ? ` (video ${info.videoDurationSec!.toFixed(3)}s, expected ${targetDuration.toFixed(3)}s)`
-              : '')
-        )
-        err.stderr = 'output validation failed'
-        throw err
-      }
-    } catch (e: any) {
-      // Re-throw with .stderr so tier shouldRun checks still work.
-      if (e?.stderr) throw e
-      const err: any = new Error(`ffprobe rejected encoder output: ${e.message}`)
-      err.stderr = `ffprobe: ${e.message}`
-      throw err
-    }
-  }
+  const validateEncodedOutput = () => validateFinalOutput(outputFile, targetDuration)
+
+  // ── Segmented final render (1.4.265, lib/segmented-render.ts) ──────────
+  //
+  // A still tail (TerraNash: a 60-min image after the story) is rendered once for 30 s and
+  // repeated, but only when nothing on it moves: every gated effect (grade, archive film, grain,
+  // vignette, overlays, Effects Library, logo) has ended by the time it starts, no caption or cue
+  // reaches it, and the frame board is a still. The loop is a whole number of output frames.
+  const tailFrom = opts.stillTailFromSec
+  const cuesEndSec = (contextualCues || []).reduce((end, cue) => Math.max(end, cue.end_sec + (sceneTimelineOffsetSec || 0)), 0)
+  const stillTailFrom = tailFrom != null
+    && endSec > 0 && endSec <= tailFrom
+    && captionsEndSec <= tailFrom && cuesEndSec <= tailFrom
+    && !(frame?.enabled && frame.background_path && !isStaticImagePath(frame.background_path))
+    ? tailFrom
+    : null
+
+  const runFinal = (argv: string[]) => runSegmentedFinal({
+    job, argv, targetDuration, format, stillTailFrom, segmentation: opts.segmentation, runEncode,
+  })
 
   job.output_lines.push('Running final composition...')
   job.output_lines.push(`Output: ${path.basename(outputFile)}`)
 
   const chain = await runEncodeTierChain(tiers, {
-    run: runEncode,
+    run: runFinal,
     validate: validateEncodedOutput,
     log: line => job.output_lines.push(line),
     logCmd,

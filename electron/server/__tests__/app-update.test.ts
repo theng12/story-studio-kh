@@ -61,6 +61,15 @@ function fakeQueue(running = 0, paused = false, queued = 0) {
   return q
 }
 
+/** The real wiring's two extra answers (routes/app-update.ts): submissions in flight, jobs that would not resume. */
+function promptQueue(running = 0) {
+  const q = Object.assign(fakeQueue(running), { submits: 0, notResuming: [] as string[], looks: 0 })
+  return Object.assign(q, {
+    inFlightSubmits: () => q.submits,
+    wouldNotResume: async () => { q.looks++; return q.notResuming },
+  })
+}
+
 let tmp: { dir: string; cleanup: () => Promise<void> }
 let settings: updater.UpdateSettings
 
@@ -120,7 +129,7 @@ describe('signature', () => {
 })
 
 describe('download, stage, drain and resume', () => {
-  test('a newer release is downloaded, checked, staged without quarantine, then waits for the queue without pausing it', async () => {
+  test('a newer release is downloaded, checked, staged without quarantine, then pauses new work for a prompt install', async () => {
     const src = fs.mkdtempSync(path.join(tmp.dir, 'src-'))
     makeApp(src, '1.4.258')
     const zip = path.join(tmp.dir, 'Story Studio KH 1.4.258.zip')
@@ -137,13 +146,13 @@ describe('download, stage, drain and resume', () => {
     await updater.handleOffer({ release, publisher: { public_key_base64: PUB } })
     const state = updater.readState()
     assert.equal(settings.trusted_publisher_key, PUB)
-    assert.equal(state.phase, 'ready', 'two jobs run: an automatic install waits')
+    assert.equal(state.phase, 'draining', 'staged: new work pauses at once (1.4.265)')
     assert.equal(plistVersion(state.staged_app!), '1.4.258')
     // A file this process wrote carries no quarantine attribute (the reason no `xattr -d` is needed).
     const downloaded = path.join(updater.updateDir(), 'staging', '1.4.258', release.filename)
     assert.throws(() => execFileSync('/usr/bin/xattr', ['-p', 'com.apple.quarantine', downloaded], { stdio: 'pipe' }))
-    assert.deepEqual(queue.calls, [], 'an automatic install never pauses the queue')
-    assert.ok(!state.we_paused)
+    assert.deepEqual(queue.calls, [true], 'the updater pauses new intake itself')
+    assert.ok(state.we_paused)
   })
 
   test('a download that is not fully available yet is "not ready": nothing is failed, the next check retries', async () => {
@@ -272,14 +281,14 @@ describe('download, stage, drain and resume', () => {
   test('auto-install off waits for Install Now, even with an empty queue', async () => {
     ready()
     settings.auto_install = false
-    updater._configureForTesting(options(fakeQueue(), { idleSettleMs: 0 }))
+    updater._configureForTesting(options(fakeQueue()))
     await updater.maybeInstall()
     await updater.maybeInstall()
     assert.equal(updater.readState().phase, 'ready')
   })
 })
 
-describe('install when the queue is empty (owner, 2026-10-08)', () => {
+describe('install promptly (owner, 2026-10-09)', () => {
   function ready() {
     const target = makeApp(path.join(tmp.dir, 'Applications'), '1.4.257')
     const staged = makeApp(fs.mkdtempSync(path.join(tmp.dir, 'staged-')), '1.4.258')
@@ -288,118 +297,125 @@ describe('install when the queue is empty (owner, 2026-10-08)', () => {
   }
   /**
    * The real helper, against a temp target, with a stand-in pid and a relaunch that reports
-   * healthy. Time is the test's: `clock.t` is what the updater reads, each `maybeInstall()` call
-   * stands for one 30-second recheck, and the timer's own recheck is pushed out of the way.
+   * healthy. `clock.t` is what the updater reads; the wait looks every 20 ms.
    */
   const clock = { t: 0 }
-  function wired(queue: ReturnType<typeof fakeQueue>, extra: Partial<updater.UpdaterOptions> = {}) {
+  function wired(queue: any, extra: Partial<updater.UpdaterOptions> = {}) {
     const quitter = spawn('/bin/sleep', ['1'])
     const state = path.join(updater.updateDir(), 'state.json')
     clock.t = 1_000_000
     updater._configureForTesting(options(queue, {
-      idlePollMs: 3_600_000, idleSettleMs: updater.IDLE_SETTLE_MS, now: () => clock.t,
+      idlePollMs: 3_600_000, drainPollMs: 20, now: () => clock.t,
       relaunchCommand: `printf '{"phase":"installed","release":{"version":"1.4.258"}}' > ${JSON.stringify(state)}`,
       helperEnv: { SU_PID: String(quitter.pid), SU_HEALTH_SECONDS: '5' },
       ...extra,
     }))
   }
-  const recheck = async (advanceMs: number) => { clock.t += advanceMs; await updater.maybeInstall() }
-
-  test('waits, pausing nothing, while a job runs or is queued; installs once the queue stays empty', async () => {
-    const target = ready()
-    const queue = fakeQueue(1)
-    wired(queue)
-    await recheck(0)
-    await recheck(10 * 60_000)
-    assert.equal(updater.readState().phase, 'ready', 'a running job keeps it waiting, with no time limit')
-    assert.equal((await updater.status()).jobs_left, 1)
-    queue.runningCount = 0; queue.queued = 2
-    await recheck(10 * 60_000)
-    assert.equal(updater.readState().phase, 'ready', 'queued jobs keep it waiting')
-    assert.deepEqual(queue.calls, [], 'nothing was paused')
-    queue.queued = 0
-    await recheck(30_000) // the first empty look
-    assert.equal(updater.readState().phase, 'ready', 'empty for a moment is not yet idle')
-    await recheck(updater.IDLE_SETTLE_MS) // still empty a minute later: install
-    assert.equal(updater.readState().phase, 'installing')
+  /** The updater has looked at the queue twice more since now (each look asks `wouldNotResume`). */
+  const lookedAgain = async (queue: { looks: number }) => {
+    const seen = queue.looks
+    await waitFor(() => queue.looks >= seen + 2, { label: 'two more looks at the queue' })
+  }
+  async function installed(): Promise<void> {
+    await waitFor(() => updater.readState().phase === 'installing', { label: 'the install', timeoutMs: 15_000 })
     const result = path.join(updater.updateDir(), 'helper-result.json')
     await waitFor(() => fs.existsSync(result), { label: 'the helper result' })
     assert.equal(JSON.parse(fs.readFileSync(result, 'utf8')).outcome, 'installed')
+  }
+
+  test('running work that resumes is not waited for: intake pauses, in-flight submits settle, it installs', async () => {
+    const target = ready()
+    const queue = promptQueue(3) // e.g. a Video Assembly mid-render, a scene render, a narration
+    queue.queued = 5
+    queue.submits = 1
+    wired(queue)
+    await updater.maybeInstall()
+    assert.equal(updater.readState().phase, 'draining')
+    assert.deepEqual(queue.calls, [true], 'new intake is paused (a queue-origin pause)')
+    await lookedAgain(queue)
+    assert.equal(updater.readState().phase, 'draining', 'a submission already sent is answered first')
+    assert.deepEqual((await updater.status()).waiting_for, { submits: 1, jobs: [] })
+    queue.submits = 0
+    await installed()
     assert.equal(plistVersion(target), '1.4.258')
-    assert.deepEqual(queue.calls, [], 'still nothing paused')
   })
 
-  test('a job that arrives while the queue settles restarts the wait', async () => {
+  test('the wait for submissions is bounded: after 2 minutes it installs anyway', async () => {
     ready()
-    const queue = fakeQueue()
+    const queue = promptQueue(1)
+    queue.submits = 2
     wired(queue)
-    await recheck(0) // empty
-    queue.queued = 1 // the next pipeline step lands in the gap
-    await recheck(30_000)
-    queue.queued = 0
-    await recheck(30_000) // empty again: the minute starts over here
-    await recheck(30_000) // 90 s since the first empty look, 30 s since the last busy one
-    assert.equal(updater.readState().phase, 'ready')
-    await recheck(30_000)
-    assert.equal(updater.readState().phase, 'installing')
-    const result = path.join(updater.updateDir(), 'helper-result.json')
-    await waitFor(() => fs.existsSync(result), { label: 'the helper result' })
+    await updater.maybeInstall()
+    await lookedAgain(queue)
+    assert.equal(updater.readState().phase, 'draining')
+    clock.t += updater.SUBMIT_SETTLE_MS - 1_000
+    await lookedAgain(queue)
+    assert.equal(updater.readState().phase, 'draining', 'still inside the bound')
+    clock.t += 2_000
+    await installed()
   })
 
-  test('the race: a job that sneaks in right before the swap stops it; nothing is spawned', async () => {
+  test('a running job that would not resume is waited for, with no time limit, and named', async () => {
     ready()
-    const queue = fakeQueue(0, false, 1)
+    const queue = promptQueue(2)
+    queue.notResuming = ['music_video']
     wired(queue)
-    assert.equal(await updater.install('idle'), false)
-    const state = updater.readState()
-    assert.equal(state.phase, 'ready')
-    assert.equal(fs.existsSync(path.join(updater.updateDir(), 'swap-app.sh')), false)
-    assert.equal(updater.isQuittingForUpdate(), false)
+    await updater.maybeInstall()
+    clock.t += 10 * 60 * 60_000
+    await lookedAgain(queue)
+    assert.equal(updater.readState().phase, 'draining', 'never interrupted automatically')
+    assert.deepEqual((await updater.status()).waiting_for, { submits: 0, jobs: ['music_video'] })
+    queue.notResuming = []
+    await installed()
   })
 
-  test('a queue the owner paused with jobs still in it keeps the update waiting, and says so', async () => {
+  test('Install Now goes ahead after 30 minutes even if a job that cannot resume still runs', async () => {
     ready()
-    const queue = fakeQueue(0, true, 2)
-    queue.pausedJobs = 1
-    wired(queue)
-    await recheck(0)
-    await recheck(24 * 60 * 60_000)
-    assert.equal(updater.readState().phase, 'ready')
-    assert.deepEqual(queue.calls, [])
-    const status = await updater.status()
-    assert.equal(status.jobs_left, 3)
-    assert.equal(status.queue_paused, true)
-  })
-
-  test('Install Now drains: pause the queue, wait for running jobs, install', async () => {
-    ready()
-    const queue = fakeQueue(1, false, 4)
+    const queue = promptQueue(1)
+    queue.notResuming = ['broll_assemble']
     wired(queue)
     await updater.installNow()
+    await lookedAgain(queue)
     assert.equal(updater.readState().phase, 'draining')
-    assert.deepEqual(queue.calls, [true])
-    queue.runningCount = 0 // queued jobs stay queued (held) and resume after the restart
-    await waitFor(() => updater.readState().phase === 'installing', { label: 'the drained install', timeoutMs: 15_000 })
-    const result = path.join(updater.updateDir(), 'helper-result.json')
-    await waitFor(() => fs.existsSync(result), { label: 'the helper result' })
+    clock.t += updater.DRAIN_TIMEOUT_MS + 1_000
+    await installed()
   })
 
-  test('the startup race: an empty queue before the boot scan has loaded saved jobs is not idle', async () => {
+  test('the owner\'s own pause wins: a queue he paused holds the update, untouched', async () => {
+    ready()
+    const queue = promptQueue(1)
+    queue.paused = true
+    wired(queue)
+    await updater.maybeInstall()
+    clock.t += 24 * 60 * 60_000
+    await updater.maybeInstall()
+    assert.equal(updater.readState().phase, 'ready')
+    assert.deepEqual(queue.calls, [])
+    assert.equal((await updater.status()).queue_paused, true)
+  })
+
+  test('a pause the updater made before a restart is its own, not the owner\'s: the install continues', async () => {
+    ready()
+    updater.writeState({ ...updater.readState(), we_paused: true })
+    const queue = promptQueue(1)
+    queue.paused = true
+    wired(queue)
+    await updater.maybeInstall()
+    assert.equal(updater.readState().phase, 'draining')
+    await installed()
+  })
+
+  test('the startup race: nothing is judged before the boot scan has loaded saved jobs', async () => {
     ready()
     let loaded = false
-    const queue = { ...fakeQueue(), loaded: () => loaded }
-    wired(queue as any)
-    await recheck(0)
-    await recheck(10 * 60_000)
+    const queue = Object.assign(promptQueue(), { loaded: () => loaded })
+    wired(queue)
+    await updater.maybeInstall()
     assert.equal(updater.readState().phase, 'ready', 'saved jobs may still be on disk')
-    assert.equal(await updater.install('idle'), false, 'the last look before the swap checks it too')
-    loaded = true // the scan found nothing: now it is really empty
-    await recheck(30_000)
-    assert.equal(updater.readState().phase, 'ready', 'the settle minute starts only once loaded')
-    await recheck(updater.IDLE_SETTLE_MS)
-    assert.equal(updater.readState().phase, 'installing')
-    const result = path.join(updater.updateDir(), 'helper-result.json')
-    await waitFor(() => fs.existsSync(result), { label: 'the helper result' })
+    assert.deepEqual(queue.calls, [])
+    loaded = true
+    await updater.maybeInstall()
+    await installed()
   })
 
   test('housekeeping never counts: it is not a queue job, and finished history is not work', async () => {
