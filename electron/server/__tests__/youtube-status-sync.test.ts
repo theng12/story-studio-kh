@@ -173,6 +173,27 @@ describe('background check', () => {
     assert.equal(pending?.lifecycle, 'processing')
   })
 
+  test('background check stores a multiline (and Unicode) description instead of failing the write', async () => {
+    // Regression: TN0171–TN0173 logged "YouTube status not checked yet (… invalid
+    // remote_snapshot.description …)" and the background check hit the same wall.
+    const s = await setup()
+    const operationId = await s.accepted(await s.episode('Multiline'), 'vid-multi')
+    const description = 'First line.\n\nChapters\n00:00 Start\n\nដំណេកស្ងប់ 🌙'
+    const fake = new FakeYouTube()
+    fake.respondMatching({ method: 'GET', match: VIDEOS, body: { items: [{
+      id: 'vid-multi',
+      status: { uploadStatus: 'uploaded', privacyStatus: 'private', publishAt: '2026-12-03T15:00:00Z' },
+      snippet: { title: 'Multiline', description, channelId: CHANNEL },
+    }] } })
+    __setYouTubeTransportForTests(fake.transport())
+    const { runYouTubeStatusSyncPass } = await import('../services/youtube-status-sync.js')
+    await runYouTubeStatusSyncPass(Date.now())
+    const stored = await s.operations.readYouTubeOperation(s.slug, operationId)
+    assert.equal(stored?.lifecycle, 'processing')
+    assert.equal(stored?.remote_snapshot?.description, description)
+    assert.equal(stored?.remote_snapshot?.scheduled_for, '2026-12-03T15:00:00Z')
+  })
+
   test('skips a channel that needs Reconnect', async () => {
     const s = await setup()
     await s.accepted(await s.episode('Pending'), 'vid-pending')

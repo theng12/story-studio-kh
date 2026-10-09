@@ -165,6 +165,23 @@ function text(value: unknown, name: string, allowEmpty = false): string {
   return value
 }
 
+/**
+ * Free text exactly as YouTube reports it: a video description.
+ *
+ * Line breaks and tabs are its content, not corruption. The upload writer
+ * (`snippetFromMeta`) deliberately keeps `\n` and `\t`, YouTube echoes them
+ * back, and Studio edits may arrive as `\r\n`. Edge whitespace is kept too:
+ * this is a record of what YouTube said, not a cleaned copy. Every other
+ * control character is still refused. (Treating `\n` as corrupt refused every
+ * status write for TN0162–TN0173.)
+ */
+function freeText(value: unknown, name: string): string {
+  if (typeof value !== 'string' || hasControlCharacters(value.replace(/[\t\n\r]/g, ''))) {
+    throw corrupt(`The YouTube operation record has an invalid ${name}.`)
+  }
+  return value
+}
+
 function identifier(value: unknown, name: string): string {
   const result = text(value, name)
   if (result === '.' || result === '..' || result.includes('/') || result.includes('\\') || isReservedPathSegment(result)) {
@@ -306,7 +323,7 @@ function decodeRemoteSnapshot(value: unknown): RemoteSnapshot {
   return {
     fetched_at: timestamp(value.fetched_at, 'remote_snapshot.fetched_at'),
     title: text(value.title, 'remote_snapshot.title', true),
-    description: text(value.description, 'remote_snapshot.description', true),
+    description: freeText(value.description, 'remote_snapshot.description'),
     tags,
     privacy_status: text(value.privacy_status, 'remote_snapshot.privacy_status'),
     scheduled_for: value.scheduled_for as string | null,

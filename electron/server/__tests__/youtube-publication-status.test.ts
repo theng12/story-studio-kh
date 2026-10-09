@@ -17,6 +17,7 @@ import {
   syncYouTubePublicationState,
 } from '../services/youtube-publication-status.js'
 import { createProject } from '../services/project-manager.js'
+import { snippetFromMeta } from '../lib/upload-metadata.js'
 import {
   assignProjectYouTubeChannel,
   configureYouTubeApplication,
@@ -331,5 +332,77 @@ describe('persisting YouTube publication state', () => {
     })
     assert.equal(stored?.channel_id, queriedChannel)
     assert.equal(stored?.lifecycle, 'ready')
+  })
+
+  // Regression: on the mini (1.4.266) every refresh of TN0162–TN0173 failed
+  // with "invalid remote_snapshot.description" because the description YouTube
+  // returns is multiline. Built here by the CURRENT upload writer
+  // (`snippetFromMeta`, which keeps line breaks), so the uploaded text and
+  // YouTube's echo of it can never again be something the record refuses.
+  const writerDescription = snippetFromMeta({
+    title: 'Rain on the Old Bridge',
+    description: 'A slow walk through the forest.\n\nChapters\n00:00 Arrival\n12:30 The bridge\n\nដំណេកស្ងប់ 🌙\n\tSleep well.',
+    tags: ['sleep', 'rain'],
+    thumbnailPath: '',
+  }).description ?? ''
+
+  function scheduled(description: string) {
+    return {
+      items: [{
+        id: VIDEO,
+        status: { uploadStatus: 'uploaded', privacyStatus: 'private', publishAt: '2026-12-01T15:00:00Z' },
+        snippet: { title: 'Rain on the Old Bridge', description, tags: ['sleep', 'rain'] },
+      }],
+    }
+  }
+
+  test('individual refresh stores the multiline description the upload writer sent, and it reloads intact', async () => {
+    assert.match(writerDescription, /\n/, 'the writer keeps line breaks; that is the shape YouTube echoes back')
+    const { slug, accountId, operationId } = await acceptedOperation()
+    __setYouTubeTransportForTests(respondWith(scheduled(writerDescription)).transport())
+
+    const result = await syncYouTubePublicationState({ project_slug: slug, operation_id: operationId, account_id: accountId })
+    assert.equal(result.persisted, true)
+
+    const stored = await readYouTubeOperation(slug, operationId)
+    assert.equal(stored?.lifecycle, 'processing')
+    assert.equal(stored?.video_id, VIDEO, 'identity unchanged')
+    assert.equal(stored?.remote_snapshot?.description, writerDescription)
+    assert.equal(stored?.remote_snapshot?.privacy_status, 'private')
+    assert.equal(stored?.remote_snapshot?.scheduled_for, '2026-12-01T15:00:00Z')
+    assert.ok(stored?.remote_snapshot?.fetched_at, 'freshness is recorded')
+    assert.equal(stored?.processing?.provider_status, 'uploaded')
+
+    // A second refresh keeps the first answer as the previous snapshot.
+    __setYouTubeTransportForTests(respondWith(scheduled(writerDescription)).transport())
+    await syncYouTubePublicationState({ project_slug: slug, operation_id: operationId, account_id: accountId })
+    const again = await readYouTubeOperation(slug, operationId)
+    assert.equal(again?.previous_remote_snapshot?.description, writerDescription)
+    assert.equal(again?.remote_snapshot?.description, writerDescription)
+  })
+
+  test('bulk sync records a multiline description as ok, not partial', async () => {
+    const { slug, accountId, operationId } = await acceptedOperation()
+    __setYouTubeTransportForTests(respondWith(scheduled(writerDescription)).transport())
+
+    const result = await syncProjectYouTubePublicationStates({ project_slug: slug, account_id: accountId })
+    assert.deepEqual({ checked: result.checked, updated: result.updated, outcome: result.outcome }, { checked: 1, updated: 1, outcome: 'ok' })
+    assert.equal((await readYouTubeOperation(slug, operationId))?.remote_snapshot?.description, writerDescription)
+  })
+
+  test('a genuinely malformed provider description is still refused, reported, and leaves the record unchanged', async () => {
+    const { slug, accountId, operationId } = await acceptedOperation()
+    const before = await readYouTubeOperation(slug, operationId)
+    __setYouTubeTransportForTests(respondWith(scheduled('bad\u0000byte')).transport())
+
+    await assert.rejects(
+      () => syncYouTubePublicationState({ project_slug: slug, operation_id: operationId, account_id: accountId }),
+      (error: unknown) => (error as { code?: string }).code === 'YOUTUBE_OPERATION_RECORD_CORRUPT',
+    )
+    __setYouTubeTransportForTests(respondWith(scheduled('bad\u0000byte')).transport())
+    const bulk = await syncProjectYouTubePublicationStates({ project_slug: slug, account_id: accountId })
+    assert.equal(bulk.outcome, 'partial', 'the failed write is reported, not hidden')
+    assert.equal(bulk.updated, 0)
+    assert.deepEqual(await readYouTubeOperation(slug, operationId), before, 'nothing invented, nothing lost')
   })
 })
