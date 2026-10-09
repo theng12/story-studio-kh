@@ -282,6 +282,18 @@ export function planEpisode(doc: MusicEpisodeDoc, byKey: ReadonlyMap<string, Bui
   return { timeline, scenes, measured: !!built }
 }
 
+/**
+ * Each scene's picture prompt without its song title: setting, mood and theme only. Owner and Polish
+ * rewrites are left out too, since they carry the title in their own words. Music thumbnails start here
+ * (CJ0027: the thumbnail kept scene 1's title instruction and printed that song's title twice).
+ */
+export async function untitledScenePrompts(slug: string, code: string, doc: MusicEpisodeDoc): Promise<Map<string, string>> {
+  const channel = await channelStartingSettings(slug)
+  const ctx = await loadEpisodeContext(slug, code, doc.settings)
+  const bare = { ...doc, prompt_overrides: {}, settings: { ...doc.settings, scenes: { ...doc.settings.scenes, title_on_scene: false } } }
+  return new Map(planEpisode(bare, ctx.byKey, channel.scene_settings).scenes.map(scene => [scene.id, scene.prompt]))
+}
+
 export async function buildEpisodeView(slug: string, code: string): Promise<EpisodeView> {
   const upper = code.toUpperCase()
   const channel = await channelStartingSettings(slug)

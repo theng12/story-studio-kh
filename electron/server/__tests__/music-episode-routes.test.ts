@@ -255,7 +255,20 @@ describe('Episode Builder', () => {
     const prompt: string = drawn.body.scenes[0].prompt
     assert.match(prompt, /^(Rainy window booth|Rooftop café at dusk), tender atmosphere, /)
     assert.doesNotMatch(prompt, /Moonlight on a quiet lake/, "the setting replaces the song's scene idea")
-    assert.match(prompt, /no people, the title "Title p_a" written once/)
+    assert.match(prompt, /no people, a large [^:]+: "Title p_a", spelled exactly "Title p_a" letter for letter/)
     assert.doesNotMatch(prompt, /no text/)
+
+    // The thumbnail never carries a song's title, only the episode headline, once (CJ0027, 1.4.273).
+    const thumb = await request(app).post(`/api/projects/${pianoSlug}/music-episodes/${created.body.code}/thumbnail/prompts`).send({})
+    assert.equal(thumb.status, 200, JSON.stringify(thumb.body))
+    const { parseImagePromptsDocx } = await import('../lib/docx-parser.js')
+    const thumbs = (await parseImagePromptsDocx(thumb.body.path)).thumbnails.map(t => t.prompt)
+    assert.equal(thumbs.length, 1)
+    for (const t of thumbs) {
+      assert.match(t, /^(Rainy window booth|Rooftop café at dusk), tender atmosphere, /)
+      assert.doesNotMatch(t, /Title p_|chalkboard|menu board|painted across/, t)
+      assert.equal((t.match(/headline "/g) || []).length, 1, t)
+      assert.match(t, /The headline "Café Nights" printed once, large, in big clean legible letters, spelled exactly "Café Nights" letter for letter/)
+    }
   })
 })

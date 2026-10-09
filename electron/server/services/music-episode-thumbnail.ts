@@ -22,7 +22,7 @@ import { resolveSceneImagesDir } from '../generators/scene-image.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { writePromptCompletionManifest } from './prompt-completion.js'
 import { writeSelectedThumbnail } from './upload-overrides.js'
-import { episodeDirFor, isMusicEpisodeDir, readEpisodeDoc } from './music-episode-store.js'
+import { episodeDirFor, isMusicEpisodeDir, readEpisodeDoc, untitledScenePrompts } from './music-episode-store.js'
 import type { ScenePlan } from '../models/types.js'
 
 /** YouTube's thumbnail size. Scene pictures are 1280x720 already; anything else is cover-cropped to it. */
@@ -82,8 +82,9 @@ export async function useSceneAsThumbnail(slug: string, code: string, sceneId: s
 }
 
 /**
- * One thumbnail prompt per chosen scene (default: the first `count` scenes): the scene's own idea,
- * the episode theme and the channel's visual style, then the headline the model must draw.
+ * One thumbnail prompt per chosen scene (default: the first `count` scenes): the scene's own idea
+ * (with no song title), the episode theme and the channel's visual style, then the one headline the
+ * model must draw: once, large, spelled exactly (CJ0027 came out "Morrting Doffee Jamz").
  */
 export function buildMusicThumbnailPrompt(input: { sceneIdea: string; theme?: string; style?: string; headline: string }, enforce: (prompt: string, title: string) => string): string {
   const idea = input.sceneIdea
@@ -97,7 +98,9 @@ export function buildMusicThumbnailPrompt(input: { sceneIdea: string; theme?: st
     input.style?.trim() || '',
     'one strong focal point, rich colour and light, no people',
   ].filter(Boolean).join(', ')
-  return enforce(base, input.headline)
+  const headline = input.headline.trim().replace(/"/g, "'")
+  return enforce(`${base}. The headline "${headline}" printed once, large, in big clean legible letters, `
+    + `spelled exactly "${headline}" letter for letter, no other text`, headline)
 }
 
 /**
@@ -126,9 +129,12 @@ export async function writeMusicThumbnailPrompts(
   const { resolveStyleBible } = await import('../lib/style-bible.js')
   const style = (await resolveStyleBible({ slug, episodeDir: await episodeDirFor(slug, upper) }).catch(() => ({ text: '' }))).text || ''
   const enforce = (prompt: string, headline: string) => enforceThumbnailPromptElements(prompt, { aspectRatio: '16:9', title: headline })
+  // A titled scene's prompt asks for its song's title; the thumbnail carries only the episode headline.
+  const untitled = doc.settings.scenes.title_on_scene ? await untitledScenePrompts(slug, upper, doc) : null
   let markdown = '# Thumbnail Prompts\n\n'
   wanted.forEach((scene, i) => {
-    const prompt = buildMusicThumbnailPrompt({ sceneIdea: scene.prompt, theme: doc.settings.theme, style, headline: title }, enforce)
+    const sceneIdea = untitled?.get(scene.id) ?? scene.prompt
+    const prompt = buildMusicThumbnailPrompt({ sceneIdea, theme: doc.settings.theme, style, headline: title }, enforce)
     markdown += `## Thumbnail ${i + 1}: ${title}\n\n${prompt}\n\n`
   })
   await fs.mkdir(path.dirname(target), { recursive: true })

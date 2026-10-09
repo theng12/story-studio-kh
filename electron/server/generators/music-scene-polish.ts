@@ -15,7 +15,7 @@ import {
   readEpisodeDoc,
   saveEpisodeDoc,
 } from '../services/music-episode-store.js'
-import { sceneTitleClause } from '../services/music-episode.js'
+import { SCENE_TITLE_RULE } from '../services/music-episode.js'
 import type { Job } from '../models/types.js'
 
 export const POLISHED_PROMPT_MAX_CHARS = 2000
@@ -60,7 +60,8 @@ export function buildScenePolishPrompt(input: {
     'Rewrite each prompt so it is vivid, concrete and paintable: one place, its light, weather, season, colours and one focal point.',
     titled
       ? 'Keep the original idea and mood. One or two sentences, under 400 characters. Keep "no people" (no figures). '
-        + `A scene marked "title on picture" must end with: ${sceneTitleClause('<that title>')}. Other scenes keep "no text" (no lettering, no logos).`
+        + `A scene marked "title on picture" shows ${SCENE_TITLE_RULE}: keep the sign it already has, keep the title quoted exactly, never small, distant or decorative. `
+        + 'Other scenes keep "no text" (no lettering, no logos).'
       : 'Keep the original idea and mood. One or two sentences, under 400 characters. Keep "no people, no text" (no figures, no lettering, no logos).',
     input.theme ? `Episode theme: ${input.theme}.` : '',
     input.style ? `Channel visual style (keep consistent across scenes): ${input.style}` : '',

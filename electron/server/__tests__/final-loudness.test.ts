@@ -63,15 +63,23 @@ describe('loudness settings and checks', () => {
     const t = { lufs: -14, true_peak_db: -1 }
     const plan = { gain_db: 10, limit_db: -1.3 }
     const next = correctLevelPlan(plan, t, { lufs: -14.6, true_peak_db: -0.6 })!
-    assert.ok(Math.abs(next.gain_db - 10.6) < 1e-9 && Math.abs(next.limit_db! + 1.7) < 1e-9, JSON.stringify(next))
+    assert.ok(Math.abs(next.gain_db - 10.6) < 1e-9 && Math.abs(next.limit_db! + 1.8) < 1e-9, JSON.stringify(next))
     assert.equal(correctLevelPlan(plan, t, { lufs: -14.1, true_peak_db: -1.2 }), null)
     assert.equal(correctLevelPlan({ gain_db: 10, limit_db: null }, t, { lufs: -15, true_peak_db: -3 }), null)
   })
 
-  test('verification: within 1 LU and under ceiling + 0.5 passes', () => {
+  test('a gain-only pass whose encode lands over the ceiling gets a limiter (1.4.273)', () => {
+    const t = { lufs: -14, true_peak_db: -1 }
+    const next = correctLevelPlan({ gain_db: 2, limit_db: null }, t, { lufs: -14, true_peak_db: -0.6 })!
+    assert.ok(Math.abs(next.gain_db - 2) < 1e-9 && Math.abs(next.limit_db! + 1.8) < 1e-9, JSON.stringify(next))
+  })
+
+  test('verification: within 1 LU and under ceiling + 0.1 passes; CJ0027 -0.6 dBTP fails (1.4.273)', () => {
     const t = { lufs: -14, true_peak_db: -1 }
     assert.equal(finalLoudnessIssue({ lufs: -14.0, true_peak_db: -1.2 }, t), null)
-    assert.equal(finalLoudnessIssue({ lufs: -13.1, true_peak_db: -0.6 }, t), null)
+    assert.equal(finalLoudnessIssue({ lufs: -13.1, true_peak_db: -0.95 }, t), null)
+    assert.match(finalLoudnessIssue({ lufs: -14.0, true_peak_db: -0.6 }, t)!, /above the -1 dBTP ceiling/)
+    assert.match(finalLoudnessIssue({ lufs: -14.0, true_peak_db: -0.85 }, t)!, /above the -1 dBTP ceiling/)
     assert.match(finalLoudnessIssue({ lufs: -24.2, true_peak_db: -11.4 }, t)!, /more than 1 LU/)
     assert.match(finalLoudnessIssue({ lufs: -14, true_peak_db: -0.3 }, t)!, /above the -1 dBTP ceiling/)
     assert.match(finalLoudnessIssue({ lufs: null, true_peak_db: null }, t)!, /could not be measured/)
@@ -109,4 +117,29 @@ describe('a quiet narration with music comes out at -14 LUFS', () => {
       assert.ok(job.output_lines.some((l: string) => /^Loudness: the mix measured -\d/.test(l)))
     })
   }
+})
+
+describe('the true peak holds once encoded (1.4.273)', () => {
+  // CJ0027: -14.0 LUFS but -0.6 dBTP against -1. A dense mix near -15 LUFS with sharp 5 kHz bursts reproduces it:
+  // the 1.4.270 levelling left the WAV at -1.2 dBTP and the AAC 192k encode lifted it to -0.6.
+  test('a peaky mix encoded like the final (AAC 192k) is at or under -1.0 dBTP (real ffmpeg)', async () => {
+    const video = await import('../generators/video.js')
+    const narration = path.join(dir, 'peaky.wav')
+    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'anoisesrc=c=pink:d=10:r=44100:seed=3',
+      '-f', 'lavfi', '-i', "aevalsrc='if(lt(mod(t,0.25),0.002),0.9*sin(2*PI*5000*t),0)':d=10:s=44100",
+      '-filter_complex', '[0]volume=-2dB[n];[n][1]amix=inputs=2:normalize=0,aformat=channel_layouts=stereo', '-c:a', 'pcm_s16le', narration])
+    const job = { output_lines: [] as string[] } as any
+    const out = await video.premixAudio({
+      narrationPath: narration, narrationDuration: 10, narrationVolume: 1,
+      targetDuration: 10, tempDir: dir, job, loudness: { lufs: -14, true_peak_db: -1 }, format: 'mp4',
+    })
+    const encoded = path.join(dir, 'peaky-final.m4a')
+    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', out, '-c:a', 'aac', '-b:a', '192k', encoded])
+    const { stderr } = spawnSync('ffmpeg', ['-hide_banner', '-nostdin', '-i', encoded, '-af', 'ebur128=peak=true:framelog=verbose', '-f', 'null', '-'], { encoding: 'utf8' })
+    const m = parseEbur128Summary(stderr)
+    console.log(`encoded peaky mix: ${m.lufs} LUFS, peak ${m.true_peak_db} dBTP | ${job.output_lines.filter((l: string) => l.startsWith('Loudness:')).join(' | ')}`)
+    assert.ok(m.true_peak_db !== null && m.true_peak_db <= -1.0, `true peak ${m.true_peak_db} dBTP`)
+    assert.ok(m.lufs !== null && Math.abs(m.lufs + 14) <= 1, `integrated ${m.lufs} LUFS`)
+    assert.ok(job.output_lines.some((l: string) => /once encoded; correcting/.test(l)), 'the encode was measured and corrected')
+  })
 })

@@ -146,7 +146,7 @@
           <p class="mp-hint">Scene changes always land on a song boundary.</p>
           <label v-if="e.scenes.mode === 'per-song'" class="mp-check" style="margin-top: 8px">
             <input v-model="e.scenes.title_on_scene" type="checkbox"> Song title on each picture
-            <span class="mp-hint">Each picture shows its song's title, drawn into the scene (a sign, a window, a menu card). Use Qwen Image; FLUX Klein spells text poorly.</span>
+            <span class="mp-hint">Each picture shows its song's title on one large sign in the foreground (a chalkboard, a menu board or a big window). Use Qwen Image; FLUX Klein spells text poorly.</span>
           </label>
 
           <div class="mp-grid3" style="margin-top: 12px">

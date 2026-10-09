@@ -48,20 +48,26 @@ export function levelFilter(plan: LevelPlan): string {
 }
 
 /**
- * After a limited pass: the next plan when the result missed (limiting takes some loudness away, and
- * the return to 44.1 kHz can lift a peak), or null when it is within 0.2 LU and under the ceiling.
+ * After a pass, measured as it ships (the final AAC/Opus encode, which lifts true peaks by up to ~1 dB):
+ * the next plan when the peak is over the ceiling (a gain-only plan gets a limiter; a limited one a lower
+ * limit, with 0.1 dB to spare) or a limited pass lost loudness; null when within 0.2 LU and under the
+ * ceiling. A gain-only plan that is under the ceiling already landed on target.
  */
 export function correctLevelPlan(plan: LevelPlan, target: LoudnessTarget, got: LoudnessMeasurement): LevelPlan | null {
-  if (plan.limit_db === null || got.lufs === null || got.true_peak_db === null) return null
+  if (got.lufs === null || got.true_peak_db === null) return null
   const over = got.true_peak_db - target.true_peak_db
-  if (Math.abs(got.lufs - target.lufs) <= 0.2 && over <= 0) return null
-  return { gain_db: plan.gain_db + target.lufs - got.lufs, limit_db: plan.limit_db - Math.max(0, over) }
+  if (over <= 0 && (plan.limit_db === null || Math.abs(got.lufs - target.lufs) <= 0.2)) return null
+  const limit = plan.limit_db ?? target.true_peak_db - 0.3
+  return { gain_db: plan.gain_db + target.lufs - got.lufs, limit_db: over > 0 ? limit - over - 0.1 : limit }
 }
 
-/** Why a finished video fails the loudness check: more than 1 LU off target, or the peak over ceiling + 0.5. */
+/** Over the ceiling by more than this fails the final check (1.4.273; was 0.5, which let -0.6 dBTP through). */
+export const TRUE_PEAK_TOLERANCE_DB = 0.1
+
+/** Why a finished video fails the loudness check: more than 1 LU off target, or the peak over ceiling + 0.1. */
 export function finalLoudnessIssue(m: LoudnessMeasurement, target: LoudnessTarget): string | null {
   if (m.lufs === null || m.true_peak_db === null) return 'its loudness could not be measured'
   if (Math.abs(m.lufs - target.lufs) > 1) return `${m.lufs.toFixed(1)} LUFS is more than 1 LU from the ${target.lufs} LUFS target`
-  if (m.true_peak_db > target.true_peak_db + 0.5) return `its peak of ${m.true_peak_db.toFixed(1)} dBTP is above the ${target.true_peak_db} dBTP ceiling`
+  if (m.true_peak_db > target.true_peak_db + TRUE_PEAK_TOLERANCE_DB) return `its peak of ${m.true_peak_db.toFixed(1)} dBTP is above the ${target.true_peak_db} dBTP ceiling`
   return null
 }

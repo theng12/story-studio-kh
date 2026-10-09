@@ -2523,7 +2523,7 @@ export async function generateVideo(job: Job): Promise<void> {
         narrationVolume: req.narration_volume ?? 1.0,
         musicFilePath, musicConfig: req.music,
         backgroundNoise: req.background_noise,
-        targetDuration: totalRenderDuration, tempDir, job, loudness,
+        targetDuration: totalRenderDuration, tempDir, job, loudness, format,
       })
 
       // 4. Final composition + rename, mirroring the standard flow's
@@ -3437,7 +3437,7 @@ export async function generateVideo(job: Job): Promise<void> {
       narrationDelaySec: narrationLeadInSec,
       musicFilePath, musicConfig: req.music,
       backgroundNoise: req.background_noise,
-      targetDuration: totalRenderDuration, tempDir, job, loudness,
+      targetDuration: totalRenderDuration, tempDir, job, loudness, format,
     })
 
     // 12. Run final composition (simple: concat video + premixed audio + logo/effects)
@@ -5504,6 +5504,8 @@ interface PremixAudioOpts {
   job: Job
   /** The level the whole mix is brought to (lib/final-loudness.ts). */
   loudness: LoudnessTarget
+  /** The final container: the level is checked on the audio as that encode ships it (AAC, Opus for webm). */
+  format?: string
 }
 
 export async function premixAudio(opts: PremixAudioOpts): Promise<string> {
@@ -5637,16 +5639,26 @@ export async function premixAudio(opts: PremixAudioOpts): Promise<string> {
       + (plan.limit_db === null
         ? `by one volume change of ${gain(plan.gain_db)}.`
         : `with ${gain(plan.gain_db)} and a peak limiter (one volume change alone would push the peaks over the ceiling).`))
-    await write(`${levelFilter(plan)},`)
-    // Limiting takes a little loudness away: measure the result and correct, at most twice.
-    for (let pass = 0; plan.limit_db !== null && pass < 2; pass++) {
-      const got = await measureLoudness(outputPath)
-      const next = correctLevelPlan(plan, loudness, got)
-      if (!next) break
-      job.output_lines.push(`Loudness: came out at ${got.lufs!.toFixed(1)} LUFS, peak ${got.true_peak_db!.toFixed(1)} dBTP; correcting to ${gain(next.gain_db)}.`)
-      plan = next
+    // Measured as it ships: the final AAC (Opus for webm) encode lifts true peaks by up to ~1 dB, so a
+    // WAV limited to -1.3 dBTP came out at -0.6 dBTP (CJ0027, 1.4.273). Correct until it holds, at most 3 times.
+    const check = path.join(tempDir, opts.format === 'webm' ? 'premix_check.webm' : 'premix_check.m4a')
+    const codec = opts.format === 'webm' ? ['-c:a', 'libopus'] : ['-c:a', 'aac', '-b:a', '192k']  // = buildEncoderArgs
+    for (let pass = 0; ; pass++) {
       await write(`${levelFilter(plan)},`)
+      await runFfmpeg(['-y', '-i', outputPath, ...codec, check])
+      const got = await measureLoudness(check)
+      const next = correctLevelPlan(plan, loudness, got)
+      if (!next || pass === 3) {
+        const issue = finalLoudnessIssue(got, loudness)
+        // Rendering the video would only fail the same check at the end.
+        if (issue) throw nonRetryable(new Error(`The audio mix could not be brought to its target level: ${issue}. Send the job log to support.`))
+        break
+      }
+      job.output_lines.push(`Loudness: came out at ${got.lufs!.toFixed(1)} LUFS, peak ${got.true_peak_db!.toFixed(1)} dBTP once encoded; correcting to ${gain(next.gain_db)}`
+        + `${next.limit_db === null ? '' : ` with a ${next.limit_db.toFixed(1)} dBTP limiter`}.`)
+      plan = next
     }
+    await fs.rm(check, { force: true })
   }
 
   // Validate the premixed WAV before handing off to the final encode. A

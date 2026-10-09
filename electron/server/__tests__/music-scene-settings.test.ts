@@ -11,8 +11,11 @@ import {
   assignSceneSettings,
   buildScenePrompt,
   normalizeEpisodeSettings,
+  sceneTitleClause,
   settingsFromEpisodeDefaults,
 } from '../services/music-episode.js'
+import { buildMusicThumbnailPrompt } from '../services/music-episode-thumbnail.js'
+import { enforceThumbnailPromptElements } from '../generators/image-prompts.js'
 import { MusicFormatPatchSchema, SceneSettingsSchema } from '../contracts/song-formula.js'
 import { buildScenePolishPrompt } from '../generators/music-scene-polish.js'
 
@@ -29,13 +32,15 @@ describe('song title on each picture', () => {
     )
   })
 
-  test('on: asks for the exact title as legible lettering, drops "no text", keeps "no people"', () => {
+  test('on: one large sign in the foreground with the exact title in big clean letters; drops "no text", keeps "no people"', () => {
     const p = buildScenePrompt({ sceneIdea: 'A rainy window booth', title: 'Velvet Hours', theme: 'Cosy', titleOnScene: true })
-    assert.match(p, /no people/)
+    assert.match(p, /no people, a large (black chalkboard sign|menu board|window) [^,]*foreground, the title [^:]*in big clean legible [a-z ]*letters: "Velvet Hours"/)
     assert.doesNotMatch(p, /no text/)
-    assert.match(p, /the title "Velvet Hours" written once as clean, legible lettering/)
-    assert.match(p, /chalkboard sign, window lettering or a menu card/)
-    assert.match(p, /spelled exactly "Velvet Hours", no other text$/)
+    assert.match(p, /spelled exactly "Velvet Hours" letter for letter, no other text$/)
+    assert.equal(sceneTitleClause('Velvet Hours'), sceneTitleClause('Velvet Hours'), 'the same title always gets the same sign')
+    const signs = new Set(Array.from({ length: 30 }, (_, i) => sceneTitleClause(`Song ${i}`).split(':')[0]))
+    assert.equal(signs.size, 3, 'chalkboard, menu board and window lettering all appear')
+    assert.ok([...signs].every(sign => /^a large .*foreground.*big clean legible/.test(sign)), [...signs].join(' | '))
   })
 
   test('the option is read from the formula and kept per episode', () => {
@@ -51,9 +56,22 @@ describe('song title on each picture', () => {
     assert.doesNotMatch(titled, /Keep "no people, no text"/)
     assert.match(titled, /Keep "no people"/)
     assert.match(titled, /- ms-a \[Velvet Hours\] \(title on picture: "Velvet Hours"\): A booth/)
-    assert.match(titled, /legible lettering/)
+    assert.match(titled, /one large sign or board in the foreground \(a black chalkboard sign, a menu board or a big window\) carrying the exact title in big clean legible letters, spelled letter for letter/)
     const plain = buildScenePolishPrompt({ theme: '', style: '', never: [], scenes: [{ id: 'ms-a', prompt: 'A booth', songs: ['Velvet Hours'] }] })
     assert.match(plain, /Keep "no people, no text"/)
+  })
+})
+
+describe('music thumbnail headline (1.4.273)', () => {
+  test('the headline is asked for once, large and spelled exactly; the default title clause is not added again', () => {
+    const p = buildMusicThumbnailPrompt(
+      { sceneIdea: 'Kyoto kissaten, warm atmosphere, Morning Coffee mood, no people, no text', theme: 'Morning Coffee', style: 'film grain', headline: 'Morning Coffee Jazz' },
+      (prompt, title) => enforceThumbnailPromptElements(prompt, { aspectRatio: '16:9', title }),
+    )
+    assert.match(p, /^Kyoto kissaten, warm atmosphere, Morning Coffee mood, film grain, one strong focal point, rich colour and light, no people\. /)
+    assert.match(p, /The headline "Morning Coffee Jazz" printed once, large, in big clean legible letters, spelled exactly "Morning Coffee Jazz" letter for letter, no other text/)
+    assert.doesNotMatch(p, /Render the exact/)
+    assert.doesNotMatch(p, /no text\b(?!.*no other text)/)
   })
 })
 

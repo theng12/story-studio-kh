@@ -536,10 +536,28 @@ export function assignSceneSettings(sceneIds: readonly string[], list: readonly 
   return slot.map(k => list[k]!)
 }
 
-/** The words a title-on-scene prompt adds (also told to Polish Scene Prompts). */
+/**
+ * Where a title-on-scene picture carries its song title: always one large board or sign in the
+ * foreground with big clean letters (CJ0027, 1.4.273: the old "lettering that suits the picture"
+ * came out misspelled about half the time; "a large black chalkboard sign standing in the
+ * foreground … big clean legible white chalk letters" went 2 for 2). Picked by the title, so a
+ * picture's prompt never changes on its own.
+ */
+const TITLE_SIGNS = [
+  'a large black chalkboard sign standing in the foreground, the title in big clean legible white chalk letters',
+  'a large menu board standing in the foreground, the title in big clean legible bold letters',
+  'a large window filling the foreground, the title painted across the glass in big clean legible gold letters',
+]
+
+/** Told to Polish Scene Prompts, so a polished titled prompt keeps the same kind of sign. */
+export const SCENE_TITLE_RULE = 'one large sign or board in the foreground (a black chalkboard sign, a menu board or a big window) '
+  + 'carrying the exact title in big clean legible letters, spelled letter for letter, no other text'
+
+/** The words a title-on-scene prompt adds. */
 export function sceneTitleClause(title: string): string {
   const t = title.trim().replace(/"/g, "'")
-  return `the title "${t}" written once as clean, legible lettering that suits the picture (a chalkboard sign, window lettering or a menu card), spelled exactly "${t}", no other text`
+  const sign = TITLE_SIGNS[createHash('sha256').update(t).digest().readUInt32BE(0) % TITLE_SIGNS.length]!
+  return `${sign}: "${t}", spelled exactly "${t}" letter for letter, no other text`
 }
 
 /**
