@@ -12,7 +12,8 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { useTempDataDir } from './_helpers.js'
-import { correctLevelPlan, finalLoudnessIssue, levelFilter, levelPlan, loudnessTarget, loudnessTolerance, withinToleranceNote } from '../lib/final-loudness.js'
+import { correctLevelPlan, finalLoudnessIssue, levelFilter, levelPlan, levelToTarget, loudnessMiss, loudnessTarget, loudnessTolerance, withinToleranceNote, type LevelPlan } from '../lib/final-loudness.js'
+import type { LoudnessMeasurement } from '../generators/music-episode-build.js'
 import { flattenVideoAssemblyBundle } from '../routes/pipeline.js'
 import { parseEbur128Summary } from '../generators/music-episode-build.js'
 
@@ -75,6 +76,22 @@ describe('loudness settings and checks', () => {
     assert.ok(Math.abs(next.gain_db - 2) < 1e-9 && Math.abs(next.limit_db! + 1.8) < 1e-9, JSON.stringify(next))
   })
 
+  test('the limit never drops more than 3 dB under the ceiling, and an unchanged plan stops (1.4.275)', () => {
+    const t = { lufs: -14, true_peak_db: -1 }
+    // EP0002's third pass: limited at -4.2, encoded at +2.8 → 1.4.273 went to -8.1 dBTP and the mix fell to -16.0 LUFS.
+    const next = correctLevelPlan({ gain_db: 10, limit_db: -4.2 }, t, { lufs: -14.1, true_peak_db: 2.8 })!
+    assert.equal(next.limit_db, -4)
+    assert.equal(correctLevelPlan({ gain_db: 10, limit_db: -4 }, t, { lufs: -14, true_peak_db: 2.8 }), null)
+  })
+
+  test('how far a reading misses, in allowances', () => {
+    const t = loudnessTarget({})
+    assert.equal(loudnessMiss({ lufs: -14, true_peak_db: -2 }, t), 0)
+    assert.ok(loudnessMiss({ lufs: -14.3, true_peak_db: -0.8 }, t) <= 1)
+    assert.ok(Math.abs(loudnessMiss({ lufs: -16, true_peak_db: -1 }, t) - 2 / 1.4) < 1e-9)
+    assert.equal(loudnessMiss({ lufs: null, true_peak_db: null }, t), Infinity)
+  })
+
   test('verification allows 10% by default (owner rule 2026-10-10): 1.4 LU at -14, peak ceiling + 0.8 dB', () => {
     const t = loudnessTarget({})
     assert.deepEqual(loudnessTolerance(t), { lu: 1.4, peak_db: 0.8 })
@@ -102,6 +119,62 @@ describe('loudness settings and checks', () => {
     assert.equal(flat.loudness_tolerance_pct, undefined)
     assert.equal(loudnessTarget(flat).tolerance_pct, 10)
     assert.equal(loudnessTarget(flattenVideoAssemblyBundle({ fallback: { export: { loudness_tolerance_pct: 20 } } }, 'EP0001', 'x')).tolerance_pct, 20)
+  })
+})
+
+describe('the correction keeps the closest attempt (1.4.275)', () => {
+  // Night Atlas Nature EP0002 on 1.4.273: +1.5 → -0.8 → +2.8 dBTP, then -16.0 LUFS and an error, though its
+  // second attempt (-14.3 LUFS, -0.8 dBTP) was within the allowed 10%.
+  const ep0002: LoudnessMeasurement[] = [
+    { lufs: -13.9, true_peak_db: 1.5 }, { lufs: -14.3, true_peak_db: -0.8 }, { lufs: -14.1, true_peak_db: 2.8 }, { lufs: -16.0, true_peak_db: -1.5 },
+  ]
+  const run = async (target: ReturnType<typeof loudnessTarget>, readings: LoudnessMeasurement[]) => {
+    const tried: LevelPlan[] = []
+    const kept: number[] = []
+    const r = await levelToTarget({ gain_db: 10, limit_db: -1.3 }, target,
+      async (plan, n) => { tried.push(plan); return readings[n - 1] },
+      async () => { kept.push(tried.length) })
+    return { ...r, tried, kept }
+  }
+
+  test('stops at the first attempt within the allowance: EP0002 passes with attempt 2', async () => {
+    const r = await run(loudnessTarget({}), ep0002)
+    assert.equal(r.attempts.length, 2)
+    assert.equal(r.best, r.attempts[1])
+    assert.equal(r.issue, null)
+    assert.deepEqual(r.kept, [1, 2])
+    assert.ok(Math.abs(r.tried[1].limit_db! + 3.9) < 1e-9, JSON.stringify(r.tried))
+  })
+
+  test('History EP0002 (1.4.274): stops at attempt 3, within the allowance, and measures nothing after it', async () => {
+    const readings = [{ lufs: -14.0, true_peak_db: 0.1 }, { lufs: -14.2, true_peak_db: 1.5 }, { lufs: -14.6, true_peak_db: -2.3 },
+      { lufs: null, true_peak_db: null }]
+    const r = await run(loudnessTarget({}), readings)
+    assert.equal(r.tried.length, 3)
+    assert.equal(r.best, r.attempts[2])
+    assert.equal(r.issue, null)
+  })
+
+  test('a later pass that cannot be measured falls back to the closest earlier attempt', async () => {
+    // 1.4.274 errored "its loudness could not be measured" on such a pass. The unmeasured one is never kept.
+    const readings = [{ lufs: -14.0, true_peak_db: 0.1 }, { lufs: null, true_peak_db: null }, { lufs: -14.6, true_peak_db: -2.3 }]
+    const r = await run(loudnessTarget({}), readings)
+    assert.equal(r.tried.length, 2)
+    assert.equal(r.best, r.attempts[0])
+    assert.deepEqual(r.kept, [1])
+    assert.match(r.issue!, /peak of 0\.1 dBTP is more than the allowed 10%/)
+    assert.doesNotMatch(r.issue!, /could not be measured/)
+  })
+
+  test('when no attempt is within it, ends on the closest one and still fails', async () => {
+    // 5%: 0.7 LU / +0.4 dB. Attempt 2 misses by 1.0 LU, the others by more; attempt 3 is worse again.
+    const readings = [ep0002[0], { lufs: -15.0, true_peak_db: -0.6 }, ep0002[2], ep0002[3]]
+    const r = await run(loudnessTarget({ loudness_tolerance_pct: 5 }), readings)
+    assert.equal(r.attempts.length, 4)
+    assert.equal(r.best, r.attempts[1])
+    assert.deepEqual(r.kept, [1, 2])  // attempts 3 and 4 never replace the kept file
+    assert.match(r.issue!, /-15\.0 LUFS is more than the allowed 5%/)
+    assert.ok(r.tried.every(p => p.limit_db! >= -4), JSON.stringify(r.tried))
   })
 })
 
@@ -148,17 +221,18 @@ describe('the true peak holds once encoded (1.4.273)', () => {
       '-f', 'lavfi', '-i', "aevalsrc='if(lt(mod(t,0.25),0.002),0.9*sin(2*PI*5000*t),0)':d=10:s=44100",
       '-filter_complex', '[0]volume=-2dB[n];[n][1]amix=inputs=2:normalize=0,aformat=channel_layouts=stereo', '-c:a', 'pcm_s16le', narration])
     const job = { output_lines: [] as string[] } as any
+    const target = loudnessTarget({ loudness_tolerance_pct: 3 })
     const out = await video.premixAudio({
       narrationPath: narration, narrationDuration: 10, narrationVolume: 1,
-      targetDuration: 10, tempDir: dir, job, loudness: { lufs: -14, true_peak_db: -1 }, format: 'mp4',
+      // 3%: the first encode (-14.6 LUFS, -0.4 dBTP) would already pass the default 10%, which ends the correction.
+      targetDuration: 10, tempDir: dir, job, loudness: target, format: 'mp4',
     })
     const encoded = path.join(dir, 'peaky-final.m4a')
     execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', out, '-c:a', 'aac', '-b:a', '192k', encoded])
     const { stderr } = spawnSync('ffmpeg', ['-hide_banner', '-nostdin', '-i', encoded, '-af', 'ebur128=peak=true:framelog=verbose', '-f', 'null', '-'], { encoding: 'utf8' })
     const m = parseEbur128Summary(stderr)
     console.log(`encoded peaky mix: ${m.lufs} LUFS, peak ${m.true_peak_db} dBTP | ${job.output_lines.filter((l: string) => l.startsWith('Loudness:')).join(' | ')}`)
-    assert.ok(m.true_peak_db !== null && m.true_peak_db <= -1.0, `true peak ${m.true_peak_db} dBTP`)
-    assert.ok(m.lufs !== null && Math.abs(m.lufs + 14) <= 1, `integrated ${m.lufs} LUFS`)
-    assert.ok(job.output_lines.some((l: string) => /once encoded; correcting/.test(l)), 'the encode was measured and corrected')
+    assert.equal(finalLoudnessIssue(m, target), null)
+    assert.ok(job.output_lines.some((l: string) => /^Loudness: attempt 2 \(corrected to .* came out at .* once encoded\.$/.test(l)), 'the encode was measured and corrected')
   })
 })

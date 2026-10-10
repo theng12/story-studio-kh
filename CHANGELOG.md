@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.275 — 2026-10-10
+
+- Video Assembly no longer fails a mix that it had already brought within the allowed difference. Night Atlas Nature EP0002's second try came out at -14.3 LUFS with a peak of -0.8 dBTP, which passes the 10% allowance. Story kept correcting anyway, the peaks jumped to +2.8 dBTP, the limiter went down to -8.1 dBTP, and the mix ended at -16.0 LUFS and failed. History EP0002 also failed: its third try (-14.6 LUFS, -2.3 dBTP) passed, but Story ran a fourth try that could not be measured and errored the job. Story now stops at the first try that is within the allowance. A later try that cannot be measured no longer fails the job: Story judges the closest earlier try instead. If no try is within it, Story keeps the try that came closest and never ends on a worse one. It still has at most 4 tries.
+- The peak limiter now goes no more than 3 dB under the ceiling (-4 dBTP for a -1 dBTP ceiling). On busy, bright sound such as nature ambience, the YouTube audio encode moves the peaks around no matter where the limiter sits. Pushing the limiter lower only made the sound quieter.
+- The job log shows every try, for example "Loudness: attempt 2 (corrected to +9.6 dB with a -3.9 dBTP limiter) came out at -14.3 LUFS, peak -0.8 dBTP once encoded." When the kept try is not the last one, the log says "Loudness: kept attempt 2". If no try is within the allowance, the error lists every try's numbers.
+
 ## v1.4.274 — 2026-10-10
 
 - A finished video may now be up to 10% off its sound level and still pass (owner rule 2026-10-10: "Slight difference in loudness is accepted. We allow 10% difference."). At -14 LUFS that is 1.4 LU either way, and the loudest peak may go up to 0.8 dB over the ceiling (-0.2 dBTP for a -1 dBTP ceiling). Before, a final more than 1 LU off, or more than 0.1 dB over the ceiling, failed Video Assembly and blocked the upload. A final at -14.9 LUFS with a peak of -0.4 dBTP now passes; one at -16 LUFS, or with a peak of +0.2 dBTP, still fails with the reason.

@@ -105,8 +105,8 @@ import {
 import { listSceneEffectLibrary } from '../services/style-effect-loader.js'
 import { requireJobCompletion, declareJobDegraded } from '../services/job-completion.js'
 import { nonRetryable } from '../services/job-retry-policy.js'
-import { EBUR128_FILTER, measureLoudness, parseEbur128Summary } from './music-episode-build.js'
-import { correctLevelPlan, finalLoudnessIssue, levelFilter, levelPlan, loudnessTarget, withinToleranceNote, type LoudnessTarget } from '../lib/final-loudness.js'
+import { EBUR128_FILTER, measureLoudness, parseEbur128Summary, type LoudnessMeasurement } from './music-episode-build.js'
+import { finalLoudnessIssue, levelFilter, levelPlan, levelToTarget, loudnessTarget, withinToleranceNote, type LoudnessTarget } from '../lib/final-loudness.js'
 import {
   assertContextualCueReadiness,
   normalizeContextualCueConfig,
@@ -5630,7 +5630,7 @@ export async function premixAudio(opts: PremixAudioOpts): Promise<string> {
     '-filter_complex', `${graph};\n[mix]${level}aresample=44100,aformat=sample_fmts=s16:channel_layouts=stereo:sample_rates=44100[aout]`,
     '-map', '[aout]', '-c:a', 'pcm_s16le', '-t', T, outputPath,  // uncompressed WAV for maximum compatibility
   ])
-  let plan = levelPlan(loudness, measured)
+  const plan = levelPlan(loudness, measured)
   if (!plan) {
     await write('')
     job.output_lines.push('Loudness: the mix is silent or could not be measured, so its level was left as it is.')
@@ -5642,25 +5642,29 @@ export async function premixAudio(opts: PremixAudioOpts): Promise<string> {
         ? `by one volume change of ${gain(plan.gain_db)}.`
         : `with ${gain(plan.gain_db)} and a peak limiter (one volume change alone would push the peaks over the ceiling).`))
     // Measured as it ships: the final AAC (Opus for webm) encode lifts true peaks by up to ~1 dB, so a
-    // WAV limited to -1.3 dBTP came out at -0.6 dBTP (CJ0027, 1.4.273). Correct until it holds, at most 3 times.
+    // WAV limited to -1.3 dBTP came out at -0.6 dBTP (CJ0027, 1.4.273). Correct until within the allowance
+    // (at most 4 attempts) and keep the closest attempt's WAV (1.4.275).
     const check = path.join(tempDir, opts.format === 'webm' ? 'premix_check.webm' : 'premix_check.m4a')
+    const kept = path.join(tempDir, 'premixed_audio.kept.wav')
     const codec = opts.format === 'webm' ? ['-c:a', 'libopus'] : ['-c:a', 'aac', '-b:a', '192k']  // = buildEncoderArgs
-    for (let pass = 0; ; pass++) {
-      await write(`${levelFilter(plan)},`)
+    const said = (m: LoudnessMeasurement) => `${m.lufs?.toFixed(1) ?? '?'} LUFS, peak ${m.true_peak_db?.toFixed(1) ?? '?'} dBTP`
+    const { attempts, best, issue } = await levelToTarget(plan, loudness, async (p, n) => {
+      await write(`${levelFilter(p)},`)
       await runFfmpeg(['-y', '-i', outputPath, ...codec, check])
       const got = await measureLoudness(check)
-      const next = correctLevelPlan(plan, loudness, got)
-      if (!next || pass === 3) {
-        const issue = finalLoudnessIssue(got, loudness)
-        // Rendering the video would only fail the same check at the end.
-        if (issue) throw nonRetryable(new Error(`The audio mix could not be brought to its target level: ${issue}. Send the job log to support.`))
-        break
-      }
-      job.output_lines.push(`Loudness: came out at ${got.lufs!.toFixed(1)} LUFS, peak ${got.true_peak_db!.toFixed(1)} dBTP once encoded; correcting to ${gain(next.gain_db)}`
-        + `${next.limit_db === null ? '' : ` with a ${next.limit_db.toFixed(1)} dBTP limiter`}.`)
-      plan = next
-    }
+      job.output_lines.push(`Loudness: attempt ${n}${n === 1 ? '' : ` (corrected to ${gain(p.gain_db)}${p.limit_db === null ? '' : ` with a ${p.limit_db.toFixed(1)} dBTP limiter`})`}`
+        + ` came out at ${said(got)} once encoded.`)
+      return got
+    }, () => fs.rename(outputPath, kept))
+    await fs.rename(kept, outputPath)
     await fs.rm(check, { force: true })
+    const n = attempts.indexOf(best) + 1
+    // Rendering the video would only fail the same check at the end.
+    if (issue) {
+      throw nonRetryable(new Error(`The audio mix could not be brought to its target level: ${issue} (closest of ${attempts.length} attempts, `
+        + `attempt ${n}; all: ${attempts.map(a => said(a.got)).join(' / ')}). Send the job log to support.`))
+    }
+    if (n < attempts.length) job.output_lines.push(`Loudness: kept attempt ${n} (${said(best.got)}), the closest to the target.`)
   }
 
   // Validate the premixed WAV before handing off to the final encode. A

@@ -56,14 +56,51 @@ export function levelFilter(plan: LevelPlan): string {
  * After a pass, measured as it ships (the final AAC/Opus encode, which lifts true peaks by up to ~1 dB):
  * the next plan when the peak is over the ceiling (a gain-only plan gets a limiter; a limited one a lower
  * limit, with 0.1 dB to spare) or a limited pass lost loudness; null when within 0.2 LU and under the
- * ceiling. A gain-only plan that is under the ceiling already landed on target.
+ * ceiling, or when nothing would change. A gain-only plan that is under the ceiling already landed on target.
+ *
+ * The limit never goes more than 3 dB under the ceiling (1.4.275). On dense, bright material (Night Atlas
+ * Nature EP0002) the encode's overshoot is not set by the limiter: limits of -1.3 / -3.9 / -4.2 dBTP came out
+ * at +1.5 / -0.8 / +2.8, so the next step went to -8.1 and the mix fell to -16.0 LUFS.
  */
 export function correctLevelPlan(plan: LevelPlan, target: LoudnessTarget, got: LoudnessMeasurement): LevelPlan | null {
   if (got.lufs === null || got.true_peak_db === null) return null
   const over = got.true_peak_db - target.true_peak_db
   if (over <= 0 && (plan.limit_db === null || Math.abs(got.lufs - target.lufs) <= 0.2)) return null
   const limit = plan.limit_db ?? target.true_peak_db - 0.3
-  return { gain_db: plan.gain_db + target.lufs - got.lufs, limit_db: over > 0 ? limit - over - 0.1 : limit }
+  const next = { gain_db: plan.gain_db + target.lufs - got.lufs, limit_db: over > 0 ? Math.max(limit - over - 0.1, target.true_peak_db - 3) : limit }
+  // The encode is deterministic: the same plan again would only measure the same.
+  return Math.abs(next.gain_db - plan.gain_db) < 0.05 && next.limit_db === plan.limit_db ? null : next
+}
+
+/** How far a measurement misses, in allowances (loudnessTolerance): 0 on target, up to 1 within it, Infinity unmeasured. */
+export function loudnessMiss(m: LoudnessMeasurement, target: LoudnessTarget): number {
+  if (m.lufs === null || m.true_peak_db === null) return Infinity
+  const tol = loudnessTolerance(target)
+  return Math.max(Math.abs(m.lufs - target.lufs) / tol.lu, (m.true_peak_db - target.true_peak_db) / tol.peak_db, 0)
+}
+
+export interface LevelAttempt { plan: LevelPlan; got: LoudnessMeasurement }
+
+/**
+ * Level, measure as it ships, correct: at most 4 attempts, stopping at the first one within the allowance
+ * (1.4.275: no chasing an exact hit). Ends on the attempt that came closest, never a worse later one; `keep`
+ * runs whenever an attempt becomes the closest so far, so the caller can keep that attempt's file.
+ * `issue` is finalLoudnessIssue of that closest attempt (null = it passes).
+ */
+export async function levelToTarget(
+  first: LevelPlan, target: LoudnessTarget,
+  attempt: (plan: LevelPlan, n: number) => Promise<LoudnessMeasurement>,
+  keep: () => Promise<void>,
+): Promise<{ attempts: LevelAttempt[]; best: LevelAttempt; issue: string | null }> {
+  const attempts: LevelAttempt[] = []
+  let best: LevelAttempt | undefined
+  for (let plan: LevelPlan | null = first; plan && attempts.length < 4;) {
+    const a: LevelAttempt = { plan, got: await attempt(plan, attempts.length + 1) }
+    attempts.push(a)
+    if (!best || loudnessMiss(a.got, target) < loudnessMiss(best.got, target)) { best = a; await keep() }
+    plan = finalLoudnessIssue(a.got, target) ? correctLevelPlan(plan, target, a.got) : null
+  }
+  return { attempts, best: best!, issue: finalLoudnessIssue(best!.got, target) }
 }
 
 /**
