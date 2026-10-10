@@ -38,6 +38,7 @@
 
 import { createHash } from 'crypto'
 import type { SrtCue } from './subtitle-builder.js'
+import { scenePlanLeadInShiftSec } from './intro-lead-in.js'
 
 /** Millisecond precision — the timeline's own resolution. */
 const ms = (n: number): number => Math.round((Number(n) || 0) * 1000)
@@ -148,6 +149,66 @@ export function compareTimeline(
 }
 
 /**
+ * 1.4.276 — the merged narration a plan was timed against.
+ *
+ * The caption timeline is not the only input that can move under a plan.
+ * DL0004: Chapter 01 was re-narrated and the audio re-merged after Scene Plan
+ * had run (6321 s → 6377 s). The stitched captions were not re-made, so the
+ * caption stamp still matched and the plan read as current while every later
+ * scene trailed the narration by ~56 s. The merged track's length is the cheap
+ * fact that cannot be fooled by that: it is recorded in the plan and compared.
+ *
+ * Same asymmetry as `compareTimeline`: a plan with no recorded length (built
+ * before 1.4.276, or before any merge existed) is "not known to be stale".
+ */
+export const MERGED_AUDIO_TOLERANCE_SEC = 0.5
+
+export function compareMergedAudio(
+  planStamp: { duration_sec?: number } | null | undefined,
+  currentSec: number | null | undefined,
+  /** Seconds of music lead-in the renderer will shift the plan by (1.4.272). */
+  leadInShiftSec = 0,
+): TimelineDrift {
+  const planned = Number(planStamp?.duration_sec)
+  const now = Number(currentSec) - (Number(leadInShiftSec) || 0)
+  if (!(planned > 0) || !(now > 0) || Math.abs(now - planned) < MERGED_AUDIO_TOLERANCE_SEC) {
+    return { stale: false, drift_sec: null, reason: '' }
+  }
+  const delta = Math.round((now - planned) * 10) / 10
+  return {
+    stale: true,
+    drift_sec: null,
+    reason: `the merged narration was ${planned.toFixed(1)}s when this plan was built and is now ${now.toFixed(1)}s `
+      + `(${delta > 0 ? '+' : ''}${delta.toFixed(1)}s), so its scene times follow the old audio. `
+      + 'Re-stitch the subtitles and rebuild the Scene Plan timeline.',
+  }
+}
+
+/** The merge's own completion record: its length and where the narration starts. Null when absent. */
+export async function readMergedAudioRecord(completionPath: string): Promise<{ duration_sec: number; lead_in_sec: number } | null> {
+  try {
+    const fs = await import('fs/promises')
+    const record = JSON.parse(await fs.readFile(completionPath, 'utf-8'))
+    const duration = Number(record?.duration_sec)
+    return duration > 0 ? { duration_sec: duration, lead_in_sec: Number(record?.opening?.lead_in_sec) || 0 } : null
+  } catch {
+    return null
+  }
+}
+
+/** A parsed plan against the merge's completion record; null when the record is absent. */
+export async function planMergedAudioDrift(
+  plan: { source_merged_audio?: { duration_sec?: number }; scenes?: Array<{ end_sec: number }> },
+  mergedAudioCompletionPath: string,
+): Promise<TimelineDrift | null> {
+  const merged = await readMergedAudioRecord(mergedAudioCompletionPath)
+  if (!merged) return null
+  const scenes = Array.isArray(plan.scenes) ? plan.scenes : []
+  return compareMergedAudio(plan.source_merged_audio, merged.duration_sec,
+    scenePlanLeadInShiftSec(scenes, merged.lead_in_sec, merged.duration_sec))
+}
+
+/**
  * Read a stored plan and the stitched transcript, and report whether the plan's
  * scene times still describe that transcript.
  *
@@ -163,18 +224,24 @@ export function compareTimeline(
 export async function inspectPlanTimelineDrift(
   planPath: string,
   stitchedSrtPath: string,
+  /** 1.4.276 — `{CODE}_merged_audio.completion.json`; also compares the merged narration length. */
+  mergedAudioCompletionPath?: string,
 ): Promise<(TimelineDrift & { checked: boolean })> {
   const nothing = { checked: false, stale: false, drift_sec: null, reason: '' }
   try {
     const fs = await import('fs/promises')
-    const [planRaw, srtRaw] = await Promise.all([
-      fs.readFile(planPath, 'utf-8'),
-      fs.readFile(stitchedSrtPath, 'utf-8'),
-    ])
-    const stored = JSON.parse(planRaw)?.source_timeline as TimelineStamp | undefined
-    if (!stored?.sha256) return nothing
-    const { parseSrt } = await import('./subtitle-builder.js')
-    return { checked: true, ...compareTimeline(stored, stampFromCues(parseSrt(srtRaw))) }
+    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8'))
+    let captions: (TimelineDrift & { checked: boolean }) = nothing
+    const stored = plan?.source_timeline as TimelineStamp | undefined
+    if (stored?.sha256) {
+      try {
+        const { parseSrt } = await import('./subtitle-builder.js')
+        captions = { checked: true, ...compareTimeline(stored, stampFromCues(parseSrt(await fs.readFile(stitchedSrtPath, 'utf-8')))) }
+      } catch { /* no stitched transcript: nothing to say about captions */ }
+    }
+    if (captions.stale || !mergedAudioCompletionPath || !plan?.source_merged_audio) return captions
+    const audio = await planMergedAudioDrift(plan, mergedAudioCompletionPath)
+    return audio ? { checked: true, ...audio } : captions
   } catch {
     return nothing
   }

@@ -420,7 +420,8 @@ async function inspectRecovery(plan: EpisodeRecoveryPlan, jobs: Job[]) {
   if (!verified.subtitle_stitch || plan.target === 'subtitle_stitch') return facts
   const status = await computeEpisodeStatus(plan.project_slug, plan.episode_id)
   const scenePlanPath = await resolveScenePlanPath(plan.project_slug, plan.episode_id, paths.episode_dir)
-  const drift = await inspectPlanTimelineDrift(scenePlanPath, path.join(paths.subtitles_dir, `${plan.episode_id.toUpperCase()}_stitched.srt`))
+  const drift = await inspectPlanTimelineDrift(scenePlanPath, path.join(paths.subtitles_dir, `${plan.episode_id.toUpperCase()}_stitched.srt`),
+    path.join(paths.merged_audio_dir, `${plan.episode_id.toUpperCase()}_merged_audio.completion.json`))
   verified.scene_plan_run = status.scene_plan && !drift.stale
   verified.contextual_cues = status.contextual_cues === true
     && (!plan.steps.contextual_cues || status.contextual_cues_generated === true)
@@ -691,9 +692,19 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
       if (!step || row.status === 'cancelled' || row.force_abandoned) continue
       const deferred = plan.first_unresolved !== null && EPISODE_RECOVERY_ORDER.indexOf(step) > EPISODE_RECOVERY_ORDER.indexOf(plan.first_unresolved)
       const projection = { id: plan.id, first_unresolved: plan.first_unresolved, completed: plan.completed, deferred, message: plan.message }
-      if (JSON.stringify(row.params.episode_recovery) === JSON.stringify(projection)) continue
-      const changed = await jq.mutateAuthoritativeJob(projectSlug, row.job_id, current => ({ ...current,
-        params: { ...current.params, episode_recovery: projection, episode_recovery_id: plan.id } }))
+      // 1.4.276 — a live Pipeline job keeps its own later steps unless this plan
+      // took them over (`continuation`). The recovery id makes completion skip
+      // the chain, so stamping it here dropped DL0004's Thumbnails and Metadata
+      // when a narration refresh (which owns no continuation) adopted Scene Review.
+      const keepsChain = !plan.continuation?.length && ['queued', 'running', 'paused'].includes(row.status)
+        && Array.isArray(row.params.pipeline_chain) && row.params.pipeline_chain.length > 0
+      if (JSON.stringify(row.params.episode_recovery) === JSON.stringify(projection)
+        && (!keepsChain || row.params.episode_recovery_id === undefined)) continue
+      const changed = await jq.mutateAuthoritativeJob(projectSlug, row.job_id, current => {
+        const params = { ...current.params, episode_recovery: projection, episode_recovery_id: plan.id }
+        if (keepsChain) delete (params as Partial<typeof params>).episode_recovery_id
+        return { ...current, params }
+      })
       if (changed) await jq.checkpointJobState(changed)
     }
     const dispatch = auditFailed ? { dispatch_status: 'blocked' as const }

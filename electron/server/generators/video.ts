@@ -125,6 +125,7 @@ import {
   type MergedAudioOpening,
 } from '../services/merged-audio-opening.js'
 import { scenePlanLeadInShiftSec, shiftScenesForLeadIn } from '../lib/intro-lead-in.js'
+import { compareMergedAudio } from '../lib/scene-plan-timeline.js'
 import {
   buildImagePoolPlayOrder,
   readVideoVisualSource,
@@ -1099,6 +1100,9 @@ export interface ScannedAssets {
     /** 1.4.272 — seconds every scene after the first was moved so a plan timed
      *  before a music lead-in sits on the merged audio's clock. Absent when none. */
     audio_lead_in_shift_sec?: number
+    /** 1.4.276 — why the plan no longer matches the merged narration it was
+     *  timed against. Absent when it matches (keeps the render identity). */
+    audio_stale_reason?: string
     plan_duration_sec: number
     audio_duration_sec: number
     approved: number
@@ -1516,6 +1520,7 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
       const overlap = Number(scannedPlan.scenes[index - 1]!.end_sec) - Number(scannedPlan.scenes[index]!.start_sec)
       if (overlap > 0.05) { overlapSec += overlap; overlapCount++ }
     }
+    const audioDrift = compareMergedAudio(scannedPlan.source_merged_audio, result.merged_audio[0]?.duration, leadInShiftSec)
     const planRows = result.scenes.filter(scene => scene.source === 'scene_plan')
     const byId = new Map(planRows.map(scene => [scene.plan_scene_id, scene]))
     result.scene_plan_timing = {
@@ -1525,6 +1530,7 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
       ...(scannedPlan.opening_source === 'measured' ? { opening_source: 'measured' as const } : {}),
       // Present only when a shift was applied, so an episode without one keeps its render identity.
       ...(leadInShiftSec > 0 ? { audio_lead_in_shift_sec: leadInShiftSec } : {}),
+      ...(audioDrift.stale ? { audio_stale_reason: audioDrift.reason } : {}),
       plan_duration_sec: Number(scannedPlan.total_duration_sec) || 0,
       audio_duration_sec: audioDuration,
       approved: scannedPlan.scenes.filter(scene => scene.approved).length,
@@ -1539,7 +1545,8 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
       complete: !!result.scene_plan_coverage
         && result.scene_plan_coverage.ready === result.scene_plan_coverage.total
         && integrity.complete
-        && overlapCount === 0,
+        && overlapCount === 0
+        && !audioDrift.stale,
       scenes: scannedPlan.scenes.map(scene => {
         const scanned = byId.get(scene.id)
         const stale = typeof scene.rendered_prompt === 'string' && scene.rendered_prompt !== scene.visual_prompt
@@ -1878,6 +1885,9 @@ export async function prepareUnifiedVideoAssemblyInputs(
   const coverage = assets.scene_plan_coverage
   if (!timing || !coverage || coverage.total === 0) {
     throw new Error('No Scene Plan timeline was found. Build the timeline, generate visual prompts, and review every scene first.')
+  }
+  if (timing.audio_stale_reason) {
+    throw new Error(`Video Assembly is blocked: the Scene Plan is out of date — ${timing.audio_stale_reason} Nothing was rendered.`)
   }
   const problems: string[] = []
   if (coverage.missing.length) {

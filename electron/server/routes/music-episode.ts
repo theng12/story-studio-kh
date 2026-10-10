@@ -116,7 +116,9 @@ router.post('/projects/:slug/music-episodes', async (req, res) => {
     const [idea] = await im.addIdeas(slug, [{
       title, logline: '', themes: [], suggested_chapters: 1, suggested_length: '', mood: '',
     }], 'episode-builder')
-    const accepted = await im.acceptIdea(slug, idea!.id)
+    // New episodes continue after the highest code; gaps below it are never reused (1.4.276).
+    const override = typeof req.body?.override_code === 'string' ? req.body.override_code.trim() : ''
+    const accepted = await im.acceptIdea(slug, idea!.id, false, override ? { override_code: override } : { append: true })
     // The channel's starting effects look (formula episodeDefaults.effects_look, stack preset ids) becomes
     // this episode's whole-episode effects. Never overwrites an existing scene_effects.json.
     const niche = await getEffectiveNiche(slug).catch(() => null) as { musicFormat?: { episodeDefaults?: { effects_look?: unknown } } } | null

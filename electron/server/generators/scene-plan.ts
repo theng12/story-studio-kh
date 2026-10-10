@@ -12,7 +12,7 @@ import path from 'path'
 import { isDeepStrictEqual } from 'node:util'
 import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, generateMotionPromptOnly, generateMotionPromptsForScenes, MOTION_SPECS, resolveMotionLevel, assignDensityToUntagged, inspectScenePlanCoverage, repairPlanCoverage, removeNonRenderableScenes } from '../services/scene-planner.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
-import { compareTimeline, stampFromCues } from '../lib/scene-plan-timeline.js'
+import { compareMergedAudio, compareTimeline, stampFromCues } from '../lib/scene-plan-timeline.js'
 import { checkpointJobState, hasUnsettledProviderEvidence, isCancelled, throwIfPauseRequested } from '../services/job-queue.js'
 import { nonRetryable } from '../services/job-retry-policy.js'
 import { subtitleChapterLabel } from '../contracts/subtitle-gaps.js'
@@ -22,7 +22,7 @@ import { findSubfolder } from '../lib/folder-resolver.js'
 import { resolveReadPath } from '../lib/episode-artifacts.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import { getConfig } from '../services/project-manager.js'
-import { computeStoryStartSec } from '../lib/intro-lead-in.js'
+import { computeStoryStartSec, scenePlanLeadInShiftSec } from '../lib/intro-lead-in.js'
 import { resolveProjectOpening } from '../services/opening-assets.js'
 import { describeOpeningHead, measureOpeningSec } from '../lib/opening-duration.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
@@ -1097,12 +1097,13 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       const timelineCleanup = removeNonRenderableScenes(splitScenes)
       const scenes = timelineCleanup.scenes
       let totalDuration = allCues[allCues.length - 1]!.end_sec
+      let mergedAudioSec = 0
       try {
         const assets = await scanEpisodeAssets(job.project_slug, episode_id)
         const merged = assets?.merged_audio?.[0]?.path
         if (merged && existsSync(merged)) {
-          const audioDuration = (await getAudioDuration(merged)) || 0
-          if (audioDuration > totalDuration) totalDuration = audioDuration
+          mergedAudioSec = (await getAudioDuration(merged)) || 0
+          if (mergedAudioSec > totalDuration) totalDuration = mergedAudioSec
         }
       } catch { /* stitched SRT duration remains the safe fallback */ }
       if (scenes.length) scenes[scenes.length - 1]!.end_sec = totalDuration
@@ -1119,6 +1120,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         // doc in models/types.ts: the filename is unchanged by a re-stitch, so
         // it cannot show that this plan's scene times are now out of date.
         source_timeline: stampFromCues(allCues),
+        // 1.4.276 — and WHICH merged narration: a re-narrated chapter re-merges
+        // the audio without necessarily re-stitching the captions (DL0004).
+        ...(mergedAudioSec > 0 ? { source_merged_audio: { duration_sec: Math.round(mergedAudioSec * 1000) / 1000 } } : {}),
         total_duration_sec: totalDuration,
         research_used: useResearch && existsSync(researchPath),
         scenes,
@@ -1207,6 +1211,12 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           const current = stampFromCues(cues)
           const drift = compareTimeline(stored, current)
           if (drift.stale) throw new Error(drift.reason)
+          if (plan.source_merged_audio) {
+            const merged = (await scanEpisodeAssets(job.project_slug, episode_id)).merged_audio?.[0]
+            const audioDrift = compareMergedAudio(plan.source_merged_audio, merged?.duration,
+              scenePlanLeadInShiftSec(plan.scenes || [], merged?.opening?.lead_in_sec, merged?.duration))
+            if (audioDrift.stale) throw new Error(audioDrift.reason)
+          }
           if (plan.pacing === undefined) throw new Error('the saved plan has no pacing snapshot')
           const savedPacing = parseSavedScenePlanPacing(plan.pacing)
           if (savedPacing.min_sec !== planPacing.min_sec || savedPacing.max_sec !== planPacing.max_sec

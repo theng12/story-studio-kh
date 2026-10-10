@@ -4482,6 +4482,13 @@ export interface ScenePlan {
     first_cue_start_sec: number
     last_cue_end_sec: number
   }
+  /**
+   * 1.4.276 — length of the merged narration this plan was timed against. A
+   * re-narrated chapter re-merges the audio without necessarily re-stitching
+   * the captions, so `source_timeline` alone can still match. Compared by
+   * `compareMergedAudio` (lib/scene-plan-timeline.ts); absent = not known stale.
+   */
+  source_merged_audio?: { duration_sec: number }
   /** Total duration the plan covers — should match the stitched SRT
    *  total_duration_sec at generation time. */
   total_duration_sec: number

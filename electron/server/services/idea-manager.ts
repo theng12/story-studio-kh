@@ -437,7 +437,8 @@ export async function acceptIdea(
   slug: string,
   ideaId: string,
   autoGenerateScript: boolean = false,
-  opts: { override_code?: string } = {},
+  /** `append` (1.4.276, Episode Builder): continue after the highest code, never fill a gap below it. */
+  opts: { override_code?: string; append?: boolean } = {},
 ): Promise<AcceptResult> {
   const meta = await pm.getProject(slug)
   if (!meta) throw new Error('Project not found')
@@ -487,6 +488,15 @@ export async function acceptIdea(
       if (Array.isArray(store.recycled_numbers)) {
         store.recycled_numbers = store.recycled_numbers.filter(n => n !== epNum)
       }
+    } else if (opts.append) {
+      // Coffee Jazz: a channel at CJ0027+ got CJ0001–CJ0005 from the recycled gaps.
+      const highest = Math.max(0, ...store.ideas
+        .filter(i => i.status === 'accepted' && i.episode_code?.toUpperCase().startsWith(meta.episode_prefix.toUpperCase()))
+        .map(i => parseInt(i.episode_code!.slice(meta.episode_prefix.length), 10))
+        .filter(Number.isFinite))
+      epNum = Math.max(store.next_episode_number, highest + 1)
+      store.next_episode_number = epNum + 1
+      episodeCode = formatEpisodeCode(epNum, meta.episode_prefix, meta.episode_digits)
     } else {
       // Default path: use recycled if available, else increment.
       if (store.recycled_numbers && store.recycled_numbers.length > 0) {

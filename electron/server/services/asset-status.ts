@@ -58,6 +58,7 @@ import { inspectExistingTranscriptSource } from './subtitle-correction.js'
 import { inspectPromptCompletion, legacyPromptsPresent } from './prompt-completion.js'
 import { inspectMetadataCompletion, legacyMetadataPresent } from './metadata-completion.js'
 import { inspectScenePlanCoverage } from './scene-planner.js'
+import { planMergedAudioDrift } from '../lib/scene-plan-timeline.js'
 import { inspectSceneReviewCompletion } from './scene-review-completion.js'
 import { normalizeContextualCueConfig, readContextualCueTimeline, validateContextualCueTimeline } from './contextual-cues.js'
 import { DEFAULT_SOUND_DESIGN_SETTINGS, normalizeSoundDesignConfig, readSoundDesignTimeline, validateSoundDesignTimeline } from './sound-design.js'
@@ -1335,6 +1336,10 @@ export async function computeEpisodeStatus(
           && promptIntegrity.complete
           && (musicDir || subtitleIntegrity.complete)
           && (!coverageIntegrity.authoritative || coverageIntegrity.complete)
+          // 1.4.276 — a plan timed against an older merged narration is not done:
+          // run-batch re-runs the step, which refuses to continue it (DL0004).
+          && !(plan?.source_merged_audio && (await planMergedAudioDrift(plan,
+            path.join(byCode.merged_audio_dir, `${code.toUpperCase()}_merged_audio.completion.json`)))?.stale)
         // Both are OPTIONAL features. An episode that never proposed a cue has
         // nothing outstanding, so it is not pending — the same rule Video
         // Assembly now applies, kept identical here so the Production Board and

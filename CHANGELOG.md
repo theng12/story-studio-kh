@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.276 — 2026-10-10
+
+- A Scene Plan now goes out of date when the narration under it changes length. On Dreamlands DL0004, Chapter 01 was re-narrated and the audio merged again (6321 s became 6377 s) after the Scene Plan was made. The subtitles were not re-stitched, so Story still called the plan current, and every later picture came about 56 seconds before its words. The Scene Plan now remembers how long the merged narration was. When the merged audio is more than half a second longer or shorter, the plan shows as out of date, the Pipeline does not count it as done, Scene Plan will not continue it, and Video Assembly stops with "the Scene Plan is out of date — the merged narration was 6321.0s when this plan was built and is now 6377.0s (+56.0s)". Nothing is rendered. Re-stitch the subtitles and make the Scene Plan timeline again. A music intro that Video Assembly already shifts for does not count as a change. Plans made before this release have no length saved and are not flagged.
+- A re-narration no longer drops the later Pipeline steps. When a chapter was re-narrated while the Pipeline was still on Scene Review, the repair took over that job and its Thumbnails and Metadata were never queued (DL0004; they had to be queued by hand). A Pipeline job that is still waiting or running now keeps its later steps.
+- Episode Builder's "New Episode" now continues after the channel's highest episode code. On Coffee Jazz, a channel already at CJ0027, it made CJ0001 to CJ0005 by filling free numbers below. The next new episode there is now CJ0028. Story Studio channels still reuse free numbers on Accept as before.
+
 ## v1.4.275 — 2026-10-10
 
 - Video Assembly no longer fails a mix that it had already brought within the allowed difference. Night Atlas Nature EP0002's second try came out at -14.3 LUFS with a peak of -0.8 dBTP, which passes the 10% allowance. Story kept correcting anyway, the peaks jumped to +2.8 dBTP, the limiter went down to -8.1 dBTP, and the mix ended at -16.0 LUFS and failed. History EP0002 also failed: its third try (-14.6 LUFS, -2.3 dBTP) passed, but Story ran a fourth try that could not be measured and errored the job. Story now stops at the first try that is within the allowance. A later try that cannot be measured no longer fails the job: Story judges the closest earlier try instead. If no try is within it, Story keeps the try that came closest and never ends on a worse one. It still has at most 4 tries.

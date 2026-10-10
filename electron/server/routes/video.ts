@@ -1393,7 +1393,8 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
       // available, so the disagreement is reported here. Detection only: nothing
       // rewrites a plan that generated images hang off.
       scene_plan_timeline: await resolveScenePlanPath(slug, episodeId, assets.episode_dir)
-        .then(planPath => inspectPlanTimelineDrift(planPath, path.join(subtitlesDir, `${episodeId.toUpperCase()}_stitched.srt`)))
+        .then(planPath => inspectPlanTimelineDrift(planPath, path.join(subtitlesDir, `${episodeId.toUpperCase()}_stitched.srt`),
+          assets.merged_audio[0] && path.join(path.dirname(assets.merged_audio[0].path), `${episodeId.toUpperCase()}_merged_audio.completion.json`)))
         .catch(() => ({ checked: false, stale: false, drift_sec: null, reason: '' })),
     })
   } catch (e: any) {
