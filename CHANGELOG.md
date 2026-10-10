@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.277 — 2026-10-10
+
+- Your own art styles can now be shared by every channel. A "user style pack" is a list of your custom styles with a name and a one-line description each. Once it is imported, its styles show in every project's Style Library after the store styles, so any channel can pick them. Until now a custom art style lived only in the channel where it was saved.
+- Picking a user pack style copies its text into that channel's custom styles, the same as saving a custom style by hand. The channel keeps rendering with it even if the pack changes later. Nothing changes for a channel until you pick a style.
+- User pack styles have no preview picture. The Style Library shows "Preview unavailable" with the usual button to make one.
+- Import a pack with `POST /api/user-style-packs` (or list packs with `GET /api/user-style-packs`). Importing a pack with the same pack id replaces it. A pack with a mistake is refused with the reason, for example a style id that does not start with the pack id, and nothing is saved. Store style ids (`com.storystudio.…`) cannot be used.
+
 ## v1.4.276 — 2026-10-10
 
 - A Scene Plan now goes out of date when the narration under it changes length. On Dreamlands DL0004, Chapter 01 was re-narrated and the audio merged again (6321 s became 6377 s) after the Scene Plan was made. The subtitles were not re-stitched, so Story still called the plan current, and every later picture came about 56 seconds before its words. The Scene Plan now remembers how long the merged narration was. When the merged audio is more than half a second longer or shorter, the plan shows as out of date, the Pipeline does not count it as done, Scene Plan will not continue it, and Video Assembly stops with "the Scene Plan is out of date — the merged narration was 6321.0s when this plan was built and is now 6377.0s (+56.0s)". Nothing is rendered. Re-stitch the subtitles and make the Scene Plan timeline again. A music intro that Video Assembly already shifts for does not count as a change. Plans made before this release have no length saved and are not flagged.

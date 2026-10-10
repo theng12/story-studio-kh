@@ -17,6 +17,7 @@
  */
 
 import { Router, type Request } from 'express'
+import { ZodError } from 'zod'
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import * as nl from '../services/niche-loader.js'
@@ -29,6 +30,7 @@ import { EpisodeShapePatchSchema, NicheSchema, SetProjectNicheSchema, TopicPackS
 import type { Niche, TopicPack } from '../models/types.js'
 import { MusicFormatPatchSchema } from '../contracts/song-formula.js'
 import { listVisualStyles } from '../services/visual-style-loader.js'
+import { installUserStylePack, listUserStylePacks } from '../services/user-style-packs.js'
 import { updateProjectContentSelections } from '../content-packs/project-pins.js'
 import {
   forkLegacyContentForEdit,
@@ -119,6 +121,27 @@ router.get('/visual-styles', async (req, res) => {
     // path, or trust detail at all. The diagnosis is in the log line.
     logLine('warn', 'visual style listing failed', { error: e?.message ? String(e.message) : String(e) })
     res.status(500).json({ detail: 'Failed to list visual styles' })
+  }
+})
+
+// v1.4.277 — user style packs: the owner's own looks, shared by every project.
+router.get('/user-style-packs', async (req, res) => {
+  try {
+    res.json({ user_style_packs: await listUserStylePacks(packOptionsFor(req).paths) })
+  } catch (e: any) {
+    respondWithError(res, e, 'Failed to list user style packs')
+  }
+})
+
+router.post('/user-style-packs', async (req, res) => {
+  try {
+    const pack = await installUserStylePack(req.body, packOptionsFor(req).paths)
+    res.json({ ok: true, pack_id: pack.pack_id, version: pack.version, styles: pack.styles.length })
+  } catch (e: any) {
+    if (e instanceof ZodError) {
+      return res.status(400).json({ detail: e.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; ') })
+    }
+    respondWithError(res, e, 'Failed to install user style pack')
   }
 })
 

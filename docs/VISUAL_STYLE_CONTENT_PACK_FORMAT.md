@@ -1,6 +1,6 @@
 # Story Studio KH Visual Style Content Pack Format
 
-Reusable looks are standalone, independently purchasable Visual Style Content Packs. The visible Style Library contains only signed styles published by the Content Pack runtime. There is no static built-in catalog and no offline fallback.
+Reusable looks are standalone, independently purchasable Visual Style Content Packs. The visible Style Library contains the signed styles published by the Content Pack runtime, followed by any user style pack styles (below). There is no static built-in catalog and no offline fallback.
 
 ## Source of truth
 
@@ -41,3 +41,11 @@ The `style_bible` describes repeatable rendering traits: medium, edges and shape
 6. Update version and changelog only when shipping an app release.
 
 Existing projects may retain `builtin-*` identifiers in project-local `style_presets`. That compatibility data remains renderable but must never be reintroduced into the visible library.
+
+## User style packs (v1.4.277)
+
+A user style pack is the owner's own looks, shared by every project on one Mac. It is unsigned, has no preview images, and is never sold, pinned or synced.
+
+- Import or replace: `POST /api/user-style-packs` with the pack JSON; list: `GET /api/user-style-packs`. Stored as `<content-pack runtime root>/user-style-packs/<pack_id>.json`.
+- Format (`UserStylePackSchema` in `electron/server/content-packs/schemas.ts`): `{ "user_pack_format": 1, "pack_id", "name", "version", "description"?, "styles": [...] }`. Each style is a `visual-style` document without `preview_assets`, with an optional `negative_prompt`, and an id that starts with `<pack_id>.`. Ids in the `com.storystudio.` namespace are refused.
+- `/api/visual-styles` lists these styles after the signed ones with `preview_image: ""`. Picking one copies its text into the project's `style_presets`, exactly like a custom style, so rendering never depends on the pack file.

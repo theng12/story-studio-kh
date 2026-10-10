@@ -8,6 +8,7 @@ import {
   contentPackDocumentToVisualStyle,
   type ContentPackVisualStyle,
 } from '../content-packs/legacy-adapters.js'
+import { listUserVisualStyles } from './user-style-packs.js'
 
 function assetUrl(packId: string, version: string, assetId: string): string {
   return `/api/content-packs/${encodeURIComponent(packId)}/${encodeURIComponent(version)}/assets/${encodeURIComponent(assetId)}`
@@ -33,7 +34,7 @@ export async function loadVisualStyle(
   return mapEntry(await resolveCatalogItem(id, undefined, effectiveOptions))
 }
 
-/** Publish installed signed styles as renderer-safe records for visible discovery. */
+/** Publish installed signed styles, then user style pack styles, as renderer-safe records. */
 export async function listVisualStyles(options: ContentPackRegistryOptions = {}): Promise<ContentPackVisualStyle[]> {
   const entries = await listCatalogEntries('visual-style', options)
   const result: ContentPackVisualStyle[] = []
@@ -48,5 +49,8 @@ export async function listVisualStyles(options: ContentPackRegistryOptions = {})
     }
     result.push(mapped)
   }
+  // The owner's own user style packs follow the signed styles. Their ids can
+  // never be `com.storystudio.`, so picking one copies its text into the project.
+  result.push(...await listUserVisualStyles(options.paths))
   return result
 }

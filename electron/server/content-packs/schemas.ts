@@ -325,6 +325,34 @@ const VisualStyleDocumentSchema = z.object({
   compatible_formula_ids: z.array(qualifiedId).max(MAX_LIST),
 }).strict()
 
+/**
+ * v1.4.277 — a user style pack: the owner's own looks, shared by every project
+ * on this Mac. The style fields are the signed visual-style document's, but the
+ * pack is unsigned, so it carries no preview assets, takes no
+ * `com.storystudio.` id, and never enters the signed catalog or project pins.
+ * Picking one copies its text into the project like any custom style.
+ */
+export const UserStylePackSchema = z.object({
+  user_pack_format: z.literal(1),
+  pack_id: qualifiedId.refine(id => !id.startsWith('com.storystudio.'), 'must not use the com.storystudio namespace'),
+  name: safeText(160),
+  version: exactSemver,
+  description: safeText(2000).optional(),
+  styles: z.array(VisualStyleDocumentSchema
+    .omit({ preview_assets: true, negative_prompt: true })
+    .extend({ negative_prompt: safeText(MAX_TEXT).optional() })).min(1).max(500),
+}).strict().superRefine((pack, ctx) => {
+  const seen = new Set<string>()
+  pack.styles.forEach((style, index) => {
+    if (!style.id.startsWith(`${pack.pack_id}.`)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['styles', index, 'id'], message: `must start with ${pack.pack_id}.` })
+    }
+    if (seen.has(style.id)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['styles', index, 'id'], message: 'duplicate style id' })
+    seen.add(style.id)
+  })
+})
+export type UserStylePack = z.infer<typeof UserStylePackSchema>
+
 const ThumbnailRecipeDocumentSchema = z.object({
   kind: z.literal('thumbnail-recipe'),
   ...baseDocument,

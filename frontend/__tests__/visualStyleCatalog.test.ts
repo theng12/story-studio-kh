@@ -45,6 +45,15 @@ describe('reactive visual style catalog', () => {
     assert.match(catalog.error.value || '', /offline/i)
   })
 
+  test('shows a user style pack style, which has no preview image', async () => {
+    const userStyle = { ...signedStyle, id: 'kh.art-styles.dreamlands', preview_image: '' }
+    ;(globalThis as any).$fetch = async () => ({ visual_styles: [signedStyle, userStyle] })
+    const catalog = useVisualStyleCatalog()
+    await catalog.refresh()
+
+    assert.deepEqual(catalog.styles.value.map(style => style.id), [signedStyle.id, userStyle.id])
+  })
+
   test('rejects filesystem-backed previews instead of exposing pack disk paths to the renderer', async () => {
     ;(globalThis as any).$fetch = async () => ({
       visual_styles: [{ ...signedStyle, preview_image: '/Users/customer/Library/content-packs/style.png' }],

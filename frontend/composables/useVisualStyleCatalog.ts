@@ -33,10 +33,12 @@ function isVisualStyleCatalogItem(value: unknown): value is VisualStyleCatalogIt
     && typeof data?.style_bible === 'string'
     && typeof data?.negative_prompt === 'string'
     && typeof style.preview_image === 'string'
-    && /^\/api\/content-packs\/[a-z0-9.%_-]+\/[0-9.]+\/assets\/[a-f0-9]{64}$/.test(style.preview_image)
+    // A user style pack style (v1.4.277) has no preview: an empty string.
+    && (style.preview_image === ''
+      || /^\/api\/content-packs\/[a-z0-9.%_-]+\/[0-9.]+\/assets\/[a-f0-9]{64}$/.test(style.preview_image))
 }
 
-/** Reactive catalog of locally installed, signed Content Pack styles. */
+/** Reactive catalog of locally installed signed Content Pack styles and user style pack styles. */
 export function useVisualStyleCatalog() {
   const { get } = useApi()
   const refresh = (): Promise<void> => {
