@@ -1545,7 +1545,7 @@ export function flattenVideoAssemblyBundle(
   // `aspect_ratio` joined this list in 1.4.19. It shipped on the page in
   // 1.4.15 and was never added here, so every batch render was 16:9 whatever
   // the channel asked for — a one-click Short was impossible, silently.
-  for (const k of ['resolution', 'aspect_ratio', 'quality', 'fps', 'encoding_effort', 'codec', 'format', 'video_bitrate_kbps', 'upscale_sharpen', 'loudness_lufs', 'true_peak_db']) {
+  for (const k of ['resolution', 'aspect_ratio', 'quality', 'fps', 'encoding_effort', 'codec', 'format', 'video_bitrate_kbps', 'upscale_sharpen', 'loudness_lufs', 'true_peak_db', 'loudness_tolerance_pct']) {
     if (exportS[k] !== undefined) out[k] = exportS[k]
   }
   // ── Timeline slot

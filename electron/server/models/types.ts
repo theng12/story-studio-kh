@@ -3753,6 +3753,8 @@ export interface GenerateVideoRequest {
   /** Final loudness (1.4.270): integrated LUFS target and true-peak ceiling (dBTP). Absent = -14 / -1. */
   loudness_lufs?: number
   true_peak_db?: number
+  /** 1.4.274: how far the finished video may miss that level and still pass, in % (absent = 10%). Never changes the levelling. */
+  loudness_tolerance_pct?: number
   /** Light sharpening of stills smaller than the canvas while they are upscaled (e.g. 720p scenes in a
    *  1080p render). Absent/'off' = unchanged. Once per still, never per frame. */
   upscale_sharpen?: 'off' | 'light'

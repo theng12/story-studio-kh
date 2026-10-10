@@ -106,7 +106,7 @@ import { listSceneEffectLibrary } from '../services/style-effect-loader.js'
 import { requireJobCompletion, declareJobDegraded } from '../services/job-completion.js'
 import { nonRetryable } from '../services/job-retry-policy.js'
 import { EBUR128_FILTER, measureLoudness, parseEbur128Summary } from './music-episode-build.js'
-import { correctLevelPlan, finalLoudnessIssue, levelFilter, levelPlan, loudnessTarget, type LoudnessTarget } from '../lib/final-loudness.js'
+import { correctLevelPlan, finalLoudnessIssue, levelFilter, levelPlan, loudnessTarget, withinToleranceNote, type LoudnessTarget } from '../lib/final-loudness.js'
 import {
   assertContextualCueReadiness,
   normalizeContextualCueConfig,
@@ -670,11 +670,11 @@ async function verifyFinalVideo(job: Job, outputPath: string, finalName: string,
 /** Measure the finished video's audio and fail when it missed the level it was mixed to (1.4.270). */
 export async function verifyFinalLoudness(job: Job, outputPath: string, target: LoudnessTarget): Promise<void> {
   const measured = await measureLoudness(outputPath)
+  const issue = finalLoudnessIssue(measured, target)
   if (measured.lufs !== null && measured.true_peak_db !== null) {
-    job.output_lines.push(`Final loudness: ${measured.lufs.toFixed(1)} LUFS, peak ${measured.true_peak_db.toFixed(1)} dBTP`)
+    job.output_lines.push(`Final loudness: ${measured.lufs.toFixed(1)} LUFS, peak ${measured.true_peak_db.toFixed(1)} dBTP${issue ? '' : withinToleranceNote(measured, target)}`)
     job.result = { ...(job.result || {}), final_loudness: { lufs: measured.lufs, true_peak_db: measured.true_peak_db } }
   }
-  const issue = finalLoudnessIssue(measured, target)
   // Rendering again gives the same audio, so this fails once instead of using up the automatic retries.
   if (issue) {
     throw nonRetryable(new Error(`The final video's sound is not at its target level: ${issue}. `
@@ -2110,6 +2110,8 @@ export async function generateVideo(job: Job): Promise<void> {
   req.loudness_lufs = loudness.lufs
   req.true_peak_db = loudness.true_peak_db
   const renderFingerprintRequest = structuredClone(req)
+  // 1.4.274 — the allowed difference only judges the finished file; changing it must not re-render.
+  delete renderFingerprintRequest.loudness_tolerance_pct
 
   const names = await resolveSubfolderNames(project_slug, code)
   // Prefer the titled folder when the user has leftover renamed siblings.

@@ -115,7 +115,7 @@ describe('Video Assembly: sharpen when upscaling', () => {
   const assembly = read('../pages/projects/[slug]/video-assembly.vue')
   test('selectable, off by default, and set from the music episode at 1080p only', () => {
     assert.match(assembly, /<select v-model="exportSettings\.upscale_sharpen" class="select">/)
-    assert.match(assembly, /video_bitrate_kbps: 0,\s+upscale_sharpen: 'off',\s+loudness_lufs: -14,\s+true_peak_db: -1,\s+\}\)/)
+    assert.match(assembly, /video_bitrate_kbps: 0,\s+upscale_sharpen: 'off',\s+loudness_lufs: -14,\s+true_peak_db: -1,\s+loudness_tolerance_pct: 10,\s+\}\)/)
     assert.match(assembly, /exportSettings\.upscale_sharpen = exportSettings\.resolution === '1080p' && music\.upscale_sharpen === 'light' \? 'light' : 'off'/)
     assert.match(read('../composables/useVideoAssemblyIo.ts'), /s\.exportSettings\.upscale_sharpen === 'light' \? \{ upscale_sharpen: 'light' \} : \{\}/)
   })

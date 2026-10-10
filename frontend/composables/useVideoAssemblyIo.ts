@@ -283,6 +283,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
       ...(s.exportSettings.upscale_sharpen === 'light' ? { upscale_sharpen: 'light' } : {}),
       loudness_lufs: s.exportSettings.loudness_lufs ?? -14,
       true_peak_db: s.exportSettings.true_peak_db ?? -1,
+      loudness_tolerance_pct: s.exportSettings.loudness_tolerance_pct ?? 10,
       format: s.exportSettings.format,
       scene_animation: { ...s.sceneAnimation },
       animation_pool: s.sceneAnimation.pool,

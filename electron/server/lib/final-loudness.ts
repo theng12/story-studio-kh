@@ -5,20 +5,25 @@
  */
 import type { LoudnessMeasurement } from '../generators/music-episode-build.js'
 
-export interface LoudnessTarget { lufs: number; true_peak_db: number }
+/** `tolerance_pct` (1.4.274) only sets how far the finished video may miss and still pass; levelling aims exactly. */
+export interface LoudnessTarget { lufs: number; true_peak_db: number; tolerance_pct?: number }
 
 /** Peak guard after a summing amix (normalize=0): -1 dBFS, delay-compensated, never raises the level. */
 export const MIX_LIMITER = 'alimiter=limit=0.891:level=0:latency=1'
 
 export const DEFAULT_LOUDNESS_TARGET: LoudnessTarget = { lufs: -14, true_peak_db: -1 }
 
-/** The request's `loudness_lufs` / `true_peak_db`, clamped to what loudnorm accepts; absent = -14 / -1. */
-export function loudnessTarget(req: { loudness_lufs?: unknown; true_peak_db?: unknown }): LoudnessTarget {
+/** Owner rule 2026-10-10: "Slight difference in loudness is accepted. We allow 10% difference." */
+export const DEFAULT_LOUDNESS_TOLERANCE_PCT = 10
+
+/** The request's `loudness_lufs` / `true_peak_db` / `loudness_tolerance_pct`, clamped; absent = -14 / -1 / 10%. */
+export function loudnessTarget(req: { loudness_lufs?: unknown; true_peak_db?: unknown; loudness_tolerance_pct?: unknown }): LoudnessTarget {
   const pick = (v: unknown, lo: number, hi: number, fallback: number) =>
     typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback
   return {
     lufs: pick(req.loudness_lufs, -30, -5, DEFAULT_LOUDNESS_TARGET.lufs),
     true_peak_db: pick(req.true_peak_db, -9, 0, DEFAULT_LOUDNESS_TARGET.true_peak_db),
+    tolerance_pct: pick(req.loudness_tolerance_pct, 1, 50, DEFAULT_LOUDNESS_TOLERANCE_PCT),
   }
 }
 
@@ -61,13 +66,30 @@ export function correctLevelPlan(plan: LevelPlan, target: LoudnessTarget, got: L
   return { gain_db: plan.gain_db + target.lufs - got.lufs, limit_db: over > 0 ? limit - over - 0.1 : limit }
 }
 
-/** Over the ceiling by more than this fails the final check (1.4.273; was 0.5, which let -0.6 dBTP through). */
-export const TRUE_PEAK_TOLERANCE_DB = 0.1
+/**
+ * How far a finished video may miss and still pass (1.4.274, owner rule 2026-10-10): the percentage of the
+ * target's loudness (10% of -14 = 1.4 LU) and the same percentage in peak amplitude over the ceiling
+ * (10% = +0.8 dB). Was a fixed 1 LU / +0.1 dB.
+ */
+export function loudnessTolerance(target: LoudnessTarget): { lu: number; peak_db: number } {
+  const pct = target.tolerance_pct ?? DEFAULT_LOUDNESS_TOLERANCE_PCT
+  return { lu: Math.abs(target.lufs) * pct / 100, peak_db: Math.round(200 * Math.log10(1 + pct / 100)) / 10 }
+}
 
-/** Why a finished video fails the loudness check: more than 1 LU off target, or the peak over ceiling + 0.1. */
+/** Why a finished video fails the loudness check: further off the target, or over the ceiling, than the tolerance allows. */
 export function finalLoudnessIssue(m: LoudnessMeasurement, target: LoudnessTarget): string | null {
   if (m.lufs === null || m.true_peak_db === null) return 'its loudness could not be measured'
-  if (Math.abs(m.lufs - target.lufs) > 1) return `${m.lufs.toFixed(1)} LUFS is more than 1 LU from the ${target.lufs} LUFS target`
-  if (m.true_peak_db > target.true_peak_db + TRUE_PEAK_TOLERANCE_DB) return `its peak of ${m.true_peak_db.toFixed(1)} dBTP is above the ${target.true_peak_db} dBTP ceiling`
+  const tol = loudnessTolerance(target)
+  const pct = `${target.tolerance_pct ?? DEFAULT_LOUDNESS_TOLERANCE_PCT}%`
+  // 1e-9: a reading exactly at the limit (-15.4 at -14 / 10%) passes despite float rounding.
+  if (Math.abs(m.lufs - target.lufs) > tol.lu + 1e-9) return `${m.lufs.toFixed(1)} LUFS is more than the allowed ${pct} (${tol.lu.toFixed(1)} LU) from the ${target.lufs} LUFS target`
+  if (m.true_peak_db > target.true_peak_db + tol.peak_db + 1e-9) return `its peak of ${m.true_peak_db.toFixed(1)} dBTP is more than the allowed ${pct} (+${tol.peak_db.toFixed(1)} dB) above the ${target.true_peak_db} dBTP ceiling`
   return null
+}
+
+/** For the log: " (within the allowed 10%)" when a passing final is not on the target as shown (0.1 LU), else "". */
+export function withinToleranceNote(m: LoudnessMeasurement, target: LoudnessTarget): string {
+  if (m.lufs === null || m.true_peak_db === null) return ''
+  const exact = Math.abs(m.lufs - target.lufs) < 0.05 && m.true_peak_db < target.true_peak_db + 0.05
+  return exact ? '' : ` (within the allowed ${target.tolerance_pct ?? DEFAULT_LOUDNESS_TOLERANCE_PCT}%)`
 }

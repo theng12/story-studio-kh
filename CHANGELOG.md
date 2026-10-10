@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.274 — 2026-10-10
+
+- A finished video may now be up to 10% off its sound level and still pass (owner rule 2026-10-10: "Slight difference in loudness is accepted. We allow 10% difference."). At -14 LUFS that is 1.4 LU either way, and the loudest peak may go up to 0.8 dB over the ceiling (-0.2 dBTP for a -1 dBTP ceiling). Before, a final more than 1 LU off, or more than 0.1 dB over the ceiling, failed Video Assembly and blocked the upload. A final at -14.9 LUFS with a peak of -0.4 dBTP now passes; one at -16 LUFS, or with a peak of +0.2 dBTP, still fails with the reason.
+- Video Assembly → Export has a new "Allowed difference" setting under Sound Level and Loudest Peak: 5%, 10% (default) or 20%. It is saved with your presets, and presets saved before this release use 10%. Changing it never makes a render start again.
+- Story still levels the sound to the exact target and ceiling, with the 1.4.273 correction for the YouTube audio encode. Only the pass/fail check changed.
+- The job log still says "Final loudness: ...". When the video passes but is not exactly on the level, the line says so, for example "Final loudness: -14.9 LUFS, peak -0.4 dBTP (within the allowed 10%)".
+
 ## v1.4.273 — 2026-10-10
 
 - Free up space (Archive episode, Convert PNG Scenes to JPEG) now runs while other channels have Video Assembly jobs waiting. It used to refuse whenever any render anywhere was queued or paused, which on a busy Mac mini meant it could never run. Now only a render that is actually running stops it. Any work queued or paused for the episode being cleaned still stops it, as before.

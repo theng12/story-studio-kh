@@ -12,7 +12,8 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { useTempDataDir } from './_helpers.js'
-import { correctLevelPlan, finalLoudnessIssue, levelFilter, levelPlan, loudnessTarget } from '../lib/final-loudness.js'
+import { correctLevelPlan, finalLoudnessIssue, levelFilter, levelPlan, loudnessTarget, loudnessTolerance, withinToleranceNote } from '../lib/final-loudness.js'
+import { flattenVideoAssemblyBundle } from '../routes/pipeline.js'
 import { parseEbur128Summary } from '../generators/music-episode-build.js'
 
 const serverDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -41,9 +42,9 @@ describe('amix keeps the volumes the settings name', () => {
 
 describe('loudness settings and checks', () => {
   test('absent settings mean -14 LUFS / -1 dBTP; out-of-range values are clamped', () => {
-    assert.deepEqual(loudnessTarget({}), { lufs: -14, true_peak_db: -1 })
-    assert.deepEqual(loudnessTarget({ loudness_lufs: -16, true_peak_db: -2 }), { lufs: -16, true_peak_db: -2 })
-    assert.deepEqual(loudnessTarget({ loudness_lufs: 3, true_peak_db: 'x' }), { lufs: -5, true_peak_db: -1 })
+    assert.deepEqual(loudnessTarget({}), { lufs: -14, true_peak_db: -1, tolerance_pct: 10 })
+    assert.deepEqual(loudnessTarget({ loudness_lufs: -16, true_peak_db: -2, loudness_tolerance_pct: 5 }), { lufs: -16, true_peak_db: -2, tolerance_pct: 5 })
+    assert.deepEqual(loudnessTarget({ loudness_lufs: 3, true_peak_db: 'x', loudness_tolerance_pct: 500 }), { lufs: -5, true_peak_db: -1, tolerance_pct: 50 })
   })
 
   test('one volume change when the peak allows it, else gain plus a 4x true-peak limiter; silence is left alone', () => {
@@ -74,15 +75,33 @@ describe('loudness settings and checks', () => {
     assert.ok(Math.abs(next.gain_db - 2) < 1e-9 && Math.abs(next.limit_db! + 1.8) < 1e-9, JSON.stringify(next))
   })
 
-  test('verification: within 1 LU and under ceiling + 0.1 passes; CJ0027 -0.6 dBTP fails (1.4.273)', () => {
-    const t = { lufs: -14, true_peak_db: -1 }
+  test('verification allows 10% by default (owner rule 2026-10-10): 1.4 LU at -14, peak ceiling + 0.8 dB', () => {
+    const t = loudnessTarget({})
+    assert.deepEqual(loudnessTolerance(t), { lu: 1.4, peak_db: 0.8 })
     assert.equal(finalLoudnessIssue({ lufs: -14.0, true_peak_db: -1.2 }, t), null)
-    assert.equal(finalLoudnessIssue({ lufs: -13.1, true_peak_db: -0.95 }, t), null)
-    assert.match(finalLoudnessIssue({ lufs: -14.0, true_peak_db: -0.6 }, t)!, /above the -1 dBTP ceiling/)
-    assert.match(finalLoudnessIssue({ lufs: -14.0, true_peak_db: -0.85 }, t)!, /above the -1 dBTP ceiling/)
-    assert.match(finalLoudnessIssue({ lufs: -24.2, true_peak_db: -11.4 }, t)!, /more than 1 LU/)
-    assert.match(finalLoudnessIssue({ lufs: -14, true_peak_db: -0.3 }, t)!, /above the -1 dBTP ceiling/)
+    assert.equal(finalLoudnessIssue({ lufs: -14.9, true_peak_db: -0.4 }, t), null)
+    assert.equal(finalLoudnessIssue({ lufs: -13.1, true_peak_db: -0.6 }, t), null)
+    assert.equal(finalLoudnessIssue({ lufs: -15.4, true_peak_db: -0.2 }, t), null)  // exactly at the limit
+    assert.match(finalLoudnessIssue({ lufs: -16, true_peak_db: -1.2 }, t)!, /-16\.0 LUFS is more than the allowed 10% \(1\.4 LU\) from the -14 LUFS target/)
+    assert.match(finalLoudnessIssue({ lufs: -14, true_peak_db: 0.2 }, t)!, /peak of 0\.2 dBTP is more than the allowed 10% \(\+0\.8 dB\) above the -1 dBTP ceiling/)
+    assert.match(finalLoudnessIssue({ lufs: -24.2, true_peak_db: -11.4 }, t)!, /more than the allowed 10%/)
     assert.match(finalLoudnessIssue({ lufs: null, true_peak_db: null }, t)!, /could not be measured/)
+    // A tighter setting is the project's choice.
+    assert.match(finalLoudnessIssue({ lufs: -14.9, true_peak_db: -1.2 }, loudnessTarget({ loudness_tolerance_pct: 5 }))!, /allowed 5% \(0\.7 LU\)/)
+  })
+
+  test('the log says plainly when a passing final is within the allowance but not on target', () => {
+    const t = loudnessTarget({})
+    assert.equal(withinToleranceNote({ lufs: -14.0, true_peak_db: -1.3 }, t), '')
+    assert.equal(withinToleranceNote({ lufs: -14.9, true_peak_db: -0.4 }, t), ' (within the allowed 10%)')
+    assert.equal(withinToleranceNote({ lufs: -14.0, true_peak_db: -0.7 }, t), ' (within the allowed 10%)')
+  })
+
+  test('a saved preset from before 1.4.274 (no allowed difference) gets the 10% default', () => {
+    const flat = flattenVideoAssemblyBundle({ fallback: { export: { loudness_lufs: -14, true_peak_db: -1 } } }, 'EP0001', 'x')
+    assert.equal(flat.loudness_tolerance_pct, undefined)
+    assert.equal(loudnessTarget(flat).tolerance_pct, 10)
+    assert.equal(loudnessTarget(flattenVideoAssemblyBundle({ fallback: { export: { loudness_tolerance_pct: 20 } } }, 'EP0001', 'x')).tolerance_pct, 20)
   })
 })
 
