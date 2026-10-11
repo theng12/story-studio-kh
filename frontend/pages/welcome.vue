@@ -73,6 +73,12 @@
           Settings → Storage.
         </p>
       </section>
+
+      <!-- 1.4.287 — a new Mac starts from the owner's backup drive instead of an empty Library. -->
+      <details v-if="!repointing" class="welcome-card welcome-restore">
+        <summary><strong>Moving from another Mac? Restore from a backup</strong></summary>
+        <RestoreFromBackup :suggested="suggested" @restored="restored" />
+      </details>
     </main>
   </div>
 </template>
@@ -112,6 +118,7 @@ const picking = ref(false)
 const creating = ref(false)
 const problem = ref('')
 const checked = ref<{ ok: boolean; will_create?: boolean; reason?: string; caution?: string } | null>(null)
+const suggested = ref('')
 
 /** The folder name, for the little layout preview. */
 const leafName = computed(() => {
@@ -131,6 +138,7 @@ onMounted(async () => {
   repointing.value = !!status?.configured
   missingPath.value = status?.configured && !status.exists ? status.path : ''
   chosen.value = (repointing.value ? status?.path : status?.suggested) || ''
+  suggested.value = status?.suggested || ''
 })
 
 async function browse() {
@@ -164,6 +172,12 @@ async function validate(): Promise<boolean> {
     problem.value = e?.data?.detail || e?.message || 'Could not check that folder.'
     return false
   }
+}
+
+/** A restore that made a new Library: it is now the Library, so go home. */
+async function restored() {
+  await load(true)
+  await navigateTo('/', { replace: true })
 }
 
 async function confirm() {
@@ -223,4 +237,6 @@ async function confirm() {
 .welcome-caution { color: var(--warning); margin-top: 14px; }
 .welcome-actions { margin-top: 20px; }
 .welcome-fineprint { color: var(--text-secondary); font-size: 13px; margin-top: 14px; }
+.welcome-restore summary { cursor: pointer; }
+.welcome-restore[open] summary { margin-bottom: 12px; }
 </style>

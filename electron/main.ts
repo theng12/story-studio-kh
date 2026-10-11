@@ -761,6 +761,14 @@ void electronApp.whenReady().then(async () => {
       logCrash('idea-supply-alerts', e)
     }
 
+    // 1.4.287 — automatic backup: daily, and when the backup drive comes back, only while idle.
+    try {
+      const { startAutoBackupScheduler } = await import('./server/services/backup-runner.js')
+      startAutoBackupScheduler(e => logCrash('auto-backup', e))
+    } catch (e) {
+      logCrash('auto-backup', e)
+    }
+
     // Remote updates from the Gateway (services/app-update.ts). Packaged builds only: a dev run
     // has no bundle to replace. Not awaited: settling a previous install waits for /api/health.
     if (electronApp.isPackaged && process.platform === 'darwin') {

@@ -62,12 +62,12 @@ describe('Settings section navigation', () => {
     assert.deepEqual(searchSettings('   '), [])
   })
 
-  test('every indexed setting points at a real section, and nine sections exist', () => {
+  test('every indexed setting points at a real section, and ten sections exist', () => {
     const sections = SETTINGS_ZONES.flatMap(zone => zone.sections.map(section => section.id))
-    assert.equal(sections.length, 9)
+    assert.equal(sections.length, 10)
     for (const entry of SETTINGS_INDEX) assert.ok(sections.includes(entry.section), `${entry.label} → ${entry.section}`)
     // Every anchor the index names is present in the page or one of its components.
-    const sources = ['../pages/projects/[slug]/settings.vue', '../components/ThisMacSettings.vue', '../components/PerformanceSettings.vue']
+    const sources = ['../pages/projects/[slug]/settings.vue', '../components/ThisMacSettings.vue', '../components/PerformanceSettings.vue', '../components/BackupPanel.vue']
       .map(rel => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')).join('\n')
     for (const entry of SETTINGS_INDEX) {
       assert.match(sources, new RegExp(`data-setting="${entry.anchor}"`), `anchor ${entry.anchor} exists`)
@@ -108,7 +108,7 @@ describe('Settings section navigation', () => {
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
       await nextTick()
       assert.equal(input.value, '')
-      assert.equal(mounted.host.querySelectorAll('a').length, 9)
+      assert.equal(mounted.host.querySelectorAll('a').length, 10)
     } finally { mounted.destroy() }
   })
 })

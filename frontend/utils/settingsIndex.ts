@@ -34,6 +34,7 @@ export const SETTINGS_ZONES: SettingsZoneDef[] = [
       { id: 'performance', label: 'Performance & recovery', description: 'How much runs at once, paid replacements' },
       { id: 'appearance', label: 'Appearance & notifications', description: 'Light or dark, alerts, daily brief' },
       { id: 'maintenance', label: 'Files & maintenance', description: 'Where your files are, free up space, FFmpeg' },
+      { id: 'backup', label: 'Backup & restore', description: 'Back up to a drive, restore on a new Mac' },
     ],
   },
   {
@@ -77,6 +78,12 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { section: 'maintenance', anchor: 'smaller-files', label: 'Smaller files (compression)', keywords: 'compression compress smaller files aac jpeg png music narration images thumbnails' },
   { section: 'maintenance', anchor: 'ffmpeg', label: 'FFmpeg video engine', keywords: 'ffmpeg video engine assembly subtitles burn drawtext libass install' },
   { section: 'maintenance', anchor: 'about', label: 'Version and build', keywords: 'about version build copy report bug' },
+
+  { section: 'backup', anchor: 'backup-folder', label: 'Backup folder', keywords: 'backup back up drive ssd external copy safe folder' },
+  { section: 'backup', anchor: 'backup-extras', label: 'What the backup includes', keywords: 'backup include finished videos narration audio thumbnails size' },
+  { section: 'backup', anchor: 'backup-auto', label: 'Automatic backup', keywords: 'automatic backup daily schedule plugged in drive' },
+  { section: 'backup', anchor: 'backup-versions', label: 'Older copies on the backup drive', keywords: 'versions older copies prune delete backup space' },
+  { section: 'backup', anchor: 'backup-restore', label: 'Restore from a backup', keywords: 'restore backup new mac machine move migrate recover' },
 
   { section: 'identity', anchor: 'project-name', label: 'Project name', keywords: 'name rename channel project title' },
   { section: 'identity', anchor: 'formula', label: 'Series Formula and Topic Packs', keywords: 'formula niche series topics topic packs identity' },

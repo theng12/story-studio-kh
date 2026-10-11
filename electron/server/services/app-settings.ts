@@ -222,6 +222,11 @@ export async function getAppSetting(key: string): Promise<any> {
   return cloneSettingValue(settings[key])
 }
 
+/** A copy of every setting. For Backup, which writes them out with secrets stripped. */
+export async function getAllAppSettings(): Promise<AppSettings> {
+  return structuredClone(await readSettings())
+}
+
 /**
  * Fired after any successful write to app-settings.json.
  *

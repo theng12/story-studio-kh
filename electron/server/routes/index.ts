@@ -37,6 +37,7 @@ import { router as musicLibraryRouter } from './music-library.js'
 import { router as musicEpisodeRouter } from './music-episode.js'
 import { router as songPoolRouter } from './song-pool.js'
 import { router as libraryRouter } from './library.js'
+import { router as backupRouter } from './backup.js'
 import { router as mediaCleanupRouter } from './media-cleanup.js'
 import { router as trashRouter } from './trash.js'
 import { router as softDeletedProjectsRouter } from './soft-deleted-projects.js'
@@ -99,6 +100,7 @@ export function mountRoutes(app: Express): void {
   app.use('/api', musicEpisodeRouter)
   app.use('/api', songPoolRouter)
   app.use('/api', libraryRouter)
+  app.use('/api', backupRouter)
   app.use('/api', mediaCleanupRouter)
   app.use('/api', trashRouter)
   app.use('/api', softDeletedProjectsRouter)

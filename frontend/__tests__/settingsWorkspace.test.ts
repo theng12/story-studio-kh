@@ -26,15 +26,15 @@ describe('Settings workspace navigation', () => {
   test('primary Settings groups use the shared modern panel shell', () => {
     // v1.4.249 — one block per section, no shared multi-section cards.
     const templateSource = settingsSource.slice(0, settingsSource.indexOf('<script setup'))
-    for (const id of ['connections', 'performance', 'appearance', 'maintenance', 'identity', 'production', 'writing', 'publishing', 'files']) {
+    for (const id of ['connections', 'performance', 'appearance', 'maintenance', 'backup', 'identity', 'production', 'writing', 'publishing', 'files']) {
       assert.equal(templateSource.match(new RegExp(`v-if="activeTab === '${id}'"`, 'g'))?.length, 1, `${id} renders from exactly one block`)
     }
     assert.doesNotMatch(templateSource, /\.includes\(activeTab\)/, 'no card is shared between sections')
     assert.ok((templateSource.match(/settings-panel/g)?.length || 0) > 10)
   })
 
-  test('uses nine searchable destinations with exact links and explicit scopes', () => {
-    for (const id of ['connections', 'performance', 'appearance', 'maintenance', 'identity', 'production', 'writing', 'publishing', 'files']) {
+  test('uses ten searchable destinations with exact links and explicit scopes', () => {
+    for (const id of ['connections', 'performance', 'appearance', 'maintenance', 'backup', 'identity', 'production', 'writing', 'publishing', 'files']) {
       assert.match(settingsIndexSource, new RegExp(`id: '${id}'`), `${id} is addressable`)
     }
     assert.match(settingsSource, /<SettingsSectionNav v-model="activeTab" :zones="tabZones" @go="goToSetting" \/>/)
@@ -46,7 +46,7 @@ describe('Settings workspace navigation', () => {
   })
 
   test('maps every retired Settings hash to its replacement destination', () => {
-    const validSections = ['connections', 'performance', 'appearance', 'maintenance', 'identity', 'production', 'writing', 'publishing', 'files']
+    const validSections = ['connections', 'performance', 'appearance', 'maintenance', 'backup', 'identity', 'production', 'writing', 'publishing', 'files']
     const targetIds = settingsAnchorTargetIds(validSections)
     for (const [oldHash, destination] of [
       ['app', 'connections'], ['models', 'connections'], ['youtube', 'connections'],

@@ -231,6 +231,11 @@
           </AdvancedDisclosure>
         </template>
 
+        <!-- ═══ This Mac → Backup & restore (1.4.287) ═══ -->
+        <section v-if="activeTab === 'backup'" class="card settings-panel" data-setting="backup">
+          <BackupPanel :library-path="library?.path || ''" />
+        </section>
+
         <!-- ═══ This Mac → Files & maintenance ═══ -->
         <template v-if="activeTab === 'maintenance'">
           <!-- v1.4.249 — "Where your files are". Replaces the storage map, Your
