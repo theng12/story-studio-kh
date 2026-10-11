@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.278 — 2026-10-11
+
+- Audio Assembly now opens the same episode folder as the audio check. KH Boundless Season 005 held two folders starting with "EP0100 - ": the episode's own, "The Bizarre Logistics of the Voynich Manuscript's Move from Prague to Rome", with all 21 chapter files, and "How Aztec Star Watchers Predicted the 1496 Eclipse", left over from before that episode became EP0116, with none. The audio check counted 21 of 21 in the first, but Audio Assembly took the first folder by name and failed every time with "no chapter audio files were found". Audio Assembly, and the episode list's merged-audio check, now prefer the folder named after the episode's own title, and Audio and Audio Assembly now read chapter names with one shared rule.
+- Thumbnails made on your own Macs (Z-Image, Qwen and the other Studio Hub models) are sent again after an earlier attempt failed. On EP0092 and EP0100 each thumbnail had an earlier fleet task that had failed, and the check meant for paid images refused to send it again, so the job said only "This image was not made" and no Gateway task was created. Free fleet work now just asks again under a new request, as scene images already did. A paid image that is still refused now says why, for example "because its earlier Gateway task failed in a way that is not safe to resubmit automatically".
+- A thumbnail prompt file with fewer prompts than Thumbnail Prompts was asked for (EP0092: 2 of 3) makes the thumbnails it has and says so in the job: "making the 2 it has. Run Thumbnail Prompts again to add the rest."
+- Small scene-timing overlaps no longer stop Video Assembly. Brain Wise EP0039 stopped on "11 timing overlap(s) totalling 4.0s", and EP0040 and EP0041 on half a second. When no overlap is longer than 2 seconds and all of them add up to 5 seconds or less, Video Assembly now runs the Scene Plan's own Reconcile timings first, which lines every scene up with the subtitles again and keeps every scene and image, writes what it changed in the job, and carries on. Larger overlaps still stop, and the message now says to use Reconcile timings in Scene Plan.
+- A Video Assembly saved before a channel was made self-contained finds the channel's own copy of its intro and logo. EP0095's retry still named the shared "_Project Assets/boundless-assets" files, which are gone; the same files are in the channel's own assets folder, and Video Assembly now uses those.
+
 ## v1.4.277 — 2026-10-10
 
 - Your own art styles can now be shared by every channel. A "user style pack" is a list of your custom styles with a name and a one-line description each. Once it is imported, its styles show in every project's Style Library after the store styles, so any channel can pick them. Until now a custom art style lived only in the channel where it was saved.

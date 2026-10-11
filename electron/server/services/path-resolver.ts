@@ -19,6 +19,7 @@
  * returns unchanged rather than re-resolving and re-collapsing.
  */
 
+import { existsSync } from 'fs'
 import path from 'path'
 import { projectsRoot } from './project-manager.js'
 import { ASSETS_DIR_NAME } from './library.js'
@@ -103,6 +104,13 @@ export function resolveAssetPath(p: string, projectOutputRoot?: string): string 
     base = name === 'CHANNEL' ? path.dirname(projectOutputRoot) : projectOutputRoot
   } else if (name === 'ASSET') {
     base = assetsRoot()
+    // A self-contained channel holds its copy at `<channel>/assets/<rel>`. A job saved before
+    // the move still says `${ASSET}/…` once the shared original is gone (boundful EP0095's
+    // Video Assembly recovery, 2026-10-10) — the same fallback the move itself applies.
+    if (rel && projectOutputRoot && path.isAbsolute(projectOutputRoot) && !existsSync(path.join(base, rel))) {
+      const own = path.join(path.dirname(projectOutputRoot), CHANNEL_ASSETS_DIR, rel)
+      if (existsSync(own)) return own
+    }
   } else {
     throw new Error(
       `Cannot resolve ${p}: "${name}" is not a folder Story Studio knows about. `

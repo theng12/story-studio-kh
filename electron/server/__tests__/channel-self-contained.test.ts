@@ -101,6 +101,18 @@ test('${CHANNEL} resolves to the channel folder; picks inside the channel collap
   assert.throws(() => resolver.resolveAssetPath('${CHANNEL}/a.png'), /requires an episodes-folder context/)
 })
 
+// boundful EP0095 (2026-10-10): a Video Assembly recovery saved before the move still named
+// `${ASSET}/boundless-assets/…` after the shared originals were gone; the channel's copy is used.
+test('a stale ${ASSET} reference finds the channel copy once the shared original is gone', async () => {
+  const { resolver, channelDir, episodesRoot, shared } = await setup()
+  const rel = 'boundless-assets/Boundless - Intro Video 10s.mp4'
+  assert.equal(resolver.resolveAssetPath(`\${ASSET}/${rel}`, episodesRoot), path.join(shared, rel), 'nothing anywhere: the shared path, as before')
+  const own = await write(path.join(channelDir, 'assets', rel), 'intro')
+  assert.equal(resolver.resolveAssetPath(`\${ASSET}/${rel}`, episodesRoot), own)
+  const sharedCopy = await write(path.join(shared, rel), 'intro')
+  assert.equal(resolver.resolveAssetPath(`\${ASSET}/${rel}`, episodesRoot), sharedCopy, 'a present shared original still wins')
+})
+
 test('dry run lists every kind of reference with sizes and changes nothing', async () => {
   const ctx = await setup()
   const seeded = await seedReferences(ctx)

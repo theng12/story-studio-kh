@@ -1823,6 +1823,23 @@ export async function assertSubtitleFileBelongsToEpisode(
  * The browser and Pipeline may supply reusable editing settings, but neither is
  * allowed to choose a partial or reordered set of Scene Plan assets.
  */
+const OVERLAP_REPAIR_MAX_EACH_SEC = 2
+const OVERLAP_REPAIR_MAX_TOTAL_SEC = 5
+
+/** Overlaps small enough to repair without asking: each ≤ 2 s and ≤ 5 s in all. Null when none or too big. */
+export function repairableTimingOverlaps(
+  timing: Pick<NonNullable<ScannedAssets['scene_plan_timing']>, 'overlap_count' | 'overlap_sec' | 'scenes'> | undefined,
+): { count: number; totalSec: number; maxSec: number } | null {
+  if (!timing || timing.overlap_count <= 0 || timing.overlap_sec > OVERLAP_REPAIR_MAX_TOTAL_SEC) return null
+  let maxSec = 0
+  for (let i = 1; i < timing.scenes.length; i++) {
+    maxSec = Math.max(maxSec, Number(timing.scenes[i - 1]!.end_sec) - Number(timing.scenes[i]!.start_sec))
+  }
+  return maxSec <= OVERLAP_REPAIR_MAX_EACH_SEC
+    ? { count: timing.overlap_count, totalSec: timing.overlap_sec, maxSec }
+    : null
+}
+
 export async function prepareUnifiedVideoAssemblyInputs(
   slug: string,
   episodeId: string,
@@ -1834,7 +1851,22 @@ export async function prepareUnifiedVideoAssemblyInputs(
    *  omits it. */
   job?: Job,
 ): Promise<ScannedAssets> {
-  const assets = await scanEpisodeAssets(slug, episodeId)
+  let assets = await scanEpisodeAssets(slug, episodeId)
+  // Small timing overlaps (Brain Wise EP0039: 11 totalling 4.0s) are repaired with the Scene Plan's
+  // own "Reconcile timings", which keeps every scene and image, and the render goes on (1.4.278).
+  // A request with no job (preflight, queueing) leaves the repair to the render.
+  const smallOverlaps = repairableTimingOverlaps(assets.scene_plan_timing)
+  if (job && smallOverlaps) {
+    const { reconcileScenePlanTimings } = await import('../services/scene-plan-reconcile.js')
+    const repaired = await reconcileScenePlanTimings(slug, episodeId)
+    assets = await scanEpisodeAssets(slug, episodeId)
+    job.output_lines.push(
+      `Scene Plan: ${smallOverlaps.count} small timing overlap(s) totalling ${smallOverlaps.totalSec.toFixed(1)}s `
+      + `(largest ${smallOverlaps.maxSec.toFixed(1)}s) — re-anchored the timings to the subtitles `
+      + `(${repaired.matched}/${repaired.total} scenes matched, median shift ${repaired.median_shift_sec.toFixed(2)}s); `
+      + `every scene and image kept. Overlaps now: ${assets.scene_plan_timing?.overlap_count ?? 0}.`,
+    )
+  }
   if (assets.visual_source === 'image_pool') {
     const merged = assets.merged_audio[0]
     if (!merged?.path || !existsSync(merged.path)) {
@@ -1902,8 +1934,9 @@ export async function prepareUnifiedVideoAssemblyInputs(
   if (timing.uncovered_sec > COVERAGE_FAIL_SEC) {
     problems.push(`${timing.uncovered_sec.toFixed(1)}s of narration has no planned scene`)
   }
-  if (timing.overlap_count > 0) {
-    problems.push(`${timing.overlap_count} timing overlap(s) totalling ${timing.overlap_sec.toFixed(1)}s`)
+  if (timing.overlap_count > 0 && (job || !repairableTimingOverlaps(timing))) {
+    problems.push(`${timing.overlap_count} timing overlap(s) totalling ${timing.overlap_sec.toFixed(1)}s`
+      + (job && !smallOverlaps ? ` (more than the ${OVERLAP_REPAIR_MAX_EACH_SEC}s each / ${OVERLAP_REPAIR_MAX_TOTAL_SEC}s in all that Video Assembly repairs on its own; use Reconcile timings in Scene Plan)` : ''))
   }
   if (problems.length) {
     throw new Error(

@@ -14,13 +14,12 @@
 import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
-import { findDirLevelOrder } from '../lib/dir-search.js'
+import { findEpisodeDir as findEpisodeDirByTitle } from '../lib/folder-resolver.js'
 import { spawn } from 'child_process'
 import * as pm from '../services/project-manager.js'
 import { trackChild } from '../services/job-queue.js'
 import { resolveSubfolderNames, resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 import { mediaEpisodeBaseForCode } from '../services/media-root.js'
-import { episodeDirNameMatchesCode } from '../services/asset-status.js'
 import { runFfmpeg, getAudioDuration, formatConcatFileLine, appendCappedTail } from '../lib/ffmpeg-utils.js'
 import { getWorkTempDir } from '../lib/work-tempdir.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
@@ -35,7 +34,7 @@ import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
 import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
 import { checkAssetAvailability } from '../lib/sync-safe.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import { requireChapterAudioReady } from '../services/audio-workflow-readiness.js'
+import { chapterKeyOf, requireChapterAudioReady } from '../services/audio-workflow-readiness.js'
 import { hashSubtitleAudioSources } from '../services/subtitle-completion.js'
 import { recordSubtitleSourceEvidence } from '../services/subtitle-recovery.js'
 import { ensureStitchedSubtitle } from '../lib/subtitle-autostitch.js'
@@ -121,13 +120,17 @@ async function runFfmpegWithStderr(args: string[], opts: { timeoutMs?: number } 
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-async function findEpisodeDir(projectDir: string, code: string): Promise<string | null> {
-  return findDirLevelOrder(projectDir, 4, (entries, dir) => {
-    for (const entry of entries) {
-      if (entry.isDirectory() && episodeDirNameMatchesCode(entry.name, code)) return path.join(dir, entry.name)
-    }
-    return null
-  })
+/**
+ * The episode's folder, preferring the exact "{code} - {title}" one. A code-only match took the
+ * first same-code folder, so a renumber leftover (Boundless "EP0100 - How Aztec Star Watchers…",
+ * now EP0116) beside the real EP0100 left Audio Assembly with no chapters while Audio counted
+ * 21/21 in the titled folder (2026-10-10).
+ */
+async function findEpisodeDir(slug: string, outputRoot: string, code: string): Promise<string | null> {
+  const { getIdeas } = await import('../services/idea-manager.js')
+  const titleHint = (await getIdeas(slug, 'accepted').catch(() => []))
+    .find(idea => idea.episode_code === code)?.title || undefined
+  return findEpisodeDirByTitle(outputRoot, code, { titleHint })
 }
 
 async function resolveSubfolder(episodeDir: string, subfolderName: string): Promise<string | null> {
@@ -333,16 +336,8 @@ export function isActiveChapterAudioFilename(filename: string): boolean {
   return !/_v\d+\.(?:mp3|wav|m4a)$/i.test(filename)
 }
 
-export function chapterKeyOf(filename: string, code: string): string {
-  let base = filename.replace(/\.[^.]+$/, '')
-  if (base.startsWith(`${code}_`)) base = base.slice(code.length + 1)
-  // Strip the tempdir `_normalized` marker, then any trailing `_part{N}` /
-  // `_v{N}` suffixes (in any order). Mirrors the per-chapter SRT grouping in
-  // generators/subtitles.ts so the chapter slugs match on both sides.
-  base = base.replace(/_normalized$/i, '')
-  while (/(?:_part\d+|_v\d+)$/i.test(base)) base = base.replace(/(?:_part\d+|_v\d+)$/i, '')
-  return base
-}
+// One chapter-file key for Audio status and Audio Assembly (strips the code, `_normalized`, `_partN`/`_vN`).
+export { chapterKeyOf }
 
 /**
  * Finish the local half of an audio-quality repair after the selected candidate
@@ -755,7 +750,7 @@ export async function generateAudioMerge(job: Job): Promise<void> {
       .filter(t => !!t && !!t.source_path)
   }
 
-  const episodeDir = await findEpisodeDir(outputRoot, code)
+  const episodeDir = await findEpisodeDir(project_slug, outputRoot, code)
   if (!episodeDir) throw new Error(`Episode directory not found for ${code}`)
 
   const mergedAudioName = await resolveMergedAudioName(project_slug, code)
@@ -1463,7 +1458,7 @@ export async function scanEpisodeAudioAssets(
   const names = await resolveSubfolderNames(slug, code)
   const mergedAudioName = await resolveMergedAudioName(slug, code)
 
-  const episodeDir = await findEpisodeDir(outputRoot, code)
+  const episodeDir = await findEpisodeDir(slug, outputRoot, code)
   if (!episodeDir) throw new Error(`Episode directory not found for ${code}`)
 
   // Level B (opt-in): audio + merged audio are heavy — route to the external

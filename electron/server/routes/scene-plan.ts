@@ -29,12 +29,10 @@ import { readVideoVisualSource } from '../services/video-visual-source.js'
 import { allowedSubtitleCueGapSec, resolveScenePlanRepairPacing } from '../services/scene-plan-pacing.js'
 import { requireScenePlanGenStudioModel, SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import {
-  computePlanCoverage,
   COVERAGE_FAIL_SEC,
   inspectScenePlanCoverage,
   repairOverlongScenesDeterministically,
   repairPlanCoverageWithSubtitleCues,
-  reconcilePlanToSubtitles,
 } from '../services/scene-planner.js'
 import {
   parseScenePromptPackSetting,
@@ -797,69 +795,10 @@ router.post('/projects/:slug/scene-plan/:episodeId/reconcile-timings', async (re
   const { slug, episodeId } = req.params
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   try {
-    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
-    const sidecarPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
-    if (!existsSync(sidecarPath)) {
-      return res.status(404).json({ detail: 'No scene_plan.json — run Scene Plan first.' })
-    }
-    const plan = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
-    if (!plan.scenes?.length) return res.status(400).json({ detail: 'scene_plan.json has no scenes.' })
-
-    const stitchedPath = stitchedSrtPath(paths.subtitles_dir, episodeId)
-    if (!existsSync(stitchedPath)) {
-      return res.status(400).json({ detail: 'No stitched subtitles found — stitch subtitles on the Subtitles page first, then reconcile.' })
-    }
-    // Re-anchoring matches each scene's stored transcript_segment against the
-    // cue word stream. Reading the corrected transcript keeps both sides in the
-    // same vocabulary and removes hallucinated words that could false-match.
-    const transcriptPath = await resolveTranscriptSrtPath({
-      subtitles_dir: paths.subtitles_dir, script_dir: paths.script_dir, episode_code: episodeId,
-    })
-    const cues = parseSrt(await fs.readFile(transcriptPath, 'utf-8'))
-    if (!cues.length) return res.status(400).json({ detail: 'The stitched SRT has no cues.' })
-
-    // Prefer the real audio duration for the last scene's end; fall back to
-    // the SRT end inside the helper when it's absent.
-    let audioDur = 0
-    if (existsSync(paths.merged_audio_dir)) {
-      let best = 0
-      for (const f of await fs.readdir(paths.merged_audio_dir).catch(() => [] as string[])) {
-        if (!/\.(mp3|wav|m4a)$/i.test(f) || f.startsWith('.tmp_')) continue
-        const st = await fs.stat(path.join(paths.merged_audio_dir, f)).catch(() => null)
-        if (st && st.size > best) { best = st.size; audioDur = (await getAudioDuration(path.join(paths.merged_audio_dir, f))) || 0 }
-      }
-    }
-
-    // Prep (transcript parse, ffprobe) is outside the lock; the read-transform-write
-    // is inside it, and the reported before/after coverage is measured on the same
-    // document that was actually saved.
-    const { before, r, after } = await withLock(sidecarPath, async () => {
-      // Re-read under the lock: the plan was read before the checks above, and a
-      // job or another request may have written the file since.
-      const fresh = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
-      const coverageBefore = computePlanCoverage(fresh.scenes, audioDur || cues[cues.length - 1]!.end_sec)
-      const result = reconcilePlanToSubtitles(fresh.scenes, cues, audioDur || undefined)
-      fresh.scenes = result.scenes
-      fresh.total_duration_sec = audioDur || cues[cues.length - 1]!.end_sec
-      await writeJsonAtomic(sidecarPath, fresh)
-      return {
-        before: coverageBefore,
-        r: result,
-        after: computePlanCoverage(fresh.scenes, fresh.total_duration_sec),
-      }
-    })
-    await invalidateScenePlanStatus(slug, episodeId)
-    res.json({
-      ok: true,
-      matched: r.matchedCount,
-      total: r.scenes.length,
-      unmatched_ids: r.unmatchedIds,
-      median_shift_sec: r.medianShiftSec,
-      changes: r.changes,
-      coverage_before: before,
-      coverage_after: after,
-    })
+    const { reconcileScenePlanTimings } = await import('../services/scene-plan-reconcile.js')
+    res.json({ ok: true, ...await reconcileScenePlanTimings(slug, episodeId) })
   } catch (e: any) {
+    if (e?.statusCode === 404 || e?.statusCode === 400) return res.status(e.statusCode).json({ detail: e.message })
     res.status(500).json(humanizeBackendError(e, 'Failed to reconcile plan timings'))
   }
 })

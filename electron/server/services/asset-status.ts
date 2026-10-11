@@ -21,6 +21,7 @@ import { findDirLevelOrder, findDirsLevelOrder } from '../lib/dir-search.js'
 import { parseImagePromptsDocx } from '../lib/docx-parser.js'
 import {
   resolveEpisodePaths,
+  resolveEpisodePathsByCode,
   resolveEpisodePathsByCodeWithSidecar,
   resolveSubfolderNames,
   projectConfigOnce,
@@ -386,8 +387,15 @@ async function findEpisodeDir(
   projectDir: string,
   code: string,
   cache?: ProjectFactsCache,
+  slug?: string,
 ): Promise<string | null> {
   const CODE = code.toUpperCase()
+  // The episode's own "{code} - {title}" folder first, as Audio and every titled reader do: a
+  // same-code leftover (boundful EP0100 beside the old folder of what is now EP0116) is not it.
+  if (slug) {
+    const own = (await resolveEpisodePathsByCode(slug, CODE, cache).catch(() => null))?.episode_dir
+    if (own && existsSync(own)) return own
+  }
 
   if (cache) {
     // Keyed by root as well as slug: a project whose media_root moves mid-cache
@@ -590,7 +598,7 @@ export async function getVideoStatus(slug: string, episodeId: string): Promise<V
   const expected = parsed.scenes.map(s => s.number)
 
   const names = await resolveSubfolderNames(slug, code)
-  const epDir = await findEpisodeDir(outputRoot, code)
+  const epDir = await findEpisodeDir(outputRoot, code, undefined, slug)
   if (!epDir) return { total: expected.length, present: 0, missing: expected }
   const videoDir = await resolveEpisodeSubfolderDir(slug, code, 'video', epDir, names.video, false)
 
@@ -715,7 +723,7 @@ export async function getAudioMergeStatus(
   const outputRoot = await projectOutputRootOnce(slug, cache)
   if (!outputRoot) return { present: false }
 
-  const epDir = await findEpisodeDir(outputRoot, code, cache)
+  const epDir = await findEpisodeDir(outputRoot, code, cache, slug)
   if (!epDir) return { present: false }
 
   // Resolve merged_audio subfolder name from project config (same logic
@@ -1441,7 +1449,7 @@ export async function computeEpisodeStatus(
   // outside the app), fall back to the original fuzzy scan so these
   // episodes don't suddenly regress to "nothing done".
   if (!authoritativeHit) {
-    const dir = await findEpisodeDir(outputRoot, code, cache)
+    const dir = await findEpisodeDir(outputRoot, code, cache, slug)
     if (dir) {
       try {
         const subs = await fs.readdir(dir)

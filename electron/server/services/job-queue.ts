@@ -1827,6 +1827,20 @@ type RendererJob = Omit<Job, 'paid_image_replacement_attempts' | 'generation_rep
 export const PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE =
   'This image was not made, and nothing new was sent or charged. Press “Retry Failed Jobs” on the Jobs page to make it again.'
 
+const PAID_IMAGE_REPLACEMENT_PUBLIC_CAUSE: Record<NonNullable<PaidImageReplacementAttempt['public_reason']>, string> = {
+  original_failure_not_eligible: 'its earlier Gateway task failed in a way that is not safe to resubmit automatically',
+  not_verified: 'Story Studio could not verify its earlier Gateway task',
+  replacement_disabled: 'automatic replacement of a failed paid image is off',
+  budget_limit: "this job's extra-credit limit for replacements is used up",
+}
+
+/** The public message with its allow-listed cause, so a refusal says why (EP0092 thumbnails, 2026-10-10). */
+export function paidImageReplacementBlockedMessage(
+  reason: NonNullable<PaidImageReplacementAttempt['public_reason']>,
+): string {
+  return `This image was not made because ${PAID_IMAGE_REPLACEMENT_PUBLIC_CAUSE[reason]}; nothing new was sent or charged. Press “Retry Failed Jobs” on the Jobs page to make it again.`
+}
+
 export function recordPaidImageReplacementPublicReason(
   job: Job,
   reason: NonNullable<PaidImageReplacementAttempt['public_reason']>,

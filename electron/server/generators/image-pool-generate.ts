@@ -50,6 +50,7 @@ import {
   revalidatePaidImageOutputPath,
   type PaidImageOutputSelector,
 } from '../services/image-paid-replacement.js'
+import { isFreeFleetModelId } from '../contracts/provider-task-state.js'
 
 /**
  * The modality every request in this generator belongs to.
@@ -168,6 +169,8 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
   const aspectRatio = resolveConfiguredAspectRatio(modelConfig, params.aspect_ratio)
   // Validated once for the whole pool, before the first charged submit.
   const outputOption = resolveConfiguredOutputOption(modelConfig, aspectRatio, params.resolution)
+  // Free fleet work is never paid-replaced; a terminal fleet task takes the ordinary fresh retry.
+  const freeFleet = isFreeFleetModelId(modelConfig.api_model || model)
   const paidSelector = outputOption ? {
     resolution: outputOption.resolution, aspect_ratio: outputOption.aspect_ratio,
     width: outputOption.width, height: outputOption.height, reference_mode: 'normal',
@@ -350,7 +353,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
           ? submittedRecoveryCandidate
           : null
         let replacementScope = durablePermission?.replacement_scope || ''
-        if (!replacementScope && !submittedRecoveryEntry && originalSelector && entry && isTerminalGenStudioImageTaskFailure(entry) && entry.original_output_selector) {
+        if (!freeFleet && !replacementScope && !submittedRecoveryEntry && originalSelector && entry && isTerminalGenStudioImageTaskFailure(entry) && entry.original_output_selector) {
           const decision = await decidePaidImageReplacement({
             job,
             asset: {
@@ -421,7 +424,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
           }
           carried = terminalImageManifestEntry(entry!, recovery)
           await recordTaskStrict(pool.folder_path, item.filename, carried)
-          if (originalSelector && carried.idempotency_key) {
+          if (!freeFleet && originalSelector && carried.idempotency_key) {
             const decision = await decidePaidImageReplacement({
               job,
               asset: {

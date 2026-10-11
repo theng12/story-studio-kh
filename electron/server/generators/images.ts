@@ -56,6 +56,7 @@ import {
   revalidatePaidImageOutputPath,
   type PaidImageOutputSelector,
 } from '../services/image-paid-replacement.js'
+import { isFreeFleetModelId } from '../contracts/provider-task-state.js'
 
 // NOTE (v1.0.224): the old `enhanceThumbnailPrompt` + hardcoded gold/glowing
 // `THUMB_TEXT_STYLES` were removed. They force-appended a sleep-story title
@@ -459,6 +460,17 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
   job.output_lines.push(`Parsed: ${scenes.length} scenes, ${thumbnails.length} thumbnails`)
   if (mode === 'scenes' && scenes.length === 0) throw new Error('The scene prompt file contains no usable scene prompts.')
   if (mode === 'thumbs' && thumbnails.length === 0) throw new Error('The thumbnail prompt file contains no usable thumbnail prompts.')
+  // A short prompt file (boundful EP0092: 2 of 3) makes the thumbnails it has, and says so.
+  if (mode === 'thumbs' && thumbPromptsPath) {
+    const { inspectPromptCompletion } = await import('../services/prompt-completion.js')
+    const prompts = await inspectPromptCompletion(path.dirname(thumbPromptsPath), episode_id, 'thumbnail')
+    if (prompts.expected > thumbnails.length) {
+      job.output_lines.push(
+        `The thumbnail prompt file has ${thumbnails.length} of the ${prompts.expected} prompts Thumbnail Prompts was asked for; `
+        + `making the ${thumbnails.length} it has. Run Thumbnail Prompts again to add the rest.`,
+      )
+    }
+  }
   if (mode === 'scenes' && req.scene_number != null && !scenes.some(scene => scene.number === req.scene_number)) {
     throw new Error(`Scene prompt ${req.scene_number} was not found. Refresh the scene list and choose an available prompt.`)
   }
@@ -687,6 +699,9 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
   const renderWidth = typeof req.width === 'number' && req.width > 0 ? req.width : undefined
   const renderHeight = typeof req.height === 'number' && req.height > 0 ? req.height : undefined
   const paidProjectRoot = pm.getProjectDir(project_slug) || path.join(pm.projectsRoot(), project_slug)
+  // Free fleet work is never paid-replaced: a terminal fleet task takes the ordinary fresh
+  // retry (EP0092/EP0100 thumbnails, 2026-10-10; scenes got the same rule for TN0355).
+  const freeFleet = isFreeFleetModelId(resolvedModelConfig.api_model || modelName)
   const paidThumbnailSelector = mode === 'thumbs' && outputOption ? {
     resolution: outputOption.resolution, aspect_ratio: outputOption.aspect_ratio,
     width: outputOption.width, height: outputOption.height, reference_mode: 'normal',
@@ -1264,7 +1279,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
               ? submittedRecoveryCandidate
               : null
             let committedScope = durablePermission?.replacement_scope || ''
-            if (!committedScope && !submittedRecoveryEntry && paidSelector && existing && isTerminalGenStudioImageTaskFailure(existing) && existing.original_output_selector) {
+            if (!freeFleet && !committedScope && !submittedRecoveryEntry && paidSelector && existing && isTerminalGenStudioImageTaskFailure(existing) && existing.original_output_selector) {
               const decision = await decidePaidImageReplacement({
                 job,
                 asset: {
@@ -1286,7 +1301,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
               if (decision.action === 'blocked') {
                 await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason, decision.public_reason)
                 jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
-                throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
+                throw new Error(jq.paidImageReplacementBlockedMessage(decision.public_reason))
               }
               if (decision.action === 'safe-zero-settlement-retry') zeroSettlementRetryPending = true
               if (decision.action === 'commit') committedScope = decision.scope
@@ -1337,7 +1352,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             })
             throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
           }
-          if (paidSelector && (current.recovery.kind === 'terminal-failed' || current.recovery.kind === 'artifact-unavailable')) {
+          if (!freeFleet && paidSelector && (current.recovery.kind === 'terminal-failed' || current.recovery.kind === 'artifact-unavailable')) {
             const failedEntry = (await readManifest(thumbDir)).tasks[filename]!
             const decision = await decidePaidImageReplacement({
               job,
@@ -1355,7 +1370,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             if (decision.action === 'blocked') {
               await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason, decision.public_reason)
               jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
-              throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
+              throw new Error(jq.paidImageReplacementBlockedMessage(decision.public_reason))
             }
             if (decision.action === 'safe-zero-settlement-retry') zeroSettlementRetryPending = true
           }
@@ -1525,7 +1540,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
                 if (decision.action === 'blocked') {
                   await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason, decision.public_reason)
                   jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
-                  job.output_lines.push(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
+                  job.output_lines.push(jq.paidImageReplacementBlockedMessage(decision.public_reason))
                 }
               }
             }
