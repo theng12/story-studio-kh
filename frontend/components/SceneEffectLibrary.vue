@@ -34,6 +34,10 @@
 
     <div v-if="model.enabled" class="mt-2">
       <p class="text-muted text-sm">
+        These are the built-in effects (vignette, grain and letterbox included); your own image or video
+        files go under Custom Overlay Files below. Moving loops (rain, snow, fireflies…) cost more render time than single-pass effects.
+      </p>
+      <p class="text-muted text-sm">
         Overlays composite on top of the finished picture, in the order listed.
         They are drawn before captions, so a scrim makes captions easier to read
         instead of covering them. Effects chosen here go on every episode that
@@ -70,6 +74,11 @@
               >from a pack</span>
             </label>
             <p class="effect-description">{{ entry.description }}</p>
+            <p class="effect-cost" :class="{ loop: entry.document.kind === 'atmosphere-loop' }">{{ costLine(entry) }}</p>
+            <p v-if="applied(entry)?.legacy_slot" class="effect-classic">
+              Was the classic {{ CLASSIC_NAMES[applied(entry)!.legacy_slot!] }} checkbox. It still renders where that did
+              (under the aged-film look and the presentation frame), so your videos look exactly as before.
+            </p>
             <p v-if="!isAvailable(entry)" class="effect-unavailable">
               This FFmpeg build cannot draw text, so this effect is unavailable.
               Reinstall FFmpeg from Settings to enable it.
@@ -145,10 +154,10 @@
                   :value="paramValue(entry, field.key)"
                   @change="setParam(entry, field.key, ($event.target as HTMLSelectElement).value)"
                 >
-                  <option v-for="option in field.options" :key="option" :value="option">{{ option }}</option>
+                  <option v-for="option in field.options" :key="option" :value="option">{{ field.option_labels?.[option] || option }}</option>
                 </select>
                 <span v-if="field.type === 'number'" class="effect-field-value">
-                  {{ paramValue(entry, field.key) }}
+                  {{ field.key === 'amount' && amountLabel(entry) || paramValue(entry, field.key) }}
                 </span>
               </div>
             </div>
@@ -161,7 +170,8 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { effectParamFields, type ParamField } from '@shared/effect-params'
+import { effectAmountLabel, effectParamFields, estimateStackMinutes, type ParamField } from '@shared/effect-params'
+import { normalizeSceneOverlay } from '@shared/scene-effects'
 
 interface OverlayEntry {
   id: string
@@ -181,6 +191,27 @@ interface AppliedOverlay {
   id: string
   enabled: boolean
   params?: Record<string, unknown>
+  /** 1.4.282 — this entry was a classic checkbox and renders where it did. */
+  legacy_slot?: 'vignette' | 'film_grain' | 'letterbox'
+}
+
+const CLASSIC_NAMES = { vignette: 'Vignette', film_grain: 'Film Grain', letterbox: 'Cinematic Letterbox' } as const
+
+/** What one effect adds to a 65-minute 1080p render — the Effects Library page's own measure. */
+const COST_REF = { durationSec: 65 * 60, fps: 24, w: 1920, h: 1080 }
+function resolvedDoc(entry: OverlayEntry): any {
+  const params = applied(entry)?.params
+  return params && Object.keys(params).length ? normalizeSceneOverlay({ ...entry.document, ...params, kind: entry.document.kind }) : entry.document
+}
+function costLine(entry: OverlayEntry): string {
+  const min = estimateStackMinutes([resolvedDoc(entry)], COST_REF)
+  const time = min < 1 ? 'adds under 1 min' : `adds about ${min < 3 ? min.toFixed(1) : Math.round(min)} min`
+  return entry.document.kind === 'atmosphere-loop'
+    ? `Moving loop, the costlier kind: ${time} to a 65-min 1080p render.`
+    : `Single pass: ${time} to a 65-min 1080p render.`
+}
+function amountLabel(entry: OverlayEntry): string | null {
+  return effectAmountLabel(resolvedDoc(entry))
 }
 
 const props = defineProps<{
@@ -415,6 +446,16 @@ async function preview(entry: OverlayEntry): Promise<void> {
   overflow-wrap: anywhere;
 }
 .effect-description { font-size: 0.8rem; opacity: 0.75; margin: 0; }
+.effect-cost { font-size: 0.72rem; opacity: 0.6; margin: 0; }
+.effect-cost.loop { opacity: 0.9; color: var(--warning, #e0a800); }
+.effect-classic {
+  font-size: 0.75rem;
+  margin: 0;
+  padding: 0.35rem 0.45rem;
+  border-radius: 5px;
+  border-left: 2px solid var(--accent, #4fc3f7);
+  background: color-mix(in srgb, var(--accent, #4fc3f7) 10%, transparent);
+}
 .effect-approximation,
 .effect-unavailable {
   font-size: 0.75rem;

@@ -10,8 +10,15 @@ test('vignette strength grows from a mild corner angle toward a strong one', () 
   assert.ok(strong < Math.PI / 2, 'center-preserving range stays below the extreme lens angle')
 })
 
-test('letterbox draws bars without scaling or cropping the picture', () => {
+test('letterbox (default fit) shrinks the whole picture between the bars and keeps the frame size', () => {
   const filter = buildLetterboxFilter('[in]', '[out]', 1920, 1080, '2.35:1', 'black')
+  // 1080 - 2 × 132 = 816 high; 1920 × 816 / 1080 = 1450.67 → 1450 wide, side bars of 235.
+  assert.equal(filter, '[in]scale=1450:816,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1[out]')
+  assert.doesNotMatch(filter!, /crop=|drawbox=/)
+})
+
+test('letterbox in cover mode draws bars over the picture, the look before 1.4.282', () => {
+  const filter = buildLetterboxFilter('[in]', '[out]', 1920, 1080, '2.35:1', 'black', 'cover')
   assert.ok(filter)
   assert.match(filter!, /drawbox=x=0:y=0:w=iw:h=132/)
   assert.match(filter!, /drawbox=x=0:y=ih-132:w=iw:h=132/)

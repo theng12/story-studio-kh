@@ -143,7 +143,8 @@ describe('v1.1.0 ad-hoc effects are reproduced byte for byte', () => {
         '1080p': [1920, 1080], vertical: [1080, 1920], '4k': [3840, 2160], square: [1080, 1080],
       }
       const [w, h] = dims[label]!
-      assert.equal(String(buildLetterboxFilter('[v0]', '[v1]', w, h, ratio, color)), expected, key)
+      // 1.4.282 — the v1.1.0 bars-over-the-picture look is now the explicit `cover` mode.
+      assert.equal(String(buildLetterboxFilter('[v0]', '[v1]', w, h, ratio, color, 'cover')), expected, key)
       checked++
     }
     assert.equal(checked, 48)
@@ -275,8 +276,8 @@ describe('overlay compilation', () => {
     assert.deepEqual(compileSceneOverlay(doc, overlayOpts()), ['[v0]noise=alls=15:allf=t+u[vout]'])
   })
 
-  test('letterbox matches the ad-hoc filter it replaces', () => {
-    const doc = normalizeSceneOverlay({ kind: 'letterbox', ratio: '2.35:1', color: 'black' })
+  test('letterbox in cover mode matches the ad-hoc filter it replaces', () => {
+    const doc = normalizeSceneOverlay({ kind: 'letterbox', ratio: '2.35:1', color: 'black', mode: 'cover' })
     assert.deepEqual(compileSceneOverlay(doc, overlayOpts()), [
       '[v0]drawbox=x=0:y=0:w=iw:h=132:color=black:t=fill,'
       + 'drawbox=x=0:y=ih-132:w=iw:h=132:color=black:t=fill[vout]',

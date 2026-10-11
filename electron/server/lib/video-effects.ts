@@ -13,7 +13,7 @@
  * of the starter library and were not in this release's scope.
  */
 
-import { anchorOverlayPosition, letterboxBarHeight, letterboxBars, vignetteAngle } from './scene-effect-compiler.js'
+import { anchorOverlayPosition, letterboxBarHeight, letterboxBars, letterboxFit, vignetteAngle } from './scene-effect-compiler.js'
 
 /** Build the `:enable` suffix supported by FFmpeg's visual filters. */
 export function buildGateEnable(start: number, end: number): string {
@@ -39,7 +39,11 @@ export function computeVignetteAngle(strengthValue: unknown): number {
   return vignetteAngle(strength)
 }
 
-/** Draw cinematic bars over the frame without scaling or cropping it. */
+/**
+ * Cinematic bars. `fit` (the default since 1.4.282) shrinks the whole picture
+ * between them so nothing is hidden; `cover` draws them over the picture, which
+ * hides its top and bottom — the look before 1.4.282, kept as an explicit choice.
+ */
 export function buildLetterboxFilter(
   inputLabel: string,
   outputLabel: string,
@@ -47,10 +51,12 @@ export function buildLetterboxFilter(
   height: number,
   ratioName: string,
   color: string,
+  mode: 'fit' | 'cover' = 'fit',
 ): string | null {
   const barHeight = letterboxBarHeight(width, height, ratioName)
   if (barHeight <= 0) return null
-  return `${inputLabel}${letterboxBars(barHeight, color)}${outputLabel}`
+  if (mode === 'cover') return `${inputLabel}${letterboxBars(barHeight, color)}${outputLabel}`
+  return letterboxFit(inputLabel, outputLabel, width, height, barHeight, color, '', () => '')[0]!
 }
 
 /**

@@ -296,6 +296,22 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
       'chroma_key requires a source_path — the enabled flag alone is not enough')
   })
 
+  test('a migrated classic checkbox keeps its legacy_slot mark, so it renders where the checkbox did', async () => {
+    const { generateVideo } = useVideoAssemblyIo({
+      ...state,
+      sceneEffects: reactive({ enabled: true, overlays: [
+        { id: 'vignette-soft', enabled: true, params: { intensity: 0.15 }, legacy_slot: 'vignette' },
+        { id: 'rain', enabled: true, params: {} },
+      ] }),
+    } as any)
+    let body: any
+    await generateVideo({ post: async (_u, b) => { body = b }, videoAssemblyGenerating: videoGenerating })
+    assert.deepEqual(body.scene_effects.overlays, [
+      { id: 'vignette-soft', enabled: true, params: { intensity: 0.15 }, legacy_slot: 'vignette' },
+      { id: 'rain', enabled: true, params: {} },
+    ])
+  })
+
   test('submit error resets videoGenerating + generating, returns false', async () => {
     const { generateVideo } = useVideoAssemblyIo(state as any)
     const ok = await generateVideo({

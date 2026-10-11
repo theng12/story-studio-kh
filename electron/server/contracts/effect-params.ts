@@ -33,6 +33,8 @@ export interface ParamField {
   max?: number
   step?: number
   options?: readonly string[]
+  /** Words to show for a select's options; the stored value stays the option itself. */
+  option_labels?: Readonly<Record<string, string>>
   format?: ParamFormat
   /** True when changing it re-makes a baked loop (about two seconds), not just the tint. */
   rebake?: boolean
@@ -91,6 +93,10 @@ const FIELDS_BY_KIND: Record<OverlayKind, ParamField[]> = {
   letterbox: [
     { key: 'ratio', label: 'Aspect ratio', type: 'select', options: ['2.35:1', '2.00:1', '1.85:1', 'custom'] },
     { key: 'bar_share', label: 'Bar depth (custom only)', type: 'number', min: 0, max: 0.4, step: 0.01, format: 'share' },
+    {
+      key: 'mode', label: 'Picture', type: 'select', options: ['fit', 'cover'],
+      option_labels: { fit: 'Keep the whole picture', cover: 'Cinematic crop (covers edges)' },
+    },
   ],
   'lower-third': [
     { key: 'title', label: 'Title', type: 'text' },

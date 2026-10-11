@@ -203,7 +203,18 @@ export class EffectCanvasRenderer {
       case 'letterbox': {
         const ratio = doc.ratio === 'custom' ? null : Number(doc.ratio.split(':')[0])
         const bar = ratio ? Math.max(0, (H - W / ratio) / 2) : H * doc.bar_share
-        ctx.save(); ctx.fillStyle = doc.color.startsWith('#') ? doc.color : 'black'
+        const fill = doc.color.startsWith('#') ? doc.color : 'black'
+        if (doc.mode !== 'cover' && bar > 0) {
+          // Fit (the default): the whole picture shrinks into the band, as the render does.
+          if (!this.scratch || this.scratch.width !== W || this.scratch.height !== H) this.scratch = this.makeCanvas(W, H)
+          const sctx = this.scratch.getContext('2d') as Ctx
+          sctx.clearRect(0, 0, W, H); sctx.drawImage(ctx.canvas, 0, 0)
+          const band = H - bar * 2, bw = W * band / H
+          ctx.save(); ctx.fillStyle = fill; ctx.fillRect(0, 0, W, H)
+          ctx.drawImage(this.scratch as any, (W - bw) / 2, bar, bw, band); ctx.restore()
+          return
+        }
+        ctx.save(); ctx.fillStyle = fill
         ctx.fillRect(0, 0, W, bar); ctx.fillRect(0, H - bar, W, bar); ctx.restore()
         return
       }

@@ -151,7 +151,7 @@
                 </template>
                 <template v-else-if="field.type === 'select'">
                   <select class="select select-sm" :value="paramValue(field.key)" :aria-label="field.label" @change="setParam(field.key, ($event.target as HTMLSelectElement).value)">
-                    <option v-for="option in field.options" :key="option" :value="option">{{ option }}</option>
+                    <option v-for="option in field.options" :key="option" :value="option">{{ field.option_labels?.[option] || option }}</option>
                   </select>
                   <b />
                 </template>

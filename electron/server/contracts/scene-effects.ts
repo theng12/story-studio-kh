@@ -263,6 +263,14 @@ export type ScrimEdge = (typeof SCRIM_EDGES)[number]
 export const LETTERBOX_RATIOS = ['2.35:1', '2.00:1', '1.85:1', 'custom'] as const
 export type LetterboxRatio = (typeof LETTERBOX_RATIOS)[number]
 
+/**
+ * 1.4.282 (owner): `fit` shrinks the WHOLE picture into the band between the
+ * bars (side bars where needed), so nothing is hidden. `cover` is the old look:
+ * bars drawn over the picture, hiding its top and bottom. Fit is the default.
+ */
+export const LETTERBOX_MODES = ['fit', 'cover'] as const
+export type LetterboxMode = (typeof LETTERBOX_MODES)[number]
+
 /** How a light leak is mixed into the picture. */
 export const LEAK_BLENDS = ['screen', 'lighten', 'addition'] as const
 export type LeakBlend = (typeof LEAK_BLENDS)[number]
@@ -329,6 +337,8 @@ export interface LetterboxOverlay extends OverlayBase {
   bar_share: number
   /** An FFmpeg colour: a name such as `black`, or `#RRGGBB`. */
   color: string
+  /** `fit` keeps the whole picture (default); `cover` draws the bars over it. */
+  mode: LetterboxMode
 }
 
 export interface LowerThirdOverlay extends OverlayBase {
@@ -547,7 +557,7 @@ export function defaultSceneOverlay(kind: OverlayKind): SceneOverlayDocument {
         from_anchor: 'top-right', to_anchor: 'center-right', blend: 'screen',
       }
     case 'letterbox':
-      return { ...base, kind, ratio: '2.35:1', bar_share: 0.12, color: 'black' }
+      return { ...base, kind, ratio: '2.35:1', bar_share: 0.12, color: 'black', mode: 'fit' }
     case 'lower-third':
       return {
         ...base, kind, title: '', subtitle: '', font_family: 'Helvetica',
@@ -674,7 +684,7 @@ export const LIBRARY_V1_5_KINDS: readonly OverlayKind[] = [
  * `groupedAnimations()` in `models/animations.ts` builds a fixed record from
  * these six, so an unlisted category would land on `undefined` and throw.
  */
-export const SCENE_MOTION_CATEGORIES = ['zoom', 'pan', 'ambient', 'rotate', 'effect', 'static'] as const
+export const SCENE_MOTION_CATEGORIES = ['zoom', 'pan', 'ambient', 'rotate', 'effect', 'fade', 'static'] as const
 export type SceneMotionCategory = (typeof SCENE_MOTION_CATEGORIES)[number]
 
 /** Footage moves are one group of their own — they render on a different engine. */
@@ -874,6 +884,7 @@ export function normalizeSceneOverlay(input: unknown): SceneOverlayDocument {
         ratio: pickEnum(s.ratio, LETTERBOX_RATIOS, d.ratio),
         bar_share: num(s.bar_share, 0, 0.4, d.bar_share),
         color: pickFfmpegColor(s.color, d.color),
+        mode: pickEnum(s.mode, LETTERBOX_MODES, d.mode),
       }
     case 'lower-third':
       return {

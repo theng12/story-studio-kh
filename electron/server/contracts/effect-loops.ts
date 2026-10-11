@@ -96,7 +96,7 @@ export const LOOP_VARIANT_INFO: Record<LoopVariant, LoopVariantInfo> = {
  */
 export interface LoopShape {
   variant: LoopVariant
-  /** 0..100. Share of `max_count`, or fog/cloud density. */
+  /** 0..100. Share of `max_count` (stars: 30 = 900 of 3,000), or fog/cloud density. */
   amount: number
   /** 0.25..4. Multiplies the variant's particle size (rain: streak length). */
   size: number

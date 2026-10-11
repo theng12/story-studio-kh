@@ -89,8 +89,9 @@ import {
   scaleAuthoredPosition,
 } from '../lib/video-effects.js'
 import { compileSceneOverlay, letterboxBarHeight, overlayLoopShapes } from '../lib/scene-effect-compiler.js'
-import { assertNoUnavailablePackOverlays, isRotationMotion, resolveAppliedOverlays } from '../contracts/scene-effect-presets.js'
+import { assertNoUnavailablePackOverlays, isRotationMotion, motionPoolSlots, resolveAppliedOverlays } from '../contracts/scene-effect-presets.js'
 import { LIBRARY_V1_5_KINDS } from '../contracts/scene-effects.js'
+import { describeEffectStack, normalizeEffectsLook, splitLegacySlots } from '../contracts/effects-look.js'
 import { loopShapeKey } from '../contracts/effect-loops.js'
 import { bakeEffectLoop } from '../lib/effect-loop-baker.js'
 import {
@@ -2069,6 +2070,9 @@ export async function generateVideo(job: Job): Promise<void> {
   const { project_slug, episode_id, params } = job
   const req = createVideoAssemblyExecutionRequest(params)
   const code = episode_id.toUpperCase()
+  for (const note of normalizeEffectsLook(params).notes) job.output_lines.push(`Effects: ${note}`)
+  job.output_lines.push(`Effects this render bakes in: ${describeEffectStack(req).join(' · ') || 'none'}`
+    + ' (plus any per-episode Effects Library effects, listed below when present).')
 
   // Intro skip is a PLANNER-time economy switch, not a render-time one.
   //
@@ -3956,7 +3960,11 @@ function snapCandidatesForScene(input: {
 
 /** Keep generator-only normalization off the durable request persisted by the queue. */
 export function createVideoAssemblyExecutionRequest(params: Job['params']): GenerateVideoRequest {
-  return structuredClone(params) as GenerateVideoRequest
+  // 1.4.282 — one effects route: misplaced entries go where they render, and a
+  // classic checkbox kept as a marked library entry renders through its old field.
+  const req = splitLegacySlots(normalizeEffectsLook(structuredClone(params)).look as GenerateVideoRequest)
+  delete (req as any).effect_stack
+  return req
 }
 
 export interface ResolvedVideoAssemblySceneAnimation {
@@ -4020,13 +4028,20 @@ function pickAnimationsPerScene(
     return picks
   }
   const rnd = mulberry32(seed ?? 7)
+  // 1.4.282 (owner-approved) — strengths of one family (Zoom in, Zoom out,
+  // Breathe) are ONE pick, then a strength from those ticked, so a family no
+  // longer gets two or three times the share of a single move. A pool without
+  // two strengths of one family draws exactly the sequence it always did.
+  const slots = motionPoolSlots(pool)
+  const draw = () => {
+    const slot = slots[Math.floor(rnd() * slots.length)]!
+    return slot.length === 1 ? slot[0]! : slot[Math.floor(rnd() * slot.length)]!
+  }
   if (mode === 'single') {
-    const pick = pool[Math.floor(rnd() * pool.length)]
+    const pick = draw()
     for (let i = 0; i < count; i++) picks.push(pick)
   } else {
-    for (let i = 0; i < count; i++) {
-      picks.push(pool[Math.floor(rnd() * pool.length)])
-    }
+    for (let i = 0; i < count; i++) picks.push(draw())
   }
   return picks
 }
@@ -6252,8 +6267,8 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     vLabel = archive
   }
 
-  // 7. Letterbox — global, but drawn over the existing frame. It does not
-  // squeeze, crop, or otherwise change the source picture geometry.
+  // 7. Letterbox — global. 1.4.282: by default the whole picture shrinks
+  // between the bars so nothing is hidden; `mode: 'cover'` draws them over it.
   if (letterbox?.enabled) {
     // v1.4.15 — cinematic bars are a landscape idea. Every ratio this effect
     // offers (2.35:1, 2.00:1, 1.85:1) is wider than any canvas, so on a
@@ -6270,7 +6285,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
       )
     } else {
       const lb = vn()
-      const filter = buildLetterboxFilter(vLabel, lb, w, h, letterbox.ratio, letterbox.color || 'black')
+      const filter = buildLetterboxFilter(vLabel, lb, w, h, letterbox.ratio, letterbox.color || 'black', letterbox.mode === 'cover' ? 'cover' : 'fit')
       if (filter) {
         filterParts.push(filter)
         vLabel = lb

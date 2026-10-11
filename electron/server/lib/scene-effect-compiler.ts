@@ -365,7 +365,8 @@ export function compileSceneOverlay(doc: SceneOverlayDocument, opts: OverlayComp
         ? evenDown(h * doc.bar_share)
         : letterboxBarHeight(w, h, doc.ratio)
       if (bar <= 0) return null
-      return [`${input}${letterboxBars(bar, doc.color, enable)}${output}`]
+      if (doc.mode === 'cover') return [`${input}${letterboxBars(bar, doc.color, enable)}${output}`]
+      return letterboxFit(input, output, w, h, bar, doc.color, enable, opts.allocLabel)
     }
 
     case 'gradient-scrim': {
@@ -660,6 +661,30 @@ export function letterboxBarHeight(w: number, h: number, ratioName: string): num
 export function letterboxBars(barHeight: number, color: string, enableSuffix = ''): string {
   return `drawbox=x=0:y=0:w=iw:h=${barHeight}:color=${color}:t=fill${enableSuffix},`
     + `drawbox=x=0:y=ih-${barHeight}:w=iw:h=${barHeight}:color=${color}:t=fill${enableSuffix}`
+}
+
+/**
+ * Letterbox that hides nothing (1.4.282, owner): the whole frame shrinks to the
+ * band between the bars, keeping its aspect ratio, and the rest is `color`.
+ * Side bars appear where the band is narrower than the frame; the output size
+ * never changes. With a time window the shrunk copy is laid over the untouched
+ * picture only inside it, because `scale` and `pad` have no `enable` option.
+ */
+export function letterboxFit(
+  input: string, output: string, w: number, h: number, bar: number, color: string,
+  enableSuffix: string, allocLabel: () => string,
+): string[] {
+  const band = h - bar * 2
+  const fit = `scale=${evenDown(w * band / h)}:${band},pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=${color},setsar=1`
+  if (!enableSuffix) return [`${input}${fit}${output}`]
+  const base = allocLabel()
+  const copy = allocLabel()
+  const shrunk = allocLabel()
+  return [
+    `${input}split=2${base}${copy}`,
+    `${copy}${fit}${shrunk}`,
+    `${base}${shrunk}overlay=0:0${enableSuffix}${output}`,
+  ]
 }
 
 // ── Gradient scrim ──────────────────────────────────────────────────────────

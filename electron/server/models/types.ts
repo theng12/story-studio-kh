@@ -3565,6 +3565,8 @@ export interface VideoLetterbox {
   enabled: boolean
   ratio: '2.35:1' | '2.00:1' | '1.85:1'  // cinematic aspect ratios
   color: string           // bar color, default 'black'
+  /** 1.4.282 — `fit` (default) keeps the whole picture; `cover` draws the bars over it. */
+  mode?: 'fit' | 'cover'
 }
 
 export interface VideoFrameConfig {
@@ -3654,6 +3656,12 @@ export interface AppliedSceneOverlay {
    * strictly at the API boundary, clamped leniently when read back off disk.
    */
   params?: Record<string, unknown>
+  /**
+   * 1.4.282 — set when this entry was a classic Video Assembly checkbox
+   * (Vignette, Film Grain, Letterbox). It renders exactly where the checkbox
+   * did — see `contracts/effects-look.ts`.
+   */
+  legacy_slot?: 'vignette' | 'film_grain' | 'letterbox'
 }
 
 export interface SceneEffectsConfig {

@@ -178,9 +178,10 @@ export const BUILT_IN_SCENE_MOTIONS: BuiltInMotion[] = [
     { framing: { source_scale_pct: 110 }, spin: { rate_rad_per_sec: -0.02 } }),
 
   // ── Effect ────────────────────────────────────────────────────────────────
-  motion('fade-in', 'Fade In', 'effect', 'Scene fades up from black.',
+  // 1.4.282 — grouped as Fades: they change the picture's brightness, not the camera.
+  motion('fade-in', 'Fade In', 'fade', 'Scene fades up from black.',
     { fade: { in: true } }),
-  motion('fade-out', 'Fade Out', 'effect', 'Scene fades down to black at the end.',
+  motion('fade-out', 'Fade Out', 'fade', 'Scene fades down to black at the end.',
     { fade: { out: true } }),
 
   motion('blur-focus', 'Blur → Focus', 'effect', 'Starts blurred, comes into focus.',
@@ -266,6 +267,69 @@ export function isRotationMotion(motion: string | BuiltInMotion | null | undefin
   return typeof motion === 'string' && /rotat/i.test(motion)
 }
 
+// ── Motion families (1.4.282, owner-approved) ────────────────────────────────
+//
+// The menu shows one card per family with a strength choice; underneath, every
+// strength is still its own motion with its own id, so a saved preset, pool,
+// episode file or render that names an id gets exactly that motion.
+
+export type MotionStrength = 'gentle' | 'normal' | 'strong'
+export interface MotionFamily {
+  key: string
+  name: string
+  description: string
+  members: ReadonlyArray<{ id: string; strength: MotionStrength }>
+}
+
+export const MOTION_FAMILIES: readonly MotionFamily[] = [
+  { key: 'zoom-in', name: 'Zoom in', description: 'A slow push toward the subject.', members: [
+    { id: 'slow-push', strength: 'gentle' }, { id: 'ken-burns', strength: 'normal' }, { id: 'zoom-in', strength: 'strong' },
+  ] },
+  { key: 'zoom-out', name: 'Zoom out', description: 'A slow pull back that reveals the wider frame.', members: [
+    { id: 'slow-pull', strength: 'gentle' }, { id: 'ken-burns-reverse', strength: 'normal' }, { id: 'zoom-out', strength: 'strong' },
+  ] },
+  { key: 'breathe', name: 'Breathe', description: 'A gentle in-and-out pulse.', members: [
+    { id: 'breathe', strength: 'gentle' }, { id: 'pulse', strength: 'strong' },
+  ] },
+]
+
+const FAMILY_BY_MOTION = new Map(MOTION_FAMILIES.flatMap(f => f.members.map(m => [m.id, f] as const)))
+
+export function motionFamilyOf(id: string): MotionFamily | undefined {
+  return FAMILY_BY_MOTION.get(id)
+}
+
+/**
+ * Motions kept only so old saved choices still render, never offered.
+ * `parallax-drift` draws exactly what Pan Right draws (unless an old preset set
+ * its direction, which it still honours).
+ */
+export function isHiddenMotion(motion: string | { id: string } | null | undefined): boolean {
+  const id = typeof motion === 'string' ? motion : motion?.id
+  return id === 'parallax-drift' || isRotationMotion(motion as any)
+}
+
+/**
+ * A random pool as the picks it draws from: each family present is ONE slot
+ * (holding the strengths ticked), every other motion its own slot, in pool
+ * order. A pool with no two strengths of one family gives the same slots, in
+ * the same order, as the plain list did.
+ */
+export function motionPoolSlots(pool: readonly string[]): string[][] {
+  const slots: string[][] = []
+  const byFamily = new Map<string, string[]>()
+  for (const id of pool) {
+    const family = FAMILY_BY_MOTION.get(id)
+    if (!family) { slots.push([id]); continue }
+    const slot = byFamily.get(family.key)
+    if (slot) { if (!slot.includes(id)) slot.push(id); continue }
+    const fresh = [id]
+    byFamily.set(family.key, fresh)
+    slots.push(fresh)
+  }
+  return slots
+}
+
 /** The id a missing or unrecognised selection falls back to. */
 export const DEFAULT_SCENE_MOTION_ID = 'none'
 export const DEFAULT_FOOTAGE_MOTION_ID = 'static'
@@ -333,11 +397,11 @@ export const BUILT_IN_OVERLAYS: BuiltInOverlay[] = [
     }),
 
   overlay('letterbox-235', 'Cinemascope Bars', 'framing',
-    'Black bars top and bottom at 2.35:1. Drawn over the picture — nothing is cropped.',
+    'Black bars top and bottom at 2.35:1. The whole picture shrinks to fit between them, so nothing is hidden.',
     'letterbox', { ratio: '2.35:1' }),
 
   overlay('letterbox-185', 'Widescreen Bars', 'framing',
-    'Shallower 1.85:1 bars. A cinema hint rather than a statement.',
+    'Shallower 1.85:1 bars. A cinema hint rather than a statement. The whole picture stays visible.',
     'letterbox', { ratio: '1.85:1' }),
 
   overlay('lower-third-clean', 'Clean Lower Third', 'title',
@@ -434,9 +498,13 @@ BUILT_IN_OVERLAYS.push(
   loop('embers', 'Embers / Sparks', 'light',
     'Sparks rising and flickering, brightest near the fire.',
     'embers'),
+  // 1.4.282 (owner: "i don't see much twinkle") — fewer, larger stars that
+  // pulse from full to a tenth of their brightness every 6-12 s. Only these
+  // defaults changed; the drawing maths did not, so a saved value renders as
+  // before. Amount is a share of 3,000 stars: the old 30 drew 900 tiny specks.
   loop('twinkling-stars', 'Twinkling Stars', 'light',
-    'Fixed stars that twinkle, in the sky band only.',
-    'stars'),
+    'A few bright stars in the sky band that slowly pulse brighter and dimmer. Amount is a share of 3,000 stars, so keep it low.',
+    'stars', { amount: 3, size: 2.4, twinkle: 1, speed: 0.75 }),
   loop('light-rays', 'Light Rays / Sun Wash', 'light',
     'Soft beams falling from the top of the frame, gently swaying.',
     'light-rays', {}, {
@@ -564,6 +632,7 @@ export function sceneEffectCatalog() {
   return {
     schema_version: SCENE_EFFECT_SCHEMA_VERSION,
     scene_motions: BUILT_IN_SCENE_MOTIONS,
+    motion_families: MOTION_FAMILIES,
     footage_motions: BUILT_IN_FOOTAGE_MOTIONS,
     overlays: BUILT_IN_OVERLAYS,
     grouped_overlays: groupedOverlays(),

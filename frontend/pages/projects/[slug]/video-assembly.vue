@@ -873,6 +873,7 @@
           :episode-id="episodeId"
           :aspect-ratio="exportSettings.aspect_ratio"
           :animations="animationsCatalog"
+          :families="animationFamilies"
           :primary-id="sceneAnimation.type"
           :pool="sceneAnimation.pool"
           :randomize-mode="sceneAnimation.randomize_mode"
@@ -1007,7 +1008,7 @@
 
       <PresetPicker
         label="Effects preset"
-        hint="Captures logo, color grading, vignette, grain, presentation frame, letterbox, chroma key, and all text overlays."
+        hint="Captures logo, color grading, the Effect Library (vignette, grain and letterbox included), presentation frame, chroma key, overlay files and all text overlays. A Pipeline batch does not read this list: it renders the copy saved inside the Video Assembly preset, so save that preset after changing effects here."
         :presets="effectsPresets.presets.value"
         :active-id="effectsPresets.activeId.value"
         @update:active-id="effectsPresets.setActive"
@@ -1017,19 +1018,28 @@
         @rename="(n) => finishPreset(effectsPresets.rename(n), `Renamed to ${n}`)"
         @delete="finishPreset(effectsPresets.remove(), 'Effects preset deleted')"
       />
+      <div class="effective-look mt-2" role="status">
+        <strong>Effective look</strong>
+        <span class="text-muted text-sm"> — what a render from this page bakes in:</span>
+        <span class="text-sm"> {{ effectiveLook.length ? effectiveLook.join(' · ') : 'no effects' }}</span>
+        <p v-if="!effectsPresets.activeId.value" class="text-muted text-xs mt-1">
+          No Effects preset is selected. That never switches effects off: the form below is what renders.
+        </p>
+        <p v-for="hint in effectsDuplicateHints" :key="hint" class="text-xs mt-1 effective-look-warn">{{ hint }}</p>
+      </div>
 
       <!-- Split layout: sticky preview left, scrollable controls right -->
       <div class="effects-split-layout mt-2">
         <!-- LEFT: Sticky Effect Preview -->
         <div class="effects-preview-sticky" v-if="previewSceneImage">
-          <div class="effect-preview-frame" :style="frameCanvasStyle">
+          <div class="effect-preview-frame" :style="[frameCanvasStyle, lookPreview.letterbox?.mode === 'fit' ? { background: lookPreview.letterbox.color } : {}]">
             <video
               v-if="frame.enabled && frame.background_path && isVideoMedia(frame.background_path)"
               :src="getMediaPreviewUrl(frame.background_path)"
               class="frame-background-preview"
               autoplay muted loop playsinline
             />
-            <div class="effect-media-surface" :style="frameMediaStyle">
+            <div class="effect-media-surface" :style="[frameMediaStyle, letterboxFitStyle]">
               <ResilientImage
                 :src="getImagePreviewUrl(previewSceneImage)"
                 alt="Scene preview"
@@ -1053,12 +1063,12 @@
                   compact
                 />
               </template>
-              <div v-if="vignette.enabled" class="effect-vignette-overlay" :style="vignetteOverlayStyle" />
-              <div v-if="filmGrain.enabled" class="effect-grain-overlay" :style="{ opacity: filmGrain.strength / 80 }" />
+              <div v-if="lookPreview.vignette !== null" class="effect-vignette-overlay" :style="vignetteOverlayStyle" />
+              <div v-if="lookPreview.grain !== null" class="effect-grain-overlay" :style="{ opacity: lookPreview.grain / 80 }" />
               <div v-if="agedArchiveFilm.enabled" class="effect-aged-archive-film-overlay" :style="{ opacity: agedArchiveFilm.strength / 100 }" />
-              <template v-if="letterbox.enabled">
-                <div class="letterbox-bar letterbox-top" :style="{ height: letterboxBarHeight, background: letterbox.color || 'black' }" />
-                <div class="letterbox-bar letterbox-bottom" :style="{ height: letterboxBarHeight, background: letterbox.color || 'black' }" />
+              <template v-if="lookPreview.letterbox?.mode === 'cover'">
+                <div class="letterbox-bar letterbox-top" :style="{ height: letterboxBarHeight, background: lookPreview.letterbox.color }" />
+                <div class="letterbox-bar letterbox-bottom" :style="{ height: letterboxBarHeight, background: lookPreview.letterbox.color }" />
               </template>
             </div>
             <!-- Unified overlay preview: logo composites onto the same
@@ -1413,46 +1423,10 @@
         </div>
       </div>
 
-      <!-- Vignette -->
-      <div class="settings-section mt-2">
-        <div class="flex gap-2 items-center">
-          <label class="checkbox-label" @click.stop>
-            <input type="checkbox" v-model="vignette.enabled" />
-          </label>
-          <h4>Vignette</h4>
-          <span class="text-muted text-sm">(dark edges)</span>
-        </div>
-        <div v-if="vignette.enabled" class="mt-2">
-          <div class="form-group">
-            <label>Strength ({{ Math.round(vignette.strength * 100) }}%)</label>
-            <SliderWithNumber v-model="vignette.strength" :min="0.05" :max="1.0" :step="0.01" :decimals="2" />
-            <p class="text-muted text-xs mt-1">
-              Subtle (0.20–0.35) keeps things natural; dramatic (&gt;0.60) is noticeable and can crush edge detail. Free-slidable at 0.01 precision.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Film Grain -->
-      <div class="settings-section mt-2">
-        <div class="flex gap-2 items-center">
-          <label class="checkbox-label" @click.stop>
-            <input type="checkbox" v-model="filmGrain.enabled" />
-          </label>
-          <h4>Film Grain</h4>
-          <span class="text-muted text-sm">(cinematic texture)</span>
-        </div>
-        <div v-if="filmGrain.enabled" class="mt-2">
-          <div class="form-group">
-            <label>Strength ({{ filmGrain.strength }})</label>
-            <SliderWithNumber v-model="filmGrain.strength" :min="1" :max="50" :step="1" />
-            <p class="text-muted text-sm mt-1">
-              Values above 20 add visible noise and can significantly increase final file size —
-              random noise doesn't compress well. <strong>10–15</strong> is a subtle cinematic look.
-            </p>
-          </div>
-        </div>
-      </div>
+      <!-- 1.4.282 — Vignette, Film Grain and Cinematic Letterbox live in the
+           Effect Library below (one route). A preset that still has the old
+           checkboxes turns them into marked library entries when it loads, and
+           those render exactly where the checkboxes did. -->
 
       <!-- Aged Archive Film -->
       <div class="settings-section mt-2">
@@ -1524,37 +1498,6 @@
               <button type="button" class="btn btn-sm btn-secondary" @click="openBackgroundPicker('frame')">Pick Image / Video</button>
               <button v-if="frame.background_path" type="button" class="btn btn-sm btn-secondary" @click="frame.background_path = ''">Clear</button>
               <button type="button" class="btn btn-sm btn-secondary" @click="openBackgroundsFolder">Open Folder</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Letterbox -->
-      <div class="settings-section mt-2">
-        <div class="flex gap-2 items-center">
-          <label class="checkbox-label" @click.stop>
-            <input type="checkbox" v-model="letterbox.enabled" />
-          </label>
-          <h4>Cinematic Letterbox</h4>
-          <span class="text-muted text-sm">(black bars top/bottom)</span>
-        </div>
-        <div v-if="letterbox.enabled" class="mt-2">
-          <div class="grid-2">
-            <div class="form-group">
-              <label>Aspect Ratio</label>
-              <select v-model="letterbox.ratio" class="select">
-                <option value="2.35:1">2.35:1 (CinemaScope)</option>
-                <option value="2.00:1">2.00:1 (Univisium)</option>
-                <option value="1.85:1">1.85:1 (Theatrical)</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Bar Color</label>
-              <select v-model="letterbox.color" class="select">
-                <option value="black">Black</option>
-                <option value="#1a1a2e">Dark Navy</option>
-                <option value="#2d1b2e">Dark Purple</option>
-              </select>
             </div>
           </div>
         </div>
@@ -1922,7 +1865,7 @@
 
       <!-- Intro + title exclusion -->
       <div
-        v-if="(intro.enabled || titleImage.enabled) && (colorGrading.enabled || vignette.enabled || filmGrain.enabled || (logo.enabled && logo.image_path) || (chromaKey.enabled && chromaKey.source_path))"
+        v-if="(intro.enabled || titleImage.enabled) && (colorGrading.enabled || lookPreview.vignette !== null || lookPreview.grain !== null || (logo.enabled && logo.image_path) || (chromaKey.enabled && chromaKey.source_path))"
         class="settings-section mt-2"
       >
         <label class="checkbox-label">
@@ -2919,6 +2862,8 @@
 
 <script setup lang="ts">
 import type { CSSProperties } from 'vue'
+import { describeEffectStack, duplicatePresetHints, normalizeEffectsLook } from '@shared/effects-look'
+import { findBuiltInOverlay } from '@shared/scene-effect-presets'
 import { applyTitleImagePreset, snapshotTitleImagePreset } from '~/utils/video-assembly-presets'
 import { describeMergedAudioOpening } from '~/utils/merged-audio-opening'
 import { describeOpeningSync } from '~/utils/opening-sync'
@@ -3718,6 +3663,7 @@ function revealPayload(): Record<string, unknown> {
 }
 
 const animationsCatalog = ref<Array<{ id: string; label: string; category: string; hint?: string }>>([])
+const animationFamilies = ref<Array<{ key: string; name: string; description: string; members: Array<{ id: string; strength: string }> }>>([])
 
 const animationsCatalogLoading = ref(true)
 const animationsCatalogError = ref('')
@@ -3726,8 +3672,9 @@ async function loadAnimationsCatalog() {
   animationsCatalogLoading.value = true
   animationsCatalogError.value = ''
   try {
-    const r = await get<{ animations: typeof animationsCatalog.value }>(`/projects/${slug.value}/video-editor/animations/catalog`)
+    const r = await get<{ animations: typeof animationsCatalog.value; families?: typeof animationFamilies.value }>(`/projects/${slug.value}/video-editor/animations/catalog`)
     animationsCatalog.value = r.animations || []
+    animationFamilies.value = r.families || []
   } catch (e: any) {
     animationsCatalogError.value = e?.data?.detail || e?.message || 'Could not load animations'
   } finally {
@@ -4205,7 +4152,7 @@ const letterbox = reactive({
  * customer changed. The document is resolved from the current built-in at
  * render time, so improving a built-in reaches every project that chose it.
  */
-const sceneEffects = reactive<{ enabled: boolean; overlays: Array<{ id: string; enabled: boolean; params?: Record<string, unknown> }> }>({
+const sceneEffects = reactive<{ enabled: boolean; overlays: Array<{ id: string; enabled: boolean; params?: Record<string, unknown>; legacy_slot?: 'vignette' | 'film_grain' | 'letterbox' }> }>({
   enabled: false,
   overlays: [],
 })
@@ -4853,8 +4800,9 @@ const effectsPresets = usePresets({
     chapter_titles: { ...chapterTitles },
     outro_card: { ...outroCard },
   }),
-  apply: (data: any) => {
-    if (!data) return
+  apply: (raw: any) => {
+    if (!raw) return
+    const data = migrateEffectsData(raw)
     if (data.logo) Object.assign(logo, { shape: 'none', corner_radius_pct: 20 }, data.logo) // a preset saved before 1.4.264 has no shape
     if (data.color_grading) Object.assign(colorGrading, data.color_grading)
     if (data.vignette) Object.assign(vignette, data.vignette)
@@ -5021,8 +4969,19 @@ function snapshotEffectsData() {
     outro_card: { ...outroCard },
   }
 }
-function applyEffectsData(data: any) {
-  if (!data) return
+/**
+ * 1.4.282 — one effects route. Classic Vignette / Film Grain / Letterbox
+ * checkboxes become marked Effect Library entries (they render exactly where
+ * the checkboxes did), and misplaced entries move where they render. A saved
+ * look without an Effect Library list keeps the one on the form, as before.
+ */
+function migrateEffectsData(data: any): any {
+  const current = { enabled: sceneEffects.enabled, overlays: sceneEffects.overlays.map(o => ({ ...o, params: { ...(o.params || {}) } })) }
+  return normalizeEffectsLook({ ...data, scene_effects: data.scene_effects ?? current }, { migrateLegacy: true }).look
+}
+function applyEffectsData(raw: any) {
+  if (!raw) return
+  const data = migrateEffectsData(raw)
   if (data.logo) Object.assign(logo, { shape: 'none', corner_radius_pct: 20 }, data.logo) // a preset saved before 1.4.264 has no shape
   if (data.color_grading) Object.assign(colorGrading, data.color_grading)
   if (data.vignette) Object.assign(vignette, data.vignette)
@@ -5683,10 +5642,8 @@ const activeEffectsList = computed(() => {
     items.push(labels[sceneAnimation.type] || sceneAnimation.type)
   }
   if (colorGrading.enabled) items.push(colorGrading.preset !== 'none' ? colorGrading.preset.replace(/-/g, ' ') : 'Custom grading')
-  if (vignette.enabled) items.push('Vignette')
-  if (filmGrain.enabled) items.push('Film Grain')
   if (agedArchiveFilm.enabled) items.push('Aged Archive Film')
-  if (letterbox.enabled) items.push(`Letterbox ${letterbox.ratio}`)
+  if (sceneEffects.enabled) for (const o of sceneEffects.overlays) if (o.enabled) items.push(findBuiltInOverlay(o.id)?.name || o.id)
   if (frame.enabled) items.push(`Frame ${frame.inset_pct}% / ${frame.corner_radius}px corners`)
   if (chromaKey.enabled) items.push('Chroma Key')
   return items.length ? items.join(', ') : 'None'
@@ -5777,8 +5734,32 @@ const effectPreviewImgStyle = computed(() => {
   return style
 })
 
+/** The quick CSS preview of vignette, grain and letterbox, read from the Effect Library (1.4.282). */
+const lookPreview = computed(() => {
+  const on = sceneEffects.enabled ? sceneEffects.overlays.filter(o => o.enabled) : []
+  const doc = (prefix: string): any => {
+    const o = on.find(e => e.id.startsWith(prefix))
+    return o ? { ...(findBuiltInOverlay(o.id)?.document || {}), ...(o.params || {}) } : null
+  }
+  const v = doc('vignette-'), g = doc('film-grain-'), l = doc('letterbox-')
+  return {
+    vignette: v ? Number(v.intensity) || 0 : null,
+    grain: g ? Number(g.amount) || 0 : null,
+    letterbox: l ? { ratio: String(l.ratio || '2.35:1'), color: String(l.color || 'black'), mode: l.mode === 'cover' ? 'cover' : 'fit' } : null,
+  }
+})
+/** Fit letterbox (the default): the whole picture shrinks into the band, as the render does. */
+const letterboxFitStyle = computed<CSSProperties>(() => {
+  const lb = lookPreview.value.letterbox
+  const bar = parseFloat(letterboxBarHeight.value)
+  if (!lb || lb.mode !== 'fit' || !(bar > 0)) return {}
+  return { transform: `scale(${((100 - bar * 2) / 100).toFixed(4)})`, transformOrigin: 'center' }
+})
+const effectiveLook = computed(() => describeEffectStack({ ...snapshotEffectsData(), frame: { ...frame } }))
+const effectsDuplicateHints = computed(() => duplicatePresetHints(effectsPresets.presets.value as any))
+
 const vignetteOverlayStyle = computed(() => {
-  const s = Math.max(0, Math.min(1, Number(vignette.strength) || 0))
+  const s = Math.max(0, Math.min(1, Number(lookPreview.value.vignette) || 0))
   const clearUntil = Math.round(68 - s * 28)
   const mid = Math.round(86 - s * 16)
   const alpha = (0.22 + s * 0.68).toFixed(2)
@@ -5789,7 +5770,7 @@ const vignetteOverlayStyle = computed(() => {
 
 const letterboxBarHeight = computed(() => {
   const ratioMap: Record<string, number> = { '2.35:1': 2.35, '2.00:1': 2.0, '1.85:1': 1.85 }
-  const ratio = ratioMap[letterbox.ratio] || 2.35
+  const ratio = ratioMap[lookPreview.value.letterbox?.ratio || '2.35:1'] || 2.35
   const frameAspect = 16 / 9
   if (ratio <= frameAspect) return '0px'
   const barPct = ((1 - frameAspect / ratio) / 2) * 100
@@ -7010,6 +6991,13 @@ onUnmounted(() => {
 .effect-aged-archive-film-overlay { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: screen; background-image: radial-gradient(circle at 58% 31%, rgba(255,255,255,.8) 0 1px, transparent 2px), linear-gradient(90deg, transparent 13%, rgba(255,255,255,.35) 13.1% 13.2%, transparent 13.3%), linear-gradient(90deg, transparent 77%, rgba(0,0,0,.45) 77.1% 77.2%, transparent 77.3%); animation: aged-archive-flicker .16s steps(2, end) infinite; }
 @keyframes aged-archive-flicker { 50% { transform: translate(1px, -1px); filter: brightness(1.04); } }
 .letterbox-bar { position: absolute; left: 0; right: 0; pointer-events: none; }
+.effective-look {
+  padding: 0.45rem 0.6rem;
+  border-radius: 6px;
+  border-left: 2px solid var(--accent, #4fc3f7);
+  background: color-mix(in srgb, var(--accent, #4fc3f7) 8%, transparent);
+}
+.effective-look-warn { color: var(--warning, #e0a800); }
 .letterbox-top { top: 0; }
 .letterbox-bottom { bottom: 0; }
 .preview-time-control { display: grid; gap: 4px; margin-top: 8px; font-size: 12px; color: var(--text-muted); }

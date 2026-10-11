@@ -3,6 +3,7 @@
  */
 
 import { inspectMissingSentences } from '../lib/script-transcript-check.js'
+import { describeEffectStack } from '../contracts/effects-look.js'
 import { Router } from 'express'
 import { createReadStream, existsSync, statSync } from 'fs'
 import fs from 'fs/promises'
@@ -28,7 +29,7 @@ import { compileSceneMotion, compileSceneOverlay, overlayLoopShapes } from '../l
 import { bakeEffectLoop } from '../lib/effect-loop-baker.js'
 import { renderNativeSceneClip } from '../lib/native-scene-clip.js'
 import { loopShapeKey } from '../contracts/effect-loops.js'
-import { isRotationMotion } from '../contracts/scene-effect-presets.js'
+import { isHiddenMotion, MOTION_FAMILIES } from '../contracts/scene-effect-presets.js'
 import {
   listSceneEffectLibrary,
   listSubtitleStylePresets,
@@ -854,8 +855,9 @@ router.get('/projects/:slug/video-editor/animations/catalog', async (_req, res) 
   // v1.2.1 — the same projection, over the merged built-in + installed-pack
   // registry. With zero packs installed this is `ANIMATIONS` exactly.
   // 1.4.280 — rotation is never offered (owner 2026-10-11); old presets naming it still load.
-  const animations = (await listSceneEffectLibrary()).scene_motions.filter(m => !isRotationMotion(m)).map(toAnimationDef)
-  res.json({ animations, grouped: groupAnimationDefs(animations) })
+  // 1.4.282 — parallax-drift (Pan Right's twin) is hidden too; the strengths of a family come as `families`.
+  const animations = (await listSceneEffectLibrary()).scene_motions.filter(m => !isHiddenMotion(m)).map(toAnimationDef)
+  res.json({ animations, grouped: groupAnimationDefs(animations), families: MOTION_FAMILIES })
 })
 
 /**
@@ -947,11 +949,15 @@ router.get('/projects/:slug/video-editor/preview-animation', async (req, res) =>
 // far too large for a querystring, but a `<video src>` needs a plain GET.
 
 router.get('/projects/:slug/video-editor/effects/catalog', async (_req, res) => {
+  const library = await listSceneEffectLibrary()
   res.json({
     // v1.2.1 — built-ins plus anything an installed Content Pack adds. Every
     // entry carries `origin`, and `refusals` names any pack item that was left
     // out rather than letting it disappear without explanation.
-    ...await listSceneEffectLibrary(),
+    ...library,
+    // 1.4.282 — rotation and Pan Right's twin are never offered; strengths come as families.
+    scene_motions: library.scene_motions.filter(m => !isHiddenMotion(m)),
+    motion_families: MOTION_FAMILIES,
     // Both are FFmpeg build features, and both degrade an effect rather than
     // the whole render. The UI says so at the point of choosing instead of
     // letting the customer discover it in a finished video.
@@ -2098,6 +2104,8 @@ router.post('/projects/:slug/generate/video-assembly', async (req, res) => {
   // stale presets before the job is persisted.
   delete req.body.render_target
   delete req.body.remote_render_requested
+  // 1.4.282 — readable on the job: exactly what this render bakes in. Never read by the render.
+  req.body.effect_stack = describeEffectStack(req.body)
 
   const job = await enqueue({
     project_slug: slug,

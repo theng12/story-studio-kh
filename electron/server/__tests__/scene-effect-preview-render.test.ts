@@ -37,6 +37,7 @@ import {
   BUILT_IN_FOOTAGE_MOTIONS,
   BUILT_IN_OVERLAYS,
   BUILT_IN_SCENE_MOTIONS,
+  isHiddenMotion,
 } from '../contracts/scene-effect-presets.js'
 import { BUILT_IN_SUBTITLE_PRESETS } from '../contracts/subtitle-presets.js'
 import { router as videoRouter } from '../routes/video.js'
@@ -380,7 +381,8 @@ describe('the preview endpoint refuses what it cannot honour', () => {
   test('the catalogue serves the whole library and its capability flags', async () => {
     const res = await request(app()).get('/api/projects/demo/video-editor/effects/catalog')
     assert.equal(res.status, 200)
-    assert.equal(res.body.scene_motions.length, BUILT_IN_SCENE_MOTIONS.length)
+    // 1.4.282 — every motion the menus offer: rotation and parallax-drift stay renderable but are not offered.
+    assert.equal(res.body.scene_motions.length, BUILT_IN_SCENE_MOTIONS.filter(m => !isHiddenMotion(m)).length)
     assert.equal(res.body.footage_motions.length, BUILT_IN_FOOTAGE_MOTIONS.length)
     assert.equal(res.body.overlays.length, BUILT_IN_OVERLAYS.length)
     assert.equal(typeof res.body.supports_text_overlays, 'boolean')

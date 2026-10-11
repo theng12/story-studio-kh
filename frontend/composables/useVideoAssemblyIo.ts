@@ -94,7 +94,7 @@ export interface VideoAssemblyIoState {
   agedArchiveFilm: any
   letterbox: any
   /** v1.2.0 — the effect-library selection. Absent means "no overlays". */
-  sceneEffects?: { enabled: boolean; overlays: Array<{ id: string; enabled: boolean; params?: Record<string, unknown> }> }
+  sceneEffects?: { enabled: boolean; overlays: Array<{ id: string; enabled: boolean; params?: Record<string, unknown>; legacy_slot?: string }> }
   frame?: any
   chromaKey: any
   /** Multi-layer overlay system (v1.0.53+). Authoritative when present;
@@ -410,7 +410,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     if (s.sceneEffects?.enabled && chosenEffects.length) {
       payload.scene_effects = {
         enabled: true,
-        overlays: chosenEffects.map(o => ({ id: o.id, enabled: true, params: { ...(o.params || {}) } })),
+        overlays: chosenEffects.map(o => ({ id: o.id, enabled: true, params: { ...(o.params || {}) }, ...(o.legacy_slot ? { legacy_slot: o.legacy_slot } : {}) })),
       }
     }
     if (s.frame?.enabled)       payload.frame         = { ...s.frame }

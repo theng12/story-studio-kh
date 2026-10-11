@@ -61,7 +61,7 @@ export function getAnimation(id: string | undefined | null): AnimationDef | null
 
 export function groupAnimationDefs(animations: readonly AnimationDef[]): Record<AnimationCategory, AnimationDef[]> {
   const out: Record<AnimationCategory, AnimationDef[]> = {
-    zoom: [], pan: [], ambient: [], rotate: [], effect: [], static: [],
+    zoom: [], pan: [], ambient: [], rotate: [], effect: [], fade: [], static: [],
   }
   // A pack's category is validated against this same list at install time, so
   // an entry can only land in a bucket that exists — but a lookup that could

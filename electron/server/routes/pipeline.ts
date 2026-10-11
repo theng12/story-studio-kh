@@ -82,6 +82,7 @@ import type { MotionScope } from '../contracts/motion-scope.js'
 import { readEpisodeMotionScope, resolveEpisodeMotionSceneIds } from '../services/episode-motion-scope.js'
 import { motionSceneIdsForNewRequest } from '../services/scene-motion-prompt-scope.js'
 import { mapWithConcurrency as mapEpisodes } from '../lib/map-with-concurrency.js'
+import { describeEffectStack, duplicatePresetHints, normalizeEffectsLook } from '../contracts/effects-look.js'
 import {
   readLocalMediaCleanupStatus,
   type LocalMediaCleanupStatus,
@@ -316,6 +317,8 @@ interface BatchPreflight {
   startingPacing?: ScenePacing
   /** The channel's formula has `musicFormat`: the music chain and its prerequisites apply. */
   musicChannel: boolean
+  /** 1.4.282 — what a Video Assembly in this batch bakes in, and where it comes from. Null without that step. */
+  videoEffects: VideoEffectsAnswer | null
 }
 
 interface PipelineVisualSettingsSnapshot {
@@ -831,6 +834,7 @@ async function preflightBatch(
     ok: issues.length === 0, issues, warnings, presetByStep, ideaByCode,
     effectiveFormat, estimatedBytes, freeBytes, scriptSideChatModel, introductionChatModel,
     visualSettingsByEpisode, projectFacts, startingPacing, musicChannel,
+    videoEffects: requiredSteps.has('video_assembly') ? videoEffectsAnswer(config, presetByStep.video_assembly) : null,
   }
 }
 
@@ -1533,7 +1537,9 @@ export function flattenVideoAssemblyBundle(
   const intro = fb.intro || {}
   const outro = fb.outro || {}
   const timeline = fb.timeline || {}
-  const effects = fb.effects || {}
+  // 1.4.282 — misplaced effect entries are put where they render before the
+  // filters below, which only pass entries in their right place.
+  const effects = normalizeEffectsLook(fb.effects || {}).look as any
   const subtitles = fb.subtitles || {}
   const exportS = fb.export || {}
 
@@ -1630,7 +1636,7 @@ export function flattenVideoAssemblyBundle(
     if (chosen.length) {
       out.scene_effects = {
         enabled: true,
-        overlays: chosen.map((o: any) => ({ id: o.id, enabled: true, params: { ...(o.params || {}) } })),
+        overlays: chosen.map((o: any) => ({ id: o.id, enabled: true, params: { ...(o.params || {}) }, ...(o.legacy_slot ? { legacy_slot: o.legacy_slot } : {}) })),
       }
     }
   }
@@ -1681,6 +1687,56 @@ export function flattenVideoAssemblyBundle(
   }
 
   return out
+}
+
+export interface VideoEffectsAnswer {
+  /** Where a batch render's effects come from, in words. */
+  source: string
+  /** One line per effect the render bakes in, after every filter the flattener applies. */
+  effects: string[]
+  /** What was moved or skipped, pointer mismatches, and duplicate presets. */
+  notes: string[]
+}
+
+/**
+ * 1.4.282 — the resolved effect stack for preflight and run-batch. A batch
+ * renders the Effects copy saved INSIDE the Video Assembly preset; the Effects
+ * preset list and its `effects_last_preset` pointer are page tools only. Read
+ * live, this says so and flags where the two have drifted apart, without
+ * changing which one renders (that would change existing channels' videos).
+ */
+export function videoEffectsAnswer(config: any, bundle: StoredPreset | undefined): VideoEffectsAnswer | null {
+  if (!bundle) return null
+  const data = bundle.data ?? bundle
+  const saved = data?.fallback?.effects || {}
+  const effects = describeEffectStack(flattenVideoAssemblyBundle(data, '', ''))
+  const notes = [...normalizeEffectsLook(saved).notes]
+  const effectsPresets: StoredPreset[] = Array.isArray(config?.effects_presets) ? config.effects_presets : []
+  const namedId = typeof data?.effects_preset_id === 'string' ? data.effects_preset_id : ''
+  const named = namedId ? effectsPresets.find(p => p.id === namedId) : undefined
+  if (named) {
+    const theirs = describeEffectStack(named.data)
+    const onlyCopy = effects.filter(line => !theirs.includes(line))
+    const onlyNamed = theirs.filter(line => !effects.includes(line))
+    if (onlyCopy.length || onlyNamed.length) {
+      notes.push(`This Video Assembly preset names the Effects preset "${named.name}", but a batch renders the copy saved inside the Video Assembly preset, and that copy differs from "${named.name}" now`
+        + ` (only in the copy: ${onlyCopy.join(', ') || 'nothing'}; only in "${named.name}": ${onlyNamed.join(', ') || 'nothing'}).`
+        + ` To render "${named.name}", open Video Assembly, apply it, then save the Video Assembly preset.`)
+    }
+  } else {
+    notes.push(namedId
+      ? 'The Effects preset this Video Assembly preset names was deleted; the copy saved inside the Video Assembly preset still renders.'
+      : 'This Video Assembly preset names no Effects preset; the copy saved inside it is what renders.')
+  }
+  if (!config?.effects_last_preset) {
+    notes.push('No Effects preset is selected on the Video Assembly page (effects_last_preset is empty). That never switches effects off: a batch renders the list above, and the page renders its form.')
+  }
+  for (const hint of duplicatePresetHints(effectsPresets)) notes.push(`Effects presets: ${hint}`)
+  return {
+    source: `The Video Assembly preset "${bundle.name || bundle.id}": the Effects copy saved inside it. Batch renders read this, not the Effects preset list.`,
+    effects,
+    notes,
+  }
 }
 
 /**
@@ -1984,6 +2040,7 @@ router.post('/projects/:slug/pipeline/preflight', async (req, res) => {
       free_bytes: result.freeBytes,
       episodes: episodeIds.length,
       steps: steps.length,
+      video_effects: result.videoEffects,
       ...await paidFallbacksWarning(),
     })
   } catch (e: any) {
@@ -2276,6 +2333,8 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       let params: Record<string, any>
       try {
         params = resolveStepParams(step, episodeId, idea.title || '', presetByStep[step], effectiveFormat)
+        // 1.4.282 — readable on the job: exactly what this render bakes in. Never read by the render.
+        if (step === 'video_assembly') params = { ...params, effect_stack: describeEffectStack(params) }
       } catch (error: any) {
         skipped.push({
           episode_id: episodeId,
@@ -2491,6 +2550,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     reused_jobs: reused,
     steps,
     force,
+    video_effects: preflight.videoEffects,
     ...await paidFallbacksWarning(),
   })
 }

@@ -26,6 +26,7 @@ import { LOOP_VARIANTS } from './effect-loops.js'
 import {
   COLOR_GRADE_PRESETS,
   LEAK_BLENDS,
+  LETTERBOX_MODES,
   LETTERBOX_RATIOS,
   MOTION_PAN_MODES,
   MOTION_RATE_UNITS,
@@ -199,6 +200,7 @@ export const LetterboxOverlaySchema = z.object({
   ratio: z.enum(LETTERBOX_RATIOS),
   bar_share: z.number().min(0).max(0.4),
   color: ffmpegColor,
+  mode: z.enum(LETTERBOX_MODES).default('fit'),
 }).strict()
 
 export const LowerThirdOverlaySchema = z.object({
