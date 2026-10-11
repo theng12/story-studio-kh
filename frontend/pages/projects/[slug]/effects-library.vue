@@ -3,11 +3,15 @@
     <WorkspaceHero
       eyebrow="Video · Atmosphere &amp; Light"
       title="Effects Library"
-      description="Every effect stacks with every other, on the whole episode, one scene, or every scene of a theme. The pictures are the effects themselves, drawn over this episode's own scene — hover one to see it move."
+      description="Every effect stacks with every other, on the whole episode, one scene, or every scene of a theme. Each card plays a 6-second clip Story rendered of that effect on this episode's scene, camera still; Camera motions shows the moves on their own."
     >
       <template #aside>
         <div class="fx-hero-tools">
           <input v-model="search" type="search" class="input fx-search" placeholder="Search effects…" aria-label="Search effects" />
+          <button type="button" class="btn btn-sm btn-secondary" :disabled="refreshing" @click="refreshPreviews">
+            {{ refreshing ? 'Refreshing…' : 'Refresh Previews' }}
+          </button>
+          <span class="hint">Draws each clip again the next time it comes into view.</span>
           <div class="fx-seg" role="tablist" aria-label="Effect categories">
             <button
               v-for="tab in CATEGORY_TABS"
@@ -73,8 +77,11 @@
               @click="selectEntry(entry)"
             >
               <div class="fx-im">
-                <EffectThumb :doc="entry.document" :image="sceneImage" />
+                <GalleryClip :src="clipUrl('overlay', entry.id, entry.document)">
+                  <EffectThumb :doc="entry.document" :image="sceneImage" />
+                </GalleryClip>
                 <span class="fx-badge">{{ effectBadge(entry.document) }}</span>
+                <span v-if="inUse.overlays.includes(entry.id)" class="fx-inuse" :title="inUseTitle">In use on this channel</span>
                 <span v-if="entry.origin?.origin === 'content-pack'" class="fx-pack">from a pack</span>
               </div>
               <div class="fx-tx">
@@ -84,7 +91,39 @@
             </button>
           </div>
         </template>
-        <div v-if="!sections.length && library.length" class="fx-empty">No effect matches “{{ search }}”.</div>
+        <div v-if="!sections.length && library.length && activeTab !== 'motions'" class="fx-empty">No effect matches “{{ search }}”.</div>
+        <template v-if="activeTab === 'motions'">
+          <p class="hint">How each scene picture moves. Pick them in Video Assembly → Scene Animation; these clips only show them.</p>
+          <div class="fx-cat">Zoom in · Zoom out · Breathe</div>
+          <div v-for="family in motionFamilies" :key="family.key" class="fx-family">
+            <div class="fx-family-head"><b>{{ family.name }}</b> <small>{{ family.description }}</small></div>
+            <div class="fx-grid">
+              <div v-for="member in family.members" :key="member.id" class="fx-card fx-motion">
+                <div class="fx-im">
+                  <GalleryClip :src="clipUrl('motion', member.id, motionDoc(member.id))">
+                    <EffectThumb :doc="null" :image="sceneImage" />
+                  </GalleryClip>
+                  <span v-if="inUse.motions.includes(member.id)" class="fx-inuse" :title="inUseTitle">In use on this channel</span>
+                </div>
+                <div class="fx-tx"><b class="fx-strength">{{ member.strength }}</b></div>
+              </div>
+            </div>
+          </div>
+          <template v-for="group in motionGroups" :key="group.label">
+            <div class="fx-cat">{{ group.label }}</div>
+            <div class="fx-grid">
+              <div v-for="m in group.motions" :key="m.id" class="fx-card fx-motion" :title="m.description">
+                <div class="fx-im">
+                  <GalleryClip :src="clipUrl('motion', m.id, m.document)">
+                    <EffectThumb :doc="null" :image="sceneImage" />
+                  </GalleryClip>
+                  <span v-if="inUse.motions.includes(m.id)" class="fx-inuse" :title="inUseTitle">In use on this channel</span>
+                </div>
+                <div class="fx-tx"><b>{{ m.name }}</b><small>{{ m.description }}</small></div>
+              </div>
+            </div>
+          </template>
+        </template>
         <div v-if="showCamera" class="fx-cat">Camera</div>
         <div v-if="showCamera" class="fx-grid">
           <NuxtLink :to="`/projects/${slug}/video-assembly`" class="fx-card fx-camera">
@@ -295,6 +334,7 @@ import { EffectCanvasRenderer, NOT_DRAWN_LIVE, SLOW_ZOOM } from '~/utils/effect-
 import {
   CATEGORY_TABS,
   DEFAULT_SCENE_FADE_SEC,
+  documentVersion,
   GROUP_LABELS,
   addEffects,
   changedParams,
@@ -690,7 +730,57 @@ async function loadLibraryOnly(): Promise<void> {
   try {
     const data = await get(`/projects/${slug.value}/video-editor/effects/catalog`)
     if (!library.value.length) library.value = data.overlays || []
+    sceneMotions.value = data.scene_motions || []
+    motionFamilies.value = data.motion_families || []
   } catch { /* the episode load reports problems */ }
+}
+
+// ── Gallery (1.4.283) ───────────────────────────────────────────────────────
+interface MotionEntry { id: string; name: string; description: string; category: string; document: unknown }
+const sceneMotions = ref<MotionEntry[]>([])
+const motionFamilies = ref<Array<{ key: string; name: string; description: string; members: Array<{ id: string; strength: string }> }>>([])
+const inUse = ref<{ overlays: string[]; motions: string[]; source: string | null }>({ overlays: [], motions: [], source: null })
+const inUseTitle = computed(() => inUse.value.source ? `A Pipeline batch on this channel renders it (Video Assembly preset "${inUse.value.source}").` : '')
+const galleryNonce = ref(0)
+const refreshing = ref(false)
+
+function motionDoc(id: string): unknown {
+  return sceneMotions.value.find(m => m.id === id)?.document
+}
+/** The catalogue already leaves out rotation and Pan Right's twin; the families have their own row. */
+const motionGroups = computed(() => {
+  const inFamily = new Set(motionFamilies.value.flatMap(f => f.members.map(m => m.id)))
+  const rest = sceneMotions.value.filter(m => !inFamily.has(m.id))
+  return [
+    { label: 'Dolly', motions: rest.filter(m => m.category === 'zoom') },
+    { label: 'Pans', motions: rest.filter(m => m.category === 'pan') },
+    { label: 'Fades', motions: rest.filter(m => m.category === 'fade') },
+    { label: 'Focus and still', motions: rest.filter(m => m.category === 'effect' || m.category === 'static' || m.category === 'ambient') },
+  ].filter(group => group.motions.length)
+})
+
+function clipUrl(kind: 'overlay' | 'motion', id: string, doc: unknown): string {
+  const episode = episodeId.value || '-'
+  const scene = previewSceneId.value ? `&scene=${encodeURIComponent(previewSceneId.value)}` : ''
+  return `/api/projects/${encodeURIComponent(slug.value)}/effects-library/${encodeURIComponent(episode)}/gallery/${kind}/${encodeURIComponent(id)}`
+    + `?v=${documentVersion(doc)}-${galleryNonce.value}${scene}`
+}
+
+async function refreshPreviews(): Promise<void> {
+  refreshing.value = true
+  try {
+    await post(`/projects/${slug.value}/effects-library/${episodeId.value || '-'}/gallery/refresh`, { scene: previewSceneId.value || undefined })
+    galleryNonce.value++
+    success('Previews will be drawn again as they come into view.')
+  } catch (e: any) {
+    showError(e?.data?.detail || 'The previews could not be refreshed.')
+  } finally {
+    refreshing.value = false
+  }
+}
+
+async function loadInUse(): Promise<void> {
+  try { inUse.value = await get(`/projects/${slug.value}/effects-library-in-use`) } catch { /* badges are a convenience */ }
 }
 
 watch(episodeId, () => { load() })
@@ -758,6 +848,7 @@ onMounted(() => {
   raf = requestAnimationFrame(frame)
   stackPresets.load()
   loadLibraryOnly()
+  loadInUse()
   if (episodeId.value) load()
 })
 onBeforeUnmount(() => {
@@ -791,6 +882,12 @@ onBeforeUnmount(() => {
 .fx-card.sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim); }
 .fx-im { position: relative; height: 92px; overflow: hidden; }
 .fx-badge { position: absolute; left: 6px; bottom: 6px; font-size: var(--font-xs); font-weight: 700; padding: 1px 6px; border-radius: 999px; background: rgba(0, 0, 0, 0.6); color: #fff; }
+.fx-inuse { position: absolute; left: 6px; top: 6px; font-size: var(--font-xs); font-weight: 700; padding: 1px 6px; border-radius: 999px; background: var(--accent); color: var(--accent-on); }
+.fx-family { margin-bottom: 10px; }
+.fx-family-head { margin: 4px 0 6px; font-size: 13px; }
+.fx-family-head small { color: var(--text-muted); }
+.fx-motion { cursor: default; }
+.fx-strength { text-transform: capitalize; }
 .fx-pack { position: absolute; right: 6px; top: 6px; font-size: var(--font-xs); padding: 1px 6px; border-radius: 999px; background: rgba(0, 0, 0, 0.55); color: #fff; }
 .fx-tx { padding: 7px 9px 9px; display: flex; flex-direction: column; gap: 2px; }
 .fx-tx b { font-size: 13px; }

@@ -40,10 +40,17 @@ import { withLock } from '../lib/atomic-store.js'
 import {
   EXACT_PREVIEW_MAX_SEC,
   EXACT_PREVIEW_SHORT_EDGE,
+  effectPreviewCacheEntry,
   renderEffectPreview,
   resolvePreviewMotion,
   resolvePreviewOverlays,
 } from './video.js'
+import { findActivePreset, flattenVideoAssemblyBundle } from './pipeline.js'
+import { normalizeEffectsLook } from '../contracts/effects-look.js'
+import { isHiddenMotion } from '../contracts/scene-effect-presets.js'
+import { cachedFileForToken, invalidate } from '../services/preview-cache.js'
+import { hasDrawtextFilter } from '../lib/ffmpeg-utils.js'
+import * as pm from '../services/project-manager.js'
 
 export const router = Router()
 
@@ -148,6 +155,22 @@ router.put('/projects/:slug/effects-library/:episodeId', async (req, res) => {
   }
 })
 
+/** The chosen scene's still (else the first), else any scene image, else null for the gradient. */
+async function sceneBackdrop(slug: string, episodeId: string, requestedScene: unknown): Promise<string | null> {
+  let backdrop: string | null = null
+  const { episodeDir, plan } = await episodeContext(slug, episodeId)
+  const sceneId = typeof requestedScene === 'string' && SCENE_ID.test(requestedScene) ? requestedScene : plan?.scenes[0]?.id
+  if (sceneId) {
+    const stored = plan?.scenes.find(scene => scene.id === sceneId)?.image_path
+    backdrop = await resolveSceneImageReadPath(slug, episodeId.toUpperCase(), episodeDir, sceneId, stored).catch(() => null)
+  }
+  if (!backdrop) {
+    // No Scene Plan still: the episode's first scene image of any kind, then the gradient.
+    try { backdrop = (await scanEpisodeAssets(slug, episodeId)).scenes[0]?.path || null } catch { backdrop = null }
+  }
+  return backdrop
+}
+
 router.post('/projects/:slug/effects-library/:episodeId/exact-preview', async (req, res) => {
   const { slug, episodeId } = req.params
   try {
@@ -155,17 +178,7 @@ router.post('/projects/:slug/effects-library/:episodeId/exact-preview', async (r
     const library = await listSceneEffectLibrary()
     const overlays = resolvePreviewOverlays({ ...body, order: body.custom_order ? 'custom' : 'groups' }, library)
     const motion = resolvePreviewMotion({ motion_id: typeof body.motion_id === 'string' ? body.motion_id : 'ken-burns' }, library)
-    let backdrop: string | null = null
-    const { episodeDir, plan } = await episodeContext(slug, episodeId)
-    const sceneId = typeof body.scene_id === 'string' && SCENE_ID.test(body.scene_id) ? body.scene_id : plan?.scenes[0]?.id
-    if (sceneId) {
-      const stored = plan?.scenes.find(scene => scene.id === sceneId)?.image_path
-      backdrop = await resolveSceneImageReadPath(slug, episodeId.toUpperCase(), episodeDir, sceneId, stored).catch(() => null)
-    }
-    if (!backdrop) {
-      // No Scene Plan still: the episode's first scene image of any kind, then the gradient.
-      try { backdrop = (await scanEpisodeAssets(slug, episodeId)).scenes[0]?.path || null } catch { backdrop = null }
-    }
+    const backdrop = await sceneBackdrop(slug, episodeId, body.scene_id)
     const preview = await renderEffectPreview(motion, overlays, backdrop, body.aspect_ratio, {
       shortEdge: EXACT_PREVIEW_SHORT_EDGE,
       durationSec: Math.min(EXACT_PREVIEW_MAX_SEC, Number(body.duration_sec) || EXACT_PREVIEW_MAX_SEC),
@@ -185,5 +198,98 @@ router.post('/projects/:slug/effects-library/:episodeId/exact-preview', async (r
   } catch (error: any) {
     if (error instanceof SceneEffectValidationError) return res.status(400).json({ detail: error.message })
     res.status(500).json(humanizeBackendError(error, 'The exact preview could not be rendered'))
+  }
+})
+
+// ── The effects gallery (1.4.283, owner: "it's just there to see") ─────────
+//
+// One 6-second loop per effect (camera still) and per camera move, over this
+// episode's scene. Rendered on first view through the preview cache — its own
+// two-render gate, never the job queue, so a Video Assembly is never waiting
+// on it — and reused until the effect's document changes (the cache key is the
+// document), the scene changes, or someone presses Refresh previews.
+
+const GALLERY_SHORT_EDGE = 360
+const GALLERY_SEC = 6
+const NO_EPISODE = '-'
+
+async function galleryBackdrop(slug: string, episodeId: string, scene: unknown): Promise<string | null> {
+  if (episodeId === NO_EPISODE) return null
+  return sceneBackdrop(slug, episodeId, scene).catch(() => null)
+}
+
+/** What one gallery clip draws: an overlay over a still picture, or a camera move with nothing on top. */
+function galleryItem(kind: string, id: string, library: Awaited<ReturnType<typeof listSceneEffectLibrary>>) {
+  if (kind === 'overlay') return { motion: null, overlays: resolvePreviewOverlays({ overlays: [{ id }] }, library) }
+  if (kind === 'motion') return { motion: resolvePreviewMotion({ motion_id: id }, library), overlays: [] }
+  throw new SceneEffectValidationError([`unknown gallery kind "${kind}"`])
+}
+
+router.get('/projects/:slug/effects-library/:episodeId/gallery/:kind/:id', async (req, res) => {
+  const { slug, episodeId, kind, id } = req.params
+  try {
+    const library = await listSceneEffectLibrary()
+    const { motion, overlays } = galleryItem(kind, id, library)
+    if (overlays.some(o => o.kind === 'lower-third') && !await hasDrawtextFilter()) {
+      return res.status(501).json({ detail: 'This FFmpeg build cannot draw text, so this effect has no preview.' })
+    }
+    const backdrop = await galleryBackdrop(slug, episodeId, req.query.scene)
+    const aspect = typeof req.query.aspect_ratio === 'string' ? req.query.aspect_ratio : undefined
+    const preview = await renderEffectPreview(motion, overlays, backdrop, aspect, { shortEdge: GALLERY_SHORT_EDGE, durationSec: GALLERY_SEC })
+    const file = cachedFileForToken(preview.token)
+    if (!file) return res.status(500).json({ detail: 'The preview was rendered but could not be read back.' })
+    res.set('Content-Type', file.endsWith('.mp4') ? 'video/mp4' : 'video/webm')
+    // The URL carries the effect's version, so a browser copy is safe to keep.
+    res.set('Cache-Control', 'private, max-age=86400')
+    res.sendFile(file)
+  } catch (error: any) {
+    if (error instanceof SceneEffectValidationError) return res.status(400).json({ detail: error.message })
+    res.status(500).json(humanizeBackendError(error, 'The effect preview could not be rendered'))
+  }
+})
+
+/** Drop this scene's gallery clips so the next view renders them fresh. Renders nothing itself. */
+router.post('/projects/:slug/effects-library/:episodeId/gallery/refresh', async (req, res) => {
+  const { slug, episodeId } = req.params
+  try {
+    const library = await listSceneEffectLibrary()
+    const backdrop = await galleryBackdrop(slug, episodeId, req.body?.scene)
+    const aspect = typeof req.body?.aspect_ratio === 'string' ? req.body.aspect_ratio : undefined
+    let dropped = 0
+    const items = [
+      ...library.overlays.map(o => galleryItem('overlay', o.id, library)),
+      ...library.scene_motions.filter(m => !isHiddenMotion(m)).map(m => galleryItem('motion', m.id, library)),
+    ]
+    for (const item of items) {
+      const entry = effectPreviewCacheEntry(item.motion, item.overlays, backdrop, aspect, { shortEdge: GALLERY_SHORT_EDGE, durationSec: GALLERY_SEC })
+      if (invalidate(entry.key, entry.ext)) dropped++
+    }
+    res.json({ ok: true, dropped })
+  } catch (error: any) {
+    res.status(500).json(humanizeBackendError(error, 'The previews could not be refreshed'))
+  }
+})
+
+/**
+ * What this channel's Pipeline batch renders: the built-in effects and camera
+ * moves of its active Video Assembly preset, read through the same flattening
+ * and the same one-route rules the render and the preflight answer use.
+ */
+router.get('/projects/:slug/effects-library-in-use', async (req, res) => {
+  const { slug } = req.params
+  try {
+    const config = await pm.getConfig(slug)
+    const { preset } = findActivePreset(config, 'video_assembly')
+    if (!preset) return res.json({ overlays: [], motions: [], source: null })
+    const flat = flattenVideoAssemblyBundle(preset.data ?? preset, '', '') as Record<string, any>
+    const look = normalizeEffectsLook(flat, { migrateLegacy: true }).look as Record<string, any>
+    const overlays = look.scene_effects?.enabled
+      ? (look.scene_effects.overlays || []).filter((o: any) => o?.enabled).map((o: any) => o.id)
+      : []
+    const motions = [flat.scene_animation?.type, ...(flat.animation_randomize && flat.animation_randomize !== 'off' ? flat.animation_pool || [] : [])]
+      .filter((id): id is string => typeof id === 'string' && !!id)
+    res.json({ overlays: [...new Set(overlays)], motions: [...new Set(motions)], source: preset.name || preset.id })
+  } catch (error: any) {
+    res.status(500).json(humanizeBackendError(error, 'Could not read what this channel uses'))
   }
 })

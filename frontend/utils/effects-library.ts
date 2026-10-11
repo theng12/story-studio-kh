@@ -85,7 +85,17 @@ export const CATEGORY_TABS: Array<{ key: string; label: string; categories: stri
   { key: 'light', label: 'Light', categories: ['light'] },
   { key: 'film', label: 'Film & lens', categories: ['texture', 'grade'] },
   { key: 'titles', label: 'Titles & framing', categories: ['framing', 'title', 'brand'] },
+  // 1.4.283 — the camera moves, shown as a gallery; no overlay has this category.
+  { key: 'motions', label: 'Camera motions', categories: ['camera-motion'] },
 ]
+
+/** Short, stable fingerprint of an effect's document, so a gallery clip's URL changes when the effect does. */
+export function documentVersion(doc: unknown): string {
+  const text = JSON.stringify(doc ?? null)
+  let h = 5381
+  for (let i = 0; i < text.length; i++) h = ((h * 33) ^ text.charCodeAt(i)) >>> 0
+  return h.toString(36)
+}
 
 /** Section headings, in page order. An unknown pack category lands in "More". */
 export const CATEGORY_SECTIONS: Array<{ label: string; categories: string[] }> = [

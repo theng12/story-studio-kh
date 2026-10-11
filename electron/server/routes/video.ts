@@ -995,19 +995,22 @@ export const EXACT_PREVIEW_MAX_SEC = 6
  * affect the image by construction — a new field cannot be forgotten here and
  * serve a stale frame.
  */
-export async function renderEffectPreview(
+/**
+ * Where one effect preview lives in the preview cache. Split out (1.4.283) so
+ * the effects gallery's "Refresh previews" can drop exactly its own clips.
+ */
+export function effectPreviewCacheEntry(
   motion: SceneMotionDocument | null,
   overlays: SceneOverlayDocument[],
   backdrop: string | null,
   aspect?: string,
   size: { shortEdge?: number; durationSec?: number } = {},
-): Promise<{ token: string; width: number; height: number; duration_sec: number; render_ms: number; camera_engine: 'native' | 'ffmpeg' | 'none' }> {
+): { key: string; ext: 'mp4' | 'webm'; W: number; H: number; DURATION: number } {
   // v1.4.15 — this preview MUST follow the ratio. Corner logos, lower thirds,
   // gradient scrims and cinematic bars are all laid out against the frame, so a
   // landscape preview of an overlay bound for a portrait render is exactly the
   // "looks shipped" lie this release set out to avoid.
   const { w: W, h: H } = canvasForShortEdge(size.shortEdge ?? PREVIEW_SHORT_EDGE, aspect)
-  const FPS = EFFECT_PREVIEW_FPS
   const DURATION = Math.max(1, Math.min(EXACT_PREVIEW_MAX_SEC, size.durationSec ?? EFFECT_PREVIEW_DURATION))
   // v1.5 — the cache key gained the bake version through `effect-v2`, so a
   // preview from before atmosphere loops existed is never served for one after.
@@ -1018,11 +1021,22 @@ export async function renderEffectPreview(
     JSON.stringify(motion),
     JSON.stringify(overlays),
   ].join('|')
-
   // The exact preview is H.264: at 960x540 libvpx-vp9 (even "realtime") spent
   // ~15 s on six seconds of rain where libx264 veryfast takes under half a
   // second — measured on the M2 Max. The small picker tiles stay VP9 webm.
   const ext = size.shortEdge && size.shortEdge > PREVIEW_SHORT_EDGE ? 'mp4' : 'webm'
+  return { key, ext, W, H, DURATION }
+}
+
+export async function renderEffectPreview(
+  motion: SceneMotionDocument | null,
+  overlays: SceneOverlayDocument[],
+  backdrop: string | null,
+  aspect?: string,
+  size: { shortEdge?: number; durationSec?: number } = {},
+): Promise<{ token: string; width: number; height: number; duration_sec: number; render_ms: number; camera_engine: 'native' | 'ffmpeg' | 'none' }> {
+  const { key, ext, W, H, DURATION } = effectPreviewCacheEntry(motion, overlays, backdrop, aspect, size)
+  const FPS = EFFECT_PREVIEW_FPS
   const started = Date.now()
   // Loops are baked BEFORE the cache lookup's render slot, at the preview's own
   // size, so a first preview of rain costs one short bake and every later one

@@ -156,6 +156,23 @@ describe('the page itself', () => {
     for (const entry of library) assert.ok(!page.includes(`'${entry.id}'`), `${entry.id} named in the page`)
   })
 
+  test('the gallery: every card is a lazily loaded clip whose URL follows the effect, plus Camera motions', () => {
+    const clip = fs.readFileSync(new URL('../components/GalleryClip.vue', import.meta.url), 'utf-8')
+    assert.match(clip, /IntersectionObserver/)
+    assert.match(page, /clipUrl\('overlay', entry\.id, entry\.document\)/)
+    assert.match(page, /documentVersion\(doc\)/)
+    assert.notEqual(lib.documentVersion({ kind: 'letterbox', mode: 'fit' }), lib.documentVersion({ kind: 'letterbox', mode: 'cover' }))
+    assert.ok(lib.CATEGORY_TABS.some((tab: any) => tab.key === 'motions'))
+    // No overlay belongs to the motions tab, so it never lists effects.
+    assert.deepEqual(lib.sectionFor(library, 'motions', ''), [])
+    for (const label of ['Refresh Previews']) {
+      const at = page.indexOf(label)
+      assert.ok(at > 0, label)
+      assert.match(page.slice(at, at + 300), /class="hint"/, `${label} has no visible hint beside it`)
+    }
+    assert.match(page, /In use on this channel/)
+  })
+
   test('the sidebar and the Presets page reach it', () => {
     const layout = fs.readFileSync(new URL('../layouts/dashboard.vue', import.meta.url), 'utf-8')
     assert.match(layout, /effects-library`[^>]*>Effects Library</)

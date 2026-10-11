@@ -183,8 +183,9 @@ async function evictIfOverflowing(): Promise<void> {
 }
 
 /** Manual invalidation (future-proof — unused today). */
-export function invalidate(key: string, ext: string): void {
+/** Drop one entry. True when there was a file to drop. */
+export function invalidate(key: string, ext: string): boolean {
   const target = cachePath(key, ext)
   assertWriteIsolatedInTests(target, 'preview-cache')
-  try { fs.unlinkSync(target) } catch {}
+  try { fs.unlinkSync(target); return true } catch { return false }
 }

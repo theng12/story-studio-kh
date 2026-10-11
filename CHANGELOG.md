@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.283 — 2026-10-11
+
+- The Effects Library is now a gallery you can just look at (owner: "it's just there to see"). Every effect card plays a 6-second clip of that effect on the chosen scene of the episode, with the camera still, without a click. Story renders each clip the first time its card scrolls into view and keeps it, so the next visit shows it at once. A clip is drawn again only when the effect itself changes (so this release's letterbox and Twinkling Stars changes show by themselves), when you pick another scene, or when you press Refresh Previews. Clips are made with the small preview renderer, two at a time, never in the job queue, so they never hold up a Video Assembly; they share the existing preview cache of 200 clips.
+- A Camera motions tab shows every camera move the same way: Zoom in, Zoom out and Breathe with their strengths side by side, Dolly In, the eight pans, the Fades, and Blur to Focus. Rotation is never shown.
+- Effects and camera moves that this channel's Pipeline batch renders carry an "In use on this channel" badge, read from the channel's active Video Assembly preset with the same rules the render and the Pipeline check use (an old Vignette, Film Grain or Letterbox setting counts as the matching effect).
+
 ## v1.4.282 — 2026-10-11
 
 - Letterbox no longer hides any of the picture (owner: "i thought it added black bars but retain the original ratio of the video. it should"). The bars were drawn over the video, which covered its top and bottom. Now the whole picture shrinks to fit between the bars and keeps its shape, with narrow bars at the sides where needed; the video's size stays the same. This is the default for Cinemascope Bars, Widescreen Bars and the old Cinematic Letterbox setting, in renders and in every preview. The old look is still there as an explicit choice, "Cinematic crop (covers edges)", under the effect's Picture setting.
