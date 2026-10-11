@@ -158,7 +158,7 @@ describe('buildEncoderArgs — codec/format matrix', () => {
     const args = buildEncoderArgs({ codec: 'h264', format: 'mp4', crf: 23, effort: 'medium' })
     assert.deepEqual(args, [
       '-c:v', 'libx264', '-crf', '23', '-preset', 'medium',
-      '-c:a', 'aac', '-b:a', '192k',
+      '-c:a', 'aac', '-b:a', '384k',
       '-pix_fmt', 'yuv420p',
       '-movflags', '+faststart',
     ])
@@ -169,7 +169,7 @@ describe('buildEncoderArgs — codec/format matrix', () => {
     assert.deepEqual(args, [
       '-c:v', 'libx265', '-crf', '18', '-preset', 'slow',
       '-tag:v', 'hvc1',
-      '-c:a', 'aac', '-b:a', '192k',
+      '-c:a', 'aac', '-b:a', '384k',
       '-pix_fmt', 'yuv420p',
       '-movflags', '+faststart',
     ])

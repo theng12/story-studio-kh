@@ -79,9 +79,39 @@ describe('loudness settings and checks', () => {
   test('the limit never drops more than 3 dB under the ceiling, and an unchanged plan stops (1.4.275)', () => {
     const t = { lufs: -14, true_peak_db: -1 }
     // EP0002's third pass: limited at -4.2, encoded at +2.8 → 1.4.273 went to -8.1 dBTP and the mix fell to -16.0 LUFS.
-    const next = correctLevelPlan({ gain_db: 10, limit_db: -4.2 }, t, { lufs: -14.1, true_peak_db: 2.8 })!
-    assert.equal(next.limit_db, -4)
-    assert.equal(correctLevelPlan({ gain_db: 10, limit_db: -4 }, t, { lufs: -14, true_peak_db: 2.8 }), null)
+    // Within the peak allowance the limiter still does the work, and stops at its floor.
+    const next = correctLevelPlan({ gain_db: 10, limit_db: -1.3 }, t, { lufs: -14.1, true_peak_db: 0.5 })!
+    assert.ok(Math.abs(next.limit_db! + 2.9) < 1e-9, JSON.stringify(next))
+    assert.equal(correctLevelPlan({ gain_db: 10, limit_db: -3.5 }, t, { lufs: -14.1, true_peak_db: -0.5 })!.limit_db, -4)
+    assert.equal(correctLevelPlan({ gain_db: 10, limit_db: -4 }, t, { lufs: -14, true_peak_db: -0.5 }), null)
+  })
+
+  test('a peak over the allowance that the limiter does not hold turns the level down after it (1.4.281)', () => {
+    const t = loudnessTarget({})  // -14 / -1 / 20%: 2.8 LU, +1.6 dB
+    // At the limiter's floor: +2.8 dBTP is 3.8 over the ceiling. Landing under it would cost 4.0 dB and leave
+    // -18.1 LUFS, outside the allowance; so it goes down only as far as the loudness allows (to -16.7), which
+    // is still more than the peak allowance needs (2.4 dB).
+    const atFloor = correctLevelPlan({ gain_db: 10, limit_db: -4 }, t, { lufs: -14.1, true_peak_db: 2.8 })!
+    assert.equal(atFloor.limit_db, -4)
+    assert.equal(atFloor.gain_db, 10)
+    assert.ok(Math.abs(atFloor.trim_db! + 2.6) < 1e-9, JSON.stringify(atFloor))
+    // No limiter (an untouched mix): a +0.8 encode needs only 2.0 dB to land under the ceiling.
+    const untouched = correctLevelPlan({ gain_db: 0, limit_db: null }, t, { lufs: -14.7, true_peak_db: 0.8 })!
+    assert.ok(Math.abs(untouched.trim_db! + 2.0) < 1e-9 && untouched.gain_db === 0 && untouched.limit_db === null, JSON.stringify(untouched))
+    // An encode far over its limit: the encoder, not the limiter, sets that peak. The peak allowance wins over
+    // the loudness one (2.1 dB down, though only 1.6 dB keeps -16.8 LUFS), and trims add up.
+    const far = correctLevelPlan({ gain_db: 0.7, limit_db: -1.3, trim_db: -1 }, t, { lufs: -15.1, true_peak_db: 2.5 })!
+    assert.ok(Math.abs(far.trim_db! + 3.1) < 1e-9 && far.limit_db === -1.3 && far.gain_db === 0.7, JSON.stringify(far))
+    assert.equal(levelFilter(far), 'volume=0.70dB,aresample=176400,alimiter=limit=0.8610:level=0:latency=1:attack=1:release=50,aresample=44100,volume=-3.10dB')
+    assert.equal(levelFilter({ gain_db: 0, limit_db: null, trim_db: -2 }), 'volume=0.00dB,volume=-2.00dB')
+  })
+
+  test('a mix already within the allowance is not turned up or limited, only checked once encoded (1.4.281)', () => {
+    const t = loudnessTarget({})
+    // Night Atlas Nature EP0005's mix: -14.7 LUFS, -1.1 dBTP. 1.4.280 added +0.7 dB and a limiter.
+    assert.deepEqual(levelPlan(t, { lufs: -14.7, true_peak_db: -1.1 }), { gain_db: 0, limit_db: null })
+    assert.equal(levelFilter(levelPlan(t, { lufs: -14.7, true_peak_db: -1.1 })!), 'volume=0.00dB')
+    assert.equal(levelPlan(loudnessTarget({ loudness_tolerance_pct: 3 }), { lufs: -14.7, true_peak_db: -1.1 })!.gain_db.toFixed(1), '0.7')
   })
 
   test('how far a reading misses, in allowances', () => {
@@ -155,7 +185,8 @@ describe('the correction keeps the closest attempt (1.4.275)', () => {
     assert.equal(r.best, r.attempts[1])
     assert.equal(r.issue, null)
     assert.deepEqual(r.kept, [1, 2])
-    assert.ok(Math.abs(r.tried[1].limit_db! + 3.9) < 1e-9, JSON.stringify(r.tried))
+    // 1.4.281: +1.5 over a -1.3 limit is the encode, not the limiter: the level goes down 1.9 dB after it.
+    assert.ok(r.tried[1].limit_db === -1.3 && Math.abs(r.tried[1].trim_db! + 1.9) < 1e-9, JSON.stringify(r.tried))
   })
 
   test('History EP0002 (1.4.274): stops at attempt 3, within the allowance, and measures nothing after it', async () => {
@@ -218,7 +249,7 @@ describe('a quiet narration with music comes out at -14 LUFS', () => {
       console.log(`premix loudness (${name}): ${m.lufs} LUFS, peak ${m.true_peak_db} dBTP | ${job.output_lines.find((l: string) => l.startsWith('Loudness:'))}`)
       assert.ok(m.lufs !== null && Math.abs(m.lufs + 14) <= 1, `integrated ${m.lufs} LUFS`)
       assert.ok(m.true_peak_db !== null && m.true_peak_db <= -1, `true peak ${m.true_peak_db} dBTP`)
-      assert.ok(job.output_lines.some((l: string) => /^Loudness: the mix measured -\d/.test(l)))
+      assert.ok(job.output_lines.some((l: string) => /^Loudness: the audio mix measured -\d/.test(l)))
     })
   }
 })
@@ -246,5 +277,104 @@ describe('the true peak holds once encoded (1.4.273)', () => {
     console.log(`encoded peaky mix: ${m.lufs} LUFS, peak ${m.true_peak_db} dBTP | ${job.output_lines.filter((l: string) => l.startsWith('Loudness:')).join(' | ')}`)
     assert.equal(finalLoudnessIssue(m, target), null)
     assert.ok(job.output_lines.some((l: string) => /^Loudness: attempt 2 \(corrected to .* came out at .* once encoded\.$/.test(l)), 'the encode was measured and corrected')
+  })
+})
+
+describe('the peak holds once encoded, even when the encoder overshoots (1.4.281)', () => {
+  // Night Atlas Nature EP0005 (assembly ed0f10dc): the mix measured -14.7 LUFS, -1.1 dBTP. 1.4.280 added +0.7 dB
+  // and a -1.3 limiter, and the AAC 192k encode came out at +2.5; the limiter went to its -4.0 floor and the
+  // gain back up, and the four attempts ended at +2.5 / +2.5 / +1.2 / +1.0 dBTP: a failed job after an hour of
+  // scene clips. A model of that encoder: it adds 2.9 dB to the mix's own peak whatever the limiter does.
+  const mix = { lufs: -14.7, true_peak_db: -1.1 }
+  const encode = (p: LevelPlan): LoudnessMeasurement => ({
+    lufs: mix.lufs + p.gain_db + (p.trim_db ?? 0) - (p.limit_db === null ? 0 : 0.1),
+    true_peak_db: mix.true_peak_db + p.gain_db + (p.trim_db ?? 0) + 2.9,
+  })
+
+  test('EP0005: the level goes down until the encoded peak is within the allowance, and the job passes', async () => {
+    const t = loudnessTarget({})
+    const first = levelPlan(t, mix)!
+    const r = await levelToTarget(first, t, async p => encode(p), async () => {})
+    assert.equal(r.issue, null, JSON.stringify(r.attempts))
+    assert.ok(r.best.got.true_peak_db! <= t.true_peak_db + loudnessTolerance(t).peak_db, JSON.stringify(r.best))
+    assert.ok(r.best.got.lufs! >= -16.8, JSON.stringify(r.best))
+    assert.equal(r.attempts.length, 2)
+    assert.equal(r.best.plan.gain_db, 0, 'never turned up: the mix was already within the allowance')
+  })
+
+  test('an attempt with its peak within the allowance is kept over a louder one that is not', async () => {
+    const t = loudnessTarget({ loudness_tolerance_pct: 5 })  // 0.7 LU, +0.4 dB
+    // Attempt 1 misses less by the old measure (1.25 allowances, all of it peak); attempt 2 misses by 1.43, all loudness.
+    const readings = [{ lufs: -14.0, true_peak_db: -0.5 }, { lufs: -15.0, true_peak_db: -1.0 }, { lufs: -16.0, true_peak_db: -1.5 }, { lufs: -14.0, true_peak_db: -0.5 }]
+    const r = await levelToTarget({ gain_db: 3, limit_db: -1.3 }, t, async (_p, n) => readings[n - 1]!, async () => {})
+    assert.equal(r.best, r.attempts[1])
+    assert.match(r.issue!, /-15\.0 LUFS is more than the allowed 5%/)
+  })
+
+  test('the final AAC is 384 kbit/s: a dense, limited bed overshoots far less than at 192 (real ffmpeg)', async () => {
+    const { FINAL_AAC_ARGS } = await import('../lib/level-audio.js')
+    assert.deepEqual(FINAL_AAC_ARGS, ['-c:a', 'aac', '-b:a', '384k'])
+    // Rain-like: white + pink noise, limited at 4x to -1.3 dBTP. At 192k the encode lifted it about 4 dB.
+    const bed = path.join(dir, 'dense-bed.wav')
+    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'anoisesrc=color=white:r=44100:a=0.4:d=10:seed=2',
+      '-f', 'lavfi', '-i', 'anoisesrc=color=pink:r=44100:a=0.4:d=10:seed=12', '-filter_complex',
+      `[0][1]amerge=inputs=2,highpass=f=200,${levelFilter({ gain_db: 6, limit_db: -1.3 })}`, '-c:a', 'pcm_s16le', bed])
+    const peak = (file: string) => parseEbur128Summary(spawnSync('ffmpeg', ['-hide_banner', '-nostdin', '-i', file, '-af', 'ebur128=peak=true:framelog=verbose', '-f', 'null', '-'], { encoding: 'utf8' }).stderr).true_peak_db!
+    const encoded = (args: string[]) => {
+      const out = path.join(dir, `dense-${args.at(-1)}.m4a`)
+      execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', bed, ...args, out])
+      return peak(out)
+    }
+    const wav = peak(bed)
+    const at192 = encoded(['-c:a', 'aac', '-b:a', '192k'])
+    const at384 = encoded(FINAL_AAC_ARGS)
+    console.log(`dense bed: WAV ${wav} dBTP, AAC 192k ${at192}, AAC 384k ${at384}`)
+    assert.ok(at384 - wav <= 1.5, `384k lifted the peak ${(at384 - wav).toFixed(1)} dB`)
+    assert.ok(at192 - at384 >= 1.5, `192k ${at192} vs 384k ${at384}`)
+  })
+})
+
+describe('the sound is settled before the picture (1.4.281)', () => {
+  test('Video Assembly levels the mix before it renders any scene clip or compilation background', () => {
+    const source = readFileSync(path.join(serverDir, 'generators', 'video.ts'), 'utf8')
+    const body = source.slice(source.indexOf('export async function generateVideo('))
+    const early = body.indexOf('settled: plan => { settledPlan = plan }')
+    assert.ok(early > 0, 'the early loudness step')
+    for (const later of ['await prepareSceneClips(', 'await prepareCompilationBackground(', 'await prepareIntroClip(', 'await prepareTitleClip(']) {
+      assert.ok(body.indexOf(later) > early, `${later} comes after the loudness step`)
+    }
+    // Both later pre-mixes start from the settled level.
+    assert.equal(body.match(/plan: settledPlan/g)?.length, 2)
+  })
+
+  test('Audio Assembly keeps a levelled lossless master that Video Assembly mixes from (real ffmpeg)', async () => {
+    const { levelMergedAudio } = await import('../generators/audio-merge.js')
+    const { mergedAudioMaster, mergedAudioMasterPath } = await import('../lib/level-audio.js')
+    const { mkdir, stat, writeFile } = await import('node:fs/promises')
+    const merged = path.join(dir, 'merged')
+    await mkdir(merged, { recursive: true })
+    // A quiet narration-like mix, about -30 LUFS.
+    const raw = path.join(dir, 'merged-raw.flac')
+    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'anoisesrc=color=pink:a=0.03:d=8:seed=7',
+      '-af', "volume='0.2+0.8*gt(sin(2*PI*t*3),0)':eval=frame,aformat=channel_layouts=stereo", '-c:a', 'flac', raw])
+    const mp3 = path.join(merged, 'EP0001_merged_audio.mp3')
+    const master = mergedAudioMasterPath(mp3)
+    assert.equal(path.basename(master), 'EP0001_merged_audio.master.flac')
+    const lines: string[] = []
+    await levelMergedAudio({ raw, master, mp3, loudness: loudnessTarget({}), tempDir: dir, lines })
+    const encoded = path.join(dir, 'master-final.m4a')
+    const { FINAL_AAC_ARGS } = await import('../lib/level-audio.js')
+    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', master, ...FINAL_AAC_ARGS, encoded])
+    const m = parseEbur128Summary(spawnSync('ffmpeg', ['-hide_banner', '-nostdin', '-i', encoded, '-af', 'ebur128=peak=true:framelog=verbose', '-f', 'null', '-'], { encoding: 'utf8' }).stderr)
+    console.log(`merged master once encoded: ${m.lufs} LUFS, peak ${m.true_peak_db} dBTP | ${lines.join(' | ')}`)
+    assert.equal(finalLoudnessIssue(m, loudnessTarget({})), null)
+    assert.ok((await stat(mp3)).size > 0)
+    // Video Assembly takes the master only for the MP3 its Audio Assembly recorded with it.
+    const record = path.join(merged, 'EP0001_merged_audio.completion.json')
+    assert.equal(await mergedAudioMaster(mp3, 'EP0001'), null)
+    await writeFile(record, JSON.stringify({ output_filename: path.basename(mp3), bytes: (await stat(mp3)).size, master_filename: path.basename(master) }))
+    assert.equal(await mergedAudioMaster(mp3, 'EP0001'), master)
+    await writeFile(record, JSON.stringify({ output_filename: path.basename(mp3), bytes: 1, master_filename: path.basename(master) }))
+    assert.equal(await mergedAudioMaster(mp3, 'EP0001'), null, 'an MP3 replaced since is mixed from itself')
   })
 })

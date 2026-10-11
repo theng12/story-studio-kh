@@ -23,7 +23,8 @@ import { mediaEpisodeBaseForCode } from '../services/media-root.js'
 import { runFfmpeg, getAudioDuration, formatConcatFileLine, appendCappedTail } from '../lib/ffmpeg-utils.js'
 import { getWorkTempDir } from '../lib/work-tempdir.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
-import { MIX_LIMITER } from '../lib/final-loudness.js'
+import { MIX_LIMITER, type LoudnessTarget } from '../lib/final-loudness.js'
+import { channelLoudnessTarget, levelAndCheck, mergedAudioMasterPath } from '../lib/level-audio.js'
 import { buildMusicBed, MUSIC_REFERENCE_LUFS } from '../lib/music-bed.js'
 import { measureLoudness } from './music-episode-build.js'
 import type {
@@ -1037,6 +1038,11 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     // it was broken — the same class of "silent partial artifact" bug as
     // video.ts's outputFile.
     let mixSucceeded = false
+    // 1.4.281 — the mix is levelled here, to the channel's target, and kept lossless next to the MP3
+    // (`{name}.master.flac`): Video Assembly uses that master, so a level problem shows up now, before
+    // any video work, and the final video's AAC is not encoded from an MP3.
+    let rawMixPath = path.join(tempDir, 'merged_raw.flac')
+    const masterPath = mergedAudioMasterPath(outputPath)
     try {
       const ambientEnabled = Array.isArray(req.ambient_tracks)
         && req.ambient_tracks.some(t => t?.enabled && t?.source_path)
@@ -1049,7 +1055,7 @@ export async function generateAudioMerge(job: Job): Promise<void> {
           music: musicEnabled ? req.music! : undefined,
           noise: noiseEnabled ? req.background_noise! : undefined,
           ambientTracks: ambientEnabled ? req.ambient_tracks : undefined,
-          outputPath,
+          outputPath: rawMixPath,
           tempDir,
           job,
         })
@@ -1064,18 +1070,25 @@ export async function generateAudioMerge(job: Job): Promise<void> {
           await runFfmpeg([
             '-y', '-i', narrationOnlyPath,
             '-af', `volume=${narrVol.toFixed(2)}`,
-            '-c:a', 'libmp3lame', '-b:a', '192k',
-            outputPath,
+            '-c:a', 'flac', '-sample_fmt', 's16',
+            rawMixPath,
           ], { timeoutMs: audioMergeTimeoutMs() })
         } else {
-          job.output_lines.push('No music, noise, or ambient configured, copying narration...')
-          await fs.copyFile(narrationOnlyPath, outputPath)
+          job.output_lines.push('No music, noise, or ambient configured: the narration is the mix.')
+          rawMixPath = narrationOnlyPath
         }
       }
+      await levelMergedAudio({
+        raw: rawMixPath,
+        master: masterPath, mp3: outputPath,
+        loudness: await channelLoudnessTarget(project_slug), tempDir, lines: job.output_lines,
+      })
       mixSucceeded = true
     } finally {
       if (!mixSucceeded) {
         try {
+          await fs.rm(masterPath, { force: true })
+          await fs.rm(`${masterPath}.kept`, { force: true })
           await fs.rm(outputPath, { force: true })
           job.output_lines.push(`Removed partial output: ${path.basename(outputPath)}`)
         } catch { /* ignore */ }
@@ -1131,6 +1144,8 @@ export async function generateAudioMerge(job: Job): Promise<void> {
         bytes: finalBytes,
         duration_sec: finalDuration,
         generated_at: new Date().toISOString(),
+        // 1.4.281 — the levelled lossless master Video Assembly mixes from (mergedAudioMaster).
+        master_filename: path.basename(masterPath),
         opening,
       }, null, 2),
       'utf-8',
@@ -1177,6 +1192,25 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     try { await fs.rm(tempDir, { recursive: true, force: true }) } catch { /* ignore */ }
     throw err
   }
+}
+
+/**
+ * 1.4.281 — level the merged mix (`raw`) into its lossless master and write the MP3 from that master.
+ * The master's peak is checked as the final video's AAC ships it (levelAndCheck); a mix that cannot
+ * reach the target fails Audio Assembly, before any video work.
+ */
+export async function levelMergedAudio(opts: {
+  raw: string; master: string; mp3: string; loudness: LoudnessTarget; tempDir: string; lines: string[]
+}): Promise<void> {
+  const { raw, master, mp3, loudness, tempDir, lines } = opts
+  await levelAndCheck({
+    measured: await measureLoudness(raw),
+    write: level => runFfmpeg(['-y', '-i', raw, '-vn', '-af', `${level}aformat=sample_fmts=s16:channel_layouts=stereo:sample_rates=44100`,
+      '-c:a', 'flac', master], { timeoutMs: audioMergeTimeoutMs() }),
+    output: master, loudness, tempDir, lines, what: 'merged audio',
+  })
+  await runFfmpeg(['-y', '-i', master, '-c:a', 'libmp3lame', '-b:a', '192k', mp3], { timeoutMs: audioMergeTimeoutMs() })
+  lines.push(`Lossless master kept: ${path.basename(master)}`)
 }
 
 // ── Audio Layer Mixing ────────────────────────────────────────────────────
@@ -1426,7 +1460,7 @@ async function mixAudioLayers(opts: MixOptions): Promise<void> {
     ...inputs,
     '-filter_complex', filterComplex,
     '-map', '[out]',
-    '-c:a', 'libmp3lame', '-b:a', '192k',
+    '-c:a', 'flac', '-sample_fmt', 's16',  // lossless: it is levelled next (levelMergedAudio)
     outputPath,
   ]
 

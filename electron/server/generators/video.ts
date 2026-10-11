@@ -106,7 +106,8 @@ import { listSceneEffectLibrary } from '../services/style-effect-loader.js'
 import { requireJobCompletion, declareJobDegraded } from '../services/job-completion.js'
 import { nonRetryable } from '../services/job-retry-policy.js'
 import { EBUR128_FILTER, measureLoudness, parseEbur128Summary, type LoudnessMeasurement } from './music-episode-build.js'
-import { finalLoudnessIssue, levelFilter, levelPlan, levelToTarget, loudnessTarget, withinToleranceNote, type LoudnessTarget } from '../lib/final-loudness.js'
+import { finalLoudnessIssue, loudnessTarget, withinToleranceNote, type LevelPlan, type LoudnessTarget } from '../lib/final-loudness.js'
+import { FINAL_AAC_ARGS, levelAndCheck, mergedAudioMaster } from '../lib/level-audio.js'
 import {
   assertContextualCueReadiness,
   normalizeContextualCueConfig,
@@ -905,7 +906,7 @@ export function buildEncoderArgs(opts: {
       // No `-allow_sw` (1.4.264): Apple's own silent software encoder would
       // make "Encoder: hardware" untrue. If the Media Engine cannot start,
       // the encode fails and the libx264 tier takes over and says so.
-      '-c:a', 'aac', '-b:a', '192k',
+      ...FINAL_AAC_ARGS,
       '-pix_fmt', 'yuv420p',
       '-movflags', '+faststart',
     ]
@@ -916,14 +917,14 @@ export function buildEncoderArgs(opts: {
     return [
       '-c:v', 'libx265', '-crf', crf.toString(), '-preset', effort, ...capArgs,
       '-tag:v', 'hvc1',
-      '-c:a', 'aac', '-b:a', '192k',
+      ...FINAL_AAC_ARGS,
       '-pix_fmt', 'yuv420p',
       '-movflags', '+faststart',
     ]
   }
   return [
     '-c:v', 'libx264', '-crf', crf.toString(), '-preset', effort, ...capArgs,
-    '-c:a', 'aac', '-b:a', '192k',
+    ...FINAL_AAC_ARGS,
     '-pix_fmt', 'yuv420p',
     '-movflags', '+faststart',
   ]
@@ -2499,9 +2500,12 @@ export async function generateVideo(job: Job): Promise<void> {
     const audioGap = req.audio_gap ?? 5
 
     if (useMergedAudio) {
-      // Use pre-merged audio directly — skip chapter concatenation
-      narrationFilePath = req.merged_audio_path!
-      job.output_lines.push(`Merged audio duration: ${narrationDuration!.toFixed(1)}s`)
+      // Use pre-merged audio directly — skip chapter concatenation. 1.4.281: its levelled lossless master
+      // when Audio Assembly kept one, so the final AAC is not encoded from an MP3.
+      const master = await mergedAudioMaster(req.merged_audio_path!, code)
+      narrationFilePath = master ?? req.merged_audio_path!
+      job.output_lines.push(`Merged audio duration: ${narrationDuration!.toFixed(1)}s`
+        + (master ? ` (mixed from its lossless master ${path.basename(master)})` : ''))
     } else if (hasChapters && audioGap > 0) {
       narrationFilePath = await prepareNarrationWithGaps(narrationChapters, audioGap, tempDir, job)
       // Re-measure duration after adding gaps
@@ -2517,6 +2521,30 @@ export async function generateVideo(job: Job): Promise<void> {
       if (newDur) narrationDuration = newDur
     } else {
       narrationFilePath = req.narration_path
+    }
+
+    // 1.4.281 — the sound is levelled and its encoded peak checked FIRST, before any picture work (owner,
+    // 2026-10-11): a level the mix cannot reach stops the job in minutes, not after an hour of scene
+    // clips. The pre-mix before the final render starts from the level settled here, and uses this very
+    // file when its length and start are the same. A final render resumed above has its own saved audio.
+    let musicFilePath: string | undefined
+    if (req.music?.enabled && req.music.files.length > 0) {
+      musicFilePath = await prepareMusicTrack(req.music, tempDir, job)
+    }
+    let settledPlan: LevelPlan | null = null
+    const earlyAudioDir = path.join(tempDir, 'loudness_first')
+    await fs.mkdir(earlyAudioDir, { recursive: true })
+    const earlyPremix = {
+      duration_sec: targetDuration,
+      path: await premixAudio({
+        narrationPath: narrationFilePath,
+        narrationDuration: narrationDuration!,
+        narrationVolume: req.narration_volume ?? 1.0,
+        musicFilePath, musicConfig: req.music,
+        backgroundNoise: req.background_noise,
+        targetDuration, tempDir: earlyAudioDir, job, loudness, format,
+        settled: plan => { settledPlan = plan },
+      }),
     }
 
     // ── Compilation video layout (Path C / v1.0.63+) ─────────────────────
@@ -2571,18 +2599,14 @@ export async function generateVideo(job: Job): Promise<void> {
         layers: [...autoOverlays, ...userOverlays],
       }
 
-      // 3. Premix audio (same helper the standard pipeline uses).
-      let musicFilePath: string | undefined
-      if (req.music?.enabled && req.music.files.length > 0) {
-        musicFilePath = await prepareMusicTrack(req.music, tempDir, job)
-      }
-      const premixedAudioPath = await premixAudio({
+      // 3. Premix audio (same helper the standard pipeline uses), from the level settled at the start.
+      const premixedAudioPath = totalRenderDuration === earlyPremix.duration_sec ? earlyPremix.path : await premixAudio({
         narrationPath: narrationFilePath,
         narrationDuration: narrationDuration!,
         narrationVolume: req.narration_volume ?? 1.0,
         musicFilePath, musicConfig: req.music,
         backgroundNoise: req.background_noise,
-        targetDuration: totalRenderDuration, tempDir, job, loudness, format,
+        targetDuration: totalRenderDuration, tempDir, job, loudness, format, plan: settledPlan,
       })
 
       // 4. Final composition + rename, mirroring the standard flow's
@@ -3453,12 +3477,6 @@ export async function generateVideo(job: Job): Promise<void> {
       }
     }
 
-    // 8. Prepare music file (if multiple, concatenate them)
-    let musicFilePath: string | undefined
-    if (req.music?.enabled && req.music.files.length > 0) {
-      musicFilePath = await prepareMusicTrack(req.music, tempDir, job)
-    }
-
     // 9. Resolve post-audio behavior
     const postAudio = req.post_audio ?? { behavior: 'fade-to-black' as const, fade_duration: 5 }
 
@@ -3488,16 +3506,19 @@ export async function generateVideo(job: Job): Promise<void> {
 
     // 11. Pre-mix all audio into a single WAV file. Length must match the
     // intermediate video's full span (= `totalRenderDuration`) so audio
-    // doesn't run out mid-outro.
-    const premixedAudioPath = await premixAudio({
-      narrationPath: narrationFilePath,
-      narrationDuration,
-      narrationVolume: req.narration_volume ?? 1.0,
-      narrationDelaySec: narrationLeadInSec,
-      musicFilePath, musicConfig: req.music,
-      backgroundNoise: req.background_noise,
-      targetDuration: totalRenderDuration, tempDir, job, loudness, format,
-    })
+    // doesn't run out mid-outro. The level was settled before the scene clips (1.4.281): the same
+    // length and no lead-in is that very file; otherwise it is mixed again from the settled level.
+    const premixedAudioPath = narrationLeadInSec === 0 && totalRenderDuration === earlyPremix.duration_sec
+      ? earlyPremix.path
+      : await premixAudio({
+        narrationPath: narrationFilePath,
+        narrationDuration,
+        narrationVolume: req.narration_volume ?? 1.0,
+        narrationDelaySec: narrationLeadInSec,
+        musicFilePath, musicConfig: req.music,
+        backgroundNoise: req.background_noise,
+        targetDuration: totalRenderDuration, tempDir, job, loudness, format, plan: settledPlan,
+      })
 
     // 12. Run final composition (simple: concat video + premixed audio + logo/effects)
     // Encode into the OS-tempdir scratch area so iCloud doesn't see the
@@ -5568,6 +5589,10 @@ interface PremixAudioOpts {
   loudness: LoudnessTarget
   /** The final container: the level is checked on the audio as that encode ships it (AAC, Opus for webm). */
   format?: string
+  /** 1.4.281: start from the level the loudness step at the start of Video Assembly settled on. */
+  plan?: LevelPlan | null
+  /** Told the plan this mix was levelled with (null = left as it was). */
+  settled?: (plan: LevelPlan | null) => void
 }
 
 export async function premixAudio(opts: PremixAudioOpts): Promise<string> {
@@ -5690,42 +5715,10 @@ export async function premixAudio(opts: PremixAudioOpts): Promise<string> {
     '-filter_complex', `${graph};\n[mix]${level}aresample=44100,aformat=sample_fmts=s16:channel_layouts=stereo:sample_rates=44100[aout]`,
     '-map', '[aout]', '-c:a', 'pcm_s16le', '-t', T, outputPath,  // uncompressed WAV for maximum compatibility
   ])
-  const plan = levelPlan(loudness, measured)
-  if (!plan) {
-    await write('')
-    job.output_lines.push('Loudness: the mix is silent or could not be measured, so its level was left as it is.')
-  } else {
-    const gain = (db: number) => `${db >= 0 ? '+' : ''}${db.toFixed(1)} dB`
-    job.output_lines.push(`Loudness: the mix measured ${measured.lufs!.toFixed(1)} LUFS, peak ${measured.true_peak_db!.toFixed(1)} dBTP; `
-      + `bringing it to ${loudness.lufs} LUFS with a ${loudness.true_peak_db} dBTP ceiling `
-      + (plan.limit_db === null
-        ? `by one volume change of ${gain(plan.gain_db)}.`
-        : `with ${gain(plan.gain_db)} and a peak limiter (one volume change alone would push the peaks over the ceiling).`))
-    // Measured as it ships: the final AAC (Opus for webm) encode lifts true peaks by up to ~1 dB, so a
-    // WAV limited to -1.3 dBTP came out at -0.6 dBTP (CJ0027, 1.4.273). Correct until within the allowance
-    // (at most 4 attempts) and keep the closest attempt's WAV (1.4.275).
-    const check = path.join(tempDir, opts.format === 'webm' ? 'premix_check.webm' : 'premix_check.m4a')
-    const kept = path.join(tempDir, 'premixed_audio.kept.wav')
-    const codec = opts.format === 'webm' ? ['-c:a', 'libopus'] : ['-c:a', 'aac', '-b:a', '192k']  // = buildEncoderArgs
-    const said = (m: LoudnessMeasurement) => `${m.lufs?.toFixed(1) ?? '?'} LUFS, peak ${m.true_peak_db?.toFixed(1) ?? '?'} dBTP`
-    const { attempts, best, issue } = await levelToTarget(plan, loudness, async (p, n) => {
-      await write(`${levelFilter(p)},`)
-      await runFfmpeg(['-y', '-i', outputPath, ...codec, check])
-      const got = await measureLoudness(check)
-      job.output_lines.push(`Loudness: attempt ${n}${n === 1 ? '' : ` (corrected to ${gain(p.gain_db)}${p.limit_db === null ? '' : ` with a ${p.limit_db.toFixed(1)} dBTP limiter`})`}`
-        + ` came out at ${said(got)} once encoded.`)
-      return got
-    }, () => fs.rename(outputPath, kept))
-    await fs.rename(kept, outputPath)
-    await fs.rm(check, { force: true })
-    const n = attempts.indexOf(best) + 1
-    // Rendering the video would only fail the same check at the end.
-    if (issue) {
-      throw nonRetryable(new Error(`The audio mix could not be brought to its target level: ${issue} (closest of ${attempts.length} attempts, `
-        + `attempt ${n}; all: ${attempts.map(a => said(a.got)).join(' / ')}). Send the job log to support.`))
-    }
-    if (n < attempts.length) job.output_lines.push(`Loudness: kept attempt ${n} (${said(best.got)}), the closest to the target.`)
-  }
+  const settled = await levelAndCheck({
+    measured, write, output: outputPath, loudness, format: opts.format, tempDir, lines: job.output_lines, what: 'audio mix', plan: opts.plan,
+  })
+  opts.settled?.(settled)
 
   // Validate the premixed WAV before handing off to the final encode. A
   // 0-byte WAV here means the audio filter chain failed silently (rare,

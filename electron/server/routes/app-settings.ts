@@ -25,6 +25,7 @@ import {
   getPaidSubtitleReplacementSetting, setPaidSubtitleReplacementSetting,
   getPaidAudioReplacementSetting, setPaidAudioReplacementSetting,
   getPaidWritingReplacementSetting, setPaidWritingReplacementSetting,
+  getPaidReplacementSettings,
   setAppSetting,
 } from '../services/app-settings.js'
 import { getGlobalCompression, setGlobalCompression, COMPRESSION_DEFAULTS } from '../services/generation-compression.js'
@@ -66,6 +67,15 @@ router.put('/app-settings/generation-compression', async (req, res) => {
     res.json({ settings: await setGlobalCompression(req.body), defaults: COMPRESSION_DEFAULTS })
   } catch (e: any) {
     res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to save smaller-files settings'))
+  }
+})
+
+// 1.4.281 — the four paid-replacement switches in one object: { image, subtitle, audio, writing }.
+router.get('/app-settings/paid-replacements', async (_req, res) => {
+  try {
+    res.json(await getPaidReplacementSettings())
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to load paid replacement settings'))
   }
 })
 

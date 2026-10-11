@@ -38,7 +38,7 @@ test('the hardware argv: videotoolbox at the quality tier\'s q:v, no silent Appl
   const args = video.buildEncoderArgs({ codec: 'h264', format: 'mp4', crf: 28, effort: 'hardware' })
   assert.deepEqual(args, [
     '-c:v', 'h264_videotoolbox', '-q:v', String(video.crfToVideotoolboxQ(28)),
-    '-c:a', 'aac', '-b:a', '192k', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+    '-c:a', 'aac', '-b:a', '384k', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
   ])
   assert.equal(video.crfToVideotoolboxQ(28), 50)
 })

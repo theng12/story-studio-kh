@@ -354,6 +354,25 @@ export function withPaidWritingConfirmation<T>(work: () => Promise<T>): Promise<
   return withLock(`${appSettingsPath()}:paid-writing-confirm`, work)
 }
 
+/**
+ * 1.4.281 — all four paid-replacement switches in one read, so an agent can check the owner's rule
+ * (the only paid use is LLM API calls) from one route. Each is off unless this install saved it on.
+ */
+export async function getPaidReplacementSettings(): Promise<Record<'image' | 'subtitle' | 'audio' | 'writing', PaidImageReplacementSetting>> {
+  return {
+    image: await getPaidImageReplacementSetting(),
+    subtitle: await getPaidSubtitleReplacementSetting(),
+    audio: await getPaidAudioReplacementSetting(),
+    writing: await getPaidWritingReplacementSetting(),
+  }
+}
+
+/** `{ paid_fallbacks_enabled: ['audio', …] }` when any paid replacement is on, else `{}` (run-batch and preflight responses). */
+export async function paidFallbacksWarning(): Promise<{ paid_fallbacks_enabled?: string[] }> {
+  const on = Object.entries(await getPaidReplacementSettings()).filter(([, setting]) => setting.enabled).map(([kind]) => kind)
+  return on.length ? { paid_fallbacks_enabled: on } : {}
+}
+
 // ── Voice presets + favourites (global, not per-project) ──────────────────
 //
 // Voices the user curates (named presets, ★ favourites) are personal-taste

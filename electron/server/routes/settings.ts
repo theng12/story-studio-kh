@@ -45,7 +45,31 @@ router.all('/projects/:slug/settings/accounts/:providerId', retiredCredentialPat
 router.all('/projects/:slug/settings/accounts/:providerId/:accountId', retiredCredentialPath)
 router.all('/projects/:slug/settings/accounts/:providerId/:accountId/default', retiredCredentialPath)
 
-router.put('/projects/:slug/settings/config', validateBody(UpdateConfigSchema), async (req, res) => {
+/**
+ * 1.4.281 — keys this route accepts but does not save, and where each one goes instead. The response
+ * names them (`ignored`) next to what it saved (`applied`) instead of a bare `{ ok: true }`.
+ */
+const CONFIG_KEYS_NOT_SAVED: Record<string, string> = {
+  audio_models: 'retired: GenStudio is the only voice catalog; choose voices in Audio',
+  models: 'retired: custom model storage was removed; models come from GenStudio',
+  llm_lineup: 'retired (2026-10-03): each step chooses its own model',
+  llm_lineup_migration: 'retired (2026-10-03): Story Studio keeps this record itself',
+  audio_concurrency: 'use PUT /app-settings/concurrency',
+  video_concurrency: 'use PUT /app-settings/concurrency',
+  image_concurrency: 'use PUT /app-settings/concurrency',
+  subtitle_concurrency: 'use PUT /app-settings/concurrency',
+  image_launch_stagger_ms: 'retired: launch pacing is no longer a setting',
+  audio_launch_stagger_ms: 'retired: launch pacing is no longer a setting',
+  video_launch_stagger_ms: 'retired: launch pacing is no longer a setting',
+  generation_timeouts: 'retired: generation timeouts are no longer a setting',
+}
+
+router.put('/projects/:slug/settings/config', (req, res, next) => {
+  res.locals.requestedKeys = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? Object.keys(req.body) : []
+  next()
+}, validateBody(UpdateConfigSchema), async (req, res) => {
+  // A style or thumbnail selection goes through the signed Content Pack write, which saves the
+  // other keys of the same body too (applyConfigRequest), so nothing is dropped.
   const hasContentSelection = Object.prototype.hasOwnProperty.call(req.body, 'active_style_preset_id')
     || Object.prototype.hasOwnProperty.call(req.body, 'thumbnail_template_id')
   const updated = hasContentSelection
@@ -58,7 +82,10 @@ router.put('/projects/:slug/settings/config', validateBody(UpdateConfigSchema), 
   if (!updated) {
     return res.status(404).json({ detail: 'Project not found' })
   }
-  res.json({ ok: true })
+  const requested: string[] = res.locals.requestedKeys
+  const ignored = requested.filter(key => !Object.prototype.hasOwnProperty.call(req.body, key) || key === 'models')
+    .map(key => ({ key, reason: CONFIG_KEYS_NOT_SAVED[key] ?? 'not a project setting' }))
+  res.json({ ok: true, applied: requested.filter(key => !ignored.some(i => i.key === key)), ignored })
 })
 
 // "Smaller files" per project: the project's own on/off per asset type, or nothing = follow the

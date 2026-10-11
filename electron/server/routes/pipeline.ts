@@ -8,6 +8,7 @@
  * hand-off between steps on successful completion.
  */
 
+import { paidFallbacksWarning } from '../services/app-settings.js'
 import { Router, type Request, type Response } from 'express'
 import { createHash, randomUUID } from 'crypto'
 import * as pm from '../services/project-manager.js'
@@ -1983,6 +1984,7 @@ router.post('/projects/:slug/pipeline/preflight', async (req, res) => {
       free_bytes: result.freeBytes,
       episodes: episodeIds.length,
       steps: steps.length,
+      ...await paidFallbacksWarning(),
     })
   } catch (e: any) {
     res.status(400).json({ detail: e?.message || 'Pipeline preflight failed' })
@@ -2025,6 +2027,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       required_bytes: preflight.estimatedBytes,
       episodes: episode_ids.length,
       steps: steps.length,
+      ...await paidFallbacksWarning(),
     })
   }
   const presetByStep = preflight.presetByStep as Record<BatchStep, StoredPreset>
@@ -2127,6 +2130,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
           required_bytes: preflight.estimatedBytes,
           episodes: episode_ids.length,
           steps: steps.length,
+          ...await paidFallbacksWarning(),
         })
       }
     }
@@ -2487,6 +2491,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     reused_jobs: reused,
     steps,
     force,
+    ...await paidFallbacksWarning(),
   })
 }
 
