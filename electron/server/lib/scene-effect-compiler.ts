@@ -28,6 +28,7 @@ import {
   SCENE_EFFECT_REFERENCE_HEIGHT,
   atmosphereLoopShape,
   type AtmosphereLoopOverlay,
+  type LivingRegionOverlay,
   type OverlayAnchor,
   type SceneMotionDocument,
   type SceneOverlayDocument,
@@ -475,7 +476,116 @@ export function compileSceneOverlay(doc: SceneOverlayDocument, opts: OverlayComp
       )
       return statements.length ? statements : null
     }
+
+    // Drawn on its scene's clip by `lib/scene-stage.ts` (it needs the still's
+    // outline), never on the composed timeline.
+    case 'living-region':
+      return null
   }
+}
+
+// ── Living pictures (1.4.284) ───────────────────────────────────────────────
+
+/**
+ * The moving part of a living picture, from the 2026-10-11 mock-ups
+ * (`_orchestra/living-mock/mk2.sh`). Displacement maps are written in the
+ * mock's pixel units on a 540-line map and scaled up, so the ripple looks the
+ * same at any output size; `x`/`y` are the swing either side of 128 (no swing =
+ * no displace), `bright`/`sat` are `eq` expressions of `t`.
+ */
+function livingTerms(doc: LivingRegionOverlay): { x: string[]; y: string[]; bright: string; sat: string } {
+  const v = doc.speed, s = doc.strength
+  const T = (rate: number) => `T*${(rate * v).toFixed(4)}`
+  const t = (rate: number) => `t*${(rate * v).toFixed(4)}`
+  const wave = (amp: number, phase: string) => `${(amp * s).toFixed(3)}*sin(2*PI*(${phase}))`
+  const flicker = `(0.09*sin(2*PI*${t(3.1)})+0.05*sin(2*PI*${t(7.7)}+1)+0.04*sin(2*PI*${t(13.3)}+2))`
+  switch (doc.motion) {
+    case 'flame':
+      return {
+        x: [wave(3, `Y/12-${T(3.2)}`), wave(2, `Y/21+${T(2.1)}`)],
+        y: [wave(4, `X/9+${T(2.6)}`), wave(3, T(5.3))],
+        bright: `${s.toFixed(3)}*${flicker}`, sat: '',
+      }
+    case 'glow':
+      return { x: [], y: [], bright: `${(0.45 * s).toFixed(3)}*${flicker}`, sat: '' }
+    case 'steam':
+      return { x: [wave(7, `Y/48+${T(0.35)}`)], y: [wave(9, `Y/40+${T(0.5)}`)], bright: '', sat: '' }
+    case 'water':
+      return {
+        x: [wave(3, `Y/6-${T(0.9)}`), wave(2, `Y/11+X/90-${T(0.6)}`)],
+        y: [wave(1.5, `X/25-${T(0.5)}`)],
+        bright: `${(0.025 * s).toFixed(4)}*sin(2*PI*${t(0.7)})`, sat: '',
+      }
+    case 'sky':
+      return {
+        x: [wave(4, `X/90+${T(0.25)}`)], y: [wave(3, `X/60-${T(0.2)}`)],
+        bright: `${(0.03 * s).toFixed(4)}*sin(2*PI*${t(0.3)})`,
+        sat: `1+${(0.15 * s).toFixed(4)}*sin(2*PI*${t(0.21)})`,
+      }
+    case 'pulse':
+      return { x: [], y: [], bright: `${(0.05 * s).toFixed(4)}*sin(2*PI*${t(0.25)})`, sat: '' }
+  }
+}
+
+export interface LivingCompileOpts {
+  input: string
+  output: string
+  allocLabel: () => string
+  w: number
+  h: number
+  fps: number
+  duration: number
+}
+
+/**
+ * The whole frame, moved the living-picture way, in planar RGB (so the three
+ * planes move together, as `heat-shimmer` does). The caller keeps it only
+ * inside the outline with {@link regionMergeStatements}.
+ */
+export function compileLivingRegion(doc: LivingRegionOverlay, opts: LivingCompileOpts): string[] {
+  const { x, y, bright, sat } = livingTerms(doc)
+  const out: string[] = []
+  let label = opts.allocLabel()
+  out.push(`${opts.input}format=gbrp${label}`)
+  if ((x.length || y.length) && doc.strength > 0) {
+    // ponytail: maps evaluated at 540 lines then scaled (the mock's own size); full-size geq is 4x the cost for no visible gain.
+    const mapW = Math.max(2, Math.round((540 * opts.w) / opts.h / 2) * 2)
+    const k = opts.h / 540
+    const map = (terms: string[]) => `nullsrc=s=${mapW}x540:r=${opts.fps}:d=${(opts.duration + 1).toFixed(3)},format=gray,`
+      + `geq=lum=${escapeFilterArgValue(`128+${k.toFixed(4)}*(${terms.length ? terms.join('+') : '0'})`)},`
+      + `scale=${opts.w}:${opts.h}:flags=bicubic,format=gbrp`
+    const xm = opts.allocLabel(), ym = opts.allocLabel(), moved = opts.allocLabel()
+    out.push(`${map(x)}${xm}`, `${map(y)}${ym}`, `${label}${xm}${ym}displace=edge=smear${moved}`)
+    label = moved
+  }
+  if ((bright || sat) && doc.strength > 0) {
+    const lit = opts.allocLabel()
+    out.push(`${label}format=yuv444p,eq=${bright ? `brightness=${escapeFilterArgValue(bright)}:` : ''}`
+      + `${sat ? `saturation=${escapeFilterArgValue(sat)}:` : ''}eval=frame,format=gbrp${lit}`)
+    label = lit
+  }
+  out.push(`${label}null${opts.output}`)
+  return out
+}
+
+/**
+ * Keep `effect` only inside the outline. `base` and `effect` are yuv420p and
+ * `mask` is a moving outline clip (white = inside). The merge runs on the
+ * picture's own planes, with the outline at full size for luma and half size
+ * for chroma, so a pixel outside the outline is the base pixel BIT FOR BIT — no
+ * colour conversion round trip. The near-black and near-white ends of the
+ * outline are snapped so encoding noise in the outline clip never leaks.
+ */
+export function regionMergeStatements(base: string, effect: string, mask: string, output: string, allocLabel: () => string): string[] {
+  const full = allocLabel(), toHalf = allocLabel(), halfU = allocLabel(), halfV = allocLabel(), planes = allocLabel()
+  const snap = escapeFilterArgValue('if(lt(val,8),0,if(gt(val,247),255,val))')
+  return [
+    // gbrp first: that conversion expands the clip's TV range, so white is 255.
+    `${mask}format=gbrp,extractplanes=g,lut=c0=${snap},split=2${full}${toHalf}`,
+    `${toHalf}scale=w=ceil(iw/2):h=ceil(ih/2):flags=area,split=2${halfU}${halfV}`,
+    `${full}${halfU}${halfV}mergeplanes=map0s=0:map0p=0:map1s=1:map1p=0:map2s=2:map2p=0:format=yuv420p${planes}`,
+    `${base}${effect}${planes}maskedmerge${output}`,
+  ]
 }
 
 // ── Fades ───────────────────────────────────────────────────────────────────

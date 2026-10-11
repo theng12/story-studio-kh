@@ -250,9 +250,10 @@ describe('overlay compilation', () => {
     for (const entry of BUILT_IN_OVERLAYS) {
       // Atmosphere loops composite a baked clip the caller opens as an input.
       const statements = compileSceneOverlay(entry.document, overlayOpts({ loopInput: () => '[9:v]' }))
-      if (entry.document.kind === 'corner-logo') {
+      if (entry.document.kind === 'corner-logo' || entry.document.kind === 'living-region') {
         // No image chosen yet — an unset logo draws nothing, and that is not
-        // an error.
+        // an error. A living picture is drawn on its scene's clip
+        // (lib/scene-stage.ts), never in the timeline pass.
         assert.equal(statements, null, entry.id)
         continue
       }
@@ -484,8 +485,8 @@ describe('documents normalise leniently and validate strictly', () => {
     const catalog = sceneEffectCatalog()
     assert.equal(catalog.scene_motions.length, 24)
     assert.equal(catalog.footage_motions.length, 7)
-    // Thirteen starter overlays plus the sixteen v1.5 Effects Library effects.
-    assert.equal(catalog.overlays.length, 29)
+    // Thirteen starter overlays, the sixteen v1.5 Effects Library effects and Living Picture (1.4.284).
+    assert.equal(catalog.overlays.length, 30)
     assert.ok(catalog.effect_stacks.length >= 3)
     assert.ok(catalog.grouped_overlays.length >= 4)
     assert.equal(

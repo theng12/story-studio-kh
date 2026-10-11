@@ -232,8 +232,9 @@ test('legacy migration ledger closes every real inventory key exactly once witho
       freeBaselineKeys.filter(key => key.startsWith('overlay:')).length,
     ],
     // Overlays: the thirteen starter overlays plus the sixteen free Effects
-    // Library built-ins added for the music format (atmosphere, weather, light).
-    [35, 5, 16, 31, 29],
+    // Library built-ins added for the music format (atmosphere, weather, light),
+    // plus Living Picture (1.4.284).
+    [35, 5, 16, 31, 30],
   )
 
   exactSet(

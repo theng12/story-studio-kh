@@ -13,7 +13,7 @@
  */
 
 import { LOOP_VARIANT_INFO, loopParticleCount, normalizeLoopShape, type LoopShapeField, type LoopVariant } from './effect-loops.js'
-import { COLOR_GRADE_PRESETS, OVERLAY_ANCHORS, type OverlayKind, type SceneOverlayDocument } from './scene-effects.js'
+import { COLOR_GRADE_PRESETS, LIVING_MOTIONS, OVERLAY_ANCHORS, type OverlayKind, type SceneOverlayDocument } from './scene-effects.js'
 
 /**
  * Where each scope's effects start in the shared stack order when they carry no
@@ -152,6 +152,18 @@ const FIELDS_BY_KIND: Record<OverlayKind, ParamField[]> = {
     { key: 'warmth', label: 'Warmth', type: 'number', min: -1, max: 1, step: 0.01 },
     { key: 'tint', label: 'Tint', type: 'number', min: -1, max: 1, step: 0.01 },
   ],
+  // The outline itself (`region`) is uploaded per scene, not a slider.
+  'living-region': [
+    {
+      key: 'motion', label: 'Motion', type: 'select', options: LIVING_MOTIONS,
+      option_labels: {
+        flame: 'Flame (flicker + wobble)', glow: 'Firelight glow', steam: 'Steam (rising drift)',
+        water: 'Water (ripple + shimmer)', sky: 'Sky (slow drift)', pulse: 'Moon / lamp pulse',
+      },
+    },
+    { key: 'strength', label: 'Strength', type: 'number', min: 0, max: 3, step: 0.05, format: 'times' },
+    { key: 'speed', label: 'Speed', type: 'number', min: 0.25, max: 4, step: 0.05, format: 'times' },
+  ],
 }
 
 /** The controls one effect document shows. */
@@ -202,6 +214,8 @@ const CPU_SEC_PER_FRAME_BY_KIND: Record<OverlayKind, number> = {
   lightning: 0.001,
   'heat-shimmer': 0.0175,
   'color-grade': 0.0044,
+  // Paid per scene clip, not in the final pass: two moving maps, a displace and a masked merge.
+  'living-region': 0.03,
 }
 
 /** One extra full-frame overlay, paid when a plain filter fades in or out. */

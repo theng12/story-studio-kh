@@ -99,11 +99,14 @@ import {
   isLowerStackGroup,
   readEpisodeEffects,
   resolveEpisodeEffectStack,
+  resolveSceneStage,
   type ResolvedEpisodeStack,
   type ResolvedStackEntry,
   type SceneWindow,
 } from '../services/episode-effects.js'
 import { listSceneEffectLibrary } from '../services/style-effect-loader.js'
+import { applySceneStage, sceneClipEncodeArgs, type SceneStageItem } from '../lib/scene-stage.js'
+import { outlineMaskPath } from '../services/outline-masks.js'
 import { requireJobCompletion, declareJobDegraded } from '../services/job-completion.js'
 import { nonRetryable } from '../services/job-retry-policy.js'
 import { EBUR128_FILTER, measureLoudness, parseEbur128Summary, type LoudnessMeasurement } from './music-episode-build.js'
@@ -2352,6 +2355,11 @@ export async function generateVideo(job: Job): Promise<void> {
   const resolvedSceneAnimation = sceneEffectLibrary
     ? resolveVideoAssemblySceneAnimation(req, req.scenes.length)
     : null
+  // 1.4.284 — living pictures and outlined effects are drawn per scene clip, so
+  // they are read before the fingerprint: a changed outline re-renders its clip.
+  const sceneStage = sceneEffectLibrary
+    ? await readSceneStageForRender(episodeDir, sceneEffectLibrary.overlays, job)
+    : null
   // Reveal effects: one plan for the episode, resolved before the fingerprint so a changed reveal
   // re-renders and an unchanged one reuses its clips. Duration comes from the plan, which is why it
   // has to be resolved this early — the timeline reads the same numbers.
@@ -2396,6 +2404,8 @@ export async function generateVideo(job: Job): Promise<void> {
         resolved_scene_animation: resolvedSceneAnimation,
         resolved_scene_reveals: resolvedSceneReveals,
         content_pack_provenance: job.content_pack_provenance || [],
+        // Absent unless a scene uses one, so every other render keeps its fingerprint.
+        ...(sceneStage?.byScene.size ? { scene_stage: sceneStage.fingerprint } : {}),
       }
     : null
   // Scene clips are reused only by the same app version. A final render that was already running is
@@ -2913,6 +2923,7 @@ export async function generateVideo(job: Job): Promise<void> {
           // The xfade stage (planTransitionTail > 0) decodes and re-encodes every clip, which is what
           // makes a VideoToolbox clip safe to use; with hard cuts the clips are stream-copied.
           native: { enabled: planTransitionTail > 0 },
+          ...(sceneStage?.byScene.size ? { sceneStage: { byScene: sceneStage.byScene, episodeDir } } : {}),
         },
         sceneClipDurations,
         exactSceneTiming ? planTransitionTail : 0,
@@ -4087,6 +4098,8 @@ export async function prepareSceneClips(
      * xfade stage). A native clip is VideoToolbox H.264, and a stream-copy concat of it next to
      * x264 clips would mix two SPS/PPS sets under one header. Otherwise the clip is FFmpeg's, as ever.
      */
+    /** 1.4.284 — living pictures / outlined effects per Scene Plan scene id, drawn on that scene's clip. */
+    sceneStage?: { byScene: Map<string, SceneStageItem[]>; episodeDir: string | null }
     native?: {
       enabled: boolean
       /** Test seams. */
@@ -4256,6 +4269,27 @@ export async function prepareSceneClips(
     // reveal — it already moves, and dressing footage in a wipe is not what "reveal effects" means
     // here — and a scene the plan does not cover keeps the shipped behaviour exactly.
     const reveal = isVideoScene ? undefined : plannedRevealForScene(animationOpts?.reveals, i)
+    // 1.4.284 — this scene's living pictures / outlined effects.
+    const planSceneId = (scene as { plan_scene_id?: string }).plan_scene_id
+    const stageItems = planSceneId ? animationOpts?.sceneStage?.byScene.get(planSceneId) : undefined
+    if (stageItems?.length && (isVideoScene || reveal)) {
+      job.output_lines.push(`Scene ${i + 1}: living picture skipped: ${isVideoScene ? 'the scene is footage, not a still' : 'the scene uses a reveal, which draws its own picture'}.`)
+    }
+    /** Draw the stage on the finished clip in place; the note for the progress line. */
+    const drawSceneStage = async (renderMaskClip: (maskPng: string, outPath: string) => Promise<void>): Promise<string> => {
+      if (!stageItems?.length || isVideoScene || reveal) return ''
+      const staged = clipPath.replace(/\.mp4$/, '.living.mp4')
+      const drawn = await applySceneStage({
+        clipPath, outPath: staged, stillPath: scene.image_path, items: stageItems,
+        episodeDir: animationOpts?.sceneStage?.episodeDir ?? null,
+        w, h, fps: quality.fps, duration: renderDuration, workDir: tempDir,
+        encodeArgs: sceneClipEncodeArgs(quality.crf, quality.fps, renderDuration),
+        renderMaskClip, log: line => job.output_lines.push(`Scene ${i + 1}: ${line}`),
+      })
+      if (!drawn.length) return ''
+      await fs.rename(staged, clipPath)
+      return ` [living: ${drawn.join(', ')}]`
+    }
     if (reveal && !reusable.has(i)) {
       const revealPath = revealClipPath(tempDir, i)
       const rendered = await renderRevealClip({
@@ -4322,10 +4356,12 @@ export async function prepareSceneClips(
     if (nativeOn && !isVideoScene && !wantsChapterTitle) {
       let detail = ''
       try {
-        const outcome = await (animationOpts?.native?.render ?? renderNativeSceneClip)({
+        const nativeRender = animationOpts?.native?.render ?? renderNativeSceneClip
+        const motionDocument = resolveSceneMotionDocument({ type: pickedType, params: sceneAnimation, library: motionLibrary })
+        const outcome = await nativeRender({
           imagePath: scene.image_path,
           outPath: clipPath,
-          document: resolveSceneMotionDocument({ type: pickedType, params: sceneAnimation, library: motionLibrary }),
+          document: motionDocument,
           w, h, fps: quality.fps,
           duration: renderDuration,
         })
@@ -4335,7 +4371,12 @@ export async function prepareSceneClips(
               sceneClipCompatibilityProblems(await probeVideoStream(file), expected)))(
             clipPath, { w, h, fps: quality.fps, duration: renderDuration })
           if (problems.length === 0) {
-            await completePlainClip(`${tagLog} [native ${outcome.kind}]`)
+            // The outline rides the same Metal camera move as the picture.
+            const living = await drawSceneStage(async (maskPng, maskOut) => {
+              const mask = await nativeRender({ imagePath: maskPng, outPath: maskOut, document: motionDocument, w, h, fps: quality.fps, duration: renderDuration })
+              if (!mask.rendered) throw new Error(`${mask.reason}: ${mask.detail}`)
+            })
+            await completePlainClip(`${tagLog} [native ${outcome.kind}]${living}`)
             nativeTally.native++
             return
           }
@@ -4366,6 +4407,8 @@ export async function prepareSceneClips(
           duration: renderDuration,
         })
 
+    // The camera move alone, for carrying a living picture's outline through it.
+    const cameraVf = [...vfParts, 'format=yuv420p']
     // Follow narration plays once, then holds the last frame through its window and xfade tail.
     // Pad before overlays so their timing continues normally over the held frame.
     if (holdVideo) vfParts.push(`tpad=stop_mode=clone:stop_duration=${renderDuration}`)
@@ -4469,13 +4512,8 @@ export async function prepareSceneClips(
     const args = [
       '-y', ...inputArgs,
       '-vf', vfParts.join(','),
-      '-c:v', 'libx264', '-crf', quality.crf.toString(),
-      '-preset', 'ultrafast', '-r', quality.fps.toString(),
-      '-fps_mode', 'cfr', '-pix_fmt', 'yuv420p',
-      '-color_range', 'tv', '-colorspace', 'bt709',
-      '-color_primaries', 'bt709', '-color_trc', 'bt709',
-      '-t', renderDuration.toString(),  // Guarantee exact output duration (window + optional xfade tail)
-      '-an',
+      // Exact output duration (window + optional xfade tail), bt709 tags (see above).
+      ...sceneClipEncodeArgs(quality.crf, quality.fps, renderDuration),
       clipPath,
     ]
 
@@ -4483,7 +4521,11 @@ export async function prepareSceneClips(
     // wedge (bad input, dead disk) trips this — fail THAT scene loudly instead
     // of hanging the whole job silently.
     await (recovery?.encodeSceneClip || runFfmpeg)(args, { timeoutMs: 10 * 60_000 })
-    await completePlainClip(tagLog)
+    const living = await drawSceneStage(async (maskPng, maskOut) => {
+      const maskInput = singleFrameStill ? ['-i', maskPng] : ['-loop', '1', '-t', renderDuration.toString(), '-i', maskPng]
+      await runFfmpeg(['-y', ...maskInput, '-vf', cameraVf.join(','), ...sceneClipEncodeArgs(12, quality.fps, renderDuration), maskOut], { timeoutMs: 10 * 60_000 })
+    })
+    await completePlainClip(`${tagLog}${living}`)
   }
 
   // Worker pool over scene indices. An error in any scene aborts the pool and
@@ -5822,6 +5864,32 @@ async function concatToIntermediate(
  * Fails loudly — never renders without — when the file cannot be read or a
  * Content Pack effect it names is gone (AGENTS.md §8).
  */
+/**
+ * Each scene's living pictures and outlined effects (1.4.284), plus what their
+ * outlines are on disk for the render fingerprint. An unreadable effects file
+ * is reported by the final pass (`resolveEpisodeStackForRender`), so here it is
+ * simply "nothing per scene".
+ */
+async function readSceneStageForRender(
+  episodeDir: string,
+  library: Parameters<typeof resolveSceneStage>[1],
+  job: Job,
+): Promise<{ byScene: Map<string, SceneStageItem[]>; fingerprint: unknown[] }> {
+  let file
+  try { file = await readEpisodeEffects(episodeDir) } catch { return { byScene: new Map(), fingerprint: [] } }
+  const byScene = resolveSceneStage(file, library)
+  const fingerprint: unknown[] = []
+  for (const [sceneId, items] of byScene) {
+    job.output_lines.push(`Living pictures: scene ${sceneId} draws ${items.map(item => item.name).join(', ')} inside its outline.`)
+    for (const item of items) {
+      const mask = item.document.region?.mask
+      const stat = mask ? await fs.stat(outlineMaskPath(episodeDir, mask)).catch(() => null) : null
+      fingerprint.push({ scene_id: sceneId, document: item.document, ...(mask ? { mask_bytes: stat?.size ?? null, mask_mtime: stat?.mtimeMs ?? null } : {}) })
+    }
+  }
+  return { byScene, fingerprint }
+}
+
 export async function resolveEpisodeStackForRender(opts: {
   episodeDir: string
   sceneEffects?: import('../models/types.js').SceneEffectsConfig

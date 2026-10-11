@@ -28,6 +28,8 @@ import { runFfmpeg, hasDrawtextFilter, hasLibass, getAudioDuration, stillDecoder
 import { compileSceneMotion, compileSceneOverlay, overlayLoopShapes } from '../lib/scene-effect-compiler.js'
 import { bakeEffectLoop } from '../lib/effect-loop-baker.js'
 import { renderNativeSceneClip } from '../lib/native-scene-clip.js'
+import { applySceneStage, type SceneStageItem } from '../lib/scene-stage.js'
+import { outlineMaskPath } from '../services/outline-masks.js'
 import { loopShapeKey } from '../contracts/effect-loops.js'
 import { isHiddenMotion, MOTION_FAMILIES } from '../contracts/scene-effect-presets.js'
 import {
@@ -1034,8 +1036,21 @@ export async function renderEffectPreview(
   backdrop: string | null,
   aspect?: string,
   size: { shortEdge?: number; durationSec?: number } = {},
-): Promise<{ token: string; width: number; height: number; duration_sec: number; render_ms: number; camera_engine: 'native' | 'ffmpeg' | 'none' }> {
+  /** 1.4.284 — living pictures / outlined effects of one scene, drawn on the camera clip of its still. */
+  stage?: { items: SceneStageItem[]; episodeDir: string | null; log?: (line: string) => void },
+): Promise<{ token: string; width: number; height: number; duration_sec: number; render_ms: number; camera_engine: 'native' | 'ffmpeg' | 'none'; living?: string[] | null }> {
   const { key, ext, W, H, DURATION } = effectPreviewCacheEntry(motion, overlays, backdrop, aspect, size)
+  // A re-uploaded outline under the same name must not serve the old preview.
+  const stageItems = stage?.items.length && backdrop && existsSync(backdrop) ? stage.items : []
+  const stageKey = stageItems.length
+    ? `|stage-v1|${JSON.stringify(await Promise.all(stageItems.map(async item => {
+      const mask = item.document.region?.mask
+      const stat = mask && stage!.episodeDir ? await fs.stat(outlineMaskPath(stage!.episodeDir, mask)).catch(() => null) : null
+      return [item.document, stat?.size ?? null, stat?.mtimeMs ?? null]
+    })))}`
+    : ''
+  const fullKey = key + stageKey
+  let living: string[] | null = null
   const FPS = EFFECT_PREVIEW_FPS
   const started = Date.now()
   // Loops are baked BEFORE the cache lookup's render slot, at the preview's own
@@ -1050,7 +1065,7 @@ export async function renderEffectPreview(
   }
 
   let cameraEngine: 'native' | 'ffmpeg' | 'none' = motion ? 'ffmpeg' : 'none'
-  await getOrRender(key, ext, async (outPath) => {
+  await getOrRender(fullKey, ext, async (outPath) => {
     const args: string[] = ['-y']
     // v1.5 — the camera move over a real still is rendered by the same native
     // Metal helper the episode render uses, when it is installed: the exact
@@ -1061,6 +1076,40 @@ export async function renderEffectPreview(
       const target = `${outPath}.camera.mp4`
       const native = await renderNativeSceneClip({ imagePath: backdrop, outPath: target, document: motion, w: W, h: H, fps: FPS, duration: DURATION })
       if (native.rendered) { cameraClip = target; cameraEngine = 'native' }
+    }
+    // The same chain the one-pass graph below would use, for a camera clip of its own.
+    const plainChain = motion
+      ? compileSceneMotion(motion, { w: W, h: H, fps: FPS, duration: DURATION })
+      : [`scale=${W}:${H}:force_original_aspect_ratio=decrease`, `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black`, 'setsar=1']
+    const ffmpegCameraClip = async (image: string, target: string, crf: number) => {
+      await runFfmpeg(['-y', ...(await stillDecoderArgs(image)), '-loop', '1', '-t', DURATION.toString(), '-i', image,
+        '-vf', [...plainChain, 'format=yuv420p'].join(','), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(crf),
+        '-pix_fmt', 'yuv420p', '-r', FPS.toString(), '-t', DURATION.toString(), '-an', target], { timeoutMs: 90_000 })
+    }
+    const intermediates: string[] = []
+    if (stageItems.length && backdrop) {
+      // Living pictures are drawn on the scene's moving clip, inside its outline
+      // carried through the same camera move — exactly as the episode render does.
+      if (!cameraClip) {
+        cameraClip = `${outPath}.camera.mp4`
+        await ffmpegCameraClip(backdrop, cameraClip, 14)
+      }
+      const staged = `${outPath}.living.mp4`
+      const nativeCamera = cameraEngine === 'native'
+      living = await applySceneStage({
+        clipPath: cameraClip, outPath: staged, stillPath: backdrop, items: stageItems, episodeDir: stage!.episodeDir,
+        w: W, h: H, fps: FPS, duration: DURATION, workDir: path.dirname(outPath),
+        encodeArgs: ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '14', '-pix_fmt', 'yuv420p', '-r', FPS.toString(), '-t', DURATION.toString(), '-an'],
+        renderMaskClip: async (maskPng, maskOut) => {
+          if (nativeCamera && motion) {
+            const mask = await renderNativeSceneClip({ imagePath: maskPng, outPath: maskOut, document: motion, w: W, h: H, fps: FPS, duration: DURATION })
+            if (mask.rendered) return
+          }
+          await ffmpegCameraClip(maskPng, maskOut, 12)
+        },
+        log: line => stage!.log?.(line),
+      })
+      if (living.length) { intermediates.push(cameraClip); cameraClip = staged }
     }
     if (cameraClip) {
       args.push('-i', cameraClip)
@@ -1137,11 +1186,15 @@ export async function renderEffectPreview(
       await runFfmpeg(args, { timeoutMs: 90_000 })
     } finally {
       // The camera clip is an intermediate of this one preview; the webm is what is cached.
-      if (cameraClip) await fs.unlink(cameraClip).catch(() => {})
+      for (const file of [cameraClip, ...intermediates]) if (file) await fs.unlink(file).catch(() => {})
     }
   })
 
-  return { token: cacheToken(key, ext), width: W, height: H, duration_sec: DURATION, render_ms: Date.now() - started, camera_engine: cameraEngine }
+  return {
+    token: cacheToken(fullKey, ext), width: W, height: H, duration_sec: DURATION, render_ms: Date.now() - started, camera_engine: cameraEngine,
+    // Names drawn inside their outlines; null = served from the preview cache.
+    ...(stageItems.length ? { living } : {}),
+  }
 }
 
 /**

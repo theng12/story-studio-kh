@@ -199,6 +199,17 @@
                   <b />
                 </template>
               </div>
+              <div v-if="targetScene" class="fx-param">
+                <span class="fx-param-label">Outline</span>
+                <span class="fx-inline">
+                  <select class="select select-sm" :value="outlineValue" aria-label="Outline" @change="setOutline(($event.target as HTMLSelectElement).value)">
+                    <option value="">{{ 'motion' in selectedDoc ? 'None yet: upload one' : 'Whole picture' }}</option>
+                    <option v-for="name in outlines" :key="name" :value="name">{{ name }}</option>
+                  </select>
+                  <label class="btn btn-sm btn-ghost">Upload…<input type="file" accept="image/png,image/jpeg" hidden @change="uploadOutline" /></label>
+                </span>
+                <b />
+              </div>
               <template v-if="showFades">
                 <div class="fx-param">
                   <span class="fx-param-label">Fade in</span>
@@ -507,6 +518,34 @@ function setParam(key: string, value: unknown): void {
   exactStale.value = !!exactUrl.value
 }
 
+// ── Outlines (living pictures, effects kept inside one part of a scene) ─────
+const outlines = ref<string[]>([])
+const outlineValue = computed(() => (selectedDoc.value as any)?.region?.mask || '')
+function setOutline(name: string): void {
+  setParam('region', name ? { mask: name } : undefined)
+}
+async function uploadOutline(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const picked = input.files?.[0]
+  input.value = ''
+  if (!picked || !targetScene.value || !episodeId.value) return
+  try {
+    const data_base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(picked)
+    })
+    const result = await post(`/projects/${slug.value}/effects-library/${episodeId.value}/outlines`, {
+      scene_id: targetScene.value.id, label: picked.name.replace(/\.[^.]+$/, ''), data_base64,
+    })
+    if (!outlines.value.includes(result.mask)) outlines.value = [...outlines.value, result.mask].sort()
+    setOutline(result.mask)
+  } catch (e: any) {
+    showError(e?.data?.detail || 'The outline could not be uploaded.')
+  }
+}
+
 function fadeValue(which: 'in' | 'out'): number {
   const row = editingRow.value
   if (row) return (which === 'in' ? row.applied.fade_in_sec : row.applied.fade_out_sec) ?? (row.scope === 'episode' ? 0 : DEFAULT_SCENE_FADE_SEC)
@@ -712,6 +751,7 @@ async function load(): Promise<void> {
     if (episodeId.value !== episode) return
     library.value = data.overlays || []
     scenes.value = data.scenes || []
+    outlines.value = data.outlines || []
     hasScenePlan.value = !!data.has_scene_plan
     readError.value = data.read_error || ''
     Object.assign(file, emptyEffectsFile(), data.file || {})

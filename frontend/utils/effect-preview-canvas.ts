@@ -24,7 +24,7 @@ import { COLOR_GRADE_PRESET_VALUES, atmosphereLoopShape, type SceneOverlayDocume
 import { LOOP_VARIANT_INFO, loopShapeKey } from '@shared/effect-loops'
 
 /** Effects the canvas cannot show honestly; the exact preview can. */
-export const NOT_DRAWN_LIVE: ReadonlySet<SceneOverlayDocument['kind']> = new Set(['heat-shimmer', 'corner-logo'])
+export const NOT_DRAWN_LIVE: ReadonlySet<SceneOverlayDocument['kind']> = new Set(['heat-shimmer', 'corner-logo', 'living-region'])
 
 export interface CameraMove {
   /** Zoom from 1 to `1 + zoom` and back across `period_sec` — the slow zoom stills get. */
@@ -243,7 +243,7 @@ export class EffectCanvasRenderer {
         return
       }
       default:
-        // heat-shimmer, corner-logo: shown by Render Exact Preview only.
+        // heat-shimmer, corner-logo, living-region: shown by Render Exact Preview only.
         return
     }
   }

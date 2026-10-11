@@ -245,6 +245,10 @@ export const OVERLAY_KINDS = [
   'lightning',
   'heat-shimmer',
   'color-grade',
+  // 1.4.284 — a living picture: one outlined part of a scene's still moves
+  // (flame, steam, water…) while everything outside the outline stays still.
+  // Drawn per scene clip, before the camera move is composed (lib/scene-stage.ts).
+  'living-region',
 ] as const
 export type OverlayKind = (typeof OVERLAY_KINDS)[number]
 
@@ -291,6 +295,64 @@ export interface OverlayTiming {
 export interface OverlayBase {
   schema_version: typeof SCENE_EFFECT_SCHEMA_VERSION
   timing: OverlayTiming
+  /**
+   * 1.4.284 — clip the effect to an outline of ONE scene's picture (snow only
+   * in the window, stars only in the sky). Absent = the whole frame, exactly
+   * as before. Only a single scene's stack may carry one; such an effect is
+   * drawn on that scene's clip and follows its camera move.
+   */
+  region?: SceneRegion
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Regions (outlines) — 1.4.284
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Shapes in coordinates normalised to the scene's still, 0..1 (x across, y down). */
+export type RegionShape =
+  | { type: 'ellipse'; cx: number; cy: number; rx: number; ry: number }
+  | { type: 'rect'; x: number; y: number; w: number; h: number }
+  | { type: 'polygon'; points: Array<[number, number]> }
+
+export interface SceneRegion {
+  /**
+   * An outline image stored with the episode (`living_masks/<name>.png`, see
+   * `services/outline-masks.ts`): white = inside, black = untouched. Wins over
+   * `shapes` when both are set.
+   */
+  mask?: string
+  shapes?: RegionShape[]
+  /** Edge softness, px at the 1080 reference, 0..80. Default 0 for a mask (it is feathered already), 8 for shapes. */
+  feather_px: number
+}
+
+export const OUTLINE_MASK_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.png$/
+export const REGION_MAX_SHAPES = 16
+export const REGION_MAX_POINTS = 64
+
+/** Lenient region read. Null when there is no usable outline at all. */
+export function normalizeRegion(input: unknown): SceneRegion | null {
+  if (!input || typeof input !== 'object') return null
+  const r = input as any
+  const mask = typeof r.mask === 'string' && OUTLINE_MASK_NAME.test(r.mask) ? r.mask : undefined
+  const u = (v: unknown) => num(v, 0, 1, 0)
+  const shapes: RegionShape[] = (Array.isArray(r.shapes) ? r.shapes : []).slice(0, REGION_MAX_SHAPES).flatMap((s: any): RegionShape[] => {
+    if (s?.type === 'ellipse') return [{ type: 'ellipse', cx: u(s.cx), cy: u(s.cy), rx: u(s.rx), ry: u(s.ry) }]
+    if (s?.type === 'rect') return [{ type: 'rect', x: u(s.x), y: u(s.y), w: u(s.w), h: u(s.h) }]
+    if (s?.type === 'polygon' && Array.isArray(s.points)) {
+      const points = s.points.slice(0, REGION_MAX_POINTS)
+        .filter((p: any) => Array.isArray(p) && p.length === 2)
+        .map((p: any) => [u(p[0]), u(p[1])] as [number, number])
+      return points.length >= 3 ? [{ type: 'polygon', points }] : []
+    }
+    return []
+  })
+  if (!mask && !shapes.length) return null
+  return {
+    ...(mask ? { mask } : {}),
+    ...(shapes.length ? { shapes } : {}),
+    feather_px: num(r.feather_px, 0, 80, mask ? 0 : 8),
+  }
 }
 
 export interface VignetteOverlay extends OverlayBase {
@@ -522,6 +584,23 @@ export interface ColorGradeOverlay extends OverlayBase {
   tint: number
 }
 
+/** The motions a living picture can give its outlined part. Every one is a gentle loop. */
+export const LIVING_MOTIONS = ['flame', 'glow', 'steam', 'water', 'sky', 'pulse'] as const
+export type LivingMotion = (typeof LIVING_MOTIONS)[number]
+
+/**
+ * A living picture: the outlined part of the still moves, nothing else does.
+ * `region` is the outline; without one the effect draws nothing (and says so).
+ */
+export interface LivingRegionOverlay extends OverlayBase {
+  kind: 'living-region'
+  motion: LivingMotion
+  /** 1 = the look of the 2026-10-11 mock-ups, 0..3. */
+  strength: number
+  /** 1 = the mock-ups' pace, 0.25..4. */
+  speed: number
+}
+
 export type SceneOverlayDocument =
   | VignetteOverlay
   | FilmGrainOverlay
@@ -536,6 +615,7 @@ export type SceneOverlayDocument =
   | LightningOverlay
   | HeatShimmerOverlay
   | ColorGradeOverlay
+  | LivingRegionOverlay
 
 /** A partial overlay, as a preset or a pack expresses it. `kind` is required. */
 export type SceneOverlayPatch =
@@ -589,6 +669,8 @@ export function defaultSceneOverlay(kind: OverlayKind): SceneOverlayDocument {
       return { ...base, kind, strength_px: 3, scale: 1, speed: 1, region_top: 0.55, region_bottom: 1, seed: 7 }
     case 'color-grade':
       return { ...base, kind, preset: 'cool-moonlight', brightness: 0, contrast: 1, saturation: 1, warmth: 0, tint: 0 }
+    case 'living-region':
+      return { ...base, kind, motion: 'flame', strength: 1, speed: 1 }
   }
 }
 
@@ -650,7 +732,7 @@ export type EffectStackGroup = (typeof EFFECT_STACK_GROUPS)[number]
 export function overlayStackGroup(doc: SceneOverlayDocument): EffectStackGroup {
   switch (doc.kind) {
     case 'color-grade': return 'grade'
-    case 'heat-shimmer': return 'far-atmosphere'
+    case 'heat-shimmer': case 'living-region': return 'far-atmosphere'
     case 'atmosphere-loop':
       switch (doc.variant) {
         case 'cloud-shadows': return 'far-atmosphere'
@@ -854,6 +936,12 @@ export function mergeSceneMotion(base: SceneMotionDocument, patch: SceneMotionPa
 
 /** Upgrade / clamp any stored overlay document. Never throws. */
 export function normalizeSceneOverlay(input: unknown): SceneOverlayDocument {
+  const doc = normalizeOverlayFields(input)
+  const region = normalizeRegion((input as any)?.region)
+  return region ? { ...doc, region } : doc
+}
+
+function normalizeOverlayFields(input: unknown): SceneOverlayDocument {
   const s = (input && typeof input === 'object' ? input : {}) as any
   const kind = pickEnum(s.kind, OVERLAY_KINDS, 'vignette')
   const d = defaultSceneOverlay(kind)
@@ -977,7 +1065,19 @@ export function normalizeSceneOverlay(input: unknown): SceneOverlayDocument {
         warmth: num(s.warmth, -1, 1, d.warmth),
         tint: num(s.tint, -1, 1, d.tint),
       }
+    case 'living-region':
+      return {
+        ...d, timing,
+        motion: pickEnum(s.motion, LIVING_MOTIONS, d.motion),
+        strength: num(s.strength, 0, 3, d.strength),
+        speed: num(s.speed, 0.25, 4, d.speed),
+      }
   }
+}
+
+/** Drawn on one scene's clip (a living picture, or an effect clipped to an outline), not on the composed timeline. */
+export function isSceneStageOverlay(doc: SceneOverlayDocument): boolean {
+  return doc.kind === 'living-region' || !!doc.region
 }
 
 /** Merge a partial overlay patch onto the default for its kind. */

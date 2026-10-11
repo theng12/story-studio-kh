@@ -29,6 +29,7 @@ import { existsSync } from 'fs'
 import {
   EFFECT_STACK_GROUPS,
   LIBRARY_V1_5_KINDS,
+  isSceneStageOverlay,
   normalizeSceneOverlay,
   overlayStackGroup,
   type EffectStackGroup,
@@ -256,6 +257,12 @@ export function resolveEpisodeEffectStack(opts: {
     const resolved = resolveDocument(applied, library)
     if (!resolved) { missing(applied.id); return }
     const { entry, doc } = resolved
+    // Living pictures and outlined effects are drawn on their scene's clip
+    // (`resolveSceneStage`), never on the composed timeline.
+    if (isSceneStageOverlay(doc)) {
+      if (scope !== 'scene') notes.push(`${entry.name} skipped ${scope === 'theme' ? `for theme "${label}"` : `on the ${scope}`}: an outline belongs to one scene's picture, so it only works in a single scene's stack.`)
+      return
+    }
     const defaultFade = scope === 'scene' || scope === 'theme' ? DEFAULT_SCENE_FADE_SEC : 0
     const fi = applied.fade_in_sec ?? defaultFade
     const fo = applied.fade_out_sec ?? defaultFade
@@ -318,6 +325,34 @@ export function resolveEpisodeEffectStack(opts: {
   indexed.sort((a, b) => rank(a.entry.group) - rank(b.entry.group) || a.entry.order - b.entry.order || a.index - b.index)
   entries.splice(0, entries.length, ...indexed.map(i => i.entry))
   return { entries, unavailable, notes, custom_order: file.custom_order }
+}
+
+/**
+ * The scene-stage effects of each scene (living pictures, effects clipped to an
+ * outline), in stack order. Only single-scene stacks can carry them.
+ */
+export function resolveSceneStage(file: EpisodeEffectsFile, library: readonly BuiltInOverlay[]): Map<string, Array<{ uid: string; name: string; document: SceneOverlayDocument }>> {
+  const out = new Map<string, Array<{ uid: string; name: string; document: SceneOverlayDocument }>>()
+  for (const stack of file.scenes) {
+    const items = stack.effects
+      .map((applied, index) => ({ applied, index }))
+      .filter(({ applied }) => applied.enabled)
+      .map(({ applied, index }) => ({ applied, index, resolved: resolveDocument(applied, library) }))
+      .filter(({ resolved }) => resolved && isSceneStageOverlay(resolved.doc))
+      .map(({ applied, index, resolved }) => ({
+        rank: file.custom_order ? 0 : EFFECT_STACK_GROUPS.indexOf(overlayStackGroup(resolved!.doc)),
+        order: applied.order ?? index,
+        item: {
+          uid: applied.uid,
+          name: resolved!.doc.kind === 'living-region' ? `${resolved!.entry.name} (${resolved!.doc.motion})` : resolved!.entry.name,
+          document: resolved!.doc,
+        },
+      }))
+      .sort((a, b) => a.rank - b.rank || a.order - b.order)
+      .map(x => x.item)
+    if (items.length) out.set(stack.scene_id, [...(out.get(stack.scene_id) || []), ...items])
+  }
+  return out
 }
 
 /** Groups drawn under the classic vignette / grain / letterbox controls; the rest go over them. */

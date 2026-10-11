@@ -1354,6 +1354,16 @@
       "closure_group": "intentional-free-baseline"
     },
     {
+      "legacy_key": "overlay:living-region",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "living-region"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
       "legacy_key": "prepared:com.storystudio.pack.style.dreamlike-luminous-sleep-illustration@1.0.0",
       "disposition": "authored-standalone",
       "source": "content-packs/legacy-thumbnail-restoration/style/dreamlike-luminous-sleep-illustration",

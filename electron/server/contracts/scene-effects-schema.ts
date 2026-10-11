@@ -28,6 +28,10 @@ import {
   LEAK_BLENDS,
   LETTERBOX_MODES,
   LETTERBOX_RATIOS,
+  LIVING_MOTIONS,
+  OUTLINE_MASK_NAME,
+  REGION_MAX_POINTS,
+  REGION_MAX_SHAPES,
   MOTION_PAN_MODES,
   MOTION_RATE_UNITS,
   MOTION_SOURCES,
@@ -164,9 +168,23 @@ const TimingSchema = z.object({
   }
 })
 
+const share = z.number().min(0).max(1)
+
+/** 1.4.284 — an outline of one scene's picture: an uploaded mask, or shapes in 0..1 coordinates. */
+export const SceneRegionSchema = z.object({
+  mask: z.string().regex(OUTLINE_MASK_NAME, 'must be the name of an uploaded outline, e.g. "s4-window.png"').optional(),
+  shapes: z.array(z.discriminatedUnion('type', [
+    z.object({ type: z.literal('ellipse'), cx: share, cy: share, rx: share, ry: share }).strict(),
+    z.object({ type: z.literal('rect'), x: share, y: share, w: share, h: share }).strict(),
+    z.object({ type: z.literal('polygon'), points: z.array(z.tuple([share, share])).min(3).max(REGION_MAX_POINTS) }).strict(),
+  ])).max(REGION_MAX_SHAPES).optional(),
+  feather_px: z.number().min(0).max(80).optional(),
+}).strict().refine(r => !!r.mask || !!r.shapes?.length, 'an outline needs a mask image or at least one shape')
+
 const overlayBase = {
   schema_version: z.literal(SCENE_EFFECT_SCHEMA_VERSION),
   timing: TimingSchema,
+  region: SceneRegionSchema.optional(),
 }
 
 export const VignetteOverlaySchema = z.object({
@@ -320,6 +338,14 @@ export const ColorGradeOverlaySchema = z.object({
   tint: z.number().min(-1).max(1),
 }).strict()
 
+export const LivingRegionOverlaySchema = z.object({
+  kind: z.literal('living-region'),
+  ...overlayBase,
+  motion: z.enum(LIVING_MOTIONS),
+  strength: z.number().min(0).max(3),
+  speed: z.number().min(0.25).max(4),
+}).strict()
+
 export const SceneOverlayDocumentSchema = z.discriminatedUnion('kind', [
   VignetteOverlaySchema,
   FilmGrainOverlaySchema,
@@ -334,6 +360,7 @@ export const SceneOverlayDocumentSchema = z.discriminatedUnion('kind', [
   LightningOverlaySchema,
   HeatShimmerOverlaySchema,
   ColorGradeOverlaySchema,
+  LivingRegionOverlaySchema,
 ])
 
 // ── Errors ──────────────────────────────────────────────────────────────────

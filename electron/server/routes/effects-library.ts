@@ -12,6 +12,13 @@
  *        → Render Exact Preview: the real FFmpeg graph — camera move, loops,
  *          filters — over the chosen scene's still, 6 s at 960x540. Streams
  *          through the existing `GET /video-editor/preview-effect?token=`.
+ *          Living pictures and outlined effects are drawn on the scene's own
+ *          moving clip, inside their outline, as the episode render does.
+ *   POST /api/projects/:slug/effects-library/:episodeId/outlines
+ *        → 1.4.284: store a scene's outline image (body `{ scene_id, label?,
+ *          data_base64 }`; white = the part that moves). Checked for size,
+ *          colour, emptiness and the scene picture's shape; a hard edge is
+ *          feathered. Answers `{ mask }`, the name a `region.mask` uses.
  */
 
 import { Router } from 'express'
@@ -35,8 +42,9 @@ import {
 } from '../services/episode-effects.js'
 import { SceneEffectValidationError, parseSceneOverlayDocument } from '../contracts/scene-effects-schema.js'
 import { BUILT_IN_EFFECT_STACKS } from '../contracts/scene-effect-presets.js'
-import { EFFECT_STACK_GROUPS } from '../contracts/scene-effects.js'
+import { EFFECT_STACK_GROUPS, isSceneStageOverlay, normalizeSceneOverlay } from '../contracts/scene-effects.js'
 import { withLock } from '../lib/atomic-store.js'
+import { OUTLINE_MASK_DIR, outlineMaskPath, saveOutlineMask } from '../services/outline-masks.js'
 import {
   EXACT_PREVIEW_MAX_SEC,
   EXACT_PREVIEW_SHORT_EDGE,
@@ -87,9 +95,11 @@ router.get('/projects/:slug/effects-library/:episodeId', async (req, res) => {
     let readError: string | null = null
     try { file = await readEpisodeEffects(episodeDir) } catch (error: any) { readError = error?.message || String(error) }
     const library = await listSceneEffectLibrary()
+    const outlines = (await fs.readdir(`${episodeDir}/${OUTLINE_MASK_DIR}`).catch(() => [] as string[])).filter(name => name.endsWith('.png')).sort()
     res.json({
       file,
       read_error: readError,
+      outlines,
       has_scene_plan: !!plan,
       scenes: planScenes(plan),
       stack_groups: EFFECT_STACK_GROUPS,
@@ -108,14 +118,21 @@ function validateStacks(
   raw: any,
   library: Awaited<ReturnType<typeof listSceneEffectLibrary>>['overlays'],
   sceneIds: Set<string> | null,
+  episodeDir: string,
 ): string[] {
   const issues: string[] = []
-  const check = (where: string, effects: AppliedEffect[]) => {
+  const check = (where: string, effects: AppliedEffect[], oneScene = false) => {
     for (const applied of effects) {
       const entry = library.find(candidate => candidate.id === applied.id)
       if (!entry) { issues.push(`${where}: "${applied.id}" is not in the effects library`); continue }
       try {
-        parseSceneOverlayDocument({ ...entry.document, ...(applied.params || {}), kind: entry.document.kind, timing: entry.document.timing })
+        const doc = parseSceneOverlayDocument({ ...entry.document, ...(applied.params || {}), kind: entry.document.kind, timing: entry.document.timing })
+        // 1.4.284 — outlines belong to one scene's picture.
+        if (isSceneStageOverlay(doc) && !oneScene) issues.push(`${where}: ${entry.name} has an outline, so it only works in a single scene's stack`)
+        else if (doc.kind === 'living-region' && !doc.region) issues.push(`${where}: ${entry.name} needs an outline (upload one for this scene, or give it shapes)`)
+        else if (doc.region?.mask && !existsSync(outlineMaskPath(episodeDir, doc.region.mask))) {
+          issues.push(`${where}: ${entry.name} uses the outline "${doc.region.mask}", which has not been uploaded for this episode`)
+        }
       } catch (error: any) {
         const detail = error instanceof SceneEffectValidationError ? error.issues.join('; ') : String(error?.message || error)
         issues.push(`${where}: ${entry.name} — ${detail}`)
@@ -126,7 +143,7 @@ function validateStacks(
   for (const rule of file.themes) check(`Theme "${rule.theme}"`, rule.effects)
   for (const stack of file.scenes) {
     if (sceneIds && !sceneIds.has(stack.scene_id)) issues.push(`Scene "${stack.scene_id}" is not in this episode's Scene Plan`)
-    check(`Scene ${stack.scene_id}`, stack.effects)
+    check(`Scene ${stack.scene_id}`, stack.effects, true)
   }
   // Anything the lenient normaliser dropped (bad id shape, not an object) is
   // reported too, so a save never quietly loses an entry.
@@ -146,7 +163,7 @@ router.put('/projects/:slug/effects-library/:episodeId', async (req, res) => {
     const file = normalizeEpisodeEffects(req.body)
     const library = (await listSceneEffectLibrary()).overlays
     const sceneIds = plan ? new Set(plan.scenes.map(scene => scene.id)) : null
-    const issues = validateStacks(file, req.body, library, sceneIds)
+    const issues = validateStacks(file, req.body, library, sceneIds, episodeDir)
     if (issues.length) return res.status(400).json({ detail: `The effects were not saved: ${issues.join('. ')}.`, issues })
     const saved = await withLock(`${episodeDir}/${EPISODE_EFFECTS_FILENAME}`, () => writeEpisodeEffects(episodeDir, file))
     res.json({ file: saved })
@@ -171,18 +188,49 @@ async function sceneBackdrop(slug: string, episodeId: string, requestedScene: un
   return backdrop
 }
 
+router.post('/projects/:slug/effects-library/:episodeId/outlines', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const body = req.body || {}
+  const sceneId = typeof body.scene_id === 'string' && SCENE_ID.test(body.scene_id) ? body.scene_id : ''
+  if (!sceneId) return res.status(400).json({ detail: 'scene_id is required: the outline belongs to one scene\'s picture.' })
+  if (typeof body.data_base64 !== 'string' || !body.data_base64) return res.status(400).json({ detail: 'data_base64 is required (the outline image, white = the part that moves).' })
+  try {
+    const { episodeDir, plan } = await episodeContext(slug, episodeId)
+    const scene = plan?.scenes.find(candidate => candidate.id === sceneId)
+    if (plan && !scene) return res.status(400).json({ detail: `Scene "${sceneId}" is not in this episode's Scene Plan.` })
+    const stillPath = await resolveSceneImageReadPath(slug, episodeId.toUpperCase(), episodeDir, sceneId, scene?.image_path).catch(() => null)
+    const saved = await saveOutlineMask({
+      episodeDir, sceneId, label: typeof body.label === 'string' ? body.label : undefined,
+      data: Buffer.from(body.data_base64.replace(/^data:[^,]*,/, ''), 'base64'), stillPath,
+    })
+    res.json({ mask: saved.name, ...saved })
+  } catch (error: any) {
+    res.status(400).json({ detail: String(error?.message || error) })
+  }
+})
+
 router.post('/projects/:slug/effects-library/:episodeId/exact-preview', async (req, res) => {
   const { slug, episodeId } = req.params
   try {
     const body = req.body || {}
     const library = await listSceneEffectLibrary()
-    const overlays = resolvePreviewOverlays({ ...body, order: body.custom_order ? 'custom' : 'groups' }, library)
+    const resolved = resolvePreviewOverlays({ ...body, order: body.custom_order ? 'custom' : 'groups' }, library)
+    // Living pictures and outlined effects are drawn on the scene's own clip, inside their outline.
+    const overlays = resolved.filter(doc => !isSceneStageOverlay(doc))
+    const stageDocs = resolved.filter(isSceneStageOverlay)
     const motion = resolvePreviewMotion({ motion_id: typeof body.motion_id === 'string' ? body.motion_id : 'ken-burns' }, library)
     const backdrop = await sceneBackdrop(slug, episodeId, body.scene_id)
+    const { episodeDir } = await episodeContext(slug, episodeId)
+    const notes: string[] = []
+    if (stageDocs.length && !backdrop) notes.push('Living pictures need the scene\'s own picture; this episode has none, so they are not shown.')
     const preview = await renderEffectPreview(motion, overlays, backdrop, body.aspect_ratio, {
       shortEdge: EXACT_PREVIEW_SHORT_EDGE,
       durationSec: Math.min(EXACT_PREVIEW_MAX_SEC, Number(body.duration_sec) || EXACT_PREVIEW_MAX_SEC),
-    })
+    }, stageDocs.length ? {
+      items: stageDocs.map((document, i) => ({ uid: `preview-${i + 1}`, name: document.kind === 'living-region' ? `Living picture (${document.motion})` : `${document.kind === 'atmosphere-loop' ? document.variant : document.kind} in its outline`, document })),
+      episodeDir,
+      log: line => notes.push(line),
+    } : undefined)
     res.json({
       url: `/api/projects/${encodeURIComponent(slug)}/video-editor/preview-effect?token=${encodeURIComponent(preview.token)}`,
       token: preview.token,
@@ -194,6 +242,7 @@ router.post('/projects/:slug/effects-library/:episodeId/exact-preview', async (r
       // fallback when that helper is not installed (same move, slower to draw).
       camera_engine: preview.camera_engine,
       backdrop: backdrop ? 'scene' : 'gradient',
+      ...(stageDocs.length ? { living: preview.living, notes } : {}),
     })
   } catch (error: any) {
     if (error instanceof SceneEffectValidationError) return res.status(400).json({ detail: error.message })
@@ -218,9 +267,16 @@ async function galleryBackdrop(slug: string, episodeId: string, scene: unknown):
   return sceneBackdrop(slug, episodeId, scene).catch(() => null)
 }
 
+/** 1.4.284 — the gallery has no outline of its own, so a living picture shows over a soft centre oval. */
+const GALLERY_OUTLINE = { shapes: [{ type: 'ellipse', cx: 0.5, cy: 0.55, rx: 0.22, ry: 0.28 }], feather_px: 24 }
+
 /** What one gallery clip draws: an overlay over a still picture, or a camera move with nothing on top. */
 function galleryItem(kind: string, id: string, library: Awaited<ReturnType<typeof listSceneEffectLibrary>>) {
-  if (kind === 'overlay') return { motion: null, overlays: resolvePreviewOverlays({ overlays: [{ id }] }, library) }
+  if (kind === 'overlay') {
+    const overlays = resolvePreviewOverlays({ overlays: [{ id }] }, library)
+      .map(doc => doc.kind === 'living-region' && !doc.region ? normalizeSceneOverlay({ ...doc, region: GALLERY_OUTLINE }) : doc)
+    return { motion: null, overlays }
+  }
   if (kind === 'motion') return { motion: resolvePreviewMotion({ motion_id: id }, library), overlays: [] }
   throw new SceneEffectValidationError([`unknown gallery kind "${kind}"`])
 }
@@ -235,7 +291,10 @@ router.get('/projects/:slug/effects-library/:episodeId/gallery/:kind/:id', async
     }
     const backdrop = await galleryBackdrop(slug, episodeId, req.query.scene)
     const aspect = typeof req.query.aspect_ratio === 'string' ? req.query.aspect_ratio : undefined
-    const preview = await renderEffectPreview(motion, overlays, backdrop, aspect, { shortEdge: GALLERY_SHORT_EDGE, durationSec: GALLERY_SEC })
+    const stageDocs = overlays.filter(isSceneStageOverlay)
+    const preview = await renderEffectPreview(motion, overlays.filter(doc => !isSceneStageOverlay(doc)), backdrop, aspect,
+      { shortEdge: GALLERY_SHORT_EDGE, durationSec: GALLERY_SEC },
+      stageDocs.length ? { items: stageDocs.map((document, i) => ({ uid: `gallery-${i + 1}`, name: id, document })), episodeDir: null } : undefined)
     const file = cachedFileForToken(preview.token)
     if (!file) return res.status(500).json({ detail: 'The preview was rendered but could not be read back.' })
     res.set('Content-Type', file.endsWith('.mp4') ? 'video/mp4' : 'video/webm')

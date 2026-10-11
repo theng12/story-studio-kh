@@ -520,6 +520,14 @@ BUILT_IN_OVERLAYS.push(
   overlay('colour-grade-look', 'Colour Grade', 'grade',
     'One of the colour-grade presets plus brightness, contrast, saturation, warmth and tint — per scene or per episode.',
     'color-grade', {}),
+  // 1.4.284 — one scene only, and only with an outline of that scene's picture.
+  overlay('living-region', 'Living Picture', 'atmosphere',
+    'One outlined part of this scene moves — a flame flickers, steam rises, water ripples, the sky drifts, '
+      + 'a moon or lamp pulses — while everything outside the outline stays perfectly still. Upload the outline for the scene first.',
+    'living-region', {}, {
+      approximation: 'The outlined pixels are displaced and brightened in a gentle loop; nothing new is drawn. '
+        + 'A flame wobbles and flickers, it does not grow new tongues of fire.',
+    }),
 )
 
 const OVERLAYS_BY_ID = new Map(BUILT_IN_OVERLAYS.map(o => [o.id, o] as const))
