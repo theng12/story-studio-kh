@@ -234,7 +234,7 @@ describe('library.json store', () => {
     const fresh = pool.songs.find(s => s.file === 'dropped.m4a')!
     const r = await sp.rejectSongs(SLUG, [used.id, fresh.id])
     assert.deepEqual(r, { trashed: [fresh.id], archived: [used.id] })
-    await fs.access(path.join(projectDir(), '_trash', 'music-library', 'dropped.m4a'))
+    await fs.access(path.join(path.dirname(projectDir()), '_trash', path.basename(projectDir()), 'music-library', 'dropped.m4a'))
     await fs.access(path.join(libDir(), 'old.m4a'))
     const after = await sp.readPool(SLUG)
     assert.equal(after.songs.find(s => s.id === used.id)!.status, 'archived')

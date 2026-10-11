@@ -273,7 +273,7 @@ describe('episode media cleanup preview', () => {
     assert.match(bill.episodes.find(row => row.episode_code === 'EP0002')!.blocked_reasons.join(' '), /ready canonical upload/i)
   })
 
-  test('rejects an active relevant scope and excludes symlinks hardlinks and shared roots', async () => {
+  test('skips an episode with its own active work (saying so) and excludes symlinks hardlinks and shared roots', async () => {
     const episode = await seedEpisode('EP0001')
     const regular = path.join(episode.paths.bg_dir, 'regular.png')
     const hardlink = path.join(episode.paths.bg_dir, 'hardlink.png')
@@ -299,9 +299,9 @@ describe('episode media cleanup preview', () => {
       const started = await cleanup.startMediaCleanupPreview(SLUG, {
         episode_codes: ['EP0001'], categories: ['images'],
       })
-      const blocked = await waitForOperation(started.operation_id)
-      assert.equal(blocked.status, 'failed')
-      assert.match(blocked.error || '', /active.*chapter-only/i)
+      const checked = await waitForOperation(started.operation_id)
+      assert.equal(checked.status, 'completed', checked.error)
+      assert.match(checked.preview?.blocked_reasons.join(' ') || '', /EP0001 has chapter-only queued or running for this episode/i)
     } finally {
       restore()
     }
@@ -332,6 +332,27 @@ describe('episode media cleanup preview', () => {
     assert.equal(replaced.files.length, 0)
     assert.match(replaced.episodes[0]!.blocked_reasons.join(' '), /matching content SHA-256|exact render/i)
     assert.equal(remoteChecks, 1, 'hash mismatch is refused before a remote readiness lookup')
+  })
+
+  test('verifying a final video shows bytes read, and a YouTube that never answers times out into a reason, not a hang', async () => {
+    const episode = await seedEpisode('EP0001')
+    await markUploaded(episode)
+    __setYouTubeTransportForTests((() => new Promise<Response>(() => {})) as typeof fetch)
+    const saved = process.env.STORY_VERIFY_TIMEOUT_MS
+    process.env.STORY_VERIFY_TIMEOUT_MS = '50'
+    try {
+      const started = await cleanup.startMediaCleanupPreview(SLUG, { episode_codes: ['EP0001'], categories: ['final_video'] })
+      const checked = await waitForOperation(started.operation_id)
+      assert.equal(checked.status, 'completed', checked.error)
+      assert.equal(checked.stage, 'verifying')
+      const size = (await fs.stat(episode.final)).size
+      assert.deepEqual([checked.done, checked.total, checked.bytes_done, checked.bytes_total], [1, 1, size, size])
+      assert.equal(checked.preview?.files.length, 0, 'the unverified final stays where it is')
+      assert.match(checked.preview?.blocked_reasons.join(' ') || '', /YouTube did not answer within 0 seconds, so this file stays where it is\. Check the internet connection/)
+    } finally {
+      if (saved === undefined) delete process.env.STORY_VERIFY_TIMEOUT_MS
+      else process.env.STORY_VERIFY_TIMEOUT_MS = saved
+    }
   })
 
   test('refuses a configured media root reached through a symbolic-link ancestor', async () => {
@@ -664,7 +685,7 @@ async function scenePng(file: string, width = 640, height = 360): Promise<void> 
     .blur(1.5).png().toFile(file)
 }
 const isJpegBytes = async (file: string) => { const head = await fs.readFile(file); return head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff }
-const trashDir = (code = 'EP0001') => path.join(pm.getProjectDir(SLUG)!, '_trash', code)
+const trashDir = (code = 'EP0001') => path.join(pm.projectsRoot(), '_trash', SLUG, code)
 
 describe('removal moves to _trash and never deletes', () => {
   test('remove keeps the exact bytes under _trash/<code>/<category>/<source_kind>/<relative> and leaves existing trash alone', async () => {
@@ -673,7 +694,7 @@ describe('removal moves to _trash and never deletes', () => {
     await fs.writeFile(image, 'scene-bytes')
     await makeOlder(image)
     await markUploaded(episode)
-    const bystander = path.join(pm.getProjectDir(SLUG)!, '_trash', 'old', 'keep.txt')
+    const bystander = path.join(pm.projectsRoot(), '_trash', SLUG, 'old', 'keep.txt')
     await fs.mkdir(path.dirname(bystander), { recursive: true })
     await fs.writeFile(bystander, 'owner file')
 
@@ -688,6 +709,8 @@ describe('removal moves to _trash and never deletes', () => {
     assert.equal(await fs.readFile(bystander, 'utf8'), 'owner file')
     assert.equal(operation.result?.bytes_reclaimed, 0, 'nothing is freed until _trash is emptied')
     assert.equal(operation.result?.bytes_trashed, 11)
+    // Progress (1.4.289): files and bytes done of total, as the panel shows them.
+    assert.deepEqual([operation.done, operation.total, operation.bytes_done, operation.bytes_total], [1, 1, 11, 11])
   })
 
   test('a name already in _trash gets a stamped suffix instead of being replaced', async () => {
@@ -714,7 +737,8 @@ describe('removal moves to _trash and never deletes', () => {
     await fs.writeFile(image, 'scene-bytes')
     await makeOlder(image)
     await markUploaded(episode)
-    await fs.writeFile(path.join(pm.getProjectDir(SLUG)!, '_trash'), 'a file where the folder should be')
+    await fs.mkdir(path.join(pm.projectsRoot(), '_trash'), { recursive: true })
+    await fs.writeFile(path.join(pm.projectsRoot(), '_trash', SLUG), 'a file where the folder should be')
 
     const operation = await run((await preview(['EP0001'], ['images'])).preview_id, 'remove')
 
@@ -882,7 +906,7 @@ describe('compress scene images (Archive episode)', () => {
     assert.equal(bill.estimate.compress_files, 1)
     assert.equal(bill.estimate.trash_files, 3)
     // No folder to choose: the confirm text names the project's own _trash.
-    assert.deepEqual(bill.trash_roots, [path.dirname(trashDir())])
+    assert.deepEqual(bill.trash_roots, [path.join(pm.projectsRoot(), '_trash')])
     assert.equal(bill.estimate.trash_bytes, 'clip'.length + 'chapter'.length + `final-EP0001`.length)
     await assert.rejects(cleanup.startMediaCleanupRun(SLUG, { preview_id: bill.preview_id, mode: 'remove' }), /Archive episode preset/)
 
@@ -902,7 +926,7 @@ describe('compress scene images (Archive episode)', () => {
     assert.equal((await preview(['EP0001'], ['chapter_audio'])).files.length, 0)
   })
 
-  test('is refused for an episode with no verified upload, and while a video render runs anywhere on this Mac', async () => {
+  test('is refused for an episode with no verified upload, and not while a video render runs elsewhere on this Mac', async () => {
     const episode = await seedEpisode('EP0001')
     const scene = path.join(episode.paths.bg_dir, 'scene-01.png')
     await scenePng(scene)
@@ -921,9 +945,9 @@ describe('compress scene images (Archive episode)', () => {
     try {
       await waitFor(() => jq.getJob(other.job_id)?.status === 'running', { timeoutMs: 2_000 })
       const started = await cleanup.startMediaCleanupPreview(SLUG, { episode_codes: ['EP0001'], categories: ['images'] })
-      const blocked = await waitForOperation(started.operation_id)
-      assert.equal(blocked.status, 'failed')
-      assert.match(blocked.error || '', /active video_assembly/i)
+      const checked = await waitForOperation(started.operation_id)
+      assert.equal(checked.status, 'completed', checked.error)
+      assert.equal(checked.preview?.files.length, 1, 'a render of another episode no longer refuses the check')
     } finally {
       release()
       await waitForTerminalJob(other.job_id)
@@ -947,8 +971,8 @@ describe('compress scene images (Archive episode)', () => {
   })
 })
 
-// ── 1.4.273: only a RUNNING Video Assembly blocks cleanup; a cleanup run holds new assembly starts ──
-describe('Video Assembly gate (Mac mini, 16 GB)', () => {
+// ── 1.4.289: Free up space and Video Assembly never wait for each other; only the episode's own work blocks it ──
+describe('Video Assembly gate', () => {
   async function uploadedScenes(count = 1) {
     const episode = await seedEpisode('EP0001')
     const scenes = Array.from({ length: count }, (_, i) => path.join(episode.paths.bg_dir, `scene-0${i + 1}.png`))
@@ -959,65 +983,69 @@ describe('Video Assembly gate (Mac mini, 16 GB)', () => {
   const assembly = (episode_id: string, project_slug = 'some-other-project') => jq.enqueuePreparedForTest({
     project_slug, type: 'video_assembly', episode_id, title: `render ${episode_id}`, params: {},
   })
+  /** A render that keeps running until released (and keeps the next one queued behind it). */
+  function blockingRenders() {
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    jq.registerExecutor('video_assembly', async () => { await gate })
+    return release
+  }
 
-  test('a queued or paused Video Assembly elsewhere does not block the cleanup', async () => {
+  test('a running, queued or paused Video Assembly of another episode does not block the cleanup', async () => {
     const [scene] = await uploadedScenes()
-    jq.registerExecutor('video_assembly', async () => {})
-    const releaseTestHold = jq.holdVideoAssemblyStarts() // keeps the render queued, as if its slot were busy
-    const queued = assembly('ZZ0001')
-    const paused = assembly('ZZ0002')
+    const release = blockingRenders()
+    const running = assembly('ZZ0001')
+    const queued = assembly('ZZ0002')
+    const paused = assembly('ZZ0003')
     try {
       await jq.pauseJob(paused.job_id)
-      assert.equal(jq.getJob(queued.job_id)?.status, 'queued')
-      assert.equal(jq.getJob(paused.job_id)?.status, 'paused')
       const operation = await run((await preview(['EP0001'], ['images'])).preview_id, 'compress')
       assert.equal(operation.status, 'completed', operation.error)
       assert.equal(operation.result?.compressed_count, 1, JSON.stringify(operation.result?.items))
       assert.equal(await isJpegBytes(scene!), true)
+      assert.equal(jq.getJob(running.job_id)?.status, 'running', 'the render was never stopped or held')
     } finally {
-      releaseTestHold()
+      release()
+      await waitForTerminalJob(running.job_id)
       await waitForTerminalJob(queued.job_id)
       await jq.resumeJob(paused.job_id)
       await waitForTerminalJob(paused.job_id)
     }
   })
 
-  test("the episode's own queued job still blocks it", async () => {
+  test("the episode's own queued job skips that episode, with what to do, and the check still finishes", async () => {
     const [scene] = await uploadedScenes()
-    jq.registerExecutor('video_assembly', async () => {})
-    const releaseTestHold = jq.holdVideoAssemblyStarts()
+    const release = blockingRenders()
+    const other = assembly('ZZ0001')
     const own = assembly('EP0001', SLUG)
     try {
       assert.equal(jq.getJob(own.job_id)?.status, 'queued')
       const started = await cleanup.startMediaCleanupPreview(SLUG, { episode_codes: ['EP0001'], categories: ['images'] })
-      const blocked = await waitForOperation(started.operation_id)
-      assert.equal(blocked.status, 'failed')
-      assert.match(blocked.error || '', /EP0001 has active video_assembly/i)
+      const checked = await waitForOperation(started.operation_id)
+      assert.equal(checked.status, 'completed', checked.error)
+      assert.equal(checked.preview?.files.length, 0)
+      assert.match(checked.preview?.blocked_reasons.join(' ') || '', /EP0001 has video assembly queued or running for this episode\. Let it finish \(or cancel it in Jobs\)/)
     } finally {
-      releaseTestHold()
+      release()
+      await waitForTerminalJob(other.job_id)
       await waitForTerminalJob(own.job_id)
     }
     assert.equal(await isJpegBytes(scene!), false)
   })
 
-  test('a Video Assembly queued during the cleanup waits, then starts once the cleanup ends', async () => {
-    const scenes = await uploadedScenes(2)
+  test('a Video Assembly queued during the cleanup starts at once; nothing waits for the cleanup', async () => {
+    await uploadedScenes(2)
     let operationId = ''
     let cleanupStatusWhenRenderStarted: string | undefined
     jq.registerExecutor('video_assembly', async () => {
       cleanupStatusWhenRenderStarted = cleanup.getMediaCleanupOperation(SLUG, operationId)?.status
     })
     let late: ReturnType<typeof assembly> | undefined
-    let lateStatusDuringCleanup: string | undefined
-    let lateLinesDuringCleanup: string[] = []
     const restore = cleanup._setMediaCleanupHooksForTests({
       afterFile: async () => {
-        if (late) {
-          lateStatusDuringCleanup = jq.getJob(late.job_id)?.status
-          lateLinesDuringCleanup = jq.getJob(late.job_id)?.output_lines ?? []
-          return
-        }
-        late = assembly('ZZ0003') // the next file's re-encode gives the queue every chance to start it
+        if (late) return
+        late = assembly('ZZ0004')
+        await waitForTerminalJob(late.job_id) // would never finish if the cleanup held renders
       },
     })
     try {
@@ -1025,17 +1053,11 @@ describe('Video Assembly gate (Mac mini, 16 GB)', () => {
       operationId = (await cleanup.startMediaCleanupRun(SLUG, { preview_id: bill.preview_id, mode: 'compress' })).operation_id
       const operation = await waitForOperation(operationId)
       assert.equal(operation.status, 'completed', operation.error)
-      assert.equal(operation.result?.compressed_count, 2, 'a queued render does not stop the next file')
-      for (const scene of scenes) assert.equal(await isJpegBytes(scene), true)
-      assert.equal(lateStatusDuringCleanup, 'queued', 'held in the queue while the cleanup ran')
-      assert.equal(lateLinesDuringCleanup.filter(line => /^Waiting for cleanup to finish/.test(line)).length, 1,
-        'the owner sees why it waits, once')
-      await waitForTerminalJob(late!.job_id)
-      assert.equal(jq.getJob(late!.job_id)?.status, 'done', 'started normally afterwards, not lost')
-      assert.equal(cleanupStatusWhenRenderStarted, 'completed')
+      assert.equal(operation.result?.compressed_count, 2)
+      assert.equal(cleanupStatusWhenRenderStarted, 'running', 'the render ran while the cleanup was still going')
+      assert.equal(jq.getJob(late!.job_id)?.output_lines.some(line => /Waiting for cleanup/.test(line)), false)
     } finally {
       restore()
-      if (late) await waitForTerminalJob(late.job_id)
     }
   })
 })
@@ -1087,13 +1109,13 @@ describe('Narration parts (Free up space, owner decision 2026-10-06)', () => {
     const bill = await preview(['EP0001'], ['narration_parts'])
     assert.deepEqual(bill.files.map(file => file.relative_path), [path.basename(seeded.loose), path.join('.parts', 'EP0001_Chapter_01')])
     assert.equal(bill.total_bytes, 'part-one'.length + seeded.folderBytes)
-    assert.deepEqual(bill.trash_roots, [path.join(pm.getProjectDir(SLUG)!, '_trash')])
+    assert.deepEqual(bill.trash_roots, [path.join(pm.projectsRoot(), '_trash')])
 
     const operation = await run(bill.preview_id, 'remove')
     assert.equal(operation.status, 'completed', operation.error)
     assert.equal(operation.result?.removed_count, 2)
     const projectDir = pm.getProjectDir(SLUG)!
-    const inTrash = (file: string) => path.join(projectDir, '_trash', path.relative(projectDir, file))
+    const inTrash = (file: string) => path.join(pm.projectsRoot(), '_trash', SLUG, path.relative(projectDir, file))
     for (const name of ['part1.mp3', 'part2.mp3', 'manifest.json']) assert.ok(existsSync(path.join(inTrash(seeded.kept), name)), name)
     assert.equal(await fs.readFile(inTrash(seeded.loose), 'utf8'), 'part-one')
     assert.ok(!existsSync(seeded.kept))

@@ -237,6 +237,7 @@ router.post('/projects/:slug/effects-library/:episodeId/outlines', async (req, r
     const saved = await saveOutlineMask({
       episodeDir, sceneId, label: typeof body.label === 'string' ? body.label : undefined,
       data, stillPath,
+      channel: { slug, projectDir: pm.getProjectDir(slug) || path.dirname(episodeDir) },
     })
     res.json({ mask: saved.name, ...saved })
   } catch (error: any) {

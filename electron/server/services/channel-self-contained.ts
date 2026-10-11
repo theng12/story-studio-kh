@@ -180,13 +180,13 @@ async function assetTargetFor(channelDir: string, source: string, preferredRel: 
 }
 
 /** Copy, verify by sha256, then move into place. The source is never touched. */
-async function copyVerified(source: string, target: string, trashAnchor: string): Promise<void> {
+async function copyVerified(source: string, target: string, channelDir: string): Promise<void> {
   await fs.mkdir(path.dirname(target), { recursive: true })
   const partial = `${target}.partial-${process.pid}`
   await fs.copyFile(source, partial)
   const [a, b] = await Promise.all([sha256(source), sha256(partial)])
   if (a !== b) {
-    moveToTrashSync(partial, path.join(trashAnchor, '_trash', 'unverified-copies', path.basename(partial)))
+    moveToTrashSync(partial, path.join(trashRootFor(channelDir, channelDir, path.basename(channelDir)), 'unverified-copies', path.basename(partial)), 'unverified-copy')
     throw new Error(`Copy of ${source} did not verify (sha256 differs); nothing was changed.`)
   }
   await fs.rename(partial, target)
@@ -418,7 +418,7 @@ export async function applyChannel(slug: string): Promise<ChannelApplyResult> {
     const trashDir = trashRootFor(path.dirname(plan.exports.from), plan.channel_dir, slug)
     for (const m of plan.exports.moves) {
       try {
-        await moveFinal(m.from, m.to, path.join(trashDir, 'moved-to-channel', path.relative(plan.exports.from, m.from)))
+        await moveFinal(m.from, m.to, path.join(trashDir, 'moved-to-channel', path.relative(plan.exports.from, m.from)), plan.channel_dir)
         exportsMoved++
       } catch (e: any) {
         errors.push(`Could not move ${m.from}: ${e?.message || e}`)
@@ -447,18 +447,18 @@ export async function applyChannel(slug: string): Promise<ChannelApplyResult> {
 
 /**
  * Move one finished-video file. Same volume: a rename (instant). Another
- * volume: copy, verify by sha256, then the original goes to `_trash` on its
+ * volume: copy, verify by sha256, then the original goes to the Trash on its
  * own volume — never deleted.
  */
-async function moveFinal(from: string, to: string, trashTarget: string): Promise<void> {
+async function moveFinal(from: string, to: string, trashTarget: string, channelDir: string): Promise<void> {
   await fs.mkdir(path.dirname(to), { recursive: true })
   if (existsSync(to)) throw new Error(`${to} already exists`)
   try {
     await fs.rename(from, to)
   } catch (e: any) {
     if (e?.code !== 'EXDEV') throw e
-    await copyVerified(from, to, path.dirname(to))
-    moveToTrashSync(from, trashTarget)
+    await copyVerified(from, to, channelDir)
+    moveToTrashSync(from, trashTarget, 'moved-source')
   }
 }
 

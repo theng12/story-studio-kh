@@ -17,11 +17,26 @@ export function isContentSha256Revision(value: string): boolean {
  * name/size/mtime fingerprints distinguishable: a legacy receipt is useful
  * history, but it is never evidence that today's local bytes were uploaded.
  */
-export async function resolveYouTubeSourceRevision(filePath: string): Promise<string> {
+export async function resolveYouTubeSourceRevision(filePath: string, onBytes?: (bytes: number) => void): Promise<string> {
   const hash = createHash('sha256')
-  for await (const chunk of createReadStream(filePath, { highWaterMark: HASH_CHUNK_BYTES })) hash.update(chunk)
+  const stream = createReadStream(filePath, { highWaterMark: HASH_CHUNK_BYTES })
+  // A drive that stops answering (unplugged, asleep) would otherwise leave the read, and
+  // whatever waits on it ("Verifying…"), hanging for ever.
+  const stall = setTimeout(() => stream.destroy(Object.assign(
+    new Error(`Reading ${path.basename(filePath)} stopped: its drive did not answer for ${Math.round(hashStallMs() / 1000)} seconds. Check the drive is connected, then try again.`),
+    { code: 'ESTALLED' },
+  )), hashStallMs())
+  try {
+    for await (const chunk of stream) {
+      hash.update(chunk)
+      stall.refresh()
+      onBytes?.(chunk.length)
+    }
+  } finally { clearTimeout(stall) }
   return `${CONTENT_SHA256_PREFIX}${hash.digest('hex')}`
 }
+
+function hashStallMs(): number { return Number(process.env.STORY_HASH_STALL_MS) || 60_000 }
 
 /**
  * Read size for hashing. Node's default 64 KiB stream chunk turns an 840 MB
@@ -44,10 +59,11 @@ const MAX_REVISION_CACHE_ENTRIES = 256
  * The same byte-for-byte revision, remembered per path while the file's
  * size, mtime and inode are unchanged.
  *
- * ONLY for interactive admission (Upload Center preview and the upload route),
- * where the owner clicks Review, then Upload, and each click re-hashed the whole
- * final. Every path that deletes, moves or archives a final keeps calling
- * `resolveYouTubeSourceRevision` and re-reads every byte, and the upload
+ * For interactive admission (Upload Center preview and the upload route), where
+ * the owner clicks Review, then Upload, and each click re-hashed the whole final,
+ * and (1.4.289) for moves to Story's Trash, which can always be undone: Free up
+ * space read each final three times. Archiving (which removes the original)
+ * keeps calling `resolveYouTubeSourceRevision` and re-reads every byte, and the upload
  * generator still hashes the OPEN handle it sends from — that is the check that
  * refuses a file replaced after confirmation, and it is not cached.
  *
@@ -55,12 +71,12 @@ const MAX_REVISION_CACHE_ENTRIES = 256
  * inode, an in-place rewrite changes size or mtime. In-flight hashes are
  * shared, so a bulk review and a concurrent upload click read the file once.
  */
-export async function resolveYouTubeSourceRevisionCached(filePath: string): Promise<string> {
+export async function resolveYouTubeSourceRevisionCached(filePath: string, onBytes?: (bytes: number) => void): Promise<string> {
   const stat = await fsp.stat(filePath)
   const signature = `${stat.size}:${stat.mtimeMs}:${stat.ino}`
   const cached = revisionCache.get(filePath)
   if (cached?.signature === signature) return cached.result
-  const result = resolveYouTubeSourceRevision(filePath)
+  const result = resolveYouTubeSourceRevision(filePath, onBytes)
   if (revisionCache.size >= MAX_REVISION_CACHE_ENTRIES) {
     const oldest = revisionCache.keys().next().value
     if (oldest) revisionCache.delete(oldest)

@@ -138,7 +138,7 @@ describe('scene image thumbnails', () => {
     assert.equal(await thumbCacheBytes(projectDir), 0)
     assert.equal(await fs.stat(thumbCacheRoot(projectDir)).catch(() => null), null)
     // Moved, not removed: the same bytes are under <project>/_trash.
-    assert.ok(res.body.trash_path.startsWith(path.join(projectDir, '_trash')), res.body.trash_path)
+    assert.ok(res.body.trash_path.startsWith(path.join(path.dirname(projectDir), '_trash', path.basename(projectDir))), res.body.trash_path)
     const trashed: string[] = []
     const walk = async (d: string) => { for (const e of await fs.readdir(d, { withFileTypes: true })) { e.isDirectory() ? await walk(path.join(d, e.name)) : trashed.push(path.join(d, e.name)) } }
     await walk(res.body.trash_path)

@@ -59,7 +59,7 @@ function research(generatedAt: string, status: 'unreviewed' | 'verified' = 'unre
 }
 
 async function trashFiles(): Promise<string[]> {
-  const root = path.join(projectDir, '_trash')
+  const root = path.join(path.dirname(projectDir), '_trash', path.basename(projectDir))
   if (!existsSync(root)) return []
   return (await fs.readdir(root, { recursive: true })).map(String)
 }

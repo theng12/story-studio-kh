@@ -15,6 +15,7 @@
       <nav class="home-actions" aria-label="Application">
         <NuxtLink to="/content-store" class="home-action">Content Store</NuxtLink>
         <NuxtLink to="/usage" class="home-action">Usage</NuxtLink>
+        <NuxtLink to="/trash" class="home-action">Trash</NuxtLink>
         <button type="button" class="home-action" @click="appSettingsModal.open()">Settings</button>
       </nav>
     </header>

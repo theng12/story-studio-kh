@@ -108,6 +108,14 @@ export function runBootMigrations(): void {
     if (summary.removed > 0) console.log(`[boot] work-tempdir: removed ${summary.removed} orphan(s) (scanned ${summary.scanned})`)
   })().catch(error => console.error('[boot] work-tempdir cleanup failed:', error)))
 
+  // 1.4.289 — one Story-wide Trash: move every old per-channel `_trash` (and the app's own) into
+  // `<Library>/_trash/<channel>/legacy`. Renames only, nothing deleted; a second run finds nothing.
+  tasks.push((async () => {
+    const { migrateLegacyTrash } = await import('../services/trash.js')
+    const report = await migrateLegacyTrash()
+    if (report.moved.length || report.left.length) console.log(`[boot] trash: moved ${report.moved.length} old trash folder(s), left ${report.left.length}`)
+  })().catch(error => console.error('[boot] trash migration failed:', error?.message || error)))
+
   tasks.push(cleanupStaleUndoSidecars().then(cleaned => {
     if (cleaned.length > 0) console.log(`[boot] renumber-undo: removed ${cleaned.length} stale sidecar(s)`)
   }).catch(error => console.error('[boot] renumber-undo cleanup failed:', error?.message || error)))

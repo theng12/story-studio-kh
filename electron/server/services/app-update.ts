@@ -50,6 +50,7 @@ import { promisify } from 'node:util'
 
 import { machineName, STORY_CALLER } from '../lib/machine-name.js'
 import { isServerMode, resolveAppSettingsPath } from '../lib/server-mode.js'
+import { APP_TRASH, libraryTrashDir, moveToTrashSync } from '../lib/trash-move.js'
 
 const run = promisify(execFile)
 
@@ -324,6 +325,15 @@ export function moveToTrashFolder(target: string, bucket: string): Promise<void>
 
 async function toTrash(target: string, bucket: string, selfEmptying = false): Promise<void> {
   if (!fs.existsSync(target)) return
+  if (!selfEmptying) {
+    // Story's one Trash (`<Library>/_trash/_story-studio/<bucket>`); the app's own `_trash` only
+    // when the Library is on another drive (a rename never crosses drives).
+    const { projectsRoot } = await import('./project-manager.js')
+    try {
+      moveToTrashSync(target, path.join(libraryTrashDir(projectsRoot()), APP_TRASH, bucket, path.basename(target)), bucket)
+      return
+    } catch (error: any) { if (error?.code !== 'EXDEV') throw error }
+  }
   const dir = selfEmptying ? path.join(trashFolder(), utcDate(Date.now()), bucket) : path.join(trashDir(), bucket)
   await fsp.mkdir(dir, { recursive: true })
   await fsp.rename(target, path.join(dir, `${path.basename(target)}-${Date.now()}`))

@@ -91,7 +91,7 @@ describe('leftovers offered in Free up space', () => {
     assert.deepEqual(result.left.map(item => item.path), [path.join(candidates, 'waiting')])
     assert.ok(!existsSync(scratch) && !existsSync(path.join(candidates, 'done')))
     for (const item of result.moved) {
-      assert.ok(item.to.startsWith(path.join(p.projectDir, '_trash')), item.to)
+      assert.ok(item.to.startsWith(path.join(path.dirname(p.projectDir), '_trash', path.basename(p.projectDir))), item.to)
       assert.ok(existsSync(item.to), 'the folder waits in _trash')
     }
     assert.ok(existsSync(path.join(candidates, 'waiting', 'audio', 'a.mp3')), 'an unsettled repair keeps its candidate')
@@ -104,8 +104,8 @@ describe('what is using space', () => {
     const p = await project('Space One')
     const other = await project('Space Two')
     await write(path.join(p.paths.video_assets_dir, `${p.code}_Scene01_v1.mp4`), 4000)
-    await write(path.join(p.projectDir, '_trash', p.code, 'images', 'x.png'), 700)
-    await write(path.join(other.projectDir, '_trash', 'y.png'), 900)
+    await write(path.join(path.dirname(p.projectDir), '_trash', path.basename(p.projectDir), p.code, 'images', 'x.png'), 700)
+    await write(path.join(path.dirname(other.projectDir), '_trash', path.basename(other.projectDir), 'y.png'), 900)
     const { appTrashDir } = await import('../services/app-update.js')
     await write(path.join(appTrashDir(), 'Story Studio KH.app-1.4.260', 'z'), 300)
 
@@ -135,9 +135,9 @@ describe('a folder move that crosses drives', () => {
     for (const dir of [inProject, inLibrary, elsewhere]) await write(path.join(dir, 'file.txt'), 5)
 
     assert.equal(trashCopiedSourceSync(inProject, projectDir, 'demo', library),
-      path.join(projectDir, '_trash', 'moved', 'episodes', 'Season 1', 'EP0001 - A'))
+      path.join(path.dirname(projectDir), '_trash', 'demo', 'moved', 'episodes', 'Season 1', 'EP0001 - A'))
     assert.equal(trashCopiedSourceSync(inLibrary, projectDir, 'demo', library),
-      path.join(library, '_trash', 'demo', 'moved', 'Season 1', 'EP0002 - B'))
+      path.join(path.dirname(projectDir), '_trash', 'demo', 'moved', 'Season 1', 'EP0002 - B'), 'same drive as the Library: Story\'s one Trash')
     assert.equal(trashCopiedSourceSync(elsewhere, projectDir, 'demo'),
       path.join(tmp.dir, 'cross', 'loose', '_trash', 'demo', 'EP0003 - C'))
     for (const dir of [inProject, inLibrary, elsewhere]) assert.ok(!existsSync(dir))

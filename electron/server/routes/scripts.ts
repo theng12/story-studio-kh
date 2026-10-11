@@ -510,7 +510,7 @@ router.post('/projects/:slug/episodes/:episodeId/import-script', async (req, res
       parts = { chapters: [{ number: 1, title: title || 'Script', text: text.trim() }], ...(parts.intro ? { intro: parts.intro } : {}) }
     }
 
-    // Move prior script artifacts for this episode into the project's _trash
+    // Move prior script artifacts for this episode into Story's Trash
     // (never hard-deleted) so a re-import is clean.
     //
     // The code is ESCAPED before it is used as a pattern. It arrives as a route
@@ -532,7 +532,7 @@ router.post('/projects/:slug/episodes/:episodeId/import-script', async (req, res
         const file = pathMod.join(scriptDir, f)
         const rel = pathMod.relative(projectDir, file)
         moveToTrashSync(file, pathMod.join(trashRootFor(projectDir, projectDir, slug),
-          rel.startsWith('..') || pathMod.isAbsolute(rel) ? pathMod.join(episodeId, f) : rel))
+          rel.startsWith('..') || pathMod.isAbsolute(rel) ? pathMod.join(episodeId, f) : rel), 'script')
       }
     }
 

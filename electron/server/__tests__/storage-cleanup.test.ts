@@ -308,7 +308,7 @@ describe('storage cleanup + sidecar detection + external root', () => {
     assert.equal(result.deleted_count, 1)
     assert.equal(calls(), 1, 'one fresh provider read proves this exact remote video is processed')
     assert.equal(existsSync(seed.final_path), false)
-    const trashed = path.join(pm.getProjectDir(SLUG)!, '_trash', seed.code, 'final_video', path.basename(seed.final_path))
+    const trashed = path.join(path.dirname(pm.getProjectDir(SLUG)!), '_trash', path.basename(pm.getProjectDir(SLUG)!), seed.code, 'final_video', path.basename(seed.final_path))
     assert.equal((await fs.stat(trashed)).size, 2048, 'the verified final moves to _trash; it is never hard-deleted')
     cacheMod.episodeStatusCache.clear()
     assert.equal((await assetStatus.computeEpisodeStatus(SLUG, seed.code)).video_assembly, true)

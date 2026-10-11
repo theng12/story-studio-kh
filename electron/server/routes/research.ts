@@ -5,7 +5,7 @@
  *   GET    /api/projects/:slug/research/:episodeId            — read existing research.json
  *   POST   /api/projects/:slug/research/:episodeId/run        — queue a research_run job
  *   PUT    /api/projects/:slug/research/:episodeId            — replace the research.json (user-edited claims/status)
- *   DELETE /api/projects/:slug/research/:episodeId            — move both sidecars to the project _trash
+ *   DELETE /api/projects/:slug/research/:episodeId            — move both sidecars to Story's Trash
  *
  * v1.0.761 — there is NO research-level verify endpoint. Whether research
  * counts as reviewed is DERIVED from the per-claim triage saved through PUT
@@ -339,7 +339,7 @@ async function invalidateEpisodeStatus(slug: string, episodeId: string): Promise
 }
 
 // ── DELETE /projects/:slug/research/:episodeId ────────────────────────
-// Move research.json AND research.md into the project's _trash (nothing the
+// Move research.json AND research.md into Story's Trash (nothing the
 // app removes is hard-deleted). A missing file is success — idempotent.
 router.delete('/projects/:slug/research/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
@@ -352,7 +352,7 @@ router.delete('/projects/:slug/research/:episodeId', async (req, res) => {
       if (!existsSync(file)) continue
       const rel = path.relative(projectDir, file)
       moveToTrashSync(file, path.join(trashRootFor(projectDir, projectDir, slug),
-        rel.startsWith('..') || path.isAbsolute(rel) ? path.join(episodeId, path.basename(file)) : rel))
+        rel.startsWith('..') || path.isAbsolute(rel) ? path.join(episodeId, path.basename(file)) : rel), 'research')
     }
     await invalidateEpisodeStatus(slug, episodeId)
     res.json({ ok: true })

@@ -34,8 +34,9 @@ test('DELETE reference image removes it from the record and disk; the next one b
   assert.deepEqual(res.body.references.images, ['two.png'])
   assert.equal(existsSync(path.join(cl.libraryCharacterDir(c.id), 'one.png')), false)
   assert.equal(existsSync(path.join(cl.libraryCharacterDir(c.id), 'two.png')), true)
-  // Never hard-deleted: the removed picture is kept in the library's _trash.
-  assert.equal(existsSync(path.join(cl.libraryCharacterDir(c.id), '_trash', 'one.png')), true)
+  // Never hard-deleted: the removed picture is kept in Story's Trash.
+  const { projectsRoot } = await import('../services/project-manager.js')
+  assert.equal(existsSync(path.join(projectsRoot(), '_trash', '_character-library', c.id, 'one.png')), true)
   assert.equal((await cl.listLibrary()).length, 1)
 
   const missing = await request(app).delete(`/api/character-library/${c.id}/reference-image/nope.png`)

@@ -12,9 +12,13 @@ so moving a channel means copying one folder.
 ├── assets/              logos, intros, music beds, overlays, stills, fonts → ${CHANNEL}/assets/…
 ├── music/ backgrounds/ overlays/ ambient/                      → ${CHANNEL}/…
 ├── Exports/             finished videos (Season NNN/<code> - <title>/)
-├── youtube/             publishing state for this channel
-└── _trash/              what the app moved aside (empty it yourself)
+└── youtube/             publishing state for this channel
 ```
+
+What the app moves aside is not in the channel folder: since 1.4.289 everything
+Story Studio removes, from every channel, waits in one Trash,
+`<Library>/_trash/<channel>/…` (Story → Trash, where you restore or empty it).
+A channel copied to another Mac does not take its trash along.
 
 - **Picking a file** (Video Assembly, Audio Assembly, Subtitles, Music, B-roll
   pickers) copies it into `assets/` when it lives outside the channel, and saves it
@@ -41,7 +45,7 @@ Settings → Files & maintenance → **Make All Channels Self-Contained**.
      the same file inside this channel folder when it is there;
    - moves finished videos from `<Library>/Exports/<channel>/` to
      `<channel>/Exports/` (a rename on the same drive; across drives it copies,
-     verifies, and puts the original in `_trash`). This part waits while a render
+     verifies, and puts the original in the Trash). This part waits while a render
      or upload for that channel is queued or running;
    - leaves `_Project Assets/` and every original untouched — remove the shared
      folder yourself once you are happy.

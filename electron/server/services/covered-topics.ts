@@ -10,7 +10,7 @@
 import path from 'path'
 import { existsSync } from 'fs'
 import { withLock, writeJsonAtomic, readJsonOr } from '../lib/atomic-store.js'
-import { moveToTrashSync } from '../lib/trash-move.js'
+import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import { callAiWithRetry, resolveLivePipelineModel } from '../lib/ai-client.js'
 import { listChatModels } from '../lib/genstudio-client.js'
 import { getApiKey } from './app-secrets-store.js'
@@ -198,9 +198,9 @@ export async function updateCoveredMap(options: {
   })
 }
 
-/** "Rebuild": the old map moves to the project's `_trash` (never deleted); the next build starts fresh. */
+/** "Rebuild": the old map moves to Story's Trash (never deleted); the next build starts fresh. */
 export async function trashCoveredMap(slug: string): Promise<string | null> {
   const file = filePath(slug)
   if (!file || !existsSync(file)) return null
-  return withLock(file, async () => moveToTrashSync(file, path.join(path.dirname(file), '_trash', 'covered-topics', COVERED_FILE)))
+  return withLock(file, async () => moveToTrashSync(file, path.join(trashRootFor(path.dirname(file), path.dirname(file), slug), 'covered-topics', COVERED_FILE), 'covered-topics'))
 }

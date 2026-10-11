@@ -140,7 +140,7 @@ describe('Reset moves files to the project _trash', () => {
     assert.equal(existsSync(accepted.episode_dir), false, 'folder left the episodes tree')
     const projectDir = pm.getProjectDir(proj.slug)!
     const rel = path.relative(projectDir, accepted.episode_dir)
-    const trashed = path.join(projectDir, '_trash', rel, 'precious.txt')
+    const trashed = path.join(pm.projectsRoot(), '_trash', proj.slug, rel, 'precious.txt')
     assert.equal(await fs.readFile(trashed, 'utf-8'), 'work')
     const idea = (await im.getIdeas(proj.slug)).find(i => i.id === a!.id)!
     assert.equal(idea.status, 'new')
@@ -163,8 +163,10 @@ describe('Reset moves files to the project _trash', () => {
     assert.equal(preview.file_count, 3, 'episode_info.json + script + the media-drive clip')
     assert.equal(preview.breakdown.video, 1)
 
-    // Block the media drive's _trash so the heavy move fails.
-    await fs.writeFile(path.join(mediaRoot, '_trash'), 'not a folder')
+    // Block where the media-drive copy lands (this test's "drive" is the Library's, so Story's
+    // Trash) so the heavy move fails while the project folder still moves.
+    await fs.mkdir(path.join(pm.projectsRoot(), '_trash', proj.slug), { recursive: true })
+    await fs.writeFile(path.join(pm.projectsRoot(), '_trash', proj.slug, path.relative(mediaRoot, heavyDir).split(path.sep)[0]!), 'not a folder')
     const result = await im.resetIdea(proj.slug, a!.id)
     assert.equal(result.warnings.length, 1)
     assert.match(result.warnings[0]!, /media folder .* could not be moved/)
@@ -182,7 +184,8 @@ describe('Reset moves files to the project _trash', () => {
     const accepted = await im.acceptIdea(proj.slug, a!.id)
     const outputRoot = path.join(pm.getProjectDir(proj.slug)!, 'episodes')
     const heavyDir = path.join(mediaRoot, path.relative(outputRoot, accepted.episode_dir))
-    await fs.writeFile(path.join(pm.getProjectDir(proj.slug)!, '_trash'), 'not a folder')
+    await fs.mkdir(path.join(pm.projectsRoot(), '_trash'), { recursive: true })
+    await fs.writeFile(path.join(pm.projectsRoot(), '_trash', proj.slug), 'not a folder')
 
     await assert.rejects(() => im.resetIdea(proj.slug, a!.id))
     assert.ok(existsSync(accepted.episode_dir))
@@ -197,6 +200,6 @@ describe('Reset moves files to the project _trash', () => {
     await im.deleteEpisodeFolder(proj.slug, accepted.episode_code)
     const projectDir = pm.getProjectDir(proj.slug)!
     assert.equal(existsSync(accepted.episode_dir), false)
-    assert.ok(existsSync(path.join(projectDir, '_trash', path.relative(projectDir, accepted.episode_dir))))
+    assert.ok(existsSync(path.join(pm.projectsRoot(), '_trash', proj.slug, path.relative(projectDir, accepted.episode_dir))))
   })
 })

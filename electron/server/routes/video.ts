@@ -1748,11 +1748,11 @@ router.delete('/projects/:slug/video-editor/subtitles/:episodeId/:filename', asy
     const target = path.join(subtitlesDir, filename)
 
     if (!existsSync(target)) return res.status(404).json({ detail: `Subtitle file not found: ${filename}` })
-    // Never hard-deleted (a transcript can cost a transcription to remake): it moves to `_trash`
-    // on the same volume — the project's when the episode lives inside it.
+    // Never hard-deleted (a transcript can cost a transcription to remake): it moves to Story's Trash
+    // on the same volume (`trashRootFor`).
     const projectDir = pm.getProjectDir(slug) || ''
     const anchor = projectDir && target.startsWith(`${projectDir}${path.sep}`) ? projectDir : path.dirname(subtitlesDir)
-    moveToTrashSync(target, path.join(trashRootFor(anchor, projectDir, slug), episodeId, 'subtitles', filename))
+    moveToTrashSync(target, path.join(trashRootFor(anchor, projectDir, slug), episodeId, 'subtitles', filename), 'subtitles')
 
     // Return the fresh listing so the caller can swap state in-place.
     const existingSrts: Array<{ path: string; filename: string; mtime: number }> = []

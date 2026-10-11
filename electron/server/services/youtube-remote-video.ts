@@ -43,7 +43,7 @@ import type { ProjectFactsCache } from './utils.js'
 import { projectFactsFor } from './utils.js'
 import { isYouTubeVideoRemoved, readYouTubeProjectPublishingState } from './youtube-project-publishing-store.js'
 import { YouTubeFoundationError } from '../contracts/youtube-upload-center.js'
-import { isContentSha256Revision, resolveYouTubeSourceRevision } from './youtube-source-video.js'
+import { isContentSha256Revision, resolveYouTubeSourceRevision, resolveYouTubeSourceRevisionCached } from './youtube-source-video.js'
 import { stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
@@ -219,8 +219,10 @@ export async function youtubeRetentionEvidenceFor(
 export async function youtubeRetentionProofForFile(
   evidence: YouTubeRetentionEvidence,
   filePath: string,
+  onBytes?: (bytes: number) => void,
 ): Promise<{ usable: boolean; source_revision?: string; operation_id?: string; video_id?: string; channel_id?: string; reason?: string }> {
-  const revision = await resolveYouTubeSourceRevision(filePath)
+  // Cached by size, mtime and inode: every caller only moves the file to Story's Trash.
+  const revision = await resolveYouTubeSourceRevisionCached(filePath, onBytes)
   const matching = evidence.ready_operations.find(record =>
     isContentSha256Revision(record.source_revision) && record.source_revision === revision)
   if (matching) {

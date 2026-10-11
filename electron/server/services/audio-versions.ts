@@ -125,7 +125,7 @@ export async function useChapterTake(input: {
     }
     const trashed: string[] = []
     for (const file of outgoing) {
-      moveToTrashSync(path.join(audioDir, file), trashTargetFor(projectDir, path.join(audioDir, file)))
+      moveToTrashSync(path.join(audioDir, file), trashTargetFor(projectDir, path.join(audioDir, file)), 'audio')
       trashed.push(file)
     }
     if (!selector && chosen.version > 1) {

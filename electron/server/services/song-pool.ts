@@ -18,7 +18,7 @@ import path from 'path'
 import { randomBytes } from 'crypto'
 import * as pm from './project-manager.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
-import { moveToTrashSync } from '../lib/trash-move.js'
+import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import { measureTrackSeconds } from './music-render.js'
 
 export const MUSIC_LIBRARY_DIRNAME = 'music-library'
@@ -285,7 +285,7 @@ export async function recordEpisodeUse(poolSlug: string, songIds: string[], use:
 
 /**
  * Reject songs: never drawn again. A song that is in an episode is ARCHIVED (file kept, so the
- * episode's tracklist stays true); any other song's file moves to `{project}/_trash/music-library/`.
+ * episode's tracklist stays true); any other song's file moves to Story's Trash (`<slug>/music-library/`).
  */
 export async function rejectSongs(slug: string, ids: string[]): Promise<{ trashed: string[]; archived: string[] }> {
   const dir = requireDir(slug)
@@ -296,7 +296,7 @@ export async function rejectSongs(slug: string, ids: string[]): Promise<{ trashe
       if (!ids.includes(s.id) || s.status !== 'ready') continue
       if (s.episodes.length) { s.status = 'archived'; archived.push(s.id); continue }
       const file = path.join(dir, s.file)
-      if (existsSync(file)) moveToTrashSync(file, path.join(path.dirname(dir), '_trash', MUSIC_LIBRARY_DIRNAME, s.file))
+      if (existsSync(file)) moveToTrashSync(file, path.join(trashRootFor(path.dirname(dir), path.dirname(dir), slug), MUSIC_LIBRARY_DIRNAME, s.file), 'music')
       s.status = 'rejected'
       delete s.file_missing
       trashed.push(s.id)

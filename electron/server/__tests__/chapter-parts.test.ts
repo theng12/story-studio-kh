@@ -173,7 +173,7 @@ void test('migration: complete parts become one chapter file, parts hidden with 
   assert.equal(selector.sections[1].source_file, 'EP001_Chapter_02.mp3')
 
   // Never deleted: the older single take is in the project's _trash, same relative path.
-  assert.ok(existsSync(path.join(fx.projectDir, '_trash', 'episodes', 'EP001 - Test', 'EP001 - 07 Audio Assets', 'EP001_Chapter_02.mp3')))
+  assert.ok(existsSync(path.join(path.dirname(fx.projectDir), '_trash', path.basename(fx.projectDir), 'episodes', 'EP001 - Test', 'EP001 - 07 Audio Assets', 'EP001_Chapter_02.mp3')))
   assert.ok(log.some(line => /older single-file take/.test(line)))
 
   // Second run: nothing to do, nothing moves.
@@ -228,7 +228,7 @@ void test('restart safety: a join stopped before its parts moved is finished, a 
   assert.deepEqual(await consolidateChapterParts(fx), [], 'finishing a join is not a new join')
   assert.deepEqual(await looseAudio(fx.audioDir), ['EP001_Chapter_01.mp3', 'EP001_Chapter_02.mp3'])
   assert.deepEqual(await fs.readFile(path.join(fx.audioDir, 'EP001_Chapter_02.mp3')), joined)
-  assert.ok(!existsSync(path.join(fx.projectDir, '_trash')), 'the joined file was not treated as an older take')
+  assert.ok(!existsSync(path.join(path.dirname(fx.projectDir), '_trash', path.basename(fx.projectDir))), 'the joined file was not treated as an older take')
 
   // Simulate a stop after the joined file and manifest were written but before
   // the records changed: provenance still names the parts.
@@ -262,7 +262,7 @@ void test('a new take of the parts (Regenerate) is joined again; the previous jo
   assert.deepEqual(await consolidateChapterParts(fx), ['Chapter_02'])
   assert.notDeepEqual(await fs.readFile(path.join(fx.audioDir, 'EP001_Chapter_02.mp3')), firstJoin)
   assert.deepEqual(await looseAudio(fx.audioDir), ['EP001_Chapter_01.mp3', 'EP001_Chapter_02.mp3'])
-  const trashed = path.join(fx.projectDir, '_trash', 'episodes', 'EP001 - Test', 'EP001 - 07 Audio Assets')
+  const trashed = path.join(path.dirname(fx.projectDir), '_trash', path.basename(fx.projectDir), 'episodes', 'EP001 - Test', 'EP001 - 07 Audio Assets')
   assert.deepEqual(await fs.readFile(path.join(trashed, 'EP001_Chapter_02.mp3')), firstJoin)
   assert.ok(existsSync(path.join(trashed, '.parts', 'EP001_Chapter_02', 'part1.mp3')))
 })
@@ -299,7 +299,7 @@ void test('Free up space › Narration parts: offers kept folders and joined loo
   const { moved, left } = await trashEpisodeParts(fx.projectDir, fx.audioDir, offered.map(item => item.path))
   assert.equal(moved.length, 2)
   assert.deepEqual(left, [])
-  const trashed = path.join(fx.projectDir, '_trash', 'episodes', 'EP001 - Test', 'EP001 - 07 Audio Assets')
+  const trashed = path.join(path.dirname(fx.projectDir), '_trash', path.basename(fx.projectDir), 'episodes', 'EP001 - Test', 'EP001 - 07 Audio Assets')
   assert.ok(existsSync(path.join(trashed, fx.parts[0]!)))
   for (const name of ['part1.mp3', 'part2.mp3', 'part3.mp3', 'manifest.json']) assert.ok(existsSync(path.join(trashed, '.parts', 'EP001_Chapter_02', name)), name)
   assert.ok(!existsSync(stemDir))
@@ -326,7 +326,7 @@ void test('parts under a media_root on another drive go to that drive\'s own _tr
   const folder = path.join(anchor, 'episodes', 'EP001 - Test', 'EP001 - 07 Audio Assets', '.parts', 'EP001_Chapter_02')
   assert.equal(trashTargetFor(projectDir, folder, anchor),
     path.join(anchor, '_trash', 'my-channel', 'episodes', 'EP001 - Test', 'EP001 - 07 Audio Assets', '.parts', 'EP001_Chapter_02'))
-  assert.equal(trashTargetFor(projectDir, path.join(projectDir, 'episodes', 'a.mp3'), anchor), path.join(projectDir, '_trash', 'episodes', 'a.mp3'))
+  assert.equal(trashTargetFor(projectDir, path.join(projectDir, 'episodes', 'a.mp3'), anchor), path.join('/Library/Story/_trash/my-channel', 'episodes', 'a.mp3'))
 })
 
 void test('a channel\'s own pauses (Series Formula override) set the seams; bad values fall back', () => {

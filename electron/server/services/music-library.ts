@@ -24,7 +24,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { createHash } from 'crypto'
 import * as sp from './song-pool.js'
-import { moveToTrashSync } from '../lib/trash-move.js'
+import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import type { MusicLibraryTrack, MusicLibraryUsageEntry } from '../models/types.js'
 
 export const MUSIC_LIBRARY_DIRNAME = sp.MUSIC_LIBRARY_DIRNAME
@@ -120,7 +120,7 @@ export async function upsertTrackMeta(
   })
 }
 
-/** Move a track's file to the project's `_trash` and mark it rejected (history kept). */
+/** Move a track's file to Story's Trash and mark it rejected (history kept). */
 export async function removeTrack(slug: string, filename: string): Promise<void> {
   // Refuse anything that is not already a bare filename (values arrive over HTTP).
   if (!filename || filename !== path.basename(filename)) {
@@ -135,7 +135,7 @@ export async function removeTrack(slug: string, filename: string): Promise<void>
   await sp.updatePool(slug, p => {
     const s = p.songs.find(x => x.id === song.id)!
     const file = path.join(dir, s.file)
-    if (existsSync(file)) moveToTrashSync(file, path.join(path.dirname(dir), '_trash', MUSIC_LIBRARY_DIRNAME, s.file))
+    if (existsSync(file)) moveToTrashSync(file, path.join(trashRootFor(path.dirname(dir), path.dirname(dir), slug), MUSIC_LIBRARY_DIRNAME, s.file), 'music')
     s.status = 'rejected'
   })
 }

@@ -30,7 +30,7 @@ import path from 'path'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import * as pm from './project-manager.js'
 import * as cm from './character-manager.js'
-import { moveToTrashSync } from '../lib/trash-move.js'
+import { CHARACTER_TRASH, libraryTrashDir, moveToTrashSync } from '../lib/trash-move.js'
 import type { Character } from '../models/types.js'
 
 const SCHEMA_VERSION = 1 as const
@@ -532,8 +532,8 @@ export async function removeLibraryReferenceImage(characterId: string, filename:
   const updated = await updateLibraryCharacter(characterId, {
     references: { images: images.filter(f => f !== filename), style_keywords: current.references?.style_keywords },
   })
-  // Never a hard delete: the picture moves to this character's own _trash folder.
+  // Never a hard delete: the picture moves to Story's Trash (`_character-library/<id>/`).
   const file = path.join(libraryDir(characterId), filename)
-  if (existsSync(file)) moveToTrashSync(file, path.join(libraryDir(characterId), '_trash', filename))
+  if (existsSync(file)) moveToTrashSync(file, path.join(libraryTrashDir(pm.projectsRoot()), CHARACTER_TRASH, validateId(characterId), filename), 'character-picture')
   return updated!
 }

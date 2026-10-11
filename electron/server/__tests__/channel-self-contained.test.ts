@@ -323,7 +323,7 @@ test('finals move from <Library>/Exports/<slug> into the channel, and status, up
   assert.equal(audit.external_root, path.join(ctx.channelDir, 'Exports'))
   const anchor = await store.exportsAnchorFor(ctx.slug, writeDir!)
   assert.equal(anchor, ctx.channelDir, 'cleanup proves ownership against the channel folder')
-  assert.equal(trashRootFor(anchor, ctx.channelDir, ctx.slug), path.join(ctx.channelDir, '_trash'), 'Free up space trashes into the channel')
+  assert.equal(trashRootFor(anchor, ctx.channelDir, ctx.slug), path.join(path.dirname(ctx.channelDir), '_trash', ctx.slug), 'Free up space trashes into Story\'s one Trash')
   assert.equal(await store.exportsAnchorFor(ctx.slug, legacyDir), path.join(ctx.library, 'Exports'), 'an unmigrated final keeps its old anchor')
 })
 

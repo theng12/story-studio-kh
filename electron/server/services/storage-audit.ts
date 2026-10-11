@@ -42,9 +42,10 @@ import { registryCredentialFor } from '../lib/youtube-client.js'
 import { syncYouTubePublicationState } from './youtube-publication-status.js'
 import {
   isContentSha256Revision,
-  resolveYouTubeSourceRevision,
+  resolveYouTubeSourceRevisionCached,
   resolveYouTubeSourceRevisionFromHandle,
 } from './youtube-source-video.js'
+import { verifyTimeoutMs, withTimeout } from '../lib/with-timeout.js'
 import { withFinalVideoPathLock } from './final-video-lock.js'
 import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import {
@@ -115,9 +116,9 @@ export interface StorageAuditResult {
 export interface StorageSpaceSummary {
   /** Free space on the drive holding the project folder; null when it could not be measured (never 0 for "unknown"). */
   free_bytes: number | null
-  /** This project's `_trash` folders (project, media drive, exports folder). */
+  /** This channel's part of Story's Trash (Library, media drive, exports folder). */
   project_trash_bytes: number
-  /** Every project's `_trash` plus the Library's own `_trash`. */
+  /** Everything in Story's Trash (Story → Trash). */
   library_trash_bytes: number
   /** Old app copies in the self-emptying Trash Folder (deleted after 15 days, see app-update.ts). */
   app_trash_bytes: number
@@ -131,11 +132,11 @@ export async function measureFreeBytes(dir: string): Promise<number | null> {
   } catch { return null }
 }
 
-/** Every `_trash` that belongs to one project: its own, and the ones on a media drive or the exports folder. */
+/** This channel's part of Story's Trash: `<Library>/_trash/<slug>`, its folder on a media drive or the exports folder, and an old `<channel>/_trash` not moved yet. */
 async function projectTrashDirs(slug: string): Promise<string[]> {
   const projectDir = pm.getProjectDir(slug)
   if (!projectDir) return []
-  const dirs = [path.join(projectDir, '_trash')]
+  const dirs = [trashRootFor(projectDir, projectDir, slug), path.join(projectDir, '_trash')]
   const meta = await pm.getProject(slug).catch(() => null) as { media_root?: string; output_root?: string } | null
   if (meta?.media_root) {
     try {
@@ -154,15 +155,11 @@ export async function storageSpaceSummary(slug: string): Promise<StorageSpaceSum
   const projectDir = pm.getProjectDir(slug)
   if (!projectDir) throw new Error('Project not found')
   const sizeOf = async (dirs: string[]) => (await Promise.all(dirs.map(dirSize))).reduce((a, b) => a + b, 0)
-  const project = await sizeOf(await projectTrashDirs(slug))
-  const others: string[] = [path.join(pm.projectsRoot(), '_trash')]
-  for (const summary of await pm.listProjects().catch(() => [])) {
-    if (summary.slug !== slug) others.push(...await projectTrashDirs(summary.slug))
-  }
+  const { trashRoots } = await import('./trash.js')
   return {
     free_bytes: await measureFreeBytes(projectDir),
-    project_trash_bytes: project,
-    library_trash_bytes: project + await sizeOf([...new Set(others.map(dir => path.resolve(dir)))]),
+    project_trash_bytes: await sizeOf(await projectTrashDirs(slug)),
+    library_trash_bytes: await sizeOf((await trashRoots()).map(root => root.dir)),
     app_trash_bytes: await dirSize(trashFolder()),
   }
 }
@@ -450,6 +447,27 @@ export interface CleanupResult {
 export interface CleanupOptions {
   /** Retained for callers written before exact remote verification became mandatory; it cannot bypass it. */
   force?: boolean
+  /** "Clear Uploaded Videos" as a background operation (1.4.289): what is being read, and how far. */
+  progress?: FinalCleanupProgress
+}
+
+export interface FinalCleanupProgress {
+  /** Every candidate file and its size, once, before any is read. */
+  total(files: number, bytes: number): void
+  /** A file is about to be read to match it with its upload; the callback gets each chunk's size. */
+  reading(file: string, size: number): (bytes: number) => void
+  /** The owner pressed Stop: finish the current episode, start no other. */
+  stopped(): boolean
+}
+
+/** YouTube's answer within `verifyTimeoutMs()`, else a refusal that says so (the file stays). */
+async function askYouTube<T>(code: string, work: Promise<T>): Promise<T> {
+  try { return await withTimeout(work, verifyTimeoutMs(), 'timeout') } catch (error: any) {
+    if (error?.code === 'ETIMEDOUT') {
+      throw cleanupRefusal(code, `YouTube did not answer within ${Math.round(verifyTimeoutMs() / 1000)} seconds; check the internet connection and try again later`)
+    }
+    throw error
+  }
 }
 
 function cleanupRefusal(code: string, reason: string): Error & { statusCode: number } {
@@ -464,6 +482,7 @@ async function verifyFinalCleanupCandidates(
   code: string,
   title: string,
   candidates: string[],
+  progress?: FinalCleanupProgress,
 ): Promise<Map<string, string>> {
   const assignment = await getProjectYouTubeAssignment(slug)
   if (!assignment) throw cleanupRefusal(code, 'no current YouTube channel is assigned')
@@ -471,7 +490,8 @@ async function verifyFinalCleanupCandidates(
   const verifiedOperations = new Map<string, Promise<void>>()
   const verifiedRevisions = new Map<string, string>()
   for (const file of candidates) {
-    const proof = await youtubeRetentionProofForFile(evidence, file)
+    const size = await fs.stat(file).then(stat => stat.size).catch(() => 0)
+    const proof = await youtubeRetentionProofForFile(evidence, file, progress?.reading(file, size))
     if (!proof.usable || !proof.source_revision || !proof.operation_id || !proof.video_id || proof.channel_id !== assignment.channel_id) {
       throw cleanupRefusal(code, proof.reason || 'the exact local final has no ready content-hash receipt on the current channel')
     }
@@ -480,13 +500,14 @@ async function verifyFinalCleanupCandidates(
       verified = (async () => {
         let fresh: Awaited<ReturnType<typeof syncYouTubePublicationState>>
         try {
-          fresh = await syncYouTubePublicationState({
+          fresh = await askYouTube(code, syncYouTubePublicationState({
             project_slug: slug,
             operation_id: proof.operation_id!,
             account_id: registryCredentialFor(assignment.channel_id),
-          })
-        } catch {
-          throw cleanupRefusal(code, 'YouTube could not freshly verify the exact uploaded video')
+          }))
+        } catch (error: any) {
+          if (error?.statusCode === 412) throw error
+          throw cleanupRefusal(code, 'YouTube could not freshly verify the exact uploaded video; check that this channel is still connected in Settings → YouTube')
         }
         if (fresh.state.lifecycle !== 'ready') {
           throw cleanupRefusal(code, `YouTube currently reports ${fresh.state.lifecycle}`)
@@ -504,32 +525,11 @@ async function verifyFinalCleanupCandidates(
 }
 
 /**
- * Move the final video files for a single episode (never a hard delete: they
- * go to `_trash`) at both the project-tree location and the external root (if configured + present).
- *
- * Per-scene clips are never touched by this function — those are a
- * separate concern (cost-to-regenerate via Veo/fal API). The Storage UI
- * surfaces them as a separate row with its own per-episode action.
+ * An episode's local final videos (project tree and finished-videos folder), each with
+ * where it lands in the Trash. Nothing is read; `bulkCleanupFinalVideos` sizes them first.
  */
-export async function cleanupFinalVideoForEpisode(
-  slug: string,
-  episodeCode: string,
-  opts: CleanupOptions = {},
-): Promise<CleanupResult> {
-  void opts
-  const meta = await pm.getProject(slug)
-  if (!meta) throw new Error('Project not found')
-
-  const ideas = await im.getIdeas(slug, 'accepted')
-  const idea = ideas.find(
-    i => (i.episode_code || '').toUpperCase() === episodeCode.toUpperCase(),
-  )
-  if (!idea) throw new Error(`No accepted episode with code ${episodeCode}`)
-
-  const code = idea.episode_code!
-
-  const items: CleanupItem[] = []
-  const paths = await resolveEpisodePaths(slug, code, idea.title || '')
+async function finalCleanupCandidates(slug: string, code: string, title: string): Promise<{ candidates: string[]; trashTargets: Map<string, string> }> {
+  const paths = await resolveEpisodePaths(slug, code, title)
 
   // Collect candidate paths from the project tree video_dir.
   const candidates: string[] = []
@@ -549,7 +549,7 @@ export async function cleanupFinalVideoForEpisode(
   }
   // Also collect from the external root, if the user has finals there.
   try {
-    const extDir = await resolveExternalFinalVideoDir(slug, code, idea.title || '')
+    const extDir = await resolveExternalFinalVideoDir(slug, code, title)
     if (extDir && existsSync(extDir)) {
       let entries: string[] = []
       try { entries = await fs.readdir(extDir) } catch { /* ignore */ }
@@ -564,6 +564,37 @@ export async function cleanupFinalVideoForEpisode(
     }
   } catch { /* external root unset → noop */ }
 
+  return { candidates, trashTargets }
+}
+
+/**
+ * Move the final video files for a single episode (never a hard delete: they
+ * go to `_trash`) at both the project-tree location and the external root (if configured + present).
+ *
+ * Per-scene clips are never touched by this function — those are a
+ * separate concern (cost-to-regenerate via Veo/fal API). The Storage UI
+ * surfaces them as a separate row with its own per-episode action.
+ */
+export async function cleanupFinalVideoForEpisode(
+  slug: string,
+  episodeCode: string,
+  opts: CleanupOptions = {},
+): Promise<CleanupResult> {
+  const progress = opts.progress
+  const meta = await pm.getProject(slug)
+  if (!meta) throw new Error('Project not found')
+
+  const ideas = await im.getIdeas(slug, 'accepted')
+  const idea = ideas.find(
+    i => (i.episode_code || '').toUpperCase() === episodeCode.toUpperCase(),
+  )
+  if (!idea) throw new Error(`No accepted episode with code ${episodeCode}`)
+
+  const code = idea.episode_code!
+
+  const items: CleanupItem[] = []
+  const { candidates, trashTargets } = await finalCleanupCandidates(slug, code, idea.title || '')
+
   if (candidates.length === 0) {
     return { items, bytes_freed: 0, deleted_count: 0, skipped_count: 0, failed_count: 0 }
   }
@@ -571,15 +602,18 @@ export async function cleanupFinalVideoForEpisode(
   // Every deletion re-hashes THESE local bytes and refreshes that exact remote
   // video on the currently assigned channel. Historical receipts remain visible
   // in the audit but cannot authorize deletion without this fresh proof.
-  const verifiedRevisions = await verifyFinalCleanupCandidates(slug, code, idea.title || '', candidates)
+  const verifiedRevisions = await verifyFinalCleanupCandidates(slug, code, idea.title || '', candidates, progress)
 
-  // Check every candidate again before deleting any one of them. An episode can
+  // Check every candidate again before moving any one of them. An episode can
   // have a project-tree and external final; discovering that the second changed
-  // after deleting the first would leave an unreported partial cleanup.
+  // after moving the first would leave an unreported partial cleanup. The cached
+  // identity re-reads a file only when its size, mtime or inode changed: the move
+  // is to the Trash and can be undone, and three full reads per file is what made
+  // "Verifying…" look stuck (1.4.289).
   for (const file of candidates) {
     let revision: string
     try {
-      revision = await withFinalVideoPathLock(file, () => resolveYouTubeSourceRevision(file))
+      revision = await withFinalVideoPathLock(file, () => resolveYouTubeSourceRevisionCached(file))
     } catch {
       throw cleanupRefusal(code, `the local final is no longer readable: ${path.basename(file)}`)
     }
@@ -597,7 +631,7 @@ export async function cleanupFinalVideoForEpisode(
       let currentRevision: string
       let size: number
       try {
-        currentRevision = await resolveYouTubeSourceRevision(file)
+        currentRevision = await resolveYouTubeSourceRevisionCached(file)
         size = (await fs.stat(file)).size
       } catch (error: any) {
         return {
@@ -619,7 +653,7 @@ export async function cleanupFinalVideoForEpisode(
       }
       try {
         // status stays 'deleted' for API compatibility: the file left its place; it now waits in _trash.
-        moveToTrashSync(file, trashTargets.get(file)!)
+        moveToTrashSync(file, trashTargets.get(file)!, 'final_video')
         return { episode_code: code, file, status: 'deleted', bytes_freed: size }
       } catch (error: any) {
         return {
@@ -672,6 +706,7 @@ export async function bulkCleanupFinalVideos(
     episode_codes?: string[]
     all_uploaded?: boolean
     force?: boolean
+    progress?: FinalCleanupProgress & { episode?(code: string, index: number, total: number, bytesBefore: number): void }
   },
 ): Promise<CleanupResult> {
   const meta = await pm.getProject(slug)
@@ -710,12 +745,27 @@ export async function bulkCleanupFinalVideos(
   let deleted = 0
   let failed = 0
   let skipped = 0
+  // Sized up front (a stat each, nothing read), so progress is bytes done of a real total.
+  const titleOf = new Map(ideas.map(i => [i.episode_code!, i.title || '']))
+  const sizes = new Map<string, number>()
   for (const code of targets) {
+    const { candidates } = await finalCleanupCandidates(slug, code, titleOf.get(code) || '')
+    let bytes = 0
+    for (const file of candidates) bytes += await fs.stat(file).then(stat => stat.size).catch(() => 0)
+    sizes.set(code, bytes)
+  }
+  opts.progress?.total(targets.length, [...sizes.values()].reduce((a, b) => a + b, 0))
+  let bytesBefore = 0
+  for (const [index, code] of targets.entries()) {
+    if (opts.progress?.stopped()) break
+    opts.progress?.episode?.(code, index, targets.length, bytesBefore)
+    bytesBefore += sizes.get(code) || 0
     try {
-      const r = await cleanupFinalVideoForEpisode(slug, code, { force: opts.force })
+      const r = await cleanupFinalVideoForEpisode(slug, code, { force: opts.force, progress: opts.progress })
       allItems.push(...r.items)
       bytesFreed += r.bytes_freed
       deleted += r.deleted_count
+      skipped += r.skipped_count
       failed += r.failed_count
     } catch (e: any) {
       // 412 = "not uploaded, force not set" — surface as a skip rather

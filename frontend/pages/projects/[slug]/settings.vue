@@ -291,7 +291,7 @@
           <section class="card settings-panel" data-setting="free-up-space">
             <MediaCleanupPanel :slug="slug" />
             <details class="disclosure space-option" data-setting="clear-uploaded-finals">
-              <summary><strong>Clear uploaded final videos (verified)</strong><small>Each final video is checked against its YouTube upload, then moved to this channel's <code>_trash</code> folder. Anything that cannot be checked stays.</small></summary>
+              <summary><strong>Clear uploaded final videos (verified)</strong><small>Each final video is checked against its YouTube upload, then moved to Story's Trash (Story → Trash). Anything that cannot be checked stays.</small></summary>
               <div class="space-option-body">
                 <div class="flex gap-2 items-center">
                   <button v-if="!storage" class="btn btn-secondary btn-sm" :disabled="auditLoading" @click="loadStorageAudit">
@@ -306,19 +306,27 @@
                   >
                     {{ bulkRunning ? 'Verifying…' : `Clear Uploaded Videos (${formatBytes(uploadedFinalsTotalBytes)})` }}
                   </button>
+                  <button v-if="bulkRunning && bulkOperation" class="btn btn-secondary btn-sm" :disabled="bulkOperation.status === 'stopping'" @click="stopBulkCleanup">Stop</button>
                 </div>
+                <div v-if="bulkRunning && bulkOperation" class="storage-result mt-2" role="status" aria-live="polite">
+                  <strong>{{ bulkProgressText }}</strong>
+                  <progress v-if="bulkOperation.bytes_total" :value="bulkOperation.bytes_done" :max="bulkOperation.bytes_total" aria-label="Verifying uploaded videos" />
+                  <p v-if="bulkOperation.detail" class="text-muted text-xs">{{ bulkOperation.detail }}</p>
+                  <p class="text-muted text-xs">Each video is read once to match it with its YouTube upload, then YouTube is asked about it (up to a minute each). You can leave this page; renders keep going.</p>
+                </div>
+                <p v-if="bulkError" class="error-text mt-2" role="alert">{{ bulkError }}</p>
                 <p v-if="storage && uploadedFinalsTotalBytes === 0 && !bulkRunning" class="settings-hint">
                   No uploaded episode has a local final video left to clear.
                 </p>
                 <div v-if="lastBulkCleanup" class="storage-result mt-2">
                   <strong>Cleanup:</strong>
-                  {{ lastBulkCleanup.deleted_count }} file(s) moved to _trash after verification ({{ formatBytes(lastBulkCleanup.bytes_freed) }}); the space is freed when you empty _trash.
+                  {{ lastBulkCleanup.deleted_count }} file(s) moved to the Trash after verification ({{ formatBytes(lastBulkCleanup.bytes_freed) }}); the space is freed when you empty it on <NuxtLink to="/trash">Story → Trash</NuxtLink>.
                   <span v-if="lastBulkCleanup.skipped_count">{{ lastBulkCleanup.skipped_count }} kept locally (could not verify).</span>
                   <span v-if="lastBulkCleanup.failed_count" class="error-text">{{ lastBulkCleanup.failed_count }} failed.</span>
                   <ul v-if="lastBulkCleanup.items.length" class="cleanup-item-results">
                     <li v-for="item in lastBulkCleanup.items" :key="`${item.episode_code}:${item.file}`">
                       <strong>{{ item.episode_code }}:</strong>
-                      {{ item.status === 'deleted' ? 'moved to _trash after verification' : (item.reason || item.status) }}
+                      {{ item.status === 'deleted' ? 'moved to the Trash after verification' : (item.reason || item.status) }}
                     </li>
                   </ul>
                 </div>
@@ -438,11 +446,11 @@
                 <div v-if="storage?.space" class="storage-summary mt-2">
                   <span><strong>Free on this drive:</strong> {{ storage.space.free_bytes === null ? 'could not be measured' : formatBytes(storage.space.free_bytes) }}</span>
                   <span class="dot">·</span>
-                  <span title="Everything Story Studio removed from this project waits here until you empty it yourself.">
-                    <strong>In this project's _trash:</strong> {{ formatBytes(storage.space.project_trash_bytes) }}
+                  <span title="Everything Story Studio removed from this channel waits in the Trash until you empty it yourself.">
+                    <strong>This channel in the Trash:</strong> {{ formatBytes(storage.space.project_trash_bytes) }}
                   </span>
                   <span class="dot">·</span>
-                  <span><strong>In every project's _trash:</strong> {{ formatBytes(storage.space.library_trash_bytes) }}</span>
+                  <span><strong>Whole Trash:</strong> {{ formatBytes(storage.space.library_trash_bytes) }} <NuxtLink to="/trash">Open Trash</NuxtLink></span>
                 </div>
                 <div v-if="storage" class="storage-summary mt-2">
                   <span><strong>Channel total:</strong> {{ formatBytes(storage.project_bytes_total) }}</span>
@@ -462,7 +470,7 @@
                     v-if="storage.project_bytes_thumbnail_cache"
                     class="btn btn-secondary btn-sm"
                     :disabled="previewCacheClearing"
-                    title="Moves the small review-grid previews to this channel's _trash folder. They rebuild automatically as you open Scene Review and Motion Review."
+                    title="Moves the small review-grid previews to Story's Trash. They rebuild automatically as you open Scene Review and Motion Review."
                     @click="clearPreviewCache"
                   >
                     {{ previewCacheClearing ? 'Clearing…' : `Clear Preview Cache (${formatBytes(storage.project_bytes_thumbnail_cache)})` }}
@@ -473,7 +481,7 @@
                   </span>
                 </div>
                 <div v-if="lastPreviewCacheClear" class="storage-result mt-2">
-                  Preview cache ({{ formatBytes(lastPreviewCacheClear.bytes) }}) moved to this channel's <code>_trash</code> folder.
+                  Preview cache ({{ formatBytes(lastPreviewCacheClear.bytes) }}) moved to Story's Trash.
                   It rebuilds automatically as you use the review pages.
                 </div>
                 <div v-if="storage" class="storage-table mt-2">
@@ -2377,6 +2385,18 @@ const lastMediaMigration = ref<MediaMigrationResult | null>(null)
 const lastMigration = ref<MigrationResult | null>(null)
 const bulkRunning = ref(false)
 const lastBulkCleanup = ref<CleanupResult | null>(null)
+/** Clear Uploaded Videos runs as a background operation (1.4.289): what it is doing, and how far. */
+interface BulkOperation { id: string; status: string; done: number; total: number; bytes_done: number; bytes_total: number; current: string; detail: string; error?: string; final_cleanup?: CleanupResult }
+const bulkOperation = ref<BulkOperation | null>(null)
+const bulkError = ref('')
+let bulkPoll: ReturnType<typeof setTimeout> | null = null
+const bulkProgressText = computed(() => {
+  const op = bulkOperation.value
+  if (!op) return ''
+  if (op.status === 'stopping') return 'Stopping after this episode…'
+  if (!op.total) return 'Finding the uploaded videos…'
+  return `Verifying ${Math.min(op.done + 1, op.total)} of ${op.total} episodes · ${formatBytes(op.bytes_done)} of ${formatBytes(op.bytes_total)} checked`
+})
 
 // v1.0.71: chunked-progress sidecar cleanup (manual; never auto-wipes).
 // listChunkedSidecars walks every accepted episode and tags each as
@@ -2522,18 +2542,44 @@ async function runBulkCleanup() {
   })
   if (!ok) return
   bulkRunning.value = true
+  bulkError.value = ''
+  lastBulkCleanup.value = null
   try {
-    const r = await post<CleanupResult>(
-      `/projects/${slug.value}/storage/bulk-cleanup-final`,
-      { all_uploaded: true },
-    )
-    lastBulkCleanup.value = r
+    const { operation_id } = await post<{ operation_id: string }>(`/projects/${slug.value}/storage/bulk-cleanup-final/start`, {})
+    bulkOperation.value = { id: operation_id, status: 'queued', done: 0, total: 0, bytes_done: 0, bytes_total: 0, current: '', detail: '' }
+    void pollBulkCleanup()
+  } catch (e: any) {
+    bulkRunning.value = false
+    bulkError.value = `${e?.data?.detail || e?.message || 'Clearing uploaded videos could not start.'}`
+  }
+}
+
+async function pollBulkCleanup() {
+  const op = bulkOperation.value
+  if (!op) return
+  try {
+    const next = await get<BulkOperation>(`/projects/${slug.value}/media-cleanup/operations/${op.id}`)
+    bulkOperation.value = next
+    if (['queued', 'running', 'stopping'].includes(next.status)) { bulkPoll = setTimeout(() => void pollBulkCleanup(), 1000); return }
+    bulkRunning.value = false
+    lastBulkCleanup.value = next.final_cleanup ?? null
+    if (next.status === 'failed') bulkError.value = `Clearing uploaded videos stopped: ${next.error || 'unknown error'}. Nothing that was not verified was moved; press the button again to retry.`
     await loadStorageAudit()
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Bulk cleanup failed')
-  } finally {
-    bulkRunning.value = false
+    if (e?.statusCode === 404 || e?.status === 404) {
+      bulkRunning.value = false; bulkOperation.value = null
+      bulkError.value = 'The clearing is no longer running (Story Studio restarted?). Check the uploaded videos again.'
+      return
+    }
+    bulkPoll = setTimeout(() => void pollBulkCleanup(), 3000) // one missed read: keep following it
   }
+}
+
+async function stopBulkCleanup() {
+  const op = bulkOperation.value
+  if (!op) return
+  try { bulkOperation.value = { ...op, ...await post<{ status: string }>(`/projects/${slug.value}/media-cleanup/operations/${op.id}/stop`, {}) } }
+  catch (e: any) { bulkError.value = `${e?.data?.detail || e?.message || 'Could not stop it.'}` }
 }
 
 // v1.0.71: chunked-sidecar scan + cleanup handlers. Mirrors the storage
@@ -2880,6 +2926,7 @@ async function restoreArchiveInFlight() {
 }
 
 onBeforeUnmount(() => {
+  if (bulkPoll) clearTimeout(bulkPoll)
   archivePanelDisposed = true
   if (archivePoll) clearInterval(archivePoll)
   archivePoll = null

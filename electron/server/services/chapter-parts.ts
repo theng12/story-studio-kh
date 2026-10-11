@@ -206,7 +206,7 @@ export async function keptPartPath(audioDir: string, stem: string, partNumber: n
 }
 
 /**
- * The `_trash` mirror of `file` on the file's own drive: `<project>/_trash/<same relative path>`,
+ * The Trash mirror of `file` on the file's own drive: `<Library>/_trash/<slug>/<same relative path>`,
  * or, for heavy media under a `media_root` on another drive (`mediaAnchor`), that drive's
  * `<media root>/_trash/<slug>/<same relative path>` (the Free up space convention, `trashRootFor`).
  * ponytail: without a `mediaAnchor`, media on another drive keeps its file in place instead
@@ -217,15 +217,16 @@ export function trashTargetFor(projectDir: string, file: string, mediaAnchor?: s
     const rel = path.relative(root, file)
     return rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel : null
   }
+  const slug = path.basename(projectDir)
   const rel = under(projectDir)
-  if (rel) return path.join(projectDir, '_trash', rel)
+  if (rel) return path.join(trashRootFor(projectDir, projectDir, slug), rel)
   const mediaRel = mediaAnchor ? under(mediaAnchor) : null
-  if (mediaRel) return path.join(trashRootFor(mediaAnchor!, projectDir, path.basename(projectDir)), mediaRel)
-  return path.join(projectDir, '_trash', 'media', path.basename(path.dirname(path.dirname(file))), path.basename(path.dirname(file)), path.basename(file))
+  if (mediaRel) return path.join(trashRootFor(mediaAnchor!, projectDir, slug), mediaRel)
+  return path.join(trashRootFor(projectDir, projectDir, slug), 'media', path.basename(path.dirname(path.dirname(file))), path.basename(path.dirname(file)), path.basename(file))
 }
 
 function trash(projectDir: string, file: string, log: (line: string) => void): void {
-  try { moveToTrashSync(file, trashTargetFor(projectDir, file)) }
+  try { moveToTrashSync(file, trashTargetFor(projectDir, file), 'audio') }
   catch (error: any) { log(`  Could not move ${path.basename(file)} to _trash (${error?.message || error}); it was left where it is.`) }
 }
 
@@ -541,7 +542,7 @@ export async function trashEpisodeParts(
       left.push({ path: item, reason: 'Left where it is: its joined chapter is missing or the part changed since review, so it may still be needed.' })
       continue
     }
-    try { moved.push({ path: item, to: moveToTrashSync(item, trashTargetFor(projectDir, item, mediaAnchor)) }) }
+    try { moved.push({ path: item, to: moveToTrashSync(item, trashTargetFor(projectDir, item, mediaAnchor), 'narration_parts') }) }
     catch (error: any) { left.push({ path: item, reason: `Left where it is: it could not be moved to _trash on its own drive (${error?.message || error}).` }) }
   }
   return { moved, left }

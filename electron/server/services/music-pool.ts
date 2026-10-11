@@ -30,7 +30,7 @@ import { existsSync } from 'fs'
 import { createHash } from 'crypto'
 import path from 'path'
 import * as pm from './project-manager.js'
-import { moveToTrashSync } from '../lib/trash-move.js'
+import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import type {
   VideoMusicConfig,
   MusicPoolTrack,
@@ -324,7 +324,7 @@ export async function addTrack(slug: string, sourcePath: string): Promise<{ file
 }
 
 /** Remove a file from the pool folder + drop its stored metadata.
- *  The file moves to the project's `_trash/music/` — never hard-deleted. */
+ *  The file moves to Story's Trash (`<slug>/music/`) — never hard-deleted. */
 export async function removeTrack(slug: string, filename: string): Promise<{ removed: boolean }> {
   const dir = await getPoolDir(slug)
   if (!dir) return { removed: false }
@@ -335,7 +335,7 @@ export async function removeTrack(slug: string, filename: string): Promise<{ rem
   if (path.basename(filename) !== filename) return { removed: false }
   const full = path.join(dir, filename)
   if (!existsSync(full)) return { removed: false }
-  moveToTrashSync(full, path.join(path.dirname(dir), '_trash', path.basename(dir), filename))
+  moveToTrashSync(full, path.join(trashRootFor(path.dirname(dir), path.dirname(dir), slug), path.basename(dir), filename), 'music')
   const cfg = await pm.getConfig(slug)
   if (cfg) {
     const tracks = (cfg.music_pool_tracks || []).filter(t => t.filename !== filename)

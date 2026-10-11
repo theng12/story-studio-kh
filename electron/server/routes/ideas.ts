@@ -207,7 +207,7 @@ router.get('/projects/:slug/ideas/covered-topics', async (req, res) => {
 
 /**
  * Build (or bring up to date) the covered-topics map now with the chosen helper model.
- * `{ "fresh": true }` first moves the current map to the project's _trash.
+ * `{ "fresh": true }` first moves the current map to Story's Trash.
  */
 router.post('/projects/:slug/ideas/covered-topics/build', async (req, res) => {
   const { slug } = req.params

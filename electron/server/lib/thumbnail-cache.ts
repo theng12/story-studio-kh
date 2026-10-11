@@ -95,8 +95,8 @@ export async function thumbCacheBytes(projectDir: string): Promise<number> {
 }
 
 /**
- * Owner's "Clear preview cache": the whole `.cache/thumbs` folder moves to `<project>/_trash/preview-cache/thumbs`
- * (never deleted: the owner empties `_trash` himself). The cache rebuilds on demand, so nothing is lost. A thumbnail
+ * Owner's "Clear preview cache": the whole `.cache/thumbs` folder moves to Story's Trash (`trashRootFor`, `preview-cache/thumbs`)
+ * (never deleted: the owner empties it on Story → Trash). The cache rebuilds on demand, so nothing is lost. A thumbnail
  * being written at this instant fails that one request and the grid falls back to the original; the next one rebuilds.
  */
 export async function clearThumbCache(projectDir: string, slug: string): Promise<{ bytes: number; moved: boolean; trash_path: string | null }> {
@@ -104,6 +104,6 @@ export async function clearThumbCache(projectDir: string, slug: string): Promise
   const exists = await fs.stat(root).then(s => s.isDirectory()).catch(() => false)
   if (!exists) return { bytes: 0, moved: false, trash_path: null }
   const bytes = await thumbCacheBytes(projectDir)
-  const trashPath = moveToTrashSync(root, path.join(trashRootFor(projectDir, projectDir, slug), 'preview-cache', 'thumbs'))
+  const trashPath = moveToTrashSync(root, path.join(trashRootFor(projectDir, projectDir, slug), 'preview-cache', 'thumbs'), 'preview-cache')
   return { bytes, moved: true, trash_path: trashPath }
 }

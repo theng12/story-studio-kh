@@ -84,7 +84,7 @@ describe('YouTube source revision cache', () => {
     assert.equal(await resolveYouTubeSourceRevisionCached(missing), sha256(Buffer.from('now present')))
   })
 
-  test('only the two interactive admission paths use the cache; every cleanup path re-hashes', async () => {
+  test('admission and moves to the Trash use the cache; archiving and the upload itself re-hash every byte', async () => {
     const read = (rel: string) => fs.readFile(new URL(rel, import.meta.url), 'utf8')
     const center = await read('../routes/youtube-upload-center.ts')
     const previewStart = center.indexOf("router.post('/projects/:slug/youtube/preview'")
@@ -93,10 +93,12 @@ describe('YouTube source revision cache', () => {
     assert.ok(previewStart > 0 && uploadStart > previewStart && uploadEnd > uploadStart)
     assert.match(center.slice(previewStart, uploadStart), /resolveYouTubeSourceRevisionCached\(sourcePath\)/)
     assert.match(center.slice(uploadStart, uploadEnd), /resolveYouTubeSourceRevisionCached\(sourceVideoPath\)/)
-    for (const rel of ['../services/storage-audit.ts', '../services/youtube-remote-video.ts', '../generators/youtube-upload.ts']) {
-      const source = await read(rel)
-      assert.doesNotMatch(source, /resolveYouTubeSourceRevisionCached/, `${rel} must hash the bytes it is about to act on`)
-    }
+    // 1.4.289: Clear Uploaded Videos and Free up space only MOVE a final to Story's Trash (undoable), so the
+    // match with its upload is read once and re-checked by size, mtime and inode (it read each final three times).
+    const remote = await read('../services/youtube-remote-video.ts')
+    const archiveProof = remote.slice(remote.indexOf('export async function youtubeArchiveProofForFile'))
+    assert.match(archiveProof.slice(0, archiveProof.indexOf('\n}\n')), /await resolveYouTubeSourceRevision\(filePath\)/, 'archiving (which removes the original) re-reads every byte')
+    assert.doesNotMatch(await read('../generators/youtube-upload.ts'), /resolveYouTubeSourceRevisionCached/, 'the upload hashes the bytes it sends')
     // The upload generator still hashes the open handle it sends from.
     assert.match(await read('../generators/youtube-upload.ts'), /resolveYouTubeSourceRevisionFromHandle\(sourceHandle\)/)
   })

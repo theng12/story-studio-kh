@@ -497,7 +497,38 @@ router.post('/projects/:slug/storage/bulk-cleanup-final', async (req, res) => {
   }
 })
 
-// Free up space → "Clear preview cache": moves `<project>/.cache/thumbs` to the project's `_trash`
+// Free up space → "Clear Uploaded Videos" (1.4.289): the same verified bulk clear as above, as a
+// background operation with progress (files and bytes read, the file being read, Stop), followed
+// with GET /projects/:slug/media-cleanup/operations/:id. The request above used to run for as long
+// as the reads and YouTube checks took, with "Verifying…" and nothing else on screen.
+router.post('/projects/:slug/storage/bulk-cleanup-final/start', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const { bulkCleanupFinalVideos } = await import('../services/storage-audit.js')
+    const { readingProgress, startTrackedCleanup } = await import('../services/episode-media-cleanup.js')
+    res.status(202).json(await startTrackedCleanup(slug, 'verifying', operation => bulkCleanupFinalVideos(slug, {
+      all_uploaded: true,
+      progress: {
+        total(files, bytes) { operation.total = files; operation.bytes_total = bytes },
+        episode(code, index, _total, bytesBefore) {
+          operation.current = code; operation.done = index; operation.bytes_done = bytesBefore
+          operation.detail = `Checking ${code}`; operation.updated_at = new Date().toISOString()
+        },
+        reading(file, size) {
+          const onBytes = readingProgress(operation, { path: file, bytes: size }, 'Matching')
+          const start = operation.bytes_done
+          let read = 0
+          return (bytes) => { onBytes(bytes); read += bytes; operation.bytes_done = start + read }
+        },
+        stopped: () => operation.stop_requested === true,
+      },
+    }).then((result) => { operation.done = operation.total; operation.bytes_done = operation.bytes_total; return result })))
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Could not start clearing uploaded videos'))
+  }
+})
+
+// Free up space → "Clear preview cache": moves `<project>/.cache/thumbs` to Story's Trash
 // (lib/trash-move.ts, never a delete). The review grids rebuild it automatically.
 router.post('/projects/:slug/storage/clear-preview-cache', async (req, res) => {
   try {

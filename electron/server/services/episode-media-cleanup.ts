@@ -31,7 +31,8 @@ import {
 } from './utils.js'
 import { readYouTubeRetentionStores, youtubeRetentionEvidenceFor, youtubeRetentionProofForFile } from './youtube-remote-video.js'
 import { isConfirmedGoneFromYouTube, syncYouTubePublicationState } from './youtube-publication-status.js'
-import { resolveYouTubeSourceRevision } from './youtube-source-video.js'
+import { resolveYouTubeSourceRevision, resolveYouTubeSourceRevisionCached } from './youtube-source-video.js'
+import { verifyTimeoutMs, withTimeout } from '../lib/with-timeout.js'
 
 export const MEDIA_CLEANUP_SIDECAR = 'local_media_cleanup.json'
 export type MediaCleanupCategory = 'images' | 'chapter_audio' | 'narration_parts' | 'merged_audio' | 'master_audio' | 'motion_clips' | 'final_video'
@@ -154,15 +155,24 @@ export interface MediaCleanupOperation {
   project_slug: string
   kind: 'preview' | 'run'
   status: 'queued' | 'running' | 'completed' | 'failed' | 'stopping' | 'stopped'
-  stage: 'checking' | 'archiving' | 'removing' | 'compressing' | null
+  /** `verifying`: reading final videos to match them with their YouTube uploads. */
+  stage: 'checking' | 'verifying' | 'archiving' | 'removing' | 'compressing' | null
+  /** Episodes (preview), final videos (verifying) or files (run) done of total. */
   done: number
   total: number
+  /** Bytes done of total: finals read (verifying), files handled (run). 0/0 while listing. */
+  bytes_done: number
+  bytes_total: number
   current: string
+  /** What is happening right now, in words ("Reading TN0137_final_video.mp4 — 1.2 of 4.8 GB"). */
+  detail: string
   created_at: string
   updated_at: string
   error?: string
   preview?: MediaCleanupPreview
   result?: MediaCleanupRunResult
+  /** Clear Uploaded Videos' outcome (`startTrackedCleanup`). */
+  final_cleanup?: import('./storage-audit.js').CleanupResult
   stop_requested?: boolean
 }
 
@@ -467,22 +477,18 @@ async function relevantActiveJobs(slug: string, code: string, categories: MediaC
   void categories
   const getJobs = hooks.getJobs ?? jq.getJobs
   const jobs = await getJobs(slug)
-  const own = jobs.filter(job => String(job.episode_id || '').toUpperCase() === code.toUpperCase()
+  // Only THIS episode's own work matters (1.4.289). A render of another episode used to refuse
+  // every check and run (the Mac mini always has one going), and a run held every new render:
+  // Free up space and Video Assembly no longer wait for each other. Moves are renames; the one
+  // image at a time a shrink re-encodes (sharp concurrency 1, no cache) fits beside a render.
+  return jobs.filter(job => String(job.episode_id || '').toUpperCase() === code.toUpperCase()
     && ACTIVE_STATUSES.has(job.status))
-  // The Mac mini has 16 GB: re-encoding images must not overlap a video render
-  // for ANY project, so a RUNNING Video Assembly elsewhere refuses the work.
-  // Queued or paused ones do not: a cleanup run holds new assembly starts.
-  return [...own, ...jq.activeJobsOfType('video_assembly').filter(job => job.status === 'running'
-    && !(job.project_slug === slug && String(job.episode_id || '').toUpperCase() === code.toUpperCase()))]
 }
 
-async function assertScopesIdle(slug: string, codes: string[], categories: MediaCleanupCategory[]): Promise<void> {
-  for (const code of codes) {
-    const active = await relevantActiveJobs(slug, code, categories)
-    if (active.length) {
-      throw fail(`${code} has active ${active.map(job => job.type).join(', ')} work. Stop or finish it before cleanup.`, 409)
-    }
-  }
+/** Why an episode is skipped while its own work is queued or running, and what to do. */
+function busyReason(code: string, active: Array<Pick<Job, 'type'>>): string {
+  const kinds = [...new Set(active.map(job => job.type.replaceAll('_', ' ')))].join(', ')
+  return `${code} has ${kinds} queued or running for this episode. Let it finish (or cancel it in Jobs), then check again.`
 }
 
 function isFinalName(code: string, name: string): boolean {
@@ -536,9 +542,56 @@ function isJpegFile(file: string): boolean {
   } catch { return false } finally { if (fd !== undefined) closeSync(fd) }
 }
 
-async function sha256(file: string): Promise<string> {
-  const revision = await resolveYouTubeSourceRevision(file)
+/**
+ * Content identity. Cached by size, mtime and inode (a move to the Trash can always be
+ * undone, so a file is read once, not three times); `fresh` re-reads every byte, for
+ * archiving, which removes the original.
+ */
+async function sha256(file: string, onBytes?: (bytes: number) => void, fresh = false): Promise<string> {
+  const revision = fresh ? await resolveYouTubeSourceRevision(file, onBytes) : await resolveYouTubeSourceRevisionCached(file, onBytes)
   return revision.slice('sha256:'.length)
+}
+
+const GB = 1024 ** 3
+const sizeText = (bytes: number) => bytes >= GB ? `${(bytes / GB).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1024 ** 2))} MB`
+
+/** Bytes-read callback that keeps `operation.detail` saying which file is being read and how far. */
+export function readingProgress(operation: MediaCleanupOperation, file: { path: string; bytes: number }, verb: string): (bytes: number) => void {
+  let read = 0
+  operation.detail = `${verb} ${path.basename(file.path)} — 0 of ${sizeText(file.bytes)}`
+  return (bytes) => {
+    read += bytes
+    operation.detail = `${verb} ${path.basename(file.path)} — ${sizeText(read)} of ${sizeText(file.bytes)} read`
+    operation.updated_at = isoNow()
+  }
+}
+
+/**
+ * Run other Free up space work (Clear Uploaded Videos) as an operation of this same
+ * registry: one at a time on this Mac, followed with `GET …/media-cleanup/operations/:id`,
+ * stopped with its `/stop`. `work` updates the progress fields as it goes.
+ */
+export async function startTrackedCleanup(
+  slug: string,
+  stage: MediaCleanupOperation['stage'],
+  work: (operation: MediaCleanupOperation) => Promise<NonNullable<MediaCleanupOperation['final_cleanup']>>,
+): Promise<{ operation_id: string }> {
+  pruneState()
+  if (!await pm.getProject(slug)) throw fail('Project not found', 404)
+  if (hasActiveOperation()) throw fail('A media cleanup check or operation is already running on this Mac. Wait for it to finish.', 409)
+  const operation = beginOperation(slug, 'run', stage)
+  setImmediate(() => void (async () => {
+    operation.status = 'running'
+    operation.updated_at = isoNow()
+    try {
+      operation.final_cleanup = await work(operation)
+      operation.detail = ''
+      finishOperation(operation, operation.stop_requested ? 'stopped' : 'completed')
+    } catch (error) {
+      finishOperation(operation, 'failed', error)
+    }
+  })())
+  return { operation_id: operation.id }
 }
 
 async function discoverRoot(
@@ -619,7 +672,7 @@ async function discoverRoot(
         source_kind: spec.source_kind,
         category: spec.category,
         bytes: stat.size,
-        sha256: await sha256(full),
+        sha256: '', // read once, when the file is acted on (mutateReviewedFile)
         mtime_ms: stat.mtimeMs,
         upload_proof: proof,
         trash_path: path.join(spec.trash_dir, path.relative(spec.root, full)),
@@ -631,7 +684,17 @@ async function discoverRoot(
   return { files, excluded }
 }
 
-async function verifyFinalProof(slug: string, code: string, title: string, file: MediaCleanupFile): Promise<string | null> {
+/** YouTube's answer within `verifyTimeoutMs()`, or a clear "no answer" instead of a hang. */
+function askYouTube<T>(work: Promise<T>): Promise<T> {
+  const seconds = Math.round(verifyTimeoutMs() / 1000)
+  return withTimeout(work, verifyTimeoutMs(), `YouTube did not answer within ${seconds} seconds, so this file stays where it is. Check the internet connection and try again later.`)
+}
+
+const youtubeFailure = (error: any, fallback: string) => error?.code === 'ETIMEDOUT' ? error.message : fallback
+
+async function verifyFinalProof(
+  slug: string, code: string, title: string, file: MediaCleanupFile, onBytes?: (bytes: number) => void,
+): Promise<string | null> {
   const assignment = await getProjectYouTubeAssignment(slug)
   if (!assignment) return 'No current YouTube channel is assigned.'
   if (file.upload_proof?.operation_id.startsWith(LEGACY_PROOF_PREFIX)) {
@@ -640,31 +703,31 @@ async function verifyFinalProof(slug: string, code: string, title: string, file:
     // (checked when listed and again before moving). YouTube is asked afresh,
     // and the file only ever moves to _trash, so nothing is lost.
     try {
-      const details = (await listVideoPublicationDetails(slug, registryCredentialFor(assignment.channel_id), [file.upload_proof.video_id]))[file.upload_proof.video_id]
+      const details = (await askYouTube(listVideoPublicationDetails(slug, registryCredentialFor(assignment.channel_id), [file.upload_proof.video_id])))[file.upload_proof.video_id]
       if (!details) return 'YouTube no longer has this video.'
       if (details.uploadStatus !== 'processed') return `YouTube currently reports ${details.uploadStatus || 'no status'}.`
       if (details.channelId !== assignment.channel_id) return 'YouTube did not confirm the video on the current channel.'
-    } catch {
-      return 'YouTube could not freshly verify the uploaded final video.'
+    } catch (error) {
+      return youtubeFailure(error, 'YouTube could not freshly verify the uploaded final video. Check that this channel is still connected in Settings → YouTube, then try again.')
     }
     return null
   }
   const evidence = await youtubeRetentionEvidenceFor(slug, code, title)
-  const exact = await youtubeRetentionProofForFile(evidence, file.path)
+  const exact = await youtubeRetentionProofForFile(evidence, file.path, onBytes)
   if (!exact.usable || !file.upload_proof || exact.operation_id !== file.upload_proof.operation_id
     || exact.video_id !== file.upload_proof.video_id || exact.channel_id !== assignment.channel_id) {
     return exact.reason || 'The final video is not the exact render in the current ready upload receipt.'
   }
   try {
-    const remote = await syncYouTubePublicationState({
+    const remote = await askYouTube(syncYouTubePublicationState({
       project_slug: slug,
       operation_id: exact.operation_id,
       account_id: registryCredentialFor(assignment.channel_id),
-    })
+    }))
     if (remote.state.lifecycle !== 'ready') return `YouTube currently reports ${remote.state.lifecycle}.`
     if (remote.details?.channelId !== assignment.channel_id) return 'YouTube did not confirm the video on the current channel.'
-  } catch {
-    return 'YouTube could not freshly verify the exact uploaded final video.'
+  } catch (error) {
+    return youtubeFailure(error, 'YouTube could not freshly verify the exact uploaded final video. Check that this channel is still connected in Settings → YouTube, then try again.')
   }
   return null
 }
@@ -712,13 +775,14 @@ async function buildPreview(
   const acceptedByCode = new Map(accepted.map(idea => [String(idea.episode_code || '').toUpperCase(), idea]))
   const unknown = codes.filter(code => !acceptedByCode.has(code))
   if (unknown.length) throw fail(`No accepted episode matches ${unknown.join(', ')}.`, 404)
-  await assertScopesIdle(slug, codes, categories)
 
+  // Pass 1, listing: names and sizes only (no file is read), so it is quick.
   operation.total = codes.length
   const episodeResults: MediaCleanupEpisodePreview[] = []
   for (const code of codes) {
     if (operation.stop_requested) break
     operation.current = code
+    operation.detail = `Listing ${code}'s files`
     operation.updated_at = isoNow()
     const proof = currentUploadProof(code, inventory)
     const episode: MediaCleanupEpisodePreview = {
@@ -726,7 +790,10 @@ async function buildPreview(
     }
     // Narration parts need no upload (owner decision 2026-10-06): any episode with a joined chapter may free them.
     const partsOnly = !proof && !input.preset && categories.includes('narration_parts')
-    if (!proof && !partsOnly && !convert) {
+    const active = await relevantActiveJobs(slug, code, categories)
+    if (active.length) {
+      episode.blocked_reasons.push(busyReason(code, active))
+    } else if (!proof && !partsOnly && !convert) {
       episode.blocked_reasons.push(inventory.why.get(code) || 'This episode has no ready canonical upload on the current YouTube channel.')
     } else {
       const idea = acceptedByCode.get(code)!
@@ -740,19 +807,35 @@ async function buildPreview(
         episode.files.push(...discovered.files.filter(file => !episode.files.some(listed => listed.path === file.path)))
         episode.excluded.push(...discovered.excluded)
       }
-      for (const file of [...episode.files]) {
-        if (file.category !== 'final_video') continue
-        const reason = await verifyFinalProof(slug, code, idea.title || '', file)
-        if (reason) {
-          episode.files.splice(episode.files.indexOf(file), 1)
-          episode.excluded.push({ path: file.path, category: file.category, reason })
-        }
-      }
-      episode.blocked_reasons.push(...[...new Set(episode.excluded.map(item => item.reason))])
     }
     episodeResults.push(episode)
     operation.done += 1
   }
+
+  // Pass 2, verifying: each final video is read once (sha256) and matched with its upload,
+  // and YouTube is asked about it, with bytes read shown and a time limit on each answer.
+  const finals = episodeResults.flatMap(episode => episode.files.filter(file => file.category === 'final_video')
+    .map(file => ({ episode, file })))
+  operation.stage = 'verifying'
+  operation.done = 0
+  operation.total = finals.length
+  operation.bytes_total = finals.reduce((n, { file }) => n + file.bytes, 0)
+  for (const { episode, file } of finals) {
+    if (operation.stop_requested) break
+    operation.current = file.path
+    operation.updated_at = isoNow()
+    const title = acceptedByCode.get(episode.episode_code)?.title || ''
+    const reason = await verifyFinalProof(slug, episode.episode_code, title, file, readingProgress(operation, file, 'Matching'))
+      .catch((error: any) => `${error?.message || error}`)
+    operation.bytes_done = finals.slice(0, operation.done + 1).reduce((n, item) => n + item.file.bytes, 0)
+    operation.done += 1
+    if (reason) {
+      episode.files.splice(episode.files.indexOf(file), 1)
+      episode.excluded.push({ path: file.path, category: file.category, reason })
+    }
+  }
+  operation.detail = ''
+  for (const episode of episodeResults) episode.blocked_reasons.push(...[...new Set(episode.excluded.map(item => item.reason))])
   const files = episodeResults.flatMap(episode => episode.files)
   const shrinkable = files.filter(file => file.category === 'images' && !file.already_jpeg)
   const trashed = files.filter(file => file.category !== 'images')
@@ -790,7 +873,7 @@ function beginOperation(slug: string, kind: MediaCleanupOperation['kind'], stage
   const now = isoNow()
   const operation: MediaCleanupOperation = {
     id: randomUUID(), project_slug: slug, kind, status: 'queued', stage,
-    done: 0, total: 0, current: '', created_at: now, updated_at: now,
+    done: 0, total: 0, bytes_done: 0, bytes_total: 0, current: '', detail: '', created_at: now, updated_at: now,
   }
   operations.set(operation.id, operation)
   return operation
@@ -1086,7 +1169,8 @@ async function exactFileStillReviewed(file: MediaCleanupFile): Promise<string | 
   if (!stat.isFile() || stat.isSymbolicLink()) return 'The reviewed path is no longer a regular file.'
   if (await fs.realpath(file.path) !== file.real_path) return 'The reviewed file location changed after preview.'
   if (stat.nlink !== 1) return 'The reviewed file now has another hard link.'
-  if (stat.size !== file.bytes || await sha256(file.path) !== file.sha256) return 'The reviewed file changed after preview.'
+  // Size and modification time, not a re-read: the move is to the Trash and can be undone.
+  if (stat.size !== file.bytes || stat.mtimeMs !== file.mtime_ms) return 'The reviewed file changed after preview. Check the files again.'
   return null
 }
 
@@ -1111,7 +1195,7 @@ function unlinkReviewedFile(file: MediaCleanupFile): void {
 // "Remove" is a move to `_trash`; the owner empties it. A failed move throws and the file stays.
 function trashReviewedFile(file: MediaCleanupFile): string {
   assertReviewedIdentitySync(file)
-  return moveToTrashSync(file.path, file.trash_path)
+  return moveToTrashSync(file.path, file.trash_path, file.category)
 }
 
 async function uploadProofStillCurrent(slug: string, code: string, file: MediaCleanupFile): Promise<string | null> {
@@ -1135,7 +1219,7 @@ async function mutateReviewedFile(
 ): Promise<MediaCleanupRunResult['items'][number]> {
   const code = preview.episodes.find(episode => episode.files.some(candidate => candidate.path === file.path))!.episode_code
   const active = await relevantActiveJobs(slug, code, [file.category])
-  if (active.length) return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason: `Active ${active.map(job => job.type).join(', ')} work started after preview.` }
+  if (active.length) return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason: busyReason(code, active) }
   if (file.category === 'narration_parts') return trashReviewedNarrationParts(slug, code, file, mode)
   // Converting PNG scenes needs no upload: the image itself is kept, as a JPEG.
   const formatOnly = preview.preset === CONVERT_PNG_PRESET
@@ -1148,8 +1232,15 @@ async function mutateReviewedFile(
   }
   if (file.category === 'final_video') {
     const idea = (await im.getIdeas(slug, 'accepted')).find(candidate => candidate.episode_code === code)
-    const reason = await verifyFinalProof(slug, code, idea?.title || '', file)
+    const reason = await verifyFinalProof(slug, code, idea?.title || '', file, readingProgress(operation, file, 'Matching'))
+      .catch((error: any) => `${error?.message || error}`)
     if (reason) return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason }
+  }
+  // The cleanup record keeps each file's sha256: read once, here (finals reuse the match above).
+  if (!file.sha256) {
+    try { file.sha256 = await sha256(file.path, readingProgress(operation, file, 'Reading')) } catch (error: any) {
+      return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason: `${error?.message || error}` }
+    }
   }
 
   const entryBase: Omit<MediaCleanupSidecarEntry, 'outcome' | 'updated_at' | 'upload_proof'> & { upload_proof: MediaCleanupUploadProof | null } = {
@@ -1178,7 +1269,7 @@ async function mutateReviewedFile(
       await fs.rm(partial, { force: true }) // a stale scratch file from an interrupted run
       await fs.copyFile(file.path, partial, fsConstants.COPYFILE_EXCL)
       await hooks.afterArchiveCopy?.(file.path, partial)
-      const [sourceHash, targetHash] = await Promise.all([sha256(file.path), sha256(partial)])
+      const [sourceHash, targetHash] = await Promise.all([sha256(file.path, undefined, true), sha256(partial, undefined, true)])
       const targetStat = await fs.stat(partial)
       if (sourceHash !== file.sha256 || targetHash !== file.sha256 || targetStat.size !== file.bytes) {
         throw new Error('The archive copy does not match the reviewed source.')
@@ -1342,7 +1433,6 @@ async function runPreview(
   mode: MediaCleanupMode,
   destination?: string,
 ): Promise<MediaCleanupRunResult> {
-  await assertScopesIdle(slug, preview.episodes.map(episode => episode.episode_code), preview.categories)
   const result: MediaCleanupRunResult = {
     mode, ...(destination ? { destination } : {}), items: [],
     archived_count: 0, removed_count: 0, compressed_count: 0, skipped_count: 0, failed_count: 0, pending_count: 0,
@@ -1350,6 +1440,7 @@ async function runPreview(
   }
   operation.result = result
   operation.total = preview.files.length
+  operation.bytes_total = preview.files.reduce((n, file) => n + file.bytes, 0)
   // Mac mini (16 GB): one image at a time, no libvips cache; put the app-wide settings back afterwards.
   const priorConcurrency = sharp.concurrency()
   if (mode === 'compress') { sharp.concurrency(1); sharp.cache(false) }
@@ -1374,6 +1465,8 @@ async function runPreview(
       else result.bytes_trashed += item.bytes_moved
       result.bytes_after += item.bytes_after ?? 0
       operation.done += 1
+      operation.bytes_done += file.bytes
+      operation.detail = ''
       await hooks.afterFile?.()
     }
   } finally {
@@ -1416,16 +1509,13 @@ export async function startMediaCleanupRun(
   setImmediate(() => void (async () => {
     operation.status = 'running'
     operation.updated_at = isoNow()
-    // Hold new Video Assembly starts BEFORE runPreview's idle check, so none can
-    // start between the check and the work; queued ones start when this ends.
-    const releaseAssemblyHold = jq.holdVideoAssemblyStarts()
+    // No hold on Video Assembly (1.4.289): each file checks its own episode is idle right before
+    // it moves, under that episode's admission lock (jq.withEpisodeMediaCleanupLock).
     try {
       operation.result = await runPreview(slug, preview, operation, input.mode as MediaCleanupMode, destination)
       finishOperation(operation, operation.stop_requested ? 'stopped' : 'completed')
     } catch (error) {
       finishOperation(operation, 'failed', error)
-    } finally {
-      releaseAssemblyHold()
     }
   })())
   return { operation_id: operation.id }

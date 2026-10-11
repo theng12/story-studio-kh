@@ -718,7 +718,7 @@ describe('unsealed builds (electron-builder identity: null, as Story ships today
 })
 
 describe('Open at Login', () => {
-  test('the agent relaunches after a crash only, and turning it off moves the file to _trash', async () => {
+  test('the agent relaunches after a crash only, and turning it off moves the file to Story\'s Trash', async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'home-'))
     const exe = '/Applications/Story Studio KH.app/Contents/MacOS/Story Studio KH'
     await updater.setOpenAtLogin(true, exe, home)
@@ -731,7 +731,8 @@ describe('Open at Login', () => {
     assert.equal(updater.openAtLogin(home), true)
     await updater.setOpenAtLogin(false, exe, home)
     assert.equal(updater.openAtLogin(home), false)
-    assert.equal(fs.readdirSync(path.join(updater.trashDir(), 'launch-agent')).length, 1)
+    const { projectsRoot } = await import('../services/project-manager.js')
+    assert.equal(fs.readdirSync(path.join(projectsRoot(), '_trash', '_story-studio', 'launch-agent')).length, 1)
     await assert.rejects(updater.setOpenAtLogin(true, '/usr/local/bin/node', home), /installed app/)
   })
 })

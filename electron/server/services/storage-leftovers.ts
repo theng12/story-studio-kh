@@ -17,7 +17,7 @@ import { existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
-import { moveToTrashSync } from '../lib/trash-move.js'
+import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import { getWorkTempRoot, sanitizeWorkTempSegment } from '../lib/work-tempdir.js'
 import { readAudioQualityProvenance } from './audio-quality-store.js'
 import { trashTargetFor } from './chapter-parts.js'
@@ -99,7 +99,7 @@ export async function listStorageLeftovers(slug: string): Promise<StorageLeftove
       const dir = path.join(scratchRoot, run)
       out.push({
         kind: 'render_scratch', episode_code: code, path: dir, bytes: await dirSize(dir),
-        trash_path: path.join(projectDir, '_trash', code, 'leftover_render_files', run),
+        trash_path: path.join(trashRootFor(projectDir, projectDir, slug), code, 'leftover_render_files', run),
       })
     }
   }
@@ -126,11 +126,11 @@ export async function trashStorageLeftovers(slug: string, paths: unknown): Promi
     if (!item) { left.push({ path: requested, reason: 'No longer offered (in use again, or already gone).' }); continue }
     if (!existsSync(item.path)) { left.push({ path: item.path, reason: 'Already gone.' }); continue }
     try {
-      moved.push({ path: item.path, to: moveToTrashSync(item.path, item.trash_path), bytes: item.bytes })
+      moved.push({ path: item.path, to: moveToTrashSync(item.path, item.trash_path, 'leftovers'), bytes: item.bytes })
     } catch (error: any) {
       left.push({ path: item.path, reason: error?.code === 'EXDEV'
         ? 'It is on another drive than the project, so it was left where it is.'
-        : `Could not move it to _trash (${error?.message || error}); it was left where it is.` })
+        : `Could not move it to the Trash (${error?.message || error}); it was left where it is.` })
     }
   }
   return { moved, left }

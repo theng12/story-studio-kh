@@ -18,6 +18,7 @@ import { existsSync } from 'fs'
 
 import { OUTLINE_MASK_NAME, type RegionShape, type SceneRegion } from '../contracts/scene-effects.js'
 import { runFfmpeg } from '../lib/ffmpeg-utils.js'
+import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import { probeVideoStream } from '../lib/scene-clip-compat.js'
 
 export const OUTLINE_MASK_DIR = 'living_masks'
@@ -95,6 +96,8 @@ export async function saveOutlineMask(opts: {
   label?: string
   data: Buffer
   stillPath?: string | null
+  /** The channel, so an outline replaced under the same name goes to Story's Trash, not over-written. */
+  channel?: { slug: string; projectDir: string }
 }): Promise<{ name: string; width: number; height: number; coverage: number; feathered_by_story: boolean }> {
   if (!opts.data.length) throw new Error('The outline upload was empty.')
   if (opts.data.length > 20 * 1024 * 1024) throw new Error('The outline is larger than 20 MB.')
@@ -119,6 +122,12 @@ export async function saveOutlineMask(opts: {
     const staged = path.join(dir, 'outline.png')
     await runFfmpeg(['-v', 'error', '-y', '-i', upload, '-frames:v', '1',
       '-vf', `format=gray${feather ? ',gblur=sigma=3' : ''}`, staged], { timeoutMs: 30_000 })
+    if (opts.channel && existsSync(target)) {
+      const { projectDir, slug } = opts.channel
+      const rel = path.relative(projectDir, target)
+      const keep = rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel : path.join('outlines', path.basename(opts.episodeDir), name)
+      moveToTrashSync(target, path.join(trashRootFor(path.dirname(target), projectDir, slug), keep), 'outline')
+    }
     await fs.rename(staged, target).catch(async () => { await fs.copyFile(staged, target) })
     return { name, width: check.width, height: check.height, coverage: Number(check.coverage.toFixed(4)), feathered_by_story: feather }
   })

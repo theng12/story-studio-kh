@@ -70,9 +70,9 @@ test('review uses selected scope, cancellation spends nothing, double confirm st
     change(images); await flush()
     button(ui.host, 'Review Selected Files').click(); await flush(); await flush()
     assert.deepEqual(calls[0], { url: '/projects/first/media-cleanup/preview', body: { episode_codes: ['EP0001'], categories: ['images'] } })
-    button(ui.host, 'Move Reviewed Files to _trash').click(); await flush()
+    button(ui.host, 'Move Reviewed Files to the Trash').click(); await flush()
     assert.equal(calls.length, 1, 'declined confirmation must not run cleanup')
-    const run = button(ui.host, 'Move Reviewed Files to _trash'); run.click(); run.click(); await flush()
+    const run = button(ui.host, 'Move Reviewed Files to the Trash'); run.click(); run.click(); await flush()
     assert.equal(askCount, 2, 'one pending confirmation despite repeated click')
     confirm.resolve(true); await flush()
     assert.equal(calls.filter(c => c.url.endsWith('/run')).length, 1)
@@ -88,7 +88,7 @@ test('dismissed or changed selections cannot reuse a stale reviewed file list', 
     button(ui.host, 'Review Selected Files').click(); await flush(); await flush()
     assert.match(ui.host.textContent || '', /Review 1 files/)
     button(ui.host, 'Clear Selection').click(); await flush()
-    assert.doesNotMatch(ui.host.textContent || '', /Move Reviewed Files to _trash/)
+    assert.doesNotMatch(ui.host.textContent || '', /Move Reviewed Files to the Trash/)
   } finally { ui.close() }
 })
 
@@ -98,12 +98,12 @@ test('dismissed review stays dismissed after navigating away and returning', asy
   savedOperations.set('media-cleanup:first', 'preview-op')
   const ui = await mount(api)
   try {
-    assert.match(ui.host.textContent || '', /Move Reviewed Files to _trash/)
+    assert.match(ui.host.textContent || '', /Move Reviewed Files to the Trash/)
     button(ui.host, 'Dismiss Review').click(); await flush()
     assert.equal(savedOperations.has('media-cleanup:first'), false)
   } finally { ui.close() }
   const restored = await mount(api)
-  try { assert.doesNotMatch(restored.host.textContent || '', /Move Reviewed Files to _trash/) }
+  try { assert.doesNotMatch(restored.host.textContent || '', /Move Reviewed Files to the Trash/) }
   finally { restored.close() }
 })
 
@@ -146,7 +146,7 @@ test('Free Up Space needs no folder: it loads uploads itself, shows the project 
     assert.match(text, /412 images 490\.0 MB → ~57\.0 MB/)
     assert.match(text, /Frees about 3\.02 GB/)
     assert.match(text, /\/Library\/chan\/_trash/)
-    assert.match(text, /space is freed when you empty _trash/)
+    assert.match(text, /space is freed when you empty the Trash/)
     assert.doesNotMatch(text, /permanent/i)
     assert.equal(ui.host.querySelector('#cleanup-destination'), null, 'no folder input on the main path')
     assert.ok(![...ui.host.querySelectorAll('button')].some(b => /browse/i.test(b.textContent || '')), 'no Browse button on the main path')
@@ -167,7 +167,7 @@ test('the advanced review defaults to _trash, never to a destination folder', as
     change(ui.host.querySelector<HTMLInputElement>('input[type=checkbox][value=images]')!); await flush()
     button(ui.host, 'Review Selected Files').click(); await flush(); await flush()
     assert.equal(ui.host.querySelector('#cleanup-destination'), null)
-    button(ui.host, 'Move Reviewed Files to _trash').click(); await flush()
+    button(ui.host, 'Move Reviewed Files to the Trash').click(); await flush()
     assert.deepEqual(calls[1].body, { preview_id: 'review-1', mode: 'remove' })
   } finally { ui.close() }
 })
@@ -193,7 +193,7 @@ test('one missed progress read does not freeze the operation: it keeps checking 
     assert.match(ui.host.textContent || '', /Checking again/)
     mock.timers.tick(3_000); await drain()
     assert.equal(reads, 2, 'the operation is read again after the miss')
-    assert.match(ui.host.textContent || '', /Move Reviewed Files to _trash/)
+    assert.match(ui.host.textContent || '', /Move Reviewed Files to the Trash/)
   } finally { mock.timers.reset(); ui.close() }
 })
 
@@ -233,8 +233,8 @@ test('shows free disk and _trash sizes, why uploads are not offered, and checks 
     await flush()
     const text = ui.host.textContent || ''
     assert.match(text, /Free on this drive: 5\.00 GB/)
-    assert.match(text, /this project’s _trash: 2\.00 GB/)
-    assert.match(text, /every project’s _trash: 3\.00 GB/)
+    assert.match(text, /This channel in the Trash: 2\.00 GB/)
+    assert.match(text, /Whole Trash: 3\.00 GB/)
     assert.match(text, /Old app copies from updates: 1\.00 GB \(empties itself after 15 days\)/)
     assert.match(text, /Nothing can be freed here yet\. The reasons are listed above\./)
     assert.match(text, /press Check All Uploads/)

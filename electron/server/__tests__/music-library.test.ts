@@ -155,7 +155,7 @@ describe('metadata never outlives its file', () => {
     assert.equal(await fs.access(path.join(libDir, 'unwanted.mp3')).then(() => true, () => false), false)
     assert.ok(!(await listLibrary(SLUG)).tracks.some(t => t.filename === 'unwanted.mp3'))
     // A paid track is never hard-deleted (2026-10-03 audit): it waits in _trash for the owner.
-    await fs.access(path.join(projectDir, '_trash', MUSIC_LIBRARY_DIRNAME, 'unwanted.mp3'))
+    await fs.access(path.join(path.dirname(projectDir), '_trash', path.basename(projectDir), MUSIC_LIBRARY_DIRNAME, 'unwanted.mp3'))
   })
 
   test('the music pool moves a removed bed to the project trash too', async () => {
@@ -165,7 +165,7 @@ describe('metadata never outlives its file', () => {
     await fs.writeFile(path.join(poolDir, 'bed.mp3'), Buffer.from([0x49, 0x44, 0x33]))
     assert.deepEqual(await pool.removeTrack(SLUG, 'bed.mp3'), { removed: true })
     assert.equal(await fs.access(path.join(poolDir, 'bed.mp3')).then(() => true, () => false), false)
-    await fs.access(path.join(projectDir, '_trash', 'music', 'bed.mp3'))
+    await fs.access(path.join(path.dirname(projectDir), '_trash', path.basename(projectDir), 'music', 'bed.mp3'))
   })
 
   test('a filename that tries to escape the library folder is refused', async () => {

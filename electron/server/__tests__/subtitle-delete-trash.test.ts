@@ -31,7 +31,7 @@ void test('deleting a subtitle file moves it to the project trash instead of des
     assert.equal(res.status, 200, JSON.stringify(res.body))
     assert.ok(!res.body.existing_srts.some((row: any) => row.filename === name))
     await assert.rejects(fs.access(path.join(paths.subtitles_dir, name)))
-    const kept = await fs.readFile(path.join(pm.getProjectDir(project.slug)!, '_trash', code, 'subtitles', name), 'utf8')
+    const kept = await fs.readFile(path.join(path.dirname(pm.getProjectDir(project.slug)!), '_trash', path.basename(pm.getProjectDir(project.slug)!), code, 'subtitles', name), 'utf8')
     assert.match(kept, /Hello/)
 
     const again = await request(app).delete(`/api/projects/${project.slug}/video-editor/subtitles/${code}/${name}`)

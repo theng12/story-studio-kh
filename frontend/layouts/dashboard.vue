@@ -119,6 +119,7 @@
             </NuxtLink>
             <NuxtLink to="/content-store" class="sidebar-utility" active-class="active">Content Store</NuxtLink>
             <NuxtLink v-if="slug" :to="`/projects/${slug}/settings#free-up-space`" class="sidebar-utility">Free Up Space</NuxtLink>
+            <NuxtLink to="/trash" class="sidebar-utility" active-class="active">Trash</NuxtLink>
             <NuxtLink v-if="slug" :to="`/projects/${slug}/settings`" class="sidebar-utility" active-class="active">Settings</NuxtLink>
             <button v-else type="button" class="sidebar-utility" @click="appSettingsModal.open()">Settings</button>
             <NuxtLink to="/" class="sidebar-utility all-projects-link">All Channels</NuxtLink>

@@ -60,7 +60,7 @@ describe('narration takes', () => {
     assert.deepEqual(result, { active: parts, trashed: ['EP0002_Chapter_12.mp3'] })
     const selector = JSON.parse(await fs.readFile(path.join(ep.episodeDir, 'audio_chapters.json'), 'utf8'))
     assert.deepEqual(selector.sections[0].source_files, parts)
-    const trashed = path.join(ep.projectDir, '_trash', path.relative(ep.projectDir, path.join(ep.audioDir, 'EP0002_Chapter_12.mp3')))
+    const trashed = path.join(path.dirname(ep.projectDir), '_trash', path.basename(ep.projectDir), path.relative(ep.projectDir, path.join(ep.audioDir, 'EP0002_Chapter_12.mp3')))
     assert.equal(await fs.readFile(trashed, 'utf8'), 'audio:EP0002_Chapter_12.mp3')
     const after = await versions.listChapterTakes(ep.episodeDir, ep.audioDir, 'EP0002', 'Chapter_12')
     assert.deepEqual(after.map(t => [t.files.length, t.active]), [[2, true]])

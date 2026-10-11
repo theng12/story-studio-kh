@@ -829,16 +829,16 @@ export async function previewIdeaReset(slug: string, ideaId: string): Promise<Re
 }
 
 /**
- * Move a directory into the project's `_trash` (or `<media_root>/_trash/<slug>`
- * for heavy media on another drive), keeping its path under `anchor`. Nothing
- * the app removes is hard-deleted; the owner empties `_trash` himself.
+ * Move a directory into Story's Trash (`trashRootFor`: `<Library>/_trash/<slug>`, or
+ * `<media_root>/_trash/<slug>` on another drive), keeping its path under `anchor`.
+ * Nothing the app removes is hard-deleted; the owner empties it on Story → Trash.
  */
 function trashDirSync(slug: string, dir: string, anchor: string): string | null {
   if (!existsSync(dir)) return null
   const projectDir = projectDirFor(slug)
   const rel = path.relative(anchor, dir)
   const keep = rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel : path.basename(dir)
-  return moveToTrashSync(dir, path.join(trashRootFor(anchor, projectDir, slug), keep))
+  return moveToTrashSync(dir, path.join(trashRootFor(anchor, projectDir, slug), keep), 'episode')
 }
 
 /**
