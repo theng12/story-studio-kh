@@ -29,16 +29,17 @@ import { compileSceneMotion, compileSceneOverlay, overlayLoopShapes } from '../l
 import { bakeEffectLoop, bakeTransitionMatte } from '../lib/effect-loop-baker.js'
 import { buildEngineTransitionFilterComplex } from '../lib/transition-filters.js'
 import { renderNativeSceneClip } from '../lib/native-scene-clip.js'
-import { applySceneStage, type SceneStageItem } from '../lib/scene-stage.js'
-import { outlineMaskPath } from '../services/outline-masks.js'
+import { applySceneStage, type SceneStageDepth, type SceneStageItem } from '../lib/scene-stage.js'
+import { outlineMaskPath, SCENE_ANALYSIS_DIR } from '../services/outline-masks.js'
 import { loopShapeKey } from '../contracts/effect-loops.js'
-import { isHiddenMotion, MOTION_FAMILIES } from '../contracts/scene-effect-presets.js'
+import { findSceneMotion, isHiddenMotion, MOTION_FAMILIES } from '../contracts/scene-effect-presets.js'
 import {
   listSceneEffectLibrary,
   listSubtitleStylePresets,
   type SceneEffectLibrary,
 } from '../services/style-effect-loader.js'
-import { EFFECT_STACK_GROUPS, normalizeSceneOverlay, overlayStackGroup, type SceneMotionDocument, type SceneOverlayDocument } from '../contracts/scene-effects.js'
+import { EFFECT_STACK_GROUPS, normalizeSceneOverlay, offeredWithSwitches, overlayStackGroup, type SceneMotionDocument, type SceneOverlayDocument } from '../contracts/scene-effects.js'
+import { sceneAnalysisSwitches } from '../services/scene-analysis.js'
 import {
   SceneEffectValidationError,
   parseSceneMotionDocument,
@@ -930,13 +931,21 @@ router.put('/projects/:slug/video-editor/reveals/scene-choice', async (req, res)
 
 // ── Animations catalog + previews ───────────────────────────────────────
 
-router.get('/projects/:slug/video-editor/animations/catalog', async (_req, res) => {
+/** The motion families with only the strengths offered (E2–E4: picture-aware ones need the channel's scene analysis). */
+function offeredFamilies(ids: readonly string[]) {
+  const offered = new Set(ids)
+  return MOTION_FAMILIES.map(f => ({ ...f, members: f.members.filter(m => offered.has(m.id)) })).filter(f => f.members.length)
+}
+
+router.get('/projects/:slug/video-editor/animations/catalog', async (req, res) => {
   // v1.2.1 — the same projection, over the merged built-in + installed-pack
   // registry. With zero packs installed this is `ANIMATIONS` exactly.
   // 1.4.280 — rotation is never offered (owner 2026-10-11); old presets naming it still load.
   // 1.4.282 — parallax-drift (Pan Right's twin) is hidden too; the strengths of a family come as `families`.
-  const animations = (await listSceneEffectLibrary()).scene_motions.filter(m => !isHiddenMotion(m)).map(toAnimationDef)
-  res.json({ animations, grouped: groupAnimationDefs(animations), families: MOTION_FAMILIES })
+  // E2–E4 — moves that need scene analysis only where the channel has it on.
+  const switches = sceneAnalysisSwitches(await pm.getConfig(req.params.slug).catch(() => null))
+  const animations = (await listSceneEffectLibrary()).scene_motions.filter(m => !isHiddenMotion(m) && offeredWithSwitches(m.document, switches)).map(toAnimationDef)
+  res.json({ animations, grouped: groupAnimationDefs(animations), families: offeredFamilies(animations.map(a => a.id)) })
 })
 
 /**
@@ -951,6 +960,13 @@ router.get('/projects/:slug/video-editor/preview-animation', async (req, res) =>
   const episodeId = req.query.episode as string | undefined
   const def = getAnimation(type)
   if (!def) return res.status(400).json({ detail: `Unknown animation: ${type}` })
+  // E2–E4 — a picture-aware move previews through the Effects Library gallery, which has the
+  // scene's analysis (or the bundled sample and its analysis), so the clip shows the real move.
+  const motionEntry = findSceneMotion(type)
+  if (motionEntry && (motionEntry.document.depth || motionEntry.document.rack || motionEntry.document.aim)) {
+    const ar = typeof req.query.aspect_ratio === 'string' ? `?aspect_ratio=${encodeURIComponent(req.query.aspect_ratio)}` : ''
+    return res.redirect(302, `/api/projects/${encodeURIComponent(slug)}/effects-library/${encodeURIComponent(episodeId || '-')}/gallery/motion/${encodeURIComponent(type)}${ar}`)
+  }
 
   let srcImage: string | null = null
   if (episodeId) {
@@ -1027,16 +1043,20 @@ router.get('/projects/:slug/video-editor/preview-animation', async (req, res) =>
 // v1.1.0 established for subtitles, for the same reason: an overlay stack is
 // far too large for a querystring, but a `<video src>` needs a plain GET.
 
-router.get('/projects/:slug/video-editor/effects/catalog', async (_req, res) => {
+router.get('/projects/:slug/video-editor/effects/catalog', async (req, res) => {
   const library = await listSceneEffectLibrary()
+  // E2–E4 — picture-aware moves and effects only where the channel has scene analysis on.
+  const switches = sceneAnalysisSwitches(await pm.getConfig(req.params.slug).catch(() => null))
   res.json({
     // v1.2.1 — built-ins plus anything an installed Content Pack adds. Every
     // entry carries `origin`, and `refusals` names any pack item that was left
     // out rather than letting it disappear without explanation.
     ...library,
     // 1.4.282 — rotation and Pan Right's twin are never offered; strengths come as families.
-    scene_motions: library.scene_motions.filter(m => !isHiddenMotion(m)),
-    motion_families: MOTION_FAMILIES,
+    overlays: library.overlays.filter(o => offeredWithSwitches(o.document, switches)),
+    scene_motions: library.scene_motions.filter(m => !isHiddenMotion(m) && offeredWithSwitches(m.document, switches)),
+    motion_families: offeredFamilies(library.scene_motions.filter(m => offeredWithSwitches(m.document, switches)).map(m => m.id)),
+    scene_analysis: switches,
     // Both are FFmpeg build features, and both degrade an effect rather than
     // the whole render. The UI says so at the point of choosing instead of
     // letting the customer discover it in a finished video.
@@ -1112,7 +1132,9 @@ export async function effectPreviewStageKey(items: readonly SceneStageItem[], ep
   if (!items.length) return ''
   return `|stage-v1|${JSON.stringify(await Promise.all(items.map(async item => {
     const mask = item.document.region?.mask
-    const stat = mask && episodeDir ? await fs.stat(outlineMaskPath(episodeDir, mask)).catch(() => null) : null
+    const auto = item.document.region?.auto
+    const stat = mask && episodeDir ? await fs.stat(outlineMaskPath(episodeDir, mask)).catch(() => null)
+      : auto && episodeDir ? await fs.stat(path.join(episodeDir, SCENE_ANALYSIS_DIR, auto)).catch(() => null) : null
     return [item.document, stat?.size ?? null, stat?.mtimeMs ?? null]
   })))}`
 }
@@ -1123,13 +1145,16 @@ export async function renderEffectPreview(
   backdrop: string | null,
   aspect?: string,
   size: { shortEdge?: number; durationSec?: number } = {},
-  /** 1.4.284 — living pictures / outlined effects of one scene, drawn on the camera clip of its still. */
-  stage?: { items: SceneStageItem[]; episodeDir: string | null; log?: (line: string) => void },
+  /** 1.4.284 — living pictures / outlined effects of one scene, drawn on the camera clip of its still. E2 — and its depth move. */
+  stage?: { items: SceneStageItem[]; episodeDir: string | null; log?: (line: string) => void; depth?: SceneStageDepth | null },
 ): Promise<{ token: string; width: number; height: number; duration_sec: number; render_ms: number; camera_engine: 'native' | 'ffmpeg' | 'none'; living?: string[] | null }> {
   const { key, ext, W, H, DURATION } = effectPreviewCacheEntry(motion, overlays, backdrop, aspect, size)
   // A re-uploaded outline under the same name must not serve the old preview.
   const stageItems = stage?.items.length && backdrop && existsSync(backdrop) ? stage.items : []
+  const stageDepth = stage?.depth && backdrop && existsSync(backdrop) ? stage.depth : null
+  const depthStat = stageDepth ? await fs.stat(stageDepth.map).catch(() => null) : null
   const fullKey = key + await effectPreviewStageKey(stageItems, stage?.episodeDir ?? null)
+    + (stageDepth ? `|depth-v1|${JSON.stringify([stageDepth.spec, depthStat?.size ?? null, depthStat?.mtimeMs ?? null])}` : '')
   let living: string[] | null = null
   const FPS = EFFECT_PREVIEW_FPS
   const started = Date.now()
@@ -1167,7 +1192,7 @@ export async function renderEffectPreview(
         '-pix_fmt', 'yuv420p', '-r', FPS.toString(), '-t', DURATION.toString(), '-an', target], { timeoutMs: 90_000 })
     }
     const intermediates: string[] = []
-    if (stageItems.length && backdrop) {
+    if ((stageItems.length || stageDepth) && backdrop) {
       // Living pictures are drawn on the scene's moving clip, inside its outline
       // carried through the same camera move — exactly as the episode render does.
       if (!cameraClip) {
@@ -1177,7 +1202,7 @@ export async function renderEffectPreview(
       const staged = `${outPath}.living.mp4`
       const nativeCamera = cameraEngine === 'native'
       living = await applySceneStage({
-        clipPath: cameraClip, outPath: staged, stillPath: backdrop, items: stageItems, episodeDir: stage!.episodeDir,
+        clipPath: cameraClip, outPath: staged, stillPath: backdrop, items: stageItems, depth: stageDepth, episodeDir: stage!.episodeDir,
         w: W, h: H, fps: FPS, duration: DURATION, workDir: path.dirname(outPath),
         encodeArgs: ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '14', '-pix_fmt', 'yuv420p', '-r', FPS.toString(), '-t', DURATION.toString(), '-an'],
         renderMaskClip: async (maskPng, maskOut) => {
@@ -1273,7 +1298,7 @@ export async function renderEffectPreview(
   return {
     token: cacheToken(fullKey, ext), width: W, height: H, duration_sec: DURATION, render_ms: Date.now() - started, camera_engine: cameraEngine,
     // Names drawn inside their outlines; null = served from the preview cache.
-    ...(stageItems.length ? { living } : {}),
+    ...(stageItems.length || stageDepth ? { living } : {}),
   }
 }
 

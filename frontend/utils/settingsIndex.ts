@@ -54,6 +54,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { section: 'connections', anchor: 'gateway', label: 'Gateway address and key', keywords: 'gateway gatewaykh url key api connection connect test genstudio' },
   { section: 'connections', anchor: 'youtube-accounts', label: 'YouTube accounts', keywords: 'youtube google oauth connect account channel sign in' },
   { section: 'connections', anchor: 'gateway-catalog', label: 'Gateway model catalog', keywords: 'models catalog chat music available refresh' },
+  { section: 'connections', anchor: 'scene-analysis', label: 'Scene analysis models', keywords: 'scene analysis depth vision florence subject outline sky water 3d photo rack focus models' },
 
   { section: 'performance', anchor: 'throughput', label: 'How much runs at once', keywords: 'concurrency throughput parallel jobs at once writing images thumbnails transcribing subtitles episodes speed' },
   { section: 'performance', anchor: 'throughput', label: 'Writing request time limit', keywords: 'timeout time limit minutes writing request tokens per second slow speed warning outline chapters headroom' },

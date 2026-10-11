@@ -20,6 +20,7 @@
  *     tracking positional shifts.
  */
 
+import { queueEpisodeAnalysisSoon } from '../services/scene-analysis.js'
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
@@ -328,4 +329,6 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     retry_hint: 'The downloaded image is kept; Retry repairs only an incomplete registration.',
   })
   job.output_lines.push(`Done → ${path.basename(outPath)}`)
+  // E2–E4 — an auto-approved picture is analysed in the background (only where the channel has it on).
+  if (params.auto_approve_generated === true) queueEpisodeAnalysisSoon(job.project_slug, episode_id, [scene_id])
 }

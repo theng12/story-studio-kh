@@ -44,7 +44,7 @@ export interface LocalMediaCleanupStatus {
   has_retired_media: boolean
   blocked_reason?: string
   categories: Array<{
-    category: 'images' | 'chapter_audio' | 'merged_audio' | 'motion_clips' | 'final_video'
+    category: 'images' | 'chapter_audio' | 'merged_audio' | 'motion_clips' | 'final_video' | 'scene_analysis'
     removed_files: number
     archived_files: number
     pending_files: number

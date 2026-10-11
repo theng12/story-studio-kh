@@ -67,6 +67,14 @@ const golden = JSON.parse(fs.readFileSync(
   overlays: Record<string, string>
 }
 
+
+/** E2–E4 (1.4.288): the moves that need scene analysis. All are virtual-camera (zoompan) moves. */
+const E2E4_MOTIONS = [
+  'depth-gentle', 'depth', 'depth-strong', 'depth-left', 'depth-right',
+  'rack-focus-gentle', 'rack-focus', 'rack-focus-strong', 'rack-focus-background',
+  'subject-gentle', 'subject', 'subject-strong', 'subject-pull', 'tour', 'tour-slow',
+]
+
 describe('v1.1.0 scene animations are reproduced byte for byte', () => {
   test('every animation, parameter set and output frame', () => {
     const mismatches: string[] = []
@@ -88,7 +96,8 @@ describe('v1.1.0 scene animations are reproduced byte for byte', () => {
 
   test('the fixture covers every animation the catalogue offers', () => {
     // E1 (1.4.287) moves are newer than v1.1.0; `effects-e1.test.ts` pins their output.
-    for (const def of ANIMATIONS.filter(a => !['float', 'float-gentle'].includes(a.id))) {
+    // E2–E4 (1.4.288) moves likewise; `effects-e2e4.test.ts` pins theirs.
+    for (const def of ANIMATIONS.filter(a => !['float', 'float-gentle'].includes(a.id) && !E2E4_MOTIONS.includes(a.id))) {
       assert.ok(
         Object.keys(golden.animations).some(k => k.startsWith(`${def.id}|`)),
         `animation "${def.id}" has no pinned output — capture it before shipping it`,
@@ -187,9 +196,9 @@ describe('v1.1.0 ad-hoc effects are reproduced byte for byte', () => {
 
 describe('the registry drives the catalogues, not a second list', () => {
   test('every animation id, label and category still resolves', () => {
-    // 24, plus E1's two handheld floats (1.4.287).
-    assert.equal(ANIMATIONS.length, 26)
-    assert.equal(BUILT_IN_SCENE_MOTIONS.length, 26)
+    // 24, plus E1's two handheld floats (1.4.287) and E2–E4's fifteen picture-aware moves (1.4.288).
+    assert.equal(ANIMATIONS.length, 41)
+    assert.equal(BUILT_IN_SCENE_MOTIONS.length, 41)
     for (const m of BUILT_IN_SCENE_MOTIONS) {
       const def = getAnimation(m.id)
       assert.ok(def, `${m.id} missing from the catalogue`)
@@ -211,7 +220,8 @@ describe('the registry drives the catalogues, not a second list', () => {
       'breathe', 'dolly-in', 'float', 'float-gentle', 'ken-burns', 'ken-burns-reverse', 'pan-diag-bl', 'pan-diag-br',
       'pan-diag-tl', 'pan-diag-tr', 'pan-down', 'pan-left', 'pan-right', 'pan-up',
       'parallax-drift', 'pulse', 'slow-pull', 'slow-push', 'zoom-in', 'zoom-out',
-    ])
+      ...E2E4_MOTIONS,
+    ].sort())
   })
 
   test('ids are unique inside each registry', () => {
@@ -485,10 +495,11 @@ describe('documents normalise leniently and validate strictly', () => {
 
   test('the catalogue payload carries everything the pickers need', () => {
     const catalog = sceneEffectCatalog()
-    assert.equal(catalog.scene_motions.length, 26)
+    assert.equal(catalog.scene_motions.length, 41)
     assert.equal(catalog.footage_motions.length, 7)
-    // Thirteen starter overlays, the sixteen v1.5 Effects Library effects and Living Picture (1.4.284).
-    assert.equal(catalog.overlays.length, 42)
+    // Thirteen starter overlays, the sixteen v1.5 Effects Library effects, Living Picture (1.4.284),
+    // E1's twelve (1.4.287) and E4's twelve that follow the picture (1.4.288).
+    assert.equal(catalog.overlays.length, 54)
     assert.ok(catalog.effect_stacks.length >= 3)
     assert.ok(catalog.grouped_overlays.length >= 4)
     assert.equal(

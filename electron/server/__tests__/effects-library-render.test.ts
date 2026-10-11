@@ -93,7 +93,8 @@ const VISIBLE_ON_GRADIENT: Record<string, Record<string, unknown>> = {
 }
 
 describe('every v1.5 effect changes the picture', { skip: !ffmpegAvailable && 'no bundled FFmpeg' }, () => {
-  const fresh = BUILT_IN_OVERLAYS.filter(entry => LIBRARY_V1_5_KINDS.includes(entry.document.kind))
+  // E4 (1.4.288) effects that follow the picture are drawn on scene clips; `effects-e2e4.test.ts` covers them.
+  const fresh = BUILT_IN_OVERLAYS.filter(entry => LIBRARY_V1_5_KINDS.includes(entry.document.kind) && !entry.document.follow)
   // 16 in 1.5, then E1 (1.4.287): shooting star, aurora, moon glow, sky clouds, caustics, window
   // drops, paper, film dust, halation, gentle bloom, surface shimmer, bedtime dimming.
   test('there are twenty-eight of them', () => assert.equal(fresh.length, 28))

@@ -106,7 +106,7 @@ import { useApi } from '~/composables/useApi'
 import { useConfirm } from '~/composables/useConfirm'
 import { pickFolder } from '~/composables/usePathPicker'
 
-type Category = 'images' | 'chapter_audio' | 'narration_parts' | 'merged_audio' | 'master_audio' | 'motion_clips' | 'final_video'
+type Category = 'images' | 'chapter_audio' | 'narration_parts' | 'merged_audio' | 'master_audio' | 'motion_clips' | 'final_video' | 'scene_analysis'
 /** `video_id` null: not uploaded, listed only because it has kept narration parts. */
 interface CleanupEpisode { episode_code: string; title: string; video_id: string | null; local_media_status?: { state: string; preset_archived_at?: string | null } }
 interface ReviewedFile { path: string; relative_path: string; bytes: number; category: Category }
@@ -151,6 +151,7 @@ const categoryOptions: { id: Category; label: string }[] = [
   { id: 'merged_audio', label: 'Merged audio' },
   { id: 'master_audio', label: 'Full-quality audio of uploaded episodes (the lossless .master.flac beside the merged narration; the MP3 stays)' },
   { id: 'motion_clips', label: 'Motion clips' }, { id: 'final_video', label: 'Final video' },
+  { id: 'scene_analysis', label: 'Scene analysis of uploaded episodes (depth maps and outlines; a re-render falls back to plain moves until re-analysed)' },
 ]
 const uploaded = computed(() => (episodes.value || []).filter(ep => ep.video_id).map(ep => ep.episode_code))
 const notArchived = computed(() => (episodes.value || []).filter(ep => ep.video_id && !ep.local_media_status?.preset_archived_at).map(ep => ep.episode_code))

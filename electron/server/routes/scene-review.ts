@@ -13,6 +13,7 @@
  *      — streams the scene image PNG (kept within episode dir; strict id match)
  */
 
+import { queueEpisodeAnalysisSoon } from '../services/scene-analysis.js'
 import express, { Router } from 'express'
 import fs from 'fs/promises'
 import { existsSync, createReadStream } from 'fs'
@@ -1468,6 +1469,9 @@ router.put('/projects/:slug/scene-review/:episodeId/approve', async (req, res) =
       promptIntegrity.complete && subtitleIntegrity.complete,
     )
     await invalidateEpisodeStatus(slug, episodeId)
+    // E2–E4 — approved pictures are analysed in the background, once each (only where the channel has it on).
+    if (body.all === true) queueEpisodeAnalysisSoon(slug, episodeId)
+    else if (typeof body.scene_id === 'string' && body.approved) queueEpisodeAnalysisSoon(slug, episodeId, [body.scene_id])
     res.json({
       ok: true,
       changed,

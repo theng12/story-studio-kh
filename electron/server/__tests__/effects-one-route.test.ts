@@ -361,6 +361,11 @@ describe('camera motion families trim the menu and delete nothing', () => {
       ['Zoom out', ['gentle:slow-pull', 'normal:ken-burns-reverse', 'strong:zoom-out']],
       ['Breathe', ['gentle:breathe', 'strong:pulse']],
       ['Handheld float', ['gentle:float-gentle', 'normal:float']],
+      // E2–E4 (1.4.288) — offered only where the channel has scene analysis on.
+      ['3D photo', ['gentle:depth-gentle', 'normal:depth', 'strong:depth-strong']],
+      ['Rack focus', ['gentle:rack-focus-gentle', 'normal:rack-focus', 'strong:rack-focus-strong']],
+      ['Zoom to subject', ['gentle:subject-gentle', 'normal:subject', 'strong:subject-strong']],
+      ['Guided tour', ['gentle:tour-slow', 'normal:tour']],
     ])
     // The library keeps every motion (old choices must render); the menus filter.
     assert.equal(sceneEffectCatalog().scene_motions.length, BUILT_IN_SCENE_MOTIONS.length)

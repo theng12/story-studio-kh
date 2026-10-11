@@ -179,10 +179,11 @@ describe('atmosphere loops — one program for the preview and the bake', () => 
 
 describe('new effect kinds', () => {
   test('sixteen v1.5 effects are in the library, after the original thirteen', () => {
-    // 30 since 1.4.284 (Living Picture), 42 since E1 (1.4.287): its twelve appended last.
-    assert.equal(BUILT_IN_OVERLAYS.length, 42)
+    // 30 since 1.4.284 (Living Picture), 42 since E1 (1.4.287), 54 since E4 (1.4.288): each appended last.
+    assert.equal(BUILT_IN_OVERLAYS.length, 54)
     assert.equal(BUILT_IN_OVERLAYS[29]!.id, 'living-region')
-    assert.equal(BUILT_IN_OVERLAYS.at(-1)!.id, 'bedtime-dimming')
+    assert.equal(BUILT_IN_OVERLAYS[41]!.id, 'bedtime-dimming')
+    assert.equal(BUILT_IN_OVERLAYS.at(-1)!.id, 'fire-glow-found')
     assert.equal(BUILT_IN_OVERLAYS[12]!.id, 'scrim-top')
     for (const id of ['rain', 'snow', 'lightning-flash', 'shimmer-ripple', 'ground-mist', 'cloud-shadows', 'dust-motes', 'petals',
       'fireflies', 'bokeh-orbs', 'embers', 'twinkling-stars', 'light-rays', 'bloom-glow', 'candle-flicker', 'colour-grade-look']) {

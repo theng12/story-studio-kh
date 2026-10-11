@@ -39,6 +39,7 @@
           <div class="card settings-panel settings-panel-embedded" data-setting="youtube-accounts">
             <YouTubeConnectionSettings :slug="slug" scope="connections" />
           </div>
+          <div class="card settings-panel settings-panel-embedded" data-setting="scene-analysis"><SceneAnalysisSettings /></div>
           <AdvancedDisclosure label="Advanced: Gateway model catalog" data-setting="gateway-catalog">
             <div class="card settings-panel settings-panel-embedded"><GenStudioCatalogSettings /></div>
           </AdvancedDisclosure>

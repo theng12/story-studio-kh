@@ -17,6 +17,9 @@ import path from 'path'
 import { existsSync } from 'fs'
 
 import { OUTLINE_MASK_NAME, type RegionShape, type SceneRegion } from '../contracts/scene-effects.js'
+
+/** E4 — where scene analysis keeps each scene's depth map and found outlines, beside the episode. */
+export const SCENE_ANALYSIS_DIR = 'scene-analysis'
 import { runFfmpeg } from '../lib/ffmpeg-utils.js'
 import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import { probeVideoStream } from '../lib/scene-clip-compat.js'
@@ -184,18 +187,22 @@ export async function drawRegionMask(opts: {
   const { region, still } = opts
   const sigma = (region.feather_px * still.height) / 1080
   const soften = sigma > 0.05 ? `,gblur=sigma=${sigma.toFixed(2)}` : ''
-  if (region.mask) {
-    if (!opts.episodeDir) return { ok: false, reason: `outline "${region.mask}" needs an episode to be read from` }
-    const file = outlineMaskPath(opts.episodeDir, region.mask)
-    if (!existsSync(file)) return { ok: false, reason: `outline "${region.mask}" is missing from ${OUTLINE_MASK_DIR}/` }
+  // E4 — an outline found by scene analysis lives in `scene-analysis/` (see services/scene-analysis.ts).
+  const named = region.mask || region.auto
+  if (named) {
+    if (!opts.episodeDir) return { ok: false, reason: `outline "${named}" needs an episode to be read from` }
+    const dir = region.mask ? OUTLINE_MASK_DIR : SCENE_ANALYSIS_DIR
+    const file = path.join(opts.episodeDir, dir, named)
+    if (!OUTLINE_MASK_NAME.test(named)) return { ok: false, reason: `"${named}" is not an outline name` }
+    if (!existsSync(file)) return { ok: false, reason: `outline "${named}" is missing from ${dir}/` }
     try {
       const problems = outlineProblems(await checkOutlineImage(file), still)
-      if (problems.length) return { ok: false, reason: `outline "${region.mask}": ${problems.join(' ')}` }
+      if (problems.length) return { ok: false, reason: `outline "${named}": ${problems.join(' ')}` }
       await runFfmpeg(['-v', 'error', '-y', '-i', file, '-frames:v', '1',
         '-vf', `scale=${still.width}:${still.height}:flags=bicubic,format=gray${soften},format=rgb24`, opts.outPng], { timeoutMs: 60_000 })
       return { ok: true }
     } catch (error: any) {
-      return { ok: false, reason: `outline "${region.mask}" could not be read (${String(error?.message || error).split('\n')[0]})` }
+      return { ok: false, reason: `outline "${named}" could not be read (${String(error?.message || error).split('\n')[0]})` }
     }
   }
   const shapes = region.shapes || []

@@ -9,6 +9,7 @@ import sharp from 'sharp'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { assertDecodableImage } from '../lib/image-validation.js'
 import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
+import { SCENE_ANALYSIS_DIR } from './outline-masks.js'
 import type { Job } from '../models/types.js'
 import * as im from './idea-manager.js'
 import * as jq from './job-queue.js'
@@ -35,7 +36,7 @@ import { resolveYouTubeSourceRevision, resolveYouTubeSourceRevisionCached } from
 import { verifyTimeoutMs, withTimeout } from '../lib/with-timeout.js'
 
 export const MEDIA_CLEANUP_SIDECAR = 'local_media_cleanup.json'
-export type MediaCleanupCategory = 'images' | 'chapter_audio' | 'narration_parts' | 'merged_audio' | 'master_audio' | 'motion_clips' | 'final_video'
+export type MediaCleanupCategory = 'images' | 'chapter_audio' | 'narration_parts' | 'merged_audio' | 'master_audio' | 'motion_clips' | 'final_video' | 'scene_analysis'
 /**
  * `remove` moves to `_trash` (never a hard delete); `compress` re-encodes scene
  * images as JPEG in place (originals to `_trash`) and moves every other
@@ -252,7 +253,7 @@ const consumedPreviews = new Set<string>()
 const PREVIEW_TTL_MS = 30 * 60 * 1_000
 const OPERATION_RETENTION_MS = 2 * 60 * 60 * 1_000
 const MAX_OPERATIONS = 200
-const CATEGORIES = new Set<MediaCleanupCategory>(['images', 'chapter_audio', 'narration_parts', 'merged_audio', 'master_audio', 'motion_clips', 'final_video'])
+const CATEGORIES = new Set<MediaCleanupCategory>(['images', 'chapter_audio', 'narration_parts', 'merged_audio', 'master_audio', 'motion_clips', 'final_video', 'scene_analysis'])
 /** 1.4.281's levelled lossless master beside the merged mp3 (`lib/level-audio.ts`): `{name}.master.flac`. */
 const MASTER_AUDIO = /\.master\.flac$/i
 const IMAGE_EXT = /\.(png|jpe?g|webp)$/i
@@ -513,6 +514,8 @@ async function rootsFor(slug: string, code: string, title: string, categories: M
   if (selected.has('merged_audio')) add(paths.merged_audio_dir, heavyAnchor, 'merged_audio', 'merged_audio', name => AUDIO_EXT.test(name) && !(selected.has('master_audio') && MASTER_AUDIO.test(name)))
   if (selected.has('master_audio')) add(paths.merged_audio_dir, heavyAnchor, 'master_audio', 'master_audio', name => MASTER_AUDIO.test(name))
   if (selected.has('motion_clips')) add(paths.video_assets_dir, heavyAnchor, 'motion_clips', 'motion_clips', name => VIDEO_EXT.test(name))
+  // E2–E4 (1.4.288) — depth maps and found outlines beside the episode (Q12).
+  if (selected.has('scene_analysis')) add(path.join(paths.episode_dir, SCENE_ANALYSIS_DIR), projectDir, 'scene_analysis', 'scene_analysis', name => /\.(json|png)$/i.test(name))
   if (selected.has('final_video')) {
     add(paths.video_dir, heavyAnchor, 'final_video', 'final_video', name => isFinalName(code, name))
     const external = await resolveExternalFinalVideoDir(slug, code, title).catch(() => null)

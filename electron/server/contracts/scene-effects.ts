@@ -209,6 +209,38 @@ export interface SceneMotionFloat {
   seed: number
 }
 
+/**
+ * E2–E4 (1.4.288) — picture-aware moves. Each needs the scene's saved analysis
+ * (`services/scene-analysis.ts`); without it the scene renders the move's plain camera (a Zoom in,
+ * or Blur → Focus for a rack) and the job log says so. Absent = none, so every older document is
+ * unchanged.
+ */
+export const DEPTH_DIRECTIONS = ['in', 'left', 'right', 'up'] as const
+export type DepthDirection = (typeof DEPTH_DIRECTIONS)[number]
+/** 3D photo: near pixels move more than far ones, about the subject's depth. */
+export interface SceneMotionDepth {
+  /** Largest shift of the nearest pixels, % of the frame width, 0..1.5. */
+  parallax_pct: number
+  direction: DepthDirection
+}
+export const RACK_TARGETS = ['subject', 'far'] as const
+/** Rack focus: the sharp plane slides from far to the subject (`subject`) or from the subject to far (`far`). */
+export interface SceneMotionRack {
+  to: (typeof RACK_TARGETS)[number]
+  /** Blur of the most out-of-focus depth at 1080 lines, 1..12 px. */
+  max_sigma_px: number
+}
+export const AIM_MODES = ['subject', 'tour'] as const
+/**
+ * Zoom toward the subject / guided tour. `target` (and the tour's `path`) are filled in per scene by
+ * the render from the analysis, in 0..1 of the picture; a library document carries only `mode`.
+ */
+export interface SceneMotionAim {
+  mode: (typeof AIM_MODES)[number]
+  target?: [number, number]
+  path?: Array<[number, number]>
+}
+
 export interface SceneMotionDocument {
   schema_version: typeof SCENE_EFFECT_SCHEMA_VERSION
   source: MotionSource
@@ -219,6 +251,40 @@ export interface SceneMotionDocument {
   fade: SceneMotionFade
   focus: SceneMotionFocus
   float?: SceneMotionFloat
+  depth?: SceneMotionDepth
+  rack?: SceneMotionRack
+  aim?: SceneMotionAim
+}
+
+/**
+ * How far an aimed camera has turned toward its target, 0..1: none at 100%, all of it at the
+ * clip's largest zoom (a ramp's larger end; any other zoom aims fully). One formula for both
+ * renderers: the window never leaves the picture because the offset grows no faster than the room.
+ */
+export function aimProgress(zoom: SceneMotionZoom, z: number): number {
+  if (zoom.mode !== 'ramp') return 1
+  const peak = Math.max(zoom.from_pct, zoom.to_pct) / 100
+  return peak > 1.0001 ? Math.max(0, Math.min(1, (z - 1) / (peak - 1))) : 0
+}
+
+/**
+ * Whether a channel's scene-analysis switches let it offer this motion or effect (owner: off =
+ * hidden). Depth moves need the depth switch; effects that follow the picture need subject and
+ * outlines; zoom to subject and the tour work with either (the nearest thing by depth is a subject).
+ */
+export function offeredWithSwitches(doc: { depth?: unknown; rack?: unknown; aim?: unknown; follow?: unknown }, switches: { depth: boolean; vision: boolean }): boolean {
+  if ((doc.depth || doc.rack) && !switches.depth) return false
+  if (doc.aim && !switches.depth && !switches.vision) return false
+  if (doc.follow && !switches.vision) return false
+  return true
+}
+
+/** What a motion needs from the scene's analysis; empty for every motion that existed before E2. */
+export function motionNeeds(doc: Pick<SceneMotionDocument, 'depth' | 'rack' | 'aim'>): Array<'depth' | 'vision'> {
+  const needs: Array<'depth' | 'vision'> = []
+  if (doc.depth || doc.rack) needs.push('depth')
+  if (doc.aim) needs.push('vision')
+  return needs
 }
 
 export type SceneMotionPatch = {
@@ -331,7 +397,23 @@ export interface OverlayBase {
    * drawn on that scene's clip and follows its camera move.
    */
   region?: SceneRegion
+  /**
+   * E4 (1.4.288) — follow a part of the picture found by scene analysis instead of a fixed band:
+   * clouds and stars only in the real sky, caustics only on water, mist along the ground line.
+   * A hand outline of that name (`<scene>-<name>.png`) wins over the found one. A scene where
+   * nothing was found keeps the effect's own band (a Living Picture is skipped there).
+   * Absent = the band, exactly as before.
+   */
+  follow?: FollowRegion
 }
+
+/**
+ * The parts of a picture an effect can follow (E4). The first four are outlined by the vision
+ * model; `glow` is the area around a found flame, `plants` trees and grass, `ground` the ground,
+ * and `horizon` a strip just below where the sky meets the land.
+ */
+export const FOLLOW_REGIONS = ['sky', 'water', 'clouds', 'fire', 'glow', 'ground', 'plants', 'horizon'] as const
+export type FollowRegion = (typeof FOLLOW_REGIONS)[number]
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Regions (outlines) — 1.4.284
@@ -350,6 +432,8 @@ export interface SceneRegion {
    * `shapes` when both are set.
    */
   mask?: string
+  /** E4 — an outline found by scene analysis (`scene-analysis/<file>`). Never authored; set by the render. */
+  auto?: string
   shapes?: RegionShape[]
   /** Edge softness, px at the 1080 reference, 0..80. Default 0 for a mask (it is feathered already), 8 for shapes. */
   feather_px: number
@@ -364,6 +448,7 @@ export function normalizeRegion(input: unknown): SceneRegion | null {
   if (!input || typeof input !== 'object') return null
   const r = input as any
   const mask = typeof r.mask === 'string' && OUTLINE_MASK_NAME.test(r.mask) ? r.mask : undefined
+  const auto = !mask && typeof r.auto === 'string' && OUTLINE_MASK_NAME.test(r.auto) ? r.auto : undefined
   const u = (v: unknown) => num(v, 0, 1, 0)
   const shapes: RegionShape[] = (Array.isArray(r.shapes) ? r.shapes : []).slice(0, REGION_MAX_SHAPES).flatMap((s: any): RegionShape[] => {
     if (s?.type === 'ellipse') return [{ type: 'ellipse', cx: u(s.cx), cy: u(s.cy), rx: u(s.rx), ry: u(s.ry) }]
@@ -376,11 +461,12 @@ export function normalizeRegion(input: unknown): SceneRegion | null {
     }
     return []
   })
-  if (!mask && !shapes.length) return null
+  if (!mask && !auto && !shapes.length) return null
   return {
     ...(mask ? { mask } : {}),
+    ...(auto ? { auto } : {}),
     ...(shapes.length ? { shapes } : {}),
-    feather_px: num(r.feather_px, 0, 80, mask ? 0 : 8),
+    feather_px: num(r.feather_px, 0, 80, mask || auto ? 0 : 8),
   }
 }
 
@@ -1017,7 +1103,27 @@ export function normalizeSceneMotion(input: unknown): SceneMotionDocument {
         })),
     },
     ...float,
+    ...normalizeVisionFields(s),
   }
+}
+
+const unitPoint = (p: any): [number, number] | null =>
+  Array.isArray(p) && p.length === 2 && Number.isFinite(Number(p[0])) && Number.isFinite(Number(p[1]))
+    ? [num(p[0], 0, 1, 0.5), num(p[1], 0, 1, 0.5)] : null
+
+/** E2–E4 fields, each present only when it does something. */
+function normalizeVisionFields(s: any): Pick<SceneMotionDocument, 'depth' | 'rack' | 'aim'> {
+  const out: Pick<SceneMotionDocument, 'depth' | 'rack' | 'aim'> = {}
+  const parallax = num(s.depth?.parallax_pct, 0, 1.5, 0)
+  if (parallax > 0) out.depth = { parallax_pct: parallax, direction: pickEnum(s.depth.direction, DEPTH_DIRECTIONS, 'in') }
+  const sigma = num(s.rack?.max_sigma_px, 0, 12, 0)
+  if (sigma > 0) out.rack = { to: pickEnum(s.rack.to, RACK_TARGETS, 'subject'), max_sigma_px: Math.max(1, sigma) }
+  if (s.aim && (AIM_MODES as readonly string[]).includes(s.aim.mode)) {
+    const target = unitPoint(s.aim.target)
+    const path = Array.isArray(s.aim.path) ? s.aim.path.slice(0, 3).map(unitPoint).filter(Boolean) as Array<[number, number]> : []
+    out.aim = { mode: s.aim.mode, ...(target ? { target } : {}), ...(path.length ? { path } : {}) }
+  }
+  return out
 }
 
 /** Deep-merge a partial patch (a preset body) onto a full motion document. */
@@ -1033,6 +1139,9 @@ export function mergeSceneMotion(base: SceneMotionDocument, patch: SceneMotionPa
     fade: { ...base.fade, ...(patch.fade || {}) },
     focus: { ...base.focus, ...(patch.focus || {}) },
     ...(patch.float || base.float ? { float: { ...(base.float || {}), ...(patch.float || {}) } } : {}),
+    ...(patch.depth || base.depth ? { depth: { ...(base.depth || {}), ...(patch.depth || {}) } } : {}),
+    ...(patch.rack || base.rack ? { rack: { ...(base.rack || {}), ...(patch.rack || {}) } } : {}),
+    ...(patch.aim || base.aim ? { aim: { ...(base.aim || {}), ...(patch.aim || {}) } } : {}),
   })
 }
 
@@ -1040,7 +1149,8 @@ export function mergeSceneMotion(base: SceneMotionDocument, patch: SceneMotionPa
 export function normalizeSceneOverlay(input: unknown): SceneOverlayDocument {
   const doc = normalizeOverlayFields(input)
   const region = normalizeRegion((input as any)?.region)
-  return region ? { ...doc, region } : doc
+  const follow = (FOLLOW_REGIONS as readonly string[]).includes((input as any)?.follow) ? (input as any).follow as FollowRegion : null
+  return { ...doc, ...(region ? { region } : {}), ...(follow ? { follow } : {}) }
 }
 
 function normalizeOverlayFields(input: unknown): SceneOverlayDocument {
@@ -1222,7 +1332,7 @@ export function shootingStarShape(doc: ShootingStarOverlay): LoopShape {
 
 /** Drawn on one scene's clip (a living picture, or an effect clipped to an outline), not on the composed timeline. */
 export function isSceneStageOverlay(doc: SceneOverlayDocument): boolean {
-  return doc.kind === 'living-region' || !!doc.region
+  return doc.kind === 'living-region' || !!doc.region || !!doc.follow
 }
 
 /** Merge a partial overlay patch onto the default for its kind. */

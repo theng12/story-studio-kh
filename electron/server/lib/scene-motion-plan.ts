@@ -22,7 +22,7 @@
  * that scene with FFmpeg instead. The reason is logged.
  */
 
-import { floatOffset, type SceneMotionDocument } from '../contracts/scene-effects.js'
+import { aimProgress, floatOffset, type SceneMotionDocument } from '../contracts/scene-effects.js'
 
 export interface MotionPlanFrame {
   /** Magnification of the canvas, 1 = the fitted picture fills the frame. */
@@ -97,6 +97,37 @@ function preparedSize(value: number, scalePct: number): number {
   return Math.round(value * (scalePct / 100) / 2) * 2
 }
 
+/** Longest a guided tour moves, share of the frame per second (owner: gentle). */
+export const TOUR_MAX_SPEED = 0.02
+
+/**
+ * E3 — the guided tour's centre at frame `n`, as an offset from the middle (share of the frame):
+ * equal legs between the points, each leg holding still for its first and last 20% and easing
+ * between them. A leg too long for {@link TOUR_MAX_SPEED} stops short along its line; every
+ * point is first held inside the window the zoom allows, so the window never leaves the picture.
+ */
+function tourCentre(path: ReadonlyArray<[number, number]>, n: number, count: number, fps: number, zoom: number): { x: number; y: number; p: number } {
+  const room = (1 - 1 / zoom) / 2
+  const pts = path.map(([x, y]) => [clamp(x - 0.5, -room, room), clamp(y - 0.5, -room, room)] as [number, number])
+  const legs = pts.length - 1
+  const legSeconds = count / fps / legs
+  const reach = TOUR_MAX_SPEED * legSeconds * 0.6
+  // Walk the legs once, shortening each to what its moving time allows.
+  const stops: Array<[number, number]> = [pts[0]!]
+  for (let i = 1; i < pts.length; i++) {
+    const [px, py] = stops[i - 1]!, [qx, qy] = pts[i]!
+    const d = Math.hypot(qx - px, qy - py)
+    const k = d > reach ? reach / d : 1
+    stops.push([px + (qx - px) * k, py + (qy - py) * k])
+  }
+  const u = Math.min(legs - 1e-9, (n / Math.max(1, count - 1)) * legs)
+  const leg = Math.floor(u)
+  const local = clamp((u - leg - 0.2) / 0.6, 0, 1)
+  const e = local * local * (3 - 2 * local)
+  const [ax, ay] = stops[leg]!, [bx, by] = stops[leg + 1]!
+  return { x: ax + (bx - ax) * e, y: ay + (by - ay) * e, p: 1 }
+}
+
 export function planStillMotion(doc: SceneMotionDocument, opts: MotionPlanOpts): MotionPlan {
   const { w, h, fps, duration } = opts
   if (doc.source !== 'still') return { supported: false, reason: `motion source is ${doc.source}, not still` }
@@ -126,6 +157,7 @@ export function planStillMotion(doc: SceneMotionDocument, opts: MotionPlanOpts):
     const panX = doc.pan.mode === 'rate' ? perFrame(doc.pan.x) : 0
     const panY = doc.pan.mode === 'rate' ? perFrame(doc.pan.y) : 0
 
+    const tour = doc.aim?.mode === 'tour' && (doc.aim.path?.length ?? 0) >= 2 ? doc.aim.path! : null
     const frames: MotionPlanFrame[] = []
     for (let n = 0; n < count; n++) {
       let zoom: number
@@ -147,9 +179,15 @@ export function planStillMotion(doc: SceneMotionDocument, opts: MotionPlanOpts):
       const winH = h / zoom
       // E1 — handheld float: the compiler's `+iw*a*(…)` in output pixels, clock on/fps.
       const drift = doc.float ? floatOffset(doc.float, n / fps) : { x: 0, y: 0 }
+      // E3 — aimed at the subject (the compiler's `+(tx-0.5)*iw*progress`), or a guided tour.
+      const aim = tour
+        ? tourCentre(tour, n, count, fps, zoom)
+        : doc.aim?.target ? { x: doc.aim.target[0] - 0.5, y: doc.aim.target[1] - 0.5, p: aimProgress(doc.zoom, zoom) } : null
+      const aimX = aim ? aim.x * w * aim.p : 0
+      const aimY = aim ? aim.y * h * aim.p : 0
       // zoompan: x = iw/2 - iw/zoom/2 + on*rate, held inside the picture.
-      const x0 = clamp(w / 2 - winW / 2 + n * panX + drift.x * w, 0, Math.max(0, w - winW))
-      const y0 = clamp(h / 2 - winH / 2 + n * panY + drift.y * h, 0, Math.max(0, h - winH))
+      const x0 = clamp(w / 2 - winW / 2 + n * panX + drift.x * w + aimX, 0, Math.max(0, w - winW))
+      const y0 = clamp(h / 2 - winH / 2 + n * panY + drift.y * h + aimY, 0, Math.max(0, h - winH))
       frames.push({ z: zoom, cx: x0 + winW / 2, cy: y0 + winH / 2, rot: 0, blur: [], gain: 1 })
     }
     return { supported: true, kind: 'camera', frames, prepared: { w: preparedSize(w, scalePct), h: preparedSize(h, scalePct) } }

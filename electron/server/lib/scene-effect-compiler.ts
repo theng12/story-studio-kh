@@ -177,12 +177,15 @@ function compileStillMotion(doc: SceneMotionDocument, opts: MotionCompileOpts): 
     const panY = doc.pan.mode === 'rate' ? doc.pan.y : 0
     // E1 — handheld float, in source pixels of the prepared canvas (`iw`), clock = on/fps.
     const drift = doc.float ? floatExpressions(doc.float, fps) : { x: '', y: '' }
+    // E3 — aimed at the subject. A guided tour cannot be one zoompan expression, so FFmpeg aims at
+    // its first point (the subject) — the caller says so in the log.
+    const aim = doc.aim?.target ? aimExpressions(doc, doc.aim.target) : { x: '', y: '' }
 
     return [
       ...prelude,
       `zoompan=z=${zoomTerm}`
-        + `:x='floor(iw/2-(iw/zoom/2)${signedTerm(panX, renderRate)}${drift.x})'`
-        + `:y='floor(ih/2-(ih/zoom/2)${signedTerm(panY, renderRate)}${drift.y})'`
+        + `:x='floor(iw/2-(iw/zoom/2)${signedTerm(panX, renderRate)}${drift.x}${aim.x})'`
+        + `:y='floor(ih/2-(ih/zoom/2)${signedTerm(panY, renderRate)}${drift.y}${aim.y})'`
         + `:d=${frames}:s=${sw}x${sh}:fps=${fps}`,
       `scale=${w}:${h}:flags=lanczos`,
       'setsar=1',
@@ -191,6 +194,19 @@ function compileStillMotion(doc: SceneMotionDocument, opts: MotionCompileOpts): 
 
   // 3. No camera at all: fit, pad, then whatever post-processing is declared.
   return [...prelude, 'setsar=1', ...focusTokens(doc, duration), ...fadeTokens(doc, duration)]
+}
+
+/** `aimProgress()` and the target as zoompan terms (`+iw*dx*progress`), clipped inside the picture by zoompan. */
+function aimExpressions(doc: SceneMotionDocument, target: [number, number]): { x: string; y: string } {
+  let progress = '1'
+  if (doc.zoom.mode === 'ramp') {
+    const peak = Math.max(doc.zoom.from_pct, doc.zoom.to_pct) / 100
+    progress = peak > 1.0001 ? `min(1,max(0,(zoom-1)/${(peak - 1).toFixed(6)}))` : '0'
+  }
+  return {
+    x: `+iw*${(target[0] - 0.5).toFixed(5)}*${progress}`,
+    y: `+ih*${(target[1] - 0.5).toFixed(5)}*${progress}`,
+  }
 }
 
 /**
@@ -718,15 +734,134 @@ export function compileLivingRegion(doc: LivingRegionOverlay, opts: LivingCompil
  * outline are snapped so encoding noise in the outline clip never leaks.
  */
 export function regionMergeStatements(base: string, effect: string, mask: string, output: string, allocLabel: () => string): string[] {
-  const full = allocLabel(), toHalf = allocLabel(), halfU = allocLabel(), halfV = allocLabel(), planes = allocLabel()
+  const grey = allocLabel()
   const snap = escapeFilterArgValue('if(lt(val,8),0,if(gt(val,247),255,val))')
   return [
     // gbrp first: that conversion expands the clip's TV range, so white is 255.
-    `${mask}format=gbrp,extractplanes=g,lut=c0=${snap},split=2${full}${toHalf}`,
+    `${mask}format=gbrp,extractplanes=g,lut=c0=${snap}${grey}`,
+    ...greyMaskMergeStatements(base, effect, grey, output, allocLabel),
+  ]
+}
+
+/** `effect` where the full-range grey `mask` is white, `base` where it is black, on yuv420p planes. */
+function greyMaskMergeStatements(base: string, effect: string, grey: string, output: string, allocLabel: () => string): string[] {
+  const full = allocLabel(), toHalf = allocLabel(), halfU = allocLabel(), halfV = allocLabel(), planes = allocLabel()
+  return [
+    `${grey}split=2${full}${toHalf}`,
     `${toHalf}scale=w=ceil(iw/2):h=ceil(ih/2):flags=area,split=2${halfU}${halfV}`,
     `${full}${halfU}${halfV}mergeplanes=map0s=0:map0p=0:map1s=1:map1p=0:map2s=2:map2p=0:format=yuv420p${planes}`,
     `${base}${effect}${planes}maskedmerge${output}`,
   ]
+}
+
+// ── Depth moves (E2, 1.4.288) ───────────────────────────────────────────────
+
+/**
+ * A scene's depth move, with every number already read from its analysis. Depth is 0..1 with
+ * 1 = nearest (Depth Anything's convention).
+ */
+export interface DepthStageSpec {
+  /** 3D photo: shift each pixel by `(d − focus)`, scaled so the nearest moves `pct` of the width. */
+  parallax?: { pct: number; direction: 'in' | 'left' | 'right' | 'up'; focus: number; near: number; far: number }
+  /** Rack focus: sharp where `|d − f(t)|` is small; `f` eases from `from` to `to` between 15% and 75% of the clip. */
+  rack?: { from: number; to: number; sigma_px: number; range: number }
+}
+
+export interface DepthCompileOpts {
+  input: string
+  /** The depth map carried through the camera move (a yuv420p clip of a grey picture, white = near). */
+  depth: string
+  output: string
+  allocLabel: () => string
+  w: number
+  h: number
+  fps: number
+  duration: number
+}
+
+/** 0..1 smoothstep of `t` between two seconds, as an FFmpeg expression. */
+function easeExpression(from: number, to: number): string {
+  const s = `clip((t-${from.toFixed(3)})/${Math.max(0.001, to - from).toFixed(3)},0,1)`
+  return `(${s}*${s}*(3-2*${s}))`
+}
+
+/**
+ * The depth moves drawn on a scene clip, outside the camera. A rack focus blends the clip with a
+ * blurred copy by how far each pixel's depth is from the moving focus (`eq` + a static `lut`, so no
+ * per-pixel expression runs per frame). A 3D photo displaces each pixel by its depth: the shift
+ * map is the depth through an `eq` of `t` (and, for "in", times a fixed left-right/up-down ramp by
+ * a static `lut2`), then the outer margin the shift can expose is cropped and scaled back.
+ * ponytail: the shift is sampled at the output pixel, not solved for its source, and gaps are
+ * stretched rather than filled; the depth map is widened round near things first so their edges
+ * pull the background instead of tearing. Layered fill only if moves over 1.5% are wanted.
+ */
+export function compileDepthStage(spec: DepthStageSpec, opts: DepthCompileOpts): string[] {
+  const { w, h, fps, duration } = opts
+  const a = opts.allocLabel
+  const out: string[] = []
+  const uses = (spec.rack ? 1 : 0) + (spec.parallax ? 1 : 0)
+  const greys = Array.from({ length: uses }, () => a())
+  out.push(`${opts.depth}format=gbrp,extractplanes=g${uses > 1 ? `,split=${uses}${greys.join('')}` : greys[0]}`)
+  let next = 0
+  let label = opts.input
+  if (spec.rack) {
+    const r = spec.rack
+    const f = `(${r.from.toFixed(4)}+${(r.to - r.from).toFixed(4)}*${easeExpression(duration * 0.15, duration * 0.75)})`
+    // eq: 256*(v + b) with b = 0.5 − f  →  128 + 256·(d − f); then |·| scaled so half the depth range is fully soft.
+    const gain = (2 * 255 / (256 * Math.max(0.1, r.range))).toFixed(4)
+    const mask = a(), sharp = a(), soft = a(), blurred = a(), merged = a()
+    out.push(
+      `${greys[next++]}eq=brightness=${escapeFilterArgValue(`0.5-${f}`)}:eval=frame,`
+        + `lut=c0=${escapeFilterArgValue(`clip(${gain}*abs(val-128),0,255)`)}${mask}`,
+      `${label}format=yuv420p,split=2${sharp}${soft}`,
+      `${soft}gblur=sigma=${(r.sigma_px * h / 1080).toFixed(2)}${blurred}`,
+      ...greyMaskMergeStatements(sharp, blurred, mask, merged, a),
+    )
+    label = merged
+  }
+  if (spec.parallax) {
+    const p = spec.parallax
+    const amp = (p.pct / 100) * w
+    const scale = amp / Math.max(0.2, p.near - p.focus, p.focus - p.far)
+    // o(t): "in" grows 0 → 1 over the clip; sideways sweeps −1 → 1 (left, up) or 1 → −1 (right).
+    const e = easeExpression(0, duration)
+    const o = p.direction === 'in' ? e : p.direction === 'right' ? `(1-2*${e})` : `(2*${e}-1)`
+    const K = `(${(scale / 256).toFixed(6)}*${o})`
+    const shift = a(), grey128 = `color=c=gray:s=${w}x${h}:r=${fps}:d=${(duration + 1).toFixed(3)},format=gray`
+    out.push(`${greys[next++]}eq=contrast=${escapeFilterArgValue(K)}:brightness=${escapeFilterArgValue(`${K}*${(0.5 - p.focus).toFixed(4)}`)}:eval=frame${shift}`)
+    const gbrp = (src: string) => {
+      const s1 = a(), s2 = a(), s3 = a(), dst = a()
+      out.push(`${src}split=3${s1}${s2}${s3}`, `${s1}${s2}${s3}mergeplanes=map0s=0:map0p=0:map1s=1:map1p=0:map2s=2:map2p=0:format=gbrp${dst}`)
+      return dst
+    }
+    let xm: string, ym: string
+    if (p.direction === 'in') {
+      // Near things grow away from the middle: sample nearer the middle by shift × (position − middle).
+      const sx = a(), sy = a(), gx = a(), gy = a(), mx = a(), my = a()
+      const ramp = (axis: 'X' | 'Y') => `nullsrc=s=${w}x${h}:r=${fps}:d=${(1 / fps).toFixed(4)},format=gray,`
+        + `geq=lum=${escapeFilterArgValue(`clip(128+127*(2*${axis}/${axis === 'X' ? 'W' : 'H'}-1),1,255)`)},`
+        + `loop=loop=-1:size=1,setpts=N/${fps}/TB,trim=end=${(duration + 1).toFixed(3)}`
+      out.push(`${shift}split=2${sx}${sy}`, `${ramp('X')}${gx}`, `${ramp('Y')}${gy}`)
+      const radial = escapeFilterArgValue('clip(128-(x-128)*(y-128)/127,0,255)')
+      out.push(`${sx}${gx}lut2=c0=${radial}${mx}`, `${sy}${gy}lut2=c0=${radial}${my}`)
+      xm = gbrp(mx); ym = gbrp(my)
+    } else {
+      const flat = a()
+      out.push(`${grey128}${flat}`)
+      const moving = gbrp(shift), still = gbrp(flat)
+      ;[xm, ym] = p.direction === 'up' ? [still, moving] : [moving, still]
+    }
+    const rgb = a(), moved = a()
+    const margin = Math.min(0.05, p.pct / 100 + 0.004)
+    const cw = Math.round((w * (1 - 2 * margin)) / 2) * 2, ch = Math.round((h * (1 - 2 * margin)) / 2) * 2
+    out.push(
+      `${label}format=gbrp${rgb}`,
+      `${rgb}${xm}${ym}displace=edge=smear,format=yuv420p,crop=${cw}:${ch},scale=${w}:${h}:flags=bicubic,setsar=1${moved}`,
+    )
+    label = moved
+  }
+  out.push(`${label}null${opts.output}`)
+  return out
 }
 
 // ── Fades ───────────────────────────────────────────────────────────────────

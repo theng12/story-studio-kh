@@ -33,7 +33,9 @@ import {
   normalizeSceneOverlay,
   overlayStackGroup,
   type EffectStackGroup,
+  type FollowRegion,
   type SceneOverlayDocument,
+  type SceneRegion,
 } from '../contracts/scene-effects.js'
 import { isContentPackItemId } from '../contracts/content-origin.js'
 import { BUILT_IN_EFFECT_STACKS, type BuiltInOverlay, type EffectStackItem, type UnavailableOverlay } from '../contracts/scene-effect-presets.js'
@@ -261,7 +263,8 @@ export function resolveEpisodeEffectStack(opts: {
     // (`resolveSceneStage`), never on the composed timeline.
     if (isSceneStageOverlay(doc)) {
       // E1 — a living picture on a wider scope moves every scene with its outline (resolveSceneStage).
-      const wide = doc.kind === 'living-region' && !doc.region?.mask
+      // E4 — so does an effect that follows a found part of each picture.
+      const wide = (doc.kind === 'living-region' && !doc.region?.mask) || (!!doc.follow && !doc.region)
       if (scope !== 'scene' && !wide) notes.push(`${entry.name} skipped ${scope === 'theme' ? `for theme "${label}"` : `on the ${scope}`}: an outline belongs to one scene's picture, so it only works in a single scene's stack.`)
       return
     }
@@ -345,9 +348,12 @@ export function resolveSceneStage(
     outlines?: readonly string[]
     projectLook?: Array<{ id: string; enabled?: boolean; params?: Record<string, unknown> }>
     notes?: string[]
+    /** E4 — each scene's found outlines (scene analysis), when the channel has it on. */
+    found?: (sceneId: string) => Partial<Record<FollowRegion, { file: string; band: [number, number] }>> | undefined
   } = {},
-): Map<string, Array<{ uid: string; name: string; document: SceneOverlayDocument }>> {
-  const out = new Map<string, Array<{ uid: string; name: string; document: SceneOverlayDocument }>>()
+): Map<string, Array<{ uid: string; name: string; document: SceneOverlayDocument; band?: [number, number] }>> {
+  type Item = { uid: string; name: string; document: SceneOverlayDocument; band?: [number, number] }
+  const out = new Map<string, Item[]>()
   const wide: Array<{ applied: AppliedEffect; where: string; theme?: string }> = [
     ...(opts.projectLook || []).filter(item => item && item.enabled !== false)
       .map((item, i) => ({ applied: { uid: `project-${i + 1}`, id: item.id, enabled: true, ...(item.params ? { params: item.params } : {}) }, where: 'Video Assembly' })),
@@ -355,26 +361,53 @@ export function resolveSceneStage(
     ...file.themes.flatMap(rule => rule.effects.map(applied => ({ applied, where: `theme "${rule.theme}"`, theme: rule.theme }))),
   ]
   const outlines = new Set(opts.outlines || [])
+  const handMask = (sceneId: string, label: string) => {
+    const mask = `${sceneId.replace(/[^A-Za-z0-9_-]/g, '')}-${label}.png`.replace(/^-/, '')
+    return outlines.has(mask) ? mask : null
+  }
+  /** E4 — a hand outline of the name wins; then the part scene analysis found. */
+  const placeOn = (sceneId: string, doc: SceneOverlayDocument, label: string): { region: SceneRegion; band?: [number, number]; how: 'hand' | 'found' } | null => {
+    const hand = handMask(sceneId, label)
+    if (hand) return { region: { mask: hand, feather_px: 0 }, how: 'hand' }
+    const part = autoRegionFor(doc)
+    const found = part ? opts.found?.(sceneId)?.[part] : undefined
+    // Found outlines are soft-edged at the map's size; feather a little more at the picture's.
+    return found ? { region: { auto: found.file, feather_px: 6 }, band: found.band, how: 'found' } : null
+  }
   for (const { applied, where, theme } of wide) {
     if (!applied.enabled) continue
     const resolved = resolveDocument(applied, library)
-    if (!resolved || resolved.doc.kind !== 'living-region' || resolved.doc.region?.mask) continue
+    if (!resolved) continue
     const doc = resolved.doc
-    const name = `${resolved.entry.name} (${doc.motion})`
+    const living = doc.kind === 'living-region' && !doc.region?.mask
+    const follows = doc.kind !== 'living-region' && !!doc.follow && !doc.region
+    if (!living && !follows) continue
+    const name = doc.kind === 'living-region' ? `${resolved.entry.name} (${doc.motion})` : resolved.entry.name
     const scenes = (opts.scenes || []).filter(scene => !theme || (scene.theme || '').trim().toLowerCase() === theme.toLowerCase())
-    const label = doc.outline || doc.motion
-    let moved = 0
+    const label = doc.kind === 'living-region' ? doc.outline || doc.follow || doc.motion : doc.follow!
+    let hand = 0, auto = 0, band = 0, absent = 0
     for (const scene of scenes) {
-      const mask = `${scene.scene_id.replace(/[^A-Za-z0-9_-]/g, '')}-${label}.png`.replace(/^-/, '')
-      const region = doc.region?.shapes?.length ? doc.region : outlines.has(mask) ? { mask, feather_px: 0 } : null
-      if (!region) continue
-      out.set(scene.scene_id, [...(out.get(scene.scene_id) || []), { uid: `${applied.uid}@${scene.scene_id}`, name, document: { ...doc, region } }])
-      moved++
+      const shapes = doc.region?.shapes?.length ? doc.region : null
+      const placed = shapes ? { region: shapes, how: 'hand' as const } : placeOn(scene.scene_id, doc, label)
+      if (!placed && living) continue
+      // Analysed and not there (clouds in a room): nothing. Not analysed: the effect's own band.
+      if (!placed && !keepsBand(doc, opts.found?.(scene.scene_id))) { absent++; continue }
+      if (placed?.how === 'found') auto++
+      else if (placed) hand++
+      else band++
+      const item: Item = { uid: `${applied.uid}@${scene.scene_id}`, name, document: placed ? { ...doc, region: placed.region } : doc }
+      if (placed && 'band' in placed && placed.band) item.band = placed.band
+      out.set(scene.scene_id, [...(out.get(scene.scene_id) || []), item])
     }
-    opts.notes?.push(doc.region?.shapes?.length
-      ? `${name} from ${where}: drawn inside its shapes on ${moved} scene(s).`
-      : `${name} from ${where}: moves ${moved} of ${scenes.length} scene(s) — the ones with an outline named "${label}"`
-        + `${moved < scenes.length ? '; the rest have none and stay still (draw or upload a "' + label + '" outline on a scene in the Effects Library)' : ''}.`)
+    const parts = [hand ? `${hand} with a hand outline` : '', auto ? `${auto} with an outline scene analysis found` : '',
+      band ? `${band} in its own band (not analysed)` : '', absent ? `${absent} left out (no ${label} in the picture)` : ''].filter(Boolean)
+    if (follows) opts.notes?.push(`${name} from ${where} follows the ${label}: ${parts.join(', ') || 'no scenes'}.`)
+    else if (doc.region?.shapes?.length) opts.notes?.push(`${name} from ${where}: drawn inside its shapes on ${hand} scene(s).`)
+    else {
+      const moved = hand + auto
+      opts.notes?.push(`${name} from ${where}: moves ${moved} of ${scenes.length} scene(s) — ${auto ? `${hand} with an outline named "${label}", ${auto} with one scene analysis found` : `the ones with an outline named "${label}"`}`
+        + `${moved < scenes.length ? '; the rest have none and stay still (draw or upload a "' + label + '" outline on a scene in the Effects Library' + (opts.found ? '' : ', or switch on scene analysis') + ')' : ''}.`)
+    }
   }
   for (const stack of file.scenes) {
     const items = stack.effects
@@ -382,20 +415,56 @@ export function resolveSceneStage(
       .filter(({ applied }) => applied.enabled)
       .map(({ applied, index }) => ({ applied, index, resolved: resolveDocument(applied, library) }))
       .filter(({ resolved }) => resolved && isSceneStageOverlay(resolved.doc))
-      .map(({ applied, index, resolved }) => ({
-        rank: file.custom_order ? 0 : EFFECT_STACK_GROUPS.indexOf(overlayStackGroup(resolved!.doc)),
-        order: applied.order ?? index,
-        item: {
-          uid: applied.uid,
-          name: resolved!.doc.kind === 'living-region' ? `${resolved!.entry.name} (${resolved!.doc.motion})` : resolved!.entry.name,
-          document: resolved!.doc,
-        },
-      }))
+      .map(({ applied, index, resolved }) => {
+        let document = resolved!.doc
+        let band: [number, number] | undefined
+        // E4 — an effect following a found part, in one scene's stack.
+        if (document.follow && !document.region && document.kind !== 'living-region') {
+          const placed = placeOn(stack.scene_id, document, document.follow)
+          if (placed) { document = { ...document, region: placed.region }; band = placed.band }
+          else if (!keepsBand(document, opts.found?.(stack.scene_id))) return null
+        }
+        return {
+          rank: file.custom_order ? 0 : EFFECT_STACK_GROUPS.indexOf(overlayStackGroup(document)),
+          order: applied.order ?? index,
+          item: {
+            uid: applied.uid,
+            name: document.kind === 'living-region' ? `${resolved!.entry.name} (${document.motion})` : resolved!.entry.name,
+            document,
+            ...(band ? { band } : {}),
+          } as Item,
+        }
+      })
+      .filter((x): x is NonNullable<typeof x> => !!x)
       .sort((a, b) => a.rank - b.rank || a.order - b.order)
       .map(x => x.item)
     if (items.length) out.set(stack.scene_id, [...(out.get(stack.scene_id) || []), ...items])
   }
   return out
+}
+
+/**
+ * E4 — where an effect that follows a part found nothing to follow: keep its own band when the
+ * picture was never analysed, or (fireflies among plants) when it is outdoors with no plants found;
+ * otherwise the part is simply not in the picture (clouds in a room) and the effect is left out.
+ */
+export function keepsBand(doc: SceneOverlayDocument, found: Partial<Record<FollowRegion, unknown>> | undefined): boolean {
+  if (!found) return true
+  return doc.follow === 'plants' && !!found.sky
+}
+
+/**
+ * E4 — which found part an effect follows: its own `follow`, else for a Living Picture the part
+ * its motion moves (flames and fire → fire; their glow → the glow round them; water; sky).
+ */
+export function autoRegionFor(doc: SceneOverlayDocument): FollowRegion | null {
+  if (doc.follow) return doc.follow
+  if (doc.kind !== 'living-region') return null
+  const byLabel: Record<string, FollowRegion> = {
+    flame: 'fire', fire: 'fire', candle: 'fire', glow: 'glow', 'fire-glow': 'glow',
+    water: 'water', river: 'water', sea: 'water', lake: 'water', sky: 'sky', clouds: 'clouds',
+  }
+  return byLabel[doc.outline || doc.motion] ?? byLabel[doc.motion] ?? null
 }
 
 /** Groups drawn under the classic vignette / grain / letterbox controls; the rest go over them. */

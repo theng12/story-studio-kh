@@ -88,7 +88,7 @@ import {
   computeVignetteAngle,
   scaleAuthoredPosition,
 } from '../lib/video-effects.js'
-import { compileSceneOverlay, letterboxBarHeight, overlayLoopShapes } from '../lib/scene-effect-compiler.js'
+import { compileSceneMotion, compileSceneOverlay, letterboxBarHeight, overlayLoopShapes } from '../lib/scene-effect-compiler.js'
 import { assertNoUnavailablePackOverlays, isRotationMotion, motionPoolSlots, resolveAppliedOverlays } from '../contracts/scene-effect-presets.js'
 import { LIBRARY_V1_5_KINDS } from '../contracts/scene-effects.js'
 import { describeEffectStack, normalizeEffectsLook, splitLegacySlots } from '../contracts/effects-look.js'
@@ -107,6 +107,7 @@ import {
 } from '../services/episode-effects.js'
 import { listSceneEffectLibrary } from '../services/style-effect-loader.js'
 import { applySceneStage, sceneClipEncodeArgs, type SceneStageItem } from '../lib/scene-stage.js'
+import { readSceneAnalysis, resolveVisionMotion, sceneAnalysisSwitches, visionFromEntry, SCENE_ANALYSIS_DIR, type SceneVision } from '../services/scene-analysis.js'
 import { OUTLINE_MASK_DIR, outlineMaskPath } from '../services/outline-masks.js'
 import { requireJobCompletion, declareJobDegraded } from '../services/job-completion.js'
 import { nonRetryable } from '../services/job-retry-policy.js'
@@ -2362,10 +2363,15 @@ export async function generateVideo(job: Job): Promise<void> {
     : null
   // 1.4.284 — living pictures and outlined effects are drawn per scene clip, so
   // they are read before the fingerprint: a changed outline re-renders its clip.
+  // E2–E4 — each scene's saved analysis, read (never fetched) when the channel has it on.
+  const sceneVision = sceneEffectLibrary
+    ? await readSceneVisionForRender(project_slug, episodeDir, req.scenes, job)
+    : null
   const sceneStage = sceneEffectLibrary
     ? await readSceneStageForRender(episodeDir, sceneEffectLibrary.overlays, job, {
         scenes: planCoverageScenes.map(scene => ({ scene_id: scene.id, theme: scene.theme })),
         projectLook: req.scene_effects?.enabled && Array.isArray(req.scene_effects.overlays) ? req.scene_effects.overlays : [],
+        ...(sceneVision ? { found: (sceneId: string) => sceneVision.get(sceneId)?.regions } : {}),
       })
     : null
   // Reveal effects: one plan for the episode, resolved before the fingerprint so a changed reveal
@@ -2414,6 +2420,7 @@ export async function generateVideo(job: Job): Promise<void> {
         content_pack_provenance: job.content_pack_provenance || [],
         // Absent unless a scene uses one, so every other render keeps its fingerprint.
         ...(sceneStage?.byScene.size ? { scene_stage: sceneStage.fingerprint } : {}),
+        ...(sceneVision?.size ? { scene_vision: [...sceneVision.values()].map(v => [v.scene_id, v.key]) } : {}),
       }
     : null
   // Scene clips are reused only by the same app version. A final render that was already running is
@@ -2932,6 +2939,7 @@ export async function generateVideo(job: Job): Promise<void> {
           // makes a VideoToolbox clip safe to use; with hard cuts the clips are stream-copied.
           native: { enabled: planTransitionTail > 0 },
           ...(sceneStage?.byScene.size ? { sceneStage: { byScene: sceneStage.byScene, episodeDir } } : {}),
+          ...(sceneVision ? { vision: sceneVision } : {}),
         },
         sceneClipDurations,
         exactSceneTiming ? planTransitionTail : 0,
@@ -4108,6 +4116,11 @@ export async function prepareSceneClips(
      */
     /** 1.4.284 — living pictures / outlined effects per Scene Plan scene id, drawn on that scene's clip. */
     sceneStage?: { byScene: Map<string, SceneStageItem[]>; episodeDir: string | null }
+    /**
+     * E2–E4 — each Scene Plan scene's saved analysis (absent = the channel has it off). Moves that
+     * need it aim, add depth or fall back per scene; depth moves only with transitions (Q9).
+     */
+    vision?: Map<string, SceneVision>
     native?: {
       enabled: boolean
       /** Test seams. */
@@ -4283,12 +4296,25 @@ export async function prepareSceneClips(
     if (stageItems?.length && (isVideoScene || reveal)) {
       job.output_lines.push(`Scene ${i + 1}: living picture skipped: ${isVideoScene ? 'the scene is footage, not a still' : 'the scene uses a reveal, which draws its own picture'}.`)
     }
+    // E2–E4 — the move as this scene can draw it (aimed, with depth, or its plain fallback).
+    const sceneVision = planSceneId ? animationOpts?.vision?.get(planSceneId) : undefined
+    const baseMotion = isVideoScene || reveal || !animationOpts?.vision
+      ? null
+      : resolveSceneMotionDocument({ type: pickedType, params: sceneAnimation, library: motionLibrary, sceneIndex: i })
+    const visionMove = !baseMotion
+      ? null
+      : resolveVisionMotion(
+          baseMotion,
+          sceneVision,
+          { depthAllowed: !!animationOpts?.native?.enabled, blurFocus: resolveSceneMotionDocument({ type: 'blur-focus', params: sceneAnimation, library: motionLibrary }) },
+        )
+    for (const note of visionMove?.notes || []) job.output_lines.push(`Scene ${i + 1}: ${note}.`)
     /** Draw the stage on the finished clip in place; the note for the progress line. */
     const drawSceneStage = async (renderMaskClip: (maskPng: string, outPath: string) => Promise<void>): Promise<string> => {
-      if (!stageItems?.length || isVideoScene || reveal) return ''
+      if ((!stageItems?.length && !visionMove?.depth) || isVideoScene || reveal) return ''
       const staged = clipPath.replace(/\.mp4$/, '.living.mp4')
       const drawn = await applySceneStage({
-        clipPath, outPath: staged, stillPath: scene.image_path, items: stageItems,
+        clipPath, outPath: staged, stillPath: scene.image_path, items: stageItems || [], depth: visionMove?.depth ?? null,
         episodeDir: animationOpts?.sceneStage?.episodeDir ?? null,
         w, h, fps: quality.fps, duration: renderDuration, workDir: tempDir,
         encodeArgs: sceneClipEncodeArgs(quality.crf, quality.fps, renderDuration),
@@ -4365,7 +4391,7 @@ export async function prepareSceneClips(
       let detail = ''
       try {
         const nativeRender = animationOpts?.native?.render ?? renderNativeSceneClip
-        const motionDocument = resolveSceneMotionDocument({ type: pickedType, params: sceneAnimation, library: motionLibrary, sceneIndex: i })
+        const motionDocument = visionMove?.document ?? resolveSceneMotionDocument({ type: pickedType, params: sceneAnimation, library: motionLibrary, sceneIndex: i })
         const outcome = await nativeRender({
           imagePath: scene.image_path,
           outPath: clipPath,
@@ -4399,11 +4425,19 @@ export async function prepareSceneClips(
       nativeFallback(i, detail)
     }
 
+    // E3 — FFmpeg cannot draw a guided tour: it aims at the tour's first stop (the subject).
+    let ffmpegVisionDocument = visionMove && visionMove.document !== baseMotion ? visionMove.document : null
+    if (ffmpegVisionDocument?.aim?.mode === 'tour') {
+      ffmpegVisionDocument = { ...ffmpegVisionDocument, aim: { mode: 'subject', target: ffmpegVisionDocument.aim.target } }
+      job.output_lines.push(`Scene ${i + 1}: Guided tour is drawn by the native renderer only; this scene rendered as Zoom to subject.`)
+    }
     const vfParts = isVideoScene
       // crop-fill: scale up to cover the canvas, then centre-crop the overflow
       // (matches the B-Roll/Image-Pool fill behaviour). No Ken Burns.
       ? [`scale=${w}:${h}:force_original_aspect_ratio=increase`, `crop=${w}:${h}`]
-      : buildAnimationFilter({
+      : ffmpegVisionDocument
+        ? compileSceneMotion(ffmpegVisionDocument, { w, h, fps: quality.fps, duration: renderDuration })
+        : buildAnimationFilter({
           type: pickedType,
           params: sceneAnimation,
           library: motionLibrary,
@@ -4510,7 +4544,9 @@ export async function prepareSceneClips(
     //      builds the whole clip from a single frame; looping made ffmpeg
     //      re-decode + supersample-upscale the same image ~25×duration times.
     const stillDecoder = isVideoScene ? [] : await stillDecoderArgs(scene.image_path)
-    const singleFrameStill = !isVideoScene && isZoompanAnimation(pickedType, motionLibrary)
+    const singleFrameStill = !isVideoScene && (ffmpegVisionDocument
+      ? ffmpegVisionDocument.spin.rate_rad_per_sec === 0 && (ffmpegVisionDocument.zoom.mode !== 'none' || ffmpegVisionDocument.pan.mode !== 'none')
+      : isZoompanAnimation(pickedType, motionLibrary))
     const inputArgs = isVideoScene
       ? (naturalVideo || holdVideo
           ? ['-i', scene.image_path]
@@ -5929,7 +5965,7 @@ async function readSceneStageForRender(
   episodeDir: string,
   library: Parameters<typeof resolveSceneStage>[1],
   job: Job,
-  wide: Pick<NonNullable<Parameters<typeof resolveSceneStage>[2]>, 'scenes' | 'projectLook'> = {},
+  wide: Pick<NonNullable<Parameters<typeof resolveSceneStage>[2]>, 'scenes' | 'projectLook' | 'found'> = {},
 ): Promise<{ byScene: Map<string, SceneStageItem[]>; fingerprint: unknown[] }> {
   let file
   try { file = await readEpisodeEffects(episodeDir) } catch { file = emptyEpisodeEffects() }
@@ -5942,11 +5978,39 @@ async function readSceneStageForRender(
     job.output_lines.push(`Living pictures: scene ${sceneId} draws ${items.map(item => item.name).join(', ')} inside its outline.`)
     for (const item of items) {
       const mask = item.document.region?.mask
-      const stat = mask ? await fs.stat(outlineMaskPath(episodeDir, mask)).catch(() => null) : null
-      fingerprint.push({ scene_id: sceneId, document: item.document, ...(mask ? { mask_bytes: stat?.size ?? null, mask_mtime: stat?.mtimeMs ?? null } : {}) })
+      const auto = item.document.region?.auto
+      const stat = mask ? await fs.stat(outlineMaskPath(episodeDir, mask)).catch(() => null)
+        : auto ? await fs.stat(path.join(episodeDir, SCENE_ANALYSIS_DIR, auto)).catch(() => null) : null
+      fingerprint.push({ scene_id: sceneId, document: item.document, ...(mask || auto ? { mask_bytes: stat?.size ?? null, mask_mtime: stat?.mtimeMs ?? null } : {}) })
     }
   }
   return { byScene, fingerprint }
+}
+
+/**
+ * E2–E4 — each scene's saved analysis when this channel has scene analysis on (else null, and the
+ * render is exactly what it was). Read only: a scene with no analysis falls back with a log line.
+ */
+async function readSceneVisionForRender(
+  slug: string,
+  episodeDir: string,
+  scenes: GenerateVideoRequest['scenes'],
+  job: Job,
+): Promise<Map<string, SceneVision> | null> {
+  const switches = sceneAnalysisSwitches(await pm.getConfig(slug).catch(() => null))
+  if (!switches.depth && !switches.vision) return null
+  const byScene = new Map<string, SceneVision>()
+  let missing = 0
+  for (const scene of scenes) {
+    const id = (scene as { plan_scene_id?: string }).plan_scene_id
+    if (!id || byScene.has(id) || /\.(mp4|mov|webm|mkv|m4v)$/i.test(scene.image_path || '')) continue
+    const entry = await readSceneAnalysis(episodeDir, id, scene.image_path)
+    if (entry) byScene.set(id, visionFromEntry(episodeDir, entry))
+    else missing++
+  }
+  job.output_lines.push(`Scene analysis: ${byScene.size} scene picture(s) analysed${missing ? `, ${missing} not (yet) — those use their move's plain version` : ''}`
+    + ` (depth ${switches.depth ? 'on' : 'off'}, subject and outlines ${switches.vision ? 'on' : 'off'}).`)
+  return byScene
 }
 
 export async function resolveEpisodeStackForRender(opts: {

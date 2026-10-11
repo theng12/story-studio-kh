@@ -63,6 +63,12 @@ const PAN_ZOOM_PCT = 108
  */
 const DIAGONAL_AXIAL_SPEED = 1.5 / Math.SQRT2
 
+const DEPTH_APPROXIMATION = 'Each pixel shifts by its depth from one picture, so the gaps a real camera would see behind '
+  + 'near things are stretched from their surroundings rather than drawn; kept to at most 1.5% of the width so that '
+  + 'never shows. Needs a transition between scenes; cut episodes render the plain zoom.'
+const RACK_APPROXIMATION = 'The picture blends between sharp and one blurred copy by depth, so the out-of-focus parts '
+  + 'are a single blur strength softened by distance, not a lens\'s true bokeh.'
+
 function motion(
   id: string,
   name: string,
@@ -207,6 +213,59 @@ export const BUILT_IN_SCENE_MOTIONS: BuiltInMotion[] = [
   motion('float', 'Handheld Float', 'ambient',
     'A slow, organic sideways and up-and-down drift. Never rotates.',
     stillCamera({ zoom: { mode: 'sine', base_pct: 103, amplitude_pct: 0.3 }, float: { amplitude_pct: 0.8, period_sec: 9, seed: 0 } })),
+
+  // ── E2–E4 (1.4.288): moves that understand the picture ───────────────────
+  // Each needs the scene's analysis (Effects Library → Scene analysis, per channel). Without it the
+  // scene renders the move's plain camera — the Zoom in it is built on, or Blur → Focus for a rack.
+  motion('depth-gentle', '3D Photo (gentle)', 'zoom',
+    'A slow push in where near things grow a little faster than far ones, like a real camera moving in.',
+    { ...stillZoomRamp(100, 106), depth: { parallax_pct: 0.6, direction: 'in' } }, { approximation: DEPTH_APPROXIMATION }),
+  motion('depth', '3D Photo', 'zoom',
+    'A push in with real depth: near and far layers move at different rates. Needs the scene\'s depth map.',
+    { ...stillZoomRamp(100, 108), depth: { parallax_pct: 1, direction: 'in' } }, { approximation: DEPTH_APPROXIMATION }),
+  motion('depth-strong', '3D Photo (strong)', 'zoom',
+    'A stronger push in with real depth.',
+    { ...stillZoomRamp(100, 112), depth: { parallax_pct: 1.5, direction: 'in' } }, { approximation: DEPTH_APPROXIMATION }),
+  motion('depth-left', '3D Photo, slide left', 'pan',
+    'The near layer slides left past the far one while the camera pushes in gently.',
+    { ...stillZoomRamp(100, 108), depth: { parallax_pct: 1, direction: 'left' } }, { approximation: DEPTH_APPROXIMATION }),
+  motion('depth-right', '3D Photo, slide right', 'pan',
+    'The near layer slides right past the far one while the camera pushes in gently.',
+    { ...stillZoomRamp(100, 108), depth: { parallax_pct: 1, direction: 'right' } }, { approximation: DEPTH_APPROXIMATION }),
+  motion('rack-focus-gentle', 'Rack Focus (gentle)', 'effect',
+    'The focus slides from the background onto the subject, lightly.',
+    { ...stillZoomRamp(100, 102), rack: { to: 'subject', max_sigma_px: 4 } }, { approximation: RACK_APPROXIMATION }),
+  motion('rack-focus', 'Rack Focus', 'effect',
+    'The focus slides from the background onto the subject while the camera pushes in a touch.',
+    { ...stillZoomRamp(100, 102), rack: { to: 'subject', max_sigma_px: 6 } }, { approximation: RACK_APPROXIMATION }),
+  motion('rack-focus-strong', 'Rack Focus (strong)', 'effect',
+    'A deeper focus pull from the background onto the subject.',
+    { ...stillZoomRamp(100, 102), rack: { to: 'subject', max_sigma_px: 8 } }, { approximation: RACK_APPROXIMATION }),
+  motion('rack-focus-background', 'Rack Focus to Background', 'effect',
+    'The focus slides from the subject to the far background.',
+    { ...stillZoomRamp(100, 102), rack: { to: 'far', max_sigma_px: 6 } }, { approximation: RACK_APPROXIMATION }),
+  motion('subject-gentle', 'Zoom to Subject (gentle)', 'zoom',
+    'A gentle push that ends on the picture\'s main subject instead of the middle.',
+    { ...stillZoomRamp(100, 106), aim: { mode: 'subject' } }),
+  motion('subject', 'Zoom to Subject', 'zoom',
+    'Ken Burns aimed at the main subject the scene analysis found (else the nearest thing, else the middle).',
+    { ...stillZoomRamp(100, 108), aim: { mode: 'subject' } }),
+  motion('subject-strong', 'Zoom to Subject (strong)', 'zoom',
+    'A closer push onto the main subject. The subject always keeps a margin round it.',
+    { ...stillZoomRamp(100, 112), aim: { mode: 'subject' } }),
+  motion('subject-pull', 'Pull Back from Subject', 'zoom',
+    'Starts close on the main subject and slowly pulls back to the whole picture.',
+    { ...stillZoomRamp(108, 100), aim: { mode: 'subject' } }),
+  motion('tour', 'Guided Tour', 'pan',
+    'One slow move through two or three interesting places in the picture, starting from the left.',
+    stillCamera({ zoom: { mode: 'fixed', fixed_pct: 115 }, aim: { mode: 'tour' } }), {
+      approximation: 'Drawn by the native renderer; a scene rendered by FFmpeg zooms to the subject instead.',
+    }),
+  motion('tour-slow', 'Guided Tour (slow)', 'pan',
+    'The guided tour with a wider view, so it travels less.',
+    stillCamera({ zoom: { mode: 'fixed', fixed_pct: 110 }, aim: { mode: 'tour' } }), {
+      approximation: 'Drawn by the native renderer; a scene rendered by FFmpeg zooms to the subject instead.',
+    }),
 ]
 
 // ── B-Roll motions (footage) ────────────────────────────────────────────────
@@ -303,6 +362,19 @@ export const MOTION_FAMILIES: readonly MotionFamily[] = [
   ] },
   { key: 'float', name: 'Handheld float', description: 'A tiny organic sideways and up-and-down drift. Never rotates.', members: [
     { id: 'float-gentle', strength: 'gentle' }, { id: 'float', strength: 'normal' },
+  ] },
+  // E2–E4 (1.4.288) — need scene analysis.
+  { key: 'depth', name: '3D photo', description: 'A push in with real depth: near and far layers move at different rates.', members: [
+    { id: 'depth-gentle', strength: 'gentle' }, { id: 'depth', strength: 'normal' }, { id: 'depth-strong', strength: 'strong' },
+  ] },
+  { key: 'rack-focus', name: 'Rack focus', description: 'The focus slides from the background onto the subject.', members: [
+    { id: 'rack-focus-gentle', strength: 'gentle' }, { id: 'rack-focus', strength: 'normal' }, { id: 'rack-focus-strong', strength: 'strong' },
+  ] },
+  { key: 'subject', name: 'Zoom to subject', description: 'Ken Burns aimed at the picture\'s main subject.', members: [
+    { id: 'subject-gentle', strength: 'gentle' }, { id: 'subject', strength: 'normal' }, { id: 'subject-strong', strength: 'strong' },
+  ] },
+  { key: 'tour', name: 'Guided tour', description: 'One slow move through two or three interesting places.', members: [
+    { id: 'tour-slow', strength: 'gentle' }, { id: 'tour', strength: 'normal' },
   ] },
 ]
 
@@ -596,6 +668,50 @@ BUILT_IN_OVERLAYS.push(
     'Over a sleep episode the picture slowly gets darker, warmer and a little less colourful — 25% darker by 85% of the episode. '
       + 'Captions and the logo are not dimmed. The preview squeezes the whole dim into 6 seconds.',
     'bedtime-dimming', {}),
+)
+
+// ── E4 (1.4.288): effects that follow the picture ───────────────────────────
+// The same effects, kept to a part of each picture that scene analysis found (or a hand outline
+// of that name). A scene where nothing was found keeps the effect's own band; a Living Picture
+// is skipped there. Appended so every earlier list keeps its order.
+const FOLLOWS = 'Needs scene analysis (subject and outlines) switched on for the channel. A hand outline of the same name wins.'
+BUILT_IN_OVERLAYS.push(
+  loop('sky-clouds-real', 'Clouds in the Real Sky', 'atmosphere',
+    `Soft clouds drifting across the sky only — never over a mountain, a roof or a person. ${FOLLOWS}`,
+    'sky-clouds', { follow: 'sky' }),
+  loop('twinkling-stars-sky', 'Twinkling Stars in the Sky', 'light',
+    `Twinkling Stars kept to the real sky. ${FOLLOWS}`,
+    'stars', { amount: 3, size: 2.4, twinkle: 1, speed: 0.75, follow: 'sky' }),
+  overlay('shooting-star-sky', 'Shooting Star in the Sky', 'light',
+    `A rare shooting star crossing the real sky. ${FOLLOWS}`,
+    'shooting-star', { follow: 'sky' }),
+  loop('aurora-sky', 'Aurora in the Sky', 'light',
+    `Aurora curtains cut to the real sky. ${FOLLOWS}`,
+    'aurora', { secondary_color_hex: '#B06CFF', follow: 'sky' }),
+  loop('moon-glow-sky', 'Moonlight Glow in the Sky', 'light',
+    `The moonlight glow kept to the sky, so it never washes over the land. ${FOLLOWS}`,
+    'moon-glow', { follow: 'sky' }),
+  loop('caustics-water', 'Caustics on the Water', 'light',
+    `Rippling lines of light on the water only. ${FOLLOWS}`,
+    'caustics', { follow: 'water' }),
+  overlay('water-shimmer-real', 'Shimmer on the Water', 'weather',
+    `A gentle shimmer on the water only — the boat and the reeds stay still. ${FOLLOWS}`,
+    'heat-shimmer', { strength_px: 2, scale: 1.5, region_top: 0.6, region_bottom: 1, follow: 'water' }),
+  overlay('water-ripples', 'Water Ripples', 'weather',
+    `A Living Picture on the water the scene analysis found: it ripples, nothing else moves. ${FOLLOWS}`,
+    'living-region', { motion: 'water', follow: 'water' }),
+  loop('ground-mist-real', 'Mist along the Ground', 'atmosphere',
+    `Drifting mist hugging the line where the sky meets the land. ${FOLLOWS}`,
+    'fog', { follow: 'horizon' }),
+  loop('fireflies-plants', 'Fireflies among the Plants', 'light',
+    `Fireflies kept to the trees and grass. Scenes with no plants found keep the usual fireflies. ${FOLLOWS}`,
+    'fireflies', { follow: 'plants' }),
+  overlay('flame-found', 'Flicker on Found Flames', 'light',
+    `A Living Picture on every flame the scene analysis found: candles and fires flicker, nothing else moves. ${FOLLOWS}`,
+    'living-region', { motion: 'flame', follow: 'fire' }),
+  overlay('fire-glow-found', 'Firelight round Found Flames', 'light',
+    `The glow a found candle or fire throws on the room flickers with it. ${FOLLOWS}`,
+    'living-region', { motion: 'fire-glow', follow: 'glow' }),
 )
 
 const OVERLAYS_BY_ID = new Map(BUILT_IN_OVERLAYS.map(o => [o.id, o] as const))

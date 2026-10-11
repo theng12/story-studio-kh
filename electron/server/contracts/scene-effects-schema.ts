@@ -29,6 +29,10 @@ import {
   LETTERBOX_MODES,
   LETTERBOX_RATIOS,
   LIVING_MOTIONS,
+  FOLLOW_REGIONS,
+  DEPTH_DIRECTIONS,
+  RACK_TARGETS,
+  AIM_MODES,
   OUTLINE_MASK_NAME,
   REGION_MAX_POINTS,
   REGION_MAX_SHAPES,
@@ -132,6 +136,13 @@ export const SceneMotionDocumentSchema = z.object({
     period_sec: z.number().min(3).max(30),
     seed: z.number().int().min(0).max(2 ** 31 - 1),
   }).strict().optional(),
+  depth: z.object({ parallax_pct: z.number().min(0).max(1.5), direction: z.enum(DEPTH_DIRECTIONS) }).strict().optional(),
+  rack: z.object({ to: z.enum(RACK_TARGETS), max_sigma_px: z.number().min(0).max(12) }).strict().optional(),
+  aim: z.object({
+    mode: z.enum(AIM_MODES),
+    target: z.tuple([z.number().min(0).max(1), z.number().min(0).max(1)]).optional(),
+    path: z.array(z.tuple([z.number().min(0).max(1), z.number().min(0).max(1)])).max(3).optional(),
+  }).strict().optional(),
 }).strict().superRefine((doc, ctx) => {
   if (doc.source !== 'footage') return
   // The footage engine builds ONE crop window. A zoom animates the window's
@@ -190,6 +201,8 @@ const overlayBase = {
   schema_version: z.literal(SCENE_EFFECT_SCHEMA_VERSION),
   timing: TimingSchema,
   region: SceneRegionSchema.optional(),
+  // 'band' is the parameter panel's "its own band" (no follow); the normaliser drops it.
+  follow: z.enum([...FOLLOW_REGIONS, 'band']).optional(),
 }
 
 export const VignetteOverlaySchema = z.object({

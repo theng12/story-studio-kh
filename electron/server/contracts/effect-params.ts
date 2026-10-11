@@ -13,7 +13,7 @@
  */
 
 import { LOOP_VARIANT_INFO, loopParticleCount, normalizeLoopShape, type LoopShapeField, type LoopVariant } from './effect-loops.js'
-import { COLOR_GRADE_PRESETS, LIVING_MOTIONS, OVERLAY_ANCHORS, type OverlayKind, type SceneOverlayDocument } from './scene-effects.js'
+import { COLOR_GRADE_PRESETS, FOLLOW_REGIONS, LIVING_MOTIONS, OVERLAY_ANCHORS, type OverlayKind, type SceneOverlayDocument } from './scene-effects.js'
 
 /**
  * Where each scope's effects start in the shared stack order when they carry no
@@ -193,8 +193,26 @@ const FIELDS_BY_KIND: Record<OverlayKind, ParamField[]> = {
   ],
 }
 
+/**
+ * E4 (1.4.288) — keep the effect to a part of each picture scene analysis found, instead of its band.
+ * Offered on the effects that live in a part of the picture; needs scene analysis on for the channel.
+ */
+export const FOLLOW_FIELD: ParamField = {
+  key: 'follow', label: 'Follow the picture', type: 'select', options: ['band', ...FOLLOW_REGIONS],
+  option_labels: {
+    band: 'Its own band', sky: 'The sky', water: 'Water', clouds: 'Clouds', fire: 'Flames', glow: 'Round the flames',
+    ground: 'The ground', plants: 'Trees and grass', horizon: 'Along the ground line',
+  },
+}
+const FOLLOW_KINDS: readonly OverlayKind[] = ['atmosphere-loop', 'heat-shimmer', 'shooting-star', 'living-region']
+
 /** The controls one effect document shows. */
 export function effectParamFields(doc: Pick<SceneOverlayDocument, 'kind'> & { variant?: LoopVariant }): ParamField[] {
+  const fields = effectOwnFields(doc)
+  return FOLLOW_KINDS.includes(doc.kind) ? [...fields, FOLLOW_FIELD] : fields
+}
+
+function effectOwnFields(doc: Pick<SceneOverlayDocument, 'kind'> & { variant?: LoopVariant }): ParamField[] {
   if (doc.kind !== 'atmosphere-loop') return FIELDS_BY_KIND[doc.kind] || []
   const variant: LoopVariant = doc.variant && doc.variant in LOOP_VARIANT_INFO ? doc.variant : 'rain'
   const labels = LOOP_LABELS[variant] || {}

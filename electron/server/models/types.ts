@@ -2365,6 +2365,12 @@ export interface UpdateConfigRequest {
    * `lib/research-verification.ts` (researchAutoApproveEnabled), not here.
    */
   research_auto_approve_claims?: boolean
+  /**
+   * E2–E4 (1.4.288) — scene analysis for this channel (Effects Library). Off unless set. `depth`
+   * (3D photo, rack focus) is its own switch (owner); `vision` finds the subject, points of interest
+   * and outlines (sky, water, flames…). The models are picked app-wide.
+   */
+  scene_analysis?: { depth?: boolean; vision?: boolean }
 }
 
 // ── Jobs ────────────────────────────────────────────────────────────────────

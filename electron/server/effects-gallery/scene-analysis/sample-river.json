@@ -1,0 +1,95 @@
+{
+  "schema": 1,
+  "scene_id": "sample-river",
+  "image_sha256": "73ab9d7a2a30f61d73c3c015005b515eaf5c95482987ce1deea0acc2b2542e80",
+  "analysed_at": "2026-10-11T16:30:01.598Z",
+  "models": {
+    "depth": "studio-hub::depth-anything/Depth-Anything-V2-Small-hf",
+    "vision": "studio-hub::florence-community/Florence-2-base-ft"
+  },
+  "revisions": {
+    "studio-hub::depth-anything/Depth-Anything-V2-Small-hf": "5426e4f0f36572d16453bbda7a8389317b1bef99",
+    "studio-hub::florence-community/Florence-2-base-ft": "0b03b6f15a4a211370fb204aee4e7dd48887ea37"
+  },
+  "depth": {
+    "file": "sample-river.depth.png",
+    "w": 518,
+    "h": 291,
+    "p5": 0.00784313725490196,
+    "p50": 0.09803921568627451,
+    "p95": 0.8588235294117647,
+    "range": 0.851,
+    "usable": true
+  },
+  "subject": {
+    "box": [
+      0.2185,
+      0.5015,
+      0.78,
+      0.497
+    ],
+    "score": 0.4611,
+    "label": "The stream curves",
+    "source": "grounding",
+    "depth": 0.2431
+  },
+  "points": [
+    {
+      "box": [
+        0.7605,
+        0.0005,
+        0.238,
+        0.525
+      ],
+      "label": "palm tree"
+    }
+  ],
+  "regions": {
+    "sky": {
+      "file": "sample-river.sky.png",
+      "coverage": 0.2638,
+      "band": [
+        0,
+        0.5361
+      ]
+    },
+    "water": {
+      "file": "sample-river.water.png",
+      "coverage": 0.0714,
+      "band": [
+        0.732,
+        1
+      ]
+    },
+    "clouds": null,
+    "fire": null,
+    "ground": null,
+    "plants": {
+      "file": "sample-river.plants.png",
+      "coverage": 0.0396,
+      "band": [
+        0.0034,
+        0.7113
+      ]
+    },
+    "glow": null,
+    "horizon": {
+      "file": "sample-river.horizon.png",
+      "coverage": 0.1409,
+      "band": [
+        0.3505,
+        0.7766
+      ]
+    }
+  },
+  "caption": "This is an animated image. In this image we can see water, grass, trees, hills, moon and sky.",
+  "served_by": {
+    "location_id": "local",
+    "machine": "local",
+    "why": "caller-site"
+  },
+  "network": {
+    "request_bytes": 44897,
+    "response_bytes": 46076
+  }
+}

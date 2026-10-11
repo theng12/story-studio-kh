@@ -1,0 +1,2192 @@
+{
+ "captured_from": "1.4.287 (20e6fd7b)",
+ "motions": {
+  "ken-burns": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"ramp\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"ramp\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "ffmpeg_1080": [
+    "scale=3840:2160:force_original_aspect_ratio=decrease",
+    "pad=3840:2160:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z='1+on*0.0002083333':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=384:s=3840x2160:fps=24",
+    "scale=1920:1080:flags=lanczos",
+    "setsar=1"
+   ],
+   "ffmpeg_540": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z='1+on*0.0005555556':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=144:s=1920x1080:fps=24",
+    "scale=960:540:flags=lanczos",
+    "setsar=1"
+   ],
+   "native_job": "1e8525985ce35deacee9cf3216d577c934d1616a7c224a8fee0b6f40f50d998c"
+  },
+  "ken-burns-reverse": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"ramp\",\"fixed_pct\":100,\"from_pct\":108,\"to_pct\":100,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"ramp\",\"fixed_pct\":100,\"from_pct\":108,\"to_pct\":100,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "ffmpeg_1080": [
+    "scale=3840:2160:force_original_aspect_ratio=decrease",
+    "pad=3840:2160:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z='1.08+on*-0.0002083333':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=384:s=3840x2160:fps=24",
+    "scale=1920:1080:flags=lanczos",
+    "setsar=1"
+   ],
+   "ffmpeg_540": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z='1.08+on*-0.0005555556':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=144:s=1920x1080:fps=24",
+    "scale=960:540:flags=lanczos",
+    "setsar=1"
+   ],
+   "native_job": "f64ca0c8b3d72ab8af03a859c3d095f1c9e4f15eab970ef7d494bf18e4fa2ccf"
+  },
+  "zoom-in": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"ramp\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":112,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"ramp\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":112,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "ffmpeg_1080": [
+    "scale=3840:2160:force_original_aspect_ratio=decrease",
+    "pad=3840:2160:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z='1+on*0.0003125000':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=384:s=3840x2160:fps=24",
+    "scale=1920:1080:flags=lanczos",
+    "setsar=1"
+   ],
+   "ffmpeg_540": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z='1+on*0.0008333333':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=144:s=1920x1080:fps=24",
+    "scale=960:540:flags=lanczos",
+    "setsar=1"
+   ],
+   "native_job": "48b633def680e8bed3d03e4e749fa3656f45ca68e1c32111c07dad3fc57c63cf"
+  },
+  "zoom-out": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"ramp\",\"fixed_pct\":100,\"from_pct\":112,\"to_pct\":100,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"ramp\",\"fixed_pct\":100,\"from_pct\":112,\"to_pct\":100,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "ffmpeg_1080": [
+    "scale=3840:2160:force_original_aspect_ratio=decrease",
+    "pad=3840:2160:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z='1.12+on*-0.0003125000':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=384:s=3840x2160:fps=24",
+    "scale=1920:1080:flags=lanczos",
+    "setsar=1"
+   ],
+   "ffmpeg_540": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z='1.12+on*-0.0008333333':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=144:s=1920x1080:fps=24",
+    "scale=960:540:flags=lanczos",
+    "setsar=1"
+   ],
+   "native_job": "4925040c8e5926ddc83344e7bd12ead92cb35806998ef3158d8377c6823c682f"
+  },
+  "slow-push": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"ramp\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":106,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"ramp\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":106,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "ffmpeg_1080": [
+    "scale=3840:2160:force_original_aspect_ratio=decrease",
+    "pad=3840:2160:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z='1+on*0.0001562500':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=384:s=3840x2160:fps=24",
+    "scale=1920:1080:flags=lanczos",
+    "setsar=1"
+   ],
+   "ffmpeg_540": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z='1+on*0.0004166667':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=144:s=1920x1080:fps=24",
+    "scale=960:540:flags=lanczos",
+    "setsar=1"
+   ],
+   "native_job": "e7c6ce7b848ecdce85346cb1fb0daec0a414ed3ab7d7586862fa18fd40d8cb74"
+  },
+  "slow-pull": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"ramp\",\"fixed_pct\":100,\"from_pct\":106,\"to_pct\":100,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"ramp\",\"fixed_pct\":100,\"from_pct\":106,\"to_pct\":100,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "ffmpeg_1080": [
+    "scale=3840:2160:force_original_aspect_ratio=decrease",
+    "pad=3840:2160:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z='1.06+on*-0.0001562500':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=384:s=3840x2160:fps=24",
+    "scale=1920:1080:flags=lanczos",
+    "setsar=1"
+   ],
+   "ffmpeg_540": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z='1.06+on*-0.0004166667':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=144:s=1920x1080:fps=24",
+    "scale=960:540:flags=lanczos",
+    "setsar=1"
+   ],
+   "native_job": "01fbf3ea54e913c2b5aebecc3effb972c43f18fdc0f00c9adc73701e990bb45b"
+  },
+  "dolly-in": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"ramp\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"rate\",\"x\":0,\"y\":0.6,\"rate_unit\":\"source-px-per-frame\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"ramp\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"rate\",\"x\":0,\"y\":0.6,\"rate_unit\":\"source-px-per-frame\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "ffmpeg_1080": [
+    "scale=3840:2160:force_original_aspect_ratio=decrease",
+    "pad=3840:2160:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z='1+on*0.0002083333':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2)+on*0.6)':d=384:s=3840x2160:fps=24",
+    "scale=1920:1080:flags=lanczos",
+    "setsar=1"
+   ],
+   "ffmpeg_540": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z='1+on*0.0005555556':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2)+on*0.6)':d=144:s=1920x1080:fps=24",
+    "scale=960:540:flags=lanczos",
+    "setsar=1"
+   ],
+   "native_job": "2faa38ae016d969749dcf15e4950831cac638c48638c864b937d95946903dad8"
+  },
+  "parallax-drift": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"fixed\",\"fixed_pct\":108,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"rate\",\"x\":2,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"fixed\",\"fixed_pct\":108,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"rate\",\"x\":2,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "ffmpeg_1080": [
+    "scale=3840:2160:force_original_aspect_ratio=decrease",
+    "pad=3840:2160:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z=1.08:x='floor(iw/2-(iw/zoom/2)+on*0.166667)':y='floor(ih/2-(ih/zoom/2))':d=384:s=3840x2160:fps=24",
+    "scale=1920:1080:flags=lanczos",
+    "setsar=1"
+   ],
+   "ffmpeg_540": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z=1.08:x='floor(iw/2-(iw/zoom/2)+on*0.166667)':y='floor(ih/2-(ih/zoom/2))':d=144:s=1920x1080:fps=24",
+    "scale=960:540:flags=lanczos",
+    "setsar=1"
+   ],
+   "native_job": "d7a642fac083789fe0c5583bb3f1309c3b2573347b0a0da2d211454a018c43bf"
+  },
+  "pan-left": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"fixed\",\"fixed_pct\":108,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"rate\",\"x\":-2,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"fixed\",\"fixed_pct\":108,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"rate\",\"x\":-2,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "ffmpeg_1080": [
+    "scale=3840:2160:force_original_aspect_ratio=decrease",
+    "pad=3840:2160:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z=1.08:x='floor(iw/2-(iw/zoom/2)-on*0.166667)':y='floor(ih/2-(ih/zoom/2))':d=384:s=3840x2160:fps=24",
+    "scale=1920:1080:flags=lanczos",
+    "setsar=1"
+   ],
+   "ffmpeg_540": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z=1.08:x='floor(iw/2-(iw/zoom/2)-on*0.166667)':y='floor(ih/2-(ih/zoom/2))':d=144:s=1920x1080:fps=24",
+    "scale=960:540:flags=lanczos",
+    "setsar=1"
+   ],
+   "native_job": "9900b0f87373e86bb3978ed16dc918d563245d5359fcc290ae4bd623c44c50f6"
+  },
+  "pan-right": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"fixed\",\"fixed_pct\":108,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"rate\",\"x\":2,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"fixed\",\"fixed_pct\":108,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"rate\",\"x\":2,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "ffmpeg_1080": [
+    "scale=3840:2160:force_original_aspect_ratio=decrease",
+    "pad=3840:2160:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z=1.08:x='floor(iw/2-(iw/zoom/2)+on*0.166667)':y='floor(ih/2-(ih/zoom/2))':d=384:s=3840x2160:fps=24",
+    "scale=1920:1080:flags=lanczos",
+    "setsar=1"
+   ],
+   "ffmpeg_540": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z=1.08:x='floor(iw/2-(iw/zoom/2)+on*0.166667)':y='floor(ih/2-(ih/zoom/2))':d=144:s=1920x1080:fps=24",
+    "scale=960:540:flags=lanczos",
+    "setsar=1"
+   ],
+   "native_job": "d7a642fac083789fe0c5583bb3f1309c3b2573347b0a0da2d211454a018c43bf"
+  },
+  "pan-up": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"fixed\",\"fixed_pct\":108,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"rate\",\"x\":0,\"y\":-2,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"fixed\",\"fixed_pct\":108,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"rate\",\"x\":0,\"y\":-2,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "ffmpeg_1080": [
+    "scale=3840:2160:force_original_aspect_ratio=decrease",
+    "pad=3840:2160:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z=1.08:x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2)-on*0.166667)':d=384:s=3840x2160:fps=24",
+    "scale=1920:1080:flags=lanczos",
+    "setsar=1"
+   ],
+   "ffmpeg_540": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z=1.08:x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2)-on*0.166667)':d=144:s=1920x1080:fps=24",
+    "scale=960:540:flags=lanczos",
+    "setsar=1"
+   ],
+   "native_job": "15f2553b4f9e26f72cc441b9da6cd4cca3f67c7bfaa12caf7014542809034f16"
+  },
+  "pan-down": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"fixed\",\"fixed_pct\":108,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"rate\",\"x\":0,\"y\":2,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"fixed\",\"fixed_pct\":108,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"rate\",\"x\":0,\"y\":2,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "ffmpeg_1080": [
+    "scale=3840:2160:force_original_aspect_ratio=decrease",
+    "pad=3840:2160:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z=1.08:x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2)+on*0.166667)':d=384:s=3840x2160:fps=24",
+    "scale=1920:1080:flags=lanczos",
+    "setsar=1"
+   ],
+   "ffmpeg_540": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z=1.08:x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2)+on*0.166667)':d=144:s=1920x1080:fps=24",
+    "scale=960:540:flags=lanczos",
+    "setsar=1"
+   ],
+   "native_job": "9683bc13f1d7b6b6066a4461a5d083783e59ea82a76069714ce0d5163c2254cb"
+  },
+  "pan-diag-tl": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"fixed\",\"fixed_pct\":108,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"rate\",\"x\":-1.0606601717798212,\"y\":-1.0606601717798212,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"fixed\",\"fixed_pct\":108,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"rate\",\"x\":-1.0606601717798212,\"y\":-1.0606601717798212,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "ffmpeg_1080": [
+    "scale=3840:2160:force_original_aspect_ratio=decrease",
+    "pad=3840:2160:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z=1.08:x='floor(iw/2-(iw/zoom/2)-on*0.088388)':y='floor(ih/2-(ih/zoom/2)-on*0.088388)':d=384:s=3840x2160:fps=24",
+    "scale=1920:1080:flags=lanczos",
+    "setsar=1"
+   ],
+   "ffmpeg_540": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z=1.08:x='floor(iw/2-(iw/zoom/2)-on*0.088388)':y='floor(ih/2-(ih/zoom/2)-on*0.088388)':d=144:s=1920x1080:fps=24",
+    "scale=960:540:flags=lanczos",
+    "setsar=1"
+   ],
+   "native_job": "24f02ec6b0181f46627caff4b61c355fdedf24c2fcf86bd5dbc864debf363b32"
+  },
+  "pan-diag-tr": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"fixed\",\"fixed_pct\":108,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"rate\",\"x\":1.0606601717798212,\"y\":-1.0606601717798212,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"fixed\",\"fixed_pct\":108,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"rate\",\"x\":1.0606601717798212,\"y\":-1.0606601717798212,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "ffmpeg_1080": [
+    "scale=3840:2160:force_original_aspect_ratio=decrease",
+    "pad=3840:2160:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z=1.08:x='floor(iw/2-(iw/zoom/2)+on*0.088388)':y='floor(ih/2-(ih/zoom/2)-on*0.088388)':d=384:s=3840x2160:fps=24",
+    "scale=1920:1080:flags=lanczos",
+    "setsar=1"
+   ],
+   "ffmpeg_540": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z=1.08:x='floor(iw/2-(iw/zoom/2)+on*0.088388)':y='floor(ih/2-(ih/zoom/2)-on*0.088388)':d=144:s=1920x1080:fps=24",
+    "scale=960:540:flags=lanczos",
+    "setsar=1"
+   ],
+   "native_job": "43cf60a17074845f1843de9456ad0128a5e5a4252b109e67f6c1eaa37cd0cd0c"
+  },
+  "pan-diag-bl": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"fixed\",\"fixed_pct\":108,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"rate\",\"x\":-1.0606601717798212,\"y\":1.0606601717798212,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"fixed\",\"fixed_pct\":108,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"rate\",\"x\":-1.0606601717798212,\"y\":1.0606601717798212,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "ffmpeg_1080": [
+    "scale=3840:2160:force_original_aspect_ratio=decrease",
+    "pad=3840:2160:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z=1.08:x='floor(iw/2-(iw/zoom/2)-on*0.088388)':y='floor(ih/2-(ih/zoom/2)+on*0.088388)':d=384:s=3840x2160:fps=24",
+    "scale=1920:1080:flags=lanczos",
+    "setsar=1"
+   ],
+   "ffmpeg_540": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z=1.08:x='floor(iw/2-(iw/zoom/2)-on*0.088388)':y='floor(ih/2-(ih/zoom/2)+on*0.088388)':d=144:s=1920x1080:fps=24",
+    "scale=960:540:flags=lanczos",
+    "setsar=1"
+   ],
+   "native_job": "7dfd6db41fceff465f207564d898edb9d384348b585e0c3d759168eb4c48343c"
+  },
+  "pan-diag-br": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"fixed\",\"fixed_pct\":108,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"rate\",\"x\":1.0606601717798212,\"y\":1.0606601717798212,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"fixed\",\"fixed_pct\":108,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"rate\",\"x\":1.0606601717798212,\"y\":1.0606601717798212,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "ffmpeg_1080": [
+    "scale=3840:2160:force_original_aspect_ratio=decrease",
+    "pad=3840:2160:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z=1.08:x='floor(iw/2-(iw/zoom/2)+on*0.088388)':y='floor(ih/2-(ih/zoom/2)+on*0.088388)':d=384:s=3840x2160:fps=24",
+    "scale=1920:1080:flags=lanczos",
+    "setsar=1"
+   ],
+   "ffmpeg_540": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z=1.08:x='floor(iw/2-(iw/zoom/2)+on*0.088388)':y='floor(ih/2-(ih/zoom/2)+on*0.088388)':d=144:s=1920x1080:fps=24",
+    "scale=960:540:flags=lanczos",
+    "setsar=1"
+   ],
+   "native_job": "e543a730b679d5326da4c69e2d76d97c9e89d4d13fdc2b80c11a3d09d116b772"
+  },
+  "breathe": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"sine\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"sine\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "ffmpeg_1080": [
+    "scale=3840:2160:force_original_aspect_ratio=decrease",
+    "pad=3840:2160:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z='1.03+0.02*sin(on*2*PI/384)':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=384:s=3840x2160:fps=24",
+    "scale=1920:1080:flags=lanczos",
+    "setsar=1"
+   ],
+   "ffmpeg_540": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z='1.03+0.02*sin(on*2*PI/144)':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=144:s=1920x1080:fps=24",
+    "scale=960:540:flags=lanczos",
+    "setsar=1"
+   ],
+   "native_job": "fb2b7702a9a57ac22366247dc66f89f77f66f9aeab4b8877400d4cac3f4f9c77"
+  },
+  "pulse": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"sine\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":105,\"amplitude_pct\":4},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"sine\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":105,\"amplitude_pct\":4},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "ffmpeg_1080": [
+    "scale=3840:2160:force_original_aspect_ratio=decrease",
+    "pad=3840:2160:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z='1.05+0.04*sin(on*2*PI/384)':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=384:s=3840x2160:fps=24",
+    "scale=1920:1080:flags=lanczos",
+    "setsar=1"
+   ],
+   "ffmpeg_540": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z='1.05+0.04*sin(on*2*PI/144)':x='floor(iw/2-(iw/zoom/2))':y='floor(ih/2-(ih/zoom/2))':d=144:s=1920x1080:fps=24",
+    "scale=960:540:flags=lanczos",
+    "setsar=1"
+   ],
+   "native_job": "3089447a1772568c429532fa89ba0d45b12355cf791f5c0561388d82f66af015"
+  },
+  "rotate-cw": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":110},\"zoom\":{\"mode\":\"none\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0.02},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":110},\"zoom\":{\"mode\":\"none\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0.02},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "ffmpeg_1080": [
+    "scale=2112:1188:force_original_aspect_ratio=decrease",
+    "pad=2112:1188:(ow-iw)/2:(oh-ih)/2:color=black",
+    "rotate='0.02*t':ow=1920:oh=1080:c=black@0",
+    "crop=1920:1080",
+    "setsar=1"
+   ],
+   "ffmpeg_540": [
+    "scale=1056:594:force_original_aspect_ratio=decrease",
+    "pad=1056:594:(ow-iw)/2:(oh-ih)/2:color=black",
+    "rotate='0.02*t':ow=960:oh=540:c=black@0",
+    "crop=960:540",
+    "setsar=1"
+   ],
+   "native_job": "f11621d2695115cdf71fc686266fb7e07d75973c1218112afdcd8be9ed322453"
+  },
+  "rotate-ccw": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":110},\"zoom\":{\"mode\":\"none\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":-0.02},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":110},\"zoom\":{\"mode\":\"none\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":-0.02},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "ffmpeg_1080": [
+    "scale=2112:1188:force_original_aspect_ratio=decrease",
+    "pad=2112:1188:(ow-iw)/2:(oh-ih)/2:color=black",
+    "rotate='-0.02*t':ow=1920:oh=1080:c=black@0",
+    "crop=1920:1080",
+    "setsar=1"
+   ],
+   "ffmpeg_540": [
+    "scale=1056:594:force_original_aspect_ratio=decrease",
+    "pad=1056:594:(ow-iw)/2:(oh-ih)/2:color=black",
+    "rotate='-0.02*t':ow=960:oh=540:c=black@0",
+    "crop=960:540",
+    "setsar=1"
+   ],
+   "native_job": "f94898cf79bcbceebde9159df310ce561a6520afa3bd6e922353186dc61cebe2"
+  },
+  "fade-in": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":100},\"zoom\":{\"mode\":\"none\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":true,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":100},\"zoom\":{\"mode\":\"none\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":true,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "ffmpeg_1080": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "setsar=1",
+    "fade=t=in:st=0:d=1.5"
+   ],
+   "ffmpeg_540": [
+    "scale=960:540:force_original_aspect_ratio=decrease",
+    "pad=960:540:(ow-iw)/2:(oh-ih)/2:color=black",
+    "setsar=1",
+    "fade=t=in:st=0:d=1.5"
+   ],
+   "native_job": "1fc4d59f022a87839f428a4fe0f59a4d9b412b028ede6031171ccde4bf1f8ebe"
+  },
+  "fade-out": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":100},\"zoom\":{\"mode\":\"none\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":true,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":100},\"zoom\":{\"mode\":\"none\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":true,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "ffmpeg_1080": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "setsar=1",
+    "fade=t=out:st=14.50:d=1.50"
+   ],
+   "ffmpeg_540": [
+    "scale=960:540:force_original_aspect_ratio=decrease",
+    "pad=960:540:(ow-iw)/2:(oh-ih)/2:color=black",
+    "setsar=1",
+    "fade=t=out:st=4.50:d=1.50"
+   ],
+   "native_job": "b43b62386a2a1d2ca38d6064832f4bcb4c11c67505f85721c5d3cbb77eb06c38"
+  },
+  "blur-focus": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":100},\"zoom\":{\"mode\":\"none\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[{\"sigma\":8,\"until_share\":0.3},{\"sigma\":4,\"until_share\":0.6},{\"sigma\":1.5,\"until_share\":0.85}]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":100},\"zoom\":{\"mode\":\"none\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[{\"sigma\":8,\"until_share\":0.3},{\"sigma\":4,\"until_share\":0.6},{\"sigma\":1.5,\"until_share\":0.85}]}}",
+   "ffmpeg_1080": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "setsar=1",
+    "gblur=sigma=8:enable='lt(t,4.80)'",
+    "gblur=sigma=4:enable='between(t,4.80,9.60)'",
+    "gblur=sigma=1.5:enable='between(t,9.60,13.60)'"
+   ],
+   "ffmpeg_540": [
+    "scale=960:540:force_original_aspect_ratio=decrease",
+    "pad=960:540:(ow-iw)/2:(oh-ih)/2:color=black",
+    "setsar=1",
+    "gblur=sigma=8:enable='lt(t,1.80)'",
+    "gblur=sigma=4:enable='between(t,1.80,3.60)'",
+    "gblur=sigma=1.5:enable='between(t,3.60,5.10)'"
+   ],
+   "native_job": "acf3f5975f70fb5fa241f0f9cedfb92b43b8c86e642eb391fa9db6c8fe321e3a"
+  },
+  "none": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":100},\"zoom\":{\"mode\":\"none\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":100},\"zoom\":{\"mode\":\"none\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":2},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]}}",
+   "ffmpeg_1080": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "setsar=1"
+   ],
+   "ffmpeg_540": [
+    "scale=960:540:force_original_aspect_ratio=decrease",
+    "pad=960:540:(ow-iw)/2:(oh-ih)/2:color=black",
+    "setsar=1"
+   ],
+   "native_job": "050cf7494784eaf6495531f8422c43725b1591fd86061d577e3a48bb944c04d2"
+  },
+  "float-gentle": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"sine\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":0.3},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]},\"float\":{\"amplitude_pct\":0.4,\"period_sec\":9,\"seed\":0}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"sine\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":0.3},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]},\"float\":{\"amplitude_pct\":0.4,\"period_sec\":9,\"seed\":0}}",
+   "ffmpeg_1080": [
+    "scale=3840:2160:force_original_aspect_ratio=decrease",
+    "pad=3840:2160:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z='1.03+0.003*sin(on*2*PI/384)':x='floor(iw/2-(iw/zoom/2)+iw*0.00400*(0.5*sin(2*PI*on/24/9.0000+3.728527)+0.3*sin(2*PI*on/24/14.5620+-1.879816)+0.2*sin(2*PI*on/24/21.7260+-4.254232)))':y='floor(ih/2-(ih/zoom/2)+ih*0.00400*(0.5*sin(2*PI*on/24/9.0000+4.244680)+0.3*sin(2*PI*on/24/14.5620+-3.283461)+0.2*sin(2*PI*on/24/21.7260+0.079395)))':d=384:s=3840x2160:fps=24",
+    "scale=1920:1080:flags=lanczos",
+    "setsar=1"
+   ],
+   "ffmpeg_540": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z='1.03+0.003*sin(on*2*PI/144)':x='floor(iw/2-(iw/zoom/2)+iw*0.00400*(0.5*sin(2*PI*on/24/9.0000+3.728527)+0.3*sin(2*PI*on/24/14.5620+-1.879816)+0.2*sin(2*PI*on/24/21.7260+-4.254232)))':y='floor(ih/2-(ih/zoom/2)+ih*0.00400*(0.5*sin(2*PI*on/24/9.0000+4.244680)+0.3*sin(2*PI*on/24/14.5620+-3.283461)+0.2*sin(2*PI*on/24/21.7260+0.079395)))':d=144:s=1920x1080:fps=24",
+    "scale=960:540:flags=lanczos",
+    "setsar=1"
+   ],
+   "native_job": "fb2547cb94e8760d13c6eddcae3cd92ef0b66dc516b53c3f8c25c668e7d6e145"
+  },
+  "float": {
+   "document": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"sine\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":0.3},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]},\"float\":{\"amplitude_pct\":0.8,\"period_sec\":9,\"seed\":0}}",
+   "renormalized": "{\"schema_version\":1,\"source\":\"still\",\"framing\":{\"source_scale_pct\":200},\"zoom\":{\"mode\":\"sine\",\"fixed_pct\":100,\"from_pct\":100,\"to_pct\":108,\"base_pct\":103,\"amplitude_pct\":0.3},\"pan\":{\"mode\":\"none\",\"x\":0,\"y\":0,\"rate_unit\":\"output-px-per-second\"},\"spin\":{\"rate_rad_per_sec\":0},\"fade\":{\"in\":false,\"out\":false,\"max_sec\":1.5,\"share_of_clip\":0.5},\"focus\":{\"stages\":[]},\"float\":{\"amplitude_pct\":0.8,\"period_sec\":9,\"seed\":0}}",
+   "ffmpeg_1080": [
+    "scale=3840:2160:force_original_aspect_ratio=decrease",
+    "pad=3840:2160:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z='1.03+0.003*sin(on*2*PI/384)':x='floor(iw/2-(iw/zoom/2)+iw*0.00800*(0.5*sin(2*PI*on/24/9.0000+3.728527)+0.3*sin(2*PI*on/24/14.5620+-1.879816)+0.2*sin(2*PI*on/24/21.7260+-4.254232)))':y='floor(ih/2-(ih/zoom/2)+ih*0.00800*(0.5*sin(2*PI*on/24/9.0000+4.244680)+0.3*sin(2*PI*on/24/14.5620+-3.283461)+0.2*sin(2*PI*on/24/21.7260+0.079395)))':d=384:s=3840x2160:fps=24",
+    "scale=1920:1080:flags=lanczos",
+    "setsar=1"
+   ],
+   "ffmpeg_540": [
+    "scale=1920:1080:force_original_aspect_ratio=decrease",
+    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
+    "zoompan=z='1.03+0.003*sin(on*2*PI/144)':x='floor(iw/2-(iw/zoom/2)+iw*0.00800*(0.5*sin(2*PI*on/24/9.0000+3.728527)+0.3*sin(2*PI*on/24/14.5620+-1.879816)+0.2*sin(2*PI*on/24/21.7260+-4.254232)))':y='floor(ih/2-(ih/zoom/2)+ih*0.00800*(0.5*sin(2*PI*on/24/9.0000+4.244680)+0.3*sin(2*PI*on/24/14.5620+-3.283461)+0.2*sin(2*PI*on/24/21.7260+0.079395)))':d=144:s=1920x1080:fps=24",
+    "scale=960:540:flags=lanczos",
+    "setsar=1"
+   ],
+   "native_job": "7a76fb7d817fea65f3cd519b1c6d57cf3bceca55eb1ef83762665b1359d8d469"
+  }
+ },
+ "footage": {
+  "static": [
+   "scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos",
+   "pad=1920:1080:(ow-iw)/2:(oh-ih)/2"
+  ],
+  "zoom-in": [
+   "scale=w='1920*(1+0.1000*t/9.000)':h=-2:eval=frame:flags=lanczos",
+   "crop=1920:1080:(in_w-1920)/2:(in_h-1080)/2",
+   "setsar=1"
+  ],
+  "zoom-out": [
+   "scale=w='1920*(1.1000-0.1000*t/9.000)':h=-2:eval=frame:flags=lanczos",
+   "crop=1920:1080:(in_w-1920)/2:(in_h-1080)/2",
+   "setsar=1"
+  ],
+  "pan-left": [
+   "scale=2112:1080:force_original_aspect_ratio=increase:flags=lanczos",
+   "crop=1920:1080:x='192-192*t/9.000':y='(in_h-1080)/2'",
+   "setsar=1"
+  ],
+  "pan-right": [
+   "scale=2112:1080:force_original_aspect_ratio=increase:flags=lanczos",
+   "crop=1920:1080:x='192*t/9.000':y='(in_h-1080)/2'",
+   "setsar=1"
+  ],
+  "pan-up": [
+   "scale=1920:1188:force_original_aspect_ratio=increase:flags=lanczos",
+   "crop=1920:1080:x='(in_w-1920)/2':y='108-108*t/9.000'",
+   "setsar=1"
+  ],
+  "pan-down": [
+   "scale=1920:1188:force_original_aspect_ratio=increase:flags=lanczos",
+   "crop=1920:1080:x='(in_w-1920)/2':y='108*t/9.000'",
+   "setsar=1"
+  ]
+ },
+ "overlays": {
+  "vignette-soft": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"vignette\",\"intensity\":0.45}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"vignette\",\"intensity\":0.45}",
+   "plain": [
+    "[in]vignette=angle=0.8100:mode=forward:eval=init[out]"
+   ],
+   "gated": [
+    "[in]vignette=angle=0.8100:mode=forward:eval=init:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[in]split=2[x0][x1]",
+    "[x1]vignette=angle=0.8100:mode=forward:eval=init:enable=between(t\\,30.00\\,90.00)[x2]",
+    "[x2]format=yuva420p,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x3]",
+    "[x0][x3]overlay=0:0:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "vignette-heavy": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"vignette\",\"intensity\":0.85}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"vignette\",\"intensity\":0.85}",
+   "plain": [
+    "[in]vignette=angle=1.1300:mode=forward:eval=init[out]"
+   ],
+   "gated": [
+    "[in]vignette=angle=1.1300:mode=forward:eval=init:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[in]split=2[x0][x1]",
+    "[x1]vignette=angle=1.1300:mode=forward:eval=init:enable=between(t\\,30.00\\,90.00)[x2]",
+    "[x2]format=yuva420p,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x3]",
+    "[x0][x3]overlay=0:0:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "film-grain-fine": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"film-grain\",\"amount\":12,\"temporal\":true,\"uniform\":true}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"film-grain\",\"amount\":12,\"temporal\":true,\"uniform\":true}",
+   "plain": [
+    "[in]noise=alls=12:allf=t+u[out]"
+   ],
+   "gated": [
+    "[in]noise=alls=12:allf=t+u:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[in]split=2[x0][x1]",
+    "[x1]noise=alls=12:allf=t+u:enable=between(t\\,30.00\\,90.00)[x2]",
+    "[x2]format=yuva420p,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x3]",
+    "[x0][x3]overlay=0:0:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "film-grain-heavy": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"film-grain\",\"amount\":34,\"temporal\":true,\"uniform\":true}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"film-grain\",\"amount\":34,\"temporal\":true,\"uniform\":true}",
+   "plain": [
+    "[in]noise=alls=34:allf=t+u[out]"
+   ],
+   "gated": [
+    "[in]noise=alls=34:allf=t+u:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[in]split=2[x0][x1]",
+    "[x1]noise=alls=34:allf=t+u:enable=between(t\\,30.00\\,90.00)[x2]",
+    "[x2]format=yuva420p,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x3]",
+    "[x0][x3]overlay=0:0:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "light-leak-warm": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"light-leak\",\"color_hex\":\"#FF9A3C\",\"intensity\":0.35,\"softness\":0.6,\"from_anchor\":\"top-right\",\"to_anchor\":\"center-right\",\"blend\":\"screen\"}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"light-leak\",\"color_hex\":\"#FF9A3C\",\"intensity\":0.35,\"softness\":0.6,\"from_anchor\":\"top-right\",\"to_anchor\":\"center-right\",\"blend\":\"screen\"}",
+   "plain": [
+    "[in]format=gbrp,split=2[x0][x1]",
+    "[x1]drawbox=x=0:y=0:w=iw:h=ih:color=0xFF9A3C:t=fill,vignette=a=1.1500:x0=1632:y0=162+378*min(1\\,max(0\\,(t-0.000)/3600.000)):eval=frame[x2]",
+    "[x0][x2]blend=all_mode=screen:all_opacity=0.350,format=yuv420p[out]"
+   ],
+   "gated": [
+    "[in]format=gbrp,split=2[x0][x1]",
+    "[x1]drawbox=x=0:y=0:w=iw:h=ih:color=0xFF9A3C:t=fill,vignette=a=1.1500:x0=1632:y0=162+378*min(1\\,max(0\\,(t-0.000)/3600.000)):eval=frame[x2]",
+    "[x0][x2]blend=all_mode=screen:all_opacity=0.350:enable=between(t\\,12.00\\,3500.00),format=yuv420p[out]"
+   ],
+   "faded": [
+    "[in]split=2[x0][x1]",
+    "[x1]format=gbrp,split=2[x4][x5]",
+    "[x5]drawbox=x=0:y=0:w=iw:h=ih:color=0xFF9A3C:t=fill,vignette=a=1.1500:x0=1632:y0=162+378*min(1\\,max(0\\,(t-30.000)/60.000)):eval=frame[x6]",
+    "[x4][x6]blend=all_mode=screen:all_opacity=0.350:enable=between(t\\,30.00\\,90.00),format=yuv420p[x2]",
+    "[x2]format=yuva420p,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x3]",
+    "[x0][x3]overlay=0:0:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "light-leak-cool": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"light-leak\",\"color_hex\":\"#5FC8FF\",\"intensity\":0.28,\"softness\":0.72,\"from_anchor\":\"top-left\",\"to_anchor\":\"top-right\",\"blend\":\"screen\"}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"light-leak\",\"color_hex\":\"#5FC8FF\",\"intensity\":0.28,\"softness\":0.72,\"from_anchor\":\"top-left\",\"to_anchor\":\"top-right\",\"blend\":\"screen\"}",
+   "plain": [
+    "[in]format=gbrp,split=2[x0][x1]",
+    "[x1]drawbox=x=0:y=0:w=iw:h=ih:color=0x5FC8FF:t=fill,vignette=a=1.0900:x0=288+1344*min(1\\,max(0\\,(t-0.000)/3600.000)):y0=162:eval=frame[x2]",
+    "[x0][x2]blend=all_mode=screen:all_opacity=0.280,format=yuv420p[out]"
+   ],
+   "gated": [
+    "[in]format=gbrp,split=2[x0][x1]",
+    "[x1]drawbox=x=0:y=0:w=iw:h=ih:color=0x5FC8FF:t=fill,vignette=a=1.0900:x0=288+1344*min(1\\,max(0\\,(t-0.000)/3600.000)):y0=162:eval=frame[x2]",
+    "[x0][x2]blend=all_mode=screen:all_opacity=0.280:enable=between(t\\,12.00\\,3500.00),format=yuv420p[out]"
+   ],
+   "faded": [
+    "[in]split=2[x0][x1]",
+    "[x1]format=gbrp,split=2[x4][x5]",
+    "[x5]drawbox=x=0:y=0:w=iw:h=ih:color=0x5FC8FF:t=fill,vignette=a=1.0900:x0=288+1344*min(1\\,max(0\\,(t-30.000)/60.000)):y0=162:eval=frame[x6]",
+    "[x4][x6]blend=all_mode=screen:all_opacity=0.280:enable=between(t\\,30.00\\,90.00),format=yuv420p[x2]",
+    "[x2]format=yuva420p,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x3]",
+    "[x0][x3]overlay=0:0:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "letterbox-235": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"letterbox\",\"ratio\":\"2.35:1\",\"bar_share\":0.12,\"color\":\"black\",\"mode\":\"fit\"}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"letterbox\",\"ratio\":\"2.35:1\",\"bar_share\":0.12,\"color\":\"black\",\"mode\":\"fit\"}",
+   "plain": [
+    "[in]scale=1450:816,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1[out]"
+   ],
+   "gated": [
+    "[in]split=2[x0][x1]",
+    "[x1]scale=1450:816,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1[x2]",
+    "[x0][x2]overlay=0:0:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[in]split=2[x0][x1]",
+    "[x1]split=2[x4][x5]",
+    "[x5]scale=1450:816,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1[x6]",
+    "[x4][x6]overlay=0:0:enable=between(t\\,30.00\\,90.00)[x2]",
+    "[x2]format=yuva420p,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x3]",
+    "[x0][x3]overlay=0:0:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "letterbox-185": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"letterbox\",\"ratio\":\"1.85:1\",\"bar_share\":0.12,\"color\":\"black\",\"mode\":\"fit\"}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"letterbox\",\"ratio\":\"1.85:1\",\"bar_share\":0.12,\"color\":\"black\",\"mode\":\"fit\"}",
+   "plain": [
+    "[in]scale=1840:1036,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1[out]"
+   ],
+   "gated": [
+    "[in]split=2[x0][x1]",
+    "[x1]scale=1840:1036,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1[x2]",
+    "[x0][x2]overlay=0:0:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[in]split=2[x0][x1]",
+    "[x1]split=2[x4][x5]",
+    "[x5]scale=1840:1036,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1[x6]",
+    "[x4][x6]overlay=0:0:enable=between(t\\,30.00\\,90.00)[x2]",
+    "[x2]format=yuva420p,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x3]",
+    "[x0][x3]overlay=0:0:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "lower-third-clean": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"lower-third\",\"title\":\"Name\",\"subtitle\":\"Role or place\",\"font_family\":\"Helvetica\",\"title_size_px\":44,\"subtitle_size_px\":28,\"title_color_hex\":\"#FFFFFF\",\"subtitle_color_hex\":null,\"bar\":true,\"bar_color_hex\":\"#101014\",\"bar_opacity\":0.72,\"padding_px\":28,\"anchor\":\"bottom-left\",\"margin_px\":72,\"fade_in_ms\":320,\"fade_out_ms\":320}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"lower-third\",\"title\":\"Name\",\"subtitle\":\"Role or place\",\"font_family\":\"Helvetica\",\"title_size_px\":44,\"subtitle_size_px\":28,\"title_color_hex\":\"#FFFFFF\",\"subtitle_color_hex\":null,\"bar\":true,\"bar_color_hex\":\"#101014\",\"bar_opacity\":0.72,\"padding_px\":28,\"anchor\":\"bottom-left\",\"margin_px\":72,\"fade_in_ms\":320,\"fade_out_ms\":320}",
+   "plain": [
+    "[in]drawtext=text=Name:expansion=none:font=Helvetica:fontcolor=0xFFFFFF:fontsize=44:box=1:boxcolor=0x101014@0.720:boxborderw=28:x=72:y=h-281+28:alpha=max(0\\,min(min(1\\,(t-0.000)/0.320)\\,min(1\\,(3600.000-t)/0.320))),drawtext=text=Role or place:expansion=none:font=Helvetica:fontcolor=0xFFFFFF:fontsize=28:box=1:boxcolor=0x101014@0.720:boxborderw=28:x=72:y=h-281+153:alpha=max(0\\,min(min(1\\,(t-0.000)/0.320)\\,min(1\\,(3600.000-t)/0.320)))[out]"
+   ],
+   "gated": [
+    "[in]drawtext=text=Name:expansion=none:font=Helvetica:fontcolor=0xFFFFFF:fontsize=44:box=1:boxcolor=0x101014@0.720:boxborderw=28:x=72:y=h-281+28:alpha=max(0\\,min(min(1\\,(t-0.000)/0.320)\\,min(1\\,(3600.000-t)/0.320))):enable=between(t\\,12.00\\,3500.00),drawtext=text=Role or place:expansion=none:font=Helvetica:fontcolor=0xFFFFFF:fontsize=28:box=1:boxcolor=0x101014@0.720:boxborderw=28:x=72:y=h-281+153:alpha=max(0\\,min(min(1\\,(t-0.000)/0.320)\\,min(1\\,(3600.000-t)/0.320))):enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[in]drawtext=text=Name:expansion=none:font=Helvetica:fontcolor=0xFFFFFF:fontsize=44:box=1:boxcolor=0x101014@0.720:boxborderw=28:x=72:y=h-281+28:alpha=max(0\\,min(min(1\\,(t-30.000)/0.320)\\,min(1\\,(90.000-t)/0.320))):enable=between(t\\,30.00\\,90.00),drawtext=text=Role or place:expansion=none:font=Helvetica:fontcolor=0xFFFFFF:fontsize=28:box=1:boxcolor=0x101014@0.720:boxborderw=28:x=72:y=h-281+153:alpha=max(0\\,min(min(1\\,(t-30.000)/0.320)\\,min(1\\,(90.000-t)/0.320))):enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "lower-third-bare": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"lower-third\",\"title\":\"Name\",\"subtitle\":\"\",\"font_family\":\"Helvetica\",\"title_size_px\":48,\"subtitle_size_px\":28,\"title_color_hex\":\"#FFFFFF\",\"subtitle_color_hex\":null,\"bar\":false,\"bar_color_hex\":\"#101014\",\"bar_opacity\":0.72,\"padding_px\":28,\"anchor\":\"bottom-left\",\"margin_px\":72,\"fade_in_ms\":320,\"fade_out_ms\":320}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"lower-third\",\"title\":\"Name\",\"subtitle\":\"\",\"font_family\":\"Helvetica\",\"title_size_px\":48,\"subtitle_size_px\":28,\"title_color_hex\":\"#FFFFFF\",\"subtitle_color_hex\":null,\"bar\":false,\"bar_color_hex\":\"#101014\",\"bar_opacity\":0.72,\"padding_px\":28,\"anchor\":\"bottom-left\",\"margin_px\":72,\"fade_in_ms\":320,\"fade_out_ms\":320}",
+   "plain": [
+    "[in]drawtext=text=Name:expansion=none:font=Helvetica:fontcolor=0xFFFFFF:fontsize=48:x=72:y=h-120+0:alpha=max(0\\,min(min(1\\,(t-0.000)/0.320)\\,min(1\\,(3600.000-t)/0.320)))[out]"
+   ],
+   "gated": [
+    "[in]drawtext=text=Name:expansion=none:font=Helvetica:fontcolor=0xFFFFFF:fontsize=48:x=72:y=h-120+0:alpha=max(0\\,min(min(1\\,(t-0.000)/0.320)\\,min(1\\,(3600.000-t)/0.320))):enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[in]drawtext=text=Name:expansion=none:font=Helvetica:fontcolor=0xFFFFFF:fontsize=48:x=72:y=h-120+0:alpha=max(0\\,min(min(1\\,(t-30.000)/0.320)\\,min(1\\,(90.000-t)/0.320))):enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "channel-mark": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"corner-logo\",\"image_path\":\"\",\"anchor\":\"bottom-right\",\"margin_px\":40,\"width_pct\":0.1,\"opacity\":0.8}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"corner-logo\",\"image_path\":\"\",\"anchor\":\"bottom-right\",\"margin_px\":40,\"width_pct\":0.1,\"opacity\":0.8}",
+   "plain": null,
+   "gated": null,
+   "faded": null
+  },
+  "scrim-bottom": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"gradient-scrim\",\"edge\":\"bottom\",\"color_hex\":\"#000000\",\"opacity\":0.75,\"coverage\":0.34,\"steps\":24}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"gradient-scrim\",\"edge\":\"bottom\",\"color_hex\":\"#000000\",\"opacity\":0.75,\"coverage\":0.34,\"steps\":24}",
+   "plain": [
+    "[in]drawbox=x=0:y=1065:w=iw:h=15:color=0x000000@0.750:t=fill,drawbox=x=0:y=1049:w=iw:h=16:color=0x000000@0.719:t=fill,drawbox=x=0:y=1034:w=iw:h=15:color=0x000000@0.688:t=fill,drawbox=x=0:y=1019:w=iw:h=15:color=0x000000@0.656:t=fill,drawbox=x=0:y=1004:w=iw:h=15:color=0x000000@0.625:t=fill,drawbox=x=0:y=988:w=iw:h=16:color=0x000000@0.594:t=fill,drawbox=x=0:y=973:w=iw:h=15:color=0x000000@0.563:t=fill,drawbox=x=0:y=958:w=iw:h=15:color=0x000000@0.531:t=fill,drawbox=x=0:y=942:w=iw:h=16:color=0x000000@0.500:t=fill,drawbox=x=0:y=927:w=iw:h=15:color=0x000000@0.469:t=fill,drawbox=x=0:y=912:w=iw:h=15:color=0x000000@0.438:t=fill,drawbox=x=0:y=896:w=iw:h=16:color=0x000000@0.406:t=fill,drawbox=x=0:y=881:w=iw:h=15:color=0x000000@0.375:t=fill,drawbox=x=0:y=866:w=iw:h=15:color=0x000000@0.344:t=fill,drawbox=x=0:y=851:w=iw:h=15:color=0x000000@0.313:t=fill,drawbox=x=0:y=835:w=iw:h=16:color=0x000000@0.281:t=fill,drawbox=x=0:y=820:w=iw:h=15:color=0x000000@0.250:t=fill,drawbox=x=0:y=805:w=iw:h=15:color=0x000000@0.219:t=fill,drawbox=x=0:y=789:w=iw:h=16:color=0x000000@0.188:t=fill,drawbox=x=0:y=774:w=iw:h=15:color=0x000000@0.156:t=fill,drawbox=x=0:y=759:w=iw:h=15:color=0x000000@0.125:t=fill,drawbox=x=0:y=744:w=iw:h=15:color=0x000000@0.094:t=fill,drawbox=x=0:y=728:w=iw:h=16:color=0x000000@0.063:t=fill,drawbox=x=0:y=713:w=iw:h=15:color=0x000000@0.031:t=fill[out]"
+   ],
+   "gated": [
+    "[in]drawbox=x=0:y=1065:w=iw:h=15:color=0x000000@0.750:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=1049:w=iw:h=16:color=0x000000@0.719:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=1034:w=iw:h=15:color=0x000000@0.688:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=1019:w=iw:h=15:color=0x000000@0.656:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=1004:w=iw:h=15:color=0x000000@0.625:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=988:w=iw:h=16:color=0x000000@0.594:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=973:w=iw:h=15:color=0x000000@0.563:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=958:w=iw:h=15:color=0x000000@0.531:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=942:w=iw:h=16:color=0x000000@0.500:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=927:w=iw:h=15:color=0x000000@0.469:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=912:w=iw:h=15:color=0x000000@0.438:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=896:w=iw:h=16:color=0x000000@0.406:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=881:w=iw:h=15:color=0x000000@0.375:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=866:w=iw:h=15:color=0x000000@0.344:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=851:w=iw:h=15:color=0x000000@0.313:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=835:w=iw:h=16:color=0x000000@0.281:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=820:w=iw:h=15:color=0x000000@0.250:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=805:w=iw:h=15:color=0x000000@0.219:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=789:w=iw:h=16:color=0x000000@0.188:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=774:w=iw:h=15:color=0x000000@0.156:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=759:w=iw:h=15:color=0x000000@0.125:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=744:w=iw:h=15:color=0x000000@0.094:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=728:w=iw:h=16:color=0x000000@0.063:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=713:w=iw:h=15:color=0x000000@0.031:t=fill:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[in]split=2[x0][x1]",
+    "[x1]drawbox=x=0:y=1065:w=iw:h=15:color=0x000000@0.750:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=1049:w=iw:h=16:color=0x000000@0.719:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=1034:w=iw:h=15:color=0x000000@0.688:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=1019:w=iw:h=15:color=0x000000@0.656:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=1004:w=iw:h=15:color=0x000000@0.625:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=988:w=iw:h=16:color=0x000000@0.594:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=973:w=iw:h=15:color=0x000000@0.563:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=958:w=iw:h=15:color=0x000000@0.531:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=942:w=iw:h=16:color=0x000000@0.500:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=927:w=iw:h=15:color=0x000000@0.469:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=912:w=iw:h=15:color=0x000000@0.438:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=896:w=iw:h=16:color=0x000000@0.406:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=881:w=iw:h=15:color=0x000000@0.375:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=866:w=iw:h=15:color=0x000000@0.344:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=851:w=iw:h=15:color=0x000000@0.313:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=835:w=iw:h=16:color=0x000000@0.281:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=820:w=iw:h=15:color=0x000000@0.250:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=805:w=iw:h=15:color=0x000000@0.219:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=789:w=iw:h=16:color=0x000000@0.188:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=774:w=iw:h=15:color=0x000000@0.156:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=759:w=iw:h=15:color=0x000000@0.125:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=744:w=iw:h=15:color=0x000000@0.094:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=728:w=iw:h=16:color=0x000000@0.063:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=713:w=iw:h=15:color=0x000000@0.031:t=fill:enable=between(t\\,30.00\\,90.00)[x2]",
+    "[x2]format=yuva420p,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x3]",
+    "[x0][x3]overlay=0:0:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "scrim-top": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"gradient-scrim\",\"edge\":\"top\",\"color_hex\":\"#000000\",\"opacity\":0.7,\"coverage\":0.28,\"steps\":24}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"gradient-scrim\",\"edge\":\"top\",\"color_hex\":\"#000000\",\"opacity\":0.7,\"coverage\":0.28,\"steps\":24}",
+   "plain": [
+    "[in]drawbox=x=0:y=0:w=iw:h=13:color=0x000000@0.700:t=fill,drawbox=x=0:y=13:w=iw:h=12:color=0x000000@0.671:t=fill,drawbox=x=0:y=25:w=iw:h=13:color=0x000000@0.642:t=fill,drawbox=x=0:y=38:w=iw:h=12:color=0x000000@0.612:t=fill,drawbox=x=0:y=50:w=iw:h=13:color=0x000000@0.583:t=fill,drawbox=x=0:y=63:w=iw:h=13:color=0x000000@0.554:t=fill,drawbox=x=0:y=76:w=iw:h=12:color=0x000000@0.525:t=fill,drawbox=x=0:y=88:w=iw:h=13:color=0x000000@0.496:t=fill,drawbox=x=0:y=101:w=iw:h=12:color=0x000000@0.467:t=fill,drawbox=x=0:y=113:w=iw:h=13:color=0x000000@0.438:t=fill,drawbox=x=0:y=126:w=iw:h=12:color=0x000000@0.408:t=fill,drawbox=x=0:y=138:w=iw:h=13:color=0x000000@0.379:t=fill,drawbox=x=0:y=151:w=iw:h=13:color=0x000000@0.350:t=fill,drawbox=x=0:y=164:w=iw:h=12:color=0x000000@0.321:t=fill,drawbox=x=0:y=176:w=iw:h=13:color=0x000000@0.292:t=fill,drawbox=x=0:y=189:w=iw:h=12:color=0x000000@0.263:t=fill,drawbox=x=0:y=201:w=iw:h=13:color=0x000000@0.233:t=fill,drawbox=x=0:y=214:w=iw:h=13:color=0x000000@0.204:t=fill,drawbox=x=0:y=227:w=iw:h=12:color=0x000000@0.175:t=fill,drawbox=x=0:y=239:w=iw:h=13:color=0x000000@0.146:t=fill,drawbox=x=0:y=252:w=iw:h=12:color=0x000000@0.117:t=fill,drawbox=x=0:y=264:w=iw:h=13:color=0x000000@0.087:t=fill,drawbox=x=0:y=277:w=iw:h=12:color=0x000000@0.058:t=fill,drawbox=x=0:y=289:w=iw:h=13:color=0x000000@0.029:t=fill[out]"
+   ],
+   "gated": [
+    "[in]drawbox=x=0:y=0:w=iw:h=13:color=0x000000@0.700:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=13:w=iw:h=12:color=0x000000@0.671:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=25:w=iw:h=13:color=0x000000@0.642:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=38:w=iw:h=12:color=0x000000@0.612:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=50:w=iw:h=13:color=0x000000@0.583:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=63:w=iw:h=13:color=0x000000@0.554:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=76:w=iw:h=12:color=0x000000@0.525:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=88:w=iw:h=13:color=0x000000@0.496:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=101:w=iw:h=12:color=0x000000@0.467:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=113:w=iw:h=13:color=0x000000@0.438:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=126:w=iw:h=12:color=0x000000@0.408:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=138:w=iw:h=13:color=0x000000@0.379:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=151:w=iw:h=13:color=0x000000@0.350:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=164:w=iw:h=12:color=0x000000@0.321:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=176:w=iw:h=13:color=0x000000@0.292:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=189:w=iw:h=12:color=0x000000@0.263:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=201:w=iw:h=13:color=0x000000@0.233:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=214:w=iw:h=13:color=0x000000@0.204:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=227:w=iw:h=12:color=0x000000@0.175:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=239:w=iw:h=13:color=0x000000@0.146:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=252:w=iw:h=12:color=0x000000@0.117:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=264:w=iw:h=13:color=0x000000@0.087:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=277:w=iw:h=12:color=0x000000@0.058:t=fill:enable=between(t\\,12.00\\,3500.00),drawbox=x=0:y=289:w=iw:h=13:color=0x000000@0.029:t=fill:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[in]split=2[x0][x1]",
+    "[x1]drawbox=x=0:y=0:w=iw:h=13:color=0x000000@0.700:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=13:w=iw:h=12:color=0x000000@0.671:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=25:w=iw:h=13:color=0x000000@0.642:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=38:w=iw:h=12:color=0x000000@0.612:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=50:w=iw:h=13:color=0x000000@0.583:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=63:w=iw:h=13:color=0x000000@0.554:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=76:w=iw:h=12:color=0x000000@0.525:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=88:w=iw:h=13:color=0x000000@0.496:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=101:w=iw:h=12:color=0x000000@0.467:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=113:w=iw:h=13:color=0x000000@0.438:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=126:w=iw:h=12:color=0x000000@0.408:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=138:w=iw:h=13:color=0x000000@0.379:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=151:w=iw:h=13:color=0x000000@0.350:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=164:w=iw:h=12:color=0x000000@0.321:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=176:w=iw:h=13:color=0x000000@0.292:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=189:w=iw:h=12:color=0x000000@0.263:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=201:w=iw:h=13:color=0x000000@0.233:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=214:w=iw:h=13:color=0x000000@0.204:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=227:w=iw:h=12:color=0x000000@0.175:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=239:w=iw:h=13:color=0x000000@0.146:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=252:w=iw:h=12:color=0x000000@0.117:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=264:w=iw:h=13:color=0x000000@0.087:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=277:w=iw:h=12:color=0x000000@0.058:t=fill:enable=between(t\\,30.00\\,90.00),drawbox=x=0:y=289:w=iw:h=13:color=0x000000@0.029:t=fill:enable=between(t\\,30.00\\,90.00)[x2]",
+    "[x2]format=yuva420p,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x3]",
+    "[x0][x3]overlay=0:0:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "rain": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"rain\",\"amount\":35,\"size\":1,\"speed\":1,\"wind_deg\":8,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":2,\"color_hex\":\"#DFE8F2\",\"secondary_color_hex\":null,\"opacity\":0.55,\"darken\":0.06}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"rain\",\"amount\":35,\"size\":1,\"speed\":1,\"wind_deg\":8,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":2,\"color_hex\":\"#DFE8F2\",\"secondary_color_hex\":null,\"opacity\":0.55,\"darken\":0.06}",
+   "plain": [
+    "[in]eq=brightness=-0.0600:saturation=1-0.0900:eval=frame[x0]",
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.5500[x1]",
+    "color=c=0xDFE8F2:s=1920x1080:r=24[x2]",
+    "[x2][x1]alphamerge[x3]",
+    "[x0][x3]overlay=0:0:shortest=1[out]"
+   ],
+   "gated": [
+    "[in]eq=brightness=-0.0600:saturation=1-0.0900:eval=frame:enable=between(t\\,12.00\\,3500.00)[x0]",
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.5500[x1]",
+    "color=c=0xDFE8F2:s=1920x1080:r=24[x2]",
+    "[x2][x1]alphamerge[x3]",
+    "[x0][x3]overlay=0:0:shortest=1:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[in]eq=brightness=-0.0600*min(1\\,max(0\\,(t-30.000)/2.000))*min(1\\,max(0\\,(90.000-t)/2.000)):saturation=1-0.0900*min(1\\,max(0\\,(t-30.000)/2.000))*min(1\\,max(0\\,(90.000-t)/2.000)):eval=frame:enable=between(t\\,30.00\\,90.00)[x0]",
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.5500[x1]",
+    "color=c=0xDFE8F2:s=1920x1080:r=24[x2]",
+    "[x2][x1]alphamerge,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x3]",
+    "[x0][x3]overlay=0:0:shortest=1:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "snow": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"snow\",\"amount\":30,\"size\":1,\"speed\":1,\"wind_deg\":4,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":12,\"color_hex\":\"#F4F8FF\",\"secondary_color_hex\":null,\"opacity\":0.9,\"darken\":0}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"snow\",\"amount\":30,\"size\":1,\"speed\":1,\"wind_deg\":4,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":12,\"color_hex\":\"#F4F8FF\",\"secondary_color_hex\":null,\"opacity\":0.9,\"darken\":0}",
+   "plain": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.9000[x0]",
+    "color=c=0xF4F8FF:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1[out]"
+   ],
+   "gated": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.9000[x0]",
+    "color=c=0xF4F8FF:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.9000[x0]",
+    "color=c=0xF4F8FF:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "lightning-flash": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"lightning\",\"strength\":0.6,\"period_sec\":25,\"chance\":0.5,\"seed\":7}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"lightning\",\"strength\":0.6,\"period_sec\":25,\"chance\":0.5,\"seed\":7}",
+   "plain": [
+    "[in]eq=brightness=0.3600*(st(0\\,floor(t/25.0000))\\;st(1\\,sin((ld(0))*12.9898+547.6310)*43758.5453)\\;st(1\\,ld(1)-floor(ld(1)))\\;st(2\\,sin((ld(0)+0.5)*12.9898+547.6310)*43758.5453)\\;st(2\\,ld(2)-floor(ld(2)))\\;st(3\\,t-(ld(0)*25.0000+25.0000*(0.15+0.7*ld(2))))\\;lt(ld(1)\\,0.5000)*min(1\\,gte(ld(3)\\,0)*exp(-max(ld(3)\\,0)*9)+0.6*gte(ld(3)-0.18\\,0)*exp(-max(ld(3)-0.18\\,0)*9))):eval=frame[out]"
+   ],
+   "gated": [
+    "[in]eq=brightness=0.3600*(st(0\\,floor(t/25.0000))\\;st(1\\,sin((ld(0))*12.9898+547.6310)*43758.5453)\\;st(1\\,ld(1)-floor(ld(1)))\\;st(2\\,sin((ld(0)+0.5)*12.9898+547.6310)*43758.5453)\\;st(2\\,ld(2)-floor(ld(2)))\\;st(3\\,t-(ld(0)*25.0000+25.0000*(0.15+0.7*ld(2))))\\;lt(ld(1)\\,0.5000)*min(1\\,gte(ld(3)\\,0)*exp(-max(ld(3)\\,0)*9)+0.6*gte(ld(3)-0.18\\,0)*exp(-max(ld(3)-0.18\\,0)*9))):eval=frame:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[in]eq=brightness=0.3600*(st(0\\,floor(t/25.0000))\\;st(1\\,sin((ld(0))*12.9898+547.6310)*43758.5453)\\;st(1\\,ld(1)-floor(ld(1)))\\;st(2\\,sin((ld(0)+0.5)*12.9898+547.6310)*43758.5453)\\;st(2\\,ld(2)-floor(ld(2)))\\;st(3\\,t-(ld(0)*25.0000+25.0000*(0.15+0.7*ld(2))))\\;lt(ld(1)\\,0.5000)*min(1\\,gte(ld(3)\\,0)*exp(-max(ld(3)\\,0)*9)+0.6*gte(ld(3)-0.18\\,0)*exp(-max(ld(3)-0.18\\,0)*9)))*min(1\\,max(0\\,(t-30.000)/2.000))*min(1\\,max(0\\,(90.000-t)/2.000)):eval=frame:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "shimmer-ripple": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"heat-shimmer\",\"strength_px\":3,\"scale\":1,\"speed\":1,\"region_top\":0.55,\"region_bottom\":1,\"seed\":7}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"heat-shimmer\",\"strength_px\":3,\"scale\":1,\"speed\":1,\"region_top\":0.55,\"region_bottom\":1,\"seed\":7}",
+   "plain": [
+    "[in]format=gbrp[x0]",
+    "perlin=s=320x180:r=24:octaves=2:persistence=0.5:xscale=6.000:yscale=3.000:tscale=0.500:random_mode=seed:random_seed=7,format=gray,geq=lum=128+(lum(X\\,Y)-128)*0.0469*clip((Y/H-0.550+0.08)/0.16\\,0\\,1)*clip((1.000-Y/H+0.08)/0.16\\,0\\,1),scale=1920:1080:flags=bicubic,format=gbrp[x1]",
+    "perlin=s=320x180:r=24:octaves=2:persistence=0.5:xscale=6.000:yscale=3.000:tscale=0.500:random_mode=seed:random_seed=8,format=gray,geq=lum=128+(lum(X\\,Y)-128)*0.0469*clip((Y/H-0.550+0.08)/0.16\\,0\\,1)*clip((1.000-Y/H+0.08)/0.16\\,0\\,1),scale=1920:1080:flags=bicubic,format=gbrp[x2]",
+    "[x0][x1][x2]displace=edge=smear[x3]",
+    "[x3]format=yuv420p[out]"
+   ],
+   "gated": [
+    "[in]format=gbrp[x0]",
+    "perlin=s=320x180:r=24:octaves=2:persistence=0.5:xscale=6.000:yscale=3.000:tscale=0.500:random_mode=seed:random_seed=7,format=gray,geq=lum=128+(lum(X\\,Y)-128)*0.0469*clip((Y/H-0.550+0.08)/0.16\\,0\\,1)*clip((1.000-Y/H+0.08)/0.16\\,0\\,1),scale=1920:1080:flags=bicubic,format=gbrp[x1]",
+    "perlin=s=320x180:r=24:octaves=2:persistence=0.5:xscale=6.000:yscale=3.000:tscale=0.500:random_mode=seed:random_seed=8,format=gray,geq=lum=128+(lum(X\\,Y)-128)*0.0469*clip((Y/H-0.550+0.08)/0.16\\,0\\,1)*clip((1.000-Y/H+0.08)/0.16\\,0\\,1),scale=1920:1080:flags=bicubic,format=gbrp[x2]",
+    "[x0][x1][x2]displace=edge=smear:enable=between(t\\,12.00\\,3500.00)[x3]",
+    "[x3]format=yuv420p[out]"
+   ],
+   "faded": [
+    "[in]split=2[x0][x1]",
+    "[x1]format=gbrp[x4]",
+    "perlin=s=320x180:r=24:octaves=2:persistence=0.5:xscale=6.000:yscale=3.000:tscale=0.500:random_mode=seed:random_seed=7,format=gray,geq=lum=128+(lum(X\\,Y)-128)*0.0469*clip((Y/H-0.550+0.08)/0.16\\,0\\,1)*clip((1.000-Y/H+0.08)/0.16\\,0\\,1),scale=1920:1080:flags=bicubic,format=gbrp[x5]",
+    "perlin=s=320x180:r=24:octaves=2:persistence=0.5:xscale=6.000:yscale=3.000:tscale=0.500:random_mode=seed:random_seed=8,format=gray,geq=lum=128+(lum(X\\,Y)-128)*0.0469*clip((Y/H-0.550+0.08)/0.16\\,0\\,1)*clip((1.000-Y/H+0.08)/0.16\\,0\\,1),scale=1920:1080:flags=bicubic,format=gbrp[x6]",
+    "[x4][x5][x6]displace=edge=smear:enable=between(t\\,30.00\\,90.00)[x7]",
+    "[x7]format=yuv420p[x2]",
+    "[x2]format=yuva420p,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x3]",
+    "[x0][x3]overlay=0:0:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "ground-mist": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"fog\",\"amount\":50,\"size\":1,\"speed\":1,\"wind_deg\":0,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0.35,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":20,\"color_hex\":\"#D8DEE6\",\"secondary_color_hex\":null,\"opacity\":0.5,\"darken\":0}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"fog\",\"amount\":50,\"size\":1,\"speed\":1,\"wind_deg\":0,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0.35,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":20,\"color_hex\":\"#D8DEE6\",\"secondary_color_hex\":null,\"opacity\":0.5,\"darken\":0}",
+   "plain": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.5000[x0]",
+    "color=c=0xD8DEE6:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1[out]"
+   ],
+   "gated": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.5000[x0]",
+    "color=c=0xD8DEE6:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.5000[x0]",
+    "color=c=0xD8DEE6:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "cloud-shadows": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"cloud-shadows\",\"amount\":45,\"size\":1,\"speed\":1,\"wind_deg\":0,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":20,\"color_hex\":\"#000000\",\"secondary_color_hex\":null,\"opacity\":0.35,\"darken\":0}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"cloud-shadows\",\"amount\":45,\"size\":1,\"speed\":1,\"wind_deg\":0,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":20,\"color_hex\":\"#000000\",\"secondary_color_hex\":null,\"opacity\":0.35,\"darken\":0}",
+   "plain": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.3500[x0]",
+    "color=c=0x000000:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1[out]"
+   ],
+   "gated": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.3500[x0]",
+    "color=c=0x000000:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.3500[x0]",
+    "color=c=0x000000:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "dust-motes": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"dust\",\"amount\":35,\"size\":1,\"speed\":1,\"wind_deg\":0,\"sway\":0.4,\"layers\":2,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":1,\"scale\":1,\"beam\":0.6,\"seed\":7,\"loop_sec\":12,\"color_hex\":\"#FFF1D6\",\"secondary_color_hex\":null,\"opacity\":0.7,\"darken\":0}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"dust\",\"amount\":35,\"size\":1,\"speed\":1,\"wind_deg\":0,\"sway\":0.4,\"layers\":2,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":1,\"scale\":1,\"beam\":0.6,\"seed\":7,\"loop_sec\":12,\"color_hex\":\"#FFF1D6\",\"secondary_color_hex\":null,\"opacity\":0.7,\"darken\":0}",
+   "plain": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.7000[x0]",
+    "color=c=0xFFF1D6:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1[out]"
+   ],
+   "gated": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.7000[x0]",
+    "color=c=0xFFF1D6:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.7000[x0]",
+    "color=c=0xFFF1D6:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "petals": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"petals\",\"amount\":30,\"size\":1,\"speed\":1,\"wind_deg\":10,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":12,\"color_hex\":\"#F4B6C8\",\"secondary_color_hex\":null,\"opacity\":0.85,\"darken\":0}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"petals\",\"amount\":30,\"size\":1,\"speed\":1,\"wind_deg\":10,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":12,\"color_hex\":\"#F4B6C8\",\"secondary_color_hex\":null,\"opacity\":0.85,\"darken\":0}",
+   "plain": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.8500[x0]",
+    "color=c=0xF4B6C8:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1[out]"
+   ],
+   "gated": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.8500[x0]",
+    "color=c=0xF4B6C8:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.8500[x0]",
+    "color=c=0xF4B6C8:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "fireflies": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"fireflies\",\"amount\":25,\"size\":1,\"speed\":1,\"wind_deg\":0,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0.35,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":12,\"color_hex\":\"#FFD27A\",\"secondary_color_hex\":null,\"opacity\":0.9,\"darken\":0}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"fireflies\",\"amount\":25,\"size\":1,\"speed\":1,\"wind_deg\":0,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0.35,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":12,\"color_hex\":\"#FFD27A\",\"secondary_color_hex\":null,\"opacity\":0.9,\"darken\":0}",
+   "plain": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.9000[x0]",
+    "color=c=0xFFD27A:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1[out]"
+   ],
+   "gated": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.9000[x0]",
+    "color=c=0xFFD27A:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.9000[x0]",
+    "color=c=0xFFD27A:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "bokeh-orbs": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"bokeh\",\"amount\":30,\"size\":1,\"speed\":1,\"wind_deg\":0,\"sway\":0.4,\"layers\":2,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":12,\"color_hex\":\"#FFC98A\",\"secondary_color_hex\":\"#8AB8FF\",\"opacity\":0.45,\"darken\":0}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"bokeh\",\"amount\":30,\"size\":1,\"speed\":1,\"wind_deg\":0,\"sway\":0.4,\"layers\":2,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":12,\"color_hex\":\"#FFC98A\",\"secondary_color_hex\":\"#8AB8FF\",\"opacity\":0.45,\"darken\":0}",
+   "plain": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.4500[x0]",
+    "color=c=0xFFC98A:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1[x3]",
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.4500[x4]",
+    "color=c=0x8AB8FF:s=1920x1080:r=24[x5]",
+    "[x5][x4]alphamerge[x6]",
+    "[x3][x6]overlay=0:0:shortest=1[out]"
+   ],
+   "gated": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.4500[x0]",
+    "color=c=0xFFC98A:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,12.00\\,3500.00)[x3]",
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.4500[x4]",
+    "color=c=0x8AB8FF:s=1920x1080:r=24[x5]",
+    "[x5][x4]alphamerge[x6]",
+    "[x3][x6]overlay=0:0:shortest=1:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.4500[x0]",
+    "color=c=0xFFC98A:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,30.00\\,90.00)[x3]",
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.4500[x4]",
+    "color=c=0x8AB8FF:s=1920x1080:r=24[x5]",
+    "[x5][x4]alphamerge,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x6]",
+    "[x3][x6]overlay=0:0:shortest=1:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "embers": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"embers\",\"amount\":30,\"size\":1,\"speed\":1,\"wind_deg\":0,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0.2,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":6,\"color_hex\":\"#FF8A3C\",\"secondary_color_hex\":null,\"opacity\":0.95,\"darken\":0}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"embers\",\"amount\":30,\"size\":1,\"speed\":1,\"wind_deg\":0,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0.2,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":6,\"color_hex\":\"#FF8A3C\",\"secondary_color_hex\":null,\"opacity\":0.95,\"darken\":0}",
+   "plain": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.9500[x0]",
+    "color=c=0xFF8A3C:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1[out]"
+   ],
+   "gated": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.9500[x0]",
+    "color=c=0xFF8A3C:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.9500[x0]",
+    "color=c=0xFF8A3C:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "twinkling-stars": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"stars\",\"amount\":3,\"size\":2.4,\"speed\":0.75,\"wind_deg\":0,\"sway\":0.5,\"layers\":2,\"twinkle\":1,\"region_top\":0,\"region_bottom\":0.55,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":12,\"color_hex\":\"#E8F0FF\",\"secondary_color_hex\":null,\"opacity\":0.9,\"darken\":0}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"stars\",\"amount\":3,\"size\":2.4,\"speed\":0.75,\"wind_deg\":0,\"sway\":0.5,\"layers\":2,\"twinkle\":1,\"region_top\":0,\"region_bottom\":0.55,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":12,\"color_hex\":\"#E8F0FF\",\"secondary_color_hex\":null,\"opacity\":0.9,\"darken\":0}",
+   "plain": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.9000[x0]",
+    "color=c=0xE8F0FF:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1[out]"
+   ],
+   "gated": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.9000[x0]",
+    "color=c=0xE8F0FF:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.9000[x0]",
+    "color=c=0xE8F0FF:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "light-rays": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"light-rays\",\"amount\":40,\"size\":1,\"speed\":1,\"wind_deg\":18,\"sway\":0.3,\"layers\":2,\"twinkle\":0.4,\"region_top\":0,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":12,\"color_hex\":\"#FFE7B8\",\"secondary_color_hex\":null,\"opacity\":0.3,\"darken\":0}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"light-rays\",\"amount\":40,\"size\":1,\"speed\":1,\"wind_deg\":18,\"sway\":0.3,\"layers\":2,\"twinkle\":0.4,\"region_top\":0,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":12,\"color_hex\":\"#FFE7B8\",\"secondary_color_hex\":null,\"opacity\":0.3,\"darken\":0}",
+   "plain": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.3000[x0]",
+    "color=c=0xFFE7B8:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1[out]"
+   ],
+   "gated": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.3000[x0]",
+    "color=c=0xFFE7B8:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.3000[x0]",
+    "color=c=0xFFE7B8:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "bloom-glow": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"bloom\",\"threshold\":0.7,\"strength\":0.35,\"radius_px\":24}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"bloom\",\"threshold\":0.7,\"strength\":0.35,\"radius_px\":24}",
+   "plain": [
+    "[in]split=2[x0][x1]",
+    "[x1]lutyuv=y=if(gt(val\\,178)\\,(val-178)*255/77\\,0),gblur=sigma=12.00:planes=1[x2]",
+    "[x0][x2]blend=c0_mode=screen:c0_opacity=0.350:c1_opacity=0:c2_opacity=0[out]"
+   ],
+   "gated": [
+    "[in]split=2[x0][x1]",
+    "[x1]lutyuv=y=if(gt(val\\,178)\\,(val-178)*255/77\\,0):enable=between(t\\,12.00\\,3500.00),gblur=sigma=12.00:planes=1:enable=between(t\\,12.00\\,3500.00)[x2]",
+    "[x0][x2]blend=c0_mode=screen:c0_opacity=0.350:c1_opacity=0:c2_opacity=0:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[in]split=2[x0][x1]",
+    "[x1]split=2[x4][x5]",
+    "[x5]lutyuv=y=if(gt(val\\,178)\\,(val-178)*255/77\\,0):enable=between(t\\,30.00\\,90.00),gblur=sigma=12.00:planes=1:enable=between(t\\,30.00\\,90.00)[x6]",
+    "[x4][x6]blend=c0_mode=screen:c0_opacity=0.350:c1_opacity=0:c2_opacity=0:enable=between(t\\,30.00\\,90.00)[x2]",
+    "[x2]format=yuva420p,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x3]",
+    "[x0][x3]overlay=0:0:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "candle-flicker": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"flicker\",\"amount\":0.04,\"speed\":1}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"flicker\",\"amount\":0.04,\"speed\":1}",
+   "plain": [
+    "[in]eq=brightness=0.0400*(0.5*sin(2*PI*1.7000*t)+0.3*sin(2*PI*1.7000*2.31*t+1.3)+0.2*sin(2*PI*1.7000*5.17*t+2.1)):eval=frame[out]"
+   ],
+   "gated": [
+    "[in]eq=brightness=0.0400*(0.5*sin(2*PI*1.7000*t)+0.3*sin(2*PI*1.7000*2.31*t+1.3)+0.2*sin(2*PI*1.7000*5.17*t+2.1)):eval=frame:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[in]eq=brightness=0.0400*(0.5*sin(2*PI*1.7000*t)+0.3*sin(2*PI*1.7000*2.31*t+1.3)+0.2*sin(2*PI*1.7000*5.17*t+2.1))*min(1\\,max(0\\,(t-30.000)/2.000))*min(1\\,max(0\\,(90.000-t)/2.000)):eval=frame:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "colour-grade-look": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"color-grade\",\"preset\":\"cool-moonlight\",\"brightness\":0,\"contrast\":1,\"saturation\":1,\"warmth\":0,\"tint\":0}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"color-grade\",\"preset\":\"cool-moonlight\",\"brightness\":0,\"contrast\":1,\"saturation\":1,\"warmth\":0,\"tint\":0}",
+   "plain": [
+    "[in]eq=brightness=0.020:contrast=1.050:saturation=0.800[x0]",
+    "[x0]format=gbrp,split=2[x1][x2]",
+    "[x2]format=gray,format=gbrp[x3]",
+    "[x1][x3]lut2=c0='clip(floor(x+255*0.7*(0.01000*clip((0.333-(2*y/255))*4+0.5,0,1)+0.00500*clip(((2*y/255)-0.333)*4+0.5,0,1)*clip((1-(2*y/255)-0.333)*4+0.5,0,1))+0.5),0,255)':c1='clip(floor(x+255*0.7*(0.04500*clip((0.333-(2*y/255))*4+0.5,0,1)+0.02250*clip(((2*y/255)-0.333)*4+0.5,0,1)*clip((1-(2*y/255)-0.333)*4+0.5,0,1))+0.5),0,255)':c2='clip(floor(x+255*0.7*(-0.04500*clip((0.333-(2*y/255))*4+0.5,0,1)+-0.02250*clip(((2*y/255)-0.333)*4+0.5,0,1)*clip((1-(2*y/255)-0.333)*4+0.5,0,1))+0.5),0,255)',format=yuv420p[out]"
+   ],
+   "gated": [
+    "[in]eq=brightness=0.020:contrast=1.050:saturation=0.800:enable=between(t\\,12.00\\,3500.00)[x0]",
+    "[x0]format=gbrp,split=2[x1][x2]",
+    "[x2]format=gray,format=gbrp[x3]",
+    "[x1][x3]lut2=c0='clip(floor(x+255*0.7*(0.01000*clip((0.333-(2*y/255))*4+0.5,0,1)+0.00500*clip(((2*y/255)-0.333)*4+0.5,0,1)*clip((1-(2*y/255)-0.333)*4+0.5,0,1))+0.5),0,255)':c1='clip(floor(x+255*0.7*(0.04500*clip((0.333-(2*y/255))*4+0.5,0,1)+0.02250*clip(((2*y/255)-0.333)*4+0.5,0,1)*clip((1-(2*y/255)-0.333)*4+0.5,0,1))+0.5),0,255)':c2='clip(floor(x+255*0.7*(-0.04500*clip((0.333-(2*y/255))*4+0.5,0,1)+-0.02250*clip(((2*y/255)-0.333)*4+0.5,0,1)*clip((1-(2*y/255)-0.333)*4+0.5,0,1))+0.5),0,255)':enable=between(t\\,12.00\\,3500.00),format=yuv420p[out]"
+   ],
+   "faded": [
+    "[in]split=2[x0][x1]",
+    "[x1]eq=brightness=0.020:contrast=1.050:saturation=0.800:enable=between(t\\,30.00\\,90.00)[x4]",
+    "[x4]format=gbrp,split=2[x5][x6]",
+    "[x6]format=gray,format=gbrp[x7]",
+    "[x5][x7]lut2=c0='clip(floor(x+255*0.7*(0.01000*clip((0.333-(2*y/255))*4+0.5,0,1)+0.00500*clip(((2*y/255)-0.333)*4+0.5,0,1)*clip((1-(2*y/255)-0.333)*4+0.5,0,1))+0.5),0,255)':c1='clip(floor(x+255*0.7*(0.04500*clip((0.333-(2*y/255))*4+0.5,0,1)+0.02250*clip(((2*y/255)-0.333)*4+0.5,0,1)*clip((1-(2*y/255)-0.333)*4+0.5,0,1))+0.5),0,255)':c2='clip(floor(x+255*0.7*(-0.04500*clip((0.333-(2*y/255))*4+0.5,0,1)+-0.02250*clip(((2*y/255)-0.333)*4+0.5,0,1)*clip((1-(2*y/255)-0.333)*4+0.5,0,1))+0.5),0,255)':enable=between(t\\,30.00\\,90.00),format=yuv420p[x2]",
+    "[x2]format=yuva420p,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x3]",
+    "[x0][x3]overlay=0:0:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "living-region": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"living-region\",\"motion\":\"flame\",\"strength\":1,\"speed\":1}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"living-region\",\"motion\":\"flame\",\"strength\":1,\"speed\":1}",
+   "plain": null,
+   "gated": null,
+   "faded": null
+  },
+  "shooting-star": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"shooting-star\",\"color_hex\":\"#F4F8FF\",\"opacity\":0.9,\"size\":1,\"period_sec\":90,\"chance\":0.5,\"seed\":7,\"region_top\":0,\"region_bottom\":0.4}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"shooting-star\",\"color_hex\":\"#F4F8FF\",\"opacity\":0.9,\"size\":1,\"period_sec\":90,\"chance\":0.5,\"seed\":7,\"region_top\":0,\"region_bottom\":0.4}",
+   "plain": [
+    "[9:v]format=gray,setsar=1,lut=c0=val*0.9000[x0]",
+    "color=c=0xF4F8FF:s=420x140:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=x=(st(0\\,floor(t/90.0000))\\;st(1\\,sin((ld(0)+0.5)*12.9898+547.6310)*43758.5453)\\;st(1\\,ld(1)-floor(ld(1)))\\;ld(1)*1500):y=(st(0\\,floor(t/90.0000))\\;st(1\\,sin((ld(0)+0.75)*12.9898+547.6310)*43758.5453)\\;st(1\\,ld(1)-floor(ld(1)))\\;0.00+ld(1)*292.00):eval=frame:shortest=1:enable=(st(0\\,floor(t/90.0000))\\;st(1\\,sin((ld(0))*12.9898+547.6310)*43758.5453)\\;st(1\\,ld(1)-floor(ld(1)))\\;st(2\\,sin((ld(0)+0.25)*12.9898+547.6310)*43758.5453)\\;st(2\\,ld(2)-floor(ld(2)))\\;st(3\\,1.208333*floor((ld(0)*90.0000+90.0000*(0.1+0.75*ld(2)))/1.208333))\\;lt(ld(1)\\,0.5000)*gte(t\\,ld(3))*lt(t\\,ld(3)+1.208333))[out]"
+   ],
+   "gated": [
+    "[9:v]format=gray,setsar=1,lut=c0=val*0.9000[x0]",
+    "color=c=0xF4F8FF:s=420x140:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=x=(st(0\\,floor(t/90.0000))\\;st(1\\,sin((ld(0)+0.5)*12.9898+547.6310)*43758.5453)\\;st(1\\,ld(1)-floor(ld(1)))\\;ld(1)*1500):y=(st(0\\,floor(t/90.0000))\\;st(1\\,sin((ld(0)+0.75)*12.9898+547.6310)*43758.5453)\\;st(1\\,ld(1)-floor(ld(1)))\\;0.00+ld(1)*292.00):eval=frame:shortest=1:enable=(st(0\\,floor(t/90.0000))\\;st(1\\,sin((ld(0))*12.9898+547.6310)*43758.5453)\\;st(1\\,ld(1)-floor(ld(1)))\\;st(2\\,sin((ld(0)+0.25)*12.9898+547.6310)*43758.5453)\\;st(2\\,ld(2)-floor(ld(2)))\\;st(3\\,1.208333*floor((ld(0)*90.0000+90.0000*(0.1+0.75*ld(2)))/1.208333))\\;lt(ld(1)\\,0.5000)*gte(t\\,ld(3))*lt(t\\,ld(3)+1.208333))*between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[9:v]format=gray,setsar=1,lut=c0=val*0.9000[x0]",
+    "color=c=0xF4F8FF:s=420x140:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=x=(st(0\\,floor(t/90.0000))\\;st(1\\,sin((ld(0)+0.5)*12.9898+547.6310)*43758.5453)\\;st(1\\,ld(1)-floor(ld(1)))\\;ld(1)*1500):y=(st(0\\,floor(t/90.0000))\\;st(1\\,sin((ld(0)+0.75)*12.9898+547.6310)*43758.5453)\\;st(1\\,ld(1)-floor(ld(1)))\\;0.00+ld(1)*292.00):eval=frame:shortest=1:enable=(st(0\\,floor(t/90.0000))\\;st(1\\,sin((ld(0))*12.9898+547.6310)*43758.5453)\\;st(1\\,ld(1)-floor(ld(1)))\\;st(2\\,sin((ld(0)+0.25)*12.9898+547.6310)*43758.5453)\\;st(2\\,ld(2)-floor(ld(2)))\\;st(3\\,1.208333*floor((ld(0)*90.0000+90.0000*(0.1+0.75*ld(2)))/1.208333))\\;lt(ld(1)\\,0.5000)*gte(t\\,ld(3))*lt(t\\,ld(3)+1.208333))*between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "aurora": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"aurora\",\"amount\":50,\"size\":1,\"speed\":0.5,\"wind_deg\":0,\"sway\":0.6,\"layers\":2,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":0.45,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":30,\"color_hex\":\"#5CFFB0\",\"secondary_color_hex\":\"#B06CFF\",\"opacity\":0.45,\"darken\":0}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"aurora\",\"amount\":50,\"size\":1,\"speed\":0.5,\"wind_deg\":0,\"sway\":0.6,\"layers\":2,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":0.45,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":30,\"color_hex\":\"#5CFFB0\",\"secondary_color_hex\":\"#B06CFF\",\"opacity\":0.45,\"darken\":0}",
+   "plain": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.4500[x0]",
+    "color=c=0x5CFFB0:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1[x3]",
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.4500[x4]",
+    "color=c=0xB06CFF:s=1920x1080:r=24[x5]",
+    "[x5][x4]alphamerge[x6]",
+    "[x3][x6]overlay=0:0:shortest=1[out]"
+   ],
+   "gated": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.4500[x0]",
+    "color=c=0x5CFFB0:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,12.00\\,3500.00)[x3]",
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.4500[x4]",
+    "color=c=0xB06CFF:s=1920x1080:r=24[x5]",
+    "[x5][x4]alphamerge[x6]",
+    "[x3][x6]overlay=0:0:shortest=1:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.4500[x0]",
+    "color=c=0x5CFFB0:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,30.00\\,90.00)[x3]",
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.4500[x4]",
+    "color=c=0xB06CFF:s=1920x1080:r=24[x5]",
+    "[x5][x4]alphamerge,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x6]",
+    "[x3][x6]overlay=0:0:shortest=1:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "moon-glow": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"moon-glow\",\"amount\":40,\"size\":1,\"speed\":1,\"wind_deg\":0,\"sway\":0.5,\"layers\":2,\"twinkle\":0.4,\"region_top\":0.18,\"region_bottom\":1,\"scale\":1,\"beam\":0.72,\"seed\":7,\"loop_sec\":20,\"color_hex\":\"#A9C4FF\",\"secondary_color_hex\":null,\"opacity\":0.45,\"darken\":0}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"moon-glow\",\"amount\":40,\"size\":1,\"speed\":1,\"wind_deg\":0,\"sway\":0.5,\"layers\":2,\"twinkle\":0.4,\"region_top\":0.18,\"region_bottom\":1,\"scale\":1,\"beam\":0.72,\"seed\":7,\"loop_sec\":20,\"color_hex\":\"#A9C4FF\",\"secondary_color_hex\":null,\"opacity\":0.45,\"darken\":0}",
+   "plain": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.4500[x0]",
+    "color=c=0xA9C4FF:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1[out]"
+   ],
+   "gated": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.4500[x0]",
+    "color=c=0xA9C4FF:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.4500[x0]",
+    "color=c=0xA9C4FF:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "sky-clouds": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"sky-clouds\",\"amount\":50,\"size\":1,\"speed\":0.6,\"wind_deg\":0,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":0.35,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":20,\"color_hex\":\"#C8D2DE\",\"secondary_color_hex\":null,\"opacity\":0.4,\"darken\":0}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"sky-clouds\",\"amount\":50,\"size\":1,\"speed\":0.6,\"wind_deg\":0,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":0.35,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":20,\"color_hex\":\"#C8D2DE\",\"secondary_color_hex\":null,\"opacity\":0.4,\"darken\":0}",
+   "plain": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.4000[x0]",
+    "color=c=0xC8D2DE:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1[out]"
+   ],
+   "gated": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.4000[x0]",
+    "color=c=0xC8D2DE:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.4000[x0]",
+    "color=c=0xC8D2DE:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "caustics": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"caustics\",\"amount\":60,\"size\":1,\"speed\":0.6,\"wind_deg\":0,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":12,\"color_hex\":\"#8FF0E8\",\"secondary_color_hex\":null,\"opacity\":0.3,\"darken\":0}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"caustics\",\"amount\":60,\"size\":1,\"speed\":0.6,\"wind_deg\":0,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":12,\"color_hex\":\"#8FF0E8\",\"secondary_color_hex\":null,\"opacity\":0.3,\"darken\":0}",
+   "plain": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.3000[x0]",
+    "color=c=0x8FF0E8:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1[out]"
+   ],
+   "gated": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.3000[x0]",
+    "color=c=0x8FF0E8:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.3000[x0]",
+    "color=c=0x8FF0E8:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "window-drops": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"window-drops\",\"amount\":35,\"size\":1,\"speed\":1,\"wind_deg\":0,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":20,\"color_hex\":\"#FFFFFF\",\"secondary_color_hex\":null,\"opacity\":0.6,\"darken\":0.1}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"window-drops\",\"amount\":35,\"size\":1,\"speed\":1,\"wind_deg\":0,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":20,\"color_hex\":\"#FFFFFF\",\"secondary_color_hex\":null,\"opacity\":0.6,\"darken\":0.1}",
+   "plain": [
+    "[in]eq=brightness=-0.1000:saturation=1-0.1500:eval=frame[x0]",
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.6000[x1]",
+    "color=c=0xFFFFFF:s=1920x1080:r=24[x2]",
+    "[x2][x1]alphamerge[x3]",
+    "[x0][x3]overlay=0:0:shortest=1[out]"
+   ],
+   "gated": [
+    "[in]eq=brightness=-0.1000:saturation=1-0.1500:eval=frame:enable=between(t\\,12.00\\,3500.00)[x0]",
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.6000[x1]",
+    "color=c=0xFFFFFF:s=1920x1080:r=24[x2]",
+    "[x2][x1]alphamerge[x3]",
+    "[x0][x3]overlay=0:0:shortest=1:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[in]eq=brightness=-0.1000*min(1\\,max(0\\,(t-30.000)/2.000))*min(1\\,max(0\\,(90.000-t)/2.000)):saturation=1-0.1500*min(1\\,max(0\\,(t-30.000)/2.000))*min(1\\,max(0\\,(90.000-t)/2.000)):eval=frame:enable=between(t\\,30.00\\,90.00)[x0]",
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.6000[x1]",
+    "color=c=0xFFFFFF:s=1920x1080:r=24[x2]",
+    "[x2][x1]alphamerge,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x3]",
+    "[x0][x3]overlay=0:0:shortest=1:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "paper-texture": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"paper\",\"amount\":60,\"size\":1,\"speed\":1,\"wind_deg\":0,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":1,\"color_hex\":\"#C8A878\",\"secondary_color_hex\":null,\"opacity\":0.15,\"darken\":0.05}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"paper\",\"amount\":60,\"size\":1,\"speed\":1,\"wind_deg\":0,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":1,\"color_hex\":\"#C8A878\",\"secondary_color_hex\":null,\"opacity\":0.15,\"darken\":0.05}",
+   "plain": [
+    "[in]eq=brightness=-0.0500:saturation=1-0.0750:eval=frame[x0]",
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.1500[x1]",
+    "color=c=0xC8A878:s=1920x1080:r=24[x2]",
+    "[x2][x1]alphamerge[x3]",
+    "[x0][x3]overlay=0:0:shortest=1[out]"
+   ],
+   "gated": [
+    "[in]eq=brightness=-0.0500:saturation=1-0.0750:eval=frame:enable=between(t\\,12.00\\,3500.00)[x0]",
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.1500[x1]",
+    "color=c=0xC8A878:s=1920x1080:r=24[x2]",
+    "[x2][x1]alphamerge[x3]",
+    "[x0][x3]overlay=0:0:shortest=1:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[in]eq=brightness=-0.0500*min(1\\,max(0\\,(t-30.000)/2.000))*min(1\\,max(0\\,(90.000-t)/2.000)):saturation=1-0.0750*min(1\\,max(0\\,(t-30.000)/2.000))*min(1\\,max(0\\,(90.000-t)/2.000)):eval=frame:enable=between(t\\,30.00\\,90.00)[x0]",
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.1500[x1]",
+    "color=c=0xC8A878:s=1920x1080:r=24[x2]",
+    "[x2][x1]alphamerge,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x3]",
+    "[x0][x3]overlay=0:0:shortest=1:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "film-dust": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"film-dust\",\"amount\":25,\"size\":1,\"speed\":1,\"wind_deg\":0,\"sway\":0.5,\"layers\":1,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":24,\"color_hex\":\"#201810\",\"secondary_color_hex\":\"#F0E8D8\",\"opacity\":0.6,\"darken\":0}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"film-dust\",\"amount\":25,\"size\":1,\"speed\":1,\"wind_deg\":0,\"sway\":0.5,\"layers\":1,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":24,\"color_hex\":\"#201810\",\"secondary_color_hex\":\"#F0E8D8\",\"opacity\":0.6,\"darken\":0}",
+   "plain": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.6000[x0]",
+    "color=c=0x201810:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1[x3]",
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.6000[x4]",
+    "color=c=0xF0E8D8:s=1920x1080:r=24[x5]",
+    "[x5][x4]alphamerge[x6]",
+    "[x3][x6]overlay=0:0:shortest=1[out]"
+   ],
+   "gated": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.6000[x0]",
+    "color=c=0x201810:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,12.00\\,3500.00)[x3]",
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.6000[x4]",
+    "color=c=0xF0E8D8:s=1920x1080:r=24[x5]",
+    "[x5][x4]alphamerge[x6]",
+    "[x3][x6]overlay=0:0:shortest=1:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.6000[x0]",
+    "color=c=0x201810:s=1920x1080:r=24[x1]",
+    "[x1][x0]alphamerge,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x2]",
+    "[in][x2]overlay=0:0:shortest=1:enable=between(t\\,30.00\\,90.00)[x3]",
+    "[9:v]format=gray,scale=1920:1080:flags=bicubic,setsar=1,lut=c0=val*0.6000[x4]",
+    "color=c=0xF0E8D8:s=1920x1080:r=24[x5]",
+    "[x5][x4]alphamerge,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x6]",
+    "[x3][x6]overlay=0:0:shortest=1:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "halation": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"bloom\",\"threshold\":0.75,\"strength\":0.25,\"radius_px\":6,\"color_hex\":\"#FF6A3D\"}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"bloom\",\"threshold\":0.75,\"strength\":0.25,\"radius_px\":6,\"color_hex\":\"#FF6A3D\"}",
+   "plain": [
+    "[in]split=2[x0][x1]",
+    "[x1]lutyuv=y=if(gt(val\\,191)\\,(val-191)*255/64\\,0),gblur=sigma=3.00:planes=1,extractplanes=y,lut=c0=min(255\\,val*0.5000)[x2]",
+    "color=c=0xFF6A3D:s=1920x1080:r=24[x3]",
+    "[x3][x2]alphamerge[x4]",
+    "[x0][x4]overlay=0:0:shortest=1[out]"
+   ],
+   "gated": [
+    "[in]split=2[x0][x1]",
+    "[x1]lutyuv=y=if(gt(val\\,191)\\,(val-191)*255/64\\,0),gblur=sigma=3.00:planes=1,extractplanes=y,lut=c0=min(255\\,val*0.5000)[x2]",
+    "color=c=0xFF6A3D:s=1920x1080:r=24[x3]",
+    "[x3][x2]alphamerge[x4]",
+    "[x0][x4]overlay=0:0:shortest=1:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[in]split=2[x0][x1]",
+    "[x1]split=2[x4][x5]",
+    "[x5]lutyuv=y=if(gt(val\\,191)\\,(val-191)*255/64\\,0),gblur=sigma=3.00:planes=1,extractplanes=y,lut=c0=min(255\\,val*0.5000)[x6]",
+    "color=c=0xFF6A3D:s=1920x1080:r=24[x7]",
+    "[x7][x6]alphamerge[x8]",
+    "[x4][x8]overlay=0:0:shortest=1:enable=between(t\\,30.00\\,90.00)[x2]",
+    "[x2]format=yuva420p,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x3]",
+    "[x0][x3]overlay=0:0:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "bloom-gentle": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"bloom\",\"threshold\":0.8,\"strength\":0.15,\"radius_px\":24}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"bloom\",\"threshold\":0.8,\"strength\":0.15,\"radius_px\":24}",
+   "plain": [
+    "[in]split=2[x0][x1]",
+    "[x1]lutyuv=y=if(gt(val\\,203)\\,(val-203)*255/52\\,0),gblur=sigma=12.00:planes=1[x2]",
+    "[x0][x2]blend=c0_mode=screen:c0_opacity=0.150:c1_opacity=0:c2_opacity=0[out]"
+   ],
+   "gated": [
+    "[in]split=2[x0][x1]",
+    "[x1]lutyuv=y=if(gt(val\\,203)\\,(val-203)*255/52\\,0):enable=between(t\\,12.00\\,3500.00),gblur=sigma=12.00:planes=1:enable=between(t\\,12.00\\,3500.00)[x2]",
+    "[x0][x2]blend=c0_mode=screen:c0_opacity=0.150:c1_opacity=0:c2_opacity=0:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[in]split=2[x0][x1]",
+    "[x1]split=2[x4][x5]",
+    "[x5]lutyuv=y=if(gt(val\\,203)\\,(val-203)*255/52\\,0):enable=between(t\\,30.00\\,90.00),gblur=sigma=12.00:planes=1:enable=between(t\\,30.00\\,90.00)[x6]",
+    "[x4][x6]blend=c0_mode=screen:c0_opacity=0.150:c1_opacity=0:c2_opacity=0:enable=between(t\\,30.00\\,90.00)[x2]",
+    "[x2]format=yuva420p,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x3]",
+    "[x0][x3]overlay=0:0:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "water-shimmer": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"heat-shimmer\",\"strength_px\":2,\"scale\":1.5,\"speed\":1,\"region_top\":0.6,\"region_bottom\":1,\"seed\":7}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"heat-shimmer\",\"strength_px\":2,\"scale\":1.5,\"speed\":1,\"region_top\":0.6,\"region_bottom\":1,\"seed\":7}",
+   "plain": [
+    "[in]format=gbrp[x0]",
+    "perlin=s=320x180:r=24:octaves=2:persistence=0.5:xscale=4.000:yscale=2.000:tscale=0.500:random_mode=seed:random_seed=7,format=gray,geq=lum=128+(lum(X\\,Y)-128)*0.0313*clip((Y/H-0.600+0.08)/0.16\\,0\\,1)*clip((1.000-Y/H+0.08)/0.16\\,0\\,1),scale=1920:1080:flags=bicubic,format=gbrp[x1]",
+    "perlin=s=320x180:r=24:octaves=2:persistence=0.5:xscale=4.000:yscale=2.000:tscale=0.500:random_mode=seed:random_seed=8,format=gray,geq=lum=128+(lum(X\\,Y)-128)*0.0313*clip((Y/H-0.600+0.08)/0.16\\,0\\,1)*clip((1.000-Y/H+0.08)/0.16\\,0\\,1),scale=1920:1080:flags=bicubic,format=gbrp[x2]",
+    "[x0][x1][x2]displace=edge=smear[x3]",
+    "[x3]format=yuv420p[out]"
+   ],
+   "gated": [
+    "[in]format=gbrp[x0]",
+    "perlin=s=320x180:r=24:octaves=2:persistence=0.5:xscale=4.000:yscale=2.000:tscale=0.500:random_mode=seed:random_seed=7,format=gray,geq=lum=128+(lum(X\\,Y)-128)*0.0313*clip((Y/H-0.600+0.08)/0.16\\,0\\,1)*clip((1.000-Y/H+0.08)/0.16\\,0\\,1),scale=1920:1080:flags=bicubic,format=gbrp[x1]",
+    "perlin=s=320x180:r=24:octaves=2:persistence=0.5:xscale=4.000:yscale=2.000:tscale=0.500:random_mode=seed:random_seed=8,format=gray,geq=lum=128+(lum(X\\,Y)-128)*0.0313*clip((Y/H-0.600+0.08)/0.16\\,0\\,1)*clip((1.000-Y/H+0.08)/0.16\\,0\\,1),scale=1920:1080:flags=bicubic,format=gbrp[x2]",
+    "[x0][x1][x2]displace=edge=smear:enable=between(t\\,12.00\\,3500.00)[x3]",
+    "[x3]format=yuv420p[out]"
+   ],
+   "faded": [
+    "[in]split=2[x0][x1]",
+    "[x1]format=gbrp[x4]",
+    "perlin=s=320x180:r=24:octaves=2:persistence=0.5:xscale=4.000:yscale=2.000:tscale=0.500:random_mode=seed:random_seed=7,format=gray,geq=lum=128+(lum(X\\,Y)-128)*0.0313*clip((Y/H-0.600+0.08)/0.16\\,0\\,1)*clip((1.000-Y/H+0.08)/0.16\\,0\\,1),scale=1920:1080:flags=bicubic,format=gbrp[x5]",
+    "perlin=s=320x180:r=24:octaves=2:persistence=0.5:xscale=4.000:yscale=2.000:tscale=0.500:random_mode=seed:random_seed=8,format=gray,geq=lum=128+(lum(X\\,Y)-128)*0.0313*clip((Y/H-0.600+0.08)/0.16\\,0\\,1)*clip((1.000-Y/H+0.08)/0.16\\,0\\,1),scale=1920:1080:flags=bicubic,format=gbrp[x6]",
+    "[x4][x5][x6]displace=edge=smear:enable=between(t\\,30.00\\,90.00)[x7]",
+    "[x7]format=yuv420p[x2]",
+    "[x2]format=yuva420p,fade=t=in:st=30.000:d=2.000:alpha=1,fade=t=out:st=88.000:d=2.000:alpha=1[x3]",
+    "[x0][x3]overlay=0:0:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  },
+  "bedtime-dimming": {
+   "document": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"bedtime-dimming\",\"darken_pct\":25,\"warmth_pct\":40,\"desaturate_pct\":10,\"start_pct\":10,\"full_pct\":85}",
+   "renormalized": "{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"bedtime-dimming\",\"darken_pct\":25,\"warmth_pct\":40,\"desaturate_pct\":10,\"start_pct\":10,\"full_pct\":85}",
+   "plain": [
+    "[in]eq=contrast=1-0.2500*(st(0\\,clip((t-360.000)/2700.000\\,0\\,1))\\;ld(0)*ld(0)*(3-2*ld(0))):brightness=-0.1093*(st(0\\,clip((t-360.000)/2700.000\\,0\\,1))\\;ld(0)*ld(0)*(3-2*ld(0))):saturation=1-0.1000*(st(0\\,clip((t-360.000)/2700.000\\,0\\,1))\\;ld(0)*ld(0)*(3-2*ld(0))):gamma_r=1+0.3000*(st(0\\,clip((t-360.000)/2700.000\\,0\\,1))\\;ld(0)*ld(0)*(3-2*ld(0))):gamma_b=1-0.3000*(st(0\\,clip((t-360.000)/2700.000\\,0\\,1))\\;ld(0)*ld(0)*(3-2*ld(0))):eval=frame[out]"
+   ],
+   "gated": [
+    "[in]eq=contrast=1-0.2500*(st(0\\,clip((t-360.000)/2700.000\\,0\\,1))\\;ld(0)*ld(0)*(3-2*ld(0))):brightness=-0.1093*(st(0\\,clip((t-360.000)/2700.000\\,0\\,1))\\;ld(0)*ld(0)*(3-2*ld(0))):saturation=1-0.1000*(st(0\\,clip((t-360.000)/2700.000\\,0\\,1))\\;ld(0)*ld(0)*(3-2*ld(0))):gamma_r=1+0.3000*(st(0\\,clip((t-360.000)/2700.000\\,0\\,1))\\;ld(0)*ld(0)*(3-2*ld(0))):gamma_b=1-0.3000*(st(0\\,clip((t-360.000)/2700.000\\,0\\,1))\\;ld(0)*ld(0)*(3-2*ld(0))):eval=frame:enable=between(t\\,12.00\\,3500.00)[out]"
+   ],
+   "faded": [
+    "[in]eq=contrast=1-0.2500*(st(0\\,clip((t-360.000)/2700.000\\,0\\,1))\\;ld(0)*ld(0)*(3-2*ld(0))):brightness=-0.1093*(st(0\\,clip((t-360.000)/2700.000\\,0\\,1))\\;ld(0)*ld(0)*(3-2*ld(0))):saturation=1-0.1000*(st(0\\,clip((t-360.000)/2700.000\\,0\\,1))\\;ld(0)*ld(0)*(3-2*ld(0))):gamma_r=1+0.3000*(st(0\\,clip((t-360.000)/2700.000\\,0\\,1))\\;ld(0)*ld(0)*(3-2*ld(0))):gamma_b=1-0.3000*(st(0\\,clip((t-360.000)/2700.000\\,0\\,1))\\;ld(0)*ld(0)*(3-2*ld(0))):eval=frame:enable=between(t\\,30.00\\,90.00)[out]"
+   ]
+  }
+ },
+ "transitions": {
+  "crossfade": {
+   "plan": {
+    "xfadeKeywords": [
+     "fade",
+     "fade",
+     "fade"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=fade:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=fade:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=fade:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=fade:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=fade:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=fade:duration=1.5:offset=41.750[vout]"
+  },
+  "fade-fast": {
+   "plan": {
+    "xfadeKeywords": [
+     "fadefast",
+     "fadefast",
+     "fadefast"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=fadefast:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=fadefast:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=fadefast:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=fadefast:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=fadefast:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=fadefast:duration=1.5:offset=41.750[vout]"
+  },
+  "fade-slow": {
+   "plan": {
+    "xfadeKeywords": [
+     "fadeslow",
+     "fadeslow",
+     "fadeslow"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=fadeslow:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=fadeslow:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=fadeslow:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=fadeslow:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=fadeslow:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=fadeslow:duration=1.5:offset=41.750[vout]"
+  },
+  "fade-black": {
+   "plan": {
+    "xfadeKeywords": [
+     "fadeblack",
+     "fadeblack",
+     "fadeblack"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=fadeblack:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=fadeblack:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=fadeblack:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=fadeblack:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=fadeblack:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=fadeblack:duration=1.5:offset=41.750[vout]"
+  },
+  "fade-white": {
+   "plan": {
+    "xfadeKeywords": [
+     "fadewhite",
+     "fadewhite",
+     "fadewhite"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=fadewhite:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=fadewhite:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=fadewhite:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=fadewhite:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=fadewhite:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=fadewhite:duration=1.5:offset=41.750[vout]"
+  },
+  "fade-grays": {
+   "plan": {
+    "xfadeKeywords": [
+     "fadegrays",
+     "fadegrays",
+     "fadegrays"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=fadegrays:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=fadegrays:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=fadegrays:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=fadegrays:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=fadegrays:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=fadegrays:duration=1.5:offset=41.750[vout]"
+  },
+  "distance": {
+   "plan": {
+    "xfadeKeywords": [
+     "distance",
+     "distance",
+     "distance"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=distance:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=distance:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=distance:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=distance:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=distance:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=distance:duration=1.5:offset=41.750[vout]"
+  },
+  "dissolve": {
+   "plan": {
+    "xfadeKeywords": [
+     "dissolve",
+     "dissolve",
+     "dissolve"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=dissolve:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=dissolve:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=dissolve:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=dissolve:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=dissolve:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=dissolve:duration=1.5:offset=41.750[vout]"
+  },
+  "pixelize": {
+   "plan": {
+    "xfadeKeywords": [
+     "pixelize",
+     "pixelize",
+     "pixelize"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=pixelize:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=pixelize:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=pixelize:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=pixelize:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=pixelize:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=pixelize:duration=1.5:offset=41.750[vout]"
+  },
+  "hblur": {
+   "plan": {
+    "xfadeKeywords": [
+     "hblur",
+     "hblur",
+     "hblur"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=hblur:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=hblur:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=hblur:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=hblur:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=hblur:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=hblur:duration=1.5:offset=41.750[vout]"
+  },
+  "blur-dissolve": {
+   "plan": {
+    "xfadeKeywords": [
+     "fade",
+     "fade",
+     "fade"
+    ],
+    "durationSec": 1.5,
+    "ids": [
+     "blur-dissolve",
+     "blur-dissolve",
+     "blur-dissolve"
+    ]
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=fade:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=fade:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=fade:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=fade:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=fade:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=fade:duration=1.5:offset=41.750[vout]"
+  },
+  "dip-black": {
+   "plan": {
+    "xfadeKeywords": [
+     "fadeblack",
+     "fadeblack",
+     "fadeblack"
+    ],
+    "durationSec": 1.5,
+    "ids": [
+     "dip-black",
+     "dip-black",
+     "dip-black"
+    ]
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=fadeblack:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=fadeblack:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=fadeblack:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=fadeblack:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=fadeblack:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=fadeblack:duration=1.5:offset=41.750[vout]"
+  },
+  "ink-bleed": {
+   "plan": {
+    "xfadeKeywords": [
+     "fade",
+     "fade",
+     "fade"
+    ],
+    "durationSec": 1.5,
+    "ids": [
+     "ink-bleed",
+     "ink-bleed",
+     "ink-bleed"
+    ]
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=fade:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=fade:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=fade:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=fade:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=fade:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=fade:duration=1.5:offset=41.750[vout]"
+  },
+  "watercolour-bleed": {
+   "plan": {
+    "xfadeKeywords": [
+     "fade",
+     "fade",
+     "fade"
+    ],
+    "durationSec": 1.5,
+    "ids": [
+     "watercolour-bleed",
+     "watercolour-bleed",
+     "watercolour-bleed"
+    ]
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=fade:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=fade:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=fade:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=fade:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=fade:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=fade:duration=1.5:offset=41.750[vout]"
+  },
+  "wipe-left": {
+   "plan": {
+    "xfadeKeywords": [
+     "wipeleft",
+     "wipeleft",
+     "wipeleft"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=wipeleft:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=wipeleft:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=wipeleft:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=wipeleft:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=wipeleft:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=wipeleft:duration=1.5:offset=41.750[vout]"
+  },
+  "wipe-right": {
+   "plan": {
+    "xfadeKeywords": [
+     "wiperight",
+     "wiperight",
+     "wiperight"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=wiperight:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=wiperight:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=wiperight:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=wiperight:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=wiperight:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=wiperight:duration=1.5:offset=41.750[vout]"
+  },
+  "wipe-up": {
+   "plan": {
+    "xfadeKeywords": [
+     "wipeup",
+     "wipeup",
+     "wipeup"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=wipeup:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=wipeup:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=wipeup:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=wipeup:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=wipeup:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=wipeup:duration=1.5:offset=41.750[vout]"
+  },
+  "wipe-down": {
+   "plan": {
+    "xfadeKeywords": [
+     "wipedown",
+     "wipedown",
+     "wipedown"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=wipedown:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=wipedown:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=wipedown:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=wipedown:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=wipedown:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=wipedown:duration=1.5:offset=41.750[vout]"
+  },
+  "wipe-tl": {
+   "plan": {
+    "xfadeKeywords": [
+     "wipetl",
+     "wipetl",
+     "wipetl"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=wipetl:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=wipetl:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=wipetl:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=wipetl:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=wipetl:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=wipetl:duration=1.5:offset=41.750[vout]"
+  },
+  "wipe-tr": {
+   "plan": {
+    "xfadeKeywords": [
+     "wipetr",
+     "wipetr",
+     "wipetr"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=wipetr:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=wipetr:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=wipetr:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=wipetr:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=wipetr:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=wipetr:duration=1.5:offset=41.750[vout]"
+  },
+  "wipe-bl": {
+   "plan": {
+    "xfadeKeywords": [
+     "wipebl",
+     "wipebl",
+     "wipebl"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=wipebl:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=wipebl:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=wipebl:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=wipebl:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=wipebl:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=wipebl:duration=1.5:offset=41.750[vout]"
+  },
+  "wipe-br": {
+   "plan": {
+    "xfadeKeywords": [
+     "wipebr",
+     "wipebr",
+     "wipebr"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=wipebr:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=wipebr:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=wipebr:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=wipebr:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=wipebr:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=wipebr:duration=1.5:offset=41.750[vout]"
+  },
+  "diag-tl": {
+   "plan": {
+    "xfadeKeywords": [
+     "diagtl",
+     "diagtl",
+     "diagtl"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=diagtl:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=diagtl:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=diagtl:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=diagtl:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=diagtl:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=diagtl:duration=1.5:offset=41.750[vout]"
+  },
+  "diag-tr": {
+   "plan": {
+    "xfadeKeywords": [
+     "diagtr",
+     "diagtr",
+     "diagtr"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=diagtr:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=diagtr:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=diagtr:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=diagtr:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=diagtr:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=diagtr:duration=1.5:offset=41.750[vout]"
+  },
+  "diag-bl": {
+   "plan": {
+    "xfadeKeywords": [
+     "diagbl",
+     "diagbl",
+     "diagbl"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=diagbl:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=diagbl:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=diagbl:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=diagbl:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=diagbl:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=diagbl:duration=1.5:offset=41.750[vout]"
+  },
+  "diag-br": {
+   "plan": {
+    "xfadeKeywords": [
+     "diagbr",
+     "diagbr",
+     "diagbr"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=diagbr:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=diagbr:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=diagbr:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=diagbr:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=diagbr:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=diagbr:duration=1.5:offset=41.750[vout]"
+  },
+  "smooth-left": {
+   "plan": {
+    "xfadeKeywords": [
+     "smoothleft",
+     "smoothleft",
+     "smoothleft"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=smoothleft:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=smoothleft:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=smoothleft:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=smoothleft:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=smoothleft:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=smoothleft:duration=1.5:offset=41.750[vout]"
+  },
+  "smooth-right": {
+   "plan": {
+    "xfadeKeywords": [
+     "smoothright",
+     "smoothright",
+     "smoothright"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=smoothright:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=smoothright:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=smoothright:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=smoothright:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=smoothright:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=smoothright:duration=1.5:offset=41.750[vout]"
+  },
+  "smooth-up": {
+   "plan": {
+    "xfadeKeywords": [
+     "smoothup",
+     "smoothup",
+     "smoothup"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=smoothup:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=smoothup:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=smoothup:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=smoothup:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=smoothup:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=smoothup:duration=1.5:offset=41.750[vout]"
+  },
+  "smooth-down": {
+   "plan": {
+    "xfadeKeywords": [
+     "smoothdown",
+     "smoothdown",
+     "smoothdown"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=smoothdown:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=smoothdown:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=smoothdown:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=smoothdown:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=smoothdown:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=smoothdown:duration=1.5:offset=41.750[vout]"
+  },
+  "hlslice": {
+   "plan": {
+    "xfadeKeywords": [
+     "hlslice",
+     "hlslice",
+     "hlslice"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=hlslice:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=hlslice:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=hlslice:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=hlslice:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=hlslice:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=hlslice:duration=1.5:offset=41.750[vout]"
+  },
+  "hrslice": {
+   "plan": {
+    "xfadeKeywords": [
+     "hrslice",
+     "hrslice",
+     "hrslice"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=hrslice:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=hrslice:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=hrslice:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=hrslice:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=hrslice:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=hrslice:duration=1.5:offset=41.750[vout]"
+  },
+  "vuslice": {
+   "plan": {
+    "xfadeKeywords": [
+     "vuslice",
+     "vuslice",
+     "vuslice"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=vuslice:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=vuslice:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=vuslice:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=vuslice:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=vuslice:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=vuslice:duration=1.5:offset=41.750[vout]"
+  },
+  "vdslice": {
+   "plan": {
+    "xfadeKeywords": [
+     "vdslice",
+     "vdslice",
+     "vdslice"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=vdslice:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=vdslice:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=vdslice:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=vdslice:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=vdslice:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=vdslice:duration=1.5:offset=41.750[vout]"
+  },
+  "slide-left": {
+   "plan": {
+    "xfadeKeywords": [
+     "slideleft",
+     "slideleft",
+     "slideleft"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=slideleft:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=slideleft:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=slideleft:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=slideleft:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=slideleft:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=slideleft:duration=1.5:offset=41.750[vout]"
+  },
+  "slide-right": {
+   "plan": {
+    "xfadeKeywords": [
+     "slideright",
+     "slideright",
+     "slideright"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=slideright:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=slideright:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=slideright:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=slideright:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=slideright:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=slideright:duration=1.5:offset=41.750[vout]"
+  },
+  "slide-up": {
+   "plan": {
+    "xfadeKeywords": [
+     "slideup",
+     "slideup",
+     "slideup"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=slideup:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=slideup:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=slideup:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=slideup:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=slideup:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=slideup:duration=1.5:offset=41.750[vout]"
+  },
+  "slide-down": {
+   "plan": {
+    "xfadeKeywords": [
+     "slidedown",
+     "slidedown",
+     "slidedown"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=slidedown:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=slidedown:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=slidedown:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=slidedown:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=slidedown:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=slidedown:duration=1.5:offset=41.750[vout]"
+  },
+  "squeeze-h": {
+   "plan": {
+    "xfadeKeywords": [
+     "squeezeh",
+     "squeezeh",
+     "squeezeh"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=squeezeh:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=squeezeh:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=squeezeh:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=squeezeh:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=squeezeh:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=squeezeh:duration=1.5:offset=41.750[vout]"
+  },
+  "squeeze-v": {
+   "plan": {
+    "xfadeKeywords": [
+     "squeezev",
+     "squeezev",
+     "squeezev"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=squeezev:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=squeezev:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=squeezev:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=squeezev:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=squeezev:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=squeezev:duration=1.5:offset=41.750[vout]"
+  },
+  "cover-left": {
+   "plan": {
+    "xfadeKeywords": [
+     "coverleft",
+     "coverleft",
+     "coverleft"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=coverleft:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=coverleft:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=coverleft:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=coverleft:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=coverleft:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=coverleft:duration=1.5:offset=41.750[vout]"
+  },
+  "cover-right": {
+   "plan": {
+    "xfadeKeywords": [
+     "coverright",
+     "coverright",
+     "coverright"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=coverright:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=coverright:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=coverright:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=coverright:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=coverright:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=coverright:duration=1.5:offset=41.750[vout]"
+  },
+  "cover-up": {
+   "plan": {
+    "xfadeKeywords": [
+     "coverup",
+     "coverup",
+     "coverup"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=coverup:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=coverup:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=coverup:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=coverup:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=coverup:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=coverup:duration=1.5:offset=41.750[vout]"
+  },
+  "cover-down": {
+   "plan": {
+    "xfadeKeywords": [
+     "coverdown",
+     "coverdown",
+     "coverdown"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=coverdown:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=coverdown:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=coverdown:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=coverdown:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=coverdown:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=coverdown:duration=1.5:offset=41.750[vout]"
+  },
+  "reveal-left": {
+   "plan": {
+    "xfadeKeywords": [
+     "revealleft",
+     "revealleft",
+     "revealleft"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=revealleft:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=revealleft:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=revealleft:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=revealleft:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=revealleft:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=revealleft:duration=1.5:offset=41.750[vout]"
+  },
+  "reveal-right": {
+   "plan": {
+    "xfadeKeywords": [
+     "revealright",
+     "revealright",
+     "revealright"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=revealright:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=revealright:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=revealright:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=revealright:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=revealright:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=revealright:duration=1.5:offset=41.750[vout]"
+  },
+  "reveal-up": {
+   "plan": {
+    "xfadeKeywords": [
+     "revealup",
+     "revealup",
+     "revealup"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=revealup:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=revealup:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=revealup:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=revealup:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=revealup:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=revealup:duration=1.5:offset=41.750[vout]"
+  },
+  "reveal-down": {
+   "plan": {
+    "xfadeKeywords": [
+     "revealdown",
+     "revealdown",
+     "revealdown"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=revealdown:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=revealdown:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=revealdown:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=revealdown:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=revealdown:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=revealdown:duration=1.5:offset=41.750[vout]"
+  },
+  "circle-open": {
+   "plan": {
+    "xfadeKeywords": [
+     "circleopen",
+     "circleopen",
+     "circleopen"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=circleopen:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=circleopen:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=circleopen:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=circleopen:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=circleopen:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=circleopen:duration=1.5:offset=41.750[vout]"
+  },
+  "circle-close": {
+   "plan": {
+    "xfadeKeywords": [
+     "circleclose",
+     "circleclose",
+     "circleclose"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=circleclose:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=circleclose:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=circleclose:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=circleclose:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=circleclose:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=circleclose:duration=1.5:offset=41.750[vout]"
+  },
+  "circle-crop": {
+   "plan": {
+    "xfadeKeywords": [
+     "circlecrop",
+     "circlecrop",
+     "circlecrop"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=circlecrop:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=circlecrop:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=circlecrop:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=circlecrop:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=circlecrop:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=circlecrop:duration=1.5:offset=41.750[vout]"
+  },
+  "rect-crop": {
+   "plan": {
+    "xfadeKeywords": [
+     "rectcrop",
+     "rectcrop",
+     "rectcrop"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=rectcrop:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=rectcrop:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=rectcrop:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=rectcrop:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=rectcrop:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=rectcrop:duration=1.5:offset=41.750[vout]"
+  },
+  "radial": {
+   "plan": {
+    "xfadeKeywords": [
+     "radial",
+     "radial",
+     "radial"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=radial:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=radial:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=radial:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=radial:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=radial:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=radial:duration=1.5:offset=41.750[vout]"
+  },
+  "vert-open": {
+   "plan": {
+    "xfadeKeywords": [
+     "vertopen",
+     "vertopen",
+     "vertopen"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=vertopen:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=vertopen:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=vertopen:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=vertopen:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=vertopen:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=vertopen:duration=1.5:offset=41.750[vout]"
+  },
+  "vert-close": {
+   "plan": {
+    "xfadeKeywords": [
+     "vertclose",
+     "vertclose",
+     "vertclose"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=vertclose:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=vertclose:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=vertclose:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=vertclose:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=vertclose:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=vertclose:duration=1.5:offset=41.750[vout]"
+  },
+  "horz-open": {
+   "plan": {
+    "xfadeKeywords": [
+     "horzopen",
+     "horzopen",
+     "horzopen"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=horzopen:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=horzopen:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=horzopen:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=horzopen:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=horzopen:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=horzopen:duration=1.5:offset=41.750[vout]"
+  },
+  "horz-close": {
+   "plan": {
+    "xfadeKeywords": [
+     "horzclose",
+     "horzclose",
+     "horzclose"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=horzclose:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=horzclose:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=horzclose:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=horzclose:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=horzclose:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=horzclose:duration=1.5:offset=41.750[vout]"
+  },
+  "zoom-in": {
+   "plan": {
+    "xfadeKeywords": [
+     "zoomin",
+     "zoomin",
+     "zoomin"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=zoomin:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=zoomin:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=zoomin:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=zoomin:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=zoomin:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=zoomin:duration=1.5:offset=41.750[vout]"
+  },
+  "wind-left": {
+   "plan": {
+    "xfadeKeywords": [
+     "hlwind",
+     "hlwind",
+     "hlwind"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=hlwind:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=hlwind:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=hlwind:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=hlwind:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=hlwind:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=hlwind:duration=1.5:offset=41.750[vout]"
+  },
+  "wind-right": {
+   "plan": {
+    "xfadeKeywords": [
+     "hrwind",
+     "hrwind",
+     "hrwind"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=hrwind:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=hrwind:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=hrwind:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=hrwind:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=hrwind:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=hrwind:duration=1.5:offset=41.750[vout]"
+  },
+  "wind-up": {
+   "plan": {
+    "xfadeKeywords": [
+     "vuwind",
+     "vuwind",
+     "vuwind"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=vuwind:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=vuwind:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=vuwind:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=vuwind:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=vuwind:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=vuwind:duration=1.5:offset=41.750[vout]"
+  },
+  "wind-down": {
+   "plan": {
+    "xfadeKeywords": [
+     "vdwind",
+     "vdwind",
+     "vdwind"
+    ],
+    "durationSec": 1.5
+   },
+   "uniform": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=vdwind:duration=1.5:offset=14.500[m0];[m0][v2]xfade=transition=vdwind:duration=1.5:offset=29.000[m1];[m1][v3]xfade=transition=vdwind:duration=1.5:offset=43.500[vout]",
+   "variable": "[0:v]setpts=PTS-STARTPTS[v0];[1:v]setpts=PTS-STARTPTS[v1];[2:v]setpts=PTS-STARTPTS[v2];[3:v]setpts=PTS-STARTPTS[v3];[v0][v1]xfade=transition=vdwind:duration=1.5:offset=15.000[m0];[m0][v2]xfade=transition=vdwind:duration=1.5:offset=25.750[m1];[m1][v3]xfade=transition=vdwind:duration=1.5:offset=41.750[vout]"
+  }
+ },
+ "pool": {
+  "xfadeKeywords": [
+   "dissolve",
+   "fadeblack",
+   "wipeleft",
+   "dissolve",
+   "fade",
+   "dissolve",
+   "fadeblack",
+   "dissolve"
+  ],
+  "durationSec": 1.5
+ },
+ "stack": "{\"entries\":[{\"uid\":\"a\",\"order\":0,\"id\":\"rain\",\"name\":\"Rain\",\"scope\":\"episode\",\"group\":\"weather\",\"document\":{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"rain\",\"amount\":35,\"size\":1,\"speed\":1,\"wind_deg\":8,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":2,\"color_hex\":\"#DFE8F2\",\"secondary_color_hex\":null,\"opacity\":0.55,\"darken\":0.06}},{\"uid\":\"project-1\",\"order\":-100000,\"id\":\"ground-mist\",\"name\":\"Fog / Mist\",\"approximation\":\"A soft noise layer drawn over the picture. It does not hide distant objects more than near ones \u2014 a still has no depth to read.\",\"scope\":\"project\",\"group\":\"near-atmosphere\",\"document\":{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"atmosphere-loop\",\"variant\":\"fog\",\"amount\":50,\"size\":1,\"speed\":1,\"wind_deg\":0,\"sway\":0.5,\"layers\":2,\"twinkle\":0.5,\"region_top\":0.35,\"region_bottom\":1,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":20,\"color_hex\":\"#D8DEE6\",\"secondary_color_hex\":null,\"opacity\":0.5,\"darken\":0}},{\"uid\":\"c\",\"order\":100000,\"id\":\"twinkling-stars\",\"name\":\"Twinkling Stars\",\"scope\":\"theme\",\"scope_label\":\"night\",\"group\":\"light-particles\",\"document\":{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":41,\"fade_in_sec\":1,\"fade_out_sec\":2},\"kind\":\"atmosphere-loop\",\"variant\":\"stars\",\"amount\":3,\"size\":2.4,\"speed\":0.75,\"wind_deg\":0,\"sway\":0.5,\"layers\":2,\"twinkle\":1,\"region_top\":0,\"region_bottom\":0.55,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":12,\"color_hex\":\"#E8F0FF\",\"secondary_color_hex\":null,\"opacity\":0.9,\"darken\":0}},{\"uid\":\"c\",\"order\":100000,\"id\":\"twinkling-stars\",\"name\":\"Twinkling Stars\",\"scope\":\"theme\",\"scope_label\":\"night\",\"group\":\"light-particles\",\"document\":{\"schema_version\":1,\"timing\":{\"start_sec\":79,\"end_sec\":120,\"fade_in_sec\":2,\"fade_out_sec\":2},\"kind\":\"atmosphere-loop\",\"variant\":\"stars\",\"amount\":3,\"size\":2.4,\"speed\":0.75,\"wind_deg\":0,\"sway\":0.5,\"layers\":2,\"twinkle\":1,\"region_top\":0,\"region_bottom\":0.55,\"scale\":1,\"beam\":0,\"seed\":7,\"loop_sec\":12,\"color_hex\":\"#E8F0FF\",\"secondary_color_hex\":null,\"opacity\":0.9,\"darken\":0}},{\"uid\":\"d\",\"order\":200000,\"id\":\"bloom-glow\",\"name\":\"Bloom / Glow\",\"scope\":\"scene\",\"scope_label\":\"s2\",\"group\":\"light\",\"document\":{\"schema_version\":1,\"timing\":{\"start_sec\":39,\"end_sec\":81,\"fade_in_sec\":2,\"fade_out_sec\":2},\"kind\":\"bloom\",\"threshold\":0.7,\"strength\":0.2,\"radius_px\":24}},{\"uid\":\"e\",\"order\":200001,\"id\":\"candle-flicker\",\"name\":\"Candle / Fire Flicker\",\"scope\":\"scene\",\"scope_label\":\"s2\",\"group\":\"light\",\"document\":{\"schema_version\":1,\"timing\":{\"start_sec\":39,\"end_sec\":81,\"fade_in_sec\":2,\"fade_out_sec\":2},\"kind\":\"flicker\",\"amount\":0.04,\"speed\":1}},{\"uid\":\"b\",\"order\":1,\"id\":\"vignette-soft\",\"name\":\"Soft Vignette\",\"scope\":\"episode\",\"group\":\"lens\",\"document\":{\"schema_version\":1,\"timing\":{\"start_sec\":0,\"end_sec\":null,\"fade_in_sec\":0,\"fade_out_sec\":0},\"kind\":\"vignette\",\"intensity\":0.45}}],\"unavailable\":[],\"notes\":[],\"custom_order\":false}",
+ "look": [
+  "Colour grade: warm-night",
+  "Vignette (strength 0.5)",
+  "Effect: Rain (moving loop, slower render)",
+  "Effect: Bloom / Glow"
+ ]
+}

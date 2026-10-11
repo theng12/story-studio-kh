@@ -47,7 +47,7 @@ import {
 } from '../services/episode-effects.js'
 import { SceneEffectValidationError, parseSceneOverlayDocument } from '../contracts/scene-effects-schema.js'
 import { BUILT_IN_EFFECT_STACKS } from '../contracts/scene-effect-presets.js'
-import { EFFECT_STACK_GROUPS, isSceneStageOverlay, normalizeRegion, normalizeSceneOverlay, type SceneOverlayDocument } from '../contracts/scene-effects.js'
+import { EFFECT_STACK_GROUPS, isSceneStageOverlay, normalizeRegion, normalizeSceneOverlay, offeredWithSwitches, type SceneOverlayDocument } from '../contracts/scene-effects.js'
 import { withLock } from '../lib/atomic-store.js'
 import { OUTLINE_MASK_DIR, drawRegionMask, outlineMaskPath, saveOutlineMask } from '../services/outline-masks.js'
 import {
@@ -70,6 +70,26 @@ import { isHiddenMotion } from '../contracts/scene-effect-presets.js'
 import { cachedFileForToken, invalidate } from '../services/preview-cache.js'
 import { hasDrawtextFilter } from '../lib/ffmpeg-utils.js'
 import * as pm from '../services/project-manager.js'
+import { autoRegionFor, keepsBand } from '../services/episode-effects.js'
+import {
+  episodeAnalysisKey,
+  episodeScenesToAnalyse,
+  getSceneAnalysisModels,
+  queueEpisodeAnalysis,
+  readSceneAnalysis,
+  reanalyseAfterModelChange,
+  resolveVisionMotion,
+  sceneAnalysisStatus,
+  sceneAnalysisSwitches,
+  setSceneAnalysisModels,
+  visionFromEntry,
+  type SceneVision,
+} from '../services/scene-analysis.js'
+import { listVisionModels } from '../lib/scene-vision-client.js'
+import { probeNativeSceneClip } from '../lib/native-scene-clip.js'
+import type { SceneMotionDocument } from '../contracts/scene-effects.js'
+import type { SceneStageDepth, SceneStageItem } from '../lib/scene-stage.js'
+import { fileURLToPath } from 'url'
 
 export const router = Router()
 
@@ -106,6 +126,8 @@ router.get('/projects/:slug/effects-library/:episodeId', async (req, res) => {
     let readError: string | null = null
     try { file = await readEpisodeEffects(episodeDir) } catch (error: any) { readError = error?.message || String(error) }
     const library = await listSceneEffectLibrary()
+    const switches = sceneAnalysisSwitches(await pm.getConfig(slug).catch(() => null))
+    const used = new Set([...file.episode, ...file.themes.flatMap(t => t.effects), ...file.scenes.flatMap(t => t.effects)].map(e => e.id))
     const outlines = (await fs.readdir(`${episodeDir}/${OUTLINE_MASK_DIR}`).catch(() => [] as string[])).filter(name => name.endsWith('.png')).sort()
     res.json({
       file,
@@ -115,7 +137,10 @@ router.get('/projects/:slug/effects-library/:episodeId', async (req, res) => {
       scenes: planScenes(plan),
       stack_groups: EFFECT_STACK_GROUPS,
       effect_stacks: BUILT_IN_EFFECT_STACKS,
-      overlays: library.overlays,
+      // E2–E4 — effects that follow the picture only where the channel has scene analysis on
+      // (an effect this episode already uses always stays listed, so its row still opens).
+      overlays: library.overlays.filter(o => offeredWithSwitches(o.document, switches) || used.has(o.id)),
+      scene_analysis: switches,
       refusals: library.refusals,
     })
   } catch (error: any) {
@@ -142,9 +167,11 @@ function validateStacks(
         // moves every scene with an outline of its name (or inside its shapes), so only an
         // uploaded outline — one scene's file — is refused there.
         const wideLiving = doc.kind === 'living-region' && !doc.region?.mask
-        if (isSceneStageOverlay(doc) && !oneScene && !wideLiving) issues.push(`${where}: ${entry.name} has an outline, so it only works in a single scene's stack`)
+        // E4 — an effect that follows a found part works on any scope: each scene uses its own.
+        const follows = !!doc.follow && !doc.region
+        if (isSceneStageOverlay(doc) && !oneScene && !wideLiving && !follows) issues.push(`${where}: ${entry.name} has an outline, so it only works in a single scene's stack`)
         else if (doc.kind === 'living-region' && !oneScene) { /* fine: the render names the scenes it moves */ }
-        else if (doc.kind === 'living-region' && !doc.region) issues.push(`${where}: ${entry.name} needs an outline (upload one for this scene, or give it shapes)`)
+        else if (doc.kind === 'living-region' && !doc.region && !follows) issues.push(`${where}: ${entry.name} needs an outline (upload one for this scene, or give it shapes)`)
         else if (doc.region?.mask && !existsSync(outlineMaskPath(episodeDir, doc.region.mask))) {
           issues.push(`${where}: ${entry.name} uses the outline "${doc.region.mask}", which has not been uploaded for this episode`)
         }
@@ -245,6 +272,58 @@ router.post('/projects/:slug/effects-library/:episodeId/outlines', async (req, r
   }
 })
 
+// ── E2–E4: picture-aware previews ───────────────────────────────────────────
+
+async function sceneVisionAt(dir: string, sceneId: string | undefined, still: string | null): Promise<SceneVision | null> {
+  if (!sceneId || !still) return null
+  const entry = await readSceneAnalysis(dir, sceneId, still)
+  return entry ? visionFromEntry(dir, entry) : null
+}
+
+/**
+ * What a preview of one scene draws, the way the render resolves it: the move aimed or given depth
+ * (or its fallback, said in `notes`), and the scene-stage effects placed on a hand outline of
+ * their name, else the part scene analysis found, else (an effect that follows) their own band.
+ */
+async function pictureAware(
+  motion: SceneMotionDocument | null,
+  stageDocs: SceneOverlayDocument[],
+  ctx: { sceneId: string | undefined; episodeDir: string; vision: SceneVision | null; library: Awaited<ReturnType<typeof listSceneEffectLibrary>>; notes: string[] },
+): Promise<{ motion: SceneMotionDocument | null; depth: SceneStageDepth | null; items: SceneStageItem[] }> {
+  let depth: SceneStageDepth | null = null
+  if (motion && (motion.depth || motion.rack || motion.aim)) {
+    const native = (await probeNativeSceneClip()).available
+    const blurFocus = ctx.library.scene_motions.find(m => m.id === 'blur-focus')?.document ?? null
+    const moved = resolveVisionMotion(motion, ctx.vision, { depthAllowed: true, ffmpeg: !native, blurFocus })
+    motion = moved.document
+    depth = moved.depth
+    ctx.notes.push(...moved.notes)
+  }
+  const items = stageDocs.map((doc, i) => {
+    let document = doc
+    let band: [number, number] | undefined
+    const label = doc.kind === 'living-region' ? doc.outline || doc.follow || doc.motion : doc.follow
+    if (!doc.region && ctx.sceneId && label) {
+      const mask = `${ctx.sceneId.replace(/[^A-Za-z0-9_-]/g, '')}-${label}.png`
+      const part = autoRegionFor(doc)
+      const found = part ? ctx.vision?.regions[part] : undefined
+      if (existsSync(outlineMaskPath(ctx.episodeDir, mask))) document = normalizeSceneOverlay({ ...doc, region: { mask } })
+      else if (found) { document = normalizeSceneOverlay({ ...doc, region: { auto: found.file, feather_px: 6 } }); band = found.band }
+      else if (doc.follow) {
+        const keep = doc.kind !== 'living-region' && keepsBand(doc, ctx.vision?.regions)
+        ctx.notes.push(ctx.vision
+          ? `No ${doc.follow} was found in this picture; ${keep ? 'the effect keeps its own band' : 'it is left out here'}.`
+          : `This picture has not been analysed; ${keep ? 'the effect keeps its own band' : 'the Living Picture is not drawn'}.`)
+        if (!keep) return null
+      }
+    }
+    const name = document.kind === 'living-region' ? `Living picture (${document.motion})`
+      : `${document.kind === 'atmosphere-loop' ? document.variant : document.kind} ${document.follow ? `following the ${document.follow}` : 'in its outline'}`
+    return { uid: `preview-${i + 1}`, name, document, ...(band ? { band } : {}) }
+  }).filter((item): item is NonNullable<typeof item> => !!item)
+  return { motion, depth, items }
+}
+
 router.post('/projects/:slug/effects-library/:episodeId/exact-preview', async (req, res) => {
   const { slug, episodeId } = req.params
   try {
@@ -272,24 +351,24 @@ router.post('/projects/:slug/effects-library/:episodeId/exact-preview', async (r
     const resolved = resolvePreviewOverlays({ ...body, order: body.custom_order ? 'custom' : 'groups' }, library)
     // Living pictures and outlined effects are drawn on the scene's own clip, inside their outline.
     const overlays = resolved.filter(doc => !isSceneStageOverlay(doc))
-    const motion = resolvePreviewMotion({ motion_id: typeof body.motion_id === 'string' ? body.motion_id : 'ken-burns' }, library)
+    const asked = resolvePreviewMotion({ motion_id: typeof body.motion_id === 'string' ? body.motion_id : 'ken-burns' }, library)
     const backdrop = await sceneBackdrop(slug, episodeId, body.scene_id)
     const { episodeDir, plan } = await episodeContext(slug, episodeId)
     // E1 — a Living Picture meant for the whole episode previews with this scene's outline of its name.
     const sceneId = typeof body.scene_id === 'string' && SCENE_ID.test(body.scene_id) ? body.scene_id : plan?.scenes[0]?.id
-    const stageDocs = resolved.filter(isSceneStageOverlay).map(doc => {
-      if (doc.kind !== 'living-region' || doc.region || !sceneId) return doc
-      const mask = `${sceneId.replace(/[^A-Za-z0-9_-]/g, '')}-${doc.outline || doc.motion}.png`
-      return existsSync(outlineMaskPath(episodeDir, mask)) ? normalizeSceneOverlay({ ...doc, region: { mask } }) : doc
-    })
     const notes: string[] = []
-    if (stageDocs.length && !backdrop) notes.push('Living pictures need the scene\'s own picture; this episode has none, so they are not shown.')
+    // E2–E4 — this scene's saved analysis, as the render would read it.
+    const vision = await sceneVisionAt(episodeDir, sceneId, backdrop)
+    const picture = await pictureAware(asked, resolved.filter(isSceneStageOverlay), { sceneId, episodeDir, vision, library, notes })
+    const motion = picture.motion
+    if (picture.items.length && !backdrop) notes.push('Living pictures need the scene\'s own picture; this episode has none, so they are not shown.')
     const preview = await renderEffectPreview(motion, overlays, backdrop, body.aspect_ratio, {
       shortEdge: EXACT_PREVIEW_SHORT_EDGE,
       durationSec: Math.min(EXACT_PREVIEW_MAX_SEC, Number(body.duration_sec) || EXACT_PREVIEW_MAX_SEC),
-    }, stageDocs.length ? {
-      items: stageDocs.map((document, i) => ({ uid: `preview-${i + 1}`, name: document.kind === 'living-region' ? `Living picture (${document.motion})` : `${document.kind === 'atmosphere-loop' ? document.variant : document.kind} in its outline`, document })),
+    }, picture.items.length || picture.depth ? {
+      items: picture.items,
       episodeDir,
+      depth: picture.depth,
       log: line => notes.push(line),
     } : undefined)
     res.json({
@@ -303,7 +382,7 @@ router.post('/projects/:slug/effects-library/:episodeId/exact-preview', async (r
       // fallback when that helper is not installed (same move, slower to draw).
       camera_engine: preview.camera_engine,
       backdrop: backdrop ? 'scene' : 'gradient',
-      ...(stageDocs.length ? { living: preview.living, notes } : {}),
+      ...(picture.items.length || picture.depth || notes.length ? { living: preview.living, notes } : {}),
     })
   } catch (error: any) {
     if (error instanceof SceneEffectValidationError) return res.status(400).json({ detail: error.message })
@@ -328,6 +407,26 @@ async function galleryBackdrop(slug: string, episodeId: string, scene: unknown):
   return sceneBackdrop(slug, episodeId, scene).catch(() => null)
 }
 
+/**
+ * E2–E4 — the gallery's own picture for effects that need scene analysis: the river scene (sky,
+ * water, a moon, reeds) or, for flames and their glow, the fire pit. Each ships with the analysis
+ * the Vision Studio made of it (`electron/server/effects-gallery/`, provenance in its README).
+ */
+const GALLERY_SAMPLES = [
+  path.join(process.resourcesPath || '/nonexistent', 'effects-gallery'),
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'electron', 'server', 'effects-gallery'),
+]
+async function gallerySample(fire: boolean): Promise<{ backdrop: string; dir: string; sceneId: string; vision: SceneVision } | null> {
+  const sceneId = fire ? 'sample-firepit' : 'sample-river'
+  for (const dir of GALLERY_SAMPLES) {
+    const backdrop = path.join(dir, `${sceneId}.jpg`)
+    if (!existsSync(backdrop)) continue
+    const entry = await readSceneAnalysis(dir, sceneId, backdrop)
+    if (entry) return { backdrop, dir, sceneId, vision: visionFromEntry(dir, entry) }
+  }
+  return null
+}
+
 /** 1.4.284 — the gallery has no outline of its own, so a living picture shows over a soft centre oval. */
 const GALLERY_OUTLINE = { shapes: [{ type: 'ellipse', cx: 0.5, cy: 0.55, rx: 0.22, ry: 0.28 }], feather_px: 24 }
 
@@ -339,7 +438,7 @@ function galleryStage(docs: SceneOverlayDocument[], id: string) {
 function galleryItem(kind: string, id: string, library: Awaited<ReturnType<typeof listSceneEffectLibrary>>) {
   if (kind === 'overlay') {
     const overlays = resolvePreviewOverlays({ overlays: [{ id }] }, library)
-      .map(doc => doc.kind === 'living-region' && !doc.region ? normalizeSceneOverlay({ ...doc, region: GALLERY_OUTLINE }) : doc)
+      .map(doc => doc.kind === 'living-region' && !doc.region && !doc.follow ? normalizeSceneOverlay({ ...doc, region: GALLERY_OUTLINE }) : doc)
       // E1 — a 6-second clip would almost never catch a star once every three minutes: one per clip.
       .map(doc => doc.kind === 'shooting-star' ? normalizeSceneOverlay({ ...doc, period_sec: GALLERY_SEC, chance: 1 }) : doc)
     return { motion: null, overlays }
@@ -356,12 +455,33 @@ router.get('/projects/:slug/effects-library/:episodeId/gallery/:kind/:id', async
     if (overlays.some(o => o.kind === 'lower-third') && !await hasDrawtextFilter()) {
       return res.status(501).json({ detail: 'This FFmpeg build cannot draw text, so this effect has no preview.' })
     }
-    const backdrop = await galleryBackdrop(slug, episodeId, req.query.scene)
+    let backdrop = await galleryBackdrop(slug, episodeId, req.query.scene)
     const aspect = typeof req.query.aspect_ratio === 'string' ? req.query.aspect_ratio : undefined
     const stageDocs = overlays.filter(isSceneStageOverlay)
-    const preview = await renderEffectPreview(motion, overlays.filter(doc => !isSceneStageOverlay(doc)), backdrop, aspect,
-      { shortEdge: GALLERY_SHORT_EDGE, durationSec: GALLERY_SEC },
-      stageDocs.length ? { items: galleryStage(stageDocs, id), episodeDir: null } : undefined)
+    let preview
+    if ((motion && (motion.depth || motion.rack || motion.aim)) || stageDocs.some(doc => doc.follow)) {
+      // E2–E4 — this scene's analysis when it has one, else the bundled sample picture and its analysis,
+      // so a picture-aware effect always previews.
+      let dir: string | null = null, sceneId: string | undefined, vision: SceneVision | null = null
+      if (backdrop && episodeId !== NO_EPISODE) {
+        const ctx = await episodeContext(slug, episodeId)
+        sceneId = typeof req.query.scene === 'string' && SCENE_ID.test(req.query.scene) ? req.query.scene : ctx.plan?.scenes[0]?.id
+        vision = await sceneVisionAt(ctx.episodeDir, sceneId, backdrop)
+        if (vision) dir = ctx.episodeDir
+      }
+      if (!vision) {
+        const sample = await gallerySample(stageDocs.some(doc => ['fire', 'glow'].includes(autoRegionFor(doc) || '')))
+        if (sample) ({ backdrop, dir, sceneId, vision } = sample)
+      }
+      const picture = await pictureAware(motion, stageDocs, { sceneId, episodeDir: dir || '', vision, library, notes: [] })
+      preview = await renderEffectPreview(picture.motion, overlays.filter(doc => !isSceneStageOverlay(doc)), backdrop, aspect,
+        { shortEdge: GALLERY_SHORT_EDGE, durationSec: GALLERY_SEC },
+        picture.items.length || picture.depth ? { items: picture.items, episodeDir: dir, depth: picture.depth } : undefined)
+    } else {
+      preview = await renderEffectPreview(motion, overlays.filter(doc => !isSceneStageOverlay(doc)), backdrop, aspect,
+        { shortEdge: GALLERY_SHORT_EDGE, durationSec: GALLERY_SEC },
+        stageDocs.length ? { items: galleryStage(stageDocs, id), episodeDir: null } : undefined)
+    }
     const file = cachedFileForToken(preview.token)
     if (!file) return res.status(500).json({ detail: 'The preview was rendered but could not be read back.' })
     res.set('Content-Type', file.endsWith('.mp4') ? 'video/mp4' : 'video/webm')
@@ -422,5 +542,84 @@ router.get('/projects/:slug/effects-library-in-use', async (req, res) => {
     res.json({ overlays: [...new Set(overlays)], motions: [...new Set(motions)], source: preset.name || preset.id })
   } catch (error: any) {
     res.status(500).json(humanizeBackendError(error, 'Could not read what this channel uses'))
+  }
+})
+
+// ── E2–E4: scene analysis (per channel switches, app-wide models, per episode runs) ──
+
+/** This episode's analysis: the channel's switches, the picked models, the run and each scene. */
+router.get('/projects/:slug/effects-library/:episodeId/scene-analysis', async (req, res) => {
+  const { slug, episodeId } = req.params
+  try {
+    const switches = sceneAnalysisSwitches(await pm.getConfig(slug))
+    const models = await getSceneAnalysisModels()
+    const { episodeDir, scenes } = await episodeScenesToAnalyse(slug, episodeId)
+    const rows = []
+    for (const scene of scenes) {
+      const entry = scene.still ? await readSceneAnalysis(episodeDir, scene.scene_id, scene.still) : null
+      rows.push({
+        scene_id: scene.scene_id,
+        has_image: !!scene.still,
+        analysed: !!entry,
+        depth: entry?.depth ? (entry.depth.usable ? 'usable' : 'too flat') : null,
+        subject: entry?.subject ? { box: entry.subject.box, source: entry.subject.source, label: entry.subject.label ?? null } : null,
+        found: Object.entries(entry?.regions || {}).filter(([, region]) => region).map(([name]) => name),
+        stale: !!entry && ((switches.depth && models.depth && entry.models.depth !== models.depth) || (switches.vision && models.vision && entry.models.vision !== models.vision)),
+      })
+    }
+    res.json({ switches, models, status: sceneAnalysisStatus(episodeAnalysisKey(slug, episodeId)), scenes: rows })
+  } catch (error: any) {
+    res.status(500).json(humanizeBackendError(error, 'Could not read this episode\'s scene analysis'))
+  }
+})
+
+/** "Analyse scenes": queue this episode (or `scene_ids`) in the background. Returns at once. */
+router.post('/projects/:slug/effects-library/:episodeId/scene-analysis', async (req, res) => {
+  const { slug, episodeId } = req.params
+  try {
+    const only = Array.isArray(req.body?.scene_ids) ? req.body.scene_ids.filter((id: unknown) => typeof id === 'string' && SCENE_ID.test(id)) : undefined
+    res.json({ status: await queueEpisodeAnalysis(slug, episodeId, only) })
+  } catch (error: any) {
+    res.status(500).json(humanizeBackendError(error, 'Could not start the scene analysis'))
+  }
+})
+
+/** The channel's switches (owner: depth is its own switch; both off by default). */
+router.put('/projects/:slug/scene-analysis/switches', async (req, res) => {
+  const { slug } = req.params
+  try {
+    const next = { depth: req.body?.depth === true, vision: req.body?.vision === true }
+    if (!await pm.updateConfig(slug, { scene_analysis: next } as any)) return res.status(404).json({ detail: 'No such channel.' })
+    res.json({ switches: sceneAnalysisSwitches(await pm.getConfig(slug)) })
+  } catch (error: any) {
+    res.status(500).json(humanizeBackendError(error, 'Could not save the scene analysis switches'))
+  }
+})
+
+/** The models the Gateway offers for scene analysis, live (AGENTS rule 1), and the app-wide picks. */
+router.get('/scene-analysis/models', async (_req, res) => {
+  const picked = await getSceneAnalysisModels()
+  try {
+    const rows = await listVisionModels()
+    res.json({
+      picked,
+      depth: rows.filter(row => row.tasks.includes('depth')),
+      vision: rows.filter(row => row.tasks.some(task => task !== 'depth')),
+    })
+  } catch (error: any) {
+    res.json({ picked, depth: [], vision: [], detail: `The Gateway did not list its scene-analysis models: ${error?.message || error}` })
+  }
+})
+
+/** Save the picks; a changed pick re-analyses recent episodes in the background (saved results stay in use until then). */
+router.put('/scene-analysis/models', async (req, res) => {
+  try {
+    const before = await getSceneAnalysisModels()
+    const picked = await setSceneAnalysisModels(req.body)
+    const changed = (picked.depth && picked.depth !== before.depth) || (picked.vision && picked.vision !== before.vision)
+    const requeued = changed ? await reanalyseAfterModelChange() : 0
+    res.json({ picked, requeued })
+  } catch (error: any) {
+    res.status(500).json(humanizeBackendError(error, 'Could not save the scene analysis models'))
   }
 })

@@ -1484,6 +1484,126 @@
       "closure_group": "intentional-free-baseline"
     },
     {
+      "legacy_key": "overlay:sky-clouds-real",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "sky-clouds-real"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:twinkling-stars-sky",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "twinkling-stars-sky"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:shooting-star-sky",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "shooting-star-sky"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:aurora-sky",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "aurora-sky"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:moon-glow-sky",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "moon-glow-sky"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:caustics-water",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "caustics-water"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:water-shimmer-real",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "water-shimmer-real"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:water-ripples",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "water-ripples"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:ground-mist-real",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "ground-mist-real"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:fireflies-plants",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "fireflies-plants"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:flame-found",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "flame-found"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:fire-glow-found",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "fire-glow-found"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
       "legacy_key": "prepared:com.storystudio.pack.style.dreamlike-luminous-sleep-illustration@1.0.0",
       "disposition": "authored-standalone",
       "source": "content-packs/legacy-thumbnail-restoration/style/dreamlike-luminous-sleep-illustration",
@@ -1932,6 +2052,156 @@
       "target": {
         "kind": "runtime-scene-effect",
         "id": "scene:zoom-out"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:depth-gentle",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:depth-gentle"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:depth",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:depth"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:depth-strong",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:depth-strong"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:depth-left",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:depth-left"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:depth-right",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:depth-right"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:rack-focus-gentle",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:rack-focus-gentle"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:rack-focus",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:rack-focus"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:rack-focus-strong",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:rack-focus-strong"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:rack-focus-background",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:rack-focus-background"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:subject-gentle",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:subject-gentle"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:subject",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:subject"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:subject-strong",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:subject-strong"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:subject-pull",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:subject-pull"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:tour",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:tour"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:tour-slow",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:tour-slow"
       },
       "closure_group": "intentional-free-baseline"
     },

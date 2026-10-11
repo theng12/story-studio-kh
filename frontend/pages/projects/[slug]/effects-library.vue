@@ -57,6 +57,25 @@
       </div>
     </section>
 
+    <!-- E2–E4 (1.4.288) — scene analysis: per channel, off by default; depth is its own switch. -->
+    <section class="card fx-analysis" aria-label="Scene analysis">
+      <div class="fx-analysis-head">
+        <b>Scene analysis</b>
+        <small>Lets moves and effects understand each picture: real depth (3D photo, rack focus), the main subject (zoom to subject, guided tour) and outlines of sky, water, flames and plants. Each picture is analysed once on your Macs; renders only read the saved result.</small>
+      </div>
+      <label class="fx-switch"><input type="checkbox" :checked="analysis.switches.depth" :disabled="savingSwitches" @change="setSwitch('depth', ($event.target as HTMLInputElement).checked)" /> Depth for this channel</label>
+      <label class="fx-switch"><input type="checkbox" :checked="analysis.switches.vision" :disabled="savingSwitches" @change="setSwitch('vision', ($event.target as HTMLInputElement).checked)" /> Subject and outlines for this channel</label>
+      <div class="fx-analysis-run">
+        <button type="button" class="btn btn-sm btn-secondary" :disabled="!episodeId || analysisBusy || (!analysis.switches.depth && !analysis.switches.vision)" @click="analyseScenes">
+          {{ analysisBusy ? 'Analysing…' : 'Analyse Scenes' }}
+        </button>
+        <span class="hint" role="status">{{ analysisLine }}</span>
+      </div>
+      <p v-if="(analysis.switches.depth && !analysis.models.depth) || (analysis.switches.vision && !analysis.models.vision)" class="hint fx-analysis-warn">
+        Pick the scene-analysis models first: Settings → Connections → Scene analysis models. Until then renders use each move's plain version.
+      </p>
+    </section>
+
     <p v-if="loadError" class="fx-banner" data-tone="error">{{ loadError }}</p>
     <p v-else-if="readError" class="fx-banner" data-tone="warning">{{ readError }} Saving here writes a fresh copy.</p>
     <p v-else-if="episodeId && !loading && !hasScenePlan" class="fx-banner" data-tone="info">
@@ -94,8 +113,8 @@
         <div v-if="!sections.length && library.length && activeTab !== 'motions' && activeTab !== 'transitions'" class="fx-empty">No effect matches “{{ search }}”.</div>
         <template v-if="activeTab === 'motions'">
           <p class="hint">How each scene picture moves. Pick them in Video Assembly → Scene Animation; these clips only show them.</p>
-          <div class="fx-cat">{{ motionFamilies.map(f => f.name).join(' · ') }}</div>
-          <div v-for="family in motionFamilies" :key="family.key" class="fx-family">
+          <div class="fx-cat">{{ visibleFamilies.map(f => f.name).join(' · ') }}</div>
+          <div v-for="family in visibleFamilies" :key="family.key" class="fx-family">
             <div class="fx-family-head"><b>{{ family.name }}</b> <small>{{ family.description }}</small></div>
             <div class="fx-grid">
               <div v-for="member in family.members" :key="member.id" class="fx-card fx-motion">
@@ -836,6 +855,11 @@ const inUseTitle = computed(() => inUse.value.source ? `A Pipeline batch on this
 const galleryNonce = ref(0)
 const refreshing = ref(false)
 
+/** Families with only the strengths this channel offers (E2–E4: picture-aware moves need scene analysis on). */
+const visibleFamilies = computed(() => motionFamilies.value
+  .map(f => ({ ...f, members: f.members.filter(m => sceneMotions.value.some(x => x.id === m.id)) }))
+  .filter(f => f.members.length))
+
 function motionDoc(id: string): unknown {
   return sceneMotions.value.find(m => m.id === id)?.document
 }
@@ -910,6 +934,68 @@ async function loadInUse(): Promise<void> {
 
 watch(episodeId, () => { load() })
 
+// ── Scene analysis (E2–E4) ──────────────────────────────────────────────────
+interface AnalysisState {
+  switches: { depth: boolean; vision: boolean }
+  models: { depth: string; vision: string }
+  status: { state: string; total: number; done: number; failed: number; left: number; message: string }
+  scenes: Array<{ scene_id: string; analysed: boolean; has_image: boolean; stale: boolean }>
+}
+const analysis = reactive<AnalysisState>({
+  switches: { depth: false, vision: false },
+  models: { depth: '', vision: '' },
+  status: { state: 'idle', total: 0, done: 0, failed: 0, left: 0, message: '' },
+  scenes: [],
+})
+const savingSwitches = ref(false)
+const analysisBusy = computed(() => analysis.status.state === 'running' || analysis.status.state === 'queued')
+const analysisLine = computed(() => {
+  if (!analysis.switches.depth && !analysis.switches.vision) return 'Off for this channel: no picture is analysed and these moves and effects are hidden.'
+  const withImage = analysis.scenes.filter(s => s.has_image)
+  const done = withImage.filter(s => s.analysed).length
+  const stale = withImage.filter(s => s.stale).length
+  const run = analysis.status.message && analysis.status.state !== 'idle' ? ` ${analysis.status.message}` : ''
+  return `${done} of ${withImage.length} scene picture(s) analysed${stale ? ` (${stale} with an older model, kept until re-analysed)` : ''}.${run}`
+})
+let analysisTimer: ReturnType<typeof setTimeout> | null = null
+async function loadAnalysis(): Promise<void> {
+  if (analysisTimer) { clearTimeout(analysisTimer); analysisTimer = null }
+  const episode = episodeId.value
+  if (!episode) return
+  try {
+    const data = await get(`/projects/${slug.value}/effects-library/${episode}/scene-analysis`)
+    if (episodeId.value !== episode) return
+    Object.assign(analysis, data)
+    if (analysisBusy.value) analysisTimer = setTimeout(loadAnalysis, 3000)
+  } catch { /* the card stays as it was */ }
+}
+async function setSwitch(key: 'depth' | 'vision', value: boolean): Promise<void> {
+  savingSwitches.value = true
+  try {
+    const data = await put(`/projects/${slug.value}/scene-analysis/switches`, { ...analysis.switches, [key]: value })
+    analysis.switches = data.switches
+    // The moves and effects offered follow the switches.
+    const catalog = await get(`/projects/${slug.value}/video-editor/effects/catalog`)
+    sceneMotions.value = catalog.scene_motions || []
+    library.value = episodeId.value ? (await get(`/projects/${slug.value}/effects-library/${episodeId.value}`)).overlays || [] : catalog.overlays || []
+    await loadAnalysis()
+  } catch (e: any) {
+    showError(e?.data?.detail || 'The switch could not be saved.')
+  } finally {
+    savingSwitches.value = false
+  }
+}
+async function analyseScenes(): Promise<void> {
+  try {
+    const data = await post(`/projects/${slug.value}/effects-library/${episodeId.value}/scene-analysis`, {})
+    analysis.status = data.status
+    analysisTimer = setTimeout(loadAnalysis, 1500)
+  } catch (e: any) {
+    showError(e?.data?.detail || 'The scene analysis could not start.')
+  }
+}
+watch(episodeId, () => { loadAnalysis() })
+
 // ── Presets ───────────────────────────────────────────────────────────────
 const presetDraft = ref<Array<{ id: string; params?: Record<string, unknown> }>>([])
 const stackPresets = usePresets<{ effects: Array<{ id: string; params?: Record<string, unknown> }> }>({
@@ -975,10 +1061,11 @@ onMounted(() => {
   loadLibraryOnly()
   loadInUse()
   loadTransitions()
-  if (episodeId.value) load()
+  if (episodeId.value) { load(); loadAnalysis() }
 })
 onBeforeUnmount(() => {
   cancelAnimationFrame(raf)
+  if (analysisTimer) clearTimeout(analysisTimer)
   if (saveTimer && saveState.value === 'pending') saveNow()
 })
 </script>
@@ -996,6 +1083,12 @@ onBeforeUnmount(() => {
 .fx-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
 .fx-save-state span[data-tone='error'] { color: var(--danger, #e66); }
 .fx-save-state span[data-tone='success'] { color: var(--text-secondary); }
+.fx-analysis { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin-top: 14px; }
+.fx-analysis-head { display: flex; flex-direction: column; gap: 2px; flex: 1 1 100%; min-width: 0; }
+.fx-analysis-head small { color: var(--text-secondary); }
+.fx-switch { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.fx-analysis-run { display: flex; align-items: center; gap: 10px; flex: 1 1 320px; min-width: 0; }
+.fx-analysis-warn { flex: 1 1 100%; margin: 0; }
 .fx-banner { margin: 12px 0 0; padding: 8px 12px; border-radius: var(--radius-sm); font-size: 13px; border: 1px solid var(--border); background: var(--surface-subtle, var(--bg-secondary)); }
 .fx-banner[data-tone='error'] { border-color: color-mix(in srgb, var(--danger, #e66) 50%, var(--border)); }
 .fx-banner[data-tone='warning'] { border-color: color-mix(in srgb, var(--warning, #e9b949) 50%, var(--border)); }
