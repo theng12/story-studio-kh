@@ -685,6 +685,27 @@ test('transcription refuses stale auto-detect selections before it can submit pa
   )
 })
 
+test('a multilingual model with no published list accepts a concrete language (1.4.280)', () => {
+  // What the Gateway publishes for every Whisper row today (Brain Wise: "en" refused with 400).
+  const model = {
+    id: 'whisper-large-v3-turbo',
+    display_name: 'whisper-large-v3-turbo',
+    language: 'multilingual',
+    supported_languages: [],
+    supports_language_auto_detect: true,
+  }
+  assert.equal(resolveTranscriptionLanguage(model as any, 'en'), 'en')
+  assert.equal(resolveTranscriptionLanguage(model as any, 'pt-BR'), 'pt-BR')
+  assert.equal(resolveTranscriptionLanguage(model as any, 'auto'), undefined)
+  assert.throws(() => resolveTranscriptionLanguage(model as any, 'english please'), /does not publish/i)
+  assert.throws(() => resolveTranscriptionLanguage(model as any, 'any'), /does not publish/i)
+  // Nothing published at all is still no contract.
+  assert.throws(
+    () => resolveTranscriptionLanguage({ ...model, language: '', supports_language_auto_detect: null } as any, 'en'),
+    /does not publish en/i,
+  )
+})
+
 // ── Regression pins ──────────────────────────────────────────────────────
 
 test('scene renders actually submit their resolved reference images', () => {

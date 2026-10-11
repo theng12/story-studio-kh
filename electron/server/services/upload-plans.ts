@@ -321,6 +321,36 @@ export async function setActivePlanId(slug: string, platform: UploadPlatform, ac
   await pm.updateConfig(slug, { upload_plan_active: next } as any)
 }
 
+/** Active bindings that still name a plan this project holds. */
+export function liveActiveMap(active: unknown, list: UploadPlan[]): Record<string, string> {
+  const ids = new Set(list.map(p => p.id))
+  const out: Record<string, string> = {}
+  if (active && typeof active === 'object') {
+    for (const [key, id] of Object.entries(active as Record<string, unknown>)) {
+      if (typeof id === 'string' && ids.has(id)) out[key] = id
+    }
+  }
+  return out
+}
+
+/**
+ * Remove a plan, and every `active` binding that pointed at it or at any other
+ * plan that is already gone (1.4.280). The 1.4.249 sweep dropped this along
+ * with the legacy /upload/* routes; a stale binding left behind could be
+ * resolved by a caller's "any active plan" fallback.
+ */
+export async function removePlan(slug: string, id: string): Promise<boolean> {
+  const config = (await pm.getConfig(slug)) as any
+  const list = await listPlans(slug)
+  const next = list.filter(p => p.id !== id)
+  if (next.length === list.length) return false
+  await pm.updateConfig(slug, {
+    upload_plans: next,
+    upload_plan_active: liveActiveMap(config?.upload_plan_active, next),
+  } as any)
+  return true
+}
+
 export async function upsertPlan(slug: string, partial: Partial<UploadPlan> & { name: string; platform: UploadPlatform; account_id: string; schedule: UploadSchedule; defaults: UploadPlanDefaults }): Promise<UploadPlan> {
   const plans = await listPlans(slug)
   const now = new Date().toISOString()

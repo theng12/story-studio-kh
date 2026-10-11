@@ -89,7 +89,7 @@ import {
   scaleAuthoredPosition,
 } from '../lib/video-effects.js'
 import { compileSceneOverlay, letterboxBarHeight, overlayLoopShapes } from '../lib/scene-effect-compiler.js'
-import { assertNoUnavailablePackOverlays, resolveAppliedOverlays } from '../contracts/scene-effect-presets.js'
+import { assertNoUnavailablePackOverlays, isRotationMotion, resolveAppliedOverlays } from '../contracts/scene-effect-presets.js'
 import { LIBRARY_V1_5_KINDS } from '../contracts/scene-effects.js'
 import { loopShapeKey } from '../contracts/effect-loops.js'
 import { bakeEffectLoop } from '../lib/effect-loop-baker.js'
@@ -3991,6 +3991,9 @@ function pickAnimationsPerScene(
 ): string[] {
   const picks: string[] = []
   if (count === 0) return picks
+  // 1.4.280 — never a rotation, even when an old preset names one or keeps one in its pool.
+  if (isRotationMotion(primary)) primary = DEFAULT_STILL_CAMERA_MOVE
+  pool = pool.filter(id => !isRotationMotion(id))
   if (mode === 'off' || pool.length === 0) {
     for (let i = 0; i < count; i++) picks.push(primary)
     return picks

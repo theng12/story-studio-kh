@@ -28,6 +28,7 @@ import { compileSceneMotion, compileSceneOverlay, overlayLoopShapes } from '../l
 import { bakeEffectLoop } from '../lib/effect-loop-baker.js'
 import { renderNativeSceneClip } from '../lib/native-scene-clip.js'
 import { loopShapeKey } from '../contracts/effect-loops.js'
+import { isRotationMotion } from '../contracts/scene-effect-presets.js'
 import {
   listSceneEffectLibrary,
   listSubtitleStylePresets,
@@ -852,7 +853,8 @@ router.put('/projects/:slug/video-editor/reveals/scene-choice', async (req, res)
 router.get('/projects/:slug/video-editor/animations/catalog', async (_req, res) => {
   // v1.2.1 — the same projection, over the merged built-in + installed-pack
   // registry. With zero packs installed this is `ANIMATIONS` exactly.
-  const animations = (await listSceneEffectLibrary()).scene_motions.map(toAnimationDef)
+  // 1.4.280 — rotation is never offered (owner 2026-10-11); old presets naming it still load.
+  const animations = (await listSceneEffectLibrary()).scene_motions.filter(m => !isRotationMotion(m)).map(toAnimationDef)
   res.json({ animations, grouped: groupAnimationDefs(animations) })
 })
 

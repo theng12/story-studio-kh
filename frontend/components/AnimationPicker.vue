@@ -100,7 +100,6 @@ const categories = [
   { id: 'zoom',    label: 'Zoom' },
   { id: 'pan',     label: 'Pan' },
   { id: 'ambient', label: 'Ambient' },
-  { id: 'rotate',  label: 'Rotate' },
   { id: 'effect',  label: 'Effect' },
   { id: 'static',  label: 'Static' },
 ]

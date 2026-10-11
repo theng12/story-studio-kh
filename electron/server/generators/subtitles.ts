@@ -42,7 +42,7 @@ import { hashInput } from '../services/task-manifest.js'
 import { isFleetBusyFailure } from '../lib/genstudio-fleet-busy.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage, unavailableTranscriptionModelMessage } from '../services/genstudio-model-migration.js'
 import type { Job } from '../models/types.js'
-import { chapterKeyOf, inspectAudioAssemblyReadiness, isScopedChapterTranscription, requireAudioAssemblyReady } from '../services/audio-workflow-readiness.js'
+import { chapterKeyOf, inspectAudioAssemblyReadiness, isScopedChapterTranscription, requireAudioAssemblyReady, timelineOmitsIntroduction } from '../services/audio-workflow-readiness.js'
 import { runSubtitleTranscription } from '../services/subtitle-recovery.js'
 
 /**
@@ -235,6 +235,14 @@ export function resolveTranscriptionLanguage(
   const concrete = (model.language || '').trim()
   if (!listed.length && concrete && !sentinels.has(concrete.toLowerCase())) listed.push(concrete)
   const matched = listed.find(code => code.toLowerCase() === wanted.toLowerCase())
+  // 1.4.280 — "multilingual" with no list is the Gateway saying "many languages,
+  // not enumerated" (every Whisper row publishes exactly that). It used to read
+  // as "none", so any concrete language ("en" on Brain Wise) was refused. A
+  // well-formed code is passed through; the model itself is the judge.
+  if (!matched && !listed.length && sentinels.has(concrete.toLowerCase())
+    && !sentinels.has(wanted.toLowerCase()) && /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/i.test(wanted)) {
+    return wanted
+  }
   if (!matched) {
     throw new Error(`${name} does not publish ${wanted} as a supported language. Select a language from its live catalogue; no transcription was submitted or charged.`)
   }
@@ -727,6 +735,12 @@ export async function resolveSubtitleChapterSources(projectSlug: string, code: s
       slug: section.slug,
       files: section.files.sort((a, b) => a.part - b.part).map(file => file.name),
     }))
+    // 1.4.280 — an Introduction the episode was assembled without is a stray file, not a chapter.
+    const legacyTimeline = await fs.readFile(path.join(episodePaths.episode_dir, 'audio_chapters.json'), 'utf8')
+      .then(raw => JSON.parse(raw)).catch(() => null)
+    if (timelineOmitsIntroduction(legacyTimeline)) {
+      allSections = allSections.filter(section => section.slug.toLowerCase() !== 'introduction')
+    }
   }
   if (!allSections.length) {
     throw new Error('No chapter audio found — generate audio (and Audio Assembly) for this episode first.')

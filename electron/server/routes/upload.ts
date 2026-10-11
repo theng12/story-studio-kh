@@ -432,10 +432,8 @@ router.get('/projects/:slug/upload/plans', async (req, res) => {
     const list = await plans.listPlans(slug)
     // Active pointers keyed by `${platform}:${account_id}`.
     const cfg = (await pm.getConfig(slug)) as any
-    const active = cfg?.upload_plan_active && typeof cfg.upload_plan_active === 'object'
-      ? cfg.upload_plan_active
-      : {}
-    res.json({ plans: list, active })
+    // Bindings to plans that no longer exist are not shown (1.4.280).
+    res.json({ plans: list, active: plans.liveActiveMap(cfg?.upload_plan_active, list) })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to list plans'))
   }
@@ -494,6 +492,24 @@ router.put('/projects/:slug/upload/plans/:id/active', async (req, res) => {
     res.json({ ok: true })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to activate plan'))
+  }
+})
+
+// 1.4.280 — restored. Removed with the legacy /upload/* routes in 1.4.249
+// because the Upload Center no longer had a delete button.
+router.delete('/projects/:slug/upload/plans/:id', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const plan = await plans.getPlan(slug, req.params.id)
+    if (!plan) return res.status(404).json({ detail: 'Plan not found' })
+    const assigned = plan.platform === 'youtube' ? await resolveYouTubeAccountId(slug) : ''
+    if (assigned && plan.account_id === assigned && await plans.getActivePlanId(slug, 'youtube', assigned) === plan.id) {
+      return res.status(409).json({ detail: 'This is the active plan for the project YouTube channel. Make another plan active first.' })
+    }
+    if (!await plans.removePlan(slug, plan.id)) return res.status(404).json({ detail: 'Plan not found' })
+    res.json({ ok: true })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to delete plan'))
   }
 })
 

@@ -254,6 +254,18 @@ export function findFootageMotion(id: string | null | undefined): BuiltInMotion 
   return id ? FOOTAGE_MOTIONS_BY_ID.get(id) : undefined
 }
 
+/**
+ * A camera move that turns the picture (owner, 2026-10-11: "we don't want no rotation at all").
+ * `rotate-cw`/`rotate-ccw` stay in the registry only so old saved presets still parse; nothing
+ * offers or renders them (1.4.280). An unknown id is judged by its name.
+ * ponytail: a pack spin motion is caught by its document only where the library is at hand.
+ */
+export function isRotationMotion(motion: string | BuiltInMotion | null | undefined): boolean {
+  const entry = typeof motion === 'string' ? (findSceneMotion(motion) ?? findFootageMotion(motion)) : motion
+  if (entry) return entry.category === 'rotate' || entry.document.spin.rate_rad_per_sec !== 0
+  return typeof motion === 'string' && /rotat/i.test(motion)
+}
+
 /** The id a missing or unrecognised selection falls back to. */
 export const DEFAULT_SCENE_MOTION_ID = 'none'
 export const DEFAULT_FOOTAGE_MOTION_ID = 'static'

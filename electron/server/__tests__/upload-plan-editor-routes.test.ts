@@ -185,3 +185,43 @@ describe('upload plan save contract', () => {
     }
   })
 })
+
+describe('upload plan delete contract (1.4.280)', () => {
+  const plan = (id: string, account_id: string) => ({ ...validBody({ id, account_id }), created_at: '2026-10-01T00:00:00.000Z', updated_at: '2026-10-01T00:00:00.000Z' })
+  const LEGACY = 'acc_legacy-0001'
+
+  beforeEach(async () => {
+    await pm.updateConfig(slug, {
+      upload_plans: [plan('plan_live', ACCOUNT_ID), plan('plan_old', LEGACY)],
+      upload_plan_active: {
+        [`youtube:${ACCOUNT_ID}`]: 'plan_live',
+        [`youtube:${LEGACY}`]: 'plan_old',
+        'youtube:acc_gone': 'plan_already_deleted',
+      },
+    } as any)
+  })
+
+  test('deletes a superseded plan and prunes active bindings to missing plans', async () => {
+    const res = await request(app).delete(`/api/projects/${slug}/upload/plans/plan_old`)
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.deepEqual(res.body, { ok: true })
+    const listed = await request(app).get(`/api/projects/${slug}/upload/plans`)
+    assert.deepEqual(listed.body.plans.map((p: any) => p.id), ['plan_live'])
+    assert.deepEqual(listed.body.active, { [`youtube:${ACCOUNT_ID}`]: 'plan_live' })
+    const config = await pm.getConfig(slug) as any
+    assert.deepEqual(config.upload_plan_active, { [`youtube:${ACCOUNT_ID}`]: 'plan_live' })
+  })
+
+  test('refuses with 409 to delete the plan active for the assigned channel', async () => {
+    const res = await request(app).delete(`/api/projects/${slug}/upload/plans/plan_live`)
+    assert.equal(res.status, 409, JSON.stringify(res.body))
+    assert.equal((await plans.listPlans(slug)).length, 2)
+  })
+
+  test('returns 404 Plan not found for an unknown id', async () => {
+    const res = await request(app).delete(`/api/projects/${slug}/upload/plans/plan_nope`)
+    assert.equal(res.status, 404)
+    assert.deepEqual(res.body, { detail: 'Plan not found' })
+    assert.equal((await plans.listPlans(slug)).length, 2)
+  })
+})

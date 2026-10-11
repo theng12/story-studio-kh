@@ -4,6 +4,7 @@ import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { getAudioStatus } from './audio-reconciler.js'
 import { inspectAudioMergeAtPaths } from './asset-status.js'
 import { resolveEpisodePathsByCodeWithSidecar } from './utils.js'
+import { INTRODUCTION_SEGMENT_ID, SEGMENT_KINDS } from '../lib/episode-segments.js'
 
 export interface ChapterAudioReadiness {
   ready: boolean
@@ -50,6 +51,40 @@ export function chapterKeyOf(filename: string, code: string): string {
     base = base.replace(/(?:_part\d+|_v\d+)$/i, '')
   }
   return base
+}
+
+/**
+ * 1.4.280 — an episode assembled without an Introduction. Brain Wise EP0036-EP0050 were narrated and
+ * merged before the channel had one; a later intro script made every chapter check demand
+ * `Introduction.mp3`, so Subtitles stopped. The Introduction is optional, and Audio Assembly's active
+ * selection (`audio_chapters.json`) is what the episode IS: when it lists sections and none is the
+ * Introduction, the Introduction is not part of this episode. An intro file on disk that was never
+ * activated is not pulled in, and none is added.
+ */
+export function timelineOmitsIntroduction(manifest: AudioChaptersManifest | null | undefined): boolean {
+  const sections = Array.isArray(manifest?.sections) ? manifest!.sections : []
+  return sections.length > 0 && !sections.some(section =>
+    typeof section?.slug === 'string' && section.slug.trim().toLowerCase() === INTRODUCTION_SLUG)
+}
+
+const INTRODUCTION_SLUG = SEGMENT_KINDS[INTRODUCTION_SEGMENT_ID]!.filenameStem.toLowerCase()
+
+function withoutIntroduction(readiness: ChapterAudioReadiness, code: string): ChapterAudioReadiness {
+  const keep = (file: string) => chapterKeyOf(file, code).toLowerCase() !== INTRODUCTION_SLUG
+  const expected = readiness.expected_files.filter(keep)
+  const missing = readiness.missing_files.filter(keep)
+  if (expected.length === readiness.expected_files.length) return readiness
+  return {
+    ready: expected.length > 0 && missing.length === 0,
+    expected_files: expected,
+    present_files: readiness.present_files.filter(keep),
+    missing_files: missing,
+    issues: !expected.length
+      ? ['No required narration sections could be found. Finish the Script step first.']
+      : missing.length
+        ? [`${missing.length} required audio file(s) are missing: ${missing.join(', ')}. Generate or repair Audio before running Audio Assembly.`]
+        : [],
+  }
 }
 
 export function evaluateAudioTimelineManifest(
@@ -120,7 +155,13 @@ export async function inspectAudioAssemblyReadiness(
   episodeId: string,
 ): Promise<AudioAssemblyReadiness> {
   const code = episodeId.toUpperCase()
-  const chapterAudio = await inspectChapterAudioReadiness(slug, code)
+  let chapterAudio = await inspectChapterAudioReadiness(slug, code)
+  const paths = await resolveEpisodePathsByCodeWithSidecar(slug, code, 'audio_chapters.json').catch(() => null)
+  const manifest = paths
+    ? await fs.readFile(path.join(paths.episode_dir, 'audio_chapters.json'), 'utf-8')
+      .then(raw => JSON.parse(raw) as AudioChaptersManifest).catch(() => null)
+    : null
+  if (timelineOmitsIntroduction(manifest)) chapterAudio = withoutIntroduction(chapterAudio, code)
   const issues = [...chapterAudio.issues]
   let expectedSections = unique(chapterAudio.expected_files.map(filename => chapterKeyOf(filename, code)))
 
@@ -131,7 +172,7 @@ export async function inspectAudioAssemblyReadiness(
   let missingTimelineSections = [...expectedSections]
 
   try {
-    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, code, 'audio_chapters.json')
+    if (!paths) throw new Error('episode paths unavailable')
     const merge = await inspectAudioMergeAtPaths(paths, code)
     const duration = merge.present && merge.path
       ? await getAudioDuration(merge.path).catch(() => undefined)
@@ -142,9 +183,7 @@ export async function inspectAudioAssemblyReadiness(
       issues.push('This episode has no playable merged narration yet. Run Audio Assembly first.')
     }
 
-    const manifest = JSON.parse(
-      await fs.readFile(path.join(paths.episode_dir, 'audio_chapters.json'), 'utf-8'),
-    ) as AudioChaptersManifest
+    if (!manifest) throw new Error('audio_chapters.json unavailable')
     const evaluation = evaluateAudioTimelineManifest(chapterAudio.expected_files, code, manifest)
     expectedSections = evaluation.expected_sections
     timelineSections = evaluation.timeline_sections
