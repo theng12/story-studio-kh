@@ -184,9 +184,10 @@ test('no preset payload on the page carries an overlay window', () => {
   const page = readFileSync(pagePath, 'utf8')
   // Both the reusable slot preset AND the bundle fallback — the bundle is a
   // preset too, and carrying a window there would reintroduce the defect by
-  // the other door.
+  // the other door. Since 1.4.286 both are the one `snapshotEffectsData()`.
   const snapshots = page.match(/overlays: \{ enabled: overlays\.enabled, layers: [^}]+\}/g) || []
-  assert.equal(snapshots.length, 2, 'expected exactly two overlay preset payloads')
+  assert.equal(snapshots.length, 1, 'expected exactly one overlay preset payload, shared by the Effects preset and the bundle copy')
+  assert.match(page, /configKey: 'effects',\s*snapshot: \(\) => snapshotEffectsData\(\)/)
   for (const snap of snapshots) {
     assert.ok(
       snap.includes('overlayLayersForPreset(overlays.layers)'),

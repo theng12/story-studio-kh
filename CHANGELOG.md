@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.286 — 2026-10-11
+
+- Pipeline batch videos now show the Presentation Frame (owner: "if it's on. it show be showing"). The Video Assembly preset never saved the frame into its copy of the effects, so every batch rendered without it even when the channel's Effects preset had it on. It is saved now, and presets saved before this release still get it: when the Effects preset a Video Assembly preset names has the frame on, the batch draws it. Refinanced (5.5% inset, 69 px white border, rounded corners, its paper background) and TerraNash Sleep Stories (4% inset, 18 px white border) will have the frame in their next batch videos. The Pipeline check and the job's effect list name it, with where it came from.
+- "Hide captions during the intro" now reaches batch videos. The Video Assembly and Subtitles presets never kept the checkbox, so a batch always burned captions over the branded opening. It is saved now; a preset saved before this release follows the page's own default (captions sit out the opening when the episode has one). Abiding Faith, Boundful and Capi batch videos no longer show captions during their first 6.5, 10 and 8 seconds.
+- A batch title card shows the episode's own title, not the title of whichever episode was open when the preset was saved. Scene Plan now reserves time for a title card too (it looked for it in the wrong place).
+- The outro video and the timeline clips saved with a Video Assembly preset are its live choices again, and a batch reads the outro where the page saves it.
+- Anything switched on that a batch video will not show is said before the batch starts, under "Switched on, but these videos will not show it" in the Run batch window (and as `video_effects.not_drawn` in `/pipeline/preflight` and `/pipeline/run-batch`): Title Image (its picture is picked per episode, so a batch cannot show one), a logo, intro, outro, timeline clip, green-screen or overlay file that is on with no file chosen, and captions that are on for an episode with no subtitles yet. The window also lists what the videos bake in.
+
 ## v1.4.285 — 2026-10-11
 
 - Every channel now shows its idea supply at the top of the Ideas page: how many ideas are waiting and about how many days they last at the last 30 days' pace, how many Topic Pack subjects are still unused (per pack, for example "Drinks 3, Food 11, Objects 45"), and which selected packs the Series Formula ignores and why. A channel with no packs says so instead of showing 0. It turns amber when ideas are running low (fewer than 30 unused subjects, or less than 14 days of waiting ideas) and red when they have run out. `GET /api/projects/<channel>/ideas/supply` gives the same for one channel, `GET /api/ideas/supply` for all.

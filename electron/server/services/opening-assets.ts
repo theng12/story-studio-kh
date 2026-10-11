@@ -46,7 +46,7 @@ function pickPreset(list: unknown, activeId: unknown): any | null {
  * resolves it: the slot's own active preset, else the active bundle's fallback
  * snapshot for that slot.
  */
-function resolveSlot(config: any, slot: 'intro' | 'timeline'): any | null {
+function resolveSlot(config: any, slot: 'intro' | 'timeline' | 'effects'): any | null {
   const direct = pickPreset(config?.[`${slot}_presets`], config?.[`${slot}_last_preset`])
   if (direct) return direct
   const bundle = pickPreset(config?.video_bundle_presets, config?.video_bundle_last_preset)
@@ -132,8 +132,10 @@ export async function resolveProjectOpening(slug: string): Promise<ResolvedOpeni
       }
     }
   }
-  const titleCard = timeline?.title_card
-  if (titleCard?.enabled && typeof titleCard.text === 'string' && titleCard.text.trim()) {
+  // 1.4.286 — the text card is saved in the Effects slot (it never was in Timeline, so it was
+  // never reserved). Its text is the episode's title at render time, so being on is enough.
+  const titleCard = resolveSlot(config, 'effects')?.title_card ?? timeline?.title_card
+  if (titleCard?.enabled) {
     head.title = {
       duration_sec: Number(titleCard.duration) > 0 ? Number(titleCard.duration) : DEFAULT_TITLE_HOLD_SEC,
       label: 'title card',

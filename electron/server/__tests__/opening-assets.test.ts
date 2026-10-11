@@ -167,6 +167,18 @@ describe('the opening Scene Plan reserves', () => {
     assert.equal(await measureOpeningSec((await resolveProjectOpening(slug)).head, probe), 10)
   })
 
+  test('a text title card is reserved from the Effects slot, where the page saves it (1.4.286)', async () => {
+    const slug = await projectWith({
+      video_bundle_presets: [{
+        id: 'b1',
+        name: 'VA',
+        data: { fallback: { intro: { enabled: true, video_path: asset('intro.mp4') }, effects: { title_card: { enabled: true, text: '', duration: 6 } } } },
+      }],
+      video_bundle_last_preset: 'b1',
+    })
+    assert.equal(await measureOpeningSec((await resolveProjectOpening(slug)).head, probe), 16)
+  })
+
   test('a missing file is reported, never quietly reserved', async () => {
     const slug = await projectWith({
       intro_presets: [{ id: 'i1', name: 'Intro', data: { enabled: true, video_path: asset('deleted-last-week.mp4') } }],

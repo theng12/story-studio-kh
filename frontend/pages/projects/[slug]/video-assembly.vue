@@ -4689,49 +4689,8 @@ const introPresets = usePresets({
   // save_as_default }. New presets nest `outro` alongside those keys. The apply
   // branch tolerates both — missing `outro` just means the saved preset predates
   // the feature, so we clear outro state rather than leaving stale values.
-  snapshot: () => ({
-    ...intro,
-    outro: { ...outro },
-    // Deep-clone the timeline list so the preset can't accidentally share
-    // references with live reactive state (two-way tethering would cause
-    // the preset's stored data to drift every time the user edits a row
-    // before hitting Save). New key in this preset schema — older presets
-    // won't have it and the apply branch falls back to an empty list.
-    timeline_clips: timelineClips.value.map(c => ({ ...c })),
-  }),
-  apply: (data: any) => {
-    if (!data) return
-    Object.assign(intro, data)
-    if (data.outro) Object.assign(outro, data.outro)
-    else { outro.enabled = false; outro.video_path = '' }
-    // Legacy presets predate this field → reset to empty. We always replace
-    // rather than merge because these are user-owned list items, not
-    // fields that benefit from partial overlay. Migrate-on-read: presets
-    // saved before the static variant existed don't carry `kind` — set
-    // it to 'video' so the union type is well-formed in memory.
-    timelineClips.value = Array.isArray(data.timeline_clips)
-      ? data.timeline_clips.map((c: any): TimelineClip => {
-          const kind: TimelineClipKind = c.kind === 'static' ? 'static' : 'video'
-          if (kind === 'static') {
-            return {
-              id: c.id,
-              kind: 'static',
-              anchor: c.anchor,
-              enabled: c.enabled !== false,
-              image_path: c.image_path || '',
-              duration_sec: typeof c.duration_sec === 'number' && c.duration_sec > 0 ? c.duration_sec : 7200,
-            }
-          }
-          return {
-            id: c.id,
-            kind: 'video',
-            anchor: c.anchor,
-            enabled: c.enabled !== false,
-            video_path: c.video_path || '',
-          }
-        })
-      : []
-  },
+  snapshot: () => snapshotIntroData(),
+  apply: (data: any) => applyIntroData(data),
 })
 
 const timelinePresets = usePresets({
@@ -4768,78 +4727,14 @@ const timelinePresets = usePresets({
   excludeKeys: ['episode_id', 'episodeId', 'episode', 'title', 'image_path'],
 })
 
+// 1.4.286 — one snapshot and one apply for the Effects slot, shared with the
+// Video Assembly preset's copy. They were two hand-kept lists, and the bundle's
+// list was missing `frame`, so every Pipeline batch dropped the Presentation Frame.
 const effectsPresets = usePresets({
   slug: slug.value,
   configKey: 'effects',
-  snapshot: () => ({
-    logo: { ...logo },
-    color_grading: { ...colorGrading },
-    vignette: { ...vignette },
-    film_grain: { ...filmGrain },
-    aged_archive_film: { ...agedArchiveFilm },
-    letterbox: { ...letterbox },
-    scene_effects: { enabled: sceneEffects.enabled, overlays: sceneEffects.overlays.map(o => ({ ...o, params: { ...(o.params || {}) } })) },
-    frame: { ...frame },
-    chroma_key: { ...chromaKey },
-    // v1.4.1 — the LOOK travels, the window does not. Because `time_range`
-    // is not in the payload, shuffling overlay effects across presets cannot
-    // reach the timing: the guarantee is structural, not a rule to remember.
-    overlays: { enabled: overlays.enabled, layers: overlayLayersForPreset(overlays.layers) },
-    exclude_intro_from_effects: excludeIntroFromEffects.value,
-    compilation_layout: {
-      layout: compilationLayout.layout,
-      background_plate: { ...compilationLayout.backgroundPlate },
-      foreground_defaults: {
-        ...compilationLayout.foregroundDefaults,
-        chroma_key: compilationLayout.foregroundDefaults.chroma_key
-          ? { ...compilationLayout.foregroundDefaults.chroma_key }
-          : null,
-      },
-    },
-    title_card: { ...titleCard },
-    chapter_titles: { ...chapterTitles },
-    outro_card: { ...outroCard },
-  }),
-  apply: (raw: any) => {
-    if (!raw) return
-    const data = migrateEffectsData(raw)
-    if (data.logo) Object.assign(logo, { shape: 'none', corner_radius_pct: 20 }, data.logo) // a preset saved before 1.4.264 has no shape
-    if (data.color_grading) Object.assign(colorGrading, data.color_grading)
-    if (data.vignette) Object.assign(vignette, data.vignette)
-    if (data.film_grain) Object.assign(filmGrain, data.film_grain)
-    if (data.aged_archive_film) Object.assign(agedArchiveFilm, data.aged_archive_film)
-    if (data.letterbox) Object.assign(letterbox, data.letterbox)
-    if (data.scene_effects && Array.isArray(data.scene_effects.overlays)) {
-      sceneEffects.enabled = !!data.scene_effects.enabled
-      sceneEffects.overlays.splice(0, sceneEffects.overlays.length,
-        ...data.scene_effects.overlays.map((o: any) => ({ ...o, params: { ...(o.params || {}) } })))
-    }
-    if (data.frame) Object.assign(frame, data.frame)
-    if (data.chroma_key) Object.assign(chromaKey, data.chroma_key)
-    if (data.overlays && Array.isArray(data.overlays.layers)) {
-      overlays.enabled = !!data.overlays.enabled
-      applyOverlayLayersFromPreset(data.overlays.layers)
-    }
-    if (typeof data.exclude_intro_from_effects === 'boolean') {
-      excludeIntroFromEffects.value = data.exclude_intro_from_effects
-    }
-    if (data.compilation_layout) {
-      const cl = data.compilation_layout
-      if (cl.layout === 'standard' || cl.layout === 'compilation') {
-        compilationLayout.layout = cl.layout
-      }
-      if (cl.background_plate) Object.assign(compilationLayout.backgroundPlate, cl.background_plate)
-      if (cl.foreground_defaults) {
-        Object.assign(compilationLayout.foregroundDefaults, cl.foreground_defaults)
-        compilationLayout.foregroundDefaults.chroma_key = cl.foreground_defaults.chroma_key
-          ? { ...cl.foreground_defaults.chroma_key }
-          : null
-      }
-    }
-    if (data.title_card) Object.assign(titleCard, data.title_card)
-    if (data.chapter_titles) Object.assign(chapterTitles, data.chapter_titles)
-    if (data.outro_card) Object.assign(outroCard, data.outro_card)
-  },
+  snapshot: () => snapshotEffectsData(),
+  apply: (raw: any) => applyEffectsData(raw),
 })
 
 /**
@@ -4851,26 +4746,12 @@ function cloneSubtitleStyle(style: SubtitleStyleDocument): SubtitleStyleDocument
   return JSON.parse(JSON.stringify(style))
 }
 
+// 1.4.286 — the same snapshot and apply as the Video Assembly preset's copy.
 const subtitlesPresets = usePresets({
   slug: slug.value,
   configKey: 'subtitles',
-  snapshot: () => ({
-    enabled: subtitles.enabled,
-    source: subtitles.source,
-    // v1.4.0 — there is no `srt_path` to exclude any more. The page holds no
-    // transcript path at all; the renderer resolves one per episode. The
-    // exclusion note is kept as history because this key was the fifth instance
-    // of "episode-specific state surviving an episode change" (AGENTS.md).
-    style: cloneSubtitleStyle(subtitles.style),
-  }),
-  apply: (data: any) => {
-    if (!data) return
-    if (typeof data.enabled === 'boolean') subtitles.enabled = data.enabled
-    if (data.source) subtitles.source = data.source
-    // Replace, never shallow-merge: the style is a nested document and a
-    // legacy flat preset would otherwise leave a half-upgraded hybrid behind.
-    if (data.style) subtitles.style = normalizeSubtitleStyle(data.style)
-  },
+  snapshot: () => snapshotSubtitlesData(),
+  apply: (data: any) => applySubtitlesData(data),
 })
 
 const exportPresets = usePresets({
@@ -4902,8 +4783,54 @@ const exportPresets = usePresets({
 // fallback. Keeping them as named functions means the bundle snapshot
 // stays cheap to read and there's a single source of truth for each
 // slot's serialisation shape.
-function snapshotIntroData() { return { ...intro } }
-function applyIntroData(data: any) { if (data) Object.assign(intro, data) }
+// 1.4.286 — the Video Assembly preset's intro copy is the Intro preset's shape:
+// the outro and the timeline clips travel with it, live (they used to ride along
+// only as whatever an applied Intro preset had left inside `intro`).
+function snapshotIntroData() {
+  return {
+    ...intro,
+    outro: { ...outro },
+    // Deep-clone the timeline list so the preset can't accidentally share
+    // references with live reactive state (two-way tethering would cause
+    // the preset's stored data to drift every time the user edits a row
+    // before hitting Save). New key in this preset schema — older presets
+    // won't have it and the apply branch falls back to an empty list.
+    timeline_clips: timelineClips.value.map(c => ({ ...c })),
+  }
+}
+function applyIntroData(data: any) {
+  if (!data) return
+  Object.assign(intro, data)
+  if (data.outro) Object.assign(outro, data.outro)
+  else { outro.enabled = false; outro.video_path = '' }
+  // Legacy presets predate this field → reset to empty. We always replace
+  // rather than merge because these are user-owned list items, not
+  // fields that benefit from partial overlay. Migrate-on-read: presets
+  // saved before the static variant existed don't carry `kind` — set
+  // it to 'video' so the union type is well-formed in memory.
+  timelineClips.value = Array.isArray(data.timeline_clips)
+    ? data.timeline_clips.map((c: any): TimelineClip => {
+        const kind: TimelineClipKind = c.kind === 'static' ? 'static' : 'video'
+        if (kind === 'static') {
+          return {
+            id: c.id,
+            kind: 'static',
+            anchor: c.anchor,
+            enabled: c.enabled !== false,
+            image_path: c.image_path || '',
+            duration_sec: typeof c.duration_sec === 'number' && c.duration_sec > 0 ? c.duration_sec : 7200,
+          }
+        }
+        return {
+          id: c.id,
+          kind: 'video',
+          anchor: c.anchor,
+          enabled: c.enabled !== false,
+          video_path: c.video_path || '',
+        }
+      })
+    : []
+}
 
 function snapshotTimelineData() {
   return {
@@ -4942,6 +4869,7 @@ function snapshotEffectsData() {
     aged_archive_film: { ...agedArchiveFilm },
     letterbox: { ...letterbox },
     scene_effects: { enabled: sceneEffects.enabled, overlays: sceneEffects.overlays.map(o => ({ ...o, params: { ...(o.params || {}) } })) },
+    frame: { ...frame },
     chroma_key: { ...chromaKey },
     // v1.4.1 — no `time_range`. The bundle is reusable across episodes exactly
     // as the slot preset is, so carrying a window here would reintroduce the
@@ -4993,6 +4921,7 @@ function applyEffectsData(raw: any) {
     sceneEffects.overlays.splice(0, sceneEffects.overlays.length,
       ...data.scene_effects.overlays.map((o: any) => ({ ...o, params: { ...(o.params || {}) } })))
   }
+  if (data.frame) Object.assign(frame, data.frame)
   if (data.chroma_key) Object.assign(chromaKey, data.chroma_key)
   if (data.overlays && Array.isArray(data.overlays.layers)) {
     overlays.enabled = !!data.overlays.enabled
@@ -5024,6 +4953,8 @@ function snapshotSubtitlesData() {
   return {
     enabled: subtitles.enabled,
     source: subtitles.source,
+    // 1.4.286 — kept now; without it every batch burned captions over the opening.
+    hide_during_intro: subtitles.hide_during_intro,
     // v1.0.352 required `srt_path` here because the assembler only burned
     // subtitles when a path was present. v1.4.0 removes that requirement at
     // source: `resolveEpisodeSubtitleFile` fills the path per episode, so
@@ -5036,6 +4967,7 @@ function applySubtitlesData(data: any) {
   if (!data) return
   if (typeof data.enabled === 'boolean') subtitles.enabled = data.enabled
   if (data.source) subtitles.source = data.source
+  if (typeof data.hide_during_intro === 'boolean') subtitles.hide_during_intro = data.hide_during_intro
   if (data.style) subtitles.style = normalizeSubtitleStyle(data.style)
 }
 
@@ -5755,7 +5687,7 @@ const letterboxFitStyle = computed<CSSProperties>(() => {
   if (!lb || lb.mode !== 'fit' || !(bar > 0)) return {}
   return { transform: `scale(${((100 - bar * 2) / 100).toFixed(4)})`, transformOrigin: 'center' }
 })
-const effectiveLook = computed(() => describeEffectStack({ ...snapshotEffectsData(), frame: { ...frame } }))
+const effectiveLook = computed(() => describeEffectStack(snapshotEffectsData()))
 const effectsDuplicateHints = computed(() => duplicatePresetHints(effectsPresets.presets.value as any))
 
 const vignetteOverlayStyle = computed(() => {

@@ -751,6 +751,19 @@
       <p v-if="preflightBlocked.length" class="text-muted text-sm mt-2">
         <strong>{{ preflightBlocked.length }}</strong> selected episode(s) need attention and will not start. They remain selected after this run.
       </p>
+      <p v-if="preflightVideoEffects && !preflighting" class="text-muted text-sm mt-2" data-testid="batch-video-effects">
+        Videos bake in: {{ preflightVideoEffects.effects.length ? preflightVideoEffects.effects.join(' · ') : 'no effects' }}
+      </p>
+      <WorkspaceNotice
+        v-if="preflightVideoEffects?.not_drawn?.length && !preflighting"
+        tone="warning"
+        title="Switched on, but these videos will not show it"
+        data-testid="batch-not-drawn"
+      >
+        <ul class="text-sm">
+          <li v-for="line in preflightVideoEffects.not_drawn" :key="line">{{ line }}</li>
+        </ul>
+      </WorkspaceNotice>
       <div class="chain-preview">
         <span v-for="(step, i) in checkedStepsOrdered" :key="step.id" class="chain-step">
           <span class="chain-icon" aria-hidden="true">{{ step.icon }}</span>
@@ -2381,6 +2394,8 @@ interface BlockedEpisode {
   issues?: Array<{ message?: string }>
 }
 const preflightBlocked = ref<BlockedEpisode[]>([])
+/** 1.4.286 — what a Video Assembly in this batch draws, and what is on but will not be drawn. */
+const preflightVideoEffects = ref<{ effects: string[]; not_drawn?: string[] } | null>(null)
 const preflightEligibleCount = ref(0)
 const preflightEligibleEpisodeIds = ref<string[] | null>(null)
 const batchBlocked = ref<BlockedEpisode[]>([])
@@ -2535,6 +2550,7 @@ async function openConfirm(repair: boolean) {
   preflighting.value = true
   preflightSummary.value = ''
   preflightBlocked.value = []
+  preflightVideoEffects.value = null
   preflightEligibleCount.value = 0
   preflightEligibleEpisodeIds.value = null
   batchBlocked.value = []
@@ -2554,6 +2570,7 @@ async function openConfirm(repair: boolean) {
     const estimated = Number(result?.estimated_bytes || 0)
     const storage = estimated > 0 ? ` Estimated workspace: ${formatFileSize(estimated)}.` : ''
     preflightBlocked.value = blockedEpisodes(result?.blocked)
+    preflightVideoEffects.value = result?.video_effects ?? null
     preflightEligibleCount.value = Array.isArray(result?.eligible_episode_ids)
       ? result.eligible_episode_ids.length
       : Number(result?.episodes || selectedEpisodes.size)

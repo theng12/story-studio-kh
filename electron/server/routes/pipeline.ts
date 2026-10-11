@@ -83,6 +83,7 @@ import { readEpisodeMotionScope, resolveEpisodeMotionSceneIds } from '../service
 import { motionSceneIdsForNewRequest } from '../services/scene-motion-prompt-scope.js'
 import { mapWithConcurrency as mapEpisodes } from '../lib/map-with-concurrency.js'
 import { describeEffectStack, duplicatePresetHints, normalizeEffectsLook } from '../contracts/effects-look.js'
+import { NARRATION_ONLY_RENDER_KEYS } from '../services/music-episode.js'
 import {
   readLocalMediaCleanupStatus,
   type LocalMediaCleanupStatus,
@@ -723,7 +724,7 @@ async function preflightBatch(
       )
       continue
     }
-    presetByStep[step] = result.preset
+    presetByStep[step] = step === 'video_assembly' ? withNamedEffectsFrame(config, result.preset) : result.preset
     if (step === 'motion_review') {
       const data = result.preset.data ?? result.preset
       const hasOperation = typeof data?.operation === 'string' && Boolean(data.operation.trim())
@@ -754,6 +755,9 @@ async function preflightBatch(
       issues.push({ code: 'missing_voice', step: 'audio', message: 'Audio preset has no voice selected.' })
     }
   }
+  // Captions switched on in the Video Assembly preset, for the per-episode check below.
+  const vaPreset = presetByStep.video_assembly
+  const captionsOn = !musicChannel && !!vaPreset && !!flattenVideoAssemblyBundle(vaPreset.data ?? vaPreset, '', '').subtitles
   const statusRows = await mapWithConcurrency(episodeIds, async episodeId => {
     const visualSettings = visualSettingsByEpisode.get(episodeId)
     if (!ideaByCode.has(episodeId) || !visualSettings) return null
@@ -795,11 +799,16 @@ async function preflightBatch(
       }
       available.add(step)
     }
-    return { episodeId, status, issues: episodeIssues }
+    const captionGap = captionsOn && episodeSteps.includes('video_assembly') && !available.has('subtitles')
+      ? `${episodeId}: captions are switched on, but this episode has no subtitles yet and Subtitles is not in this run, so its video will have no captions. Tick Subtitles, or switch captions off in the Video Assembly preset.`
+      : null
+    return { episodeId, status, issues: episodeIssues, captionGap }
   })
+  const captionGaps: string[] = []
   for (const row of statusRows) {
     if (!row) continue
     issues.push(...row.issues)
+    if (row.captionGap) captionGaps.push(row.captionGap)
   }
 
   // Blocked episodes never reach the queue, so reserve disk only for the
@@ -834,7 +843,7 @@ async function preflightBatch(
     ok: issues.length === 0, issues, warnings, presetByStep, ideaByCode,
     effectiveFormat, estimatedBytes, freeBytes, scriptSideChatModel, introductionChatModel,
     visualSettingsByEpisode, projectFacts, startingPacing, musicChannel,
-    videoEffects: requiredSteps.has('video_assembly') ? videoEffectsAnswer(config, presetByStep.video_assembly) : null,
+    videoEffects: requiredSteps.has('video_assembly') ? withCaptionGaps(videoEffectsAnswer(config, presetByStep.video_assembly, musicChannel), captionGaps) : null,
   }
 }
 
@@ -1535,7 +1544,9 @@ export function flattenVideoAssemblyBundle(
   }
 
   const intro = fb.intro || {}
-  const outro = fb.outro || {}
+  // The page has always saved the outro inside the intro slot (`fallback.intro.outro`), as the
+  // Intro preset does; only seeded bundles carry a top-level `fallback.outro`. Read both.
+  const outro = fb.outro || intro.outro || {}
   const timeline = fb.timeline || {}
   // 1.4.282 — misplaced effect entries are put where they render before the
   // filters below, which only pass entries in their right place.
@@ -1644,7 +1655,9 @@ export function flattenVideoAssemblyBundle(
   if (typeof effects.exclude_intro_from_effects === 'boolean') {
     out.exclude_intro_from_effects = effects.exclude_intro_from_effects
   }
-  if (effects.title_card?.enabled) out.title_card = effects.title_card
+  // The page writes the episode's own title into the card whenever an episode is opened, so the
+  // saved text is whichever episode was open when the preset was saved. A batch uses this episode's.
+  if (effects.title_card?.enabled) out.title_card = { ...effects.title_card, text: title || effects.title_card.text }
   if (effects.outro_card?.enabled) out.outro_card = effects.outro_card
 
   // ── Compilation layout (v1.0.63). Saved to the effects slot under
@@ -1681,7 +1694,10 @@ export function flattenVideoAssemblyBundle(
       // Missing until 1.4.19: a batch render burned captions over the branded
       // opening even when the channel had asked them to sit it out, while the
       // same episode rendered from the page did not.
-      hide_during_intro: !!subtitles.hide_during_intro,
+      // Presets saved before 1.4.286 never kept the checkbox, and `!!undefined` burned captions over
+      // every opening. Absent now means "decide as the page does": hidden when the episode opens with
+      // a branded opening (the generator reads the Scene Plan reserve).
+      ...(typeof subtitles.hide_during_intro === 'boolean' ? { hide_during_intro: subtitles.hide_during_intro } : {}),
       style: subtitles.style,
     }
   }
@@ -1696,6 +1712,85 @@ export interface VideoEffectsAnswer {
   effects: string[]
   /** What was moved or skipped, pointer mismatches, and duplicate presets. */
   notes: string[]
+  /**
+   * 1.4.286 — every setting switched on that a batch video will NOT show, and why. The owner's
+   * rule (2026-10-11): "if it's on. it show be showing. if enabled and not showing. it's either
+   * failed or a bug". Empty when everything switched on is drawn.
+   */
+  not_drawn: string[]
+}
+
+/**
+ * 1.4.286 — the Presentation Frame for a batch. Until this release the page never saved `frame`
+ * into the Video Assembly preset's Effects copy, so every batch dropped it even when the channel's
+ * Effects preset had it on (refinanced, terranash-sleep-stories). The copy's own frame wins when it
+ * is on; otherwise the frame of the Effects preset the bundle names is used when THAT is on. A
+ * clone is returned; the stored preset is never changed.
+ */
+export function withNamedEffectsFrame(config: any, bundle: StoredPreset): StoredPreset {
+  const data = bundle?.data ?? bundle
+  if (!data?.fallback || data.fallback.effects?.frame?.enabled) return bundle
+  const presets: StoredPreset[] = Array.isArray(config?.effects_presets) ? config.effects_presets : []
+  const named = typeof data.effects_preset_id === 'string' && data.effects_preset_id
+    ? presets.find(p => p.id === data.effects_preset_id)
+    : undefined
+  const frame = (named?.data ?? named)?.frame
+  if (!frame?.enabled) return bundle
+  const merged = {
+    ...data,
+    frame_from_effects_preset: named!.name || named!.id,
+    fallback: { ...data.fallback, effects: { ...(data.fallback.effects || {}), frame: { ...frame } } },
+  }
+  return bundle.data ? { ...bundle, data: merged } : { ...bundle, ...merged }
+}
+
+const fileLabel = (p: unknown) => String(p || '').split('/').pop() || String(p || '')
+
+/**
+ * 1.4.286 — what the bundle switches on that a batch render cannot show, each with the reason.
+ * Pure: reads the saved slots only, so preflight and run-batch say the same thing.
+ */
+export function settingsNotDrawn(bundleData: any): string[] {
+  const fb = bundleData?.fallback
+  if (!fb) return []
+  const out: string[] = []
+  const intro = fb.intro || {}
+  const outro = fb.outro || intro.outro || {}
+  const effects = normalizeEffectsLook(fb.effects || {}).look as any
+  const titleImage = fb.timeline?.title_image
+  if (titleImage?.enabled && !titleImage.image_path) {
+    out.push('Title Image is switched on, but its picture is chosen per episode on the Video Assembly page and a preset never keeps it, so batch videos open without a title image. Render on the Video Assembly page to include one, or switch Title Image off and save the Video Assembly preset to clear this.')
+  }
+  if (intro.enabled && !intro.video_path) out.push('The intro video is switched on but no file is chosen, so batch videos have no intro. Choose the file, or switch the intro off, then save the Video Assembly preset.')
+  if (outro.enabled && !outro.video_path) out.push('The outro video is switched on but no file is chosen, so batch videos have no outro. Choose the file, or switch the outro off, then save the Video Assembly preset.')
+  for (const clip of Array.isArray(intro.timeline_clips) ? intro.timeline_clips : []) {
+    if (!clip || clip.enabled === false) continue
+    const where = String(clip.anchor || 'timeline').replace(/_/g, ' ')
+    if (clip.kind === 'static' ? !clip.image_path : !clip.video_path) {
+      out.push(`A timeline clip (${where}) is switched on but has no ${clip.kind === 'static' ? 'picture' : 'video'} chosen, so batch videos skip it. Choose the file, or switch the clip off, then save the Video Assembly preset.`)
+    } else if (clip.kind === 'static' && !(Number(clip.duration_sec) > 0)) {
+      out.push(`The still timeline clip (${where}) ${fileLabel(clip.image_path)} has no length, so batch videos skip it. Give it a length, then save the Video Assembly preset.`)
+    }
+  }
+  if (effects.logo?.enabled && !effects.logo.image_path) out.push('The logo is switched on but no logo picture is chosen, so batch videos have no logo. Choose it, or switch the logo off, then save the Video Assembly preset.')
+  if (effects.chroma_key?.enabled && !effects.chroma_key.source_path) out.push('The green-screen overlay is switched on but no file is chosen, so batch videos do not show it.')
+  if (effects.overlays?.enabled && Array.isArray(effects.overlays.layers)) {
+    const empty = effects.overlays.layers.filter((l: any) => l?.enabled && !l.source_path).length
+    if (empty) out.push(`${empty} overlay file layer(s) are switched on but have no file chosen, so batch videos do not show them.`)
+  }
+  return out
+}
+
+/** A music episode drops the narration-only settings by design (services/music-episode.ts); say which are on. */
+function musicNotDrawn(bundleData: any): string[] {
+  const flat = flattenVideoAssemblyBundle(bundleData, '', '') as Record<string, any>
+  const on = NARRATION_ONLY_RENDER_KEYS.filter(key => flat[key] !== undefined && flat[key]?.enabled !== false)
+  return on.length ? [`Music episodes have no narration, so these Video Assembly settings are left out of their videos by design: ${on.join(', ').replace(/_/g, ' ')}.`] : []
+}
+
+/** Per-episode lines (captions with no subtitles) join the preset-level ones. */
+function withCaptionGaps(answer: VideoEffectsAnswer | null, gaps: string[]): VideoEffectsAnswer | null {
+  return answer && gaps.length ? { ...answer, not_drawn: [...answer.not_drawn, ...gaps] } : answer
 }
 
 /**
@@ -1705,7 +1800,7 @@ export interface VideoEffectsAnswer {
  * live, this says so and flags where the two have drifted apart, without
  * changing which one renders (that would change existing channels' videos).
  */
-export function videoEffectsAnswer(config: any, bundle: StoredPreset | undefined): VideoEffectsAnswer | null {
+export function videoEffectsAnswer(config: any, bundle: StoredPreset | undefined, musicChannel = false): VideoEffectsAnswer | null {
   if (!bundle) return null
   const data = bundle.data ?? bundle
   const saved = data?.fallback?.effects || {}
@@ -1732,10 +1827,14 @@ export function videoEffectsAnswer(config: any, bundle: StoredPreset | undefined
     notes.push('No Effects preset is selected on the Video Assembly page (effects_last_preset is empty). That never switches effects off: a batch renders the list above, and the page renders its form.')
   }
   for (const hint of duplicatePresetHints(effectsPresets)) notes.push(`Effects presets: ${hint}`)
+  if (data?.frame_from_effects_preset) {
+    notes.push(`Presentation frame: taken from the Effects preset "${data.frame_from_effects_preset}". The copy saved inside the Video Assembly preset predates frames being saved there; saving the Video Assembly preset again stores it.`)
+  }
   return {
     source: `The Video Assembly preset "${bundle.name || bundle.id}": the Effects copy saved inside it. Batch renders read this, not the Effects preset list.`,
     effects,
     notes,
+    not_drawn: musicChannel ? musicNotDrawn(data) : settingsNotDrawn(data),
   }
 }
 

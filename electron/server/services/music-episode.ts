@@ -591,7 +591,7 @@ export function buildScenePrompt(input: {
  * Assembly preset carries (logo, grade, effects stay). No intro/outro clips, title cards, chapter
  * titles or subtitles — a music episode has no narration to caption.
  */
-const NARRATION_ONLY_RENDER_KEYS = ['intro', 'outro', 'timeline_clips', 'title_image', 'title_card', 'outro_card', 'chapter_titles', 'subtitles']
+export const NARRATION_ONLY_RENDER_KEYS = ['intro', 'outro', 'timeline_clips', 'title_image', 'title_card', 'outro_card', 'chapter_titles', 'subtitles']
 
 export function musicEpisodeRenderParams(params: Record<string, unknown>, settings: EpisodeSettings): Record<string, unknown> {
   const rest = { ...params }
