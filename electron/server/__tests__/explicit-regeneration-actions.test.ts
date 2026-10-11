@@ -153,7 +153,8 @@ void test('image and music routes retain one paid provider request per operation
 
     await fs.mkdir(paths.scene_prompts_dir, { recursive: true })
     await fs.writeFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({
-      scenes: [{ id: 'scene-001', scene_index: 1, visual_prompt: 'A lantern in a quiet archive.' }],
+      // 1.4.288 — a plan is done only when its scenes reach the end of the 3 s narration below.
+      scenes: [{ id: 'scene-001', scene_index: 1, start_sec: 0, end_sec: 3, visual_prompt: 'A lantern in a quiet archive.' }],
     }))
     await Promise.all([paths.audio_dir, paths.subtitles_dir, paths.merged_audio_dir, paths.script_dir].map(dir => fs.mkdir(dir, { recursive: true })))
     await fs.writeFile(paths.narration_docx, [

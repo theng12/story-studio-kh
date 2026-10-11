@@ -101,7 +101,7 @@ async function writeValidSubtitleTimeline(paths: Awaited<ReturnType<typeof resol
 async function assertRejectedWithoutJob(
   slug: string,
   episodeId: string,
-  step: 'scene_plan' | 'scene_review',
+  step: 'scene_plan' | 'scene_review' | 'video_assembly',
   prerequisite: 'subtitles' | 'scene_plan',
 ) {
   const beforeJobs = await jq.getJobs(slug)
@@ -240,4 +240,16 @@ void test('targeted Scene Review accepts an authoritative complete Scene Plan', 
   const jobs = await jq.getJobs(fixture.slug)
   assert.equal(jobs.length, 1)
   assert.equal(jobs[0]?.type, 'continuity_render')
+})
+
+// 1.4.288 — a final video alone was started on plans that stopped short (AF EP0136) and on
+// plans with zero-length scenes (BW EP0040/41); it waited an hour in the assembly line to say so.
+void test('targeted Video Assembly rejects a Scene Plan that is not done before job creation', async () => {
+  const fixture = await seedEpisode()
+  await pm.updateConfig(fixture.slug, {
+    video_bundle_presets: [{ id: 'va', name: 'Video Assembly', type: 'video_assembly', data: {} }],
+    video_bundle_last_preset: 'va',
+  } as unknown as Parameters<typeof pm.updateConfig>[1])
+  await writeValidSubtitleTimeline(fixture.paths, fixture.episodeId)
+  await assertRejectedWithoutJob(fixture.slug, fixture.episodeId, 'video_assembly', 'scene_plan')
 })

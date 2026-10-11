@@ -28,6 +28,7 @@ import assert from 'node:assert/strict'
 
 import {
   compareTimeline,
+  planNarrationShortfallSec,
   stampFromCues,
   timelineIdentity,
 } from '../lib/scene-plan-timeline.js'
@@ -121,5 +122,20 @@ describe('comparing a plan against the transcript on disk', () => {
   test('an empty transcript is handled without throwing', () => {
     assert.doesNotThrow(() => compareTimeline(stampFromCues(BASE), stampFromCues([])))
     assert.equal(stampFromCues([]).total_cues, 0)
+  })
+})
+
+describe('1.4.288 — a plan must reach the end of the current narration', () => {
+  const scenes = [{ end_sec: 10 }, { end_sec: 521.5 }]
+  test('a plan built from older, shorter narration is short by the difference (AF EP0136)', () => {
+    assert.equal(Math.round(planNarrationShortfallSec(scenes, { duration_sec: 1505.6, lead_in_sec: 0 }) * 10) / 10, 984.1)
+  })
+  test('a plan that reaches the end, or one the renderer shifts by the music lead-in, is not short', () => {
+    assert.equal(planNarrationShortfallSec(scenes, { duration_sec: 522, lead_in_sec: 0 }), 0.5)
+    assert.equal(planNarrationShortfallSec(scenes, { duration_sec: 529.5, lead_in_sec: 8 }), 0)
+  })
+  test('nothing to compare against means nothing to report', () => {
+    assert.equal(planNarrationShortfallSec(scenes, null), 0)
+    assert.equal(planNarrationShortfallSec([], { duration_sec: 100 }), 0)
   })
 })

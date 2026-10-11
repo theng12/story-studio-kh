@@ -1938,7 +1938,11 @@ export async function prepareUnifiedVideoAssemblyInputs(
     problems.push(`${coverage.stale.length} stale image(s): ${coverage.stale.slice(0, 8).map(row => `#${row.scene_index}`).join(', ')}`)
   }
   if (timing.uncovered_sec > COVERAGE_FAIL_SEC) {
-    problems.push(`${timing.uncovered_sec.toFixed(1)}s of narration has no planned scene`)
+    // 1.4.288 — a zero-length row voids the whole coverage audit; say that, not "all of it is unplanned" (BW EP0040).
+    const zeroLength = timing.scenes.filter(scene => !(scene.end_sec > scene.start_sec)).length
+    problems.push(zeroLength
+      ? `${zeroLength} scene(s) have no length (end time not after start time); rebuild the Scene Plan timeline`
+      : `${timing.uncovered_sec.toFixed(1)}s of narration has no planned scene`)
   }
   if (timing.overlap_count > 0 && (job || !repairableTimingOverlaps(timing))) {
     problems.push(`${timing.overlap_count} timing overlap(s) totalling ${timing.overlap_sec.toFixed(1)}s`

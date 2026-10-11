@@ -19,8 +19,18 @@ export function stripGenStudioModelPrefix(modality: GenStudioModality, modelId: 
  * handles are owner-defined and are not required to start with "genstudio-".
  * Known transport prefixes remain readable for saved pre-product selections.
  */
+/**
+ * 1.4.288 — retired image ids still saved in old presets and job chains, and the product that
+ * replaced each. BW EP0049's July chain asked for `flux-2-klein` and its recovery failed with
+ * "Unknown image model"; it now renders on the fleet FLUX.2 Klein.
+ */
+const RETIRED_IMAGE_IDS: Record<string, string> = {
+  'flux-2-klein': 'studio-hub::AITRADER/FLUX2-klein-4B-mlx-4bit',
+}
+
 export function resolveGenStudioModelId(modality: GenStudioModality, modelId: string): string | null {
-  const value = stripGenStudioModelPrefix(modality, modelId)
+  let value = stripGenStudioModelPrefix(modality, modelId)
+  if (modality === 'image') value = RETIRED_IMAGE_IDS[value.toLowerCase()] || value
   if (modality === 'video' && isRetiredVideoModelId(value)) return null
   return value && value.length <= 128 ? value : null
 }

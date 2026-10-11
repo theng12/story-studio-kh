@@ -896,7 +896,9 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
         ...publicStatus,
         visual_source: episodeVisualSource,
         prompts: scenePromptsDone,           // deprecated alias of scene_prompts
-        video_ready: (needsScenePlan ? sceneReviewDone : brollPickedDone)
+        // 1.4.288 — Scene Review alone is not enough: approved pictures on a plan that stops
+        // before the narration ends are not ready, or the short plan is found at Video Assembly.
+        video_ready: (needsScenePlan ? scenePlanDone && sceneReviewDone : brollPickedDone)
           && mergedAudioDone && !videoAssemblyDone,
         publishable: thumbsDone && mergedAudioDone && videoAssemblyDone,
         all_done: scriptDone && thumbPromptsDone && thumbsDone

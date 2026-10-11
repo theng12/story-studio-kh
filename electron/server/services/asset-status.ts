@@ -58,8 +58,8 @@ import { inspectSubtitleCompletion, inspectSubtitleSourceFreshness } from './sub
 import { inspectExistingTranscriptSource } from './subtitle-correction.js'
 import { inspectPromptCompletion, legacyPromptsPresent } from './prompt-completion.js'
 import { inspectMetadataCompletion, legacyMetadataPresent } from './metadata-completion.js'
-import { inspectScenePlanCoverage } from './scene-planner.js'
-import { planMergedAudioDrift } from '../lib/scene-plan-timeline.js'
+import { COVERAGE_FAIL_SEC, inspectScenePlanCoverage } from './scene-planner.js'
+import { planMergedAudioDrift, planNarrationShortfallSec, readNarrationRecord } from '../lib/scene-plan-timeline.js'
 import { inspectSceneReviewCompletion } from './scene-review-completion.js'
 import { normalizeContextualCueConfig, readContextualCueTimeline, validateContextualCueTimeline } from './contextual-cues.js'
 import { DEFAULT_SOUND_DESIGN_SETTINGS, normalizeSoundDesignConfig, readSoundDesignTimeline, validateSoundDesignTimeline } from './sound-design.js'
@@ -1348,6 +1348,12 @@ export async function computeEpisodeStatus(
           // run-batch re-runs the step, which refuses to continue it (DL0004).
           && !(plan?.source_merged_audio && (await planMergedAudioDrift(plan,
             path.join(byCode.merged_audio_dir, `${code.toUpperCase()}_merged_audio.completion.json`)))?.stale)
+          // 1.4.288 — nor is a plan that stops before today's narration ends (AF EP0136),
+          // so Pipeline re-runs Scene Plan instead of finding it at Video Assembly.
+          && (musicDir || planNarrationShortfallSec(scenes, await readNarrationRecord(
+            path.join(byCode.merged_audio_dir, `${code.toUpperCase()}_merged_audio.completion.json`),
+            path.join(byCode.subtitles_dir, `${code.toUpperCase()}_stitched.srt.json`),
+          )) <= COVERAGE_FAIL_SEC)
         // Both are OPTIONAL features. An episode that never proposed a cue has
         // nothing outstanding, so it is not pending — the same rule Video
         // Assembly now applies, kept identical here so the Production Board and

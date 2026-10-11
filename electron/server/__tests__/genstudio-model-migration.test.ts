@@ -13,6 +13,11 @@ describe('Gateway model migration boundary', () => {
     assert.equal(resolveGenStudioModelId('image', 'genstudio-image-current-v1'), 'genstudio-image-current-v1')
   })
 
+  test('maps a retired image id to the product that replaced it (1.4.288, BW EP0049)', () => {
+    assert.equal(resolveGenStudioModelId('image', 'flux-2-klein'), 'studio-hub::AITRADER/FLUX2-klein-4B-mlx-4bit')
+    assert.equal(resolveGenStudioModelId('chat', 'flux-2-klein'), 'flux-2-klein')
+  })
+
   test('leaves retirement authority to the live catalog without implying submission or charge', () => {
     assert.equal(resolveGenStudioModelId('chat', 'gpt-4o'), 'gpt-4o')
     const message = unavailableLegacyModelMessage('chat', 'gpt-4o')

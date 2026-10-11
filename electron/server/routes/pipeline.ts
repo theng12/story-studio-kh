@@ -773,6 +773,17 @@ async function preflightBatch(
       // operation. Downstream Story stages still need their durable artifact:
       // Scene Plan needs Subtitles, and Scene Review needs Scene Plan.
       if (episodeSteps.length === 1 && step !== 'metadata' && step !== 'scene_plan' && step !== 'scene_review' && !musicChannel) {
+        // 1.4.288 — except that a final video is never started on a Scene Plan that is not done
+        // (one that stops before the narration ends): run Scene Plan, which says why.
+        if (step === 'video_assembly' && visualSettings.visual_source === 'scene_plan' && !status.scene_plan) {
+          episodeIssues.push({
+            code: 'missing_prerequisite',
+            episode_id: episodeId,
+            step,
+            requires: 'scene_plan',
+            message: `${episodeId}: ${pipelineStepLabel(step)} needs a finished ${pipelineStepLabel('scene_plan')} first — its scenes must cover the whole narration. Run ${pipelineStepLabel('scene_plan')} on its own page or in this run.`,
+          })
+        }
         available.add(step)
         continue
       }

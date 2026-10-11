@@ -71,6 +71,8 @@ async function setReadyForLateStages(slug: string, code: string): Promise<void> 
     script: true,
     merged_audio: true,
     subtitles: true,
+    // 1.4.288 — a final video needs a finished Scene Plan, not only approved pictures.
+    scene_plan: true,
     scene_review: true,
   })
 }

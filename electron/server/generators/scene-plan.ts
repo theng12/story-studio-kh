@@ -10,9 +10,9 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { isDeepStrictEqual } from 'node:util'
-import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, generateMotionPromptOnly, generateMotionPromptsForScenes, MOTION_SPECS, resolveMotionLevel, assignDensityToUntagged, inspectScenePlanCoverage, repairPlanCoverage, removeNonRenderableScenes } from '../services/scene-planner.js'
+import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, generateMotionPromptOnly, generateMotionPromptsForScenes, MOTION_SPECS, resolveMotionLevel, assignDensityToUntagged, inspectScenePlanCoverage, repairPlanCoverage, removeNonRenderableScenes, COVERAGE_FAIL_SEC } from '../services/scene-planner.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
-import { compareMergedAudio, compareTimeline, stampFromCues } from '../lib/scene-plan-timeline.js'
+import { compareMergedAudio, compareTimeline, planNarrationShortfallSec, readNarrationRecord, stampFromCues } from '../lib/scene-plan-timeline.js'
 import { checkpointJobState, hasUnsettledProviderEvidence, isCancelled, throwIfPauseRequested } from '../services/job-queue.js'
 import { nonRetryable } from '../services/job-retry-policy.js'
 import { subtitleChapterLabel } from '../contracts/subtitle-gaps.js'
@@ -1296,6 +1296,21 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       }
       return { plan, creativeDirection }
     })
+    // 1.4.288 — before any prompt is bought, the scenes must reach the end of today's narration.
+    // A short plan fails here, at Scene Plan, not an hour later at Video Assembly (AF EP0136).
+    const narration = await readNarrationRecord(
+      path.join(paths.merged_audio_dir, `${episode_id.toUpperCase()}_merged_audio.completion.json`),
+      path.join(paths.subtitles_dir, `${episode_id.toUpperCase()}_stitched.srt.json`),
+    )
+    const shortfallSec = planNarrationShortfallSec(plan.scenes, narration)
+    if (shortfallSec > COVERAGE_FAIL_SEC) {
+      job.result = { ...(job.result || {}), attention: { kind: 'scene_plan_rebuild', workspace: 'scene-plan', episode_id } }
+      throw nonRetryable(new Error(
+        `Scene Plan stops ${shortfallSec.toFixed(1)}s before the narration ends (narration is ${narration!.duration_sec.toFixed(1)}s). `
+        + 'It was built from an older, shorter narration. Rebuild the timeline in Scene Plan (or use Pipeline Force); no prompts or images were requested.',
+      ))
+    }
+    if (narration) job.output_lines.push(`Coverage verified: the scenes reach the end of the ${narration.duration_sec.toFixed(1)}s narration.`)
     const duplicateVisualIds = new Set(inspectScenePromptIntegrity(plan.scenes).duplicate_ids)
     const motionIds = isMotion ? motionPromptSceneIds(motionPromptScenesForRequest(plan.scenes, legacyMotionRequest), motionScope, params.motion_scene_ids, params.prompt_limit) : []
     if (isMotion && params.motion_scene_ids === undefined) {

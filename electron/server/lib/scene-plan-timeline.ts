@@ -196,6 +196,45 @@ export async function readMergedAudioRecord(completionPath: string): Promise<{ d
   }
 }
 
+/**
+ * 1.4.288 — how long the current narration is: the merge's record, else the caption stitch's
+ * record (merges older than the completion record have only that). Null when neither exists.
+ */
+export async function readNarrationRecord(
+  mergedCompletionPath: string,
+  stitchedMetaPath: string,
+): Promise<{ duration_sec: number; lead_in_sec: number } | null> {
+  const merged = await readMergedAudioRecord(mergedCompletionPath)
+  if (merged) return merged
+  try {
+    const fs = await import('fs/promises')
+    const meta = JSON.parse(await fs.readFile(stitchedMetaPath, 'utf-8'))
+    const duration = Number(meta?.total_duration_sec)
+    return duration > 0 ? { duration_sec: duration, lead_in_sec: Number(meta?.lead_in_sec) || 0 } : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 1.4.288 — seconds of narration after the plan's last scene, on the merged clock.
+ *
+ * Abiding Faith EP0136 had a plan built from 514 s of captions; the narration was
+ * redone to 1505 s and nothing said so until Video Assembly ("984.1s of narration
+ * has no planned scene"). The plan's own `total_duration_sec` cannot show this,
+ * because it is the plan's idea of the length, so the current narration is asked.
+ * 0 when there is nothing to compare against.
+ */
+export function planNarrationShortfallSec(
+  scenes: Array<{ end_sec: number }> | undefined,
+  narration: { duration_sec: number; lead_in_sec?: number } | null | undefined,
+): number {
+  const duration = Number(narration?.duration_sec)
+  if (!Array.isArray(scenes) || !scenes.length || !(duration > 0)) return 0
+  const lastEnd = Math.max(...scenes.map(scene => Number(scene?.end_sec) || 0))
+  return Math.max(0, duration - lastEnd - scenePlanLeadInShiftSec(scenes, narration?.lead_in_sec, duration))
+}
+
 /** A parsed plan against the merge's completion record; null when the record is absent. */
 export async function planMergedAudioDrift(
   plan: { source_merged_audio?: { duration_sec?: number }; scenes?: Array<{ end_sec: number }> },

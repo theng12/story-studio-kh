@@ -1,5 +1,16 @@
 # HANDOFF — Story Studio KH
 
+## Current work — 2026-10-11 (1.4.288 Scene Plan must reach the end of the narration)
+
+Mini incidents: AF EP0136 Video Assembly "984.1s of narration has no planned scene"; BW EP0040/41 "1070.1s / 1199.1s … no planned scene"; BW EP0049 recovery "Unknown image model: flux-2-klein".
+- Root cause, EP0136: plan built 2026-08-31 from 514 s of captions (188 cues); narration redone 2026-09-11 to 1505 s (333 cues). `inspectScenePlanCoverage` measures against the plan's own `total_duration_sec`; `plan_stale_vs_stitched` compares file mtimes and the plan file was re-saved later. Nothing compared the plan with the real narration until Video Assembly.
+- Root cause, EP0040/41: July LLM-windowed plans (deepseek-v4-flash, 6/7 windows) reached the end but had zero-length rows at window seams (EP0040 #146 at 953.4 s, #162 at 1054.8 s; EP0041 #161 at 975.0 s). One zero-length row makes coverage `invalid-timing` with `blockingUncoveredSec = total`, which Video Assembly printed as "the whole narration has no planned scene". Not truncation and not chunking.
+- `lib/scene-plan-timeline.ts`: `readNarrationRecord` (merged-audio completion record, else stitched `.srt.json` meta) and `planNarrationShortfallSec` (lead-in aware). Used by `asset-status` (scene_plan not done when short > `COVERAGE_FAIL_SEC`) and `runScenePlanJob` (non-retryable stop before any prompt with `attention: scene_plan_rebuild`).
+- `routes/ideas.ts`: `video_ready` needs `scene_plan` as well as `scene_review` (scene-plan visual source). `routes/pipeline.ts` preflight: a Video-Assembly-only run is refused with `missing_prerequisite requires: scene_plan` when Scene Plan is not done (the single-step bypass skipped all prerequisites). On 2026-10-11 no episode on the mini was video_ready with scene_plan false, so nothing already queued changes.
+- `generators/video.ts`: zero-length scenes are named as such.
+- `services/genstudio-model-migration.ts`: `RETIRED_IMAGE_IDS` maps `flux-2-klein` → `studio-hub::AITRADER/FLUX2-klein-4B-mlx-4bit` (all image generators resolve through `resolveImageModelConfig`).
+- Fresh timelines cannot be short: they are cut from the captions without an LLM and the last scene is stretched to max(last cue, merged audio).
+
 ## Current work — 2026-10-11 (1.4.287 effects E1 + Living Picture follow-ups)
 
 Plan: `_orchestra/audit-20261009/effects-plan/PLAN.md` (phase E1 = no model; owner decisions at its end). Delivery: `_orchestra/audit-20261009/story-effects-e1/DELIVERY.md`.
