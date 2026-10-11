@@ -340,4 +340,50 @@ describe('Effects Library routes with outlines', { skip: !ffmpegAvailable && 'no
     assert.equal(res.status, 200, res.text)
     assert.match(String(res.headers['content-type']), /video/)
   })
+
+  test('E1: Refresh previews drops the Living Picture tile too', async () => {
+    // Only the Living Picture tile was drawn for this scene in this file; before 1.4.287 its key was missed.
+    const res = await request(app()).post(`${base}/gallery/refresh`).send({ scene: 's1' })
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.ok(res.body.dropped >= 1, `the living tile is dropped (dropped ${res.body.dropped})`)
+  })
+
+  test('E1: an outline drawn as shapes is drawn at the picture size, checked, feathered and stored like an upload', async () => {
+    const res = await request(app()).post(`${base}/outlines`).send({
+      scene_id: 's1', label: 'Window', feather_px: 6,
+      shapes: [{ type: 'rect', x: 0.6, y: 0.1, w: 0.3, h: 0.4 }, { type: 'polygon', points: [[0.1, 0.9], [0.3, 0.6], [0.5, 0.9]] }],
+    })
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.equal(res.body.mask, 's1-window.png')
+    assert.equal(res.body.width, 640)
+    assert.ok(res.body.coverage > 0.1 && res.body.coverage < 0.3, `coverage ${res.body.coverage}`)
+    assert.ok((await request(app()).get(base)).body.outlines.includes('s1-window.png'))
+    const bad = await request(app()).post(`${base}/outlines`).send({ scene_id: 's1', shapes: [{ type: 'polygon', points: [[0, 0]] }] })
+    assert.equal(bad.status, 400)
+    assert.match(bad.body.detail, /at least one ellipse, rectangle or polygon/)
+  })
+
+  test('E1: a Living Picture on the whole episode saves with an outline name, not with one scene\'s outline file', async () => {
+    const ok = await request(app()).put(base).send({ episode: [{ uid: 'w', id: 'living-region', params: { motion: 'fire', outline: 'flame' } }] })
+    assert.equal(ok.status, 200, JSON.stringify(ok.body))
+    const file = normalizeEpisodeEffects(ok.body.file)
+    const notes: string[] = []
+    const stage = resolveSceneStage(file, BUILT_IN_OVERLAYS, { scenes: [{ scene_id: 's1' }, { scene_id: 's2' }], outlines: ['s1-flame.png'], notes })
+    assert.deepEqual(stage.get('s1')?.map(item => item.document.region), [{ mask: 's1-flame.png', feather_px: 0 }])
+    assert.equal(stage.has('s2'), false)
+    assert.match(notes.join('\n'), /moves 1 of 2 scene\(s\) — the ones with an outline named "flame"; the rest have none and stay still/)
+    // Its exact preview uses this scene's outline of that name.
+    const preview = await request(app()).post(`${base}/exact-preview`).send({ scene_id: 's1', motion_id: 'none', overlays: [{ id: 'living-region', params: { motion: 'fire', outline: 'flame' } }] })
+    assert.equal(preview.status, 200, JSON.stringify(preview.body))
+    assert.deepEqual(preview.body.living, ['Living picture (fire)'], JSON.stringify(preview.body.notes))
+  })
+
+  test('E1: the exact preview joins this scene and the next with a transition, through the render\'s builder', async () => {
+    const res = await request(app()).post(`${base}/exact-preview`).send({ scene_id: 's1', transition_id: 'ink-bleed', motion_id: 'none', duration_sec: 1.5 })
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.equal(res.body.duration_sec, 4.5)
+    const file = cachedFileForToken(res.body.token)
+    assert.ok(file && existsSync(file))
+    assert.equal((await frames(file!, 960, 540)).length, 108)
+  })
 })

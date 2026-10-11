@@ -86,6 +86,12 @@
             <p v-else-if="entry.approximation" class="effect-approximation">
               <strong>Not exact:</strong> {{ entry.approximation }}
             </p>
+            <p v-if="isSceneStageOverlay(entry.document as any)" class="effect-classic">
+              From this list it moves every scene that has an outline named
+              “{{ paramValue(entry, 'outline') || paramValue(entry, 'motion') }}” — draw or upload one on a scene in the Effects Library.
+              Scenes without one stay still, and the render's log names the scenes it moved. Preview here shows the picture without it;
+              the Effects Library's exact preview shows it on a scene.
+            </p>
 
             <div class="effect-tile-actions">
               <button
@@ -171,7 +177,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { effectAmountLabel, effectParamFields, estimateStackMinutes, type ParamField } from '@shared/effect-params'
-import { normalizeSceneOverlay } from '@shared/scene-effects'
+import { isSceneStageOverlay, normalizeSceneOverlay } from '@shared/scene-effects'
 
 interface OverlayEntry {
   id: string

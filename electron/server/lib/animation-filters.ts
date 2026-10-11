@@ -45,6 +45,8 @@ export interface AnimationFilterOpts {
    * `services/style-effect-loader.ts`.
    */
   library?: readonly BuiltInMotion[]
+  /** E1 — the scene's place in the episode; a handheld float adds it to its seed so scenes drift differently. */
+  sceneIndex?: number
 }
 
 /**
@@ -135,13 +137,14 @@ export function isZoompanAnimation(type: string, library?: readonly BuiltInMotio
  * Rendering the scene motionless would hand the customer a finished video whose
  * camera work quietly vanished, so it refuses instead and says how to repair it.
  */
-export function resolveSceneMotionDocument(opts: Pick<AnimationFilterOpts, 'type' | 'params' | 'library'>): SceneMotionDocument {
+export function resolveSceneMotionDocument(opts: Pick<AnimationFilterOpts, 'type' | 'params' | 'library' | 'sceneIndex'>): SceneMotionDocument {
   const library = opts.library ?? BUILT_IN_SCENE_MOTIONS
   const entry = library.find(motion => motion.id === opts.type)
     ?? (isContentPackItemId(opts.type) ? missingPackMotion(opts.type) : undefined)
     ?? library.find(motion => motion.id === DEFAULT_SCENE_MOTION_ID)
     ?? BUILT_IN_SCENE_MOTIONS.find(motion => motion.id === DEFAULT_SCENE_MOTION_ID)!
-  return applyLegacyMotionParams(entry.document, entry.legacy_binding, opts.params)
+  const doc = applyLegacyMotionParams(entry.document, entry.legacy_binding, opts.params)
+  return doc.float && opts.sceneIndex ? { ...doc, float: { ...doc.float, seed: doc.float.seed + opts.sceneIndex } } : doc
 }
 
 export function buildAnimationFilter(opts: AnimationFilterOpts): string[] {

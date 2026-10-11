@@ -19,6 +19,11 @@
  *          data_base64 }`; white = the part that moves). Checked for size,
  *          colour, emptiness and the scene picture's shape; a hard edge is
  *          feathered. Answers `{ mask }`, the name a `region.mask` uses.
+ *          E1 (1.4.287): or `{ scene_id, label?, shapes, feather_px? }` — the
+ *          outline drawing tool's ellipses, rectangles and polygons (0..1 of
+ *          the picture), drawn at the scene picture's size and stored the same way.
+ *          The exact preview also takes `transition_id`: this scene and the next,
+ *          joined by that transition through the render's own builder.
  */
 
 import { Router } from 'express'
@@ -42,17 +47,23 @@ import {
 } from '../services/episode-effects.js'
 import { SceneEffectValidationError, parseSceneOverlayDocument } from '../contracts/scene-effects-schema.js'
 import { BUILT_IN_EFFECT_STACKS } from '../contracts/scene-effect-presets.js'
-import { EFFECT_STACK_GROUPS, isSceneStageOverlay, normalizeSceneOverlay } from '../contracts/scene-effects.js'
+import { EFFECT_STACK_GROUPS, isSceneStageOverlay, normalizeRegion, normalizeSceneOverlay, type SceneOverlayDocument } from '../contracts/scene-effects.js'
 import { withLock } from '../lib/atomic-store.js'
-import { OUTLINE_MASK_DIR, outlineMaskPath, saveOutlineMask } from '../services/outline-masks.js'
+import { OUTLINE_MASK_DIR, drawRegionMask, outlineMaskPath, saveOutlineMask } from '../services/outline-masks.js'
 import {
   EXACT_PREVIEW_MAX_SEC,
   EXACT_PREVIEW_SHORT_EDGE,
   effectPreviewCacheEntry,
+  effectPreviewStageKey,
   renderEffectPreview,
+  renderTransitionPreview,
   resolvePreviewMotion,
   resolvePreviewOverlays,
 } from './video.js'
+import { canvasForShortEdge } from '../lib/render-canvas.js'
+import { probeVideoStream } from '../lib/scene-clip-compat.js'
+import os from 'os'
+import path from 'path'
 import { findActivePreset, flattenVideoAssemblyBundle } from './pipeline.js'
 import { normalizeEffectsLook } from '../contracts/effects-look.js'
 import { isHiddenMotion } from '../contracts/scene-effect-presets.js'
@@ -127,8 +138,12 @@ function validateStacks(
       if (!entry) { issues.push(`${where}: "${applied.id}" is not in the effects library`); continue }
       try {
         const doc = parseSceneOverlayDocument({ ...entry.document, ...(applied.params || {}), kind: entry.document.kind, timing: entry.document.timing })
-        // 1.4.284 — outlines belong to one scene's picture.
-        if (isSceneStageOverlay(doc) && !oneScene) issues.push(`${where}: ${entry.name} has an outline, so it only works in a single scene's stack`)
+        // 1.4.284 — outlines belong to one scene's picture. E1: a Living Picture on a wider scope
+        // moves every scene with an outline of its name (or inside its shapes), so only an
+        // uploaded outline — one scene's file — is refused there.
+        const wideLiving = doc.kind === 'living-region' && !doc.region?.mask
+        if (isSceneStageOverlay(doc) && !oneScene && !wideLiving) issues.push(`${where}: ${entry.name} has an outline, so it only works in a single scene's stack`)
+        else if (doc.kind === 'living-region' && !oneScene) { /* fine: the render names the scenes it moves */ }
         else if (doc.kind === 'living-region' && !doc.region) issues.push(`${where}: ${entry.name} needs an outline (upload one for this scene, or give it shapes)`)
         else if (doc.region?.mask && !existsSync(outlineMaskPath(episodeDir, doc.region.mask))) {
           issues.push(`${where}: ${entry.name} uses the outline "${doc.region.mask}", which has not been uploaded for this episode`)
@@ -193,15 +208,35 @@ router.post('/projects/:slug/effects-library/:episodeId/outlines', async (req, r
   const body = req.body || {}
   const sceneId = typeof body.scene_id === 'string' && SCENE_ID.test(body.scene_id) ? body.scene_id : ''
   if (!sceneId) return res.status(400).json({ detail: 'scene_id is required: the outline belongs to one scene\'s picture.' })
-  if (typeof body.data_base64 !== 'string' || !body.data_base64) return res.status(400).json({ detail: 'data_base64 is required (the outline image, white = the part that moves).' })
+  const shapes = body.shapes !== undefined ? normalizeRegion({ shapes: body.shapes, feather_px: body.feather_px }) : null
+  if (body.shapes !== undefined && !shapes?.shapes?.length) return res.status(400).json({ detail: 'shapes must hold at least one ellipse, rectangle or polygon (3+ points) in 0..1 of the picture.' })
+  if (!shapes && (typeof body.data_base64 !== 'string' || !body.data_base64)) return res.status(400).json({ detail: 'data_base64 is required (the outline image, white = the part that moves).' })
   try {
     const { episodeDir, plan } = await episodeContext(slug, episodeId)
     const scene = plan?.scenes.find(candidate => candidate.id === sceneId)
     if (plan && !scene) return res.status(400).json({ detail: `Scene "${sceneId}" is not in this episode's Scene Plan.` })
     const stillPath = await resolveSceneImageReadPath(slug, episodeId.toUpperCase(), episodeDir, sceneId, scene?.image_path).catch(() => null)
+    let data: Buffer
+    if (shapes) {
+      // Drawn at the scene picture's own size (the checks compare shapes), feathered as asked.
+      const probed = stillPath ? await probeVideoStream(stillPath) : null
+      const still = probed?.width && probed?.height ? { width: Number(probed.width), height: Number(probed.height) } : null
+      if (!still) return res.status(400).json({ detail: 'This scene has no picture yet, so there is nothing to draw an outline on.' })
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'story-outline-draw-'))
+      try {
+        const png = path.join(dir, 'drawn.png')
+        const drawn = await drawRegionMask({ region: shapes, episodeDir, still, outPng: png })
+        if (!drawn.ok) return res.status(400).json({ detail: `The outline could not be drawn: ${drawn.reason}.` })
+        data = await fs.readFile(png)
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true })
+      }
+    } else {
+      data = Buffer.from(body.data_base64.replace(/^data:[^,]*,/, ''), 'base64')
+    }
     const saved = await saveOutlineMask({
       episodeDir, sceneId, label: typeof body.label === 'string' ? body.label : undefined,
-      data: Buffer.from(body.data_base64.replace(/^data:[^,]*,/, ''), 'base64'), stillPath,
+      data, stillPath,
     })
     res.json({ mask: saved.name, ...saved })
   } catch (error: any) {
@@ -214,13 +249,38 @@ router.post('/projects/:slug/effects-library/:episodeId/exact-preview', async (r
   try {
     const body = req.body || {}
     const library = await listSceneEffectLibrary()
+    if (typeof body.transition_id === 'string' && body.transition_id) {
+      // E1 — this scene and the next, each with its camera move, joined by the transition.
+      const { plan } = await episodeContext(slug, episodeId)
+      const index = Math.max(0, plan?.scenes.findIndex(scene => scene.id === body.scene_id) ?? 0)
+      const nextId = plan?.scenes[index + 1]?.id ?? plan?.scenes[0]?.id
+      const imgA = await sceneBackdrop(slug, episodeId, body.scene_id)
+      const imgB = nextId ? await sceneBackdrop(slug, episodeId, nextId) : imgA
+      const { w: W, h: H } = canvasForShortEdge(EXACT_PREVIEW_SHORT_EDGE, body.aspect_ratio)
+      const motion = resolvePreviewMotion({ motion_id: typeof body.motion_id === 'string' ? body.motion_id : 'ken-burns' }, library)
+      const preview = await renderTransitionPreview({
+        id: body.transition_id, imgA, imgB, W, H, fps: 24, motion, ext: 'mp4',
+        transitionSec: Math.max(0.5, Math.min(3, Number(body.duration_sec) || 1.5)),
+      })
+      return res.json({
+        url: `/api/projects/${encodeURIComponent(slug)}/video-editor/preview-effect?token=${encodeURIComponent(preview.token)}`,
+        token: preview.token, width: W, height: H, duration_sec: preview.duration_sec, render_ms: preview.render_ms,
+        camera_engine: preview.camera_engine, backdrop: imgA ? 'scene' : 'gradient',
+      })
+    }
     const resolved = resolvePreviewOverlays({ ...body, order: body.custom_order ? 'custom' : 'groups' }, library)
     // Living pictures and outlined effects are drawn on the scene's own clip, inside their outline.
     const overlays = resolved.filter(doc => !isSceneStageOverlay(doc))
-    const stageDocs = resolved.filter(isSceneStageOverlay)
     const motion = resolvePreviewMotion({ motion_id: typeof body.motion_id === 'string' ? body.motion_id : 'ken-burns' }, library)
     const backdrop = await sceneBackdrop(slug, episodeId, body.scene_id)
-    const { episodeDir } = await episodeContext(slug, episodeId)
+    const { episodeDir, plan } = await episodeContext(slug, episodeId)
+    // E1 — a Living Picture meant for the whole episode previews with this scene's outline of its name.
+    const sceneId = typeof body.scene_id === 'string' && SCENE_ID.test(body.scene_id) ? body.scene_id : plan?.scenes[0]?.id
+    const stageDocs = resolved.filter(isSceneStageOverlay).map(doc => {
+      if (doc.kind !== 'living-region' || doc.region || !sceneId) return doc
+      const mask = `${sceneId.replace(/[^A-Za-z0-9_-]/g, '')}-${doc.outline || doc.motion}.png`
+      return existsSync(outlineMaskPath(episodeDir, mask)) ? normalizeSceneOverlay({ ...doc, region: { mask } }) : doc
+    })
     const notes: string[] = []
     if (stageDocs.length && !backdrop) notes.push('Living pictures need the scene\'s own picture; this episode has none, so they are not shown.')
     const preview = await renderEffectPreview(motion, overlays, backdrop, body.aspect_ratio, {
@@ -270,11 +330,17 @@ async function galleryBackdrop(slug: string, episodeId: string, scene: unknown):
 /** 1.4.284 — the gallery has no outline of its own, so a living picture shows over a soft centre oval. */
 const GALLERY_OUTLINE = { shapes: [{ type: 'ellipse', cx: 0.5, cy: 0.55, rx: 0.22, ry: 0.28 }], feather_px: 24 }
 
+function galleryStage(docs: SceneOverlayDocument[], id: string) {
+  return docs.map((document, i) => ({ uid: `gallery-${i + 1}`, name: id, document }))
+}
+
 /** What one gallery clip draws: an overlay over a still picture, or a camera move with nothing on top. */
 function galleryItem(kind: string, id: string, library: Awaited<ReturnType<typeof listSceneEffectLibrary>>) {
   if (kind === 'overlay') {
     const overlays = resolvePreviewOverlays({ overlays: [{ id }] }, library)
       .map(doc => doc.kind === 'living-region' && !doc.region ? normalizeSceneOverlay({ ...doc, region: GALLERY_OUTLINE }) : doc)
+      // E1 — a 6-second clip would almost never catch a star once every three minutes: one per clip.
+      .map(doc => doc.kind === 'shooting-star' ? normalizeSceneOverlay({ ...doc, period_sec: GALLERY_SEC, chance: 1 }) : doc)
     return { motion: null, overlays }
   }
   if (kind === 'motion') return { motion: resolvePreviewMotion({ motion_id: id }, library), overlays: [] }
@@ -294,7 +360,7 @@ router.get('/projects/:slug/effects-library/:episodeId/gallery/:kind/:id', async
     const stageDocs = overlays.filter(isSceneStageOverlay)
     const preview = await renderEffectPreview(motion, overlays.filter(doc => !isSceneStageOverlay(doc)), backdrop, aspect,
       { shortEdge: GALLERY_SHORT_EDGE, durationSec: GALLERY_SEC },
-      stageDocs.length ? { items: stageDocs.map((document, i) => ({ uid: `gallery-${i + 1}`, name: id, document })), episodeDir: null } : undefined)
+      stageDocs.length ? { items: galleryStage(stageDocs, id), episodeDir: null } : undefined)
     const file = cachedFileForToken(preview.token)
     if (!file) return res.status(500).json({ detail: 'The preview was rendered but could not be read back.' })
     res.set('Content-Type', file.endsWith('.mp4') ? 'video/mp4' : 'video/webm')
@@ -319,9 +385,14 @@ router.post('/projects/:slug/effects-library/:episodeId/gallery/refresh', async 
       ...library.overlays.map(o => galleryItem('overlay', o.id, library)),
       ...library.scene_motions.filter(m => !isHiddenMotion(m)).map(m => galleryItem('motion', m.id, library)),
     ]
-    for (const item of items) {
-      const entry = effectPreviewCacheEntry(item.motion, item.overlays, backdrop, aspect, { shortEdge: GALLERY_SHORT_EDGE, durationSec: GALLERY_SEC })
-      if (invalidate(entry.key, entry.ext)) dropped++
+    for (const [i, item] of items.entries()) {
+      const stage = item.overlays.filter(isSceneStageOverlay)
+      const entry = effectPreviewCacheEntry(item.motion, item.overlays.filter(doc => !isSceneStageOverlay(doc)), backdrop, aspect, { shortEdge: GALLERY_SHORT_EDGE, durationSec: GALLERY_SEC })
+      // The Living Picture tile is keyed with its outline too (1.4.287: it used to be missed here).
+      const stageKey = stage.length && backdrop && existsSync(backdrop)
+        ? await effectPreviewStageKey(galleryStage(stage, i < library.overlays.length ? library.overlays[i]!.id : ''), null)
+        : ''
+      if (invalidate(entry.key + stageKey, entry.ext)) dropped++
     }
     res.json({ ok: true, dropped })
   } catch (error: any) {

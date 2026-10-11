@@ -20,6 +20,17 @@ export interface TransitionDef {
   category: TransitionCategory
   /** Optional short blurb, surfaced as a tooltip. */
   hint?: string
+  /**
+   * E1 (1.4.287) — how a boundary is drawn when it is more than one xfade keyword. Absent = plain
+   * `xfade`. `xfade` stays the keyword every path falls back to (a preview builder that does not
+   * know the engine, or a chunk whose engine graph fails).
+   *   - `clip-ramp`: the two clips are shaped at the boundary (a blur toward the midpoint, or a dip
+   *     to black with a held black) and then crossfaded.
+   *   - `matte`: the new scene spreads over the old through a baked grey matte (`bleed`).
+   */
+  engine?: 'clip-ramp' | 'matte'
+  ramp?: 'blur' | 'dip'
+  bleed?: 'ink' | 'watercolour'
 }
 
 export const TRANSITIONS: TransitionDef[] = [
@@ -34,6 +45,15 @@ export const TRANSITIONS: TransitionDef[] = [
   { id: 'dissolve',    label: 'Dissolve',       xfade: 'dissolve',    category: 'fade',   hint: 'Grainy dissolve between frames' },
   { id: 'pixelize',    label: 'Pixelize',       xfade: 'pixelize',    category: 'fade',   hint: 'Pixel mosaic grows, then shrinks on the next scene' },
   { id: 'hblur',       label: 'Blur',           xfade: 'hblur',       category: 'fade',   hint: 'Horizontal blur morph' },
+  // E1 (1.4.287)
+  { id: 'blur-dissolve', label: 'Soft Blur Dissolve', xfade: 'fade', category: 'fade', engine: 'clip-ramp', ramp: 'blur',
+    hint: 'Both scenes go soft toward the middle of the crossfade, then the new one sharpens' },
+  { id: 'dip-black', label: 'Dip to Black', xfade: 'fadeblack', category: 'fade', engine: 'clip-ramp', ramp: 'dip',
+    hint: 'Fades to black, holds black for 0.3 s, then fades up on the next scene' },
+  { id: 'ink-bleed', label: 'Ink Bleed', xfade: 'fade', category: 'effect', engine: 'matte', bleed: 'ink',
+    hint: 'The next scene spreads over the last like ink in water — sharp, branching edges' },
+  { id: 'watercolour-bleed', label: 'Watercolour Bleed', xfade: 'fade', category: 'effect', engine: 'matte', bleed: 'watercolour',
+    hint: 'The next scene blooms over the last like wet watercolour — soft edges' },
 
   // ── Wipe family ───────────────────────────────────────────────────────────
   { id: 'wipe-left',   label: 'Wipe Left',      xfade: 'wipeleft',    category: 'wipe' },

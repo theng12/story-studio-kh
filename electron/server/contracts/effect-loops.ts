@@ -33,8 +33,15 @@
 export const LOOP_VARIANTS = [
   'rain', 'snow', 'fireflies', 'bokeh', 'dust', 'embers', 'stars', 'petals',
   'fog', 'cloud-shadows', 'light-rays',
+  // E1 (1.4.287) — sky, water, glass, paper and film layers. Band versions: no model needed.
+  'aurora', 'moon-glow', 'sky-clouds', 'caustics', 'window-drops', 'paper', 'film-dust',
 ] as const
-export type LoopVariant = (typeof LOOP_VARIANTS)[number]
+/**
+ * Baked like a loop but placed by its effect, not laid over the whole frame: the shooting star's
+ * streak is a small sprite that the `shooting-star` overlay drops at seeded moments and places.
+ */
+export const SPRITE_VARIANTS = ['shooting-star'] as const
+export type LoopVariant = (typeof LOOP_VARIANTS)[number] | (typeof SPRITE_VARIANTS)[number]
 
 /** How the loop is drawn — shown as the badge on the effect card. */
 export type LoopMethod = 'particle' | 'noise' | 'light'
@@ -87,6 +94,24 @@ export const LOOP_VARIANT_INFO: Record<LoopVariant, LoopVariantInfo> = {
     fields: ['amount', 'scale', 'speed', 'seed', 'loop_sec'] },
   'light-rays': { method: 'light', max_count: 12, unit: 'rays', default_loop_sec: 12, bake_scale: 0.25, fps_divisor: 2,
     fields: ['amount', 'size', 'speed', 'wind_deg', 'sway', 'twinkle', 'region_bottom', 'seed', 'loop_sec'] },
+  aurora: { method: 'light', max_count: 8, unit: 'curtains', default_loop_sec: 30, bake_scale: 0.25, fps_divisor: 2,
+    fields: ['amount', 'size', 'speed', 'sway', 'twinkle', 'region_top', 'region_bottom', 'seed', 'loop_sec'] },
+  'moon-glow': { method: 'light', max_count: 1, unit: '', default_loop_sec: 20, bake_scale: 0.25, fps_divisor: 4,
+    fields: ['size', 'speed', 'twinkle', 'beam', 'region_top', 'loop_sec'] },
+  'sky-clouds': { method: 'noise', max_count: 0, unit: '', default_loop_sec: 20, bake_scale: 0.25, fps_divisor: 2,
+    fields: ['amount', 'scale', 'speed', 'region_bottom', 'seed', 'loop_sec'] },
+  caustics: { method: 'noise', max_count: 0, unit: '', default_loop_sec: 12, bake_scale: 0.25, fps_divisor: 2,
+    fields: ['amount', 'scale', 'speed', 'region_top', 'region_bottom', 'seed', 'loop_sec'] },
+  'window-drops': { method: 'particle', max_count: 600, unit: 'drops', default_loop_sec: 20, bake_scale: 0.5, fps_divisor: 1,
+    fields: ['amount', 'size', 'speed', 'seed', 'loop_sec'] },
+  // A still texture: two identical frames, so it never moves and costs one tiny bake.
+  paper: { method: 'noise', max_count: 0, unit: '', default_loop_sec: 1, bake_scale: 0.5, fps_divisor: 24,
+    fields: ['amount', 'scale', 'seed'] },
+  'film-dust': { method: 'particle', max_count: 40, unit: 'specks a frame', default_loop_sec: 24, bake_scale: 0.5, fps_divisor: 1,
+    fields: ['amount', 'size', 'layers', 'seed', 'loop_sec'] },
+  // The sprite: one streak's whole life, `loop_sec` long, in a box `size` times 420x140 px at 1080.
+  'shooting-star': { method: 'light', max_count: 1, unit: '', default_loop_sec: 1.2, bake_scale: 1, fps_divisor: 1,
+    fields: ['size'] },
 }
 
 /**
@@ -153,6 +178,14 @@ export function defaultLoopShape(variant: LoopVariant): LoopShape {
     case 'fog': return { ...base, amount: 50, region_top: 0.35, region_bottom: 1 }
     case 'cloud-shadows': return { ...base, amount: 45, scale: 1 }
     case 'light-rays': return { ...base, amount: 40, wind_deg: 18, sway: 0.3, twinkle: 0.4, region_bottom: 1 }
+    case 'aurora': return { ...base, amount: 50, sway: 0.6, twinkle: 0.5, speed: 0.5, region_top: 0, region_bottom: 0.45 }
+    case 'moon-glow': return { ...base, size: 1, speed: 1, twinkle: 0.4, beam: 0.72, region_top: 0.18 }
+    case 'sky-clouds': return { ...base, amount: 50, scale: 1, speed: 0.6, region_top: 0, region_bottom: 0.35 }
+    case 'caustics': return { ...base, amount: 60, scale: 1, speed: 0.6, region_top: 0, region_bottom: 1 }
+    case 'window-drops': return { ...base, amount: 35, size: 1, speed: 1 }
+    case 'paper': return { ...base, amount: 60, scale: 1 }
+    case 'film-dust': return { ...base, amount: 25, size: 1, layers: 1 }
+    case 'shooting-star': return { ...base, size: 1, loop_sec: 1.2 }
   }
 }
 
@@ -198,12 +231,19 @@ export function loopShapeKey(shape: LoopShape): string {
   ].map(v => (typeof v === 'number' ? Number(v.toFixed(4)) : v)).join(':')
 }
 
+/** The shooting star's sprite box at a 1080-line frame and size 1. */
+export const SHOOTING_STAR_BOX = { w: 420, h: 140 } as const
+
 function even(value: number): number {
   return Math.max(2, Math.round(value / 2) * 2)
 }
 
 /** The size a loop is baked at for an output frame. Always even (yuv/gray encoders want it). */
 export function loopBakeSize(shape: LoopShape, outW: number, outH: number): { w: number; h: number } {
+  if (shape.variant === 'shooting-star') {
+    const k = (outH / 1080) * shape.size
+    return { w: Math.min(even(outW), even(SHOOTING_STAR_BOX.w * k)), h: Math.min(even(outH), even(SHOOTING_STAR_BOX.h * k)) }
+  }
   const scale = LOOP_VARIANT_INFO[shape.variant].bake_scale
   return { w: even(outW * scale), h: even(outH * scale) }
 }
@@ -493,6 +533,216 @@ export function createLoopRenderer(shapeInput: LoopShape, width: number, height:
     }
   }
 
+  // ── E1 (1.4.287) variants ─────────────────────────────────────────────────
+
+  /** Two copies of a field one loop apart, cross-faded with variance-preserving weights (see the header). */
+  function seamless(t: number, field: (off: number) => number, drift: number): number {
+    const w0 = 1 - t, w1 = t
+    const norm = 1 / Math.sqrt(w0 * w0 + w1 * w1)
+    return 0.5 + ((field(-drift * t) - 0.5) * w0 + (field(-drift * (t - 1)) - 0.5) * w1) * norm
+  }
+
+  /** Clouds high in the frame: the fog noise, harder edged, drifting sideways only, fading out at the band's foot. */
+  function drawSkyClouds(t: number): void {
+    const freq = 2.4 / shape.scale
+    const aspect = W / H
+    const drift = 0.05 * shape.loop_sec * shape.speed / shape.scale
+    const density = shape.amount / 100
+    const lo = 0.62 - 0.3 * density
+    for (let y = 0; y < H; y++) {
+      const yf = y / H
+      const band = 1 - smoothstep(shape.region_bottom - 0.12, shape.region_bottom + 0.04, yf)
+      const row = y * W
+      const v = yf * freq * 1.6
+      for (let x = 0; x < W; x++) {
+        if (band <= 0) { buf[row + x] = 0; continue }
+        const u = (x / W) * freq * aspect
+        const n = seamless(t, off => fbm(u + off, v), drift)
+        buf[row + x] = 255 * smoothstep(lo, lo + 0.22, n) * band
+      }
+    }
+  }
+
+  /** Underwater light: bright ridges where two drifting, warped noise fields cross. */
+  function drawCaustics(t: number): void {
+    const freq = 3.2 / shape.scale
+    const aspect = W / H
+    const drift = 0.04 * shape.loop_sec * shape.speed / shape.scale
+    const gain = 0.6 + 0.9 * shape.amount / 100
+    const ridge = (u: number, v: number, off: number) => {
+      const a = fbm(u + off, v + 0.6 * off)
+      const b = fbm(u * 1.7 - 0.7 * off + 5.2, v * 1.7 + 0.4 * off + 9.1)
+      return Math.pow(1 - Math.abs(Math.sin(Math.PI * 4 * (a + 0.6 * b))), 4)
+    }
+    for (let y = 0; y < H; y++) {
+      const yf = y / H
+      const band = smoothstep(shape.region_top - 0.08, shape.region_top + 0.08, yf) * (1 - smoothstep(shape.region_bottom - 0.08, shape.region_bottom + 0.08, yf))
+      const row = y * W
+      const v = yf * freq
+      for (let x = 0; x < W; x++) {
+        if (band <= 0) { buf[row + x] = 0; continue }
+        const u = (x / W) * freq * aspect
+        const w1 = t
+        buf[row + x] = Math.min(255, 255 * gain * band * (ridge(u, v, -drift * t) * (1 - w1) + ridge(u, v, -drift * (t - 1)) * w1))
+      }
+    }
+  }
+
+  /** Parchment: soft mottling plus fine fibres. Still — `t` is ignored. */
+  let paperCache: Float32Array | null = null
+  function drawPaper(): void {
+    if (!paperCache) {
+      paperCache = new Float32Array(W * H)
+      const freq = 6 / shape.scale
+      const aspect = W / H
+      const strength = shape.amount / 100
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const u = (x / W) * freq * aspect, v = (y / H) * freq
+          const mottle = fbm(u, v) - 0.5
+          const grain = valueNoise(u * 9.7 + 3.1, v * 9.7 + 7.7) - 0.5
+          paperCache[y * W + x] = 255 * Math.max(0, Math.min(1, 0.55 + strength * (1.1 * mottle + 0.35 * grain)))
+        }
+      }
+      // Fibres: short, faint, slightly curved strokes.
+      const fibres = Math.round(400 * strength * (W * H) / (960 * 540))
+      const fr = seededRandom(shape.seed * 31 + 5)
+      for (let i = 0; i < fibres; i++) {
+        let x = fr() * W, y = fr() * H
+        let a = fr() * TAU
+        const len = (8 + fr() * 30) * k * shape.scale
+        for (let s = 0; s < len; s++) {
+          a += (fr() - 0.5) * 0.2
+          x += Math.cos(a); y += Math.sin(a)
+          const xi = Math.round(x), yi = Math.round(y)
+          if (xi >= 0 && xi < W && yi >= 0 && yi < H) paperCache[yi * W + xi] = Math.min(255, paperCache[yi * W + xi]! + 40)
+        }
+      }
+    }
+    buf.set(paperCache)
+  }
+
+  /**
+   * Aurora: ribbons of light across the sky band. Each ribbon's lower hem waves sideways over time;
+   * above it the light fades upward in soft, uneven vertical rays.
+   */
+  function drawAurora(t: number): void {
+    buf.fill(0)
+    for (const p of particles) {
+      const cx = p.x * W
+      const half = (0.18 + 0.14 * p.r / 2.4) * W * shape.size
+      const hemBase = bandTop + bandH * (0.5 + 0.35 * p.b)
+      const height = bandH * (0.45 + 0.3 * p.r / 2.4)
+      const c1 = cycles(p.k / 30, shape), c2 = cycles((p.m + 1) / 30, shape), c3 = cycles((p.m + 2) / 12, shape)
+      const glow = 230 * (1 - shape.twinkle * 0.4 * (1 - Math.sin(TAU * cycles(p.m / 20, shape) * t + p.a)))
+      const fringe = 0.03 * H
+      for (let x = Math.max(0, Math.floor(cx - half)); x < Math.min(W, Math.ceil(cx + half)); x++) {
+        const u = Math.abs(x - cx) / half
+        const edge = 1 - smoothstep(0.55, 1, u)
+        if (edge <= 0) continue
+        const hem = hemBase + shape.sway * 0.07 * H * Math.sin(TAU * (x / W * 1.6 + c1 * t) + p.a)
+          + shape.sway * 0.025 * H * Math.sin(TAU * (x / W * 4.1 - c2 * t) + 2 * p.a)
+        const rays = (0.45 + 0.55 * valueNoise(x / Math.max(1, 5 * k * shape.size) + p.a * 13, 0.5))
+          * (0.85 + 0.15 * Math.sin(TAU * c3 * t + x * 0.07 / Math.max(0.25, k)))
+        const level = glow * edge * rays
+        const y0 = Math.max(0, Math.floor(hem - height)), y1 = Math.min(H - 1, Math.ceil(hem + fringe))
+        for (let y = y0; y <= y1; y++) {
+          const v = y <= hem ? Math.pow((y - (hem - height)) / height, 1.8) : 1 - (y - hem) / fringe
+          if (v > 0) buf[y * W + x]! += level * v
+        }
+      }
+    }
+  }
+
+  /** A soft round glow around the moon, slowly breathing. */
+  function drawMoonGlow(t: number): void {
+    const cx = shape.beam * W, cy = shape.region_top * H
+    const R = 0.12 * H * shape.size
+    const breath = 1 - shape.twinkle * 0.3 * (1 - Math.cos(TAU * cycles(1 / 10, shape) * t)) / 2
+    for (let y = 0; y < H; y++) {
+      const row = y * W
+      const dy = (y - cy) / R
+      for (let x = 0; x < W; x++) {
+        const dx = (x - cx) / R
+        const d2 = dx * dx + dy * dy
+        buf[row + x] = 255 * breath * (0.75 * Math.exp(-d2) + 0.25 * Math.exp(-d2 / 6.25))
+      }
+    }
+  }
+
+  /** Raindrops on glass: still beads with a highlight, and every eighth drop sliding down with a trail. */
+  function drawWindowDrops(t: number): void {
+    buf.fill(0)
+    particles.forEach((p, i) => {
+      const r = (3.5 + p.r * 3) * shape.size * k
+      if (i % 8 === 7) {
+        const margin = r * 12
+        const span = H + margin * 2
+        const y = frac(p.y + cycles(p.k / 20, shape) * t) * span - margin
+        const x = p.x * W + 0.01 * W * Math.sin(TAU * cycles(p.m / 20, shape) * t + p.a)
+        streak(x, y - r, r * 10, Math.max(1, r * 0.5), 60 * p.b)
+        dot(x, y, r * 1.2, 90)
+        dot(x - 0.35 * r, y - 0.35 * r, r * 0.35, 220)
+      } else {
+        const x = p.x * W, y = p.y * H
+        dot(x, y, r, 55 * p.b)
+        dot(x - 0.35 * r, y - 0.35 * r, r * 0.3, 200 * p.b)
+      }
+    })
+  }
+
+  /** Faint old-film marks: fresh specks every frame and a few hairline scratches drifting slowly. */
+  function drawFilmDust(t: number): void {
+    buf.fill(0)
+    const frameIndex = Math.floor(t * N + 1e-6) % N
+    const count = loopParticleCount(shape)
+    const fr = seededRandom((shape.seed * 7919 + frameIndex * 104729) >>> 0)
+    for (let i = 0; i < count; i++) {
+      const x = fr() * W, y = fr() * H, rad = (0.6 + fr() * 1.9) * shape.size * k, val = 120 + fr() * 120
+      const hair = fr() < 0.15
+      const ang = fr() * TAU
+      if (shape.subset !== 0 && (i % 2) !== shape.subset - 1) continue
+      if (hair) {
+        for (let s = 0; s < 18 * k * shape.size; s++) dot(x + Math.cos(ang + s * 0.08) * s, y + Math.sin(ang + s * 0.08) * s, Math.max(0.6, rad * 0.4), val * 0.7)
+      } else {
+        dot(x, y, rad, val)
+      }
+    }
+    for (let j = 0; j < shape.layers; j++) {
+      if (shape.subset !== 0 && (j % 2) !== shape.subset - 1) continue
+      const sr = seededRandom(shape.seed * 13 + j * 977 + 1)
+      const base = sr(), phase = sr() * TAU
+      const x = (base + 0.03 * Math.sin(TAU * cycles(1 / 12, shape) * t + phase)) * W
+      const jitter = (seededRandom((frameIndex + 1) * 7 + j)() - 0.5) * 1.5 * k
+      const level = 90 * (0.6 + 0.4 * Math.sin(TAU * cycles(1 / 4, shape) * t + phase))
+      for (let y = 0; y < H; y++) {
+        const xi = Math.round(x + jitter + 2 * k * Math.sin(y / H * 7 + phase))
+        if (xi >= 0 && xi < W) buf[y * W + xi]! += level
+      }
+    }
+  }
+
+  /** One shooting star's life across the sprite box: it streaks down and left, brightens, fades. */
+  function drawShootingStar(t: number): void {
+    buf.fill(0)
+    const env = Math.pow(Math.sin(Math.PI * Math.max(0, Math.min(1, t))), 0.8)
+    if (env <= 0.001) return
+    const ease = 1 - (1 - t) * (1 - t)
+    const sx = 0.92 * W, sy = 0.1 * H, ex = 0.12 * W, ey = 0.88 * H
+    const hx = sx + (ex - sx) * ease, hy = sy + (ey - sy) * ease
+    const dx = ex - sx, dy = ey - sy
+    const len = Math.hypot(dx, dy)
+    const ux = dx / len, uy = dy / len
+    const tail = len * 0.45 * Math.min(1, t * 2.5)
+    const width = Math.max(0.8, 1.6 * H / 140)
+    for (let s = 0; s < tail; s += 0.7) {
+      const fall = 1 - s / Math.max(1, tail)
+      dot(hx - ux * s, hy - uy * s, width * (0.5 + 0.5 * fall), 200 * env * fall * fall)
+    }
+    dot(hx, hy, width * 1.6, 255 * env)
+    dot(hx, hy, width * 5, 60 * env)
+  }
+
   return {
     width: W,
     height: H,
@@ -503,6 +753,14 @@ export function createLoopRenderer(shapeInput: LoopShape, width: number, height:
     drawPhase(t: number, out: Uint8Array | Uint8ClampedArray): void {
       if (shape.variant === 'fog' || shape.variant === 'cloud-shadows') drawNoise(t)
       else if (shape.variant === 'light-rays') drawRays(t)
+      else if (shape.variant === 'sky-clouds') drawSkyClouds(t)
+      else if (shape.variant === 'caustics') drawCaustics(t)
+      else if (shape.variant === 'paper') drawPaper()
+      else if (shape.variant === 'aurora') drawAurora(t)
+      else if (shape.variant === 'moon-glow') drawMoonGlow(t)
+      else if (shape.variant === 'window-drops') drawWindowDrops(t)
+      else if (shape.variant === 'film-dust') drawFilmDust(t - Math.floor(t))
+      else if (shape.variant === 'shooting-star') drawShootingStar(t)
       else drawParticles(t)
       for (let i = 0; i < buf.length; i++) {
         const v = buf[i]!
@@ -550,4 +808,85 @@ export function lightningLevel(t: number, period: number, chance: number, seed: 
 export function hash01(n: number, seed: number): number {
   const v = Math.sin(n * 12.9898 + seed * 78.233) * 43758.5453
   return v - Math.floor(v)
+}
+
+/**
+ * Shooting star: where one is in flight at time `t`, or null.
+ *
+ * Time is cut into slots of `period` seconds, as lightning's is. A slot gets a star when its hash
+ * falls under `chance`; the star starts at a hashed moment inside the slot, ROUNDED DOWN to a whole
+ * number of lives (`life` = the sprite loop's length), so the looping sprite is at its first frame
+ * exactly when the star appears. Its box lands at a hashed place in the band. The compiler writes
+ * the same sums as FFmpeg expressions, so preview and render agree.
+ */
+export function shootingStarAt(t: number, period: number, chance: number, seed: number, life: number):
+  { phase: number; x: number; y: number } | null {
+  const slot = Math.floor(t / period)
+  if (hash01(slot, seed) >= chance) return null
+  const at = life * Math.floor((slot * period + period * (0.1 + 0.75 * hash01(slot + 0.25, seed))) / life)
+  if (t < at || t >= at + life) return null
+  return { phase: (t - at) / life, x: hash01(slot + 0.5, seed), y: hash01(slot + 0.75, seed) }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Transition mattes — ink and watercolour bleed (E1, 1.4.287)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const BLEED_VARIANTS = ['ink', 'watercolour'] as const
+export type BleedVariant = (typeof BLEED_VARIANTS)[number]
+
+/**
+ * The grey matte of a bleed transition: frame 0 all black (the old scene), the last frame all
+ * white (the new one), and in between the white spreads through the picture like ink in water.
+ * The spread follows a rank-normalised noise field, so the area it covers grows evenly over the
+ * transition whatever the noise looks like. Ink: fine, branching, sharp edge. Watercolour: broad,
+ * soft edge.
+ */
+export function createBleedMatte(variant: BleedVariant, width: number, height: number, frames: number, seed = 11): LoopRenderer {
+  const W = Math.max(2, Math.round(width)), H = Math.max(2, Math.round(height)), N = Math.max(2, Math.round(frames))
+  const ink = variant === 'ink'
+  const scale = ink ? 0.55 : 1.3
+  const field = new Float32Array(W * H)
+  const rnd = seededRandom(seed * 977 + (ink ? 1 : 2))
+  const seeds = Array.from({ length: 3 }, () => ({ x: 0.15 + 0.7 * rnd(), y: 0.15 + 0.7 * rnd() }))
+  const noiseSeed = (Math.round(seed) * 2654435761) >>> 0
+  const lattice = (ix: number, iy: number) => {
+    let h = (Math.imul(ix, 374761393) + Math.imul(iy, 668265263) + noiseSeed) >>> 0
+    h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296
+  }
+  const vnoise = (x: number, y: number) => {
+    const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy
+    const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy)
+    const a = lattice(ix, iy), b = lattice(ix + 1, iy), c = lattice(ix, iy + 1), d = lattice(ix + 1, iy + 1)
+    return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy
+  }
+  const fbm3 = (x: number, y: number) => 0.5 * vnoise(x, y) + 0.3 * vnoise(x * 2.1 + 9.2, y * 2.1 + 1.3) + 0.2 * vnoise(x * 4.3 + 3.3, y * 4.3 + 7.9)
+  const freq = 4 / scale
+  const aspect = W / H
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const u = (x / W) * freq * aspect, v = (y / H) * freq
+      // Domain warp makes the front branch and curl.
+      const wu = u + 1.4 * (fbm3(u + 3.1, v + 7.2) - 0.5), wv = v + 1.4 * (fbm3(u + 8.4, v + 1.9) - 0.5)
+      const n = fbm3(wu, wv)
+      const near = Math.min(...seeds.map(s => Math.hypot((x / W - s.x) * aspect, y / H - s.y)))
+      field[y * W + x] = (ink ? 0.55 : 0.4) * n + (ink ? 0.45 : 0.6) * Math.min(1, near / 0.9)
+    }
+  }
+  // Rank-normalise: the share of the picture already covered equals the threshold.
+  const order = Array.from(field.keys()).sort((a, b) => field[a]! - field[b]!)
+  order.forEach((idx, rank) => { field[idx] = rank / (order.length - 1) })
+  const soft = ink ? 0.025 : 0.11
+  return {
+    width: W, height: H, frames: N,
+    draw(index: number, out: Uint8Array | Uint8ClampedArray): void {
+      this.drawPhase(Math.max(0, Math.min(1, index / (N - 1))), out)
+    },
+    drawPhase(p: number, out: Uint8Array | Uint8ClampedArray): void {
+      const eased = smoothstep(0, 1, p)
+      const th = -soft + (1 + 2 * soft) * eased
+      for (let i = 0; i < field.length; i++) out[i] = Math.round(255 * (1 - smoothstep(th - soft, th + soft, field[i]!)))
+    },
+  }
 }

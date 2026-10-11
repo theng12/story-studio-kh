@@ -26,7 +26,8 @@ import { readManifest } from '../services/task-manifest.js'
 import { resolveAssetPath } from '../services/path-resolver.js'
 import { runFfmpeg, hasDrawtextFilter, hasLibass, getAudioDuration, stillDecoderArgs, escapeFilterPath } from '../lib/ffmpeg-utils.js'
 import { compileSceneMotion, compileSceneOverlay, overlayLoopShapes } from '../lib/scene-effect-compiler.js'
-import { bakeEffectLoop } from '../lib/effect-loop-baker.js'
+import { bakeEffectLoop, bakeTransitionMatte } from '../lib/effect-loop-baker.js'
+import { buildEngineTransitionFilterComplex } from '../lib/transition-filters.js'
 import { renderNativeSceneClip } from '../lib/native-scene-clip.js'
 import { applySceneStage, type SceneStageItem } from '../lib/scene-stage.js'
 import { outlineMaskPath } from '../services/outline-masks.js'
@@ -676,6 +677,16 @@ router.get('/projects/:slug/video-editor/preview-transition', async (req, res) =
   const key = keyParts.join('|')
 
   try {
+    // E1 — an engine transition (blur dissolve, dip to black, ink / watercolour bleed) is drawn by
+    // the same chunk builder the render uses. Every other transition keeps its own cached path.
+    if (def.engine) {
+      const preview = await renderTransitionPreview({ id: def.id, imgA, imgB, W, H, fps: FPS, transitionSec: duration, motion: null, ext: 'webm' })
+      const file = cachedFileForToken(preview.token)
+      if (!file) throw new Error('the transition preview could not be read back')
+      res.set('Content-Type', 'video/webm')
+      res.set('Cache-Control', 'public, max-age=86400')
+      return streamTo(res, (await import('fs')).createReadStream(file))
+    }
     const cached = await getOrRender(key, 'webm', async (outPath) => {
       const args: string[] = ['-y']
       // Input A
@@ -719,6 +730,72 @@ router.get('/projects/:slug/video-editor/preview-transition', async (req, res) =
     res.status(500).json(humanizeBackendError(e, 'Preview render failed'))
   }
 })
+
+/**
+ * E1 — two scene pictures joined by one transition through the RENDER's own chunk builder
+ * (`buildEngineTransitionFilterComplex`), with the camera move each scene gets (native helper when
+ * installed, else FFmpeg). Used by the transition picker for engine transitions and by the
+ * Effects Library's exact preview for every transition. Cached by the preview cache.
+ */
+export async function renderTransitionPreview(opts: {
+  id: string
+  imgA: string | null
+  imgB: string | null
+  W: number
+  H: number
+  fps: number
+  transitionSec: number
+  motion: SceneMotionDocument | null
+  ext: 'mp4' | 'webm'
+  clipSec?: number
+}): Promise<{ token: string; render_ms: number; duration_sec: number; camera_engine: 'native' | 'ffmpeg' | 'none' }> {
+  const def = getTransition(opts.id)
+  if (!def || !def.xfade) throw new SceneEffectValidationError([`unknown transition "${opts.id}"`])
+  const { W, H, fps, motion } = opts
+  const T = opts.transitionSec
+  const clipSec = opts.clipSec ?? Math.max(T + 1, 3)
+  const key = ['transition-v3', def.id, T.toFixed(2), clipSec.toFixed(2), `${W}x${H}@${fps}`,
+    opts.imgA ? `a:${opts.imgA}` : 'a:synthetic-warm', opts.imgB ? `b:${opts.imgB}` : 'b:synthetic-cool', JSON.stringify(motion)].join('|')
+  const started = Date.now()
+  let engine: 'native' | 'ffmpeg' | 'none' = motion ? 'ffmpeg' : 'none'
+  await getOrRender(key, opts.ext, async (outPath) => {
+    const clips: string[] = []
+    try {
+      for (const [i, img] of [opts.imgA, opts.imgB].entries()) {
+        const clip = `${outPath}.clip${i}.mp4`
+        clips.push(clip)
+        if (img && existsSync(img) && motion) {
+          const native = await renderNativeSceneClip({ imagePath: img, outPath: clip, document: motion, w: W, h: H, fps, duration: clipSec })
+          if (native.rendered) { engine = 'native'; continue }
+        }
+        const chain = img && existsSync(img) && motion
+          ? compileSceneMotion(motion, { w: W, h: H, fps, duration: clipSec })
+          : [`scale=${W}:${H}:force_original_aspect_ratio=decrease`, `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black`, 'setsar=1']
+        const input = img && existsSync(img)
+          ? [...(await stillDecoderArgs(img)), '-loop', '1', '-t', clipSec.toString(), '-i', img]
+          : ['-f', 'lavfi', '-t', clipSec.toString(), '-i', `color=c=${i ? '0x5D8FD3' : '0xD38B5D'}:s=${W}x${H}:r=${fps}`]
+        await runFfmpeg(['-y', ...input, '-vf', [...chain, 'format=yuv420p'].join(','), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '14',
+          '-pix_fmt', 'yuv420p', '-r', fps.toString(), '-t', clipSec.toString(), '-an', clip], { timeoutMs: 90_000 })
+      }
+      // As in the render: a matte that will not bake makes the bleed a plain crossfade.
+      const matteFile = def.bleed ? await bakeTransitionMatte(def.bleed, W, H, fps, T).catch(() => null) : null
+      const graph = buildEngineTransitionFilterComplex({
+        inputDurations: [clipSec, clipSec], transitionDuration: T, ids: [def.id], width: W, height: H, fps,
+        matteInput: () => (matteFile ? '[2:v]' : null),
+      })
+      const args = ['-y', '-i', clips[0]!, '-i', clips[1]!, ...(matteFile ? ['-i', matteFile] : []),
+        '-filter_complex', `${graph.replace('[vout]', '[vx]')};[vx]format=yuv420p,setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709[vout]`,
+        '-map', '[vout]']
+      if (opts.ext === 'mp4') args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-movflags', '+faststart')
+      else args.push('-c:v', 'libvpx-vp9', '-crf', '35', '-b:v', '0', '-deadline', 'realtime', '-row-mt', '1')
+      args.push('-pix_fmt', 'yuv420p', '-r', fps.toString(), '-an', outPath)
+      await runFfmpeg(args, { timeoutMs: 90_000 })
+    } finally {
+      for (const clip of clips) await fs.unlink(clip).catch(() => {})
+    }
+  })
+  return { token: cacheToken(key, opts.ext), render_ms: Date.now() - started, duration_sec: clipSec * 2 - T, camera_engine: engine }
+}
 
 // ── Reveal effects: the library, the plan, and a scene's own choice ──────
 
@@ -1030,6 +1107,16 @@ export function effectPreviewCacheEntry(
   return { key, ext, W, H, DURATION }
 }
 
+/** The part of an effect preview's cache key a living picture adds (its documents and outline files). */
+export async function effectPreviewStageKey(items: readonly SceneStageItem[], episodeDir: string | null): Promise<string> {
+  if (!items.length) return ''
+  return `|stage-v1|${JSON.stringify(await Promise.all(items.map(async item => {
+    const mask = item.document.region?.mask
+    const stat = mask && episodeDir ? await fs.stat(outlineMaskPath(episodeDir, mask)).catch(() => null) : null
+    return [item.document, stat?.size ?? null, stat?.mtimeMs ?? null]
+  })))}`
+}
+
 export async function renderEffectPreview(
   motion: SceneMotionDocument | null,
   overlays: SceneOverlayDocument[],
@@ -1042,14 +1129,7 @@ export async function renderEffectPreview(
   const { key, ext, W, H, DURATION } = effectPreviewCacheEntry(motion, overlays, backdrop, aspect, size)
   // A re-uploaded outline under the same name must not serve the old preview.
   const stageItems = stage?.items.length && backdrop && existsSync(backdrop) ? stage.items : []
-  const stageKey = stageItems.length
-    ? `|stage-v1|${JSON.stringify(await Promise.all(stageItems.map(async item => {
-      const mask = item.document.region?.mask
-      const stat = mask && stage!.episodeDir ? await fs.stat(outlineMaskPath(stage!.episodeDir, mask)).catch(() => null) : null
-      return [item.document, stat?.size ?? null, stat?.mtimeMs ?? null]
-    })))}`
-    : ''
-  const fullKey = key + stageKey
+  const fullKey = key + await effectPreviewStageKey(stageItems, stage?.episodeDir ?? null)
   let living: string[] | null = null
   const FPS = EFFECT_PREVIEW_FPS
   const started = Date.now()

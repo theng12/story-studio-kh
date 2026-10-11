@@ -197,6 +197,16 @@ export const BUILT_IN_SCENE_MOTIONS: BuiltInMotion[] = [
 
   // ── Static ────────────────────────────────────────────────────────────────
   motion('none', 'None (static)', 'static', 'No motion — fastest render.', {}),
+
+  // ── E1 (1.4.287): handheld float ─────────────────────────────────────────
+  // A held camera's tiny sideways and up-and-down drift, never a turn. 103% keeps the frame
+  // covered while it drifts (at most 0.8% either way inside 1.5% of slack); a 0.3% breath on top.
+  motion('float-gentle', 'Handheld Float (gentle)', 'ambient',
+    'A barely-there drift, as if the camera were held by a very still hand.',
+    stillCamera({ zoom: { mode: 'sine', base_pct: 103, amplitude_pct: 0.3 }, float: { amplitude_pct: 0.4, period_sec: 9, seed: 0 } })),
+  motion('float', 'Handheld Float', 'ambient',
+    'A slow, organic sideways and up-and-down drift. Never rotates.',
+    stillCamera({ zoom: { mode: 'sine', base_pct: 103, amplitude_pct: 0.3 }, float: { amplitude_pct: 0.8, period_sec: 9, seed: 0 } })),
 ]
 
 // ── B-Roll motions (footage) ────────────────────────────────────────────────
@@ -290,6 +300,9 @@ export const MOTION_FAMILIES: readonly MotionFamily[] = [
   ] },
   { key: 'breathe', name: 'Breathe', description: 'A gentle in-and-out pulse.', members: [
     { id: 'breathe', strength: 'gentle' }, { id: 'pulse', strength: 'strong' },
+  ] },
+  { key: 'float', name: 'Handheld float', description: 'A tiny organic sideways and up-and-down drift. Never rotates.', members: [
+    { id: 'float-gentle', strength: 'gentle' }, { id: 'float', strength: 'normal' },
   ] },
 ]
 
@@ -526,8 +539,63 @@ BUILT_IN_OVERLAYS.push(
       + 'a moon or lamp pulses — while everything outside the outline stays perfectly still. Upload the outline for the scene first.',
     'living-region', {}, {
       approximation: 'The outlined pixels are displaced and brightened in a gentle loop; nothing new is drawn. '
-        + 'A flame wobbles and flickers, it does not grow new tongues of fire.',
+        + 'A flame wobbles and flickers, it does not grow new tongues of fire. On the whole episode or in Video '
+        + 'Assembly it moves every scene that has an outline of its name (Outline name, else the motion\'s name).',
     }),
+)
+
+// ── E1 (1.4.287): sky, water, glass, paper, film and lens ───────────────────
+// Band versions — no scene analysis needed. Appended so every earlier list keeps its order.
+BUILT_IN_OVERLAYS.push(
+  overlay('shooting-star', 'Shooting Star', 'light',
+    'Now and then a star streaks across the sky band — about one every three minutes, at seeded moments and places, never on a fixed loop.',
+    'shooting-star', {}),
+  loop('aurora', 'Aurora', 'light',
+    'Wavy green and violet curtains of light hanging in the top of the frame, slowly swaying.',
+    'aurora', { secondary_color_hex: '#B06CFF' }, {
+      approximation: 'Drawn in a band across the top of the frame, not cut to the sky: it can pass over a mountain top '
+        + 'that reaches into the band.',
+    }),
+  loop('moon-glow', 'Moonlight Glow', 'light',
+    'A large soft cool glow around the moon (or any light high in the frame) that breathes slowly. Move it with Across and Height.',
+    'moon-glow'),
+  loop('sky-clouds', 'Clouds in the Sky', 'atmosphere',
+    'Soft clouds drifting sideways across the top of the frame.',
+    'sky-clouds', {}, {
+      approximation: 'A band across the top of the frame, not the sky itself: tall things reaching into it are drifted over.',
+    }),
+  loop('caustics', 'Underwater Caustics', 'light',
+    'Rippling bright lines of light, as on a sea floor or a pool wall.',
+    'caustics', {}, {
+      approximation: 'Laid over the band you choose, not only on water: set the band to where the water is.',
+    }),
+  loop('window-drops', 'Raindrops on Glass', 'weather',
+    'Still beads on a window pane with a few drops sliding down and leaving a trail. Darkens the picture a little.',
+    'window-drops', {}, {
+      approximation: 'Light beads and trails drawn over the picture; the drops do not bend the picture behind them '
+        + 'the way real water on glass does.',
+    }),
+  loop('paper-texture', 'Parchment / Paper', 'texture',
+    'A faint parchment texture of fibres and mottling over the whole picture, for old maps and letters.',
+    'paper'),
+  loop('film-dust', 'Old Film Dust & Scratches', 'texture',
+    'Faint specks that change every frame and a hairline scratch drifting slowly — the marks only, without Aged Archive Film’s grade or weave.',
+    'film-dust', { secondary_color_hex: '#F0E8D8' }),
+  overlay('halation', 'Halation', 'light',
+    'A red-orange glow bleeding from the brightest highlights, like light scattering in film.',
+    'bloom', { threshold: 0.75, strength: 0.25, radius_px: 6, color_hex: '#FF6A3D' }),
+  overlay('bloom-gentle', 'Gentle Bloom', 'light',
+    'A softer version of Bloom / Glow: only the very brightest parts glow, and lightly.',
+    'bloom', { threshold: 0.8, strength: 0.15, radius_px: 24 }),
+  overlay('water-shimmer', 'Surface Shimmer', 'weather',
+    'A gentle shimmer on water in the lower part of the frame.',
+    'heat-shimmer', { strength_px: 2, scale: 1.5, region_top: 0.6, region_bottom: 1 }, {
+      approximation: 'The whole band shimmers, not only the water in it: set the band to where the water is.',
+    }),
+  overlay('bedtime-dimming', 'Bedtime Dimming', 'grade',
+    'Over a sleep episode the picture slowly gets darker, warmer and a little less colourful — 25% darker by 85% of the episode. '
+      + 'Captions and the logo are not dimmed. The preview squeezes the whole dim into 6 seconds.',
+    'bedtime-dimming', {}),
 )
 
 const OVERLAYS_BY_ID = new Map(BUILT_IN_OVERLAYS.map(o => [o.id, o] as const))

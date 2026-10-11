@@ -208,6 +208,15 @@ export function describeEffectStack(input: unknown): string[] {
       if (!e?.enabled) continue
       const built = findBuiltInOverlay(e.id)
       if (!built) { out.push(`Effect: ${e.id}${isContentPackItemId(e.id) ? ' (Content Pack)' : ' (unknown, skipped)'}`); continue }
+      const doc = { ...built.document, ...(isObject(e.params) ? e.params : {}) } as Record<string, any>
+      if (doc.kind === 'bedtime-dimming') {
+        out.push(`Bedtime dimming: ${doc.darken_pct}% darker and warmer, from ${doc.start_pct}% to ${doc.full_pct}% of the episode`)
+        continue
+      }
+      if (doc.kind === 'living-region') {
+        out.push(`Effect: ${built.name} (${doc.motion}) on every scene with a "${doc.outline || doc.motion}" outline`)
+        continue
+      }
       out.push(`Effect: ${built.name}${built.document.kind === 'atmosphere-loop' ? ' (moving loop, slower render)' : ''}`)
     }
   }

@@ -195,6 +195,20 @@ export interface SceneMotionFocus {
   stages: SceneMotionFocusStage[]
 }
 
+/**
+ * E1 (1.4.287) — handheld float: a tiny organic sideways and up-and-down drift on top of the
+ * camera, x and y each a sum of three sines with incommensurate periods (p, 1.618p, 2.414p) and
+ * seeded phases. Never a rotation. Absent = no float, so every older document is unchanged.
+ */
+export interface SceneMotionFloat {
+  /** Largest drift from centre, % of the frame, 0..2. */
+  amplitude_pct: number
+  /** The shortest of the three periods, 3..30 s. */
+  period_sec: number
+  /** Phase seed; the render adds the scene's index so scenes drift differently. */
+  seed: number
+}
+
 export interface SceneMotionDocument {
   schema_version: typeof SCENE_EFFECT_SCHEMA_VERSION
   source: MotionSource
@@ -204,11 +218,23 @@ export interface SceneMotionDocument {
   spin: SceneMotionSpin
   fade: SceneMotionFade
   focus: SceneMotionFocus
+  float?: SceneMotionFloat
 }
 
 export type SceneMotionPatch = {
-  [K in keyof Omit<SceneMotionDocument, 'schema_version' | 'source'>]?: Partial<SceneMotionDocument[K]>
+  [K in keyof Omit<SceneMotionDocument, 'schema_version' | 'source'>]?: Partial<NonNullable<SceneMotionDocument[K]>>
 } & { schema_version?: number; source?: MotionSource }
+
+/** The float's x/y offset at `seconds`, as a share of the frame (-amplitude..amplitude). One formula for both renderers. */
+export function floatOffset(float: SceneMotionFloat, seconds: number): { x: number; y: number } {
+  const a = float.amplitude_pct / 100
+  const p = float.period_sec
+  const ph = (i: number) => (Math.sin((float.seed + 1) * 12.9898 + i * 78.233) * 43758.5453) % (Math.PI * 2)
+  const wave = (o: number) => 0.5 * Math.sin(2 * Math.PI * seconds / p + ph(o))
+    + 0.3 * Math.sin(2 * Math.PI * seconds / (1.618 * p) + ph(o + 1))
+    + 0.2 * Math.sin(2 * Math.PI * seconds / (2.414 * p) + ph(o + 2))
+  return { x: a * wave(0), y: a * wave(3) }
+}
 
 /** A still with no camera move: fit to frame, pad, done. */
 export function defaultSceneMotion(): SceneMotionDocument {
@@ -249,6 +275,9 @@ export const OVERLAY_KINDS = [
   // (flame, steam, water…) while everything outside the outline stays still.
   // Drawn per scene clip, before the camera move is composed (lib/scene-stage.ts).
   'living-region',
+  // E1 (1.4.287) — a rare shooting star in the sky band, and the slow bedtime dim.
+  'shooting-star',
+  'bedtime-dimming',
 ] as const
 export type OverlayKind = (typeof OVERLAY_KINDS)[number]
 
@@ -484,7 +513,7 @@ export interface AtmosphereLoopOverlay extends OverlayBase, Omit<LoopShape, 'var
   darken: number
 }
 
-/** Highlights bleed a soft glow. Luma only, so it never tints the picture. */
+/** Highlights bleed a soft glow. Luma only, so it never tints the picture — unless `color_hex` is set. */
 export interface BloomOverlay extends OverlayBase {
   kind: 'bloom'
   /** Brightness above which a pixel glows, 0..1. */
@@ -493,6 +522,8 @@ export interface BloomOverlay extends OverlayBase {
   strength: number
   /** Glow radius, 1..80 px at the 1080 reference. */
   radius_px: number
+  /** E1 — a tinted glow (halation's red-orange). Absent = the luma-only glow, unchanged. */
+  color_hex?: string
 }
 
 /** Candle / firelight: the picture's brightness wavers. */
@@ -584,8 +615,12 @@ export interface ColorGradeOverlay extends OverlayBase {
   tint: number
 }
 
-/** The motions a living picture can give its outlined part. Every one is a gentle loop. */
-export const LIVING_MOTIONS = ['flame', 'glow', 'steam', 'water', 'sky', 'pulse'] as const
+/**
+ * The motions a living picture can give its outlined part. Every one is a gentle loop.
+ * E1: `fire` is a fire pit's flames — coarser and slower than a candle's `flame` — and
+ * `fire-glow` the firelight it throws on the room, flickering with it.
+ */
+export const LIVING_MOTIONS = ['flame', 'fire', 'glow', 'fire-glow', 'steam', 'water', 'sky', 'pulse'] as const
 export type LivingMotion = (typeof LIVING_MOTIONS)[number]
 
 /**
@@ -599,6 +634,46 @@ export interface LivingRegionOverlay extends OverlayBase {
   strength: number
   /** 1 = the mock-ups' pace, 0.25..4. */
   speed: number
+  /**
+   * E1 — used from the whole episode or Video Assembly's list: every scene with an outline of
+   * this name (`<scene>-<name>.png`) moves. Absent = the motion's own name (`fire`, `water`…).
+   */
+  outline?: string
+}
+
+/** A rare streak across the sky band at seeded moments and places — never on a fixed loop. */
+export interface ShootingStarOverlay extends OverlayBase {
+  kind: 'shooting-star'
+  color_hex: string
+  /** 0..1. */
+  opacity: number
+  /** Streak size, 0.5..2. */
+  size: number
+  /** One chance of a star every this many seconds, 4..600. */
+  period_sec: number
+  /** Probability a slot gets a star, 0..1. */
+  chance: number
+  seed: number
+  /** The sky band the stars cross, 0..1 of the frame height. */
+  region_top: number
+  region_bottom: number
+}
+
+/**
+ * The picture slowly gets darker, warmer and a little less colourful across a sleep episode.
+ * Drawn in the final pass after the effects, before the frame, captions and logo.
+ */
+export interface BedtimeDimmingOverlay extends OverlayBase {
+  kind: 'bedtime-dimming'
+  /** How much darker at full, 0..50 %. */
+  darken_pct: number
+  /** How much warmer at full, 0..100 % (40 ≈ 6500 K → 4500 K). */
+  warmth_pct: number
+  /** How much less colour at full, 0..30 %. */
+  desaturate_pct: number
+  /** Where the dim starts and where it is full, % of the story timeline. start < full. */
+  start_pct: number
+  full_pct: number
 }
 
 export type SceneOverlayDocument =
@@ -616,6 +691,8 @@ export type SceneOverlayDocument =
   | HeatShimmerOverlay
   | ColorGradeOverlay
   | LivingRegionOverlay
+  | ShootingStarOverlay
+  | BedtimeDimmingOverlay
 
 /** A partial overlay, as a preset or a pack expresses it. `kind` is required. */
 export type SceneOverlayPatch =
@@ -671,6 +748,10 @@ export function defaultSceneOverlay(kind: OverlayKind): SceneOverlayDocument {
       return { ...base, kind, preset: 'cool-moonlight', brightness: 0, contrast: 1, saturation: 1, warmth: 0, tint: 0 }
     case 'living-region':
       return { ...base, kind, motion: 'flame', strength: 1, speed: 1 }
+    case 'shooting-star':
+      return { ...base, kind, color_hex: '#F4F8FF', opacity: 0.9, size: 1, period_sec: 90, chance: 0.5, seed: 7, region_top: 0, region_bottom: 0.4 }
+    case 'bedtime-dimming':
+      return { ...base, kind, darken_pct: 25, warmth_pct: 40, desaturate_pct: 10, start_pct: 10, full_pct: 85 }
   }
 }
 
@@ -687,6 +768,14 @@ const LOOP_DEFAULT_COLOR: Record<LoopVariant, { color: string; opacity: number; 
   fog: { color: '#D8DEE6', opacity: 0.5, darken: 0 },
   'cloud-shadows': { color: '#000000', opacity: 0.35, darken: 0 },
   'light-rays': { color: '#FFE7B8', opacity: 0.3, darken: 0 },
+  aurora: { color: '#5CFFB0', opacity: 0.45, darken: 0 },
+  'moon-glow': { color: '#A9C4FF', opacity: 0.45, darken: 0 },
+  'sky-clouds': { color: '#C8D2DE', opacity: 0.4, darken: 0 },
+  caustics: { color: '#8FF0E8', opacity: 0.3, darken: 0 },
+  'window-drops': { color: '#FFFFFF', opacity: 0.6, darken: 0.1 },
+  paper: { color: '#C8A878', opacity: 0.15, darken: 0.05 },
+  'film-dust': { color: '#201810', opacity: 0.6, darken: 0 },
+  'shooting-star': { color: '#F4F8FF', opacity: 0.9, darken: 0 },
 }
 
 /** The shipped default for one atmosphere loop variant. */
@@ -732,10 +821,14 @@ export type EffectStackGroup = (typeof EFFECT_STACK_GROUPS)[number]
 export function overlayStackGroup(doc: SceneOverlayDocument): EffectStackGroup {
   switch (doc.kind) {
     case 'color-grade': return 'grade'
-    case 'heat-shimmer': case 'living-region': return 'far-atmosphere'
+    case 'heat-shimmer': case 'living-region': case 'shooting-star': return 'far-atmosphere'
+    case 'bedtime-dimming': return 'lens'
     case 'atmosphere-loop':
       switch (doc.variant) {
-        case 'cloud-shadows': return 'far-atmosphere'
+        case 'cloud-shadows': case 'aurora': case 'moon-glow': case 'sky-clouds': return 'far-atmosphere'
+        case 'window-drops': return 'near-atmosphere'
+        case 'caustics': return 'light'
+        case 'paper': case 'film-dust': return 'lens'
         // Fog hugging the ground sits in front of the weather; a high fog bank behind it.
         case 'fog': return doc.region_top >= 0.3 ? 'near-atmosphere' : 'far-atmosphere'
         case 'rain': case 'snow': case 'petals': return 'weather'
@@ -751,6 +844,8 @@ export function overlayStackGroup(doc: SceneOverlayDocument): EffectStackGroup {
 /** The kinds this release added. Older kinds keep their pre-1.5 render position. */
 export const LIBRARY_V1_5_KINDS: readonly OverlayKind[] = [
   'atmosphere-loop', 'bloom', 'flicker', 'lightning', 'heat-shimmer', 'color-grade',
+  // E1 (1.4.287): placed in the Effects Library stack like the kinds above.
+  'shooting-star', 'bedtime-dimming',
 ]
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -882,6 +977,11 @@ export function normalizeSceneMotion(input: unknown): SceneMotionDocument {
   const fade = s.fade || {}
   const focus = s.focus || {}
   const rawStages: any[] = Array.isArray(focus.stages) ? focus.stages : d.focus.stages
+  // Present only when it moves anything, so an older document normalises to exactly what it was.
+  const floatAmp = num(s.float?.amplitude_pct, 0, 2, 0)
+  const float = floatAmp > 0
+    ? { float: { amplitude_pct: floatAmp, period_sec: num(s.float.period_sec, 3, 30, 9), seed: Math.round(num(s.float.seed, 0, 2 ** 31 - 1, 0)) } }
+    : {}
   return {
     schema_version: SCENE_EFFECT_SCHEMA_VERSION,
     source: pickEnum(s.source, MOTION_SOURCES, d.source),
@@ -916,6 +1016,7 @@ export function normalizeSceneMotion(input: unknown): SceneMotionDocument {
           until_share: num(stage.until_share, 0, 1, 1),
         })),
     },
+    ...float,
   }
 }
 
@@ -931,6 +1032,7 @@ export function mergeSceneMotion(base: SceneMotionDocument, patch: SceneMotionPa
     spin: { ...base.spin, ...(patch.spin || {}) },
     fade: { ...base.fade, ...(patch.fade || {}) },
     focus: { ...base.focus, ...(patch.focus || {}) },
+    ...(patch.float || base.float ? { float: { ...(base.float || {}), ...(patch.float || {}) } } : {}),
   })
 }
 
@@ -1025,13 +1127,16 @@ function normalizeOverlayFields(input: unknown): SceneOverlayDocument {
         darken: num(s.darken, 0, 0.5, look.darken),
       }
     }
-    case 'bloom':
+    case 'bloom': {
+      const tint = s.color_hex == null ? '' : pickHex(s.color_hex, '')
       return {
         ...d, timing,
         threshold: num(s.threshold, 0, 1, d.threshold),
         strength: num(s.strength, 0, 1, d.strength),
         radius_px: num(s.radius_px, 1, 80, d.radius_px),
+        ...(tint ? { color_hex: tint } : {}),
       }
+    }
     case 'flicker':
       return { ...d, timing, amount: num(s.amount, 0, 0.3, d.amount), speed: num(s.speed, 0.1, 4, d.speed) }
     case 'lightning':
@@ -1065,14 +1170,54 @@ function normalizeOverlayFields(input: unknown): SceneOverlayDocument {
         warmth: num(s.warmth, -1, 1, d.warmth),
         tint: num(s.tint, -1, 1, d.tint),
       }
-    case 'living-region':
+    case 'living-region': {
+      const outline = typeof s.outline === 'string' ? outlineLabel(s.outline) : ''
       return {
         ...d, timing,
         motion: pickEnum(s.motion, LIVING_MOTIONS, d.motion),
         strength: num(s.strength, 0, 3, d.strength),
         speed: num(s.speed, 0.25, 4, d.speed),
+        ...(outline ? { outline } : {}),
       }
+    }
+    case 'shooting-star': {
+      const top = num(s.region_top, 0, 1, d.region_top)
+      const bottom = num(s.region_bottom, 0, 1, d.region_bottom)
+      return {
+        ...d, timing,
+        color_hex: pickHex(s.color_hex, d.color_hex),
+        opacity: num(s.opacity, 0, 1, d.opacity),
+        size: num(s.size, 0.5, 2, d.size),
+        period_sec: num(s.period_sec, 4, 600, d.period_sec),
+        chance: num(s.chance, 0, 1, d.chance),
+        seed: Math.round(num(s.seed, 0, 2 ** 31 - 1, d.seed)),
+        region_top: Math.min(top, bottom),
+        region_bottom: Math.max(top, bottom),
+      }
+    }
+    case 'bedtime-dimming': {
+      const start = num(s.start_pct, 0, 99, d.start_pct)
+      return {
+        ...d, timing,
+        darken_pct: num(s.darken_pct, 0, 50, d.darken_pct),
+        warmth_pct: num(s.warmth_pct, 0, 100, d.warmth_pct),
+        desaturate_pct: num(s.desaturate_pct, 0, 30, d.desaturate_pct),
+        start_pct: start,
+        // start < full, always: a full point at or before the start would be a cut, not a dim.
+        full_pct: Math.max(start + 1, num(s.full_pct, 1, 100, d.full_pct)),
+      }
+    }
   }
+}
+
+/** An outline name as `saveOutlineMask` writes it: lower-case words joined by dashes. */
+export function outlineLabel(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40)
+}
+
+/** The baked sprite a shooting star drops in, at its size. */
+export function shootingStarShape(doc: ShootingStarOverlay): LoopShape {
+  return normalizeLoopShape({ size: doc.size, loop_sec: 1.2 }, 'shooting-star')
 }
 
 /** Drawn on one scene's clip (a living picture, or an effect clipped to an outline), not on the composed timeline. */

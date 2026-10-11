@@ -241,7 +241,7 @@ describe('preflight answers with the resolved stack', () => {
       const cat = await request(app).get(`/api/projects/${project.slug}/video-editor/${url}`)
       const ids = (cat.body.animations || cat.body.scene_motions).map((m: any) => m.id)
       assert.ok(ids.includes('ken-burns') && !ids.includes('parallax-drift') && !ids.includes('rotate-cw'), url)
-      assert.deepEqual((cat.body.families || cat.body.motion_families).map((f: any) => f.name), ['Zoom in', 'Zoom out', 'Breathe'], url)
+      assert.deepEqual((cat.body.families || cat.body.motion_families).map((f: any) => f.name), ['Zoom in', 'Zoom out', 'Breathe', 'Handheld float'], url)
     }
   })
 })
@@ -360,6 +360,7 @@ describe('camera motion families trim the menu and delete nothing', () => {
       ['Zoom in', ['gentle:slow-push', 'normal:ken-burns', 'strong:zoom-in']],
       ['Zoom out', ['gentle:slow-pull', 'normal:ken-burns-reverse', 'strong:zoom-out']],
       ['Breathe', ['gentle:breathe', 'strong:pulse']],
+      ['Handheld float', ['gentle:float-gentle', 'normal:float']],
     ])
     // The library keeps every motion (old choices must render); the menus filter.
     assert.equal(sceneEffectCatalog().scene_motions.length, BUILT_IN_SCENE_MOTIONS.length)

@@ -260,7 +260,9 @@ export function resolveEpisodeEffectStack(opts: {
     // Living pictures and outlined effects are drawn on their scene's clip
     // (`resolveSceneStage`), never on the composed timeline.
     if (isSceneStageOverlay(doc)) {
-      if (scope !== 'scene') notes.push(`${entry.name} skipped ${scope === 'theme' ? `for theme "${label}"` : `on the ${scope}`}: an outline belongs to one scene's picture, so it only works in a single scene's stack.`)
+      // E1 — a living picture on a wider scope moves every scene with its outline (resolveSceneStage).
+      const wide = doc.kind === 'living-region' && !doc.region?.mask
+      if (scope !== 'scene' && !wide) notes.push(`${entry.name} skipped ${scope === 'theme' ? `for theme "${label}"` : `on the ${scope}`}: an outline belongs to one scene's picture, so it only works in a single scene's stack.`)
       return
     }
     const defaultFade = scope === 'scene' || scope === 'theme' ? DEFAULT_SCENE_FADE_SEC : 0
@@ -329,10 +331,51 @@ export function resolveEpisodeEffectStack(opts: {
 
 /**
  * The scene-stage effects of each scene (living pictures, effects clipped to an
- * outline), in stack order. Only single-scene stacks can carry them.
+ * outline), in stack order. A single scene's stack names its outline; E1
+ * (1.4.287): a Living Picture on the whole episode, a theme or Video Assembly's
+ * own list moves every scene (of that theme) that has an outline of its name —
+ * `<scene>-<outline name>.png` among `opts.outlines` — or, with shapes, every
+ * scene. What it found is said in `opts.notes`.
  */
-export function resolveSceneStage(file: EpisodeEffectsFile, library: readonly BuiltInOverlay[]): Map<string, Array<{ uid: string; name: string; document: SceneOverlayDocument }>> {
+export function resolveSceneStage(
+  file: EpisodeEffectsFile,
+  library: readonly BuiltInOverlay[],
+  opts: {
+    scenes?: ReadonlyArray<{ scene_id: string; theme?: string | null }>
+    outlines?: readonly string[]
+    projectLook?: Array<{ id: string; enabled?: boolean; params?: Record<string, unknown> }>
+    notes?: string[]
+  } = {},
+): Map<string, Array<{ uid: string; name: string; document: SceneOverlayDocument }>> {
   const out = new Map<string, Array<{ uid: string; name: string; document: SceneOverlayDocument }>>()
+  const wide: Array<{ applied: AppliedEffect; where: string; theme?: string }> = [
+    ...(opts.projectLook || []).filter(item => item && item.enabled !== false)
+      .map((item, i) => ({ applied: { uid: `project-${i + 1}`, id: item.id, enabled: true, ...(item.params ? { params: item.params } : {}) }, where: 'Video Assembly' })),
+    ...file.episode.map(applied => ({ applied, where: 'the whole episode' })),
+    ...file.themes.flatMap(rule => rule.effects.map(applied => ({ applied, where: `theme "${rule.theme}"`, theme: rule.theme }))),
+  ]
+  const outlines = new Set(opts.outlines || [])
+  for (const { applied, where, theme } of wide) {
+    if (!applied.enabled) continue
+    const resolved = resolveDocument(applied, library)
+    if (!resolved || resolved.doc.kind !== 'living-region' || resolved.doc.region?.mask) continue
+    const doc = resolved.doc
+    const name = `${resolved.entry.name} (${doc.motion})`
+    const scenes = (opts.scenes || []).filter(scene => !theme || (scene.theme || '').trim().toLowerCase() === theme.toLowerCase())
+    const label = doc.outline || doc.motion
+    let moved = 0
+    for (const scene of scenes) {
+      const mask = `${scene.scene_id.replace(/[^A-Za-z0-9_-]/g, '')}-${label}.png`.replace(/^-/, '')
+      const region = doc.region?.shapes?.length ? doc.region : outlines.has(mask) ? { mask, feather_px: 0 } : null
+      if (!region) continue
+      out.set(scene.scene_id, [...(out.get(scene.scene_id) || []), { uid: `${applied.uid}@${scene.scene_id}`, name, document: { ...doc, region } }])
+      moved++
+    }
+    opts.notes?.push(doc.region?.shapes?.length
+      ? `${name} from ${where}: drawn inside its shapes on ${moved} scene(s).`
+      : `${name} from ${where}: moves ${moved} of ${scenes.length} scene(s) — the ones with an outline named "${label}"`
+        + `${moved < scenes.length ? '; the rest have none and stay still (draw or upload a "' + label + '" outline on a scene in the Effects Library)' : ''}.`)
+  }
   for (const stack of file.scenes) {
     const items = stack.effects
       .map((applied, index) => ({ applied, index }))

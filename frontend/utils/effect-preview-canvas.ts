@@ -17,10 +17,12 @@ import {
   flickerOffset,
   lightningLevel,
   loopBakeFps,
+  loopBakeSize,
   loopFrameCount,
+  shootingStarAt,
   type LoopRenderer,
 } from '@shared/effect-loops'
-import { COLOR_GRADE_PRESET_VALUES, atmosphereLoopShape, type SceneOverlayDocument } from '@shared/scene-effects'
+import { COLOR_GRADE_PRESET_VALUES, atmosphereLoopShape, shootingStarShape, type SceneOverlayDocument } from '@shared/scene-effects'
 import { LOOP_VARIANT_INFO, loopShapeKey } from '@shared/effect-loops'
 
 /** Effects the canvas cannot show honestly; the exact preview can. */
@@ -59,6 +61,7 @@ export class EffectCanvasRenderer {
   }
 
   private loopKeys(doc: SceneOverlayDocument, w: number, h: number): string[] {
+    if (doc.kind === 'shooting-star') return [`${loopShapeKey(shootingStarShape(doc))}@${w}x${h}`]
     if (doc.kind !== 'atmosphere-loop') return []
     const subsets: Array<0 | 1 | 2> = doc.secondary_color_hex && doc.secondary_color_hex !== doc.color_hex ? [1, 2] : [0]
     return subsets.map(sub => `${loopShapeKey(atmosphereLoopShape(doc, sub))}@${w}x${h}`)
@@ -156,6 +159,40 @@ export class EffectCanvasRenderer {
       case 'color-grade':
         this.selfFilter(ctx, gradeCssFilter(doc))
         return
+      case 'shooting-star': {
+        // The render's own sprite and the render's own slot hash (`shootingStarAt`).
+        const shape = shootingStarShape(doc)
+        const key = `${loopShapeKey(shape)}@${W}x${H}`
+        let layer = this.loops.get(key)
+        if (!layer) {
+          const box = loopBakeSize(shape, W, H)
+          const renderer = createLoopRenderer(shape, box.w, box.h, loopFrameCount(shape, 24))
+          layer = { renderer, buffer: new Uint8Array(box.w * box.h), canvas: this.makeCanvas(box.w, box.h), fps: 24 }
+          this.loops.set(key, layer)
+        }
+        const life = layer.renderer.frames / 24
+        const star = shootingStarAt(t, doc.period_sec, doc.chance, doc.seed, life)
+        if (!star) return
+        layer.renderer.drawPhase(star.phase, layer.buffer)
+        const lctx = layer.canvas.getContext('2d') as Ctx
+        const img = lctx.createImageData(layer.renderer.width, layer.renderer.height)
+        const r = parseInt(doc.color_hex.slice(1, 3), 16), g = parseInt(doc.color_hex.slice(3, 5), 16), b = parseInt(doc.color_hex.slice(5, 7), 16)
+        for (let i = 0, j = 0; i < layer.buffer.length; i++, j += 4) {
+          img.data[j] = r; img.data[j + 1] = g; img.data[j + 2] = b; img.data[j + 3] = layer.buffer[i]! * doc.opacity
+        }
+        lctx.putImageData(img, 0, 0)
+        const bw = layer.renderer.width, bh = layer.renderer.height
+        const room = Math.max(0, (doc.region_bottom - doc.region_top) * H - bh)
+        ctx.drawImage(layer.canvas as any, star.x * Math.max(0, W - bw), doc.region_top * H + star.y * room)
+        return
+      }
+      case 'bedtime-dimming': {
+        // APPROXIMATE: the dim squeezed into a 6-second cycle, as the gallery clip shows it.
+        const p = Math.max(0, Math.min(1, ((t % 6) / 6 - doc.start_pct / 100) / Math.max(0.01, (doc.full_pct - doc.start_pct) / 100)))
+        const ease = p * p * (3 - 2 * p)
+        this.selfFilter(ctx, `brightness(${(1 - ease * doc.darken_pct / 100).toFixed(3)}) saturate(${(1 - ease * doc.desaturate_pct / 100).toFixed(3)}) sepia(${(ease * doc.warmth_pct / 250).toFixed(3)})`)
+        return
+      }
       case 'bloom':
         this.selfFilter(ctx, `brightness(${(1 + (1 - doc.threshold) * 0.8).toFixed(2)}) contrast(${(1 + doc.threshold * 4).toFixed(2)}) blur(${Math.max(1, doc.radius_px * k).toFixed(1)}px)`, doc.strength * 0.8, 'screen')
         return

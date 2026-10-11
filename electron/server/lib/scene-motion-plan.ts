@@ -22,7 +22,7 @@
  * that scene with FFmpeg instead. The reason is logged.
  */
 
-import type { SceneMotionDocument } from '../contracts/scene-effects.js'
+import { floatOffset, type SceneMotionDocument } from '../contracts/scene-effects.js'
 
 export interface MotionPlanFrame {
   /** Magnification of the canvas, 1 = the fitted picture fills the frame. */
@@ -145,9 +145,11 @@ export function planStillMotion(doc: SceneMotionDocument, opts: MotionPlanOpts):
       zoom = clamp(zoom, ZOOM_MIN, ZOOM_MAX)
       const winW = w / zoom
       const winH = h / zoom
+      // E1 — handheld float: the compiler's `+iw*a*(…)` in output pixels, clock on/fps.
+      const drift = doc.float ? floatOffset(doc.float, n / fps) : { x: 0, y: 0 }
       // zoompan: x = iw/2 - iw/zoom/2 + on*rate, held inside the picture.
-      const x0 = clamp(w / 2 - winW / 2 + n * panX, 0, Math.max(0, w - winW))
-      const y0 = clamp(h / 2 - winH / 2 + n * panY, 0, Math.max(0, h - winH))
+      const x0 = clamp(w / 2 - winW / 2 + n * panX + drift.x * w, 0, Math.max(0, w - winW))
+      const y0 = clamp(h / 2 - winH / 2 + n * panY + drift.y * h, 0, Math.max(0, h - winH))
       frames.push({ z: zoom, cx: x0 + winW / 2, cy: y0 + winH / 2, rot: 0, blur: [], gain: 1 })
     }
     return { supported: true, kind: 'camera', frames, prepared: { w: preparedSize(w, scalePct), h: preparedSize(h, scalePct) } }

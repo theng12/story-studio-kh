@@ -1364,6 +1364,126 @@
       "closure_group": "intentional-free-baseline"
     },
     {
+      "legacy_key": "overlay:shooting-star",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "shooting-star"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:aurora",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "aurora"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:moon-glow",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "moon-glow"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:sky-clouds",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "sky-clouds"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:caustics",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "caustics"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:window-drops",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "window-drops"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:paper-texture",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "paper-texture"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:film-dust",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "film-dust"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:halation",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "halation"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:bloom-gentle",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "bloom-gentle"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:water-shimmer",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "water-shimmer"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:bedtime-dimming",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "bedtime-dimming"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
       "legacy_key": "prepared:com.storystudio.pack.style.dreamlike-luminous-sleep-illustration@1.0.0",
       "disposition": "authored-standalone",
       "source": "content-packs/legacy-thumbnail-restoration/style/dreamlike-luminous-sleep-illustration",
@@ -1632,6 +1752,26 @@
       "target": {
         "kind": "runtime-scene-effect",
         "id": "scene:none"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:float-gentle",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:float-gentle"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:float",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:float"
       },
       "closure_group": "intentional-free-baseline"
     },

@@ -20,11 +20,14 @@ import path from 'path'
 import { createRequire } from 'module'
 
 import {
+  createBleedMatte,
   createLoopRenderer,
   loopBakeFps,
   loopBakeSize,
   loopFrameCount,
   loopShapeKey,
+  type BleedVariant,
+  type LoopRenderer,
   type LoopShape,
 } from '../contracts/effect-loops.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
@@ -119,9 +122,35 @@ export async function bakeEffectLoop(shape: LoopShape, outW: number, outH: numbe
   }
 }
 
-async function pipeFramesToFfmpeg(shape: LoopShape, w: number, h: number, fps: number, frames: number, out: string): Promise<void> {
+/**
+ * E1 — the grey matte of an ink or watercolour bleed transition, `seconds` long, baked once per
+ * size and length at a quarter of the frame (it is soft; the chunk graph scales it up) and cached
+ * with the loops. Throws a sentence when it cannot be made; the caller falls back to a crossfade.
+ */
+export async function bakeTransitionMatte(variant: BleedVariant, outW: number, outH: number, fps: number, seconds: number): Promise<string> {
+  const w = Math.max(2, Math.round(outW / 8) * 2), h = Math.max(2, Math.round(outH / 8) * 2)
+  const frames = Math.max(2, Math.round(seconds * fps))
+  const target = cacheFile(`matte-v${LOOP_BAKE_VERSION}|${variant}|${w}x${h}@${fps}|${frames}`)
+  try {
+    if (fs.statSync(target).size > 0) return target
+  } catch { /* not cached */ }
+  assertWriteIsolatedInTests(target, 'effect-loops')
+  fs.mkdirSync(path.dirname(target), { recursive: true })
+  const temp = `${target}.${process.pid}.${Date.now()}.tmp.mp4`
+  try {
+    await pipeFramesToFfmpeg(createBleedMatte(variant, w, h, frames), w, h, fps, frames, temp, `${variant} bleed matte`)
+    fs.renameSync(temp, target)
+  } catch (error) {
+    try { fs.unlinkSync(temp) } catch { /* nothing to clean */ }
+    throw error
+  }
+  return target
+}
+
+async function pipeFramesToFfmpeg(source: LoopShape | LoopRenderer, w: number, h: number, fps: number, frames: number, out: string, what?: string): Promise<void> {
   const ffmpeg = await getFFmpegPath()
-  const renderer = createLoopRenderer(shape, w, h, frames)
+  const renderer = 'draw' in source ? source : createLoopRenderer(source, w, h, frames)
+  const label = what ?? `${(source as LoopShape).variant} loop`
   const args = [
     '-hide_banner', '-loglevel', 'error', '-y',
     '-f', 'rawvideo', '-pix_fmt', 'gray', '-s', `${w}x${h}`, '-r', String(fps), '-i', '-',
@@ -138,7 +167,7 @@ async function pipeFramesToFfmpeg(shape: LoopShape, w: number, h: number, fps: n
     proc.on('error', err => reject(new Error(`FFmpeg failed to start for the effect loop: ${err.message}`)))
     proc.on('close', (code) => {
       if (code === 0) resolve()
-      else reject(new Error(`Baking the ${shape.variant} loop failed (FFmpeg exit ${code}): ${stderr.trim().split('\n').slice(-3).join(' ')}`))
+      else reject(new Error(`Baking the ${label} failed (FFmpeg exit ${code}): ${stderr.trim().split('\n').slice(-3).join(' ')}`))
     })
     proc.stdin.on('error', () => { /* surfaced through close */ })
     const frame = new Uint8Array(w * h)

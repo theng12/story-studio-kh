@@ -87,6 +87,8 @@ export const CATEGORY_TABS: Array<{ key: string; label: string; categories: stri
   { key: 'titles', label: 'Titles & framing', categories: ['framing', 'title', 'brand'] },
   // 1.4.283 — the camera moves, shown as a gallery; no overlay has this category.
   { key: 'motions', label: 'Camera motions', categories: ['camera-motion'] },
+  // E1 (1.4.287) — the scene transitions, shown as a gallery; no overlay has this category.
+  { key: 'transitions', label: 'Transitions', categories: ['transition'] },
 ]
 
 /** Short, stable fingerprint of an effect's document, so a gallery clip's URL changes when the effect does. */

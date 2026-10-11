@@ -65,6 +65,13 @@ const LOOP_LABELS: Partial<Record<LoopVariant, Partial<Record<LoopShapeField, st
   fog: { amount: 'Density', speed: 'Drift speed', region_top: 'Mist top' },
   'cloud-shadows': { amount: 'Coverage', speed: 'Drift speed' },
   'light-rays': { amount: 'Rays', wind_deg: 'Angle', region_bottom: 'Reach' },
+  aurora: { amount: 'Curtains', sway: 'Wave', twinkle: 'Pulse', region_top: 'Sky top', region_bottom: 'Lowest hem' },
+  'moon-glow': { size: 'Glow size', twinkle: 'Breathing', beam: 'Across', region_top: 'Height' },
+  'sky-clouds': { amount: 'Cloud cover', speed: 'Drift speed', region_bottom: 'Lowest cloud' },
+  caustics: { amount: 'Brightness', scale: 'Pattern size', speed: 'Drift speed' },
+  'window-drops': { amount: 'Drops', size: 'Drop size', speed: 'Slide speed' },
+  paper: { amount: 'Texture', scale: 'Grain size' },
+  'film-dust': { amount: 'Specks', size: 'Speck size', layers: 'Scratches' },
 }
 
 const ATMOSPHERE_LOOK_FIELDS: ParamField[] = [
@@ -157,12 +164,32 @@ const FIELDS_BY_KIND: Record<OverlayKind, ParamField[]> = {
     {
       key: 'motion', label: 'Motion', type: 'select', options: LIVING_MOTIONS,
       option_labels: {
-        flame: 'Flame (flicker + wobble)', glow: 'Firelight glow', steam: 'Steam (rising drift)',
-        water: 'Water (ripple + shimmer)', sky: 'Sky (slow drift)', pulse: 'Moon / lamp pulse',
+        flame: 'Candle flame (flicker + wobble)', fire: 'Fire pit (slower, coarser flames)',
+        glow: 'Candle light glow', 'fire-glow': 'Fire-pit light glow',
+        steam: 'Steam (rising drift)', water: 'Water (ripple + shimmer)', sky: 'Sky (slow drift)', pulse: 'Moon / lamp pulse',
       },
     },
     { key: 'strength', label: 'Strength', type: 'number', min: 0, max: 3, step: 0.05, format: 'times' },
     { key: 'speed', label: 'Speed', type: 'number', min: 0.25, max: 4, step: 0.05, format: 'times' },
+    // Read only when the effect is on the whole episode, a theme or Video Assembly's list.
+    { key: 'outline', label: 'Outline name (whole episode)', type: 'text' },
+  ],
+  'shooting-star': [
+    { key: 'color_hex', label: 'Colour', type: 'color' },
+    { key: 'opacity', label: 'Brightness', type: 'number', min: 0, max: 1, step: 0.01, format: 'percent' },
+    { key: 'size', label: 'Size', type: 'number', min: 0.5, max: 2, step: 0.05, format: 'times' },
+    { key: 'period_sec', label: 'A chance every', type: 'number', min: 4, max: 600, step: 1, format: 'sec' },
+    { key: 'chance', label: 'Chance of a star', type: 'number', min: 0, max: 1, step: 0.01, format: 'percent' },
+    { key: 'region_top', label: 'Sky top', type: 'number', min: 0, max: 1, step: 0.01, format: 'share' },
+    { key: 'region_bottom', label: 'Sky bottom', type: 'number', min: 0, max: 1, step: 0.01, format: 'share' },
+    { key: 'seed', label: 'Seed', type: 'seed', min: 0, max: 99999, step: 1 },
+  ],
+  'bedtime-dimming': [
+    { key: 'darken_pct', label: 'Darker by', type: 'number', min: 0, max: 50, step: 1, format: 'percent' },
+    { key: 'warmth_pct', label: 'Warmer by', type: 'number', min: 0, max: 100, step: 1, format: 'percent' },
+    { key: 'desaturate_pct', label: 'Less colour by', type: 'number', min: 0, max: 30, step: 1, format: 'percent' },
+    { key: 'start_pct', label: 'Starts at (% of the episode)', type: 'number', min: 0, max: 99, step: 1, format: 'percent' },
+    { key: 'full_pct', label: 'Full at (% of the episode)', type: 'number', min: 1, max: 100, step: 1, format: 'percent' },
   ],
 }
 
@@ -175,7 +202,7 @@ export function effectParamFields(doc: Pick<SceneOverlayDocument, 'kind'> & { va
     key, ...LOOP_SHAPE_FIELDS[key], ...(labels[key] ? { label: labels[key]! } : {}),
   }))
   // Cloud shadows are drawn in black; a second colour would mean nothing.
-  const look = variant === 'cloud-shadows'
+  const look = variant === 'cloud-shadows' || variant === 'moon-glow' || variant === 'paper'
     ? ATMOSPHERE_LOOK_FIELDS.filter(f => f.key === 'opacity').map(f => ({ ...f, label: 'Darkness' }))
     : ATMOSPHERE_LOOK_FIELDS
   return [...shape, ...look]
@@ -191,6 +218,8 @@ export function effectBadge(doc: SceneOverlayDocument): string {
     return method === 'noise' ? 'Noise loop' : method === 'light' ? 'Light loop' : 'Particle loop'
   }
   if (doc.kind === 'lower-third' || doc.kind === 'corner-logo' || doc.kind === 'letterbox' || doc.kind === 'gradient-scrim') return 'Overlay'
+  if (doc.kind === 'shooting-star') return 'Rare event'
+  if (doc.kind === 'bedtime-dimming') return 'Whole episode'
   return 'Live filter'
 }
 
@@ -216,7 +245,14 @@ const CPU_SEC_PER_FRAME_BY_KIND: Record<OverlayKind, number> = {
   'color-grade': 0.0044,
   // Paid per scene clip, not in the final pass: two moving maps, a displace and a masked merge.
   'living-region': 0.03,
+  // A small sprite overlay whose position is two expressions; most frames it is switched off.
+  'shooting-star': 0.0012,
+  // One eq whose lookup tables are rebuilt each frame (plan §C: ~3–4 min on a 2-hour episode).
+  'bedtime-dimming': 0.0046,
 }
+
+/** A bloom with `color_hex` (halation): the glow becomes a colour layer laid over the picture. */
+const TINTED_BLOOM_CPU_SEC = 0.0092
 
 /** One extra full-frame overlay, paid when a plain filter fades in or out. */
 const FADE_WRAPPER_CPU_SEC = 0.011
@@ -227,8 +263,10 @@ export function effectCostPerFrame(doc: SceneOverlayDocument): number {
     const tints = doc.secondary_color_hex && doc.secondary_color_hex !== doc.color_hex ? 2 : 1
     cost = cost * tints + (doc.darken > 0 ? 0.001 : 0)
   }
+  // Halation: the tinted glow is laid over as a colour layer, about half again a plain bloom.
+  if (doc.kind === 'bloom' && doc.color_hex) cost = TINTED_BLOOM_CPU_SEC
   const fades = (doc.timing.fade_in_sec || 0) > 0 || (doc.timing.fade_out_sec || 0) > 0
-  if (fades && !['atmosphere-loop', 'flicker', 'lightning', 'lower-third'].includes(doc.kind)) cost += FADE_WRAPPER_CPU_SEC
+  if (fades && !['atmosphere-loop', 'flicker', 'lightning', 'lower-third', 'shooting-star', 'bedtime-dimming'].includes(doc.kind)) cost += FADE_WRAPPER_CPU_SEC
   return cost
 }
 

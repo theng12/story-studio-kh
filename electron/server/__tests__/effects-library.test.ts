@@ -25,6 +25,7 @@ import {
   loopParticleCount,
   loopShapeKey,
   normalizeLoopShape,
+  type LoopVariant,
 } from '../contracts/effect-loops.js'
 import {
   EFFECT_STACK_GROUPS,
@@ -141,16 +142,22 @@ describe('atmosphere loops — one program for the preview and the bake', () => 
   })
 
   test('renderer output is pinned to the bake version (bump LOOP_BAKE_VERSION when this changes)', () => {
-    const h = createHash('sha1')
-    for (const variant of LOOP_VARIANTS) {
-      const out = new Uint8Array(192 * 108)
-      createLoopRenderer(defaultLoopShape(variant), 192, 108, 24).drawPhase(0.37, out)
-      h.update(out)
+    const pin = (variants: readonly LoopVariant[]) => {
+      const h = createHash('sha1')
+      for (const variant of variants) {
+        const out = new Uint8Array(192 * 108)
+        createLoopRenderer(defaultLoopShape(variant), 192, 108, 24).drawPhase(0.37, out)
+        h.update(out)
+      }
+      return h.digest('hex')
     }
     // A changed renderer with an unchanged version would serve last week's
     // loops from the cache. If this fails: bump LOOP_BAKE_VERSION, then re-pin.
+    // The 1.5 loops and the E1 (1.4.287) ones are pinned apart: adding loops
+    // must not change the old ones (their cached files are named by the version).
     assert.equal(LOOP_BAKE_VERSION, 1)
-    assert.equal(h.digest('hex'), 'e69b22158846649dc90857ee6fa4866569526fd2')
+    assert.equal(pin(LOOP_VARIANTS.slice(0, 11)), 'e69b22158846649dc90857ee6fa4866569526fd2')
+    assert.equal(pin([...LOOP_VARIANTS.slice(11), 'shooting-star']), 'da18fefb1369c6ccfdb2f608939af18b1359e85c')
   })
 
   test('lightning strikes only in the slots its seed picks, and the flash decays', () => {
@@ -172,9 +179,10 @@ describe('atmosphere loops — one program for the preview and the bake', () => 
 
 describe('new effect kinds', () => {
   test('sixteen v1.5 effects are in the library, after the original thirteen', () => {
-    // 30 since 1.4.284: Living Picture, appended last.
-    assert.equal(BUILT_IN_OVERLAYS.length, 30)
-    assert.equal(BUILT_IN_OVERLAYS.at(-1)!.id, 'living-region')
+    // 30 since 1.4.284 (Living Picture), 42 since E1 (1.4.287): its twelve appended last.
+    assert.equal(BUILT_IN_OVERLAYS.length, 42)
+    assert.equal(BUILT_IN_OVERLAYS[29]!.id, 'living-region')
+    assert.equal(BUILT_IN_OVERLAYS.at(-1)!.id, 'bedtime-dimming')
     assert.equal(BUILT_IN_OVERLAYS[12]!.id, 'scrim-top')
     for (const id of ['rain', 'snow', 'lightning-flash', 'shimmer-ripple', 'ground-mist', 'cloud-shadows', 'dust-motes', 'petals',
       'fireflies', 'bokeh-orbs', 'embers', 'twinkling-stars', 'light-rays', 'bloom-glow', 'candle-flicker', 'colour-grade-look']) {

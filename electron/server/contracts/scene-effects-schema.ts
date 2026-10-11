@@ -127,6 +127,11 @@ export const SceneMotionDocumentSchema = z.object({
   spin: SceneMotionSpinSchema,
   fade: SceneMotionFadeSchema,
   focus: SceneMotionFocusSchema,
+  float: z.object({
+    amplitude_pct: z.number().min(0).max(2),
+    period_sec: z.number().min(3).max(30),
+    seed: z.number().int().min(0).max(2 ** 31 - 1),
+  }).strict().optional(),
 }).strict().superRefine((doc, ctx) => {
   if (doc.source !== 'footage') return
   // The footage engine builds ONE crop window. A zoom animates the window's
@@ -298,6 +303,7 @@ export const BloomOverlaySchema = z.object({
   threshold: unit,
   strength: unit,
   radius_px: z.number().min(1).max(80),
+  color_hex: hex.optional(),
 }).strict()
 
 export const FlickerOverlaySchema = z.object({
@@ -344,6 +350,30 @@ export const LivingRegionOverlaySchema = z.object({
   motion: z.enum(LIVING_MOTIONS),
   strength: z.number().min(0).max(3),
   speed: z.number().min(0.25).max(4),
+  outline: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'must be an outline name such as "fire" or "window"').max(40).optional(),
+}).strict()
+
+export const ShootingStarOverlaySchema = z.object({
+  kind: z.literal('shooting-star'),
+  ...overlayBase,
+  color_hex: hex,
+  opacity,
+  size: z.number().min(0.5).max(2),
+  period_sec: z.number().min(4).max(600),
+  chance: unit,
+  seed,
+  region_top: unit,
+  region_bottom: unit,
+}).strict()
+
+export const BedtimeDimmingOverlaySchema = z.object({
+  kind: z.literal('bedtime-dimming'),
+  ...overlayBase,
+  darken_pct: z.number().min(0).max(50),
+  warmth_pct: z.number().min(0).max(100),
+  desaturate_pct: z.number().min(0).max(30),
+  start_pct: z.number().min(0).max(99),
+  full_pct: z.number().min(1).max(100),
 }).strict()
 
 export const SceneOverlayDocumentSchema = z.discriminatedUnion('kind', [
@@ -361,6 +391,8 @@ export const SceneOverlayDocumentSchema = z.discriminatedUnion('kind', [
   HeatShimmerOverlaySchema,
   ColorGradeOverlaySchema,
   LivingRegionOverlaySchema,
+  ShootingStarOverlaySchema,
+  BedtimeDimmingOverlaySchema,
 ])
 
 // ── Errors ──────────────────────────────────────────────────────────────────

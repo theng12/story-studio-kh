@@ -84,11 +84,19 @@ const VISIBLE_ON_GRADIENT: Record<string, Record<string, unknown>> = {
   'candle-flicker': { amount: 0.2 },
   'shimmer-ripple': { strength_px: 16, region_top: 0, region_bottom: 1 },
   'colour-grade-look': { preset: 'noir' },
+  // E1 (1.4.287)
+  halation: { threshold: 0.3, strength: 0.8 },
+  'bloom-gentle': { threshold: 0.3, strength: 0.8 },
+  'water-shimmer': { strength_px: 16, region_top: 0, region_bottom: 1 },
+  'shooting-star': { period_sec: 4, chance: 1, size: 2 },
+  'bedtime-dimming': { darken_pct: 50, start_pct: 0, full_pct: 20 },
 }
 
 describe('every v1.5 effect changes the picture', { skip: !ffmpegAvailable && 'no bundled FFmpeg' }, () => {
   const fresh = BUILT_IN_OVERLAYS.filter(entry => LIBRARY_V1_5_KINDS.includes(entry.document.kind))
-  test('there are sixteen of them', () => assert.equal(fresh.length, 16))
+  // 16 in 1.5, then E1 (1.4.287): shooting star, aurora, moon glow, sky clouds, caustics, window
+  // drops, paper, film dust, halation, gentle bloom, surface shimmer, bedtime dimming.
+  test('there are twenty-eight of them', () => assert.equal(fresh.length, 28))
   for (const entry of fresh) {
     test(entry.id, async () => {
       const base = await preview({ overlays: [] })
@@ -97,7 +105,7 @@ describe('every v1.5 effect changes the picture', { skip: !ffmpegAvailable && 'n
       let biggest = 0
       for (const at of [0.5, 1.2, 1.9, 2.6]) biggest = Math.max(biggest, meanAbsDiff(await grey(base, at), await grey(file, at)))
       // A displacement barely moves a smooth gradient; any change proves the graph ran.
-      const floor = entry.id === 'shimmer-ripple' ? 0.1 : 0.4
+      const floor = entry.id === 'shimmer-ripple' || entry.id === 'water-shimmer' ? 0.1 : entry.id === 'shooting-star' ? 0.02 : 0.4
       assert.ok(biggest > floor, `${entry.id} changed the picture by only ${biggest.toFixed(3)} grey levels`)
     })
   }

@@ -37,7 +37,7 @@ import { mulberry32 } from '../lib/seeded-random.js'
 import { assertDecodableImage } from '../lib/image-validation.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import { assertValidMedia, getMediaInfo, summarizeMedia, fileExistsNonEmpty } from '../lib/ffmpeg-validation.js'
-import { planTransitions, buildXfadeFilterComplex, buildVariableXfadeFilterComplex } from '../lib/transition-filters.js'
+import { planTransitions, buildXfadeFilterComplex, buildVariableXfadeFilterComplex, buildEngineTransitionFilterComplex, fallbackXfadeKeywords, hasTransitionEngine } from '../lib/transition-filters.js'
 import { getTransition } from '../models/transitions.js'
 import { inspectScenePlanCoverage, COVERAGE_FAIL_SEC } from '../services/scene-planner.js'
 import { buildAnimationFilter, resolveSceneMotionDocument, supersampleMultiplier, normalizeFrame, isZoompanAnimation } from '../lib/animation-filters.js'
@@ -93,8 +93,9 @@ import { assertNoUnavailablePackOverlays, isRotationMotion, motionPoolSlots, res
 import { LIBRARY_V1_5_KINDS } from '../contracts/scene-effects.js'
 import { describeEffectStack, normalizeEffectsLook, splitLegacySlots } from '../contracts/effects-look.js'
 import { loopShapeKey } from '../contracts/effect-loops.js'
-import { bakeEffectLoop } from '../lib/effect-loop-baker.js'
+import { bakeEffectLoop, bakeTransitionMatte } from '../lib/effect-loop-baker.js'
 import {
+  emptyEpisodeEffects,
   episodeEffectsCount,
   isLowerStackGroup,
   readEpisodeEffects,
@@ -106,7 +107,7 @@ import {
 } from '../services/episode-effects.js'
 import { listSceneEffectLibrary } from '../services/style-effect-loader.js'
 import { applySceneStage, sceneClipEncodeArgs, type SceneStageItem } from '../lib/scene-stage.js'
-import { outlineMaskPath } from '../services/outline-masks.js'
+import { OUTLINE_MASK_DIR, outlineMaskPath } from '../services/outline-masks.js'
 import { requireJobCompletion, declareJobDegraded } from '../services/job-completion.js'
 import { nonRetryable } from '../services/job-retry-policy.js'
 import { EBUR128_FILTER, measureLoudness, parseEbur128Summary, type LoudnessMeasurement } from './music-episode-build.js'
@@ -2358,7 +2359,10 @@ export async function generateVideo(job: Job): Promise<void> {
   // 1.4.284 — living pictures and outlined effects are drawn per scene clip, so
   // they are read before the fingerprint: a changed outline re-renders its clip.
   const sceneStage = sceneEffectLibrary
-    ? await readSceneStageForRender(episodeDir, sceneEffectLibrary.overlays, job)
+    ? await readSceneStageForRender(episodeDir, sceneEffectLibrary.overlays, job, {
+        scenes: planCoverageScenes.map(scene => ({ scene_id: scene.id, theme: scene.theme })),
+        projectLook: req.scene_effects?.enabled && Array.isArray(req.scene_effects.overlays) ? req.scene_effects.overlays : [],
+      })
     : null
   // Reveal effects: one plan for the episode, resolved before the fingerprint so a changed reveal
   // re-renders and an unchanged one reuses its clips. Duration comes from the plan, which is why it
@@ -4357,7 +4361,7 @@ export async function prepareSceneClips(
       let detail = ''
       try {
         const nativeRender = animationOpts?.native?.render ?? renderNativeSceneClip
-        const motionDocument = resolveSceneMotionDocument({ type: pickedType, params: sceneAnimation, library: motionLibrary })
+        const motionDocument = resolveSceneMotionDocument({ type: pickedType, params: sceneAnimation, library: motionLibrary, sceneIndex: i })
         const outcome = await nativeRender({
           imagePath: scene.image_path,
           outPath: clipPath,
@@ -4399,6 +4403,7 @@ export async function prepareSceneClips(
           type: pickedType,
           params: sceneAnimation,
           library: motionLibrary,
+          sceneIndex: i,
           w, h,
           fps: quality.fps,
           // Pace Ken Burns over the FULL rendered length (window + xfade
@@ -5373,6 +5378,24 @@ async function buildConcatList(
       (chunks.length > 1 ? ` in ${chunks.length} chunks of ≤${XFADE_CHUNK_SIZE} (${xfadeHardCuts} hard cuts)` : '')
     )
 
+    // E1 — ink / watercolour bleed mattes, baked once per episode at the transition length. A bake
+    // that fails makes those boundaries plain crossfades (said once), never a failed render.
+    const mattes = new Map<string, string | null>()
+    for (const id of new Set(plan.ids ?? [])) {
+      const bleed = getTransition(id)?.bleed
+      if (!bleed || mattes.has(bleed)) continue
+      try {
+        mattes.set(bleed, await bakeTransitionMatte(bleed, w, h, quality.fps, plan.durationSec))
+      } catch (error: any) {
+        mattes.set(bleed, null)
+        job.output_lines.push(`Transitions: the ${bleed} bleed could not be prepared (${String(error?.message || error).split('\n')[0]}); those scene changes are plain crossfades.`)
+      }
+    }
+    if (plan.ids) {
+      const used = [...new Set(plan.ids)].filter(id => getTransition(id)?.engine).map(id => getTransition(id)!.label)
+      job.output_lines.push(`Transitions drawn by Story's own engine: ${used.join(', ')}.`)
+    }
+
     // Walk the global plan, slicing out (chunk.length - 1) keywords per chunk.
     // The 1 keyword between each pair of chunks is consumed by the hard cut
     // at the chunk boundary — not rendered, just skipped in the pointer.
@@ -5412,26 +5435,54 @@ async function buildConcatList(
           ? chunk.map(o => o.duration + plan.durationSec)
           : chunk.map(o => o.duration)
         const variableDurations = planStrict || chunkDurations.some(d => Math.abs(d - sceneDuration) > 0.01)
-        const filter = variableDurations
+        const idsForChunk = plan.ids?.slice(keywordCursor, keywordCursor + internalBoundaries)
+        const plainFilter = (keywords: string[]) => variableDurations
           ? buildVariableXfadeFilterComplex({
               inputDurations: chunkDurations,
               transitionDuration: plan.durationSec,
-              xfadeKeywords: keywordsForChunk,
+              xfadeKeywords: keywords,
             })
           : buildXfadeFilterComplex({
               inputCount: chunk.length,
               clipDuration: sceneDuration,
               transitionDuration: plan.durationSec,
-              xfadeKeywords: keywordsForChunk,
+              xfadeKeywords: keywords,
             })
-        const args: string[] = ['-y']
-        for (const clip of chunk) args.push('-i', clip.path)
-        args.push('-filter_complex', filter)
-        args.push('-map', '[vout]')
-        if (planStrict) args.push('-t', chunkWindowSum.toFixed(3))
-        args.push('-c:v', 'libx264', '-crf', quality.crf.toString(), '-preset', 'ultrafast')
-        args.push('-r', quality.fps.toString(), '-fps_mode', 'cfr', '-pix_fmt', 'yuv420p', '-an', chunkPath)
-        await runFfmpeg(args)
+        const runChunk = async (filter: string, extraInputs: string[]) => {
+          const args: string[] = ['-y']
+          for (const clip of chunk) args.push('-i', clip.path)
+          for (const extra of extraInputs) args.push('-i', extra)
+          args.push('-filter_complex', filter)
+          args.push('-map', '[vout]')
+          if (planStrict) args.push('-t', chunkWindowSum.toFixed(3))
+          args.push('-c:v', 'libx264', '-crf', quality.crf.toString(), '-preset', 'ultrafast')
+          args.push('-r', quality.fps.toString(), '-fps_mode', 'cfr', '-pix_fmt', 'yuv420p', '-an', chunkPath)
+          await runFfmpeg(args)
+        }
+        if (idsForChunk && hasTransitionEngine(idsForChunk)) {
+          // E1 — soft blur dissolve, dip to black, ink / watercolour bleed. If FFmpeg refuses the
+          // graph or the chunk does not validate, this chunk is drawn again with plain crossfades.
+          const extra: string[] = []
+          const matteInput = (b: number): string | null => {
+            const file = mattes.get(getTransition(idsForChunk[b]!)?.bleed ?? '') ?? null
+            if (!file) return null
+            extra.push(file)
+            return `[${chunk.length + extra.length - 1}:v]`
+          }
+          try {
+            await runChunk(buildEngineTransitionFilterComplex({
+              inputDurations: chunkDurations, transitionDuration: plan.durationSec, ids: idsForChunk,
+              width: w, height: h, fps: quality.fps, matteInput,
+            }), extra)
+            await assertValidMedia(chunkPath, { label: path.basename(chunkPath), requireVideo: true, minDurationSec: 1 })
+          } catch (error: any) {
+            job.output_lines.push(`Transitions: chunk ${c + 1} could not be drawn with its ${[...new Set(idsForChunk.filter(id => getTransition(id)?.engine).map(id => getTransition(id)!.label))].join(' / ')} `
+              + `(${String(error?.message || error).split('\n').slice(-1)[0]}); it uses plain crossfades instead.`)
+            await runChunk(plainFilter(fallbackXfadeKeywords(idsForChunk)), [])
+          }
+        } else {
+          await runChunk(plainFilter(keywordsForChunk), [])
+        }
       }
 
       // Cheap pre-flight: if a chunk came out empty, fail loudly here
@@ -5874,10 +5925,14 @@ async function readSceneStageForRender(
   episodeDir: string,
   library: Parameters<typeof resolveSceneStage>[1],
   job: Job,
+  wide: Pick<NonNullable<Parameters<typeof resolveSceneStage>[2]>, 'scenes' | 'projectLook'> = {},
 ): Promise<{ byScene: Map<string, SceneStageItem[]>; fingerprint: unknown[] }> {
   let file
-  try { file = await readEpisodeEffects(episodeDir) } catch { return { byScene: new Map(), fingerprint: [] } }
-  const byScene = resolveSceneStage(file, library)
+  try { file = await readEpisodeEffects(episodeDir) } catch { file = emptyEpisodeEffects() }
+  const notes: string[] = []
+  const outlines = (await fs.readdir(path.join(episodeDir, OUTLINE_MASK_DIR)).catch(() => [] as string[])).filter(name => name.endsWith('.png'))
+  const byScene = resolveSceneStage(file, library, { ...wide, outlines, notes })
+  job.output_lines.push(...notes)
   const fingerprint: unknown[] = []
   for (const [sceneId, items] of byScene) {
     job.output_lines.push(`Living pictures: scene ${sceneId} draws ${items.map(item => item.name).join(', ')} inside its outline.`)
@@ -6138,8 +6193,10 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     }
   }
   const stackGate = buildGateExpression(startSec, endSec)
-  const lowerStack = stackEntries.filter(entry => episodeStack!.custom_order || isLowerStackGroup(entry.group))
-  const upperStack = stackEntries.filter(entry => !lowerStack.includes(entry))
+  // E1 — bedtime dimming has a fixed place of its own (below), whatever the stack order.
+  const dimming = stackEntries.filter(entry => entry.document.kind === 'bedtime-dimming')
+  const lowerStack = stackEntries.filter(entry => !dimming.includes(entry) && (episodeStack!.custom_order || isLowerStackGroup(entry.group)))
+  const upperStack = stackEntries.filter(entry => !dimming.includes(entry) && !lowerStack.includes(entry))
 
   // ═══════════════════════════════════════════════════════════════════════
   //  VIDEO FILTER CHAIN (video-only — audio is pre-mixed)
@@ -6361,6 +6418,27 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     }
   }
 
+  // 7b. E1 — bedtime dimming: after the effects and the lens, before the frame, captions, cues and
+  // logo, so rain and stars dim with the picture and the captions stay readable. It ramps across
+  // the story (after the intro when the effects skip it) and holds through the outro and tail.
+  for (const entry of dimming) {
+    const story = { start: startSec, end: endSec > 0 ? endSec : targetDuration }
+    if (story.end - story.start < 600) {
+      job.output_lines.push(`Bedtime dimming skipped: the story runs ${Math.round(story.end - story.start)} s, too short for bedtime dimming (it needs 10 minutes).`)
+      continue
+    }
+    const next = vn()
+    const statements = compileSceneOverlay(entry.document, {
+      input: vLabel, output: next, allocLabel: vn, w, h, duration: targetDuration, fps: quality.fps, timeline: story,
+    })
+    if (!statements) continue
+    filterParts.push(...statements)
+    vLabel = next
+    const d = entry.document as Extract<typeof entry.document, { kind: 'bedtime-dimming' }>
+    job.output_lines.push(`Bedtime dimming: ${d.darken_pct}% darker and ${d.warmth_pct}% warmer, from ${d.start_pct}% to ${d.full_pct}% of the story `
+      + `(${(story.start + (story.end - story.start) * d.start_pct / 100).toFixed(0)}s–${(story.start + (story.end - story.start) * d.full_pct / 100).toFixed(0)}s).`)
+  }
+
   // 6a. Presentation frame. Applied after grading/letterbox so the matte and
   // border retain their chosen colours; subtitles and logo remain inside the
   // framed composition and are added immediately below.
@@ -6406,6 +6484,8 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
       // v1.5 kinds from this list were placed in the Effects Library stack
       // above (in their layer group); older kinds keep their place here.
       if (LIBRARY_V1_5_KINDS.includes(overlay.document.kind)) continue
+      // A living picture is drawn on each scene clip that has its outline (prepareSceneClips).
+      if (overlay.document.kind === 'living-region') continue
       const next = vn()
       const statements = compileSceneOverlay(overlay.document, {
         input: vLabel,

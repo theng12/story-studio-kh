@@ -27,13 +27,17 @@
 import {
   SCENE_EFFECT_REFERENCE_HEIGHT,
   atmosphereLoopShape,
+  floatOffset,
+  shootingStarShape,
+  type BedtimeDimmingOverlay,
+  type ShootingStarOverlay,
   type AtmosphereLoopOverlay,
   type LivingRegionOverlay,
   type OverlayAnchor,
   type SceneMotionDocument,
   type SceneOverlayDocument,
 } from '../contracts/scene-effects.js'
-import type { LoopShape } from '../contracts/effect-loops.js'
+import { loopBakeSize, loopFrameCount, type LoopShape } from '../contracts/effect-loops.js'
 import { buildColorGradingFilters } from './color-grade.js'
 import { escapeFilterArgValue, escapeFilterPath } from './ffmpeg-utils.js'
 
@@ -171,12 +175,14 @@ function compileStillMotion(doc: SceneMotionDocument, opts: MotionCompileOpts): 
       : (magnitude: number) => ((magnitude * ss) / fps).toFixed(6)
     const panX = doc.pan.mode === 'rate' ? doc.pan.x : 0
     const panY = doc.pan.mode === 'rate' ? doc.pan.y : 0
+    // E1 — handheld float, in source pixels of the prepared canvas (`iw`), clock = on/fps.
+    const drift = doc.float ? floatExpressions(doc.float, fps) : { x: '', y: '' }
 
     return [
       ...prelude,
       `zoompan=z=${zoomTerm}`
-        + `:x='floor(iw/2-(iw/zoom/2)${signedTerm(panX, renderRate)})'`
-        + `:y='floor(ih/2-(ih/zoom/2)${signedTerm(panY, renderRate)})'`
+        + `:x='floor(iw/2-(iw/zoom/2)${signedTerm(panX, renderRate)}${drift.x})'`
+        + `:y='floor(ih/2-(ih/zoom/2)${signedTerm(panY, renderRate)}${drift.y})'`
         + `:d=${frames}:s=${sw}x${sh}:fps=${fps}`,
       `scale=${w}:${h}:flags=lanczos`,
       'setsar=1',
@@ -185,6 +191,19 @@ function compileStillMotion(doc: SceneMotionDocument, opts: MotionCompileOpts): 
 
   // 3. No camera at all: fit, pad, then whatever post-processing is declared.
   return [...prelude, 'setsar=1', ...focusTokens(doc, duration), ...fadeTokens(doc, duration)]
+}
+
+/**
+ * `floatOffset()` as zoompan terms: `+iw*(…)` for x, `+ih*(…)` for y. The phases are computed here
+ * (they depend only on the seed), so FFmpeg evaluates three sines per axis per frame.
+ */
+function floatExpressions(float: NonNullable<SceneMotionDocument['float']>, fps: number): { x: string; y: string } {
+  const a = float.amplitude_pct / 100
+  const p = float.period_sec
+  const ph = (i: number) => (Math.sin((float.seed + 1) * 12.9898 + i * 78.233) * 43758.5453) % (Math.PI * 2)
+  const wave = (o: number) => [[0.5, 1], [0.3, 1.618], [0.2, 2.414]]
+    .map(([w, m], i) => `${w}*sin(2*PI*on/${fps}/${(m! * p).toFixed(4)}+${ph(o + i).toFixed(6)})`).join('+')
+  return { x: `+iw*${a.toFixed(5)}*(${wave(0)})`, y: `+ih*${a.toFixed(5)}*(${wave(3)})` }
 }
 
 /**
@@ -313,6 +332,11 @@ export interface OverlayCompileOpts {
    * compiling — the compiler itself never touches the filesystem.
    */
   loopInput?: (shape: LoopShape) => string | null
+  /**
+   * E1 — where the story runs, seconds (after the intro, until the post-audio tail). Bedtime
+   * dimming ramps across it. Absent = the whole stream.
+   */
+  timeline?: { start: number; end: number }
 }
 
 /**
@@ -320,6 +344,7 @@ export interface OverlayCompileOpts {
  * is a plain filter.
  */
 export function overlayLoopShapes(doc: SceneOverlayDocument): LoopShape[] {
+  if (doc.kind === 'shooting-star') return [shootingStarShape(doc)]
   if (doc.kind !== 'atmosphere-loop') return []
   if (doc.secondary_color_hex && doc.secondary_color_hex !== doc.color_hex) {
     return [atmosphereLoopShape(doc, 1), atmosphereLoopShape(doc, 2)]
@@ -333,7 +358,7 @@ function hasFades(doc: SceneOverlayDocument): boolean {
 }
 
 /** Kinds that fade natively — through their own alpha or their own expression. */
-const NATIVE_FADE_KINDS = new Set<SceneOverlayDocument['kind']>(['atmosphere-loop', 'flicker', 'lightning', 'lower-third'])
+const NATIVE_FADE_KINDS = new Set<SceneOverlayDocument['kind']>(['atmosphere-loop', 'flicker', 'lightning', 'lower-third', 'shooting-star', 'bedtime-dimming'])
 
 /**
  * Compile one overlay into filtergraph STATEMENTS.
@@ -433,6 +458,7 @@ export function compileSceneOverlay(doc: SceneOverlayDocument, opts: OverlayComp
       return compileAtmosphereLoop(doc, opts)
 
     case 'bloom': {
+      if (doc.color_hex) return compileTintedBloom(doc as Extract<SceneOverlayDocument, { kind: 'bloom' }> & { color_hex: string }, opts)
       // Luma-only screen blend of the blurred highlights. Screen is an RGB idea,
       // and in YUV it would tint the chroma planes (see light-leak); applied to
       // the luma plane only, with the chroma opacities at zero, the glow stays
@@ -481,8 +507,111 @@ export function compileSceneOverlay(doc: SceneOverlayDocument, opts: OverlayComp
     // outline), never on the composed timeline.
     case 'living-region':
       return null
+
+    case 'shooting-star':
+      return compileShootingStar(doc, opts)
+
+    case 'bedtime-dimming':
+      return compileBedtimeDimming(doc, opts)
   }
 }
+
+// ── E1 (1.4.287) ────────────────────────────────────────────────────────────
+
+/**
+ * Halation: the blurred highlights become the alpha of a flat colour layer laid over the picture.
+ * A tinted glow needs colour, so it cannot ride the luma plane the way the plain bloom does.
+ */
+function compileTintedBloom(doc: Extract<SceneOverlayDocument, { kind: 'bloom' }> & { color_hex: string }, opts: OverlayCompileOpts): string[] | null {
+  if (doc.strength <= 0) return null
+  const enable = overlayEnableSuffix(doc, opts)
+  const a = opts.allocLabel(), b = opts.allocLabel(), glow = opts.allocLabel(), tint = opts.allocLabel(), layer = opts.allocLabel()
+  const t = Math.round(doc.threshold * 254)
+  const sigma = Math.max(0.5, scaleReferencePx(doc.radius_px, opts.h) / 2)
+  return [
+    `${opts.input}split=2${a}${b}`,
+    `${b}lutyuv=y=${escapeFilterArgValue(`if(gt(val,${t}),(val-${t})*255/${255 - t},0)`)},gblur=sigma=${sigma.toFixed(2)}:planes=1,`
+      + `extractplanes=y,lut=c0=${escapeFilterArgValue(`min(255,val*${(doc.strength * 2).toFixed(4)})`)}${glow}`,
+    `color=c=${ffColor(doc.color_hex)}:s=${opts.w}x${opts.h}:r=${opts.fps || 24}${tint}`,
+    `${tint}${glow}alphamerge${layer}`,
+    `${a}${layer}overlay=0:0:shortest=1${enable}${opts.output}`,
+  ]
+}
+
+/**
+ * `shootingStarAt()` from `contracts/effect-loops.ts` as FFmpeg expressions: the baked streak
+ * sprite loops every life (L s) and is switched on only for the life of a star, which always starts
+ * on a multiple of L, so the sprite is at its first frame when it appears. x and y place its box at
+ * the slot's hashed spot in the sky band.
+ */
+export function shootingStarExpressions(doc: ShootingStarOverlay, w: number, h: number, fps: number): { enable: string; x: string; y: string; life: number } {
+  const shape = shootingStarShape(doc)
+  const box = loopBakeSize(shape, w, h)
+  const life = loopFrameCount(shape, fps) / fps
+  const p = doc.period_sec.toFixed(4)
+  const s = (doc.seed * 78.233).toFixed(4)
+  const hash = (offset: string, v: number) => `st(${v},sin((ld(0)${offset})*12.9898+${s})*43758.5453);st(${v},ld(${v})-floor(ld(${v})))`
+  const L = life.toFixed(6)
+  const enable = `(st(0,floor(t/${p}));${hash('', 1)};${hash('+0.25', 2)};`
+    + `st(3,${L}*floor((ld(0)*${p}+${p}*(0.1+0.75*ld(2)))/${L}));`
+    + `lt(ld(1),${doc.chance.toFixed(4)})*gte(t,ld(3))*lt(t,ld(3)+${L}))`
+  const top = doc.region_top * h
+  const room = Math.max(0, (doc.region_bottom - doc.region_top) * h - box.h)
+  const x = `(st(0,floor(t/${p}));${hash('+0.5', 1)};ld(1)*${Math.max(0, w - box.w)})`
+  const y = `(st(0,floor(t/${p}));${hash('+0.75', 1)};${top.toFixed(2)}+ld(1)*${room.toFixed(2)})`
+  return { enable, x, y, life }
+}
+
+function compileShootingStar(doc: ShootingStarOverlay, opts: OverlayCompileOpts): string[] | null {
+  if (doc.opacity <= 0 || doc.chance <= 0) return null
+  const sprite = opts.loopInput?.(shootingStarShape(doc)) ?? null
+  if (!sprite) return null
+  const fps = opts.fps || 24
+  const { enable, x, y } = shootingStarExpressions(doc, opts.w, opts.h, fps)
+  const box = loopBakeSize(shootingStarShape(doc), opts.w, opts.h)
+  const window = overlayEnableExpression(doc, opts)
+  const mask = opts.allocLabel(), tint = opts.allocLabel(), layer = opts.allocLabel()
+  const gain = doc.opacity < 0.999 ? `,lut=c0=${escapeFilterArgValue(`val*${doc.opacity.toFixed(4)}`)}` : ''
+  return [
+    `${sprite}format=gray,setsar=1${gain}${mask}`,
+    `color=c=${ffColor(doc.color_hex)}:s=${box.w}x${box.h}:r=${fps}${tint}`,
+    `${tint}${mask}alphamerge${layer}`,
+    `${opts.input}${layer}overlay=x=${escapeFilterArgValue(x)}:y=${escapeFilterArgValue(y)}:eval=frame:shortest=1`
+      + `:enable=${escapeFilterArgValue(window ? `${enable}*${window}` : enable)}${opts.output}`,
+  ]
+}
+
+/**
+ * Bedtime dimming. K(t) eases 0→1 (smoothstep) from `start_pct` to `full_pct` of the story
+ * timeline (`opts.timeline`, else the whole stream) and holds at 1 after it. At K = 1:
+ *   - darker by `darken_pct`: contrast 1−d with brightness −0.437·d scales the picture's luma above
+ *     video black (16) by exactly (1−d) — eq pivots on code 127.5, so the brightness term moves
+ *     that pivot down to 16;
+ *   - warmer: gamma_r up and gamma_b down (eq applies them to the chroma planes; 40% ≈ 6500 K → 4500 K);
+ *   - less colour: saturation 1−c.
+ * Every term is an expression of `t`, so a segmented resume renders the same frames.
+ */
+function compileBedtimeDimming(doc: BedtimeDimmingOverlay, opts: OverlayCompileOpts): string[] | null {
+  const d = doc.darken_pct / 100, c = doc.desaturate_pct / 100, w = (doc.warmth_pct / 100) * DIMMING_WARMTH_GAMMA
+  if (d <= 0 && c <= 0 && w <= 0) return null
+  const span = opts.timeline ?? { start: 0, end: opts.duration }
+  const length = Math.max(0.001, span.end - span.start)
+  const from = span.start + length * doc.start_pct / 100
+  const to = span.start + length * doc.full_pct / 100
+  const K = `(st(0,clip((t-${from.toFixed(3)})/${Math.max(0.001, to - from).toFixed(3)},0,1));ld(0)*ld(0)*(3-2*ld(0)))`
+  const terms = [
+    ...(d > 0 ? [`contrast=${escapeFilterArgValue(`1-${d.toFixed(4)}*${K}`)}`, `brightness=${escapeFilterArgValue(`-${(d * DIMMING_BRIGHTNESS_PER_DARKEN).toFixed(4)}*${K}`)}`] : []),
+    ...(c > 0 ? [`saturation=${escapeFilterArgValue(`1-${c.toFixed(4)}*${K}`)}`] : []),
+    ...(w > 0 ? [`gamma_r=${escapeFilterArgValue(`1+${w.toFixed(4)}*${K}`)}`, `gamma_b=${escapeFilterArgValue(`1-${w.toFixed(4)}*${K}`)}`] : []),
+  ]
+  return [`${opts.input}eq=${terms.join(':')}:eval=frame${overlayEnableSuffix(doc, opts)}${opts.output}`]
+}
+
+/** (127.5 − 16) / 255: eq's brightness that, with contrast 1−d, scales tv-range luma about black. */
+export const DIMMING_BRIGHTNESS_PER_DARKEN = 111.5 / 255
+
+/** eq gamma per unit of warmth: gamma_r 1.3 / gamma_b 0.7 measured as roughly a 6500 K → 4500 K shift on grey. */
+export const DIMMING_WARMTH_GAMMA = 0.75
 
 // ── Living pictures (1.4.284) ───────────────────────────────────────────────
 
@@ -499,7 +628,19 @@ function livingTerms(doc: LivingRegionOverlay): { x: string[]; y: string[]; brig
   const t = (rate: number) => `t*${(rate * v).toFixed(4)}`
   const wave = (amp: number, phase: string) => `${(amp * s).toFixed(3)}*sin(2*PI*(${phase}))`
   const flicker = `(0.09*sin(2*PI*${t(3.1)})+0.05*sin(2*PI*${t(7.7)}+1)+0.04*sin(2*PI*${t(13.3)}+2))`
+  // The fire pit's slower flicker (mk2.sh `FF`).
+  const fireFlicker = `(0.08*sin(2*PI*${t(2.3)})+0.06*sin(2*PI*${t(5.9)}+1)+0.04*sin(2*PI*${t(11.1)}+2))`
   switch (doc.motion) {
+    case 'fire':
+      // mk2.sh's fire section: a coarser ripple (Y/16, Y/29) with an X/13 cross term, so a fire pit
+      // never gets the candle's fine zig-zag shimmer on the wall inside its outline.
+      return {
+        x: [wave(5, `Y/16-${T(2.8)}`), wave(3, `Y/29+${T(1.7)}`)],
+        y: [wave(7, `X/13+${T(2.2)}`), wave(5, `Y/20-${T(3.6)}`)],
+        bright: `${(1.2 * s).toFixed(3)}*${fireFlicker}`, sat: '',
+      }
+    case 'fire-glow':
+      return { x: [], y: [], bright: `${(0.5 * s).toFixed(3)}*${fireFlicker}`, sat: '' }
     case 'flame':
       return {
         x: [wave(3, `Y/12-${T(3.2)}`), wave(2, `Y/21+${T(2.1)}`)],

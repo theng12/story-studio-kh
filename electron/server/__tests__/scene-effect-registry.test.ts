@@ -87,7 +87,8 @@ describe('v1.1.0 scene animations are reproduced byte for byte', () => {
   })
 
   test('the fixture covers every animation the catalogue offers', () => {
-    for (const def of ANIMATIONS) {
+    // E1 (1.4.287) moves are newer than v1.1.0; `effects-e1.test.ts` pins their output.
+    for (const def of ANIMATIONS.filter(a => !['float', 'float-gentle'].includes(a.id))) {
       assert.ok(
         Object.keys(golden.animations).some(k => k.startsWith(`${def.id}|`)),
         `animation "${def.id}" has no pinned output — capture it before shipping it`,
@@ -186,8 +187,9 @@ describe('v1.1.0 ad-hoc effects are reproduced byte for byte', () => {
 
 describe('the registry drives the catalogues, not a second list', () => {
   test('every animation id, label and category still resolves', () => {
-    assert.equal(ANIMATIONS.length, 24)
-    assert.equal(BUILT_IN_SCENE_MOTIONS.length, 24)
+    // 24, plus E1's two handheld floats (1.4.287).
+    assert.equal(ANIMATIONS.length, 26)
+    assert.equal(BUILT_IN_SCENE_MOTIONS.length, 26)
     for (const m of BUILT_IN_SCENE_MOTIONS) {
       const def = getAnimation(m.id)
       assert.ok(def, `${m.id} missing from the catalogue`)
@@ -206,7 +208,7 @@ describe('the registry drives the catalogues, not a second list', () => {
     // The eighteen the hand-kept Set used to name, and nothing else.
     const zoompan = ANIMATIONS.filter(a => isZoompanAnimation(a.id)).map(a => a.id).sort()
     assert.deepEqual(zoompan, [
-      'breathe', 'dolly-in', 'ken-burns', 'ken-burns-reverse', 'pan-diag-bl', 'pan-diag-br',
+      'breathe', 'dolly-in', 'float', 'float-gentle', 'ken-burns', 'ken-burns-reverse', 'pan-diag-bl', 'pan-diag-br',
       'pan-diag-tl', 'pan-diag-tr', 'pan-down', 'pan-left', 'pan-right', 'pan-up',
       'parallax-drift', 'pulse', 'slow-pull', 'slow-push', 'zoom-in', 'zoom-out',
     ])
@@ -483,10 +485,10 @@ describe('documents normalise leniently and validate strictly', () => {
 
   test('the catalogue payload carries everything the pickers need', () => {
     const catalog = sceneEffectCatalog()
-    assert.equal(catalog.scene_motions.length, 24)
+    assert.equal(catalog.scene_motions.length, 26)
     assert.equal(catalog.footage_motions.length, 7)
     // Thirteen starter overlays, the sixteen v1.5 Effects Library effects and Living Picture (1.4.284).
-    assert.equal(catalog.overlays.length, 30)
+    assert.equal(catalog.overlays.length, 42)
     assert.ok(catalog.effect_stacks.length >= 3)
     assert.ok(catalog.grouped_overlays.length >= 4)
     assert.equal(

@@ -91,10 +91,10 @@
             </button>
           </div>
         </template>
-        <div v-if="!sections.length && library.length && activeTab !== 'motions'" class="fx-empty">No effect matches “{{ search }}”.</div>
+        <div v-if="!sections.length && library.length && activeTab !== 'motions' && activeTab !== 'transitions'" class="fx-empty">No effect matches “{{ search }}”.</div>
         <template v-if="activeTab === 'motions'">
           <p class="hint">How each scene picture moves. Pick them in Video Assembly → Scene Animation; these clips only show them.</p>
-          <div class="fx-cat">Zoom in · Zoom out · Breathe</div>
+          <div class="fx-cat">{{ motionFamilies.map(f => f.name).join(' · ') }}</div>
           <div v-for="family in motionFamilies" :key="family.key" class="fx-family">
             <div class="fx-family-head"><b>{{ family.name }}</b> <small>{{ family.description }}</small></div>
             <div class="fx-grid">
@@ -123,6 +123,27 @@
               </div>
             </div>
           </template>
+        </template>
+        <template v-if="activeTab === 'transitions'">
+          <p class="hint">How one scene turns into the next. Pick them in Video Assembly → Transitions; these clips only show them. Click a card for the exact preview over this episode's scene and the next.</p>
+          <div v-for="group in transitionGroups" :key="group.label">
+            <div class="fx-cat">{{ group.label }}</div>
+            <div class="fx-grid">
+              <button v-for="tr in group.items" :key="tr.id" type="button" class="fx-card fx-motion" :class="{ sel: exactTransition === tr.id }" :title="tr.hint" @click="renderExactTransition(tr.id)">
+                <div class="fx-im">
+                  <GalleryClip :src="transitionClipUrl(tr.id)">
+                    <EffectThumb :doc="null" :image="sceneImage" />
+                  </GalleryClip>
+                  <span v-if="tr.engine" class="fx-badge">Story engine</span>
+                </div>
+                <div class="fx-tx"><b>{{ tr.label }}</b><small>{{ tr.hint || '' }}</small></div>
+              </button>
+            </div>
+          </div>
+          <div v-if="exactTransitionUrl" class="fx-exact">
+            <video :src="exactTransitionUrl" autoplay loop muted playsinline controls />
+            <span class="hint">{{ exactTransitionInfo }}</span>
+          </div>
         </template>
         <div v-if="showCamera" class="fx-cat">Camera</div>
         <div v-if="showCamera" class="fx-grid">
@@ -207,9 +228,17 @@
                     <option v-for="name in outlines" :key="name" :value="name">{{ name }}</option>
                   </select>
                   <label class="btn btn-sm btn-ghost">Upload…<input type="file" accept="image/png,image/jpeg" hidden @change="uploadOutline" /></label>
+                  <button type="button" class="btn btn-sm btn-ghost" :disabled="!targetScene.has_image" @click="drawing = !drawing">{{ drawing ? 'Close Drawing' : 'Draw…' }}</button>
                 </span>
                 <b />
               </div>
+              <OutlineDrawer
+                v-if="targetScene && drawing"
+                :image-url="sceneImageUrl(targetScene.id)"
+                :saving="savingOutline"
+                @save="saveDrawnOutline"
+                @cancel="drawing = false"
+              />
               <template v-if="showFades">
                 <div class="fx-param">
                   <span class="fx-param-label">Fade in</span>
@@ -520,6 +549,29 @@ function setParam(key: string, value: unknown): void {
 
 // ── Outlines (living pictures, effects kept inside one part of a scene) ─────
 const outlines = ref<string[]>([])
+// E1 (1.4.287) — the outline drawing tool.
+const drawing = ref(false)
+const savingOutline = ref(false)
+function sceneImageUrl(sceneId: string): string {
+  return `/api/projects/${encodeURIComponent(slug.value)}/scene-review/${encodeURIComponent(episodeId.value)}/image/${encodeURIComponent(sceneId)}`
+}
+async function saveDrawnOutline(payload: { label: string; shapes: unknown[]; feather_px: number }): Promise<void> {
+  if (!targetScene.value || !episodeId.value) return
+  savingOutline.value = true
+  try {
+    const result = await post(`/projects/${slug.value}/effects-library/${episodeId.value}/outlines`, {
+      scene_id: targetScene.value.id, label: payload.label, shapes: payload.shapes, feather_px: payload.feather_px,
+    })
+    if (!outlines.value.includes(result.mask)) outlines.value = [...outlines.value, result.mask].sort()
+    setOutline(result.mask)
+    drawing.value = false
+    success(`Outline ${result.mask} saved.`)
+  } catch (e: any) {
+    showError(e?.data?.detail || 'The outline could not be saved.')
+  } finally {
+    savingOutline.value = false
+  }
+}
 const outlineValue = computed(() => (selectedDoc.value as any)?.region?.mask || '')
 function setOutline(name: string): void {
   setParam('region', name ? { mask: name } : undefined)
@@ -819,6 +871,39 @@ async function refreshPreviews(): Promise<void> {
   }
 }
 
+// ── Transitions (E1, 1.4.287) ─────────────────────────────────────────────────
+interface TransitionEntry { id: string; label: string; category: string; hint?: string; engine?: string }
+const transitions = ref<TransitionEntry[]>([])
+const TRANSITION_GROUPS: Record<string, string> = { fade: 'Fades', wipe: 'Wipes', slide: 'Slides', shape: 'Shapes', effect: 'Effects' }
+const transitionGroups = computed(() => Object.entries(TRANSITION_GROUPS)
+  .map(([key, label]) => ({ label, items: transitions.value.filter(t => t.category === key && (!search.value.trim() || t.label.toLowerCase().includes(search.value.trim().toLowerCase()))) }))
+  .filter(group => group.items.length))
+function transitionClipUrl(id: string): string {
+  const ep = episodeId.value ? `&episode=${encodeURIComponent(episodeId.value)}` : ''
+  return `/api/projects/${encodeURIComponent(slug.value)}/video-editor/preview-transition?type=${encodeURIComponent(id)}&duration=1.50${ep}&g=${galleryNonce.value}`
+}
+const exactTransition = ref('')
+const exactTransitionUrl = ref('')
+const exactTransitionInfo = ref('')
+async function renderExactTransition(id: string): Promise<void> {
+  if (!episodeId.value) { showError('Pick an episode above first — the exact preview uses two of its scenes.'); return }
+  exactTransition.value = id
+  exactTransitionInfo.value = 'Rendering…'
+  try {
+    const result = await post(`/projects/${slug.value}/effects-library/${episodeId.value}/exact-preview`, {
+      transition_id: id, scene_id: previewSceneId.value || undefined, motion_id: 'ken-burns',
+    })
+    exactTransitionUrl.value = result.url
+    exactTransitionInfo.value = `Rendered in ${(result.render_ms / 1000).toFixed(1)} s · ${result.width}×${result.height}, ${result.duration_sec} s · this scene into the next, through the render's own transition builder.`
+  } catch (e: any) {
+    exactTransitionInfo.value = ''
+    showError(e?.data?.detail || 'The exact preview could not be rendered.')
+  }
+}
+async function loadTransitions(): Promise<void> {
+  try { transitions.value = (await get(`/projects/${slug.value}/video-editor/transitions/catalog`)).transitions || [] } catch { /* the gallery's other tabs still work */ }
+}
+
 async function loadInUse(): Promise<void> {
   try { inUse.value = await get(`/projects/${slug.value}/effects-library-in-use`) } catch { /* badges are a convenience */ }
 }
@@ -889,6 +974,7 @@ onMounted(() => {
   stackPresets.load()
   loadLibraryOnly()
   loadInUse()
+  loadTransitions()
   if (episodeId.value) load()
 })
 onBeforeUnmount(() => {
