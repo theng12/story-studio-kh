@@ -875,3 +875,69 @@ test('expiry after a confirm was attempted reconciles its key before retiring an
   assert.equal((await f.run()).srt, srt)
   assert.equal(f.confirmations.length, 1, 'the key lookup must discover the already-created task')
 })
+
+// 1.4.279 — KH Boundless EP0100 (Whisper turbo on the free fleet): every section stopped on
+// "No fresh replacement was authorized". Free fleet work never goes through the paid rules.
+const fleetModel = 'studio-hub::mlx-community/whisper-large-v3-turbo'
+const fleetRun = (f: Awaited<ReturnType<typeof fixture>>, section = 'Chapter_01') => f.run(section, {
+  request: { audioPath: f.audioPath, modelId: fleetModel, requestIdentity: `episode:${section}`, wordTimestamps: true },
+})
+
+test('free fleet: a dead saved task gets a fresh free request while paid replacement is Off', async t => {
+  const f = await fixture(t)  // the saved task failed with credits settled: paid work blocks here ("Off")
+  assert.equal((await fleetRun(f)).srt, srt)
+  assert.equal(f.confirmations.length, 1)
+  assert.notEqual(f.confirmations[0], 'original-Chapter_01-confirm')
+  const ledger = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
+  assert.equal(Object.values(ledger.plans).flatMap((p: any) => p.attempts).length, 0, 'no paid commitment')
+  assert.match(f.job.output_lines.join('\n'), /asking again, free on your own Macs/)
+})
+
+test('free fleet: a saved task the Gateway no longer has, or whose artifact expired, is asked for afresh', async t => {
+  const missing = await fixture(t)
+  missing.originalMissing()
+  assert.equal((await fleetRun(missing)).srt, srt)
+  assert.equal(missing.confirmations.length, 1)
+  const expired = await fixture(t)
+  expired.original(id => ({ ...failed(id), state: 'succeeded' }))
+  assert.equal((await fleetRun(expired)).srt, srt)
+  assert.equal(expired.confirmations.length, 1)
+})
+
+test('free fleet: a cancelled task is still the owner\'s stop, not a fresh request', async t => {
+  const f = await fixture(t)
+  f.original(id => failed(id, { cancelled: true }))
+  await assert.rejects(fleetRun(f))
+  assert.equal(f.confirmations.length, 0)
+})
+
+test('an unanswered submit: free fleet reconnects under the same key; paid work stops with its reason', async t => {
+  const timeout = () => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError') }
+  const free = await fixture(t)
+  await free.clearOriginal()
+  let freeTries = 0
+  free.confirm(async () => { if (freeTries++ < 4) timeout() })
+  assert.equal((await fleetRun(free)).srt, srt)
+  assert.equal(free.confirmations.length, 1, 'one key: the lost answer is reclaimed, not duplicated')
+  assert.match(free.job.output_lines.join('\n'), /did not answer in time; asking again, free/)
+
+  const paid = await fixture(t)
+  await paid.clearOriginal()
+  paid.confirm(async () => timeout())
+  await assert.rejects(paid.run(), /did not answer within the request time limit/)
+  const message = (paid.job.params.subtitle_recovery as any).sections.Chapter_01.message
+  assert.match(message, /interrupted \(The Gateway did not answer.*paid transcription is never sent again by itself/)
+  assert.doesNotMatch(message, /No fresh replacement was authorized/)
+})
+
+test('episode recovery names each distinct section message once', async () => {
+  const { subtitleStatesMessage } = await import('../services/episode-recovery.js')
+  const same = 'Subtitle request interrupted (timeout); its saved task/key is kept and the next retry reconnects to it.'
+  const message = subtitleStatesMessage({
+    Chapter_01: { message: same }, Chapter_02: { message: same }, Chapter_03: { message: same },
+    Chapter_05: { message: 'Subtitle task recovered; verifying its artifact and stitch next.' }, Chapter_06: {},
+  })
+  assert.equal(message.split(same).length - 1, 1)
+  assert.equal(message, `Chapter_01, Chapter_02, Chapter_03: ${same} Chapter_05: Subtitle task recovered; verifying its artifact and stitch next.`)
+  assert.equal(subtitleStatesMessage(undefined), '')
+})

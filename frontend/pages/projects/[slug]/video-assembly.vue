@@ -2642,18 +2642,18 @@
             <option :value="-1.5">-1.5 dBTP</option>
             <option :value="-2">-2 dBTP</option>
           </select>
-          <!-- 1.4.274 — owner rule 2026-10-10: "Slight difference in loudness is accepted. We allow 10% difference." -->
+          <!-- 1.4.274 — owner rule 2026-10-10 (10%); the owner's standard is 20% since 1.4.279. -->
           <label class="mt-1">Allowed difference</label>
           <select v-model.number="exportSettings.loudness_tolerance_pct" class="select" data-testid="loudness-tolerance-pct">
             <option :value="5">Allowed difference: 5%</option>
-            <option :value="10">Allowed difference: 10% (default)</option>
-            <option :value="20">Allowed difference: 20%</option>
+            <option :value="10">Allowed difference: 10%</option>
+            <option :value="20">Allowed difference: 20% (default)</option>
           </select>
           <p class="text-muted text-sm mt-1">
             The finished video's whole soundtrack is brought to this level, with the narration still on top and the
             music underneath. YouTube plays everything at -14 LUFS and never turns a quieter video up, so a quieter
             setting means a quieter video for viewers. The level is checked again after the render: a video that lands
-            within the allowed difference still passes (10% of -14 LUFS is 1.4 LU; the peak may go 0.8 dB over).
+            within the allowed difference still passes (20% of -14 LUFS is 2.8 LU; the peak may go 1.6 dB over).
           </p>
         </div>
 
@@ -4636,7 +4636,7 @@ const exportSettings = reactive<{
   upscale_sharpen: 'off',
   loudness_lufs: -14,
   true_peak_db: -1,
-  loudness_tolerance_pct: 10,
+  loudness_tolerance_pct: 20,
 })
 
 /**
@@ -4930,7 +4930,7 @@ const exportPresets = usePresets({
   configKey: 'export',
   snapshot: () => ({ ...exportSettings }),
   // A preset saved before the bitrate cap existed means "no cap", not "keep whatever is on screen".
-  apply: (data: any) => { if (data) Object.assign(exportSettings, { video_bitrate_kbps: 0, upscale_sharpen: 'off', loudness_lufs: -14, true_peak_db: -1, loudness_tolerance_pct: 10 }, data) },
+  apply: (data: any) => { if (data) Object.assign(exportSettings, { video_bitrate_kbps: 0, upscale_sharpen: 'off', loudness_lufs: -14, true_peak_db: -1, loudness_tolerance_pct: 20 }, data) },
 })
 
 // --------------- Bundle preset (one-click apply across all 5 slots) ------
@@ -5114,7 +5114,7 @@ function applyMusicEpisodeSettings() {
 }
 
 function snapshotExportData() { return { ...exportSettings } }
-function applyExportData(data: any) { if (data) Object.assign(exportSettings, { video_bitrate_kbps: 0, upscale_sharpen: 'off', loudness_lufs: -14, true_peak_db: -1, loudness_tolerance_pct: 10 }, data) }
+function applyExportData(data: any) { if (data) Object.assign(exportSettings, { video_bitrate_kbps: 0, upscale_sharpen: 'off', loudness_lufs: -14, true_peak_db: -1, loudness_tolerance_pct: 20 }, data) }
 
 const videoBundlePresets = usePresets({
   slug: slug.value,
@@ -5569,7 +5569,7 @@ function hardwareCardTooltip(preset: QuickExportPreset): string {
 }
 
 function applyQuickPreset(preset: QuickExportPreset) {
-  Object.assign(exportSettings, { video_bitrate_kbps: 0, upscale_sharpen: 'off', loudness_lufs: -14, true_peak_db: -1, loudness_tolerance_pct: 10 }, preset.settings)
+  Object.assign(exportSettings, { video_bitrate_kbps: 0, upscale_sharpen: 'off', loudness_lufs: -14, true_peak_db: -1, loudness_tolerance_pct: 20 }, preset.settings)
   // Quick presets deliberately aren't saved export presets — they're just
   // in-memory defaults. Clear any lingering active export-preset pointer so
   // the bundle preset's snapshot doesn't record a stale pointer to a

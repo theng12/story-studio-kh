@@ -73,6 +73,15 @@ function narrationRefreshChecks(jobs: Job[]): Job[] {
     && !!savedNarrationSource(job, jobs))
 }
 
+/** Each distinct section message once, with the sections it applies to (EP0100 repeated one sentence 17 times). */
+export function subtitleStatesMessage(sections: Record<string, { message?: string }> | undefined): string {
+  const bySentence = new Map<string, string[]>()
+  for (const [section, state] of Object.entries(sections || {})) {
+    if (state?.message) bySentence.set(state.message, [...(bySentence.get(state.message) || []), section])
+  }
+  return [...bySentence].map(([message, names]) => `${names.join(', ')}: ${message}`).join(' ')
+}
+
 async function continueFailedSubtitleCheck(plan: EpisodeRecoveryPlan, job: Job, explicit: boolean): Promise<void> {
   if (job.status !== 'error') return
   if (explicit) { await jq.resumeEpisodeRecoveryJob(job.job_id, true); return }
@@ -510,8 +519,7 @@ export async function dispatchEpisodeRecoveryStep(
       plan.message = MANUAL_IMAGE_FINISH_GUIDANCE
       return
     }
-    const states = Object.values(existing.params?.subtitle_recovery?.sections || {}) as Array<{ state?: string; message?: string }>
-    plan.message = states.map(state => state.message).filter(Boolean).join(' ') || existing.error || plan.message
+    plan.message = subtitleStatesMessage(existing.params?.subtitle_recovery?.sections) || existing.error || plan.message
     if (existing.status === 'error' && sourceJobIds.length) {
       await jq.resumeEpisodeRecoveryJob(existing.job_id, true)
     } else if (step === 'subtitle_sections') await continueFailedSubtitleCheck(plan, existing, false)

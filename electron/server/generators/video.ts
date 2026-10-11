@@ -2053,6 +2053,17 @@ async function hydrateEpisodeRenderCues(
 
 // ── Generate Video (multi-pass pipeline) ──────────────────────────────────
 
+/** The active Video Assembly bundle preset's `fallback.export.loudness_tolerance_pct`; undefined when there is none. */
+export async function channelLoudnessTolerancePct(slug: string): Promise<number | undefined> {
+  try {
+    const { findActivePreset } = await import('../routes/pipeline.js')
+    type Bundle = { fallback?: { export?: { loudness_tolerance_pct?: unknown } } }
+    const preset = findActivePreset(await pm.getConfig(slug), 'video_assembly').preset as (Bundle & { data?: Bundle }) | null
+    const pct = (preset?.data?.fallback ?? preset?.fallback)?.export?.loudness_tolerance_pct
+    return typeof pct === 'number' && Number.isFinite(pct) ? pct : undefined
+  } catch { return undefined }
+}
+
 export async function generateVideo(job: Job): Promise<void> {
   const { project_slug, episode_id, params } = job
   const req = createVideoAssemblyExecutionRequest(params)
@@ -2149,6 +2160,9 @@ export async function generateVideo(job: Job): Promise<void> {
   // cue identities, and settings are what make scene clips reusable.
   // Final loudness (1.4.270): resolved onto the request so it is part of the render's identity. A final
   // render begun by an older version (not levelled) is then rendered again rather than resumed.
+  // 1.4.279: a request with no allowance of its own (a retry of an older job, a resumed or conductor
+  // job, a recovery job) takes the channel's current Video Assembly preset's, as run-batch does.
+  if (typeof req.loudness_tolerance_pct !== 'number') req.loudness_tolerance_pct = await channelLoudnessTolerancePct(project_slug)
   const loudness = loudnessTarget(req)
   req.loudness_lufs = loudness.lufs
   req.true_peak_db = loudness.true_peak_db

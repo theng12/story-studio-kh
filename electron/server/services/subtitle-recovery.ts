@@ -11,7 +11,9 @@ import {
   recoverTranscriptionWithGenStudio, transcribeWithGenStudio,
   type GenStudioTranscriptionRequest, type GenStudioTranscriptionQuote,
 } from '../lib/genstudio-client.js'
-import { isFleetBusyFailure, FLEET_BUSY_FAILURE_CODES, FLEET_BUSY_RETRY_DELAYS_MS, waitUnlessStopped } from '../lib/genstudio-fleet-busy.js'
+import { isFleetBusyFailure, FLEET_BUSY_FAILURE_CODES, FLEET_BUSY_RETRY_DELAYS_MS, FREE_MAC_WAIT_MAX_RETRIES, waitUnlessStopped } from '../lib/genstudio-fleet-busy.js'
+import { isTransportFailure } from '../lib/http-retry.js'
+import { isFreeFleetModelId } from '../contracts/provider-task-state.js'
 import { getAppSetting, getGenStudioUrl, PAID_SUBTITLE_REPLACEMENT_KEY, withPaidSubtitleConfirmation } from './app-settings.js'
 import { readManifestStrict, recordTaskStrict } from './task-manifest.js'
 import { checkpointGenStudioAsset, type GenStudioRecoveryState } from './genstudio-recovery.js'
@@ -489,6 +491,11 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
     }
     await persist()
     let freeRetriesThisRun = 0
+    // 1.4.279 (KH Boundless EP0100): free fleet work is never paid-replaced. A saved fleet task that is
+    // dead gets a fresh free request, and an unanswered submit is asked again under its own key; paid
+    // work keeps the cautious rules below (images got the same rule in 1.4.278, voices in 1.4.265).
+    const freeFleet = isFreeFleetModelId(input.request.modelId)
+    const maxFreeRetries = freeFleet ? FREE_MAC_WAIT_MAX_RETRIES : FLEET_BUSY_RETRY_DELAYS_MS.length
     for (;;) {
       if (stopped()) throw new Error('Subtitle recovery stopped by owner')
       const request: GenStudioTranscriptionRequest = {
@@ -522,6 +529,7 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
         await state('artifact_recovered', 'Subtitle task recovered; verifying its artifact and stitch next.')
         return result
       } catch (error) {
+        let sameKey = false
         if (error instanceof GenStudioTranscriptionQuoteExpiredError) {
           // A confirm response can be lost behind an expiry/conflict. Never
           // retire its commitment until a read-only lookup proves no job exists.
@@ -541,7 +549,8 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
             }
           }
           const failure = subtitleFailure(error)
-          const classification = classifySubtitleFailure(failure)
+          // A cancel is the owner's instruction, free or not.
+          const classification = freeFleet && !failure.cancelled ? 'free-retry' : classifySubtitleFailure(failure)
           if (classification === 'blocked') {
             const unsettled = failure.reservedCredits == null || failure.settledCredits == null || failure.releasedCredits == null
               || failure.settledCredits + failure.releasedCredits !== failure.reservedCredits
@@ -562,7 +571,7 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
           // Fully balanced zero settlement remains free, even after a paid quote.
           if (current.replacement) current.freeRetryFromKey = current.idempotencyKey
         } else if (error instanceof GenStudioTranscriptionTaskUnavailableError) {
-          return block(
+          if (!freeFleet) return block(
             'The saved subtitle task was not found with the current Gateway connection/account, so it cannot be retrieved here. Its task/key evidence is retained. Explicitly generate this section to create a fresh request at the current quote; the new request may be charged.',
             'rerun_subtitle_section',
             'needs_attention',
@@ -574,25 +583,34 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
               return block('The one fresh pipeline repair artifact is unavailable. Review this section before another re-transcription.', false, 'needs_attention')
             }
           }
-          return block('The successful subtitle artifact expired; it may already have been charged. Review it before explicitly re-running this section.', 'rerun_subtitle_section', 'needs_attention')
+          if (!freeFleet) return block('The successful subtitle artifact expired; it may already have been charged. Review it before explicitly re-running this section.', 'rerun_subtitle_section', 'needs_attention')
+        } else if (freeFleet && !stopped() && !(error instanceof Error && error.message.startsWith(`${section}:`))
+          && (isTransportFailure(error) || isFleetBusyFailure(error))) {
+          // The request may already be running: ask again under the SAME key, which reconnects to it.
+          // ponytail: no extra wait; the client already retried this request with backoff.
+          sameKey = true
         } else {
           if (!(error instanceof Error && error.message.startsWith(`${section}:`))) {
+            const why = error instanceof Error ? error.message : String(error)
             await state('needs_attention', pipelineActionId
               ? 'Pipeline subtitle repair was interrupted; its saved scoped request identity is retained and will reconnect on retry.'
-              : 'Subtitle recovery interrupted; its saved task/key is retained. No fresh replacement was authorized.')
+              : freeFleet
+                ? `Subtitle request interrupted (${why}); its saved task/key is kept and the next retry reconnects to it.`
+                : `Subtitle request interrupted (${why}); its saved task/key is kept and the next retry reconnects to it. `
+                  + 'A paid transcription is never sent again by itself, so it cannot be charged twice.')
           }
           throw error
         }
-        const delay = FLEET_BUSY_RETRY_DELAYS_MS[freeRetriesThisRun++]
-        if (delay === undefined) return block('Free subtitle retries exhausted; retry recovery later.', false, 'needs_attention')
+        if (freeRetriesThisRun >= maxFreeRetries) return block('Free subtitle retries exhausted; retry recovery later.', false, 'needs_attention')
+        const delay = FLEET_BUSY_RETRY_DELAYS_MS[Math.min(freeRetriesThisRun++, FLEET_BUSY_RETRY_DELAYS_MS.length - 1)]!
         current.freeRetries++
-        await state(
-          'free_retry',
-          `No charge was settled. Retrying transcription for free (attempt ${freeRetriesThisRun} of ${FLEET_BUSY_RETRY_DELAYS_MS.length}) without consuming a replacement allowance.`,
-        )
-        if (error instanceof GenStudioTerminalFailureError && FLEET_BUSY_FAILURE_CODES.has(error.failureCode || '')) {
+        await state('free_retry', freeFleet
+          ? `${sameKey ? 'The Gateway did not answer in time' : 'The earlier request cannot be used'}; asking again, free on your own Macs (attempt ${freeRetriesThisRun} of ${maxFreeRetries}).`
+          : `No charge was settled. Retrying transcription for free (attempt ${freeRetriesThisRun} of ${maxFreeRetries}) without consuming a replacement allowance.`)
+        if (isFleetBusyFailure(error) || (error instanceof GenStudioTerminalFailureError && FLEET_BUSY_FAILURE_CODES.has(error.failureCode || ''))) {
           await waitUnlessStopped(delay, () => !!stopped())
         }
+        if (sameKey) continue
         current.idempotencyKey = `story-stt-${createHash('sha256').update(`${current.idempotencyKey}:free-retry`).digest('hex')}`
         current.taskId = ''; current.confirmStarted = false; current.submittedAt = new Date().toISOString()
         await persist('prepared')

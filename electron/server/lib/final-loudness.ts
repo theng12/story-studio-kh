@@ -13,10 +13,10 @@ export const MIX_LIMITER = 'alimiter=limit=0.891:level=0:latency=1'
 
 export const DEFAULT_LOUDNESS_TARGET: LoudnessTarget = { lufs: -14, true_peak_db: -1 }
 
-/** Owner rule 2026-10-10: "Slight difference in loudness is accepted. We allow 10% difference." */
-export const DEFAULT_LOUDNESS_TOLERANCE_PCT = 10
+/** Owner rule 2026-10-10 ("We allow 10% difference"), raised to the owner's 20% standard in 1.4.279. */
+export const DEFAULT_LOUDNESS_TOLERANCE_PCT = 20
 
-/** The request's `loudness_lufs` / `true_peak_db` / `loudness_tolerance_pct`, clamped; absent = -14 / -1 / 10%. */
+/** The request's `loudness_lufs` / `true_peak_db` / `loudness_tolerance_pct`, clamped; absent = -14 / -1 / 20%. */
 export function loudnessTarget(req: { loudness_lufs?: unknown; true_peak_db?: unknown; loudness_tolerance_pct?: unknown }): LoudnessTarget {
   const pick = (v: unknown, lo: number, hi: number, fallback: number) =>
     typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback

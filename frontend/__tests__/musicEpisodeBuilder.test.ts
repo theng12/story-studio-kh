@@ -101,9 +101,9 @@ describe('Video Assembly "Music episode" settings', () => {
   })
 })
 
-test('an export preset saved before the bitrate cap means no cap (and the default sound level, 1.4.270, and allowed difference of 10%, 1.4.274)', () => {
-  assert.equal((assembly.match(/Object\.assign\(exportSettings, \{ video_bitrate_kbps: 0, upscale_sharpen: 'off', loudness_lufs: -14, true_peak_db: -1, loudness_tolerance_pct: 10 \}/g) || []).length, 3)
-  assert.match(read('../composables/useVideoAssemblyIo.ts'), /loudness_tolerance_pct: s\.exportSettings\.loudness_tolerance_pct \?\? 10/)
-  assert.match(assembly, /data-testid="loudness-tolerance-pct"[\s\S]{0,200}Allowed difference: 10% \(default\)/)
+test('an export preset saved before the bitrate cap means no cap (and the default sound level, 1.4.270, and allowed difference of 20%, 1.4.279)', () => {
+  assert.equal((assembly.match(/Object\.assign\(exportSettings, \{ video_bitrate_kbps: 0, upscale_sharpen: 'off', loudness_lufs: -14, true_peak_db: -1, loudness_tolerance_pct: 20 \}/g) || []).length, 3)
+  assert.match(read('../composables/useVideoAssemblyIo.ts'), /loudness_tolerance_pct: s\.exportSettings\.loudness_tolerance_pct \?\? 20/)
+  assert.match(assembly, /data-testid="loudness-tolerance-pct"[\s\S]{0,300}Allowed difference: 20% \(default\)/)
   assert.match(read('../composables/useVideoAssemblyIo.ts'), /video_bitrate_kbps: s\.exportSettings\.video_bitrate_kbps/)
 })
