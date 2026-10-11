@@ -618,6 +618,10 @@
             <div class="button-row"><SaveIndicator v-bind="savedHintProps('niche')" /></div>
           </section>
 
+          <section class="card settings-panel" data-setting="idea-quality">
+            <IdeaQualitySettings :slug="slug" />
+          </section>
+
           <section class="card settings-panel" data-setting="project-name">
             <div class="form-group">
               <label>Channel name</label>

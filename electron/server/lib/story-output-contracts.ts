@@ -454,3 +454,28 @@ export function outlineOutputContract(chapterCount: number, maxChapters?: number
     additionalProperties: false,
   })
 }
+
+/** Covered-topics map delta (1.4.285): only additions, grouped. Counts merge server-side. */
+export function coveredTopicsOutputContract(): TextOutputContract {
+  const group = {
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: { name: { type: 'string', minLength: 1, maxLength: 120 }, count: { type: 'integer', minimum: 1 } },
+      required: ['name'],
+      additionalProperties: false,
+    },
+  }
+  return localSchema('story_covered_topics', {
+    type: 'object',
+    properties: {
+      add: {
+        type: 'object',
+        properties: { subjects: group, people: group, places: group, eras: group, angles: group },
+        additionalProperties: false,
+      },
+    },
+    required: ['add'],
+    additionalProperties: false,
+  })
+}

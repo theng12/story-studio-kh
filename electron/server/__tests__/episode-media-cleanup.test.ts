@@ -227,6 +227,35 @@ describe('episode media cleanup preview', () => {
     assert.equal(status.categories.reduce((sum, row) => sum + row.removed_files, 0), 2)
   })
 
+  test('"Full-quality audio of uploaded episodes" moves only the .master.flac of an uploaded episode to _trash', async () => {
+    const uploaded = await seedEpisode('EP0001')
+    const notUploaded = await seedEpisode('EP0002')
+    const master = path.join(uploaded.paths.merged_audio_dir, 'EP0001_merged_audio.master.flac')
+    const mp3 = path.join(uploaded.paths.merged_audio_dir, 'EP0001_merged_audio.mp3')
+    const otherMaster = path.join(notUploaded.paths.merged_audio_dir, 'EP0002_merged_audio.master.flac')
+    await Promise.all([fs.writeFile(master, 'lossless-master'), fs.writeFile(mp3, 'mp3'), fs.writeFile(otherMaster, 'not-uploaded')])
+    await Promise.all([master, mp3, otherMaster].map(makeOlder))
+    await markUploaded(uploaded)
+
+    const bill = await preview(['EP0001', 'EP0002'], ['master_audio'])
+    assert.deepEqual(bill.files.map(file => file.path), [master], 'only the uploaded episode’s master is offered')
+    assert.equal(bill.total_bytes, 'lossless-master'.length, 'the size is shown before anything moves')
+    assert.match(bill.episodes.find(row => row.episode_code === 'EP0002')!.blocked_reasons.join(' '), /ready canonical upload/i)
+
+    const both = await preview(['EP0001'], ['merged_audio', 'master_audio'])
+    assert.deepEqual(both.files.map(file => `${file.category}:${path.basename(file.path)}`).sort(),
+      ['master_audio:EP0001_merged_audio.master.flac', 'merged_audio:EP0001_merged_audio.mp3'], 'no file is listed twice')
+
+    const operation = await run(bill.preview_id, 'remove')
+    assert.equal(operation.status, 'completed', operation.error)
+    assert.equal(existsSync(master), false)
+    assert.equal(existsSync(mp3), true, 'the MP3 stays')
+    assert.equal(existsSync(otherMaster), true)
+    const moved = operation.result?.items?.[0] as any
+    assert.ok(moved?.destination_path?.includes(`${path.sep}_trash${path.sep}`), 'moved to _trash, never deleted')
+    assert.equal(await fs.readFile(moved.destination_path, 'utf8'), 'lossless-master')
+  })
+
   test('excludes media created after upload and refuses an episode with no canonical upload', async () => {
     const uploaded = await seedEpisode('EP0001')
     const notUploaded = await seedEpisode('EP0002')

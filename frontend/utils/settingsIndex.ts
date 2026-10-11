@@ -69,7 +69,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { section: 'maintenance', anchor: 'library-folder', label: 'Library folder', keywords: 'library folder location where files projects channels move drive storage' },
   { section: 'maintenance', anchor: 'self-contained-all', label: 'Make all channels self-contained', keywords: 'self-contained move channel another mac copy assets shared project assets exports portable migrate' },
   { section: 'maintenance', anchor: 'exports-folder', label: 'Finished videos folder', keywords: 'finished videos exports export folder renders final mp4 where location' },
-  { section: 'maintenance', anchor: 'free-up-space', label: 'Free up space', keywords: 'free up space cleanup disk storage trash uploaded episodes archive shrink images' },
+  { section: 'maintenance', anchor: 'free-up-space', label: 'Free up space', keywords: 'free up space cleanup disk storage trash uploaded episodes archive shrink images full-quality lossless master flac audio' },
   { section: 'maintenance', anchor: 'clear-uploaded-finals', label: 'Clear uploaded final videos', keywords: 'clear uploaded final videos verify local free space trash' },
   { section: 'maintenance', anchor: 'move-uploaded', label: 'Move uploaded videos to another drive', keywords: 'archive move uploaded videos drive disk space external' },
   { section: 'maintenance', anchor: 'episode-storage', label: "What's using space", keywords: 'storage disk usage space used episode scan preview cache' },
@@ -80,6 +80,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { section: 'identity', anchor: 'project-name', label: 'Project name', keywords: 'name rename channel project title' },
   { section: 'identity', anchor: 'formula', label: 'Series Formula and Topic Packs', keywords: 'formula niche series topics topic packs identity' },
   { section: 'identity', anchor: 'custom-formulas', label: 'Custom formulas', keywords: 'custom formula niche create delete' },
+  { section: 'identity', anchor: 'idea-quality', label: 'Idea supply and repeat checks', keywords: 'ideas supply running low unused subjects covered topics map duplicate repeat meaning embeddings haiku helper alerts telegram' },
 
   { section: 'production', anchor: 'continuity', label: 'Reference behavior (continuity)', keywords: 'continuity character reference scenes independent explainer' },
   { section: 'production', anchor: 'episode-shape', label: 'Episode length, chapters and reading pace', keywords: 'length minutes chapters words per minute pace episode shape runtime title voice' },

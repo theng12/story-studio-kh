@@ -748,6 +748,19 @@ void electronApp.whenReady().then(async () => {
       logCrash('digest-scheduler', e)
     }
 
+    // 1.4.285 — idea supply running low. Opt-in per channel (idea_upgrades.supply_alerts); sends
+    // only when a channel's status gets worse, at most once per channel per day. Hourly is plenty.
+    try {
+      const { runIdeaSupplyAlerts } = await import('./server/services/idea-supply.js')
+      const { getNotifierSettings } = await import('./server/services/job-notifier.js')
+      const check = () => void runIdeaSupplyAlerts(async (payload, slug) =>
+        dispatchNotification(payload, slug, await getNotifierSettings())).catch(e => logCrash('idea-supply-alerts', e))
+      setTimeout(check, 5 * 60_000).unref?.()
+      setInterval(check, 60 * 60_000).unref?.()
+    } catch (e) {
+      logCrash('idea-supply-alerts', e)
+    }
+
     // Remote updates from the Gateway (services/app-update.ts). Packaged builds only: a dev run
     // has no bundle to replace. Not awaited: settling a previous install waits for /api/health.
     if (electronApp.isPackaged && process.platform === 'darwin') {

@@ -38,6 +38,11 @@ export {
 } from '../services/freeform-idea-generation.js'
 import { parseFreeformIdeas as parseIdeas } from '../services/freeform-idea-generation.js'
 import { recentCharacterNamesAvoidance } from '../services/recent-character-names.js'
+import { collectFormulaHistory, resolveCampaignNiche, watchImportedIdeas } from '../generators/idea-campaign.js'
+import { computeAllIdeaSupply, computeIdeaSupply } from '../services/idea-supply.js'
+import { getIdeaUpgrades, IDEA_UPGRADE_DEFAULTS, mergeIdeaUpgrades, saveIdeaUpgrades } from '../services/idea-upgrades.js'
+import { readCoveredMap, trashCoveredMap, updateCoveredMap } from '../services/covered-topics.js'
+import { listEmbeddingModels } from '../lib/embeddings-client.js'
 
 /**
  * Queue a durable, navigation-safe Idea Campaign.
@@ -142,6 +147,85 @@ router.post('/projects/:slug/generate/ideas/campaign', async (req, res) => {
       })
     }
     return res.status(400).json(humanizeBackendError(e, 'Failed to queue Idea Campaign'))
+  }
+})
+
+// ── 1.4.285 idea upgrades: supply counter, covered-topics map, per-channel switches ──────────
+
+/** Read-only supply counter for one channel (visible on every channel). */
+router.get('/projects/:slug/ideas/supply', async (req, res) => {
+  try {
+    const supply = await computeIdeaSupply(req.params.slug)
+    if (!supply) return res.status(404).json({ detail: 'Project not found' })
+    res.json(supply)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not measure the idea supply'))
+  }
+})
+
+/** The same counter for every channel on this Mac. */
+router.get('/ideas/supply', async (_req, res) => {
+  try {
+    res.json({ channels: await computeAllIdeaSupply() })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not measure the idea supply'))
+  }
+})
+
+router.get('/projects/:slug/ideas/upgrades', async (req, res) => {
+  if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+  res.json({ settings: await getIdeaUpgrades(req.params.slug), defaults: IDEA_UPGRADE_DEFAULTS })
+})
+
+/** Partial update of `idea_upgrades`; the first switch turned on backs up ideas.json and config.json. */
+router.put('/projects/:slug/ideas/upgrades', async (req, res) => {
+  const { slug } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+  const merged = mergeIdeaUpgrades(await getIdeaUpgrades(slug), req.body)
+  if (typeof merged === 'string') return res.status(400).json({ detail: merged })
+  try {
+    const { backup_dir } = await saveIdeaUpgrades(slug, merged)
+    res.json({ settings: await getIdeaUpgrades(slug), backup_dir })
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Could not save the idea settings'))
+  }
+})
+
+/** Embedding models the Gateway offers (free fleet only), for the settings picker. */
+router.get('/ideas/embedding-models', async (_req, res) => {
+  try {
+    res.json({ models: await listEmbeddingModels() })
+  } catch (e: any) {
+    res.json({ models: [], detail: `No embeddings models right now (${String(e?.message || e).replace(/\.$/, '')}). The improved word check is used instead.` })
+  }
+})
+
+router.get('/projects/:slug/ideas/covered-topics', async (req, res) => {
+  if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+  res.json({ map: await readCoveredMap(req.params.slug) })
+})
+
+/**
+ * Build (or bring up to date) the covered-topics map now with the chosen helper model.
+ * `{ "fresh": true }` first moves the current map to the project's _trash.
+ */
+router.post('/projects/:slug/ideas/covered-topics/build', async (req, res) => {
+  const { slug } = req.params
+  const project = await pm.getProject(slug)
+  if (!project) return res.status(404).json({ detail: 'Project not found' })
+  const upgrades = await getIdeaUpgrades(slug)
+  if (!upgrades.helper_model) return res.status(400).json({ detail: 'Choose an idea helper model first.' })
+  try {
+    const trashed = req.body?.fresh === true ? await trashCoveredMap(slug) : null
+    const { formulaId, niche } = await resolveCampaignNiche(project)
+    const history = await collectFormulaHistory(slug, formulaId)
+    const result = await updateCoveredMap({
+      slug, helperModel: upgrades.helper_model, formulaId,
+      channelName: project.name || slug, description: niche?.description, history,
+    })
+    res.json({ map: result.map, added: result.added, note: result.note || null, trashed })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not build the covered-topics map'))
   }
 })
 
@@ -373,9 +457,11 @@ router.post('/projects/:slug/ideas/import-paste', async (req, res) => {
 
   // Re-use the same addIdeas() that the AI generator uses, so the batch_id
   // / model_used / status fields line up with what the rest of the UI expects.
+  // Watch-only (per-channel idea_upgrades.semantic_dedupe): reports likely repeats, never blocks.
+  const duplicate_watch = await watchImportedIdeas(slug, 'paste-import', valid)
   const stored = await im.addIdeas(slug, valid, 'paste-import')
   await trackGeneration(slug, 'ideas', stored.length)
-  res.json({ valid: stored, rejected, imported: stored.length })
+  res.json({ valid: stored, rejected, imported: stored.length, ...(duplicate_watch ? { duplicate_watch } : {}) })
 })
 
 // ── Get all ideas (with optional filter) ────────────────────────────────────
@@ -405,15 +491,17 @@ router.post('/projects/:slug/ideas', async (req, res) => {
     return res.status(400).json({ detail: 'title is required' })
   }
   try {
-    const [stored] = await im.addIdeas(slug, [{
+    const idea = {
       title: String(body.title).trim(),
       logline: typeof body.logline === 'string' ? body.logline : '',
       themes: Array.isArray(body.themes) ? body.themes : [],
       suggested_chapters: Number(body.suggested_chapters) || 10,
       suggested_length: typeof body.suggested_length === 'string' ? body.suggested_length : '45 min',
       mood: typeof body.mood === 'string' ? body.mood : '',
-    }], 'manual')
-    res.json(stored)
+    }
+    const duplicate_watch = await watchImportedIdeas(slug, 'manual', [idea])
+    const [stored] = await im.addIdeas(slug, [idea], 'manual')
+    res.json(duplicate_watch ? { ...stored, duplicate_watch } : stored)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to add idea'))
   }

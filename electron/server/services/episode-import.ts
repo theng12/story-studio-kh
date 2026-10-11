@@ -523,7 +523,11 @@ export async function importEpisodeFolder(slug: string, opts: ImportOptions): Pr
   }
   const title = inspect.final_title || inspect.parsed_title || finalCode
 
-  // 1. Register an accepted idea so the episode appears in selectors.
+  // 1. Register an accepted idea so the episode appears in selectors. The duplicate check here is
+  //    watch-only (per-channel idea_upgrades.semantic_dedupe) and never blocks the import.
+  const { watchImportedIdeas } = await import('../generators/idea-campaign.js')
+  const duplicateWatch = await watchImportedIdeas(slug, 'episode-import', [{ title }])
+  if (duplicateWatch?.would_reject.length) console.info('[episode-import] watch-only duplicate check', { slug, title, would_reject: duplicateWatch.would_reject })
   const [storedIdea] = await im.addIdeas(slug, [{
     title,
     logline: '',

@@ -105,7 +105,7 @@ import { useApi } from '~/composables/useApi'
 import { useConfirm } from '~/composables/useConfirm'
 import { pickFolder } from '~/composables/usePathPicker'
 
-type Category = 'images' | 'chapter_audio' | 'narration_parts' | 'merged_audio' | 'motion_clips' | 'final_video'
+type Category = 'images' | 'chapter_audio' | 'narration_parts' | 'merged_audio' | 'master_audio' | 'motion_clips' | 'final_video'
 /** `video_id` null: not uploaded, listed only because it has kept narration parts. */
 interface CleanupEpisode { episode_code: string; title: string; video_id: string | null; local_media_status?: { state: string; preset_archived_at?: string | null } }
 interface ReviewedFile { path: string; relative_path: string; bytes: number; category: Category }
@@ -147,7 +147,9 @@ let timer: ReturnType<typeof setTimeout> | undefined
 const categoryOptions: { id: Category; label: string }[] = [
   { id: 'images', label: 'Scene images (thumbnails are never touched)' }, { id: 'chapter_audio', label: 'Chapter audio' },
   { id: 'narration_parts', label: 'Narration parts (kept per-part takes; only where the joined chapter is there, any episode)' },
-  { id: 'merged_audio', label: 'Merged audio' }, { id: 'motion_clips', label: 'Motion clips' }, { id: 'final_video', label: 'Final video' },
+  { id: 'merged_audio', label: 'Merged audio' },
+  { id: 'master_audio', label: 'Full-quality audio of uploaded episodes (the lossless .master.flac beside the merged narration; the MP3 stays)' },
+  { id: 'motion_clips', label: 'Motion clips' }, { id: 'final_video', label: 'Final video' },
 ]
 const uploaded = computed(() => (episodes.value || []).filter(ep => ep.video_id).map(ep => ep.episode_code))
 const notArchived = computed(() => (episodes.value || []).filter(ep => ep.video_id && !ep.local_media_status?.preset_archived_at).map(ep => ep.episode_code))

@@ -469,3 +469,21 @@ export function assignmentSummary(assignment: IdeaAssignment): string {
     .map(([key, value]) => `${key}: ${value}`)
     .join('; ')
 }
+
+/**
+ * #6 supply counter (1.4.285): per active pack, how many of its distinct subjects have no idea yet.
+ * Read from the same fingerprints `planIdeaAssignments` reserves against (`<formula>|<pack>|…|subject=<slug>|…`),
+ * so the counter and the generator cannot disagree about what is used.
+ */
+export function subjectUseByPack(niche: Niche, usedFingerprints: Iterable<string>): Array<{ id: string; name: string; unused: number; total: number }> {
+  const used = [...usedFingerprints]
+  return (niche.activeTopicPacks || []).map(pack => {
+    const prefix = `${niche.id}|${pack.id}|`
+    const subjects = unique(pack.subjects)
+    const unused = subjects.filter(subject => {
+      const part = `subject=${slug(subject)}`
+      return !used.some(fp => fp.startsWith(prefix) && fp.split('|').includes(part))
+    }).length
+    return { id: pack.id, name: pack.name, unused, total: subjects.length }
+  })
+}

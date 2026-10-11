@@ -1,0 +1,54 @@
+{
+  "_about": "Measured 2026-10-11 on the live Gateway 0.2.166 POST /v1/embeddings (studio-hub::mlx-community/bge-small-en-v1.5-bf16), text = title + ' — ' + logline, score = cosine (dot product of unit vectors). Documents why the watch-only default threshold is 0.78; recorded numbers, no network in tests.",
+  "model": "studio-hub::mlx-community/bge-small-en-v1.5-bf16",
+  "pairs": [
+    {
+      "kind": "paraphrase",
+      "a": "The Mystery of the Voynich Manuscript — An unreadable medieval book that no one has ever deciphered.",
+      "b": "Who Wrote the Voynich Manuscript? — The strange illustrated codex whose cipher still defeats every expert.",
+      "score": 0.842
+    },
+    {
+      "kind": "paraphrase",
+      "a": "How the Opium Wars Opened China — Britain fought two wars to force the opium trade on Qing China.",
+      "b": "The Opium Wars: Trade, Drugs and Gunboats — How British merchants and warships broke open Qing China.",
+      "score": 0.863
+    },
+    {
+      "kind": "paraphrase",
+      "a": "The Bookbinder's Quiet Study — An old bookbinder mends a cracked spine by lamplight.",
+      "b": "The Bookbinder's Last Spool — A gentle bookbinder stitches one final book before winter.",
+      "score": 0.68
+    },
+    {
+      "kind": "paraphrase",
+      "a": "Roman Roads: Engineering an Empire — How Rome built roads that still carry traffic today.",
+      "b": "The Roads That Built Rome — The surveyors and legions behind the empire-spanning road network.",
+      "score": 0.86
+    },
+    {
+      "kind": "different",
+      "a": "The Mystery of the Voynich Manuscript — An unreadable medieval book that no one has ever deciphered.",
+      "b": "The Glassblowers of Murano — Venetian artisans guarded the secrets of crystal glass on their island.",
+      "score": 0.434
+    },
+    {
+      "kind": "different",
+      "a": "The Mystery of the Voynich Manuscript — An unreadable medieval book that no one has ever deciphered.",
+      "b": "How the Opium Wars Opened China — Britain fought two wars to force the opium trade on Qing China.",
+      "score": 0.438
+    },
+    {
+      "kind": "different",
+      "a": "Roman Roads: Engineering an Empire — How Rome built roads that still carry traffic today.",
+      "b": "Washing Day Through the Centuries — The hard work behind clean linen before machines.",
+      "score": 0.582
+    },
+    {
+      "kind": "different",
+      "a": "The Bookbinder's Quiet Study — An old bookbinder mends a cracked spine by lamplight.",
+      "b": "The Lighthouse Keeper's Cat — A cat keeps the lamp company through a winter storm.",
+      "score": 0.45
+    }
+  ]
+}

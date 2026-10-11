@@ -34,7 +34,7 @@ import { isConfirmedGoneFromYouTube, syncYouTubePublicationState } from './youtu
 import { resolveYouTubeSourceRevision } from './youtube-source-video.js'
 
 export const MEDIA_CLEANUP_SIDECAR = 'local_media_cleanup.json'
-export type MediaCleanupCategory = 'images' | 'chapter_audio' | 'narration_parts' | 'merged_audio' | 'motion_clips' | 'final_video'
+export type MediaCleanupCategory = 'images' | 'chapter_audio' | 'narration_parts' | 'merged_audio' | 'master_audio' | 'motion_clips' | 'final_video'
 /**
  * `remove` moves to `_trash` (never a hard delete); `compress` re-encodes scene
  * images as JPEG in place (originals to `_trash`) and moves every other
@@ -242,7 +242,9 @@ const consumedPreviews = new Set<string>()
 const PREVIEW_TTL_MS = 30 * 60 * 1_000
 const OPERATION_RETENTION_MS = 2 * 60 * 60 * 1_000
 const MAX_OPERATIONS = 200
-const CATEGORIES = new Set<MediaCleanupCategory>(['images', 'chapter_audio', 'narration_parts', 'merged_audio', 'motion_clips', 'final_video'])
+const CATEGORIES = new Set<MediaCleanupCategory>(['images', 'chapter_audio', 'narration_parts', 'merged_audio', 'master_audio', 'motion_clips', 'final_video'])
+/** 1.4.281's levelled lossless master beside the merged mp3 (`lib/level-audio.ts`): `{name}.master.flac`. */
+const MASTER_AUDIO = /\.master\.flac$/i
 const IMAGE_EXT = /\.(png|jpe?g|webp)$/i
 const AUDIO_EXT = /\.(mp3|wav|m4a|aac|ogg|flac)$/i
 const VIDEO_EXT = /\.(mp4|mov|webm|mkv|m4v)$/i
@@ -500,7 +502,10 @@ async function rootsFor(slug: string, code: string, title: string, categories: M
   // Kept narration parts are their own category, moved a whole `.parts/<chapter>` folder at a time
   // (a half-moved folder would make a later Generate remake every part).
   if (selected.has('chapter_audio')) add(paths.audio_dir, heavyAnchor, 'chapter_audio', 'chapter_audio', name => AUDIO_EXT.test(name), PARTS_DIRNAME)
-  if (selected.has('merged_audio')) add(paths.merged_audio_dir, heavyAnchor, 'merged_audio', 'merged_audio', name => AUDIO_EXT.test(name))
+  // "Full-quality audio of uploaded episodes" (1.4.285) is the `.master.flac` alone; when both are
+  // chosen, merged audio leaves the master to its own category so no file is listed twice.
+  if (selected.has('merged_audio')) add(paths.merged_audio_dir, heavyAnchor, 'merged_audio', 'merged_audio', name => AUDIO_EXT.test(name) && !(selected.has('master_audio') && MASTER_AUDIO.test(name)))
+  if (selected.has('master_audio')) add(paths.merged_audio_dir, heavyAnchor, 'master_audio', 'master_audio', name => MASTER_AUDIO.test(name))
   if (selected.has('motion_clips')) add(paths.video_assets_dir, heavyAnchor, 'motion_clips', 'motion_clips', name => VIDEO_EXT.test(name))
   if (selected.has('final_video')) {
     add(paths.video_dir, heavyAnchor, 'final_video', 'final_video', name => isFinalName(code, name))
@@ -935,6 +940,7 @@ async function currentSourceRoot(
     case 'thumbnail_images': return paths.thumb_dir
     case 'chapter_audio': return paths.audio_dir
     case 'merged_audio': return paths.merged_audio_dir
+    case 'master_audio': return paths.merged_audio_dir
     case 'motion_clips': return paths.video_assets_dir
     case 'final_video': return paths.video_dir
     case 'external_final_video': {

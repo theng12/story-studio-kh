@@ -53,6 +53,9 @@
       <button class="banner-link" @click="loadIdeas">Retry</button>
     </div>
 
+    <!-- 1.4.285 — idea supply (read-only, every channel) and the covered-topics map when built. -->
+    <IdeaSupplyPanel :slug="slug" :refresh-key="allIdeas.length" />
+
     <!-- v1.0.117+ — Workflow vs Manage tabs. The page used to be one long
          scroll: generator card on top, then the search/filter/table for
          existing ideas. Users editing the catalog had to scroll past the
