@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.292 — 2026-10-12
+
+- A restart no longer tries to rebuild episodes whose files Free Up Space removed on purpose. On the Mac mini, after Free Up Space moved the chapter narration of nine uploaded TerraNash episodes (TN0162–TN0170) to the Trash, the next restart's recovery check queued Audio Assembly for each of them, and all nine failed three times ("required audio files are missing"). Story now treats those files as removed on purpose, not as missing work: the automatic recovery check leaves such an episode alone and says why. If you do want an episode back, Retry it yourself; that still rebuilds it, along with the steps that follow.
+
 ## v1.4.291 — 2026-10-12
 
 - Backup and restore (owner: "say i plug in an SSD and points it at the SSD to create a backup … so we can start new and continue on a new machine"). Settings → Backup & restore: choose a backup folder (usually an external drive) and press Back Up Now, or turn on automatic backup (once a day, and whenever that drive is plugged in, only while nothing is in the job queue). It runs in the background with real progress and never waits for, or holds up, Video Assembly. The panel shows the last backup's time, size and what changed.

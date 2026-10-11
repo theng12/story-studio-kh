@@ -459,7 +459,7 @@ router.post('/jobs/all/:jobId/retry', async (req, res) => {
   const admissionError = retryAdmissionError(existing)
   if (admissionError) return res.status(409).json({ detail: admissionError })
   if (episodeRecoveryStep(existing.type) && !(existing.type === 'subtitles_transcribe' && isScopedChapterTranscription(existing.params))) {
-    return res.status(202).json({ ok: true, plan: await recoverEpisode(existing.project_slug, existing.episode_id, true, [existing.job_id]) })
+    return res.status(202).json({ ok: true, plan: await recoverEpisode(existing.project_slug, existing.episode_id, true, [existing.job_id], [], true) })
   }
   const job = jq.retryTerminalJob(existing.project_slug, req.params.jobId, retryReplacementParams(existing))
   res.status(202).json({ ok: true, job })
@@ -719,7 +719,7 @@ router.post('/projects/:slug/jobs/recover-episode/:episodeId', async (req, res) 
     return res.status(400).json({ detail: 'Episode recovery accepts no overrides; saved job scope is authoritative.' })
   }
   try {
-    res.status(202).json({ plan: await recoverEpisode(req.params.slug, req.params.episodeId, true, req.body.source_job_ids) })
+    res.status(202).json({ plan: await recoverEpisode(req.params.slug, req.params.episodeId, true, req.body.source_job_ids, [], true) })
   } catch (error) { res.status(409).json({ detail: error instanceof Error ? error.message : 'Episode recovery is unavailable.' }) }
 })
 
@@ -731,7 +731,7 @@ router.post('/projects/:slug/jobs/:jobId/retry', async (req, res) => {
   }
   if (existing?.project_slug === req.params.slug && episodeRecoveryStep(existing.type)
     && !(existing.type === 'subtitles_transcribe' && isScopedChapterTranscription(existing.params))) {
-    return res.status(202).json({ ok: true, plan: await recoverEpisode(req.params.slug, existing.episode_id, true, [existing.job_id]) })
+    return res.status(202).json({ ok: true, plan: await recoverEpisode(req.params.slug, existing.episode_id, true, [existing.job_id], [], true) })
   }
   const retryParams = existing?.project_slug === req.params.slug ? retryReplacementParams(existing) : undefined
   const job = jq.retryTerminalJob(req.params.slug, req.params.jobId, retryParams)

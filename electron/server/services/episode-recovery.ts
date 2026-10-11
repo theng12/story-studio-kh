@@ -17,6 +17,7 @@ import { parseSrt } from '../lib/subtitle-builder.js'
 import { inspectPlanTimelineDrift } from '../lib/scene-plan-timeline.js'
 import { hashSubtitleAudioSources, inspectChapterSubtitleCompletion } from './subtitle-completion.js'
 import { readSubtitleSourceAudioHashes } from './subtitle-recovery.js'
+import { readLocalMediaCleanupStatus } from './episode-media-cleanup.js'
 
 export const EPISODE_RECOVERY_ORDER = ['audio_merge', 'subtitle_sections', 'subtitle_stitch', 'scene_plan_run', 'contextual_cues', 'continuity_render'] as const
 export type EpisodeRecoveryStep = typeof EPISODE_RECOVERY_ORDER[number]
@@ -41,6 +42,8 @@ export interface EpisodeRecoveryPlan {
   next_free_check_at?: string
   narration_refresh_job_ids?: string[]
   narration_refresh_checks?: NarrationRefreshAcknowledgement[]
+  /** Last time the owner asked for this recovery (Retry / Recover); automatic passes never set it. */
+  owner_requested_at?: string
 }
 
 function savedNarrationStamp(check: Job): string | null {
@@ -527,6 +530,14 @@ export async function dispatchEpisodeRecoveryStep(
   }
   if (!node) { plan.message += ` Open ${labels[step]} to complete or configure this prerequisite.`; return }
   if (node.dispatched) { plan.message += ' This edge was already dispatched; review its saved result before starting new work.'; return }
+  // Free Up Space removed this episode's media on purpose (it was already uploaded). That is not
+  // missing work: only an owner request made after the cleanup may rebuild it, never a restart sweep.
+  const cleanup = await readLocalMediaCleanupStatus(plan.project_slug, plan.episode_id)
+  if ((cleanup.has_retired_media || cleanup.blocked_reason)
+    && !(Date.parse(plan.owner_requested_at || '') > (Date.parse(cleanup.updated_at || '') || 0))) {
+    plan.message = 'Free Up Space removed this episode\'s media on purpose, so Story will not rebuild it on its own. Retry it yourself if you want it back.'
+    return
+  }
   const params: Job['params'] = { ...node.params, episode_id: plan.episode_id, episode_recovery_id: plan.id }
   if (step === 'subtitle_sections') {
     assertSectionScope(node.params)
@@ -571,7 +582,7 @@ export function episodeRecoveryDispatch(plan: EpisodeRecoveryPlan, jobs: Job[]) 
 }
 
 /** Serialize an episode's decisions; share the file lock only while saving records. */
-export async function recoverEpisode(projectSlug: string, episodeId: string, create = true, sourceJobIds: string[] = [], observedJobs: Job[] = []): Promise<(EpisodeRecoveryPlan & { dispatch_status: 'queued' | 'running' | 'paused' | 'blocked' | 'complete'; dispatch_job_id?: string }) | null> {
+export async function recoverEpisode(projectSlug: string, episodeId: string, create = true, sourceJobIds: string[] = [], observedJobs: Job[] = [], ownerRequest = false): Promise<(EpisodeRecoveryPlan & { dispatch_status: 'queued' | 'running' | 'paused' | 'blocked' | 'complete'; dispatch_job_id?: string }) | null> {
   const projectDir = getProjectDir(projectSlug)
   if (!projectDir) throw new Error('Project not found.')
   await jq.findJobs(projectSlug, () => false) // hydrate only
@@ -665,6 +676,7 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
     if (!plan) return null
     // S12: an audit that changes nothing does not rewrite the plans file.
     const stored = JSON.stringify(plan)
+    if (ownerRequest) plan.owner_requested_at = new Date().toISOString()
     const save = () => withLock(file, async () => {
       // Another episode may have finished its audit meanwhile. Merge only this
       // episode; never overwrite the other plans with our pre-audit snapshot.
