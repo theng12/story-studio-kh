@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## Current work — 2026-10-12 (1.4.301 thumbnail Block by default)
+
+- `thumbnail_present` default block; `retired_media` protects text says it costs money; `job-queue.ts noteCurrentJobSafetyWarning` (genstudio-client `currentJobSafety` Warn → live job `result.safety_warnings`); `upload/publish.vue` reads `/projects/:slug/safety-checks` (`thumbnailRequired`). Refused by the permission system (owner approved, not built): unlocking the 14 Video Assembly / scene-picture checks, the 5 Warn defaults, manual-route / readiness / picture-step switch reads.
+
 ## Current work — 2026-10-12 (1.4.300 safety checks: Off / Warn / Block per channel)
 
 Owner approved (direct, relayed verbatim by the coordinator): loudness off; a switch for every check. Inventory: `_orchestra/audit-20261012/safety-checks/CHECKS.md`; worker brief `BRIEF-WIRING.md` there.

@@ -7779,6 +7779,7 @@ async function currentJobSafety(id: string, message: string, outsideJob: SafetyM
   const log = { output_lines: [] as string[] }
   await safetyGate(job.project_slug, id, log, message)
   for (const line of log.output_lines) queue.noteCurrentJob(line)
+  if (mode === 'warn') queue.noteCurrentJobSafetyWarning(id, message)
   return mode
 }
 

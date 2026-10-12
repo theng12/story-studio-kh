@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.301 — 2026-10-12
+
+- No upload without a thumbnail again by default (you: "No upload without a thumbnail, as your earlier rule said"). The "Thumbnail present" safety check now starts at Block; switch it to Off or Warn in Settings → Safety checks if a channel may upload without one, and the Upload button in Upload Center follows that switch.
+- "Media removed on purpose is not rebuilt" now says plainly that Off or Warn makes the removed files again, which costs money.
+- A lost writing request on a channel set to Warn now shows in the job's warnings, not only in its log.
+
 ## v1.4.300 — 2026-10-12
 
 - Safety checks, one switch each (owner: "Any other guard we have that doesn't have a UI control? … same application of control please"). Settings → Safety checks lists every check that can stop an episode, for this channel, each with Off, Warn or Block. Off: Story fixes it or carries on, and writes it in the job log. Warn: it carries on and puts a warning on the job. Block: it stops, as before. "Apply These to All Channels" copies one channel's choices to every channel, and "Back to Defaults" resets them.

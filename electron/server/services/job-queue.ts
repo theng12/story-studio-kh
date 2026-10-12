@@ -113,6 +113,15 @@ export function noteCurrentJob(line: string): void {
   emitUpdate(job)
 }
 
+/** 1.4.301 — a safety check set to Warn, raised outside the executor's job object, joins the job's warnings. */
+export function noteCurrentJobSafetyWarning(check: string, message: string): void {
+  const job = jobs.get(currentJobId() || '')
+  if (!job) return
+  const warnings = Array.isArray(job.result?.safety_warnings) ? job.result!.safety_warnings : []
+  job.result = { ...(job.result || {}), safety_warnings: [...warnings, { check, message }] }
+  emitUpdate(job)
+}
+
 /**
  * Persist a GenStudio-owned state/billing snapshot without interpreting it.
  * This is intentionally additive so old provider evidence stays untouched.

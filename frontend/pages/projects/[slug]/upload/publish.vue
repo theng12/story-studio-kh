@@ -495,7 +495,7 @@
           </button>
           <span class="hint">Updates the existing video after YouTube confirms it is private. It does not upload the video again.</span>
         </div>
-        <div v-else-if="previewed.thumbnail.state !== 'selected' || thumbnailImageUnavailable" class="hint">
+        <div v-else-if="thumbnailRequired && (previewed.thumbnail.state !== 'selected' || thumbnailImageUnavailable)" class="hint">
           A thumbnail is required. Choose an available thumbnail before uploading.
         </div>
         <div v-else-if="!previewed.source?.revision" class="hint">Refresh this review so Story Studio can verify the exact video file before uploading.</div>
@@ -871,6 +871,14 @@ const route = useRoute()
 const router = useRouter()
 const slug = computed(() => route.params.slug as string)
 const { get, post } = useApi()
+/** 1.4.301 — the channel's "Thumbnail present" safety check: only Block (the default) requires one here. */
+const thumbnailRequired = ref(true)
+watch(slug, async value => {
+  thumbnailRequired.value = true
+  const data = await get<{ checks: Array<{ id: string; mode: string }> }>(`/projects/${value}/safety-checks`).catch(() => null)
+  const mode = data?.checks.find(check => check.id === 'thumbnail_present')?.mode
+  if (value === slug.value) thumbnailRequired.value = mode !== 'off' && mode !== 'warn'
+}, { immediate: true })
 const { ask } = useConfirm()
 const { jobs, jobsStale } = useJobs()
 
@@ -2109,8 +2117,10 @@ async function forgetUpload(ep: PublishableEpisode): Promise<void> {
  * channel, and neither is undoable: YouTube has no replace.
  */
 async function upload(episodeCode: string): Promise<void> {
-  // The thumbnail is required (2026-10-07): the upload job refuses without one.
-  if (previewed.value?.thumbnail.state !== 'selected' || thumbnailImageUnavailable.value || timingDirty.value) return
+  // The thumbnail is required (2026-10-07) unless this channel's "Thumbnail present" safety check is
+  // Off or Warn (1.4.301); the upload job applies the same switch.
+  if (timingDirty.value) return
+  if (thumbnailRequired.value && (previewed.value?.thumbnail.state !== 'selected' || thumbnailImageUnavailable.value)) return
   const requestedSlug = slug.value
   const expectedChannelId = assignedChannel.value?.channel_id
   const expectedChannelTitle = assignedChannel.value?.title

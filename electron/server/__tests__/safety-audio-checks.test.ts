@@ -173,6 +173,13 @@ test('lost_writing_request: Off (default) resends once; Block stops after the fi
     assert.equal(resent.status, 'error', 'the resend is lost too in this fixture')
     assert.equal(posts, 2, 'Off sends it once more, as 1.4.296 does')
     assert.ok(resent.output_lines.some(line => /lost track of a writing request.*set to Off/.test(line)), resent.output_lines.join('\n'))
+
+    // 1.4.301 — Warn also lands in the job's warning list, not only the log.
+    await setMode('lost_writing_request', 'warn')
+    posts = 0
+    const warned = await settle()
+    assert.equal(posts, 2)
+    assert.deepEqual((warned.result as any)?.safety_warnings?.map((w: any) => w.check), ['lost_writing_request'])
   } finally {
     globalThis.fetch = original
     clearGenStudioCatalogCache()

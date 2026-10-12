@@ -36,6 +36,9 @@ test('every check has a default; loudness is Off, broken output is Block, and th
   assert.equal(mode('loudness'), 'off')
   for (const id of ['silent_narration', 'merged_audio_exists', 'valid_video', 'private_upload', 'right_channel']) assert.equal(mode(id), 'block', id)
   assert.ok(list.find((check: any) => check.id === 'gateway_key').locked_reason)
+  // 1.4.301 — owner: "No upload without a thumbnail"; the paid remake says it costs money.
+  assert.equal(mode('thumbnail_present'), 'block')
+  assert.match(list.find((check: any) => check.id === 'retired_media').protects, /costs money/)
 
   await request(app).put(`/projects/${slug}/safety-checks`).send({ modes: { loudness: 'block', caption_gap: 'off' } }).expect(200)
   await request(app).put(`/projects/${slug}/safety-checks`).send({ modes: { gateway_key: 'off' } }).expect(400)
