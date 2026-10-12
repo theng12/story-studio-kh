@@ -56,6 +56,7 @@ import { readSubtitleTimelineIntegrity } from './scene-timeline-integrity.js'
 import { allowedSubtitleCueGapSec } from './scene-plan-pacing.js'
 import { inspectSubtitleCompletion, inspectSubtitleSourceFreshness } from './subtitle-completion.js'
 import { inspectExistingTranscriptSource } from './subtitle-correction.js'
+import { safetyModeFromConfig } from './safety-checks.js'
 import { inspectPromptCompletion, legacyPromptsPresent } from './prompt-completion.js'
 import { inspectMetadataCompletion, legacyMetadataPresent } from './metadata-completion.js'
 import { COVERAGE_FAIL_SEC, inspectScenePlanCoverage } from './scene-planner.js'
@@ -1263,7 +1264,9 @@ export async function computeEpisodeStatus(
         // rebuilds and validates that source before provider work; only a fresh,
         // exact planning transcript can move the Pending picker back to false.
         if (!planningTranscript.planning_source_revalidation_required) {
-          status.subtitles = integrity.complete
+          const captionGapMode = safetyModeFromConfig(projectConfig, 'caption_gap')
+          status.subtitles = integrity.missing_sections.length === 0
+            && (captionGapMode !== 'block' || !integrity.blocking_cue_gaps?.length)
         }
       }
     } catch (error) {

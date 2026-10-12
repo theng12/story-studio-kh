@@ -736,11 +736,11 @@ describe('the research generator resets the triage', () => {
     assert.ok(after.claims.every(c => c.status === 'unreviewed'))
   })
 
-  test('1.4.300: with nobody approving, the "Research claims approved" check set to Off accepts the claims; Warn also warns; Block (default) keeps them out', async () => {
+  test('1.4.300: with nobody approving, Off accepts the claims; Warn also warns; explicit Block keeps them out', async () => {
     const epDir = await makeProject(true)
-    await writeProjectConfig({})
+    await writeProjectConfig({ safety_checks: { research_approved: 'block' } })
     await runGeneratorWithStubAdapter({})
-    assert.ok((await readResearch(epDir)).claims.every(c => c.status !== 'verified'), 'the default keeps unread claims out of the script')
+    assert.ok((await readResearch(epDir)).claims.every(c => c.status !== 'verified'), 'explicit Block keeps unread claims out of the script')
     await writeProjectConfig({ safety_checks: { research_approved: 'off' } })
     const job = await runGeneratorWithStubAdapter({})
     const written = await readResearch(epDir)

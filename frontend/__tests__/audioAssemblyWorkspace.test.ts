@@ -45,7 +45,7 @@ test('keeps merge output and the merge action in an action bar (in the page flow
   assert.match(page, /watch\(existingMergedAudio,[\s\S]{0,300}if \(!cur\) writeMode\.value = 'overwrite'/)
   assert.doesNotMatch(presetSnapshot, /writeMode|write_mode/)
   assert.match(page, /return files\.find\([\s\S]{0,140}activeFilename\) \|\| null/)
-  assert.match(page, /:disabled="!chapterAudioReady \|\| mergeStatus\.loading \|\| !!mergeStatus\.error/)
+  assert.match(page, /:disabled="!chapterAudioCanMerge \|\| mergeStatus\.loading \|\| !!mergeStatus\.error/)
   // Not sticky: a floating bar covered the chapter rows scrolling beneath it.
   assert.doesNotMatch(page, /\.audio-assembly-action-bar \{[^}]*position: sticky/)
 })

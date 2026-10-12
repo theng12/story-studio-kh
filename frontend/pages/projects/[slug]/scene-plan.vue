@@ -143,9 +143,14 @@
           <NuxtLink :to="subtitleLink(missingSubtitleSections[0])" class="inline-link">Open the first affected chapter in Subtitles</NuxtLink>,
           then stitch again. The current long scene crosses narration the app could not see.
         </div>
-        <div v-else-if="blockingSubtitleCueGaps.length" class="validation-msg validation-msg-strong text-sm mt-2">
-          ⚠ <strong>Do not rebuild or re-plan yet.</strong>
+        <div
+          v-else-if="blockingSubtitleCueGaps.length"
+          class="validation-msg text-sm mt-2"
+          :class="{ 'validation-msg-strong': captionGapBlocks }"
+        >
+          ⚠ <strong>{{ captionGapBlocks ? 'Do not rebuild or re-plan yet.' : 'Scene Plan can continue.' }}</strong>
           Subtitles skip speech in <strong>{{ subtitleGapSummary }}</strong>.
+          {{ captionGapPolicyMessage }}
           <template v-if="blockingSubtitleGapSections[0]">
             That is almost always the narration missing a sentence, so
             <NuxtLink :to="renarrateLink(slug, episodeId, blockingSubtitleGapSections[0])" class="inline-link">re-narrate {{ subtitleChapterLabel(blockingSubtitleGapSections[0]) }}</NuxtLink>
@@ -1445,6 +1450,7 @@ interface ScenePlanStatus {
   timeline_integrity?: {
     complete: boolean
     missing_sections: string[]
+    caption_gap_mode?: 'off' | 'warn' | 'block'
     blocking_cue_gaps?: Array<{
       section_slugs: string[]
       previous_end_sec: number
@@ -1594,6 +1600,12 @@ const missingSubtitleSections = computed(() => {
   return Array.from(new Set([...reported, ...derived]))
 })
 const blockingSubtitleCueGaps = computed(() => status.value?.timeline_integrity?.blocking_cue_gaps || [])
+const captionGapBlocks = computed(() => status.value?.timeline_integrity?.caption_gap_mode === 'block')
+const captionGapPolicyMessage = computed(() => {
+  if (captionGapBlocks.value) return 'This channel blocks planning until the gap is fixed.'
+  if (status.value?.timeline_integrity?.caption_gap_mode === 'warn') return 'This channel records a warning on the planning job.'
+  return 'This channel records the gap in the job log.'
+})
 const blockingSubtitleGapSections = computed(() => Array.from(new Set(
   blockingSubtitleCueGaps.value.flatMap(gap => gap.section_slugs),
 )))

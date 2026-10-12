@@ -204,7 +204,13 @@ router.post('/projects/:slug/song-pool/preview-briefs', async (req, res) => {
       sceneIdeas: pool.songs.map(s => s.scene_idea || '').filter(Boolean), never: formula.never,
       maxTitleWordShare: formula.variety.max_title_word_share, maxSimilarity: formula.variety.max_similarity,
       ...(formula.lyrics?.enabled ? { lyrics: { language: formula.lyrics.language } } : {}),
-    }, (system, user) => callAi(writer, system, user, {}, false, { slug, outputBudget: 'standard', temperature: 0.8, jsonMode: true }))
+    }, (system, user, minimumOutputTokens) => callAi(writer, system, user, {}, false, {
+      slug,
+      outputBudget: formula.lyrics?.enabled
+        ? { tier: 'workload', minimumTokens: minimumOutputTokens }
+        : 'standard',
+      temperature: 0.8, jsonMode: true,
+    }))
     res.json({ briefs: written.briefs, dropped: written.dropped.map(d => ({ ...d.cell, reason: d.reason })) })
   } catch (e) { fail(res, e, 'Could not write the preview briefs') }
 })

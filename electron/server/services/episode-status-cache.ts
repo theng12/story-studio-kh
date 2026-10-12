@@ -57,7 +57,11 @@ import { RESEARCH_JSON_FILENAME, researchFolderName } from '../lib/research-path
  * manifest are rewritten in place without changing the metadata folder mtime. Discard v16 rows so
  * a warm cache cannot miss either kind of change after upgrade.
  */
-export const SCHEMA_VERSION = 17 as const
+/**
+ * v18 — caption-gap safety modes now determine subtitle completion. Discard v17 rows so statuses
+ * computed under the former unconditional gap block are recomputed after upgrade.
+ */
+export const SCHEMA_VERSION = 18 as const
 const MAX_ENTRIES = 1000
 /**
  * Watcher-backed reads (see `trusted()`): how long an entry may be served

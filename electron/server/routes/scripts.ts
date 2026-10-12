@@ -20,6 +20,7 @@ import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { inspectYouTubeFinalizationStatus } from '../services/youtube-metadata-finalizer.js'
+import { safetyMode } from '../services/safety-checks.js'
 import {
   freshActionMatch,
   readOperationId,
@@ -1190,7 +1191,8 @@ router.post('/projects/:slug/generate/metadata', async (req, res) => {
   if (credErr) return res.status(400).json({ detail: credErr })
 
   const readiness = await inspectYouTubeFinalizationStatus(slug, episode_id)
-  if (!readiness.audio_assembly_ready) {
+  const chapterMarksBlock = await safetyMode(slug, 'chapter_marks') === 'block'
+  if (!readiness.audio_assembly_ready && (readiness.music_episode || chapterMarksBlock)) {
     return res.status(409).json({
       code: readiness.music_episode ? 'YOUTUBE_FINALIZER_MUSIC_STITCH_REQUIRED' : 'YOUTUBE_FINALIZER_AUDIO_REQUIRED',
       detail: readiness.music_episode
@@ -1199,7 +1201,7 @@ router.post('/projects/:slug/generate/metadata', async (req, res) => {
       warnings: readiness.warnings,
     })
   }
-  if (readiness.chapter_issue) {
+  if (readiness.chapter_issue && chapterMarksBlock) {
     return res.status(409).json({ code: 'YOUTUBE_FINALIZER_CHAPTERS_REQUIRED', detail: readiness.chapter_issue, warnings: readiness.warnings })
   }
 

@@ -50,7 +50,9 @@ describe('music length', () => {
     assert.equal(lyricSectionCount(lyrics), 5)
     const plan = musicDurationPlan(yue, { lyrics })
     assert.equal(plan.seconds, 150)
-    assert.match(plan.note || '', /5 sections × 30 s = 150 s/)
+    assert.match(plan.note || '', /150 s requested for 5 sections/)
+    // 1.4.301: a caller asking for more (the Song Pool asks 1.25 × the length it wants) gets it.
+    assert.equal(musicDurationPlan(yue, { lyrics, requestedSeconds: 263 }).seconds, 263)
   })
   test('a very long sheet is held to the model\'s maximum, a lone line to its minimum', () => {
     assert.equal(musicDurationPlan(yue, { lyrics: Array.from({ length: 20 }, () => '[Verse]\nx').join('\n') }).seconds, 360)

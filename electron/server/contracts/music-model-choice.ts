@@ -89,12 +89,11 @@ export interface MusicDurationPlan {
 /**
  * How long a track to ask for.
  *
- * A model that sings (`requires_lyrics`) renders what its lyrics need: the Hub converts seconds to
- * a token budget (25 tokens per second) and the song comes back no shorter than half of it and no
- * longer than all of it, so the length follows the sheet — `lyricSectionCount × 30 s`. An
- * instrumental model takes the length asked for (default four minutes). Either way the figure is
- * clamped to the bounds the model publishes, and the log says so when that changed it. The length
- * actually delivered is measured from the saved file, never assumed.
+ * A model that sings (`requires_lyrics`) gets a duration request large enough for its lyric sections
+ * and the caller's provisional allowance. That request is not a duration guarantee: the provider may
+ * stop when its lyrics run out. Instrumental models take the requested length (default four minutes).
+ * Both requests are clamped to the selected model's live published bounds, and the delivered length
+ * is measured from the saved file.
  */
 export function musicDurationPlan(
   model: MusicModelCapability & { display_name?: string },
@@ -106,8 +105,10 @@ export function musicDurationPlan(
   let note: string | undefined
   if (sings) {
     const sections = lyricSectionCount(input.lyrics || '')
-    seconds = sections * YUE2_SECONDS_PER_SECTION
-    note = `${name} sings its lyrics, so the length follows them: ${sections} section${sections === 1 ? '' : 's'} × ${YUE2_SECONDS_PER_SECTION} s = ${seconds} s requested (it returns between half and all of that).`
+    // The larger of the lyric-section estimate and caller's provisional budget; provider output may differ.
+    const asked = input.requestedSeconds && input.requestedSeconds > 0 ? Math.round(input.requestedSeconds) : 0
+    seconds = Math.max(sections * YUE2_SECONDS_PER_SECTION, asked)
+    note = `${name} sings its lyrics, so the length follows them: ${seconds} s requested for ${sections} section${sections === 1 ? '' : 's'} (it stops when the words run out).`
   } else {
     seconds = Math.round(input.requestedSeconds && input.requestedSeconds > 0 ? input.requestedSeconds : DEFAULT_INSTRUMENTAL_TRACK_SECONDS)
   }

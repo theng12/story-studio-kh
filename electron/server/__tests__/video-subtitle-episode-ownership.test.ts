@@ -21,13 +21,27 @@
  * costs nothing, because this runs in preflight, before a frame is encoded.
  */
 
-import { describe, test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
 import os from 'os'
 
 import { assertSubtitleFileBelongsToEpisode, resolveEpisodeSubtitleFile } from '../generators/video.js'
+import { useTempDataDir } from './_helpers.js'
+
+let testData: Awaited<ReturnType<typeof useTempDataDir>>
+before(async () => {
+  testData = await useTempDataDir()
+  const projectDir = path.join(testData.dir, 'projects', 'my-channel')
+  await fs.mkdir(projectDir, { recursive: true })
+  // These refusal regressions exercise an explicit Block choice. Warn/Off
+  // omission is covered separately by video-safety-policy.test.ts.
+  await fs.writeFile(path.join(projectDir, 'config.json'), JSON.stringify({
+    safety_checks: { subtitles_this_episode: 'block' },
+  }))
+})
+after(async () => { await testData.cleanup() })
 
 const EP47_DIR = '/projects/my-channel/episodes/Season 003/EP0047 - Rome'
 const EP48_DIR = '/projects/my-channel/episodes/Season 003/EP0048 - Timbuktu'

@@ -319,8 +319,9 @@ describe('run-batch — step skip behaviour', () => {
     )
   })
 
-  test('the queued finalizer rejects before provider work and legacy early routes are retired', async () => {
+  test('the queued finalizer on Block rejects before provider work and legacy early routes are retired', async () => {
     const { slug, episodeId } = await seedProjectWithAcceptedIdea(false)
+    await pm.updateConfig(slug, { safety_checks: { chapter_marks: 'block' } } as any)
     const queued = await request(app)
       .post(`/api/projects/${slug}/generate/metadata`)
       .send({

@@ -27,6 +27,7 @@ import { readEpisodeMotionScope, resolveEpisodeMotionSceneIds } from '../service
 import { motionPromptSceneIds } from '../services/scene-motion-prompt-scope.js'
 import { readVideoVisualSource } from '../services/video-visual-source.js'
 import { allowedSubtitleCueGapSec, resolveScenePlanRepairPacing } from '../services/scene-plan-pacing.js'
+import { safetyMode } from '../services/safety-checks.js'
 import { requireScenePlanGenStudioModel, SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import {
   COVERAGE_FAIL_SEC,
@@ -1010,11 +1011,17 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
     const transcriptQuality = transcript.path
       ? await fs.readFile(transcript.path, 'utf-8').then(inspectSubtitleText).catch(() => null)
       : null
+    const captionGapMode = await safetyMode(slug, 'caption_gap')
     const subtitleTimelineIntegrity = existsSync(stitchedPath)
       ? await readSubtitleTimelineIntegrity(paths.subtitles_dir, episodeId, {
         max_cue_gap_sec: allowedSubtitleCueGapSec(),
         cue_source_path: transcript.path,
-      })
+      }).then(integrity => ({
+        ...integrity,
+        caption_gap_mode: captionGapMode,
+        complete: integrity.missing_sections.length === 0
+          && (captionGapMode !== 'block' || !integrity.blocking_cue_gaps?.length),
+      }))
       : null
     const responsePlan = scenePlan
       ? { ...scenePlan, ...(scenePlan.pacing === undefined ? {} : { pacing: parseSavedScenePlanPacing(scenePlan.pacing) }) }

@@ -332,7 +332,7 @@ describe('Ideas routes', () => {
       'single-episode status must expose the same public projection without leaking internals')
   })
 
-  test('subtitle status exposes the same pacing-blocking gap and chapter target as Scene Plan', async () => {
+  test('subtitle status keeps the measured gap visible while the caption-gap policy decides readiness', async () => {
     const videoRoutes = await fs.readFile(new URL('../routes/video.ts', import.meta.url), 'utf-8')
     const lightweightRoute = videoRoutes.slice(
       videoRoutes.indexOf("router.get('/projects/:slug/video-editor/subtitles/timeline-integrity/:episodeId'"),
@@ -372,7 +372,8 @@ describe('Ideas routes', () => {
     const lightweight = await request(app)
       .get(`/api/projects/${isolatedSlug}/video-editor/subtitles/timeline-integrity/${code}`)
     assert.equal(lightweight.status, 200)
-    assert.equal(lightweight.body.timeline_integrity.complete, false)
+    assert.equal(lightweight.body.timeline_integrity.caption_gap_mode, 'warn')
+    assert.equal(lightweight.body.timeline_integrity.complete, true)
     assert.equal(lightweight.body.timeline_integrity.max_cue_gap_sec, 30)
     assert.deepEqual(lightweight.body.timeline_integrity.blocking_cue_gaps[0].section_slugs, ['Chapter_15'])
 
@@ -380,12 +381,27 @@ describe('Ideas routes', () => {
       .get(`/api/projects/${isolatedSlug}/video-editor/subtitles/status/${code}`)
     assert.equal(status.status, 200)
     assert.equal(status.body.completion.complete, true, 'chapter/full-track completion remains a separate fact')
-    assert.equal(status.body.timeline_integrity.complete, false)
+    assert.equal(status.body.timeline_integrity.caption_gap_mode, 'warn')
+    assert.equal(status.body.timeline_integrity.complete, true)
     assert.equal(status.body.timeline_integrity.max_cue_gap_sec, 30, 'slow visual pacing must not relax subtitle admission')
     assert.deepEqual(status.body.timeline_integrity.blocking_cue_gaps[0].section_slugs, ['Chapter_15'])
     assert.equal(status.body.planning_transcript_source, 'raw')
     assert.equal(status.body.planning_source_revalidation_required, true)
     assert.equal(status.body.last_stitched_at, '2026-09-11T16:25:00.000Z', 'stitch recency comes from the stitch sidecar, not this status read')
+
+    const pm = await import('../services/project-manager.js')
+    await pm.updateConfig(isolatedSlug, { safety_checks: { caption_gap: 'block' } } as any)
+    const blockedLightweight = await request(app)
+      .get(`/api/projects/${isolatedSlug}/video-editor/subtitles/timeline-integrity/${code}`)
+    assert.equal(blockedLightweight.body.timeline_integrity.caption_gap_mode, 'block')
+    assert.equal(blockedLightweight.body.timeline_integrity.complete, false)
+    assert.deepEqual(blockedLightweight.body.timeline_integrity.blocking_cue_gaps[0].section_slugs, ['Chapter_15'])
+
+    const blockedStatus = await request(app)
+      .get(`/api/projects/${isolatedSlug}/video-editor/subtitles/status/${code}`)
+    assert.equal(blockedStatus.body.timeline_integrity.caption_gap_mode, 'block')
+    assert.equal(blockedStatus.body.timeline_integrity.complete, false)
+    assert.deepEqual(blockedStatus.body.timeline_integrity.blocking_cue_gaps[0].section_slugs, ['Chapter_15'])
   })
 
   test('GET /episodes reports thumbnail counts after thumbnail files go missing or are deleted', async () => {

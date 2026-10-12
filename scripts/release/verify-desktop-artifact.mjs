@@ -206,7 +206,14 @@ if (fs.existsSync(dmgPath) && process.platform === 'darwin') {
     }
   } finally {
     if (dmgMounted) capture('hdiutil', ['detach', mountPoint])
-    fs.rmSync(tempRoot, { recursive: true, force: true })
+    try {
+      const trashRoot = path.join(root, '_trash')
+      fs.mkdirSync(trashRoot, { recursive: true })
+      const trashDir = fs.mkdtempSync(path.join(trashRoot, 'release-'))
+      fs.renameSync(tempRoot, path.join(trashDir, path.basename(tempRoot)))
+    } catch (error) {
+      console.warn(`DMG verification sandbox retained at ${tempRoot}: could not move it into project _trash (${error.message})`)
+    }
   }
 }
 

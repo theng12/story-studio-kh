@@ -2902,7 +2902,11 @@ function jobQueuePath(job: Pick<RJob, 'project_slug' | 'job_id'>): string {
 
 type JobAttentionLink = { kind: 'subtitle' | 'image' | 'prompt'; label: string; to: string }
 type CurrentSubtitleStatus = {
-  timeline_integrity?: { blocking_cue_gaps?: Array<{ section_slugs?: string[] }> }
+  timeline_integrity?: {
+    complete?: boolean
+    caption_gap_mode?: 'off' | 'warn' | 'block'
+    blocking_cue_gaps?: Array<{ section_slugs?: string[] }>
+  }
 }
 const currentSubtitleAttentionByEpisode = ref<Record<string, JobAttentionLink | null>>({})
 const currentSubtitleAttentionChecked = new Set<string>()
@@ -2949,7 +2953,9 @@ async function loadCurrentSubtitleAttention(job: RJob): Promise<void> {
     const section = gaps.flatMap(gap => Array.isArray(gap.section_slugs) ? gap.section_slugs : [])[0]
     currentSubtitleAttentionByEpisode.value = {
       ...currentSubtitleAttentionByEpisode.value,
-      [key]: gaps.length ? subtitleAttentionLink(job, section, true) : null,
+      [key]: status.timeline_integrity?.caption_gap_mode === 'block' && gaps.length
+        ? subtitleAttentionLink(job, section, true)
+        : null,
     }
     currentSubtitleAttentionChecked.add(key)
   } catch {

@@ -394,7 +394,7 @@ describe('episode-status-cache', () => {
     assert.equal(cache.getStats().size, 0, 'nothing stored')
   })
 
-  test('_hydrateProject: v12 entries are dropped after thumbnail aggregate shape changes', async () => {
+  test('_hydrateProject: v17 entries are dropped after caption-gap completion semantics change', async () => {
     await makeProject()
     const cache = cacheMod.episodeStatusCache
 
@@ -404,10 +404,10 @@ describe('episode-status-cache', () => {
       status: { script: true } as any,
       computedAt: Date.now(),
       watchedMtimes: {},
-      schemaVersion: 12,
+      schemaVersion: 17,
     } as unknown as import('../services/episode-status-cache.js').EpisodeStatusCacheEntry
     const loaded = cache._hydrateProject(SLUG, [stale])
-    assert.equal(loaded, 0, 'v12 cache entries lack thumbnail image aggregates and must be recomputed')
+    assert.equal(loaded, 0, 'v17 caption-gap readiness must be recomputed under the current safety policy')
     assert.equal(cache.getStats().size, 0, 'stale entry is not retained')
   })
 
@@ -702,7 +702,8 @@ describe('episode-status-cache', () => {
   })
 
   test('subtitles: a blocking gap in the fresh planning transcript stays visible in Pending', async () => {
-    const { epDir } = await makeProject()
+    const { projDir, epDir } = await makeProject()
+    await fs.writeFile(path.join(projDir, 'config.json'), JSON.stringify({ safety_checks: { caption_gap: 'block' } }))
     await fs.writeFile(path.join(epDir, 'continuity.json'), JSON.stringify({
       pacing: { min_sec: 45, max_sec: 60 },
     }))

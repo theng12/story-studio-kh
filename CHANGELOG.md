@@ -9,6 +9,11 @@ What's new in each release. Newest first.
 - No upload without a thumbnail again by default (you: "No upload without a thumbnail, as your earlier rule said"). The "Thumbnail present" safety check now starts at Block; switch it to Off or Warn in Settings → Safety checks if a channel may upload without one, and the Upload button in Upload Center follows that switch.
 - "Media removed on purpose is not rebuilt" now says plainly that Off or Warn makes the removed files again, which costs money.
 - A lost writing request on a channel set to Warn now shows in the job's warnings, not only in its log.
+- Video Assembly and scene-picture checks now follow each channel's Off, Warn or Block choice. Missing pictures, missing merged narration and incomplete final videos still default to Block; advisory checks use available episode inputs safely and report warnings on the job.
+- Manual metadata, Audio Assembly and subtitle-readiness pages now follow the same safety choices as Pipeline. A caption gap set to Warn no longer disables otherwise-ready scene work; missing or invalid subtitle sections remain blocked.
+- An existing opening video now counts toward scene coverage during assembly preflight, fixing episodes stopped by a covered opening gap.
+- Reconciled Scene Plans use the later audio or subtitle end, so small timestamp rounding differences no longer trap a complete plan in repeated repair. Existing approved work on retained scenes stays intact.
+- Songs with lyrics ask for fuller sheets of roughly 250–350 words and eight or nine sections, with a writing allowance sized to each batch and bounded by the selected model's live limits. The requested song length includes room to finish singing; the actual duration still depends on the generated take.
 
 ## v1.4.300 — 2026-10-12
 

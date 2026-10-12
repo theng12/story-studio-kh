@@ -34,7 +34,6 @@ export interface SafetyCheckDef {
 }
 
 const NOTHING_TO_MAKE = 'Cannot be switched: nothing can be made without it.'
-const NOT_YET = 'Cannot be switched yet; this is how it works today.'
 const LOCKED: Record<string, [SafetyMode, string]> = {
   gateway_key: ['block', NOTHING_TO_MAKE],
   model_available: ['block', NOTHING_TO_MAKE],
@@ -47,21 +46,6 @@ const LOCKED: Record<string, [SafetyMode, string]> = {
   merged_audio_made: ['block', 'Cannot be switched: an empty merged narration would only fail at Video Assembly.'],
   private_upload: ['block', 'Cannot be switched: Story only uploads private (or what you choose in Upload Center).'],
   not_on_youtube: ['block', 'Cannot be switched: a second copy would replace the first video\'s record.'],
-  // Video Assembly and scene pictures: not switchable yet (1.4.300).
-  scene_pictures: ['warn', NOT_YET + ' A missing free picture borrows a neighbour\'s, up to 1 in 10 scenes.'],
-  scenes_approved: ['block', NOT_YET + ' Turn on "approve generated pictures" in the Scene Review preset to skip it.'],
-  stale_picture: ['off', NOT_YET + ' Pictures from an older prompt are used and named in the log.'],
-  picture_opens: ['block', NOT_YET],
-  scene_overlap: ['off', NOT_YET + ' Overlaps are re-aligned by themselves.'],
-  narration_covered: ['block', NOT_YET],
-  scene_count: ['block', NOT_YET],
-  merged_audio_exists: ['block', NOT_YET],
-  subtitles_this_episode: ['block', NOT_YET],
-  switched_on_inputs: ['block', NOT_YET],
-  cues_approved: ['block', NOT_YET],
-  opening_outro: ['block', NOT_YET],
-  image_pool_covers: ['block', NOT_YET],
-  final_video_whole: ['block', NOT_YET],
 }
 
 const c = (group: string, id: string, name: string, protects: string, def: SafetyMode): SafetyCheckDef => {
@@ -70,17 +54,17 @@ const c = (group: string, id: string, name: string, protects: string, def: Safet
 }
 
 export const SAFETY_CHECKS: readonly SafetyCheckDef[] = [
-  c('Pipeline start', 'accepted_idea', 'Episode is an accepted idea', 'Running work on an idea that is not an episode yet.', 'block'),
+  c('Pipeline start', 'accepted_idea', 'Episode is an accepted idea', 'Running work on an idea that is not an episode yet.', 'warn'),
   c('Pipeline start', 'earlier_step_done', 'Earlier step is done', 'A step running before what it needs exists (for example Video before Scene Review).', 'warn'),
   c('Pipeline start', 'step_preset', 'A saved preset for each ticked step', 'Running a step with no saved settings.', 'warn'),
   c('Pipeline start', 'preset_files', 'Preset files are reachable', 'A preset pointing at a file on a drive that is not connected.', 'warn'),
   c('Pipeline start', 'audio_voice', 'Audio preset has a voice', 'Narration with no voice chosen (no audio would be made).', 'block'),
   c('Pipeline start', 'step_fits_channel', 'Step fits this channel type', 'Music steps on a story channel, and the reverse.', 'warn'),
   c('Pipeline start', 'cues_feature_on', 'Contextual Cues step needs the feature on', 'Running cues on a channel with cues switched off.', 'warn'),
-  c('Pipeline start', 'retired_media', 'Media removed on purpose is not rebuilt', 'Remaking files Free Up Space removed from uploaded episodes (Off or Warn makes them again, which costs money).', 'block'),
+  c('Pipeline start', 'retired_media', 'Rebuilding removed media costs money', 'Remaking files Free Up Space removed from uploaded episodes (Off or Warn makes them again, which costs money).', 'warn'),
   c('Pipeline start', 'disk_space', 'Enough free disk space', 'Running out of space in the middle of a run.', 'warn'),
   c('Pipeline start', 'captions_missing', 'Captions on but no subtitles', 'A video without the captions you expected.', 'warn'),
-  c('Script and research', 'research_approved', 'Research claims approved', 'Unchecked facts going into a script.', 'block'),
+  c('Script and research', 'research_approved', 'Research claims approved', 'Unchecked facts going into a script.', 'warn'),
   c('Script and research', 'outline_approved', 'Outline approved before chapters', 'Writing chapters from an outline you have not seen.', 'off'),
   c('Script and research', 'all_chapters_written', 'Every outline chapter written', 'A script with a missing chapter (a hole in the narration).', 'block'),
   c('Script and research', 'chapter_once', 'Each chapter used only once', 'A chapter read twice in the narration.', 'off'),
@@ -109,15 +93,15 @@ export const SAFETY_CHECKS: readonly SafetyCheckDef[] = [
   c('Scene Plan', 'scene_prompts', 'Every scene has a picture prompt', 'A scene with no picture prompt.', 'warn'),
   c('Cues and Sound Design', 'cue_review', 'Cue review before Scene Review', 'Pictures made before you decided on cues.', 'off'),
   c('Cues and Sound Design', 'cues_approved', 'Cues / Sound Design on but nothing approved', 'A video missing an effect you switched on.', 'warn'),
-  c('Scene pictures', 'scene_pictures', 'Every scene picture made', 'Missing pictures (a neighbour\'s picture can stand in).', 'warn'),
+  c('Scene pictures', 'scene_pictures', 'Every scene picture made', 'Missing pictures (a neighbour\'s picture can stand in).', 'block'),
   c('Scene pictures', 'scenes_approved', 'Every scene approved', 'Unreviewed pictures in a video.', 'off'),
   c('Scene pictures', 'stale_picture', 'Picture drawn from an older prompt', 'A picture that no longer matches its edited prompt.', 'off'),
   c('Scene pictures', 'picture_opens', 'Picture file opens', 'A corrupt picture reaching the encoder.', 'warn'),
   c('Video Assembly', 'scene_overlap', 'Scene times do not overlap', 'Two scenes claiming the same seconds (re-aligned by itself).', 'off'),
-  c('Video Assembly', 'narration_covered', 'Every second of narration has a scene', 'Black or frozen frames.', 'warn'),
+  c('Video Assembly', 'narration_covered', 'Every second of narration has a scene', 'Black or frozen frames.', 'off'),
   c('Video Assembly', 'scene_count', 'Scene count matches the plan', 'A video built from a partial set of pictures.', 'warn'),
   c('Video Assembly', 'merged_audio_exists', 'Merged narration exists', 'A video with no sound.', 'block'),
-  c('Video Assembly', 'subtitles_this_episode', 'Subtitle file belongs to this episode', 'Another episode\'s words burned into this video.', 'block'),
+  c('Video Assembly', 'subtitles_this_episode', 'Subtitle file belongs to this episode', 'Another episode\'s words burned into this video.', 'warn'),
   c('Video Assembly', 'switched_on_inputs', 'Everything switched on has its file', 'A video missing a switched-on intro, outro, logo or overlay.', 'warn'),
   c('Video Assembly', 'opening_outro', 'Opening and outro add up', 'A plan that reserves an opening the video no longer plays.', 'warn'),
   c('Video Assembly', 'image_pool_covers', 'Image Pool covers the narration', 'Image Pool episodes with too few pictures.', 'warn'),
@@ -133,8 +117,8 @@ export const SAFETY_CHECKS: readonly SafetyCheckDef[] = [
   c('Upload', 'valid_video', 'File is a valid YouTube video', 'Uploading a file with no picture, no sound, no length, or over 11 hours.', 'block'),
   c('Upload', 'upload_quota', 'Daily upload allowance left', 'Running out of YouTube\'s daily allowance mid-upload.', 'block'),
   c('Queue', 'same_step_queued', 'Same step not already queued', 'Two copies of the same step for one episode (the second waits instead).', 'off'),
-  c('Music and ideas', 'lyrics_listen_back', 'Sung lyrics listen-back', 'A sung take that does not sing the lyrics.', 'block'),
-  c('Music and ideas', 'idea_repeat', 'Idea repeat check by meaning', 'A new idea that repeats an old one.', 'block'),
+  c('Music and ideas', 'lyrics_listen_back', 'Sung lyrics listen-back', 'A sung take that does not sing the lyrics.', 'warn'),
+  c('Music and ideas', 'idea_repeat', 'Idea repeat check by meaning', 'A new idea that repeats an old one.', 'warn'),
 ]
 
 const BY_ID = new Map(SAFETY_CHECKS.map(check => [check.id, check]))

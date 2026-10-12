@@ -48,6 +48,7 @@ import {
   assertSubtitleTimelineComplete,
   readSubtitleTimelineIntegrity,
 } from '../services/scene-timeline-integrity.js'
+import { allowedSubtitleCueGapSec } from '../services/scene-plan-pacing.js'
 import { inspectSceneReviewCompletion } from '../services/scene-review-completion.js'
 import { checkpointSceneClip } from '../services/scene-media-checkpoint.js'
 import { resolveEpisodeMotionSceneIds } from '../services/episode-motion-scope.js'
@@ -57,6 +58,8 @@ import type { JobType, SceneClipVariantSelection, ScenePlan, ScenePlanEntry } fr
 import { RENDER_STATUS_FILENAME } from '../services/scene-render-status.js'
 import { revalidatePreview, streamTo } from '../lib/stream-file.js'
 import { ensureThumbnail } from '../lib/thumbnail-cache.js'
+import { safetyModeFromConfig } from '../services/safety-checks.js'
+import { inspectExistingTranscriptSource } from '../services/subtitle-correction.js'
 
 export const router = Router()
 
@@ -335,7 +338,18 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
       })
     }
     const promptIntegrity = inspectScenePromptIntegrity(plan.scenes)
-    const subtitleIntegrity = await readSubtitleTimelineIntegrity(paths.subtitles_dir, episodeId)
+    const cfg = await pm.getConfig(slug).catch(() => null)
+    const captionGapMode = safetyModeFromConfig(cfg, 'caption_gap')
+    const planningTranscript = await inspectExistingTranscriptSource(paths.subtitles_dir, episodeId)
+    const subtitleIntegrity = await readSubtitleTimelineIntegrity(paths.subtitles_dir, episodeId, {
+      max_cue_gap_sec: allowedSubtitleCueGapSec(),
+      cue_source_path: planningTranscript.path,
+    }).then(integrity => ({
+      ...integrity,
+      caption_gap_mode: captionGapMode,
+      complete: integrity.missing_sections.length === 0
+        && (captionGapMode !== 'block' || !integrity.blocking_cue_gaps?.length),
+    }))
     let motionScope: Awaited<ReturnType<typeof resolveEpisodeMotionSceneIds>> = {
       motion_scope: { mode: 'off' },
       motion_level: 2,
@@ -509,7 +523,6 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     // animators (e.g. the Chrome i2v extension) apply the SAME rule the in-app
     // bulk clip generator does: animate a scene only if approved + has a motion
     // prompt + (end_sec − start_sec) ≥ animate_min_seconds + no fresh clip.
-    const cfg = await pm.getConfig(slug).catch(() => null)
     const animateMinSeconds = Math.max(0, Number((cfg as any)?.animate_min_seconds) || 0)
 
     const reviewCompletion = inspectSceneReviewCompletion(

@@ -12,7 +12,7 @@ import { useTempDataDir } from './_helpers.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService, type MockGenStudioService } from './fixtures/mock-genstudio-service.js'
 import { STARTING_SONG_FORMULA, STARTING_LYRICS, SongFormulaSchema } from '../contracts/song-formula.js'
 import { lyricsMatch, lyricWords } from '../services/lyrics-match.js'
-import { checkBrief, parseWriterAnswer, sectionsFor, writeBriefs } from '../services/song-brief.js'
+import { checkBrief, parseWriterAnswer, sectionsFor, wordsFor, writeBriefs } from '../services/song-brief.js'
 import { renderLyrics } from '../services/youtube-metadata-finalizer.js'
 
 const LYRICS = '[Verse]\nSteam curls up from the cup\nRain draws lines on the glass\n[Chorus]\nStay a while, stay a while\nLet the slow hours pass'
@@ -44,11 +44,12 @@ describe('pure parts', () => {
     assert.match(checkBrief({ ...a!, lyrics: 'one verse only' }, pool, ctx), /two \[Verse\]/)
     assert.match(checkBrief({ ...a!, style: '' }, pool, ctx), /style line/)
     assert.match(checkBrief({ ...a!, lyrics: `${LYRICS}\nand the drums roll` }, pool, ctx), /never allows/)
-    assert.equal(sectionsFor(60), 2); assert.equal(sectionsFor(210), 7); assert.equal(sectionsFor(900), 12)
+    assert.equal(sectionsFor(60), 8); assert.equal(sectionsFor(210), 8); assert.equal(sectionsFor(900), 9)
+    assert.equal(wordsFor(60), 250); assert.equal(wordsFor(180), 250); assert.equal(wordsFor(270), 350)
   })
 
   test('sung briefs ask for sections, 4 per call, and the prompt is the style line plus code facts', async () => {
-    const cells = Array.from({ length: 5 }, (_, i) => ({ ensemble: 'Piano trio', mood: 'Cosy', tempo_band: 'slow', tempo_bpm: 70 + i, key: 'C major', structure: 'ABA', texture: 'Warm room', theme: '', length_s: 180, energy: 2, combo_key: `c${i}`, seed: i + 1 }))
+    const cells = Array.from({ length: 5 }, (_, i) => ({ ensemble: 'Piano trio', mood: 'Cosy', tempo_band: 'slow', tempo_bpm: 70 + i, key: 'C major', structure: 'ABA', texture: 'Warm room', theme: '', length_s: i === 4 ? 270 : 180, energy: 2, combo_key: `c${i}`, seed: i + 1 }))
     const users: string[] = []
     const written = await writeBriefs(cells, { titles: [], lines: [], sceneIdeas: [], never: [], maxTitleWordShare: 1, maxSimilarity: 1, lyrics: { language: 'English' } }, async (system, user) => {
       users.push(user)
@@ -58,7 +59,8 @@ describe('pure parts', () => {
     })
     assert.equal(users.length, 2, '5 songs at 4 per call')
     assert.match(users[0]!, /Lyrics language: English/)
-    assert.match(users[0]!, /6 lyric sections/)
+    assert.match(users[0]!, /8 lyric sections, about 250 words of lyrics/)
+    assert.match(users[1]!, /9 lyric sections, about 350 words of lyrics/)
     assert.equal(written.briefs.length, 5)
     assert.equal(written.briefs[0]!.prompt, 'cafe jazz, soft male vocal, 70 BPM, C major')
   })
@@ -162,6 +164,8 @@ describe('making sung songs', () => {
     const music = service.submissions.filter(s => s.operation === 'music').map(s => s.parsedBody!)
     assert.equal(music.length, 2, 'sung twice')
     assert.ok(music.every(b => b.instrumental === false && b.lyrics === LYRICS))
+    // 1.4.301: the budget is 1.25 × the song length (60-61 s here), never cut below the sheet's sections.
+    assert.ok(music.every(b => [75, 76].includes(Number(b.duration_seconds))), JSON.stringify(music.map(b => b.duration_seconds)))
     assert.notEqual(music[0]!.seed, music[1]!.seed, 'a retake has a new seed')
     assert.match(String(music[0]!.prompt), /^cafe jazz, piano trio, cosy, warm female vocal, \d+ BPM, \S+ (major|minor)$/)
     assert.match(job.output_lines.join('\n'), /take 1 moved to Trash, singing it again \(take 2 of 2\)/)
@@ -192,6 +196,9 @@ describe('making sung songs', () => {
       assert.equal(job.result.complete, true, job.output_lines.join('\n'))
       const chat = service.submissions.filter(s => s.operation === 'chat').map(s => s.bodyText).join('\n')
       assert.match(chat, /The singer is fixed by the channel/)
+      const chatRequest = service.submissions.find(s => s.operation === 'chat')!.parsedBody!
+      assert.equal(chatRequest.max_output_tokens, 756, 'one 250-word sheet gets a workload-sized budget')
+      assert.ok(Number(chatRequest.max_output_tokens) <= 4_096, 'the live writer model publishes a 4,096-token ceiling')
       const [music] = service.submissions.filter(s => s.operation === 'music').map(s => s.parsedBody!)
       assert.equal(music!.seed, 777777)
       assert.match(String(music!.prompt), /, warm smoky female alto vocal, clear diction, gentle vibrato$/)

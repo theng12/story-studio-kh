@@ -59,15 +59,20 @@
     </WorkspaceNotice>
 
     <WorkspaceNotice
-      v-if="subtitleIntegrity && !subtitleIntegrity.complete"
-      tone="error"
-      :title="subtitleIntegrity.blocking_cue_gaps?.length ? 'Scene rendering paused: subtitle coverage gap' : 'Scene rendering paused: subtitle timeline is incomplete'"
+      v-if="subtitleIntegrity && (!subtitleIntegrity.complete || subtitleIntegrity.blocking_cue_gaps?.length)"
+      :tone="subtitleIntegrity.complete ? 'warning' : 'error'"
+      :title="subtitleTimelineMissing
+        ? 'Scene rendering paused: subtitle timeline is incomplete'
+        : subtitleIntegrity.blocking_cue_gaps?.length
+        ? (captionGapBlocks ? 'Scene rendering paused: subtitle coverage gap' : 'Subtitle coverage warning')
+        : 'Scene rendering paused: subtitle timeline is incomplete'"
     >
       <template v-if="subtitleIntegrity.blocking_cue_gaps?.length">
         The stitched timeline has an interval with no subtitle cues
         <template v-if="subtitleGapSections.length">in {{ subtitleGapSections.join(', ') }}.</template>
         <template v-else>in an unmapped section.</template>
         Re-stitching alone cannot add the missing cues.
+        {{ captionGapPolicyMessage }}
       </template>
       <template v-else>
         Subtitle timeline verification is incomplete. Review the subtitle workspace before rendering scenes.
@@ -735,6 +740,7 @@ interface SubtitleIntegrity {
   complete: boolean
   missing_sections: string[]
   max_cue_gap_sec?: number
+  caption_gap_mode?: 'off' | 'warn' | 'block'
   blocking_cue_gaps?: Array<{
     previous_end_sec: number
     next_start_sec: number
@@ -781,6 +787,14 @@ const visualSource = ref<'scene_plan' | 'image_pool'>('scene_plan')
 const usesImagePool = computed(() => visualSource.value === 'image_pool')
 const promptIntegrity = ref<PromptIntegrity | null>(null)
 const subtitleIntegrity = ref<SubtitleIntegrity | null>(null)
+const subtitleTimelineMissing = computed(() => (subtitleIntegrity.value?.missing_sections?.length || 0) > 0)
+const captionGapBlocks = computed(() => subtitleIntegrity.value?.caption_gap_mode === 'block')
+const captionGapPolicyMessage = computed(() => {
+  if (subtitleTimelineMissing.value) return 'Scene rendering stays paused until the incomplete timeline is fixed.'
+  if (captionGapBlocks.value) return 'This channel blocks scene rendering until it is fixed.'
+  if (subtitleIntegrity.value?.caption_gap_mode === 'warn') return 'Scene rendering can continue and the job will carry a warning.'
+  return 'Scene rendering can continue and the job log will record the gap.'
+})
 const subtitleGapSections = computed(() => Array.from(new Set(
   subtitleIntegrity.value?.blocking_cue_gaps?.flatMap(gap => gap.section_slugs) || [],
 )))

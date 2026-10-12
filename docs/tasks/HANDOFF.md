@@ -1,6 +1,19 @@
 # HANDOFF — Story Studio KH
 
-## Current work — 2026-10-12 (1.4.301 thumbnail Block by default)
+## Current work — 2026-10-13 (1.4.301 safety policy and lyrics release)
+
+ChatGPT took over from Claude with the owner's explicit authorization. Source verification passed in `safety2/core`; integration to main, final DMG/build verification, push, publication and mini installation follow. Preserve the inherited `650da798` commit. Root owns integration and the single test-suite lease; workers do not publish.
+
+- Fourteen Video Assembly / picture checks now use the existing policy; missing picture, merged narration and final-whole checks default Block. Five editorial checks default Warn. Explicit stored channel choices are preserved; no data or preset migration.
+- Manual metadata/audio-merge and caption-gap readiness projections now match generator policy, including Scene Review and frontend readiness wording. Missing sections and failed subtitle verification remain separate blocking facts. Cache schema18 discards persisted statuses computed under the old caption-gap semantics on upgrade.
+- SS0063 revealed a covered opening gap rejected at assembly preflight. Opening paths and both coverage checks passed independent review; no real scene plan was rewritten.
+- DL0011 exposed a 3 ms audio/subtitle end difference. Reconciliation now uses the later end consistently, keeps measured source audio separately, and reports retained rows honestly. Focused regression and related checks passed; live continuation waits for release.
+- Sung briefs target 250–350 words and 8–9 sections. Generation and preview share a per-pending-batch writing allowance clamped by live model limits; requested song duration is provisional, not guaranteed.
+- Installer verification now retains its isolated launch/DMG scratch directories in unique project `_trash/release-*` folders after shutdown/detach, instead of deleting them. Failed moves preserve the original scratch path and report it.
+- Final source gate passed: r8 backend 6,919 passed, four skipped, zero failed, all 684 files/900 suites completed (6,923 tests, exit 0; configured projects root byte-identical). r8 frontend 2,490/2,490 passed across 300 files, plus typecheck/lint exit 0. Five static checks and content packs passed in r7 on the same product source (366 passed, two intentional external-evidence skips, all 38 files). Earlier stale assertions were corrected and independently reviewed; focused fixture proof was 58/58. Final source fingerprint is retained in the external gate receipts.
+- Independent source review is clear for video, manual audio policy, lyrics and timing. Source gates are complete; main packaging, artifact verification and the built-bundle release lane remain. Evidence: `~/Developer/_orchestra/codex-takeover-20261012/`. Shared production ownership/status is in the owner's iCloud `Story Studio Agent Automation/HANDOFF.md`.
+
+## Earlier preparation — 2026-10-12 (1.4.301 thumbnail Block by default)
 
 - `thumbnail_present` default block; `retired_media` protects text says it costs money; `job-queue.ts noteCurrentJobSafetyWarning` (genstudio-client `currentJobSafety` Warn → live job `result.safety_warnings`); `upload/publish.vue` reads `/projects/:slug/safety-checks` (`thumbnailRequired`). Refused by the permission system (owner approved, not built): unlocking the 14 Video Assembly / scene-picture checks, the 5 Warn defaults, manual-route / readiness / picture-step switch reads.
 

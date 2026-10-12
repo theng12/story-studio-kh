@@ -195,8 +195,10 @@ export async function generateSongPool(job: Job): Promise<void> {
     sceneIdeas: pool.songs.map(s => s.scene_idea || '').filter(Boolean), never: formula.never,
     maxTitleWordShare: formula.variety.max_title_word_share, maxSimilarity: formula.variety.max_similarity, maxPromptChars,
     ...(sung ? { lyrics: { language: lyricsCfg!.language, fixedSinger: singers.length > 0 } } : {}),
-  }, (system, user) => callAi(writer, system, user, {}, false, {
-    slug, jobId: job.job_id, outputBudget: 'standard', temperature: 0.8, jsonMode: true,
+  }, (system, user, minimumOutputTokens) => callAi(writer, system, user, {}, false, {
+    slug, jobId: job.job_id,
+    outputBudget: sung ? { tier: 'workload', minimumTokens: minimumOutputTokens } : 'standard',
+    temperature: 0.8, jsonMode: true,
   }), done => job.output_lines.push(`Briefs written for ${done} of ${cells.length}.`))
   const needWriter = () => { if (!writer) throw new Error('Pick the writing model in the Generate dialog. It writes the titles and lines; it does not make the audio.') }
 
@@ -267,7 +269,10 @@ export async function generateSongPool(job: Job): Promise<void> {
   await runRollingWindow(todo, windowNow, async (it) => {
     const brief = it.brief!
     const started = Date.now()
-    const length = musicDurationPlan(model, { requestedSeconds: brief.length_s, ...(sung ? { lyrics: brief.lyrics } : {}) })
+    // Provisional delivery allowance: YuE2 stops with the words; musicDurationPlan clamps to live model limits.
+    const length = musicDurationPlan(model, sung
+      ? { lyrics: brief.lyrics, requestedSeconds: Math.round(brief.length_s * 1.25) }
+      : { requestedSeconds: brief.length_s })
     let attempt = 1
     let retryScope = it.retry_scope || ''
     // Songs with lyrics: a take the listen-back fails goes to Trash and the song is sung again.

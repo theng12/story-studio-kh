@@ -135,6 +135,5 @@ describe('Video Assembly authoritative Scene Plan pool', () => {
       })
     assert.equal(guarded.status, 409)
     assert.match(guarded.body.detail, /missing image/i)
-    assert.match(guarded.body.detail, /unapproved scene/i)
   })
 })

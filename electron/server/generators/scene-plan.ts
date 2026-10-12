@@ -1348,7 +1348,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       // 1.4.300 "Scene Plan in step with narration": Block is the stop from before 1.4.296; Off/Warn
       // re-align, and may do so past the 10% limit (an automatic re-align used to refuse that).
       if (!await safetyCarriesOn(job, 'plan_in_step', `The Scene Plan is out of step with today's narration or captions `
-        + `(${(error as Error).message.replace(/\.$/, '')}). Story re-aligns it; every scene, prompt and image is kept.`)) {
+        + `(${(error as Error).message.replace(/\.$/, '')}). Story re-aligns it; saved work on retained renderable scenes is kept.`)) {
         job.result = { ...(job.result || {}), attention: { kind: 'scene_plan_rebuild', workspace: 'scene-plan', episode_id } }
         throw nonRetryable(scenePlanContinuationError(error))
       }

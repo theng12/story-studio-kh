@@ -1,8 +1,8 @@
 /**
  * Scene Plan "Reconcile timings" (v1.0.523): re-anchor an existing plan's scene timings to the
- * CURRENT stitched subtitles by matching each scene's transcript text. Keeps every scene id,
- * image and prompt. Shared by the Scene Plan button and Video Assembly's automatic repair of
- * small timing overlaps (1.4.278).
+ * CURRENT stitched subtitles by matching each scene's transcript text. Keeps the id, image and
+ * prompt of every retained renderable scene. Shared by the Scene Plan button and Video Assembly's
+ * automatic repair of small timing overlaps (1.4.278).
  */
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
@@ -47,9 +47,10 @@ export async function reconcileScenePlanTimings(
   })
   const cues = parseSrt(await fs.readFile(transcriptPath, 'utf-8'))
   if (!cues.length) throw refusal(400, 'The stitched SRT has no cues.')
+  const subtitleEndSec = cues[cues.length - 1]!.end_sec
 
-  // Prefer the real audio duration for the last scene's end; fall back to
-  // the SRT end inside the helper when it's absent.
+  // Keep the measured audio duration as its own fact. The authoritative plan
+  // end below uses whichever reaches later: playable audio or verified captions.
   let audioDur = 0
   if (existsSync(paths.merged_audio_dir)) {
     let best = 0
@@ -63,18 +64,21 @@ export async function reconcileScenePlanTimings(
   // Prep (transcript parse, ffprobe) is outside the lock; the read-transform-write
   // is inside it, and the reported before/after coverage is measured on the same
   // document that was actually saved.
-  const { before, r, after } = await withLock(sidecarPath, async () => {
+  const { before, r, after, cleanup } = await withLock(sidecarPath, async () => {
     // Re-read under the lock: the plan was read before the checks above, and a
     // job or another request may have written the file since.
     const fresh = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
-    const narrationSec = audioDur || cues[cues.length - 1]!.end_sec
+    // The final scene already follows the later of audio and subtitles. Persist
+    // that same authority as the plan total so a millisecond container/SRT
+    // difference cannot make the continuation reader reject its own repair.
+    const narrationSec = Math.max(audioDur, subtitleEndSec)
     const planEndSec = Math.max(...fresh.scenes.map(scene => Number(scene.end_sec) || 0))
     if (options.auto && Math.min(planEndSec, narrationSec) / Math.max(planEndSec, narrationSec, 0.001) < AUTO_REALIGN_MIN_COVERAGE) {
       throw refusal(409, `the Scene Plan was built for ${planEndSec.toFixed(1)}s of narration and today's narration is `
         + `${narrationSec.toFixed(1)}s — too different to re-align, so rebuild the timeline`)
     }
     const coverageBefore = computePlanCoverage(fresh.scenes, narrationSec)
-    const result = reconcilePlanToSubtitles(fresh.scenes, cues, audioDur || undefined)
+    const result = reconcilePlanToSubtitles(fresh.scenes, cues, narrationSec)
     // 1.4.298 — two scenes anchored inside one caption start at the same moment, which left a
     // zero-length scene that Video Assembly refused (Brain Wise EP0047). Its words go to a neighbour,
     // as the Scene Plan's own timeline cleanup does.
@@ -93,14 +97,18 @@ export async function reconcileScenePlanTimings(
       before: coverageBefore,
       r: result,
       after: computePlanCoverage(fresh.scenes, fresh.total_duration_sec),
+      cleanup,
     }
   })
   const { episodeStatusCache } = await import('./episode-status-cache.js')
   episodeStatusCache.invalidate(slug, episodeId)
+  const retainedIds = new Set(cleanup.scenes.map(scene => scene.id))
+  const unmatchedIds = r.unmatchedIds.filter(id => retainedIds.has(id))
   return {
-    matched: r.matchedCount,
-    total: r.scenes.length,
-    unmatched_ids: r.unmatchedIds,
+    matched: cleanup.scenes.length - unmatchedIds.length,
+    total: cleanup.scenes.length,
+    unmatched_ids: unmatchedIds,
+    removed_count: cleanup.removed_ids.length,
     median_shift_sec: r.medianShiftSec,
     changes: r.changes,
     coverage_before: before,
@@ -110,8 +118,8 @@ export async function reconcileScenePlanTimings(
 
 /**
  * 1.4.296 — owner: "Imperfection is often accepted." A plan a little out of step with today's
- * captions or narration is re-aligned (every scene, prompt and image kept) and the work carries
- * on, instead of stopping for a person. Returns the line for the job log.
+ * captions or narration is re-aligned and the work carries on instead of stopping for a person.
+ * Returns an honest summary of the renderable rows that were actually saved.
  */
 export async function realignDriftedScenePlan(
   slug: string, episodeId: string, reason: string,
@@ -119,6 +127,7 @@ export async function realignDriftedScenePlan(
   options: { auto?: boolean } = { auto: true },
 ): Promise<string> {
   const r = await reconcileScenePlanTimings(slug, episodeId, options)
-  return `Scene Plan was a little out of step (${reason.replace(/\.$/, '')}). Re-aligned ${r.matched}/${r.total} scene(s) `
-    + 'to the current captions and carried on; every scene, prompt and image was kept.'
+  return `Scene Plan was a little out of step (${reason.replace(/\.$/, '')}). Re-aligned ${r.matched}/${r.total} retained scene(s) `
+    + 'to the current captions and carried on; their saved prompts and images were kept.'
+    + (r.removed_count ? ` Removed ${r.removed_count} non-renderable timing row(s); their narration moved to a neighbour.` : '')
 }

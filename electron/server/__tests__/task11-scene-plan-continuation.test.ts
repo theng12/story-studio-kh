@@ -300,7 +300,7 @@ for (const kind of ['one more caption', 'unstamped'] as const) {
 
     await runScenePlanJob(job)
 
-    assert.ok(job.output_lines.some((line: string) => /Re-aligned 2\/2 scene\(s\) to the current captions and carried on/.test(line)), job.output_lines.join('\n'))
+    assert.ok(job.output_lines.some((line: string) => /Re-aligned 2\/2 retained scene\(s\) to the current captions and carried on/.test(line)), job.output_lines.join('\n'))
     const saved = JSON.parse(await fs.readFile(fixture.planPath, 'utf8'))
     assert.equal(saved.scenes[0].visual_prompt, fixture.preservedPrompt)
     assert.equal(saved.scenes[0].approved, true)
@@ -536,7 +536,7 @@ test('plan_in_step Off (default) re-aligns past the 10% limit and carries on', a
 
   await runScenePlanJob(job)
 
-  assert.ok(job.output_lines.some((line: string) => /Re-aligned \d\/2 scene\(s\)/.test(line)), job.output_lines.join('\n'))
+  assert.ok(job.output_lines.some((line: string) => /Re-aligned \d\/2 retained scene\(s\)/.test(line)), job.output_lines.join('\n'))
   const saved = JSON.parse(await fs.readFile(fixture.planPath, 'utf8'))
   assert.equal(saved.scenes[0].visual_prompt, fixture.preservedPrompt)
 })

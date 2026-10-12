@@ -101,16 +101,16 @@
               <p>{{ status.freshness_reason || 'Could not verify the selected chapter audio sources.' }} Refresh status before transcribing or stitching.</p>
             </WorkspaceNotice>
             <WorkspaceNotice
-              v-if="subtitleTimelineIntegrity && !subtitleTimelineIntegrity.complete"
-              tone="error"
-              :title="hasBlockingCueGaps ? (allGapsSilent ? 'The narration is missing speech' : 'Subtitles skip part of the narration') : 'Subtitle timeline verification is incomplete'"
+              v-if="subtitleTimelineIntegrity && (!subtitleTimelineIntegrity.complete || hasMeasuredCueGaps)"
+              :tone="subtitleTimelineIntegrity.complete ? 'warning' : 'error'"
+              :title="hasMeasuredCueGaps ? (allGapsSilent ? 'The narration is missing speech' : 'Subtitles skip part of the narration') : 'Subtitle timeline verification is incomplete'"
               class="mt-2 sub-gap-notice"
             >
-              <p v-if="hasBlockingCueGaps && allGapsSilent">
+              <p v-if="hasMeasuredCueGaps && allGapsSilent">
                 The narration itself is missing speech here — re-making the chapter’s audio fixes it.
                 Re-transcribing can’t, because there is nothing to hear. Re-narrate makes the chapter’s audio again, then its subtitles automatically.
               </p>
-              <p v-else-if="hasBlockingCueGaps">
+              <p v-else-if="hasMeasuredCueGaps">
                 This is almost always the narration: the voice skipped a sentence or hummed instead of speaking, and re-making the chapter’s audio fixes it.
                 Re-narrate makes the chapter’s audio again, then its subtitles automatically. If you listen and hear clear speech, only the subtitles missed it — re-transcribe instead.
               </p>
@@ -130,10 +130,10 @@
                   <div v-if="gap.audio" class="sub-gap-audio" :class="`is-${gap.audio}`">{{ gapAudioSentence(gap.audio) }}</div>
                 </li>
               </ul>
-              <p v-if="hasBlockingCueGaps" class="text-sm">Chapter audio times start at the beginning of that chapter. Full episode times include the chapters before it. Listen starts up to two seconds before the first gap with a known chapter position.</p>
+              <p v-if="hasMeasuredCueGaps" class="text-sm">{{ captionGapPolicyMessage }} Chapter audio times start at the beginning of that chapter. Full episode times include the chapters before it. Listen starts up to two seconds before the first gap with a known chapter position.</p>
               <template #actions>
                 <NuxtLink
-                  v-if="planningSourceRevalidationRequired && !hasBlockingCueGaps"
+                  v-if="planningSourceRevalidationRequired && !hasMeasuredCueGaps"
                   :to="`/projects/${slug}/scene-plan?episode_id=${encodeURIComponent(episodeId)}`"
                   class="btn btn-sm btn-secondary"
                 >Open Scene Plan</NuxtLink>
@@ -548,6 +548,7 @@ interface SubtitleStatus {
     complete: boolean
     missing_sections: string[]
     max_cue_gap_sec: number
+    caption_gap_mode?: 'off' | 'warn' | 'block'
     blocking_cue_gaps?: Array<{
       previous_end_sec: number
       next_start_sec: number
@@ -772,7 +773,13 @@ const planningSourceRevalidationRequired = computed(() => status.value?.planning
 const subtitleTimelineComplete = computed(() =>
   !planningSourceRevalidationRequired.value && subtitleTimelineIntegrity.value?.complete === true,
 )
-const hasBlockingCueGaps = computed(() => (subtitleTimelineIntegrity.value?.blocking_cue_gaps?.length || 0) > 0)
+const hasMeasuredCueGaps = computed(() => (subtitleTimelineIntegrity.value?.blocking_cue_gaps?.length || 0) > 0)
+const captionGapPolicyMessage = computed(() => {
+  if (subtitleTimelineIntegrity.value?.missing_sections?.length) return 'Downstream work stays paused until the incomplete timeline is fixed.'
+  if (subtitleTimelineIntegrity.value?.caption_gap_mode === 'block') return 'This channel blocks downstream work until the gap is fixed.'
+  if (subtitleTimelineIntegrity.value?.caption_gap_mode === 'warn') return 'Downstream work can continue and its job will carry a warning.'
+  return 'Downstream work can continue and its job log will record the gap.'
+})
 const normalizedSectionSlug = (section: string) => section.toLowerCase().replace(/[^a-z0-9]/g, '')
 /** Chapters whose narration skipped script sentences, in this page's own chapter order. */
 const missingSentenceChapters = computed(() => {
@@ -986,7 +993,7 @@ async function stitchSubtitles(): Promise<void> {
     if (episode !== episodeSequence) return
     const readiness = subtitleTimelineComplete.value
       ? ' — ready for Scene Plan.'
-      : hasBlockingCueGaps.value
+      : hasMeasuredCueGaps.value
         ? '. The refreshed timeline still has a subtitle coverage gap; re-stitching alone cannot add missing cues.'
         : '. Review the refreshed timeline status before Scene Plan.'
     const stitched = `Stitched ${r.total_cues} cue(s) across ${r.sections?.length ?? '?'} section(s)`

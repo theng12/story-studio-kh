@@ -19,8 +19,9 @@
  *
  * Isolation:
  *   Launched with its own `--user-data-dir` and `STORY_STUDIO_DATA_DIR`, both
- *   temporary and removed afterwards. That keeps the developer's real
- *   projects untouched and side-steps the single-instance lock, so a running
+ *   isolated and retained under the project's `_trash/` afterwards. That
+ *   keeps the developer's real projects untouched and side-steps the
+ *   single-instance lock, so a running
  *   copy of the app does not make the smoke test silently exit 0.
  *
  * Usage:
@@ -206,7 +207,14 @@ export async function smokeLaunch(appPath, { timeoutMs = 120_000, log = () => {}
     return { ok: true, errors, port, health, uploadCenter, ms: Date.now() - started }
   } finally {
     await shutdown()
-    fs.rmSync(sandbox, { recursive: true, force: true })
+    try {
+      const trashRoot = path.join(root, '_trash')
+      fs.mkdirSync(trashRoot, { recursive: true })
+      const trashDir = fs.mkdtempSync(path.join(trashRoot, 'release-'))
+      fs.renameSync(sandbox, path.join(trashDir, path.basename(sandbox)))
+    } catch (error) {
+      console.warn(`Launch smoke sandbox retained at ${sandbox}: could not move it into project _trash (${error.message})`)
+    }
   }
 }
 

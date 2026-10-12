@@ -77,6 +77,7 @@ import {
   isScopedChapterTranscription,
 } from '../services/audio-workflow-readiness.js'
 import { truncateChars } from '../lib/well-formed-text.js'
+import { safetyMode } from '../services/safety-checks.js'
 import { readVideoVisualSource, setVideoVisualSource } from '../services/video-visual-source.js'
 import { revalidatePreview, streamTo } from '../lib/stream-file.js'
 
@@ -1413,12 +1414,19 @@ router.get('/projects/:slug/video-editor/subtitles/timeline-integrity/:episodeId
     const stitchedPath = path.join(subtitlesDir, `${episodeId.toUpperCase()}_stitched.srt`)
     if (!existsSync(stitchedPath)) return res.json({ timeline_integrity: null })
     const planningTranscript = await inspectExistingTranscriptSource(subtitlesDir, episodeId)
-    res.json({
-      timeline_integrity: await readSubtitleTimelineIntegrity(subtitlesDir, episodeId, {
+    const [integrity, captionGapMode] = await Promise.all([
+      readSubtitleTimelineIntegrity(subtitlesDir, episodeId, {
         max_cue_gap_sec: allowedSubtitleCueGapSec(),
         cue_source_path: planningTranscript?.path,
       }),
-    })
+      safetyMode(slug, 'caption_gap'),
+    ])
+    res.json({ timeline_integrity: {
+      ...integrity,
+      caption_gap_mode: captionGapMode,
+      complete: integrity.missing_sections.length === 0
+        && (captionGapMode !== 'block' || !integrity.blocking_cue_gaps?.length),
+    } })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not compute subtitle timeline integrity'))
   }
@@ -1515,11 +1523,17 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
     const planningTranscript = existsSync(stitchedPath)
       ? await inspectExistingTranscriptSource(subtitlesDir, episodeId)
       : null
+    const captionGapMode = await safetyMode(slug, 'caption_gap')
     const subtitleTimelineIntegrity = existsSync(stitchedPath)
       ? await readSubtitleTimelineIntegrity(subtitlesDir, episodeId, {
         max_cue_gap_sec: allowedSubtitleCueGapSec(),
         cue_source_path: planningTranscript?.path,
-      })
+      }).then(integrity => ({
+        ...integrity,
+        caption_gap_mode: captionGapMode,
+        complete: integrity.missing_sections.length === 0
+          && (captionGapMode !== 'block' || !integrity.blocking_cue_gaps?.length),
+      }))
       : null
     // Say whether the narration under each gap is silent or audible, so the
     // page can tell "the voice skipped this" from "the subtitles missed it".

@@ -34,7 +34,7 @@ import {
 } from '../lib/reveal-assembly.js'
 import { mapWithConcurrency } from '../lib/map-with-concurrency.js'
 import { mulberry32 } from '../lib/seeded-random.js'
-import { assertDecodableImage } from '../lib/image-validation.js'
+import { assertDecodableImage, isDecodableImage } from '../lib/image-validation.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import { assertValidMedia, getMediaInfo, summarizeMedia, fileExistsNonEmpty } from '../lib/ffmpeg-validation.js'
 import { planTransitions, buildXfadeFilterComplex, buildVariableXfadeFilterComplex, buildEngineTransitionFilterComplex, fallbackXfadeKeywords, hasTransitionEngine } from '../lib/transition-filters.js'
@@ -114,7 +114,7 @@ import { nonRetryable } from '../services/job-retry-policy.js'
 import { EBUR128_FILTER, measureLoudness, parseEbur128Summary, type LoudnessMeasurement } from './music-episode-build.js'
 import { finalLoudnessIssue, loudnessTarget, withinToleranceNote, type LevelPlan, type LoudnessTarget } from '../lib/final-loudness.js'
 import { FINAL_AAC_ARGS, levelAndCheck, mergedAudioMaster } from '../lib/level-audio.js'
-import { safetyMode } from '../services/safety-checks.js'
+import { safetyGate, safetyMode } from '../services/safety-checks.js'
 import {
   assertContextualCueReadiness,
   normalizeContextualCueConfig,
@@ -664,7 +664,15 @@ async function verifyFinalVideo(job: Job, outputPath: string, finalName: string,
   const valid = path.basename(outputPath) === finalName && fileExistsNonEmpty(outputPath)
   // 2026-10-07 — a file on disk is not proof of a finished render: its length
   // must match the plan (narration + opening + outro + tail).
-  const durationIssue = valid ? finalDurationIssue(await getAudioDuration(outputPath).catch(() => null), plannedSec) : null
+  const actualSec = valid ? await getAudioDuration(outputPath).catch(() => null) : null
+  let durationIssue = valid ? finalDurationIssue(actualSec, plannedSec) : null
+  // A missing/empty/unreadable artifact is never a finished render. Only a
+  // measurable length mismatch is the channel's Final video is whole choice.
+  if (durationIssue && Number(actualSec) > 0) {
+    await safetyGate(job.project_slug, 'final_video_whole', job,
+      `The finished video ${finalName} ${durationIssue}. The file was kept so you can inspect it.`)
+    durationIssue = null
+  }
   requireJobCompletion(job, {
     label: 'Final video assembly', expected: 1, completed: valid && !durationIssue ? 1 : 0,
     missing: valid ? [] : [finalName],
@@ -1828,12 +1836,14 @@ export async function assertSubtitleFileBelongsToEpisode(
   // and it is omitted entirely for a file that does not carry one.
   const foreignCode = path.basename(abs).match(/^([A-Za-z]+\d+)[_.\- ]/)?.[1]?.toUpperCase()
   const owner = foreignCode && foreignCode !== code ? ` It belongs to ${foreignCode}.` : ''
-  throw new Error(
-    `Video Assembly is blocked: the selected subtitle file is not ${code}'s. `
+  const message = `Video Assembly is blocked: the selected subtitle file is not ${code}'s. `
     + `"${path.basename(abs)}" lives outside this episode's folder.${owner} `
     + 'Burning it would put another episode\'s words into this video. '
-    + `Pick ${code}'s own subtitle file in Step 5 (Subtitles), or create one in the Subtitles workspace, then retry.`,
-  )
+    + `Pick ${code}'s own subtitle file in Step 5 (Subtitles), or create one in the Subtitles workspace, then retry.`
+  await safetyGate(slug, 'subtitles_this_episode', job, message)
+  // Off/Warn may omit captions, but never authorizes reading another episode
+  // or an arbitrary path into this render.
+  req.subtitles = { ...req.subtitles!, enabled: false, srt_path: undefined }
 }
 
 /**
@@ -1855,6 +1865,80 @@ export function repairableTimingOverlaps(
     maxSec = Math.max(maxSec, Number(timing.scenes[i - 1]!.end_sec) - Number(timing.scenes[i]!.start_sec))
   }
   return { count: timing.overlap_count, totalSec: timing.overlap_sec, maxSec }
+}
+
+function hasAvailablePlanOpening(
+  req: Pick<GenerateVideoRequest, 'intro' | 'title_image' | 'title_card' | 'timeline_clips' | 'skip_intro_scenes'>,
+  projectOutputRoot?: string,
+): boolean {
+  const available = (raw: string | undefined): boolean => {
+    if (!raw) return false
+    try {
+      const resolved = isPortablePath(raw) ? resolveAssetPath(raw, projectOutputRoot) : raw
+      return checkAssetAvailability(resolved).status === 'available'
+    } catch {
+      return false
+    }
+  }
+  return !!(
+    req.intro?.enabled && available(req.intro.video_path)
+    || req.title_image?.enabled && available(req.title_image.image_path)
+    || (req.title_card?.enabled && req.title_card.text?.trim())
+    || req.skip_intro_scenes
+    || (req.timeline_clips || []).some(clip => {
+      const source = clip.kind === 'static' ? clip.image_path : clip.video_path
+      return clip.enabled && (clip.anchor === 'before_intro' || clip.anchor === 'after_intro')
+        && available(source)
+    })
+  )
+}
+
+export function blockingUncoveredNarrationSeconds(
+  timing: Pick<NonNullable<ScannedAssets['scene_plan_timing']>, 'uncovered_sec' | 'head_gap_sec'>,
+  req: Pick<GenerateVideoRequest, 'intro' | 'title_image' | 'title_card' | 'timeline_clips' | 'skip_intro_scenes'>,
+  projectOutputRoot?: string,
+): number {
+  const headCovered = hasAvailablePlanOpening(req, projectOutputRoot)
+  return Math.max(0, timing.uncovered_sec - (headCovered ? timing.head_gap_sec : 0))
+}
+
+export async function absorbUncoveredNarration(
+  slug: string,
+  job: Job,
+  sceneClipDurations: number[],
+  uncoveredSec: number,
+  details: string,
+): Promise<void> {
+  if (!(uncoveredSec > 0)) return
+  if (!sceneClipDurations.length) {
+    throw new Error('Video Assembly cannot continue: narration is uncovered and there is no scene clip to hold across it.')
+  }
+  if (uncoveredSec > COVERAGE_FAIL_SEC) await safetyGate(slug, 'narration_covered', job, details)
+  sceneClipDurations[sceneClipDurations.length - 1]! += uncoveredSec
+  job.output_lines.push(
+    uncoveredSec > COVERAGE_FAIL_SEC
+      ? `Coverage: held the final scene across ${uncoveredSec.toFixed(2)}s of uncovered narration.`
+      : `Coverage: absorbed ${uncoveredSec.toFixed(2)}s of micro-gaps into the final scene (scene body meets the narration end).`,
+  )
+}
+
+export async function resolveSoundDesignCuesForRender(
+  slug: string,
+  req: GenerateVideoRequest,
+  job: Job,
+): Promise<Awaited<ReturnType<typeof approvedSoundDesignMixCues>>> {
+  if (!req.sound_design?.cues.length) return []
+  if (!req.merged_audio_path || !existsSync(req.merged_audio_path)) {
+    await safetyGate(
+      slug,
+      'cues_approved',
+      job,
+      'Sound Design mix is blocked: merged audio is missing. Rendering without Sound Design.',
+    )
+    req.sound_design = undefined
+    return []
+  }
+  return approvedSoundDesignMixCues(req.sound_design.cues as SoundDesignCue[])
 }
 
 export async function prepareUnifiedVideoAssemblyInputs(
@@ -1896,13 +1980,22 @@ export async function prepareUnifiedVideoAssemblyInputs(
   if (assets.visual_source === 'image_pool') {
     const merged = assets.merged_audio[0]
     if (!merged?.path || !existsSync(merged.path)) {
-      throw new Error('Video Assembly is blocked: merged audio is missing. Run Audio Assembly, then retry.')
+      await safetyGate(slug, 'merged_audio_exists', job, 'Video Assembly is blocked: merged audio is missing. Run Audio Assembly, then retry.')
+      const chapters = assets.audio_sections.map(row => row.path).filter(existsSync)
+      if (!chapters.length) throw new Error('Video Assembly cannot continue: this episode has no usable narration audio.')
+      req.merged_audio_path = undefined
+      req.narration_chapters = chapters
+      req.narration_path = chapters[0]!
     }
-    const narrationDuration = Number(merged.duration || 0)
+    const narrationDuration = merged?.path && existsSync(merged.path)
+      ? Number(merged.duration || await getAudioDuration(merged.path) || 0)
+      : (await Promise.all((req.narration_chapters || []).map(file => getAudioDuration(file))))
+        .reduce<number>((sum, sec) => sum + Number(sec || 0), 0)
     const imagePool = await resolveImagePoolSelection(slug, episodeId, narrationDuration)
     const playOrder = buildImagePoolPlayOrder(imagePool, narrationDuration)
     if (!playOrder.length) {
-      throw new Error('Video Assembly is blocked: Image Pool selection cannot cover the merged narration. Pick images again, then retry.')
+      await safetyGate(slug, 'image_pool_covers', job, 'Video Assembly is blocked: Image Pool selection cannot cover the narration. Pick images again, then retry.')
+      throw new Error('Video Assembly cannot continue: Image Pool has no usable picture interval to render.')
     }
     req.scenes = playOrder.map((item, index) => ({
       image_path: item.path,
@@ -1913,8 +2006,10 @@ export async function prepareUnifiedVideoAssemblyInputs(
       clip_shortfall_mode: 'hold',
     }))
     req.scene_pool_mode = 'image_pool'
-    req.merged_audio_path = merged.path
-    req.narration_path = merged.path
+    if (merged?.path && existsSync(merged.path)) {
+      req.merged_audio_path = merged.path
+      req.narration_path = merged.path
+    }
     req.scene_recycling = {
       ...(req.scene_recycling || {}),
       seconds_per_scene: imagePool.seconds_per_image,
@@ -1947,46 +2042,71 @@ export async function prepareUnifiedVideoAssemblyInputs(
   if (timing.audio_stale_reason && job) {
     throw new Error(`Video Assembly is blocked: the Scene Plan is out of date — ${timing.audio_stale_reason} Nothing was rendered.`)
   }
-  const problems: string[] = []
   if (coverage.missing.length) {
-    problems.push(`${coverage.missing.length} missing image(s): ${coverage.missing.slice(0, 8).map(row => `#${row.scene_index}`).join(', ')}`)
+    await safetyGate(slug, 'scene_pictures', job, `${coverage.missing.length} missing image(s): ${coverage.missing.slice(0, 8).map(row => `#${row.scene_index}`).join(', ')}. A nearest episode picture will stand in for this render.`)
   }
   if (coverage.unapproved.length) {
-    problems.push(`${coverage.unapproved.length} unapproved scene(s): ${coverage.unapproved.slice(0, 8).map(row => `#${row.scene_index}`).join(', ')}`)
+    await safetyGate(slug, 'scenes_approved', job, `${coverage.unapproved.length} unapproved scene(s): ${coverage.unapproved.slice(0, 8).map(row => `#${row.scene_index}`).join(', ')}. Their existing pictures will be used.`)
   }
   // 1.4.296 — a picture drawn from an older wording of its prompt is still that scene's picture.
   // It is used as it is and named here; Scene Review still marks it for a re-render.
   if (coverage.stale.length) {
+    await safetyGate(slug, 'stale_picture', job, `${coverage.stale.length} scene picture(s) were drawn from an older prompt (${coverage.stale.slice(0, 8).map(row => `#${row.scene_index}`).join(', ')}). Their existing pictures will be used.`)
     job?.output_lines.push(`${coverage.stale.length} scene picture(s) were drawn from an older prompt `
       + `(${coverage.stale.slice(0, 8).map(row => `#${row.scene_index}`).join(', ')}${coverage.stale.length > 8 ? ', …' : ''}); `
       + 'using them as they are. Re-render them in Scene Review to refresh them.')
   }
-  if (timing.uncovered_sec > COVERAGE_FAIL_SEC) {
+  const blockingUncovered = blockingUncoveredNarrationSeconds(
+    timing,
+    req,
+    (await pm.getProjectOutputRoot(slug)) || undefined,
+  )
+  if (blockingUncovered > COVERAGE_FAIL_SEC) {
     // 1.4.288 — a zero-length row voids the whole coverage audit; say that, not "all of it is unplanned" (BW EP0040).
     const zeroLength = timing.scenes.filter(scene => !(scene.end_sec > scene.start_sec)).length
-    problems.push(zeroLength
+    await safetyGate(slug, 'narration_covered', job, zeroLength
       ? `${zeroLength} scene(s) have no length (end time not after start time); rebuild the Scene Plan timeline`
-      : `${timing.uncovered_sec.toFixed(1)}s of narration has no planned scene`)
+      : `${blockingUncovered.toFixed(1)}s of narration has no planned scene. Existing scene clips will extend to cover it.`)
   }
   if (timing.overlap_count > 0 && job) {
-    problems.push(`${timing.overlap_count} timing overlap(s) totalling ${timing.overlap_sec.toFixed(1)}s that could not be re-aligned`)
-  }
-  if (problems.length) {
-    throw new Error(
-      `Video Assembly is blocked: ${problems.join('; ')}. ` +
-      'Open Scene Plan or Scene Review, repair only the listed items, then retry.',
-    )
+    await safetyGate(slug, 'scene_overlap', job, `${timing.overlap_count} timing overlap(s) totalling ${timing.overlap_sec.toFixed(1)}s could not be re-aligned. The scene clips will render in plan order.`)
   }
 
-  const planned = assets.scenes
+  const available = assets.scenes
     .filter(scene => scene.source === 'scene_plan')
     .sort((a, b) => (a.planned_scene_index || a.number) - (b.planned_scene_index || b.number))
-  if (planned.length !== coverage.total) {
-    throw new Error(`Video Assembly is blocked: expected ${coverage.total} Scene Plan assets but resolved ${planned.length}. Repair Scene Review and retry.`)
+  if (available.length !== coverage.total) {
+    await safetyGate(slug, 'scene_count', job, `Video Assembly expected ${coverage.total} Scene Plan assets but resolved ${available.length}. Missing rows will use the nearest episode picture.`)
   }
+  const byId = new Map(available.map(scene => [scene.plan_scene_id, scene]))
+  const planned = timing.scenes.map((row, index) => {
+    const own = byId.get(row.id)
+    if (own) return own
+    let neighbour: ScannedAssets['scenes'][number] | undefined
+    for (let distance = 1; !neighbour && distance < timing.scenes.length; distance++) {
+      neighbour = byId.get(timing.scenes[index - distance]?.id) || byId.get(timing.scenes[index + distance]?.id)
+    }
+    if (!neighbour) throw new Error(`Video Assembly cannot continue: scene #${row.scene_index} has no usable episode picture or neighbour.`)
+    return {
+      ...neighbour,
+      path: neighbour.still_path || neighbour.path,
+      media_type: 'still' as const,
+      plan_scene_id: row.id,
+      planned_scene_index: row.scene_index,
+      number: row.scene_index,
+      start_sec: row.start_sec,
+      end_sec: row.end_sec,
+      duration_sec: row.duration_sec,
+    }
+  })
   const merged = assets.merged_audio[0]
   if (!merged?.path || !existsSync(merged.path)) {
-    throw new Error('Video Assembly is blocked: merged audio is missing. Run Audio Assembly, then retry.')
+    await safetyGate(slug, 'merged_audio_exists', job, 'Video Assembly is blocked: merged audio is missing. Run Audio Assembly, then retry.')
+    const chapters = assets.audio_sections.map(row => row.path).filter(existsSync)
+    if (!chapters.length) throw new Error('Video Assembly cannot continue: this episode has no usable narration audio.')
+    req.merged_audio_path = undefined
+    req.narration_chapters = chapters
+    req.narration_path = chapters[0]!
   }
 
   req.scenes = planned.map(scene => ({
@@ -2000,8 +2120,10 @@ export async function prepareUnifiedVideoAssemblyInputs(
     clip_shortfall_mode: scene.clip_shortfall_mode,
   }))
   req.scene_pool_mode = 'scene_plan'
-  req.merged_audio_path = merged.path
-  req.narration_path = merged.path
+  if (merged?.path && existsSync(merged.path)) {
+    req.merged_audio_path = merged.path
+    req.narration_path = merged.path
+  }
   req.scene_recycling ||= { seconds_per_scene: 10, shuffle: false, excluded_scenes: [] }
   const cuePaths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
   await resolveEpisodeSubtitleFile(episodeId, cuePaths.subtitles_dir, req, job, {
@@ -2040,11 +2162,9 @@ async function hydrateEpisodeRenderCues(
       normalizeSoundDesignConfig((await pm.getConfig(slug))?.sound_design).enabled ? 'Sound Design' : '',
     ].filter(Boolean)
     if (on.length) {
-      throw new Error(
-        `Video Assembly stopped before encoding ${episodeId}: ${on.join(' and ')} ${on.length > 1 ? 'are' : 'is'} switched on, `
+      await safetyGate(slug, 'cues_approved', job, `Video Assembly stopped before encoding ${episodeId}: ${on.join(' and ')} ${on.length > 1 ? 'are' : 'is'} switched on, `
         + 'but this Image Pool episode has no Scene Plan to place them on. Build a Scene Plan for it, '
-        + `or switch ${on.join(' and ')} off in the project settings. Nothing was rendered.`,
-      )
+        + `or switch ${on.join(' and ')} off in the project settings. Rendering without them.`)
     }
     req.contextual_cues = undefined
     req.sound_design = undefined
@@ -2052,7 +2172,14 @@ async function hydrateEpisodeRenderCues(
   }
   const plan = JSON.parse(await fs.readFile(planPath, 'utf8')) as ScenePlan
   const cueTimeline = await readContextualCueTimeline(planPath)
-  req.contextual_cues = assertContextualCueReadiness(cueConfig, cueTimeline, plan, req.subtitles).map(onAudioClock)
+  let cueFailure = false
+  try {
+    req.contextual_cues = assertContextualCueReadiness(cueConfig, cueTimeline, plan, req.subtitles).map(onAudioClock)
+  } catch (error: any) {
+    cueFailure = true
+    await safetyGate(slug, 'cues_approved', job, `${error?.message || error} Rendering without Contextual Cues.`)
+    req.contextual_cues = []
+  }
   // Rendering with none is allowed, but never silent: an optional feature that
   // is switched on and contributes nothing has to say so, or its absence in the
   // finished video reads as a bug.
@@ -2062,15 +2189,22 @@ async function hydrateEpisodeRenderCues(
   const cueGate = switchedOnCueGate('Contextual Cues', episodeId, {
     enabled: cueConfig.enabled, timeline: cueTimeline, approved: req.contextual_cues.length,
   })
-  if (cueGate.stop) throw new Error(cueGate.stop)
+  if (cueGate.stop && !cueFailure) await safetyGate(slug, 'cues_approved', job, cueGate.stop)
   if (cueGate.note && job) noteRender(job, cueGate.note)
   const soundConfig = normalizeSoundDesignConfig((await pm.getConfig(slug))?.sound_design)
   const soundTimeline = await readSoundDesignTimeline(planPath)
-  const approvedSoundCues = assertSoundDesignReadiness(soundConfig, soundTimeline, plan).map(onAudioClock)
+  let approvedSoundCues: SoundDesignCue[] = []
+  let soundFailure = false
+  try {
+    approvedSoundCues = assertSoundDesignReadiness(soundConfig, soundTimeline, plan).map(onAudioClock)
+  } catch (error: any) {
+    soundFailure = true
+    await safetyGate(slug, 'cues_approved', job, `${error?.message || error} Rendering without Sound Design.`)
+  }
   const soundGate = switchedOnCueGate('Sound Design', episodeId, {
     enabled: soundConfig.enabled, timeline: soundTimeline, approved: approvedSoundCues.length,
   })
-  if (soundGate.stop) throw new Error(soundGate.stop)
+  if (soundGate.stop && !soundFailure) await safetyGate(slug, 'cues_approved', job, soundGate.stop)
   if (soundGate.note && job) noteRender(job, soundGate.note)
   // `soundTimeline` is null exactly when nothing was ever added, which now
   // reaches here instead of throwing — so the ducking profile falls back to the
@@ -2189,7 +2323,7 @@ export async function generateVideo(job: Job): Promise<void> {
   // instead of a whole render (owner decision 2026-10-07).
   {
     const missing = missingEnabledVideoInputs(req, { canDrawtext, episodeCode: code })
-    if (missing.length) throw new Error(missingInputsMessage(missing, code))
+    if (missing.length) await safetyGate(project_slug, 'switched_on_inputs', job, missingInputsMessage(missing, code))
   }
   // Keep the resolved authoritative inputs before Sound Design replaces the
   // narration path with a freshly mixed derivative. The source narration,
@@ -2221,11 +2355,7 @@ export async function generateVideo(job: Job): Promise<void> {
   // Sound Design is preflighted before final assembly. Once enabled, approved
   // local assets are a required part of this render: fail loudly rather than
   // silently claiming a video includes sound effects when it does not.
-  let resolvedSoundDesignCues: Awaited<ReturnType<typeof approvedSoundDesignMixCues>> = []
-  if (req.sound_design?.cues.length) {
-    if (!req.merged_audio_path || !existsSync(req.merged_audio_path)) throw new Error('Sound Design mix is blocked: merged audio is missing.')
-    resolvedSoundDesignCues = await approvedSoundDesignMixCues(req.sound_design.cues as SoundDesignCue[])
-  }
+  const resolvedSoundDesignCues = await resolveSoundDesignCuesForRender(project_slug, req, job)
 
   // **The narration's own line ends, read before the reveal plan is resolved.** A hold can snap to
   // the end of the line it is covering, and that is a fact about the script — not about the render
@@ -2263,11 +2393,7 @@ export async function generateVideo(job: Job): Promise<void> {
   if (!req.scenes || req.scenes.length === 0) {
     throw new Error('No scenes provided for video generation')
   }
-  for (const scene of req.scenes) {
-    if (!existsSync(scene.image_path)) {
-      throw new Error(`Scene image not found: ${scene.image_path}`)
-    }
-  }
+  await replaceUndecodableSceneImages(project_slug, req.scenes, job)
 
   // Unified Video Assembly has one authoritative timing source. The preflight
   // above already replaced every browser/Pipeline scene with the approved plan
@@ -2888,42 +3014,31 @@ export async function generateVideo(job: Job): Promise<void> {
     }
 
     // ── Audio-coverage gate (v1.0.522, plan-strict only) ──────────────────
-    // "Every second of narration must have a scene." Refuse to render when
-    // >2s of the narration has no planned scene — the post-audio tail
-    // (fade-to-black / hold) would otherwise cover it with exactly the black
-    // screen this project forbids. The HEAD gap is exempt when intro-ish
+    // "Every second of narration must have a scene." Route >2s of uncovered
+    // narration through channel policy; Warn/Off holds the final scene instead
+    // of leaving the post-audio tail black. The HEAD gap is exempt when intro-ish
     // content covers it (intro clip, title card, before/after-intro timeline
     // clips, or the sleep-story intro-skip hold). A ≤2s remainder is absorbed
     // into the last scene's window so the body meets the narration end.
     if (planStrict && planCoverageScenes?.length && typeof narrationDuration === 'number' && narrationDuration > 0) {
-      const headCovered = !!(
-        req.intro?.enabled
-        || req.title_image?.enabled
-        || (req as any).skip_intro_scenes
-        || (req.timeline_clips || []).some(c => c.enabled && (c.anchor === 'before_intro' || c.anchor === 'after_intro'))
-      )
+      const headCovered = hasAvailablePlanOpening(req)
       const coverageIntegrity = inspectScenePlanCoverage({
         scenes: planCoverageScenes,
         total_duration_sec: narrationDuration,
       }, { headCovered })
       const cov = coverageIntegrity.coverage!
       const gatedUncovered = coverageIntegrity.blockingUncoveredSec
-      if (gatedUncovered > COVERAGE_FAIL_SEC) {
-        throw new Error(
-          `Narration has ${gatedUncovered.toFixed(1)}s with NO planned scene ` +
+      await absorbUncoveredNarration(
+        project_slug,
+        job,
+        sceneClipDurations,
+        gatedUncovered,
+        `Narration has ${gatedUncovered.toFixed(1)}s with NO planned scene ` +
           `(before scene 1: ${cov.headGapSec.toFixed(1)}s${headCovered ? ' — covered by intro/title' : ''} · ` +
           `${cov.internalGaps.length} gap(s) between scenes: ${cov.internalGapTotalSec.toFixed(1)}s · ` +
           `after the last scene: ${cov.tailGapSec.toFixed(1)}s; audio ${narrationDuration.toFixed(1)}s). ` +
-          `Rendering would fill the gap with black/frozen frames. ` +
-          `Open Scene Plan → "Repair coverage" (one click), or re-run Scene Plan.`,
-        )
-      }
-      if (gatedUncovered > 0 && sceneClipDurations.length) {
-        sceneClipDurations[sceneClipDurations.length - 1]! += gatedUncovered
-        job.output_lines.push(
-          `Coverage: absorbed ${gatedUncovered.toFixed(2)}s of micro-gaps into the final scene (scene body meets the narration end).`,
-        )
-      }
+          `The final scene will hold across the uncovered narration.`,
+      )
     }
 
     // v1.0.521 — plan-strict xfade tail. In plan mode with a crossfade
@@ -2987,7 +3102,7 @@ export async function generateVideo(job: Job): Promise<void> {
         || (req.timeline_clips || []).some(c => c.enabled && (c.anchor === 'before_intro' || c.anchor === 'after_intro'))
       )
       if (!headEnabled) {
-        throw new Error(`Scene Plan reserves a ${planOpeningReservedSec.toFixed(1)}s branded opening, but no opening clip is enabled. Add the opening clip back, or re-create the Scene Plan timeline so it reserves what this episode actually opens with.`)
+        await safetyGate(project_slug, 'opening_outro', job, `Scene Plan reserves a ${planOpeningReservedSec.toFixed(1)}s branded opening, but no opening clip is enabled. Scene 1 will hold across that opening window.`)
       }
       if (planOpeningMeasured) {
         // Nothing to repair. The reserve was probed from these very clips, so
@@ -3001,9 +3116,10 @@ export async function generateVideo(job: Job): Promise<void> {
         )
       } else {
         if (!req.intro?.enabled || !req.intro.video_path) {
-          throw new Error(`Scene Plan reserves a ${planOpeningReservedSec.toFixed(1)}s branded opening, but no intro video is enabled. Add the opening clip or re-create the Scene Plan timeline.`)
+          await safetyGate(project_slug, 'opening_outro', job, `Scene Plan reserves a ${planOpeningReservedSec.toFixed(1)}s branded opening, but no intro video is enabled. Scene 1 will hold across that opening window.`)
+        } else {
+          req.intro.duration = planOpeningReservedSec
         }
-        req.intro.duration = planOpeningReservedSec
         if (req.title_image?.enabled) {
           req.title_image.enabled = false
           job.output_lines.push('Title card skipped: the branded opening already owns the full reserved opening window.')
@@ -3181,7 +3297,7 @@ export async function generateVideo(job: Job): Promise<void> {
           const dur = (await getAudioDuration(preparedPath)) || 0
           timelineClipsByAnchor[clip.anchor].push({ path: preparedPath, duration: dur, ...(isStatic ? { still: true } : {}) })
         } catch (e: any) {
-          throw new Error(`Timeline clip ${idx + 1} (${clip.anchor}) could not be prepared: ${e.message}. Replace the file, or switch that clip off, then retry.`)
+          await safetyGate(project_slug, 'opening_outro', job, `Timeline clip ${idx + 1} (${clip.anchor}) could not be prepared: ${e.message}. Rendering without that clip.`)
         }
         idx++
       }
@@ -3208,7 +3324,8 @@ export async function generateVideo(job: Job): Promise<void> {
     if (authoritativeAssets.visual_source === 'image_pool') {
       const bodyDuration = Math.max(0, narrationDuration - preSceneDuration)
       if (bodyDuration <= 0) {
-        throw new Error('Video Assembly is blocked: the configured opening is as long as the merged narration, so Image Pool has no scene time left.')
+        await safetyGate(project_slug, 'image_pool_covers', job, 'The configured opening is as long as the narration, so Image Pool has no scene time left.')
+        throw new Error('Video Assembly cannot continue: the opening leaves no usable Image Pool scene interval.')
       }
       const imagePool = await resolveImagePoolSelection(project_slug, code, bodyDuration)
       // **The pace decides how long one still stays, so it decides how many stills are needed.**
@@ -3459,7 +3576,8 @@ export async function generateVideo(job: Job): Promise<void> {
           )
         }
       } else {
-        throw new Error('The outro video\'s length could not be measured, so the final encode would cut it short. Re-export the outro file, or switch the outro off, then retry.')
+        await safetyGate(project_slug, 'opening_outro', job, 'The outro video\'s length could not be measured, so it will be omitted from this render.')
+        outroClipPath = undefined
       }
     }
 
@@ -4104,6 +4222,34 @@ export interface VideoAssemblySceneClipRecovery {
   runRevealClip?: (args: string[], options: { timeoutMs?: number }) => Promise<unknown>
   /** Test seam: production always persists through the durable job queue. */
   persistCheckpoint?: (job: Job) => Promise<void>
+}
+
+/** Replace an unreadable still only with a decodable still from this episode. */
+export async function replaceUndecodableSceneImages(
+  slug: string,
+  scenes: GenerateVideoRequest['scenes'],
+  job: Job,
+): Promise<void> {
+  const still = (scene: GenerateVideoRequest['scenes'][number]) => !/\.(mp4|mov|webm|mkv|m4v)$/i.test(scene.image_path || '')
+  const usable = await mapWithConcurrency(scenes, 2, async scene => still(scene) && await isDecodableImage(scene.image_path))
+  for (let index = 0; index < scenes.length; index++) {
+    if (!still(scenes[index]!) || usable[index]) continue
+    const scene = scenes[index]!
+    const stableId = (scene as any).plan_scene_id || `scene ${index + 1}`
+    await safetyGate(slug, 'picture_opens', job, `Scene ${index + 1}/${scenes.length} (${stableId}) has a missing or unreadable picture. A decodable neighbouring picture will stand in.`)
+    let neighbour = -1
+    for (let distance = 1; neighbour < 0 && distance < scenes.length; distance++) {
+      for (const candidate of [index - distance, index + distance]) {
+        if (candidate >= 0 && candidate < scenes.length && usable[candidate]) { neighbour = candidate; break }
+      }
+    }
+    if (neighbour < 0) {
+      throw new Error(`Video Assembly cannot continue: ${stableId} is unreadable and this episode has no decodable neighbouring picture.`)
+    }
+    scene.image_path = scenes[neighbour]!.image_path
+    usable[index] = true
+    job.output_lines.push(`Scene ${index + 1}: using scene ${neighbour + 1}'s decodable picture for this render.`)
+  }
 }
 
 export async function prepareSceneClips(
@@ -5954,7 +6100,11 @@ async function concatToIntermediate(
       minDurationSec: 1,
     })
     job.output_lines.push(`Intermediate video concat complete · ${summarizeMedia(info)}`)
-    assertIntermediateCoversRender(info.videoDurationSec ?? info.durationSec, expectedSec)
+    try {
+      assertIntermediateCoversRender(info.videoDurationSec ?? info.durationSec, expectedSec)
+    } catch (error: any) {
+      await safetyGate(job.project_slug, 'final_video_whole', job, error?.message || String(error))
+    }
   } catch (e: any) {
     // Re-throw with the concat list contents so the user can see which
     // input clips fed the broken intermediate. The temp dir is preserved

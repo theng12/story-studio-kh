@@ -69,7 +69,7 @@
         <button
           type="button"
           class="btn btn-primary"
-          :disabled="!chapterAudioReady || mergeStatus.loading || !!mergeStatus.error || generating || mergeJobActiveForEpisode || musicChoiceMissing"
+          :disabled="!chapterAudioCanMerge || mergeStatus.loading || !!mergeStatus.error || generating || mergeJobActiveForEpisode || musicChoiceMissing"
           @click="onGenerateClick"
         >{{ generating || mergeJobActiveForEpisode ? 'Merging…' : generateLabel }}</button>
       </div>
@@ -88,6 +88,9 @@
         <template v-else-if="musicChoiceMissing">
           Background Music is on, but no track is chosen for this episode. Pick a file under Background Music,
           switch to Music Pool, or turn music off.
+        </template>
+        <template v-else-if="!chapterAudioReady">
+          {{ chapterAudioPolicyMessage }}
         </template>
         <template v-else-if="writeMode === 'new' && existingMergedAudio">
           Keeps the current merge and writes {{ nextVersionName.split('/').pop() }} beside it.
@@ -131,10 +134,11 @@
     >
       <div class="warning-icon">⚠️</div>
       <div class="warning-body">
-        <h3 class="warning-title">Audio Assembly is waiting for every chapter</h3>
+        <h3 class="warning-title">{{ chapterAudioWarningTitle }}</h3>
         <p class="text-muted mt-1">
           {{ chapterAudioIssues.join(' ') }}
         </p>
+        <p class="text-muted mt-1">{{ chapterAudioPolicyMessage }}</p>
         <div class="flex gap-2 mt-2">
           <NuxtLink :to="`/projects/${slug}/audio?episode_id=${encodeURIComponent(episodeId)}`" class="btn btn-primary btn-sm">
             Repair Missing Audio →
@@ -814,12 +818,39 @@ const ffmpegStatus = ref<{ installed: boolean; version?: string } | null>(null)
 const scannedAssets = ref<any>(null)
 const scanning = ref(false)
 const generating = ref(false)
+type ChapterAudioMode = 'off' | 'warn' | 'block'
+interface ChapterAudioReadiness { ready?: boolean; present_files?: string[] }
+function canMergeChapterAudio(readiness: ChapterAudioReadiness | null | undefined, mode: ChapterAudioMode): boolean {
+  return readiness?.ready === true
+    || ((readiness?.present_files?.length || 0) > 0 && mode !== 'block')
+}
 const chapterAudioReady = computed(
   () => scannedAssets.value?.chapter_audio_readiness?.ready === true,
 )
+const chapterAudioMode = computed<ChapterAudioMode>(
+  () => scannedAssets.value?.chapter_audio_present_mode || 'block',
+)
+const chapterAudioCanMerge = computed(() => canMergeChapterAudio(
+  scannedAssets.value?.chapter_audio_readiness,
+  chapterAudioMode.value,
+))
 const chapterAudioIssues = computed<string[]>(
   () => scannedAssets.value?.chapter_audio_readiness?.issues || [],
 )
+const chapterAudioPolicyMessage = computed(() => {
+  if (!(scannedAssets.value?.chapter_audio_readiness?.present_files?.length || 0)) {
+    return 'At least one chapter audio file is required before Audio Assembly can continue.'
+  }
+  if (chapterAudioMode.value === 'block') return 'This channel waits until every chapter audio file is present.'
+  if (chapterAudioMode.value === 'warn') return 'Audio Assembly can continue with the files that are present and puts a warning on the job.'
+  return 'Audio Assembly can continue with the files that are present and records the missing chapters in the job log.'
+})
+const chapterAudioWarningTitle = computed(() => {
+  if (chapterAudioCanMerge.value) return 'Some chapter audio is missing'
+  return (scannedAssets.value?.chapter_audio_readiness?.present_files?.length || 0) > 0
+    ? 'Audio Assembly is waiting for every chapter'
+    : 'Audio Assembly is waiting for chapter audio'
+})
 
 // v1.0.307 — keep Generate disabled for the WHOLE queued merge job, not just
 // the brief enqueue POST that flips `generating` (see useJobs.isJobActiveFor).

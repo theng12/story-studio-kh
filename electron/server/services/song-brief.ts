@@ -24,8 +24,19 @@ export interface Brief extends PlannedCell {
 
 /** One lyric section is sung in about this many seconds (`YUE2_SECONDS_PER_SECTION`). */
 export const SECONDS_PER_SECTION = 30
-/** How many lyric sections a song of `length_s` needs: 2 to 12 (the singing model's 360 s). */
-export const sectionsFor = (length_s: number): number => Math.min(12, Math.max(2, Math.round(length_s / SECONDS_PER_SECTION)))
+/** Three verses, 3–4 choruses, a bridge and an outro: 8 sections, or 9 with the fourth chorus. */
+export const sectionsFor = (length_s: number): number => Math.min(9, Math.max(8, Math.round(length_s / SECONDS_PER_SECTION)))
+/**
+ * Words a lyric sheet needs for a song of `length_s` (1.4.301). YuE2 stops singing when the words run
+ * out: with ~4 short lines per section the 82 fleet samples came out 2:00–4:16 (mostly 2:25–3:15) on a
+ * 285 s budget, short of the owner's 3–4 min. ~1.4 sung words per second of song (≈ 300 for 3.5 min).
+ */
+export const WORDS_PER_SONG_SECOND = 1.4
+export const wordsFor = (length_s: number): number => Math.min(350, Math.max(250,
+  Math.round(Math.max(60, length_s) * WORDS_PER_SONG_SECOND / 10) * 10))
+/** Two output tokens per requested lyric word, plus room for the rest of each structured song row. */
+export const minimumLyricsOutputTokens = (cells: readonly PlannedCell[]): number =>
+  cells.reduce((total, cell) => total + wordsFor(cell.length_s) * 2 + 256, 0)
 const SECTION_LINE = /^\s*\[[^\]\n]+\]\s*$/
 const sectionCount = (lyrics: string) => lyrics.split('\n').filter(line => SECTION_LINE.test(line)).length
 
@@ -131,8 +142,10 @@ const SYSTEM_SUNG = 'You write songs with lyrics for one music channel. Code has
   + 'words), ONE scene idea (one sentence, a picture with no people and no text that matches the song), a style '
   + 'line for the singing model (comma-separated tags: genre, the given ensemble and mood, the singer\'s voice such '
   + 'as "warm female vocal" or "soft male vocal"; under 25 words), and the lyrics: exactly the number of sections '
-  + 'asked for, each a line like [Verse], [Chorus], [Bridge] or [Outro] followed by 4 short singable lines, a '
-  + 'chorus that returns, no stage directions. Everything must be ORIGINAL: never name or imitate a real artist, '
+  + 'asked for, each a line like [Verse], [Chorus], [Bridge] or [Outro] followed by 4–8 singable lines, enough '
+  + 'lines to reach the word count asked for (the song ends when the words run out): three verses and a chorus '
+  + 'that returns three times in an 8-section sheet or four times in a 9-section sheet, plus one bridge and one '
+  + 'outro, no stage directions. Everything must be ORIGINAL: never name or imitate a real artist, '
   + 'band, song, album or label, never quote existing lyrics, and never write "in the style of". Every title must '
   + 'be new: never reuse a title or a title word from the avoid list, and do not repeat a title word inside this '
   + 'batch. Return strict JSON only: {"songs":[{"n":1,"title":"","line":"","scene_idea":"","style":"","lyrics":""}]} '
@@ -147,7 +160,7 @@ export function writerPrompt(
     ...(ctx.lyrics ? [`Lyrics language: ${ctx.lyrics.language}.`] : []),
     ...(ctx.lyrics?.fixedSinger ? ['The singer is fixed by the channel: the style line gives genre, instruments and mood only — no voice, singer, gender or vocal words.'] : []),
     ...cells.map((c, i) => `${i + 1}. ${c.ensemble}; ${c.mood}; ${c.tempo_bpm} BPM; ${c.key}; ${c.structure}; ${c.texture}`
-      + (c.theme ? `; scene theme: ${c.theme}` : '') + (ctx.lyrics ? `; ${sectionsFor(c.length_s)} lyric sections` : '')
+      + (c.theme ? `; scene theme: ${c.theme}` : '') + (ctx.lyrics ? `; ${sectionsFor(c.length_s)} lyric sections, about ${wordsFor(c.length_s)} words of lyrics` : '')
       + (retryNotes[i] ? ` — rewrite: ${retryNotes[i]}` : '')),
     '',
     `Never use these words: ${ctx.never.join(', ') || '(none)'}.`,
@@ -186,7 +199,7 @@ export interface WriteResult { briefs: Brief[]; dropped: Array<{ cell: PlannedCe
 export async function writeBriefs(
   cells: PlannedCell[],
   ctx: BriefContext,
-  write: (system: string, user: string) => Promise<string>,
+  write: (system: string, user: string, minimumOutputTokens: number) => Promise<string>,
   onBatch?: (done: number) => void,
 ): Promise<WriteResult> {
   const pool = {
@@ -210,7 +223,10 @@ export async function writeBriefs(
       calls++
       let raw = ''
       try {
-        raw = await write(sung ? SYSTEM_SUNG : SYSTEM, writerPrompt(pending.map(p => p.cell), { titles: pool.titles, never: ctx.never, lyrics: ctx.lyrics }, pending.map(p => p.note)))
+        const minimumOutputTokens = sung ? minimumLyricsOutputTokens(pending.map(p => p.cell)) : 0
+        raw = await write(sung ? SYSTEM_SUNG : SYSTEM,
+          writerPrompt(pending.map(p => p.cell), { titles: pool.titles, never: ctx.never, lyrics: ctx.lyrics }, pending.map(p => p.note)),
+          minimumOutputTokens)
       } catch (error) {
         if (attempt === 1) {
           const why = `the writing model failed (${error instanceof Error ? error.message : String(error)})`

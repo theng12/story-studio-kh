@@ -17,8 +17,8 @@ import { getEffectiveFormat } from '../services/format-loader.js'
 import { resolveAssetPath } from '../services/path-resolver.js'
 import {
   inspectChapterAudioReadiness,
-  requireChapterAudioReady,
 } from '../services/audio-workflow-readiness.js'
+import { safetyMode } from '../services/safety-checks.js'
 import { revalidatePreview, streamTo } from '../lib/stream-file.js'
 
 export const router = Router()
@@ -54,11 +54,16 @@ router.get('/projects/:slug/audio-editor/scan/:episodeId', async (req, res) => {
     // complete chapter so the list shows one file per chapter.
     const { consolidateEpisodeParts } = await import('../services/chapter-parts.js')
     await consolidateEpisodeParts(slug, episodeId, () => {})
-    const [assets, chapterAudioReadiness] = await Promise.all([
+    const [assets, chapterAudioReadiness, chapterAudioPresentMode] = await Promise.all([
       scanEpisodeAudioAssets(slug, episodeId),
       inspectChapterAudioReadiness(slug, episodeId),
+      safetyMode(slug, 'chapter_audio_present'),
     ])
-    res.json({ ...assets, chapter_audio_readiness: chapterAudioReadiness })
+    res.json({
+      ...assets,
+      chapter_audio_readiness: chapterAudioReadiness,
+      chapter_audio_present_mode: chapterAudioPresentMode,
+    })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Asset scan failed'))
   }
@@ -75,10 +80,10 @@ router.post('/projects/:slug/generate/audio-merge', async (req, res) => {
   // ordinary merge into a quality-repair completion path.
   delete req.body.audio_quality_refresh
   if (!episode_id) return res.status(400).json({ detail: 'episode_id is required' })
-  try {
-    await requireChapterAudioReady(slug, episode_id)
-  } catch (error: any) {
-    return res.status(409).json({ detail: error?.message || 'All required audio must be generated first.' })
+  const readiness = await inspectChapterAudioReadiness(slug, episode_id)
+  if (!readiness.ready
+    && (!readiness.present_files.length || await safetyMode(slug, 'chapter_audio_present') === 'block')) {
+    return res.status(409).json({ detail: `Audio Assembly is blocked: ${readiness.issues.join(' ')}` })
   }
 
   // Apply defaults — precedence: request body → format → legacy hardcoded.
