@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## Current work — 2026-10-12 (1.4.297 new section joins the audio selection)
+
+- `generators/audio.ts` `selectNormalAudioSources`: a replacement for a slug with no `audio_chapters.json` row appends `{ slug, source_file(s) }` instead of refusing; Audio Assembly (next in the chain) times it. Test: `audio-chapter-parts-partial-rerun.test.ts` (last test). `audio-versions.ts useChapterTake` (manual take switch) still refuses a missing row.
+
 ## Current work — 2026-10-12 (1.4.296 lenient by default)
 
 Owner 2026-10-12: "Maybe we are being too strict? Imperfection is often accepted. I'm very lenient." Guards now self-heal; hard stops kept: missing/silent audio, missing video, loudness beyond 20 %, anything public. Brief + evidence: `_orchestra/audit-20261012/lenient/`.

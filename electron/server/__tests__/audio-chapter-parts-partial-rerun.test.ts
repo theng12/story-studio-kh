@@ -181,3 +181,14 @@ void test('parts whose replacement record was lost are still activated when they
   assert.ok(second.output_lines.some((line: string) => /replacement record was incomplete.*so it was activated/.test(line)), second.output_lines.join('\n'))
   await ep.assertJoined()
 })
+
+void test('a section the last Audio Assembly did not have joins the active selection (1.4.297, MineePod EP0003)', async () => {
+  const ep = await episode()
+  const selector = path.join(episodeDirForNarration(ep.narration), 'audio_chapters.json')
+  await fs.writeFile(selector, JSON.stringify({ sections: [{ slug: 'Introduction', source_file: 'EP001_Introduction.mp3', source_files: ['EP001_Introduction.mp3'] }] }))
+  const job = await ep.direct()
+  assert.ok(!/has no row/.test(job.error || ''), job.output_lines.join('\n'))
+  const saved = JSON.parse(await fs.readFile(selector, 'utf8'))
+  assert.deepEqual(saved.sections.map((s: any) => s.slug), ['Introduction', 'Chapter_01'])
+  assert.ok(saved.sections[1].source_files.length > 0)
+})

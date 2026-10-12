@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.297 — 2026-10-12
+
+- New narration for a part the episode did not have before is now used. When a rewritten script gains a part that the last Audio Assembly did not include (MineePod EP0003 gained an Introduction), the new narration for it is added to the episode, and Audio Assembly fits it in next. Before, Audio stopped with "the active audio selection has no row for Introduction".
+
 ## v1.4.296 — 2026-10-12
 
 - Story now fixes small mismatches itself instead of stopping the episode (owner: "Imperfection is often accepted. I'm very lenient."). Each fix is written in the job log in plain words. What still stops an episode: missing or silent narration, a missing video, loudness outside your 20 % allowance, and anything that would upload public.

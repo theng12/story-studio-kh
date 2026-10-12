@@ -129,7 +129,7 @@ async function selectNormalAudioSources(
       throw new Error(`the active audio selection cannot be read (${error?.message || String(error)})`)
     }
     if (!Array.isArray(sidecar.sections)) throw new Error('the active audio selection has no valid sections')
-    const planned: Array<{ row: { source_file?: unknown; source_files?: unknown }; files: string[] }> = []
+    const planned: Array<{ row: { slug?: unknown; source_file?: unknown; source_files?: unknown }; files: string[] }> = []
     for (const [slug, files] of Object.entries(sources)) {
       if (!files.length || files.some(file => !file.trim() || path.basename(file) !== file)) {
         throw new Error(`the replacement source list is invalid for ${slug}`)
@@ -146,11 +146,13 @@ async function selectNormalAudioSources(
       if (!available.every(Boolean)) throw new Error(`replacement audio is missing or empty for ${slug}`)
       const row = sidecar.sections.find(section => typeof section.slug === 'string'
         && section.slug.toLowerCase() === slug.toLowerCase())
-      if (!row) throw new Error(`the active audio selection has no row for ${slug}`)
-      planned.push({ row, files })
+      // 1.4.297 — a section the last Audio Assembly did not have (MineePod EP0003: its rewritten
+      // script gained an Introduction) joins the selection; Audio Assembly runs next and times it.
+      planned.push({ row: row ?? { slug }, files })
     }
     await beforeCommit()
     for (const { row, files } of planned) {
+      if (!sidecar.sections!.includes(row)) sidecar.sections!.push(row)
       row.source_files = [...files]
       row.source_file = files[0]!
     }
