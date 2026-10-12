@@ -70,6 +70,8 @@ export interface ImageGenerationRequest {
   resolution?: string
   /** Optional deterministic seed. Omit to let the provider randomize. */
   seed?: number
+  /** 1.4.295 — 'background' for scene images (owner's standing rule: scene images are always low priority). */
+  priority?: 'background'
   idempotencyIdentity?: string
   /** `jpeg` asks for a JPEG instead of a PNG; absent = the lane's native format. Must be part of any pre-computed `idempotencyKey`. */
   outputFormat?: 'jpeg'

@@ -528,6 +528,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
           ...(outputFormat ? { outputFormat } : {}),
           idempotencyIdentity: replacementScope || `${generationIdentity}:${item.filename}:${scope}`,
           idempotencyKey: preparedKey,
+          priority: 'background', // Image Pool stills are scene pictures: always low priority (owner 2026-10-12)
           ...(replacementScope && entry ? {
             beforeSubmit: () => jq.assertPaidImageReplacementSubmitPermission(
               job, item.filename, pool.folder_path, item.filename, entry,

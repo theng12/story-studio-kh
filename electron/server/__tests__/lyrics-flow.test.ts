@@ -125,6 +125,27 @@ describe('making sung songs', () => {
     assert.equal(plain.priority, 'background', 'instrumental top-ups are unchanged')
   })
 
+  test('1.4.295: scene images go as background, thumbnails as normal; the listen-back default is 70 %', async () => {
+    assert.equal(STARTING_LYRICS.min_match, 0.7)
+    const { registry } = await import('../providers/registry.js')
+    const provider = registry.getImageProvider('genstudio-image')!
+    const ask = (priority?: 'background') => provider.generateImage({
+      prompt: 'a quiet harbour at dawn', apiKey: MOCK_GENSTUDIO_FULL_KEY, aspectRatio: '16:9', modelId: 'mock-image-v1',
+      providerParams: {}, idempotencyIdentity: `prio-${priority || 'normal'}`, ...(priority ? { priority } : {}),
+    })
+    await ask('background')
+    await ask()
+    const bodies = service.submissions.filter(s => s.operation === 'image').map(s => s.parsedBody!)
+    assert.deepEqual(bodies.map(b => b.priority ?? null), ['background', null])
+    const src = (f: string) => fs.readFile(path.join(path.dirname(new URL(import.meta.url).pathname), '..', f), 'utf8')
+    for (const f of ['generators/scene-image.ts', 'generators/continuity-render.ts', 'generators/image-pool-generate.ts']) {
+      assert.match(await src(f), /priority: 'background'/, `${f} sends scene pictures as background`)
+    }
+    const images = await src('generators/images.ts')
+    assert.match(images, /:scene:\$\{scene\.number\}:image:\$\{current\.scope\}`,\n\s+priority: 'background'/, 'scene images are background')
+    assert.doesNotMatch(images, /:thumbnail:[^\n]*\n[^\n]*priority: 'background'/, 'thumbnails stay normal')
+  })
+
   test('a sung channel needs the listen-back model', async () => {
     const { generateSongPool } = await import('../generators/song-pool-generate.js')
     await assert.rejects(generateSongPool(fakeJob({ mode: 'new', count: 1, writer_model: 'mock-chat-v1', music_model: 'mock-music-v1', batch_id: 'b_nocheck' })), /listen-back model/)

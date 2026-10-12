@@ -252,6 +252,7 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     ...(outputFormat ? { outputFormat } : {}),
     idempotencyIdentity: requestIdentity,
     idempotencyKey,
+    priority: 'background',
     onQueueState: async state => {
       job.item_progress = {
         total: 1,

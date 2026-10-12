@@ -179,6 +179,7 @@ const genstudioImageProvider: ImageProvider = {
         // old pass-through untouched.
         ...(outputOption ? {} : { width: request.width, height: request.height }),
         seed,
+        ...(request.priority ? { priority: request.priority } : {}),
         requestIdentity: request.idempotencyIdentity,
         ...(request.outputFormat ? { outputFormat: request.outputFormat } : {}),
         idempotencyKey: request.idempotencyKey,

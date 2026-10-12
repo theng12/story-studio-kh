@@ -1061,6 +1061,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             ...(sceneReferences.length ? { referenceImagePaths: sceneReferences } : {}),
             ...(sceneOutputFormat ? { outputFormat: sceneOutputFormat } : {}),
             idempotencyIdentity: `${project_slug}:${episode_id}:scene:${scene.number}:image:${current.scope}`,
+            priority: 'background',
             onQueueState: state => publishImageQueueState(key, label, state),
             isCancelled: () => jq.isCancelled(job.job_id),
             onJobAccepted: async (taskId, idempotencyKey) => {

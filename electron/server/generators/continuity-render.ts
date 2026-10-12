@@ -1338,6 +1338,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   ...(requestOutputFormat ? { outputFormat: requestOutputFormat } : {}),
                   idempotencyIdentity: requestIdentity,
                   idempotencyKey: preparedKey,
+                  priority: 'background',
                   ...(replacementScope && manifestEntry ? {
                     beforeSubmit: () => jq.assertPaidImageReplacementSubmitPermission(
                       job, filename, outDir, filename, manifestEntry,

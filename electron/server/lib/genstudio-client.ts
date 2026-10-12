@@ -1435,6 +1435,8 @@ interface GenStudioImageJob {
  * customer control, and Story Studio does not send one.
  */
 export interface GenStudioImageRequest extends GenStudioOperationContext {
+  /** 1.4.295 — scene images go as Gateway `background` (owner: thumbnails first, songs next, scene images last). Not in the idempotency key. */
+  priority?: 'background'
   prompt: string
   modelId: string
   aspectRatio: string
@@ -8958,6 +8960,7 @@ async function generateImageWithGenStudioAdmitted(
             ...jobGroup,
             ...paidBody,
             ...(permitId ? { admission_permit_id: permitId } : {}),
+            ...(request.priority ? { priority: request.priority } : {}),
           }),
         },
         request,

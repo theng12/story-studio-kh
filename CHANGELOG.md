@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.295 — 2026-10-12
+
+- Scene pictures are now always the lowest-priority work on your Macs (your standing rule): scene images, Scene Review re-rolls, continuity renders and Image Pool stills are sent to the Gateway as background work, so they only take a Mac nobody else is waiting for. Thumbnails stay normal, and sung songs are normal too, so the order is thumbnails and songs first, scene pictures last. Each Mac still makes one thing at a time.
+- Songs with lyrics: the listen-back now asks for 70 % of the lyric words by default (was 50 %). The test songs scored 96–99 %, so 70 % still only turns away takes that are clearly broken. A channel that already saved its own level keeps it.
+
 ## v1.4.294 — 2026-10-12
 
 - Songs with lyrics for music channels. Music Formula has a new "Songs with lyrics" switch, off for every channel until you tick it. When it is on, Generate Songs has the writing model (for example the channel's Claude Haiku 5.5) also write each song's original lyrics and a short style line (genre, instruments, the singer's voice), and a model that sings (YuE2, on your 16 GB Macs) makes the song. Sung songs go to the fleet as normal work, one for each Mac that can sing, and take their turn like any other job (each Mac still makes one thing at a time). The writing step is the only paid part, as before; the lyrics are written fresh for your channel, never naming or imitating real artists or songs, and your formula's "never" words are checked in the lyrics too.

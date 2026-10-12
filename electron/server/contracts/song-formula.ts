@@ -37,7 +37,7 @@ export const LyricsSettingsSchema = z.object({
   in_description: z.boolean(),
 }).strict()
 export type LyricsSettings = z.infer<typeof LyricsSettingsSchema>
-export const STARTING_LYRICS: LyricsSettings = { enabled: false, language: 'English', min_match: 0.5, max_takes: 3, in_description: false }
+export const STARTING_LYRICS: LyricsSettings = { enabled: false, language: 'English', min_match: 0.7, max_takes: 3, in_description: false }
 
 export const SongFormulaSchema = z.object({
   ensembles: z.array(weighted).min(1).max(40),

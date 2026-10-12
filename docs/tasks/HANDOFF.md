@@ -1,5 +1,10 @@
 # HANDOFF — Story Studio KH
 
+## Current work — 2026-10-12 (1.4.295 scene pictures low priority; listen-back 70 %)
+
+- Owner's standing rule: thumbnails priority, scene images ALWAYS low, songs between; one generation per Mac. `ImageGenerationRequest.priority` / `GenStudioImageRequest.priority` (`'background'`, not in the idempotency key) is sent as the Gateway `priority` field. Set at the scene-picture call sites only: `generators/images.ts` (scene loop), `scene-image.ts`, `continuity-render.ts`, `image-pool-generate.ts`. Thumbnails, composition templates and previews stay normal. Gateway background = only idle Macs, never ahead of waiting normal work (`worker._background_room`); a background submit counts every waiting job against `max_queued_jobs` (429 with Retry-After when full).
+- `STARTING_LYRICS.min_match` 0.7 (samples scored 96–99 %). Test: `lyrics-flow.test.ts`.
+
 ## Current work — 2026-10-12 (1.4.294 songs with lyrics)
 
 Plan: `_orchestra/audit-20261012/lyrics-flow/PLAN.md`. Off on every channel until the owner picks one.
