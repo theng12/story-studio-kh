@@ -345,7 +345,7 @@ const CONTROL_CHARS_RE = /[\x00-\x08\x0B-\x1F\x7F]/g
 // http(s)://… up to the next whitespace. Intentionally greedy on the path
 // so query strings and fragments go with it.
 const URL_RE = /https?:\/\/\S+/gi
-const PRIVATE_YOUTUBE_DESCRIPTION_MARKER_RE = /^[\t ]*<!--[\t ]*youtube:(?:chapters|sources):(start|end)[\t ]*-->[\t ]*(?:\r?\n|(?![\s\S]))/gim
+const PRIVATE_YOUTUBE_DESCRIPTION_MARKER_RE = /^[\t ]*<!--[\t ]*youtube:(?:chapters|sources|lyrics):(start|end)[\t ]*-->[\t ]*(?:\r?\n|(?![\s\S]))/gim
 
 function stripControl(s: string): string {
   // Also repairs a lone surrogate: YouTube is a UTF-8 API and a model-written

@@ -22,7 +22,7 @@ import { getEffectiveNiche } from '../services/niche-loader.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { callAi } from '../lib/ai-client.js'
 import { planCells, coverageGrid } from '../services/song-coverage.js'
-import { writeBriefs } from '../services/song-brief.js'
+import { BRIEFS_PER_CALL, SUNG_BRIEFS_PER_CALL, writeBriefs } from '../services/song-brief.js'
 import { comboCount, poolNeeds, EpisodeDefaultsSchema, STARTING_EPISODE_DEFAULTS } from '../contracts/song-formula.js'
 import { songFormulaFor } from '../generators/song-pool-generate.js'
 import type { JobType } from '../models/types.js'
@@ -182,7 +182,8 @@ router.post('/projects/:slug/song-pool/plan', async (req, res) => {
     const tally = (k: 'mood' | 'tempo_band') => cells.reduce<Record<string, number>>((m, c) => { m[c[k]] = (m[c[k]] || 0) + 1; return m }, {})
     res.json({
       first: cells.slice(0, 4), count: cells.length, by_mood: tally('mood'), by_tempo_band: tally('tempo_band'),
-      new_combinations: new Set(cells.map(c => c.combo_key)).size, combinations: comboCount(formula), writing_calls: Math.ceil(cells.length / 20),
+      new_combinations: new Set(cells.map(c => c.combo_key)).size, combinations: comboCount(formula),
+      writing_calls: Math.ceil(cells.length / (got.formula.lyrics?.enabled ? SUNG_BRIEFS_PER_CALL : BRIEFS_PER_CALL)),
     })
   } catch (e) { fail(res, e, 'Could not plan the songs') }
 })
@@ -202,6 +203,7 @@ router.post('/projects/:slug/song-pool/preview-briefs', async (req, res) => {
       titles: pool.songs.map(s => s.title), lines: pool.songs.map(s => s.line || '').filter(Boolean),
       sceneIdeas: pool.songs.map(s => s.scene_idea || '').filter(Boolean), never: formula.never,
       maxTitleWordShare: formula.variety.max_title_word_share, maxSimilarity: formula.variety.max_similarity,
+      ...(formula.lyrics?.enabled ? { lyrics: { language: formula.lyrics.language } } : {}),
     }, (system, user) => callAi(writer, system, user, {}, false, { slug, outputBudget: 'standard', temperature: 0.8, jsonMode: true }))
     res.json({ briefs: written.briefs, dropped: written.dropped.map(d => ({ ...d.cell, reason: d.reason })) })
   } catch (e) { fail(res, e, 'Could not write the preview briefs') }
@@ -237,6 +239,7 @@ router.post('/projects/:slug/song-pool/generate', async (req, res) => {
       params: {
         song_pool: true, mode, count, writer_model: writer,
         music_model: String(b.music_model).trim(),
+        ...(String(b.check_model || '').trim() ? { check_model: String(b.check_model).trim() } : {}),
         ...lengths(b),
         in_flight: Math.max(1, Math.min(256, Math.round(Number(b.in_flight) || 1))),
         ...(songIds.length ? { song_ids: songIds } : {}),

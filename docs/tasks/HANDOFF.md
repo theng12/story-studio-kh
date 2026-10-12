@@ -1,6 +1,15 @@
 # HANDOFF — Story Studio KH
 
-## Current work — 2026-10-12 (1.4.293 idea generator phases 2–3)
+## Current work — 2026-10-12 (1.4.294 songs with lyrics)
+
+Plan: `_orchestra/audit-20261012/lyrics-flow/PLAN.md`. Off on every channel until the owner picks one.
+- Switch: `songFormula.lyrics` (`LyricsSettingsSchema`: `enabled`, `language`, `min_match` 0..1, `max_takes` 1..5, `in_description`), optional = off; `STARTING_LYRICS` (min_match 0.5, 3 takes). Edited on Music Formula ("Songs with lyrics").
+- Briefs (`song-brief.ts`): with `ctx.lyrics` the writer uses `SYSTEM_SUNG` (originality rules), `SUNG_BRIEFS_PER_CALL` = 4, asks `sectionsFor(length_s)` sections (30 s each, 2..12); `checkBrief` requires a style line and ≥ 2 `[Section]` markers and checks `never` words in style + lyrics; prompt = `assembleSungPrompt` (style, BPM, key).
+- Generator (`song-pool-generate.ts`): `sung` ⇒ model must sing (`requires_lyrics`/`supports_vocals`), `check_model` required (dialog: free `price_source: local` transcription models), request `instrumental: false` + lyrics, length from `musicDurationPlan`. `listenBack` → `transcribeWithGenStudio` (quote > 0 refused in `beforeConfirm`) → `lyricsMatch` (`services/lyrics-match.ts`, in-order LCS of words / lyric words). Under `min_match` with takes left: `sp.trashPoolFile` + retake (`:take<n>` identity, `hashSeed` seed). Final take kept `enabled: false` with `lyrics_check` `failed`|`unchecked` (no `lyrics_match` when unchecked) and the item fails loudly with `retry_scope` set.
+- Episode side: `episodeLyrics`; `musicMetadataContext` says how many songs are sung; finalizer adds `<!-- youtube:lyrics:start -->` block (`renderLyrics`) when `in_description`; upload strips the marker (`upload-metadata.ts`); `fitYouTubeDescription` trims it from the end first.
+- Window: `musicWindowSizer(..., { normal: sung })` — sung songs are normal priority (owner 2026-10-12: scene images are low priority, songs take their turn), window = the row's `fleet_cap` if the Gateway sets one, else `eligible_macs`. Instrumental top-ups unchanged (background). Gateway 0.2.171 has no default YuE2 cap (owner-settable `models` in provider-concurrency.local.json); Hub 0.6.168 fixes the YuE2 package (missing `LICENSE`). Tests: `lyrics-flow.test.ts` (mock Gateway gained `transcriptionQuoteCredits` and per-scenario transcript text).
+
+## Earlier — 2026-10-12 (1.4.293 idea generator phases 2–3)
 
 Plan: `_orchestra/audit-20261009/ideas-plan/PLAN.md` ("Built" note at its end). Builds on 1.4.285 (see below).
 - `idea_upgrades` gained `variety_seeds`, `grow_packs`, `real_sources` (booleans, off) and `reference_categories` (string[], normalised to `Category:X`). `semantic_dedupe` now accepts `on`: in `generateIdeaCampaign`, after the Jaccard `filterGenerated`, `watchDuplicates` runs on what it kept and drops hits when the method is `meaning`; on any embeddings failure only the word check decides (logged). Imports still only report (`watchImportedIdeas` runs for shadow and on). Stats gain `rejected_meaning`, `packs_used`. Default `semantic_threshold` 0.84 (replay: `ideas-plan/calibration-20261012-na-history.txt`).

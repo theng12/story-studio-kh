@@ -12,6 +12,12 @@
         Writes varied song briefs from your formula, then makes each song on your fleet.
         {{ creditsFree ? 'Nothing here costs credits.' : 'The song model you pick decides the cost, shown below.' }}
       </p>
+      <p v-if="sung" class="mp-hint">
+        <span class="ds-chip" data-tone="info">songs with lyrics</span>
+        The writing model also writes original lyrics and a style line for each song; the song model sings them, at most a
+        couple at a time on the 16 GB Macs; the listen-back model checks the words were sung. A take under
+        {{ Math.round((songFormula?.lyrics?.min_match ?? 0) * 100) }}% goes to Trash and is sung again (up to {{ songFormula?.lyrics?.max_takes }} takes).
+      </p>
     </div>
 
     <div class="mp-gen-body">
@@ -28,7 +34,7 @@
             <button v-if="missing" type="button" class="mp-chip" :class="{ on: count === missing }" @click="count = missing">{{ missing }} · to reach {{ needed }}</button>
             <button type="button" class="mp-chip" :class="{ on: count === 500 }" @click="count = 500">500</button>
           </div>
-          <p class="mp-hint">Briefs are written 20 at a time — {{ calls }} call{{ calls === 1 ? '' : 's' }} to the writing model for {{ count || 0 }} songs.</p>
+          <p class="mp-hint">Briefs are written {{ perCall }} at a time — {{ calls }} call{{ calls === 1 ? '' : 's' }} to the writing model for {{ count || 0 }} songs.</p>
         </div>
         <div>
           <span class="mp-lbl">Song length</span>
@@ -46,7 +52,7 @@
           <p class="mp-hint">
             <span class="ds-chip" data-tone="info">you choose</span>
             Story Studio doesn't pick one for you. This model only writes titles, one descriptive line and a scene idea
-            per song — it does not make the audio.
+            per song{{ sung ? ', plus its lyrics and style line' : '' }} — it does not make the audio.
           </p>
         </div>
         <div>
@@ -56,6 +62,14 @@
             <option v-for="m in songModels" :key="m.id" :value="m.id">{{ m.display_name }} — {{ describeMusicUnitCost(m).text }}</option>
           </select>
           <p class="mp-hint">One song per Mac at a time; free Macs take the next song. Saved as AAC (m4a), about {{ mbPerSong }} MB a song.</p>
+          <template v-if="sung">
+            <label class="mp-lbl" for="mp-check-model" style="margin-top: 10px">Listen-back model</label>
+            <select id="mp-check-model" v-model="checkModelId" class="mp-inp" style="width: 100%">
+              <option value="" disabled>Pick the model that listens back…</option>
+              <option v-for="m in checkModels" :key="m.id" :value="m.id">{{ m.display_name }}</option>
+            </select>
+            <p class="mp-hint">Transcribes each finished song and compares the words with its lyrics. Only free fleet models are listed.</p>
+          </template>
           <label class="mp-lbl" for="mp-inflight" style="margin-top: 10px">Songs on the fleet at once</label>
           <input id="mp-inflight" v-model.number="inFlight" type="number" min="1" :max="maxInFlight" class="mp-inp narrow">
           <p class="mp-hint">Sent to the Gateway together; any it can't start yet waits in its queue for the next free Mac (queue limit {{ maxInFlight }}).</p>
@@ -90,6 +104,8 @@
           <b>{{ b.title }}</b> <span class="mp-muted">— {{ b.ensemble }}, {{ b.mood }}, {{ b.tempo_bpm }} BPM, {{ b.key }}</span>
           <div>{{ b.line }}</div>
           <div class="mp-muted">Scene: {{ b.scene_idea }}</div>
+          <div v-if="b.style" class="mp-muted">Style: {{ b.style }}</div>
+          <div v-if="b.lyrics" class="mp-muted" style="white-space: pre-wrap; margin-top: 4px">{{ b.lyrics }}</div>
         </div>
         <p v-for="d in previewDropped" :key="d.combo_key" class="mp-hint mp-warn">Dropped: {{ d.reason }}</p>
       </div>
@@ -125,7 +141,7 @@ import { computed, ref, watch } from 'vue'
 import { describeMusicUnitCost, type PricedMusicModel } from '../../utils/genstudio-credit-cost.js'
 import { UNCONFIRMED_SUBMISSION } from '../../composables/useFreshGenerationAction'
 
-interface SongModel extends PricedMusicModel { id: string; display_name: string; max_duration_seconds?: number }
+interface SongModel extends PricedMusicModel { id: string; display_name: string; max_duration_seconds?: number; supports_vocals?: boolean | null }
 interface PlanCell { combo_key: string; ensemble: string; mood: string; tempo_bpm: number; key: string; structure: string; texture: string; tempo_band: string }
 
 const props = defineProps<{
@@ -154,6 +170,8 @@ const minText = ref('3:00')
 const maxText = ref('4:30')
 const writerModel = ref('')
 const musicModelId = ref('')
+const checkModelId = ref('')
+const checkModels = ref<Array<{ id: string; display_name: string }>>([])
 const inFlight = ref(16)
 const maxInFlight = ref(256)
 const songModels = ref<SongModel[]>([])
@@ -174,7 +192,10 @@ const maxS = computed(() => parseClock(maxText.value))
 const lengthError = computed(() => !(minS.value > 0 && maxS.value > 0) ? 'Write lengths as m:ss, for example 3:00.'
   : minS.value > maxS.value ? 'The shortest song must not be longer than the longest.'
   : props.songFormula && musicModel.value?.max_duration_seconds && maxS.value > musicModel.value.max_duration_seconds ? `${musicModel.value.display_name} makes songs up to ${clock(musicModel.value.max_duration_seconds)}.` : '')
-const calls = computed(() => Math.ceil(Math.max(0, count.value || 0) / 20))
+// Songs with lyrics: the channel's switch (Music Formula). Sung answers are long, so 4 per call (song-brief.ts).
+const sung = computed(() => props.songFormula?.lyrics?.enabled === true)
+const perCall = computed(() => sung.value ? 4 : 20)
+const calls = computed(() => Math.ceil(Math.max(0, count.value || 0) / perCall.value))
 const musicModel = computed(() => songModels.value.find(m => m.id === musicModelId.value) || null)
 const creditsFree = computed(() => musicModel.value?.price_source === 'local')
 const avgLen = computed(() => (minS.value + maxS.value) / 2 || props.averageSongS || 0)
@@ -209,6 +230,7 @@ const planTops = computed(() => {
 const disabledReason = computed(() => props.formulaError ? 'Save the Music Formula first.'
   : !writerModel.value ? 'Pick the writing model first.'
   : !musicModelId.value ? 'Pick the song model first.'
+  : sung.value && !checkModelId.value ? 'Pick the listen-back model first.'
   : !(count.value >= 1 && count.value <= 2000) ? 'Choose between 1 and 2,000 songs.'
   : lengthError.value ? lengthError.value
   : !(inFlight.value >= 1 && inFlight.value <= maxInFlight.value) ? `Send between 1 and ${maxInFlight.value} songs at once.` : '')
@@ -216,9 +238,19 @@ const disabledReason = computed(() => props.formulaError ? 'Save the Music Formu
 async function loadModels() {
   try {
     const r = await get<{ models: SongModel[] }>('/app-settings/genstudio/music-models')
-    // Song Pool songs are instrumental and carry no lyrics, so a lyrics-only model cannot make them.
-    songModels.value = (r.models || []).filter(m => m.requires_lyrics !== true && m.supports_instrumental !== false)
+    // Instrumental channels: a lyrics-only model cannot make their songs. Songs with lyrics: only models that sing.
+    songModels.value = (r.models || []).filter(m => sung.value
+      ? (m.requires_lyrics === true || m.supports_vocals === true)
+      : (m.requires_lyrics !== true && m.supports_instrumental !== false))
   } catch { songModels.value = [] }
+  if (sung.value) {
+    try {
+      const t = await get<{ models: Array<{ id: string; display_name: string; price_source?: string }> }>('/app-settings/genstudio/transcription-models')
+      checkModels.value = (t.models || []).filter(m => m.price_source === 'local')
+    } catch { checkModels.value = [] }
+    const lastCheck = recall('check-model')
+    checkModelId.value = checkModels.value.some(m => m.id === lastCheck) ? lastCheck : ''
+  }
   const last = recall('music-model')
   musicModelId.value = songModels.value.some(m => m.id === last) ? last
     : (songModels.value.find(m => m.price_source === 'local')?.id || '')
@@ -257,12 +289,14 @@ async function start() {
   const payload = {
     mode: props.mode, count: count.value, writer_model: writerModel.value, music_model: musicModelId.value,
     length_min_s: minS.value, length_max_s: maxS.value, in_flight: inFlight.value,
+    ...(sung.value ? { check_model: checkModelId.value } : {}),
   }
   const operationId = fresh.begin(payload)
   try {
     const job = await post(`/projects/${props.slug}/song-pool/generate`, { ...payload, operation_id: operationId })
     fresh.complete(operationId)
     remember('writer-model', writerModel.value); remember('music-model', musicModelId.value); remember('in-flight', String(inFlight.value))
+    if (sung.value) remember('check-model', checkModelId.value)
     emit('started', job)
   } catch (e: any) {
     startError.value = e?.data?.detail || e?.message || UNCONFIRMED_SUBMISSION

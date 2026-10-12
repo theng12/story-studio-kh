@@ -22,12 +22,21 @@ import { chaptersFromDurations, formatChapterTimestamps, type Chapter } from '..
 import { inspectAudioAssemblyReadiness } from './audio-workflow-readiness.js'
 import { resolveEpisodePathsByCode } from './utils.js'
 import { inspectSubtitleCompletion } from './subtitle-completion.js'
-import { inspectMusicStitch, type MusicStitchState } from './music-episode-store.js'
+import { episodeLyrics, inspectMusicStitch, type MusicStitchState } from './music-episode-store.js'
+import { getEffectiveNiche } from './niche-loader.js'
 
-import { CHAPTERS_BEGIN, CHAPTERS_END } from '../lib/youtube-description-limit.js'
+import { CHAPTERS_BEGIN, CHAPTERS_END, YOUTUBE_DESCRIPTION_MAX_BYTES, utf8Bytes } from '../lib/youtube-description-limit.js'
 export { CHAPTERS_BEGIN, CHAPTERS_END }
 export const SOURCES_BEGIN = '<!-- youtube:sources:start -->'
 export const SOURCES_END = '<!-- youtube:sources:end -->'
+/** Songs with lyrics, when the channel asks for them in the description (stripped like the others before upload). */
+export const LYRICS_BEGIN = '<!-- youtube:lyrics:start -->'
+export const LYRICS_END = '<!-- youtube:lyrics:end -->'
+
+/** The LYRICS block: each sung song's title and words. Upload fitting trims it from the end first. */
+export function renderLyrics(songs: Array<{ title: string; lyrics: string }>): string {
+  return songs.length ? ['LYRICS', ...songs.map(song => `${song.title}\n${song.lyrics.trim()}`)].join('\n\n') : ''
+}
 
 interface AudioChapterSection {
   slug?: unknown
@@ -199,10 +208,16 @@ async function finalizeMusicDescription(options: {
       warnings.push(`Only ${chapters.length} song(s) are long enough to be chapters; YouTube needs at least ${YOUTUBE_MIN_CHAPTERS}, so no chapters are added.`)
     }
   }
-  const description = refreshManagedBlock(
+  // Songs with lyrics: the words go in only when the channel's formula asks (`lyrics.in_description`).
+  const niche = await getEffectiveNiche(options.slug).catch(() => null) as { musicFormat?: { songFormula?: { lyrics?: { in_description?: boolean } } } } | null
+  const lyrics = niche?.musicFormat?.songFormula?.lyrics?.in_description === true ? await episodeLyrics(options.slug, options.episodeId) : []
+  const description = refreshManagedBlock(refreshManagedBlock(
     refreshManagedBlock(options.description, CHAPTERS_BEGIN, CHAPTERS_END, renderChapters(chapters)),
     SOURCES_BEGIN, SOURCES_END, '',
-  )
+  ), LYRICS_BEGIN, LYRICS_END, renderLyrics(lyrics))
+  if (lyrics.length && utf8Bytes(description) > YOUTUBE_DESCRIPTION_MAX_BYTES) {
+    warnings.push(`With the lyrics of ${lyrics.length} song(s) the description is over YouTube's limit; the upload keeps the lyrics that fit, from the first song, and trims the rest.`)
+  }
   const usable = chapters.length >= YOUTUBE_MIN_CHAPTERS ? chapters : []
   return {
     description,

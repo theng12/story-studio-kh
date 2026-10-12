@@ -71,6 +71,16 @@ export interface SongRecord {
   file_missing?: boolean
   /** Ids of duplicate entries for the same file that were folded into this one (1.4.270). */
   merged_ids?: string[]
+  /** Songs with lyrics: the sung words and the writer's style line. Absent = instrumental. */
+  lyrics?: string
+  style?: string
+  /**
+   * The listen-back: `passed`/`failed` against the channel's threshold with the measured share of lyric
+   * words heard in order (`lyrics_match`, 0..1), or `unchecked` when no transcript could be made (then
+   * there is no `lyrics_match` at all, never a 0). Only `passed` songs are switched on.
+   */
+  lyrics_check?: 'passed' | 'failed' | 'unchecked'
+  lyrics_match?: number
 }
 
 export interface SongPoolFile {
@@ -304,6 +314,12 @@ export async function rejectSongs(slug: string, ids: string[]): Promise<{ trashe
     return { trashed, archived }
   })
   return result
+}
+
+/** Move one file of this pool (a rejected sung take) to Story's Trash (`<slug>/music-library/`); never deleted. */
+export function trashPoolFile(slug: string, file: string): string {
+  const dir = requireDir(slug)
+  return moveToTrashSync(file, path.join(trashRootFor(path.dirname(dir), path.dirname(dir), slug), MUSIC_LIBRARY_DIRNAME, path.basename(file)), 'music')
 }
 
 export interface PoolSummary {

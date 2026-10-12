@@ -112,6 +112,32 @@
         </section>
 
         <section class="card workspace-section mp-card">
+          <h3>Songs with lyrics</h3>
+          <p class="mp-hint">Off: songs are instrumental. On: the writing model also writes original lyrics and a style line for each song, a model that sings (YuE2, on the 16 GB Macs) makes it, and a listen-back checks the words were sung.</p>
+          <label class="mp-check"><input v-model="lyricsOn" type="checkbox"> Make songs with lyrics for this channel</label>
+          <template v-if="f.lyrics?.enabled">
+            <div class="mp-grid3" style="margin-top: 12px">
+              <div>
+                <label class="mp-lbl" for="mf-lang">Lyrics language</label>
+                <input id="mf-lang" v-model="f.lyrics.language" class="mp-inp" style="width: 100%">
+              </div>
+              <div>
+                <label class="mp-lbl" for="mf-match">Words heard, at least</label>
+                <div class="mp-row"><input id="mf-match" v-model.number="matchPct" type="number" min="0" max="100" class="mp-inp narrow"> %</div>
+                <p class="mp-hint">Of the lyric words, in order. Below it the take goes to Trash and the song is sung again.</p>
+              </div>
+              <div>
+                <label class="mp-lbl" for="mf-takes">Takes per song, at most</label>
+                <input id="mf-takes" v-model.number="f.lyrics.max_takes" type="number" min="1" max="5" class="mp-inp narrow">
+                <p class="mp-hint">A song that never passes is kept switched off in the pool for you to listen to.</p>
+              </div>
+            </div>
+            <label class="mp-check"><input v-model="f.lyrics.in_description" type="checkbox"> Add the lyrics to each episode's YouTube description (as many songs as fit)</label>
+            <p v-if="neverBlocksVocals" class="mp-hint mp-warn">"Never" lists {{ neverBlocksVocals }} — remove it, or every lyric that uses it is rewritten and then dropped.</p>
+          </template>
+        </section>
+
+        <section class="card workspace-section mp-card">
           <h3>3. Episodes</h3>
           <p class="mp-hint">Starting values for a new episode. Every one can be changed per episode in the Episode Builder.</p>
           <div class="mp-grid3" style="margin-top: 12px">
@@ -281,7 +307,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AddChip from '~/components/music/AddChip.vue'
 import { BUILT_IN_EFFECT_STACKS } from '@shared/scene-effect-presets'
-import { ALL_KEYS, STARTING_EPISODE_DEFAULTS, STARTING_SONG_FORMULA, comboCount, poolNeeds } from '../../../../electron/server/contracts/song-formula'
+import { ALL_KEYS, STARTING_EPISODE_DEFAULTS, STARTING_LYRICS, STARTING_SONG_FORMULA, comboCount, poolNeeds } from '../../../../electron/server/contracts/song-formula'
 
 definePageMeta({ layout: 'dashboard', key: route => String(route.params.slug || '') })
 useAppTitle('Music Formula')
@@ -322,6 +348,13 @@ const maxText = ref('4:30')
 const targetMin = computed({ get: () => Math.round(e.target_length_s / 60), set: (v: number) => { e.target_length_s = Math.round(Number(v) * 60) } })
 const sharePct = computed({ get: () => Math.round(f.variety.max_title_word_share * 1000) / 10, set: (v: number) => { f.variety.max_title_word_share = Number(v) / 100 } })
 const simPct = computed({ get: () => Math.round(f.variety.max_similarity * 100), set: (v: number) => { f.variety.max_similarity = Number(v) / 100 } })
+// Songs with lyrics (owner 2026-10-12): off unless ticked here; ticking it fills in the starting values.
+const lyricsOn = computed({
+  get: () => f.lyrics?.enabled === true,
+  set: (on: boolean) => { f.lyrics = { ...clone(STARTING_LYRICS), ...(f.lyrics || {}), enabled: on } },
+})
+const matchPct = computed({ get: () => Math.round((f.lyrics?.min_match ?? 0) * 100), set: (v: number) => { f.lyrics.min_match = Math.min(1, Math.max(0, Number(v) / 100)) } })
+const neverBlocksVocals = computed(() => (f.never as string[]).filter(w => /^(vocals?|voices?|singing|lyrics?)$/i.test(w.trim())).map(w => `"${w}"`).join(', '))
 
 const settingsText = ref('')
 // Same rules as the server (SceneSettingsSchema): trimmed, duplicates (any case) dropped.

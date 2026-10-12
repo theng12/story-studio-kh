@@ -526,6 +526,17 @@ export async function inspectMusicStitch(slug: string, code: string): Promise<Mu
   return { ...base, current: true, reason: '' }
 }
 
+/** Songs with lyrics: this episode's sung songs, in episode order, as `{ title, lyrics }`. */
+export async function episodeLyrics(slug: string, code: string): Promise<Array<{ title: string; lyrics: string }>> {
+  const doc = await readEpisodeDoc(slug, code.toUpperCase()).catch(() => null)
+  if (!doc?.songs.length) return []
+  const { songs } = await readPoolsForEpisode(slug, doc.settings.pools)
+  return doc.songs.flatMap(ref => {
+    const song = songs.find(s => s.pool_id === ref.pool_id && s.id === ref.song_id)
+    return song?.lyrics ? [{ title: song.title, lyrics: song.lyrics }] : []
+  })
+}
+
 /**
  * What the writing model reads to write a music episode's title, description and tags (SPEC phase 4):
  * the channel's formula (ensembles, moods, textures, structures), the episode theme and its tracklist.
@@ -550,8 +561,11 @@ export async function musicMetadataContext(slug: string, code: string): Promise<
     : ''
   const minutes = stitch.total_sec ? Math.round(stitch.total_sec / 60) : null
   const never = Array.isArray(formula.never) ? (formula.never as unknown[]).filter(v => typeof v === 'string').join(', ') : ''
+  const sung = (await episodeLyrics(slug, upper)).length
   return [
-    `This is an instrumental music episode (original songs, no narration, no vocals) on the channel "${project?.name || slug}".`,
+    sung
+      ? `This is a music episode of original songs, ${sung} of them sung with original lyrics written for this channel (no narration), on the channel "${project?.name || slug}".`
+      : `This is an instrumental music episode (original songs, no narration, no vocals) on the channel "${project?.name || slug}".`,
     values('ensembles') ? `Instruments / ensembles: ${values('ensembles')}.` : '',
     values('moods') ? `Moods: ${values('moods')}.` : '',
     values('textures') ? `Sound: ${values('textures')}.` : '',

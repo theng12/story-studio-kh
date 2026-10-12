@@ -21,6 +21,8 @@ export interface ResolvedPoolSong extends BuilderSong {
   episodes: EpisodeUse[]
   /** Ids of duplicate entries folded into this song (song-pool.ts `mergeDuplicateFiles`). */
   merged_ids?: string[]
+  /** Songs with lyrics: the sung words. */
+  lyrics?: string
 }
 
 function resolveSongs(projectSlug: string, pool: songPool.SongPoolFile): ResolvedPoolSong[] {
@@ -41,6 +43,7 @@ function resolveSongs(projectSlug: string, pool: songPool.SongPoolFile): Resolve
     plays: song.episodes.length,
     episodes: song.episodes,
     ...(song.merged_ids?.length ? { merged_ids: song.merged_ids } : {}),
+    ...(song.lyrics ? { lyrics: song.lyrics } : {}),
   }))
 }
 

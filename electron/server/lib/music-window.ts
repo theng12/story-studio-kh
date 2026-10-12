@@ -33,6 +33,7 @@ export interface MusicWindowSizer {
 /** Read once whether the Gateway has the background class; then size the window on every call. */
 export async function musicWindowSizer(
   apiKey: string, modelId: string, log: (line: string) => void, ownerCap?: number,
+  opts: { normal?: boolean } = {},
 ): Promise<MusicWindowSizer> {
   const first = await readFleetCapacity(apiKey, 'music', modelId).catch(() => ({ supported: false as const }))
   const fallback = Math.max(1, ownerCap && ownerCap > 0 ? Math.min(ownerCap, 256) : MUSIC_FALLBACK_WINDOW)
@@ -43,6 +44,14 @@ export async function musicWindowSizer(
   if (!first.model) {
     log(`Requests in flight: ${fallback} at a time (${modelId} is not a fleet model), sent as background work.`)
     return { priority: 'background', size: async () => fallback }
+  }
+  const cap = first.model.fleet_cap
+  if (cap || opts.normal) {
+    // Songs with lyrics (owner 2026-10-12: a song takes its turn, one generation per Mac, never behind scene
+    // images): normal work, one request per Mac that can sing it, or the Gateway's cap for the model if it sets one.
+    const size = cap || Math.max(1, first.model.eligible_macs)
+    log(`Requests in flight: ${size} at a time, as normal work — ${cap ? `the Gateway runs at most ${cap} of this model at once` : `one for each Mac that can run this model`}.`)
+    return { priority: undefined, size: async () => size }
   }
   log(`Requests in flight: sized to the fleet (${first.model.eligible_macs} Mac(s) can run this model, `
     + `${first.model.idle_macs} idle now), sent as background work that only uses idle Macs.`)

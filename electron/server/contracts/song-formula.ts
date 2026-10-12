@@ -23,6 +23,22 @@ const tempoBand = z.object({
   weight: z.number().min(0).max(1000),
 }).refine(b => b.min_bpm <= b.max_bpm, { message: 'A tempo band must not start above where it ends' })
 
+/**
+ * Songs with lyrics (owner 2026-10-12): a channel switch, absent or `enabled: false` = instrumental, as
+ * before. On, the writing model also writes each song's lyrics and a style line, a model that sings
+ * (YuE2) makes it, and a transcription model listens back: under `min_match` of the lyric words heard
+ * in order, the take goes to the pool's _trash and the song is sung again, up to `max_takes`.
+ */
+export const LyricsSettingsSchema = z.object({
+  enabled: z.boolean(),
+  language: z.string().trim().min(2).max(40),
+  min_match: z.number().min(0).max(1),
+  max_takes: z.number().int().min(1).max(5),
+  in_description: z.boolean(),
+}).strict()
+export type LyricsSettings = z.infer<typeof LyricsSettingsSchema>
+export const STARTING_LYRICS: LyricsSettings = { enabled: false, language: 'English', min_match: 0.5, max_takes: 3, in_description: false }
+
 export const SongFormulaSchema = z.object({
   ensembles: z.array(weighted).min(1).max(40),
   moods: z.array(weighted).min(1).max(60),
@@ -41,6 +57,7 @@ export const SongFormulaSchema = z.object({
     trim_silence: z.boolean(),
     flag_gap_s: z.number().min(0.5).max(120),
   }),
+  lyrics: LyricsSettingsSchema.optional(),
 }).strict()
 export type SongFormula = z.infer<typeof SongFormulaSchema>
 export type Weighted = z.infer<typeof weighted>

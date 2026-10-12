@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.294 — 2026-10-12
+
+- Songs with lyrics for music channels. Music Formula has a new "Songs with lyrics" switch, off for every channel until you tick it. When it is on, Generate Songs has the writing model (for example the channel's Claude Haiku 5.5) also write each song's original lyrics and a short style line (genre, instruments, the singer's voice), and a model that sings (YuE2, on your 16 GB Macs) makes the song. Sung songs go to the fleet as normal work, one for each Mac that can sing, and take their turn like any other job (each Mac still makes one thing at a time). The writing step is the only paid part, as before; the lyrics are written fresh for your channel, never naming or imitating real artists or songs, and your formula's "never" words are checked in the lyrics too.
+- Every sung song is listened back by a free transcription model on your Macs (Whisper turbo), which checks how many of the lyric words were actually sung, in order. Below your level (50 % to start) the take goes to Story's Trash and the song is sung again, up to 3 takes; a song that never passes stays in the Song Pool switched off, so it is never used unheard. The Song Pool shows each sung song's score.
+- Everything after that works as for Coffee Jazz today: Episode Builder, the −14 LUFS level, thumbnails, metadata and uploads. The episode metadata knows the songs are sung, and the lyrics can be added to the YouTube description (off by default; when the description is too long, the lyrics that fit are kept, from the first song).
+
 ## v1.4.293 — 2026-10-12
 
 - Idea generator, the rest of the approved plan. Every new switch is per channel under Settings → Channel identity → "Idea supply and repeat checks" and is off until you turn it on; with them off, ideas are made exactly as before.

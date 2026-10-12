@@ -6265,6 +6265,8 @@ export interface GenStudioFleetModelCapacity {
   idle_macs: number
   running: { normal: number; background: number }
   queued: { normal: number; background: number }
+  /** Gateway 0.2.170+: at most this many of this model run across the fleet at once (YuE2). Absent = no cap. */
+  fleet_cap?: number
 }
 
 /**
@@ -6280,7 +6282,7 @@ export async function readFleetCapacity(apiKey: string, modality: string, modelI
   try {
     const body = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/fleet/capacity?${query}`, apiKey,
       'Gateway fleet capacity could not be reached after automatic reconnect attempts.') as { models?: unknown }
-    type Row = { id?: unknown; model_id?: unknown; eligible_macs?: unknown; idle_macs?: unknown
+    type Row = { id?: unknown; model_id?: unknown; eligible_macs?: unknown; idle_macs?: unknown; fleet_cap?: unknown
       running?: { normal?: unknown; background?: unknown }; queued?: { normal?: unknown; background?: unknown } }
     const bare = modelId.split('::').pop()
     const row = (Array.isArray(body?.models) ? body.models as Row[] : [])
@@ -6293,6 +6295,7 @@ export async function readFleetCapacity(apiKey: string, modality: string, modelI
         idle_macs: n(row.idle_macs),
         running: { normal: n(row.running?.normal), background: n(row.running?.background) },
         queued: { normal: n(row.queued?.normal), background: n(row.queued?.background) },
+        ...(n(row.fleet_cap) ? { fleet_cap: n(row.fleet_cap) } : {}),
       } : null,
     }
   } catch (error) {

@@ -99,7 +99,7 @@
                 <td><button type="button" class="mp-play" :class="{ on: playing === s.id }" :aria-label="playing === s.id ? 'Pause' : `Play ${s.title}`" :disabled="s.file_missing || s.status === 'rejected'" @click="play(s)">{{ playing === s.id ? '❚❚' : '▶' }}</button></td>
                 <td class="mp-ttl" @click="expanded = expanded === s.id ? '' : s.id">
                   <b>{{ s.title }}</b>
-                  <span>{{ subtitle(s) }}<template v-if="s.gap_s"> — <span class="mp-warn">{{ Math.round(s.gap_s) }} s of silence at {{ clock(s.gap_at_s || 0) }}</span></template><template v-if="s.file_missing"> — <span class="mp-warn">file not in the folder</span></template></span>
+                  <span>{{ subtitle(s) }}<template v-if="s.gap_s"> — <span class="mp-warn">{{ Math.round(s.gap_s) }} s of silence at {{ clock(s.gap_at_s || 0) }}</span></template><template v-if="s.file_missing"> — <span class="mp-warn">file not in the folder</span></template><template v-if="s.lyrics_check === 'passed'"> — sung, {{ Math.round((s.lyrics_match || 0) * 100) }}% of the words heard</template><template v-else-if="s.lyrics_check === 'failed'"> — <span class="mp-warn">sung, only {{ Math.round((s.lyrics_match || 0) * 100) }}% of the words heard</span></template><template v-else-if="s.lyrics_check === 'unchecked'"> — <span class="mp-warn">sung, words not checked</span></template></span>
                 </td>
                 <td><span v-if="s.ensemble" class="mp-chip sm">{{ short(s.ensemble) }}</span> <span v-if="s.mood" class="mp-chip sm">{{ s.mood }}</span></td>
                 <td class="mp-num">{{ s.tempo_bpm || '—' }}</td>

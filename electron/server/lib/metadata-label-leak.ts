@@ -86,6 +86,7 @@ const PROTECTED_HEADINGS = new Set<string>([
   'CHAPTERS',             // renderChapters()
   'SOURCES',              // the 📚 Sources section
   'SOURCES & FURTHER READING', // renderSources()
+  'LYRICS',               // renderLyrics() (songs with lyrics)
   'NARRATOR',             // legacy metadata section asks for "NARRATOR: <name>"
   'CHANNEL',              // legacy metadata section asks for "CHANNEL: <name>"
 ])

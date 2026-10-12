@@ -467,8 +467,12 @@ export class MockGenStudioService {
     await once(this.server, 'close')
   }
 
+  /** Songs with lyrics: the transcription quote's price (default the fixed mock price); 0 = a free fleet model. */
+  transcriptionQuoteCredits: number | null = null
+
   reset(): void {
     this.fleetCapacity = null
+    this.transcriptionQuoteCredits = null
     this.requests.length = 0
     this.submissions.length = 0
     this.queuedScenarios.clear()
@@ -1727,7 +1731,7 @@ export class MockGenStudioService {
           json(response, existingId ? 200 : 201, {
             id: quote.id,
             state: 'quoted',
-            quoted_credit_cost: DEFAULT_CREDITS.transcription,
+            quoted_credit_cost: this.transcriptionQuoteCredits ?? DEFAULT_CREDITS.transcription,
           })
           return
         }
@@ -1838,7 +1842,9 @@ export class MockGenStudioService {
           response.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': String(bytes.length) })
           response.end(bytes)
         } else {
-          const srt = Buffer.from('1\n00:00:00,000 --> 00:00:01,000\nHello from mock the Gateway.\n')
+          // A queued transcription scenario's own `outputText` is what was "heard" (songs with lyrics).
+          const heard = artifact.job.scenario.outputText === 'Mock Gateway output.' ? 'Hello from mock the Gateway.' : artifact.job.scenario.outputText
+          const srt = Buffer.from(`1\n00:00:00,000 --> 00:00:01,000\n${heard}\n`)
           response.writeHead(200, { 'Content-Type': 'application/x-subrip', 'Content-Length': String(srt.length) })
           response.end(srt)
         }

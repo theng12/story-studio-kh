@@ -31,13 +31,15 @@ import {
   downloadGenStudioMusicTrack,
   isGenStudioInsufficientCredits,
   listMusicModels,
+  transcribeWithGenStudio,
 } from '../lib/genstudio-client.js'
 import { freeMacWaitLine, isFreeMacPlan, waitUnlessStopped } from '../lib/genstudio-fleet-busy.js'
 import { musicDurationPlan } from '../contracts/music-model-choice.js'
 import { SongFormulaSchema, type SongFormula } from '../contracts/song-formula.js'
 import { planCells, hashSeed, type PlannedCell } from '../services/song-coverage.js'
-import { writeBriefs, assemblePrompt, type Brief } from '../services/song-brief.js'
+import { BRIEFS_PER_CALL, SUNG_BRIEFS_PER_CALL, writeBriefs, assemblePrompt, assembleSungPrompt, type Brief } from '../services/song-brief.js'
 import { checkSong } from '../services/song-audio.js'
+import { lyricsMatch, srtText } from '../services/lyrics-match.js'
 import * as sp from '../services/song-pool.js'
 import { musicFleetBusyRetryPlan, resolveMusicModel, saveMusicTrack } from './music-generate.js'
 import { siblingGroupForJob } from '../services/music-library.js'
@@ -55,6 +57,8 @@ export interface SongPoolGenerateParams {
   length_max_s?: number
   /** Songs sent to the fleet at once. The Gateway queues any surplus for the next free Mac. */
   in_flight?: number
+  /** Songs with lyrics: the transcription model that listens back (free fleet models only). */
+  check_model?: string
   /** Regenerate: the songs to retake (same brief, new seed). */
   song_ids?: string[]
   /** Regenerate one song with edited fields ("Edit Brief & Regenerate"). */
@@ -109,7 +113,40 @@ export function briefFromSong(s: sp.SongRecord, seed: number, edits: SongPoolGen
     structure: f.structure, texture: f.texture, theme: s.theme || '', length_s: Number(f.length_s || s.length_s || s.duration_s || 240),
     energy: s.energy || 3, combo_key: s.combo_key || '', seed,
   }
+  if (s.lyrics && s.style) {
+    return { ...cell, title: f.title, line: f.line, scene_idea: f.scene_idea || s.scene_idea || '', lyrics: s.lyrics, style: s.style, prompt: assembleSungPrompt(cell, s.style, maxPromptChars) }
+  }
   return { ...cell, title: f.title, line: f.line, scene_idea: f.scene_idea || s.scene_idea || '', prompt: assemblePrompt(cell, f.line, maxPromptChars) }
+}
+
+type Heard = { check: 'passed' | 'failed' | 'unchecked'; match?: number; why?: string }
+const pct = (v: number | undefined) => `${Math.round((v ?? 0) * 100)}%`
+
+/**
+ * Songs with lyrics: transcribe the sung song with the picked (free) model and score it against its lyrics.
+ * Never charges: a quote above zero is refused before it is confirmed. A failed transcription is
+ * `unchecked`, never a score of 0 — the caller keeps the song switched off either way.
+ */
+export async function listenBack(
+  apiKey: string, file: string, lyrics: string, modelId: string, minMatch: number, identity: string,
+  isCancelled: () => boolean,
+): Promise<Heard> {
+  try {
+    const { srt } = await transcribeWithGenStudio(apiKey, {
+      audioPath: file, modelId, requestIdentity: identity, isCancelled,
+      beforeConfirm: quote => {
+        if (Number(quote.quoted_credit_cost || 0) > 0) {
+          throw new Error(`${modelId} would charge ${quote.quoted_credit_cost} credits; the listen-back only uses free fleet models`)
+        }
+      },
+    })
+    const match = lyricsMatch(lyrics, srtText(srt))
+    if (match === null) return { check: 'unchecked', why: 'the lyrics have no words to compare' }
+    return { check: match >= minMatch ? 'passed' : 'failed', match }
+  } catch (error) {
+    if (isCancelled()) throw new Error('Cancelled by user')
+    return { check: 'unchecked', why: error instanceof Error ? error.message : String(error) }
+  }
 }
 
 export async function generateSongPool(job: Job): Promise<void> {
@@ -125,21 +162,30 @@ export async function generateSongPool(job: Job): Promise<void> {
 
   // Live catalogue: the model is the one picked in the dialog, never substituted.
   const models = await listMusicModels(apiKey)
-  const model = resolveMusicModel(models, params.music_model, { instrumental: true, hasLyrics: false })
-  const maxPromptChars = Number.isInteger(model.max_prompt_without_lyrics_characters) ? model.max_prompt_without_lyrics_characters as number
+  const got = await songFormulaFor(slug)
+  if ('error' in got && params.mode !== 'regenerate') throw new Error(got.error)
+  // Songs with lyrics (owner 2026-10-12): the channel's switch, off unless its formula turns it on.
+  const lyricsCfg = 'error' in got ? undefined : got.formula.lyrics
+  const sung = lyricsCfg?.enabled === true
+  const model = resolveMusicModel(models, params.music_model, { instrumental: !sung, hasLyrics: sung })
+  const sings = model.requires_lyrics === true || model.supports_vocals === true
+  if (sung && !sings) throw new Error(`This channel makes songs with lyrics, and ${model.display_name} does not sing. Pick a model that sings (YuE2).`)
+  if (!sung && model.requires_lyrics === true) throw new Error(`${model.display_name} only sings from lyrics, and this channel's songs are instrumental. Pick another song model, or turn on Songs with lyrics in Music Formula.`)
+  const checkModel = (params.check_model || '').trim()
+  if (sung && !checkModel) throw new Error('Pick the listen-back model in the Generate dialog. It checks that each song sings its lyrics.')
+  const maxPromptChars = !sung && Number.isInteger(model.max_prompt_without_lyrics_characters) ? model.max_prompt_without_lyrics_characters as number
     : Number.isInteger(model.max_prompt_characters) ? model.max_prompt_characters : undefined
   const outputFormat = await resolveOutputFormat(slug, 'music')
 
   let batch: BatchFile | null = await fs.readFile(bpath, 'utf8').then(JSON.parse, () => null)
   const pool = await sp.readPool(slug)
   const writer = (params.writer_model || '').trim()
-  const got = await songFormulaFor(slug)
-  if ('error' in got && params.mode !== 'regenerate') throw new Error(got.error)
   const variety = 'error' in got ? { trim_silence: true, flag_gap_s: 5 } : got.formula.variety
   const write = (cells: PlannedCell[], formula: SongFormula) => writeBriefs(cells, {
     titles: pool.songs.map(s => s.title), lines: pool.songs.map(s => s.line || '').filter(Boolean),
     sceneIdeas: pool.songs.map(s => s.scene_idea || '').filter(Boolean), never: formula.never,
     maxTitleWordShare: formula.variety.max_title_word_share, maxSimilarity: formula.variety.max_similarity, maxPromptChars,
+    ...(sung ? { lyrics: { language: lyricsCfg!.language } } : {}),
   }, (system, user) => callAi(writer, system, user, {}, false, {
     slug, jobId: job.job_id, outputBudget: 'standard', temperature: 0.8, jsonMode: true,
   }), done => job.output_lines.push(`Briefs written for ${done} of ${cells.length}.`))
@@ -167,7 +213,7 @@ export async function generateSongPool(job: Job): Promise<void> {
       const cells = planCells(formula, existing, params.count, params.batch_id, got.themes)
       items = cells.map(cell => ({ cell }))
       needWriter()
-      job.output_lines.push(`Planned ${cells.length} song(s) across the combinations the pool has least of. Writing briefs with ${writer}, 20 per call…`)
+      job.output_lines.push(`Planned ${cells.length} song(s) across the combinations the pool has least of. Writing briefs with ${writer}, ${sung ? SUNG_BRIEFS_PER_CALL : BRIEFS_PER_CALL} per call…`)
       const written = await write(cells, formula)
       for (const it of items) {
         const b = written.briefs.find(x => x.combo_key === it.cell.combo_key && x.seed === it.cell.seed)
@@ -201,7 +247,7 @@ export async function generateSongPool(job: Job): Promise<void> {
   job.output_lines.push(`Making ${todo.length} song(s) on the fleet with ${model.display_name}. Songs appear in the pool as they finish.`)
   // 1.4.270 — a rolling window sized to the fleet (lib/music-window.ts).
   // Its "at once" number now applies only on a Gateway that cannot report the fleet's capacity.
-  const sizer = await musicWindowSizer(apiKey, model.id, line => job.output_lines.push(line), width)
+  const sizer = await musicWindowSizer(apiKey, model.id, line => job.output_lines.push(line), width, { normal: sung })
   const priority = sizer.priority
   const windowNow = async (inFlight: number): Promise<number> => {
     const size = Math.min(todo.length, await sizer.size(inFlight))
@@ -212,20 +258,28 @@ export async function generateSongPool(job: Job): Promise<void> {
   await runRollingWindow(todo, windowNow, async (it) => {
     const brief = it.brief!
     const started = Date.now()
-    const length = musicDurationPlan(model, { requestedSeconds: brief.length_s })
+    const length = musicDurationPlan(model, { requestedSeconds: brief.length_s, ...(sung ? { lyrics: brief.lyrics } : {}) })
     let attempt = 1
     let retryScope = it.retry_scope || ''
+    // Songs with lyrics: a take the listen-back fails goes to Trash and the song is sung again.
+    let sing = 1
+    const maxTakes = lyricsCfg?.max_takes ?? 1
     job.item_progress!.active = [...(job.item_progress!.active || []), { label: brief.title, key: brief.seed.toString(), state: 'running', attempt: 1, max_attempts: 1 }]
     try {
       for (;;) {
         if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
         try {
+          if (sung && !brief.lyrics) throw new Error('this song has no lyrics (it was made before Songs with lyrics was on), so it cannot be sung; Generate makes new sung songs')
           const result = await generateMusicWithGenStudio(apiKey, {
-            title: brief.title, prompt: brief.prompt, instrumental: true, durationSeconds: length.seconds,
-            modelId: model.id, seed: brief.seed, ...(outputFormat ? { outputFormat } : {}), ...(priority ? { priority } : {}),
-            requestIdentity: `${slug}:song-pool:${params.batch_id}:${brief.combo_key || brief.title}:${brief.seed}${retryScope ? `:${retryScope}` : ''}`,
+            title: brief.title, prompt: brief.prompt, instrumental: !sung, ...(sung ? { lyrics: brief.lyrics } : {}),
+            durationSeconds: length.seconds,
+            modelId: model.id, seed: sing > 1 ? hashSeed(`${brief.seed}:take${sing}`) : brief.seed,
+            ...(outputFormat ? { outputFormat } : {}), ...(priority ? { priority } : {}),
+            requestIdentity: `${slug}:song-pool:${params.batch_id}:${brief.combo_key || brief.title}:${brief.seed}${retryScope ? `:${retryScope}` : ''}${sing > 1 ? `:take${sing}` : ''}`,
             isCancelled: () => jq.isCancelled(job.job_id),
           })
+          let retake = false
+          let heard: Heard | null = null
           // Every track the result carries is kept (a lane that returns two takes paid for both).
           const group = result.tracks.length > 1 ? siblingGroupForJob(result.jobId) : undefined
           for (const [take, track] of result.tracks.entries()) {
@@ -239,11 +293,21 @@ export async function generateSongPool(job: Job): Promise<void> {
             if (warning) job.output_lines.push(`⚠ ${filename}: ${warning}`)
             const check = await checkSong(path.join(staging, filename), { trim: variety.trim_silence !== false })
             const flagged = check.gap && check.gap.length > Number(variety.flag_gap_s || 5) ? check.gap : null
+            if (sung) {
+              heard = await listenBack(apiKey, path.join(staging, filename), brief.lyrics!, checkModel, lyricsCfg!.min_match,
+                `${slug}:song-check:${params.batch_id}:${brief.seed}:${sing}:${take}`, () => jq.isCancelled(job.job_id))
+              if (heard.check === 'failed' && sing < maxTakes) {
+                sp.trashPoolFile(slug, path.join(staging, filename))
+                job.output_lines.push(`↻ ${brief.title}: ${pct(heard.match)} of its words were heard (needs ${pct(lyricsCfg!.min_match)}); take ${sing} moved to Trash, singing it again (take ${sing + 1} of ${maxTakes}).`)
+                retake = true
+                break
+              }
+            }
             const id = sp.newSongId()
             await sp.updatePool(slug, async p => {
               await fs.rename(path.join(staging, filename), path.join(dir, filename))
               p.songs.push({
-                id, file: filename, status: 'ready', enabled: true,
+                id, file: filename, status: 'ready', enabled: !heard || heard.check === 'passed',
                 title: take ? `${brief.title} (take ${take + 1})` : brief.title,
                 ensemble: brief.ensemble, mood: brief.mood, energy: brief.energy, tempo_bpm: brief.tempo_bpm,
                 tempo_band: brief.tempo_band || undefined, key: brief.key, texture: brief.texture, structure: brief.structure,
@@ -259,6 +323,10 @@ export async function generateSongPool(job: Job): Promise<void> {
                 ...(check.true_peak_db !== null ? { true_peak_db: check.true_peak_db } : {}),
                 ...(flagged ? { gap_s: Math.round(flagged.length * 10) / 10, gap_at_s: Math.round(flagged.at) } : {}),
                 generation_s: Math.round((Date.now() - started) / 1000),
+                ...(heard ? {
+                  lyrics: brief.lyrics, style: brief.style, lyrics_check: heard.check,
+                  ...(heard.match !== undefined ? { lyrics_match: heard.match } : {}),
+                } : {}),
                 rating: null, episodes: [],
               })
               // Adding is idempotent: an entry already indexed for this file folds into this one.
@@ -266,8 +334,20 @@ export async function generateSongPool(job: Job): Promise<void> {
               // Regenerate keeps the old take, disabled, until the owner removes it.
               if (it.take_of) { const old = p.songs.find(s => s.id === it.take_of); if (old) old.enabled = false }
             })
-            if (!take) { it.song_id = id; it.file = filename }
-            job.output_lines.push(`✓ ${brief.title}${take ? ` (take ${take + 1})` : ''} — ${Math.round(check.duration_s)} s${check.lufs !== null ? `, ${check.lufs} LUFS` : ''}${flagged ? `, ⚠ ${Math.round(flagged.length)} s of silence at ${Math.floor(flagged.at / 60)}:${String(Math.round(flagged.at % 60)).padStart(2, '0')}` : ''}`)
+            if (!take && (!heard || heard.check === 'passed')) { it.song_id = id; it.file = filename }
+            job.output_lines.push(`${heard && heard.check !== 'passed' ? '⚠' : '✓'} ${brief.title}${take ? ` (take ${take + 1})` : ''} — ${Math.round(check.duration_s)} s${check.lufs !== null ? `, ${check.lufs} LUFS` : ''}${flagged ? `, ⚠ ${Math.round(flagged.length)} s of silence at ${Math.floor(flagged.at / 60)}:${String(Math.round(flagged.at % 60)).padStart(2, '0')}` : ''}${heard ? `, ${heard.check === 'unchecked' ? 'words not checked' : `${pct(heard.match)} of the words heard`}` : ''}`)
+          }
+          if (retake) { sing++; continue }
+          if (heard && heard.check !== 'passed') {
+            // Kept in the pool switched off, so it is never drawn unheard; Retry sings it again under a new identity.
+            it.error = heard.check === 'unchecked'
+              ? `the listen-back could not run (${heard.why}); the song is in the pool switched off — listen and switch it on, or Retry`
+              : `only ${pct(heard.match)} of its words were heard after ${sing} take${sing === 1 ? '' : 's'} (needs ${pct(lyricsCfg!.min_match)}); the last take is in the pool switched off`
+            it.retry_scope = siblingGroupForJob(result.jobId)
+            await saveBatch()
+            job.item_progress!.failed++
+            job.output_lines.push(`✗ ${brief.title}: ${it.error}.`)
+            return
           }
           delete it.error
           await saveBatch()
