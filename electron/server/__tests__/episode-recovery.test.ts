@@ -862,6 +862,135 @@ test('episode plans persist once and hold existing failed downstream rows behind
   } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
 })
 
+test('explicit later-stage Retry widens a completed saved plan and resumes its owned failed row', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Explicit later recovery scope' })
+    await jq.setQueuePaused(true)
+    const { createEpisodeRecoveryPlan, dispatchEpisodeRecoveryStep, episodeRecoveryDispatch, recoverEpisode } = await subject()
+    const merge = { ...source('audio_merge', { music_volume: 0.11 }), project_slug: project.slug,
+      job_id: 'completed-merge', status: 'done' as const }
+    const old = createEpisodeRecoveryPlan([merge])
+    old.target = 'subtitle_stitch'
+    old.first_unresolved = null
+    old.completed = ['audio_merge', 'subtitle_sections', 'subtitle_stitch']
+    old.steps.audio_merge!.job_id = merge.job_id
+    old.steps.audio_merge!.dispatched = true
+    const file = path.join(pm.getProjectDir(project.slug)!, 'episode-recovery-plans.json')
+    await fs.writeFile(file, JSON.stringify({ version: 1, plans: { EP0001: old } }))
+    const video = { type: 'video_assembly' as const, title: 'Saved Final Video', params: {
+      resolution: '1080p', quality: 'medium', pipeline_step: 'video_assembly', pipeline_requires: ['scene_review', 'audio_merge'],
+    } }
+    const continuity = { type: 'continuity_render' as const, title: 'Saved Scene Review', params: {
+      model: 'saved-image-model', pipeline_step: 'scene_review', pipeline_requires: ['scene_plan'],
+    } }
+    const failed = { ...source('scene_plan_run', {
+      model: 'saved-planner', pipeline_step: 'scene_plan', pipeline_requires: ['subtitles'],
+      pipeline_chain: [continuity, video], pipeline_batch_id: 'saved-pipeline', episode_recovery_id: old.id,
+    }), project_slug: project.slug, job_id: 'failed-scene-plan' }
+    for (const job of [merge, failed]) await jq.writeAuthoritativeJob(job)
+
+    const automatic = (await recoverEpisode(project.slug, 'EP0001', false))!
+    assert.equal(automatic.target, 'subtitle_stitch', 'automatic observation cannot expand a completed plan')
+    const explicit = (await recoverEpisode(project.slug, 'EP0001', true, [failed.job_id], [], true))!
+    assert.equal(explicit.id, old.id, 'the saved recovery identity is retained')
+    assert.equal(explicit.target, 'continuity_render')
+    assert.equal(explicit.steps.scene_plan_run?.job_id, failed.job_id, 'the accepted failed identity is resumed, not replaced')
+    assert.equal(explicit.steps.scene_plan_run?.params.model, 'saved-planner')
+    assert.equal(explicit.steps.continuity_render?.params.model, 'saved-image-model')
+    assert.deepEqual(explicit.continuation, [video])
+    assert.equal(explicit.pipeline_batch_id, 'saved-pipeline')
+
+    const acceptedAssembly = { ...source('video_assembly', { ...video.params, episode_id: 'EP0001', pipeline_chain: [],
+      pipeline_batch_id: 'saved-pipeline' }), project_slug: project.slug, job_id: 'accepted-assembly', status: 'queued' as const,
+      created_at: '2026-09-04T00:00:00Z' }
+    const alreadyComplete = JSON.parse(JSON.stringify(explicit))
+    await dispatchEpisodeRecoveryStep(alreadyComplete, { verified: ready, message: 'Verified' }, [failed, acceptedAssembly])
+    assert.equal(alreadyComplete.first_unresolved, null)
+    assert.equal(alreadyComplete.continuation_job_id, acceptedAssembly.job_id)
+    assert.deepEqual(episodeRecoveryDispatch(alreadyComplete, [failed, acceptedAssembly]), {
+      dispatch_status: 'queued', dispatch_job_id: acceptedAssembly.job_id,
+    })
+    assert.equal(failed.status, 'error', 'verified artifacts do not rewrite the original failure as success')
+
+    const facts = { verified: { ...ready, scene_plan_run: false, continuity_render: false }, message: 'Scene Plan incomplete' }
+    await dispatchEpisodeRecoveryStep(explicit, facts, await jq.getJobs(project.slug), [failed.job_id])
+    assert.equal(jq.getJob(failed.job_id)?.status, 'queued')
+    assert.equal((await jq.getJobs(project.slug)).filter(job => job.type === 'scene_plan_run').length, 1)
+    await dispatchEpisodeRecoveryStep(JSON.parse(JSON.stringify(explicit)), facts, await jq.getJobs(project.slug), [failed.job_id])
+    assert.equal((await jq.getJobs(project.slug)).filter(job => job.type === 'scene_plan_run').length, 1, 'repeat/restart coalesces')
+    assert.equal(jq.getJob(failed.job_id)?.params.model, 'saved-planner')
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
+test('recovery adopts only compatible accepted prerequisite and continuation work in every active state', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const { createEpisodeRecoveryPlan, dispatchEpisodeRecoveryStep } = await subject()
+    await jq.setQueuePaused(true)
+    for (const status of ['queued', 'running', 'paused'] as const) {
+      const project = await pm.createProject({ name: `Accepted recovery ${status}` })
+      const video = { type: 'video_assembly' as const, title: 'Final Video', params: {
+        resolution: '1080p', quality: 'medium', pipeline_step: 'video_assembly',
+      } }
+      const continuity = { type: 'continuity_render' as const, title: 'Scene Review', params: {
+        model: 'saved-image-model', pipeline_step: 'scene_review',
+      } }
+      const sourceJob = { ...source('scene_plan_run', { model: 'saved-planner', pipeline_step: 'scene_plan',
+        pipeline_chain: [continuity, video], pipeline_batch_id: `batch-${status}` }), project_slug: project.slug,
+        job_id: `source-${status}` }
+      const plan = createEpisodeRecoveryPlan([sourceJob], [sourceJob.job_id])
+      const activeReview = { ...source('continuity_render', { ...continuity.params, pipeline_chain: [video],
+        pipeline_batch_id: `batch-${status}` }), project_slug: project.slug, job_id: `review-${status}`, status: 'paused' as const }
+      const acceptedVideo = { ...source('video_assembly', { ...video.params, episode_id: 'EP0001', pipeline_chain: [],
+        pipeline_batch_id: `batch-${status}` }), project_slug: project.slug, job_id: `video-${status}`, status: 'paused' as const }
+      const unrelated = { ...acceptedVideo, job_id: `other-video-${status}`, params: { ...acceptedVideo.params, quality: 'low' } }
+      await jq.writeAuthoritativeJob(activeReview)
+      await jq.writeAuthoritativeJob(unrelated)
+      await jq.writeAuthoritativeJob(acceptedVideo)
+      const saved = await jq.getJobs(project.slug)
+      const jobsAt = (jobId: string, completedId?: string) => saved.map(job => job.job_id === jobId
+        ? { ...job, status }
+        : job.job_id === completedId ? { ...job, status: 'done' as const } : job)
+      await dispatchEpisodeRecoveryStep(plan, { verified: { ...ready, continuity_render: false }, message: 'Review incomplete' }, jobsAt(activeReview.job_id))
+      assert.equal(plan.steps.continuity_render?.job_id, activeReview.job_id)
+      assert.equal((await jq.getJobs(project.slug)).filter(job => job.type === 'continuity_render').length, 1)
+
+      await dispatchEpisodeRecoveryStep(plan, { verified: { ...ready }, message: 'Verified' }, jobsAt(acceptedVideo.job_id, activeReview.job_id))
+      assert.equal(plan.continuation_job_id, acceptedVideo.job_id, 'saved settings select the compatible accepted continuation')
+      assert.equal(plan.continuation_dispatched, true)
+      assert.equal((await jq.getJobs(project.slug)).filter(job => job.type === 'video_assembly').length, 2, 'no third assembly queued')
+      const restarted = JSON.parse(JSON.stringify(plan))
+      await dispatchEpisodeRecoveryStep(restarted, { verified: { ...ready }, message: 'Verified' }, jobsAt(acceptedVideo.job_id, activeReview.job_id))
+      assert.equal(restarted.continuation_job_id, acceptedVideo.job_id)
+      assert.equal((await jq.getJobs(project.slug)).filter(job => job.type === 'video_assembly').length, 2, 'restart keeps the accepted id')
+    }
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
+test('a dispatched edge keeps its accepted identity after recovery bookkeeping is restamped', async () => {
+  const { createEpisodeRecoveryPlan, dispatchEpisodeRecoveryStep } = await subject()
+  const accepted = source('scene_plan_run', {
+    model: 'saved-planner', pipeline_batch_id: 'accepted-batch',
+    episode_recovery: { id: 'old-projection', first_unresolved: null },
+  })
+  const plan = createEpisodeRecoveryPlan([accepted], [accepted.job_id])
+  plan.steps.scene_plan_run!.job_id = accepted.job_id
+  plan.steps.scene_plan_run!.dispatched = true
+  const restamped = { ...accepted, status: 'running' as const, params: { ...accepted.params,
+    episode_recovery: { id: plan.id, first_unresolved: 'scene_plan_run', completed: ['audio_merge'], deferred: false },
+  } }
+  await dispatchEpisodeRecoveryStep(plan, {
+    verified: { ...ready, scene_plan_run: false }, message: 'Scene Plan incomplete',
+  }, [restamped])
+  assert.equal(plan.steps.scene_plan_run!.job_id, accepted.job_id)
+  assert.equal(plan.steps.scene_plan_run!.dispatched, true)
+})
+
 test('manual purchase replay keeps one Story job and exact persisted sections even after it finishes', async () => {
   const temp = await useTempDataDir()
   const jq = await import('../services/job-queue.js')

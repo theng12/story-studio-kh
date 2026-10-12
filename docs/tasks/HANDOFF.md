@@ -1,8 +1,16 @@
 # HANDOFF — Story Studio KH
 
+## Candidate work — 2026-10-13 (1.4.302 explicit retry scope; not released)
+
+Installed 1.4.301 was verified on the mini, with queue resumed normally. Full assembly preflight passes for SS0063 and DL0011 using their saved settings; final renders remain queued (`1810f225`, `84011dcd`). DL0011’s explicit failed Scene Plan Retry exposed a separate bug: an existing completed subtitle-only recovery plan ignored the requested later stage.
+
+The candidate extends only explicit saved-source retries, preserving the recovery identity and accepted work. It audits completed assets rather than regenerating them, matches saved settings before adopting other active work, and retains its own accepted job identity through bookkeeping updates. Original failed rows remain evidence. Independent review is resolved. Full source gate passed: backend6926 total/6922pass/4skip across684files; frontend2490pass; contentpacks368total/366pass/2skip; typecheck, lint and all five static checks exit0. Configured projects root remained byte-identical. Main integration and DMG publication are next; this behavior is not yet installed. Root owns release and artifact verification.
+
+Evidence and shared production ownership: `~/Developer/_orchestra/codex-takeover-20261012/CONTINUATION.md` and the owner’s iCloud Story Studio Agent Automation/HANDOFF.md.
+
 ## Current work — 2026-10-13 (1.4.301 safety policy and lyrics release)
 
-ChatGPT took over from Claude with the owner's explicit authorization. Release source `3c09ebd6` is integrated on main, pushed and published through Gateway after all gates passed. The mini still reported 1.4.300 immediately after publication; normal automatic check-in/drain/installation is pending. Do not force an update or duplicate its queued jobs. Preserve the inherited `650da798` commit. Root owns integration and the single test-suite lease; workers do not publish.
+ChatGPT took over from Claude with the owner's explicit authorization. Release source `3c09ebd6` is integrated on main, pushed and published through Gateway after all gates passed. The mini subsequently installed 1.4.301 through its normal automatic drain; health and queue recovery were verified. Do not force an update or duplicate its queued jobs. Preserve the inherited `650da798` commit. Root owns integration and the single test-suite lease; workers do not publish.
 
 - Fourteen Video Assembly / picture checks now use the existing policy; missing picture, merged narration and final-whole checks default Block. Five editorial checks default Warn. Explicit stored channel choices are preserved; no data or preset migration.
 - Manual metadata/audio-merge and caption-gap readiness projections now match generator policy, including Scene Review and frontend readiness wording. Missing sections and failed subtitle verification remain separate blocking facts. Cache schema18 discards persisted statuses computed under the old caption-gap semantics on upgrade.

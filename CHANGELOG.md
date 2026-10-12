@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.302
+
+- Retrying a failed Scene Plan or Scene Review now checks that stage even when an earlier subtitle recovery has already finished. Completed assets are retained, and existing queued, running or paused work is reused only when its saved settings match.
+- Recovery retains its accepted job identities through restart and refuses to create a competing final render with different settings.
+
 ## v1.4.301 — 2026-10-12
 
 - No upload without a thumbnail again by default (you: "No upload without a thumbnail, as your earlier rule said"). The "Thumbnail present" safety check now starts at Block; switch it to Off or Warn in Settings → Safety checks if a channel may upload without one, and the Upload button in Upload Center follows that switch.

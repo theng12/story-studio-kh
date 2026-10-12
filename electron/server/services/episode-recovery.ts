@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import type { Job, JobType } from '../models/types.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import * as jq from './job-queue.js'
@@ -263,6 +264,47 @@ export function createEpisodeRecoveryPlan(jobs: Job[], sourceJobIds: string[] = 
   return plan
 }
 
+/** An explicit failed row can widen an older completed plan without minting a second recovery epoch. */
+function extendPlanFromSelectedFailures(plan: EpisodeRecoveryPlan, selected: Job[]): boolean {
+  const failed = selected.filter(job => job.status === 'error')
+  if (!failed.length) return false
+  const before = JSON.stringify(plan)
+  const extension = createEpisodeRecoveryPlan(failed, failed.map(job => job.job_id))
+  if (extension.pipeline_batch_id && plan.pipeline_batch_id && extension.pipeline_batch_id !== plan.pipeline_batch_id) {
+    throw new Error('The selected failed job belongs to a different Pipeline run. Retry its saved batch instead of joining two continuations.')
+  }
+  const firstSelected = Math.min(...failed.map(job => EPISODE_RECOVERY_ORDER.indexOf(episodeRecoveryStep(job.type)!)))
+  for (const [step, requested] of Object.entries(extension.steps) as Array<[EpisodeRecoveryStep, RecoveryJob]>) {
+    if (EPISODE_RECOVERY_ORDER.indexOf(step) < firstSelected) continue
+    const existing = plan.steps[step]
+    // An accepted edge owns its durable identity and settings, even if its row is temporarily
+    // absent after restart. Explicit Retry must join it rather than create competing work.
+    if (existing?.dispatched) continue
+    const source = failed.find(job => episodeRecoveryStep(job.type) === step)
+    const ownsSource = source?.params?.episode_recovery_id === plan.id
+    plan.steps[step] = {
+      ...requested,
+      job_id: ownsSource ? source.job_id : existing?.job_id || `recovery-${plan.id}-${step}`,
+      ...(ownsSource ? { dispatched: true } : existing?.dispatched ? { dispatched: true } : {}),
+    }
+  }
+  if (EPISODE_RECOVERY_ORDER.indexOf(extension.target) > EPISODE_RECOVERY_ORDER.indexOf(plan.target)) {
+    plan.target = extension.target
+  }
+  plan.pipeline_batch_id ||= extension.pipeline_batch_id
+  if (extension.continuation?.length && !plan.continuation_dispatched) {
+    plan.continuation = extension.continuation
+    plan.continuation_job_id ||= extension.continuation_job_id
+  }
+  plan.retry_source_job_ids = [...new Set([...(plan.retry_source_job_ids || []), ...failed.map(job => job.job_id)])]
+  withholdManualImageFinishFromPlan(plan)
+  return JSON.stringify(plan) !== before
+}
+
+function matchesSavedParams(job: Job, expected: Job['params']): boolean {
+  return Object.entries(expected || {}).every(([key, value]) => isDeepStrictEqual(job.params?.[key], value))
+}
+
 /** Re-audit the prefix, never trust old completion after inputs changed. */
 export function nextEpisodeRecoveryStep(plan: EpisodeRecoveryPlan, verified: Record<EpisodeRecoveryStep, boolean>): EpisodeRecoveryStep | null {
   plan.completed = []
@@ -480,10 +522,23 @@ export async function dispatchEpisodeRecoveryStep(
         return
       }
       const [next, ...rest] = plan.continuation
+      const expected = { ...next.params, episode_id: plan.episode_id, pipeline_chain: rest,
+        ...(plan.pipeline_batch_id ? { pipeline_batch_id: plan.pipeline_batch_id } : {}) }
+      const activeTail = jobs.filter(job => job.type === next.type
+        && ['queued', 'running', 'paused'].includes(job.status))
+      const compatible = activeTail.find(job => matchesSavedParams(job, expected))
+      if (compatible) {
+        plan.continuation_job_id = compatible.job_id
+        plan.continuation_dispatched = true
+        return
+      }
+      if (activeTail.length) {
+        plan.message = `An accepted ${next.type} job already owns different saved settings; Story kept it and did not queue competing work.`
+        return
+      }
       await jq.enqueueEpisodeRecoveryOnce(plan.continuation_job_id || `recovery-${plan.id}-continuation`, {
         project_slug: plan.project_slug, episode_id: plan.episode_id, type: next.type, title: next.title,
-        params: { ...next.params, episode_id: plan.episode_id, pipeline_chain: rest,
-          ...(plan.pipeline_batch_id ? { pipeline_batch_id: plan.pipeline_batch_id } : {}) },
+        params: expected,
       })
       plan.continuation_dispatched = true
     }
@@ -501,7 +556,15 @@ export async function dispatchEpisodeRecoveryStep(
   }
   const node = plan.steps[step]
   const type = step === 'subtitle_sections' ? 'subtitles_transcribe' : step
-  const active = jobs.find(job => job.type === type && ['queued', 'running', 'paused'].includes(job.status))
+  const activeSameStep = jobs.filter(job => job.type === type && ['queued', 'running', 'paused'].includes(job.status))
+  const ownedActive = node?.dispatched ? activeSameStep.find(job => job.job_id === node.job_id) : undefined
+  const active = ownedActive || (node ? activeSameStep.find(job =>
+    (!plan.pipeline_batch_id || job.params?.pipeline_batch_id === plan.pipeline_batch_id)
+    && matchesSavedParams(job, node.params)) : activeSameStep[0])
+  if (!active && activeSameStep.length) {
+    plan.message = `An accepted ${labels[step]} job already owns different saved settings; Story kept it and did not queue competing work.`
+    return
+  }
   // Its earlier transcription finished, yet sections are missing again: the audio changed under
   // them (re-narrated). Transcribe those sections once more under a new identity — once, so a
   // section that stays stale cannot loop.
@@ -671,6 +734,8 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
         await writeJsonAtomic(file, store)
       }
       if (plan.project_slug !== projectSlug) throw new Error('Episode recovery belongs to another project.')
+      if (selected.every((job): job is Job => !!job)
+        && extendPlanFromSelectedFailures(plan, selected)) await writeJsonAtomic(file, store)
       return plan
     })
     if (!plan) return null
