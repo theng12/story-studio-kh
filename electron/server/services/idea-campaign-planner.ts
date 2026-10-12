@@ -156,6 +156,12 @@ export function planIdeaAssignments(options: {
   count: number
   usedFingerprints?: Iterable<string>
   seed: string
+  /**
+   * #4 (1.4.293): within each planning round, take subjects round-robin across packs (pack A's
+   * next unused subject, pack B's, …) instead of pack by pack. Only the ORDER changes;
+   * fingerprints and sibling rules are the same.
+   */
+  spreadPacks?: boolean
 }): IdeaAssignment[] {
   const { niche, seed } = options
   const used = new Set(options.usedFingerprints || [])
@@ -404,7 +410,7 @@ export function planIdeaAssignments(options: {
     }
     genericMaterialValues.set(key, valuesByDimension)
   }
-  const assignments = candidates
+  const ordered = candidates
     .sort((a, b) => {
       const leftRank = primaryRank.get(a.fingerprint)
       const rightRank = primaryRank.get(b.fingerprint)
@@ -415,6 +421,7 @@ export function planIdeaAssignments(options: {
       }
       return stableScore(seed, a.fingerprint).localeCompare(stableScore(seed, b.fingerprint))
     })
+  const assignments = (options.spreadPacks && packs.length > 1 ? spreadAcrossPacks(ordered, primaryRank, subjectRows.length) : ordered)
     .filter((candidate) => {
       const pack = candidate.topic_pack_id ? packs.find(entry => entry.id === candidate.topic_pack_id) : undefined
       const limit = pack?.maxSiblingsPerSubject
@@ -462,6 +469,32 @@ export function planIdeaAssignments(options: {
     throw new Error('Topic Pack coverage profiles cannot plan the requested campaign without repeating an episode object or mechanism')
   }
   return assignments
+}
+
+/**
+ * Ranked candidates come in rounds (round 0 = each subject's first idea, then siblings), each round
+ * pack by pack. Interleave every round across packs, keeping each pack's own order; unranked
+ * candidates keep their seeded order after them.
+ */
+function spreadAcrossPacks(sorted: IdeaAssignment[], primaryRank: Map<string, number>, rowCount: number): IdeaAssignment[] {
+  const rounds = new Map<number, Map<string, IdeaAssignment[]>>()
+  const rest: IdeaAssignment[] = []
+  for (const candidate of sorted) {
+    const rank = primaryRank.get(candidate.fingerprint)
+    if (rank === undefined) { rest.push(candidate); continue }
+    const round = rounds.get(Math.floor(rank / rowCount)) || new Map<string, IdeaAssignment[]>()
+    rounds.set(Math.floor(rank / rowCount), round)
+    const bucket = round.get(candidate.topic_pack_id || '') || []
+    round.set(candidate.topic_pack_id || '', bucket)
+    bucket.push(candidate)
+  }
+  const out: IdeaAssignment[] = []
+  for (const round of [...rounds.keys()].sort((a, b) => a - b).map(key => [...rounds.get(key)!.values()])) {
+    for (let index = 0; round.some(bucket => index < bucket.length); index++) {
+      for (const bucket of round) if (index < bucket.length) out.push(bucket[index]!)
+    }
+  }
+  return [...out, ...rest]
 }
 
 export function assignmentSummary(assignment: IdeaAssignment): string {

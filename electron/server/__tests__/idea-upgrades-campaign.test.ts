@@ -55,7 +55,7 @@ test('all switches off: one call, no covered block, no new files, no upgrade fie
     const run = t.job('golden-off')
     await t.generateIdeaCampaign(run)
     assert.equal(t.chatBodies().length, 1)
-    assert.doesNotMatch(t.chatBodies()[0]!, /COVERED SUBJECTS|COVERED LIST/)
+    assert.doesNotMatch(t.chatBodies()[0]!, /COVERED SUBJECTS|COVERED LIST|IDEA SLOTS|REAL SUBJECTS/)
     assert.equal(existsSync(path.join(t.dir, 'covered-topics.json')), false)
     assert.equal(existsSync(path.join(t.dir, 'idea-campaign-stats.jsonl')), false)
     assert.equal('upgrades' in run.result, false)
@@ -108,6 +108,89 @@ test('a helper model that is not offered skips the map with a plain line; the ca
     assert.ok(run.output_lines.some((line: string) => /Idea helper model "gone::model" is not available/.test(line)))
     assert.equal(t.chatBodies().length, 1, 'no other model is substituted')
     assert.equal(run.result.completed, 1)
+  } finally {
+    await t.done()
+  }
+})
+
+/** The mock Gateway has no embeddings route; this proxy adds one in front of it. */
+async function withEmbeddings(baseUrl: string, vector: (text: string) => number[], down = false) {
+  const http = await import('node:http')
+  const server = http.createServer((req, res) => {
+    let raw = ''
+    req.on('data', chunk => { raw += chunk })
+    req.on('end', async () => {
+      if (req.url === '/v1/embeddings') {
+        res.writeHead(down ? 503 : 200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify(down ? { code: 'NO_EMBEDDINGS_ENGINE', detail: 'none' } : { data: JSON.parse(raw).input.map((text: string, index: number) => ({ index, embedding: vector(text) })) }))
+        return
+      }
+      const headers = Object.fromEntries(Object.entries(req.headers).filter(([key]) => !['host', 'content-length', 'connection'].includes(key))) as Record<string, string>
+      const upstream = await fetch(`${baseUrl}${req.url}`, { method: req.method, headers, body: raw || undefined })
+      res.writeHead(upstream.status, { 'content-type': upstream.headers.get('content-type') || 'application/json' })
+      res.end(Buffer.from(await upstream.arrayBuffer()))
+    })
+  })
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  return { url: `http://127.0.0.1:${(server.address() as any).port}`, close: () => new Promise(resolve => server.close(resolve)) }
+}
+
+test('meaning check "on": a repeat by meaning is rejected and its slot made again', async () => {
+  const t = await setup()
+  const settings = await import('../services/app-settings.js')
+  const { clearGenStudioCatalogCache } = await import('../lib/genstudio-client.js')
+  const proxy = await withEmbeddings(t.service.baseUrl, text => /saffron/i.test(text) ? [1, 0] : [0, 1])
+  try {
+    await settings.setGenStudioUrl(proxy.url)
+    clearGenStudioCatalogCache()
+    await t.pm.updateConfig(t.project.slug, { idea_upgrades: { semantic_dedupe: 'on', embedding_model: 'emb::test', semantic_threshold: 0.9 } } as any)
+    const reworded = { ...idea('A Crimson Fortune on the Malabar Coast'), logline: 'How saffron crocus threads crossed the sea.' }
+    t.service.queueScenario('chat', { outputText: JSON.stringify({ ideas: [reworded] }) })
+    t.service.queueScenario('chat', { outputText: JSON.stringify({ ideas: [idea('The Glassblowers of Murano at Midnight')] }) })
+    const run = t.job('meaning-on')
+    await t.generateIdeaCampaign(run)
+    assert.equal(t.chatBodies().length, 2, 'the rejected slot was made again')
+    assert.ok(run.output_lines.some((line: string) => /↻ Rejected near-duplicate \(meaning 1\.00 ~ "The Saffron Ledger and Coastal Trade"\): "A Crimson Fortune/.test(line)))
+    assert.equal(run.result.completed, 1)
+    assert.equal(run.result.duplicate_stats.rejected_meaning, 1)
+    const saved = (await (await import('../services/idea-manager.js')).getIdeas(t.project.slug)).map(row => row.title)
+    assert.ok(saved.includes('The Glassblowers of Murano at Midnight') && !saved.includes(reworded.title))
+  } finally {
+    await proxy.close()
+    await t.done()
+  }
+})
+
+test('meaning check "on" with the embeddings engine down: nothing is blocked, the log says the word check decided', async () => {
+  const t = await setup()
+  const settings = await import('../services/app-settings.js')
+  const { clearGenStudioCatalogCache } = await import('../lib/genstudio-client.js')
+  const proxy = await withEmbeddings(t.service.baseUrl, () => [1, 0], true)
+  try {
+    await settings.setGenStudioUrl(proxy.url)
+    clearGenStudioCatalogCache()
+    await t.pm.updateConfig(t.project.slug, { idea_upgrades: { semantic_dedupe: 'on', embedding_model: 'emb::test' } } as any)
+    t.service.queueScenario('chat', { outputText: JSON.stringify({ ideas: [idea('The Glassblowers of Murano at Midnight')] }) })
+    const run = t.job('meaning-down')
+    await t.generateIdeaCampaign(run)
+    assert.equal(run.result.completed, 1)
+    assert.ok(run.output_lines.some((line: string) => /Meaning check unavailable \(NO_EMBEDDINGS_ENGINE.*only the word check is rejecting/.test(line)))
+  } finally {
+    await proxy.close()
+    await t.done()
+  }
+})
+
+test('variety on (freeform): the prompt carries one slot per idea and the idea records its slot', async () => {
+  const t = await setup()
+  try {
+    await t.pm.updateConfig(t.project.slug, { idea_upgrades: { variety_seeds: true } } as any)
+    t.service.queueScenario('chat', { outputText: JSON.stringify({ ideas: [idea('The Glassblowers of Murano at Midnight')] }) })
+    const run = t.job('variety-on')
+    await t.generateIdeaCampaign(run)
+    assert.match(t.chatBodies()[0]!, /IDEA SLOTS — one per idea, in order[^]*1\. era=/)
+    const [saved] = (await (await import('../services/idea-manager.js')).getIdeas(t.project.slug)).filter(row => row.campaign_id === 'variety-on')
+    assert.match(String(saved!.idea_dimensions?.variety_seed), /^era=.*; region=.*; theme=.*; type=/)
   } finally {
     await t.done()
   }

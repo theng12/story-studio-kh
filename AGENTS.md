@@ -176,7 +176,10 @@ number, and a missing image is a **blocking error**, never permission to reuse a
 not restore the Add Custom Model form, a project-level `models` catalog, `is_custom` entries, or a
 unified catalog write path. Inventory and dispatch belong to GenStudio; do not restore direct
 Studio Hub or sibling-Studio routing. Story Studio talks to **exactly one** endpoint and must never
-be handed a second address. Final Video Assembly is local-only: no Render Studio selection,
+be handed a second address. **Named exception (owner, 2026-10-11, plan Q4):** the idea
+generator's real-source lists (`services/reference-pool.ts`) make free, read-only GETs to
+`en.wikipedia.org` — no key, no model, at most one request a second, a User-Agent with nothing
+personal in it, cached, and failing soft. It is not a model endpoint; never route generation there. Final Video Assembly is local-only: no Render Studio selection,
 remote-render fields, remote assembly clients, or credit charging for FFmpeg work on the
 customer's Mac.
 

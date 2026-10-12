@@ -15,14 +15,20 @@ export interface IdeaUpgrades {
   helper_model: string
   /** #1: keep a covered-topics map of the whole history and show it to the idea model. */
   covered_map: boolean
-  /** #2: `shadow` logs what a meaning check would reject; it never rejects. (`on` is a later phase.) */
-  semantic_dedupe: 'off' | 'shadow'
+  /**
+   * #2: `shadow` logs what a meaning check would reject and rejects nothing; `on` (1.4.293) also
+   * rejects campaign ideas at or above `semantic_threshold`, after the word check. Without a working
+   * embeddings model `on` falls back to the word check alone and says so — it never blocks generation.
+   */
+  semantic_dedupe: 'off' | 'shadow' | 'on'
   /** #2: Gateway embeddings model. Empty = the improved word check is used instead. */
   embedding_model: string
   /**
-   * #2: cosine at or above this counts as a repeat. 0.78 for BGE-small (its scores bunch together:
-   * a paraphrase of one subject scores ~0.84-0.86, a different subject ~0.43-0.58; see
-   * __tests__/fixtures/idea-meaning-calibration.json). To be tuned from the pilot's logged scores.
+   * #2: cosine at or above this counts as a repeat. 0.84 for BGE-small since 1.4.293 (was 0.78):
+   * measured paraphrases of one subject score 0.842-0.863 (__tests__/fixtures/idea-meaning-calibration.json),
+   * and a replay of Night Atlas History's 101 real ideas (none a repeat by design) flagged 43% of
+   * them at 0.78 but 3% at 0.84 (_orchestra/audit-20261009/ideas-plan/calibration-20261012-na-history.txt).
+   * With `on` rejecting, 0.78 would have thrown away two good ideas in five.
    */
   semantic_threshold: number
   /** #6: Telegram/desktop alert when this channel's idea supply runs low. */
@@ -31,6 +37,14 @@ export interface IdeaUpgrades {
   low_unused_subjects: number
   /** #6: "running low" when waiting ideas cover fewer days than this. */
   low_days_of_ideas: number
+  /** #4: one era/region/theme/story-type seed per idea slot (freeform); spread picks across packs (Topic Packs). */
+  variety_seeds: boolean
+  /** #3: grow this channel's own "grown" Topic Pack when unused subjects drop below `low_unused_subjects`. */
+  grow_packs: boolean
+  /** #5: ground new subjects in real Wikipedia articles from `reference_categories`. */
+  real_sources: boolean
+  /** #5: Wikipedia categories the owner saved ("Category:Spices"). Nothing is fetched while empty. */
+  reference_categories: string[]
 }
 
 export const IDEA_UPGRADE_DEFAULTS: IdeaUpgrades = {
@@ -38,13 +52,30 @@ export const IDEA_UPGRADE_DEFAULTS: IdeaUpgrades = {
   covered_map: false,
   semantic_dedupe: 'off',
   embedding_model: '',
-  semantic_threshold: 0.78,
+  semantic_threshold: 0.84,
   supply_alerts: false,
   low_unused_subjects: 30,
   low_days_of_ideas: 14,
+  variety_seeds: false,
+  grow_packs: false,
+  real_sources: false,
+  reference_categories: [],
 }
 
-const SWITCHES = ['covered_map', 'supply_alerts'] as const
+const SWITCHES = ['covered_map', 'supply_alerts', 'variety_seeds', 'grow_packs', 'real_sources'] as const
+
+/** "Spices" / "Category:Spices" → "Category:Spices"; unique; at most 20. */
+export function normalizeCategories(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const out: string[] = []
+  for (const raw of value) {
+    if (typeof raw !== 'string') continue
+    const name = raw.trim().replace(/^category:\s*/i, '').replace(/\s+/g, ' ').slice(0, 120)
+    const full = name ? `Category:${name[0]!.toUpperCase()}${name.slice(1)}` : ''
+    if (full && !out.includes(full)) out.push(full)
+  }
+  return out.slice(0, 20)
+}
 
 export function readIdeaUpgrades(config: unknown): IdeaUpgrades {
   const raw = (config as any)?.idea_upgrades
@@ -56,12 +87,16 @@ export function readIdeaUpgrades(config: unknown): IdeaUpgrades {
   return {
     helper_model: text('helper_model'),
     covered_map: value.covered_map === true,
-    semantic_dedupe: value.semantic_dedupe === 'shadow' ? 'shadow' : 'off',
+    semantic_dedupe: value.semantic_dedupe === 'shadow' || value.semantic_dedupe === 'on' ? value.semantic_dedupe : 'off',
     embedding_model: text('embedding_model'),
     semantic_threshold: number('semantic_threshold', 0.5, 0.999),
     supply_alerts: value.supply_alerts === true,
     low_unused_subjects: number('low_unused_subjects', 0, 100_000),
     low_days_of_ideas: number('low_days_of_ideas', 0, 3650),
+    variety_seeds: value.variety_seeds === true,
+    grow_packs: value.grow_packs === true,
+    real_sources: value.real_sources === true,
+    reference_categories: normalizeCategories(value.reference_categories),
   }
 }
 
@@ -76,7 +111,9 @@ export function mergeIdeaUpgrades(current: IdeaUpgrades, patch: unknown): IdeaUp
   for (const [key, value] of Object.entries(patch)) {
     if (!(key in IDEA_UPGRADE_DEFAULTS)) return `${key}: not an idea upgrade setting.`
     if (key === 'semantic_dedupe') {
-      if (value !== 'off' && value !== 'shadow') return 'semantic_dedupe: "off" or "shadow" (watch-only). Rejecting by meaning is not switched on in this release.'
+      if (value !== 'off' && value !== 'shadow' && value !== 'on') return 'semantic_dedupe: "off", "shadow" (watch-only) or "on" (reject repeats by meaning).'
+    } else if (key === 'reference_categories') {
+      if (!Array.isArray(value) || value.some(item => typeof item !== 'string')) return 'reference_categories: a list of Wikipedia category names.'
     } else if (typeof value !== typeof IDEA_UPGRADE_DEFAULTS[key as keyof IdeaUpgrades]) {
       return `${key}: expected a ${typeof IDEA_UPGRADE_DEFAULTS[key as keyof IdeaUpgrades]}.`
     }

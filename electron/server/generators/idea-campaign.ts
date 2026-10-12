@@ -27,9 +27,11 @@ import {
 import { truncateChars } from '../lib/well-formed-text.js'
 import { applyEmojiPolicy, NO_EMOJI_DIRECTIVE } from '../lib/emoji-policy.js'
 import { recentCharacterNamesAvoidance } from '../services/recent-character-names.js'
-import { buildFreeformIdeaPrompt, generateFreeformIdeaBatch, rewriteLeadingCount, type AvoidItem } from '../services/freeform-idea-generation.js'
+import { buildFreeformIdeaPrompt, generateFreeformIdeaBatch, renderRealSubjectsBlock, renderVarietyBlock, rewriteLeadingCount, varietySeedLabel, varietySlots, type AvoidItem } from '../services/freeform-idea-generation.js'
 import { readIdeaUpgrades } from '../services/idea-upgrades.js'
 import { renderCoveredBlock, updateCoveredMap } from '../services/covered-topics.js'
+import { withGrownPack } from '../services/grown-pack.js'
+import { getReferencePool, sample, unusedReferenceItems, type ReferencePool } from '../services/reference-pool.js'
 import { embedTexts } from '../lib/embeddings-client.js'
 import { appendFile } from 'fs/promises'
 import path from 'path'
@@ -71,8 +73,8 @@ function withNamesAvoidance(prompt: string, line: string): string {
   return line ? `${prompt}\n\n${line}` : prompt
 }
 
-/** 1.4.285 covered-topics map block; '' (switch off) leaves the prompt byte-identical. */
-function withCoveredTopics(prompt: string, block: string): string {
+/** 1.4.285+ idea-upgrade blocks (covered map, idea slots, real subjects); '' (switch off) leaves the prompt byte-identical. */
+function withBlock(prompt: string, block: string): string {
   return block ? `${prompt}\n\n${block}` : prompt
 }
 
@@ -310,8 +312,8 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     nicheIdOverride: formulaId || null,
     topicPackIdsOverride: topicPackIds,
   })
-  const plannerNiche = niche || fallbackNiche(format, request)
-  const activePackIds = (plannerNiche.activeTopicPacks || []).map(pack => pack.id)
+  let plannerNiche = niche || fallbackNiche(format, request)
+  let activePackIds = (plannerNiche.activeTopicPacks || []).map(pack => pack.id)
 
   const projectIdeas = await im.getIdeas(job.project_slug)
   const alreadyCompleted = projectIdeas.filter(idea => idea.campaign_id === request.campaign_id)
@@ -341,9 +343,22 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
   // 1.4.285 idea upgrades: read once at job start; a running job never changes behaviour mid-run.
   // All off (the default) leaves every prompt and every saved idea exactly as before.
   const upgrades = readIdeaUpgrades(config)
-  const watching = upgrades.semantic_dedupe === 'shadow'
-  const upgradesOn = upgrades.covered_map || watching
+  // `on` also rejects by meaning; both modes log every candidate's nearest score.
+  const watching = upgrades.semantic_dedupe !== 'off'
+  const enforcing = upgrades.semantic_dedupe === 'on' && request.avoid_repeated_ideas !== false
+  const upgradesOn = upgrades.covered_map || watching || upgrades.variety_seeds || upgrades.grow_packs || upgrades.real_sources
+  if (upgrades.grow_packs) {
+    // #3: the channel's own grown pack joins the composed packs (Topic Pack channels only).
+    const grown = await withGrownPack(plannerNiche, job.project_slug)
+    if (grown !== plannerNiche) {
+      plannerNiche = grown
+      activePackIds = (plannerNiche.activeTopicPacks || []).map(pack => pack.id)
+      const added = plannerNiche.activeTopicPacks!.at(-1)!
+      job.output_lines.push(`Grown subjects: ${added.subjects.length} from "${added.name}" are in the plan.`)
+    }
+  }
   let coveredBlock = ''
+  let coveredSubjects: string[] = []
   if (upgrades.covered_map) {
     const covered = await updateCoveredMap({
       slug: job.project_slug,
@@ -356,9 +371,10 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     if (covered.note) job.output_lines.push(`Covered-topics map: ${covered.note}.`)
     else if (covered.added) job.output_lines.push(`Covered-topics map: folded in ${covered.added} more idea(s).`)
     coveredBlock = renderCoveredBlock(covered.map, isFormulaFreeformFor(activePackIds, topicPackIds) ? 'freeform' : 'pack')
+    coveredSubjects = covered.map?.entries.subjects.map(entry => entry.name) || []
     if (coveredBlock && covered.map) job.output_lines.push(`Covered-topics map: ${covered.map.entries.subjects.length} covered subjects shown to the idea model.`)
   }
-  const watchStats = { generated: 0, rejected_words: 0, would_reject: 0, method: '' as '' | 'meaning' | 'words', fallback_reason: '', nearest: [] as Array<{ title: string; matched: string | null; score: number }> }
+  const watchStats = { generated: 0, rejected_words: 0, rejected_meaning: 0, would_reject: 0, method: '' as '' | 'meaning' | 'words', fallback_reason: '', nearest: [] as Array<{ title: string; matched: string | null; score: number }> }
   const vectorCache = new Map<string, number[]>()
 
   const similarityPool: SimilarityCandidate[] = history.map(idea => ({
@@ -371,6 +387,13 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
   // legacy job can no longer resolve its pack. Only an actually pack-free
   // formula changes the provider/prompt branch below.
   const isFormulaFreeform = isFormulaFreeformFor(activePackIds, topicPackIds)
+  // #5: real Wikipedia subjects for formula-only channels (pack channels get them through #3's grow).
+  let referencePool: ReferencePool | null = null
+  if (upgrades.real_sources && isFormulaFreeform) {
+    const reference = await getReferencePool(job.project_slug, upgrades.reference_categories)
+    referencePool = reference.pool
+    job.output_lines.push(`Real subjects: ${reference.note}.`)
+  }
   let assignmentPool: IdeaAssignment[] = []
   // How many requested ideas the Topic Packs cannot cover at all. Those that
   // fit are still made and saved; the job then fails loudly naming the rest,
@@ -382,6 +405,7 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
       .filter((value): value is string => !!value)
     assignmentPool = planIdeaAssignments({
       niche: plannerNiche, count: remaining, usedFingerprints, seed: request.campaign_id,
+      ...(upgrades.variety_seeds ? { spreadPacks: true } : {}),
     })
     coverageShortfall = Math.max(0, remaining - assignmentPool.length)
     if (coverageShortfall) {
@@ -417,10 +441,14 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
         const avoid: AvoidItem[] = similarityPool.map(item => ({
           title: item.title, mood: item.mood, themes: item.themes,
         }))
-        let prompt = withCoveredTopics(withNamesAvoidance(buildFreeformIdeaPrompt(
+        const slots = upgrades.variety_seeds ? varietySlots(count, plannerNiche.vocabulary?.theme) : []
+        const realSubjects = referencePool
+          ? sample(unusedReferenceItems(referencePool, coveredSubjects, similarityPool.map(item => item.title)), count * 3)
+          : []
+        let prompt = withBlock(withBlock(withBlock(withNamesAvoidance(buildFreeformIdeaPrompt(
           requestForBatch, format, standards, avoid, undefined,
           request.title_template, undefined,
-        ), namesAvoidance), coveredBlock)
+        ), namesAvoidance), coveredBlock), renderVarietyBlock(slots)), renderRealSubjectsBlock(realSubjects))
         const responseItems = await generateFreeformIdeaBatch({
           request: requestForBatch, format, standards, avoid, apiKeys,
           slug: job.project_slug, jobId: job.job_id, signal: controller.signal,
@@ -430,16 +458,21 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
           preparePrompt: () => prompt,
         })
         candidates = await Promise.all(responseItems
-          .filter(item => String(item?.title || '').trim() && String(item?.logline || '').trim())
-          .map(async item => normalizeFreeformIdea({
-            ...item,
-            title: await applyEmojiPolicy(String(item.title || ''), [prompt]),
-            logline: await applyEmojiPolicy(String(item.logline || ''), [prompt]),
-          }, request, formulaId || plannerNiche.id)))
+          .map((item, index) => ({ item, slot: slots[index] }))
+          .filter(({ item }) => String(item?.title || '').trim() && String(item?.logline || '').trim())
+          .map(async ({ item, slot }) => {
+            const idea = normalizeFreeformIdea({
+              ...item,
+              title: await applyEmojiPolicy(String(item.title || ''), [prompt]),
+              logline: await applyEmojiPolicy(String(item.logline || ''), [prompt]),
+            }, request, formulaId || plannerNiche.id)
+            // #4: the slot this idea was asked to start from, for measuring spread (new ideas only).
+            return slot ? { ...idea, idea_dimensions: { variety_seed: varietySeedLabel(slot) } } : idea
+          }))
       } else {
         const assignments = assignmentPool.splice(0, count)
         job.output_lines.push('Generating coverage batch ' + calls + ': ' + assignments.length + ' reserved idea(s)…')
-        const prompt = withCoveredTopics(withNamesAvoidance(campaignPrompt({
+        const prompt = withBlock(withNamesAvoidance(campaignPrompt({
           request, format, niche: plannerNiche, assignments, avoid: similarityPool, standards,
         }), namesAvoidance), coveredBlock)
         const context: CallAiContext = {
@@ -489,9 +522,11 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     for (const rejection of filtered.rejected) {
       job.output_lines.push(`  ↻ Rejected near-duplicate: "${rejection.candidate.title}"`)
     }
+    let rejectedByMeaning = new Set<unknown>()
     if (watching && candidates.length) {
-      // Watch-only: report what a meaning check would reject; the word filter above stays in charge.
-      const watched = await watchDuplicates(candidates, similarityPool, {
+      // Watch: report what a meaning check would reject. `on`: also drop those from what the word
+      // filter kept. Any embeddings failure leaves the word filter alone in charge (never blocks).
+      const watched = await watchDuplicates(enforcing ? filtered.kept : candidates, similarityPool, {
         embed: upgrades.embedding_model ? texts => embedTexts(upgrades.embedding_model, texts) : undefined,
         threshold: upgrades.semantic_threshold,
         prefix: request.title_prefix,
@@ -499,15 +534,17 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
         vectorCache,
       })
       if (watched.method === 'words' && !watchStats.fallback_reason) {
-        job.output_lines.push(`  Meaning check unavailable (${watched.fallback_reason}); watching with the improved word check instead.`)
+        job.output_lines.push(enforcing
+          ? `  Meaning check unavailable (${watched.fallback_reason}); only the word check is rejecting repeats this run.`
+          : `  Meaning check unavailable (${watched.fallback_reason}); watching with the improved word check instead.`)
       }
       watchStats.method = watched.method
       watchStats.fallback_reason ||= watched.fallback_reason || ''
       if (watched.method === 'meaning') {
         // Every candidate's nearest neighbour is logged, so the pilot can tune the threshold.
         for (const row of watched.nearest) {
-          const verdict = row.score >= upgrades.semantic_threshold ? `would reject (≥ ${upgrades.semantic_threshold})` : 'kept'
-          job.output_lines.push(`  Watch-only meaning ${row.score.toFixed(3)} ${verdict}: "${row.candidate.title}"${row.matched ? ` ~ "${row.matched.title}"` : ''}`)
+          const verdict = row.score >= upgrades.semantic_threshold ? `${enforcing ? 'rejected' : 'would reject'} (≥ ${upgrades.semantic_threshold})` : 'kept'
+          job.output_lines.push(`  ${enforcing ? 'Meaning' : 'Watch-only meaning'} ${row.score.toFixed(3)} ${verdict}: "${row.candidate.title}"${row.matched ? ` ~ "${row.matched.title}"` : ''}`)
           watchStats.nearest.push({ title: row.candidate.title, matched: row.matched?.title ?? null, score: Math.round(row.score * 1000) / 1000 })
         }
       } else {
@@ -516,10 +553,18 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
         }
       }
       watchStats.would_reject += watched.hits.length
+      if (enforcing && watched.method === 'meaning') {
+        rejectedByMeaning = new Set(watched.hits.map(hit => hit.candidate))
+        for (const hit of watched.hits) {
+          job.output_lines.push(`  ↻ Rejected near-duplicate (meaning ${hit.score.toFixed(2)} ~ "${hit.matched.title}"): "${hit.candidate.title}"`)
+        }
+        watchStats.rejected_meaning += watched.hits.length
+      }
     }
     watchStats.generated += candidates.length
     watchStats.rejected_words += filtered.rejected.length
-    const kept = isFormulaFreeform ? filtered.kept.slice(0, needed) : filtered.kept
+    const survivors = rejectedByMeaning.size ? filtered.kept.filter(item => !rejectedByMeaning.has(item)) : filtered.kept
+    const kept = isFormulaFreeform ? survivors.slice(0, needed) : survivors
     if (kept.length) {
       const stored = await im.addIdeas(
         job.project_slug,
@@ -550,8 +595,8 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     series_formula_id: formulaId || plannerNiche.id,
     topic_pack_ids: activePackIds,
     ...(upgradesOn ? {
-      upgrades: { covered_map: upgrades.covered_map, semantic_dedupe: upgrades.semantic_dedupe, helper_model: upgrades.helper_model, embedding_model: upgrades.embedding_model, semantic_threshold: upgrades.semantic_threshold },
-      duplicate_stats: { generated: watchStats.generated, kept: created.length, rejected_words: watchStats.rejected_words, shadow_would_reject: watchStats.would_reject, shadow_method: watchStats.method || null },
+      upgrades: { covered_map: upgrades.covered_map, semantic_dedupe: upgrades.semantic_dedupe, helper_model: upgrades.helper_model, embedding_model: upgrades.embedding_model, semantic_threshold: upgrades.semantic_threshold, variety_seeds: upgrades.variety_seeds, grow_packs: upgrades.grow_packs, real_sources: upgrades.real_sources },
+      duplicate_stats: { generated: watchStats.generated, kept: created.length, rejected_words: watchStats.rejected_words, rejected_meaning: watchStats.rejected_meaning, shadow_would_reject: watchStats.would_reject, shadow_method: watchStats.method || null },
     } : {}),
   }
   if (upgradesOn) await appendCampaignStats(job.project_slug, {
@@ -566,6 +611,10 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     shadow_threshold: watching ? upgrades.semantic_threshold : null,
     nearest_scores: watchStats.nearest,
     covered_map: upgrades.covered_map,
+    variety_seeds: upgrades.variety_seeds,
+    grow_packs: upgrades.grow_packs,
+    real_sources: upgrades.real_sources,
+    packs_used: [...new Set(created.flatMap(idea => idea.idea_fingerprint?.split('|')[1] || []))],
   })
   const missingCount = wanted - completed
   requireJobCompletion(job, {
@@ -611,7 +660,8 @@ export async function watchImportedIdeas(
 ): Promise<{ method: 'meaning' | 'words'; fallback_reason?: string; threshold: number; would_reject: Array<{ title: string; matched: string; score: number }>; nearest: Array<{ title: string; matched: string | null; score: number }> } | null> {
   try {
     const upgrades = readIdeaUpgrades(await pm.getConfig(slug))
-    if (upgrades.semantic_dedupe !== 'shadow' || !ideas.length) return null
+    // Imports are never blocked, even with `on`: the owner typed them. They are only reported.
+    if (upgrades.semantic_dedupe === 'off' || !ideas.length) return null
     const project = await pm.getProject(slug)
     if (!project) return null
     const { formulaId } = await resolveCampaignNiche(project)

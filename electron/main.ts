@@ -752,9 +752,14 @@ void electronApp.whenReady().then(async () => {
     // only when a channel's status gets worse, at most once per channel per day. Hourly is plenty.
     try {
       const { runIdeaSupplyAlerts } = await import('./server/services/idea-supply.js')
+      const { runAutoGrow } = await import('./server/services/topic-pack-grow.js')
       const { getNotifierSettings } = await import('./server/services/job-notifier.js')
-      const check = () => void runIdeaSupplyAlerts(async (payload, slug) =>
-        dispatchNotification(payload, slug, await getNotifierSettings())).catch(e => logCrash('idea-supply-alerts', e))
+      const send = async (payload: { title: string; body: string }, slug: string) => dispatchNotification(payload, slug, await getNotifierSettings())
+      // 1.4.293 — then grow opted-in Topic Pack channels that run low (idea_upgrades.grow_packs), once a day at most.
+      const check = () => void runIdeaSupplyAlerts(send)
+        .catch(e => logCrash('idea-supply-alerts', e))
+        .then(() => runAutoGrow(send))
+        .catch(e => logCrash('idea-grow-subjects', e))
       setTimeout(check, 5 * 60_000).unref?.()
       setInterval(check, 60 * 60_000).unref?.()
     } catch (e) {

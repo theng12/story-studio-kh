@@ -14,6 +14,7 @@ import { loadTopicPack, isCompatible } from './topic-pack-loader.js'
 import { subjectUseByPack } from './idea-campaign-planner.js'
 import { collectFormulaHistory, resolveCampaignNiche } from '../generators/idea-campaign.js'
 import { readIdeaUpgrades } from './idea-upgrades.js'
+import { withGrownPack } from './grown-pack.js'
 import { getAppSetting, setAppSetting } from './app-settings.js'
 
 export type SupplyStatus = 'ok' | 'low' | 'empty'
@@ -54,7 +55,10 @@ export async function computeIdeaSupply(slug: string, now = Date.now()): Promise
   const project = await pm.getProject(slug)
   if (!project) return null
   const upgrades = readIdeaUpgrades(await pm.getConfig(slug).catch(() => null))
-  const { formulaId, rawNiche, topicPackIds, niche } = await resolveCampaignNiche(project)
+  const resolved = await resolveCampaignNiche(project)
+  const { formulaId, rawNiche, topicPackIds } = resolved
+  // Same as the campaign: with #3 on, the channel's grown pack counts as one of its packs.
+  const niche = upgrades.grow_packs ? await withGrownPack(resolved.niche, slug) : resolved.niche
   const ideas = await im.getIdeas(slug)
   const waiting = ideas.filter(idea => idea.status === 'new').length
   const accepted = ideas.filter(idea => idea.accepted_at && now - Date.parse(idea.accepted_at) <= 30 * DAY_MS).length

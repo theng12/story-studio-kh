@@ -1,5 +1,16 @@
 # HANDOFF — Story Studio KH
 
+## Current work — 2026-10-12 (1.4.293 idea generator phases 2–3)
+
+Plan: `_orchestra/audit-20261009/ideas-plan/PLAN.md` ("Built" note at its end). Builds on 1.4.285 (see below).
+- `idea_upgrades` gained `variety_seeds`, `grow_packs`, `real_sources` (booleans, off) and `reference_categories` (string[], normalised to `Category:X`). `semantic_dedupe` now accepts `on`: in `generateIdeaCampaign`, after the Jaccard `filterGenerated`, `watchDuplicates` runs on what it kept and drops hits when the method is `meaning`; on any embeddings failure only the word check decides (logged). Imports still only report (`watchImportedIdeas` runs for shadow and on). Stats gain `rejected_meaning`, `packs_used`. Default `semantic_threshold` 0.84 (replay: `ideas-plan/calibration-20261012-na-history.txt`).
+- #4: `varietySlots`/`renderVarietyBlock` in `freeform-idea-generation.ts`, appended to the freeform campaign prompt; each new idea stores `idea_dimensions.variety_seed`. Pack path: `planIdeaAssignments({ spreadPacks })` interleaves each planning round across packs (`spreadAcrossPacks`); fingerprints unchanged.
+- #3: `services/grown-pack.ts` (file `.topic-packs/grown-<slug>.json`, a normal legacy user pack, never in `topic_pack_ids`; `withGrownPack` appends it in the campaign and in `computeIdeaSupply` only while `grow_packs` is on; Remove → `grown.rejected`). `services/topic-pack-grow.ts`: `growTopicPack` (helper model via `callHelperModel`, slug + meaning ≥ 0.90 dedupe against packs, grown, rejected and covered subjects, ≤ 40, fails with nothing written), run log in app-settings `idea_grow_runs` (last 10), `runAutoGrow` on the existing hourly tick in `electron/main.ts` (below `low_unused_subjects`, once a local day, stop + one alert after 3 runs < 5). No job type on purpose: a run is one helper call, the route answers synchronously.
+- #5: `services/reference-pool.ts` (`projects/<slug>/reference-pool.json`, `generator=categorymembers&prop=description|pageprops`, ≤ 1 req/s, 429/503 backoff ×3, 7-day cache, cache on failure, ≤ 500 items; UA `StoryStudioKH/1.0 (idea reference lists)`). AGENTS.md §7 names it as the one-endpoint exception. Grow offers ≤ 150 unused articles and keeps only names on that list (source `wikipedia:<Category>` + URL); freeform campaigns get `REAL SUBJECTS YOU MAY USE` (3 × batch).
+- Routes: `GET /projects/:slug/ideas/grown`, `POST …/ideas/grown/grow`, `POST …/ideas/grown/remove {subject}`, `POST …/ideas/reference-categories/suggest`, `GET …/ideas/reference-pool`, `POST …/ideas/reference-pool/refresh`. UI: `IdeaQualitySettings.vue` (3 new sections, categories textarea), `IdeaSupplyPanel.vue` (Grown subjects list).
+- Tests: `idea-upgrades-p2.test.ts`, more in `idea-upgrades-campaign.test.ts` (meaning `on` via an embeddings proxy in front of the mock Gateway).
+- Pilot: night-atlas-history only (owner 2026-10-12: "Do it") — see the plan's Built note for its settings. Every other channel at defaults. Not built: supply table in the daily digest.
+
 ## Current work — 2026-10-12 (1.4.291 backup and restore)
 
 Delivery: `_orchestra/audit-20261009/story-backup/DELIVERY.md` (file inventory, sizes measured on the mini).

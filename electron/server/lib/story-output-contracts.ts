@@ -479,3 +479,33 @@ export function coveredTopicsOutputContract(): TextOutputContract {
     additionalProperties: false,
   })
 }
+
+/** #3 (1.4.293): new Topic Pack subjects proposed by the idea helper model. */
+export function grownSubjectsOutputContract(): TextOutputContract {
+  return localSchema('story_grown_subjects', {
+    type: 'object',
+    properties: {
+      subjects: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: { name: { type: 'string', minLength: 1, maxLength: 120 }, why_it_fits: { type: 'string', maxLength: 300 } },
+          required: ['name'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['subjects'],
+    additionalProperties: false,
+  })
+}
+
+/** #5 (1.4.293): Wikipedia categories proposed for the owner to review. */
+export function referenceCategoriesOutputContract(): TextOutputContract {
+  return localSchema('story_reference_categories', {
+    type: 'object',
+    properties: { categories: { type: 'array', items: { type: 'string', minLength: 1, maxLength: 120 } } },
+    required: ['categories'],
+    additionalProperties: false,
+  })
+}

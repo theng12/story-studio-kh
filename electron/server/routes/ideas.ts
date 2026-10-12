@@ -43,6 +43,9 @@ import { computeAllIdeaSupply, computeIdeaSupply } from '../services/idea-supply
 import { getIdeaUpgrades, IDEA_UPGRADE_DEFAULTS, mergeIdeaUpgrades, saveIdeaUpgrades } from '../services/idea-upgrades.js'
 import { readCoveredMap, trashCoveredMap, updateCoveredMap } from '../services/covered-topics.js'
 import { listEmbeddingModels } from '../lib/embeddings-client.js'
+import { readGrownPack, rejectGrownSubject } from '../services/grown-pack.js'
+import { GrowError, growRuns, growTopicPack, suggestReferenceCategories } from '../services/topic-pack-grow.js'
+import { getReferencePool, readReferencePool } from '../services/reference-pool.js'
 
 /**
  * Queue a durable, navigation-safe Idea Campaign.
@@ -227,6 +230,61 @@ router.post('/projects/:slug/ideas/covered-topics/build', async (req, res) => {
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not build the covered-topics map'))
   }
+})
+
+// ── 1.4.293 idea upgrades: grown Topic Pack subjects (#3), Wikipedia reference list (#5) ─────
+
+function growFailure(res: any, e: any, fallback: string) {
+  if (e instanceof GrowError) return res.status(e.statusCode).json({ detail: e.message })
+  return res.status(500).json(humanizeBackendError(e, fallback))
+}
+
+/** The channel's grown pack (null until the first run) and the recent runs. */
+router.get('/projects/:slug/ideas/grown', async (req, res) => {
+  if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+  res.json({ pack: await readGrownPack(req.params.slug), runs: await growRuns(req.params.slug) })
+})
+
+/** "Grow Subjects Now": one run with the channel's helper model. Fails loudly when nothing is added. */
+router.post('/projects/:slug/ideas/grown/grow', async (req, res) => {
+  try {
+    const result = await withLock(`grow-subjects:${req.params.slug}`, () => growTopicPack(req.params.slug, { trigger: 'manual' }))
+    res.json({ added: result.added, notes: result.notes, pack: result.pack })
+  } catch (e: any) {
+    growFailure(res, e, 'Could not grow subjects')
+  }
+})
+
+/** "Remove": the subject stops being used and is never proposed again (moved to `rejected`, not deleted). */
+router.post('/projects/:slug/ideas/grown/remove', async (req, res) => {
+  const subject = typeof req.body?.subject === 'string' ? req.body.subject : ''
+  if (!subject.trim()) return res.status(400).json({ detail: 'Send the subject to remove.' })
+  const pack = await rejectGrownSubject(req.params.slug, subject)
+  if (!pack) return res.status(404).json({ detail: `"${subject}" is not one of this channel's grown subjects.` })
+  res.json({ pack })
+})
+
+/** Wikipedia categories proposed by the helper model, for the owner to edit and save (not saved here). */
+router.post('/projects/:slug/ideas/reference-categories/suggest', async (req, res) => {
+  try {
+    res.json({ categories: await suggestReferenceCategories(req.params.slug) })
+  } catch (e: any) {
+    growFailure(res, e, 'Could not suggest categories')
+  }
+})
+
+/** The cached Wikipedia list. `POST …/refresh` fetches it again now (politely, free). */
+router.get('/projects/:slug/ideas/reference-pool', async (req, res) => {
+  if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+  res.json({ pool: await readReferencePool(req.params.slug) })
+})
+
+router.post('/projects/:slug/ideas/reference-pool/refresh', async (req, res) => {
+  if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+  const { reference_categories } = await getIdeaUpgrades(req.params.slug)
+  if (!reference_categories.length) return res.status(400).json({ detail: 'Save at least one Wikipedia category first.' })
+  const result = await getReferencePool(req.params.slug, reference_categories, { force: true })
+  res.status(result.pool ? 200 : 502).json({ pool: result.pool, note: result.note, fetched: result.fetched, ...(result.pool ? {} : { detail: result.note }) })
 })
 
 // ── Bulk paste-import from an external LLM ──────────────────────────────────

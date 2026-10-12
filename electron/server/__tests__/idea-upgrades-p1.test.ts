@@ -63,10 +63,10 @@ test('watch-only meaning check uses cosine against history and the earlier ideas
   assert.equal(calls, 1, 'texts already embedded in this run are not sent again')
 })
 
-test('calibration fixture: the 0.78 default separates measured BGE paraphrases from different topics', async () => {
+test('calibration fixture: the 0.84 default separates measured BGE paraphrases from different topics', async () => {
   const fixture = JSON.parse(await fs.readFile(new URL('./fixtures/idea-meaning-calibration.json', import.meta.url), 'utf8'))
   const threshold = IDEA_UPGRADE_DEFAULTS.semantic_threshold
-  assert.equal(threshold, 0.78)
+  assert.equal(threshold, 0.84)
   const different = fixture.pairs.filter((pair: any) => pair.kind === 'different')
   const sameSubject = fixture.pairs.filter((pair: any) => pair.kind === 'paraphrase' && !/Bookbinder/.test(pair.a))
   assert.ok(different.length >= 4 && sameSubject.length >= 3)
@@ -230,10 +230,10 @@ test('alerts: opt-in only, only when the status gets worse, at most once per cha
 
 // ── settings ──────────────────────────────────────────────────────────────────
 
-test('every switch is off by default; "on" for the meaning check is refused in this release', () => {
+test('every switch is off by default; an unknown meaning-check mode is refused', () => {
   assert.deepEqual(readIdeaUpgrades({}), IDEA_UPGRADE_DEFAULTS)
-  assert.deepEqual(readIdeaUpgrades({ idea_upgrades: { covered_map: 'yes', semantic_dedupe: 'on' } }), IDEA_UPGRADE_DEFAULTS)
-  assert.match(String(mergeIdeaUpgrades(IDEA_UPGRADE_DEFAULTS, { semantic_dedupe: 'on' })), /watch-only/)
+  assert.deepEqual(readIdeaUpgrades({ idea_upgrades: { covered_map: 'yes', semantic_dedupe: 'yes' } }), IDEA_UPGRADE_DEFAULTS)
+  assert.match(String(mergeIdeaUpgrades(IDEA_UPGRADE_DEFAULTS, { semantic_dedupe: 'reject' })), /"on" \(reject repeats by meaning\)/)
   assert.match(String(mergeIdeaUpgrades(IDEA_UPGRADE_DEFAULTS, { nope: true })), /not an idea upgrade setting/)
   assert.match(String(mergeIdeaUpgrades(IDEA_UPGRADE_DEFAULTS, { semantic_threshold: 2 })), /out of range/)
   const merged = mergeIdeaUpgrades(IDEA_UPGRADE_DEFAULTS, { covered_map: true, helper_model: ' anthropic-direct::claude-haiku-5-5 ' })
@@ -260,7 +260,7 @@ test('settings route: partial update, one-time backup on the first switch, reada
     const again = await request(app).put(`/projects/${project.slug}/ideas/upgrades`).send({ low_days_of_ideas: 7 })
     assert.equal(again.body.backup_dir, null, 'only the first switch-on backs up')
     assert.deepEqual({ ...again.body.settings }, { ...IDEA_UPGRADE_DEFAULTS, semantic_dedupe: 'shadow', supply_alerts: true, low_days_of_ideas: 7 })
-    assert.equal((await request(app).put(`/projects/${project.slug}/ideas/upgrades`).send({ semantic_dedupe: 'on' })).status, 400)
+    assert.equal((await request(app).put(`/projects/${project.slug}/ideas/upgrades`).send({ semantic_dedupe: 'always' })).status, 400)
     const supply = await request(app).get(`/projects/${project.slug}/ideas/supply`)
     assert.equal(supply.status, 200)
     assert.equal(supply.body.supply_alerts, true)
@@ -322,7 +322,7 @@ test('meaning watch through the Gateway embeddings route: Authorization only, ne
 
     const result = (await watchImportedIdeas(project.slug, 'manual', [{ title: 'Who Wrote the Voynich Codex?', logline: 'A cipher.' }, { title: 'Glass of Murano', logline: 'Venetian glass.' }]))!
     assert.equal(result.method, 'meaning')
-    assert.equal(result.threshold, 0.78)
+    assert.equal(result.threshold, 0.84)
     assert.deepEqual(result.nearest.map(row => [row.title, row.matched, row.score]), [
       ['Who Wrote the Voynich Codex?', 'The Voynich Manuscript', 1],
       ['Glass of Murano', 'The Voynich Manuscript', 0],

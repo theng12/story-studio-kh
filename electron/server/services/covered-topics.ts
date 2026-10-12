@@ -15,6 +15,7 @@ import { callAiWithRetry, resolveLivePipelineModel } from '../lib/ai-client.js'
 import { listChatModels } from '../lib/genstudio-client.js'
 import { getApiKey } from './app-secrets-store.js'
 import { coveredTopicsOutputContract } from '../lib/story-output-contracts.js'
+import type { TextOutputContract } from '../lib/json-output-contract.js'
 import * as pm from './project-manager.js'
 
 export const COVERED_GROUPS = ['subjects', 'people', 'places', 'eras', 'angles'] as const
@@ -126,16 +127,18 @@ export interface CoveredMapDeps {
   callModel?: (model: string, prompt: string, requestIdentity: string) => Promise<string>
 }
 
-async function liveCheck(model: string): Promise<void> {
+/** Throws when the owner's chosen helper model is not offered right now. Never substitutes another. */
+export async function checkHelperModel(model: string): Promise<void> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
   resolveLivePipelineModel(model, apiKey ? await listChatModels(apiKey) : [])
 }
 
-async function liveCall(model: string, prompt: string, requestIdentity: string, slug: string, signal?: AbortSignal): Promise<string> {
+/** One small helper-model call (map deltas, grown subjects, category suggestions). */
+export async function callHelperModel(model: string, prompt: string, requestIdentity: string, slug: string, outputContract: TextOutputContract = coveredTopicsOutputContract(), signal?: AbortSignal): Promise<string> {
   return callAiWithRetry(model, '', prompt, {}, false, {
     slug, signal, requestIdentity,
     outputBudget: { tier: 'long', minimumTokens: 4096 },
-    outputContract: coveredTopicsOutputContract(),
+    outputContract,
     disableReasoning: true,
   })
 }
@@ -167,7 +170,7 @@ export async function updateCoveredMap(options: {
     const pending = options.history.filter(idea => idea.id && !done.has(idea.id)).reverse() // oldest first
     if (!pending.length) return { map, added: 0, note: '' }
     try {
-      await (options.deps?.checkModel || liveCheck)(options.helperModel)
+      await (options.deps?.checkModel || checkHelperModel)(options.helperModel)
     } catch {
       return { map: done.size ? map : null, added: 0, note: `Idea helper model "${options.helperModel}" is not available; covered-topics map not updated` }
     }
@@ -179,7 +182,7 @@ export async function updateCoveredMap(options: {
       const prompt = helperPrompt(options.channelName, options.description || '', map.entries, chunk)
       let add: unknown
       try {
-        const call = options.deps?.callModel || ((model, text, id) => liveCall(model, text, id, options.slug, options.signal))
+        const call = options.deps?.callModel || ((model, text, id) => callHelperModel(model, text, id, options.slug, coveredTopicsOutputContract(), options.signal))
         add = parseObject(await call(options.helperModel, prompt, identity))
       } catch (error) {
         return { map: done.size || added ? map : null, added, note: `covered-topics map kept as it was (${error instanceof Error ? error.message : String(error)})` }

@@ -8,6 +8,7 @@ import { type Format, type GenerateIdeasRequest } from '../models/types.js'
 import { ideaOutputTokenBudget } from './idea-output-budget.js'
 import { ideaBatchOutputContract } from '../lib/story-output-contracts.js'
 import { truncateChars } from '../lib/well-formed-text.js'
+import { sample } from './reference-pool.js'
 
 // Expanded lever pool covering four diversity axes. Two are picked at random
 // per batch so the model has cross-cutting constraints, not a single soft hint.
@@ -393,4 +394,65 @@ export async function generateFreeformIdeaBatch(input: GenerateFreeformIdeaBatch
   }
   const raw = await callAiWithRetry(input.request.model, '', prompt, input.apiKeys, false, context)
   return parseFreeformIdeas(raw)
+}
+
+// ── #4 More variety per batch (1.4.293, per-channel `idea_upgrades.variety_seeds`) ──────────────
+// One seed per idea slot, drawn without replacement inside a batch, so ten ideas cannot all land
+// in the same era, place and kind of story. Appended to the prompt only when the switch is on.
+
+const VARIETY_ERAS = [
+  'Prehistory (before 3000 BCE)', 'Bronze Age (3000–1200 BCE)', 'Iron Age and early empires (1200–500 BCE)',
+  'Classical antiquity (500 BCE–500 CE)', 'Early Middle Ages (500–1000)', 'High and Late Middle Ages (1000–1450)',
+  'Renaissance and Age of Exploration (1450–1650)', 'Early modern (1650–1780)', 'Age of Revolutions (1780–1850)',
+  'Industrial era (1850–1914)', 'World wars and between (1914–1945)', 'Modern era (1945–today)',
+]
+const VARIETY_REGIONS = [
+  'East Asia', 'South Asia', 'Southeast Asia', 'Central Asia and the steppe', 'Middle East', 'North Africa',
+  'Sub-Saharan Africa', 'Western Europe', 'Eastern Europe and Russia', 'North America',
+  'Latin America and the Caribbean', 'Oceania and the Pacific',
+]
+const VARIETY_THEMES = [
+  'food and drink', 'work and trade', 'power and politics', 'faith and belief', 'science and invention',
+  'war and survival', 'art and craft', 'travel and exploration', 'home and family', 'nature and environment',
+  'medicine and the body', 'law and crime',
+]
+const VARIETY_STORY_TYPES = [
+  "a single object's journey", 'a turning-point day', 'a forgotten person', 'a place across centuries', 'a rivalry',
+  'a mystery and its best explanation', 'a daily routine in detail', 'a disaster and its aftermath',
+  'an invention and who it changed', 'a journey or expedition',
+]
+
+export interface VarietySlot { era: string; region: string; theme: string; type: string }
+
+/** `count` slots; no value repeats inside the batch while a list has values left. */
+export function varietySlots(count: number, formulaThemes: string[] = [], random: () => number = Math.random): VarietySlot[] {
+  const themePool = [...new Set(formulaThemes.map(value => value.trim()).filter(Boolean))]
+  const lists = [VARIETY_ERAS, VARIETY_REGIONS, themePool.length >= 4 ? themePool : VARIETY_THEMES, VARIETY_STORY_TYPES]
+    .map(list => sample([...list], list.length, random))
+  return Array.from({ length: count }, (_, i) => ({
+    era: lists[0]![i % lists[0]!.length]!,
+    region: lists[1]![i % lists[1]!.length]!,
+    theme: lists[2]![i % lists[2]!.length]!,
+    type: lists[3]![i % lists[3]!.length]!,
+  }))
+}
+
+export function varietySeedLabel(slot: VarietySlot): string {
+  return `era=${slot.era}; region=${slot.region}; theme=${slot.theme}; type=${slot.type}`
+}
+
+export function renderVarietyBlock(slots: VarietySlot[]): string {
+  if (!slots.length) return ''
+  return `IDEA SLOTS — one per idea, in order (use each as the starting point; if a slot cannot fit this channel, keep its spirit):\n${slots
+    .map((slot, i) => `${i + 1}. ${varietySeedLabel(slot)}`).join('\n')}`
+}
+
+/**
+ * #5 real subjects (1.4.293): real Wikipedia articles the idea model may build on, already minus
+ * what the channel covered. Empty list → ''.
+ */
+export function renderRealSubjectsBlock(items: Array<{ title: string; description?: string }>): string {
+  if (!items.length) return ''
+  return `REAL SUBJECTS YOU MAY USE (pick distinct ones; each is a real Wikipedia article):\n${items
+    .map(item => `- ${item.title}${item.description ? ` — ${item.description}` : ''}`).join('\n')}`
 }
