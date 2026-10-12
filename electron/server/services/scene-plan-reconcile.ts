@@ -12,7 +12,7 @@ import { parseSrt } from '../lib/subtitle-builder.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from './utils.js'
 import { resolveTranscriptSrtPath, stitchedSrtPath } from './subtitle-correction.js'
-import { computePlanCoverage, reconcilePlanToSubtitles } from './scene-planner.js'
+import { computePlanCoverage, reconcilePlanToSubtitles, removeNonRenderableScenes } from './scene-planner.js'
 import { stampFromCues } from '../lib/scene-plan-timeline.js'
 import type { ScenePlan } from '../models/types.js'
 
@@ -75,7 +75,14 @@ export async function reconcileScenePlanTimings(
     }
     const coverageBefore = computePlanCoverage(fresh.scenes, narrationSec)
     const result = reconcilePlanToSubtitles(fresh.scenes, cues, audioDur || undefined)
-    fresh.scenes = result.scenes
+    // 1.4.298 — two scenes anchored inside one caption start at the same moment, which left a
+    // zero-length scene that Video Assembly refused (Brain Wise EP0047). Its words go to a neighbour,
+    // as the Scene Plan's own timeline cleanup does.
+    const cleanup = removeNonRenderableScenes(result.scenes)
+    if (cleanup.removed_ids.length) {
+      result.changes.push(`Removed ${cleanup.removed_ids.length} scene(s) that ended up with no length; their words moved to the scene beside them.`)
+    }
+    fresh.scenes = cleanup.scenes
     fresh.total_duration_sec = narrationSec
     // 1.4.296 — the plan now follows today's captions and narration, so it says so. Without
     // this the "out of date" checks kept failing a plan that had just been re-aligned.

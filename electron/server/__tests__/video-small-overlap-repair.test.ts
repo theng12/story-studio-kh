@@ -125,3 +125,17 @@ test('a stale picture is used as it is and named, instead of blocking (1.4.296)'
   })
   assert.ok(render.output_lines.some((l: string) => /^1 scene picture\(s\) were drawn from an older prompt \(#3\); using them as they are/.test(l)), render.output_lines.join('\n'))
 })
+
+test('re-aligning never leaves a scene with no length (1.4.298, Brain Wise EP0047)', async () => {
+  // Scenes 1 and 2 are both inside the first caption, so both anchor to its start.
+  const { planPath } = await episode('EP0005', [0.5])
+  const subtitles = path.join(path.dirname(planPath), 'EP0005 - 09 Subtitles Output', 'EP0005_stitched.srt')
+  const srt = await fs.readFile(subtitles, 'utf-8')
+  await fs.writeFile(subtitles, srt.replace('00:00:05,000\nalpha one two three', '00:00:10,000\nalpha one two three bravo one two three')
+    .replace(/2\n00:00:05,000 --> 00:00:10,000\nbravo one two three\n\n/, ''))
+  const { reconcileScenePlanTimings } = await import('../services/scene-plan-reconcile.js')
+  const r = await reconcileScenePlanTimings(SLUG, 'EP0005', { auto: true })
+  const plan = JSON.parse(await fs.readFile(planPath, 'utf-8'))
+  assert.ok(plan.scenes.every((s: any) => s.end_sec > s.start_sec), JSON.stringify(plan.scenes.slice(0, 3)))
+  assert.ok(r.changes.some((c: string) => /no length/.test(c)), r.changes.join('\n'))
+})

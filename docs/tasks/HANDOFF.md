@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## Current work — 2026-10-12 (1.4.298 no zero-length scenes after re-align)
+
+- `services/scene-plan-reconcile.ts` runs `removeNonRenderableScenes` after `reconcilePlanToSubtitles` (words carry their cue's start, so two scenes in one cue anchored to the same second). Test: `video-small-overlap-repair.test.ts` (last).
+
 ## Current work — 2026-10-12 (1.4.297 new section joins the audio selection)
 
 - `generators/audio.ts` `selectNormalAudioSources`: a replacement for a slug with no `audio_chapters.json` row appends `{ slug, source_file(s) }` instead of refusing; Audio Assembly (next in the chain) times it. Test: `audio-chapter-parts-partial-rerun.test.ts` (last test). `audio-versions.ts useChapterTake` (manual take switch) still refuses a missing row.
