@@ -254,7 +254,8 @@ async function parseNarrationDocxUncached(docxPath: string): Promise<NarrationSe
   function flush() {
     if (currentLabel && currentLines.length) {
       const text = currentLines.join('\n\n').trim()
-      if (text) sections.push({ label: currentLabel, slug: currentSlug!, text, title: currentTitle })
+      // A doubled narration file repeats a chapter; one slug is one audio file, so keep the first.
+      if (text && !sections.some(s => s.slug === currentSlug)) sections.push({ label: currentLabel, slug: currentSlug!, text, title: currentTitle })
     }
   }
 

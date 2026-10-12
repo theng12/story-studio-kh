@@ -227,6 +227,18 @@ describe('writeChapterFiles + assembleUnifiedNarration round-trip', () => {
     assert.equal(sections[1]!.title, 'The Selkie Weaver')
   })
 
+  test('a chapter saved as both .md and legacy .docx is assembled once (1.4.296, mineepod EP0003)', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpRoot, 'roundtrip-both-ext-'))
+    const code = 'TST0009'
+    await writeChapterFiles(dir, code, 'X', splitNarrationIntoChapters(BULK_NO_INTRO))
+    const md = chapterFilePath(dir, code, 1)
+    await fs.copyFile(md, md.replace(/\.md$/, '.docx'))
+    const result = await assembleUnifiedNarration(dir, code, 'X')
+    assert.deepEqual(result.chapter_numbers, [1, 2])
+    const unified = await fs.readFile(path.join(dir, `${code}_Script_Narration.md`), 'utf-8')
+    assert.equal(unified.match(/The Mist-Kissed Shore/g)?.length, 1, unified)
+  })
+
   test('intro + chapters: Introduction is the FIRST parsed section', async () => {
     const dir = await fs.mkdtemp(path.join(tmpRoot, 'roundtrip-intro-'))
     const code = 'TST0002'

@@ -728,6 +728,11 @@ export function subtitleCoverageGapError(gap: { gap_sec: number; previous_end_se
   ))
 }
 
+/** A continuation problem that re-aligning the plan to today's captions fixes (1.4.296). */
+function realignable(message: string): Error {
+  return Object.assign(new Error(message), { realign: true })
+}
+
 function scenePlanContinuationError(error: unknown): Error {
   return new Error(
     `Cannot safely continue Scene Plan: ${error instanceof Error ? error.message : String(error)}. `
@@ -1189,7 +1194,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     //
     // Continuation checks and opening probes precede any mutation inside this
     // lock. Every prompt written afterwards uses `checkpointScenePrompt`.
-    const { plan, creativeDirection } = await withLock(outPath, async () => {
+    // 1.4.296 — drift a re-alignment can absorb is healed, not refused: the read below throws a
+    // `realign` error once, the plan is re-aligned to today's captions, and the read runs again.
+    let realigned = false
+    const readPlan = () => withLock(outPath, async () => {
       let plan: ScenePlan
       try {
         plan = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
@@ -1206,16 +1214,16 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           if (!stored || typeof stored.sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(stored.sha256)
             || !Number.isInteger(stored.total_cues) || stored.total_cues < 1
             || !Number.isFinite(stored.first_cue_start_sec) || !Number.isFinite(stored.last_cue_end_sec)) {
-            throw new Error('the saved plan has no verifiable subtitle timeline stamp')
+            throw realignable('the saved plan has no verifiable subtitle timeline stamp')
           }
           const current = stampFromCues(cues)
           const drift = compareTimeline(stored, current)
-          if (drift.stale) throw new Error(drift.reason)
+          if (drift.stale) throw realignable(drift.reason)
           if (plan.source_merged_audio) {
             const merged = (await scanEpisodeAssets(job.project_slug, episode_id)).merged_audio?.[0]
             const audioDrift = compareMergedAudio(plan.source_merged_audio, merged?.duration,
               scenePlanLeadInShiftSec(plan.scenes || [], merged?.opening?.lead_in_sec, merged?.duration))
-            if (audioDrift.stale) throw new Error(audioDrift.reason)
+            if (audioDrift.stale) throw realignable(audioDrift.reason)
           }
           if (plan.pacing === undefined) throw new Error('the saved plan has no pacing snapshot')
           const savedPacing = parseSavedScenePlanPacing(plan.pacing)
@@ -1245,12 +1253,13 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           const coverage = inspectScenePlanCoverage(plan)
           if (!coverage.authoritative || !coverage.complete
             || plan.total_duration_sec < current.last_cue_end_sec - 0.001) {
-            throw new Error('the saved plan does not cover the verified subtitle timeline')
+            throw realignable('the saved plan does not cover the verified subtitle timeline')
           }
           job.output_lines.push('Continuing the existing scene timeline: reviewed scenes and saved prompts are kept; only missing or invalid visual prompts will be requested.')
         }
       } catch (error) {
         if (!continueExistingPlan) throw error
+        if ((error as { realign?: boolean })?.realign && !realigned) throw error
         // Running again reads the same saved plan and stops here again. Offer the fix instead.
         job.result = { ...(job.result || {}), attention: { kind: 'scene_plan_rebuild', workspace: 'scene-plan', episode_id } }
         throw nonRetryable(scenePlanContinuationError(error))
@@ -1296,6 +1305,22 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       }
       return { plan, creativeDirection }
     })
+    let loaded: Awaited<ReturnType<typeof readPlan>>
+    try {
+      loaded = await readPlan()
+    } catch (error) {
+      if (!(error as { realign?: boolean })?.realign) throw error
+      const { realignDriftedScenePlan } = await import('../services/scene-plan-reconcile.js')
+      try {
+        job.output_lines.push(await realignDriftedScenePlan(job.project_slug, episode_id, (error as Error).message))
+      } catch (realignError) {
+        job.result = { ...(job.result || {}), attention: { kind: 'scene_plan_rebuild', workspace: 'scene-plan', episode_id } }
+        throw nonRetryable(scenePlanContinuationError(realignError))
+      }
+      realigned = true
+      loaded = await readPlan()
+    }
+    const { plan, creativeDirection } = loaded
     // 1.4.288 — before any prompt is bought, the scenes must reach the end of today's narration.
     // A short plan fails here, at Scene Plan, not an hour later at Video Assembly (AF EP0136).
     const narration = await readNarrationRecord(

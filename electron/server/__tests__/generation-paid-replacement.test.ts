@@ -96,8 +96,13 @@ test('writing replacement enforces opt-in, fresh server support, durable budget,
         })
         const job = queue.enqueuePreparedForTest({ project_slug: project.slug, type: 'metadata', episode_id: name, title: name, params: { auto_retry: false } })
         await waitFor(() => ['done', 'error'].includes(queue.getJob(job.job_id)?.status || ''), { label: name, timeoutMs: 10000 })
-        assert.equal(posts.length, ['success', 'fails-again'].includes(name) ? 2 : 1, queue.getJob(job.job_id)?.error || '')
-        if (posts.length === 2) {
+        assert.equal(posts.length, ['success', 'fails-again', 'uncertain'].includes(name) ? 2 : 1, queue.getJob(job.job_id)?.error || '')
+        // Owner decision 2026-10-12: a lost writing request gets one fresh resend, never a paid replacement.
+        if (name === 'uncertain') {
+          assert.match(posts[1]!.key, /^story-chat-resend-/)
+          assert.equal(posts[1]!.body.max_charge_credits, undefined)
+          assert.ok(queue.getJob(job.job_id)?.output_lines.some(line => /sent it once more as a fresh request/.test(line)))
+        } else if (posts.length === 2) {
           assert.notEqual(posts[0]!.key, posts[1]!.key)
           const persisted = await queue.loadAuthoritativeJob(project.slug, job.job_id)
           assert.equal(persisted?.generation_replacement_attempts?.length, 1)

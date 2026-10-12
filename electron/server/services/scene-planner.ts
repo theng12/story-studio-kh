@@ -819,6 +819,9 @@ export function reconcilePlanToSubtitles(
   }
 
   // Enforce monotonic non-decreasing starts, then derive contiguous ends.
+  // 1.4.296 — scene 1 never moves later: a picture held over the opening beats an uncovered
+  // head (Brain Wise EP0044 left 3.7 s with no scene and Video Assembly refused it).
+  newStart[0] = Math.min(newStart[0]!, Math.max(0, Number(out[0]!.start_sec) || 0))
   for (let i = 1; i < out.length; i++) {
     if (newStart[i]! < newStart[i - 1]!) newStart[i] = newStart[i - 1]!
   }

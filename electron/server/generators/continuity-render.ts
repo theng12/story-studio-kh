@@ -994,7 +994,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               const expectedInputHash = preparedReplay
                 ? manifestEntry!.input_hash!
                 : identity?.inputHash || hashRequest(requestScope)
-              if (sceneManualFinish && pipelineRepairActionId === sceneManualFinish.action_id
+              if (!freeFleet && sceneManualFinish && pipelineRepairActionId === sceneManualFinish.action_id
                 && isTerminalGenStudioImageTaskFailure(manifestEntry)
                 && hasPipelineRepairImageAttempt(manifestEntry, pipelineRepairActionId)) {
                 throw new Error('This Pipeline repair action already used its one fresh attempt for this scene image.')
@@ -1105,7 +1105,8 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 // known-terminal task cannot silently promote that same click
                 // to a second billable request. The next explicit click owns a
                 // new generation_action and therefore a new provider identity.
-                if (attemptNum === 1 && belongsToFreshAction) {
+                // Free fleet: nothing is charged, so the click's request simply counts as not made.
+                if (!freeFleet && attemptNum === 1 && belongsToFreshAction) {
                   throw new Error('This explicit scene regeneration already used its one image request. Start a new regeneration to submit another image.')
                 }
                 // GenStudio just told us the saved job settled. Persist that
@@ -1156,7 +1157,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   'submitting one fresh job under a new retry identity.',
                 )
                 if (sceneManualFinish) {
-                  if (pipelineRepairActionId === sceneManualFinish.action_id
+                  if (!freeFleet && pipelineRepairActionId === sceneManualFinish.action_id
                     && hasPipelineRepairImageAttempt(carried, pipelineRepairActionId)) {
                     throw new Error('This Pipeline repair action already used its one fresh attempt for this scene image.')
                   }
@@ -1608,6 +1609,42 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
     }
 
     if (paidImageWaitRequested) return { kind: 'paid-image-wait' }
+
+    // Free fleet, last automatic try (the earlier tries already waited and asked again):
+    // a scene that still could not be made borrows the nearest scene's picture instead
+    // of failing the episode. Its rendered_prompt is the neighbour's, so Scene Review
+    // flags it as not matching its prompt and a later regeneration replaces it.
+    // ponytail: capped at 10% of the episode; beyond that the fleet is down, keep failing.
+    const lastAutomaticTry = (job.auto_retry?.attempt ?? 1) >= (job.auto_retry?.max_attempts ?? 1)
+    if (freeFleet && lastAutomaticTry && failedSceneIds.length <= Math.max(1, Math.floor(scenes.length / 10))
+      && !jq.isCancelled(job.job_id) && !jq.isPauseRequested(job.job_id)) {
+      for (const sceneId of [...failedSceneIds]) {
+        const at = scenes.findIndex(scene => scene.id === sceneId)
+        const outPath = path.join(outDir, `${sceneId}.png`)
+        // A re-render that failed keeps the scene's own earlier picture, which beats a neighbour's.
+        let neighbour = await isDecodableImage(outPath) ? scenes[at] : undefined
+        for (let d = 1; !neighbour && d < scenes.length; d++) {
+          for (const candidate of [scenes[at - d], scenes[at + d]]) {
+            if (!neighbour && candidate && !failedSceneIds.includes(candidate.id)
+              && await isDecodableImage(path.join(outDir, `${candidate.id}.png`))) neighbour = candidate
+          }
+        }
+        if (!neighbour) continue
+        const scene = scenes[at]!
+        if (neighbour !== scene) {
+          await fs.copyFile(path.join(outDir, `${neighbour.id}.png`), outPath)
+          await persistImagePath(scene.id, outPath, neighbour.visual_prompt)
+        }
+        failedSceneIds.splice(failedSceneIds.indexOf(sceneId), 1)
+        failureReasons.delete(sceneId)
+        successfulSceneIds.add(sceneId)
+        usableRenderedIds.add(sceneId)
+        job.output_lines.push(neighbour === scene
+          ? `Scene ${scene.scene_index} could not be made again; keeping its earlier picture for now.`
+          : `Scene ${scene.scene_index} could not be made; using scene ${neighbour.scene_index}'s picture for now. ` +
+            'Scene Review shows it; regenerate that scene to replace it.')
+      }
+    }
 
     job.output_dir = outDir
     syncItemProgress()

@@ -1353,7 +1353,7 @@ test('a provider-absent paid prepared image stays fail-closed when its key no lo
 for (const recoveryCase of [
   { name: 'accepted lookup returns absent', taskId: 'missing-accepted-free-task', state: 'accepted', lookupStatus: 404 },
   { name: 'prepared lookup is uncertain', taskId: '', state: 'prepared', lookupStatus: 500 },
-]) test(`free-fleet recovery makes no duplicate POST when an ${recoveryCase.name}`, async () => {
+]) test(`lenient: free-fleet recovery submits one fresh image when an ${recoveryCase.name}`, async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   const originalFetch = globalThis.fetch
@@ -1408,9 +1408,10 @@ for (const recoveryCase of [
     }
     await writeAuthoritativeFixture(job)
 
-    await assert.rejects(runContinuityRenderJob(job), /incomplete/i)
-    assert.equal(service.providerSubmissionCount('image'), 0)
-    assert.ok(job.output_lines.some((line: string) => /Could not confirm the earlier Gateway request/i.test(line)))
+    // Free images may be repeated: an outcome the Gateway cannot confirm counts as not made.
+    await runContinuityRenderJob(job)
+    assert.equal(service.providerSubmissionCount('image'), 1)
+    assert.ok(job.output_lines.some((line: string) => /new retry identity/i.test(line)), job.output_lines.join('\n'))
   } finally {
     globalThis.fetch = originalFetch
     const client = await import('../lib/genstudio-client.js')
@@ -3045,4 +3046,99 @@ test('an unfinished scene image is explained in plain words with what to do next
     unresolvedSceneImagesMessage({ auto_retry: { eligible: true, reason: '', attempt: 1, max_attempts: 3 } }, scenes, issues),
     /after 1 try: .* Story Studio will try again automatically\.$/,
   )
+})
+
+async function withFreeFleetContinuity(
+  name: string,
+  body: (ctx: { service: Awaited<ReturnType<typeof startMockGenStudioService>>; project: any; episodeId: string; paths: any; outDir: string }) => Promise<void>,
+): Promise<void> {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  const originalFetch = globalThis.fetch
+  try {
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    await settings.setGenStudioUrl(service.baseUrl)
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+      if (url.pathname === '/v1/image/models') return Response.json([imageCatalogRow(FREE_FLEET_IMAGE_MODEL, false)])
+      return originalFetch(input, init)
+    }
+    client.clearGenStudioCatalogCache()
+    await import('../providers/image/genstudio.js')
+    const { project, episodeId, paths } = await createContinuityFixture(name)
+    const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    await fs.mkdir(outDir, { recursive: true })
+    await body({ service, project, episodeId, paths, outDir })
+    await (await import('../services/job-queue.js'))._waitForJobPersistenceForTesting()
+  } finally {
+    globalThis.fetch = originalFetch
+    const client = await import('../lib/genstudio-client.js')
+    client.clearGenStudioCatalogCache()
+    await service.close()
+    await temp.cleanup()
+  }
+}
+
+test('lenient: a free-fleet explicit regeneration whose one request failed submits a fresh image instead of refusing', async () => {
+  await withFreeFleetContinuity('Free explicit regeneration', async ({ service, project, episodeId, outDir }) => {
+    const { recordTaskStrict } = await import('../services/task-manifest.js')
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    const actionId = 'abababab-abab-4bab-8bab-abababababab'
+    await recordTaskStrict(outDir, 'scene-001.png', {
+      provider: 'genstudio-image', task_id: 'dead-free-task', submitted_at: new Date().toISOString(),
+      input_hash: 'dead-free-input', idempotency_key: 'story-image-dead-free', operation: 'image',
+      last_state: 'failed', request_scope: actionId,
+    })
+    const now = new Date().toISOString()
+    const job: any = {
+      job_id: 'free-explicit-regeneration', project_slug: project.slug, type: 'continuity_render', episode_id: episodeId,
+      title: 'Regenerate', status: 'running', created_at: now, started_at: now, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [],
+      params: {
+        episode_id: episodeId, model: FREE_FLEET_IMAGE_MODEL, aspect_ratio: '16:9', resolution: '1K',
+        scene_ids: ['scene-001'], force: true, generation_action: { id: actionId, kind: 'fresh' },
+      },
+    }
+    await writeAuthoritativeFixture(job)
+
+    await runContinuityRenderJob(job)
+    assert.equal(service.providerSubmissionCount('image'), 1, 'one fresh free request under a new identity')
+    assert.ok(!job.output_lines.some((line: string) => /one image request/.test(line)), job.output_lines.join('\n'))
+  })
+})
+
+test('lenient: on the last automatic try a free-fleet scene that still fails borrows its neighbour\'s picture', async () => {
+  await withFreeFleetContinuity('Free neighbour reuse', async ({ service, project, episodeId, paths, outDir }) => {
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    const planPath = path.join(paths.scene_prompts_dir, 'scene_plan.json')
+    await fs.writeFile(planPath, JSON.stringify({ scenes: [
+      { id: 'scene-001', scene_index: 1, visual_prompt: 'A lantern in a quiet archive.' },
+      { id: 'scene-002', scene_index: 2, visual_prompt: 'A river under moonlight.' },
+    ] }))
+    await sharp({ create: { width: 16, height: 9, channels: 3, background: '#335' } }).png().toFile(path.join(outDir, 'scene-001.png'))
+    service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'provider_error' })
+    const now = new Date().toISOString()
+    const job: any = {
+      job_id: 'free-neighbour-reuse', project_slug: project.slug, type: 'continuity_render', episode_id: episodeId,
+      title: 'Render', status: 'running', created_at: now, started_at: now, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [],
+      auto_retry: { eligible: true, reason: '', attempt: 3, max_attempts: 3 },
+      params: {
+        episode_id: episodeId, model: FREE_FLEET_IMAGE_MODEL, aspect_ratio: '16:9', resolution: '1K',
+        scene_ids: ['scene-002'],
+      },
+    }
+    await writeAuthoritativeFixture(job)
+
+    await runContinuityRenderJob(job)
+    assert.ok(job.output_lines.some((line: string) => /Scene 2 could not be made; using scene 1's picture/.test(line)), job.output_lines.join('\n'))
+    const plan = JSON.parse(await fs.readFile(planPath, 'utf8'))
+    const borrowed = plan.scenes.find((scene: any) => scene.id === 'scene-002')
+    assert.equal(borrowed.image_path, path.join(outDir, 'scene-002.png'))
+    assert.notEqual(borrowed.rendered_prompt, borrowed.visual_prompt, 'Scene Review flags the borrowed picture')
+  })
 })

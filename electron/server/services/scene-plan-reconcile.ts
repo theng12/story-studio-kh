@@ -13,13 +13,22 @@ import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from './utils.js'
 import { resolveTranscriptSrtPath, stitchedSrtPath } from './subtitle-correction.js'
 import { computePlanCoverage, reconcilePlanToSubtitles } from './scene-planner.js'
+import { stampFromCues } from '../lib/scene-plan-timeline.js'
 import type { ScenePlan } from '../models/types.js'
 
 function refusal(statusCode: number, message: string): Error {
   return Object.assign(new Error(message), { statusCode })
 }
 
-export async function reconcileScenePlanTimings(slug: string, episodeId: string) {
+/** Below this share of today's narration a plan is not "a little" out of step; it needs a rebuild. */
+export const AUTO_REALIGN_MIN_COVERAGE = 0.9
+
+export async function reconcileScenePlanTimings(
+  slug: string,
+  episodeId: string,
+  /** 1.4.296 — automatic callers refuse a plan that covers less than 90% of today's narration. */
+  options: { auto?: boolean } = {},
+) {
   const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, 'scene_plan.json')
   const sidecarPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
   if (!existsSync(sidecarPath)) throw refusal(404, 'No scene_plan.json — run Scene Plan first.')
@@ -58,10 +67,20 @@ export async function reconcileScenePlanTimings(slug: string, episodeId: string)
     // Re-read under the lock: the plan was read before the checks above, and a
     // job or another request may have written the file since.
     const fresh = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
-    const coverageBefore = computePlanCoverage(fresh.scenes, audioDur || cues[cues.length - 1]!.end_sec)
+    const narrationSec = audioDur || cues[cues.length - 1]!.end_sec
+    const planEndSec = Math.max(...fresh.scenes.map(scene => Number(scene.end_sec) || 0))
+    if (options.auto && Math.min(planEndSec, narrationSec) / Math.max(planEndSec, narrationSec, 0.001) < AUTO_REALIGN_MIN_COVERAGE) {
+      throw refusal(409, `the Scene Plan was built for ${planEndSec.toFixed(1)}s of narration and today's narration is `
+        + `${narrationSec.toFixed(1)}s — too different to re-align, so rebuild the timeline`)
+    }
+    const coverageBefore = computePlanCoverage(fresh.scenes, narrationSec)
     const result = reconcilePlanToSubtitles(fresh.scenes, cues, audioDur || undefined)
     fresh.scenes = result.scenes
-    fresh.total_duration_sec = audioDur || cues[cues.length - 1]!.end_sec
+    fresh.total_duration_sec = narrationSec
+    // 1.4.296 — the plan now follows today's captions and narration, so it says so. Without
+    // this the "out of date" checks kept failing a plan that had just been re-aligned.
+    fresh.source_timeline = stampFromCues(cues)
+    if (audioDur > 0) fresh.source_merged_audio = { duration_sec: Math.round(audioDur * 1000) / 1000 }
     await writeJsonAtomic(sidecarPath, fresh)
     return {
       before: coverageBefore,
@@ -80,4 +99,15 @@ export async function reconcileScenePlanTimings(slug: string, episodeId: string)
     coverage_before: before,
     coverage_after: after,
   }
+}
+
+/**
+ * 1.4.296 — owner: "Imperfection is often accepted." A plan a little out of step with today's
+ * captions or narration is re-aligned (every scene, prompt and image kept) and the work carries
+ * on, instead of stopping for a person. Returns the line for the job log.
+ */
+export async function realignDriftedScenePlan(slug: string, episodeId: string, reason: string): Promise<string> {
+  const r = await reconcileScenePlanTimings(slug, episodeId, { auto: true })
+  return `Scene Plan was a little out of step (${reason.replace(/\.$/, '')}). Re-aligned ${r.matched}/${r.total} scene(s) `
+    + 'to the current captions and carried on; every scene, prompt and image was kept.'
 }

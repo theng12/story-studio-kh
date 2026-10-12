@@ -1299,7 +1299,8 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
           end_sec: scene.end_sec,
           duration_sec: Math.max(0, scene.end_sec - scene.start_sec),
         })
-        if (scene.approved && !stale) usableCount++
+        // 1.4.296 — a stale picture is still usable (see prepareUnifiedVideoAssemblyInputs).
+        if (scene.approved) usableCount++
       }
       result.scene_sources!.scene_plan = result.scenes.filter(scene => scene.source === 'scene_plan').length
       result.scene_plan_coverage = {
@@ -1551,9 +1552,8 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
       overlap_count: overlapCount,
       complete: !!result.scene_plan_coverage
         && result.scene_plan_coverage.ready === result.scene_plan_coverage.total
-        && integrity.complete
-        && overlapCount === 0
-        && !audioDrift.stale,
+        // 1.4.296 — overlaps and a slightly different narration are re-aligned by the render itself.
+        && integrity.complete,
       scenes: scannedPlan.scenes.map(scene => {
         const scanned = byId.get(scene.id)
         const stale = typeof scene.rendered_prompt === 'string' && scene.rendered_prompt !== scene.visual_prompt
@@ -1830,21 +1830,20 @@ export async function assertSubtitleFileBelongsToEpisode(
  * The browser and Pipeline may supply reusable editing settings, but neither is
  * allowed to choose a partial or reordered set of Scene Plan assets.
  */
-const OVERLAP_REPAIR_MAX_EACH_SEC = 2
-const OVERLAP_REPAIR_MAX_TOTAL_SEC = 5
-
-/** Overlaps small enough to repair without asking: each ≤ 2 s and ≤ 5 s in all. Null when none or too big. */
+/**
+ * Timing overlaps Video Assembly repairs by itself. 1.4.296 — any size (owner: "Imperfection is
+ * often accepted"); before, only ≤ 2 s each and ≤ 5 s in all, and Brain Wise EP0044-EP0048 stopped
+ * on 2.9-49 s. Null when there are none.
+ */
 export function repairableTimingOverlaps(
   timing: Pick<NonNullable<ScannedAssets['scene_plan_timing']>, 'overlap_count' | 'overlap_sec' | 'scenes'> | undefined,
 ): { count: number; totalSec: number; maxSec: number } | null {
-  if (!timing || timing.overlap_count <= 0 || timing.overlap_sec > OVERLAP_REPAIR_MAX_TOTAL_SEC) return null
+  if (!timing || timing.overlap_count <= 0) return null
   let maxSec = 0
   for (let i = 1; i < timing.scenes.length; i++) {
     maxSec = Math.max(maxSec, Number(timing.scenes[i - 1]!.end_sec) - Number(timing.scenes[i]!.start_sec))
   }
-  return maxSec <= OVERLAP_REPAIR_MAX_EACH_SEC
-    ? { count: timing.overlap_count, totalSec: timing.overlap_sec, maxSec }
-    : null
+  return { count: timing.overlap_count, totalSec: timing.overlap_sec, maxSec }
 }
 
 export async function prepareUnifiedVideoAssemblyInputs(
@@ -1859,20 +1858,29 @@ export async function prepareUnifiedVideoAssemblyInputs(
   job?: Job,
 ): Promise<ScannedAssets> {
   let assets = await scanEpisodeAssets(slug, episodeId)
-  // Small timing overlaps (Brain Wise EP0039: 11 totalling 4.0s) are repaired with the Scene Plan's
-  // own "Reconcile timings", which keeps every scene and image, and the render goes on (1.4.278).
-  // A request with no job (preflight, queueing) leaves the repair to the render.
-  const smallOverlaps = repairableTimingOverlaps(assets.scene_plan_timing)
-  if (job && smallOverlaps) {
+  // Timing overlaps of any size, and a plan timed against a slightly different narration, are
+  // repaired with the Scene Plan's own "Reconcile timings", which keeps every scene and image, and
+  // the render goes on (1.4.278 for small overlaps; 1.4.296 for all of them and for narration
+  // drift). A request with no job (preflight, queueing) leaves the repair to the render.
+  const overlaps = repairableTimingOverlaps(assets.scene_plan_timing)
+  const audioDrift = assets.scene_plan_timing?.audio_stale_reason
+  if (job && (overlaps || audioDrift)) {
     const { reconcileScenePlanTimings } = await import('../services/scene-plan-reconcile.js')
-    const repaired = await reconcileScenePlanTimings(slug, episodeId)
-    assets = await scanEpisodeAssets(slug, episodeId)
-    job.output_lines.push(
-      `Scene Plan: ${smallOverlaps.count} small timing overlap(s) totalling ${smallOverlaps.totalSec.toFixed(1)}s `
-      + `(largest ${smallOverlaps.maxSec.toFixed(1)}s) — re-anchored the timings to the subtitles `
-      + `(${repaired.matched}/${repaired.total} scenes matched, median shift ${repaired.median_shift_sec.toFixed(2)}s); `
-      + `every scene and image kept. Overlaps now: ${assets.scene_plan_timing?.overlap_count ?? 0}.`,
-    )
+    try {
+      const repaired = await reconcileScenePlanTimings(slug, episodeId, { auto: true })
+      assets = await scanEpisodeAssets(slug, episodeId)
+      job.output_lines.push(
+        'Scene Plan: '
+        + [overlaps ? `${overlaps.count} timing overlap(s) totalling ${overlaps.totalSec.toFixed(1)}s (largest ${overlaps.maxSec.toFixed(1)}s)` : '',
+          audioDrift ? `out of step with the narration (${audioDrift.replace(/ Re-stitch.*$/, '')})` : '']
+          .filter(Boolean).join('; ')
+        + ` — re-anchored the timings to the subtitles (${repaired.matched}/${repaired.total} scenes matched, `
+        + `median shift ${repaired.median_shift_sec.toFixed(2)}s); every scene and image kept. `
+        + `Overlaps now: ${assets.scene_plan_timing?.overlap_count ?? 0}.`,
+      )
+    } catch (error) {
+      job.output_lines.push(`Scene Plan timings could not be re-aligned automatically: ${(error as Error)?.message || error}.`)
+    }
   }
   if (assets.visual_source === 'image_pool') {
     const merged = assets.merged_audio[0]
@@ -1925,7 +1933,7 @@ export async function prepareUnifiedVideoAssemblyInputs(
   if (!timing || !coverage || coverage.total === 0) {
     throw new Error('No Scene Plan timeline was found. Build the timeline, generate visual prompts, and review every scene first.')
   }
-  if (timing.audio_stale_reason) {
+  if (timing.audio_stale_reason && job) {
     throw new Error(`Video Assembly is blocked: the Scene Plan is out of date — ${timing.audio_stale_reason} Nothing was rendered.`)
   }
   const problems: string[] = []
@@ -1935,8 +1943,12 @@ export async function prepareUnifiedVideoAssemblyInputs(
   if (coverage.unapproved.length) {
     problems.push(`${coverage.unapproved.length} unapproved scene(s): ${coverage.unapproved.slice(0, 8).map(row => `#${row.scene_index}`).join(', ')}`)
   }
+  // 1.4.296 — a picture drawn from an older wording of its prompt is still that scene's picture.
+  // It is used as it is and named here; Scene Review still marks it for a re-render.
   if (coverage.stale.length) {
-    problems.push(`${coverage.stale.length} stale image(s): ${coverage.stale.slice(0, 8).map(row => `#${row.scene_index}`).join(', ')}`)
+    job?.output_lines.push(`${coverage.stale.length} scene picture(s) were drawn from an older prompt `
+      + `(${coverage.stale.slice(0, 8).map(row => `#${row.scene_index}`).join(', ')}${coverage.stale.length > 8 ? ', …' : ''}); `
+      + 'using them as they are. Re-render them in Scene Review to refresh them.')
   }
   if (timing.uncovered_sec > COVERAGE_FAIL_SEC) {
     // 1.4.288 — a zero-length row voids the whole coverage audit; say that, not "all of it is unplanned" (BW EP0040).
@@ -1945,9 +1957,8 @@ export async function prepareUnifiedVideoAssemblyInputs(
       ? `${zeroLength} scene(s) have no length (end time not after start time); rebuild the Scene Plan timeline`
       : `${timing.uncovered_sec.toFixed(1)}s of narration has no planned scene`)
   }
-  if (timing.overlap_count > 0 && (job || !repairableTimingOverlaps(timing))) {
-    problems.push(`${timing.overlap_count} timing overlap(s) totalling ${timing.overlap_sec.toFixed(1)}s`
-      + (job && !smallOverlaps ? ` (more than the ${OVERLAP_REPAIR_MAX_EACH_SEC}s each / ${OVERLAP_REPAIR_MAX_TOTAL_SEC}s in all that Video Assembly repairs on its own; use Reconcile timings in Scene Plan)` : ''))
+  if (timing.overlap_count > 0 && job) {
+    problems.push(`${timing.overlap_count} timing overlap(s) totalling ${timing.overlap_sec.toFixed(1)}s that could not be re-aligned`)
   }
   if (problems.length) {
     throw new Error(

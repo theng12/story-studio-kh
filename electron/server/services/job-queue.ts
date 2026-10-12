@@ -104,6 +104,14 @@ export function currentJobId(): string | undefined {
   return jobContext.getStore()?.jobId
 }
 
+/** One plain-English line on the running queue job's log, from a deep provider client. */
+export function noteCurrentJob(line: string): void {
+  const job = jobs.get(currentJobId() || '')
+  if (!job) return
+  job.output_lines.push(line)
+  emitUpdate(job)
+}
+
 /**
  * Persist a GenStudio-owned state/billing snapshot without interpreting it.
  * This is intentionally additive so old provider evidence stays untouched.

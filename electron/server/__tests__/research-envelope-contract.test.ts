@@ -31,6 +31,7 @@ import {
   parseGenStudioCitationClaims,
   parseGenStudioCitations,
   GENSTUDIO_LANGUAGE_FAILURE_CODES,
+  lostChatResendKey,
 } from '../lib/genstudio-client.js'
 import {
   readResearchWebRun,
@@ -459,10 +460,11 @@ test('a durable job distinguishes the two failure codes the 502 could not', asyn
   assert.match((uncertain.error as Error).message, /Generate this step again/)
   assert.match((uncertain.error as Error).message, /did not send it again by itself/)
 
-  // Neither code resubmits, and the uncertain one is doubly protected: it is a
-  // settled outcome AND it is refused by name in shouldReconnectAcceptedTask.
+  // A failed job is not resubmitted. An uncertain one gets exactly one fresh resend
+  // (owner decision 2026-10-12), and a resend that is lost too stops there.
   assert.equal(failed.submits.length, 1, 'a failed job must not be resubmitted')
-  assert.equal(uncertain.submits.length, 1, 'an uncertain job must NEVER be resubmitted')
+  assert.deepEqual(uncertain.submits, [uncertain.submits[0], lostChatResendKey(uncertain.submits[0]!, 'job_failed_1')],
+    'an uncertain job is resent once, never twice')
 })
 
 /**

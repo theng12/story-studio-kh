@@ -3,6 +3,7 @@
 import type { ImageModelConfig } from '../models/types.js'
 import { createHash } from 'node:crypto'
 import { getGenStudioUrl } from '../services/app-settings.js'
+import { isFreeFleetModelId } from '../contracts/provider-task-state.js'
 import { hashInput, type ImageRequestIdentityEvidence, type TaskManifestEntry } from '../services/task-manifest.js'
 import {
   GenStudioImageArtifactUnavailableError,
@@ -80,7 +81,7 @@ function isCancellation(error: unknown, isCancelled?: () => boolean): boolean {
 export async function tryRecoverImageFromManifestEntry(
   entry: TaskManifestEntry | null,
   apiKey: string,
-  _modelConfig: ImageModelConfig,
+  modelConfig: ImageModelConfig,
   isCancelled?: () => boolean,
   options: { observeCurrentState?: boolean; allowPreparedReplayOnAbsent?: boolean } = {},
 ): Promise<ImageRecoveryOutcome> {
@@ -138,6 +139,18 @@ export async function tryRecoverImageFromManifestEntry(
     }
     if (error instanceof GenStudioImageArtifactUnavailableError) {
       return { kind: 'artifact-unavailable', taskId: error.jobId, reason: error.message }
+    }
+    // Free fleet (the owner's own Macs; nothing is charged): an outcome that cannot be
+    // confirmed — e.g. "No such job" for the saved key — counts as not made. Report it
+    // as settled so every caller promotes to a fresh request identity (derived from this
+    // id) instead of failing on every Retry. Paid models stay `uncertain` below.
+    if (isFreeFleetModelId(modelConfig.api_model) && (!entry.model_id || isFreeFleetModelId(entry.model_id))) {
+      return {
+        kind: 'terminal-failed',
+        taskId: entry.task_id || entry.idempotency_key!,
+        failureCode: null,
+        reason: `the earlier free image request could not be confirmed (${error instanceof Error ? error.message : String(error)}), so it counts as not made`,
+      }
     }
     return {
       kind: 'uncertain',

@@ -61,7 +61,7 @@ import { resolveOutputFormat } from '../services/generation-compression.js'
 import { AudioQualityVerificationCreditCeilingError, verifyAudioQualityCandidateRawTranscript } from '../services/audio-quality-transcription.js'
 import { promoteAudioQualityCandidate, readAudioQualityProvenance, updateAudioQualityProvenance } from '../services/audio-quality-store.js'
 import { readAudioTtsModelRecord, writeAudioTtsModelRecord, type AudioTtsModelRecord } from '../services/audio-tts-model-record.js'
-import { consolidateChapterParts, keptPartPath, partsDir, seamPauseRule } from '../services/chapter-parts.js'
+import { consolidateChapterParts, keptPartPath, measurePart, partsDir, seamPauseRule } from '../services/chapter-parts.js'
 import { partHoldingSentence, type ChapterMissingSentences } from '../lib/script-transcript-check.js'
 import { isFreeFleetModelId } from '../contracts/provider-task-state.js'
 import type {
@@ -1561,7 +1561,7 @@ export async function generateAudio(job: Job): Promise<void> {
     const replacementSources = Object.fromEntries(pendingUpdates
       .filter(update => update.sourceFiles.every(belongsToCompletedReplacement(update.slug)))
       .map(update => [update.slug, update.sourceFiles]))
-    const replacementCount = Object.keys(replacementSources).length
+    let replacementCount = Object.keys(replacementSources).length
     if (replacementCount === 0 && writtenChunkPaths.size === 0) {
       // An ordinary non-force run over already-present audio is a no-op, not a
       // replacement. This includes genuine legacy/imported whole-chapter
@@ -1569,6 +1569,24 @@ export async function generateAudio(job: Job): Promise<void> {
       // to activate, and do not rewrite their selection or committed model.
       job.output_lines.push('Existing audio was already present; active source selection was left unchanged.')
     } else {
+      // Owner rule (lenient): a section whose replacement record is incomplete is still
+      // activated when every one of its files is real, decodable, non-silent audio. A missing
+      // or bad file, or a file the record says another voice model made, still refuses.
+      for (const update of pendingUpdates) {
+        if (replacementSources[update.slug]) continue
+        const playable = await Promise.all(update.sourceFiles.map(async file => {
+          const recordedModel = manifest.tasks[file]?.model_id
+          if (recordedModel && recordedModel !== genStudioModelId) return false
+          const full = path.join(audioDir, file)
+          if (!await fileExistsWithContent(full)) return false
+          const measure = await measurePart(full).catch(() => null)
+          return !!measure && measure.duration_s > 0 && measure.lufs !== null
+        }))
+        if (!playable.every(Boolean)) continue
+        replacementSources[update.slug] = update.sourceFiles
+        job.output_lines.push(`${update.slug.replaceAll('_', ' ')}: its replacement record was incomplete, but ${update.sourceFiles.join(', ')} ${update.sourceFiles.length === 1 ? 'is' : 'are'} complete, playable audio, so it was activated.`)
+      }
+      replacementCount = Object.keys(replacementSources).length
       if (updates.length !== sections.length || replacementCount !== pendingUpdates.length) {
         throw audioActivationError('not every requested section has complete durable replacement evidence')
       }

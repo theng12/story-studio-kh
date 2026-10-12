@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.296 — 2026-10-12
+
+- Story now fixes small mismatches itself instead of stopping the episode (owner: "Imperfection is often accepted. I'm very lenient."). Each fix is written in the job log in plain words. What still stops an episode: missing or silent narration, a missing video, loudness outside your 20 % allowance, and anything that would upload public.
+- Scene Plan out of step with the narration or captions. If the narration or the captions changed a little after the Scene Plan was made (for example one more caption, or a narration 0.9 s shorter), Story moves each scene to where its words are now spoken and carries on. Every scene, prompt, approval and picture is kept. The same happens to an older plan that has no record of its captions. It still asks for a rebuild only when the plan and today's narration differ by more than 10 % in length.
+- Overlapping scene times. Video Assembly now fixes overlaps of any size the same way before it renders (before, it only fixed up to 2 s each and 5 s in all). If a plan starts its first scene a little after the narration begins, the first picture is shown from the start.
+- Out-of-date pictures. A scene picture drawn from an older wording of its prompt is used as it is, and the job log names it. Scene Review still marks it, so you can re-render it if you want.
+- Scene pictures on your Macs. If a free picture request was lost, or a re-render had already used its one try, Story sends a fresh request instead of stopping; free pictures cost nothing to repeat. If one scene still cannot be made on the last automatic try, it keeps its earlier picture or uses the picture of the scene next to it, and the log says so. Scene Review shows that scene so you can regenerate it later. If more than 1 in 10 scenes fail, the episode still stops, because that means the Macs are not working. Paid picture models keep the careful path.
+- Narration read twice. A chapter saved both as a new file and as an old Word file was put into the narration script twice, so the voice was asked to read it twice and Audio could not finish (MineePod EP0003–EP0005). Each chapter is now used once, both when the script is put together and when Audio reads it.
+- New narration that is complete is used. When every new narration file exists, plays and is not silent, Story uses it even if its record of how it was made is incomplete. A missing or broken file, or one made by a different voice model, still stops.
+- Lost writing requests. If the Gateway loses track of a writing request after it was sent (for example a network timeout), Story now sends it once more as a fresh request and says so in the log. Before, it stopped, because a paid writing model could charge twice; you accepted that small risk on Haiku. This also clears a Scene Plan that was stuck on one lost prompt request (Hidden Mechanics HMH0003, 0 of 185 prompts). If the second send is lost too, the step stops as before. Pictures, voices, video and transcription are never resent this way.
+
 ## v1.4.295 — 2026-10-12
 
 - Scene pictures are now always the lowest-priority work on your Macs (your standing rule): scene images, Scene Review re-rolls, continuity renders and Image Pool stills are sent to the Gateway as background work, so they only take a Mac nobody else is waiting for. Thumbnails stay normal, and sung songs are normal too, so the order is thumbnails and songs first, scene pictures last. Each Mac still makes one thing at a time.

@@ -2,7 +2,8 @@
  * 1.4.278 — Brain Wise EP0039/EP0040/EP0041: Video Assembly stopped on "11 timing overlap(s)
  * totalling 4.0s" (and 2 / 0.5 s). Scene Plan's "Reconcile timings" fixed the same thing on EP0035
  * while keeping every scene and image. Small overlaps (≤ 2 s each, ≤ 5 s in all) are now repaired
- * that way before assembly and logged; larger ones still stop with a clear message.
+ * that way before assembly and logged. 1.4.296 — overlaps of ANY size are (Brain Wise EP0044-EP0048
+ * stopped on 2.9-49 s).
  */
 import { after, before, test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -75,7 +76,7 @@ test('EP0039-like small overlaps are reconciled before assembly, keeping every s
   await prepareUnifiedVideoAssemblyInputs(SLUG, 'EP0001', {} as any, render).catch((error: Error) => {
     assert.doesNotMatch(error.message, /timing overlap/, 'whatever else this fixture lacks, overlaps no longer block')
   })
-  const line = render.output_lines.find((l: string) => l.startsWith('Scene Plan: 11 small timing overlap(s) totalling 4.0s'))
+  const line = render.output_lines.find((l: string) => l.startsWith('Scene Plan: 11 timing overlap(s) totalling 4.0s'))
   assert.ok(line, render.output_lines.join('\n'))
   assert.match(line, /every scene and image kept\. Overlaps now: 0\./)
   const plan = JSON.parse(await fs.readFile(planPath, 'utf-8'))
@@ -83,13 +84,44 @@ test('EP0039-like small overlaps are reconciled before assembly, keeping every s
   assert.equal((await scanEpisodeAssets(SLUG, 'EP0001')).scene_plan_timing!.overlap_count, 0)
 })
 
-test('a large overlap still stops Video Assembly with a clear message, and the plan is untouched', async () => {
-  const { planPath } = await episode('EP0002', [3])
-  const original = await fs.readFile(planPath, 'utf-8')
+test('a large overlap is re-aligned too, instead of stopping Video Assembly (1.4.296)', async () => {
+  const { planPath, scenes } = await episode('EP0002', [3])
+  const { scanEpisodeAssets, prepareUnifiedVideoAssemblyInputs } = await import('../generators/video.js')
+  const render = job()
+  await prepareUnifiedVideoAssemblyInputs(SLUG, 'EP0002', {} as any, render).catch((error: Error) => {
+    assert.doesNotMatch(error.message, /timing overlap/, 'whatever else this fixture lacks, overlaps no longer block')
+  })
+  assert.ok(render.output_lines.some((l: string) => l.startsWith('Scene Plan: 1 timing overlap(s) totalling 3.0s')), render.output_lines.join('\n'))
+  const plan = JSON.parse(await fs.readFile(planPath, 'utf-8'))
+  assert.deepEqual(plan.scenes.map((s: any) => s.id), scenes.map(s => s.id))
+  assert.ok(plan.source_timeline?.sha256, 'the re-aligned plan records the captions it now follows')
+  assert.equal((await scanEpisodeAssets(SLUG, 'EP0002')).scene_plan_timing!.overlap_count, 0)
+})
+
+test('a plan timed against a slightly different narration is re-aligned, not refused (1.4.296)', async () => {
+  // mineepod EP0006: "the merged narration was 992.6s when this plan was built and is now 991.8s".
+  const { planPath } = await episode('EP0003', [])
+  const plan = JSON.parse(await fs.readFile(planPath, 'utf-8'))
+  await fs.writeFile(planPath, JSON.stringify({ ...plan, source_merged_audio: { duration_sec: 60.9 } }))
+  const { scanEpisodeAssets, prepareUnifiedVideoAssemblyInputs } = await import('../generators/video.js')
+  assert.match((await scanEpisodeAssets(SLUG, 'EP0003')).scene_plan_timing!.audio_stale_reason || '', /60\.9s/)
+  const render = job()
+  await prepareUnifiedVideoAssemblyInputs(SLUG, 'EP0003', {} as any, render).catch((error: Error) => {
+    assert.doesNotMatch(error.message, /out of date/, 'whatever else this fixture lacks, the drift no longer blocks')
+  })
+  assert.ok(render.output_lines.some((l: string) => /^Scene Plan: out of step with the narration/.test(l)), render.output_lines.join('\n'))
+  assert.equal((await scanEpisodeAssets(SLUG, 'EP0003')).scene_plan_timing!.audio_stale_reason, undefined)
+})
+
+test('a stale picture is used as it is and named, instead of blocking (1.4.296)', async () => {
+  const { planPath } = await episode('EP0004', [])
+  const plan = JSON.parse(await fs.readFile(planPath, 'utf-8'))
+  plan.scenes[2].rendered_prompt = 'an older wording'
+  await fs.writeFile(planPath, JSON.stringify(plan))
   const { prepareUnifiedVideoAssemblyInputs } = await import('../generators/video.js')
-  await assert.rejects(
-    prepareUnifiedVideoAssemblyInputs(SLUG, 'EP0002', {} as any, job()),
-    /1 timing overlap\(s\) totalling 3\.0s \(more than the 2s each \/ 5s in all that Video Assembly repairs on its own; use Reconcile timings in Scene Plan\)/,
-  )
-  assert.equal(await fs.readFile(planPath, 'utf-8'), original)
+  const render = job()
+  await prepareUnifiedVideoAssemblyInputs(SLUG, 'EP0004', {} as any, render).catch((error: Error) => {
+    assert.doesNotMatch(error.message, /stale/, 'whatever else this fixture lacks, a stale picture no longer blocks')
+  })
+  assert.ok(render.output_lines.some((l: string) => /^1 scene picture\(s\) were drawn from an older prompt \(#3\); using them as they are/.test(l)), render.output_lines.join('\n'))
 })

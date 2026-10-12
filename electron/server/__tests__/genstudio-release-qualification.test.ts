@@ -328,6 +328,13 @@ void test('deterministic zero-spend Gateway release qualification', async (suite
         reservedCredits: 13,
         failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN',
       })
+      // Owner decision 2026-10-12: the lost request gets one fresh resend; it is lost too.
+      service.queueScenario('chat', {
+        states: ['failed'],
+        quotedCredits: 13,
+        reservedCredits: 13,
+        failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN',
+      })
 
       await assert.rejects(
         client.callChatWithGenStudio(MOCK_GENSTUDIO_FULL_KEY, {
@@ -355,7 +362,7 @@ void test('deterministic zero-spend Gateway release qualification', async (suite
         (error: unknown) => {
           assert.ok(error instanceof client.GenStudioChatTerminalFailureError)
           assert.equal(error.failureCode, 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN')
-          // NOT safe to retry by machine — check the account first.
+          // Resent once already; not resent again by machine.
           assert.match(error.message, /lost track of this request/i)
           assert.equal(client.isGenStudioSubmissionUncertain(error), true)
           return true
@@ -363,16 +370,18 @@ void test('deterministic zero-spend Gateway release qualification', async (suite
       )
 
       const failedJobs = service.submissions.filter(submission => !submission.replay)
-      assert.equal(failedJobs.length, 2)
-      // Exactly one provider submission each: neither code was auto-resubmitted.
-      assert.equal(service.providerSubmissionCount('chat'), 2)
+      assert.equal(failedJobs.length, 3)
+      // The failed code was not resubmitted; the uncertain one was resent exactly once.
+      assert.equal(service.providerSubmissionCount('chat'), 3)
       assert.equal(service.submissions.filter(submission => submission.replay).length, 0)
       assert.deepEqual(service.creditSnapshot(failedJobs[0]!.jobId), {
         quoted: 11, reserved: 11, final: 0, returned: 11,
       })
-      assert.deepEqual(service.creditSnapshot(failedJobs[1]!.jobId), {
-        quoted: 13, reserved: 13, final: 0, returned: 13,
-      })
+      for (const lost of failedJobs.slice(1)) {
+        assert.deepEqual(service.creditSnapshot(lost.jobId), {
+          quoted: 13, reserved: 13, final: 0, returned: 13,
+        })
+      }
     })
 
     await suite.test('rejects expired assets and terminal failed jobs as incomplete', async () => {

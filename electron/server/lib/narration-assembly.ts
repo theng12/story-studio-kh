@@ -264,7 +264,9 @@ export async function assembleUnifiedNarration(
   const chapterNumbers: number[] = []
   for (const name of entries) {
     const n = matchChapterFile(name, code)
-    if (n !== null) chapterNumbers.push(n)
+    // 1.4.296 — a chapter saved as both .md and legacy .docx is ONE chapter; listing it
+    // twice made the voice read it twice (mineepod EP0003-EP0005).
+    if (n !== null && !chapterNumbers.includes(n)) chapterNumbers.push(n)
   }
   chapterNumbers.sort((a, b) => a - b)
 

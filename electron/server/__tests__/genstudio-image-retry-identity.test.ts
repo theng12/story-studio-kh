@@ -254,6 +254,24 @@ void test('Gateway image retry identity is fresh after failure and stable on a l
       }
     })
 
+    await suite.test('lenient: a free-fleet key the Gateway has no job for counts as not made and gets a fresh identity', async () => {
+      service.reset()
+      const entry = manifestEntry({
+        task_id: '', idempotency_key: 'story-image-no-such-job', last_state: 'accepted', request_scope: 'action-1',
+      })
+      const paid = await tryRecoverImageFromManifestEntry(entry, MOCK_GENSTUDIO_FULL_KEY, MODEL_CONFIG)
+      assert.equal(paid.kind, 'uncertain', 'paid images keep the careful path')
+      const free = await tryRecoverImageFromManifestEntry(
+        entry, MOCK_GENSTUDIO_FULL_KEY, { ...MODEL_CONFIG, api_model: 'studio-hub::mock-image-v1' },
+      )
+      assert.equal(free.kind, 'terminal-failed')
+      if (free.kind !== 'terminal-failed') return
+      const retry = resolveImageRetryScope(terminalImageManifestEntry(entry, free), 'action-1')
+      assert.equal(retry.isRetry, true)
+      assert.notEqual(retry.scope, 'action-1')
+      assert.equal(service.providerSubmissionCount('image'), 0, 'the check itself submits nothing')
+    })
+
     await suite.test('a retry submits only the scenes still missing on disk', async () => {
       service.reset()
       const scenes = [

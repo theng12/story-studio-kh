@@ -16,7 +16,7 @@ import {
 
 const temp = await useTempDataDir()
 
-void test('an exact-replay chapter retry reaches GET by idempotency key with zero replacement POSTs', async () => {
+void test('an exact-replay chapter retry reaches GET by idempotency key with zero replacement submissions', async () => {
   const service = await startMockGenStudioService()
   process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
   try {
@@ -38,10 +38,13 @@ void test('an exact-replay chapter retry reaches GET by idempotency key with zer
       ],
     })
     service.queueScenario('chat', { states: ['succeeded'], outputText: outline })
-    service.queueScenario('chat', {
-      states: ['failed'],
-      failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN',
-    })
+    // Owner decision 2026-10-12: the lost batch gets one fresh resend, which is lost too.
+    for (let index = 0; index < 2; index++) {
+      service.queueScenario('chat', {
+        states: ['failed'],
+        failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN',
+      })
+    }
 
     const params: ChunkedNarrationParams = {
       episode_id: 'EP0001', title: 'Recovery wiring', totalChapters: 3,
@@ -72,23 +75,16 @@ void test('an exact-replay chapter retry reaches GET by idempotency key with zer
       generateNarrativeChunked(makeJob(), params),
       /lost track of this request/i,
     )
-    assert.equal(service.providerSubmissionCount('chat'), 2, 'outline plus the original failed chapter batch')
-    const historicChapterKey = service.submissions.at(-1)?.idempotencyKey
+    assert.equal(service.providerSubmissionCount('chat'), 3, 'outline, the failed chapter batch and its one fresh resend')
+    const historicChapterKey = service.submissions.at(-2)?.idempotencyKey
     assert.ok(historicChapterKey, 'the original chapter batch must retain its durable key')
-    const postsBeforeRetry = service.requests.filter(
-      request => request.method === 'POST' && request.path === '/v1/chat/responses',
-    ).length
 
     await assert.rejects(
       generateNarrativeChunked(makeJob(true, ['an-unrelated-recorded-key', historicChapterKey]), params),
       /lost track of this request/i,
     )
-    assert.equal(
-      service.requests.filter(request => request.method === 'POST' && request.path === '/v1/chat/responses').length,
-      postsBeforeRetry,
-      'exact replay must issue literally zero POST /v1/chat/responses requests',
-    )
-    assert.equal(service.providerSubmissionCount('chat'), 2, 'the exact replay must not create a replacement request')
+    // The retry may re-POST the already-sent resend's key, which the Gateway answers by replay.
+    assert.equal(service.providerSubmissionCount('chat'), 3, 'the exact replay must not create a replacement request')
     assert.ok(service.requests.some(request =>
       request.method === 'GET'
       && request.path === `/v1/chat/responses/by-idempotency-key/${encodeURIComponent(historicChapterKey)}`,
@@ -155,7 +151,7 @@ void test('a conclusively failed outline retry posts once with a fresh durable k
   }
 })
 
-void test('multiple listicle recovery keys match by exact membership, not request order, with zero replacement POSTs', async () => {
+void test('multiple listicle recovery keys match by exact membership, not request order, with zero replacement submissions', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
@@ -184,7 +180,8 @@ void test('multiple listicle recovery keys match by exact membership, not reques
       n: index + 1, title: `Topic ${index + 1}`, hook_line: `Hook ${index + 1}`, key_facts: ['fact'],
     })) })
     service.queueScenario('chat', { states: ['succeeded'], outputText: outline })
-    for (let index = 0; index < 3; index++) {
+    // Three batches, each lost and its one fresh resend lost too (owner decision 2026-10-12).
+    for (let index = 0; index < 6; index++) {
       service.queueScenario('chat', { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' })
     }
     const original = {
@@ -193,11 +190,11 @@ void test('multiple listicle recovery keys match by exact membership, not reques
     } as any
     await generateListicleChunked(original, params)
     const historicKeys = service.submissions
-      .filter(submission => submission.operation === 'chat')
+      .filter(submission => submission.operation === 'chat' && !submission.idempotencyKey.startsWith('story-chat-resend-'))
       .slice(1)
       .map(submission => submission.idempotencyKey)
     assert.ok(historicKeys.length > 1, 'the fixture must create multiple independent listicle batches')
-    const postsBeforeRetry = service.requests.filter(request => request.method === 'POST' && request.path === '/v1/chat/responses').length
+    const submissionsBeforeRetry = service.providerSubmissionCount('chat')
 
     const retry = {
       ...original,
@@ -207,11 +204,9 @@ void test('multiple listicle recovery keys match by exact membership, not reques
     }
     await generateListicleChunked(retry, params)
 
-    assert.equal(
-      service.requests.filter(request => request.method === 'POST' && request.path === '/v1/chat/responses').length,
-      postsBeforeRetry,
-      'listicle recovery must not post a replacement for any recorded key',
-    )
+    // A re-POST of an already-sent resend key is answered by replay; no new provider work.
+    assert.equal(service.providerSubmissionCount('chat'), submissionsBeforeRetry,
+      'listicle recovery must not post a replacement for any recorded key')
     const recoveredKeys = service.requests
       .filter(request => request.method === 'GET' && request.path.startsWith('/v1/chat/responses/by-idempotency-key/'))
       .map(request => decodeURIComponent(request.path.slice('/v1/chat/responses/by-idempotency-key/'.length)))

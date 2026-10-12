@@ -91,4 +91,14 @@ describe('reconcilePlanToSubtitles', () => {
     const noCues = reconcilePlanToSubtitles([scene('s1', 5, 9, 'anything')], [], 30)
     assert.deepEqual(noCues.unmatchedIds, ['s1'])
   })
+
+  test('scene 1 is never moved later: it holds over the opening (1.4.296, Brain Wise EP0044)', () => {
+    const opening = [cue(3.7, 6, 'The sun dips below the ridge and the temperature drops fast.'), ...cues.slice(1)]
+    const r = reconcilePlanToSubtitles([
+      scene('s1', 0, 6, 'The sun dips below the ridge and the temperature drops fast.'),
+      scene('s2', 6, 12, 'You feel it in your bones as your breath starts to mist.'),
+    ], opening, 30)
+    assert.equal(r.scenes[0]!.start_sec, 0)
+    assert.equal(r.scenes[1]!.start_sec, 6)
+  })
 })

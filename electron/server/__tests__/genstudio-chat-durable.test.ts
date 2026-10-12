@@ -24,6 +24,7 @@ import {
   GenStudioChatRecoveryUnresolvedError,
   GenStudioChatTerminalFailureError,
   isGenStudioSubmissionUncertain,
+  lostChatResendKey,
 } from '../lib/genstudio-client.js'
 
 function catalog(maxOutputTokens = 65_536) {
@@ -207,7 +208,7 @@ test('a lost submit response reattaches via the persisted key and submits once',
 
 // ── failure_code branching ───────────────────────────────────────────────
 
-test('SUBMISSION_UNCERTAIN is never auto-resubmitted and says to check the account', async () => {
+test('SUBMISSION_UNCERTAIN is resent once fresh, then stops and says so (owner 2026-10-12)', async () => {
   const originalFetch = globalThis.fetch
   let posts = 0
   let polls = 0
@@ -235,11 +236,11 @@ test('SUBMISSION_UNCERTAIN is never auto-resubmitted and says to check the accou
   } finally {
     globalThis.fetch = originalFetch
   }
-  assert.equal(posts, 1, 'an uncertain outcome must never produce a second submission')
-  assert.equal(polls, 1, 'and must not be re-polled after it settles')
+  assert.equal(posts, 2, 'an uncertain outcome gets exactly one fresh resend, never a third submission')
+  assert.equal(polls, 2, 'and neither settled job is re-polled')
 })
 
-test('an uncertain historical chat submission is reconciled by idempotency key without a new POST', async () => {
+test('an uncertain historical chat submission is reconciled by idempotency key, then resent once fresh', async () => {
   const originalFetch = globalThis.fetch
   let posts = 0
   const states: string[] = []
@@ -251,7 +252,12 @@ test('an uncertain historical chat submission is reconciled by idempotency key w
       if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
       if ((init?.method || 'GET').toUpperCase() === 'POST') {
         posts += 1
-        throw new Error('a reconciliation must never submit another provider request')
+        assert.equal((init?.headers as Record<string, string>)['Idempotency-Key'],
+          lostChatResendKey('historical-uncertain-key', 'job_historical_uncertain'))
+        return Response.json(job({ id: 'job_resent', state: 'running' }), { status: 202 })
+      }
+      if (new URL(url).pathname === '/v1/chat/responses/job_resent') {
+        return Response.json(job({ id: 'job_resent', state: 'failed', failure_code: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' }))
       }
       assert.equal(
         new URL(url).pathname,
@@ -277,12 +283,13 @@ test('an uncertain historical chat submission is reconciled by idempotency key w
   } finally {
     globalThis.fetch = originalFetch
   }
-  assert.equal(posts, 0, 'historical reconciliation must never create a second charge')
-  assert.deepEqual(accepted, ['job_historical_uncertain'])
-  assert.deepEqual(states, ['failed:job_historical_uncertain'])
+  assert.equal(posts, 1, 'a lost historical request gets exactly one fresh resend')
+  assert.deepEqual(accepted, ['job_historical_uncertain', 'job_resent'])
+  assert.equal(states[0], 'failed:job_historical_uncertain')
+  assert.equal(states.at(-1), 'failed:job_resent')
 })
 
-test('an ambiguous 502 submission is reconciled by idempotency key without a replacement POST', async () => {
+test('an ambiguous 502 submission is reconciled by idempotency key, and a lost one is resent once', async () => {
   const originalFetch = globalThis.fetch
   let posts = 0
   let lookups = 0
@@ -298,7 +305,8 @@ test('an ambiguous 502 submission is reconciled by idempotency key without a rep
       lookups += 1
       assert.equal(
         new URL(url).pathname,
-        '/v1/chat/responses/by-idempotency-key/ambiguous-502-key',
+        `/v1/chat/responses/by-idempotency-key/${lookups === 1 ? 'ambiguous-502-key'
+          : lostChatResendKey('ambiguous-502-key', 'job_reconciled_after_502')}`,
       )
       return Response.json(job({
         id: 'job_reconciled_after_502',
@@ -317,8 +325,8 @@ test('an ambiguous 502 submission is reconciled by idempotency key without a rep
   } finally {
     globalThis.fetch = originalFetch
   }
-  assert.equal(posts, 1, 'the ambiguous original submission is never retried by POST')
-  assert.equal(lookups, 1, 'the durable key is reconciled with one read-only lookup')
+  assert.equal(posts, 2, 'the lost original gets one fresh resend, never a third POST')
+  assert.equal(lookups, 2, 'each key is reconciled with one read-only lookup')
 })
 
 test('an unknown historical idempotency key stays locked and never creates fresh work', async () => {

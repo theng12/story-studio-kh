@@ -169,6 +169,12 @@ export function selectNarrationSections<S extends PlannableSection>(
   allSections: S[],
   sectionsParam: string,
 ): S[] {
+  // One slug is one audio file: a section listed twice (in the script or the request) is made once.
+  return pickNarrationSections(allSections, sectionsParam)
+    .filter((section, index, picked) => picked.findIndex(other => other.slug === section.slug) === index)
+}
+
+function pickNarrationSections<S extends PlannableSection>(allSections: S[], sectionsParam: string): S[] {
   const param = sectionsParam || 'all'
 
   if (param.toLowerCase() === 'intro') {

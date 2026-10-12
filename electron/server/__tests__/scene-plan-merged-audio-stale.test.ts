@@ -79,14 +79,14 @@ describe('a re-merged narration makes the Scene Plan stale', () => {
     assert.match(drift.reason, /merged narration was 15\.0s .* now 21\.0s/)
   })
 
-  test('Video Assembly refuses to render it', async () => {
+  test('Video Assembly refuses to render it when re-aligning cannot absorb the change', async () => {
     await episode('EP0002', 15, 21)
     const { scanEpisodeAssets, prepareUnifiedVideoAssemblyInputs } = await import('../generators/video.js')
     const assets = await scanEpisodeAssets(SLUG, 'EP0002')
     assert.match(assets.scene_plan_timing!.audio_stale_reason || '', /now 21\.0s/)
     assert.equal(assets.scene_plan_timing!.complete, false)
     await assert.rejects(
-      prepareUnifiedVideoAssemblyInputs(SLUG, 'EP0002', {} as any),
+      prepareUnifiedVideoAssemblyInputs(SLUG, 'EP0002', {} as any, { output_lines: [] } as any),
       /Video Assembly is blocked: the Scene Plan is out of date — the merged narration was 15\.0s .*Nothing was rendered\./,
     )
   })

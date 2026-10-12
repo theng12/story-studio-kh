@@ -153,3 +153,31 @@ void test('parts left by another voice model are not activated with this one', a
   assert.deepEqual((await readAudioQualityProvenance(episodeDirForNarration(ep.narration))).chapters, {})
   assert.equal((await ep.mp3s()).length, 3, 'the parts stay loose')
 })
+
+/** A short, audible 440 Hz tone: real, decodable, not silent. */
+function toneWav(): Buffer {
+  const rate = 8_000
+  const samples = 4_000
+  const wav = Buffer.alloc(44 + samples * 2)
+  wav.write('RIFF', 0, 'ascii'); wav.writeUInt32LE(36 + samples * 2, 4); wav.write('WAVE', 8, 'ascii')
+  wav.write('fmt ', 12, 'ascii'); wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22)
+  wav.writeUInt32LE(rate, 24); wav.writeUInt32LE(rate * 2, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34)
+  wav.write('data', 36, 'ascii'); wav.writeUInt32LE(samples * 2, 40)
+  for (let i = 0; i < samples; i++) wav.writeInt16LE(Math.round(8_000 * Math.sin(2 * Math.PI * 440 * i / rate)), 44 + i * 2)
+  return wav
+}
+
+void test('parts whose replacement record was lost are still activated when they are playable audio', async () => {
+  const ep = await episode()
+  const tone = toneWav()
+  service.queueScenario('tts', { states: ['accepted', 'succeeded'], audioArtifact: tone })
+  service.queueScenario('tts', { states: ['accepted', 'failed'], failureCode: 'provider_error', finalCredits: 0 })
+  service.queueScenario('tts', { states: ['accepted', 'succeeded'], audioArtifact: tone })
+  await assert.rejects(ep.direct(), /1 section\(s\) failed/)
+  // The record of who made parts 1 and 3 is gone; the parts themselves are fine.
+  await fs.writeFile(path.join(ep.audioDir, '.task-manifest.json'), JSON.stringify({ schema_version: 1, tasks: {} }))
+  service.queueScenario('tts', { states: ['accepted', 'succeeded'], audioArtifact: tone })
+  const second = await ep.direct()
+  assert.ok(second.output_lines.some((line: string) => /replacement record was incomplete.*so it was activated/.test(line)), second.output_lines.join('\n'))
+  await ep.assertJoined()
+})

@@ -258,23 +258,54 @@ test('explicit timeline and force requests remain intentional whole-plan rebuild
   assert.equal(chatSubmissions().length, 1)
 })
 
-for (const kind of ['changed', 'unstamped'] as const) {
-  test(`ordinary continuation refuses a ${kind} subtitle timeline without touching the plan`, async () => {
+test('ordinary continuation still asks for a rebuild when the timeline moved more than re-aligning can absorb', async () => {
+  service.reset()
+  genstudio.clearGenStudioCatalogCache()
+  const fixture = await seedFixture()
+  await writeVerifiedTimeline(fixture, 0.5) // 4.5 s of captions under a 4 s plan: 89 % < 90 %
+  queuePromptResult([fixture.preservedId, fixture.missingId])
+  const before = await fs.readFile(fixture.planPath, 'utf8')
+
+  await assert.rejects(
+    runScenePlanJob(pipelineJob(fixture)),
+    error => error instanceof Error && /rebuild.*timeline/i.test(error.message),
+  )
+
+  assert.equal(await fs.readFile(fixture.planPath, 'utf8'), before)
+  assert.equal(chatSubmissions().length, 0)
+})
+
+// 1.4.296 — mineepod EP0006 stopped on "had 264 caption(s) and now has 265"; an older plan with no
+// stamp stopped the same way. Both are now re-aligned to today's captions and the run carries on.
+for (const kind of ['one more caption', 'unstamped'] as const) {
+  test(`ordinary continuation re-aligns a plan with ${kind} timeline and carries on, keeping reviewed work`, async () => {
     service.reset()
     genstudio.clearGenStudioCatalogCache()
     const fixture = await seedFixture(kind === 'unstamped' ? { source_timeline: undefined } : {})
-    if (kind === 'changed') await writeVerifiedTimeline(fixture, 0.5)
-    queuePromptResult([fixture.preservedId, fixture.missingId])
-    const before = await fs.readFile(fixture.planPath, 'utf8')
+    if (kind === 'one more caption') {
+      const stitched = path.join(fixture.paths.subtitles_dir, `${fixture.episodeId}_stitched.srt`)
+      // The last caption is split in two: one more caption, same narration length.
+      const srt = cueRows().replace('00:00:03,000 --> 00:00:04,000\nDust turns in the light.',
+        '00:00:03,000 --> 00:00:03,500\nDust turns\n\n5\n00:00:03,500 --> 00:00:04,000\nin the light.')
+      const stamp = stampFromCues(parseSrt(srt))
+      await fs.writeFile(stitched, srt)
+      await fs.writeFile(`${stitched}.json`, JSON.stringify({
+        complete: true, missing_sections: [], total_cues: stamp.total_cues, timeline: stamp,
+        sections: [{ slug: 'full-track', source_srt: `${fixture.episodeId}.srt`, cues_added: stamp.total_cues }],
+      }))
+    }
+    queuePromptResult([fixture.missingId])
+    const job = pipelineJob(fixture)
 
-    await assert.rejects(
-      runScenePlanJob(pipelineJob(fixture)),
-      error => error instanceof Error && /rebuild.*timeline/i.test(error.message),
-      `${kind} input must require an intentional timeline rebuild`,
-    )
+    await runScenePlanJob(job)
 
-    assert.equal(await fs.readFile(fixture.planPath, 'utf8'), before)
-    assert.equal(chatSubmissions().length, 0)
+    assert.ok(job.output_lines.some((line: string) => /Re-aligned 2\/2 scene\(s\) to the current captions and carried on/.test(line)), job.output_lines.join('\n'))
+    const saved = JSON.parse(await fs.readFile(fixture.planPath, 'utf8'))
+    assert.equal(saved.scenes[0].visual_prompt, fixture.preservedPrompt)
+    assert.equal(saved.scenes[0].approved, true)
+    assert.equal(saved.scenes[1].visual_prompt, `A new cinematic prompt written only for ${fixture.missingId}.`)
+    assert.ok(saved.source_timeline?.sha256)
+    assert.equal(chatSubmissions().length, 1)
   })
 }
 
