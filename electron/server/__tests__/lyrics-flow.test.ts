@@ -176,6 +176,32 @@ describe('making sung songs', () => {
     assert.equal(trash.length, 1, 'the failed take is in Trash, not deleted')
   })
 
+  test('a channel singer: the same voice phrase and seed on every song; the writer is told not to describe a voice', async () => {
+    const eff = await request(app).get(`/api/projects/${slug}/effective-niche`)
+    const formula = eff.body.niche.musicFormat.songFormula
+    const singer = { name: 'Mara', voice: 'warm smoky female alto vocal, clear diction, gentle vibrato', seed: 777777 }
+    const saved = await request(app).patch(`/api/niches/${encodeURIComponent(eff.body.niche.id)}/music-format`)
+      .send({ songFormula: { ...formula, lyrics: { ...formula.lyrics, singers: [singer] } } })
+    assert.equal(saved.status, 200, JSON.stringify(saved.body))
+    try {
+      service.queueScenario('chat', { outputText: sungAnswer() })
+      service.queueScenario('transcription', { outputText: 'steam curls up from the cup rain draws lines on the glass stay a while stay a while let the slow hours pass' })
+      const { generateSongPool } = await import('../generators/song-pool-generate.js')
+      const job = fakeJob({ mode: 'new', count: 1, writer_model: 'mock-chat-v1', music_model: 'mock-music-v1', check_model: 'mock-whisper-v1', batch_id: 'b_singer' })
+      await generateSongPool(job)
+      assert.equal(job.result.complete, true, job.output_lines.join('\n'))
+      const chat = service.submissions.filter(s => s.operation === 'chat').map(s => s.bodyText).join('\n')
+      assert.match(chat, /The singer is fixed by the channel/)
+      const [music] = service.submissions.filter(s => s.operation === 'music').map(s => s.parsedBody!)
+      assert.equal(music!.seed, 777777)
+      assert.match(String(music!.prompt), /, warm smoky female alto vocal, clear diction, gentle vibrato$/)
+      const [song] = await poolSongs('b_singer')
+      assert.equal(song!.singer, 'Mara')
+    } finally {
+      await request(app).patch(`/api/niches/${encodeURIComponent(eff.body.niche.id)}/music-format`).send({ songFormula: formula })
+    }
+  })
+
   test('every take failing keeps the last one switched off and fails loudly; a paid listen-back is never confirmed', async () => {
     service.queueScenario('chat', { outputText: sungAnswer() })
     service.queueScenario('transcription', { outputText: 'la la la' })

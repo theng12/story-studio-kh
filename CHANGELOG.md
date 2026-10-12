@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.299 — 2026-10-12
+
+- Songs with lyrics can now have a channel singer (you approved the same-singer test). In Music Formula → Songs with lyrics → Singer, give the singer a name, a voice description (for example "warm smoky female alto vocal, clear diction, gentle vibrato") and a seed number (the test used 777777). Every song of that channel then uses exactly that voice description and seed, and the writing model writes only the genre and instruments. You can add up to 3 singers, for example a male and a female voice; each song gets one of them, and the Song Pool shows who sang it. Empty means no fixed singer, as before. A take that has to be sung again needs a new seed, so it may sound a little less like the singer; the job log says so.
+
 ## v1.4.298 — 2026-10-12
 
 - Re-aligning a Scene Plan no longer leaves a scene with no length. When two short scenes fell inside one caption, both were moved to the same moment and the first one ended up with no time at all, so Video Assembly stopped (Brain Wise EP0047). Such a scene is now removed and its words go to the scene beside it, the same way the Scene Plan already tidies its own timeline.

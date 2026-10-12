@@ -81,6 +81,8 @@ export interface SongRecord {
    */
   lyrics_check?: 'passed' | 'failed' | 'unchecked'
   lyrics_match?: number
+  /** The channel singer this song was sung as (its fixed voice phrase + seed). */
+  singer?: string
 }
 
 export interface SongPoolFile {

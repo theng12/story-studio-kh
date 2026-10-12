@@ -39,8 +39,9 @@ export interface BriefContext {
   maxSimilarity: number
   /** The music model's published prompt ceiling, read live. Absent = not stated. */
   maxPromptChars?: number
-  /** Songs with lyrics: write lyrics and a style line in this language too. Absent = instrumental. */
-  lyrics?: { language: string }
+  /** Songs with lyrics: write lyrics and a style line in this language too. Absent = instrumental.
+   *  `fixedSinger`: the channel's singer is fixed, so the style line names no voice. */
+  lyrics?: { language: string; fixedSinger?: boolean }
 }
 
 const STOP = new Set(['the', 'a', 'an', 'of', 'at', 'in', 'on', 'and', 'to', 'for', 'with', 'by', 'from', 'over', 'under', 'after', 'before', 'into', 'is', 'my', 'our', 'its'])
@@ -144,6 +145,7 @@ export function writerPrompt(
   return [
     `Write ${cells.length} songs.`,
     ...(ctx.lyrics ? [`Lyrics language: ${ctx.lyrics.language}.`] : []),
+    ...(ctx.lyrics?.fixedSinger ? ['The singer is fixed by the channel: the style line gives genre, instruments and mood only — no voice, singer, gender or vocal words.'] : []),
     ...cells.map((c, i) => `${i + 1}. ${c.ensemble}; ${c.mood}; ${c.tempo_bpm} BPM; ${c.key}; ${c.structure}; ${c.texture}`
       + (c.theme ? `; scene theme: ${c.theme}` : '') + (ctx.lyrics ? `; ${sectionsFor(c.length_s)} lyric sections` : '')
       + (retryNotes[i] ? ` — rewrite: ${retryNotes[i]}` : '')),

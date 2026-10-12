@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## Current work — 2026-10-12 (1.4.299 channel singer)
+
+- `LyricsSettingsSchema.singers` (≤ 3 × `{name, voice, seed}`, optional = off). `song-pool-generate`: `singerFor(brief)` = `singers[brief.seed % n]`; request prompt = brief prompt + `, ${voice}`, seed = the singer's (a retake uses `hashSeed(...take n)` and says the voice may shift); `SongRecord.singer`. Writer gets `lyrics.fixedSinger` → one extra user-prompt line: style = genre/instruments/mood, no voice words. Owner-approved recipe: seed 777777 + "warm smoky female alto vocal, clear diction, gentle vibrato" (yue2-samples same-singer test). UI: Music Formula Singer rows (Add Singer, default seed 777777). Test: `lyrics-flow.test.ts` (singer).
+
 ## Current work — 2026-10-12 (1.4.298 no zero-length scenes after re-align)
 
 - `services/scene-plan-reconcile.ts` runs `removeNonRenderableScenes` after `reconcilePlanToSubtitles` (words carry their cue's start, so two scenes in one cue anchored to the same second). Test: `video-small-overlap-repair.test.ts` (last).

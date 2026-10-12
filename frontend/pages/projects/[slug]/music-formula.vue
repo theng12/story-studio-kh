@@ -133,6 +133,15 @@
               </div>
             </div>
             <label class="mp-check"><input v-model="f.lyrics.in_description" type="checkbox"> Add the lyrics to each episode's YouTube description (as many songs as fit)</label>
+            <span class="mp-lbl" style="margin-top: 12px">Singer</span>
+            <p class="mp-hint">Empty: each song gets its own voice. With a singer, every song uses the same voice description and the same seed, so the channel keeps one recognisable voice; the writing model then writes only the genre and instruments. Up to 3 singers (a male/female pair, say); each song gets one of them. A retake needs a new seed, so it may sound a little less like the singer.</p>
+            <div v-for="(singer, i) in singerRows" :key="i" class="mp-row" style="margin-top: 6px">
+              <input v-model="singer.name" class="mp-inp" style="width: 120px" :aria-label="`Singer ${i + 1} name`" placeholder="Name">
+              <input v-model="singer.voice" class="mp-inp" style="flex: 1" :aria-label="`Singer ${i + 1} voice`" placeholder="warm smoky female alto vocal, clear diction, gentle vibrato">
+              <input v-model.number="singer.seed" type="number" min="0" class="mp-inp narrow" :aria-label="`Singer ${i + 1} seed`">
+              <button type="button" class="btn btn-sm btn-secondary" @click="f.lyrics.singers.splice(i, 1)">Remove</button>
+            </div>
+            <button v-if="(f.lyrics.singers || []).length < 3" type="button" class="btn btn-sm btn-secondary" style="margin-top: 6px" @click="addSinger">Add Singer</button>
             <p v-if="neverBlocksVocals" class="mp-hint mp-warn">"Never" lists {{ neverBlocksVocals }} — remove it, or every lyric that uses it is rewritten and then dropped.</p>
           </template>
         </section>
@@ -353,6 +362,9 @@ const lyricsOn = computed({
   get: () => f.lyrics?.enabled === true,
   set: (on: boolean) => { f.lyrics = { ...clone(STARTING_LYRICS), ...(f.lyrics || {}), enabled: on } },
 })
+// The owner-approved same-singer recipe: one voice phrase + one seed (777777 in the test) on every song.
+const singerRows = computed<Array<{ name: string; voice: string; seed: number }>>(() => f.lyrics?.singers || [])
+function addSinger() { f.lyrics.singers = [...(f.lyrics.singers || []), { name: `Singer ${(f.lyrics.singers || []).length + 1}`, voice: '', seed: 777777 }] }
 const matchPct = computed({ get: () => Math.round((f.lyrics?.min_match ?? 0) * 100), set: (v: number) => { f.lyrics.min_match = Math.min(1, Math.max(0, Number(v) / 100)) } })
 const neverBlocksVocals = computed(() => (f.never as string[]).filter(w => /^(vocals?|voices?|singing|lyrics?)$/i.test(w.trim())).map(w => `"${w}"`).join(', '))
 

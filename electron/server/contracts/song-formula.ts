@@ -29,12 +29,26 @@ const tempoBand = z.object({
  * (YuE2) makes it, and a transcription model listens back: under `min_match` of the lyric words heard
  * in order, the take goes to the pool's _trash and the song is sung again, up to `max_takes`.
  */
+/**
+ * The channel's singer(s) (owner 2026-10-12, approved after the same-singer test): a fixed voice phrase
+ * and a fixed seed that every song of this channel uses — the writing model writes only the genre and
+ * instrument part. With 2–3 singers each song gets one of them (a male/female pair, say). Empty = off:
+ * the writer describes a voice per song, as before.
+ */
+export const SingerSchema = z.object({
+  name: z.string().trim().min(1).max(40),
+  voice: z.string().trim().min(3).max(200),
+  seed: z.number().int().min(0).max(2_147_483_647),
+}).strict()
+export type Singer = z.infer<typeof SingerSchema>
+
 export const LyricsSettingsSchema = z.object({
   enabled: z.boolean(),
   language: z.string().trim().min(2).max(40),
   min_match: z.number().min(0).max(1),
   max_takes: z.number().int().min(1).max(5),
   in_description: z.boolean(),
+  singers: z.array(SingerSchema).max(3).optional(),
 }).strict()
 export type LyricsSettings = z.infer<typeof LyricsSettingsSchema>
 export const STARTING_LYRICS: LyricsSettings = { enabled: false, language: 'English', min_match: 0.7, max_takes: 3, in_description: false }

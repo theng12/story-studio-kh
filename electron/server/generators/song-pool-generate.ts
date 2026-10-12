@@ -167,6 +167,9 @@ export async function generateSongPool(job: Job): Promise<void> {
   // Songs with lyrics (owner 2026-10-12): the channel's switch, off unless its formula turns it on.
   const lyricsCfg = 'error' in got ? undefined : got.formula.lyrics
   const sung = lyricsCfg?.enabled === true
+  // The channel's singer(s): a fixed voice phrase + seed on every song (owner-approved same-singer recipe).
+  const singers = sung ? lyricsCfg?.singers || [] : []
+  const singerFor = (brief: Brief) => singers.length ? singers[brief.seed % singers.length]! : null
   const model = resolveMusicModel(models, params.music_model, { instrumental: !sung, hasLyrics: sung })
   const sings = model.requires_lyrics === true || model.supports_vocals === true
   if (sung && !sings) throw new Error(`This channel makes songs with lyrics, and ${model.display_name} does not sing. Pick a model that sings (YuE2).`)
@@ -185,7 +188,7 @@ export async function generateSongPool(job: Job): Promise<void> {
     titles: pool.songs.map(s => s.title), lines: pool.songs.map(s => s.line || '').filter(Boolean),
     sceneIdeas: pool.songs.map(s => s.scene_idea || '').filter(Boolean), never: formula.never,
     maxTitleWordShare: formula.variety.max_title_word_share, maxSimilarity: formula.variety.max_similarity, maxPromptChars,
-    ...(sung ? { lyrics: { language: lyricsCfg!.language } } : {}),
+    ...(sung ? { lyrics: { language: lyricsCfg!.language, fixedSinger: singers.length > 0 } } : {}),
   }, (system, user) => callAi(writer, system, user, {}, false, {
     slug, jobId: job.job_id, outputBudget: 'standard', temperature: 0.8, jsonMode: true,
   }), done => job.output_lines.push(`Briefs written for ${done} of ${cells.length}.`))
@@ -264,6 +267,7 @@ export async function generateSongPool(job: Job): Promise<void> {
     // Songs with lyrics: a take the listen-back fails goes to Trash and the song is sung again.
     let sing = 1
     const maxTakes = lyricsCfg?.max_takes ?? 1
+    const singer = singerFor(brief)
     job.item_progress!.active = [...(job.item_progress!.active || []), { label: brief.title, key: brief.seed.toString(), state: 'running', attempt: 1, max_attempts: 1 }]
     try {
       for (;;) {
@@ -271,9 +275,11 @@ export async function generateSongPool(job: Job): Promise<void> {
         try {
           if (sung && !brief.lyrics) throw new Error('this song has no lyrics (it was made before Songs with lyrics was on), so it cannot be sung; Generate makes new sung songs')
           const result = await generateMusicWithGenStudio(apiKey, {
-            title: brief.title, prompt: brief.prompt, instrumental: !sung, ...(sung ? { lyrics: brief.lyrics } : {}),
+            title: brief.title, prompt: singer ? `${brief.prompt}, ${singer.voice}` : brief.prompt,
+            instrumental: !sung, ...(sung ? { lyrics: brief.lyrics } : {}),
             durationSeconds: length.seconds,
-            modelId: model.id, seed: sing > 1 ? hashSeed(`${brief.seed}:take${sing}`) : brief.seed,
+            // A retake needs a new seed; with a fixed singer that can shift the voice a little (said in the log).
+            modelId: model.id, seed: sing > 1 ? hashSeed(`${brief.seed}:take${sing}`) : (singer ? singer.seed : brief.seed),
             ...(outputFormat ? { outputFormat } : {}), ...(priority ? { priority } : {}),
             requestIdentity: `${slug}:song-pool:${params.batch_id}:${brief.combo_key || brief.title}:${brief.seed}${retryScope ? `:${retryScope}` : ''}${sing > 1 ? `:take${sing}` : ''}`,
             isCancelled: () => jq.isCancelled(job.job_id),
@@ -298,7 +304,7 @@ export async function generateSongPool(job: Job): Promise<void> {
                 `${slug}:song-check:${params.batch_id}:${brief.seed}:${sing}:${take}`, () => jq.isCancelled(job.job_id))
               if (heard.check === 'failed' && sing < maxTakes) {
                 sp.trashPoolFile(slug, path.join(staging, filename))
-                job.output_lines.push(`↻ ${brief.title}: ${pct(heard.match)} of its words were heard (needs ${pct(lyricsCfg!.min_match)}); take ${sing} moved to Trash, singing it again (take ${sing + 1} of ${maxTakes}).`)
+                job.output_lines.push(`↻ ${brief.title}: ${pct(heard.match)} of its words were heard (needs ${pct(lyricsCfg!.min_match)}); take ${sing} moved to Trash, singing it again (take ${sing + 1} of ${maxTakes})${singer ? ` — a retake has a new seed, so ${singer.name} may sound a little different` : ''}.`)
                 retake = true
                 break
               }
@@ -311,7 +317,7 @@ export async function generateSongPool(job: Job): Promise<void> {
                 title: take ? `${brief.title} (take ${take + 1})` : brief.title,
                 ensemble: brief.ensemble, mood: brief.mood, energy: brief.energy, tempo_bpm: brief.tempo_bpm,
                 tempo_band: brief.tempo_band || undefined, key: brief.key, texture: brief.texture, structure: brief.structure,
-                length_s: length.seconds, line: brief.line, prompt: brief.prompt, scene_idea: brief.scene_idea,
+                length_s: length.seconds, line: brief.line, prompt: singer ? `${brief.prompt}, ${singer.voice}` : brief.prompt, scene_idea: brief.scene_idea,
                 theme: brief.theme || undefined, tags: [brief.mood, brief.ensemble].filter(Boolean) as string[],
                 combo_key: brief.combo_key || undefined, seed: brief.seed, writer_model: batch!.writer_model || undefined,
                 music_model: model.id, batch_id: params.batch_id, gateway_job_id: result.jobId,
@@ -324,7 +330,7 @@ export async function generateSongPool(job: Job): Promise<void> {
                 ...(flagged ? { gap_s: Math.round(flagged.length * 10) / 10, gap_at_s: Math.round(flagged.at) } : {}),
                 generation_s: Math.round((Date.now() - started) / 1000),
                 ...(heard ? {
-                  lyrics: brief.lyrics, style: brief.style, lyrics_check: heard.check,
+                  lyrics: brief.lyrics, style: brief.style, lyrics_check: heard.check, ...(singer ? { singer: singer.name } : {}),
                   ...(heard.match !== undefined ? { lyrics_match: heard.match } : {}),
                 } : {}),
                 rating: null, episodes: [],
