@@ -40,5 +40,5 @@ test('a request without its own allowance takes the channel preset\'s, else the 
 test('generateVideo resolves the allowance before the loudness target, and only when the request has none', async () => {
   const src = await fs.readFile(path.join(path.dirname(new URL(import.meta.url).pathname), '../generators/video.ts'), 'utf8')
   const at = src.indexOf("if (typeof req.loudness_tolerance_pct !== 'number') req.loudness_tolerance_pct = await channelLoudnessTolerancePct(project_slug)")
-  assert.ok(at > 0 && at < src.indexOf('const loudness = loudnessTarget(req)'))
+  assert.ok(at > 0 && at < src.indexOf('const loudness = { ...loudnessTarget(req)'))
 })

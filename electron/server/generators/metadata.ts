@@ -46,9 +46,11 @@ import { writeMetadataCompletionManifest } from '../services/metadata-completion
 import {
   finalizeYouTubeDescription,
   inspectYouTubeFinalizationStatus,
+  refreshManagedBlock,
 } from '../services/youtube-metadata-finalizer.js'
 import { truncateChars } from '../lib/well-formed-text.js'
-import { fitYouTubeDescription, YOUTUBE_DESCRIPTION_MAX_BYTES } from '../lib/youtube-description-limit.js'
+import { CHAPTERS_BEGIN, CHAPTERS_END, fitYouTubeDescription, YOUTUBE_DESCRIPTION_MAX_BYTES } from '../lib/youtube-description-limit.js'
+import { safetyGate, safetyMode } from '../services/safety-checks.js'
 import { pipelinePolicyCheckpointStore, pipelinePolicyForJob, pipelinePolicyInputFingerprint } from '../lib/pipeline-model-policy.js'
 
 /**
@@ -322,16 +324,20 @@ export async function generateMetadata(job: Job): Promise<void> {
   if (musicStitch.music && !readiness.audio_assembly_ready) {
     throw Object.assign(new Error(musicStitch.reason), { statusCode: 409, code: 'YOUTUBE_FINALIZER_MUSIC_STITCH_REQUIRED' })
   }
-  if (!readiness.audio_assembly_ready) {
-    throw Object.assign(
+  // Chapter marks are required whenever Audio Assembly exists — refuse before
+  // any model call rather than ship a package without them. 1.4.300: the
+  // "chapter marks" safety check — Off/Warn write the description without them.
+  const chapterStop = !readiness.audio_assembly_ready
+    ? Object.assign(
       new Error('Run Audio Assembly before YouTube Finalizer so chapter timestamps use measured narration timing.'),
       { statusCode: 409, code: 'YOUTUBE_FINALIZER_AUDIO_REQUIRED' },
     )
-  }
-  // Chapter marks are required whenever Audio Assembly exists — refuse before
-  // any model call rather than ship a package without them.
-  if (readiness.chapter_issue) {
-    throw Object.assign(new Error(readiness.chapter_issue), { statusCode: 409, code: 'YOUTUBE_FINALIZER_CHAPTERS_REQUIRED' })
+    : readiness.chapter_issue
+      ? Object.assign(new Error(readiness.chapter_issue), { statusCode: 409, code: 'YOUTUBE_FINALIZER_CHAPTERS_REQUIRED' })
+      : null
+  if (chapterStop) {
+    if (await safetyMode(project_slug, 'chapter_marks') === 'block') throw chapterStop
+    await safetyGate(project_slug, 'chapter_marks', job, `${chapterStop.message} The description is written without chapter marks.`)
   }
 
   const existingPackage = req.existing_package
@@ -617,7 +623,9 @@ Requirements:
       includeSources: sourcesSectionEnabled(sections),
     })
     // Never fail for length: trim at a sentence boundary, chapter list intact.
-    const fitted = fitYouTubeDescription(finalization.description)
+    const fitted = fitYouTubeDescription(chapterStop
+      ? refreshManagedBlock(finalization.description, CHAPTERS_BEGIN, CHAPTERS_END, '')
+      : finalization.description)
     description = fitted.description
     if (fitted.trimmed) {
       job.output_lines.push(
@@ -626,7 +634,7 @@ Requirements:
       )
     }
     job.output_lines.push(
-      `Finalized YouTube package: ${finalization.chapter_count} chapter marker(s), ` +
+      `Finalized YouTube package: ${chapterStop ? 0 : finalization.chapter_count} chapter marker(s), ` +
       `${finalization.source_count} research source(s).`,
     )
     for (const warning of finalization.warnings) {
@@ -656,7 +664,7 @@ Requirements:
         subtitle_mode: finalization.subtitle_mode,
         subtitle_missing_sections: finalization.subtitle_missing_sections,
         outline_title_count: finalization.outline_title_count,
-        chapter_count: finalization.chapter_count,
+        chapter_count: chapterStop ? 0 : finalization.chapter_count,
         source_count: finalization.source_count,
         lead_in_seconds: finalization.lead_in_seconds,
         warnings: finalization.warnings,
@@ -692,7 +700,7 @@ Requirements:
     // Chapter marks are audited like the other fields (they used to be a
     // warning only). `chapter_issue` is null when the episode has fewer than
     // three timed sections — YouTube cannot show chapters for it at all.
-    if (finalization.chapter_issue) missing.push(`chapter marks (${finalization.chapter_issue})`)
+    if (finalization.chapter_issue && !chapterStop) missing.push(`chapter marks (${finalization.chapter_issue})`)
     for (let index = titles.length; index < expectedTitleCount; index++) {
       missing.push(`title option ${index + 1}`)
     }

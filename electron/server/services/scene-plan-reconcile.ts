@@ -113,8 +113,12 @@ export async function reconcileScenePlanTimings(
  * captions or narration is re-aligned (every scene, prompt and image kept) and the work carries
  * on, instead of stopping for a person. Returns the line for the job log.
  */
-export async function realignDriftedScenePlan(slug: string, episodeId: string, reason: string): Promise<string> {
-  const r = await reconcileScenePlanTimings(slug, episodeId, { auto: true })
+export async function realignDriftedScenePlan(
+  slug: string, episodeId: string, reason: string,
+  /** 1.4.300 — `auto: false` re-aligns past the 10% limit (the "Scene Plan in step" check on Off/Warn). */
+  options: { auto?: boolean } = { auto: true },
+): Promise<string> {
+  const r = await reconcileScenePlanTimings(slug, episodeId, options)
   return `Scene Plan was a little out of step (${reason.replace(/\.$/, '')}). Re-aligned ${r.matched}/${r.total} scene(s) `
     + 'to the current captions and carried on; every scene, prompt and image was kept.'
 }

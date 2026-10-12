@@ -9,7 +9,7 @@ import request from 'supertest'
 import type { CommentCacheState } from '../services/youtube-project-publishing-store.js'
 import { useTempDataDir } from './_helpers.js'
 import { FakeYouTube } from './fixtures/fake-youtube.js'
-import { tinyVideoBytes } from './fixtures/tiny-video.js'
+import { tinyVideoWithSoundBytes as tinyVideoBytes } from './fixtures/tiny-video.js'
 import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 
 const boot = await useTempDataDir()
@@ -4975,4 +4975,61 @@ test('a different episode code on the same channel is not warned about', async (
   assert.equal(res.status, 409, JSON.stringify(res.body))
   assert.equal(res.body.code, 'YOUTUBE_NO_RENDERED_VIDEO',
     'another series using a different episode number is exactly the legitimate case')
+})
+
+// ── 1.4.300 safety checks on the Upload route: Block refuses as above; Off/Warn let the upload go ──
+
+const setSafety = (slug: string, id: string, mode: 'off' | 'warn' | 'block') =>
+  pm.updateConfig(slug, { safety_checks: { [id]: mode } } as any)
+
+test('episode number claim Off uploads without asking; Block refuses even when confirmed', async () => {
+  const slug = await project(true)
+  await writeForeignClaim('EP0001')
+  const body = { episode_code: 'EP0001', confirm: true, expected_channel_id: CHANNEL }
+
+  await setSafety(slug, 'episode_number_claim', 'off')
+  const off = await request(app).post(`/api/projects/${slug}/youtube/upload`).send(body)
+  assert.equal(off.body.code, 'YOUTUBE_NO_RENDERED_VIDEO', 'Off: no question, straight on to the next gate')
+
+  await setSafety(slug, 'episode_number_claim', 'block')
+  const blocked = await request(app).post(`/api/projects/${slug}/youtube/upload`).send({ ...body, acknowledge_foreign_episode: true })
+  assert.equal(blocked.status, 409)
+  assert.equal(blocked.body.code, 'YOUTUBE_EPISODE_CODE_CLAIMED_ELSEWHERE_BLOCKED')
+  assert.equal(blocked.body.confirmable, false)
+})
+
+test('right channel Warn: a channel changed after preview uploads to the channel assigned now, logged on the job', async () => {
+  const { slug, episodeCode } = await uploadReadyProject()
+  const body = await confirmedUploadBody(slug, episodeCode)
+  await saveYouTubeChannelGrantForTest({
+    channel: { channel_id: 'UC-after-preview', title: 'After Preview', granted_scopes: ['youtube.upload'] },
+    tokens: { access_token: 'after-access', refresh_token: 'after-refresh', expires_at: Date.now() + 3_600_000 },
+  })
+  await connections.assignProjectYouTubeChannel({ project_slug: slug, channel_id: 'UC-after-preview', expected_previous_channel_id: CHANNEL })
+  await setSafety(slug, 'right_channel', 'warn')
+
+  const res = await request(app).post(`/api/projects/${slug}/youtube/upload`).send(body)
+  assert.equal(res.status, 200, JSON.stringify(res.body))
+  assert.equal(res.body.channel_id, 'UC-after-preview')
+  const queued = jobQueue.getJob(res.body.job_id)
+  assert.equal(queued?.params?.expected_channel_id, 'UC-after-preview')
+  assert.equal(queued?.params?.safety_warnings?.[0]?.check, 'right_channel')
+  await removeQueuedTestJob(slug, res.body.job_id)
+})
+
+test('reviewed and unchanged Off: details changed after preview upload as they are now', async () => {
+  const { slug, episodeCode, title } = await uploadReadyProject()
+  const body = await confirmedUploadBody(slug, episodeCode)
+  const paths = await utils.resolveEpisodePaths(slug, episodeCode, title)
+  await fs.writeFile(paths.metadata_json, JSON.stringify({
+    title: 'Changed after preview', description: 'A keeper counts the nights.', tags: ['x'],
+  }))
+  await setSafety(slug, 'reviewed_unchanged', 'off')
+
+  const res = await request(app).post(`/api/projects/${slug}/youtube/upload`).send(body)
+  assert.equal(res.status, 200, JSON.stringify(res.body))
+  const queued = jobQueue.getJob(res.body.job_id)
+  assert.equal(JSON.parse(queued?.params?.approved_final_payload?.snippet_json).title, 'Changed after preview')
+  assert.equal(queued?.params?.privacy_status, 'private', 'the privacy is still the one chosen')
+  await removeQueuedTestJob(slug, res.body.job_id)
 })

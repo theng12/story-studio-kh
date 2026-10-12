@@ -1,4 +1,5 @@
 import type { Format, GenerateIdeasRequest, Job, Niche, StoryIdea } from '../models/types.js'
+import { safetyGate, safetyMode } from '../services/safety-checks.js'
 import * as pm from '../services/project-manager.js'
 import * as im from '../services/idea-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -415,6 +416,8 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
 
   const namesAvoidance = await recentCharacterNamesAvoidance(job.project_slug)
   const created: im.StoredIdea[] = []
+  // Ideas the meaning check rejected as repeats (1.4.300 "idea repeat" safety check, used below).
+  const repeats: Array<StoryIdea & { campaign_id: string }> = []
   const batchSize = 10
   const maxCalls = Math.max(4, Math.ceil(remaining / batchSize) * 4)
   let calls = 0
@@ -555,6 +558,7 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
       watchStats.would_reject += watched.hits.length
       if (enforcing && watched.method === 'meaning') {
         rejectedByMeaning = new Set(watched.hits.map(hit => hit.candidate))
+        repeats.push(...watched.hits.map(hit => hit.candidate))
         for (const hit of watched.hits) {
           job.output_lines.push(`  ↻ Rejected near-duplicate (meaning ${hit.score.toFixed(2)} ~ "${hit.matched.title}"): "${hit.candidate.title}"`)
         }
@@ -586,8 +590,20 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     job.progress = Math.min(99, Math.round(((alreadyCompleted.length + created.length) / wanted) * 100))
   }
 
+  // 1.4.300 "Idea repeat check by meaning" safety check. The channel's own switch still decides
+  // whether repeats are rejected and remade. When the campaign then ends short, Block leaves those
+  // slots empty (as before); Off/Warn fill them with the closest repeats, named in the log.
+  const shortBy = wanted - alreadyCompleted.length - created.length
+  if (shortBy > 0 && repeats.length && await safetyMode(job.project_slug, 'idea_repeat') !== 'block') {
+    const fill = repeats.slice(0, shortBy)
+    await safetyGate(job.project_slug, 'idea_repeat', job, `${fill.length} idea slot(s) could only be filled with ideas `
+      + `that repeat earlier ones by meaning; they are saved anyway: ${fill.map(idea => `"${idea.title}"`).join(', ')}.`)
+    created.push(...await im.addIdeas(job.project_slug, fill, request.model, request.campaign_id))
+  }
+
   const completed = alreadyCompleted.length + created.length
   job.result = {
+    ...(job.result?.safety_warnings ? { safety_warnings: job.result.safety_warnings } : {}),
     campaign_id: request.campaign_id,
     created_idea_ids: created.map(idea => idea.id),
     completed,

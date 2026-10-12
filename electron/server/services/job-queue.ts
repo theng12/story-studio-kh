@@ -54,6 +54,7 @@ import { assertQueuedVisualSource } from './video-visual-source.js'
 import { getValidVideoAssemblyCheckpoint } from '../lib/video-assembly-checkpoint.js'
 import { clearQuotaStops, isUnchargedQuotaStop, noteQuotaStop } from '../lib/ai-client.js'
 import { pipelineStepLabels, splitChainAfterFailure } from '../lib/pipeline-continuation.js'
+import { safetyGate, safetyMode } from './safety-checks.js'
 
 // ── Child-process tracking (for cancel → SIGTERM) ───────────────────────────
 //
@@ -3769,9 +3770,32 @@ async function dispatchChainLink(job: Job, nextStep: any, rest: unknown[]): Prom
       job.output_lines.push(`→ Chained next step: ${nextStep.type}`)
     }
   } catch (error) {
+    if (error instanceof DuplicateJobError && await joinDuplicateChainLink(job, nextStep, rest)) return
     const failed = await recordChainHandoffFailure(job, nextStep, rest, error)
     job.output_lines.push(`Chain-next failed: ${error instanceof Error ? error.message : String(error)} (recorded as failed job ${failed.job_id})`)
   }
+}
+
+/**
+ * Safety check `same_step_queued` (1.4.300): the next step of this Pipeline run is already queued or
+ * running for the episode. Block keeps the old handoff failure; Off/Warn hand the rest of this run to
+ * that job, which carries it on when it finishes. A job that already belongs to another run keeps the
+ * failure (its own chain would be overwritten).
+ */
+async function joinDuplicateChainLink(job: Job, nextStep: any, rest: unknown[]): Promise<boolean> {
+  if (await safetyMode(job.project_slug, 'same_step_queued') === 'block') return false
+  const joined = await joinActiveSameStep({
+    project_slug: job.project_slug,
+    episode_id: job.episode_id,
+    type: nextStep.type,
+    pipeline_chain: rest,
+    pipeline_batch_id: job.params?.pipeline_batch_id,
+  })
+  if (!joined || joined.conflict) return false
+  await safetyGate(job.project_slug, 'same_step_queued', job,
+    `${nextStep.type} was already queued or running for ${job.episode_id} (job ${joined.job.job_id}), so this run joined it`
+    + `${rest.length ? ' and its later steps follow that job' : ''} instead of failing.`)
+  return true
 }
 
 /**
@@ -5002,7 +5026,31 @@ export async function joinActiveBulkSceneRender(opts: {
 }): Promise<SceneRenderJoinResult | null> {
   const active = findActiveBulkSceneRenderInternal(opts.project_slug, opts.episode_id)
   if (!active) return null
+  return joinActiveJob(active, opts, '→ Pipeline joined this existing scene render; no duplicate batch was submitted.')
+}
 
+/** The same join for any job type: the job of `type` already queued/running for the episode (safety check `same_step_queued`). */
+export async function joinActiveSameStep(opts: {
+  project_slug: string
+  episode_id: string
+  type: string
+  pipeline_chain?: unknown[]
+  pipeline_batch_id?: string
+}): Promise<SceneRenderJoinResult | null> {
+  for (const job of jobs.values()) {
+    if (job.project_slug === opts.project_slug && job.episode_id === opts.episode_id && job.type === opts.type
+      && (job.status === 'queued' || job.status === 'running' || job.status === 'paused')) {
+      return joinActiveJob(job, opts, `→ Pipeline joined this existing ${opts.type} job; its later steps follow this one.`)
+    }
+  }
+  return null
+}
+
+async function joinActiveJob(
+  active: Job,
+  opts: { pipeline_chain?: unknown[]; pipeline_batch_id?: string },
+  note: string,
+): Promise<SceneRenderJoinResult> {
   const incomingChain = Array.isArray(opts.pipeline_chain) ? opts.pipeline_chain : []
   const existingChain = Array.isArray(active.params?.pipeline_chain) ? active.params.pipeline_chain : []
   const sameChain = JSON.stringify(existingChain) === JSON.stringify(incomingChain)
@@ -5026,7 +5074,7 @@ export async function joinActiveBulkSceneRender(opts: {
     attached = true
   }
   if (attached) {
-    active.output_lines.push('→ Pipeline joined this existing scene render; no duplicate batch was submitted.')
+    active.output_lines.push(note)
     await persistJob(active)
     emitUpdate(active)
   }

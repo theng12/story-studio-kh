@@ -64,6 +64,7 @@ import { readAudioTtsModelRecord, writeAudioTtsModelRecord, type AudioTtsModelRe
 import { consolidateChapterParts, keptPartPath, measurePart, partsDir, seamPauseRule } from '../services/chapter-parts.js'
 import { partHoldingSentence, type ChapterMissingSentences } from '../lib/script-transcript-check.js'
 import { isFreeFleetModelId } from '../contracts/provider-task-state.js'
+import { safetyGate, safetyMode } from '../services/safety-checks.js'
 import type {
   GenerateAudioRequest, Job, AudioModelConfig, JobItemAttempt,
 } from '../models/types.js'
@@ -770,7 +771,12 @@ export async function generateAudio(job: Job): Promise<void> {
   // Filter sections. Shared with the quote route so a quote covers exactly the
   // sections a Generate press would submit — see services/tts-request-plan.ts.
   const sectionsParam = req.sections || 'all'
-  const sections = selectNarrationSections(allSections, sectionsParam)
+  const repeatedSections: string[] = []
+  const sections = selectNarrationSections(allSections, sectionsParam, repeatedSections)
+  if (repeatedSections.length) {
+    await safetyGate(project_slug, 'chapter_once', job,
+      `${repeatedSections.join(', ')} ${repeatedSections.length === 1 ? 'is' : 'are'} listed more than once; Story narrates each section once.`)
+  }
 
   if (!sections.length) {
     throw new Error(`No matching sections for '${sectionsParam}'`)
@@ -1559,7 +1565,7 @@ export async function generateAudio(job: Job): Promise<void> {
     const unchanged = (update: typeof updates[number]) => activeChapters[update.slug]?.tts?.model_id === genStudioModelId
       && activeChapters[update.slug]?.source_files?.join('\n') === update.sourceFiles.join('\n')
       && activeChapters[update.slug]?.source_audio_hash === update.sourceAudioHash
-    const pendingUpdates = updates.filter(update => !unchanged(update))
+    let pendingUpdates = updates.filter(update => !unchanged(update))
     const replacementSources = Object.fromEntries(pendingUpdates
       .filter(update => update.sourceFiles.every(belongsToCompletedReplacement(update.slug)))
       .map(update => [update.slug, update.sourceFiles]))
@@ -1574,23 +1580,47 @@ export async function generateAudio(job: Job): Promise<void> {
       // Owner rule (lenient): a section whose replacement record is incomplete is still
       // activated when every one of its files is real, decodable, non-silent audio. A missing
       // or bad file, or a file the record says another voice model made, still refuses.
+      // Playable files the record says another voice model made: switched in only when the
+      // "New narration can be switched in" safety check is Off or Warn (below).
+      const otherModelSources: Record<string, string[]> = {}
+      const keptPrevious = new Set<string>()
       for (const update of pendingUpdates) {
         if (replacementSources[update.slug]) continue
+        let otherModel = false
         const playable = await Promise.all(update.sourceFiles.map(async file => {
           const recordedModel = manifest.tasks[file]?.model_id
-          if (recordedModel && recordedModel !== genStudioModelId) return false
+          if (recordedModel && recordedModel !== genStudioModelId) otherModel = true
           const full = path.join(audioDir, file)
           if (!await fileExistsWithContent(full)) return false
           const measure = await measurePart(full).catch(() => null)
           return !!measure && measure.duration_s > 0 && measure.lufs !== null
         }))
         if (!playable.every(Boolean)) continue
+        if (otherModel) {
+          otherModelSources[update.slug] = update.sourceFiles
+          continue
+        }
         replacementSources[update.slug] = update.sourceFiles
         job.output_lines.push(`${update.slug.replaceAll('_', ' ')}: its replacement record was incomplete, but ${update.sourceFiles.join(', ')} ${update.sourceFiles.length === 1 ? 'is' : 'are'} complete, playable audio, so it was activated.`)
       }
       replacementCount = Object.keys(replacementSources).length
       if (updates.length !== sections.length || replacementCount !== pendingUpdates.length) {
-        throw audioActivationError('not every requested section has complete durable replacement evidence')
+        const activationError = audioActivationError('not every requested section has complete durable replacement evidence')
+        if (await safetyMode(project_slug, 'narration_switch_in') === 'block') throw activationError
+        // 1.4.300 — Off/Warn: switch in what is playable (another voice model's files included) and
+        // keep the previous audio for each section whose new files are missing or unplayable.
+        Object.assign(replacementSources, otherModelSources)
+        const kept = pendingUpdates.map(update => update.slug).filter(slug => !replacementSources[slug])
+          .concat(sections.map(section => section.slug).filter(slug => !updates.some(update => update.slug === slug)))
+        kept.forEach(slug => keptPrevious.add(slug))
+        const otherModel = Object.keys(otherModelSources)
+        await safetyGate(project_slug, 'narration_switch_in', job,
+          `New narration could not be fully switched in: ${[
+            ...(kept.length ? [`${kept.join(', ')} ${kept.length === 1 ? 'has' : 'have'} missing or unplayable new audio, so the previous audio stays active there`] : []),
+            ...(otherModel.length ? [`${otherModel.join(', ')} ${otherModel.length === 1 ? 'was' : 'were'} made by another voice model and ${otherModel.length === 1 ? 'is' : 'are'} switched in anyway`] : []),
+          ].join('; ')}.`)
+        pendingUpdates = pendingUpdates.filter(update => replacementSources[update.slug])
+        replacementCount = pendingUpdates.length
       }
 
       const commitProvenance = () => updateAudioQualityProvenance(episodeDir, existing => {
@@ -1626,12 +1656,14 @@ export async function generateAudio(job: Job): Promise<void> {
       if (selectedSources !== null && selectedSources !== pendingUpdates.length) {
         throw audioActivationError('the active selection did not accept every requested section')
       }
-      await writeAudioTtsModelRecord(episodeDir, selectedModelRecord)
-      job.output_lines.push(`Activated voice model boundary: ${genStudioModelId}`)
+      if (pendingUpdates.length || !keptPrevious.size) {
+        await writeAudioTtsModelRecord(episodeDir, selectedModelRecord)
+        job.output_lines.push(`Activated voice model boundary: ${genStudioModelId}`)
+      }
       // Every part succeeded and is active: one file per chapter from here on.
       await consolidateChapterParts({
         projectDir: projectDirFor(project_slug), episodeDir, audioDir, code,
-        only: sections.map(section => section.slug),
+        only: sections.map(section => section.slug).filter(slug => !keptPrevious.has(slug)),
         texts: new Map(sections.map((section, index) => [section.slug, {
           sectionText: section.text, parts: genStudioRequestPlan[index]!.parts,
         }])),

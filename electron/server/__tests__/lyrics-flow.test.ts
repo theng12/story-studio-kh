@@ -202,7 +202,11 @@ describe('making sung songs', () => {
     }
   })
 
+  const setLyricsSafety = async (mode: 'off' | 'warn' | 'block') =>
+    (await import('../services/project-manager.js')).updateConfig(slug, { safety_checks: { lyrics_listen_back: mode } } as any)
+
   test('every take failing keeps the last one switched off and fails loudly; a paid listen-back is never confirmed', async () => {
+    await setLyricsSafety('block')
     service.queueScenario('chat', { outputText: sungAnswer() })
     service.queueScenario('transcription', { outputText: 'la la la' })
     service.queueScenario('transcription', { outputText: 'la la la' })
@@ -225,5 +229,20 @@ describe('making sung songs', () => {
     assert.equal(unchecked!.lyrics_check, 'unchecked')
     assert.equal('lyrics_match' in unchecked!, false, 'not checked is not a score of 0')
     assert.equal(unchecked!.enabled, false)
+  })
+
+  test('1.4.300 listen-back safety check Warn: a song that still fails after its takes is kept switched on, with a warning', async () => {
+    await setLyricsSafety('warn')
+    service.queueScenario('chat', { outputText: sungAnswer() })
+    service.queueScenario('transcription', { outputText: 'la la la' })
+    service.queueScenario('transcription', { outputText: 'la la la' })
+    const { generateSongPool } = await import('../generators/song-pool-generate.js')
+    const job = fakeJob({ mode: 'new', count: 1, writer_model: 'mock-chat-v1', music_model: 'mock-music-v1', check_model: 'mock-whisper-v1', batch_id: 'b_warn' })
+    await generateSongPool(job)
+    assert.equal(service.submissions.filter(s => s.operation === 'music').length, 2, 'the channel\'s retakes still run')
+    const [song] = await poolSongs('b_warn')
+    assert.equal(song!.enabled, true)
+    assert.equal(song!.lyrics_check, 'failed', 'the pool still shows what the listen-back heard')
+    assert.equal(job.result.safety_warnings?.[0]?.check, 'lyrics_listen_back')
   })
 })

@@ -74,7 +74,8 @@ test('audio assembly and transcription enforce their authoritative prerequisite 
   )
 
   assert.match(audioMergeRoute, /await requireChapterAudioReady\(slug, episode_id\)/)
-  assert.match(audioMergeGenerator, /await requireChapterAudioReady\(project_slug, code\)/)
+  // 1.4.300 — the generator re-proves readiness and lets the "All chapter audio present" safety check decide.
+  assert.match(audioMergeGenerator, /await inspectChapterAudioReadiness\(project_slug, code\)[\s\S]{0,400}'chapter_audio_present'/)
   assert.match(audioMergePage, /:disabled="!chapterAudioReady \|\| mergeStatus\.loading \|\| !!mergeStatus\.error \|\| generating \|\| mergeJobActiveForEpisode(?: \|\| musicChoiceMissing)?"/)
   assert.match(subtitleRoute, /await requireAudioAssemblyReady\(slug, episodeId\)/)
   assert.match(subtitleGenerator, /await requireAudioAssemblyReady\(project_slug, code\)/)

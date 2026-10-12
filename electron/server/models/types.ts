@@ -2027,6 +2027,8 @@ export interface LlmLineupMigration {
 }
 
 export interface ProjectConfig {
+  /** 1.4.300 — per-channel Off / Warn / Block for each safety check; only changed rows are saved. */
+  safety_checks?: Record<string, 'off' | 'warn' | 'block'>
   llm_lineup_migration?: LlmLineupMigration
   /** Historical project files may contain retired fields; Story ignores them. */
   [key: string]: any
@@ -2327,6 +2329,8 @@ export interface UpdateApiKeysRequest {
 }
 
 export interface UpdateConfigRequest {
+  /** 1.4.300 — per-channel Off / Warn / Block for each safety check. */
+  safety_checks?: Record<string, 'off' | 'warn' | 'block'>
   /** Server-written only (the HTTP schema strips it). */
   llm_lineup_migration?: LlmLineupMigration
   image_models?: Record<string, ImageModelConfig>

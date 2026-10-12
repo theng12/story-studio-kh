@@ -598,6 +598,7 @@ describe('the research generator resets the triage', () => {
     const epDir = await makeProject(true)
     // Pre-existing, human-reviewed research for an OLDER generation.
     await writeResearch(epDir, rv.withResearchReviewRecord(triaged('verified', { summary: 'stale' }), 'human'))
+    await writeProjectConfig({ safety_checks: { research_approved: 'block' } })
 
     const job = await runGeneratorWithStubAdapter({})
 
@@ -639,6 +640,7 @@ describe('the research generator resets the triage', () => {
 
   test('research.md shows when a claim has no source behind it', async () => {
     const epDir = await makeProject(true)
+    await writeProjectConfig({ safety_checks: { research_approved: 'block' } })
     await runGeneratorWithStubAdapter({})
     const { mdPath } = await researchPaths.resolveResearchPaths(epDir, CODE)
     const md = await fs.readFile(mdPath, 'utf-8')
@@ -650,6 +652,7 @@ describe('the research generator resets the triage', () => {
 
   test('an empty pipeline_batch_id is not treated as a Pipeline run', async () => {
     const epDir = await makeProject(true)
+    await writeProjectConfig({ safety_checks: { research_approved: 'block' } })
     await runGeneratorWithStubAdapter({ pipeline_batch_id: '' })
     const written = await readResearch(epDir)
     assert.ok(written.claims.every(c => c.status === 'unreviewed'))
@@ -668,7 +671,7 @@ describe('the research generator resets the triage', () => {
 
   test('with the setting OFF (absent key) a run behaves exactly as it does today', async () => {
     const epDir = await makeProject(true)
-    await writeProjectConfig({})           // the key was never set
+    await writeProjectConfig({ safety_checks: { research_approved: 'block' } })           // the key was never set
     const job = await runGeneratorWithStubAdapter({})
 
     const written = await readResearch(epDir)
@@ -681,7 +684,7 @@ describe('the research generator resets the triage', () => {
 
   test('an explicit false is still off', async () => {
     const epDir = await makeProject(true)
-    await writeProjectConfig({ research_auto_approve_claims: false })
+    await writeProjectConfig({ research_auto_approve_claims: false, safety_checks: { research_approved: 'block' } })
     await runGeneratorWithStubAdapter({})
     const written = await readResearch(epDir)
     assert.ok(written.claims.every(c => c.status === 'unreviewed'))
@@ -726,11 +729,32 @@ describe('the research generator resets the triage', () => {
     await runGeneratorWithStubAdapter({})
     assert.equal((await readResearch(epDir)).review?.completed_by, 'auto-approval')
 
-    await writeProjectConfig({ research_auto_approve_claims: false })
+    await writeProjectConfig({ research_auto_approve_claims: false, safety_checks: { research_approved: 'block' } })
     await runGeneratorWithStubAdapter({})
     const after = await readResearch(epDir)
     assert.equal(after.review, undefined, 'turning it off returns the next run to manual review')
     assert.ok(after.claims.every(c => c.status === 'unreviewed'))
+  })
+
+  test('1.4.300: with nobody approving, the "Research claims approved" check set to Off accepts the claims; Warn also warns; Block (default) keeps them out', async () => {
+    const epDir = await makeProject(true)
+    await writeProjectConfig({})
+    await runGeneratorWithStubAdapter({})
+    assert.ok((await readResearch(epDir)).claims.every(c => c.status !== 'verified'), 'the default keeps unread claims out of the script')
+    await writeProjectConfig({ safety_checks: { research_approved: 'off' } })
+    const job = await runGeneratorWithStubAdapter({})
+    const written = await readResearch(epDir)
+    assert.ok(written.claims.every(c => c.status === 'verified'), 'Off lets the script use the claims')
+    assert.equal(written.review?.note, rv.SAFETY_CHECK_REVIEW_NOTE)
+    assert.ok(job.output_lines.some(l => /Claim review: ACCEPTED by the "Research claims approved" safety check/.test(l)))
+    assert.equal((job.result as any)?.safety_warnings, undefined)
+    const { mdPath } = await researchPaths.resolveResearchPaths(epDir, CODE)
+    assert.match(await fs.readFile(mdPath, 'utf-8'), /Claims accepted\*\* by this channel's "Research claims approved" safety check/)
+
+    await writeProjectConfig({ safety_checks: { research_approved: 'warn' } })
+    const warned = await runGeneratorWithStubAdapter({})
+    assert.ok((await readResearch(epDir)).claims.every(c => c.status === 'verified'))
+    assert.equal((warned.result as any)?.safety_warnings?.[0]?.check, 'research_approved')
   })
 
   test('the setting survives a settings/config round-trip', async () => {

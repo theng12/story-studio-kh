@@ -35,7 +35,8 @@ import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
 import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
 import { checkAssetAvailability } from '../lib/sync-safe.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import { chapterKeyOf, requireChapterAudioReady } from '../services/audio-workflow-readiness.js'
+import { chapterKeyOf, inspectChapterAudioReadiness } from '../services/audio-workflow-readiness.js'
+import { safetyGate, safetyMode } from '../services/safety-checks.js'
 import { hashSubtitleAudioSources } from '../services/subtitle-completion.js'
 import { recordSubtitleSourceEvidence } from '../services/subtitle-recovery.js'
 import { ensureStitchedSubtitle } from '../lib/subtitle-autostitch.js'
@@ -560,7 +561,17 @@ export async function generateAudioMerge(job: Job): Promise<void> {
   // internally and files may change while a job waits. Re-prove the complete
   // base set immediately before FFmpeg starts. This is read-only; the selected
   // sidecar map below remains the source authority for a promoted `_vN` file.
-  const readiness = await requireChapterAudioReady(project_slug, code)
+  let readiness = await inspectChapterAudioReadiness(project_slug, code)
+  if (!readiness.ready) {
+    // 1.4.300 — "All chapter audio present": Block stops as before; Off and Warn join the chapters
+    // that are there (nothing at all still stops).
+    const blocked = new Error(`Audio Assembly is blocked: ${readiness.issues.join(' ')}`)
+    if (!readiness.present_files.length || await safetyMode(project_slug, 'chapter_audio_present') === 'block') throw blocked
+    await safetyGate(project_slug, 'chapter_audio_present', job,
+      `${readiness.missing_files.length} chapter audio file(s) are missing (${readiness.missing_files.join(', ')}). Story joins the narration from the chapters that are there.`)
+    const missing = new Set(readiness.missing_files)
+    readiness = { ...readiness, ready: true, expected_files: readiness.expected_files.filter(file => !missing.has(file)) }
+  }
 
   // `audio_chapters.json` records the active audio map. Generic disk scans
   // deliberately ignore `_vN` alternates, so a complete selected map wins.
@@ -670,10 +681,14 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     const missing = candidate.filter(file => !existsSync(file))
     if (missing.length) {
       const message = `selected audio file(s) are missing: ${missing.map(file => path.basename(file)).join(', ')}`
-      if (requiredRefresh || containsAlternate) {
+      if (!requiredRefresh && !containsAlternate) return []
+      // 1.4.300 — a chosen take's file is gone: Off/Warn join the rest of the chosen map.
+      if (requiredRefresh || missing.length === candidate.length
+        || await safetyMode(project_slug, 'chapter_audio_present') === 'block') {
         throw new Error(`Audio Assembly cannot use its authoritative selected audio map: ${message}`)
       }
-      return []
+      await safetyGate(project_slug, 'chapter_audio_present', job, `The chosen narration map lists ${message}. Story joins the narration from the files that are there.`)
+      return candidate.filter(file => existsSync(file))
     }
     return candidate
   }
@@ -839,15 +854,20 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     // to have to do, and certainly not after rendering the video.
     let introRecord: MergedAudioIntroRecord | null = null
     const introEnabled = req.intro?.enabled && !!req.intro?.file
-    if (introEnabled && req.intro) {
-      const introPath = unescapeShellPath(req.intro.file)!
+    let introPath = introEnabled && req.intro ? unescapeShellPath(req.intro.file)! : ''
+    if (introPath) {
       const avail = checkAssetAvailability(introPath, 'intro.file')
       if (avail.status !== 'available') {
-        // Throw rather than skip — the user explicitly enabled an intro,
-        // and losing it silently would surprise them. The message already
-        // tells them to trigger the iCloud download when that's the cause.
-        throw new Error(avail.message || `Intro audio file not found: ${introPath}`)
+        // The user explicitly enabled an intro, and losing it silently would surprise them. The
+        // message already tells them to trigger the iCloud download when that's the cause.
+        // 1.4.300 — "Intro audio file found": Block stops as before; Off and Warn assemble without it.
+        const message = avail.message || `Intro audio file not found: ${introPath}`
+        if (await safetyMode(project_slug, 'intro_audio') === 'block') throw new Error(message)
+        await safetyGate(project_slug, 'intro_audio', job, `${message} Story assembles the narration without the intro.`)
+        introPath = ''
       }
+    }
+    if (introPath && req.intro) {
       const introVol = Math.max(0, Math.min(1, req.intro.volume ?? 1))
       // Re-encode the intro at the target volume so we can safely concat it
       const introStaged = path.join(tempDir, 'intro_staged.mp3')
@@ -1081,7 +1101,7 @@ export async function generateAudioMerge(job: Job): Promise<void> {
       await levelMergedAudio({
         raw: rawMixPath,
         master: masterPath, mp3: outputPath,
-        loudness: await channelLoudnessTarget(project_slug), tempDir, lines: job.output_lines,
+        loudness: await channelLoudnessTarget(project_slug), tempDir, lines: job.output_lines, slug: project_slug,
       })
       mixSucceeded = true
     } finally {
@@ -1201,10 +1221,19 @@ export async function generateAudioMerge(job: Job): Promise<void> {
  */
 export async function levelMergedAudio(opts: {
   raw: string; master: string; mp3: string; loudness: LoudnessTarget; tempDir: string; lines: string[]
+  /** 1.4.300 — the channel whose "silent narration" safety check applies (Block by default). */
+  slug?: string
 }): Promise<void> {
   const { raw, master, mp3, loudness, tempDir, lines } = opts
+  const measured = await measureLoudness(raw)
+  // A silent merge used to carry on and fail only after the whole Video Assembly render.
+  if (opts.slug && (measured.lufs === null || measured.lufs <= -69)) {
+    const { safetyGate } = await import('../services/safety-checks.js')
+    await safetyGate(opts.slug, 'silent_narration', { output_lines: lines },
+      'The merged narration is silent or its level cannot be read. Check the chapter audio and re-narrate the silent part.')
+  }
   await levelAndCheck({
-    measured: await measureLoudness(raw),
+    measured,
     write: level => runFfmpeg(['-y', '-i', raw, '-vn', '-af', `${level}aformat=sample_fmts=s16:channel_layouts=stereo:sample_rates=44100`,
       '-c:a', 'flac', master], { timeoutMs: audioMergeTimeoutMs() }),
     output: master, loudness, tempDir, lines, what: 'merged audio',

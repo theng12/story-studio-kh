@@ -63,7 +63,7 @@ import {
   readPromptLength,
 } from '../services/prompt-char-cap.js'
 import { scanEpisodeAssets } from './video.js'
-import { assertSubtitleTimelineComplete, readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
+import { assertSubtitleTimelineComplete, readSubtitleTimelineIntegrity, restitchIfBroken, safetyCarriesOn, type SubtitleCueGap } from '../services/scene-timeline-integrity.js'
 import { allowedSubtitleCueGapSec, resolveScenePlanPacing, type ScenePlanPacing } from '../services/scene-plan-pacing.js'
 import { resolveTranscriptSrt, describeTranscriptCorrection } from '../services/subtitle-correction.js'
 import { requireJobCompletion } from '../services/job-completion.js'
@@ -73,6 +73,7 @@ import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import {
   clearLegacyPlannerFallbackReasons,
   inspectScenePromptIntegrity,
+  normalizeScenePrompt,
 } from '../services/scene-prompt-integrity.js'
 import {
   assignCreativeStrategies,
@@ -728,6 +729,18 @@ export function subtitleCoverageGapError(gap: { gap_sec: number; previous_end_se
   ))
 }
 
+/**
+ * 1.4.300 "No caption gap over 30 seconds" (Off/Warn): the scenes either side of a gap cover it (each
+ * scene starts where the one before ends). Block returns false and the caller stops as before.
+ */
+async function captionGapCarriesOn(job: Job, gaps: SubtitleCueGap[]): Promise<boolean> {
+  if (!gaps.length) return true
+  const where = gaps.map(gap => `${gap.gap_sec.toFixed(1)}s from ${gap.previous_end_sec.toFixed(1)}s`
+    + (gap.section_slugs.length ? ` in ${gap.section_slugs.join(' / ')}` : '')).join('; ')
+  return safetyCarriesOn(job, 'caption_gap',
+    `The captions have ${gaps.length === 1 ? 'a gap' : `${gaps.length} gaps`} over 30 seconds (${where}). The scenes either side cover it.`)
+}
+
 /** A continuation problem that re-aligning the plan to today's captions fixes (1.4.296). */
 function realignable(message: string): Error {
   return Object.assign(new Error(message), { realign: true })
@@ -877,6 +890,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   // This single call is why Contextual Cues and the scene visual prompts need
   // no change of their own: both read `transcript_segment` out of
   // scene_plan.json, which is built from these cues.
+  // 1.4.300 — before the transcript is read, so the corrected transcript follows a re-stitch.
+  await restitchIfBroken(job, {
+    subtitlesDir: paths.subtitles_dir, episodeDir: paths.episode_dir, audioDir: paths.audio_dir, mergedAudioDir: paths.merged_audio_dir,
+  }, episode_id)
   const transcript = await resolveTranscriptSrt({
     subtitles_dir: paths.subtitles_dir,
     script_dir: paths.script_dir,
@@ -1017,7 +1034,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   // prompts are durable adaptive Hub packs keyed by stable scene IDs, with direct generation as
   // a connection-only fallback. This branch is intentionally before all legacy
   // re-plan modes so those remain available for repairing old plans.
-  await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id, { episodeDir: paths.episode_dir, audioDir: paths.audio_dir })
+  await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id, { episodeDir: paths.episode_dir, audioDir: paths.audio_dir }, job)
   if (requestedStage || !isSingleSceneRepair) {
     const pipelineAutoVisual = requestedStage == null && !isSingleSceneRepair
     // Ordinary Pipeline continuation owns the missing prompts, not permission
@@ -1072,7 +1089,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         cue_source_path: stitchedSrt,
       })
       const suspiciousGap = subtitleIntegrity.blocking_cue_gaps?.[0]
-      if (suspiciousGap) {
+      if (suspiciousGap && !await captionGapCarriesOn(job, subtitleIntegrity.blocking_cue_gaps!)) {
         job.result = {
           ...(job.result || {}),
           attention: {
@@ -1084,7 +1101,8 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         }
         throw subtitleCoverageGapError(suspiciousGap)
       }
-      if (!subtitleIntegrity.complete) {
+      // Cue gaps were decided just above; `complete` also counts them.
+      if (subtitleIntegrity.missing_sections.length) {
         throw new Error(
           'Subtitle timeline verification no longer matches the stitched file. ' +
           'Open Subtitles, re-stitch, and recheck before creating the Scene Plan.',
@@ -1206,7 +1224,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           const integrity = await readSubtitleTimelineIntegrity(paths.subtitles_dir, episode_id, {
             max_cue_gap_sec: allowedSubtitleCueGapSec(), cue_source_path: stitchedSrt,
           })
-          if (!integrity.complete || !cues.length) throw new Error('the current subtitle timeline cannot be verified')
+          if (integrity.missing_sections.length || !cues.length
+            || !await captionGapCarriesOn(job, integrity.blocking_cue_gaps || [])) {
+            throw new Error('the current subtitle timeline cannot be verified')
+          }
           const stored = plan?.source_timeline
           // compareTimeline intentionally treats an absent legacy stamp as
           // advisory unknown. Automatic continuation requires positive proof;
@@ -1225,22 +1246,36 @@ export async function runScenePlanJob(job: Job): Promise<void> {
               scenePlanLeadInShiftSec(plan.scenes || [], merged?.opening?.lead_in_sec, merged?.duration))
             if (audioDrift.stale) throw realignable(audioDrift.reason)
           }
-          if (plan.pacing === undefined) throw new Error('the saved plan has no pacing snapshot')
+          // 1.4.300 "Saved Scene Plan can safely continue" (Off/Warn): a plan with no pacing snapshot
+          // adopts today's pacing; a changed rhythm or opening keeps the plan's own and carries on.
+          const continues = (problem: string) => safetyCarriesOn(job, 'plan_can_continue', `The saved Scene Plan: ${problem}.`)
+          if (plan.pacing === undefined) {
+            const problem = 'the saved plan has no pacing snapshot'
+            if (!await continues(`${problem}; it adopts this episode's current pacing`)) throw new Error(problem)
+            plan.pacing = structuredClone(planPacing)
+            await writeJsonAtomic(outPath, plan, { compact: true })
+          }
           const savedPacing = parseSavedScenePlanPacing(plan.pacing)
           if (savedPacing.min_sec !== planPacing.min_sec || savedPacing.max_sec !== planPacing.max_sec
             || !isDeepStrictEqual(
               savedPacing.mode === 'variable' ? savedPacing.periods : undefined,
               planPacing.mode === 'variable' ? planPacing.periods : undefined,
             )) {
-            throw new Error('the saved plan pacing differs from this episode’s selected rhythm')
+            const problem = 'the saved plan pacing differs from this episode’s selected rhythm'
+            if (!await continues(`${problem}; it keeps its own rhythm`)) throw new Error(problem)
           }
           const opening = await resolveProjectOpening(job.project_slug)
-          if (opening.unresolved.length) throw new Error(`opening assets are unavailable: ${opening.unresolved.join(', ')}`)
-          const openingSec = await measureOpeningSec(opening.head, getAudioDuration)
-          if (plan.opening_source !== 'measured' || !Number.isFinite(plan.opening_reserved_sec)
-            || Math.round(plan.opening_reserved_sec! * 1000) !== Math.round(openingSec * 1000)
-            || plan.opening_mode !== (openingSec > 0 ? 'branded-opening' : 'from-start')) {
-            throw new Error('the saved plan opening does not match the current measured opening')
+          if (opening.unresolved.length) {
+            const problem = `opening assets are unavailable: ${opening.unresolved.join(', ')}`
+            if (!await continues(`${problem}; it keeps its own opening`)) throw new Error(problem)
+          } else {
+            const openingSec = await measureOpeningSec(opening.head, getAudioDuration)
+            if (plan.opening_source !== 'measured' || !Number.isFinite(plan.opening_reserved_sec)
+              || Math.round(plan.opening_reserved_sec! * 1000) !== Math.round(openingSec * 1000)
+              || plan.opening_mode !== (openingSec > 0 ? 'branded-opening' : 'from-start')) {
+              const problem = 'the saved plan opening does not match the current measured opening'
+              if (!await continues(`${problem}; it keeps its own opening`)) throw new Error(problem)
+            }
           }
           if (!Array.isArray(plan.scenes) || !plan.scenes.length || plan.scenes.some(scene =>
             !scene || typeof scene.id !== 'string' || !scene.id.trim()
@@ -1310,9 +1345,16 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       loaded = await readPlan()
     } catch (error) {
       if (!(error as { realign?: boolean })?.realign) throw error
+      // 1.4.300 "Scene Plan in step with narration": Block is the stop from before 1.4.296; Off/Warn
+      // re-align, and may do so past the 10% limit (an automatic re-align used to refuse that).
+      if (!await safetyCarriesOn(job, 'plan_in_step', `The Scene Plan is out of step with today's narration or captions `
+        + `(${(error as Error).message.replace(/\.$/, '')}). Story re-aligns it; every scene, prompt and image is kept.`)) {
+        job.result = { ...(job.result || {}), attention: { kind: 'scene_plan_rebuild', workspace: 'scene-plan', episode_id } }
+        throw nonRetryable(scenePlanContinuationError(error))
+      }
       const { realignDriftedScenePlan } = await import('../services/scene-plan-reconcile.js')
       try {
-        job.output_lines.push(await realignDriftedScenePlan(job.project_slug, episode_id, (error as Error).message))
+        job.output_lines.push(await realignDriftedScenePlan(job.project_slug, episode_id, (error as Error).message, { auto: false }))
       } catch (realignError) {
         job.result = { ...(job.result || {}), attention: { kind: 'scene_plan_rebuild', workspace: 'scene-plan', episode_id } }
         throw nonRetryable(scenePlanContinuationError(realignError))
@@ -1328,7 +1370,21 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       path.join(paths.subtitles_dir, `${episode_id.toUpperCase()}_stitched.srt.json`),
     )
     const shortfallSec = planNarrationShortfallSec(plan.scenes, narration)
-    if (shortfallSec > COVERAGE_FAIL_SEC) {
+    // 1.4.300 "Scene Plan reaches the end of the narration" (Off/Warn): the last scene holds to the end.
+    if (shortfallSec > COVERAGE_FAIL_SEC && await safetyCarriesOn(job, 'plan_reaches_end',
+      `Scene Plan stops ${shortfallSec.toFixed(1)}s before the narration ends (narration is ${narration!.duration_sec.toFixed(1)}s). `
+      + 'Story stretches the last scene to the end of the narration.')) {
+      const endSec = narration!.duration_sec
+      await withLock(outPath, async () => {
+        const fresh = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
+        const last = fresh.scenes.reduce((a, b) => (Number(b.end_sec) > Number(a.end_sec) ? b : a))
+        last.end_sec = endSec
+        fresh.total_duration_sec = Math.max(Number(fresh.total_duration_sec) || 0, endSec)
+        await writeJsonAtomic(outPath, fresh, { compact: true })
+        plan.scenes = fresh.scenes
+        plan.total_duration_sec = fresh.total_duration_sec
+      })
+    } else if (shortfallSec > COVERAGE_FAIL_SEC) {
       job.result = { ...(job.result || {}), attention: { kind: 'scene_plan_rebuild', workspace: 'scene-plan', episode_id } }
       throw nonRetryable(new Error(
         `Scene Plan stops ${shortfallSec.toFixed(1)}s before the narration ends (narration is ${narration!.duration_sec.toFixed(1)}s). `
@@ -2007,8 +2063,29 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     }
     if (incompletePacks.length) job.output_lines.push(`Incomplete packs: ${incompletePacks.join(' | ')}`)
     job.output_dir = paths.episode_dir
-    const completion = await auditScenePromptCompletion(outPath, targetIds, isMotion ? 'motion' : 'visual')
+    let completion = await auditScenePromptCompletion(outPath, targetIds, isMotion ? 'motion' : 'visual')
     syncMemoryPlan(completion.plan)
+    // 1.4.300 "Every scene has a picture prompt" (Off/Warn): after the last automatic try, a scene still
+    // without one gets a plain prompt written from its own narration line (no request, nothing charged).
+    // A Gateway request with no known outcome still stops: its answer may yet arrive and be collected.
+    const lastTry = !job.auto_retry?.eligible || job.auto_retry.attempt >= job.auto_retry.max_attempts
+    if (!isMotion && completion.missing_ids.length && !unresolvedProviderRequest && lastTry
+      && await safetyCarriesOn(job, 'scene_prompts', `${completion.missing_ids.length} scene(s) still have no picture prompt after `
+        + `the automatic retries (${completion.missing_ids.slice(0, 5).join(', ')}${completion.missing_ids.length > 5 ? ', …' : ''}). `
+        + 'Story writes a plain prompt for each from its own narration line.')) {
+      const used = new Set(completion.plan.scenes.map(scene => normalizeScenePrompt(scene.visual_prompt)).filter(Boolean))
+      for (const sceneId of completion.missing_ids) {
+        const scene = completion.plan.scenes.find(item => item.id === sceneId)
+        const line = scene?.transcript_segment?.trim()
+        if (!scene || !line) continue
+        let prompt = `${effectiveStyle ? `${effectiveStyle.trim()} ` : ''}A picture of this moment in the story: ${line}`
+        if (used.has(normalizeScenePrompt(prompt))) prompt += ` (scene ${scene.scene_index})`
+        used.add(normalizeScenePrompt(prompt))
+        await checkpointScenePrompt(outPath, sceneId, prompt, 'visual')
+      }
+      completion = await auditScenePromptCompletion(outPath, targetIds, 'visual')
+      syncMemoryPlan(completion.plan)
+    }
     if (!isMotion) {
       requireJobCompletion(job, {
         label: 'Visual prompt generation', expected: targets.length, completed: completion.completed_ids.length,

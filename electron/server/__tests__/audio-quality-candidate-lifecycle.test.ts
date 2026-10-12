@@ -42,6 +42,8 @@ void test('confirmed audio-quality candidate survives queue reload, preserves ol
     client.clearGenStudioCatalogCache()
     const project = await pm.createProject({ name: 'Audio quality lifecycle', episode_prefix: 'EP', episode_digits: 4 })
     assert.equal(await pm.updateConfig(project.slug, {
+      // The mock voice is silent; this test is about the candidate lifecycle (1.4.300 stops silent merges).
+      safety_checks: { silent_narration: 'off' },
       audio_quality: { mode: 'check_and_repair', alternate_transcription_model: 'mock-whisper-v1' },
     }), true)
     const [idea] = await ideas.addIdeas(project.slug, [{
@@ -245,7 +247,7 @@ void test('boot reclaims an accepted candidate TTS task into private staging wit
     await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
     client.clearGenStudioCatalogCache()
     const project = await pm.createProject({ name: 'Accepted candidate recovery', episode_prefix: 'RC', episode_digits: 4 })
-    await pm.updateConfig(project.slug, { audio_quality: { mode: 'check_and_repair', alternate_transcription_model: 'mock-whisper-v1' } })
+    await pm.updateConfig(project.slug, { safety_checks: { silent_narration: 'off' }, audio_quality: { mode: 'check_and_repair', alternate_transcription_model: 'mock-whisper-v1' } })
     const [idea] = await ideas.addIdeas(project.slug, [{
       title: 'Recover accepted candidate', logline: 'Fixture', themes: [], suggested_chapters: 1, suggested_length: 'short', mood: 'calm',
     }], 'mock-chat-v1')

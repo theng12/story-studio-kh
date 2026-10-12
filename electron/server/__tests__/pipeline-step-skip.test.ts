@@ -745,6 +745,8 @@ describe('run-batch — v1.0.363 audio-paced wiring', () => {
       'continuity_page_last_preset_continuity-page': 'cp1',
       metadata_presets: [{ id: 'mp1', name: 'default', data: { model: 'gpt-4o' } }],
       metadata_last_preset: 'mp1',
+      // 1.4.300 — the duplicate guard's skip is the same_step_queued safety check on Block.
+      safety_checks: { same_step_queued: 'block' },
     } as any)
     const im = await import('../services/idea-manager.js')
     const ideas = await im.addIdeas(proj.slug, [{

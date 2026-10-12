@@ -64,6 +64,11 @@ export const AUTO_APPROVAL_REVIEW_NOTE =
   'Claim review auto-completed by this project’s "Approve claims automatically" setting '
   + '— no human read these claims.'
 
+/** Stamped when the channel's "Research claims approved" safety check is Off or Warn (1.4.300). */
+export const SAFETY_CHECK_REVIEW_NOTE =
+  'Claims accepted because this channel\'s "Research claims approved" safety check is set to Off or Warn '
+  + '— no human read these claims.'
+
 /**
  * Project config key behind the Research page's "Approve claims
  * automatically" toggle.
@@ -259,4 +264,9 @@ export function autoCompleteResearchReview<T extends ResearchOutput>(research: T
  */
 export function autoApproveResearchReview<T extends ResearchOutput>(research: T): T {
   return withResearchReviewRecord(withPendingClaimsAccepted(research), 'auto-approval')
+}
+
+/** Accept every pending claim because the channel's "Research claims approved" safety check lets the episode carry on. */
+export function acceptResearchForSafetyCheck<T extends ResearchOutput>(research: T): T {
+  return withResearchReviewRecord(withPendingClaimsAccepted(research), 'auto-approval', SAFETY_CHECK_REVIEW_NOTE)
 }

@@ -27,14 +27,17 @@ import type { Job } from '../models/types.js'
 import type { ResearchMode, ResearchOutput, ResearchSourceProvider } from '../models/types.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import {
+  acceptResearchForSafetyCheck,
   autoApproveResearchReview,
   autoCompleteResearchReview,
   hasResearchEvidence,
   readResearchReview,
   readResearchTriage,
   researchAutoApproveEnabled,
+  SAFETY_CHECK_REVIEW_NOTE,
   withResearchUntriaged,
 } from '../lib/research-verification.js'
+import { safetyGate, safetyMode } from '../services/safety-checks.js'
 import { getConfig } from '../services/project-manager.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { canonicalHttpUrl, canonicalHttpUrls, sanitizeResearchOutputUrls } from '../services/research/urls.js'
@@ -151,17 +154,30 @@ export async function runResearchJob(job: Job): Promise<void> {
   try {
     autoApprove = researchAutoApproveEnabled(await getConfig(job.project_slug))
   } catch { /* unreadable config → off, the safe default */ }
+  // 1.4.300 — "Research claims approved" safety check. Nobody approves these claims (no Pipeline run,
+  // the Research page switch off): Block leaves them waiting for you as before; Off and Warn accept them
+  // so the script can use them, and say so.
+  const safetyAccepted = !ranUnderPipeline && !autoApprove
+    && await safetyMode(job.project_slug, 'research_approved') !== 'block'
+  if (safetyAccepted) {
+    await safetyGate(job.project_slug, 'research_approved', job,
+      'Nobody has approved this episode\'s research claims. Story accepts them so the script can use them; open Research to change any of them.')
+  }
   const persisted = ranUnderPipeline
     ? autoCompleteResearchReview(result)
     : autoApprove
       ? autoApproveResearchReview(result)
-      : withResearchUntriaged(result)
+      : safetyAccepted
+        ? acceptResearchForSafetyCheck(result)
+        : withResearchUntriaged(result)
   job.output_lines.push(
     ranUnderPipeline
       ? 'Claim review: AUTO-COMPLETED (unattended Pipeline run). Every claim was accepted by the machine — no human read them. Open Research to review them.'
       : autoApprove
         ? 'Claim review: AUTO-APPROVED — this project has "Approve claims automatically" turned on, so every claim was accepted and passed to the Script Generator without being read. Open Research to change any of them, or turn the setting off.'
-        : 'Claim review: PENDING. Open Research and mark every claim Verified or Ignore (Verify all decides the whole list in one click).',
+        : safetyAccepted
+          ? 'Claim review: ACCEPTED by the "Research claims approved" safety check (Off or Warn) — no human read them. Open Research to change any of them, or set that check to Block in Settings → Safety checks.'
+          : 'Claim review: PENDING. Open Research and mark every claim Verified or Ignore (Verify all decides the whole list in one click).',
   )
   // Provenance in the job log, per mode. The two modes made different
   // promises, so they must not share a sentence here either.
@@ -309,6 +325,9 @@ export function renderResearchMarkdown(r: ResearchOutput, modelLabel = ''): stri
       + 'so this research hands the Script Generator nothing.')
   } else if (review?.completed_by === 'pipeline-auto') {
     lines.push(`> **Review auto-completed** by an unattended Pipeline run${reviewedAt}. `
+      + `No human read these claims. ${triage.verified} kept, ${triage.ignored} ignored.`)
+  } else if (review?.completed_by === 'auto-approval' && review.note === SAFETY_CHECK_REVIEW_NOTE) {
+    lines.push(`> **Claims accepted** by this channel's "Research claims approved" safety check${reviewedAt}. `
       + `No human read these claims. ${triage.verified} kept, ${triage.ignored} ignored.`)
   } else if (review?.completed_by === 'auto-approval') {
     lines.push(`> **Claims auto-approved** by this project’s "Approve claims automatically" setting${reviewedAt}. `

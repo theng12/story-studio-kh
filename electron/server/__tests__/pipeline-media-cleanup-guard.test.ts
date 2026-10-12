@@ -77,6 +77,8 @@ async function seedEpisode(
     await pm.updateConfig(project.slug, {
       metadata_presets: [{ id: 'metadata-default', name: 'Default', data: { model: 'mock-chat-v1' } }],
       metadata_last_preset: 'metadata-default',
+      // 1.4.300 — these tests pin the cleanup stop, i.e. the retired_media safety check on Block.
+      safety_checks: { retired_media: 'block' },
     } as any)
   }
   const [idea] = await im.addIdeas(project.slug, [{
@@ -341,4 +343,18 @@ test('episode rows keep missing asset readiness false and publish local cleanup 
   assert.equal(row.local_media_status.has_retired_media, true)
   assert.equal(row.local_media_status.state, 'partially_removed')
   assert.equal(row.status.local_media_status, undefined, 'cleanup status is independent from asset readiness')
+})
+
+test('retired_media on Warn: the cleaned episode runs, with a warning that its media is made again', async () => {
+  const episode = await seedEpisode('Cleanup lenient')
+  await retireImage(episode, `cleanup-lenient-${episode.slug}`)
+  await pm.updateConfig(episode.slug, { safety_checks: { retired_media: 'warn' } } as any)
+
+  const preflight = await request(app)
+    .post(`/api/projects/${episode.slug}/pipeline/preflight`)
+    .send({ episode_ids: [episode.code], steps: ['metadata'] })
+  assert.equal(preflight.status, 200, JSON.stringify(preflight.body))
+  assert.equal(retiredIssue(preflight), undefined)
+  assert.deepEqual(preflight.body.eligible_episode_ids, [episode.code])
+  assert.ok(preflight.body.warnings.some((w: string) => /removed on purpose will be made again/.test(w)), preflight.body.warnings.join('\n'))
 })

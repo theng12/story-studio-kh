@@ -66,6 +66,7 @@ import {
 } from './narration-assembly.js'
 import { matchChapterFile, resolveReadPath } from './episode-artifacts.js'
 import * as jq from '../services/job-queue.js'
+import { safetyGate, safetyMode } from '../services/safety-checks.js'
 import type { Job, Format, Character } from '../models/types.js'
 import type { GenStudioRequestPreview } from './genstudio-request-preview.js'
 import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
@@ -904,11 +905,15 @@ export async function expandChapters(
 
   // Approval gate — the load-bearing check that replaces the implicit
   // "outline + expand in one job" semantics.
-  if (!sidecar.outline_approved_at && !opts.auto_approve) {
-    throw new Error(
-      'Outline is not approved yet. Review and approve the outline before expanding chapters ' +
-      '(or pass auto_approve: true for headless callers).',
-    )
+  // 1.4.300 — the channel's "Outline approved before chapters" safety check decides: Block stops as
+  // before; Off and Warn approve the outline here (stamped below) and write the chapters.
+  let approve = !!opts.auto_approve
+  if (!sidecar.outline_approved_at && !approve) {
+    const message = 'Outline is not approved yet. Review and approve the outline before expanding chapters '
+      + '(or pass auto_approve: true for headless callers).'
+    if (await safetyMode(job.project_slug, 'outline_approved') === 'block') throw new Error(message)
+    await safetyGate(job.project_slug, 'outline_approved', job, message)
+    approve = true
   }
   // Record the approval the caller just gave, rather than only letting it past
   // this gate. `auto_approve` used to be consumed here and never written down,
@@ -919,7 +924,7 @@ export async function expandChapters(
   //
   // The same stamp already happens in `buildOutlineOnly` for the cached-outline
   // path; this is the branch that reaches expansion without passing through it.
-  if (!sidecar.outline_approved_at && opts.auto_approve) {
+  if (!sidecar.outline_approved_at && approve) {
     sidecar = { ...sidecar, outline_approved_at: new Date().toISOString(), last_updated: new Date().toISOString() }
     await writeSidecar(params.scriptDir, sidecar)
   }
@@ -948,17 +953,21 @@ export async function expandChapters(
   // Pending = outline slots whose docx isn't on disk, optionally
   // intersected with the caller's selection.
   let pending = sidecar.outline.filter(e => !verifiedDone.has(e.n))
-  const recoveryChapters = job.genstudio_chat_recovery === true
+  let recoveryChapters = job.genstudio_chat_recovery === true
     && job.genstudio_chat_recovery_purpose === 'narrative-repair'
     ? job.genstudio_chat_recovery_chapters
     : undefined
   if (recoveryChapters?.length) {
     const wanted = new Set(recoveryChapters)
-    pending = sidecar.outline.filter(entry => wanted.has(entry.n))
-    if (pending.length !== wanted.size || !job.genstudio_chat_recovery_key) {
-      throw new Error('Saved Gateway repair identity no longer matches the original chapter slots. No replacement provider work was submitted.')
+    const repair = sidecar.outline.filter(entry => wanted.has(entry.n))
+    if (repair.length !== wanted.size || !job.genstudio_chat_recovery_key) {
+      await dropStaleChatRecovery(job, 'Saved Gateway repair identity no longer matches the original chapter slots. No replacement provider work was submitted.')
+      recoveryChapters = undefined
+    } else {
+      pending = repair
     }
-  } else if (opts.chaptersToExpand?.length) {
+  }
+  if (!recoveryChapters?.length && opts.chaptersToExpand?.length) {
     const want = new Set(opts.chaptersToExpand)
     pending = pending.filter(e => want.has(e.n))
   }
@@ -1107,6 +1116,32 @@ function pipelineAttemptContext<T extends Record<string, any>>(
     } : {}),
     ...(checkpointPrepared ? { onRequestPrepared: checkpointPrepared } : {}),
   }
+}
+
+/**
+ * 1.4.300 — the "Every outline chapter written" safety check. Block, or an automatic retry still to come
+ * (it asks only for the missing chapters), stops as before; Off and Warn carry on with the chapters that
+ * were written once the retries are used up.
+ */
+export async function carryOnWithoutChapters(job: Job, message: string): Promise<void> {
+  const retryLeft = !!job.auto_retry?.eligible && job.auto_retry.attempt < job.auto_retry.max_attempts
+  if (retryLeft || await safetyMode(job.project_slug, 'all_chapters_written') === 'block') throw new Error(message)
+  await safetyGate(job.project_slug, 'all_chapters_written', job, `${message} Story carries on with the chapters that were written.`)
+}
+
+/**
+ * 1.4.300 — "Saved request still matches", for writing only: Block stops as before; Off and Warn forget
+ * the saved repair request and write the chapters with a fresh one (the owner's "LLM is cheap" rule). A
+ * paid replacement scope keeps its own stop in genstudio-client, so this never resends paid media.
+ */
+async function dropStaleChatRecovery(job: Job, message: string): Promise<void> {
+  if (await safetyMode(job.project_slug, 'saved_request_matches') === 'block') throw new Error(message)
+  await safetyGate(job.project_slug, 'saved_request_matches', job,
+    'The saved Gateway repair request no longer matches the chapters still to write. Story forgets it and writes them with a fresh request.')
+  delete job.genstudio_chat_recovery
+  delete job.genstudio_chat_recovery_purpose
+  delete job.genstudio_chat_recovery_chapters
+  delete job.genstudio_chat_recovery_key
 }
 
 // ── Outline phase ──────────────────────────────────────────────────────────
@@ -1431,15 +1466,18 @@ async function expandNarrativeSequential(
           allowedRecoveryKeys: [job.genstudio_chat_recovery_key],
         }
       : {}
-    const recoveryChapters = job.genstudio_chat_recovery === true
+    let recoveryChapters = job.genstudio_chat_recovery === true
       && job.genstudio_chat_recovery_purpose === 'narrative-repair'
       ? job.genstudio_chat_recovery_chapters
       : undefined
+    if (recoveryChapters?.length && (batch.filter(entry => recoveryChapters!.includes(entry.n)).length !== recoveryChapters.length
+      || !job.genstudio_chat_recovery_key)) {
+      await dropStaleChatRecovery(job, 'Saved Gateway repair identity no longer matches the pending chapter slots. No replacement provider work was submitted.')
+      recoveryChapters = undefined
+    }
     if (recoveryChapters?.length) {
-      const repairBatch = batch.filter(entry => recoveryChapters.includes(entry.n))
-      if (repairBatch.length !== recoveryChapters.length || !job.genstudio_chat_recovery_key) {
-        throw new Error('Saved Gateway repair identity no longer matches the pending chapter slots. No replacement provider work was submitted.')
-      }
+      const wanted = recoveryChapters
+      const repairBatch = batch.filter(entry => wanted.includes(entry.n))
       const repairPrompt = narrativeRepairPrompt(
         params, outline, repairBatch, await narrativeTransitionWindow(params, repairBatch[0]!.n), useTOC,
       )
@@ -1562,7 +1600,7 @@ async function expandNarrativeSequential(
 
     const stillMissing = batch.filter(entry => !allWrote.has(entry.n)).map(entry => entry.n)
     if (stillMissing.length) {
-      throw new Error(
+      await carryOnWithoutChapters(job,
         `Narrative batch did not pass its one-repair completion check; missing ${stillMissing.join(', ')}. ` +
         'Resume expansion to repair it.',
       )

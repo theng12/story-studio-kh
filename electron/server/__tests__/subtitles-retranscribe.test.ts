@@ -241,6 +241,8 @@ test('a chapter whose transcript skips speech is reported as a gap with its time
     '1\n00:00:00,000 --> 00:00:01,000\nBefore gap.\n\n2\n00:00:38,580 --> 00:00:39,000\nAfter gap.\n')
   await fs.writeFile(path.join(paths.subtitles_dir, `${code}_Chapter_03.srt`), good)
   const job = fixture.makeJob('gap-not-missing', { force: false, sections: undefined })
+  const pm = await import('../services/project-manager.js')
+  await pm.updateConfig(job.project_slug, { safety_checks: { caption_gap: 'block' } } as any)
 
   await assert.rejects(
     fixture.generateSubtitlesTranscribe(job),
@@ -254,6 +256,63 @@ test('a chapter whose transcript skips speech is reported as a gap with its time
     },
   )
   assert.deepEqual(job.result?.missing_sections, ['Chapter_02'], 'Retry and recovery still target the gap chapter')
+})
+
+// 1.4.300 safety checks on the Subtitles step.
+async function gapFixture(t: TestContext) {
+  const fixture = await createScopedSubtitleFixture(t)
+  const { paths, code } = fixture
+  await fs.writeFile(path.join(paths.episode_dir, 'audio_chapters.json'), JSON.stringify({
+    gap_duration_s: 1,
+    sections: fixture.sections.map((slug, index) => ({ slug, duration_s: [2, 90, 2][index], source_file: `${code}_${slug}.mp3` })),
+  }))
+  await writeValidMergedAudio(paths.merged_audio_dir, code, 96)
+  const good = '1\n00:00:00,000 --> 00:00:01,000\nGood chapter.\n'
+  await fs.writeFile(path.join(paths.subtitles_dir, `${code}_Chapter_01.srt`), good)
+  await fs.writeFile(path.join(paths.subtitles_dir, `${code}_Chapter_02.srt`),
+    '1\n00:00:00,000 --> 00:00:01,000\nBefore gap.\n\n2\n00:00:38,580 --> 00:00:39,000\nAfter gap.\n')
+  await fs.writeFile(path.join(paths.subtitles_dir, `${code}_Chapter_03.srt`), good)
+  // A script sentence the transcript never says.
+  await fs.writeFile(path.join(paths.script_dir, `${code}_Chapter_02.md`), 'The lighthouse keeper counted seven silver gulls.\n')
+  const pm = await import('../services/project-manager.js')
+  const job = fixture.makeJob('gap-safety', { force: false, sections: undefined })
+  const setModes = (modes: Record<string, string>) => pm.updateConfig(job.project_slug, { safety_checks: modes } as any)
+  return { fixture, job, setModes }
+}
+
+test('caption_gap Warn (default) uses a chapter with a long gap and stitches the episode', async t => {
+  const { fixture, job } = await gapFixture(t)
+  await fixture.generateSubtitlesTranscribe(job)
+  const checks = (job.result as any)?.safety_warnings?.map((w: any) => w.check)
+  assert.ok(checks.includes('caption_gap'), JSON.stringify(checks))
+  assert.equal(job.result?.complete, true)
+  await fs.access(path.join(fixture.paths.subtitles_dir, `${fixture.code}_stitched.srt`))
+})
+
+test('narration_says_script Warn (default) carries on with a warning; Block stops the step', async t => {
+  const { fixture, job, setModes } = await gapFixture(t)
+  await setModes({ caption_gap: 'off', narration_says_script: 'block' })
+  await assert.rejects(fixture.generateSubtitlesTranscribe(job), /skip 1 script sentence/)
+  await setModes({ caption_gap: 'off', narration_says_script: 'warn' })
+  const again = fixture.makeJob('gap-safety-2', { force: false, sections: undefined })
+  await fixture.generateSubtitlesTranscribe(again)
+  assert.deepEqual((again.result as any)?.safety_warnings?.map((w: any) => w.check), ['narration_says_script'])
+})
+
+test('chapters_transcribed Warn times a chapter the transcriber failed from the script instead', async t => {
+  const fixture = await createScopedSubtitleFixture(t)
+  const pm = await import('../services/project-manager.js')
+  fixture.mock.queueScenario('transcription', {
+    states: ['accepted', 'failed'], failureCode: 'STT_PROVIDER_ERROR', reservedCredits: 7, finalCredits: 7,
+  })
+  const job = fixture.makeJob('script-timed-fallback')
+  await pm.updateConfig(job.project_slug, { safety_checks: { chapters_transcribed: 'warn' } } as any)
+
+  await fixture.generateSubtitlesTranscribe(job)
+
+  assert.equal(job.result?.scope_complete, true)
+  assert.deepEqual((job.result as any)?.safety_warnings?.map((w: any) => w.check), ['chapters_transcribed'])
+  assert.match(await fs.readFile(path.join(fixture.paths.subtitles_dir, `${fixture.code}_Chapter_01.srt`), 'utf8'), /Narration for Chapter_01/)
 })
 
 

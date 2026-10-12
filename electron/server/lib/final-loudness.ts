@@ -6,7 +6,12 @@
 import type { LoudnessMeasurement } from '../generators/music-episode-build.js'
 
 /** `tolerance_pct` (1.4.274) only sets how far the finished video may miss and still pass; levelling aims exactly. */
-export interface LoudnessTarget { lufs: number; true_peak_db: number; tolerance_pct?: number }
+export interface LoudnessTarget {
+  lufs: number; true_peak_db: number; tolerance_pct?: number
+  /** 1.4.300 — the channel's "loudness" safety check (services/safety-checks.ts). Absent = 'block'
+   *  (the old behaviour); a channel's own target carries its setting, Off by default. */
+  check?: 'off' | 'warn' | 'block'
+}
 
 /** Peak guard after a summing amix (normalize=0): -1 dBFS, delay-compensated, never raises the level. */
 export const MIX_LIMITER = 'alimiter=limit=0.891:level=0:latency=1'

@@ -70,6 +70,8 @@ async function seedBulkFixture(name: string, metadataDone = true): Promise<Fixtu
     'scene_review_genstudio_last_preset_scene-review': 'scene-review',
     video_bundle_presets: [{ id: 'assembly', name: 'Assembly', data: {} }],
     video_bundle_last_preset: 'assembly',
+    // 1.4.300 — the dispatch recheck these tests hook into, and the cue hold, are those safety checks on Block.
+    safety_checks: { retired_media: 'block', cue_review: 'block' },
   } as any)
 
   const ideas = await im.addIdeas(project.slug, Array.from({ length: EPISODE_COUNT }, (_unused, index) => ({

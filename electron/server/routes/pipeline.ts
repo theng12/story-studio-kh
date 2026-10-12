@@ -62,6 +62,7 @@ import { isRetiredVideoModelId } from '../contracts/retired-video-models.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage, unavailableTranscriptionModelMessage } from '../services/genstudio-model-migration.js'
 import { withLock } from '../lib/atomic-store.js'
 import { pipelineStepLabel } from '../lib/pipeline-continuation.js'
+import { SAFETY_CHECKS, safetyMode, safetyModeFromConfig } from '../services/safety-checks.js'
 import { isDecodableImage } from '../lib/image-validation.js'
 import {
   inspectPipelineSubtitleRepairReadiness,
@@ -245,7 +246,7 @@ export const PRESET_KEYS: Record<BatchStep, { list: string | string[]; activeKey
 interface StoredPreset { id: string; name: string; data?: any; type?: string; [k: string]: any }
 
 interface PreflightIssue {
-  code: 'episode_not_accepted' | 'missing_preset' | 'invalid_preset' | 'missing_voice' | 'missing_prerequisite' | 'missing_local_asset' | 'retired_local_media' | 'insufficient_disk'
+  code: 'episode_not_accepted' | 'missing_preset' | 'invalid_preset' | 'missing_voice' | 'missing_prerequisite' | 'missing_local_asset' | 'retired_local_media' | 'insufficient_disk' | 'captions_missing'
   message: string
   episode_id?: string
   step?: BatchStep
@@ -320,7 +321,17 @@ interface BatchPreflight {
   musicChannel: boolean
   /** 1.4.282 — what a Video Assembly in this batch bakes in, and where it comes from. Null without that step. */
   videoEffects: VideoEffectsAnswer | null
+  /** 1.4.300 — the requested steps minus those a lenient safety check left out (`stepsLeftOut`). */
+  steps: BatchStep[]
+  stepsLeftOut: Array<{ step: BatchStep; reason: string }>
+  /** Episodes whose run gained missing earlier steps (safety check earlier_step_done Off/Warn), in run order. */
+  stepsByEpisode: Map<string, BatchStep[]>
+  stepsAdded: Array<{ episode_id: string; steps: BatchStep[] }>
+  /** Cleaned-up media still stops an episode at dispatch (not Force, retired_media on Block). */
+  retiredMediaBlocks: boolean
 }
+
+const SAFETY_CHECK_NAME = new Map(SAFETY_CHECKS.map(check => [check.id, check.name]))
 
 interface PipelineVisualSettingsSnapshot {
   visual_source: VideoVisualSource
@@ -621,8 +632,9 @@ function collectMissingLocalAssets(value: unknown, out = new Set<string>()): Set
 async function preflightBatch(
   slug: string,
   episodeIds: string[],
-  steps: BatchStep[],
+  requestedSteps: BatchStep[],
   force: boolean,
+  repairMissing = false,
 ): Promise<BatchPreflight> {
   const issues: PreflightIssue[] = []
   const warnings: string[] = []
@@ -630,27 +642,49 @@ async function preflightBatch(
   if (!config) throw new Error('Project config missing')
   const projectFacts = createProjectFactsCache(slug)
   projectFacts.config = Promise.resolve(config)
+  // 1.4.300 — each check below obeys the channel's Off / Warn / Block switch (Settings → Safety checks).
+  const mode = (id: string) => safetyModeFromConfig(config, id)
+  const warnIf = (id: string, message: string) => {
+    if (mode(id) === 'warn') warnings.push(`${message} (Safety check "${SAFETY_CHECK_NAME.get(id) || id}" is set to Warn.)`)
+  }
+  // Steps a lenient check leaves out of this whole run, with why.
+  const leftOut = new Map<BatchStep, string>()
+  const leaveOut = (step: BatchStep, id: string, message: string) => {
+    leftOut.set(step, message)
+    warnIf(id, `${pipelineStepLabel(step)} is left out of this run: ${message}`)
+  }
+  const runSteps = () => requestedSteps.filter(step => !leftOut.has(step))
 
   const ideas = await im.getIdeas(slug, 'accepted')
-  projectFacts.ideas = Promise.resolve(ideas as unknown as Array<Record<string, unknown>>)
   const ideaByCode = new Map(ideas.filter(i => i.episode_code).map(i => [i.episode_code!, i]))
+  // accepted_idea: Off/Warn run an episode whose idea is no longer accepted (dismissed) but still carries its code.
+  if (mode('accepted_idea') !== 'block' && episodeIds.some(episodeId => !ideaByCode.has(episodeId))) {
+    for (const idea of await im.getIdeas(slug)) {
+      const code = idea.episode_code
+      if (!code || ideaByCode.has(code) || !episodeIds.includes(code)) continue
+      ideaByCode.set(code, idea)
+      ideas.push(idea)
+      warnIf('accepted_idea', `${code} is not an accepted episode (its idea is ${idea.status}); it runs anyway.`)
+    }
+  }
+  projectFacts.ideas = Promise.resolve(ideas as unknown as Array<Record<string, unknown>>)
   const startingPacing = await readProjectStartingPacing(slug)
   const effectiveFormat = await getEffectiveFormat(slug)
   const musicChannel = await isMusicChannel(slug)
-  const foreignSteps = steps.filter(step => musicChannel ? !MUSIC_STEPS.includes(step) : step === 'music_build')
+  const foreignSteps = requestedSteps.filter(step => musicChannel ? !MUSIC_STEPS.includes(step) : step === 'music_build')
   for (const step of foreignSteps) {
-    issues.push({
-      code: 'invalid_preset',
-      step,
-      message: musicChannel
-        ? `${pipelineStepLabel(step)} is not part of a music channel (no narration). Untick it.`
-        : `${pipelineStepLabel(step)} only runs on a music channel (a Series Formula with a music format). Untick it.`,
-    })
+    const message = musicChannel
+      ? `${pipelineStepLabel(step)} is not part of a music channel (no narration). Untick it.`
+      : `${pipelineStepLabel(step)} only runs on a music channel (a Series Formula with a music format). Untick it.`
+    if (mode('step_fits_channel') === 'block') issues.push({ code: 'invalid_preset', step, message })
+    else leaveOut(step, 'step_fits_channel', message)
   }
+  const retiredMediaBlocks = !force && mode('retired_media') === 'block'
   const retiredMediaByEpisode = force ? new Map<string, LocalMediaCleanupStatus>()
     : await retiredUploadedMediaByEpisode(slug, episodeIds, projectFacts)
   const visualSettingsByEpisode = new Map<string, PipelineVisualSettingsSnapshot>()
   const requiredSteps = new Set<BatchStep>()
+  const steps = runSteps()
   const visualRows = await mapWithConcurrency(episodeIds, async episodeId => {
     if (!ideaByCode.has(episodeId)) {
       return {
@@ -659,8 +693,11 @@ async function preflightBatch(
       }
     }
     const retiredMedia = retiredMediaByEpisode.get(episodeId)
-    if (retiredMedia) {
+    if (retiredMedia && retiredMediaBlocks) {
       return { episodeId, issue: retiredLocalMediaIssue(episodeId, retiredMedia) }
+    }
+    if (retiredMedia) {
+      warnIf('retired_media', `${episodeId}: media Free Up Space removed on purpose will be made again; provider costs apply.`)
     }
     try {
       const source = await readVideoVisualSource(slug, episodeId, projectFacts)
@@ -705,74 +742,126 @@ async function preflightBatch(
   const presetByStep: Partial<Record<BatchStep, StoredPreset>> = {}
   const contextualCuesEnabled = config.contextual_cues?.enabled === true
   if (requiredSteps.has('contextual_cues') && !contextualCuesEnabled) {
-    issues.push({ code: 'invalid_preset', step: 'contextual_cues', message: 'Enable Contextual Cues in its project setting before adding it to Pipeline.' })
+    const message = 'Enable Contextual Cues in its project setting before adding it to Pipeline.'
+    if (mode('cues_feature_on') === 'block') issues.push({ code: 'invalid_preset', step: 'contextual_cues', message })
+    else {
+      // The cue writer refuses a channel with cues switched off, so the step cannot run: leave it out.
+      leaveOut('contextual_cues', 'cues_feature_on', 'Contextual Cues are switched off for this channel.')
+      requiredSteps.delete('contextual_cues')
+    }
   }
-  for (const step of requiredSteps) {
-    if (NO_PRESET_STEPS.has(step)) continue
+  /**
+   * Resolve a step's saved preset. A ticked step records its problems (as issues, or as a step left
+   * out when the channel's switch allows); a step added only as an earlier step records nothing.
+   * Returns why the step cannot run, or null when it can.
+   */
+  const admitStep = (step: BatchStep, ticked: boolean): string | null => {
+    if (NO_PRESET_STEPS.has(step) || presetByStep[step]) return null
     const result = findActivePreset(config, step)
     // A music episode renders with its own Episode Builder settings; a Video Assembly preset only
     // adds the owner's look (logo, grade…) on top, so it is optional there.
-    if (!result.preset && musicChannel && step === 'video_assembly') continue
+    if (!result.preset && musicChannel && step === 'video_assembly') return null
     if (!result.preset) {
-      addMissingPresetIssue(
-        issues,
-        visualSettingsByEpisode,
-        step,
-        musicChannel && step === 'scene_review'
-          ? 'No pictures preset yet. Open Episode Builder, pick the image model under Scene pictures and save a Pictures preset; Pipeline makes the missing pictures with it.'
-          : result.missingReason || `No active preset for ${pipelineStepLabel(step)}`,
-      )
-      continue
+      const message = musicChannel && step === 'scene_review'
+        ? 'No pictures preset yet. Open Episode Builder, pick the image model under Scene pictures and save a Pictures preset; Pipeline makes the missing pictures with it.'
+        : result.missingReason || `No active preset for ${pipelineStepLabel(step)}`
+      if (ticked && mode('step_preset') === 'block') addMissingPresetIssue(issues, visualSettingsByEpisode, step, message)
+      else if (ticked) leaveOut(step, 'step_preset', message)
+      return message
     }
-    presetByStep[step] = step === 'video_assembly' ? withNamedEffectsFrame(config, result.preset) : result.preset
     if (step === 'motion_review') {
       const data = result.preset.data ?? result.preset
       const hasOperation = typeof data?.operation === 'string' && Boolean(data.operation.trim())
       const hasDuration = Number.isFinite(Number(data?.duration_seconds)) && Number(data.duration_seconds) > 0
       const hasResolution = typeof data?.resolution === 'string' && Boolean(data.resolution.trim())
       if (!hasOperation || !hasDuration || !hasResolution) {
-        issues.push({
-          code: 'invalid_preset',
-          step,
-          message: 'Motion Review preset has no exact published clip variant. Open Motion Review, choose a current length and resolution, then save the preset again.',
-        })
+        const message = 'Motion Review preset has no exact published clip variant. Open Motion Review, choose a current length and resolution, then save the preset again.'
+        if (!ticked) return message
+        issues.push({ code: 'invalid_preset', step, message })
       }
     }
     for (const missingPath of collectMissingLocalAssets(result.preset.data ?? result.preset)) {
-      issues.push({
-        code: 'missing_local_asset',
-        step,
-        path: missingPath,
-        message: `The ${pipelineStepLabel(step)} preset uses a file that isn't available (is the drive connected?): ${missingPath}`,
-      })
+      const message = `The ${pipelineStepLabel(step)} preset uses a file that isn't available (is the drive connected?): ${missingPath}`
+      if (mode('preset_files') !== 'block') {
+        // Off/Warn: run with the preset as saved; the step makes what it can without that file.
+        warnIf('preset_files', `${message} It runs without that file.`)
+        continue
+      }
+      if (!ticked) return message
+      issues.push({ code: 'missing_local_asset', step, path: missingPath, message })
     }
+    if (step === 'audio') {
+      const voice = result.preset.data?.form?.voice ?? (result.preset as any)?.form?.voice
+      if (!voice || !String(voice).trim()) {
+        const message = 'Audio preset has no voice selected.'
+        // No voice means no narration can be made: Off/Warn leave Audio out rather than run it.
+        if (ticked && mode('audio_voice') === 'block') issues.push({ code: 'missing_voice', step: 'audio', message })
+        else if (ticked) leaveOut('audio', 'audio_voice', message)
+        return message
+      }
+    }
+    presetByStep[step] = step === 'video_assembly' ? withNamedEffectsFrame(config, result.preset) : result.preset
+    return null
+  }
+  for (const step of [...requiredSteps]) {
+    if (admitStep(step, true) && leftOut.has(step)) requiredSteps.delete(step)
   }
 
-  if (requiredSteps.has('audio')) {
-    const audioPreset = presetByStep.audio
-    const voice = audioPreset?.data?.form?.voice ?? (audioPreset as any)?.form?.voice
-    if (!voice || !String(voice).trim()) {
-      issues.push({ code: 'missing_voice', step: 'audio', message: 'Audio preset has no voice selected.' })
-    }
-  }
   // Captions switched on in the Video Assembly preset, for the per-episode check below.
   const vaPreset = presetByStep.video_assembly
   const captionsOn = !musicChannel && !!vaPreset && !!flattenVideoAssemblyBundle(vaPreset.data ?? vaPreset, '', '').subtitles
+  // A repair stays inside the stages it was asked to repair: it never gains earlier ones.
+  const earlierStepMode = repairMissing ? 'block' : mode('earlier_step_done')
+  const captionsMode = mode('captions_missing')
+  const cueReviewHolds = mode('cue_review') === 'block'
   const statusRows = await mapWithConcurrency(episodeIds, async episodeId => {
     const visualSettings = visualSettingsByEpisode.get(episodeId)
     if (!ideaByCode.has(episodeId) || !visualSettings) return null
-    const episodeSteps = applicablePipelineStepsForVisualSource(steps, visualSettings.visual_source).applicable
+    const episodeSteps = applicablePipelineStepsForVisualSource(runSteps(), visualSettings.visual_source).applicable
     const status = await episodeStatusCache.get(slug, episodeId, ideas, projectFacts)
     const episodeIssues: PreflightIssue[] = []
     const available = new Set<BatchStep>()
     for (const step of VALID_STEPS) {
       if (isStepAlreadyDone(status, step, effectiveFormat)) available.add(step)
     }
+    // `status.contextual_cues` is the readiness answer (nothing outstanding),
+    // NOT the "already produced" answer `available` carries — see
+    // `prerequisitesForStep`. An episode that never proposed a cue is not
+    // held back; one with an unresolved proposal still is, while the channel's
+    // cue_review switch is Block.
+    const cueReviewPending = contextualCuesEnabled
+      && (episodeSteps.includes('contextual_cues') || (cueReviewHolds && status.contextual_cues === false))
+    const prerequisitesOf = (step: BatchStep): BatchStep[] => musicChannel
+      ? prerequisitesForStep(step, false, true)
+      : step === 'video_assembly' && visualSettings.visual_source === 'image_pool'
+        ? ['audio_merge' as BatchStep]
+        : prerequisitesForStep(step, cueReviewPending)
+    // earlier_step_done Off/Warn: put a missing earlier step (and its own) into this episode's run,
+    // just before the step that needs it. Not possible for a step left out, one that does not apply
+    // to this episode, one with no usable preset, or the cue review (a decision, not a file).
+    const ordered: BatchStep[] = []
+    const added: BatchStep[] = []
+    const addEarlier = (required: BatchStep, seen: Set<BatchStep>): boolean => {
+      if (available.has(required)) return true
+      if (seen.has(required) || leftOut.has(required) || required === 'contextual_cues') return false
+      if (!applicablePipelineStepsForVisualSource([required], visualSettings.visual_source).applicable.length) return false
+      if (admitStep(required, false)) return false
+      seen.add(required)
+      if (!prerequisitesOf(required).every(step => addEarlier(step, seen))) return false
+      ordered.push(required)
+      added.push(required)
+      available.add(required)
+      requiredSteps.add(required)
+      return true
+    }
+    // Counted on the steps as ticked: a step left out never turns a run into a targeted one.
+    const tickedCount = applicablePipelineStepsForVisualSource(requestedSteps, visualSettings.visual_source).applicable.length
     for (const step of episodeSteps) {
+      if (ordered.includes(step)) continue // already moved in front of a step that needed it
       // A single selected step is normally a targeted repair/regeneration
       // operation. Downstream Story stages still need their durable artifact:
       // Scene Plan needs Subtitles, and Scene Review needs Scene Plan.
-      if (episodeSteps.length === 1 && step !== 'metadata' && step !== 'scene_plan' && step !== 'scene_review' && !musicChannel) {
+      if (tickedCount === 1 && step !== 'metadata' && step !== 'scene_plan' && step !== 'scene_review' && !musicChannel) {
         // 1.4.288 — except that a final video is never started on a Scene Plan that is not done
         // (one that stops before the narration ends): run Scene Plan, which says why.
         if (step === 'video_assembly' && visualSettings.visual_source === 'scene_plan' && !status.scene_plan) {
@@ -784,22 +873,12 @@ async function preflightBatch(
             message: `${episodeId}: ${pipelineStepLabel(step)} needs a finished ${pipelineStepLabel('scene_plan')} first — its scenes must cover the whole narration. Run ${pipelineStepLabel('scene_plan')} on its own page or in this run.`,
           })
         }
+        ordered.push(step)
         available.add(step)
         continue
       }
-      // `status.contextual_cues` is the readiness answer (nothing outstanding),
-      // NOT the "already produced" answer `available` carries — see
-      // `prerequisitesForStep`. An episode that never proposed a cue is not
-      // held back; one with an unresolved proposal still is.
-      const cueReviewPending = contextualCuesEnabled
-        && (episodeSteps.includes('contextual_cues') || status.contextual_cues === false)
-      const prerequisites = musicChannel
-        ? prerequisitesForStep(step, false, true)
-        : step === 'video_assembly' && visualSettings.visual_source === 'image_pool'
-          ? ['audio_merge' as BatchStep]
-          : prerequisitesForStep(step, cueReviewPending)
-      const missing = prerequisites.filter(required => !available.has(required))
-      for (const required of missing) {
+      for (const required of prerequisitesOf(step).filter(required => !available.has(required))) {
+        if (earlierStepMode !== 'block' && addEarlier(required, new Set())) continue
         episodeIssues.push({
           code: 'missing_prerequisite',
           episode_id: episodeId,
@@ -808,18 +887,39 @@ async function preflightBatch(
           message: `${episodeId}: ${pipelineStepLabel(step)} needs ${pipelineStepLabel(required)} first — tick ${pipelineStepLabel(required)} in this run too, or finish it on its own page.`,
         })
       }
+      ordered.push(step)
       available.add(step)
     }
-    const captionGap = captionsOn && episodeSteps.includes('video_assembly') && !available.has('subtitles')
+    if (added.length) {
+      warnIf('earlier_step_done', `${episodeId}: added ${added.map(pipelineStepLabel).join(', ')} to this run, because a ticked step needs it first.`)
+    }
+    if (cueReviewPending === false && contextualCuesEnabled && status.contextual_cues === false && !cueReviewHolds
+      && episodeSteps.includes('scene_review')) {
+      warnIf('cue_review', `${episodeId}: cues are still waiting for review; Scene Review goes ahead without waiting.`)
+    }
+    let captionGap = captionsOn && episodeSteps.includes('video_assembly') && !available.has('subtitles')
       ? `${episodeId}: captions are switched on, but this episode has no subtitles yet and Subtitles is not in this run, so its video will have no captions. Tick Subtitles, or switch captions off in the Video Assembly preset.`
       : null
-    return { episodeId, status, issues: episodeIssues, captionGap }
+    if (captionGap && captionsMode === 'block') {
+      episodeIssues.push({ code: 'captions_missing', episode_id: episodeId, step: 'video_assembly', requires: 'subtitles', message: captionGap })
+    }
+    if (captionsMode !== 'warn') captionGap = null
+    return { episodeId, status, issues: episodeIssues, captionGap, ordered: added.length ? ordered : null, added }
   })
   const captionGaps: string[] = []
+  const stepsByEpisode = new Map<string, BatchStep[]>()
+  const stepsAdded: Array<{ episode_id: string; steps: BatchStep[] }> = []
   for (const row of statusRows) {
     if (!row) continue
     issues.push(...row.issues)
     if (row.captionGap) captionGaps.push(row.captionGap)
+    if (row.ordered) {
+      stepsByEpisode.set(row.episodeId, row.ordered)
+      stepsAdded.push({ episode_id: row.episodeId, steps: row.added })
+    }
+  }
+  if (!runSteps().length) {
+    issues.push({ code: 'invalid_preset', message: 'No step is left to run in this batch.' })
   }
 
   // Blocked episodes never reach the queue, so reserve disk only for the
@@ -831,10 +931,9 @@ async function preflightBatch(
   const outputRoot = await pm.getProjectOutputRoot(slug)
   const freeBytes = await getFreeBytes(outputRoot || pm.projectsRoot())
   if (freeBytes > 0 && freeBytes < estimatedBytes) {
-    issues.push({
-      code: 'insufficient_disk',
-      message: `Not enough free disk space. Have: ${formatBytes(freeBytes)}; need: approximately ${formatBytes(estimatedBytes)} including safety margin.`,
-    })
+    const message = `Not enough free disk space. Have: ${formatBytes(freeBytes)}; need: approximately ${formatBytes(estimatedBytes)} including safety margin.`
+    if (mode('disk_space') === 'block') issues.push({ code: 'insufficient_disk', message })
+    else warnIf('disk_space', `${message} The run starts anyway.`)
   } else if (freeBytes === 0) {
     warnings.push('Free disk space could not be measured on this storage volume.')
   }
@@ -855,6 +954,9 @@ async function preflightBatch(
     effectiveFormat, estimatedBytes, freeBytes, scriptSideChatModel, introductionChatModel,
     visualSettingsByEpisode, projectFacts, startingPacing, musicChannel,
     videoEffects: requiredSteps.has('video_assembly') ? withCaptionGaps(videoEffectsAnswer(config, presetByStep.video_assembly, musicChannel), captionGaps) : null,
+    steps: runSteps(), stepsByEpisode, stepsAdded,
+    stepsLeftOut: [...leftOut.entries()].map(([step, reason]) => ({ step, reason })),
+    retiredMediaBlocks,
   }
 }
 
@@ -2136,7 +2238,7 @@ router.post('/projects/:slug/pipeline/preflight', async (req, res) => {
   if (!requestedSteps.length) return res.status(400).json({ detail: 'steps must include at least one valid pipeline step' })
   const steps = await applyChannelSegmentIntent(slug, requestedSteps)
   try {
-    const result = await preflightBatch(slug, episodeIds, steps, force)
+    const result = await preflightBatch(slug, episodeIds, steps, force, parsed.repairMissing)
     const { globalIssues, blocked } = splitPreflightIssues(result.issues)
     const eligible_episode_ids = eligibleEpisodeIds(episodeIds, blocked)
     const canSubmit = globalIssues.length === 0 && eligible_episode_ids.length > 0
@@ -2151,6 +2253,8 @@ router.post('/projects/:slug/pipeline/preflight', async (req, res) => {
       episodes: episodeIds.length,
       steps: steps.length,
       video_effects: result.videoEffects,
+      steps_left_out: result.stepsLeftOut,
+      steps_added: result.stepsAdded,
       ...await paidFallbacksWarning(),
     })
   } catch (e: any) {
@@ -2175,7 +2279,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
   if (!requestedSteps.length) return res.status(400).json({ detail: 'steps must include at least one of ' + VALID_STEPS.join(', ') })
   const steps = await applyChannelSegmentIntent(slug, requestedSteps)
 
-  const preflight = await preflightBatch(slug, episode_ids, steps, force)
+  const preflight = await preflightBatch(slug, episode_ids, steps, force, repairMissing)
   const { globalIssues, blocked } = splitPreflightIssues(preflight.issues)
   let currentIssues = preflight.issues
   let currentBlocked = blocked
@@ -2275,8 +2379,9 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
   // upload-backed cleanup record again immediately before dispatch so an
   // ordinary batch cannot race a completed local-media cleanup into an
   // unrequested regeneration. Force runs stay deliberate and continue to the
-  // normal prerequisite checks above.
-  if (!force) {
+  // normal prerequisite checks above, as does a channel whose retired_media
+  // safety check is Off or Warn.
+  if (preflight.retiredMediaBlocks) {
     const retiredAtDispatch = await retiredUploadedMediaByEpisode(slug, eligible_episode_ids, preflight.projectFacts)
     const dispatchIssues = [...retiredAtDispatch.entries()]
       .map(([episodeId, status]) => retiredLocalMediaIssue(episodeId, status))
@@ -2303,7 +2408,12 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     }
   }
 
+  const cueReviewMode = await safetyMode(slug, 'cue_review')
+  const cueReviewHolds = cueReviewMode === 'block'
+  const sameStepMode = await safetyMode(slug, 'same_step_queued')
+  const runWarnings: string[] = []
   for (const episodeId of eligible_episode_ids) {
+    const runSteps = preflight.stepsByEpisode.get(episodeId) ?? preflight.steps
     const idea = ideaByCode.get(episodeId)
     if (!idea) {
       skipped.push({ episode_id: episodeId, reason: 'Not found among accepted ideas' })
@@ -2315,7 +2425,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       continue
     }
     let visualSettings = preflight.visualSettingsByEpisode.get(episodeId)!
-    const applicability = applicablePipelineStepsForVisualSource(steps, visualSettings.visual_source)
+    const applicability = applicablePipelineStepsForVisualSource(runSteps, visualSettings.visual_source)
     for (const step of applicability.inapplicable) {
       steps_skipped_as_inapplicable.push({ episode_id: episodeId, step })
     }
@@ -2328,7 +2438,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     // `human`. A fresh generation inside this batch is auto-completed by the
     // generator itself (it sees pipeline_batch_id). `force` skips this: the
     // sidecar is about to be regenerated anyway.
-    if (!force && steps.includes('research')) {
+    if (!force && runSteps.includes('research')) {
       await autoCompleteResearchReviewForPipeline(slug, episodeId)
     }
 
@@ -2346,7 +2456,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
         [...ideaByCode.values()],
         preflight.projectFacts,
       )
-      const repairSubtitlesComplete = repairMissing && steps.includes('subtitles')
+      const repairSubtitlesComplete = repairMissing && runSteps.includes('subtitles')
         ? await pipelineSubtitleRepairComplete(slug, episodeId)
         : null
       effectiveSteps = effectiveSteps.filter(step => {
@@ -2410,6 +2520,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     //   • character_sheet is dropped (applied inline above, not a job).
     const chain: Array<{ type: JobType; title: string; params: Record<string, any> }> = []
     let pausedForCueReview = false
+    let cuesUnreviewed = false
     for (const step of effectiveSteps) {
       if (step === 'character_sheet') continue
       if (step === 'script-only') {
@@ -2539,7 +2650,12 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       // Editorial review is a deliberate pipeline handoff, never an implicit
       // background approval. A trusted contextual-cue preset may opt into
       // auto-approval; only then can later image/video stages continue.
+      // Safety check cue_review: Off/Warn carry on to Scene Review; the cues stay for review later.
       if (step === 'contextual_cues' && params.auto_approve !== true) {
+        if (!cueReviewHolds) {
+          cuesUnreviewed = true
+          continue
+        }
         pausedForCueReview = true
         break
       }
@@ -2608,6 +2724,22 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     // already queued/running. The user can see the existing job in the
     // Jobs tab; silently piling another one on is worse UX than a skip.
     if (jq.isDuplicate(slug, episodeId, first.type)) {
+      // Safety check same_step_queued: Off/Warn hand the rest of this run to the job already there.
+      const joined = sameStepMode === 'block' ? null : await jq.joinActiveSameStep({
+        project_slug: slug,
+        episode_id: episodeId,
+        type: first.type,
+        pipeline_chain: rest,
+        pipeline_batch_id: batch_id,
+      })
+      if (joined && !joined.conflict) {
+        if (sameStepMode === 'warn') {
+          runWarnings.push(`${episodeId}: ${pipelineStepLabel(CHAIN_LINK_STEP[first.type] || first.type)} was already queued or running (job ${joined.job.job_id}); this run joined it.`)
+        }
+        reused.push({ episode_id: episodeId, job_id: joined.job.job_id, type: joined.job.type })
+        totalEnqueuedStepCount += rest.length
+        continue
+      }
       skipped.push({ episode_id: episodeId, reason: `${pipelineStepLabel(CHAIN_LINK_STEP[first.type] || first.type)} is already queued or running for this episode — see Jobs.` })
       continue
     }
@@ -2625,7 +2757,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
           pipeline_chain: rest,
           pipeline_batch_id: batch_id,
         },
-      }, {}, force ? undefined : async () => {
+      }, {}, !preflight.retiredMediaBlocks ? undefined : async () => {
         const status = await readLocalMediaCleanupStatus(slug, episodeId, preflight.projectFacts)
         if (status.has_retired_media || status.blocked_reason) {
           cleanupAdmissionIssue = retiredLocalMediaIssue(episodeId, status)
@@ -2643,6 +2775,10 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     if (pausedForCueReview) {
       job.output_lines.push('Pipeline will pause after Contextual Cues. Review and resolve the cue timeline, then run the remaining stages when ready.')
     }
+    if (cuesUnreviewed && cueReviewMode === 'warn') {
+      runWarnings.push(`${episodeId}: Contextual Cues are not approved automatically, so they wait for your review; `
+        + 'this run goes on to Scene Review without waiting for it.')
+    }
   }
 
   res.status(201).json({
@@ -2659,6 +2795,9 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     jobs: enqueued,
     reused_jobs: reused,
     steps,
+    steps_left_out: preflight.stepsLeftOut,
+    steps_added: preflight.stepsAdded,
+    warnings: [...preflight.warnings, ...runWarnings],
     force,
     video_effects: preflight.videoEffects,
     ...await paidFallbacksWarning(),

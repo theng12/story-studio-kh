@@ -320,6 +320,8 @@ describe('Pipeline episode visual source', () => {
     await pm.updateConfig(project.slug, {
       metadata_presets: [{ id: 'metadata', name: 'Metadata', data: { model: 'saved-chat-model' } }],
       metadata_last_preset: 'metadata',
+      // 1.4.300 — the missing-preset stop is the step_preset safety check on Block.
+      safety_checks: { step_preset: 'block' },
     } as any)
     const scene = await addEpisode(project.slug, 'Scene row missing preset')
     const pool = await addEpisode(project.slug, 'Pool row common work')

@@ -300,7 +300,7 @@ describe('writeChapterFiles + assembleUnifiedNarration round-trip', () => {
     const dir = await fs.mkdtemp(path.join(tmpRoot, 'roundtrip-empty-'))
     const code = 'TST0005'
     const result = await assembleUnifiedNarration(dir, code, 'X')
-    assert.deepEqual(result, { chapter_numbers: [], introduction_present: false })
+    assert.deepEqual(result, { chapter_numbers: [], introduction_present: false, repeated_chapters: [] })
     assert.ok(!existsSync(path.join(dir, `${code}_Script_Narration.md`)), 'no unified file when nothing to assemble')
   })
 })

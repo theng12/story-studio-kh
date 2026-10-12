@@ -168,10 +168,16 @@ export function normalizeSectionsForTts(sections: PlannableSection[]): number {
 export function selectNarrationSections<S extends PlannableSection>(
   allSections: S[],
   sectionsParam: string,
+  /** Collects the slugs that were listed more than once (each is still made once). */
+  repeated?: string[],
 ): S[] {
   // One slug is one audio file: a section listed twice (in the script or the request) is made once.
   return pickNarrationSections(allSections, sectionsParam)
-    .filter((section, index, picked) => picked.findIndex(other => other.slug === section.slug) === index)
+    .filter((section, index, picked) => {
+      const first = picked.findIndex(other => other.slug === section.slug) === index
+      if (!first && repeated && !repeated.includes(section.slug)) repeated.push(section.slug)
+      return first
+    })
 }
 
 function pickNarrationSections<S extends PlannableSection>(allSections: S[], sectionsParam: string): S[] {

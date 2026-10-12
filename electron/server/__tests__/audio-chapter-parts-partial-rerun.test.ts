@@ -182,6 +182,22 @@ void test('parts whose replacement record was lost are still activated when they
   await ep.assertJoined()
 })
 
+void test('1.4.300: with "New narration can be switched in" on Warn, another voice model\'s playable parts are switched in with a warning', async () => {
+  const ep = await episode()
+  const tone = toneWav()
+  service.queueScenario('tts', { states: ['accepted', 'succeeded'], audioArtifact: tone })
+  service.queueScenario('tts', { states: ['accepted', 'failed'], failureCode: 'provider_error', finalCredits: 0 })
+  service.queueScenario('tts', { states: ['accepted', 'succeeded'], audioArtifact: tone })
+  await assert.rejects(ep.direct(), /1 section\(s\) failed/)
+  await pm.updateConfig(ep.project.slug, { safety_checks: { narration_switch_in: 'warn' } } as any)
+  service.queueScenario('tts', { states: ['accepted', 'succeeded'], audioArtifact: tone })
+  const job = await ep.direct('other-model')
+  assert.equal(job.result?.safety_warnings?.[0]?.check, 'narration_switch_in', job.output_lines.join('\n'))
+  assert.ok(job.output_lines.some((line: string) => /made by another voice model and is switched in anyway/.test(line)), job.output_lines.join('\n'))
+  const chapter = (await readAudioQualityProvenance(episodeDirForNarration(ep.narration))).chapters.Chapter_01
+  assert.equal(chapter?.tts?.model_id, 'other-model', 'the chapter is active')
+})
+
 void test('a section the last Audio Assembly did not have joins the active selection (1.4.297, MineePod EP0003)', async () => {
   const ep = await episode()
   const selector = path.join(episodeDirForNarration(ep.narration), 'audio_chapters.json')

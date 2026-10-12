@@ -416,6 +416,8 @@ export const UpdateConfigSchema = z.object({
   active_style_preset_id: z.string().max(200).optional(),
   video_models: z.record(z.string(), z.any()).optional(),
   confirmation_preferences: z.record(z.string(), z.any()).optional(),
+  /** 1.4.300 — per-channel Off / Warn / Block for each safety check (services/safety-checks.ts). */
+  safety_checks: z.record(z.string().max(80), z.enum(['off', 'warn', 'block'])).optional(),
   audio_quality: z.object({
     mode: z.enum(['off', 'flag_issues', 'check_and_repair']),
     alternate_transcription_model: z.string().trim().min(1).max(240).optional(),

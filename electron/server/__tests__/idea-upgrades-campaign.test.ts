@@ -195,3 +195,37 @@ test('variety on (freeform): the prompt carries one slot per idea and the idea r
     await t.done()
   }
 })
+
+// 1.4.300 "Idea repeat check by meaning" safety check: the channel's "on" still rejects and remakes;
+// the mode only decides what happens when the campaign then ends short.
+for (const mode of ['warn', 'block'] as const) {
+  test(`meaning check "on", campaign left short by repeats: ${mode === 'warn' ? 'Warn saves the closest repeat with a warning' : 'Block leaves the slot empty and fails'}`, async () => {
+    const t = await setup()
+    const settings = await import('../services/app-settings.js')
+    const { clearGenStudioCatalogCache } = await import('../lib/genstudio-client.js')
+    const proxy = await withEmbeddings(t.service.baseUrl, text => /saffron/i.test(text) ? [1, 0] : [0, 1])
+    try {
+      await settings.setGenStudioUrl(proxy.url)
+      clearGenStudioCatalogCache()
+      await t.pm.updateConfig(t.project.slug, {
+        idea_upgrades: { semantic_dedupe: 'on', embedding_model: 'emb::test', semantic_threshold: 0.9 },
+        safety_checks: { idea_repeat: mode },
+      } as any)
+      const reworded = { ...idea('A Crimson Fortune on the Malabar Coast'), logline: 'How saffron crocus threads crossed the sea.' }
+      for (let call = 0; call < 4; call++) t.service.queueScenario('chat', { outputText: JSON.stringify({ ideas: [reworded] }) })
+      const run = t.job(`meaning-short-${mode}`)
+      if (mode === 'block') {
+        await assert.rejects(t.generateIdeaCampaign(run), /0 of 1 ideas were saved/)
+      } else {
+        await t.generateIdeaCampaign(run)
+        assert.equal(run.result.completed, 1)
+        assert.equal(run.result.safety_warnings?.[0]?.check, 'idea_repeat')
+      }
+      const saved = (await (await import('../services/idea-manager.js')).getIdeas(t.project.slug)).map(row => row.title)
+      assert.equal(saved.includes(reworded.title), mode === 'warn')
+    } finally {
+      await proxy.close()
+      await t.done()
+    }
+  })
+}

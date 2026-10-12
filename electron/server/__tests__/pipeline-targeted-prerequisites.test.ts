@@ -40,6 +40,8 @@ async function seedEpisode() {
     'scene_plan_last_preset_scene-plan': 'scene-plan',
     scene_review_genstudio_presets: [{ id: 'scene-review', name: 'Scene Review', type: 'scene-review', data: { model: 'test-model' } }],
     'scene_review_genstudio_last_preset_scene-review': 'scene-review',
+    // 1.4.300 — these tests pin the prerequisite stop, i.e. the earlier_step_done safety check on Block.
+    safety_checks: { earlier_step_done: 'block' },
   } as unknown as Parameters<typeof pm.updateConfig>[1])
   const [idea] = await im.addIdeas(project.slug, [{
     title: 'Targeted prerequisite episode',

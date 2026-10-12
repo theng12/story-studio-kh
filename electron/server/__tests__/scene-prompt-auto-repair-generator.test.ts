@@ -58,6 +58,8 @@ async function seedCompletedPromptRequest(key: string, sceneIds: string[], outpu
 async function fixture(missingCount: number) {
   sequence++
   const project = await pm.createProject({ name: `Paid Prompt Generator ${sequence}`, episode_prefix: 'EP', episode_digits: 4 })
+  // 1.4.300 — these tests are about the stop; Off/Warn would write plain prompts instead.
+  await pm.updateConfig(project.slug, { safety_checks: { scene_prompts: 'block' } } as any)
   const [idea] = await ideas.addIdeas(project.slug, [{ title: 'Repair', logline: 'Repair prompts.', themes: [], suggested_chapters: 1, suggested_length: 'short', mood: 'quiet' }], 'test')
   const accepted = await ideas.acceptIdea(project.slug, idea!.id, false)
   const paths = await resolveEpisodePathsByCode(project.slug, accepted.episode_code)
@@ -1177,4 +1179,36 @@ test('free-fleet prompts: the queue auto-retries, recovers the stuck pack by its
     service.chatModels = null
     genstudio.clearGenStudioCatalogCache()
   }
+})
+
+// 1.4.300 "Every scene has a picture prompt": Warn writes a plain prompt from the scene's own narration line,
+// but only on the last automatic try (earlier tries keep asking the writer).
+test('scene_prompts Warn writes a plain prompt for a scene still missing one on the last try', async () => {
+  service.reset()
+  const f = await fixture(1)
+  await pm.updateConfig(f.project.slug, { safety_checks: { scene_prompts: 'warn' } } as any)
+  for (let index = 0; index < 6; index++) {
+    service.queueScenario('chat', { states: ['succeeded'], outputText: '{"results":[]}' })
+  }
+  const params = {
+    ...f.params,
+    regenerate_empty_prompts: false,
+    auto_repair_missing_prompts: false,
+    pipeline_model_policy: { scene_plan: { mode: 'single', models: ['mock-chat-v1'], assigned_model: 'mock-chat-v1' } },
+  }
+  const early = directJob(f, 'plain-prompt-early')
+  early.params = params
+  early.auto_retry = { eligible: true, reason: 'free', attempt: 1, max_attempts: 3 }
+  await assert.rejects(runScenePlanJob(early), /incomplete/i, 'an earlier automatic try still stops so the writer is asked again')
+
+  const job = directJob(f, 'plain-prompt-last')
+  job.params = params
+  await runScenePlanJob(job)
+
+  const saved = JSON.parse(await fs.readFile(f.planPath, 'utf8'))
+  assert.equal(saved.scenes[0].visual_prompt, f.originalPrompt)
+  assert.match(saved.scenes[1].visual_prompt, /A picture of this moment in the story: Narration 2/)
+  // (This fixture's joined subtitle file has no verification record, so that check warns too.)
+  assert.ok(job.result?.safety_warnings?.some((w: any) => w.check === 'scene_prompts'))
+  assert.equal(job.result?.complete, true)
 })

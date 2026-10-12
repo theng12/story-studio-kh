@@ -14,6 +14,8 @@
 import { syncYouTubePublicationState } from '../services/youtube-publication-status.js'
 import fsp from 'fs/promises'
 import path from 'path'
+import { measureLoudness } from './music-episode-build.js'
+import { safetyGate, safetyMode } from '../services/safety-checks.js'
 import { existsSync } from 'fs'
 import type { Job } from '../models/types.js'
 import { resolveEpisodePaths } from '../services/utils.js'
@@ -83,6 +85,8 @@ interface YouTubeUploadParams {
   playlist_id?: string | null
   /** Exact episode thumbnail selected in Upload preview. */
   thumbnail_filename?: string | null
+  /** Safety checks the Upload Center route let through (channel set to Off/Warn); logged on this job. */
+  safety_warnings?: Array<{ check: string; message: string }>
   // NOTE: this job only ever UPLOADS. Re-running it on an episode that is
   // already published is REFUSED (see `remoteVideoFor` below), not turned into
   // a metadata PATCH — that behaviour existed until v1.5.0 and silently
@@ -153,9 +157,12 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
   const account = await describeYouTubeCredential(slug, accountId)
   if (!account) throw new Error('This upload names an old YouTube connection. Reconnect it in Settings → YouTube.')
   if (params.expected_channel_id && params.expected_channel_id !== account.remote_id) {
-    throw new Error('The assigned YouTube channel changed after confirmation. Preview and confirm the upload again.')
+    await stopOrCarryOn(slug, 'right_channel', job,
+      'The assigned YouTube channel changed after confirmation. Preview and confirm the upload again.',
+      `The assigned YouTube channel changed after confirmation; uploading to the channel assigned now, ${account.remote_title}.`)
   }
   job.output_lines.push(`Using channel: ${account.remote_title} (${account.remote_id})`)
+  for (const passed of params.safety_warnings || []) await safetyGate(slug, passed.check, job, passed.message)
 
   // Lookup episode + paths.
   const ideas = await im.getIdeas(slug, 'accepted')
@@ -226,6 +233,11 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     const probe = await probeForUpload(videoPath)
     if (!probe.ok) throw new Error(probe.error || 'ffprobe rejected the file')
     job.output_lines.push(`Probe OK — ${Math.round(probe.durationSec / 60)} min · ${probe.width}×${probe.height} · ${probe.hasAudio ? 'audio present' : 'no audio'}`)
+    // 1.4.300 — a video with no sound is stopped (the "valid video" safety check, Block by default).
+    const silent = !probe.hasAudio || await measureLoudness(videoPath, { truePeak: false }).then(m => m.lufs === null || m.lufs <= -69, () => false)
+    if (silent) {
+      await safetyGate(slug, 'valid_video', job, `${path.basename(videoPath)} has no sound${probe.hasAudio ? ' (its audio track is silent)' : ''}. Nothing was uploaded.`)
+    }
   }
 
   // Resolve metadata.
@@ -238,8 +250,12 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
   })
   // The thumbnail is REQUIRED (owner decision 2026-10-07). Refuse before any
   // quota is spent rather than publish a video with YouTube's frame grab.
-  if (!meta.thumbnailPath || !existsSync(meta.thumbnailPath)) {
-    throw new Error(`${missingThumbnailReason(episodeId, meta.thumbnailPath, params.thumbnail_filename)} Nothing was uploaded.`)
+  // 1.4.300: the "thumbnail present" safety check — Off/Warn upload without one.
+  const hasThumbnail = !!meta.thumbnailPath && existsSync(meta.thumbnailPath)
+  if (!hasThumbnail) {
+    const reason = missingThumbnailReason(episodeId, meta.thumbnailPath, params.thumbnail_filename)
+    await stopOrCarryOn(slug, 'thumbnail_present', job, `${reason} Nothing was uploaded.`,
+      `${reason} Uploading without a thumbnail, so YouTube shows its own frame grab.`)
   }
   const privacy: PrivacyStatus = params.privacy_status || 'private'
 
@@ -265,7 +281,9 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     const sourceBytes = (await sourceHandle.stat()).size
     const sourceRevision = await resolveYouTubeSourceRevisionFromHandle(sourceHandle)
     if (params.expected_source_revision && sourceRevision !== params.expected_source_revision) {
-      throw new Error('The rendered video changed after confirmation. Preview and confirm the upload again; nothing was uploaded.')
+      await stopOrCarryOn(slug, 'reviewed_unchanged', job,
+        'The rendered video changed after confirmation. Preview and confirm the upload again; nothing was uploaded.',
+        'The rendered video changed after confirmation; uploading the video as it is now.')
     }
     const openOperations = operations.filter(record => record.episode_code === episodeId
       && record.channel_id === account.remote_id && !record.video_id
@@ -390,7 +408,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     for (const change of metadataPackage.modifications) job.output_lines.push(`${change.field}: ${change.reason}`)
     for (const warning of metadataPackage.warnings) job.output_lines.push(`⚠ ${warning}`)
     job.output_lines.push(
-      `Metadata — title: "${metadataPackage.snippet.title}", tags: ${metadataPackage.snippet.tags?.length ?? 0}, thumbnail: ${meta.thumbnailPath ? path.basename(meta.thumbnailPath) : 'none'}`,
+      `Metadata — title: "${metadataPackage.snippet.title}", tags: ${metadataPackage.snippet.tags?.length ?? 0}, thumbnail: ${hasThumbnail ? path.basename(meta.thumbnailPath) : 'none'}`,
     )
 
     // Open and checkpoint the durable operation BEFORE the provider request.
@@ -556,9 +574,12 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
   // Thumbnail — REQUIRED. Tried twice (setThumbnail itself also retries the
   // transient "still processing" race); a failure fails the job further down,
   // after the durable record and the playlist, with the video id kept.
-  job.output_lines.push('Setting the thumbnail…')
-  const thumb_error = await setThumbnailWithRetry(job, { slug, accountId, videoId, filePath: meta.thumbnailPath })
-  if (!thumb_error) thumbnail_set = true
+  let thumb_error = ''
+  if (hasThumbnail) {
+    job.output_lines.push('Setting the thumbnail…')
+    thumb_error = await setThumbnailWithRetry(job, { slug, accountId, videoId, filePath: meta.thumbnailPath })
+    if (!thumb_error) thumbnail_set = true
+  }
   const thumbnailVerifiedThisRun = thumbnail_set
   job.progress = 95
 
@@ -634,7 +655,16 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     }
   }
 
-  requireThumbnailSet(job, videoId, thumb_error)
+  await requireThumbnailSet(slug, job, videoId, thumb_error)
+}
+
+/**
+ * A safety check that failed: Block keeps today's stop exactly (`stop`); Off/Warn log `carryOn`
+ * (Warn also lists it on the job) and return so the upload carries on.
+ */
+async function stopOrCarryOn(slug: string, id: string, job: Job, stop: string, carryOn: string): Promise<void> {
+  if (await safetyMode(slug, id) === 'block') throw new Error(stop)
+  await safetyGate(slug, id, job, carryOn)
 }
 
 /** Why there is no thumbnail to set, in the owner's words. */
@@ -666,8 +696,16 @@ async function setThumbnailWithRetry(
   return error
 }
 
-/** Fail the job when the thumbnail is not set, keeping the video id so Retry sets only the thumbnail. */
-function requireThumbnailSet(job: Job, videoId: string, error: string): void {
+/**
+ * Fail the job when the thumbnail is not set, keeping the video id so Retry sets only the thumbnail.
+ * With "thumbnail present" Off/Warn the upload is done and keeps YouTube's frame grab.
+ */
+async function requireThumbnailSet(slug: string, job: Job, videoId: string, error: string): Promise<void> {
+  if (error && await safetyMode(slug, 'thumbnail_present') !== 'block') {
+    await safetyGate(slug, 'thumbnail_present', job, `Uploaded as https://youtu.be/${videoId}, but the thumbnail `
+      + `could not be set: ${error} The video keeps YouTube's frame grab; Retry sets only the thumbnail.`)
+    return
+  }
   requireJobCompletion(job, {
     label: 'YouTube thumbnail',
     expected: 1,
@@ -717,7 +755,11 @@ async function setRequiredThumbnail(job: Job, input: {
     ...(input.thumbnailFilename ? { thumbnail_filename: input.thumbnailFilename } : {}),
   })
   if (!meta.thumbnailPath || !existsSync(meta.thumbnailPath)) {
-    throw new Error(`${missingThumbnailReason(input.episodeId, meta.thumbnailPath, undefined)} The video stays on YouTube; nothing is uploaded again.`)
+    const reason = missingThumbnailReason(input.episodeId, meta.thumbnailPath, undefined)
+    await stopOrCarryOn(input.slug, 'thumbnail_present', job, `${reason} The video stays on YouTube; nothing is uploaded again.`,
+      `${reason} The video stays on YouTube with its own frame grab; nothing is uploaded again.`)
+    job.progress = 100
+    return
   }
   const error = await setThumbnailWithRetry(job, {
     slug: input.slug, accountId: input.accountId, videoId: input.videoId, filePath: meta.thumbnailPath,
@@ -728,6 +770,6 @@ async function setRequiredThumbnail(job: Job, input: {
     { set: !error, error: error || undefined, remotely_verified: !error },
   )
   job.output_dir = path.dirname(input.sidecarPath)
-  requireThumbnailSet(job, input.videoId, error)
+  await requireThumbnailSet(input.slug, job, input.videoId, error)
   job.progress = 100
 }

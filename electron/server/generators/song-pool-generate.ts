@@ -44,6 +44,7 @@ import * as sp from '../services/song-pool.js'
 import { musicFleetBusyRetryPlan, resolveMusicModel, saveMusicTrack } from './music-generate.js'
 import { siblingGroupForJob } from '../services/music-library.js'
 import type { Job } from '../models/types.js'
+import { safetyGate, safetyMode } from '../services/safety-checks.js'
 
 export type SongPoolMode = 'new' | 'fill-gaps' | 'regenerate'
 
@@ -176,6 +177,11 @@ export async function generateSongPool(job: Job): Promise<void> {
   if (!sung && model.requires_lyrics === true) throw new Error(`${model.display_name} only sings from lyrics, and this channel's songs are instrumental. Pick another song model, or turn on Songs with lyrics in Music Formula.`)
   const checkModel = (params.check_model || '').trim()
   if (sung && !checkModel) throw new Error('Pick the listen-back model in the Generate dialog. It checks that each song sings its lyrics.')
+  // 1.4.300 "Sung lyrics listen-back" safety check: the retakes above are the channel's own control;
+  // this decides only what a song that still fails does. Block: it stays switched off and the item
+  // fails (as before). Off/Warn: the last take is kept switched on and counts as made.
+  const lyricsBlock = !sung || await safetyMode(slug, 'lyrics_listen_back') === 'block'
+  const heardOk = (heard: Heard | null) => !heard || heard.check === 'passed' || !lyricsBlock
   const maxPromptChars = !sung && Number.isInteger(model.max_prompt_without_lyrics_characters) ? model.max_prompt_without_lyrics_characters as number
     : Number.isInteger(model.max_prompt_characters) ? model.max_prompt_characters : undefined
   const outputFormat = await resolveOutputFormat(slug, 'music')
@@ -313,7 +319,7 @@ export async function generateSongPool(job: Job): Promise<void> {
             await sp.updatePool(slug, async p => {
               await fs.rename(path.join(staging, filename), path.join(dir, filename))
               p.songs.push({
-                id, file: filename, status: 'ready', enabled: !heard || heard.check === 'passed',
+                id, file: filename, status: 'ready', enabled: heardOk(heard),
                 title: take ? `${brief.title} (take ${take + 1})` : brief.title,
                 ensemble: brief.ensemble, mood: brief.mood, energy: brief.energy, tempo_bpm: brief.tempo_bpm,
                 tempo_band: brief.tempo_band || undefined, key: brief.key, texture: brief.texture, structure: brief.structure,
@@ -340,11 +346,16 @@ export async function generateSongPool(job: Job): Promise<void> {
               // Regenerate keeps the old take, disabled, until the owner removes it.
               if (it.take_of) { const old = p.songs.find(s => s.id === it.take_of); if (old) old.enabled = false }
             })
-            if (!take && (!heard || heard.check === 'passed')) { it.song_id = id; it.file = filename }
+            if (!take && heardOk(heard)) { it.song_id = id; it.file = filename }
             job.output_lines.push(`${heard && heard.check !== 'passed' ? '⚠' : '✓'} ${brief.title}${take ? ` (take ${take + 1})` : ''} — ${Math.round(check.duration_s)} s${check.lufs !== null ? `, ${check.lufs} LUFS` : ''}${flagged ? `, ⚠ ${Math.round(flagged.length)} s of silence at ${Math.floor(flagged.at / 60)}:${String(Math.round(flagged.at % 60)).padStart(2, '0')}` : ''}${heard ? `, ${heard.check === 'unchecked' ? 'words not checked' : `${pct(heard.match)} of the words heard`}` : ''}`)
           }
           if (retake) { sing++; continue }
-          if (heard && heard.check !== 'passed') {
+          if (heard && heard.check !== 'passed' && !lyricsBlock) {
+            await safetyGate(slug, 'lyrics_listen_back', job, heard.check === 'unchecked'
+              ? `${brief.title}: the listen-back could not run (${heard.why}); the song is kept in the pool switched on.`
+              : `${brief.title}: only ${pct(heard.match)} of its words were heard after ${sing} take${sing === 1 ? '' : 's'} `
+                + `(needs ${pct(lyricsCfg!.min_match)}); the last take is kept in the pool switched on.`)
+          } else if (heard && heard.check !== 'passed') {
             // Kept in the pool switched off, so it is never drawn unheard; Retry sings it again under a new identity.
             it.error = heard.check === 'unchecked'
               ? `the listen-back could not run (${heard.why}); the song is in the pool switched off — listen and switch it on, or Retry`
@@ -394,7 +405,7 @@ export async function generateSongPool(job: Job): Promise<void> {
     ? `brief dropped (${i.dropped})`
     : `${i.brief?.title || 'song'}: ${i.error || 'not made'}`)
   // `saved_tracks` + `requests` are what the music_generate cancel audit reads.
-  job.result = { song_pool: true, batch_id: params.batch_id, saved_tracks: saved.map(i => i.file), requests: batch.items.length, song_ids: saved.map(i => i.song_id) }
+  job.result = { ...(job.result?.safety_warnings ? { safety_warnings: job.result.safety_warnings } : {}), song_pool: true, batch_id: params.batch_id, saved_tracks: saved.map(i => i.file), requests: batch.items.length, song_ids: saved.map(i => i.song_id) }
   requireJobCompletion(job, {
     label: 'Song generation',
     expected: batch.items.length,

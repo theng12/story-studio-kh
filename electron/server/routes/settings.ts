@@ -169,3 +169,45 @@ router.put('/projects/:slug/settings/subfolder-config', async (req, res) => {
   const updated = await pm.updateProject(req.params.slug, { subfolder_names })
   res.json({ ok: true, subfolder_names: updated?.subfolder_names })
 })
+
+// ── Safety checks (1.4.300): Off / Warn / Block per channel ──────────────────
+router.get('/projects/:slug/safety-checks', async (req, res) => {
+  const { SAFETY_CHECKS, safetyModeFromConfig } = await import('../services/safety-checks.js')
+  const config = await pm.getConfig(req.params.slug)
+  if (!config) return res.status(404).json({ detail: 'Project not found' })
+  res.json({ checks: SAFETY_CHECKS.map(check => ({ ...check, mode: safetyModeFromConfig(config, check.id) })) })
+})
+
+async function saveSafetyModes(slug: string, modes: unknown): Promise<boolean | string> {
+  const { SAFETY_CHECKS, isSafetyMode } = await import('../services/safety-checks.js')
+  if (!modes || typeof modes !== 'object' || Array.isArray(modes)) return 'Send { modes: { <check id>: "off" | "warn" | "block" } }.'
+  const switchable = new Set(SAFETY_CHECKS.filter(check => !check.locked).map(check => check.id))
+  const next: Record<string, 'off' | 'warn' | 'block'> = {}
+  for (const [id, mode] of Object.entries(modes as Record<string, unknown>)) {
+    if (!switchable.has(id)) return `"${id}" is not a safety check that can be switched.`
+    if (!isSafetyMode(mode)) return `"${String(mode)}" is not Off, Warn or Block.`
+    next[id] = mode
+  }
+  const config = await pm.getConfig(slug)
+  if (!config) return false
+  return pm.updateConfig(slug, { safety_checks: { ...(config.safety_checks || {}), ...next } })
+}
+
+router.put('/projects/:slug/safety-checks', async (req, res) => {
+  const saved = await saveSafetyModes(req.params.slug, req.body?.modes)
+  if (typeof saved === 'string') return res.status(400).json({ detail: saved })
+  if (!saved) return res.status(404).json({ detail: 'Project not found' })
+  res.json({ ok: true })
+})
+
+/** The same choices on every channel on this Mac. */
+router.post('/safety-checks/apply-to-all', async (req, res) => {
+  const projects = await pm.listProjects()
+  const applied: string[] = []
+  for (const project of projects) {
+    const saved = await saveSafetyModes(project.slug, req.body?.modes)
+    if (typeof saved === 'string') return res.status(400).json({ detail: saved })
+    if (saved) applied.push(project.slug)
+  }
+  res.json({ ok: true, applied })
+})

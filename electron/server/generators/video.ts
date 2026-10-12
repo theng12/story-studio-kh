@@ -114,6 +114,7 @@ import { nonRetryable } from '../services/job-retry-policy.js'
 import { EBUR128_FILTER, measureLoudness, parseEbur128Summary, type LoudnessMeasurement } from './music-episode-build.js'
 import { finalLoudnessIssue, loudnessTarget, withinToleranceNote, type LevelPlan, type LoudnessTarget } from '../lib/final-loudness.js'
 import { FINAL_AAC_ARGS, levelAndCheck, mergedAudioMaster } from '../lib/level-audio.js'
+import { safetyMode } from '../services/safety-checks.js'
 import {
   assertContextualCueReadiness,
   normalizeContextualCueConfig,
@@ -684,6 +685,16 @@ export async function verifyFinalLoudness(job: Job, outputPath: string, target: 
     job.result = { ...(job.result || {}), final_loudness: { lufs: measured.lufs, true_peak_db: measured.true_peak_db } }
   }
   // Rendering again gives the same audio, so this fails once instead of using up the automatic retries.
+  // 1.4.300 — a level that cannot be read still stops; a miss stops only when the loudness check is Block.
+  if (issue && measured.lufs !== null && measured.lufs > -69 && (target.check ?? 'block') !== 'block') {
+    job.output_lines.push(`${target.check === 'warn' ? '⚠ ' : ''}Final loudness is outside the allowance (${issue}). `
+      + `The loudness check is ${target.check === 'warn' ? 'set to Warn' : 'Off'} for this channel, so the video was kept.`)
+    if (target.check === 'warn') {
+      const warnings = Array.isArray(job.result?.safety_warnings) ? job.result!.safety_warnings : []
+      job.result = { ...(job.result || {}), safety_warnings: [...warnings, { check: 'loudness', message: issue }] }
+    }
+    return
+  }
   if (issue) {
     throw nonRetryable(new Error(`The final video's sound is not at its target level: ${issue}. `
       + 'The file was kept so you can listen to it. Send the job log to support.'))
@@ -2188,7 +2199,7 @@ export async function generateVideo(job: Job): Promise<void> {
   // 1.4.279: a request with no allowance of its own (a retry of an older job, a resumed or conductor
   // job, a recovery job) takes the channel's current Video Assembly preset's, as run-batch does.
   if (typeof req.loudness_tolerance_pct !== 'number') req.loudness_tolerance_pct = await channelLoudnessTolerancePct(project_slug)
-  const loudness = loudnessTarget(req)
+  const loudness = { ...loudnessTarget(req), check: await safetyMode(project_slug, 'loudness') }
   req.loudness_lufs = loudness.lufs
   req.true_peak_db = loudness.true_peak_db
   const renderFingerprintRequest = structuredClone(req)

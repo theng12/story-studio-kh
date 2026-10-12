@@ -129,6 +129,8 @@ describe('run-batch — disk-space gate', () => {
     await pm.updateConfig(proj.slug, {
       thumbnail_prompts_presets: [{ id: 'tp1', name: 'default', data: { model: 'gpt-4o' } }],
       thumbnail_prompts_last_preset: 'tp1',
+      // 1.4.300 — this gate is the disk_space safety check on Block.
+      safety_checks: { disk_space: 'block' },
     } as any)
     const im = await import('../services/idea-manager.js')
     const ideas = await im.addIdeas(proj.slug, [{

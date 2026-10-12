@@ -97,6 +97,9 @@ describe('Music format phase 4', () => {
     process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
     app = (await import('../app.js')).app
     slug = await musicChannel('Cello Finish', 'pool_finish', ['s_1', 's_2', 's_3', 's_4', 's_5', 's_6'])
+    // 1.4.300 — these tests pin the Pipeline start stops, i.e. those safety checks on Block.
+    const pm = await import('../services/project-manager.js')
+    await pm.updateConfig(slug, { safety_checks: { step_fits_channel: 'block', step_preset: 'block', earlier_step_done: 'block' } } as any)
     code = await newEpisode('Snowy Cabin Evenings')
   })
   after(async () => { await tmp.cleanup() })

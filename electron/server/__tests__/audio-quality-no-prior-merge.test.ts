@@ -28,7 +28,7 @@ void test('ordinary Audio Assembly adopts one ready candidate when no prior merg
     const { resolveEpisodePathsByCode } = await import('../services/utils.js')
     await settings.setGenStudioUrl(service.baseUrl); await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY); client.clearGenStudioCatalogCache()
     const project = await pm.createProject({ name: 'No prior merge', episode_prefix: 'NP', episode_digits: 4 })
-    await pm.updateConfig(project.slug, { audio_quality: { mode: 'check_and_repair', alternate_transcription_model: 'mock-whisper-v1' } })
+    await pm.updateConfig(project.slug, { safety_checks: { silent_narration: 'off' }, audio_quality: { mode: 'check_and_repair', alternate_transcription_model: 'mock-whisper-v1' } })
     const [idea] = await ideas.addIdeas(project.slug, [{ title: 'Two chapters', logline: 'Fixture', themes: [], suggested_chapters: 2, suggested_length: 'short', mood: 'calm' }], 'mock-chat-v1')
     const accepted = await ideas.acceptIdea(project.slug, idea!.id, false); const code = accepted.episode_code
     const paths = await resolveEpisodePathsByCode(project.slug, code)

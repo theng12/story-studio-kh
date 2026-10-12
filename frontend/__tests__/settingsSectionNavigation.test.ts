@@ -62,9 +62,9 @@ describe('Settings section navigation', () => {
     assert.deepEqual(searchSettings('   '), [])
   })
 
-  test('every indexed setting points at a real section, and ten sections exist', () => {
+  test('every indexed setting points at a real section, and eleven sections exist (1.4.300 adds Safety checks)', () => {
     const sections = SETTINGS_ZONES.flatMap(zone => zone.sections.map(section => section.id))
-    assert.equal(sections.length, 10)
+    assert.equal(sections.length, 11)
     for (const entry of SETTINGS_INDEX) assert.ok(sections.includes(entry.section), `${entry.label} → ${entry.section}`)
     // Every anchor the index names is present in the page or one of its components.
     const sources = ['../pages/projects/[slug]/settings.vue', '../components/ThisMacSettings.vue', '../components/PerformanceSettings.vue', '../components/BackupPanel.vue']
@@ -108,7 +108,7 @@ describe('Settings section navigation', () => {
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
       await nextTick()
       assert.equal(input.value, '')
-      assert.equal(mounted.host.querySelectorAll('a').length, 10)
+      assert.equal(mounted.host.querySelectorAll('a').length, 11)
     } finally { mounted.destroy() }
   })
 })

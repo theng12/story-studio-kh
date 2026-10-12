@@ -6,6 +6,7 @@
  */
 
 import { submitSent } from './inflight-submits.js'
+import { safetyGate, safetyMode, type SafetyMode } from '../services/safety-checks.js'
 import { STORY_CALLER } from './machine-name.js'
 import fs from 'fs/promises'
 import os from 'os'
@@ -7748,6 +7749,9 @@ async function resendLostChat(
   lost: GenStudioChatTerminalFailureError,
   baseUrlOverride?: string,
 ): Promise<GenStudioChatResult> {
+  // 1.4.300 — "Lost writing request": Off (the default) and Warn resend once as before; Block stops.
+  if (await currentJobSafety('lost_writing_request',
+    'The writing service lost track of a writing request after it was sent; Story sends it once more as a fresh request.', 'off') === 'block') throw lost
   const queue = await import('../services/job-queue.js')
   queue.noteCurrentJob('↻ The writing service lost track of the last writing request after it was sent, '
     + 'so Story Studio sent it once more as a fresh request (it will not resend it again by itself).')
@@ -7759,6 +7763,23 @@ async function resendLostChat(
   } catch (error) {
     return replaceFailedChat(apiKey, resend, resent, error)
   }
+}
+
+/**
+ * A safety check that failed deep in the client, for the queue job running this request. Returns its
+ * mode; Off and Warn are written on that job's log (the queue's live job is not reachable from here, so
+ * Warn shows as a ⚠ line rather than in the job's warning list). No running job → `outsideJob`.
+ */
+async function currentJobSafety(id: string, message: string, outsideJob: SafetyMode): Promise<SafetyMode> {
+  const queue = await import('../services/job-queue.js')
+  const job = queue.getJob(queue.currentJobId() || '')
+  if (!job) return outsideJob
+  const mode = await safetyMode(job.project_slug, id)
+  if (mode === 'block') return mode
+  const log = { output_lines: [] as string[] }
+  await safetyGate(job.project_slug, id, log, message)
+  for (const line of log.output_lines) queue.noteCurrentJob(line)
+  return mode
 }
 
 /** Bounds the walk from an old failed key to the newest attempt; ponytail: 5 Retries' worth. */

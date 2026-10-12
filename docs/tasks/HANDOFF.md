@@ -1,5 +1,15 @@
 # HANDOFF — Story Studio KH
 
+## Current work — 2026-10-12 (1.4.300 safety checks: Off / Warn / Block per channel)
+
+Owner approved (direct, relayed verbatim by the coordinator): loudness off; a switch for every check. Inventory: `_orchestra/audit-20261012/safety-checks/CHECKS.md`; worker brief `BRIEF-WIRING.md` there.
+- `services/safety-checks.ts`: `SAFETY_CHECKS` (id, group, name, protects, default, `locked` + `locked_reason`), `safetyMode(slug, id)`, `safetyModeFromConfig`, `safetyGate(slug, id, job, message)` (Block throws nonRetryable; Off/Warn log, Warn adds `result.safety_warnings`). Config `safety_checks: { id: mode }` (only changed rows). `services/scene-timeline-integrity.ts` has `safetyCarriesOn` for gates whose Block must keep a retryable error.
+- Routes (routes/settings.ts): GET/PUT `/projects/:slug/safety-checks`, POST `/safety-checks/apply-to-all`. UI: `components/SafetyChecksSettings.vue`, Settings section `safety` (`#safety`); Video Assembly loudness note links there.
+- Loudness: `LoudnessTarget.check` (absent = block); `channelLoudnessTarget` and `generateVideo` read `safetyMode(slug,'loudness')` (default off). `levelAndCheck` re-measures an unreadable encoded check once; unreadable or ≤ −69 LUFS still stops. `verifyFinalLoudness` same.
+- New Block checks: `silent_narration` (`levelMergedAudio` with `slug`), `valid_video` no-sound in `youtube-upload.ts` (fast ebur128 without true peak). Upload test fixtures now use `tinyVideoWithSoundBytes()`.
+- Wired areas (see commit messages safety/pipeline, safety/audio, safety/plan, safety/upload). Locked / not switchable yet: Video Assembly + scene-picture checks (the worker for that area was refused by the permission system), gateway_key, model_available, narration_script, ffmpeg, upload_quota, paid_not_repeated, model_limits, narration_parts, merged_audio_made, private_upload, not_on_youtube.
+- Known gaps: manual `POST /generate/metadata` (routes/scripts.ts) and manual Audio Assembly route still apply the old chapter-marks / chapter-audio refusals; Upload Center page still disables Upload with no thumbnail; picture steps call `assertSubtitleTimelineComplete` without a job; readiness surfaces (`asset-status.ts`, `routes/video.ts`, `routes/scene-plan.ts`) still use the fixed 30 s gap.
+
 ## Current work — 2026-10-12 (1.4.299 channel singer)
 
 - `LyricsSettingsSchema.singers` (≤ 3 × `{name, voice, seed}`, optional = off). `song-pool-generate`: `singerFor(brief)` = `singers[brief.seed % n]`; request prompt = brief prompt + `, ${voice}`, seed = the singer's (a retake uses `hashSeed(...take n)` and says the voice may shift); `SongRecord.singer`. Writer gets `lyrics.fixedSinger` → one extra user-prompt line: style = genre/instruments/mood, no voice words. Owner-approved recipe: seed 777777 + "warm smoky female alto vocal, clear diction, gentle vibrato" (yue2-samples same-singer test). UI: Music Formula Singer rows (Add Singer, default seed 777777). Test: `lyrics-flow.test.ts` (singer).

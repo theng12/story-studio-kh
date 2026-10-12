@@ -47,6 +47,7 @@ export const SETTINGS_ZONES: SettingsZoneDef[] = [
       { id: 'writing', label: 'Writing & style', description: 'Art style and writing instructions' },
       { id: 'publishing', label: 'Publishing', description: 'Upload schedule, YouTube channel, category' },
       { id: 'files', label: 'Project files & behavior', description: 'Numbering, storage, confirmations' },
+      { id: 'safety', label: 'Safety checks', description: 'Off, Warn or Block for every check that can stop an episode' },
     ],
   },
 ]
@@ -105,6 +106,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { section: 'publishing', anchor: 'category', label: 'YouTube category', keywords: 'youtube category entertainment' },
   { section: 'publishing', anchor: 'ai-disclosure', label: 'AI content disclosure', keywords: 'ai synthetic altered content disclosure label' },
 
+  { section: 'safety', anchor: 'safety-checks', label: 'Safety checks (Off / Warn / Block)', keywords: 'safety checks guard guards block warn off stop stopped loudness lufs allowance silent audio upload private overlap stale caption gap preflight strict lenient' },
   { section: 'files', anchor: 'self-contained', label: 'Make this channel self-contained', keywords: 'self-contained move channel another mac copy assets logo intro music overlays exports portable' },
   { section: 'files', anchor: 'numbering', label: 'Episode prefix and groups', keywords: 'episode prefix code season group batch numbering' },
   { section: 'files', anchor: 'project-location', label: 'Project folder', keywords: 'project folder location finder open' },

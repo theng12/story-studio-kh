@@ -2597,6 +2597,8 @@
             music underneath. YouTube plays everything at -14 LUFS and never turns a quieter video up, so a quieter
             setting means a quieter video for viewers. The level is checked again after the render: a video that lands
             within the allowed difference still passes (20% of -14 LUFS is 2.8 LU; the peak may go 1.6 dB over).
+            Whether a video outside it stops is the channel's "Loudness within your allowance" switch in
+            <NuxtLink :to="`/projects/${slug}/settings#safety`">Settings → Safety checks</NuxtLink> (Off by default: the closest level is kept and nothing stops).
           </p>
         </div>
 

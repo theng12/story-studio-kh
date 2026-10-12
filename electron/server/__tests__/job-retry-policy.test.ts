@@ -38,6 +38,8 @@ describe('local auto-retry policy', () => {
     assert.equal(fleet.eligible, true)
     assert.equal(fleet.max_attempts, 3)
     assert.match(fleet.reason, /only the missing parts/)
+    assert.deepEqual(fleet.delays_ms, [60_000, 300_000], 'a fleet Mac restarting is still down after 2 s and 8 s')
+    assert.deepEqual(policy('audio', { model: 'voicestudio-kokoro' }).delays_ms, [2_000, 8_000], 'on-this-Mac TTS keeps the quick retry')
     assert.equal(policy('audio', { model: 'studio-hub-9701220bf30f::breeze' }).eligible, true)
     assert.equal(policy('audio', { model: 'genstudio::paid-voice' }).eligible, false)
     assert.equal(policy('audio', { model: 'elevenlabs::eleven_v3' }).eligible, false)

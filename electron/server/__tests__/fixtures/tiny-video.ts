@@ -1,3 +1,7 @@
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 /**
  * The smallest real video the upload path will accept: 128x96, one second,
  * H.264, no audio. 1,561 bytes.
@@ -29,4 +33,17 @@ const FIVE_SECOND_VIDEO_BASE64 = 'AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAA
 
 export function fiveSecondVideoBytes(): Buffer {
   return Buffer.from(FIVE_SECOND_VIDEO_BASE64, 'base64')
+}
+
+let withSound: Buffer | null = null
+/** 1.4.300 — a one-second video WITH a 440 Hz tone: uploads now stop a video with no sound. */
+export function tinyVideoWithSoundBytes(): Buffer {
+  if (withSound) return withSound
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tiny-video-sound-'))
+  const out = path.join(dir, 'v.mp4')
+  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=black:s=128x96:d=1', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1',
+    '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', out])
+  withSound = readFileSync(out)
+  rmSync(dir, { recursive: true, force: true })
+  return withSound
 }

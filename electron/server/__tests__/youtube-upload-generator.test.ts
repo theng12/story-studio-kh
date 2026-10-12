@@ -6,14 +6,14 @@ import { afterEach, describe, test } from 'node:test'
 import { useTempDataDir } from './_helpers.js'
 import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 import { FakeYouTube } from './fixtures/fake-youtube.js'
-import { tinyVideoBytes } from './fixtures/tiny-video.js'
+import { tinyVideoWithSoundBytes as tinyVideoBytes } from './fixtures/tiny-video.js'
 import sharp from 'sharp'
 import {
   __resetYouTubeTransportForTests,
   __setYouTubeTransportForTests,
 } from '../lib/youtube-client.js'
 import { generateYoutubeUpload } from '../generators/youtube-upload.js'
-import { createProject } from '../services/project-manager.js'
+import { createProject, updateConfig } from '../services/project-manager.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import * as store from '../services/upload-store.js'
 import {
@@ -95,6 +95,10 @@ async function setUp(assign: boolean): Promise<{ slug: string; accountId: string
   }
   return { slug, accountId: `registry:${CHANNEL}` }
 }
+
+/** Sets one safety check's mode on this channel (1.4.300). */
+const setSafety = (slug: string, id: string, mode: 'off' | 'warn' | 'block') =>
+  updateConfig(slug, { safety_checks: { [id]: mode } } as any)
 
 function fakeAcceptingUpload(videoId: string): FakeYouTube {
   const fake = new FakeYouTube()
@@ -197,6 +201,7 @@ describe('youtube upload generator', () => {
 
   test('the thumbnail is required: an explicit no-thumbnail upload is refused before any quota is spent', async () => {
     const { slug, accountId } = await setUp(true)
+    await setSafety(slug, 'thumbnail_present', 'block')
     const fake = fakeAcceptingUpload('must-not-upload')
     __setYouTubeTransportForTests(fake.transport())
     const running = job(slug, accountId)
@@ -209,6 +214,7 @@ describe('youtube upload generator', () => {
 
   test('an episode with no thumbnail at all is refused before any quota is spent', async () => {
     const { slug, accountId } = await setUp(true)
+    await setSafety(slug, 'thumbnail_present', 'block')
     const paths = await resolveEpisodePaths(slug, CODE, TITLE)
     await fs.rename(paths.thumb_dir, `${paths.thumb_dir}-moved`)
     const fake = fakeAcceptingUpload('must-not-upload')
@@ -220,6 +226,7 @@ describe('youtube upload generator', () => {
 
   test('a thumbnail that fails twice fails the job with the video kept, and Retry sets only the thumbnail', async () => {
     const { slug, accountId } = await setUp(true)
+    await setSafety(slug, 'thumbnail_present', 'block')
     const fake = new FakeYouTube()
     fake.respond({
       method: 'POST',
@@ -265,6 +272,7 @@ describe('youtube upload generator', () => {
 
   test('provider acceptance is checkpointed to the pinned channel across an in-flight reassignment', async () => {
     const { slug, accountId } = await setUp(true)
+    await setSafety(slug, 'thumbnail_present', 'block')
     const secondChannel = 'UC-generator-2'
     await saveYouTubeChannelGrantForTest({
       channel: { channel_id: secondChannel, title: 'Second Channel', granted_scopes: ['youtube.upload'] },
@@ -664,5 +672,75 @@ describe('a fresh upload carries nothing forward from a previous video', () => {
       /was uploaded to channel UC-a-different-channel as on-old-channel/,
     )
     assert.equal(fake.calls.length, 0, 'YouTube was never contacted')
+  })
+
+  // 1.4.300 safety checks: each one stops on Block (above) and carries on when its channel says Off/Warn.
+  test('thumbnail present Off/Warn: an episode with no thumbnail uploads without one and says so', async () => {
+    const { slug, accountId } = await setUp(true)
+    await setSafety(slug, 'thumbnail_present', 'warn')
+    const fake = fakeAcceptingUpload('video-no-thumb')
+    __setYouTubeTransportForTests(fake.transport())
+    const running = job(slug, accountId)
+    running.params.thumbnail_filename = null
+
+    await generateYoutubeUpload(running)
+    assert.equal((await listYouTubeOperations(slug))[0]?.video_id, 'video-no-thumb')
+    assert.ok(!fake.calls.some(call => /thumbnails\/set/.test(call.path)), 'no thumbnail request')
+    assert.equal(running.result?.safety_warnings?.[0]?.check, 'thumbnail_present')
+    assert.match(running.output_lines.join('\n'), /Uploading without a thumbnail/)
+  })
+
+  test('thumbnail present Off: a thumbnail YouTube refuses leaves the upload done with its frame grab', async () => {
+    const { slug, accountId } = await setUp(true)
+    await setSafety(slug, 'thumbnail_present', 'off')
+    const fake = new FakeYouTube()
+    fake.respond({ method: 'POST', path: '/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status', body: {}, headers: { Location: SESSION } })
+    fake.respond({ method: 'PUT', path: '/resumable/session-abc', body: { id: 'video-thumb-refused' } })
+    fake.respondMatching({ method: 'POST', match: /\/thumbnails\/set/, status: 403, body: { error: { message: 'forbidden' } } })
+    fake.respondMatching({ method: 'POST', match: /\/thumbnails\/set/, status: 403, body: { error: { message: 'forbidden' } } })
+    __setYouTubeTransportForTests(fake.transport())
+    const running = job(slug, accountId)
+
+    await generateYoutubeUpload(running)
+    assert.match(running.output_lines.join('\n'), /keeps YouTube's frame grab.*set to Off/)
+    assert.equal(running.result?.safety_warnings, undefined, 'Off writes the log only')
+  })
+
+  test('right channel Off: a channel changed after confirmation uploads to the channel assigned now', async () => {
+    const { slug, accountId } = await setUp(true)
+    await setSafety(slug, 'right_channel', 'off')
+    __setYouTubeTransportForTests(fakeAcceptingUpload('video-current-channel').transport())
+    const running = job(slug, accountId)
+    running.params.expected_channel_id = 'UC-confirmed-before'
+
+    await generateYoutubeUpload(running)
+    const [record] = await listYouTubeOperations(slug)
+    assert.equal(record?.video_id, 'video-current-channel')
+    assert.equal(record?.channel_id, CHANNEL)
+    assert.match(running.output_lines.join('\n'), /channel changed after confirmation; uploading to the channel assigned now/)
+  })
+
+  test('reviewed and unchanged Warn: a render changed after confirmation uploads as it is now, with a warning', async () => {
+    const { slug, accountId } = await setUp(true)
+    await setSafety(slug, 'reviewed_unchanged', 'warn')
+    const paths = await resolveEpisodePaths(slug, CODE, TITLE)
+    await fs.appendFile(path.join(paths.video_dir, `${CODE}_final_video.mp4`), Buffer.from('changed-after-admission'))
+    __setYouTubeTransportForTests(fakeAcceptingUpload('video-changed-render').transport())
+    const running = job(slug, accountId)
+
+    await generateYoutubeUpload(running)
+    assert.equal((await listYouTubeOperations(slug))[0]?.video_id, 'video-changed-render')
+    assert.equal(running.result?.safety_warnings?.[0]?.check, 'reviewed_unchanged')
+  })
+
+  test('checks the Upload Center let through are logged on the job', async () => {
+    const { slug, accountId } = await setUp(true)
+    __setYouTubeTransportForTests(fakeAcceptingUpload('video-passed-checks').transport())
+    await setSafety(slug, 'episode_number_claim', 'warn')
+    const running = job(slug, accountId)
+    running.params.safety_warnings = [{ check: 'episode_number_claim', message: 'EP0001 is on this channel from another project.' }]
+
+    await generateYoutubeUpload(running)
+    assert.equal(running.result?.safety_warnings?.[0]?.check, 'episode_number_claim')
   })
 })

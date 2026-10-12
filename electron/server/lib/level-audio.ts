@@ -57,16 +57,26 @@ export async function levelAndCheck(opts: {
   const { attempts, best, issue } = await levelToTarget(plan, loudness, async (p, n) => {
     await write(`${levelFilter(p)},`)
     await runFfmpeg(['-y', '-i', output, '-vn', ...codec, check])
-    const got = await measureLoudness(check)
+    let got = await measureLoudness(check)
+    // 1.4.300 — one unreadable measurement is measured once more before it counts (Night Atlas Nature
+    // EP0007: the narration read -14.4 LUFS and the encoded check came back "?").
+    if (got.lufs === null || got.true_peak_db === null) got = await measureLoudness(check)
     lines.push(`Loudness: attempt ${n}${n === 1 ? '' : ` (corrected to ${how(p)})`} came out at ${said(got)} once encoded.`)
     return got
   }, () => fs.rename(output, kept))
   await fs.rename(kept, output)
   await fs.rm(check, { force: true })
   const n = attempts.indexOf(best) + 1
+  const summary = `(closest of ${attempts.length} attempts, attempt ${n}; all: ${attempts.map(a => said(a.got)).join(' / ')})`
+  // 1.4.300 — a level that cannot be read at all still stops; a miss stops only when the channel's
+  // loudness check is Block. Off (the default) and Warn keep the closest attempt and carry on.
+  if (issue && (best.got.lufs === null || best.got.lufs <= -69 || (loudness.check ?? 'block') === 'block')) {
+    throw nonRetryable(new Error(`The ${opts.what} could not be brought to its target level: ${issue} ${summary}. Send the job log to support.`))
+  }
   if (issue) {
-    throw nonRetryable(new Error(`The ${opts.what} could not be brought to its target level: ${issue} (closest of ${attempts.length} attempts, `
-      + `attempt ${n}; all: ${attempts.map(a => said(a.got)).join(' / ')}). Send the job log to support.`))
+    lines.push(`${loudness.check === 'warn' ? '⚠ ' : ''}Loudness: kept the closest attempt, ${said(best.got)}; ${issue} ${summary}. `
+      + `The loudness check is ${loudness.check === 'warn' ? 'set to Warn' : 'Off'} for this channel, so this carries on.`)
+    return best.plan
   }
   if (n < attempts.length) lines.push(`Loudness: kept attempt ${n} (${said(best.got)}), the closest to the target.`)
   return best.plan
@@ -99,6 +109,7 @@ export async function channelLoudnessTarget(slug: string): Promise<LoudnessTarge
     const pm = await import('../services/project-manager.js')
     type Bundle = { fallback?: { export?: Record<string, unknown> } }
     const preset = findActivePreset(await pm.getConfig(slug), 'video_assembly').preset as (Bundle & { data?: Bundle }) | null
-    return loudnessTarget((preset?.data?.fallback ?? preset?.fallback)?.export ?? {})
+    const { safetyMode } = await import('../services/safety-checks.js')
+    return { ...loudnessTarget((preset?.data?.fallback ?? preset?.fallback)?.export ?? {}), check: await safetyMode(slug, 'loudness') }
   } catch { return loudnessTarget({}) }
 }

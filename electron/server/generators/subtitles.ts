@@ -24,7 +24,8 @@ import {
 import { describeSubtitleGaps, subtitleChapterLabel } from '../contracts/subtitle-gaps.js'
 import { inspectMissingSentences } from '../lib/script-transcript-check.js'
 import { readSubtitleSourceAudioHashes, recordSubtitleSourceEvidence } from '../services/subtitle-recovery.js'
-import { readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
+import { readSubtitleTimelineIntegrity, safetyCarriesOn } from '../services/scene-timeline-integrity.js'
+import { safetyGate } from '../services/safety-checks.js'
 import { scanEpisodeAssets } from './video.js'
 import {
   GenStudioArtifactUnavailableError,
@@ -859,12 +860,13 @@ async function transcribePerChapter(
   )
 
   // Script-timed: the chapter's script on the narration's own timeline.
-  const scriptTiming = genstudio ? null : await (async () => {
+  const loadScriptTiming = async () => {
     const { loadPartTexts } = await import('../services/chapter-parts.js')
     const { normalizeForTts } = await import('../lib/tts-text.js')
     const planned = await loadPartTexts(projectSlug, code, episodePaths.episode_dir).catch(() => new Map())
     return { planned, normalizeForTts }
-  })()
+  }
+  let scriptTiming = genstudio ? null : await loadScriptTiming()
   let proportionalChapters = 0
   async function scriptTimeSection(sec: ChapterAudioSource, outPath: string): Promise<void> {
     const { scriptTimedChapter, SCRIPT_TIMED } = await import('../services/script-subtitles.js')
@@ -1030,6 +1032,25 @@ async function transcribePerChapter(
     clearInterval(cancelWatcher)
   }
 
+  // 1.4.300 "Every chapter transcribed" (Off/Warn): after the last automatic try, a chapter that could
+  // not be transcribed is timed from the script instead (local, free). One with no script still stops.
+  const lastTry = !job.auto_retry?.eligible || job.auto_retry.attempt >= job.auto_retry.max_attempts
+  if (genstudio && failures.length && narration.length && lastTry && await safetyCarriesOn(job, 'chapters_transcribed',
+    `${failures.map(failure => failure.slug).join(', ')} could not be transcribed. Story times ${failures.length === 1 ? 'it' : 'them'} from the script instead (local, free).`)) {
+    scriptTiming ||= await loadScriptTiming()
+    for (const failure of [...failures]) {
+      const sec = sections.find(section => section.slug === failure.slug)
+      if (!sec) continue
+      const before = generatedSections
+      try {
+        await scriptTimeSection(sec, path.join(outDir, `${code}_${sec.slug}.srt`))
+      } catch (error) {
+        job.output_lines.push(`  ✗ ${sec.slug}: could not be timed from the script either (${(error as Error)?.message || error}).`)
+      }
+      if (generatedSections > before) failures.splice(failures.indexOf(failure), 1)
+    }
+  }
+
   job.output_dir = outDir
   job.progress = 100
 
@@ -1043,6 +1064,19 @@ async function transcribePerChapter(
     code,
     { require_per_section: true },
   ) : await inspectChapterSubtitleCompletion(outDir, code, allSections.map(section => section.slug))
+  // 1.4.300 "No caption gap over 30 seconds" (Off/Warn): a chapter whose only problem is a long gap is
+  // used as it is; Scene Plan's scenes either side cover the gap.
+  const failedNowKeys = new Set(failures.map(failure => failure.slug.toLowerCase()))
+  const gapOnly = (coverage.coverage_gaps || []).filter(entry => !failedNowKeys.has(entry.slug.toLowerCase()))
+  if (gapOnly.length && await safetyCarriesOn(job, 'caption_gap', `${gapOnly.map(entry => subtitleChapterLabel(entry.slug)).join(', ')} `
+    + `${gapOnly.length === 1 ? 'has a gap' : 'have gaps'} over 30 seconds with no captions `
+    + `(${describeSubtitleGaps(gapOnly.flatMap(entry => entry.gaps.map(gap => ({ slug: entry.slug, ...gap }))))}). The scenes either side will cover it.`)) {
+    const gapKeys = new Set(gapOnly.map(entry => entry.slug.toLowerCase()))
+    coverage.missing_sections = coverage.missing_sections.filter(slug => !gapKeys.has(slug.toLowerCase()))
+    coverage.completed_sections = [...coverage.completed_sections, ...gapOnly.map(entry => entry.slug)]
+    coverage.coverage_gaps = coverage.coverage_gaps!.filter(entry => !gapKeys.has(entry.slug.toLowerCase()))
+    coverage.complete = coverage.expected_sections.length > 0 && !coverage.missing_sections.length
+  }
   const failedSlugs = Array.from(new Set([
     ...coverage.missing_sections,
     ...failures.map(failure => failure.slug),
@@ -1076,6 +1110,8 @@ async function transcribePerChapter(
     && !unselectedStaleLabelKeys.has(section.toLowerCase()))
   const episodeMissingSlugs = Array.from(new Set([...failedSlugs, ...unselectedStaleSections]))
   job.result = {
+    // Keep the safety-check warnings logged above.
+    ...(job.result?.safety_warnings ? { safety_warnings: job.result.safety_warnings } : {}),
     subtitles_dir: outDir,
     complete: explicitlyScoped ? scopeComplete : episodeComplete,
     scope_complete: scopeComplete,
@@ -1108,6 +1144,9 @@ async function transcribePerChapter(
     const { queueAutoRenarrate } = await import('./audio.js')
     await queueAutoRenarrate(job, skippedSentences)
       .catch((error: any) => job.output_lines.push(`Automatic re-narration was not started (${error?.message || error}).`))
+    // 1.4.300 "Narration says every script sentence": Warn (default) as before plus a job warning; Block stops here.
+    await safetyGate(projectSlug, 'narration_says_script', job,
+      `The narration seems to skip ${total} script sentence${total === 1 ? '' : 's'}.`)
   }
 
   if (!scopeComplete || (!explicitlyScoped && !episodeComplete)) {

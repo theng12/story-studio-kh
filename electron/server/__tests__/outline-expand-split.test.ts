@@ -207,12 +207,24 @@ describe('expandChapters — approval gate + selective expansion', () => {
     // Build outline as draft (no auto_approve).
     await buildOutlineOnly(job, makeParams(scriptDir, { totalChapters: 5 }), 'listicle')
 
-    // Try to expand without approving → must throw with a clear message.
-    await assert.rejects(
-      expandChapters(job, makeParams(scriptDir, { totalChapters: 5 }), {}),
-      /not approved/i,
-      'expansion must refuse to run on an unapproved outline',
-    )
+    // 1.4.300 — the refusal is the channel's "Outline approved before chapters" safety check on Block.
+    const { useTempDataDir } = await import('./_helpers.js')
+    const temp = await useTempDataDir()
+    try {
+      const pm = await import('../services/project-manager.js')
+      const project = await pm.createProject({ name: 'Outline Gate Block' })
+      await pm.updateConfig(project.slug, { safety_checks: { outline_approved: 'block' } } as any)
+      job.project_slug = project.slug
+
+      // Try to expand without approving → must throw with a clear message.
+      await assert.rejects(
+        expandChapters(job, makeParams(scriptDir, { totalChapters: 5 }), {}),
+        /not approved/i,
+        'expansion must refuse to run on an unapproved outline',
+      )
+    } finally {
+      await temp.cleanup()
+    }
   })
 
   test('expands only the chapters listed in chaptersToExpand', async () => {

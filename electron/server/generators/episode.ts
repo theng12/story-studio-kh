@@ -24,6 +24,7 @@ import * as jq from '../services/job-queue.js'
 import {
   getOutlineEntryForChapter,
   buildOutlineOnly,
+  carryOnWithoutChapters,
   expandChapters,
   inspectChunkedScriptCompletion,
   readSidecar,
@@ -34,6 +35,7 @@ import {
 } from '../lib/chunked-narration.js'
 import type { GenerateScriptRequest, Job, Format, NarratorStyle } from '../models/types.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import { safetyGate } from '../services/safety-checks.js'
 import { isLocalTextModel } from '../services/job-retry-policy.js'
 import { freshGenerationRequestIdentity } from '../lib/fresh-generation-action.js'
 import { pipelinePolicyForJob, pipelinePolicyCheckpointStore } from '../lib/pipeline-model-policy.js'
@@ -473,7 +475,7 @@ Output ONLY the ${sectionLowerRegen} heading + body. No commentary, no other ${s
     }, { log: line => job.output_lines.push(line) })
     job.output_lines.push(`Wrote: ${episode_id}_Chapter_${String(chapterNumber).padStart(2, '0')}.md`)
 
-    await assembleUnifiedNarration(paths.script_dir, episode_id, title)
+    await chapterOnce(job, await assembleUnifiedNarration(paths.script_dir, episode_id, title))
     job.output_lines.push(`Re-assembled: ${path.basename(paths.narration_docx)}`)
     const saved = await fs.stat(chapterFilePath(paths.script_dir, episode_id, chapterNumber)).catch(() => null)
     requireJobCompletion(job, {
@@ -689,7 +691,7 @@ Do not add a heading, preface, explanation, divider, or separator.`
     job.output_lines.push(`Wrote: ${episode_id}_Introduction.md`)
 
     // Re-assemble unified narration so downstream sees the intro section.
-    await assembleUnifiedNarration(paths.script_dir, episode_id, title)
+    await chapterOnce(job, await assembleUnifiedNarration(paths.script_dir, episode_id, title))
     job.output_lines.push(`Re-assembled: ${path.basename(paths.narration_docx)}`)
 
     // Sidecar marker so /projects/:slug/episodes can flip
@@ -946,6 +948,13 @@ ${narratorStyle}`
   }
 }
 
+/** 1.4.300 — "Each chapter used only once": a chapter saved twice (.md and an older .docx) is read once; Block stops instead. */
+export async function chapterOnce(job: Job, assembled: { repeated_chapters: number[] }): Promise<void> {
+  if (!assembled.repeated_chapters.length) return
+  await safetyGate(job.project_slug, 'chapter_once', job,
+    `Chapter ${assembled.repeated_chapters.join(', ')} is saved more than once (a .md and an older .docx); Story uses it once in the narration.`)
+}
+
 /**
  * Build outline only — the first half of the chunked flow. Persists a
  * sidecar with `outline_approved_at: null` (unless the request body has
@@ -1034,7 +1043,7 @@ export async function generateExpandChapters(job: Job): Promise<void> {
     // generateChapterOnly's post-write step.
     const { assembleUnifiedNarration } = await import('../lib/narration-assembly.js')
     const paths = await resolveEpisodePaths(job.project_slug, job.episode_id, params.title)
-    await assembleUnifiedNarration(paths.script_dir, job.episode_id, params.title)
+    await chapterOnce(job, await assembleUnifiedNarration(paths.script_dir, job.episode_id, params.title))
     job.output_lines.push(`Re-assembled: ${path.basename(paths.narration_docx)}`)
 
     completion = await inspectChunkedScriptCompletion(paths.script_dir, job.episode_id)
@@ -1047,7 +1056,7 @@ export async function generateExpandChapters(job: Job): Promise<void> {
         : completion.outline_valid
         ? `${completion.present}/${completion.expected} chapters are present; missing ${completion.missing.join(', ') || 'unknown'}`
         : `the outline contains an invalid chapter count (${completion.present}/${completion.expected} present)`
-      throw new Error(`Chapter expansion did not pass its completion check: ${detail}. Resume expansion to repair it.`)
+      await carryOnWithoutChapters(job, `Chapter expansion did not pass its completion check: ${detail}. Resume expansion to repair it.`)
     }
 
     // v1.0.106+ — recency record (same as in the legacy generate path

@@ -262,6 +262,7 @@ test('ordinary continuation still asks for a rebuild when the timeline moved mor
   service.reset()
   genstudio.clearGenStudioCatalogCache()
   const fixture = await seedFixture()
+  await pm.updateConfig(fixture.project.slug, { safety_checks: { plan_in_step: 'block' } } as any)
   await writeVerifiedTimeline(fixture, 0.5) // 4.5 s of captions under a 4 s plan: 89 % < 90 %
   queuePromptResult([fixture.preservedId, fixture.missingId])
   const before = await fs.readFile(fixture.planPath, 'utf8')
@@ -329,6 +330,7 @@ for (const entry of [{
     service.reset()
     genstudio.clearGenStudioCatalogCache()
     const fixture = await seedFixture(entry.overrides)
+    await pm.updateConfig(fixture.project.slug, { safety_checks: { plan_can_continue: 'block' } } as any)
     queuePromptResult([fixture.preservedId, fixture.missingId])
     const before = await fs.readFile(fixture.planPath, 'utf8')
 
@@ -518,4 +520,91 @@ test('a subtitle coverage gap says which button to press and skips the retry wai
   assert.match(error.message, /press “Re-transcribe Chapter 03” \(or “Re-narrate Chapter 3” if the narration is silent there\), then press Retry/)
   assert.match(subtitleCoverageGapError({ gap_sec: 40, previous_end_sec: 0, next_start_sec: 40, section_slugs: [] }).message,
     /press “Re-transcribe” on the chapter it lists/)
+})
+
+// ── 1.4.300 safety checks: Off / Warn carry on, Block keeps the stops above ──
+
+const warnings = (job: any): string[] => ((job.result as any)?.safety_warnings || []).map((w: any) => w.check)
+
+test('plan_in_step Off (default) re-aligns past the 10% limit and carries on', async () => {
+  service.reset()
+  genstudio.clearGenStudioCatalogCache()
+  const fixture = await seedFixture()
+  await writeVerifiedTimeline(fixture, 0.5) // 89 %: an automatic re-align used to refuse this
+  queuePromptResult([fixture.missingId])
+  const job = pipelineJob(fixture)
+
+  await runScenePlanJob(job)
+
+  assert.ok(job.output_lines.some((line: string) => /Re-aligned \d\/2 scene\(s\)/.test(line)), job.output_lines.join('\n'))
+  const saved = JSON.parse(await fs.readFile(fixture.planPath, 'utf8'))
+  assert.equal(saved.scenes[0].visual_prompt, fixture.preservedPrompt)
+})
+
+for (const entry of [
+  { label: 'pacing', overrides: { pacing: { min_sec: 8, max_sec: 12 } } },
+  { label: 'opening', overrides: { opening_mode: 'branded-opening', opening_reserved_sec: 5, opening_source: 'measured' } },
+  { label: 'missing pacing snapshot', overrides: { pacing: undefined } },
+]) {
+  test(`plan_can_continue Warn (default) keeps the plan's own ${entry.label} and carries on`, async () => {
+    service.reset()
+    genstudio.clearGenStudioCatalogCache()
+    const fixture = await seedFixture(entry.overrides)
+    queuePromptResult([fixture.missingId])
+    const job = pipelineJob(fixture)
+
+    await runScenePlanJob(job)
+
+    assert.deepEqual(warnings(job), ['plan_can_continue'])
+    const saved = JSON.parse(await fs.readFile(fixture.planPath, 'utf8'))
+    assert.equal(saved.scenes[0].visual_prompt, fixture.preservedPrompt)
+    assert.equal(saved.scenes[1].visual_prompt, `A new cinematic prompt written only for ${fixture.missingId}.`)
+    if (entry.label === 'missing pacing snapshot') assert.deepEqual(saved.pacing, { min_sec: 1, max_sec: 3 }, 'adopts the current pacing')
+    if (entry.label === 'pacing') assert.deepEqual(saved.pacing, { min_sec: 8, max_sec: 12 }, 'keeps its own rhythm')
+  })
+}
+
+test('plan_reaches_end Warn (default) stretches the last scene to the narration end; Block stops', async () => {
+  service.reset()
+  genstudio.clearGenStudioCatalogCache()
+  const fixture = await seedFixture()
+  const meta = path.join(fixture.paths.subtitles_dir, `${fixture.episodeId}_stitched.srt.json`)
+  await fs.writeFile(meta, JSON.stringify({ ...JSON.parse(await fs.readFile(meta, 'utf8')), total_duration_sec: 10 }))
+
+  await pm.updateConfig(fixture.project.slug, { safety_checks: { plan_reaches_end: 'block' } } as any)
+  await assert.rejects(runScenePlanJob(pipelineJob(fixture)), /stops 6\.0s before the narration ends/)
+
+  await pm.updateConfig(fixture.project.slug, { safety_checks: { plan_reaches_end: 'warn' } } as any)
+  queuePromptResult([fixture.missingId])
+  const job = pipelineJob(fixture)
+  await runScenePlanJob(job)
+  assert.deepEqual(warnings(job), ['plan_reaches_end'])
+  const saved = JSON.parse(await fs.readFile(fixture.planPath, 'utf8'))
+  assert.equal(saved.scenes[1].end_sec, 10)
+})
+
+test('caption_gap Warn (default) builds the timeline across a 40 s caption gap; Block stops', async () => {
+  service.reset()
+  genstudio.clearGenStudioCatalogCache()
+  const fixture = await seedFixture()
+  await fs.unlink(fixture.planPath)
+  const srt = cueRows().replace('00:00:03,000 --> 00:00:04,000', '00:00:44,000 --> 00:00:45,000')
+  const stitched = path.join(fixture.paths.subtitles_dir, `${fixture.episodeId}_stitched.srt`)
+  const stamp = stampFromCues(parseSrt(srt))
+  await fs.writeFile(stitched, srt)
+  await fs.writeFile(`${stitched}.json`, JSON.stringify({
+    complete: true, missing_sections: [], total_cues: stamp.total_cues, timeline: stamp,
+    sections: [{ slug: 'full-track', source_srt: `${fixture.episodeId}.srt`, cues_added: stamp.total_cues, offset_sec: 0, duration_sec: 45 }],
+  }))
+
+  await pm.updateConfig(fixture.project.slug, { safety_checks: { caption_gap: 'block' } } as any)
+  await assert.rejects(runScenePlanJob(pipelineJob(fixture, { stage: 'timeline' })), /Subtitle coverage gap: 41\.0s/)
+
+  await pm.updateConfig(fixture.project.slug, { safety_checks: { caption_gap: 'warn' } } as any)
+  const job = pipelineJob(fixture, { stage: 'timeline' })
+  await runScenePlanJob(job)
+  assert.deepEqual(warnings(job), ['caption_gap'])
+  const saved = JSON.parse(await fs.readFile(fixture.planPath, 'utf8'))
+  for (let i = 1; i < saved.scenes.length; i++) assert.equal(saved.scenes[i].start_sec, saved.scenes[i - 1].end_sec, 'scenes either side cover the gap')
+  assert.equal(saved.scenes.at(-1).end_sec, 45)
 })

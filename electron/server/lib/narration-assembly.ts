@@ -250,7 +250,7 @@ export async function assembleUnifiedNarration(
   scriptDir: string,
   code: string,
   episodeTitle: string,
-): Promise<{ chapter_numbers: number[]; introduction_present: boolean }> {
+): Promise<{ chapter_numbers: number[]; introduction_present: boolean; repeated_chapters: number[] }> {
   // resolveReadPath so a legacy `_Introduction.docx` is still found.
   const introPath = resolveReadPath(introductionFilePath(scriptDir, code))
   const introductionPresent = existsSync(introPath)
@@ -262,16 +262,19 @@ export async function assembleUnifiedNarration(
   // Match .md (new) AND legacy .docx so a partially-regenerated legacy
   // episode (mixed extensions) still assembles every chapter.
   const chapterNumbers: number[] = []
+  const repeatedChapters: number[] = []
   for (const name of entries) {
     const n = matchChapterFile(name, code)
     // 1.4.296 — a chapter saved as both .md and legacy .docx is ONE chapter; listing it
     // twice made the voice read it twice (mineepod EP0003-EP0005).
-    if (n !== null && !chapterNumbers.includes(n)) chapterNumbers.push(n)
+    if (n === null) continue
+    if (!chapterNumbers.includes(n)) chapterNumbers.push(n)
+    else if (!repeatedChapters.includes(n)) repeatedChapters.push(n)
   }
   chapterNumbers.sort((a, b) => a - b)
 
   if (!introductionPresent && chapterNumbers.length === 0) {
-    return { chapter_numbers: [], introduction_present: false }
+    return { chapter_numbers: [], introduction_present: false, repeated_chapters: [] }
   }
 
   const sections: string[] = []
@@ -300,7 +303,7 @@ export async function assembleUnifiedNarration(
   const unifiedPath = path.join(scriptDir, `${code}_Script_Narration.md`)
   await buildNarrationDocx(unified, code, episodeTitle, unifiedPath)
 
-  return { chapter_numbers: chapterNumbers, introduction_present: introductionPresent }
+  return { chapter_numbers: chapterNumbers, introduction_present: introductionPresent, repeated_chapters: repeatedChapters.sort((a, b) => a - b) }
 }
 
 // ── Eager migration for legacy episodes ────────────────────────────────────

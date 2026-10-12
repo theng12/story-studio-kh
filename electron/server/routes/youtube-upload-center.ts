@@ -74,6 +74,7 @@ import { listUploadThumbnails, resolveUploadMetadata } from '../lib/upload-metad
 import { createProjectFactsCache, resolveEpisodePaths } from '../services/utils.js'
 import { findYouTubeSourceVideoPath, resolveYouTubeSourceRevisionCached } from '../services/youtube-source-video.js'
 import { getUploadMode } from '../services/upload-store.js'
+import { safetyMode } from '../services/safety-checks.js'
 import {
   applyScheduleAssignmentsWithRollback, computeSlots, episodeOrderShifts, getActivePlanId, getPlan,
   latestFutureProjectClaimMs, listPlans, localDayKeyInTz, orderEpisodeCodes,
@@ -2263,7 +2264,16 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
     }
     // The channel this will publish to, and the credential that signs in to it.
     const { accountId, channelId } = await accountForCurrentChannel(slug)
-    if (expectedChannelId !== channelId) {
+    // 1.4.300 safety checks: Block refuses as before; Off/Warn let the upload go and the job logs it
+    // (Warn also lists it on the job).
+    const passedChecks: Array<{ check: string; message: string }> = []
+    const letThrough = async (check: string, message: string): Promise<boolean> => {
+      if (await safetyMode(slug, check) === 'block') return false
+      passedChecks.push({ check, message })
+      return true
+    }
+    if (expectedChannelId !== channelId && !await letThrough('right_channel',
+      'The assigned YouTube channel changed after preview; uploading to the channel assigned now.')) {
       res.status(409).json({
         code: 'YOUTUBE_CHANNEL_CHANGED',
         detail: 'The assigned YouTube channel changed after preview. Preview and confirm the upload again.',
@@ -2310,12 +2320,25 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
     // The answer comes from `video-claims.json` — the one cross-project store —
     // which now carries the episode code that made each claim (schema v2; v1
     // claims read as "episode unknown" and can never match).
-    if (req.body?.acknowledge_foreign_episode !== true) {
+    // 1.4.300 "episode number used by another project" safety check: Warn (default) asks as
+    // above, Off does not ask, Block refuses even when confirmed.
+    const claimMode = await safetyMode(slug, 'episode_number_claim')
+    if (claimMode !== 'off' && (claimMode === 'block' || req.body?.acknowledge_foreign_episode !== true)) {
       const foreign = await findForeignEpisodeClaim({
         project_slug: slug,
         channel_id: channelId,
         episode_code: episodeCode,
       })
+      if (foreign && claimMode === 'block') {
+        res.status(409).json({
+          code: 'YOUTUBE_EPISODE_CODE_CLAIMED_ELSEWHERE_BLOCKED',
+          detail: `${episodeCode} has already been uploaded to this channel by the project "${foreign.project_slug}". `
+            + 'The safety check "Episode number used by another project" is set to Block for this channel, so nothing was uploaded.',
+          foreign_project_slug: foreign.project_slug,
+          confirmable: false,
+        })
+        return
+      }
       if (foreign) {
         res.status(409).json({
           code: 'YOUTUBE_EPISODE_CODE_CLAIMED_ELSEWHERE',
@@ -2361,7 +2384,8 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
       })
       return
     }
-    if (reviewedSourceRevision !== expectedSourceRevision) {
+    if (reviewedSourceRevision !== expectedSourceRevision && !await letThrough('reviewed_unchanged',
+      'The rendered video changed after review; uploading the video as it is now.')) {
       res.status(409).json({
         code: 'YOUTUBE_PREVIEW_STALE',
         detail: 'The rendered video changed after review. Review and confirm the upload again; nothing was uploaded.',
@@ -2400,7 +2424,8 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
       })
       return
     }
-    if (expectedPackageRevision !== built.package_revision) {
+    if (expectedPackageRevision !== built.package_revision && !await letThrough('reviewed_unchanged',
+      'The YouTube upload details changed after preview; uploading the details as they are now.')) {
       res.status(409).json({
         code: 'YOUTUBE_PREVIEW_STALE',
         detail: 'The YouTube upload details changed after preview. Preview and confirm the upload again.',
@@ -2433,6 +2458,7 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
         // reads. Emitting the wrong one uploaded a scheduled episode as private
         // with no transition date, so it would have stayed private forever.
         ...(built.status.publishAt ? { scheduled_for: built.status.publishAt } : {}),
+        ...(passedChecks.length ? { safety_warnings: passedChecks } : {}),
       },
     })
 

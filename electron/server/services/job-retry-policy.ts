@@ -155,7 +155,7 @@ export function resolveJobAutoRetryPolicy(
     // section, not the text (Breeze night-atlas, 2026-10-05: 6 episodes left with one failed part).
     // Each retry submits only the parts still missing on disk, under a fresh request identity.
     return isFreeFleetModelId(model)
-      ? localPolicy('Free narration on your own Macs costs nothing to repeat; a retry submits only the missing parts.')
+      ? localPolicy('Free narration on your own Macs costs nothing to repeat; a retry submits only the missing parts.', FREE_FLEET_RETRY_DELAYS_MS)
       : MANUAL_ONLY
   }
 

@@ -228,7 +228,7 @@ test('one shared planner decides the requests — the generator and the quote ro
   assert.match(generator, /resolveTtsRequestBudget\(ttsModel\)/)
   assert.match(route, /resolveTtsRequestBudget\(ttsModel\)/)
   assert.match(generator, /planGenStudioTtsRequests\(sections, requestBudget\.effective\)/)
-  assert.match(generator, /selectNarrationSections\(allSections, sectionsParam\)/)
+  assert.match(generator, /selectNarrationSections\(allSections, sectionsParam[,)]/)
   assert.match(generator, /normalizeSectionsForTts\(allSections\)/)
   assert.match(route, /planGenStudioTtsRequests\(sections, requestBudget\.effective\)/)
   assert.match(route, /selectNarrationSections\(allSections/)

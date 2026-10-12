@@ -7,6 +7,20 @@ import { parseSrt } from '../lib/subtitle-builder.js'
 import { stampFromCues } from '../lib/scene-plan-timeline.js'
 import { inspectSubtitleSourceFreshness } from './subtitle-completion.js'
 import { MUSIC_EPISODE_FILENAME } from './music-episode.js'
+import { safetyGate, safetyMode } from './safety-checks.js'
+import { isFreeFleetModelId } from '../contracts/provider-task-state.js'
+import type { Job } from '../models/types.js'
+
+/**
+ * 1.4.300 — a failed safety check: on Off / Warn it is logged (Warn also on the job) and this returns
+ * true so the caller carries on; on Block it returns false and the caller stops exactly as before.
+ * ponytail: belongs beside safetyGate in safety-checks.ts; kept here because that file is owned by core.
+ */
+export async function safetyCarriesOn(job: Job, id: string, message: string): Promise<boolean> {
+  if (await safetyMode(job.project_slug, id) === 'block') return false
+  await safetyGate(job.project_slug, id, job, message)
+  return true
+}
 
 export interface SubtitleTimelineIntegrity {
   complete: boolean
@@ -144,10 +158,51 @@ export async function verifyWrittenSubtitleTimeline(
   }
 }
 
+/**
+ * 1.4.300 "Joined subtitle file checks out" (Off/Warn): a stitched file that was cut short or edited
+ * no longer matches its verification record. Re-stitching it from the chapter subtitles is local and
+ * free, so it is done here instead of stopping. Block keeps the old stop (the later checks still fail).
+ */
+export async function restitchIfBroken(
+  job: Job,
+  dirs: { subtitlesDir: string; episodeDir: string; audioDir: string; mergedAudioDir: string },
+  episodeCode: string,
+): Promise<void> {
+  if (existsSync(path.join(dirs.episodeDir, MUSIC_EPISODE_FILENAME))) return
+  if (!existsSync(stitchedSrtPath(dirs.subtitlesDir, episodeCode))) return
+  if (await verifyWrittenSubtitleTimeline(dirs.subtitlesDir, episodeCode)) return
+  if (!await safetyCarriesOn(job, 'stitched_subtitles',
+    'The joined subtitle file does not match its verification record (cut short or edited). Story re-stitches it from the chapter subtitles (local, free).')) return
+  const { ensureStitchedSubtitle, describeAutoStitch } = await import('../lib/subtitle-autostitch.js')
+  try {
+    const outcome = await ensureStitchedSubtitle({ ...dirs, episodeCode })
+    job.output_lines.push(describeAutoStitch(outcome, episodeCode.toUpperCase()))
+  } catch (error) {
+    job.output_lines.push(`Re-stitch did not work: ${(error as Error)?.message || error}`)
+  }
+}
+
+/** Queue a re-transcribe of `slugs` with the model that made them, only when that is free (fleet or script-timed). */
+async function retranscribeOnFreeFleet(job: Job, subtitlesDir: string, episodeCode: string, slugs: string[]): Promise<void> {
+  const { readSubtitleSourceModels } = await import('./subtitle-recovery.js')
+  const { SCRIPT_TIMED } = await import('./script-subtitles.js')
+  const used = await readSubtitleSourceModels(subtitlesDir).catch(() => ({} as Record<string, string>))
+  const models = slugs.map(slug => used[`${episodeCode.toUpperCase()}_${slug}.srt`])
+  if (!models.every(model => isFreeFleetModelId(model) || model?.startsWith(SCRIPT_TIMED))) {
+    job.output_lines.push(`${slugs.join(', ')} not re-transcribed automatically: its transcription was not free (or is not on record). Scene Plan uses the older captions; re-transcribe on the Subtitles page.`)
+    return
+  }
+  const { queueSubtitlesAfterNarration } = await import('../generators/audio.js')
+  await queueSubtitlesAfterNarration(job, slugs)
+    .catch(error => job.output_lines.push(`Re-transcription was not started (${(error as Error)?.message || error}). Scene Plan uses the older captions.`))
+}
+
 export async function assertSubtitleTimelineComplete(
   subtitlesDir: string,
   episodeCode: string,
   source?: { episodeDir: string; audioDir: string },
+  /** 1.4.300 — with the job, "Subtitles match today's audio" Off/Warn carries on (Block = the old stop). */
+  job?: Job,
 ): Promise<void> {
   // An Episode Builder (music) episode has no narration, so there is no subtitle
   // timeline to wait for; its scene times come from the stitched songs.
@@ -167,6 +222,12 @@ export async function assertSubtitleTimelineComplete(
     episodeCode,
   )
   if (freshness.stale_sections.length) {
+    if (job && await safetyCarriesOn(job, 'subtitles_match_audio',
+      `The subtitles for ${freshness.stale_sections.join(', ')} were made from an older recording. `
+      + 'Story carries on with the older captions and re-transcribes that chapter on the free fleet when it can.')) {
+      await retranscribeOnFreeFleet(job, subtitlesDir, episodeCode, freshness.stale_sections)
+      return
+    }
     throw new Error(
       `Subtitle timeline needs updating for ${freshness.stale_sections.join(', ')} because the active audio changed. `
       + 'Re-transcribe and stitch the listed chapter before generating downstream assets.',

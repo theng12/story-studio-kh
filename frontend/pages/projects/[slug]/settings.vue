@@ -1182,6 +1182,10 @@
         </template>
 
         <!-- ═══ This Project → Publishing ═══ -->
+        <section v-if="activeTab === 'safety'" class="card settings-panel" data-setting="safety-checks">
+          <SafetyChecksSettings :slug="slug" />
+        </section>
+
         <template v-if="activeTab === 'publishing'">
           <PublishingScheduleCard :slug="slug" data-setting="upload-schedule" />
 
