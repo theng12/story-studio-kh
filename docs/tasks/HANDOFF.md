@@ -1,12 +1,14 @@
 # HANDOFF — Story Studio KH
 
-## Candidate work — 2026-10-13 (1.4.302 explicit retry scope; not released)
+## Released and installed — 2026-10-13 (1.4.302)
 
-Installed 1.4.301 was verified on the mini, with queue resumed normally. Full assembly preflight passes for SS0063 and DL0011 using their saved settings; final renders remain queued (`1810f225`, `84011dcd`). DL0011’s explicit failed Scene Plan Retry exposed a separate bug: an existing completed subtitle-only recovery plan ignored the requested later stage.
+Product source `f525c8bf1e5b3e5c184251589f591305154abe02` is on main and pushed. Primary `dist/Story Studio KH 1.4.302-arm64.dmg` is verified (242,952,992 bytes; SHA-256 `8f0e1ac19365a321c2267e1c809d4781ce5556f3b9a7da974c01cb34034dd07b`) and published through Gateway. The mini installed it normally; health reports 1.4.302, boot complete, queue unpaused and no pending install request. No owner pause was changed.
 
-The candidate extends only explicit saved-source retries, preserving the recovery identity and accepted work. It audits completed assets rather than regenerating them, matches saved settings before adopting other active work, and retains its own accepted job identity through bookkeeping updates. Original failed rows remain evidence. Independent review is resolved. Full source gate passed: backend6926 total/6922pass/4skip across684files; frontend2490pass; contentpacks368total/366pass/2skip; typecheck, lint and all five static checks exit0. Configured projects root remained byte-identical. Main integration and DMG publication are next; this behavior is not yet installed. Root owns release and artifact verification.
+The explicit retry fix widens an existing saved-source recovery plan to the requested later failed stage while preserving identity, settings and accepted work. Independent review is resolved. All ten source checks passed: backend 6,926 total / 6,922 passed / four skipped across 684 files; frontend 2,490 passed; content packs 368 total / 366 passed / two skipped; typecheck, lint and five static checks passed. The configured projects root remained byte-identical. The primary-main DMG build passed, followed by all 54 installer checks across six files.
 
-Evidence and shared production ownership: `~/Developer/_orchestra/codex-takeover-20261012/CONTINUATION.md` and the owner’s iCloud Story Studio Agent Automation/HANDOFF.md.
+Live proof on the installed app: DL0011 Scene Plan retry returned 202, widened the same recovery plan, verified all six prerequisites and adopted original render `84011dcd`; **zero new jobs** were created. SS0063 saved-parameter preflight also passes; its existing render `1810f225` and DL0011's render await the queue. Keep historical failed rows until replacements finish. No repair-coverage or paid regeneration.
+
+Receipts: `~/Developer/_orchestra/codex-takeover-20261012/story-302-gate/` and `dl0011-retry-installed-302.json`. The owner’s iCloud Story Studio Agent Automation/HANDOFF.md records live production ownership. This closing documentation commit does not change the product source or replace its installer.
 
 ## Current work — 2026-10-13 (1.4.301 safety policy and lyrics release)
 
