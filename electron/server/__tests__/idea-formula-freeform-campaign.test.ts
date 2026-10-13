@@ -8,6 +8,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
 
 const MODEL = 'mock-chat-v1'
@@ -225,6 +226,213 @@ test('campaign ignores caller-supplied internal action fields without an operati
       if (jobId && ['done', 'error', 'cancelled'].includes(jq.getJob(jobId)?.status || '')) {
         jq.removeTerminalJob(jq.getJob(jobId)?.project_slug || '', jobId)
       }
+    }
+    await jq.setQueuePaused(wasPaused)
+    await env.close()
+  }
+})
+
+test('manual Idea Campaign redo keeps saved ideas and replays one source-bound action', async () => {
+  const env = await setup()
+  const jq = await import('../services/job-queue.js')
+  const wasPaused = jq.isQueuePaused()
+  let sourceJobId = ''
+  let replacementJobId = ''
+  const operationId = '20000000-0000-4000-8000-000000000002'
+  try {
+    process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
+    const app = (await import('../app.js')).app
+    const created = await request(app).post('/api/projects').send({
+      name: 'Idea manual redo source',
+      episode_prefix: 'EP',
+      episode_digits: 3,
+    })
+    assert.equal(created.status, 201)
+    const slug = created.body.slug
+    await env.pm.updateProject(slug, {
+      niche_id: FORMULA,
+      topic_pack_ids: ['economics-ancient-civilizations'],
+    } as any)
+    await env.im.addIdeas(slug, [{
+      ...idea('Saved before the stopped campaign'),
+      campaign_id: 'stopped-campaign',
+    }], MODEL, 'stopped-campaign')
+
+    const restore = jq._setExecutorForTesting('idea_campaign', async source => {
+      await jq.recordGenStudioJob(source.job_id, {
+        id: `pending:${source.job_id}`,
+        operation: 'chat.response',
+        state: 'submitting',
+        dispatch_state: 'dispatched',
+        updated_at: new Date().toISOString(),
+      })
+      throw new Error('intentional stopped Idea Campaign')
+    })
+    try {
+      const source = jq.enqueuePreparedForTest({
+        project_slug: slug,
+        type: 'idea_campaign',
+        episode_id: 'ideas',
+        title: 'Stopped Idea Campaign',
+        params: { campaign_id: 'stopped-campaign', model: MODEL, auto_retry: false },
+      })
+      sourceJobId = source.job_id
+      await waitFor(() => jq.getJob(sourceJobId)?.status === 'error', { label: 'Idea Campaign source to stop' })
+      await waitFor(() => !jq._isJobWorkerActiveForTesting(sourceJobId), { label: 'Idea Campaign source to finish stopping' })
+      await waitFor(() => jq.getJob(sourceJobId)?.genstudio_jobs?.[0]?.state === 'not_created', {
+        label: 'Idea Campaign uncertain evidence to finish checkpointing',
+      })
+    } finally {
+      restore()
+    }
+
+    const sourceEvidence = structuredClone(jq.getJob(sourceJobId)?.genstudio_jobs)
+    await jq.setQueuePaused(true)
+    const body = {
+      count: 1,
+      model: MODEL,
+      creative_direction: 'Try a separate angle.',
+      operation_id: operationId,
+      manual_redo: { intent: 'replace_unresolved', source_job_id: sourceJobId },
+    }
+    const first = await request(app)
+      .post(`/api/projects/${slug}/generate/ideas/campaign`)
+      .send(body)
+    assert.equal(first.status, 201, JSON.stringify(first.body))
+    replacementJobId = first.body.job_id
+
+    const sourceAfter = jq.getJob(sourceJobId)
+    const replacement = jq.getJob(replacementJobId)
+    assert.ok(sourceAfter?.force_abandoned)
+    assert.deepEqual(sourceAfter?.genstudio_jobs, sourceEvidence)
+    assert.equal(replacement?.params.manual_redo?.source_job_id, sourceJobId)
+    assert.equal(replacement?.params.manual_redo?.selected_model_id, MODEL)
+    assert.notEqual(replacement?.params.campaign_id, 'stopped-campaign')
+    assert.equal((await env.im.getIdeas(slug)).some(row => row.title === 'Saved before the stopped campaign'), true)
+
+    const acceptedActionFingerprint = replacement?.params.generation_action_fingerprint
+    assert.match(String(acceptedActionFingerprint || ''), /^[0-9a-f]{64}$/)
+    await jq.mutateAuthoritativeJob(slug, replacementJobId, current => {
+      // Normal writing-job quota waits add this after admission (job-queue.ts:parkForQuota).
+      current.params.quota_retry_at = '2099-01-01T00:00:00.000Z'
+      return current
+    })
+    assert.equal(jq.getJob(replacementJobId)?.params.quota_retry_at, '2099-01-01T00:00:00.000Z')
+    assert.equal(jq.getJob(replacementJobId)?.params.generation_action_fingerprint, acceptedActionFingerprint)
+
+    const replay = await request(app)
+      .post(`/api/projects/${slug}/generate/ideas/campaign`)
+      .send(body)
+    assert.equal(replay.status, 200, JSON.stringify(replay.body))
+    assert.equal(replay.body.job_id, replacementJobId)
+
+    await env.pm.updateProject(slug, {
+      niche_id: FORMULA,
+      topic_pack_ids: ['ancient-humans-environments'],
+    } as any)
+    const replayAfterPackChange = await request(app)
+      .post(`/api/projects/${slug}/generate/ideas/campaign`)
+      .send(body)
+    assert.equal(replayAfterPackChange.status, 200, JSON.stringify(replayAfterPackChange.body))
+    assert.equal(replayAfterPackChange.body.job_id, replacementJobId)
+    const freshAgainstIncompatiblePack = await request(app)
+      .post(`/api/projects/${slug}/generate/ideas/campaign`)
+      .send({ ...body, operation_id: '21000000-0000-4000-8000-000000000012' })
+    assert.equal(freshAgainstIncompatiblePack.status, 400, JSON.stringify(freshAgainstIncompatiblePack.body))
+
+    await env.pm.updateProject(slug, { niche_id: 'missing-after-accept', topic_pack_ids: [] } as any)
+    const replayAfterDefaultChange = await request(app)
+      .post(`/api/projects/${slug}/generate/ideas/campaign`)
+      .send(body)
+    assert.equal(replayAfterDefaultChange.status, 200, JSON.stringify(replayAfterDefaultChange.body))
+    assert.equal(replayAfterDefaultChange.body.job_id, replacementJobId)
+    const freshAgainstMissingDefault = await request(app)
+      .post(`/api/projects/${slug}/generate/ideas/campaign`)
+      .send({ ...body, operation_id: '22000000-0000-4000-8000-000000000022' })
+    assert.equal(freshAgainstMissingDefault.status, 404, JSON.stringify(freshAgainstMissingDefault.body))
+
+    const changed = await request(app)
+      .post(`/api/projects/${slug}/generate/ideas/campaign`)
+      .send({ ...body, creative_direction: 'A changed request must not reuse the action.' })
+    assert.equal(changed.status, 409, JSON.stringify(changed.body))
+    assert.deepEqual(jq.getJob(sourceJobId)?.genstudio_jobs, sourceEvidence)
+    assert.equal(env.service.submissions.length, 0, 'route admission never calls the paid provider')
+  } finally {
+    for (const jobId of [replacementJobId, sourceJobId]) {
+      const queued = jobId ? jq.getJob(jobId) : null
+      if (queued?.status === 'queued' || queued?.status === 'paused') await jq.requestJobCancellation(queued.project_slug, jobId)
+      const terminal = jobId ? jq.getJob(jobId) : null
+      if (terminal && ['done', 'error', 'cancelled'].includes(terminal.status)) jq.removeTerminalJob(terminal.project_slug, jobId)
+    }
+    await jq.setQueuePaused(wasPaused)
+    await env.close()
+  }
+})
+
+test('manual Idea Campaign admission loss leaves its source and evidence unchanged', async () => {
+  const env = await setup()
+  const jq = await import('../services/job-queue.js')
+  const wasPaused = jq.isQueuePaused()
+  let sourceJobId = ''
+  let blockerJobId = ''
+  try {
+    process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
+    const app = (await import('../app.js')).app
+    const created = await request(app).post('/api/projects').send({ name: 'Idea manual redo collision' })
+    assert.equal(created.status, 201)
+    const slug = created.body.slug
+
+    const restore = jq._setExecutorForTesting('idea_campaign', async source => {
+      await jq.recordGenStudioJob(source.job_id, {
+        id: `pending:${source.job_id}`,
+        operation: 'chat.response',
+        state: 'running',
+        dispatch_state: 'dispatched',
+        updated_at: new Date().toISOString(),
+      })
+      throw new Error('intentional stopped Idea Campaign')
+    })
+    try {
+      const source = jq.enqueuePreparedForTest({
+        project_slug: slug,
+        type: 'idea_campaign',
+        episode_id: 'ideas',
+        params: { campaign_id: 'source', model: MODEL, auto_retry: false },
+      })
+      sourceJobId = source.job_id
+      await waitFor(() => jq.getJob(sourceJobId)?.status === 'error', { label: 'collision source to stop' })
+      await waitFor(() => !jq._isJobWorkerActiveForTesting(sourceJobId), { label: 'collision source to finish stopping' })
+    } finally {
+      restore()
+    }
+    const sourceBefore = structuredClone(jq.getJob(sourceJobId))
+
+    await jq.setQueuePaused(true)
+    const blocker = jq.enqueuePreparedForTest({
+      project_slug: slug,
+      type: 'idea_campaign',
+      episode_id: 'ideas',
+      params: { campaign_id: 'ordinary-blocker', model: MODEL, auto_retry: false },
+    })
+    blockerJobId = blocker.job_id
+    const refused = await request(app)
+      .post(`/api/projects/${slug}/generate/ideas/campaign`)
+      .send({
+        count: 1,
+        model: MODEL,
+        operation_id: '30000000-0000-4000-8000-000000000003',
+        manual_redo: { intent: 'replace_unresolved', source_job_id: sourceJobId },
+      })
+    assert.equal(refused.status, 409, JSON.stringify(refused.body))
+    assert.equal(jq.getJob(sourceJobId)?.force_abandoned, undefined)
+    assert.deepEqual(jq.getJob(sourceJobId)?.genstudio_jobs, sourceBefore?.genstudio_jobs)
+    assert.equal(env.service.submissions.length, 0)
+  } finally {
+    for (const jobId of [blockerJobId, sourceJobId]) {
+      const queued = jobId ? jq.getJob(jobId) : null
+      if (queued?.status === 'queued' || queued?.status === 'paused') await jq.requestJobCancellation(queued.project_slug, jobId)
+      const terminal = jobId ? jq.getJob(jobId) : null
+      if (terminal && ['done', 'error', 'cancelled'].includes(terminal.status)) jq.removeTerminalJob(terminal.project_slug, jobId)
     }
     await jq.setQueuePaused(wasPaused)
     await env.close()

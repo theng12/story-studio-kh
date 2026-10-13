@@ -38,7 +38,7 @@ describe('Audio one-chapter generation', () => {
     assert.match(audioPage, /async function queueAudio\(targetSections: string\[\], mode: AudioActionMode, extra: \{ then_subtitles\?: true \} = \{\}\): Promise<boolean>/)
     assert.match(audioPage, /if \(!targetSections\.length\)/)
     assert.doesNotMatch(audioPage, /: 'all'/)
-    assert.match(audioPage, /if \(!await confirmGeneration\(slug\.value, 'audio', payload, \{/)
+    assert.match(audioPage, /if \(!await confirmGeneration\(submission\?\.projectSlug \|\| slug\.value, 'audio', submission\?\.body \|\| payload, \{/)
     assert.match(audioPage, /audioJobActiveForEpisode\.value/)
   })
 
@@ -79,7 +79,48 @@ describe('Audio one-chapter generation', () => {
     assert.match(audioPage, /action: `\$\{action\} \$\{scopeSummary\(targetSections\)\}\?`/)
     assert.match(audioPage, /label: 'Model'.*selectedTtsModel\.value\?\.display_name/)
     assert.match(audioPage, /label: 'Voice'.*selectedVoice\.value\?\.display_name/)
-    assert.match(audioPage, /label: exactQuote \? 'Exact quote' : 'Published rate'/)
+    assert.match(audioPage, /submission\?\.priceIsQuote \? 'Exact quote' : exactQuote \? 'Exact quote' : 'Published rate'/)
+  })
+
+  test('offers a source-bound fresh attempt only beside Create Another Version', () => {
+    assert.match(audioPage, /useManualGenerationRedoPreference\(\)/)
+    assert.match(audioPage, /useJobDetails\(\)/)
+    assert.match(audioPage, /manualAudioRedoEligible/)
+    assert.match(audioPage, /manualAudioRedoChecked/)
+    assert.match(audioPage, /Create Another Version[\s\S]{0,900}manualAudioRedoEligible[\s\S]{0,500}type="checkbox"/)
+    assert.match(audioPage, /Start a separate voice attempt/)
+    assert.match(audioPage, /stays inactive until you choose Use This Version/)
+    const checkbox = audioPage.indexOf('v-model="manualAudioRedoChecked"')
+    assert.ok(checkbox > audioPage.indexOf("audioActionLabel(effectiveSections, 'new_version', 'Create Another Version')"))
+    assert.ok(checkbox < audioPage.indexOf('</details>', checkbox), 'the choice stays inside the More menu with Create Another Version')
+  })
+
+  test('captures an exact source-bound version request and keeps ordinary overwrite paths clean', () => {
+    assert.match(audioPage, /mode === 'new_version' && manualAudioRedoChecked\.value && manualAudioRedoSource\.value/)
+    assert.match(audioPage, /payload\.manual_redo = \{[\s\S]{0,180}intent: 'replace_unresolved',[\s\S]{0,120}source_job_id: manualAudioRedoSource\.value\.job_id/)
+    assert.match(audioPage, /const body = JSON\.parse\(JSON\.stringify\(payload\)\)/)
+    assert.match(audioPage, /freshAudioAction\.begin\(body, 'manual-audio-redo'\)/)
+    assert.match(audioPage, /retryAudioSubmission\(submission\)/)
+    assert.match(audioPage, /showAction\(UNCONFIRMED_SUBMISSION, 'Retry'/)
+    assert.match(audioPage, /const manualRedo = mode === 'new_version' && !!payload\.manual_redo/)
+    assert.match(audioPage, /if \(mode !== 'new_version'\)[\s\S]{0,120}delete payload\.manual_redo/)
+  })
+
+  test('invalidates one-shot voice intent and pending confirmation when its exact scope changes', () => {
+    assert.match(audioPage, /watch\(\[[\s\S]{0,500}\(\) => form\.episode_id,[\s\S]{0,500}\(\) => form\.model,[\s\S]{0,500}\(\) => form\.voice,[\s\S]{0,700}form\.controls[\s\S]{0,200}effectiveSections\.value/)
+    assert.match(audioPage, /manualAudioRedoChecked\.value = false/)
+    assert.match(audioPage, /freshAudioAction\.cancel\('manual-audio-redo'\)/)
+    assert.match(audioPage, /confirmation\.state\.visible[\s\S]{0,120}confirmation\.state\.type === 'audio'[\s\S]{0,120}confirmation\.cancel\(\)/)
+    assert.match(audioPage, /manualAudioRedoSourceKey/)
+  })
+
+  test('keeps a separate paid voice confirmation bound to the captured current model, voice and price', () => {
+    assert.match(audioPage, /const confirmation = useConfirmation\(\)/)
+    assert.match(audioPage, /confirmGeneration\(submission\?\.projectSlug \|\| slug\.value, 'audio', submission\?\.body \|\| payload/)
+    assert.match(audioPage, /always: submission\?\.manualRedo/)
+    assert.match(audioPage, /label: 'Model'.*submission\?\.modelName/)
+    assert.match(audioPage, /label: 'Voice'.*submission\?\.voiceName/)
+    assert.match(audioPage, /submission\?\.priceIsQuote \? 'Exact quote'.*submission\?\.price/)
   })
 
   test('drops old episode targets and ignores late section responses', () => {

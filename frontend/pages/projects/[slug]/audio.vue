@@ -422,6 +422,16 @@
                 :disabled="!effectiveSections.length || inlineGenerateDisabled"
                 @click="queueAudio(effectiveSections, 'new_version')"
               >{{ audioActionLabel(effectiveSections, 'new_version', 'Create Another Version') }}</button>
+              <label v-if="manualAudioRedoEligible" class="audio-manual-redo">
+                <span class="audio-manual-redo-choice">
+                  <input v-model="manualAudioRedoChecked" type="checkbox" />
+                  Start a separate voice attempt for this version.
+                </span>
+                <span class="audio-manual-redo-detail">
+                  The earlier Gateway request may still finish. Story Studio keeps its evidence and partial audio.
+                  This new take uses the current voice and price, and stays inactive until you choose Use This Version.
+                </span>
+              </label>
             </div>
           </details>
         </div>
@@ -713,6 +723,8 @@ const { post, get } = useApi()
 const { ask } = useConfirm()
 const freshAudioAction = useFreshGenerationAction()
 const audioRetryPending = freshAudioAction.hasPending
+const manualAudioRedoPreference = useManualGenerationRedoPreference()
+const audioJobDetails = useJobDetails()
 const freshQualityAction = useFreshGenerationAction()
 const qualityActionPending = freshQualityAction.hasPending
 const activeQualityCheckAction = useFreshGenerationAction()
@@ -797,9 +809,10 @@ const selectedTtsModelEligible = computed(() => !ttsModelsStale.value
   && selectedTtsModel.value?.generation_enabled === true
   && selectedTtsModel.value.locked !== true)
 
-const { success, info: showInfo, error: showError } = useToast()
+const { success, info: showInfo, error: showError, showAction } = useToast()
 const { audioGenerating } = useGenerating()
-const { confirmGeneration } = useConfirmation()
+const confirmation = useConfirmation()
+const { confirmGeneration } = confirmation
 const { jobs } = useJobs()
 const submitting = ref(false)
 
@@ -1008,6 +1021,23 @@ const publishedControls = computed<GenStudioTtsControl[]>(() => selectedTtsModel
  */
 const resolvedControls = computed(() => resolveTtsControlValues(publishedControls.value, form.controls))
 
+type AudioSubmission = {
+  projectSlug: string
+  episodeId: string
+  targetSections: string[]
+  body: Record<string, any>
+  operationId: string
+  manualRedo: boolean
+  userScopeKey: string
+  admissionScopeKey: string
+  modelName: string
+  voiceName: string
+  price: string
+  priceIsQuote: boolean
+}
+const pendingAudioSubmission = ref<AudioSubmission | null>(null)
+const deferredAudioControlReconciliation = ref(false)
+
 /**
  * A model change invalidates every control value, because the controls
  * themselves changed. Reset to the NEW model's own published defaults — a
@@ -1025,10 +1055,22 @@ watch([() => selectedTtsModel.value?.id, publishedControls], ([modelId]) => {
   if (!modelId) return
   const previous = reconciledModelId.value
   reconciledModelId.value = modelId
-  form.controls = previous && previous !== modelId
+  const controls = previous && previous !== modelId
     ? defaultTtsControlValues(publishedControls.value)
     : resolveTtsControlValues(publishedControls.value, form.controls)
+  if (pendingAudioSubmission.value && previous === modelId) {
+    deferredAudioControlReconciliation.value = true
+    return
+  }
+  deferredAudioControlReconciliation.value = false
+  form.controls = controls
 }, { immediate: true })
+
+function applyDeferredAudioControlReconciliation(): void {
+  if (!deferredAudioControlReconciliation.value) return
+  deferredAudioControlReconciliation.value = false
+  form.controls = resolveTtsControlValues(publishedControls.value, form.controls)
+}
 
 type AudioActionMode = 'generate' | 'regenerate' | 'new_version'
 interface SectionAction { slug: string; mode: 'generate' | 'regenerate' }
@@ -1039,6 +1081,86 @@ interface SectionAction { slug: string; mode: 'generate' | 'regenerate' }
 const effectiveSections = ref<string[]>([])
 const missingSections = ref<string[]>([])
 const sectionRefreshKey = ref(0)
+const manualAudioRedoChecked = ref(false)
+
+function escapeAudioPattern(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function audioRedoRequestKey(entry: any): string {
+  const keys = [
+    entry?.request_key,
+    entry?.request?.idempotency_key,
+    typeof entry?.id === 'string' && entry.id.startsWith('pending:')
+      ? entry.id.slice('pending:'.length) : undefined,
+  ].filter((key): key is string => typeof key === 'string' && key.length > 0)
+  return new Set(keys).size === 1 ? keys[0]! : ''
+}
+
+function hasExactUnresolvedAudioSection(job: any, section: string): boolean {
+  const assets = job?.params?.genstudio_recovery?.assets
+  if (!assets || typeof assets !== 'object') return false
+  const pattern = new RegExp(
+    `^${escapeAudioPattern(form.episode_id)}_${escapeAudioPattern(section)}(?:_part\\d+)?(?:_v\\d+)?\\.mp3$`,
+    'i',
+  )
+  const evidence = job.genstudio_jobs_active || []
+  return Object.entries(assets).some(([assetKey, raw]) => {
+    const checkpoint = raw as any
+    if (!pattern.test(assetKey) || checkpoint?.operation !== 'tts') return false
+    const taskId = typeof checkpoint.job_id === 'string' ? checkpoint.job_id.trim() : ''
+    const key = typeof checkpoint.idempotency_key === 'string' ? checkpoint.idempotency_key.trim() : ''
+    if (!taskId || !key) return false
+    const matches = evidence.filter((entry: any) => entry.operation === 'voice.tts'
+      && (entry.id === taskId || audioRedoRequestKey(entry) === key))
+    return matches.length === 1 && matches[0].id === taskId && audioRedoRequestKey(matches[0]) === key
+  })
+}
+
+const manualAudioRedoCandidates = computed(() => jobs.value
+  .filter((job: any) => job.project_slug === slug.value
+    && job.episode_id === form.episode_id
+    && job.type === 'audio'
+    && !job.force_abandoned
+    && (job.status === 'error' || job.status === 'cancelled')
+    && (job.genstudio_jobs_active || []).some((entry: any) => entry.operation === 'voice.tts'))
+  .sort((a: any, b: any) => Date.parse(b.finished_at || b.created_at || '')
+    - Date.parse(a.finished_at || a.created_at || '')))
+
+watch(manualAudioRedoCandidates, candidates => audioJobDetails.ensure(candidates), { immediate: true })
+
+const manualAudioRedoSource = computed<any | null>(() => {
+  if (!effectiveSections.value.length) return null
+  for (const streamed of manualAudioRedoCandidates.value) {
+    const source = audioJobDetails.withDetail(streamed)
+    if (effectiveSections.value.every(section => hasExactUnresolvedAudioSection(source, section))) return source
+  }
+  return null
+})
+const manualAudioRedoSourceKey = computed(() => {
+  const source = manualAudioRedoSource.value
+  if (!source) return ''
+  return JSON.stringify({
+    job_id: source.job_id,
+    updated_at: source.genstudio_jobs_updated_at || '',
+    checkpoints: source.params?.genstudio_recovery?.assets || {},
+    unresolved: source.genstudio_jobs_active || [],
+  })
+})
+const manualAudioRedoEligible = computed(() =>
+  manualAudioRedoPreference.enabled.value && !!manualAudioRedoSource.value)
+
+function onManualAudioRedoSourceChanged(): void {
+  // Admission itself abandons the source and removes it from the eligible
+  // selector. An HTTP response can be lost after that point, so the captured
+  // Retry must survive this automatic SSE transition.
+  if (pendingAudioSubmission.value) return
+  if (!manualAudioRedoChecked.value) return
+  manualAudioRedoChecked.value = false
+  if (confirmation.state.visible && confirmation.state.type === 'audio') confirmation.cancel()
+}
+watch(manualAudioRedoSourceKey, onManualAudioRedoSourceChanged)
+
 async function onRequestedAudioSectionSelected(section: string) {
   if (requestedAudioSection.value !== section) return
   await dismissRequestedAudioSection()
@@ -1869,7 +1991,12 @@ onMounted(async () => {
     applyAudioFormatDefaultsIfNoPreset(),
     audioPresets.load(),
     loadTtsModels(),
+    manualAudioRedoPreference.load(slug.value),
   ])
+})
+watch(slug, nextSlug => {
+  manualAudioRedoPreference.reset()
+  if (nextSlug) void manualAudioRedoPreference.load(nextSlug)
 })
 
 
@@ -1915,7 +2042,10 @@ function stopPreview() {
   }
 }
 
-onUnmounted(() => { stopPreview() })
+onUnmounted(() => {
+  stopPreview()
+  manualAudioRedoPreference.reset()
+})
 
 // ── Audio integrity (status pill + Repair) ─────────────────────────────
 // Fetches the asset-status endpoint whenever the selected episode changes.
@@ -2090,20 +2220,136 @@ function audioRequestPayload(targetSections: string[], mode: AudioActionMode): R
     controls: resolvedControls.value,
   }
   if (!supportsSpeed.value) payload.speed = 1
+  if (mode === 'new_version' && manualAudioRedoChecked.value && manualAudioRedoSource.value) {
+    payload.manual_redo = {
+      intent: 'replace_unresolved',
+      source_job_id: manualAudioRedoSource.value.job_id,
+    }
+  }
+  if (mode !== 'new_version') delete payload.manual_redo
   return payload
 }
 
 function audioActionLabel(targetSections: string[], mode: AudioActionMode, label: string): string {
   if (mode === 'generate') return label
+  const pending = pendingAudioSubmission.value
+  if (mode === 'new_version' && pending?.manualRedo
+    && manualAudioSubmissionMatchesCurrentTarget(pending)) return 'Retry (same request)'
   return freshAudioAction.isRetry(audioRequestPayload(targetSections, mode)) ? 'Retry (same request)' : label
 }
+
+function audioSubmissionUserScopeKey(targetSections: string[]): string {
+  return JSON.stringify({
+    project_slug: slug.value,
+    episode_id: form.episode_id,
+    model: form.model,
+    voice: form.voice,
+    sections: [...targetSections],
+    speed: form.speed,
+    controls: form.controls,
+    paragraph_pause_sec: form.paragraph_pause_sec,
+    sentence_pause_sec: form.sentence_pause_sec,
+  })
+}
+
+function manualAudioAdmissionScopeKey(targetSections: string[]): string {
+  const exactQuote = quoteScopeKey.value === targetSections.join(',') ? quotedCost.value : null
+  return JSON.stringify({
+    user: audioSubmissionUserScopeKey(targetSections),
+    enabled: manualAudioRedoEligible.value,
+    source: manualAudioRedoSourceKey.value,
+    model: selectedTtsModel.value,
+    voice: selectedVoice.value,
+    price: exactQuote?.text || modelRate.value.text,
+    price_is_quote: !!exactQuote,
+  })
+}
+
+function manualAudioSubmissionMatchesCurrentTarget(submission: AudioSubmission): boolean {
+  return submission.projectSlug === slug.value
+    && submission.episodeId === form.episode_id
+    && JSON.stringify(submission.targetSections) === JSON.stringify(effectiveSections.value)
+    && submission.userScopeKey === audioSubmissionUserScopeKey(submission.targetSections)
+}
+
+function retryAudioSubmission(submission: AudioSubmission): void {
+  if (!manualAudioSubmissionMatchesCurrentTarget(submission)) {
+    showError('This Retry belongs to another episode, voice, model, section, or narration setting. Review the current choices and start again.')
+    return
+  }
+  void submitAudioSubmission(submission)
+}
+
+async function submitAudioSubmission(submission: AudioSubmission): Promise<boolean> {
+  if (!manualAudioSubmissionMatchesCurrentTarget(submission)) {
+    showError('This voice request belongs to another current episode or narration setup. Review the current choices and start again.')
+    return false
+  }
+  submitting.value = true
+  audioGenerating.value = true
+  try {
+    await post(
+      `/projects/${submission.projectSlug}/generate/audio`,
+      { ...submission.body, operation_id: submission.operationId },
+    )
+    freshAudioAction.complete(submission.operationId)
+    pendingAudioSubmission.value = null
+    manualAudioRedoChecked.value = false
+    applyDeferredAudioControlReconciliation()
+    if (manualAudioSubmissionMatchesCurrentTarget(submission)) {
+      success(`Another version queued for ${scopeSummary(submission.targetSections)}.`)
+    }
+    return true
+  } catch (e: any) {
+    const detail = e?.data?.detail || e?.response?._data?.detail
+    if (detail) {
+      freshAudioAction.complete(submission.operationId)
+      pendingAudioSubmission.value = null
+      manualAudioRedoChecked.value = false
+      applyDeferredAudioControlReconciliation()
+      showError(detail)
+    } else {
+      showAction(UNCONFIRMED_SUBMISSION, 'Retry', () => retryAudioSubmission(submission), 'error')
+    }
+    audioGenerating.value = false
+    return false
+  } finally {
+    submitting.value = false
+  }
+}
+
+function cancelPendingManualAudioSubmission(): void {
+  manualAudioRedoChecked.value = false
+  pendingAudioSubmission.value = null
+  freshAudioAction.cancel('manual-audio-redo')
+  applyDeferredAudioControlReconciliation()
+  if (confirmation.state.visible && confirmation.state.type === 'audio') confirmation.cancel()
+}
+
+watch([
+  () => slug.value,
+  () => form.episode_id,
+  () => form.model,
+  () => form.voice,
+  () => form.speed,
+  () => form.paragraph_pause_sec,
+  () => form.sentence_pause_sec,
+  () => JSON.stringify(form.controls),
+  () => JSON.stringify(effectiveSections.value),
+], cancelPendingManualAudioSubmission)
 
 async function queueAudio(targetSections: string[], mode: AudioActionMode, extra: { then_subtitles?: true } = {}): Promise<boolean> {
   if (!targetSections.length) {
     showError('Select at least one section. No audio was queued.')
     return false
   }
-  if (submitting.value || audioJobActiveForEpisode.value) return false
+  if (submitting.value) return false
+  const pending = pendingAudioSubmission.value
+  if (mode === 'new_version' && pending?.manualRedo
+    && manualAudioSubmissionMatchesCurrentTarget(pending)) {
+    return submitAudioSubmission(pending)
+  }
+  if (audioJobActiveForEpisode.value) return false
   // A voice MUST be explicitly picked — there is no default. This guards the
   // programmatic path; the Generate button is also disabled until a voice is
   // set. Prevents the silent "generated with the default voice" failure mode.
@@ -2125,6 +2371,7 @@ async function queueAudio(targetSections: string[], mode: AudioActionMode, extra
   // Controls are sent RESOLVED, never as the raw form: only names the selected
   // model publishes, every value inside the range it published for them.
   const payload: Record<string, any> = { ...audioRequestPayload(targetSections, mode), ...extra }
+  const manualRedo = mode === 'new_version' && !!payload.manual_redo
   submitting.value = true
   try {
     // A quote is shown only while it describes this exact target. Generate
@@ -2136,22 +2383,56 @@ async function queueAudio(targetSections: string[], mode: AudioActionMode, extra
     const action = mode === 'new_version' ? 'Create another version of'
       : mode === 'regenerate' ? 'Regenerate'
       : 'Generate'
+    const body = JSON.parse(JSON.stringify(payload))
     const exactQuote = quoteScopeKey.value === sections ? quotedCost.value : null
-    if (!await confirmGeneration(slug.value, 'audio', payload, {
+    const admissionScopeKey = manualRedo ? manualAudioAdmissionScopeKey(targetSections) : ''
+    const operationId = manualRedo
+      ? freshAudioAction.begin(body, 'manual-audio-redo')
+      : null
+    const submission: AudioSubmission | null = manualRedo ? {
+      projectSlug: slug.value,
+      episodeId: form.episode_id,
+      targetSections: [...targetSections],
+      body,
+      operationId: operationId!,
+      manualRedo: true,
+      userScopeKey: audioSubmissionUserScopeKey(targetSections),
+      admissionScopeKey,
+      modelName: selectedTtsModel.value?.display_name || 'Unavailable',
+      voiceName: selectedVoice.value?.display_name || 'Unavailable',
+      price: exactQuote?.text || modelRate.value.text,
+      priceIsQuote: !!exactQuote,
+    } : null
+    if (!await confirmGeneration(submission?.projectSlug || slug.value, 'audio', submission?.body || payload, {
       action: `${action} ${scopeSummary(targetSections)}?`,
       details: [
-        { label: 'Model', value: selectedTtsModel.value?.display_name || 'Unavailable' },
-        { label: 'Voice', value: selectedVoice.value?.display_name || 'Unavailable' },
-        { label: exactQuote ? 'Exact quote' : 'Published rate', value: exactQuote?.text || modelRate.value.text },
+        { label: 'Model', value: submission?.modelName || selectedTtsModel.value?.display_name || 'Unavailable' },
+        { label: 'Voice', value: submission?.voiceName || selectedVoice.value?.display_name || 'Unavailable' },
+        { label: submission?.priceIsQuote ? 'Exact quote' : exactQuote ? 'Exact quote' : 'Published rate', value: submission?.price || exactQuote?.text || modelRate.value.text },
         ...(extra.then_subtitles ? [{ label: 'Then', value: 'New subtitles for the same chapter, with the transcription model that made the old ones' }] : []),
       ],
-    })) return false
+      always: submission?.manualRedo,
+    })) {
+      if (submission) freshAudioAction.cancel('manual-audio-redo')
+      return false
+    }
 
-    const operationId = force || no_overwrite ? freshAudioAction.begin(payload) : null
-    if (operationId) payload.operation_id = operationId
+    if (submission) {
+      if (submission.admissionScopeKey !== manualAudioAdmissionScopeKey(targetSections)) {
+        freshAudioAction.cancel('manual-audio-redo')
+        showError('The voice, price, selected sections, or stopped request changed while confirmation was open. Review the current choices and try again.')
+        return false
+      }
+      pendingAudioSubmission.value = submission
+      submitting.value = false
+      return submitAudioSubmission(submission)
+    }
+
+    const ordinaryOperationId = force || no_overwrite ? freshAudioAction.begin(payload) : null
+    if (ordinaryOperationId) payload.operation_id = ordinaryOperationId
     audioGenerating.value = true
     await post(`/projects/${slug.value}/generate/audio`, payload)
-    if (operationId) freshAudioAction.complete(operationId)
+    if (ordinaryOperationId) freshAudioAction.complete(ordinaryOperationId)
     const queuedAction = mode === 'new_version' ? 'Another version' : mode === 'regenerate' ? 'Regeneration' : 'Generation'
     success(`${queuedAction} queued for ${scopeSummary(targetSections)}.`)
     return true
@@ -2395,6 +2676,19 @@ async function queueAudio(targetSections: string[], mode: AudioActionMode, extra
 .audio-more-menu button:hover:not(:disabled),
 .audio-more-menu button:focus-visible { background: var(--accent-dim); }
 .audio-more-menu button:disabled { cursor: not-allowed; opacity: .45; }
+.audio-manual-redo {
+  display: grid;
+  gap: 4px;
+  margin: 4px 5px 5px;
+  padding: 9px;
+  border-top: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: .82rem;
+  line-height: 1.35;
+}
+.audio-manual-redo-choice { display: flex; gap: 7px; align-items: flex-start; font-weight: 600; }
+.audio-manual-redo-choice input { margin-top: 2px; }
+.audio-manual-redo-detail { color: var(--text-muted); }
 
 .audio-advanced {
   margin-top: 12px;

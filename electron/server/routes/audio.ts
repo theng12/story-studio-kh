@@ -19,8 +19,15 @@ import {
 import { unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import { resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 import { inspectSubtitleSourceFreshness } from '../services/subtitle-completion.js'
-import { freshActionMatch, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
+import {
+  freshActionMatch,
+  readManualGenerationRedoIntent,
+  readOperationId,
+  stampFreshGenerationAction,
+} from '../lib/fresh-generation-action.js'
 import { withLock } from '../lib/atomic-store.js'
+import { isUnsettledProviderEntry } from '../lib/provider-task-state.js'
+import type { Job } from '../models/types.js'
 import { inspectAudioQualityActionScope } from '../services/audio-quality.js'
 import { readAudioQualityProvenance, updateAudioQualityProvenance } from '../services/audio-quality-store.js'
 import { readSubtitleSourceModels } from '../services/subtitle-recovery.js'
@@ -28,6 +35,90 @@ import { stageActiveAudioQualityCheck } from '../services/audio-quality-transcri
 import { settleCompletedFailures } from '../services/stale-failures.js'
 
 export const router = Router()
+
+type AudioManualRedoAsset = {
+  asset_key: string
+  task_id: string
+  idempotency_key: string
+}
+
+function exactAudioSections(value: unknown): string[] | null {
+  if (typeof value !== 'string') return null
+  const sections = value.split(',').map(section => section.trim()).filter(Boolean)
+  if (!sections.length || sections.some(section => section.toLowerCase() === 'all')) return null
+  return [...new Set(sections)].sort((a, b) => a.localeCompare(b))
+}
+
+function escapePattern(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function audioAssetBelongsToSection(assetKey: string, episodeId: string, section: string): boolean {
+  return new RegExp(
+    `^${escapePattern(episodeId)}_${escapePattern(section)}(?:_part\\d+)?(?:_v\\d+)?\\.mp3$`,
+    'i',
+  ).test(assetKey)
+}
+
+function audioEvidenceRequestKey(entry: NonNullable<Job['genstudio_jobs']>[number]): string | null {
+  const keys = [
+    entry.request_key,
+    entry.request?.idempotency_key,
+    entry.id.startsWith('pending:') ? entry.id.slice('pending:'.length) : undefined,
+  ].filter((key): key is string => typeof key === 'string' && key.length > 0)
+  return new Set(keys).size === 1 ? keys[0]! : null
+}
+
+/** Derive the exact unresolved TTS identities for every selected section. */
+function currentAudioManualRedoAssets(
+  source: Readonly<Job>,
+  episodeId: string,
+  sections: readonly string[],
+  operationEntries: readonly NonNullable<Job['genstudio_jobs']>[number][] = (
+    source.genstudio_jobs || []
+  ).filter(entry => entry.operation === 'voice.tts'),
+): AudioManualRedoAsset[] | null {
+  const recovery = source.params?.genstudio_recovery
+  if (recovery?.version !== 1 || recovery.route !== 'genstudio'
+    || !recovery.assets || typeof recovery.assets !== 'object') return null
+  const assets = Object.entries(recovery.assets as Record<string, any>)
+  const unresolved: AudioManualRedoAsset[] = []
+  const seen = new Set<string>()
+  for (const section of sections) {
+    const matching = assets.filter(([assetKey, checkpoint]) => (
+      checkpoint?.operation === 'tts' && audioAssetBelongsToSection(assetKey, episodeId, section)
+    ))
+    if (!matching.length) return null
+    let sectionHasUnresolved = false
+    for (const [assetKey, checkpoint] of matching) {
+      const taskId = typeof checkpoint.job_id === 'string' ? checkpoint.job_id.trim() : ''
+      const idempotencyKey = typeof checkpoint.idempotency_key === 'string'
+        ? checkpoint.idempotency_key.trim() : ''
+      if (!taskId || !idempotencyKey) return null
+      const related = operationEntries.filter(entry => (
+        entry.id === taskId || audioEvidenceRequestKey(entry) === idempotencyKey
+      ))
+      if (related.length !== 1 || related[0]!.id !== taskId
+        || audioEvidenceRequestKey(related[0]!) !== idempotencyKey) return null
+      if (!isUnsettledProviderEntry(related[0]!)) continue
+      const identity = `${taskId}\u0000${idempotencyKey}`
+      if (seen.has(identity)) return null
+      seen.add(identity)
+      sectionHasUnresolved = true
+      unresolved.push({ asset_key: assetKey, task_id: taskId, idempotency_key: idempotencyKey })
+    }
+    if (!sectionHasUnresolved) return null
+  }
+  return unresolved.sort((a, b) => a.asset_key.localeCompare(b.asset_key))
+}
+
+function sameAudioManualRedoAssets(a: readonly AudioManualRedoAsset[], b: readonly AudioManualRedoAsset[]): boolean {
+  return a.length === b.length && a.every((asset, index) => (
+    asset.asset_key === b[index]?.asset_key
+    && asset.task_id === b[index]?.task_id
+    && asset.idempotency_key === b[index]?.idempotency_key
+  ))
+}
 
 router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema), async (req, res) => {
   const { slug } = req.params
@@ -41,40 +132,20 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
     return res.status(409).json({ detail: unavailableLegacyModelMessage('voice', req.body.model || '(none)') })
   }
   req.body.model = migratedModel
-
-  const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) {
-    return res.status(400).json({
-      code: 'GENSTUDIO_KEY_REQUIRED',
-      detail: 'No Gateway API Key configured. Add it in Settings → This Mac.',
-    })
-  }
-
+  let manualRedoIntent
   try {
-    const ttsModel = (await listGenStudioTtsModels(apiKey)).find(model => model.id === migratedModel)
-    if (!ttsModel) {
-      return res.status(409).json({ detail: `The saved voice model "${req.body.model}" is not currently in your Gateway catalogue.` })
-    }
-    if (!ttsModel.generation_enabled) {
-      return res.status(409).json({ detail: `The Gateway has generation turned off for ${ttsModel.display_name}. Choose another voice model.` })
-    }
-    if (ttsModel.locked) {
-      return res.status(409).json({ detail: `${ttsModel.display_name} is locked for this Gateway account. Choose an unlocked voice model.` })
-    }
-    const voices = await listGenStudioVoices(apiKey, { modelId: migratedModel })
-    const selectedVoice = voices.find(voice => voice.id === req.body.voice && voice.generation_enabled !== false)
-    if (!selectedVoice || !catalogHasVoice(voices, req.body.voice)) {
-      return res.status(400).json({
-        detail: `The selected voice is not available on ${ttsModel.display_name} in your Gateway catalog. `
-          + 'Refresh the voice picker and choose an available voice.',
-      })
-    }
-    // voice_tier is published metadata, kept beside the job for history. It is
-    // no longer a selector and no longer a price band.
-    if (selectedVoice.voice_tier) req.body.tts_tier = selectedVoice.voice_tier
-  } catch (error: any) {
-    return res.status(502).json(humanizeBackendError(error, 'Could not verify the Gateway voice catalog'))
+    manualRedoIntent = readManualGenerationRedoIntent(req.body)
+  } catch (error) {
+    return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid manual_redo.' })
   }
+  if (manualRedoIntent && (req.body.force !== true || req.body.no_overwrite !== true)) {
+    return res.status(400).json({ detail: 'Manual voice redo is available only for Create Another Version.' })
+  }
+  const manualRedoSections = manualRedoIntent ? exactAudioSections(req.body.sections) : null
+  if (manualRedoIntent && !manualRedoSections) {
+    return res.status(400).json({ detail: 'Manual voice redo requires an explicit section selection.' })
+  }
+
   const deliberateFresh = req.body.force === true || req.body.no_overwrite === true
   let operationId: string | null
   try {
@@ -82,12 +153,90 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
   } catch (error) {
     return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
   }
+  const priorManualAction = manualRedoIntent
+    ? (await jq.findJobs(slug, freshActionMatch(operationId!)))[0]
+    : undefined
+  const priorManualRedo = priorManualAction?.params?.manual_redo
+  if (priorManualAction && (
+    priorManualRedo?.version !== 1
+    || priorManualRedo?.intent !== 'replace_unresolved'
+    || priorManualRedo?.source_job_id !== manualRedoIntent!.source_job_id
+    || !Array.isArray(priorManualRedo?.sections)
+    || !Array.isArray(priorManualRedo?.source_assets)
+  )) {
+    return res.status(409).json({ detail: 'This operation_id already belongs to a different audio request.' })
+  }
+
+  // Once this exact manual action exists, Retry is a read of its durable
+  // admission. Its source is already abandoned and the catalogue may have
+  // changed, so neither is consulted again. The stamped fingerprint below
+  // still rejects any changed request body under the same UUID.
+  if (priorManualAction) {
+    if (typeof priorManualAction.params.tts_tier === 'string') req.body.tts_tier = priorManualAction.params.tts_tier
+    else delete req.body.tts_tier
+  } else {
+    const apiKey = await getApiKey('genstudio').catch(() => '')
+    if (!apiKey) {
+      return res.status(400).json({
+        code: 'GENSTUDIO_KEY_REQUIRED',
+        detail: 'No Gateway API Key configured. Add it in Settings → This Mac.',
+      })
+    }
+    try {
+      const ttsModel = (await listGenStudioTtsModels(apiKey)).find(model => model.id === migratedModel)
+      if (!ttsModel) {
+        return res.status(409).json({ detail: `The saved voice model "${req.body.model}" is not currently in your Gateway catalogue.` })
+      }
+      if (!ttsModel.generation_enabled) {
+        return res.status(409).json({ detail: `The Gateway has generation turned off for ${ttsModel.display_name}. Choose another voice model.` })
+      }
+      if (ttsModel.locked) {
+        return res.status(409).json({ detail: `${ttsModel.display_name} is locked for this Gateway account. Choose an unlocked voice model.` })
+      }
+      const voices = await listGenStudioVoices(apiKey, { modelId: migratedModel })
+      const selectedVoice = voices.find(voice => voice.id === req.body.voice && voice.generation_enabled !== false)
+      if (!selectedVoice || !catalogHasVoice(voices, req.body.voice)) {
+        return res.status(400).json({
+          detail: `The selected voice is not available on ${ttsModel.display_name} in your Gateway catalog. `
+            + 'Refresh the voice picker and choose an available voice.',
+        })
+      }
+      // voice_tier is published metadata, kept beside the job for history. It is
+      // no longer a selector and no longer a price band.
+      if (selectedVoice.voice_tier) req.body.tts_tier = selectedVoice.voice_tier
+    } catch (error: any) {
+      return res.status(502).json(humanizeBackendError(error, 'Could not verify the Gateway voice catalog'))
+    }
+  }
   // Only the quality-confirm route can stamp a staged candidate. A public
   // Audio request may deliberately be fresh, but it cannot choose an internal
   // staging path or bypass active-output publication through this marker.
   const publicBody = { ...req.body }
   delete publicBody.quality_repair
   delete publicBody.quality_check
+  delete publicBody.manual_redo
+  let manualRedo: Record<string, any> | undefined
+  if (manualRedoIntent) {
+    if (priorManualAction) {
+      manualRedo = priorManualRedo
+    } else {
+      const source = (await jq.findJobs(slug, job => job.job_id === manualRedoIntent!.source_job_id))[0]
+      if (!source) return res.status(404).json({ detail: 'Manual redo source job was not found in this project.' })
+      const sourceAssets = currentAudioManualRedoAssets(source, req.body.episode_id, manualRedoSections!)
+      if (!sourceAssets) {
+        return res.status(409).json({ detail: 'Manual redo source has no exact unresolved voice request for every selected section.' })
+      }
+      manualRedo = {
+        version: 1,
+        intent: manualRedoIntent.intent,
+        source_job_id: manualRedoIntent.source_job_id,
+        requested_at: new Date().toISOString(),
+        sections: manualRedoSections,
+        source_assets: sourceAssets,
+      }
+    }
+    publicBody.manual_redo = manualRedo
+  }
   const params = operationId
     ? stampFreshGenerationAction(publicBody, operationId)
     : (() => { const clean = { ...publicBody }; delete clean.generation_action; delete clean.operation_id; return clean })()
@@ -113,6 +262,45 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
       params,
     })
     return res.status(201).json(job)
+  }
+  if (manualRedoIntent) {
+    const sections = manualRedo!.sections as string[]
+    const sourceAssets = manualRedo!.source_assets as AudioManualRedoAsset[]
+    try {
+      const job = await jq.enqueueManualGenerationRedo({
+        project_slug: slug,
+        type: 'audio',
+        episode_id: req.body.episode_id,
+        title: `Audio (${req.body.sections || 'all'})`,
+        params,
+      }, {
+        sourceJobId: manualRedoIntent.source_job_id,
+        sourceType: 'audio',
+        operation: 'voice.tts',
+        resource: {
+          kind: 'custom',
+          identity: `audio:${req.body.episode_id}:${sections.join(',')}`,
+          matches: source => {
+            const current = currentAudioManualRedoAssets(source, req.body.episode_id, sections)
+            return current !== null && sameAudioManualRedoAssets(current, sourceAssets)
+          },
+        },
+        sourceLabel: 'audio generation',
+        evidenceLabel: 'Gateway voice request for the selected section',
+        hasCurrentEvidence: (source, entries) => {
+          const current = currentAudioManualRedoAssets(source, req.body.episode_id, sections, entries)
+          return current !== null && sameAudioManualRedoAssets(current, sourceAssets)
+        },
+      })
+      return res.status(priorManualAction ? 200 : 201).json({
+        ...job,
+        ...(priorManualAction ? { reused: true } : {}),
+      })
+    } catch (error: any) {
+      return res.status(error?.status || error?.statusCode || 409).json({
+        detail: error?.message || 'Manual voice redo was refused.',
+      })
+    }
   }
   if (operationId) return withLock(`fresh-audio:${slug}:${operationId}`, enqueueAudio)
   return enqueueAudio()
