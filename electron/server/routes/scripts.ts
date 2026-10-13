@@ -10,7 +10,7 @@ import { resolveReadPath, resolveArtifact, matchChapterFile } from '../lib/episo
 import { hasIntroductionScriptSource } from '../lib/narration-assembly.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { resolveSubfolderNames } from '../services/utils.js'
-import { formatMetadataTxt, parseMetadataTxt } from '../services/metadata-format.js'
+import { parseMetadataTxt } from '../services/metadata-format.js'
 import { validateBody } from '../lib/validate.js'
 import { GenerateScriptOnlySchema, GenerateIntroductionOnlySchema, GenerateChapterOnlySchema } from '../schemas/index.js'
 import { metadataFormulaCatalogue } from '../services/metadata-formula-catalogue.js'
@@ -30,6 +30,7 @@ import {
 } from '../lib/fresh-generation-action.js'
 import { inspectChunkedScriptCompletion } from '../lib/chunked-narration.js'
 import type { Job } from '../models/types.js'
+import { writeMetadataPackage } from '../services/metadata-completion.js'
 
 export const router = Router()
 
@@ -1322,40 +1323,11 @@ async function getMetadataDir(slug: string, episode_id: string, title: string): 
   return await resolveSubfolder(episodeDir, names.metadata)
 }
 
-function nextVersion(files: string[], code: string): number {
-  let max = 0
-  const re = new RegExp(`^${code}_Metadata(?:_v(\\d+))?\\.json$`)
-  for (const f of files) {
-    const m = f.match(re)
-    if (m) {
-      const v = m[1] ? parseInt(m[1], 10) : 1
-      if (v > max) max = v
-    }
-  }
-  return max + 1
-}
-
-function metadataFilenames(code: string, version: number): { json: string; txt: string } {
-  const suffix = version <= 1 ? '' : `_v${version}`
-  return {
-    json: `${code}_Metadata${suffix}.json`,
-    txt: `${code}_Metadata${suffix}.txt`,
-  }
-}
-
 router.post('/projects/:slug/generate/metadata/save', async (req, res) => {
   const { slug } = req.params
   const { episode_id, title, metadata_title, title_options, description, tags, save_mode, version } = req.body
   try {
     const dir = await getMetadataDir(slug, episode_id, title)
-    const files = await fs.readdir(dir).catch(() => [])
-
-    let writeVersion: number
-    if (save_mode === 'new') {
-      writeVersion = nextVersion(files, episode_id)
-    } else {
-      writeVersion = version || 1
-    }
 
     // Preserve AI-generated title alternatives across saves so a user who
     // overwrites v1 from the metadata page doesn't accidentally wipe the
@@ -1366,37 +1338,29 @@ router.post('/projects/:slug/generate/metadata/save', async (req, res) => {
       ? title_options.filter((t: unknown): t is string => typeof t === 'string' && t.trim() !== '')
       : (metadata_title ? [String(metadata_title)] : [])
 
-    // Manual edits keep the finalizer audit that was recorded by the queued
-    // generator. The managed chapter/source text is already inside
-    // `description`; preserving this sidecar prevents autosave from erasing
-    // the warning/readiness information.
-    const { json } = metadataFilenames(episode_id, writeVersion)
-    const priorPath = pathMod.join(dir, json)
-    let priorFinalization: unknown
-    try {
-      priorFinalization = JSON.parse(await fs.readFile(priorPath, 'utf-8'))?.youtube_finalization
-    } catch { /* first save / new version */ }
-
-    const meta = {
-      title: metadata_title || '',
-      title_options: cleanTitleOptions,
-      description: description || '',
-      tags: Array.isArray(tags) ? tags : [],
-      ...(priorFinalization ? { youtube_finalization: priorFinalization } : {}),
-      savedAt: new Date().toISOString(),
-      version: writeVersion,
-    }
-
-    const { txt } = metadataFilenames(episode_id, writeVersion)
-    const jsonPath = pathMod.join(dir, json)
-    // Lock on the JSON path so concurrent Save clicks (e.g. two browser tabs)
-    // can't interleave and leave the .txt sidecar out of sync with the .json.
-    await withLock(jsonPath, async () => {
-      await writeJsonAtomic(jsonPath, meta)
-      await fs.writeFile(pathMod.join(dir, txt), formatMetadataTxt(meta))
+    const saved = await writeMetadataPackage({
+      dir,
+      code: episode_id,
+      mode: save_mode === 'new' ? 'new' : { overwrite: version || 1 },
+      build: ({ version: writeVersion, previous }) => {
+        // Manual edits keep the finalizer audit that was recorded by the queued
+        // generator. The managed chapter/source text is already inside
+        // `description`; preserving this sidecar prevents autosave from erasing
+        // the warning/readiness information.
+        const priorFinalization = previous?.youtube_finalization
+        return {
+          title: metadata_title || '',
+          title_options: cleanTitleOptions,
+          description: description || '',
+          tags: Array.isArray(tags) ? tags : [],
+          ...(priorFinalization ? { youtube_finalization: priorFinalization } : {}),
+          savedAt: new Date().toISOString(),
+          version: writeVersion,
+        }
+      },
     })
 
-    res.json({ ok: true, version: writeVersion, json, txt })
+    res.json({ ok: true, ...saved })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save metadata'))
   }

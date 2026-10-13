@@ -37,6 +37,7 @@ import {
 } from '../lib/provider-task-state.js'
 import { isFreeFleetWork, reconciledGenStudioQueueState } from '../contracts/provider-task-state.js'
 import { FLEET_BUSY_FAILURE_CODES } from '../lib/genstudio-fleet-busy.js'
+import { assertManualGenerationRedoAction } from '../lib/fresh-generation-action.js'
 import { holdsUnknownOutcome, isSubmissionUncertainCode } from '../lib/genstudio-client.js'
 import { isRetryableZeroSettlementImageFailureCode } from './image-paid-replacement.js'
 import { getApiKey } from './app-secrets-store.js'
@@ -5267,11 +5268,11 @@ function chapterWriterReservationConflicts(
   if (requested.type !== 'chapter-only') return false
   if (reserved.type === 'expand_chapters') return true
   if (reserved.type !== 'chapter-only') return false
-  return requested.dedupeParams ? requested.dedupeParams(reserved.params || {}) : true
+  if (requested.dedupeParams) return requested.dedupeParams(reserved.params || {})
+  return true
 }
 
 function reserveChapterWriterAdmission(scope: ChapterWriterAdmissionScope): symbol | null {
-  if (!isChapterWriterScope(scope)) return null
   const key = episodeMediaAdmissionKey(scope.project_slug, scope.episode_id)
   const owner = Symbol('chapter-writer-admission')
   chapterWriterAdmissionReservations.set(key, { owner, scope })
@@ -5290,11 +5291,15 @@ function assertChapterWriterAdmission(
   opts: ChapterWriterAdmissionScope,
   admissionOwner?: symbol,
 ): void {
-  if (!isChapterWriterScope(opts)) return
   const reserved = chapterWriterAdmissionReservations.get(episodeMediaAdmissionKey(opts.project_slug, opts.episode_id))
-  if (reserved && reserved.owner !== admissionOwner && chapterWriterReservationConflicts(opts, reserved.scope)) {
+  const reservationConflicts = isChapterWriterScope(opts)
+    ? reserved && chapterWriterReservationConflicts(opts, reserved.scope)
+    : reserved && reserved.scope.type === opts.type
+      && (!opts.dedupeParams || opts.dedupeParams(reserved.scope.params || {}))
+  if (reserved && reserved.owner !== admissionOwner && reservationConflicts) {
     throw new DuplicateJobError(opts.type, opts.episode_id)
   }
+  if (!isChapterWriterScope(opts)) return
   for (const job of jobs.values()) {
     if (job.project_slug !== opts.project_slug || job.episode_id !== opts.episode_id) continue
     const occupiesEpisode = job.status === 'queued' || job.status === 'running' || job.status === 'paused'
@@ -5311,11 +5316,10 @@ function assertChapterWriterAdmission(
   }
 }
 
-function enqueuePrepared(
+function assertEnqueueAdmission(
   opts: EnqueuePreparedOptions,
-  contentPackProvenance: Job['content_pack_provenance'] = [],
-  chapterWriterAdmissionOwner?: symbol,
-): Job {
+  admissionOwner?: symbol,
+): void {
   if (episodeMediaCleanupInProgress.has(episodeMediaAdmissionKey(opts.project_slug, opts.episode_id))) {
     throw Object.assign(
       new Error('Local media cleanup is in progress for this episode. Try again shortly.'),
@@ -5325,30 +5329,30 @@ function enqueuePrepared(
   if (projectRemovalInProgress.has(opts.project_slug)) {
     throw Object.assign(new Error('Project removal is in progress. Return later before starting new work.'), { statusCode: 409 })
   }
-  if (!queues[opts.type]) {
-    throw new Error(`No queue lane registered for job type: ${opts.type}`)
-  }
+  if (!queues[opts.type]) throw new Error(`No queue lane registered for job type: ${opts.type}`)
   if (opts.type === 'continuity_render'
     && finishMissingReservations.has(finishMissingReservationKey(opts.project_slug, opts.episode_id))) {
     throw new DuplicateJobError(opts.type, opts.episode_id)
   }
-  assertChapterWriterAdmission(opts, chapterWriterAdmissionOwner)
-  // Cross-type atomic dedupe for the retired Scene Review batch name and the
-  // canonical continuity renderer. Full renders conflict with either full
-  // type; a single-scene repair also waits behind an active full render.
+  assertChapterWriterAdmission(opts, admissionOwner)
   const isBulkRequest = opts.type === 'continuity_render' && !opts.params?.single_scene_id
   const isSingleSceneRequest = opts.type === 'continuity_render' && !!opts.params?.single_scene_id
   if ((isBulkRequest || isSingleSceneRequest)
       && findActiveBulkSceneRenderInternal(opts.project_slug, opts.episode_id)) {
     throw new DuplicateJobError(opts.type, opts.episode_id)
   }
-  // Atomic dedupe: the check and the insert happen in the same synchronous
-  // tick. Callers MUST NOT gate on isDuplicate() separately — two routes
-  // racing the check could both pass and both enqueue. This is the single
-  // serialisation point for queue insertion.
   if (isDuplicate(opts.project_slug, opts.episode_id, opts.type, opts.dedupeParams)) {
     throw new DuplicateJobError(opts.type, opts.episode_id)
   }
+}
+
+function enqueuePrepared(
+  opts: EnqueuePreparedOptions,
+  contentPackProvenance: Job['content_pack_provenance'] = [],
+  chapterWriterAdmissionOwner?: symbol,
+): Job {
+  // Atomic dedupe: the check and insertion stay in one synchronous tick.
+  assertEnqueueAdmission(opts, chapterWriterAdmissionOwner)
 
   const jobId = opts.episode_recovery_job_id || randomUUID().slice(0, 8)
   if (activeRunJobIds.has(jobId)) {
@@ -5515,10 +5519,10 @@ export async function enqueue(
     // Chapter writers also check before an awaited admission callback so a
     // refused manual replacement cannot abandon its source first.
     const admissionScope = { ...enqueueOpts, params: jobParams }
-    assertChapterWriterAdmission(admissionScope)
+    assertEnqueueAdmission(admissionScope)
     const chapterWriterAdmissionOwner = reserveChapterWriterAdmission(admissionScope)
     try {
-      if (chapterWriterAdmissionOwner) {
+      if (chapterWriterAdmissionOwner && isChapterWriterScope(admissionScope)) {
         await chapterWriterAdmissionCallbackProbeForTesting?.({
           project_slug: opts.project_slug,
           episode_id: opts.episode_id,
@@ -5905,26 +5909,164 @@ export async function prepareUnresolvedChapterExpansionRedo(
   episodeId: string,
   sourceJobId: string,
 ): Promise<Job> {
-  await loadPersistedJobs(projectSlug)
-  const source = jobs.get(sourceJobId)
-  if (!source || source.project_slug !== projectSlug) {
-    throw Object.assign(new Error('Manual redo source job was not found in this project.'), { status: 404, expose: true })
+  return prepareManualGenerationRedoSource(projectSlug, episodeId, {
+    sourceJobId,
+    sourceType: 'expand_chapters',
+    operation: 'chat.response',
+    resource: { kind: 'episode' },
+    sourceLabel: 'chapter expansion',
+    evidenceLabel: 'Gateway chat request',
+    hasCurrentEvidence: (_source, entries) => entries.some(entry => !isResolvedChatEntry(entry)),
+  })
+}
+
+export interface ManualGenerationRedoSourceCriteria {
+  sourceJobId: string
+  sourceType: JobType
+  operation: JobRemoteOperation
+  resource: { kind: 'episode' } | {
+    kind: 'custom'
+    /** Stable server-owned identity for this resource; never derived from current mutable evidence. */
+    identity: string
+    matches: (source: Readonly<Job>) => boolean
   }
-  if (source.type !== 'expand_chapters' || source.episode_id !== episodeId) {
-    throw Object.assign(new Error('Manual redo source must be a chapter expansion for the same episode.'), { status: 409, expose: true })
+  sourceLabel: string
+  evidenceLabel: string
+  hasCurrentEvidence: (source: Readonly<Job>, operationEntries: readonly GenStudioEvidence[]) => boolean
+}
+
+type ManualGenerationRedoBinding = {
+  version: 1
+  source_type: JobType
+  operation: JobRemoteOperation
+  resource_kind: 'episode' | 'custom'
+  resource_identity: string
+  destination_type: JobType
+  destination_episode_id: string
+}
+
+function manualGenerationRedoBinding(
+  opts: EnqueueOptions,
+  source: ManualGenerationRedoSourceCriteria,
+): ManualGenerationRedoBinding {
+  const customIdentity = source.resource.kind === 'custom' ? source.resource.identity : ''
+  if (source.resource.kind === 'custom' && (!customIdentity || customIdentity !== customIdentity.trim())) {
+    throw Object.assign(new Error('Manual redo custom resource requires a stable server-owned identity.'), {
+      status: 409,
+      expose: true,
+    })
   }
-  if (source.status !== 'error' && source.status !== 'cancelled') {
-    throw Object.assign(new Error('Manual redo source must be a stopped chapter expansion.'), { status: 409, expose: true })
+  return {
+    version: 1,
+    source_type: source.sourceType,
+    operation: source.operation,
+    resource_kind: source.resource.kind,
+    resource_identity: source.resource.kind === 'episode' ? opts.episode_id : customIdentity,
+    destination_type: opts.type,
+    destination_episode_id: opts.episode_id,
   }
-  if (!chatEntries(source).length || !chatEntries(source).some(entry => !isResolvedChatEntry(entry))) {
-    throw Object.assign(new Error('Manual redo source has no unresolved Gateway chat request.'), { status: 409, expose: true })
-  }
-  if (activeRunJobIds.has(source.job_id)) {
-    throw Object.assign(new Error('The stopped chapter writer is still finishing locally. Try again after it releases the episode.'), { status: 409, expose: true })
-  }
+}
+
+function matchesManualGenerationRedoBinding(value: unknown, expected: ManualGenerationRedoBinding): boolean {
+  if (!value || typeof value !== 'object') return false
+  const actual = value as Record<string, unknown>
+  return actual.version === expected.version
+    && actual.source_type === expected.source_type
+    && actual.operation === expected.operation
+    && actual.resource_kind === expected.resource_kind
+    && actual.resource_identity === expected.resource_identity
+    && actual.destination_type === expected.destination_type
+    && actual.destination_episode_id === expected.destination_episode_id
+}
+
+async function prepareManualGenerationRedoSource(
+  projectSlug: string,
+  episodeId: string,
+  criteria: ManualGenerationRedoSourceCriteria,
+): Promise<Job> {
+  const source = await validateManualGenerationRedoSource(projectSlug, episodeId, criteria)
   return source.force_abandoned
     ? serializeJob(source)
     : forceAbandonJob(projectSlug, source.job_id)
+}
+
+async function validateManualGenerationRedoSource(
+  projectSlug: string,
+  episodeId: string,
+  criteria: ManualGenerationRedoSourceCriteria,
+): Promise<Job> {
+  await loadPersistedJobs(projectSlug)
+  const source = jobs.get(criteria.sourceJobId)
+  if (!source || source.project_slug !== projectSlug) {
+    throw Object.assign(new Error('Manual redo source job was not found in this project.'), { status: 404, expose: true })
+  }
+  const resourceMatches = criteria.resource.kind === 'episode' || criteria.resource.matches(source)
+  if (source.type !== criteria.sourceType || source.episode_id !== episodeId || !resourceMatches) {
+    throw Object.assign(new Error(`Manual redo source must be a ${criteria.sourceLabel} for the same episode and resource.`), { status: 409, expose: true })
+  }
+  if (source.status !== 'error' && source.status !== 'cancelled') {
+    throw Object.assign(new Error(`Manual redo source must be a stopped ${criteria.sourceLabel}.`), { status: 409, expose: true })
+  }
+  const operationEntries = (source.genstudio_jobs || []).filter(entry => entry.operation === criteria.operation)
+  if (!operationEntries.length || !criteria.hasCurrentEvidence(source, operationEntries)) {
+    throw Object.assign(new Error(`Manual redo source has no unresolved ${criteria.evidenceLabel}.`), { status: 409, expose: true })
+  }
+  if (activeRunJobIds.has(source.job_id)) {
+    throw Object.assign(new Error(`The stopped ${criteria.sourceLabel} is still finishing locally. Try again after it releases the episode.`), { status: 409, expose: true })
+  }
+  return source
+}
+
+/** Admit one explicitly identified manual replacement and mutate its source only after the destination wins. */
+export async function enqueueManualGenerationRedo(
+  opts: EnqueueOptions,
+  source: ManualGenerationRedoSourceCriteria,
+  contentPackOptions: ContentPackProjectPinOptions = {},
+): Promise<Job> {
+  const action = assertManualGenerationRedoAction(opts.params, source.sourceJobId)
+  const binding = manualGenerationRedoBinding(opts, source)
+  const boundOpts: EnqueueOptions = {
+    ...opts,
+    params: {
+      ...opts.params,
+      generation_action: {
+        id: action.operationId,
+        kind: 'fresh',
+        manual_redo_binding: binding,
+      },
+    },
+  }
+  return withLock(`manual-generation-redo:${opts.project_slug}:${action.operationId}`, async () => {
+    await loadPersistedJobs(opts.project_slug)
+    const previous = Array.from(jobs.values()).find(job => (
+      job.project_slug === opts.project_slug
+      && job.params?.generation_action?.id === action.operationId
+    ))
+    if (previous) {
+      if (previous.params?.generation_action_fingerprint !== action.fingerprint) {
+        throw Object.assign(new Error('This operation_id already belongs to a different manual generation action.'), {
+          status: 409,
+          expose: true,
+        })
+      }
+      if (previous.type !== opts.type || previous.episode_id !== opts.episode_id) {
+        throw Object.assign(new Error('This operation_id already belongs to a different manual generation destination.'), {
+          status: 409,
+          expose: true,
+        })
+      }
+      if (!matchesManualGenerationRedoBinding(previous.params?.generation_action?.manual_redo_binding, binding)) {
+        throw Object.assign(new Error('This operation_id already belongs to a different manual generation binding.'), {
+          status: 409,
+          expose: true,
+        })
+      }
+      return serializeJob(previous)
+    }
+    return enqueue(boundOpts, contentPackOptions, async () => {
+      await prepareManualGenerationRedoSource(opts.project_slug, opts.episode_id, source)
+    })
+  })
 }
 
 function currentAudioTtsEvidence(job: Job): GenStudioEvidence[] | null {

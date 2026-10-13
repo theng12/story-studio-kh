@@ -77,6 +77,46 @@ export function stampFreshGenerationAction<T extends Record<string, any>>(
   }
 }
 
+/** Validate the server-stamped identity and exact source link required by a manual redo. */
+export function assertManualGenerationRedoAction(
+  params: Record<string, any> | undefined,
+  sourceJobId: string,
+): { operationId: string; fingerprint: string } {
+  const action = params?.generation_action
+  const operationId = typeof action?.id === 'string' ? action.id.trim() : ''
+  const manualRedo = params?.manual_redo
+  const fingerprint = typeof params?.generation_action_fingerprint === 'string'
+    ? params.generation_action_fingerprint
+    : ''
+  if (!params || action?.kind !== 'fresh' || !UUID_V4.test(operationId) || !fingerprint) {
+    throw Object.assign(new Error('Manual redo requires a valid fresh generation action operation_id.'), {
+      status: 409,
+      expose: true,
+    })
+  }
+  if (manualRedo?.version !== 1
+    || manualRedo?.intent !== 'replace_unresolved'
+    || manualRedo?.source_job_id !== sourceJobId) {
+    throw Object.assign(new Error('Manual redo action does not match its source job.'), {
+      status: 409,
+      expose: true,
+    })
+  }
+  const fingerprintValue = structuredClone(params)
+  delete fingerprintValue.generation_action
+  delete fingerprintValue.generation_action_fingerprint
+  if (fingerprintValue.manual_redo && typeof fingerprintValue.manual_redo === 'object') {
+    delete fingerprintValue.manual_redo.requested_at
+  }
+  if (freshActionFingerprint(fingerprintValue) !== fingerprint) {
+    throw Object.assign(new Error('Manual redo generation action fingerprint does not match its request body.'), {
+      status: 409,
+      expose: true,
+    })
+  }
+  return { operationId, fingerprint }
+}
+
 /** Predicate for `jq.findJobs(slug, freshActionMatch(id))`, which serialises only the match. */
 export function freshActionMatch(operationId: string): (job: Readonly<Job>) => boolean {
   return job => job.params?.generation_action?.id === operationId

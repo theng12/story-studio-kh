@@ -11,7 +11,6 @@
  * review-then-save UX.
  */
 
-import fs from 'fs/promises'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -24,7 +23,6 @@ import { resolveEpisodePaths, resolveSubfolderNames } from '../services/utils.js
 import { readArtifactRawText } from '../lib/episode-artifacts.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { trackGeneration } from '../services/session-tracker.js'
-import { formatMetadataTxt } from '../services/metadata-format.js'
 import { buildDescriptionPrompt } from '../lib/metadata-prompt.js'
 import { inspectMusicStitch, musicMetadataContext } from '../services/music-episode-store.js'
 import {
@@ -39,10 +37,9 @@ import { metadataPlaceholderOutputContract } from '../lib/story-output-contracts
 import { sourcesSectionEnabled } from '../lib/research-sources.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { getEffectiveNicheFor } from '../services/niche-loader.js'
-import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import type { Job } from '../models/types.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import { writeMetadataCompletionManifest } from '../services/metadata-completion.js'
+import { writeMetadataPackage } from '../services/metadata-completion.js'
 import {
   finalizeYouTubeDescription,
   inspectYouTubeFinalizationStatus,
@@ -185,27 +182,6 @@ export async function readStoryContext(slug: string, episode_id: string, title: 
 // `buildDescriptionPrompt` is imported above from lib/metadata-prompt.ts —
 // shared with routes/scripts.ts so the section→prompt mapping has one
 // source of truth.
-
-function nextVersion(files: string[], code: string): number {
-  let max = 0
-  const re = new RegExp(`^${code}_Metadata(?:_v(\\d+))?\\.json$`)
-  for (const f of files) {
-    const m = f.match(re)
-    if (m) {
-      const v = m[1] ? parseInt(m[1], 10) : 1
-      if (v > max) max = v
-    }
-  }
-  return max + 1
-}
-
-function metadataFilenames(code: string, version: number): { json: string; txt: string } {
-  const suffix = version <= 1 ? '' : `_v${version}`
-  return {
-    json: `${code}_Metadata${suffix}.json`,
-    txt: `${code}_Metadata${suffix}.txt`,
-  }
-}
 
 async function resolveMetadataDir(slug: string, episode_id: string, title: string): Promise<string> {
   const paths = await resolveEpisodePaths(slug, episode_id, title || '')
@@ -641,54 +617,8 @@ Requirements:
       job.output_lines.push(`Warning: ${warning}`)
     }
 
-    // ── 5. Save (v1 always in batch; overwrites if a v1 exists) ─────────
+    // ── 5. Save ─────────────────────────────────────────────────────────
     const dir = await resolveMetadataDir(project_slug, episode_id, title)
-    const existing = await fs.readdir(dir).catch(() => [])
-    // Prefer overwriting v1. If v1 exists and the user had bumped past it,
-    // nextVersion ensures we write a fresh vN rather than stomp an edited v1.
-    const hasV1 = existing.some(f => f === `${episode_id}_Metadata.json`)
-    const writeVersion = hasV1 ? nextVersion(existing, episode_id) : 1
-
-    const meta = {
-      title: titles[0] || title,    // auto-pick the first title for batch mode
-      // Preserve all AI-generated title options so the user can pick a different
-      // one later from the metadata page without re-running generation. The
-      // metadata page hydrates its title-picker from this array on load.
-      title_options: titles.length ? titles : (title ? [title] : []),
-      description,
-      tags,
-      youtube_finalization: {
-        finalized_at: finalization.finalized_at,
-        audio_assembly_ready: finalization.audio_assembly_ready,
-        subtitle_complete: finalization.subtitle_complete,
-        subtitle_mode: finalization.subtitle_mode,
-        subtitle_missing_sections: finalization.subtitle_missing_sections,
-        outline_title_count: finalization.outline_title_count,
-        chapter_count: chapterStop ? 0 : finalization.chapter_count,
-        source_count: finalization.source_count,
-        lead_in_seconds: finalization.lead_in_seconds,
-        warnings: finalization.warnings,
-        description_bytes: fitted.bytes_after,
-        ...(fitted.trimmed ? { description_trimmed_from_bytes: fitted.bytes_before } : {}),
-      },
-      savedAt: new Date().toISOString(),
-      version: writeVersion,
-    }
-    const { json, txt } = metadataFilenames(episode_id, writeVersion)
-    const jsonPath = path.join(dir, json)
-    // Lock on the JSON path so a batch job and an interactive Save from
-    // routes/scripts.ts can't interleave and desync the .txt sidecar.
-    await withLock(jsonPath, async () => {
-      await writeJsonAtomic(jsonPath, meta)
-      await fs.writeFile(path.join(dir, txt), formatMetadataTxt(meta))
-    })
-
-    if (!preserveExistingPackage) {
-      await trackGeneration(project_slug, 'description').catch(() => {})
-    }
-    job.output_lines.push(`Saved → ${json} + ${txt}`)
-    job.output_dir = dir
-
     const expectedTitleCount = preserveExistingPackage
       ? titles.length
       : (templateOutput?.title || title_mode !== 'paraphrase' ? 1 : title_count)
@@ -707,8 +637,45 @@ Requirements:
     for (let index = tags.length; index < expectedTagCount; index++) {
       missing.push(`tag ${index + 1}`)
     }
+    const { json, txt } = await writeMetadataPackage({
+      dir,
+      code: episode_id,
+      mode: 'new',
+      build: ({ version }) => ({
+        title: titles[0] || title,    // auto-pick the first title for batch mode
+        // Preserve all AI-generated title options so the user can pick a different
+        // one later from the metadata page without re-running generation. The
+        // metadata page hydrates its title-picker from this array on load.
+        title_options: titles.length ? titles : (title ? [title] : []),
+        description,
+        tags,
+        youtube_finalization: {
+          finalized_at: finalization.finalized_at,
+          audio_assembly_ready: finalization.audio_assembly_ready,
+          subtitle_complete: finalization.subtitle_complete,
+          subtitle_mode: finalization.subtitle_mode,
+          subtitle_missing_sections: finalization.subtitle_missing_sections,
+          outline_title_count: finalization.outline_title_count,
+          chapter_count: chapterStop ? 0 : finalization.chapter_count,
+          source_count: finalization.source_count,
+          lead_in_seconds: finalization.lead_in_seconds,
+          warnings: finalization.warnings,
+          description_bytes: fitted.bytes_after,
+          ...(fitted.trimmed ? { description_trimmed_from_bytes: fitted.bytes_before } : {}),
+        },
+        savedAt: new Date().toISOString(),
+        version,
+      }),
+      completion: { expectedTitles: expectedTitleCount, expectedTags: expectedTagCount },
+    })
+
+    if (!preserveExistingPackage) {
+      await trackGeneration(project_slug, 'description').catch(() => {})
+    }
+    job.output_lines.push(`Saved → ${json} + ${txt}`)
+    job.output_dir = dir
+
     const expected = 2 + expectedTitleCount + expectedTagCount
-    await writeMetadataCompletionManifest(dir, episode_id, json, expectedTitleCount, expectedTagCount)
     requireJobCompletion(job, {
       label: 'YouTube finalization',
       expected,
