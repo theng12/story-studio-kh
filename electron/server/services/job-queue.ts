@@ -4138,6 +4138,17 @@ export function registerExecutor(type: JobType, executor: JobExecutor): void {
   queues[type].executor = executor
 }
 
+/** Test-only executor swap that restores the boot-registered implementation. */
+export function _setExecutorForTesting(type: JobType, executor: JobExecutor): () => void {
+  const previous = queues[type].executor
+  queues[type].executor = executor
+  return () => { queues[type].executor = previous }
+}
+
+export function _isJobWorkerActiveForTesting(jobId: string): boolean {
+  return activeRunJobIds.has(jobId)
+}
+
 export function initializeQueuePauseState(): Promise<void> {
   if (queuePauseLoaded) return Promise.resolve()
   if (!queuePauseInitialization) {
@@ -5233,9 +5244,77 @@ function withoutPaidImageReplacementParam(params: EnqueueOptions['params']): Enq
   return sanitized
 }
 
+type ChapterWriterAdmissionScope = Pick<EnqueueOptions, 'project_slug' | 'episode_id' | 'type' | 'params' | 'dedupeParams'>
+type ChapterWriterAdmissionReservation = { owner: symbol; scope: ChapterWriterAdmissionScope }
+
+/**
+ * An async enqueue owns this episode from its first guarded admission check
+ * through any awaited pre-admission work and the final synchronous insertion.
+ * Direct enqueuePrepared callers (notably Jobs Retry) cannot acquire the
+ * async lock, so they must observe this private, unforgeable reservation.
+ */
+const chapterWriterAdmissionReservations = new Map<string, ChapterWriterAdmissionReservation>()
+
+function isChapterWriterScope(scope: Pick<EnqueueOptions, 'type'>): boolean {
+  return scope.type === 'expand_chapters' || scope.type === 'chapter-only'
+}
+
+function chapterWriterReservationConflicts(
+  requested: ChapterWriterAdmissionScope,
+  reserved: ChapterWriterAdmissionScope,
+): boolean {
+  if (requested.type === 'expand_chapters') return isChapterWriterScope(reserved)
+  if (requested.type !== 'chapter-only') return false
+  if (reserved.type === 'expand_chapters') return true
+  if (reserved.type !== 'chapter-only') return false
+  return requested.dedupeParams ? requested.dedupeParams(reserved.params || {}) : true
+}
+
+function reserveChapterWriterAdmission(scope: ChapterWriterAdmissionScope): symbol | null {
+  if (!isChapterWriterScope(scope)) return null
+  const key = episodeMediaAdmissionKey(scope.project_slug, scope.episode_id)
+  const owner = Symbol('chapter-writer-admission')
+  chapterWriterAdmissionReservations.set(key, { owner, scope })
+  return owner
+}
+
+function releaseChapterWriterAdmission(scope: ChapterWriterAdmissionScope, owner: symbol | null): void {
+  if (!owner) return
+  const key = episodeMediaAdmissionKey(scope.project_slug, scope.episode_id)
+  if (chapterWriterAdmissionReservations.get(key)?.owner === owner) {
+    chapterWriterAdmissionReservations.delete(key)
+  }
+}
+
+function assertChapterWriterAdmission(
+  opts: ChapterWriterAdmissionScope,
+  admissionOwner?: symbol,
+): void {
+  if (!isChapterWriterScope(opts)) return
+  const reserved = chapterWriterAdmissionReservations.get(episodeMediaAdmissionKey(opts.project_slug, opts.episode_id))
+  if (reserved && reserved.owner !== admissionOwner && chapterWriterReservationConflicts(opts, reserved.scope)) {
+    throw new DuplicateJobError(opts.type, opts.episode_id)
+  }
+  for (const job of jobs.values()) {
+    if (job.project_slug !== opts.project_slug || job.episode_id !== opts.episode_id) continue
+    const occupiesEpisode = job.status === 'queued' || job.status === 'running' || job.status === 'paused'
+      || activeRunJobIds.has(job.job_id)
+    if (!occupiesEpisode) continue
+    const sameTargetedChapterStillUnwinding = opts.type === 'chapter-only'
+      && job.type === 'chapter-only'
+      && activeRunJobIds.has(job.job_id)
+      && (!opts.dedupeParams || opts.dedupeParams(job.params || {}))
+    const conflicts = opts.type === 'expand_chapters'
+      ? job.type === 'expand_chapters' || job.type === 'chapter-only'
+      : job.type === 'expand_chapters' || sameTargetedChapterStillUnwinding
+    if (conflicts) throw new DuplicateJobError(opts.type, opts.episode_id)
+  }
+}
+
 function enqueuePrepared(
   opts: EnqueuePreparedOptions,
   contentPackProvenance: Job['content_pack_provenance'] = [],
+  chapterWriterAdmissionOwner?: symbol,
 ): Job {
   if (episodeMediaCleanupInProgress.has(episodeMediaAdmissionKey(opts.project_slug, opts.episode_id))) {
     throw Object.assign(
@@ -5253,6 +5332,7 @@ function enqueuePrepared(
     && finishMissingReservations.has(finishMissingReservationKey(opts.project_slug, opts.episode_id))) {
     throw new DuplicateJobError(opts.type, opts.episode_id)
   }
+  assertChapterWriterAdmission(opts, chapterWriterAdmissionOwner)
   // Cross-type atomic dedupe for the retired Scene Review batch name and the
   // canonical continuity renderer. Full renders conflict with either full
   // type; a single-scene repair also waits behind an active full render.
@@ -5361,6 +5441,24 @@ export function withEpisodeMediaAdmissionLock<T>(
   return withLock(`episode-media-admission:${episodeMediaAdmissionKey(projectSlug, episodeId)}`, fn)
 }
 
+type EpisodeAdmissionProbe = (scope: Pick<EnqueueOptions, 'project_slug' | 'episode_id' | 'type'>) => Promise<void>
+let episodeAdmissionProbeForTesting: EpisodeAdmissionProbe | null = null
+let chapterWriterAdmissionCallbackProbeForTesting: EpisodeAdmissionProbe | null = null
+
+/** Test-only barrier immediately before the episode admission lock. */
+export function _setEpisodeAdmissionProbeForTesting(probe: EpisodeAdmissionProbe | null): () => void {
+  const previous = episodeAdmissionProbeForTesting
+  episodeAdmissionProbeForTesting = probe
+  return () => { episodeAdmissionProbeForTesting = previous }
+}
+
+/** Test-only barrier after chapter admission is reserved and before a destructive callback. */
+export function _setChapterWriterAdmissionCallbackProbeForTesting(probe: EpisodeAdmissionProbe | null): () => void {
+  const previous = chapterWriterAdmissionCallbackProbeForTesting
+  chapterWriterAdmissionCallbackProbeForTesting = probe
+  return () => { chapterWriterAdmissionCallbackProbeForTesting = previous }
+}
+
 /** Hold the episode admission lock while a reviewed local file is being mutated. */
 export function withEpisodeMediaCleanupLock<T>(
   projectSlug: string,
@@ -5406,15 +5504,36 @@ export async function enqueue(
       snapshotted_at: new Date().toISOString(),
     }))
     : undefined
+  await episodeAdmissionProbeForTesting?.({
+    project_slug: opts.project_slug,
+    episode_id: opts.episode_id,
+    type: opts.type,
+  })
   return withEpisodeMediaAdmissionLock(opts.project_slug, opts.episode_id, async () => {
     // Pipeline must recheck deliberate cleanup after acquiring admission, so
     // a cleanup completed while it prepared cannot trigger regeneration.
-    await beforeAdmission?.()
-    return enqueuePrepared({
-      ...enqueueOpts,
-      params: jobParams,
-      ...(paid_image_replacement ? { paid_image_replacement } : {}),
-    }, provenance)
+    // Chapter writers also check before an awaited admission callback so a
+    // refused manual replacement cannot abandon its source first.
+    const admissionScope = { ...enqueueOpts, params: jobParams }
+    assertChapterWriterAdmission(admissionScope)
+    const chapterWriterAdmissionOwner = reserveChapterWriterAdmission(admissionScope)
+    try {
+      if (chapterWriterAdmissionOwner) {
+        await chapterWriterAdmissionCallbackProbeForTesting?.({
+          project_slug: opts.project_slug,
+          episode_id: opts.episode_id,
+          type: opts.type,
+        })
+      }
+      await beforeAdmission?.()
+      return enqueuePrepared({
+        ...enqueueOpts,
+        params: jobParams,
+        ...(paid_image_replacement ? { paid_image_replacement } : {}),
+      }, provenance, chapterWriterAdmissionOwner || undefined)
+    } finally {
+      releaseChapterWriterAdmission(admissionScope, chapterWriterAdmissionOwner)
+    }
   })
 }
 
@@ -5773,10 +5892,39 @@ export function hasUnresolvedTerminalChapterExpansion(projectSlug: string, episo
     job.project_slug === projectSlug
     && job.episode_id === episodeId
     && job.type === 'expand_chapters'
+    && !job.force_abandoned
     && (job.status === 'error' || job.status === 'cancelled')
     && chatEntries(job).length > 0
     && chatEntries(job).some(entry => !isResolvedChatEntry(entry)),
   )
+}
+
+/** Validate and abandon only the exact unresolved chapter source named by an explicit manual action. */
+export async function prepareUnresolvedChapterExpansionRedo(
+  projectSlug: string,
+  episodeId: string,
+  sourceJobId: string,
+): Promise<Job> {
+  await loadPersistedJobs(projectSlug)
+  const source = jobs.get(sourceJobId)
+  if (!source || source.project_slug !== projectSlug) {
+    throw Object.assign(new Error('Manual redo source job was not found in this project.'), { status: 404, expose: true })
+  }
+  if (source.type !== 'expand_chapters' || source.episode_id !== episodeId) {
+    throw Object.assign(new Error('Manual redo source must be a chapter expansion for the same episode.'), { status: 409, expose: true })
+  }
+  if (source.status !== 'error' && source.status !== 'cancelled') {
+    throw Object.assign(new Error('Manual redo source must be a stopped chapter expansion.'), { status: 409, expose: true })
+  }
+  if (!chatEntries(source).length || !chatEntries(source).some(entry => !isResolvedChatEntry(entry))) {
+    throw Object.assign(new Error('Manual redo source has no unresolved Gateway chat request.'), { status: 409, expose: true })
+  }
+  if (activeRunJobIds.has(source.job_id)) {
+    throw Object.assign(new Error('The stopped chapter writer is still finishing locally. Try again after it releases the episode.'), { status: 409, expose: true })
+  }
+  return source.force_abandoned
+    ? serializeJob(source)
+    : forceAbandonJob(projectSlug, source.job_id)
 }
 
 function currentAudioTtsEvidence(job: Job): GenStudioEvidence[] | null {

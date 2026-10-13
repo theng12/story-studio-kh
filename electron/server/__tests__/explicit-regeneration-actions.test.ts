@@ -11,12 +11,41 @@ import { runFfmpeg } from '../lib/ffmpeg-utils.js'
 import { useTempDataDir } from './_helpers.js'
 import { waitFor } from './_timing.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
+import { readManualGenerationRedoIntent, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 
 const server = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 async function source(relative: string): Promise<string> {
   return readFile(path.join(server, relative), 'utf8')
 }
+
+test('manual generation redo accepts one strict client intent and fingerprints stable server metadata', () => {
+  assert.deepEqual(readManualGenerationRedoIntent({
+    manual_redo: { intent: 'replace_unresolved', source_job_id: 'source-job' },
+  }), { intent: 'replace_unresolved', source_job_id: 'source-job' })
+  assert.equal(readManualGenerationRedoIntent({}), null)
+  for (const manual_redo of [
+    {},
+    { intent: 'replace_unresolved' },
+    { intent: 'other', source_job_id: 'source-job' },
+    { intent: 'replace_unresolved', source_job_id: 'source-job', target: [10] },
+  ]) assert.throws(() => readManualGenerationRedoIntent({ manual_redo }), /manual_redo/)
+
+  const operationId = '11111111-1111-4111-8111-111111111111'
+  const base = {
+    model: 'writer',
+    manual_redo: {
+      version: 1, intent: 'replace_unresolved', source_job_id: 'source-job',
+      requested_at: '2026-10-13T00:00:00.000Z', target_chapters: [10, 11], selected_model_id: 'writer',
+    },
+  }
+  const a = stampFreshGenerationAction(base, operationId)
+  const b = stampFreshGenerationAction({
+    ...base,
+    manual_redo: { ...base.manual_redo, requested_at: '2026-10-14T00:00:00.000Z' },
+  }, operationId)
+  assert.equal(a.generation_action_fingerprint, b.generation_action_fingerprint)
+})
 
 test('per-scene image re-roll preserves the caller operation identity through route replay and provider keying', async () => {
   const [route, generator] = await Promise.all([

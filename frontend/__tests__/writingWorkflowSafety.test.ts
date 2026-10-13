@@ -22,7 +22,12 @@ test('writing actions retain an accepted request identity until the POST confirm
   assert.match(scripts, /params\.operation_id = operationId/)
 
   assert.match(outline, /freshOutlineExpansionAction\.begin\(body/)
-  assert.match(outline, /operation_id: operationId/)
+  assert.match(outline, /const body = JSON\.parse\(JSON\.stringify\(draft\.body\)\)/)
+  assert.match(outline, /const target = draft\.chapters \? `expand:\$\{draft\.chapters\.join\(','\)\}` : 'expand:all'/)
+  assert.match(outline, /const operationId = freshOutlineExpansionAction\.begin\(body, target\)/)
+  assert.match(outline, /await submitExpansion\(\{ \.\.\.draft, body, operationId \}\)/)
+  assert.match(outline, /operation_id: submission\.operationId/)
+  assert.match(outline, /freshOutlineExpansionAction\.complete\(submission\.operationId\)/)
 
   assert.match(metadata, /freshMetadataAction\.begin\(payload\)/)
   assert.match(metadata, /operation_id: operationId/)

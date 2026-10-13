@@ -497,6 +497,16 @@ export function chapterBelongsToOutline(sidecar: Pick<ChunkedSidecar, 'outline_c
   }
 }
 
+function validChapterNumbersForOutline(scriptDir: string, sidecar: ChunkedSidecar): number[] {
+  return sidecar.outline
+    .map(entry => entry.n)
+    .filter(n => {
+      const file = resolveReadPath(chapterFilePath(scriptDir, sidecar.episode_id, n))
+      return chapterFileLooksValid(file) && chapterBelongsToOutline(sidecar, file)
+    })
+    .sort((a, b) => a - b)
+}
+
 export interface ChunkedScriptCompletion {
   complete: boolean
   approved: boolean
@@ -932,16 +942,9 @@ export async function expandChapters(
   // Disk verification: the files are authoritative, not chapters_done.
   // A crash can land a chapter file just before its sidecar update; checking
   // only chapters_done would regenerate and overwrite that valid chapter.
-  const verifiedDone = new Set<number>()
-  for (const entry of sidecar.outline) {
-    const n = entry.n
-    // resolveReadPath: a legacy episode's chapter may be .docx, not .md —
-    // it must still count as done so resume doesn't re-generate it.
-    const file = resolveReadPath(chapterFilePath(params.scriptDir, params.episode_id, n))
-    if (chapterFileLooksValid(file) && chapterBelongsToOutline(sidecar, file)) {
-      verifiedDone.add(n)
-    }
-  }
+  // resolveReadPath: a legacy episode's chapter may be .docx, not .md —
+  // it must still count as done so resume doesn't re-generate it.
+  const verifiedDone = new Set(validChapterNumbersForOutline(params.scriptDir, sidecar))
   const recordedDone = [...sidecar.chapters_done].sort((a, b) => a - b)
   const actualDone = Array.from(verifiedDone).sort((a, b) => a - b)
   if (actualDone.length !== recordedDone.length || actualDone.some((n, i) => n !== recordedDone[i])) {
@@ -998,15 +1001,27 @@ export async function expandChapters(
   }
 
   // Final sidecar sweep.
-  const finalSidecar = await readSidecar(params.scriptDir, params.episode_id)
-  const written = finalSidecar?.chapters_done.length ?? verifiedDone.size
+  let finalSidecar = await readSidecar(params.scriptDir, params.episode_id)
+  const finalDone = finalSidecar
+    ? validChapterNumbersForOutline(params.scriptDir, finalSidecar)
+    : Array.from(verifiedDone).sort((a, b) => a - b)
+  const recordedFinalDone = finalSidecar?.chapters_done || []
+  if (finalSidecar && (finalDone.length !== recordedFinalDone.length || finalDone.some((n, i) => n !== recordedFinalDone[i]))) {
+    finalSidecar = { ...finalSidecar, chapters_done: finalDone, last_updated: new Date().toISOString() }
+  }
+  const written = finalDone.length
 
   // Persist the model that ACTUALLY wrote these chapters (the one chosen for
   // this run) back into the sidecar, so a later expand-chapters run reads it.
-  if (finalSidecar?.generation_params && finalSidecar.generation_params.model !== params.model) {
+  if (finalSidecar && (
+    (finalSidecar.generation_params && finalSidecar.generation_params.model !== params.model)
+    || finalSidecar.chapters_done !== recordedFinalDone
+  )) {
     await writeSidecar(params.scriptDir, {
       ...finalSidecar,
-      generation_params: { ...finalSidecar.generation_params, model: params.model },
+      ...(finalSidecar.generation_params
+        ? { generation_params: { ...finalSidecar.generation_params, model: params.model } }
+        : {}),
     })
   }
 
@@ -1971,7 +1986,12 @@ async function parseAndWriteBatch(
       .filter(c => expected.has(c.number)),
   }
   if (filtered.chapters.length === 0) return []
-  await writeChapterFiles(params.scriptDir, params.episode_id, params.title, filtered, { log: params.log })
+  const sidecar = await readSidecar(params.scriptDir, params.episode_id)
+  await writeChapterFiles(params.scriptDir, params.episode_id, params.title, filtered, {
+    log: params.log,
+    preserveExisting: true,
+    preserveExistingSince: sidecar?.outline_completed_at,
+  })
   return filtered.chapters.map(c => c.number).sort((a, b) => a - b)
 }
 

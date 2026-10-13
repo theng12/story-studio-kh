@@ -24,9 +24,8 @@ async function loadSceneReview(): Promise<Component> {
   const vueUrl = await import.meta.resolve('vue')
   const freshActionUrl = await import.meta.resolve('../composables/useFreshGenerationAction.ts')
   const support = `
-    import { computed, defineComponent as _defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, unref } from ${JSON.stringify(vueUrl)}
+    import { computed, defineComponent as _defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, unref, watch } from ${JSON.stringify(vueUrl)}
     import { useFreshGenerationAction } from ${JSON.stringify(freshActionUrl)}
-    const watch = () => () => undefined
     const definePageMeta = () => undefined
     const useAppTitle = () => undefined
     const useRoute = () => globalThis.__sceneReviewRoute
@@ -34,7 +33,10 @@ async function loadSceneReview(): Promise<Component> {
     const useProject = () => ({ config: ref({ image_models: {} }) })
     const useApi = () => globalThis.__sceneReviewApi
     const useToast = () => ({ success: () => undefined, error: (message) => globalThis.__sceneReviewErrors.push(message), info: () => undefined })
-    const useConfirm = () => ({ ask: (options) => globalThis.__sceneReviewAsk(options) })
+    const useConfirm = () => ({
+      ask: (options) => globalThis.__sceneReviewConfirm.ask(options),
+      cancel: () => globalThis.__sceneReviewConfirm.cancel(),
+    })
     const useEpisodes = () => ({ updateEpisode: () => undefined, revalidateAfterMutation: () => undefined })
     const useRememberedForm = () => undefined
     const usePresets = () => ({ load: async () => undefined })
@@ -66,7 +68,27 @@ async function loadSceneReview(): Promise<Component> {
           ? h('p', { id: 'still-generating' }, 'Still generating ' + unref(state.manualFinishStillGeneratingCount))
           : null,
         unref(state.replaceableUncertainJob)
-          ? h('button', { id: 'replace-anyway', onClick: state.replaceUncertainImages }, 'Replace anyway')
+          ? h('section', { id: 'uncertain-notice' }, [
+              h('button', { id: 'check-again', onClick: state.checkUncertainAgain }, 'Check Again'),
+              unref(state.manualRedoPreferenceEnabled)
+                ? h('button', { id: 'replace-anyway', onClick: state.replaceUncertainImages }, 'Replace anyway')
+                : null,
+            ])
+          : null,
+        h('button', {
+          id: 'finish-missing',
+          disabled: !unref(state.canBulkGenerate) || unref(state.reviewJobActive),
+          onClick: state.finishMissingImages,
+        }, 'Finish Missing'),
+        unref(state.scenes)[0]
+          ? h('button', {
+              id: 'generate-scene',
+              disabled: !unref(state.form).model || unref(state.reviewJobActive),
+              onClick: () => state.generateOne(unref(state.scenes)[0]),
+            }, 'Generate Image')
+          : null,
+        unref(state.failedRenderJob)
+          ? h('button', { id: 'retry-render', onClick: state.retryFailedRender }, 'Retry')
           : null,
         unref(state.isQueuedRecoveryRender)
           ? h('div', { id: 'queued-repair-scope' }, [
@@ -82,18 +104,69 @@ async function loadSceneReview(): Promise<Component> {
   ).toString('base64')}`)).default
 }
 
-async function mount(jobs: JobFixture[]) {
+async function flush(): Promise<void> {
+  for (let i = 0; i < 4; i++) {
+    await nextTick()
+    await new Promise(resolve => setTimeout(resolve, 0))
+  }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(yes => { resolve = yes })
+  return { promise, resolve }
+}
+
+async function mount(jobs: JobFixture[], options: {
+  settings?: Array<unknown | Promise<unknown> | Error>
+  replaceResponses?: Array<unknown | Error>
+} = {}) {
   const calls: Array<{ path: string; body: any }> = []
   const route = reactive({ params: { slug: 'fixture-project' }, query: { episode_id: 'EP0001' } })
   const jobState = ref(jobs)
+  const confirmations: Array<{ options: any; settled?: boolean }> = []
   let resolveConfirm: ((value: boolean) => void) | null = null
+  let pendingConfirmation: { options: any; settled?: boolean } | null = null
+  const settingResponses = [...(options.settings || [{ enabled: false }])]
+  const replaceResponses = [...(options.replaceResponses || [])]
   ;(globalThis as any).__sceneReviewRoute = route
   ;(globalThis as any).__sceneReviewJobs = jobState
   ;(globalThis as any).__sceneReviewErrors = []
-  ;(globalThis as any).__sceneReviewAsk = () => new Promise<boolean>(resolve => { resolveConfirm = resolve })
+  ;(globalThis as any).__sceneReviewConfirm = {
+    ask: (confirmationOptions: any) => new Promise<boolean>(resolve => {
+      pendingConfirmation = { options: confirmationOptions }
+      confirmations.push(pendingConfirmation)
+      resolveConfirm = (value) => {
+        pendingConfirmation!.settled = value
+        pendingConfirmation = null
+        resolveConfirm = null
+        resolve(value)
+      }
+    }),
+    cancel: () => resolveConfirm?.(false),
+  }
   ;(globalThis as any).__sceneReviewApi = {
-    get: async () => ({ scene_plan: null, scenes: [], audio_path: null, stats: null, render_status: null }),
-    post: async (path: string, body: any) => { calls.push({ path, body }); return { queued: 1, skipped: 0, job_id: 'posted-job' } },
+    get: async (path: string) => {
+      if (path === '/app-settings/manual-generation-redo') {
+        const response = settingResponses.length ? settingResponses.shift() : { enabled: false }
+        if (response instanceof Error) throw response
+        return await response
+      }
+      if (path.endsWith('/effective-format')) return { visualSource: 'scene_plan' }
+      if (path.includes('/scene-review/')) {
+        return { scene_plan: null, scenes: [], audio_path: null, stats: null, render_status: null }
+      }
+      throw new Error(`unexpected GET ${path}`)
+    },
+    post: async (path: string, body: any) => {
+      calls.push({ path, body })
+      if (path.endsWith('/replace-uncertain') && replaceResponses.length) {
+        const response = replaceResponses.shift()
+        if (response instanceof Error) throw response
+        return response
+      }
+      return { queued: 1, skipped: 0, job_id: 'posted-job' }
+    },
     put: async () => ({}),
   }
   const Page = await loadSceneReview()
@@ -101,11 +174,15 @@ async function mount(jobs: JobFixture[]) {
   const app = createApp(Page)
   app.mount(host)
   await nextTick()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  await nextTick()
   return {
     host,
+    route,
     jobs: jobState,
     state: (globalThis as any).__sceneReviewState,
     calls,
+    confirmations,
     acceptConfirmation: () => resolveConfirm?.(true),
     unmount: () => { app.unmount(); host.remove() },
   }
@@ -118,13 +195,65 @@ const manual = (overrides: Partial<JobFixture> = {}): JobFixture => ({
   ...overrides,
 })
 
-test('mounted Scene Review keeps still-generating and uncertain subsets separate', async () => {
+test('mounted Scene Review keeps still-generating and uncertain subsets separate when exposure is enabled', async () => {
   const mounted = await mount([manual({ params: { manual_image_finish: {
     still_generating_scene_ids: ['scene-running'], uncertain_scene_ids: ['scene-unknown'],
-  } } })])
+  } } })], { settings: [{ enabled: true }] })
   assert.match(mounted.host.textContent || '', /Still generating 1/)
+  assert.ok(mounted.host.querySelector('#uncertain-notice'), mounted.host.innerHTML)
+  assert.ok(mounted.host.querySelector('#check-again'), mounted.host.innerHTML)
   assert.ok(mounted.host.querySelector('#replace-anyway'), mounted.host.innerHTML)
   mounted.unmount()
+})
+
+test('off, corrupt, and failed settings hide only exceptional replacement controls', async () => {
+  for (const setting of [{ enabled: false }, { enabled: 'yes' }, new Error('offline')]) {
+    const mounted = await mount([
+      manual({ params: { manual_image_finish: { uncertain_scene_ids: ['scene-unknown'] } } }),
+    ], { settings: [setting] })
+    try {
+      assert.ok(mounted.host.querySelector('#uncertain-notice'), mounted.host.innerHTML)
+      assert.ok(mounted.host.querySelector('#check-again'), mounted.host.innerHTML)
+      assert.equal(mounted.host.querySelector('#replace-anyway'), null, mounted.host.innerHTML)
+
+      mounted.state.stats.value = { total_scenes: 1, with_image: 0, approved: 0, all_approved: false }
+      mounted.state.promptIntegrity.value = { complete: true, empty_ids: [], duplicate_ids: [] }
+      mounted.state.subtitleIntegrity.value = { complete: true, missing_sections: [] }
+      mounted.state.form.value.model = 'published-image-model'
+      mounted.state.scenes.value = [{
+        id: 'scene-missing', scene_index: 1, visual_prompt: 'A lantern in a quiet archive.', image_filename: null,
+      }]
+      await flush()
+      assert.equal(mounted.host.querySelector<HTMLButtonElement>('#finish-missing')?.disabled, false)
+      assert.equal(mounted.host.querySelector<HTMLButtonElement>('#generate-scene')?.disabled, false)
+    } finally { mounted.unmount() }
+  }
+
+  const retry = await mount([{
+    job_id: 'failed-render', type: 'scene_image_generate', episode_id: 'EP0001', status: 'error',
+    created_at: '2026-09-06T10:00:00.000Z',
+  }], { settings: [new Error('offline')] })
+  assert.ok(retry.host.querySelector('#retry-render'), retry.host.innerHTML)
+  retry.unmount()
+})
+
+test('a stale enabled settings read cannot overwrite the current disabled scope', async () => {
+  const oldScope = deferred<unknown>()
+  const currentScope = deferred<unknown>()
+  const mounted = await mount([
+    manual({ params: { manual_image_finish: { uncertain_scene_ids: ['scene-unknown'] } } }),
+  ], { settings: [oldScope.promise, currentScope.promise] })
+  try {
+    assert.equal(mounted.host.querySelector('#replace-anyway'), null)
+    mounted.state.episodeId.value = 'EP0002'
+    currentScope.resolve({ enabled: false })
+    await flush()
+    assert.equal(mounted.host.querySelector('#replace-anyway'), null)
+    oldScope.resolve({ enabled: true })
+    await flush()
+    assert.equal(mounted.state.manualRedoPreferenceEnabled.value, false)
+    assert.equal(mounted.host.querySelector('#replace-anyway'), null)
+  } finally { mounted.unmount() }
 })
 
 test('mounted Scene Review posts one current-selection Finish action without a second confirmation', async () => {
@@ -170,14 +299,83 @@ test('mounted Scene Review suppresses an older uncertain action after a newer co
   mounted.unmount()
 })
 
-test('mounted Scene Review abandons a replacement confirmation after its episode changes', async () => {
-  const mounted = await mount([manual({ params: { manual_image_finish: { uncertain_scene_ids: ['scene-unknown'] } } })])
-  const pending = mounted.state.replaceUncertainImages()
-  mounted.state.episodeId.value = 'EP0002'
-  mounted.acceptConfirmation()
-  await pending
-  assert.equal(mounted.calls.length, 0, 'a confirmation for EP0001 must not post into EP0002')
-  mounted.unmount()
+test('enabled replacement opens the duplicate-charge dialog and project or episode switches cancel it before POST', async () => {
+  for (const changeScope of ['project', 'episode'] as const) {
+    const mounted = await mount([
+      manual({ params: { manual_image_finish: { uncertain_scene_ids: ['scene-unknown'] } } }),
+    ], { settings: [{ enabled: true }] })
+    try {
+      assert.equal(mounted.host.querySelectorAll('#replace-anyway').length, 1)
+      const pending = mounted.state.replaceUncertainImages()
+      await nextTick()
+      assert.equal(mounted.confirmations.length, 1, 'the enabled control must open the real confirmation path')
+      assert.match(mounted.confirmations[0].options.message, /may create a second image and may charge again/i)
+
+      if (changeScope === 'project') mounted.route.params.slug = 'other-project'
+      else mounted.state.episodeId.value = 'EP0002'
+      await pending
+      await flush()
+
+      assert.equal(mounted.confirmations[0].settled, false, `${changeScope} switch cancels the open dialog`)
+      assert.equal(mounted.calls.filter(call => call.path.endsWith('/replace-uncertain')).length, 0)
+    } finally { mounted.unmount() }
+  }
+})
+
+test('unknown-response retry keeps one source/action identity; a source switch cancels then mints a new identity', async () => {
+  const source = manual({
+    job_id: 'source-old',
+    params: { manual_image_finish: { uncertain_scene_ids: ['scene-old'] } },
+  })
+  const mounted = await mount([source], {
+    settings: [{ enabled: true }],
+    replaceResponses: [new Error('unknown response'), new Error('unknown response'), new Error('unknown response')],
+  })
+  try {
+    mounted.state.form.value.model = 'published-image-model'
+    mounted.state.form.value.aspect_ratio = '16:9'
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const pending = mounted.state.replaceUncertainImages()
+      await nextTick()
+      assert.equal(mounted.confirmations.length, attempt + 1)
+      mounted.acceptConfirmation()
+      await pending
+      assert.equal(mounted.confirmations[attempt].settled, true)
+    }
+    const replacements = mounted.calls.filter(call => call.path.endsWith('/replace-uncertain'))
+    assert.equal(replacements.length, 2)
+    assert.equal(replacements[0].body.source_job_id, 'source-old')
+    assert.match(replacements[0].body.action_id, /^[0-9a-f-]{36}$/i)
+    assert.equal(replacements[1].body.action_id, replacements[0].body.action_id,
+      'retry after an unknown response keeps the captured action UUID')
+    assert.equal(replacements[1].body.source_job_id, replacements[0].body.source_job_id)
+
+    const oldDialog = mounted.state.replaceUncertainImages()
+    await nextTick()
+    assert.equal(mounted.confirmations.length, 3)
+    mounted.jobs.value = [manual({
+      job_id: 'source-new',
+      created_at: '2026-09-06T11:00:00.000Z',
+      params: { manual_image_finish: { uncertain_scene_ids: ['scene-new'] } },
+    })]
+    await oldDialog
+    await flush()
+    assert.equal(mounted.confirmations[2].settled, false, 'source switch cancels the old open dialog')
+    assert.equal(mounted.calls.filter(call => call.path.endsWith('/replace-uncertain')).length, 2,
+      'the cancelled old-source dialog submits nothing')
+
+    const newSource = mounted.state.replaceUncertainImages()
+    await nextTick()
+    assert.equal(mounted.confirmations.length, 4)
+    mounted.acceptConfirmation()
+    await newSource
+    assert.equal(mounted.confirmations[3].settled, true)
+    const afterSwitch = mounted.calls.filter(call => call.path.endsWith('/replace-uncertain'))
+    assert.equal(afterSwitch.length, 3)
+    assert.equal(afterSwitch[2].body.source_job_id, 'source-new')
+    assert.notEqual(afterSwitch[2].body.action_id, replacements[0].body.action_id)
+  } finally { mounted.unmount() }
 })
 
 test('mounted Scene Review names only the exact recovery target as queued for repair', async () => {

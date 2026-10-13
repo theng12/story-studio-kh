@@ -4,6 +4,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import type { Job, JobType } from '../models/types.js'
+import { CIRCULAR_MARKER, repairCircularParams, type RepairableJob } from '../lib/circular-params-repair.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import * as jq from './job-queue.js'
 import { getProjectDir, listProjects } from './project-manager.js'
@@ -201,16 +202,73 @@ export function episodeRecoveryStep(type: string): EpisodeRecoveryStep | null {
   return EPISODE_RECOVERY_ORDER.includes(type as EpisodeRecoveryStep) ? type as EpisodeRecoveryStep : null
 }
 
-export function createEpisodeRecoveryPlan(jobs: Job[], sourceJobIds: string[] = []): EpisodeRecoveryPlan {
+function repairRecoveryNodeParams(
+  plan: EpisodeRecoveryPlan,
+  jobId: string,
+  input: Job['params'],
+  pool: RepairableJob[],
+  exactSource?: RepairableJob,
+): Job['params'] {
+  const bags = (params: Job['params']): Array<Record<string, unknown>> => [params || {},
+    ...(Array.isArray(params?.pipeline_chain) ? params.pipeline_chain
+      .map((link: { params?: unknown } | null) => link?.params && typeof link.params === 'object'
+        ? link.params as Record<string, unknown> : null)
+      .filter((bag): bag is Record<string, unknown> => !!bag) : [])]
+  const marked = [...new Set(bags(input).flatMap(bag => Object.keys(bag).filter(key => bag[key] === CIRCULAR_MARKER)))]
+  if (!marked.length) return structuredClone(input || {})
+  const params = structuredClone(input || {})
+  const hadBatch = params.pipeline_batch_id !== undefined
+  const hadRecovery = params.episode_recovery_id !== undefined
+  params.pipeline_batch_id ||= plan.pipeline_batch_id || exactSource?.params?.pipeline_batch_id
+  params.episode_recovery_id ||= plan.id
+  const target: RepairableJob = {
+    job_id: jobId,
+    project_slug: plan.project_slug,
+    episode_id: plan.episode_id,
+    params,
+  }
+  repairCircularParams([target], [...(exactSource ? [exactSource] : []), ...pool, target], () => {})
+  for (const key of marked) {
+    if (!bags(params).some(bag => bag[key] !== undefined && bag[key] !== CIRCULAR_MARKER)) {
+      throw new Error(`Saved recovery setting ${key} could not be restored from its original Pipeline run. No recovery job was queued.`)
+    }
+  }
+  if (!hadBatch) delete params.pipeline_batch_id
+  if (!hadRecovery) delete params.episode_recovery_id
+  return params
+}
+
+/** Repair old recovery snapshots before they can create or resume a child. Never uses current project defaults. */
+export function repairEpisodeRecoveryPlanParams(plan: EpisodeRecoveryPlan, jobs: Job[]): boolean {
+  const repairs: Array<[RecoveryJob | RecoveryContinuation, Job['params']]> = []
+  for (const node of [...Object.values(plan.steps), ...(plan.continuation || [])]) {
+    if (!node) continue
+    const sourceJobId = 'source_job_id' in node && typeof node.source_job_id === 'string' ? node.source_job_id : undefined
+    const source = sourceJobId ? jobs.find(job => job.job_id === sourceJobId) : undefined
+    const jobId = 'job_id' in node && typeof node.job_id === 'string' ? node.job_id : `${plan.id}:${node.type}`
+    const params = repairRecoveryNodeParams(plan, jobId, node.params || {}, jobs, source)
+    if (!isDeepStrictEqual(params, node.params || {})) repairs.push([node, params])
+  }
+  for (const [node, params] of repairs) node.params = params
+  return repairs.length > 0
+}
+
+export function createEpisodeRecoveryPlan(jobs: Job[], sourceJobIds: string[] = [], settingsPool: Job[] = jobs): EpisodeRecoveryPlan {
   if (!jobs.length) throw new Error('Recovery requires an existing episode job.')
   const first = jobs[0]
   const id = randomUUID()
   const plan: EpisodeRecoveryPlan = { version: 1, id, project_slug: first.project_slug, episode_id: first.episode_id,
     target: 'subtitle_stitch', steps: {}, completed: [], first_unresolved: 'audio_merge', message: 'Checking episode prerequisites.' }
-  const add = (type: string, title: string, input: Job['params'], source?: Job) => {
+  const add = (type: string, title: string, input: Job['params'], source?: Job, settingsSource?: Job) => {
     const step = episodeRecoveryStep(type)
     if (!step) return
-    const params = structuredClone(input || {})
+    const params = repairRecoveryNodeParams(
+      plan,
+      source?.job_id || `${first.job_id}:${step}`,
+      input,
+      settingsPool,
+      settingsSource || source,
+    )
     delete params.pipeline_chain
     delete params.subtitle_purchase
     if (source?.status === 'cancelled') params.force = false
@@ -242,7 +300,7 @@ export function createEpisodeRecoveryPlan(jobs: Job[], sourceJobIds: string[] = 
       plan.pipeline_batch_id = job.params.pipeline_batch_id
     }
     for (const child of chain) {
-      if (typeof child?.type === 'string') add(child.type, child.title || child.type, child.params || {})
+      if (typeof child?.type === 'string') add(child.type, child.title || child.type, child.params || {}, undefined, job)
     }
   }
   for (const job of sorted) add(job.type, job.title, job.params, job)
@@ -265,11 +323,22 @@ export function createEpisodeRecoveryPlan(jobs: Job[], sourceJobIds: string[] = 
 }
 
 /** An explicit failed row can widen an older completed plan without minting a second recovery epoch. */
-function extendPlanFromSelectedFailures(plan: EpisodeRecoveryPlan, selected: Job[]): boolean {
+function extendPlanFromSelectedFailures(plan: EpisodeRecoveryPlan, selected: Job[], jobs: Job[]): boolean {
   const failed = selected.filter(job => job.status === 'error')
   if (!failed.length) return false
   const before = JSON.stringify(plan)
-  const extension = createEpisodeRecoveryPlan(failed, failed.map(job => job.job_id))
+  const repaired = failed.map(job => {
+    const step = episodeRecoveryStep(job.type)!
+    const saved = job.params?.episode_recovery_id === plan.id ? plan.steps[step] : undefined
+    const params = saved ? { ...saved.params, ...job.params } : job.params
+    return { ...job, params: repairRecoveryNodeParams(plan, job.job_id, params, jobs, saved && {
+      job_id: saved.job_id,
+      project_slug: plan.project_slug,
+      episode_id: plan.episode_id,
+      params: saved.params,
+    }) }
+  })
+  const extension = createEpisodeRecoveryPlan(repaired, failed.map(job => job.job_id), jobs)
   if (extension.pipeline_batch_id && plan.pipeline_batch_id && extension.pipeline_batch_id !== plan.pipeline_batch_id) {
     throw new Error('The selected failed job belongs to a different Pipeline run. Retry its saved batch instead of joining two continuations.')
   }
@@ -587,6 +656,14 @@ export async function dispatchEpisodeRecoveryStep(
     }
     plan.message = subtitleStatesMessage(existing.params?.subtitle_recovery?.sections) || existing.error || plan.message
     if (existing.status === 'error' && sourceJobIds.length) {
+      if (node) {
+        const restored = Object.entries(node.params || {}).filter(([key, value]) => value !== CIRCULAR_MARKER
+          && (existing.params?.[key] === undefined || existing.params[key] === CIRCULAR_MARKER))
+        if (restored.length) await jq.mutateAuthoritativeJob(plan.project_slug, existing.job_id, current => ({
+          ...current,
+          params: Object.fromEntries([...Object.entries(current.params || {}), ...restored.map(([key, value]) => [key, structuredClone(value)])]),
+        }))
+      }
       await jq.resumeEpisodeRecoveryJob(existing.job_id, true)
     } else if (step === 'subtitle_sections') await continueFailedSubtitleCheck(plan, existing, false)
     return
@@ -664,6 +741,7 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
     const plan = await withLock(file, async () => {
       const store = await readPlans(file)
       let plan = store.plans[episodeId]
+      if (plan && repairEpisodeRecoveryPlanParams(plan, jobs)) await writeJsonAtomic(file, store)
       if (selected.some(job => !job || !episodeRecoveryStep(job.type) || job.force_abandoned
         || (!['error', 'cancelled'].includes(job.status)
           && !Object.values(plan?.steps || {}).some(node => node.job_id === job.job_id)))) throw new Error('Recovery source must be an owned failed or cancelled episode job.')
@@ -735,7 +813,7 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
       }
       if (plan.project_slug !== projectSlug) throw new Error('Episode recovery belongs to another project.')
       if (selected.every((job): job is Job => !!job)
-        && extendPlanFromSelectedFailures(plan, selected)) await writeJsonAtomic(file, store)
+        && extendPlanFromSelectedFailures(plan, selected, jobs)) await writeJsonAtomic(file, store)
       return plan
     })
     if (!plan) return null

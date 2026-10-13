@@ -9,7 +9,8 @@
  *   1. the job's own params (its top-level copy was written first and survived);
  *   2. the same episode's other jobs of the same Pipeline batch / episode recovery (its parents);
  *   3. any job of the same Pipeline batch;
- * and otherwise the field is dropped, so the generator reads the project's saved setting itself.
+ * An unresolved marker stays explicit. Recovery can then fail closed instead of silently substituting
+ * a current project setting that may belong to a different Pipeline run.
  */
 export const CIRCULAR_MARKER = '[CIRCULAR]'
 
@@ -73,10 +74,9 @@ export function repairCircularParams(
       }
       for (const bag of bags) {
         if (bag[key] !== CIRCULAR_MARKER) continue
-        if (value === undefined) delete bag[key]
-        else bag[key] = structuredClone(value)
+        if (value !== undefined) bag[key] = structuredClone(value)
       }
-      notes.push(`${key} ← ${value === undefined ? 'dropped (project saved setting applies)' : from}`)
+      notes.push(`${key} ← ${value === undefined ? 'unresolved (no saved run donor)' : from}`)
     }
     repaired.add(job.job_id)
     log(`[job-queue] repaired '[CIRCULAR]' params on job ${job.job_id} (${job.episode_id ?? '-'}): ${notes.join(', ')}`)

@@ -111,13 +111,14 @@
       title="Earlier image request needs a decision"
     >
       The Gateway could not confirm whether {{ replaceableUncertainJob.params.manual_image_finish.uncertain_scene_ids.length === 1 ? 'an earlier image was' : `${replaceableUncertainJob.params.manual_image_finish.uncertain_scene_ids.length} earlier images were` }} made.
-      <strong>Check Again</strong> asks for the earlier result instead of ordering it again (other scenes still missing in this job are made as usual). <strong>Replace anyway</strong> orders a new one and may charge again.
+      <strong>Check Again</strong> asks for the earlier result instead of ordering it again (other scenes still missing in this job are made as usual).
+      <template v-if="manualRedoPreferenceEnabled"><strong>Replace anyway</strong> orders a new one and may charge again.</template>
       <template #actions>
         <!-- The safe choice leads: it costs nothing and never orders twice. -->
         <button class="btn btn-sm btn-primary" :disabled="checkingUncertain || replacingUncertain" @click="checkUncertainAgain">
           {{ checkingUncertain ? 'Checking…' : 'Check Again' }}
         </button>
-        <button class="btn btn-sm btn-warn" :disabled="replacingUncertain || checkingUncertain" @click="replaceUncertainImages">
+        <button v-if="manualRedoPreferenceEnabled" class="btn btn-sm btn-warn" :disabled="replacingUncertain || checkingUncertain" @click="replaceUncertainImages">
           {{ replacingUncertain ? 'Replacing…' : 'Replace Anyway' }}
         </button>
       </template>
@@ -684,7 +685,7 @@ const { config } = useProject()
 const { get, post, put } = useApi()
 const freshSceneImageAction = useFreshGenerationAction()
 const { success, error: showError } = useToast()
-const { ask } = useConfirm()
+const { ask, cancel: cancelConfirm } = useConfirm()
 const { updateEpisode: updateCachedEpisode, revalidateAfterMutation } = useEpisodes(slug)
 
 const initialEpisodeId = typeof route.query.episode_id === 'string'
@@ -768,6 +769,7 @@ interface RenderStatus {
   rendered_so_far?: number
   in_flight?: number[]
 }
+interface ManualRedoSetting { enabled: boolean }
 
 const plan = ref<PlanMeta | null>(null)
 const scenes = ref<ReviewScene[]>([])
@@ -1351,19 +1353,43 @@ async function uploadOne(scene: ReviewScene): Promise<void> {
   input.click()
 }
 
-type ManualFinishAction = { slug: string; episodeId: string; id: string }
+type ManualFinishAction = { slug: string; episodeId: string; sourceJobId?: string; id: string }
 const finishAction = ref<ManualFinishAction | null>(null)
 const replaceAction = ref<ManualFinishAction | null>(null)
 const replacingUncertain = ref(false)
+const replaceConfirmationOpen = ref(false)
+const manualRedoPreferenceEnabled = ref(false)
+let manualRedoPreferenceLoadSequence = 0
 
 function nextManualFinishActionId(action: typeof finishAction, context: Omit<ManualFinishAction, 'id'>): string | null {
-  if (action.value?.slug === context.slug && action.value.episodeId === context.episodeId) return action.value.id
+  if (action.value?.slug === context.slug
+    && action.value.episodeId === context.episodeId
+    && action.value.sourceJobId === context.sourceJobId) return action.value.id
   if (!globalThis.crypto?.randomUUID) {
     showError('This browser cannot start this action safely. Restart Story Studio and try again.')
     return null
   }
   action.value = { ...context, id: globalThis.crypto.randomUUID() }
   return action.value.id
+}
+
+async function loadManualRedoPreference(): Promise<void> {
+  const sequence = ++manualRedoPreferenceLoadSequence
+  manualRedoPreferenceEnabled.value = false
+  try {
+    const setting = await get<ManualRedoSetting>('/app-settings/manual-generation-redo', { cache: 'no-store' })
+    if (sequence === manualRedoPreferenceLoadSequence) {
+      manualRedoPreferenceEnabled.value = setting?.enabled === true
+    }
+  } catch {
+    if (sequence === manualRedoPreferenceLoadSequence) manualRedoPreferenceEnabled.value = false
+  }
+}
+
+function resetUncertainReplacementUi(): void {
+  replaceAction.value = null
+  replacingUncertain.value = false
+  if (replaceConfirmationOpen.value) cancelConfirm()
 }
 
 async function finishMissingImages(): Promise<void> {
@@ -1568,25 +1594,30 @@ async function checkUncertainAgain(): Promise<void> {
 
 async function replaceUncertainImages(): Promise<void> {
   const source = replaceableUncertainJob.value as any
-  if (!source || replacingUncertain.value) return
+  if (!manualRedoPreferenceEnabled.value || !source || replacingUncertain.value) return
   const projectSlug = slug.value
   const ep = episodeId.value
   const project = slug.value
   const scope = reviewScopeSequence
   const sourceJobId = source.job_id
-  if (!await ask({
-    title: 'Replace uncertain image request?',
-    message: 'The Gateway did not prove whether the earlier request finished. A new request may create a second image and may charge again. Any late old result will not replace the new chosen result.',
-    confirmLabel: 'Replace Anyway',
-    danger: true,
-  })) return
+  replaceConfirmationOpen.value = true
+  let confirmed = false
+  try {
+    confirmed = await ask({
+      title: 'Replace uncertain image request?',
+      message: 'The Gateway did not prove whether the earlier request finished. A new request may create a second image and may charge again. Any late old result will not replace the new chosen result.',
+      confirmLabel: 'Replace Anyway',
+      danger: true,
+    })
+  } finally { replaceConfirmationOpen.value = false }
+  if (!confirmed) return
   // The dialog can outlive navigation or a queue update. Re-check that the
   // exact uncertain job still owns this episode before posting any new work.
   if (slug.value !== projectSlug || episodeId.value !== ep || replaceableUncertainJob.value?.job_id !== sourceJobId) {
     showError('The image recovery state changed while this confirmation was open. Check the current Scene Review result.')
     return
   }
-  const actionId = nextManualFinishActionId(replaceAction, { slug: projectSlug, episodeId: ep })
+  const actionId = nextManualFinishActionId(replaceAction, { slug: projectSlug, episodeId: ep, sourceJobId })
   if (!actionId) return
   replacingUncertain.value = true
   try {
@@ -1885,6 +1916,8 @@ watch(() => route.query.scene_id, (sceneId) => {
 })
 watch([slug, episodeId], () => {
   reviewScopeSequence++
+  resetUncertainReplacementUi()
+  void loadManualRedoPreference()
   renderedSceneLimit.value = SCENE_RENDER_BATCH
   regeneratingId.value = null
   isContinuity.value = false
@@ -1911,6 +1944,9 @@ watch([slug, episodeId], () => {
   void loadReview()
   void loadContinuityFlag()
 }, { immediate: true, flush: 'sync' })
+watch(() => replaceableUncertainJob.value?.job_id || '', (sourceJobId, previousSourceJobId) => {
+  if (sourceJobId !== previousSourceJobId) resetUncertainReplacementUi()
+})
 </script>
 
 <style scoped>

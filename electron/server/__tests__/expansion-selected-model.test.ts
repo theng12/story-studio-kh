@@ -354,12 +354,26 @@ describe('resume across a model change', () => {
     const { fileURLToPath } = await import('node:url')
     const source = readFileSync(
       fileURLToPath(new URL('../lib/chunked-narration.ts', import.meta.url)), 'utf8')
-    const resumeBlock = source.slice(
-      source.indexOf('const verifiedDone = new Set<number>()'),
-      source.indexOf('const budget = await resolveChunkingBudget'),
-    )
-    assert.ok(resumeBlock.length > 0, 'resume block not found — this guard needs updating')
-    assert.match(resumeBlock, /chapterFileLooksValid/)
+    const helperStart = source.indexOf('function validChapterNumbersForOutline(')
+    const helperEnd = source.indexOf('\nexport interface ChunkedScriptCompletion', helperStart)
+    assert.ok(helperStart >= 0 && helperEnd > helperStart,
+      'current-outline chapter verifier not found — this guard needs updating')
+    const helperBlock = source.slice(helperStart, helperEnd)
+    assert.match(helperBlock, /sidecar\.outline/)
+    assert.match(helperBlock, /resolveReadPath\(chapterFilePath\(scriptDir, sidecar\.episode_id, n\)\)/)
+    assert.match(helperBlock, /chapterFileLooksValid\(file\) && chapterBelongsToOutline\(sidecar, file\)/)
+    assert.ok(!/\bmodel\b/.test(helperBlock),
+      'the current-outline chapter verifier must not consult a model')
+
+    const resumeStart = source.indexOf('// Disk verification: the files are authoritative, not chapters_done.')
+    const resumeEnd = source.indexOf('const budget = await resolveChunkingBudget', resumeStart)
+    assert.ok(resumeStart >= 0 && resumeEnd > resumeStart,
+      'resume block not found — this guard needs updating')
+    const resumeBlock = source.slice(resumeStart, resumeEnd)
+    assert.match(resumeBlock,
+      /const verifiedDone = new Set\(validChapterNumbersForOutline\(params\.scriptDir, sidecar\)\)/)
+    assert.match(resumeBlock, /chapters_done: actualDone/)
+    assert.match(resumeBlock, /sidecar\.outline\.filter\(e => !verifiedDone\.has\(e\.n\)\)/)
     assert.ok(!/\bmodel\b/.test(resumeBlock),
       'the resume/pending computation must not consult a model')
   })

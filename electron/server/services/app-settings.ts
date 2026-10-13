@@ -119,6 +119,30 @@ export const PAID_IMAGE_REPLACEMENT_KEY = 'paid_image_replacement'
 export const PAID_SUBTITLE_REPLACEMENT_KEY = 'paid_subtitle_replacement'
 export const PAID_AUDIO_REPLACEMENT_KEY = 'paid_audio_replacement'
 export const PAID_WRITING_REPLACEMENT_KEY = 'paid_writing_replacement'
+export const MANUAL_GENERATION_REDO_KEY = 'manual_generation_redo'
+
+export interface ManualGenerationRedoSetting {
+  enabled: boolean
+}
+
+function parseManualGenerationRedoSetting(
+  value: unknown,
+  invalid: 'default' | 'throw',
+): ManualGenerationRedoSetting {
+  const record = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+  if (!record || Object.keys(record).length !== 1 || typeof record.enabled !== 'boolean') {
+    if (invalid === 'throw') {
+      throw Object.assign(
+        new Error('Manual generation redo requires exactly enabled as a boolean.'),
+        { statusCode: 400, expose: true },
+      )
+    }
+    return { enabled: false }
+  }
+  return { enabled: record.enabled }
+}
 
 const PAID_REPLACEMENT_DEFAULT: PaidImageReplacementSetting = {
   enabled: false,
@@ -263,6 +287,17 @@ export async function setAppSetting(key: string, value: any): Promise<void> {
     await writeSettings(settings)
   })
   announceWrite(key)
+}
+
+/** Machine-local visibility preference. Missing or corrupt storage fails closed. */
+export async function getManualGenerationRedoSetting(): Promise<ManualGenerationRedoSetting> {
+  return parseManualGenerationRedoSetting(await getAppSetting(MANUAL_GENERATION_REDO_KEY), 'default')
+}
+
+export async function setManualGenerationRedoSetting(value: unknown): Promise<ManualGenerationRedoSetting> {
+  const setting = parseManualGenerationRedoSetting(value, 'throw')
+  await setAppSetting(MANUAL_GENERATION_REDO_KEY, setting)
+  return setting
 }
 
 /**

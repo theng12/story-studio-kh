@@ -3,6 +3,29 @@ import type { Job } from '../models/types.js'
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
+export interface ManualGenerationRedoIntent {
+  intent: 'replace_unresolved'
+  source_job_id: string
+}
+
+export function readManualGenerationRedoIntent(body: unknown): ManualGenerationRedoIntent | null {
+  if (!body || typeof body !== 'object' || !Object.prototype.hasOwnProperty.call(body, 'manual_redo')) return null
+  const value = (body as Record<string, unknown>).manual_redo
+  const record = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+  const keys = record ? Object.keys(record) : []
+  const sourceJobId = typeof record?.source_job_id === 'string' ? record.source_job_id.trim() : ''
+  if (keys.length !== 2
+    || !keys.includes('intent')
+    || !keys.includes('source_job_id')
+    || record?.intent !== 'replace_unresolved'
+    || !sourceJobId) {
+    throw new Error('manual_redo requires exactly intent "replace_unresolved" and a source_job_id.')
+  }
+  return { intent: 'replace_unresolved', source_job_id: sourceJobId }
+}
+
 function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
   if (value && typeof value === 'object') {
@@ -43,10 +66,14 @@ export function stampFreshGenerationAction<T extends Record<string, any>>(
   delete clean.operation_id
   delete clean.generation_action
   delete clean.generation_action_fingerprint
+  const fingerprintValue = structuredClone(clean)
+  if (fingerprintValue.manual_redo && typeof fingerprintValue.manual_redo === 'object') {
+    delete fingerprintValue.manual_redo.requested_at
+  }
   return {
     ...clean,
     generation_action: { id: operationId, kind: 'fresh' },
-    generation_action_fingerprint: freshActionFingerprint(clean),
+    generation_action_fingerprint: freshActionFingerprint(fingerprintValue),
   }
 }
 

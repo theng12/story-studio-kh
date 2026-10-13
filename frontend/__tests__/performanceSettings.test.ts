@@ -22,6 +22,7 @@ const PAID = {
   writing: '/app-settings/paid-writing-replacement',
 }
 const CONCURRENCY = '/app-settings/concurrency'
+const MANUAL_REDO = '/app-settings/manual-generation-redo'
 
 async function loadComponent(): Promise<Component> {
   const filename = fileURLToPath(new URL('../components/PerformanceSettings.vue', import.meta.url))
@@ -48,6 +49,8 @@ async function flush(): Promise<void> {
 async function mount(options: {
   paid?: Record<string, any>
   failPaid?: string[]
+  manualRedo?: { enabled: boolean }
+  failManualRedo?: boolean
   concurrency?: Record<string, any>
   echo?: (path: string, body: any) => any
 } = {}) {
@@ -60,6 +63,10 @@ async function mount(options: {
   ;(globalThis as any).__perfApi = {
     get: async (path: string) => {
       if (path === CONCURRENCY) return concurrency
+      if (path === MANUAL_REDO) {
+        if (options.failManualRedo) throw new Error('offline')
+        return options.manualRedo ?? { enabled: false }
+      }
       const kind = Object.entries(PAID).find(([, p]) => p === path)?.[0]
       if (kind) {
         if (options.failPaid?.includes(kind)) throw new Error('offline')
@@ -95,7 +102,8 @@ async function mount(options: {
     await flush()
   }
   const save = async () => { saveButton().click(); await flush() }
-  return { host, saves, row, turnOn, setCeiling, save, saveButton, unmount: () => app.unmount() }
+  const manualRedo = () => host.querySelector<HTMLInputElement>('input[name="manual-generation-redo-enabled"]')
+  return { host, saves, row, turnOn, setCeiling, save, saveButton, manualRedo, unmount: () => app.unmount() }
 }
 
 describe('Performance & recovery', () => {
@@ -196,11 +204,44 @@ describe('Performance & recovery', () => {
     } finally { m.unmount() }
   })
 
+  test('manual fresh-attempt visibility is an independent saved switch, off by default', async () => {
+    const m = await mount()
+    try {
+      assert.equal(m.manualRedo()?.checked, false)
+      assert.match(m.host.textContent || '', /Show manual fresh-attempt controls/)
+      assert.match(m.host.textContent || '', /explicit one-shot action/i)
+      assert.match(m.host.textContent || '', /image, voice, subtitle, transcription, music, and video charges/i)
+      m.manualRedo()!.checked = true
+      m.manualRedo()!.dispatchEvent(new Event('change', { bubbles: true }))
+      await flush()
+      await m.save()
+      assert.deepEqual(m.saves, [{ path: MANUAL_REDO, body: { enabled: true } }])
+    } finally { m.unmount() }
+  })
+
+  test('manual fresh-attempt setting reloads independently and a load failure hides its switch', async () => {
+    const enabled = await mount({ manualRedo: { enabled: true } })
+    try {
+      assert.equal(enabled.manualRedo()?.checked, true)
+      assert.equal(enabled.saves.length, 0)
+    } finally { enabled.unmount() }
+
+    const unavailable = await mount({ failManualRedo: true })
+    try {
+      assert.equal(unavailable.manualRedo(), null)
+      assert.match(unavailable.host.textContent || '', /Could not load this setting/)
+    } finally { unavailable.unmount() }
+  })
+
   test('unreadable job numbers are not shown and cannot be saved over the real ones', async () => {
     const failing = await (async () => {
       const saves: any[] = []
       ;(globalThis as any).__perfApi = {
-        get: async (path: string) => { if (path === CONCURRENCY) throw new Error('offline'); return { enabled: false, additional_credit_ceiling: null } },
+        get: async (path: string) => {
+          if (path === CONCURRENCY) throw new Error('offline')
+          if (path === MANUAL_REDO) return { enabled: false }
+          return { enabled: false, additional_credit_ceiling: null }
+        },
         put: async (path: string, body: any) => { saves.push({ path, body }); return body },
       }
       document.body.innerHTML = ''

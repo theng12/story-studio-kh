@@ -8,6 +8,7 @@ import { waitFor } from './_timing.js'
 import express from 'express'
 import request from 'supertest'
 import { pathToFileURL } from 'node:url'
+import { CIRCULAR_MARKER } from '../lib/circular-params-repair.js'
 
 const subject = () => import('../services/episode-recovery.js')
 const source = (type: Job['type'], params = {}): Job => ({
@@ -922,6 +923,57 @@ test('explicit later-stage Retry widens a completed saved plan and resumes its o
     await dispatchEpisodeRecoveryStep(JSON.parse(JSON.stringify(explicit)), facts, await jq.getJobs(project.slug), [failed.job_id])
     assert.equal((await jq.getJobs(project.slug)).filter(job => job.type === 'scene_plan_run').length, 1, 'repeat/restart coalesces')
     assert.equal(jq.getJob(failed.job_id)?.params.model, 'saved-planner')
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
+test('explicit Retry repairs a legacy recovery snapshot and its existing failed child before resume', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Legacy recovery snapshot repair' })
+    await jq.setQueuePaused(true)
+    const { createEpisodeRecoveryPlan, dispatchEpisodeRecoveryStep, recoverEpisode } = await subject()
+    const pacing = { mode: 'uniform', min_sec: 7, max_sec: 11 }
+    const motionScope = { mode: 'all', scene_ids: ['scene-3'] }
+    const parent = { ...source('audio_merge', {
+      pipeline_batch_id: 'saved-legacy-pipeline', pacing, motion_scope: motionScope,
+    }), project_slug: project.slug, job_id: 'saved-parent', status: 'done' as const }
+    const plan = createEpisodeRecoveryPlan([parent])
+    plan.pipeline_batch_id = 'saved-legacy-pipeline'
+    plan.target = 'scene_plan_run'
+    plan.completed = ['audio_merge', 'subtitle_sections', 'subtitle_stitch']
+    plan.first_unresolved = 'scene_plan_run'
+    plan.steps.audio_merge!.job_id = parent.job_id
+    plan.steps.audio_merge!.dispatched = true
+    plan.steps.scene_plan_run = {
+      job_id: 'legacy-recovery-scene-plan', type: 'scene_plan_run', title: 'Scene Plan',
+      params: { pacing: CIRCULAR_MARKER, motion_scope: CIRCULAR_MARKER, motion_level: 2 },
+      dispatched: true,
+    }
+    const file = path.join(pm.getProjectDir(project.slug)!, 'episode-recovery-plans.json')
+    await fs.writeFile(file, JSON.stringify({ version: 1, plans: { EP0001: plan } }))
+    const failed = { ...source('scene_plan_run', {
+      pacing: CIRCULAR_MARKER, motion_scope: CIRCULAR_MARKER, motion_level: 2, episode_recovery_id: plan.id,
+    }), project_slug: project.slug, job_id: plan.steps.scene_plan_run.job_id }
+    for (const job of [parent, failed]) await jq.writeAuthoritativeJob(job)
+
+    const recovered = (await recoverEpisode(project.slug, 'EP0001', true, [failed.job_id], [], true))!
+    assert.equal(recovered.steps.scene_plan_run?.job_id, failed.job_id)
+    assert.deepEqual(recovered.steps.scene_plan_run?.params.pacing, pacing)
+    assert.deepEqual(recovered.steps.scene_plan_run?.params.motion_scope, motionScope)
+    assert.equal(jq.getJob(failed.job_id)?.params.episode_recovery_id, plan.id)
+
+    const facts = { verified: { ...ready, scene_plan_run: false }, message: 'Scene Plan incomplete' }
+    const currentJobs = await jq.getJobs(project.slug)
+    assert.equal(currentJobs.find(job => job.job_id === failed.job_id)?.status, 'error')
+    assert.equal(currentJobs.find(job => job.job_id === failed.job_id)?.params.pacing, CIRCULAR_MARKER,
+      'hydration keeps unresolved corruption visible until the owned recovery plan repairs it')
+    await dispatchEpisodeRecoveryStep(recovered, facts, currentJobs, [failed.job_id])
+    assert.equal(jq.getJob(failed.job_id)?.status, 'queued')
+    assert.deepEqual(jq.getJob(failed.job_id)?.params.pacing, pacing)
+    assert.deepEqual(jq.getJob(failed.job_id)?.params.motion_scope, motionScope)
+    assert.equal((await jq.getJobs(project.slug)).filter(job => job.type === 'scene_plan_run').length, 1)
   } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
 })
 

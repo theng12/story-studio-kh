@@ -36,6 +36,29 @@
       </AdvancedDisclosure>
     </section>
 
+    <section class="perf-card manual-redo" data-setting="manual-generation-redo" aria-labelledby="perf-manual-redo-title">
+      <header class="perf-card-head">
+        <div>
+          <h4 id="perf-manual-redo-title">Show manual fresh-attempt controls</h4>
+          <p>
+            Each replacement remains an explicit one-shot action, off until you choose it for that attempt.
+            Image, voice, subtitle, transcription, music, and video charges still use their own controls.
+          </p>
+        </div>
+        <label v-if="manualRedoLoaded" class="perf-checkbox">
+          <input
+            name="manual-generation-redo-enabled"
+            type="checkbox"
+            :checked="manualRedoEnabled"
+            :disabled="saving"
+            @change="setManualRedoEnabled(($event.target as HTMLInputElement).checked)"
+          />
+          Show controls
+        </label>
+        <span v-else class="perf-muted">{{ manualRedoError ? 'Could not load this setting' : 'Loading…' }}</span>
+      </header>
+    </section>
+
     <section class="perf-card paid-replacement" data-setting="paid-replacement" aria-labelledby="perf-paid-title">
       <header class="perf-card-head">
         <div>
@@ -110,6 +133,7 @@ import { computed, defineComponent, h, reactive, ref, onMounted, type PropType }
 import { THROUGHPUT_FIELDS, type ThroughputField, type ThroughputKey, throughputPayload, throughputFromServer } from '~/utils/performanceSettings'
 
 interface PaidSetting { enabled: boolean; additional_credit_ceiling: number | null }
+interface ManualRedoSetting { enabled: boolean }
 interface PaidRow {
   kind: 'image' | 'subtitle' | 'audio' | 'writing'
   label: string
@@ -190,6 +214,10 @@ const paidMoreOpen = ref(false)
 const saving = ref(false)
 const saveError = ref('')
 const savedMessage = ref('')
+const manualRedoLoaded = ref(false)
+const manualRedoError = ref('')
+const manualRedoEnabled = ref(false)
+const manualRedoBaseline = ref(false)
 
 const paidRows = reactive<PaidRow[]>([
   { kind: 'image', label: 'Images', path: '/app-settings/paid-image-replacement' },
@@ -202,7 +230,8 @@ const throughputSnapshot = () => JSON.stringify(throughputPayload(models))
 const paidSnapshot = (row: PaidRow) => JSON.stringify({ enabled: row.enabled, ceiling: row.enabled ? String(row.ceiling) : '' })
 const throughputDirty = computed(() => concurrencyLoaded.value && throughputSnapshot() !== baseline.value)
 const paidDirtyRows = computed(() => paidRows.filter(row => row.loaded && paidSnapshot(row) !== row.baseline))
-const dirty = computed(() => throughputDirty.value || paidDirtyRows.value.length > 0)
+const manualRedoDirty = computed(() => manualRedoLoaded.value && manualRedoEnabled.value !== manualRedoBaseline.value)
+const dirty = computed(() => throughputDirty.value || manualRedoDirty.value || paidDirtyRows.value.length > 0)
 
 function isPaidSetting(s: PaidSetting): boolean {
   return typeof s?.enabled === 'boolean'
@@ -216,6 +245,10 @@ function applyPaid(row: PaidRow, s: PaidSetting): void {
 function setPaidEnabled(row: PaidRow, enabled: boolean): void {
   row.enabled = enabled
   row.error = ''
+  savedMessage.value = ''
+}
+function setManualRedoEnabled(enabled: boolean): void {
+  manualRedoEnabled.value = enabled
   savedMessage.value = ''
 }
 function setValue(field: ThroughputField, value: string | number): void {
@@ -236,6 +269,7 @@ function revert(): void {
     row.ceiling = b.ceiling
     row.error = ''
   }
+  if (manualRedoLoaded.value) manualRedoEnabled.value = manualRedoBaseline.value
   saveError.value = ''
   savedMessage.value = ''
 }
@@ -260,6 +294,15 @@ async function load(): Promise<void> {
       row.loadError = `Could not load this setting, so it stays as saved and cannot be changed until it loads.`
     }
   }))
+  try {
+    const setting = await get<ManualRedoSetting>('/app-settings/manual-generation-redo')
+    if (typeof setting?.enabled !== 'boolean') throw new Error('invalid')
+    manualRedoEnabled.value = setting.enabled
+    manualRedoBaseline.value = setting.enabled
+    manualRedoLoaded.value = true
+  } catch {
+    manualRedoError.value = 'Could not load this setting'
+  }
 }
 
 async function save(): Promise<void> {
@@ -299,6 +342,13 @@ async function save(): Promise<void> {
       baseline.value = throughputSnapshot()
       done.push('job numbers')
     }
+    if (manualRedoDirty.value) {
+      const saved = await put<ManualRedoSetting>('/app-settings/manual-generation-redo', { enabled: manualRedoEnabled.value })
+      if (typeof saved?.enabled !== 'boolean') throw new Error('The saved manual fresh-attempt setting came back invalid.')
+      manualRedoEnabled.value = saved.enabled
+      manualRedoBaseline.value = saved.enabled
+      done.push('manual fresh-attempt controls')
+    }
     for (const row of paidDirtyRows.value) {
       const saved = await put<PaidSetting>(row.path, {
         enabled: row.enabled,
@@ -325,6 +375,8 @@ onMounted(() => { void load() })
 .perf-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .perf-card-head h4 { margin: 0 0 4px; font-size: 14px; }
 .perf-card-head p { margin: 0; max-width: 760px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.perf-checkbox { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; color: var(--text-primary); font-size: 13px; cursor: pointer; }
+.perf-checkbox input { width: 16px; height: 16px; accent-color: var(--accent); }
 .perf-table { width: 100%; border-collapse: collapse; }
 .perf-table :deep(th), .perf-table :deep(td), .perf-table th, .perf-table td { padding: 9px 8px; border-top: 1px solid var(--border); text-align: left; vertical-align: middle; }
 .perf-table thead th { border-top: 0; color: var(--text-muted); font-size: var(--font-xs); font-weight: 600; }

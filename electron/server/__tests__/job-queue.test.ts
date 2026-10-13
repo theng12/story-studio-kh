@@ -1472,12 +1472,19 @@ describe('cooperative pause and resume', () => {
 
 async function waitForTerminalJob(jobId: string): Promise<void> {
   const deadline = Date.now() + 2_000
-  while (Date.now() < deadline && !['done', 'error', 'cancelled'].includes(jq.getJob(jobId)?.status || '')) {
+  while (Date.now() < deadline) {
+    const terminal = ['done', 'error', 'cancelled'].includes(jq.getJob(jobId)?.status || '')
+    if (terminal && !jq._isJobWorkerActiveForTesting(jobId)) return
     await new Promise(resolve => setTimeout(resolve, 20))
   }
   assert.ok(
     ['done', 'error', 'cancelled'].includes(jq.getJob(jobId)?.status || ''),
     `job ${jobId} did not reach a terminal state before test cleanup`,
+  )
+  assert.equal(
+    jq._isJobWorkerActiveForTesting(jobId),
+    false,
+    `job ${jobId} reached a terminal state but its worker did not release before test cleanup`,
   )
 }
 

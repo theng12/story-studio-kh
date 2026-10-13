@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
+import { reactive } from 'vue'
+import { useFreshGenerationAction } from '../composables/useFreshGenerationAction'
 
 const source = readFileSync(
   fileURLToPath(new URL('../components/OutlineReviewPanel.vue', import.meta.url)),
@@ -18,6 +20,87 @@ function productionRetrySelector(jobs: any[], episodeId = 'EP001'): () => any | 
     { value: jobs },
     { episodeId },
   )
+}
+
+function productionExpansionRetry(
+  sameTarget: boolean,
+  calls: { submit: unknown[]; errors: string[] },
+): (submission: unknown) => void {
+  const match = source.match(/function retryExpansionSubmission\(submission: ExpansionSubmission\): void \{([\s\S]*?)\n\}/)
+  assert.ok(match, 'OutlineReviewPanel must expose the production expansion retry guard')
+  const executableBody = match[1].replace(/\(submission: ExpansionSubmission\)/g, '(submission)')
+  return new Function(
+    'expansionSubmissionMatchesCurrentTarget',
+    'showError',
+    'submitExpansion',
+    `return function (submission) {${executableBody}\n}`,
+  )(
+    () => sameTarget,
+    (message: string) => calls.errors.push(message),
+    (submission: unknown) => calls.submit.push(submission),
+  )
+}
+
+function productionBeginExpansion(
+  action: ReturnType<typeof useFreshGenerationAction>,
+  submit: (submission: any) => Promise<void>,
+  errors: string[],
+): (draft: any) => Promise<void> {
+  const match = source.match(/async function beginExpansionSubmission\(draft: ExpansionSubmissionDraft\): Promise<void> \{([\s\S]*?)\n\}/)
+  assert.ok(match, 'OutlineReviewPanel must expose the production expansion preparation boundary')
+  const executableBody = match[1].replace(/catch \(e: any\)/g, 'catch (e)')
+  return new Function(
+    'freshOutlineExpansionAction',
+    'submitExpansion',
+    'showError',
+    `return async function (draft) {${executableBody}\n}`,
+  )(
+    action,
+    submit,
+    (message: string) => errors.push(message),
+  )
+}
+
+async function withBrowserCrypto<T>(value: Crypto, run: () => Promise<T>): Promise<T> {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'crypto')
+  Object.defineProperty(globalThis, 'crypto', { configurable: true, value })
+  try { return await run() }
+  finally {
+    if (original) Object.defineProperty(globalThis, 'crypto', original)
+    else Reflect.deleteProperty(globalThis, 'crypto')
+  }
+}
+
+function productionExpansionSubmit(action: ReturnType<typeof useFreshGenerationAction>) {
+  const match = source.match(/async function submitExpansion\(submission: ExpansionSubmission\): Promise<void> \{([\s\S]*?)\n\}/)
+  assert.ok(match, 'OutlineReviewPanel must expose the production captured submission path')
+  const executableBody = match[1]
+    .replace(/post<\{ job_id: string \}>/g, 'post')
+    .replace(/catch \(e: any\)/g, 'catch (e)')
+  const posts: Array<{ path: string; body: any }> = []
+  const actions: Array<() => void> = []
+  const errors: string[] = []
+  let submit: (submission: any) => Promise<void>
+  submit = new Function(
+    'expansionSubmissionMatchesCurrentTarget', 'postingExpand', 'post', 'freshOutlineExpansionAction',
+    'success', 'resumeExpandNotice', 'emit', 'selectedNs', 'showError', 'showAction',
+    'UNCONFIRMED_SUBMISSION', 'retryExpansionSubmission',
+    `return async function (submission) {${executableBody}\n}`,
+  )(
+    () => true,
+    { value: false },
+    async (path: string, body: any) => { posts.push({ path, body: JSON.parse(JSON.stringify(body)) }); throw new Error('response lost') },
+    action,
+    () => assert.fail('unknown response cannot report success'),
+    () => '',
+    () => assert.fail('unknown response cannot emit success'),
+    { value: [] },
+    (message: string) => errors.push(message),
+    (_message: string, _label: string, callback: () => void) => actions.push(callback),
+    'unconfirmed',
+    (submission: any) => { void submit(submission) },
+  )
+  return { submit, posts, actions, errors }
 }
 
 function expansionJob(input: {
@@ -148,6 +231,87 @@ test('a failed submit says plainly that Retry is safe, and offers a Retry button
   assert.match(shared, /showAction\(UNCONFIRMED_SUBMISSION, 'Retry', \(\) => regenerate\(input, true\), 'error'\)/)
   // ...which is true because the same click reuses its operation id.
   assert.match(shared, /useFreshGenerationAction\(\)/)
+})
+
+test('outline expansion shows structured response detail before generic recovery', () => {
+  assert.match(source, /const detail = e\?\.data\?\.detail \|\| e\?\.response\?\._data\?\.detail/)
+  assert.match(source, /if \(detail\) showError\(detail\)/)
+})
+
+test('manual chapter redo is preference-gated, one-shot, and carries only its source intent', () => {
+  assert.match(source, /get<ManualRedoSetting>\('\/app-settings\/manual-generation-redo'/)
+  assert.match(source, /v-if="manualRedoEligible"/)
+  assert.match(source, /v-model="manualRedoChecked"/)
+  assert.match(source, /body\.manual_redo\s*=\s*\{\s*intent:\s*'replace_unresolved',\s*source_job_id:/)
+  assert.match(source, /if \(manualRedoChecked\.value && terminalRetry\)/)
+  assert.match(source, /else if \(terminalRetry\) body\.terminal_retry_job_id/)
+  assert.match(source, /manualRedoChecked\.value = false/g)
+  assert.match(source, /describeChatRate\(findChatModel\(currentModel\.value\)\)\.text/)
+  assert.match(source, /Price not published/)
+  assert.match(source, /earlier Gateway request may still finish/i)
+})
+
+test('unconfirmed outline expansion retries the captured request only while its episode is current', () => {
+  assert.match(source, /else showAction\(UNCONFIRMED_SUBMISSION, 'Retry', \(\) => retryExpansionSubmission\(submission\), 'error'\)/)
+  const submit = source.slice(source.indexOf('async function submitExpansion'), source.indexOf('async function postExpand'))
+  assert.match(submit, /freshOutlineExpansionAction\.complete\(submission\.operationId\)[\s\S]*?\} catch/, 'the pending action clears only after a confirmed response')
+  assert.doesNotMatch(submit.match(/\} catch \(e: any\) \{([\s\S]*?)\n  \} finally/)?.[1] || '', /freshOutlineExpansionAction\.complete/)
+
+  const captured = { projectSlug: 'project-a', episodeId: 'EP0001', body: { chapters_to_expand: [10] }, operationId: 'operation-a' }
+  const switched = { submit: [] as unknown[], errors: [] as string[] }
+  productionExpansionRetry(false, switched)(captured)
+  assert.deepEqual(switched.submit, [], 'switching episodes cannot POST or mint a new action identity')
+  assert.match(switched.errors[0] || '', /another episode/i)
+
+  const current = { submit: [] as unknown[], errors: [] as string[] }
+  productionExpansionRetry(true, current)(captured)
+  assert.deepEqual(current.submit, [captured], 'the same immutable request and operation id are replayed')
+})
+
+test('expansion preparation detaches real reactive cast arrays and keeps the captured request stable', async () => {
+  for (const ids of [[], ['character-a', 'character-b']]) {
+    const form = reactive({ character_ids: [...ids] })
+    const action = useFreshGenerationAction()
+    const runtime = productionExpansionSubmit(action)
+    const begin = productionBeginExpansion(action, runtime.submit, runtime.errors)
+    await begin({
+      projectSlug: 'project-a', episodeId: 'EP0001', chapters: [10],
+      body: { episode_id: 'EP0001', character_ids: form.character_ids },
+      resumingForRows: false, terminalRetryChapters: undefined, pendingCount: 6,
+    })
+
+    assert.equal(runtime.errors.length, 0)
+    assert.equal(runtime.posts.length, 1, 'the detached request reaches the mocked POST')
+    assert.equal(runtime.posts[0].path, '/projects/project-a/generate/expand-chapters')
+    assert.deepEqual(runtime.posts[0].body.character_ids, ids)
+    const firstOperationId = runtime.posts[0].body.operation_id
+    form.character_ids.push('later-edit')
+    runtime.actions[0]()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    assert.equal(runtime.posts.length, 2)
+    assert.deepEqual(runtime.posts[1].body.character_ids, ids, 'later reactive form edits cannot change Retry')
+    assert.equal(runtime.posts[1].body.operation_id, firstOperationId, 'Retry retains the captured operation identity')
+    assert.equal(action.hasPending.value, true)
+  }
+})
+
+test('missing secure entropy is shown as a preparation error without POST or pending identity', async () => {
+  await withBrowserCrypto({} as Crypto, async () => {
+    const action = useFreshGenerationAction()
+    const submissions: any[] = []
+    const errors: string[] = []
+    const begin = productionBeginExpansion(action, async submission => { submissions.push(submission) }, errors)
+
+    await begin({
+      projectSlug: 'project-a', episodeId: 'EP0001', chapters: null,
+      body: { episode_id: 'EP0001', character_ids: reactive([]) },
+      resumingForRows: false, terminalRetryChapters: undefined, pendingCount: 6,
+    })
+
+    assert.deepEqual(submissions, [], 'preparation failure cannot reach POST')
+    assert.equal(action.hasPending.value, false)
+    assert.equal(errors[0], 'This browser cannot create a secure request identity. Open Story Studio in a secure browser connection and try again.')
+  })
 })
 
 test('Outline and Script tabs share one Regenerate: same action, confirm, wording', () => {

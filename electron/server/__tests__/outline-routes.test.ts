@@ -484,6 +484,509 @@ describe('POST /expand-chapters — chapters[] validation', () => {
 })
 
 describe('POST /expand-chapters — terminal manual retry', () => {
+  test('manual redo validates the strict intent and is mutually exclusive with Resume', async () => {
+    await createSidecar({ approved: true })
+    const operation_id = '30000000-0000-4000-8000-000000000003'
+    for (const manual_redo of [
+      {},
+      { intent: 'replace_unresolved' },
+      { intent: 'replace_unresolved', source_job_id: 'source', extra: true },
+    ]) {
+      const res = await request(app).post(`/api/projects/${slug}/generate/expand-chapters`).send({
+        episode_id: EPISODE_ID, title: TITLE, operation_id, manual_redo,
+      })
+      assert.equal(res.status, 400, JSON.stringify(res.body))
+    }
+    const both = await request(app).post(`/api/projects/${slug}/generate/expand-chapters`).send({
+      episode_id: EPISODE_ID, title: TITLE, operation_id,
+      terminal_retry_job_id: 'source',
+      manual_redo: { intent: 'replace_unresolved', source_job_id: 'source' },
+    })
+    assert.equal(both.status, 400)
+    assert.match(both.body.detail, /manual_redo.*terminal_retry_job_id|terminal_retry_job_id.*manual_redo/i)
+  })
+
+  test('manual redo preserves unresolved source evidence and creates one linked fresh job', async () => {
+    await createSidecar({ approved: true })
+    const source = await terminalExpansionJob(
+      EPISODE_ID,
+      { model: 'old-model' },
+      [{ id: 'pending:manual-redo-route', state: 'submitting' }],
+    )
+    const jq = await import('../services/job-queue.js')
+    const wasPaused = jq.isQueuePaused()
+    await jq.setQueuePaused(true)
+    const operation_id = '40000000-0000-4000-8000-000000000004'
+    const body = {
+      episode_id: EPISODE_ID, title: TITLE, model: 'current-live-model', operation_id,
+      manual_redo: { intent: 'replace_unresolved', source_job_id: source.job_id },
+    }
+    try {
+      const first = await request(app).post(`/api/projects/${slug}/generate/expand-chapters`).send(body)
+      assert.equal(first.status, 201, JSON.stringify(first.body))
+      const replacement = jq.getJob(first.body.job_id)
+      const retained = jq.getJob(source.job_id)
+      assert.equal(retained?.force_abandoned?.unsettled.length, 1)
+      assert.equal(retained?.genstudio_jobs?.some(entry => entry.id === 'pending:manual-redo-route'), true)
+      assert.deepEqual(replacement?.params.manual_redo, {
+        version: 1,
+        intent: 'replace_unresolved',
+        source_job_id: source.job_id,
+        requested_at: replacement?.params.manual_redo.requested_at,
+        target_chapters: [1, 2, 3, 4, 5],
+        selected_model_id: 'current-live-model',
+      })
+
+      // A late chapter can land before the client retries a lost response.
+      // Server-derived missing chapters must stay bound to the accepted action.
+      await fs.writeFile(path.join(scriptDir, `${EPISODE_ID}_Chapter_01.md`), 'late valid chapter')
+
+      const replay = await request(app).post(`/api/projects/${slug}/generate/expand-chapters`).send(body)
+      assert.equal(replay.status, 200)
+      assert.equal(replay.body.job_id, first.body.job_id)
+
+      const changed = await request(app).post(`/api/projects/${slug}/generate/expand-chapters`).send({ ...body, model: 'other-live-model' })
+      assert.equal(changed.status, 409)
+      await clearExpandJob(first.body.job_id)
+      jq.removeTerminalJob(slug, source.job_id)
+    } finally {
+      await jq.setQueuePaused(wasPaused)
+    }
+  })
+
+  test('manual redo rejects missing, wrong-project/type/episode, and resolved source evidence', async () => {
+    await createSidecar({ approved: true })
+    const jq = await import('../services/job-queue.js')
+    const submit = (source_job_id: string) => request(app)
+      .post(`/api/projects/${slug}/generate/expand-chapters`)
+      .send({
+        episode_id: EPISODE_ID,
+        title: TITLE,
+        model: 'current-live-model',
+        operation_id: crypto.randomUUID(),
+        manual_redo: { intent: 'replace_unresolved', source_job_id },
+      })
+
+    const missing = await submit('missing-manual-redo-source')
+    assert.equal(missing.status, 404)
+
+    const makeStopped = async (project_slug: string, type: 'expand_chapters' | 'chapter-only', episode_id: string) => {
+      const wasPaused = jq.isQueuePaused()
+      await jq.setQueuePaused(true)
+      const job = jq.enqueuePreparedForTest({
+        project_slug, type, episode_id, title: TITLE, params: { model: 'old-model', chapter_number: 2 },
+      })
+      await jq.requestJobCancellation(project_slug, job.job_id)
+      if (!wasPaused) await jq.setQueuePaused(false)
+      await jq.recordGenStudioJob(job.job_id, {
+        id: `pending:${job.job_id}`,
+        operation: 'chat.response',
+        state: 'submitting',
+        updated_at: new Date().toISOString(),
+      })
+      return job
+    }
+
+    const wrongProject = await makeStopped('other-manual-redo-project', 'expand_chapters', EPISODE_ID)
+    assert.equal((await submit(wrongProject.job_id)).status, 404)
+
+    const wrongType = await makeStopped(slug, 'chapter-only', EPISODE_ID)
+    assert.equal((await submit(wrongType.job_id)).status, 409)
+
+    const wrongEpisode = await terminalExpansionJob('EP999')
+    const wrong = await submit(wrongEpisode.job_id)
+    assert.equal(wrong.status, 409)
+
+    const resolved = await terminalExpansionJob(EPISODE_ID)
+    await (await import('../services/job-queue.js')).recordGenStudioJob(resolved.job_id, {
+      id: `job-terminal-${resolved.job_id}`,
+      operation: 'chat.response',
+      state: 'failed',
+      failure_code: 'PROVIDER_REJECTED',
+      updated_at: new Date().toISOString(),
+    })
+    const settled = await submit(resolved.job_id)
+    assert.equal(settled.status, 409)
+    assert.match(settled.body.detail, /no unresolved Gateway chat request/i)
+
+    jq.removeTerminalJob('other-manual-redo-project', wrongProject.job_id)
+    jq.removeTerminalJob(slug, wrongType.job_id)
+    jq.removeTerminalJob(slug, wrongEpisode.job_id)
+    jq.removeTerminalJob(slug, resolved.job_id)
+  })
+
+  test('manual redo cannot overlap a paused targeted chapter writer', async () => {
+    await createSidecar({ approved: true })
+    const source = await terminalExpansionJob(
+      EPISODE_ID,
+      { model: 'old-model' },
+      [{ id: 'pending:manual-redo-chapter-lane', state: 'submitting' }],
+    )
+    const jq = await import('../services/job-queue.js')
+    const wasPaused = jq.isQueuePaused()
+    await jq.setQueuePaused(true)
+    const targeted = jq.enqueuePreparedForTest({
+      project_slug: slug,
+      type: 'chapter-only',
+      episode_id: EPISODE_ID,
+      title: TITLE,
+      params: { chapter_number: 2, model: 'current-live-model' },
+    })
+    try {
+      const res = await request(app).post(`/api/projects/${slug}/generate/expand-chapters`).send({
+        episode_id: EPISODE_ID,
+        title: TITLE,
+        model: 'current-live-model',
+        operation_id: '50000000-0000-4000-8000-000000000005',
+        manual_redo: { intent: 'replace_unresolved', source_job_id: source.job_id },
+      })
+      assert.equal(res.status, 409)
+      assert.equal(jq.getJob(source.job_id)?.force_abandoned, undefined)
+    } finally {
+      await clearExpandJob(targeted.job_id)
+      await jq.forceAbandonJob(slug, source.job_id)
+      jq.removeTerminalJob(slug, source.job_id)
+      await jq.setQueuePaused(wasPaused)
+    }
+  })
+
+  test('targeted chapter regeneration cannot overlap a paused expansion writer', async () => {
+    const jq = await import('../services/job-queue.js')
+    const wasPaused = jq.isQueuePaused()
+    await jq.setQueuePaused(true)
+    const expansion = jq.enqueuePreparedForTest({
+      project_slug: slug,
+      type: 'expand_chapters',
+      episode_id: EPISODE_ID,
+      title: TITLE,
+      params: { model: 'current-live-model' },
+    })
+    try {
+      const res = await request(app).post(`/api/projects/${slug}/generate/chapter-only`).send({
+        episode_id: EPISODE_ID,
+        title: TITLE,
+        model: 'current-live-model',
+        chapter_number: 2,
+        operation_id: '60000000-0000-4000-8000-000000000006',
+      })
+      assert.equal(res.status, 409)
+      assert.match(res.body.detail, /already queued\/running/i)
+    } finally {
+      await clearExpandJob(expansion.job_id)
+      await jq.setQueuePaused(wasPaused)
+    }
+  })
+
+  test('simultaneous opposite chapter writers admit only the first lock waiter in both orders', async () => {
+    await createSidecar({ approved: true })
+    const jq = await import('../services/job-queue.js')
+
+    for (const firstType of ['expand_chapters', 'chapter-only'] as const) {
+      const source = await terminalExpansionJob(
+        EPISODE_ID,
+        { model: 'old-model' },
+        [{ id: `pending:opposite-${firstType}`, state: 'submitting' }],
+      )
+      const wasPaused = jq.isQueuePaused()
+      await jq.setQueuePaused(true)
+      let release!: () => void
+      const released = new Promise<void>(resolve => { release = resolve })
+      let firstEntered!: () => void
+      const firstAtBarrier = new Promise<void>(resolve => { firstEntered = resolve })
+      let bothEntered!: () => void
+      const bothAtBarrier = new Promise<void>(resolve => { bothEntered = resolve })
+      const arrivals: string[] = []
+      const restoreProbe = jq._setEpisodeAdmissionProbeForTesting(async scope => {
+        if (scope.project_slug !== slug || scope.episode_id !== EPISODE_ID
+          || (scope.type !== 'expand_chapters' && scope.type !== 'chapter-only')) return
+        arrivals.push(scope.type)
+        if (arrivals.length === 1) firstEntered()
+        if (arrivals.length === 2) bothEntered()
+        await released
+      })
+      const manual = () => request(app).post(`/api/projects/${slug}/generate/expand-chapters`).send({
+        episode_id: EPISODE_ID,
+        title: TITLE,
+        model: 'current-live-model',
+        operation_id: crypto.randomUUID(),
+        manual_redo: { intent: 'replace_unresolved', source_job_id: source.job_id },
+      }).then(response => response)
+      const targeted = () => request(app).post(`/api/projects/${slug}/generate/chapter-only`).send({
+        episode_id: EPISODE_ID,
+        title: TITLE,
+        model: 'current-live-model',
+        chapter_number: 2,
+        operation_id: crypto.randomUUID(),
+      }).then(response => response)
+      const submit = firstType === 'expand_chapters' ? manual : targeted
+      const submitOther = firstType === 'expand_chapters' ? targeted : manual
+      let responses: any[] = []
+      let sourceWasAbandoned = false
+      try {
+        const first = submit()
+        await firstAtBarrier
+        const second = submitOther()
+        await bothAtBarrier
+        release()
+        responses = await Promise.all([first, second])
+        sourceWasAbandoned = !!jq.getJob(source.job_id)?.force_abandoned
+      } finally {
+        release()
+        restoreProbe()
+        for (const response of responses) {
+          if (response.status === 201 && response.body.job_id) await clearExpandJob(response.body.job_id)
+        }
+        if (jq.getJob(source.job_id) && !jq.getJob(source.job_id)?.force_abandoned) {
+          await jq.forceAbandonJob(slug, source.job_id)
+        }
+        jq.removeTerminalJob(slug, source.job_id)
+        await jq.setQueuePaused(wasPaused)
+      }
+
+      assert.deepEqual(arrivals, [firstType, firstType === 'expand_chapters' ? 'chapter-only' : 'expand_chapters'])
+      assert.equal(responses[0]?.status, 201, JSON.stringify(responses[0]?.body))
+      assert.equal(responses[1]?.status, 409, JSON.stringify(responses[1]?.body))
+      assert.equal(responses.filter(response => response.status === 201).length, 1)
+      assert.equal(responses[0]?.body.status, 'queued', 'the queue stayed paused, so no provider work was submitted')
+      assert.equal(sourceWasAbandoned, firstType === 'expand_chapters',
+        'a refused manual expansion must not abandon its unresolved source')
+    }
+  })
+
+  test('concurrent identical manual operation IDs adopt the same accepted job', async () => {
+    await createSidecar({ approved: true })
+    const source = await terminalExpansionJob(
+      EPISODE_ID,
+      { model: 'old-model' },
+      [{ id: 'pending:identical-manual-operation', state: 'submitting' }],
+    )
+    const jq = await import('../services/job-queue.js')
+    const wasPaused = jq.isQueuePaused()
+    await jq.setQueuePaused(true)
+    let entered!: () => void
+    const atBarrier = new Promise<void>(resolve => { entered = resolve })
+    let release!: () => void
+    const released = new Promise<void>(resolve => { release = resolve })
+    let arrivals = 0
+    const restoreProbe = jq._setEpisodeAdmissionProbeForTesting(async scope => {
+      if (scope.project_slug === slug && scope.episode_id === EPISODE_ID && scope.type === 'expand_chapters') {
+        arrivals++
+        entered()
+        await released
+      }
+    })
+    const body = {
+      episode_id: EPISODE_ID,
+      title: TITLE,
+      model: 'current-live-model',
+      operation_id: '70000000-0000-4000-8000-000000000007',
+      manual_redo: { intent: 'replace_unresolved', source_job_id: source.job_id },
+    }
+    let responses: any[] = []
+    try {
+      const first = request(app).post(`/api/projects/${slug}/generate/expand-chapters`).send(body).then(response => response)
+      await atBarrier
+      const replay = request(app).post(`/api/projects/${slug}/generate/expand-chapters`).send(body).then(response => response)
+      release()
+      responses = await Promise.all([first, replay])
+    } finally {
+      release()
+      restoreProbe()
+      const accepted = responses.find(response => response.status === 201)
+      if (accepted?.body.job_id) await clearExpandJob(accepted.body.job_id)
+      jq.removeTerminalJob(slug, source.job_id)
+      await jq.setQueuePaused(wasPaused)
+    }
+
+    assert.deepEqual(responses.map(response => response.status).sort(), [200, 201])
+    assert.equal(responses[0]?.body.job_id, responses[1]?.body.job_id)
+    assert.equal(arrivals, 1, 'same-operation replay waits for and adopts the admitted job')
+  })
+
+  test('Jobs Retry and manual redo share one chapter-writer admission boundary', async () => {
+    await createSidecar({ approved: true })
+    const jq = await import('../services/job-queue.js')
+    const wasPaused = jq.isQueuePaused()
+    await jq.setQueuePaused(true)
+
+    const makeRetrySource = async () => {
+      const job = jq.enqueuePreparedForTest({
+        project_slug: slug,
+        type: 'chapter-only',
+        episode_id: EPISODE_ID,
+        title: TITLE,
+        params: { chapter_number: 2, model: 'current-live-model' },
+        dedupeParams: (params: any) => Number(params?.chapter_number) === 2,
+      })
+      await jq.requestJobCancellation(slug, job.job_id)
+      assert.equal(jq.getJob(job.job_id)?.status, 'cancelled')
+      return job
+    }
+    const submitManual = (sourceJobId: string) => request(app)
+      .post(`/api/projects/${slug}/generate/expand-chapters`)
+      .send({
+        episode_id: EPISODE_ID,
+        title: TITLE,
+        model: 'current-live-model',
+        operation_id: crypto.randomUUID(),
+        manual_redo: { intent: 'replace_unresolved', source_job_id: sourceJobId },
+      })
+      .then(response => response)
+
+    try {
+      // Manual redo owns admission first and pauses immediately before its
+      // destructive source-abandon callback. A synchronous Jobs Retry must see
+      // that ownership and lose without entering the queue.
+      const manualSource = await terminalExpansionJob(
+        EPISODE_ID,
+        { model: 'old-model' },
+        [{ id: 'pending:jobs-retry-manual-first', state: 'submitting' }],
+      )
+      const retrySource = await makeRetrySource()
+      let releaseManual!: () => void
+      const manualReleased = new Promise<void>(resolve => { releaseManual = resolve })
+      let manualReserved!: () => void
+      const manualAtBoundary = new Promise<void>(resolve => { manualReserved = resolve })
+      const restoreBoundaryProbe = jq._setChapterWriterAdmissionCallbackProbeForTesting(async scope => {
+        if (scope.project_slug === slug && scope.episode_id === EPISODE_ID && scope.type === 'expand_chapters') {
+          manualReserved()
+          await manualReleased
+        }
+      })
+      let manualResponse: any
+      let retryResponse: any
+      try {
+        const manual = submitManual(manualSource.job_id)
+        await manualAtBoundary
+        retryResponse = await request(app).post(`/api/projects/${slug}/jobs/${retrySource.job_id}/retry`).send({})
+        releaseManual()
+        manualResponse = await manual
+      } finally {
+        releaseManual()
+        restoreBoundaryProbe()
+      }
+      assert.equal(manualResponse.status, 201, JSON.stringify(manualResponse.body))
+      assert.equal(retryResponse.status, 409, JSON.stringify(retryResponse.body))
+      assert.ok(jq.getJob(manualSource.job_id)?.force_abandoned)
+      assert.equal(jq.getJob(retrySource.job_id)?.status, 'cancelled')
+      await clearExpandJob(manualResponse.body.job_id)
+      jq.removeTerminalJob(slug, manualSource.job_id)
+      jq.removeTerminalJob(slug, retrySource.job_id)
+
+      // Reverse the order with the existing pre-lock barrier: Jobs Retry wins
+      // insertion while manual redo is waiting to acquire admission. Manual
+      // then loses before its callback, leaving its source byte-for-byte live.
+      const reverseManualSource = await terminalExpansionJob(
+        EPISODE_ID,
+        { model: 'old-model' },
+        [{ id: 'pending:jobs-retry-retry-first', state: 'submitting' }],
+      )
+      const reverseRetrySource = await makeRetrySource()
+      let releasePreLock!: () => void
+      const preLockReleased = new Promise<void>(resolve => { releasePreLock = resolve })
+      let manualReachedPreLock!: () => void
+      const manualAtPreLock = new Promise<void>(resolve => { manualReachedPreLock = resolve })
+      const restorePreLockProbe = jq._setEpisodeAdmissionProbeForTesting(async scope => {
+        if (scope.project_slug === slug && scope.episode_id === EPISODE_ID && scope.type === 'expand_chapters') {
+          manualReachedPreLock()
+          await preLockReleased
+        }
+      })
+      let reverseManualResponse: any
+      let reverseRetryResponse: any
+      try {
+        const manual = submitManual(reverseManualSource.job_id)
+        await manualAtPreLock
+        reverseRetryResponse = await request(app).post(`/api/projects/${slug}/jobs/${reverseRetrySource.job_id}/retry`).send({})
+        releasePreLock()
+        reverseManualResponse = await manual
+      } finally {
+        releasePreLock()
+        restorePreLockProbe()
+      }
+      assert.equal(reverseRetryResponse.status, 202, JSON.stringify(reverseRetryResponse.body))
+      assert.equal(reverseManualResponse.status, 409, JSON.stringify(reverseManualResponse.body))
+      assert.equal(jq.getJob(reverseManualSource.job_id)?.force_abandoned, undefined)
+      assert.equal(jq.getJob(reverseManualSource.job_id)?.genstudio_jobs?.some(entry => entry.id === 'pending:jobs-retry-retry-first'), true)
+      const acceptedRetryId = reverseRetryResponse.body.job?.job_id
+      assert.ok(acceptedRetryId)
+      await clearExpandJob(acceptedRetryId)
+      await jq.forceAbandonJob(slug, reverseManualSource.job_id)
+      jq.removeTerminalJob(slug, reverseManualSource.job_id)
+      await jq._waitForJobPersistenceForTesting()
+      assert.equal(jq.getJob(manualSource.job_id), null)
+      assert.equal(jq.getJob(reverseManualSource.job_id), null)
+    } finally {
+      await jq.setQueuePaused(wasPaused)
+    }
+  })
+
+  test('terminal-visible opposite chapter writers remain mutually excluded until their executor releases', async () => {
+    const jq = await import('../services/job-queue.js')
+    const wasPaused = jq.isQueuePaused()
+    await jq.setQueuePaused(false)
+    try {
+      for (const activeType of ['expand_chapters', 'chapter-only'] as const) {
+        const blockedType = activeType === 'expand_chapters' ? 'chapter-only' : 'expand_chapters'
+        let terminalVisible!: () => void
+        const terminalAtBarrier = new Promise<void>(resolve => { terminalVisible = resolve })
+        let releaseWorker!: () => void
+        const workerGate = new Promise<void>(resolve => { releaseWorker = resolve })
+        let activeJobId = ''
+        const restoreExecutor = jq._setExecutorForTesting(activeType, async job => {
+          job.status = 'error'
+          job.finished_at = new Date().toISOString()
+          terminalVisible()
+          await workerGate
+        })
+        try {
+          const active = await jq.enqueue({
+            project_slug: slug,
+            type: activeType,
+            episode_id: EPISODE_ID,
+            title: TITLE,
+            params: { model: 'current-live-model', chapter_number: 2 },
+            ...(activeType === 'chapter-only'
+              ? { dedupeParams: (params: any) => Number(params?.chapter_number) === 2 }
+              : {}),
+          })
+          activeJobId = active.job_id
+          await terminalAtBarrier
+          assert.equal(jq.getJob(active.job_id)?.status, 'error')
+          assert.equal(jq._isJobWorkerActiveForTesting(active.job_id), true)
+          const blockedBefore = (await jq.findJobs(
+            slug,
+            job => job.episode_id === EPISODE_ID && job.type === blockedType,
+          )).length
+
+          await assert.rejects(jq.enqueue({
+            project_slug: slug,
+            type: blockedType,
+            episode_id: EPISODE_ID,
+            title: TITLE,
+            params: { model: 'current-live-model', chapter_number: 3 },
+            ...(blockedType === 'chapter-only'
+              ? { dedupeParams: (params: any) => Number(params?.chapter_number) === 3 }
+              : {}),
+          }), /already queued\/running/i)
+          assert.equal((await jq.findJobs(
+            slug,
+            job => job.episode_id === EPISODE_ID && job.type === blockedType,
+          )).length, blockedBefore)
+        } finally {
+          releaseWorker()
+          while (activeJobId && jq._isJobWorkerActiveForTesting(activeJobId)) {
+            await new Promise<void>(resolve => setImmediate(resolve))
+          }
+          restoreExecutor()
+          if (activeJobId) jq.removeTerminalJob(slug, activeJobId)
+        }
+      }
+    } finally {
+      await jq.setQueuePaused(wasPaused)
+    }
+  })
+
   test('uses the current validated model while replacing the referenced terminal job', async () => {
     await createSidecar({ approved: true })
     const original = await terminalExpansionJob(EPISODE_ID)

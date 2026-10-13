@@ -326,6 +326,17 @@
         <span v-if="resumableRun" class="op-resume-hint">
           The last writing run stopped part-way. Resume writing (or Expand on any row) finishes it first, writing only the chapters still missing.
         </span>
+        <label v-if="manualRedoEligible" class="op-manual-redo">
+          <span class="op-manual-redo-choice">
+            <input v-model="manualRedoChecked" type="checkbox" />
+            Start a separate writing attempt instead of resuming the unresolved request.
+          </span>
+          <span class="op-manual-redo-detail">
+            The earlier Gateway request may still finish. Story Studio keeps its job evidence and chapters already on disk.
+            This starts another cloud attempt with <strong>{{ currentModelName || 'the selected model' }}</strong>
+            at <strong>{{ currentModelRate }}</strong>; the final charge depends on the tokens used.
+          </span>
+        </label>
       </div>
     </div>
   </div>
@@ -337,6 +348,7 @@ import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
 import { resumeExpandNotice } from '~/utils/outline-expand-resume'
 import { useChapterRegenerate, REGENERATE_HINT, REGENERATE_LABEL, REGENERATING_LABEL } from '~/composables/useChapterRegenerate'
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { describeChatRate } from '~/utils/genstudio-credit-cost'
 
 interface OutlineEntry {
   n: number
@@ -360,6 +372,21 @@ interface GenerationParams {
   character_ids?: string[]
   custom_style_text?: string
 }
+
+interface ManualRedoSetting { enabled: boolean }
+
+interface ExpansionSubmission {
+  projectSlug: string
+  episodeId: string
+  chapters: number[] | null
+  body: Record<string, unknown>
+  operationId: string
+  resumingForRows: boolean
+  terminalRetryChapters?: number[]
+  pendingCount: number
+}
+
+type ExpansionSubmissionDraft = Omit<ExpansionSubmission, 'operationId'>
 
 interface OutlineResponse {
   mode: 'narrative' | 'listicle'
@@ -451,6 +478,8 @@ const postingExpand = ref(false)
 const isDirty = ref(false)
 const justSaved = ref(false)
 const selectedNs = ref<number[]>([])
+const manualRedoPreferenceEnabled = ref(false)
+const manualRedoChecked = ref(false)
 
 // Per-row inline preview state (Phase 4). Mirrors the ChapterListPanel
 // preview pattern: lazy-load the chapter content from the existing
@@ -497,6 +526,7 @@ const modelChanged = computed(() =>
 )
 /** Published display names; '' when the live catalogue has no row. */
 const currentModelName = computed(() => findChatModel(currentModel.value)?.display_name?.trim() || '')
+const currentModelRate = computed(() => describeChatRate(findChatModel(currentModel.value)).text || 'Price not published')
 const outlineModelName = computed(() => findChatModel(outlineModel.value)?.display_name?.trim() || '')
 const styleLabel = computed(() => {
   const id = generationParams.value?.style
@@ -565,6 +595,7 @@ function terminalExpansionRetryJob(): any | undefined {
     .filter((job: any) =>
       job.episode_id === props.episodeId
       && job.type === 'expand_chapters'
+      && !job.force_abandoned
       && (job.status === 'error' || job.status === 'cancelled')
       && (job.genstudio_jobs
         ? job.genstudio_jobs.some((entry: any) => entry.operation === 'chat.response')
@@ -584,6 +615,17 @@ const resumableRun = computed(() => {
     entry.operation === 'chat.response'
     && (typeof entry.id !== 'string' || !entry.id || entry.id.startsWith('pending:') || !['succeeded', 'failed'].includes(entry.state)))
 })
+const manualRedoBlockerId = computed(() => resumableRun.value ? terminalExpansionRetryJob()?.job_id || '' : '')
+const manualRedoEligible = computed(() => manualRedoPreferenceEnabled.value && !!manualRedoBlockerId.value)
+
+async function loadManualRedoPreference(): Promise<void> {
+  try {
+    const setting = await get<ManualRedoSetting>('/app-settings/manual-generation-redo', { cache: 'no-store' })
+    manualRedoPreferenceEnabled.value = setting?.enabled === true
+  } catch {
+    manualRedoPreferenceEnabled.value = false
+  }
+}
 
 function isChapterDone(n: number): boolean {
   return chaptersDone.value.includes(n)
@@ -1000,8 +1042,68 @@ async function approveOutline() {
 
 // ── Expand triggers ───────────────────────────────────────────────────────
 
+function expansionSubmissionMatchesCurrentTarget(submission: ExpansionSubmission): boolean {
+  return submission.projectSlug === props.projectSlug && submission.episodeId === props.episodeId
+}
+
+function retryExpansionSubmission(submission: ExpansionSubmission): void {
+  if (!expansionSubmissionMatchesCurrentTarget(submission)) {
+    showError('This Retry belongs to another episode. Return to that episode and try it again.')
+    return
+  }
+  void submitExpansion(submission)
+}
+
+async function submitExpansion(submission: ExpansionSubmission): Promise<void> {
+  if (!expansionSubmissionMatchesCurrentTarget(submission)) {
+    showError('This expansion belongs to another episode. Return to that episode and try it again.')
+    return
+  }
+  postingExpand.value = true
+  try {
+    const resp = await post<{ job_id: string }>(
+      `/projects/${submission.projectSlug}/generate/expand-chapters`,
+      { ...submission.body, operation_id: submission.operationId },
+    )
+    freshOutlineExpansionAction.complete(submission.operationId)
+    manualRedoChecked.value = false
+    if (!expansionSubmissionMatchesCurrentTarget(submission)) return
+    success(submission.chapters && submission.resumingForRows
+      ? resumeExpandNotice(submission.chapters, submission.terminalRetryChapters)
+      : submission.chapters
+      ? `Queued expansion for chapter${submission.chapters.length === 1 ? '' : 's'} ${submission.chapters.join(', ')}`
+      : `Queued expansion for ${submission.pendingCount} chapter(s)`,
+    )
+    emit('expansion-queued', { jobId: resp.job_id, chapters: submission.chapters })
+    if (submission.chapters) selectedNs.value = []
+  } catch (e: any) {
+    const detail = e?.data?.detail || e?.response?._data?.detail
+    if (detail) showError(detail)
+    else showAction(UNCONFIRMED_SUBMISSION, 'Retry', () => retryExpansionSubmission(submission), 'error')
+  } finally {
+    // Only the POST flag clears here — the SSE-driven `activeExpandJob`
+    // keeps `expanding` truthy until the queued job hits a terminal
+    // state, so the button stays disabled across the whole expansion.
+    postingExpand.value = false
+  }
+}
+
+async function beginExpansionSubmission(draft: ExpansionSubmissionDraft): Promise<void> {
+  try {
+    // This is the same JSON boundary useApi sends over HTTP. Besides producing
+    // an immutable Retry body, it safely unwraps Vue's reactive form arrays.
+    const body = JSON.parse(JSON.stringify(draft.body))
+    const target = draft.chapters ? `expand:${draft.chapters.join(',')}` : 'expand:all'
+    const operationId = freshOutlineExpansionAction.begin(body, target)
+    await submitExpansion({ ...draft, body, operationId })
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Could not prepare expansion. Review the request and try again.')
+  }
+}
+
 async function postExpand(chapters: number[] | null): Promise<void> {
   if (expanding.value) return
+  const target = { projectSlug: props.projectSlug, episodeId: props.episodeId }
   // v1.0.103+ — explicit approval gate. The buttons used to be
   // HTML-disabled when !approvedAt, which meant clicks didn't fire +
   // users saw nothing happen. Now the buttons stay enabled and we
@@ -1030,59 +1132,42 @@ async function postExpand(chapters: number[] | null): Promise<void> {
     // visible edits, not stale sidecar state.
     await saveEdits(/* silent */ true)
   }
-  postingExpand.value = true
-  try {
-    // Mirror the body shape /generate/outline-only sends, so the backend's
-    // setupChunkedJobContext sees a fully-populated GenerateScriptRequest
-    // (model in particular — without it callAi crashes on
-    // `undefined.startsWith` inside provider dispatch). Filter array goes
-    // under chapters_to_expand to avoid colliding with the chapter-count
-    // semantic of `chapters` in setupChunkedJobContext.
-    const body: any = {
-      episode_id: props.episodeId,
-      title: props.title || '',
-      model: props.form?.model,
-      style: props.form?.style,
-      perspective: props.form?.perspective,
-      length: props.form?.length,
-      chapters: props.form?.chapters,
-      total_words: props.form?.total_words,
-      words_per_chapter: props.form?.words_per_chapter,
-      character_ids: props.form?.character_ids,
-      custom_style_text: props.customStyleText,
-    }
-    if (chapters) body.chapters_to_expand = chapters
-    // The full-outline Resume button references any durable chat evidence. The
-    // server uses current form fields only after every batch has resolved; a
-    // mixed/pending chat source replays its exact historical params and key.
-    // A row/selected Expand while a run is stopped part-way resumes that run
-    // (the server refuses anything else until it settles).
-    const resumingForRows = chapters !== null && resumableRun.value
-    const terminalRetry = chapters === null || resumingForRows ? terminalExpansionRetryJob() : undefined
-    if (terminalRetry) body.terminal_retry_job_id = terminalRetry.job_id
-    const operationId = freshOutlineExpansionAction.begin(body, chapters ? `expand:${chapters.join(',')}` : 'expand:all')
-    const resp = await post<{ job_id: string }>(
-      `/projects/${props.projectSlug}/generate/expand-chapters`,
-      { ...body, operation_id: operationId },
-    )
-    freshOutlineExpansionAction.complete(operationId)
-    success(chapters && resumingForRows
-      ? resumeExpandNotice(chapters, terminalRetry?.params?.chapters_to_expand)
-      : chapters
-      ? `Queued expansion for chapter${chapters.length === 1 ? '' : 's'} ${chapters.join(', ')}`
-      : `Queued expansion for ${pendingCount.value} chapter(s)`,
-    )
-    emit('expansion-queued', { jobId: resp.job_id, chapters: chapters })
-    // Clear selection after a successful queue.
-    if (chapters) selectedNs.value = []
-  } catch (e: any) {
-    showError(e?.data?.detail || 'Could not queue expansion')
-  } finally {
-    // Only the POST flag clears here — the SSE-driven `activeExpandJob`
-    // keeps `expanding` truthy until the queued job hits a terminal
-    // state, so the button stays disabled across the whole expansion.
-    postingExpand.value = false
+  if (target.projectSlug !== props.projectSlug || target.episodeId !== props.episodeId) {
+    showError('The episode changed before expansion could be queued. Review it and try again.')
+    return
   }
+  // Mirror the body shape /generate/outline-only sends, so the backend's
+  // setupChunkedJobContext sees a fully-populated GenerateScriptRequest.
+  const body: Record<string, unknown> = {
+    episode_id: target.episodeId,
+    title: props.title || '',
+    model: props.form?.model,
+    style: props.form?.style,
+    perspective: props.form?.perspective,
+    length: props.form?.length,
+    chapters: props.form?.chapters,
+    total_words: props.form?.total_words,
+    words_per_chapter: props.form?.words_per_chapter,
+    character_ids: props.form?.character_ids,
+    custom_style_text: props.customStyleText,
+  }
+  if (chapters) body.chapters_to_expand = [...chapters]
+  // A retry replays this exact body and operation identity. It never rebuilds
+  // either from whichever episode or form happens to be visible later.
+  const resumingForRows = chapters !== null && resumableRun.value
+  const terminalRetry = chapters === null || resumingForRows ? terminalExpansionRetryJob() : undefined
+  if (manualRedoChecked.value && terminalRetry) {
+    body.manual_redo = { intent: 'replace_unresolved', source_job_id: terminalRetry.job_id }
+  } else if (terminalRetry) body.terminal_retry_job_id = terminalRetry.job_id
+  await beginExpansionSubmission({
+    ...target,
+    chapters: chapters ? [...chapters] : null,
+    body,
+    resumingForRows,
+    terminalRetryChapters: Array.isArray(terminalRetry?.params?.chapters_to_expand)
+      ? [...terminalRetry.params.chapters_to_expand] : undefined,
+    pendingCount: pendingCount.value,
+  })
 }
 
 function expandOne(n: number) { void postExpand([n]) }
@@ -1111,7 +1196,14 @@ function regenerateOne(n: number): Promise<void> {
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────
 
-onMounted(() => { void loadOutline() })
+onMounted(() => {
+  void loadOutline()
+  void loadManualRedoPreference()
+})
+
+watch(() => [props.episodeId, manualRedoBlockerId.value], () => {
+  manualRedoChecked.value = false
+})
 
 watch(() => [props.episodeId, props.title, props.refreshKey], (next, prev) => {
   // Episode switch: close any open preview drawers, wipe the cache, and
@@ -1188,6 +1280,7 @@ watch(chapterOnlySignal, (next, prev) => {
 })
 
 onUnmounted(() => {
+  manualRedoChecked.value = false
   // Leaving the page saves pending edits instead of dropping them.
   void flushPendingEdits()
 })
@@ -1250,6 +1343,9 @@ defineExpose({ loaded, reload: reloadOutline })
 /* Stable host: contains the v-if'd outline panel so the component's root
    vnode always has a real DOM el. No visual presence when empty. */
 .outline-panel-host { display: contents; }
+.op-manual-redo { display: grid; gap: 4px; max-width: 70ch; padding: 8px 10px; border: 1px solid var(--warning); border-radius: var(--radius-sm); background: var(--accent-dim); cursor: pointer; }
+.op-manual-redo-choice { display: inline-flex; align-items: center; gap: 8px; color: var(--text-primary); font-size: 12px; font-weight: 600; }
+.op-manual-redo-detail { color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.45; }
 
 .op-locked-params {
   margin: 6px 0 0 0;

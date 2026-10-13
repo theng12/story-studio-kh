@@ -24,9 +24,12 @@ import { safetyMode } from '../services/safety-checks.js'
 import {
   freshActionMatch,
   readOperationId,
+  readManualGenerationRedoIntent,
   readOptionalOperationId,
   stampFreshGenerationAction,
 } from '../lib/fresh-generation-action.js'
+import { inspectChunkedScriptCompletion } from '../lib/chunked-narration.js'
+import type { Job } from '../models/types.js'
 
 export const router = Router()
 
@@ -206,14 +209,57 @@ router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
   // is still the fallback for a caller that names no model at all; the
   // executor logs the substitution either way. `job.params.model` stays a real
   // id so the queue's retry-eligibility check keeps working without extra I/O.
+  let manualRedoIntent
+  try {
+    manualRedoIntent = readManualGenerationRedoIntent(req.body)
+  } catch (error) {
+    return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid manual_redo.' })
+  }
+  if (manualRedoIntent && req.body?.terminal_retry_job_id !== undefined) {
+    return res.status(400).json({ detail: 'manual_redo and terminal_retry_job_id cannot be used together.' })
+  }
+
   const selectedModel = typeof req.body?.model === 'string' && req.body.model.trim()
     ? req.body.model.trim()
     : undefined
   const expansionModel = selectedModel || sidecar?.generation_params?.model
   const { terminal_retry_job_id: terminalRetryJobId, ...expansionRequest } = req.body
+  delete expansionRequest.manual_redo
+  if (manualRedoIntent && !expansionModel) {
+    return res.status(400).json({ detail: 'Select a published writing model before starting a separate attempt.' })
+  }
+  let priorManualAction: Job | undefined
+  if (manualRedoIntent) {
+    try {
+      const operationId = readOperationId(req.body, true)!
+      priorManualAction = (await jq.findJobs(slug, freshActionMatch(operationId)))[0]
+    } catch (error) {
+      return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
+    }
+  }
+  const priorManualRedo = priorManualAction?.params?.manual_redo
+  const replaysPriorManualRedo = priorManualRedo?.version === 1
+    && priorManualRedo?.intent === 'replace_unresolved'
+    && priorManualRedo?.source_job_id === manualRedoIntent?.source_job_id
+    && Array.isArray(priorManualRedo?.target_chapters)
+  const missingChapters = manualRedoIntent && !priorManualAction
+    ? (await inspectChunkedScriptCompletion(paths.script_dir, episode_id)).missing
+    : []
+  if (manualRedoIntent && !priorManualAction && missingChapters.length === 0) {
+    return res.status(409).json({ detail: `All chapters for ${episode_id} are already on disk.` })
+  }
+  const manualRedo = replaysPriorManualRedo ? priorManualRedo : manualRedoIntent ? {
+    version: 1 as const,
+    intent: manualRedoIntent.intent,
+    source_job_id: manualRedoIntent.source_job_id,
+    requested_at: new Date().toISOString(),
+    target_chapters: missingChapters,
+    selected_model_id: expansionModel!,
+  } : undefined
   const validatedParams = {
     ...expansionRequest,
     ...(expansionModel ? { model: expansionModel } : {}),
+    ...(manualRedo ? { manual_redo: manualRedo } : {}),
   }
   const actionRequest = {
     ...validatedParams,
@@ -222,7 +268,7 @@ router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
 
   let action
   try {
-    action = await prepareExplicitScriptAction(slug, actionRequest, 'optional')
+    action = await prepareExplicitScriptAction(slug, actionRequest, manualRedo ? 'required' : 'optional')
   } catch (error) {
     return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
   }
@@ -234,7 +280,7 @@ router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
     // replacement. enqueue() also defends this invariant atomically, but this
     // route must not begin terminal-retry handling while another expansion owns
     // the episode.
-    if (jq.isDuplicate(slug, episode_id, 'expand_chapters')) {
+    if (jq.isDuplicate(slug, episode_id, 'expand_chapters') || jq.isDuplicate(slug, episode_id, 'chapter-only')) {
       return res.status(409).json({ detail: `Chapter expansion already queued/running for ${episode_id}` })
     }
 
@@ -257,6 +303,23 @@ router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
       return res.status(201).json(job)
     }
 
+    if (manualRedo) {
+      try {
+        const job = await jq.enqueue({
+          project_slug: slug,
+          type: 'expand_chapters',
+          episode_id,
+          title: title || '',
+          params: action.params,
+        }, {}, async () => {
+          await jq.prepareUnresolvedChapterExpansionRedo(slug, episode_id, manualRedo.source_job_id)
+        })
+        return res.status(201).json(job)
+      } catch (error: any) {
+        return res.status(error?.status || error?.statusCode || 409).json({ detail: error?.message || 'Manual redo was refused.' })
+      }
+    }
+
     if (jq.hasUnresolvedTerminalChapterExpansion(slug, episode_id)) {
       return res.status(409).json({
         detail: `Writing chapters for ${episode_id} stopped part-way and may still be finishing at the Gateway. `
@@ -264,14 +327,21 @@ router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
       })
     }
 
-    const job = await jq.enqueue({
-      project_slug: slug,
-      type: 'expand_chapters',
-      episode_id,
-      title: title || '',
-      params: action.params,
-    })
-    return res.status(201).json(job)
+    try {
+      const job = await jq.enqueue({
+        project_slug: slug,
+        type: 'expand_chapters',
+        episode_id,
+        title: title || '',
+        params: action.params,
+      })
+      return res.status(201).json(job)
+    } catch (error: any) {
+      if (error?.status === 409 || error?.statusCode === 409) {
+        return res.status(409).json({ detail: error.message })
+      }
+      throw error
+    }
   })
 })
 
@@ -617,20 +687,30 @@ router.post('/projects/:slug/generate/chapter-only', validateBody(GenerateChapte
   const requestedChapter = Number(req.body.chapter_number)
   const sameChapter = (params: any) => Number(params?.chapter_number) === requestedChapter
   return withExplicitActionReplay(slug, action.params, res, 'This operation_id already belongs to a different chapter request.', async () => {
+    if (jq.isDuplicate(slug, req.body.episode_id, 'expand_chapters')) {
+      return res.status(409).json({ detail: `Chapter expansion already queued/running for ${req.body.episode_id}` })
+    }
     if (jq.isDuplicate(slug, req.body.episode_id, 'chapter-only', sameChapter)) {
       return res.status(409).json({
         detail: `Chapter ${requestedChapter} regen is already queued for ${req.body.episode_id}`,
       })
     }
-    const job = await jq.enqueue({
-      project_slug: slug,
-      type: 'chapter-only',
-      episode_id: req.body.episode_id,
-      title: req.body.title,
-      params: action.params,
-      dedupeParams: sameChapter,
-    })
-    return res.status(201).json(job)
+    try {
+      const job = await jq.enqueue({
+        project_slug: slug,
+        type: 'chapter-only',
+        episode_id: req.body.episode_id,
+        title: req.body.title,
+        params: action.params,
+        dedupeParams: sameChapter,
+      })
+      return res.status(201).json(job)
+    } catch (error: any) {
+      if (error?.status === 409 || error?.statusCode === 409) {
+        return res.status(409).json({ detail: error.message })
+      }
+      throw error
+    }
   })
 })
 

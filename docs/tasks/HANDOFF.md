@@ -1,5 +1,14 @@
 # HANDOFF — Story Studio KH
 
+## Source verified, packaging pending — 2026-10-14 (1.4.304)
+
+Saved legacy pacing recovery now accepts only the original owning run. Unknown chapter-submit responses preserve the captured body, target and operation identity for Retry, with usable error detail and secure HTTP-browser UUID support. A separate default-off machine preference exposes explicit source-bound replacement for unresolved missing chapters and Scene Review Replace Anyway; existing chapters and provider evidence remain. Active/paused/unwinding writer guards, same-action replay and changed-body conflict remain. This release covers those two lanes only; the remaining all-types manual-redo work is not shipped.
+
+Independent slice/aggregate reviews are clean. Required source evidence: full backend685/685files6946total/6942pass/4skip; full frontend300/300files2506pass; contentpacks38/38files368total/366pass/2skip; lint/typecheck/changelog/typography/security/model-drift/release pass. Initial stale/timing fixture failures and their focused RED/GREEN resolutions are retained, not relabeled passed. The last change is only the supporting-text 12px shared token; unchanged script/template SHA, actual-label desktop/390px keyboard/layout proof and review confirm behavioral suites still apply. Orchestra story-304-gate/source-phase-results.json binds the aggregate.
+
+Main integration, primary-main DMG, all54 installer checks and normal Mini update remain required. Story303 remains installed until an explicit installed304 receipt. Production alone may recover DL14 missing10–15 (keep1–9) and EP0110 after that receipt; fixes never dispatches episodes, changes presets/pauses or replaces existing DL11/SS63 renders.
+
+
 ## Released and installed — 2026-10-13 (1.4.303)
 
 Product source `fbfdbc18e942b8d574f63dbb1f0b372f0c0a9c67` is on main and pushed. Primary `dist/Story Studio KH 1.4.303-arm64.dmg` is verified: 242,960,561 bytes, SHA-256 `a1476bc32d7df4def778c574527f7aa608578fcfed02f82986ee55410f3f4755`. Gateway publication returned200 and one normal update command for `macmini-angkor` installed303 after normal check-in/drain. Fresh health reports1.4.303/boot complete; updater reports installed/noerror/no pending request/queue unpaused. The two corrected component messages were verified in the live served frontend chunk. The private sleep-story recipe is unchanged; existing DL11/SS63renders remain singularqueued and DL14remains the sole held refusal. No forced restart, manual pause or channel operation was performed.

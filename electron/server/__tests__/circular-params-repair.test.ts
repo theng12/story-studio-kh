@@ -14,6 +14,7 @@ import { redactSensitiveValue } from '../lib/redact-secrets.js'
 import { CIRCULAR_MARKER, repairCircularParams } from '../lib/circular-params-repair.js'
 import { parseScenePacing } from '../contracts/pacing.js'
 import { nonRetryable } from '../services/job-retry-policy.js'
+import { createEpisodeRecoveryPlan, repairEpisodeRecoveryPlanParams } from '../services/episode-recovery.js'
 
 let tempDir: string
 let cleanup: () => Promise<void>
@@ -78,6 +79,109 @@ function row(slug: string, id: string, type: string, episode: string, status: st
   }
 }
 
+test('episode recovery restores legacy shared settings from its saved Pipeline run before snapshotting a child', () => {
+  const slug = 'legacy-recovery'
+  const batch = { pipeline_batch_id: 'batch-recovery' }
+  const motionScope = { mode: 'all', scene_ids: ['scene-1'] }
+  const damaged = { pacing: CIRCULAR_MARKER, motion_scope: CIRCULAR_MARKER, motion_level: 2 }
+  const parent = row(slug, 'parent-audio', 'audio', 'EP0110', 'done', {
+    ...batch,
+    pacing: structuredClone(PACING),
+    motion_scope: structuredClone(motionScope),
+    pipeline_chain: [{ type: 'scene_plan_run', title: 'Scene Plan', params: { ...damaged } }],
+  })
+  parent.created_at = '2026-10-13T15:20:00.000Z'
+  const failedChild = row(slug, 'recovery-old-scene-plan', 'scene_plan_run', 'EP0110', 'error', {
+    ...batch,
+    ...damaged,
+    episode_recovery_id: 'legacy-plan',
+  })
+  failedChild.created_at = '2026-10-13T15:25:00.000Z'
+
+  const plan = createEpisodeRecoveryPlan([parent, failedChild] as any, [failedChild.job_id])
+
+  assert.deepEqual(plan.steps.scene_plan_run?.params.pacing, PACING)
+  assert.deepEqual(plan.steps.scene_plan_run?.params.motion_scope, motionScope)
+})
+
+test('a newer Pipeline batch repairs its child only from that batch', () => {
+  const slug = 'two-batch-recovery'
+  const pipeline = (id: string, createdAt: string, pacing: Record<string, unknown>) => {
+    const parent = row(slug, `parent-${id}`, 'audio', 'EP0110', 'done', {
+      pipeline_batch_id: id,
+      pacing,
+      pipeline_chain: [
+        { type: 'scene_plan_run', title: 'Scene Plan', params: { pacing: CIRCULAR_MARKER } },
+        { type: 'video_assembly', title: 'Final Video', params: {} },
+      ],
+    })
+    parent.created_at = createdAt
+    return parent
+  }
+  const batchA = pipeline('batch-a', '2026-10-13T15:00:00.000Z', { mode: 'uniform', min_sec: 2, max_sec: 4 })
+  const batchBPacing: Record<string, unknown> = { mode: 'uniform', min_sec: 9, max_sec: 13 }
+  const batchB = pipeline('batch-b', '2026-10-13T16:00:00.000Z', batchBPacing)
+
+  const plan = createEpisodeRecoveryPlan([batchA, batchB] as any)
+
+  assert.equal(plan.pipeline_batch_id, 'batch-b')
+  assert.deepEqual(plan.steps.scene_plan_run?.params.pacing, batchBPacing)
+})
+
+test('persisted recovery fails closed when its Pipeline batch has no intact legacy setting', async () => {
+  const project = await pm.createProject({ name: 'Circular Missing Donor' })
+  const slug = project.slug
+  const batchA = row(slug, 'parent-a', 'audio', 'EP0110', 'done', {
+    pipeline_batch_id: 'batch-a',
+    pacing: { mode: 'uniform', min_sec: 2, max_sec: 4 },
+  })
+  batchA.created_at = '2026-10-13T15:00:00.000Z'
+  const batchB = row(slug, 'parent-b', 'audio', 'EP0110', 'done', {
+    pipeline_batch_id: 'batch-b',
+    pipeline_chain: [
+      { type: 'scene_plan_run', title: 'Scene Plan', params: { pacing: CIRCULAR_MARKER } },
+      { type: 'video_assembly', title: 'Final Video', params: {} },
+    ],
+  })
+  batchB.created_at = '2026-10-13T16:00:00.000Z'
+  await fs.writeFile(jobsFile(slug), JSON.stringify({ jobs: [batchA, batchB] }))
+
+  const hydrated = await jq.getJobs(slug)
+
+  assert.throws(
+    () => createEpisodeRecoveryPlan(hydrated as any),
+    /could not be restored from its original Pipeline run/,
+  )
+})
+
+test('a persisted recovery snapshot restores legacy shared settings only from its saved run', () => {
+  const slug = 'persisted-recovery'
+  const batch = { pipeline_batch_id: 'batch-persisted' }
+  const motionScope = { mode: 'all', scene_ids: ['scene-7'] }
+  const parent = row(slug, 'parent-audio', 'audio', 'EP0110', 'done', {
+    ...batch,
+    pacing: structuredClone(PACING),
+    motion_scope: structuredClone(motionScope),
+  })
+  const plan = createEpisodeRecoveryPlan([parent] as any)
+  plan.pipeline_batch_id = batch.pipeline_batch_id
+  plan.target = 'scene_plan_run'
+  plan.steps.scene_plan_run = {
+    job_id: `recovery-${plan.id}-scene_plan_run`,
+    type: 'scene_plan_run',
+    title: 'Scene Plan',
+    params: { pacing: CIRCULAR_MARKER, motion_scope: CIRCULAR_MARKER, motion_level: 2 },
+  }
+
+  assert.equal(repairEpisodeRecoveryPlanParams(plan, [parent] as any), true)
+  assert.deepEqual(plan.steps.scene_plan_run.params.pacing, PACING)
+  assert.deepEqual(plan.steps.scene_plan_run.params.motion_scope, motionScope)
+
+  plan.steps.scene_plan_run.params.pacing = CIRCULAR_MARKER
+  assert.throws(() => repairEpisodeRecoveryPlanParams(plan, []), /could not be restored from its original Pipeline run/)
+  assert.equal(plan.steps.scene_plan_run.params.pacing, CIRCULAR_MARKER, 'an unresolved repair never guesses the current preset')
+})
+
 test('saved "[CIRCULAR]" settings are repaired on load from the parent job, and a plain Retry then plans', async () => {
   const project = await pm.createProject({ name: 'Circular Load' })
   const slug = project.slug
@@ -96,7 +200,7 @@ test('saved "[CIRCULAR]" settings are repaired on load from the parent job, and 
     }),
     // No same-episode donor: falls back to the batch.
     row(slug, 'na-plan-2', 'scene_plan_run', 'EP0046', 'error', { ...batch, ...damaged }),
-    // No run to restore from: the field is dropped so the generator reads the saved setting.
+    // No run to restore from: the marker stays explicit so Retry cannot guess the current setting.
     row(slug, 'na-orphan', 'scene_plan_run', 'EP0047', 'error', { ...damaged }),
   ]
   await fs.writeFile(jobsFile(slug), JSON.stringify({ jobs: rows }))
@@ -108,9 +212,12 @@ test('saved "[CIRCULAR]" settings are repaired on load from the parent job, and 
   assert.deepEqual(plan.params.pipeline_chain[0].params.pacing, PACING)
   assert.deepEqual(jq.getJob('na-audio')!.params.pipeline_chain[0].params.pacing, PACING)
   assert.deepEqual(jq.getJob('na-plan-2')!.params.pacing, PACING)
-  assert.equal('pacing' in jq.getJob('na-orphan')!.params, false)
+  assert.equal(jq.getJob('na-orphan')!.params.pacing, CIRCULAR_MARKER)
   await jq._waitForJobPersistenceForTesting()
-  assert.ok(!(await fs.readFile(jobsFile(slug), 'utf8')).includes(CIRCULAR_MARKER), 'repair is saved')
+  const savedRows = JSON.parse(await fs.readFile(jobsFile(slug), 'utf8')).jobs
+  assert.ok(!JSON.stringify(savedRows.find((job: { job_id: string }) => job.job_id === 'na-plan')).includes(CIRCULAR_MARKER), 'matched repair is saved')
+  assert.equal(savedRows.find((job: { job_id: string }) => job.job_id === 'na-orphan').params.pacing, CIRCULAR_MARKER,
+    'unmatched corruption stays visible and cannot silently fall back to current defaults')
 
   const retried = jq.retryTerminalJob(slug, 'na-plan')
   await waitFor(() => jq.getJob(retried.job_id)?.status === 'done', { label: 'retried Scene Plan finishes' })

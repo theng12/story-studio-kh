@@ -26,6 +26,7 @@ import {
   getPaidAudioReplacementSetting, setPaidAudioReplacementSetting,
   getPaidWritingReplacementSetting, setPaidWritingReplacementSetting,
   getPaidReplacementSettings,
+  getManualGenerationRedoSetting, setManualGenerationRedoSetting,
   setAppSetting,
 } from '../services/app-settings.js'
 import { getGlobalCompression, setGlobalCompression, COMPRESSION_DEFAULTS } from '../services/generation-compression.js'
@@ -52,6 +53,22 @@ import {
 
 export const router = Router()
 const CUSTOMER_SECRET_PROVIDERS = ['genstudio'] as const
+
+router.get('/app-settings/manual-generation-redo', async (_req, res) => {
+  try {
+    res.json(await getManualGenerationRedoSetting())
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to load manual fresh-attempt setting'))
+  }
+})
+
+router.put('/app-settings/manual-generation-redo', async (req, res) => {
+  try {
+    res.json(await setManualGenerationRedoSetting(req.body))
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to save manual fresh-attempt setting'))
+  }
+})
 
 // "Smaller files": which generated assets are requested already compressed (AAC / JPEG).
 router.get('/app-settings/generation-compression', async (_req, res) => {

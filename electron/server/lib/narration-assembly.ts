@@ -25,6 +25,7 @@ import { buildNarrationDocx } from './docx-builder.js'
 import { narrationDocxToMarkdown } from './docx-parser.js'
 import { matchChapterFile, resolveArtifact, resolveReadPath, readArtifactRawText } from './episode-artifacts.js'
 import { describeLongSentences, normalizeSpokenNumbers, splitLongSentences } from './tts-text.js'
+import { withLock } from './atomic-store.js'
 
 export interface NarrationParts {
   intro?: { text: string }
@@ -42,6 +43,10 @@ export interface WriteChapterFilesOptions {
   normalizeSpokenProse?: boolean
   /** Where to report sentences the save split for narration (a job's log). */
   log?: (line: string) => void
+  /** Expansion only: a valid current chapter that reaches disk first wins. */
+  preserveExisting?: boolean
+  /** Current outline timestamp; older chapter files remain replaceable. */
+  preserveExistingSince?: string
 }
 
 /** Saved narration prose: spoken numbers, and no sentence longer than the voice can take whole. */
@@ -200,12 +205,18 @@ export async function writeChapterFiles(
   // The unified narration docx still gets the full title block (see
   // assembleUnifiedNarration's buildNarrationDocx call below).
   for (const ch of parts.chapters) {
-    const spokenText = spokenProse(ch.text, `Chapter ${ch.number}`, options)
-    const md = `## Chapter ${ch.number.toString().padStart(2, '0')}: ${ch.title}\n\n${spokenText}\n`
-    await buildNarrationDocx(
-      md, code, episodeTitle, chapterFilePath(scriptDir, code, ch.number),
-      { includeTitleBlock: false },
-    )
+    const target = chapterFilePath(scriptDir, code, ch.number)
+    await withLock(target, async () => {
+      if (options.preserveExisting) {
+        const since = Date.parse(options.preserveExistingSince || '')
+        const existing = await fs.stat(target).catch(() => null)
+        if (existing?.isFile() && existing.size > 0
+          && (!Number.isFinite(since) || existing.mtimeMs >= since)) return
+      }
+      const spokenText = spokenProse(ch.text, `Chapter ${ch.number}`, options)
+      const md = `## Chapter ${ch.number.toString().padStart(2, '0')}: ${ch.title}\n\n${spokenText}\n`
+      await buildNarrationDocx(md, code, episodeTitle, target, { includeTitleBlock: false })
+    })
   }
 
   if (parts.intro) {

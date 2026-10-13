@@ -19,6 +19,7 @@ import { test, describe, before, after, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
+import { createHash } from 'node:crypto'
 import path from 'path'
 import os from 'os'
 import {
@@ -29,6 +30,7 @@ import { writeJsonAtomic } from '../lib/atomic-store.js'
 import { registry } from '../providers/registry.js'
 import type { Job, Format } from '../models/types.js'
 import type { TextProvider, TextGenerationRequest } from '../providers/types.js'
+import { chapterFilePath, writeChapterFiles } from '../lib/narration-assembly.js'
 
 // ── Fake provider — same shape as chunked-narration-smoke ─────────────────
 
@@ -120,6 +122,38 @@ before(async () => { tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sskh-out
 after(async () => { await fs.rm(tmpRoot, { recursive: true, force: true }) })
 
 async function freshDir(): Promise<string> { return fs.mkdtemp(path.join(tmpRoot, 'ep-')) }
+
+test('expansion chapter writes preserve a valid file that already won the path lock', async () => {
+  const scriptDir = await freshDir()
+  const existing = '## Chapter 10: Existing\n\nHuman-approved bytes stay here.\n'
+  const target = chapterFilePath(scriptDir, 'EP0700', 10)
+  await fs.mkdir(scriptDir, { recursive: true })
+  await fs.writeFile(target, existing)
+  const before = await fs.readFile(target)
+
+  await writeChapterFiles(scriptDir, 'EP0700', 'Race fixture', {
+    chapters: [{ number: 10, title: 'Late provider result', text: 'This must not replace the existing chapter.' }],
+  }, { preserveExisting: true, preserveExistingSince: new Date(0).toISOString() })
+
+  assert.deepEqual(await fs.readFile(target), before)
+})
+
+test('expansion chapter writes repair empty files while explicit chapter writes still replace by default', async () => {
+  const scriptDir = await freshDir()
+  const target = chapterFilePath(scriptDir, 'EP0700', 10)
+  await fs.mkdir(scriptDir, { recursive: true })
+  await fs.writeFile(target, '')
+  const parts = { chapters: [{ number: 10, title: 'Repair', text: 'Repaired chapter body.' }] }
+  await writeChapterFiles(scriptDir, 'EP0700', 'Repair fixture', parts, {
+    preserveExisting: true, preserveExistingSince: new Date(0).toISOString(),
+  })
+  assert.match(await fs.readFile(target, 'utf8'), /Repaired chapter body/)
+
+  await writeChapterFiles(scriptDir, 'EP0700', 'Explicit fixture', {
+    chapters: [{ number: 10, title: 'Explicit', text: 'Explicit replacement body.' }],
+  })
+  assert.match(await fs.readFile(target, 'utf8'), /Explicit replacement body/)
+})
 
 function makeParams(scriptDir: string, opts: Partial<ChunkedNarrationParams> = {}): ChunkedNarrationParams {
   return {
@@ -282,6 +316,38 @@ describe('expandChapters — approval gate + selective expansion', () => {
       'chaptersWritten counts what is on disk, not just this run')
     assert.equal(fakeCalls.length, 0,
       'all chapters already on disk → no fresh LLM call')
+  })
+
+  test('preserves chapters 1–9 byte-for-byte and writes only missing chapters 10–15', async () => {
+    const scriptDir = await freshDir()
+    fakeOutlineResponse = buildOutlineJson(15, 'listicle')
+    fakeExpansionFor = buildExpansionFor
+    const job = makeJob(scriptDir)
+    await buildOutlineOnly(
+      job, makeParams(scriptDir, { totalChapters: 15 }), 'listicle', { auto_approve: true },
+    )
+    await writeChapterFiles(scriptDir, 'EP0700', 'Existing chapter fixture', {
+      chapters: Array.from({ length: 9 }, (_, i) => ({
+        number: i + 1,
+        title: `Existing ${i + 1}`,
+        text: `Existing approved body ${i + 1}.`,
+      })),
+    })
+    const hash = async (n: number) => createHash('sha256')
+      .update(await fs.readFile(chapterFilePath(scriptDir, 'EP0700', n)))
+      .digest('hex')
+    const before = await Promise.all(Array.from({ length: 9 }, (_, i) => hash(i + 1)))
+
+    const result = await expandChapters(job, makeParams(scriptDir, { totalChapters: 15 }), {})
+
+    const after = await Promise.all(Array.from({ length: 9 }, (_, i) => hash(i + 1)))
+    assert.deepEqual(after, before)
+    assert.equal(result.chaptersWritten, 15)
+    const progress = JSON.parse(await fs.readFile(sidecarPath(scriptDir, 'EP0700'), 'utf8'))
+    assert.deepEqual(progress.chapters_done, Array.from({ length: 15 }, (_, i) => i + 1))
+    for (let n = 10; n <= 15; n++) {
+      assert.equal(existsSync(chapterFilePath(scriptDir, 'EP0700', n)), true, `chapter ${n} should be written`)
+    }
   })
 })
 

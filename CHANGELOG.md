@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.304 — 2026-10-14
+
+- Saved legacy pacing can now be recovered only from the original run that owns it, preventing another run's pacing from being applied.
+- If Story cannot confirm whether a chapter request was accepted, it now shows a usable error. Retry checks the original request instead of starting another, and secure request IDs now work when Story is opened over HTTP.
+- An optional setting now exposes an explicit, source-bound replacement for unresolved missing chapters. It writes only chapters that are still missing and preserves every existing chapter. Scene Review's unresolved **Replace Anyway** action follows the same setting and cancels if its project, episode or source changes while its dialog is open.
+- This release covers chapter replacement and the Scene Review exposure only. Manual redo support for the remaining generation types is still required and is not included in v1.4.304.
+
 ## v1.4.303
 
 - Thumbnail recipe previews now distinguish generated examples from layout placeholders, including screen-reader descriptions and the selected recipe status.
