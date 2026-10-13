@@ -1,12 +1,12 @@
 # HANDOFF — Story Studio KH
 
-## Source verified, packaging pending — 2026-10-14 (1.4.304)
+## Released and installed — 2026-10-14 (1.4.304)
 
 Saved legacy pacing recovery now accepts only the original owning run. Unknown chapter-submit responses preserve the captured body, target and operation identity for Retry, with usable error detail and secure HTTP-browser UUID support. A separate default-off machine preference exposes explicit source-bound replacement for unresolved missing chapters and Scene Review Replace Anyway; existing chapters and provider evidence remain. Active/paused/unwinding writer guards, same-action replay and changed-body conflict remain. This release covers those two lanes only; the remaining all-types manual-redo work is not shipped.
 
 Independent slice/aggregate reviews are clean. Required source evidence: full backend685/685files6946total/6942pass/4skip; full frontend300/300files2506pass; contentpacks38/38files368total/366pass/2skip; lint/typecheck/changelog/typography/security/model-drift/release pass. Initial stale/timing fixture failures and their focused RED/GREEN resolutions are retained, not relabeled passed. The last change is only the supporting-text 12px shared token; unchanged script/template SHA, actual-label desktop/390px keyboard/layout proof and review confirm behavioral suites still apply. Orchestra story-304-gate/source-phase-results.json binds the aggregate.
 
-Main integration, primary-main DMG, all54 installer checks and normal Mini update remain required. Story303 remains installed until an explicit installed304 receipt. Production alone may recover DL14 missing10–15 (keep1–9) and EP0110 after that receipt; fixes never dispatches episodes, changes presets/pauses or replaces existing DL11/SS63 renders.
+Product6abb2230e74f1576662855fa7b3c801a14d2a1c9 is integrated/main/pushed. Primary-main DMG242,952,215bytes SHA80331833da1d0b3747890010556845acf4634e9dc728efc99bb3245ee01bad79 passed read-only mount, ad-hoc arm64 signature,98runtime packages and isolated boot; all54installer checks across6files passed. Signed Gateway publication200 and sole normalMiniupdate028a2fc550164e249444079285d495ec installed304. Fresh health304/bootcomplete, updaterinstalled/noerror/queueunpaused andthree livefrontendchunks byte-identical to build verified. Production received installedreceipt and owns DL14 missing10–15 (keep1–9) and EP0110 saved-source recovery; fixes dispatches noepisodes and changes noownerpresets/pauses. DL11/SS63originalrenders remain singularqueued. Receipts story-304-gate/{source-phase-results,artifact,release-result,publication,update-start,installed}.json. Previousbuilds retained _trash/builds/20261014-044201 and prior303DMG in_trash/dist. Remaining all-types work isisolated/sourceonly andnotincludedin304.
 
 
 ## Released and installed — 2026-10-13 (1.4.303)
