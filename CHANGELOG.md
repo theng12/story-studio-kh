@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.303
+
+- Thumbnail recipe previews now distinguish generated examples from layout placeholders, including screen-reader descriptions and the selected recipe status.
+
 ## v1.4.302
 
 - Retrying a failed Scene Plan or Scene Review now checks that stage even when an earlier subtitle recovery has already finished. Completed assets are retained, and existing queued, running or paused work is reused only when its saved settings match.

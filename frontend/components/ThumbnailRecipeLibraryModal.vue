@@ -50,7 +50,7 @@
             @keydown.space.prevent="draftId = recipe.id"
           >
             <div class="rlm-image-wrap">
-              <img :src="previewSrc(recipe)" :alt="`${recipe.name} generated example`" loading="lazy" decoding="async" />
+              <img :src="previewSrc(recipe)" :alt="previewAlt(recipe, previewIndex(recipe.id))" loading="lazy" decoding="async" />
               <div v-if="recipe.previewImages && recipe.previewImages.length > 1" class="rlm-preview-dots" aria-label="Recipe examples">
                 <button v-for="(_, index) in recipe.previewImages" :key="index" type="button" :class="{ active: previewIndex(recipe.id) === index }" :aria-label="`Show example ${index + 1}`" @click.stop="setPreview(recipe.id, index)" />
               </div>
@@ -82,7 +82,7 @@
         <div class="rlm-selection">
           <img v-if="selectedRecipe" :src="previewSrc(selectedRecipe)" alt="" />
           <div>
-            <span>{{ selectedRecipe ? 'Ready to use' : 'Choose a recipe' }}</span>
+            <span>{{ selectedRecipe ? previewStatus(selectedRecipe, previewIndex(selectedRecipe.id)) : 'Choose a recipe' }}</span>
             <strong>{{ selectedRecipe?.name || 'No recipe selected' }}</strong>
           </div>
         </div>
@@ -162,6 +162,19 @@ function setPreview(id: string, index: number): void { previews.value = { ...pre
 function previewSrc(recipe: ThumbnailRecipe): string {
   const images = recipe.previewImages || []
   return images[previewIndex(recipe.id)] || `/api/thumbnail-templates/${encodeURIComponent(recipe.id)}/preview.png`
+}
+function hasGeneratedExample(recipe: ThumbnailRecipe, index = 0): boolean {
+  return Boolean(recipe.previewImages?.[index])
+}
+function previewAlt(recipe: ThumbnailRecipe, index = 0): string {
+  if (!hasGeneratedExample(recipe, index)) return `${recipe.name} layout placeholder; no generated example available`
+  const count = recipe.previewImages?.length || 0
+  return count > 1
+    ? `${recipe.name} generated thumbnail example ${index + 1} of ${count}`
+    : `${recipe.name} generated thumbnail example`
+}
+function previewStatus(recipe: ThumbnailRecipe, index = 0): string {
+  return hasGeneratedExample(recipe, index) ? 'Generated examples included' : 'Layout placeholder · no generated examples yet'
 }
 function readStoredIds(key: string): string[] {
   try {

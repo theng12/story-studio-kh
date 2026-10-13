@@ -9,7 +9,7 @@
     </div>
 
     <div class="recipe-picker-current" :class="{ empty: !activeRecipe }">
-      <img v-if="activeRecipe" :src="previewSrc(activeRecipe)" :alt="`${activeRecipe.name} generated example`" />
+      <img v-if="activeRecipe" :src="previewSrc(activeRecipe)" :alt="previewAlt(activeRecipe)" />
       <div v-else class="recipe-picker-placeholder" aria-hidden="true">▧</div>
       <div class="recipe-picker-current-copy">
         <span>{{ activeRecipe?.category || 'No recipe selected' }}</span>
@@ -25,7 +25,7 @@
       <span>⌕ Searchable</span>
       <span>★ Favorites</span>
       <span>↺ Recent recipes</span>
-      <span>Generated examples included</span>
+      <span v-if="activeRecipe">{{ previewStatus(activeRecipe) }}</span>
     </div>
 
     <ThumbnailRecipeLibraryModal
@@ -64,6 +64,19 @@ const recipeCount = computed(() => recipes.value.length)
 
 function previewSrc(recipe: ThumbnailRecipe): string {
   return recipe.previewImages?.[0] || `/api/thumbnail-templates/${encodeURIComponent(recipe.id)}/preview.png`
+}
+function hasGeneratedExample(recipe: ThumbnailRecipe, index = 0): boolean {
+  return Boolean(recipe.previewImages?.[index])
+}
+function previewAlt(recipe: ThumbnailRecipe, index = 0): string {
+  if (!hasGeneratedExample(recipe, index)) return `${recipe.name} layout placeholder; no generated example available`
+  const count = recipe.previewImages?.length || 0
+  return count > 1
+    ? `${recipe.name} generated thumbnail example ${index + 1} of ${count}`
+    : `${recipe.name} generated thumbnail example`
+}
+function previewStatus(recipe: ThumbnailRecipe): string {
+  return hasGeneratedExample(recipe) ? 'Generated examples included' : 'Layout placeholder · no generated examples yet'
 }
 function selectRecipe(recipe: ThumbnailRecipe): void {
   libraryOpen.value = false

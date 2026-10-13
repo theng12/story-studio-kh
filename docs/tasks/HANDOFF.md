@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## Current release preparation — 2026-10-13 (1.4.303)
+
+The thumbnail recipe picker and library now label declared example assets and synthetic layout placeholders separately. The existing preview endpoints, layout, selection, generated images and content recipes remain unchanged. A rendered regression covers both states and switching between declared examples. Independent review and desktop/390px visual checks are clean. Source checks passed: focusedTDD7/7, backend6,926total/6,922pass/fourskipped, frontend2,491pass, contentpacks368total/366pass/twoskipped, typecheck/lint/source+compiledbuild checks exit0. Initial npmrunverify stopped only on the isolated worktree's missing packaged-app precondition (53/54release tests); all54 installer checks remain required against the actual primary303artifact after packaging. No1.4.303deployment orcompletedartifact claimed yet; production stayson installed1.4.302. Exactsource/main/artifact receipts belong to orchestra story-303-gate.
+
 ## Released and installed — 2026-10-13 (1.4.302)
 
 Product source `f525c8bf1e5b3e5c184251589f591305154abe02` is on main and pushed. Primary `dist/Story Studio KH 1.4.302-arm64.dmg` is verified (242,952,992 bytes; SHA-256 `8f0e1ac19365a321c2267e1c809d4781ce5556f3b9a7da974c01cb34034dd07b`) and published through Gateway. The mini installed it normally; health reports 1.4.302, boot complete, queue unpaused and no pending install request. No owner pause was changed.
