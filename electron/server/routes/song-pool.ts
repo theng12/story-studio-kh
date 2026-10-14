@@ -290,7 +290,8 @@ async function songPoolBatch(job: Readonly<Job>): Promise<BatchFile | null> {
 
 function musicPriceClass(model: GenStudioMusicModel): 'free' | 'paid' | 'unknown' {
   if (model.chargeable === true || model.credits_per_request > 0 || model.minimum_credits > 0
-    || (model.standard_credits ?? 0) > 0 || (model.sale_credits ?? 0) > 0
+    || (typeof model.standard_credits === 'number' && model.standard_credits > 0)
+    || (typeof model.sale_credits === 'number' && model.sale_credits > 0)
     || Object.values(model.price_usd || {}).some(value => value > 0)
     || (model.price_variants || []).some(value => typeof value.usd === 'number' && value.usd > 0)) return 'paid'
   if (model.chargeable === false) return 'free'

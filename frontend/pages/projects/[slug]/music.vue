@@ -439,12 +439,15 @@ const manualMusicLimits = computed(() => {
 const manualMusicPriceClass = computed<'free' | 'paid' | 'unknown'>(() => {
   const model = manualMusicModel.value
   if (!model) return 'unknown'
-  if (model.chargeable === true || (model.credits_per_request ?? 0) > 0 || (model.minimum_credits ?? 0) > 0
-    || (model.standard_credits ?? 0) > 0
-    || (model.sale_credits ?? 0) > 0 || Object.values(model.price_usd || {}).some(value => value > 0)
+  if (model.chargeable === true
+    || (typeof model.credits_per_request === 'number' && model.credits_per_request > 0)
+    || (typeof model.minimum_credits === 'number' && model.minimum_credits > 0)
+    || (typeof model.standard_credits === 'number' && model.standard_credits > 0)
+    || (typeof model.sale_credits === 'number' && model.sale_credits > 0)
+    || Object.values(model.price_usd || {}).some(value => value > 0)
     || (model.price_variants || []).some(value => typeof value.usd === 'number' && value.usd > 0)) return 'paid'
   if (model.chargeable === false) return 'free'
-  if (model.price_source === 'local' && model.credits_per_request === 0 && (model.minimum_credits ?? 0) === 0
+  if (model.price_source === 'local' && model.credits_per_request === 0 && model.minimum_credits === 0
     && (model.standard_credits === null || model.standard_credits === 0)
     && (model.sale_credits === null || model.sale_credits === 0)
     && !Object.values(model.price_usd || {}).some(value => value !== 0)

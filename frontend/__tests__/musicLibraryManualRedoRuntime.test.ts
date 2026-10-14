@@ -252,6 +252,43 @@ test('published chargeable truth requires the separate paid music confirmation e
     'Published limits: title up to 80 characters · prompt up to 500 characters · prompt without lyrics up to 120 characters · lyrics up to 5,000 characters.')
 })
 
+test('missing, undefined, or null minimum price stays unknown instead of becoming locally free', async () => {
+  const base = {
+    display_name: 'Unpriced Music', credits_per_request: 0,
+    standard_credits: 0, sale_credits: null,
+    price_source: 'local', price_usd: {}, price_variants: [], price_version: 'unpriced-v1',
+    supports_instrumental: true, requires_lyrics: false,
+  }
+  const missing = { ...base, id: 'missing-minimum' }
+  const undefinedMinimum = { ...base, id: 'undefined-minimum', minimum_credits: undefined }
+  const nullMinimum = { ...base, id: 'null-minimum', minimum_credits: null }
+  const publishedZero = { ...base, id: 'published-zero', minimum_credits: 0 }
+  const positiveDespiteFreeFlag = {
+    ...publishedZero, id: 'positive-despite-free-flag', chargeable: false, standard_credits: 4,
+  }
+  const fx = await fixture({ models: [missing, undefinedMinimum, nullMinimum, publishedZero, positiveDespiteFreeFlag] })
+
+  for (const modelId of ['missing-minimum', 'undefined-minimum', 'null-minimum']) {
+    fx.state.manualMusicModelId.value = modelId
+    await nextTick()
+    assert.equal(fx.state.manualMusicPriceClass.value, 'unknown', `${modelId} must fail closed`)
+  }
+  fx.state.manualMusicModelId.value = 'published-zero'
+  await nextTick()
+  assert.equal(fx.state.manualMusicPriceClass.value, 'free', 'an explicit published zero remains free')
+  fx.state.manualMusicModelId.value = 'positive-despite-free-flag'
+  await nextTick()
+  assert.equal(fx.state.manualMusicPriceClass.value, 'paid', 'positive published price evidence wins')
+
+  fx.state.manualMusicModelId.value = 'null-minimum'
+  await nextTick()
+  fx.state.manualSourceChoice.value = 'stopped-library-source::track-0'
+  fx.state.manualRedoChecked.value = true
+  await fx.state.beginManualMusicRedo()
+  assert.equal(fx.confirmations.length, 0)
+  assert.equal(fx.posts.length, 0)
+})
+
 test('scope changes while paid confirmation is open retire the captured action before its first POST', async () => {
   const fx = await fixture({ deferredConfirmation: true })
   fx.state.manualSourceChoice.value = 'stopped-library-source::track-0'

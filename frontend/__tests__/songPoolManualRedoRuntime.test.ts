@@ -163,6 +163,44 @@ test('lost response retries the exact body and UUID after source and catalogue d
   assert.equal(fx.posts[0]!.body.source_item_key, 'song-0')
 })
 
+test('missing, undefined, or null minimum price stays unknown instead of becoming locally free', async () => {
+  const base = {
+    display_name: 'Unpriced Music', credits_per_request: 0,
+    standard_credits: 0, sale_credits: null,
+    price_source: 'local', price_usd: {}, price_variants: [], price_version: 'unpriced-v1',
+    supports_instrumental: true, requires_lyrics: false,
+  }
+  const fx = await fixture()
+  fx.setModels([
+    { ...base, id: 'missing-minimum' },
+    { ...base, id: 'undefined-minimum', minimum_credits: undefined },
+    { ...base, id: 'null-minimum', minimum_credits: null },
+    { ...base, id: 'published-zero', minimum_credits: 0 },
+    { ...base, id: 'positive-despite-free-flag', minimum_credits: 0, chargeable: false, sale_credits: 4 },
+  ])
+  await fx.state.loadModels()
+
+  for (const modelId of ['missing-minimum', 'undefined-minimum', 'null-minimum']) {
+    fx.state.manualMusicModelId.value = modelId
+    await nextTick()
+    assert.equal(fx.state.manualMusicPriceClass.value, 'unknown', `${modelId} must fail closed`)
+  }
+  fx.state.manualMusicModelId.value = 'published-zero'
+  await nextTick()
+  assert.equal(fx.state.manualMusicPriceClass.value, 'free', 'an explicit published zero remains free')
+  fx.state.manualMusicModelId.value = 'positive-despite-free-flag'
+  await nextTick()
+  assert.equal(fx.state.manualMusicPriceClass.value, 'paid', 'positive published price evidence wins')
+
+  fx.state.manualMusicModelId.value = 'null-minimum'
+  await nextTick()
+  fx.state.manualSourceChoice.value = 'stopped-song-pool-source::song-0'
+  fx.state.manualRedoChecked.value = true
+  await fx.state.beginManualSongRedo()
+  assert.equal(fx.confirmations.length, 0)
+  assert.equal(fx.posts.length, 0)
+})
+
 test('project, source, or model change while paid confirmation is open blocks the first POST', async () => {
   const fx = await fixture({ deferredConfirmation: true })
   choose(fx.state)

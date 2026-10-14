@@ -101,7 +101,8 @@ function manualClientFingerprint(body: Record<string, unknown>, sourceJobId: str
 function priceClass(model: GenStudioMusicModel): 'free' | 'paid' | 'unknown' {
   const published = model as GenStudioMusicModel & { chargeable?: boolean }
   if (published.chargeable === true || model.credits_per_request > 0 || model.minimum_credits > 0
-    || (model.standard_credits ?? 0) > 0 || (model.sale_credits ?? 0) > 0
+    || (typeof model.standard_credits === 'number' && model.standard_credits > 0)
+    || (typeof model.sale_credits === 'number' && model.sale_credits > 0)
     || Object.values(model.price_usd || {}).some(value => value > 0)
     || (model.price_variants || []).some(value => typeof value.usd === 'number' && value.usd > 0)) return 'paid'
   if (published.chargeable === false) return 'free'
