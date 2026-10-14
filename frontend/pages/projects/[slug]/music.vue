@@ -146,6 +146,58 @@
         </button>
         <span class="text-muted text-sm">{{ !brief.trim() ? 'Describe the sound first.' : !validCount ? 'Choose between 1 and 100 songs.' : 'Runs as a job — watch it on the Jobs page.' }}</span>
       </div>
+
+      <section
+        v-if="manualRedoPreference.enabled.value && eligibleManualRedoSources.length"
+        class="music-manual-redo mt-3"
+        aria-labelledby="music-manual-redo-title"
+      >
+        <strong id="music-manual-redo-title">Start a separate song attempt</strong>
+        <p>
+          The selected request stopped without a final result. Existing songs and every other variation stay in the library.
+          The prior unresolved request may still have been charged.
+        </p>
+        <div class="ml-row mt-2">
+          <label class="ml-label">
+            Unresolved song
+            <select v-model="manualSourceChoice" class="input manual-select" @change="onManualSourceChoiceChanged">
+              <option value="">Choose one item</option>
+              <option
+                v-for="source in eligibleManualRedoSources"
+                :key="`${source.source_job_id}:${source.source_item_key}`"
+                :value="`${source.source_job_id}::${source.source_item_key}`"
+              >{{ source.label }}</option>
+            </select>
+          </label>
+          <label class="ml-label">
+            Music model
+            <select v-model="manualMusicModelId" class="input manual-select">
+              <option v-for="model in musicModels" :key="model.id" :value="model.id">{{ model.display_name }}</option>
+            </select>
+          </label>
+        </div>
+        <p v-if="manualMusicModel" class="manual-price mt-2">
+          <template v-if="manualMusicPriceClass !== 'unknown'">
+            Published unit rate: <strong>{{ manualMusicCost.text }}</strong> · {{ manualMusicModel.display_name }}
+          </template>
+          <template v-else>
+            This model has no clear published free or paid rate. A separate attempt cannot start.
+          </template>
+        </p>
+        <p v-if="manualMusicLimits" class="manual-price mt-1">{{ manualMusicLimits }}</p>
+        <label class="ml-label check mt-2">
+          <input v-model="manualRedoChecked" type="checkbox">
+          Keep the earlier evidence and start one separately identified attempt for this item.
+        </label>
+        <button
+          type="button"
+          class="btn btn-secondary mt-2"
+          :disabled="!manualRedoChecked || !selectedManualRedoSource || !manualMusicModel || manualMusicPriceClass === 'unknown' || manualRedoPosting"
+          @click="beginManualMusicRedo"
+        >
+          {{ manualRedoPosting ? 'Starting…' : 'Start separate attempt' }}
+        </button>
+      </section>
     </section>
 
     <!-- ── 3. Build a video — FREE ────────────────────────────────── -->
@@ -225,7 +277,10 @@ const route = useRoute()
 const slug = computed(() => String(route.params.slug || ''))
 const { get, post, patch, del } = useApi()
 const freshMusicAction = useFreshGenerationAction()
-const { success, error: showError } = useToast()
+const manualRedoPreference = useManualGenerationRedoPreference()
+const confirmation = useConfirmation()
+const { jobs: musicJobs } = useJobs()
+const { success, error: showError, showAction } = useToast()
 
 interface LibraryTrack {
   filename: string
@@ -244,6 +299,36 @@ interface MixPlan {
   shortfall_sec: number
   notes: string[]
   tracklist: string
+}
+interface MusicModel extends PricedMusicModel {
+  id: string
+  display_name: string
+  price_version: string
+  chargeable?: boolean
+  minimum_credits?: number | null
+  max_prompt_characters?: number | null
+  max_prompt_without_lyrics_characters?: number | null
+  min_prompt_characters?: number | null
+  max_lyrics_characters?: number | null
+  min_lyrics_characters?: number | null
+  max_title_characters?: number | null
+}
+interface ManualMusicSource {
+  source_job_id: string
+  source_item_key: string
+  label: string
+  eligible: boolean
+  reason: string
+}
+interface ManualMusicSubmission {
+  projectSlug: string
+  modelId: string
+  sourceChoice: string
+  userScopeKey: string
+  firstPostScopeKey: string
+  body: Record<string, unknown>
+  operationId: string
+  attempted: boolean
 }
 
 const library = ref<LibraryState | null>(null)
@@ -287,7 +372,7 @@ const unmeasured = computed(() =>
  * they had missed a sale. The owner's ruling is to show the full price with a
  * discount tag on it, which is what `describeMusicUnitCost` renders.
  */
-const musicModels = ref<PricedMusicModel[]>([])
+const musicModels = ref<MusicModel[]>([])
 // The model the backend will charge for: the first published row that can make a lyric-less
 // track (a vocal-only model such as YuE2 cannot), chosen by the same function it uses.
 const musicModel = computed(() =>
@@ -296,13 +381,244 @@ const musicCost = computed(() => describeMusicUnitCost(musicModel.value))
 
 async function loadMusicModels() {
   try {
-    const r = await get<{ models: PricedMusicModel[] }>('/app-settings/genstudio/music-models')
+    const r = await get<{ models: MusicModel[] }>('/app-settings/genstudio/music-models')
     musicModels.value = Array.isArray(r.models) ? r.models : []
+    const selectedMissing = !!manualMusicModelId.value
+      && !musicModels.value.some(model => model.id === manualMusicModelId.value)
+    const preserveAttemptedSelection = selectedMissing
+      && pendingManualMusicSubmission.value?.attempted === true
+      && pendingManualMusicSubmission.value.modelId === manualMusicModelId.value
+    if (!manualMusicModelId.value || (selectedMissing && !preserveAttemptedSelection)) {
+      manualMusicModelId.value = musicModel.value?.id || musicModels.value[0]?.id || ''
+    }
   } catch {
     // No key, offline, or GenStudio down. The page still works; it simply
     // shows no price rather than inventing one.
     musicModels.value = []
   }
+}
+
+const manualRedoSources = ref<ManualMusicSource[]>([])
+const manualSourceChoice = ref('')
+const manualMusicModelId = ref('')
+const manualRedoChecked = ref(false)
+const manualRedoPosting = ref(false)
+const pendingManualMusicSubmission = ref<ManualMusicSubmission | null>(null)
+let manualRedoPostingOperationId = ''
+let manualSourcesSequence = 0
+
+const eligibleManualRedoSources = computed(() => manualRedoSources.value.filter(source => source.eligible))
+const selectedManualRedoSource = computed(() => eligibleManualRedoSources.value.find(source =>
+  `${source.source_job_id}::${source.source_item_key}` === manualSourceChoice.value) || null)
+const manualMusicModel = computed(() => musicModels.value.find(model => model.id === manualMusicModelId.value) || null)
+const manualMusicCost = computed(() => describeMusicUnitCost(manualMusicModel.value))
+const manualMusicLimits = computed(() => {
+  const model = manualMusicModel.value
+  if (!model) return ''
+  const limits: string[] = []
+  const range = (label: string, minimum: number | null | undefined, maximum: number | null | undefined) => {
+    const min = Number.isInteger(minimum) && minimum! >= 0 ? minimum : null
+    const max = Number.isInteger(maximum) && maximum! >= 0 ? maximum : null
+    if (min !== null && max !== null) return `${label} ${min.toLocaleString()}–${max.toLocaleString()} characters`
+    if (min !== null) return `${label} at least ${min.toLocaleString()} characters`
+    if (max !== null) return `${label} up to ${max.toLocaleString()} characters`
+    return ''
+  }
+  if (Number.isInteger(model.max_title_characters) && model.max_title_characters! >= 0) {
+    limits.push(`title up to ${model.max_title_characters!.toLocaleString()} characters`)
+  }
+  const prompt = range('prompt', model.min_prompt_characters, model.max_prompt_characters)
+  const noLyricsPrompt = range('prompt without lyrics', model.min_prompt_characters,
+    model.max_prompt_without_lyrics_characters)
+  const lyrics = range('lyrics', model.min_lyrics_characters, model.max_lyrics_characters)
+  if (prompt) limits.push(prompt)
+  if (noLyricsPrompt) limits.push(noLyricsPrompt)
+  if (lyrics) limits.push(lyrics)
+  return limits.length ? `Published limits: ${limits.join(' · ')}.` : ''
+})
+const manualMusicPriceClass = computed<'free' | 'paid' | 'unknown'>(() => {
+  const model = manualMusicModel.value
+  if (!model) return 'unknown'
+  if (model.chargeable === true
+    || (typeof model.credits_per_request === 'number' && model.credits_per_request > 0)
+    || (typeof model.minimum_credits === 'number' && model.minimum_credits > 0)
+    || (typeof model.standard_credits === 'number' && model.standard_credits > 0)
+    || (typeof model.sale_credits === 'number' && model.sale_credits > 0)
+    || Object.values(model.price_usd || {}).some(value => value > 0)
+    || (model.price_variants || []).some(value => typeof value.usd === 'number' && value.usd > 0)) return 'paid'
+  if (model.chargeable === false) return 'free'
+  if (model.price_source === 'local' && model.credits_per_request === 0 && model.minimum_credits === 0
+    && (model.standard_credits === null || model.standard_credits === 0)
+    && (model.sale_credits === null || model.sale_credits === 0)
+    && !Object.values(model.price_usd || {}).some(value => value !== 0)
+    && !(model.price_variants || []).some(value => typeof value.usd !== 'number' || value.usd !== 0)) return 'free'
+  return 'unknown'
+})
+
+function healManualMusicModelSelection(): void {
+  if (manualMusicModelId.value
+    && !musicModels.value.some(model => model.id === manualMusicModelId.value)) {
+    manualMusicModelId.value = musicModel.value?.id || musicModels.value[0]?.id || ''
+  }
+}
+
+function applyManualMusicSources(rows: ManualMusicSource[]): void {
+  manualRedoSources.value = Array.isArray(rows) ? rows : []
+  if (!eligibleManualRedoSources.value.some(source =>
+    `${source.source_job_id}::${source.source_item_key}` === manualSourceChoice.value)) {
+    manualRedoChecked.value = false
+  }
+}
+
+async function loadManualRedoSources(): Promise<void> {
+  const projectSlug = slug.value
+  const request = ++manualSourcesSequence
+  try {
+    const response = await get<{ sources?: ManualMusicSource[] }>(
+      `/projects/${projectSlug}/music-library/manual-redo-sources`,
+    )
+    if (request !== manualSourcesSequence || slug.value !== projectSlug) return
+    applyManualMusicSources(Array.isArray(response.sources) ? response.sources : [])
+  } catch {
+    if (request === manualSourcesSequence && slug.value === projectSlug) applyManualMusicSources([])
+  }
+}
+
+function cancelPendingManualMusicSubmission(): void {
+  pendingManualMusicSubmission.value = null
+  manualRedoChecked.value = false
+  freshMusicAction.cancel('manual-music-library-redo')
+  if (confirmation.state.visible && confirmation.state.type === 'music') confirmation.cancel()
+  healManualMusicModelSelection()
+}
+
+function onManualSourceChoiceChanged(): void {
+  cancelPendingManualMusicSubmission()
+}
+
+function manualMusicUserScopeKey(): string {
+  return JSON.stringify({
+    projectSlug: slug.value,
+    modelId: manualMusicModelId.value,
+    sourceChoice: manualSourceChoice.value,
+    instrumental: instrumental.value,
+    durationSeconds: instrumental.value && trackMinutes.value > 0 ? Math.round(trackMinutes.value * 60) : null,
+  })
+}
+
+function manualMusicFirstPostScopeKey(): string {
+  return JSON.stringify({
+    user: manualMusicUserScopeKey(),
+    priceVersion: manualMusicModel.value?.price_version || '',
+    priceClass: manualMusicPriceClass.value,
+  })
+}
+
+function manualMusicSubmissionMatchesCurrentTarget(submission: ManualMusicSubmission): boolean {
+  const pending = pendingManualMusicSubmission.value
+  return submission.projectSlug === slug.value
+    && submission.modelId === manualMusicModelId.value
+    && submission.userScopeKey === manualMusicUserScopeKey()
+    && pending?.operationId === submission.operationId
+    && pending.sourceChoice === submission.sourceChoice
+    && JSON.stringify(pending.body) === JSON.stringify(submission.body)
+}
+
+async function submitManualMusicSubmission(submission: ManualMusicSubmission): Promise<void> {
+  if (!manualMusicSubmissionMatchesCurrentTarget(submission)) {
+    showError('This Retry belongs to another channel, model, or unresolved item. Review the current choice and start again.')
+    return
+  }
+  if (!submission.attempted && submission.firstPostScopeKey !== manualMusicFirstPostScopeKey()) {
+    if (manualMusicSubmissionMatchesCurrentTarget(submission)) cancelPendingManualMusicSubmission()
+    showError('The project, music options, item, model, or published price changed. Review the current choice and start again.')
+    return
+  }
+  submission.attempted = true
+  manualRedoPosting.value = true
+  manualRedoPostingOperationId = submission.operationId
+  try {
+    await post(`/projects/${submission.projectSlug}/music-library/generate`, {
+      ...submission.body,
+      operation_id: submission.operationId,
+    })
+    const stillCurrent = manualMusicSubmissionMatchesCurrentTarget(submission)
+    if (stillCurrent) {
+      freshMusicAction.complete(submission.operationId)
+      pendingManualMusicSubmission.value = null
+      manualRedoChecked.value = false
+      healManualMusicModelSelection()
+      success('Separate song attempt queued. Earlier songs, variations, and evidence stay in the library.')
+      void loadManualRedoSources()
+    }
+  } catch (error: any) {
+    const detail = error?.data?.detail || error?.response?._data?.detail
+    const stillCurrent = manualMusicSubmissionMatchesCurrentTarget(submission)
+    if (detail && stillCurrent) {
+      freshMusicAction.complete(submission.operationId)
+      pendingManualMusicSubmission.value = null
+      manualRedoChecked.value = false
+      healManualMusicModelSelection()
+      showError(detail)
+    } else if (!detail && stillCurrent) {
+      showAction(UNCONFIRMED_SUBMISSION, 'Retry', () => submitManualMusicSubmission(submission), 'error')
+    }
+  } finally {
+    if (manualRedoPostingOperationId === submission.operationId) {
+      manualRedoPosting.value = false
+      manualRedoPostingOperationId = ''
+    }
+  }
+}
+
+async function beginManualMusicRedo(): Promise<void> {
+  const source = selectedManualRedoSource.value
+  const model = manualMusicModel.value
+  if (!source || !model || !manualRedoChecked.value || manualMusicPriceClass.value === 'unknown') return
+  const paid = manualMusicPriceClass.value === 'paid'
+  const capturedBody = JSON.parse(JSON.stringify({
+    model: model.id,
+    instrumental: instrumental.value,
+    ...(instrumental.value && trackMinutes.value > 0
+      ? { duration_seconds: Math.round(trackMinutes.value * 60) }
+      : {}),
+    source_item_key: source.source_item_key,
+    manual_redo: { intent: 'replace_unresolved', source_job_id: source.source_job_id },
+    manual_music_payment: {
+      version: 1,
+      model_id: model.id,
+      price_version: model.price_version,
+      confirmed_paid_music: paid,
+    },
+  }))
+  const operationId = freshMusicAction.begin(capturedBody, 'manual-music-library-redo')
+  const submission: ManualMusicSubmission = {
+    projectSlug: slug.value,
+    modelId: model.id,
+    sourceChoice: `${source.source_job_id}::${source.source_item_key}`,
+    userScopeKey: manualMusicUserScopeKey(),
+    firstPostScopeKey: manualMusicFirstPostScopeKey(),
+    body: capturedBody,
+    operationId,
+    attempted: false,
+  }
+  pendingManualMusicSubmission.value = submission
+  if (paid) {
+    const confirmed = await confirmation.confirmGeneration(submission.projectSlug, 'music', capturedBody, {
+      action: 'Start a separate paid song request. The prior unresolved request may still have been charged.',
+      details: [
+        { label: 'Model', value: model.display_name },
+        { label: 'Published unit rate', value: manualMusicCost.value.text },
+      ],
+      always: true,
+    })
+    if (!confirmed) {
+      if (manualMusicSubmissionMatchesCurrentTarget(submission)) cancelPendingManualMusicSubmission()
+      return
+    }
+  }
+  if (!manualMusicSubmissionMatchesCurrentTarget(submission)) return
+  await submitManualMusicSubmission(submission)
 }
 
 function formatClock(seconds: number): string {
@@ -406,13 +722,39 @@ watch(() => [slug.value, route.query.episode_id], () => {
 
 watch(slug, () => {
   libraryScopeEpoch++
+  manualSourcesSequence++
+  manualRedoPreference.reset()
+  cancelPendingManualMusicSubmission()
+  manualSourceChoice.value = ''
+  applyManualMusicSources([])
   library.value = null
   libraryLoadError.value = ''
   libraryLoading.value = false
   void load()
+  void manualRedoPreference.load(slug.value)
+  void loadManualRedoSources()
 }, { flush: 'sync' })
 
-onMounted(() => { void load(); void loadMusicModels() })
+watch(manualMusicModelId, (current, previous) => {
+  if (previous && current !== previous) cancelPendingManualMusicSubmission()
+})
+
+watch([instrumental, trackMinutes], ([currentInstrumental, currentMinutes], [previousInstrumental, previousMinutes]) => {
+  if (currentInstrumental !== previousInstrumental || currentMinutes !== previousMinutes) {
+    cancelPendingManualMusicSubmission()
+  }
+})
+
+watch(() => musicJobs.value.map(job => [job.job_id, job.status, job.force_abandoned]), () => {
+  void loadManualRedoSources()
+})
+
+onMounted(() => {
+  void load()
+  void loadMusicModels()
+  void manualRedoPreference.load(slug.value)
+  void loadManualRedoSources()
+})
 </script>
 
 <style scoped>
@@ -421,6 +763,13 @@ onMounted(() => { void load(); void loadMusicModels() })
 .ml-label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .ml-label.check { flex-direction: row; align-items: center; gap: 6px; }
 .ml-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.music-manual-redo {
+  padding: 12px; border: 1px solid rgba(217, 119, 6, .35); border-radius: 6px;
+  background: rgba(217, 119, 6, .06); font-size: 12px; line-height: 1.45;
+}
+.music-manual-redo p { margin: 4px 0 0; }
+.manual-select { min-width: 220px; }
+.manual-price { color: var(--text-muted); }
 .input.narrow { width: 110px; }
 .table-wrap { overflow-x: auto; }
 .num { text-align: right; font-variant-numeric: tabular-nums; }

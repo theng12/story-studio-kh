@@ -8,11 +8,18 @@ import * as im from '../services/idea-manager.js'
 import * as jq from '../services/job-queue.js'
 import { trackGeneration } from '../services/session-tracker.js'
 import { resolveSubfolderNames } from '../services/utils.js'
-import type { Format } from '../models/types.js'
+import type { Format, Job } from '../models/types.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { withLock } from '../lib/atomic-store.js'
-import { freshActionMatch, readOptionalOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
+import {
+  freshActionMatch,
+  freshActionFingerprint,
+  readManualGenerationRedoIntent,
+  readOperationId,
+  readOptionalOperationId,
+  stampFreshGenerationAction,
+} from '../lib/fresh-generation-action.js'
 import { previewCompact, compactAcceptedEpisodes } from '../services/upload-compact.js'
 import { loadNiche } from '../services/niche-loader.js'
 import { isCompatible, loadTopicPack } from '../services/topic-pack-loader.js'
@@ -26,6 +33,53 @@ import {
 } from '../services/upload-reseason.js'
 
 export const router = Router()
+
+type IdeaChatEvidence = NonNullable<Job['genstudio_jobs']>[number]
+
+function isResolvedIdeaCampaignChat(entry: IdeaChatEvidence): boolean {
+  return (entry.state === 'failed'
+    && entry.dispatch_state === 'pre_dispatch'
+    && entry.queue_state === 'waiting_credits')
+    || (typeof entry.id === 'string'
+      && !!entry.id
+      && !entry.id.startsWith('pending:')
+      && (entry.state === 'succeeded' || entry.state === 'failed'))
+}
+
+function ideaCampaignClientRequestFingerprint(
+  body: Record<string, unknown>,
+  count: number,
+  model: string,
+  sourceJobId: string,
+): string {
+  const clientRequest: Record<string, unknown> = { ...body, count, model }
+  for (const key of [
+    'operation_id', 'generation_action', 'generation_action_fingerprint',
+    'campaign_id', 'series_formula_id',
+  ]) delete clientRequest[key]
+  clientRequest.manual_redo = { intent: 'replace_unresolved', source_job_id: sourceJobId }
+
+  if (typeof body.niche_id === 'string') clientRequest.niche_id = body.niche_id.trim()
+  else delete clientRequest.niche_id
+  if (Array.isArray(body.topic_pack_ids)) {
+    clientRequest.topic_pack_ids = [...new Set(body.topic_pack_ids
+      .filter((value): value is string => typeof value === 'string')
+      .map(value => value.trim())
+      .filter(Boolean))]
+  } else delete clientRequest.topic_pack_ids
+  return freshActionFingerprint(clientRequest)
+}
+
+function isAcceptedIdeaCampaignManualBinding(value: unknown): boolean {
+  const binding = value && typeof value === 'object' ? value as Record<string, unknown> : null
+  return binding?.version === 1
+    && binding.source_type === 'idea_campaign'
+    && binding.operation === 'chat.response'
+    && binding.resource_kind === 'episode'
+    && binding.resource_identity === 'ideas'
+    && binding.destination_type === 'idea_campaign'
+    && binding.destination_episode_id === 'ideas'
+}
 
 // ── Generate ideas (and persist them) ───────────────────────────────────────
 
@@ -67,6 +121,49 @@ router.post('/projects/:slug/generate/ideas/campaign', async (req, res) => {
     const model = typeof req.body?.model === 'string' ? req.body.model.trim() : ''
     if (!model) return res.status(400).json({ detail: 'Choose an AI model before queuing the campaign.' })
 
+    let manualRedoIntent
+    let operationId: string | null = null
+    let manualClientFingerprint = ''
+    try {
+      manualRedoIntent = readManualGenerationRedoIntent(req.body)
+      if (manualRedoIntent) {
+        operationId = readOperationId(req.body, true)
+        manualClientFingerprint = ideaCampaignClientRequestFingerprint(
+          req.body as Record<string, unknown>,
+          count,
+          model,
+          manualRedoIntent.source_job_id,
+        )
+      }
+    } catch (error) {
+      return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid Idea Campaign action.' })
+    }
+
+    if (manualRedoIntent && operationId) {
+      const previous = (await jq.findJobs(slug, freshActionMatch(operationId)))[0]
+      if (previous) {
+        const storedManualRedo = previous.params?.manual_redo
+        const storedAction = previous.params?.generation_action
+        const storedActionFingerprint = previous.params?.generation_action_fingerprint
+        const binding = previous.params?.generation_action?.manual_redo_binding
+        if (storedAction?.id !== operationId
+          || storedAction?.kind !== 'fresh'
+          || typeof storedActionFingerprint !== 'string'
+          || !/^[0-9a-f]{64}$/i.test(storedActionFingerprint)
+          || storedManualRedo?.version !== 1
+          || storedManualRedo?.intent !== 'replace_unresolved'
+          || previous.type !== 'idea_campaign'
+          || previous.episode_id !== 'ideas'
+          || storedManualRedo?.client_request_fingerprint !== manualClientFingerprint
+          || storedManualRedo?.source_job_id !== manualRedoIntent.source_job_id
+          || storedManualRedo?.selected_model_id !== model
+          || !isAcceptedIdeaCampaignManualBinding(binding)) {
+          return res.status(409).json({ detail: 'This operation_id already belongs to a different Idea Campaign action.' })
+        }
+        return res.status(200).json({ ...previous, reused: true })
+      }
+    }
+
     const rawFormula = req.body?.niche_id
     let seriesFormulaId: string | undefined
     if (typeof rawFormula === 'string') {
@@ -99,11 +196,12 @@ router.post('/projects/:slug/generate/ideas/campaign', async (req, res) => {
       return res.status(400).json({ detail: 'Choose a Series Formula before adding Topic Packs.' })
     }
 
-    let operationId: string | null
-    try {
-      operationId = readOptionalOperationId(req.body)
-    } catch (error) {
-      return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
+    if (!manualRedoIntent) {
+      try {
+        operationId = readOptionalOperationId(req.body)
+      } catch (error) {
+        return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
+      }
     }
     const requestParams: Record<string, unknown> = {
       ...req.body,
@@ -116,6 +214,7 @@ router.post('/projects/:slug/generate/ideas/campaign', async (req, res) => {
     delete requestParams.operation_id
     delete requestParams.generation_action
     delete requestParams.generation_action_fingerprint
+    delete requestParams.manual_redo
 
     const enqueue = async (params: Record<string, unknown>) => {
       const job = await jq.enqueue({
@@ -132,6 +231,47 @@ router.post('/projects/:slug/generate/ideas/campaign', async (req, res) => {
     }
 
     if (!operationId) return enqueue(requestParams)
+
+    if (manualRedoIntent) {
+      const manualParams = stampFreshGenerationAction({
+        ...requestParams,
+        campaign_id: `idea-campaign-${operationId}`,
+        manual_redo: {
+          version: 1 as const,
+          intent: manualRedoIntent.intent,
+          source_job_id: manualRedoIntent.source_job_id,
+          requested_at: new Date().toISOString(),
+          selected_model_id: model,
+          client_request_fingerprint: manualClientFingerprint,
+        },
+      }, operationId)
+      return withLock(`fresh-idea-campaign:${slug}:${operationId}`, async () => {
+        const existed = (await jq.findJobs(slug, freshActionMatch(operationId))).length > 0
+        try {
+          const job = await jq.enqueueManualGenerationRedo({
+            project_slug: slug,
+            type: 'idea_campaign',
+            episode_id: 'ideas',
+            title: `Idea Campaign — ${count} ideas`,
+            params: manualParams,
+          }, {
+            sourceJobId: manualRedoIntent.source_job_id,
+            sourceType: 'idea_campaign',
+            operation: 'chat.response',
+            resource: { kind: 'episode' },
+            sourceLabel: 'Idea Campaign',
+            evidenceLabel: 'Gateway writing request',
+            hasCurrentEvidence: (_source, entries) => entries.some(entry => !isResolvedIdeaCampaignChat(entry)),
+          })
+          return res.status(existed ? 200 : 201).json(existed ? { ...job, reused: true } : job)
+        } catch (error: any) {
+          return res.status(error?.status || error?.statusCode || 409).json({
+            detail: error?.message || 'The separate Idea Campaign attempt was refused.',
+          })
+        }
+      })
+    }
+
     const params = stampFreshGenerationAction(requestParams, operationId)
     return withLock(`fresh-idea-campaign:${slug}:${operationId}`, async () => {
       const previous = (await jq.findJobs(slug, freshActionMatch(operationId)))[0]

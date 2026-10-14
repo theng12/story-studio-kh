@@ -2,27 +2,35 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import ts from 'typescript'
-import { ref, computed, createSSRApp } from 'vue'
+import { ref, shallowRef, computed, createSSRApp } from 'vue'
 import { renderToString } from 'vue/server-renderer'
 import { parse } from '@vue/compiler-sfc'
 
 const source = readFileSync(new URL('../pages/projects/[slug]/pipeline.vue', import.meta.url), 'utf8')
 const script = parse(source).descriptor.scriptSetup!.content
 const ast = ts.createSourceFile('pipeline.ts', script, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
-const names = new Set(['blockedEpisodes', 'hasGlobalPreflightIssue', 'removeResolvedSubmittedEpisodes', 'closeConfirm', 'submit'])
+const names = new Set(['blockedEpisodes', 'hasGlobalPreflightIssue', 'removeResolvedSubmittedEpisodes', 'closeConfirm', 'retryPipelineSubmission', 'provesPipelineAdmissionRejected', 'submit'])
 const functions = ast.statements.filter(s => ts.isFunctionDeclaration(s) && names.has(s.name!.text)).map(s => s.getText(ast)).join('\n')
 
-function harness(result: any, reject = false, repair = false) {
+function harness(
+  result: any,
+  reject = false,
+  repair = false,
+  outcomes: Array<{ reject: boolean; value: any }> = [],
+) {
   const context = {
     ref, computed, response: result, reject,
     selectedEpisodes: new Set(['TN0001', 'TN0002']),
     slug: ref('terranash-sleep-stories'),
     submitting: ref(false), preflighting: ref(false), repairMode: ref(repair), forceRerun: ref(false),
     showConfirm: ref(true), repairActionId: ref('repair-1'), runActionId: ref(''),
+    pendingPipelineSubmission: shallowRef<any>(null),
     checkedStepsOrdered: ref([{ id: 'metadata' }]),
     batchBlocked: ref<any[]>([]), batchHasJobs: ref(false), batchReceipt: ref<any>(null),
     modelPoliciesForRun: () => ({}),
-    notices: [] as string[], requests: [] as string[], navigations: [] as string[],
+    presetIdsForRun: () => ({ metadata: 'metadata-preset' }),
+    notices: [] as string[], requests: [] as string[], requestBodies: [] as any[], navigations: [] as string[],
+    actions: [] as Array<() => void>, failures: reject ? 1 : 0, outcomes,
   }
   const js = ts.transpileModule(`${functions}\nreturn { submit, closeConfirm }`, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
@@ -30,11 +38,19 @@ function harness(result: any, reject = false, repair = false) {
   const api = new Function('ctx', `
     const { ${Object.keys(context).join(', ')} } = ctx;
     const canRun = computed(() => !submitting.value && selectedEpisodes.size > 0);
-    const post = async (url) => { requests.push(url); if (reject) throw response; return response; };
+    const post = async (url, body) => {
+      requests.push(url); requestBodies.push(structuredClone(body));
+      const outcome = ctx.outcomes.shift();
+      if (outcome) { if (outcome.reject) throw outcome.value; return outcome.value; }
+      if (ctx.failures-- > 0) throw response;
+      return response;
+    };
     const success = (text) => notices.push(text);
     const showInfo = success, showError = success;
+    const showAction = (_message, _label, action) => actions.push(action);
+    const UNCONFIRMED_SUBMISSION = 'unconfirmed';
     const navigateTo = (url) => navigations.push(url);
-    let preflightRequestId = 0, submitRequestId = 0;
+    let preflightRequestId = 0, submitRequestId = 0, pipelineCaptureId = 0;
     ${js}
   `)(context)
   return { ...context, ...api }
@@ -118,6 +134,81 @@ test('failed submission shows no success receipt and repeat clicks submit once',
   const page = harness({ enqueued: 2, total_jobs_planned: 2 })
   await Promise.all([page.submit(), page.submit()])
   assert.equal(page.requests.length, 1)
+})
+
+test('unknown force response keeps one exact detached body whose Retry bypasses changed current choices', async () => {
+  assert.match(source, /@click="submit\(\)"/, 'the button event is never mistaken for a detached Retry DTO')
+  const page = harness(new Error('socket closed'), true)
+  page.forceRerun.value = true
+  page.runActionId.value = '82010000-0000-4000-8000-000000000001'
+  await page.submit()
+  assert.equal(page.actions.length, 1)
+  assert.ok(page.pendingPipelineSubmission.value)
+  const captured = structuredClone(page.requestBodies[0])
+  page.selectedEpisodes.clear()
+  page.selectedEpisodes.add('CHANGED')
+  page.checkedStepsOrdered.value = [{ id: 'scene_plan' }]
+  page.actions[0]!()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.deepEqual(page.requestBodies[1], captured)
+  assert.equal(page.pendingPipelineSubmission.value, null)
+})
+
+test('Pipeline distinguishes definite initial rejection from an already-unknown action', async () => {
+  const definite = harness(null, false, false, [
+    { reject: true, value: { statusCode: 409, data: { detail: 'not admitted' } } },
+  ])
+  definite.forceRerun.value = true
+  definite.runActionId.value = '82020000-0000-4000-8000-000000000002'
+  await definite.submit()
+  assert.equal(definite.pendingPipelineSubmission.value, null)
+  assert.deepEqual(definite.actions, [])
+  assert.deepEqual(definite.notices, ['not admitted'])
+
+  const unknown = harness(null, false, false, [
+    { reject: true, value: new Error('socket closed after admission') },
+    { reject: true, value: { statusCode: 500, data: { detail: 'restart during receipt lookup' } } },
+  ])
+  unknown.forceRerun.value = true
+  unknown.runActionId.value = '82030000-0000-4000-8000-000000000003'
+  await unknown.submit()
+  const captured = structuredClone(unknown.pendingPipelineSubmission.value)
+  unknown.actions[0]!()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.equal(unknown.actions.length, 2)
+  assert.deepEqual(unknown.pendingPipelineSubmission.value?.body, captured.body)
+  assert.equal(unknown.pendingPipelineSubmission.value?.outcomeUnknown, true)
+  assert.deepEqual(unknown.requestBodies[0], unknown.requestBodies[1])
+})
+
+test('ordinary Pipeline B cannot advertise or clear unrelated unknown force A', async () => {
+  const failedB = harness(null, false, false, [
+    { reject: true, value: new Error('lost A response') },
+    { reject: true, value: { data: { detail: 'ordinary B failed' } } },
+  ])
+  failedB.forceRerun.value = true
+  failedB.runActionId.value = '82040000-0000-4000-8000-000000000004'
+  await failedB.submit()
+  const capturedA = structuredClone(failedB.pendingPipelineSubmission.value)
+  failedB.closeConfirm()
+  await failedB.submit()
+  assert.equal(failedB.actions.length, 1, 'B has no immutable identity and must not offer Retry A as its own recovery')
+  assert.deepEqual(failedB.pendingPipelineSubmission.value, capturedA)
+  assert.equal(failedB.notices.at(-1), 'ordinary B failed')
+
+  const successfulB = harness(null, false, false, [
+    { reject: true, value: new Error('lost A response') },
+    { reject: false, value: { enqueued: 1, total_jobs_planned: 2 } },
+  ])
+  successfulB.forceRerun.value = true
+  successfulB.runActionId.value = '82050000-0000-4000-8000-000000000005'
+  await successfulB.submit()
+  const successfulCaptureA = structuredClone(successfulB.pendingPipelineSubmission.value)
+  successfulB.closeConfirm()
+  await successfulB.submit()
+  assert.deepEqual(successfulB.pendingPipelineSubmission.value, successfulCaptureA,
+    'ordinary B success does not silently erase A whose acceptance is still unknown')
+  assert.equal(successfulB.batchReceipt.value.title, 'Batch queued')
 })
 
 

@@ -196,7 +196,11 @@ describe('Scene Plan workspace wiring', () => {
   test('an explicit allowance on a no-ceiling model remains selected, sent, and sizes its batch', () => {
     assert.match(scenePlan, /<option v-if="hasUnpublishedExplicitPromptBudget" :value="effectivePromptTokenBudget">[\s\S]*User-chosen · \{\{ effectivePromptTokenBudget\.toLocaleString\(\) \}\} tokens/)
     assert.match(scenePlan, /v-else-if="hasUnpublishedExplicitPromptBudget">up to \{\{ effectivePromptTokenBudget\.toLocaleString\(\) \}\} output tokens · user-chosen allowance/)
-    assert.match(scenePlan, /prompt_max_tokens: stage === 'visual' \? form\.value\.prompt_max_tokens : undefined/)
+    const promptStage = scenePlan.slice(scenePlan.indexOf('async function runPromptStage'), scenePlan.indexOf('/** Returns the tracked job'))
+    assert.match(promptStage, /preset_id: presetId/,
+      'the stage sends the exact applied preset whose immutable snapshot owns the allowance')
+    assert.doesNotMatch(promptStage, /prompt_max_tokens:/,
+      'the stage must not replace the exact preset with mutable page state')
     assert.match(scenePlan, /prompt_max_tokens: form\.value\.prompt_max_tokens/)
   })
 

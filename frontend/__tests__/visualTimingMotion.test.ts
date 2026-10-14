@@ -96,11 +96,12 @@ async function flush(): Promise<void> {
   await nextTick()
 }
 
-async function mountPanel(episode = 'EP0001') {
+async function mountPanel(episode = 'EP0001', scenes: Array<{ id: string; start_sec: number; end_sec: number }> = []) {
   const Component = await loadPanel()
   const episodeId = ref(episode)
   const panel = ref<{
     snapshotPreset: () => { pacing: Config['pacing']; motion_scope?: Config['motion_scope']; motion_level: number }
+    snapshotPresetForComparison: () => { pacing: Config['pacing']; motion_scope?: Config['motion_scope']; motion_level: number } | null
     applyPreset: (data: unknown) => void
   }>()
   const saved: Config[] = []
@@ -109,7 +110,7 @@ async function mountPanel(episode = 'EP0001') {
     setup: () => () => h(Component as any, {
       ref: panel,
       episodeId: episodeId.value,
-      scenes: [],
+      scenes,
       onSaved: (value: Config) => saved.push(value),
     }),
   }))
@@ -296,6 +297,38 @@ describe('Visual timing and motion', () => {
     } finally { mounted.unmount(); delete globals.__visualTimingMotionApi }
   })
 
+  test('sparse B restores omitted portable fields from saved episode continuity after unsaved A', async () => {
+    globals.__visualTimingMotionRoute = { params: { slug: 'project-one' } }
+    globals.__visualTimingMotionToasts = []
+    const saved = {
+      ...config(4, 8),
+      motion_scope: { mode: 'selected' as const, scene_ids: ['episode-scene'] },
+      motion_level: 2,
+    }
+    globals.__visualTimingMotionApi = {
+      async get<T>() { return { exists: true, config: saved } as T },
+      async put<T>() { throw new Error('not used') },
+    }
+    const mounted = await mountPanel('EP0001', [
+      { id: 'episode-scene', start_sec: 0, end_sec: 4 },
+      { id: 'other-scene', start_sec: 4, end_sec: 8 },
+    ])
+    try {
+      mounted.panel.value!.applyPreset({
+        pacing: { min_sec: 9, max_sec: 12 }, motion_scope: { mode: 'all' }, motion_level: 4,
+      })
+      mounted.panel.value!.applyPreset({})
+      assert.deepEqual(mounted.panel.value!.snapshotPresetForComparison(), {
+        pacing: { min_sec: 4, max_sec: 8 }, motion_level: 2,
+      }, 'sparse B falls back to saved episode continuity rather than unsaved A')
+      const scopeChoices = mounted.host.querySelectorAll<HTMLInputElement>('input[name="motion-scope"]')
+      assert.equal(scopeChoices[2]?.checked, true)
+      const sceneChecks = mounted.host.querySelectorAll<HTMLInputElement>('.vtm-scene-choice input')
+      assert.equal(sceneChecks[0]?.checked, true, 'the saved current-episode scene selection survives')
+      assert.equal(sceneChecks[1]?.checked, false)
+    } finally { mounted.unmount(); delete globals.__visualTimingMotionApi }
+  })
+
   test('applies timing to a fresh episode draft', async () => {
     globals.__visualTimingMotionRoute = { params: { slug: 'project-one' } }
     globals.__visualTimingMotionToasts = []
@@ -340,6 +373,45 @@ describe('Visual timing and motion', () => {
       assert.deepEqual(mounted.panel.value!.snapshotPreset(), {
         pacing: { min_sec: 5, max_sec: 7 }, motion_scope: { mode: 'off' }, motion_level: 2,
       })
+    } finally { mounted.unmount(); delete globals.__visualTimingMotionApi }
+  })
+
+  test('render-time preset comparison is nonthrowing and side-effect-free while loading, saving, or invalid', async () => {
+    globals.__visualTimingMotionRoute = { params: { slug: 'project-one' } }
+    globals.__visualTimingMotionToasts = []
+    const loading = deferred<{ exists: boolean; config: Config }>()
+    const saving = deferred<{ ok: true; config: Config }>()
+    globals.__visualTimingMotionApi = {
+      get<T>() { return loading.promise as Promise<T> },
+      put<T>() { return saving.promise as Promise<T> },
+    }
+    const mounted = await mountPanel('EP0001')
+    try {
+      assert.equal(mounted.panel.value!.snapshotPresetForComparison(), null)
+      assert.doesNotMatch(mounted.host.textContent || '', /Selected-scene motion stays/)
+      loading.resolve({ exists: true, config: {
+        ...config(4, 8), motion_scope: { mode: 'selected', scene_ids: ['episode-scene'] }, motion_level: 3,
+      } })
+      await flush()
+      assert.deepEqual(mounted.panel.value!.snapshotPresetForComparison(), {
+        pacing: { min_sec: 4, max_sec: 8 }, motion_level: 3,
+      })
+      assert.doesNotMatch(mounted.host.textContent || '', /Selected-scene motion stays/,
+        'comparison reads do not write the explicit Save notice')
+
+      const shortest = mounted.host.querySelector<HTMLInputElement>('.vtm-band input')!
+      shortest.value = '12'
+      shortest.dispatchEvent(new Event('input', { bubbles: true }))
+      await flush()
+      assert.equal(mounted.panel.value!.snapshotPresetForComparison(), null)
+      shortest.value = '4'
+      shortest.dispatchEvent(new Event('input', { bubbles: true }))
+      await flush()
+      mounted.host.querySelector<HTMLButtonElement>('button.btn-primary')!.click()
+      await flush()
+      assert.equal(mounted.panel.value!.snapshotPresetForComparison(), null)
+      saving.resolve({ ok: true, config: config(4, 8) })
+      await flush()
     } finally { mounted.unmount(); delete globals.__visualTimingMotionApi }
   })
 

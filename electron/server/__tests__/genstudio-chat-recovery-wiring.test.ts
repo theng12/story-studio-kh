@@ -6,28 +6,123 @@
 
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
+import fs from 'node:fs/promises'
+import path from 'node:path'
 import test from 'node:test'
-import { useTempDataDir } from './_helpers.js'
+import { fileURLToPath } from 'node:url'
+import './_helpers.js'
+import { setTestSafeStorageAvailable } from './safe-storage-test-double.js'
 import type { ChunkedNarrationParams } from '../lib/chunked-narration.js'
+import type { Job } from '../models/types.js'
 import {
   MOCK_GENSTUDIO_FULL_KEY,
   startMockGenStudioService,
+  type MockGenStudioService,
 } from './fixtures/mock-genstudio-service.js'
 
-const temp = await useTempDataDir()
+const projectRoot = fileURLToPath(new URL('../../../', import.meta.url))
+
+async function retainedFixture(label: string) {
+  const previousDataDir = process.env.STORY_STUDIO_DATA_DIR
+  const previousDisableListen = process.env.STORY_STUDIO_DISABLE_LISTEN
+  const dir = await fs.mkdtemp(path.join(projectRoot, `.genstudio-chat-recovery-${label}-`))
+  process.env.STORY_STUDIO_DATA_DIR = dir
+  process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
+  setTestSafeStorageAvailable(true)
+  return {
+    dir,
+    retain: async () => {
+      try {
+        const trashFixtures = path.join(projectRoot, '_trash', 'test-fixtures')
+        await fs.mkdir(trashFixtures, { recursive: true })
+        await fs.rename(dir, path.join(trashFixtures, `genstudio-chat-recovery-${label}-${path.basename(dir)}`))
+      } finally {
+        if (previousDataDir === undefined) delete process.env.STORY_STUDIO_DATA_DIR
+        else process.env.STORY_STUDIO_DATA_DIR = previousDataDir
+        if (previousDisableListen === undefined) delete process.env.STORY_STUDIO_DISABLE_LISTEN
+        else process.env.STORY_STUDIO_DISABLE_LISTEN = previousDisableListen
+        setTestSafeStorageAvailable(true)
+      }
+    },
+  }
+}
+
+async function pausedFixtureQueue(
+  jq: typeof import('../services/job-queue.js'),
+  service: MockGenStudioService,
+) {
+  await jq.initializeQueuePauseState()
+  const wasPaused = jq.isQueuePaused()
+  if (!wasPaused) await jq.setQueuePaused(true)
+  const admitted: Job[] = []
+  const retired = new Set<string>()
+  const retire = async (admittedJob: Job) => {
+    if (retired.has(admittedJob.job_id)) return
+    const current = jq.getJob(admittedJob.job_id)
+    if (current && !['done', 'error', 'cancelled'].includes(current.status)) {
+      await jq.requestJobCancellation(admittedJob.project_slug, admittedJob.job_id)
+    }
+    await jq._waitForJobPersistenceForTesting()
+    const terminal = jq.getJob(admittedJob.job_id)
+    if (terminal && ['done', 'error', 'cancelled'].includes(terminal.status)) {
+      assert.equal(jq.removeTerminalJob(admittedJob.project_slug, admittedJob.job_id), true)
+      await jq._waitForJobPersistenceForTesting()
+    }
+    retired.add(admittedJob.job_id)
+  }
+  return {
+    enqueue: async (options: Parameters<typeof jq.enqueuePreparedForTest>[0]): Promise<Job> => {
+      const submissionsBefore = service.providerSubmissionCount('chat')
+      const created = jq.enqueuePreparedForTest(options) as Job
+      admitted.push(created)
+      await jq._waitForJobPersistenceForTesting()
+      const authoritative = jq.getJob(created.job_id)
+      assert.equal(authoritative?.status, 'queued')
+      assert.equal(jq._isJobWorkerActiveForTesting(created.job_id), false,
+        'paused queue admission must not start the fixture executor')
+      assert.equal(service.providerSubmissionCount('chat'), submissionsBefore,
+        'paused queue admission must not submit provider work')
+      return structuredClone(authoritative!)
+    },
+    retire,
+    finish: async () => {
+      try {
+        for (const admittedJob of admitted) await retire(admittedJob)
+      } finally {
+        if (jq.isQueuePaused() !== wasPaused) await jq.setQueuePaused(wasPaused)
+      }
+    },
+  }
+}
+
+async function assertOutlineReceipt(
+  jq: typeof import('../services/job-queue.js'),
+  job: Job,
+  requestKey: string,
+) {
+  const authoritative = await jq.loadAuthoritativeJob(job.project_slug, job.job_id)
+  assert.deepEqual(authoritative?.params?.script_document_requests, {
+    version: 1,
+    requests: [{ episode_id: job.episode_id, item: 'outline', request_key: requestKey }],
+  })
+}
 
 void test('an exact-replay chapter retry reaches GET by idempotency key with zero replacement submissions', async () => {
-  const service = await startMockGenStudioService()
-  process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
+  const temp = await retainedFixture('chapter-retry')
+  let service: Awaited<ReturnType<typeof startMockGenStudioService>> | undefined
+  let queue: Awaited<ReturnType<typeof pausedFixtureQueue>> | undefined
   try {
+    service = await startMockGenStudioService()
     const settings = await import('../services/app-settings.js')
     const secrets = await import('../services/app-secrets-store.js')
     const client = await import('../lib/genstudio-client.js')
-    const { generateNarrativeChunked } = await import('../lib/chunked-narration.js')
+    const jq = await import('../services/job-queue.js')
+    const { buildOutlineOnly, expandChapters } = await import('../lib/chunked-narration.js')
     await import('../providers/text/genstudio.js')
     await settings.setGenStudioUrl(service.baseUrl)
     await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
     client.clearGenStudioCatalogCache()
+    queue = await pausedFixtureQueue(jq, service)
 
     const scriptDir = `${temp.dir}/scripts`
     const outline = JSON.stringify({
@@ -62,25 +157,37 @@ void test('an exact-replay chapter retry reaches GET by idempotency key with zer
       },
       systemPrompt: 'Write exactly the requested chapters.', scriptDir, model: 'mock-chat-v1', apiKeys: {},
     }
-    const makeJob = (recovery = false, recoveryKeys: string[] = []) => ({
-      job_id: recovery ? 'retry-job' : 'original-job', project_slug: 'recovery-project',
-      episode_id: 'EP0001', type: 'expand_chapters', status: 'running', output_lines: [], params: {},
-      created_at: new Date().toISOString(), ...(recovery ? {
-        genstudio_chat_recovery: true as const,
-        genstudio_chat_recovery_keys: recoveryKeys,
-      } : {}),
-    }) as any
+    const outlineJob = await queue.enqueue({
+      project_slug: 'recovery-project', type: 'outline_only', episode_id: params.episode_id,
+      title: params.title, params: { episode_id: params.episode_id, title: params.title },
+    })
+    await buildOutlineOnly(outlineJob, params, 'narrative', { auto_approve: true })
+    await assertOutlineReceipt(jq, outlineJob, service.submissions.at(-1)!.idempotencyKey)
+    await queue.retire(outlineJob)
+
+    const original = await queue.enqueue({
+      project_slug: 'recovery-project', type: 'expand_chapters', episode_id: params.episode_id,
+      title: params.title, params: { episode_id: params.episode_id, title: params.title },
+    })
 
     await assert.rejects(
-      generateNarrativeChunked(makeJob(), params),
+      expandChapters(original, params, { auto_approve: true }),
       /lost track of this request/i,
     )
     assert.equal(service.providerSubmissionCount('chat'), 3, 'outline, the failed chapter batch and its one fresh resend')
     const historicChapterKey = service.submissions.at(-2)?.idempotencyKey
     assert.ok(historicChapterKey, 'the original chapter batch must retain its durable key')
+    await queue.retire(original)
+
+    const retry = await queue.enqueue({
+      project_slug: 'recovery-project', type: 'expand_chapters', episode_id: params.episode_id,
+      title: params.title, params: { episode_id: params.episode_id, title: params.title },
+      genstudio_chat_recovery: true,
+      genstudio_chat_recovery_keys: ['an-unrelated-recorded-key', historicChapterKey],
+    })
 
     await assert.rejects(
-      generateNarrativeChunked(makeJob(true, ['an-unrelated-recorded-key', historicChapterKey]), params),
+      expandChapters(retry, params, { auto_approve: true }),
       /lost track of this request/i,
     )
     // The retry may re-POST the already-sent resend's key, which the Gateway answers by replay.
@@ -90,24 +197,28 @@ void test('an exact-replay chapter retry reaches GET by idempotency key with zer
       && request.path === `/v1/chat/responses/by-idempotency-key/${encodeURIComponent(historicChapterKey)}`,
     ), 'the retried generator must use the exact recorded chapter key, not entry order')
   } finally {
-    await service.close()
-    await temp.cleanup()
+    await queue?.finish()
+    await service?.close()
+    await temp.retain()
   }
 })
 
 void test('a conclusively failed outline retry posts once with a fresh durable key', async () => {
-  const temp = await useTempDataDir()
-  const service = await startMockGenStudioService()
-  process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
+  const temp = await retainedFixture('outline-retry')
+  let service: Awaited<ReturnType<typeof startMockGenStudioService>> | undefined
+  let queue: Awaited<ReturnType<typeof pausedFixtureQueue>> | undefined
   try {
+    service = await startMockGenStudioService()
     const settings = await import('../services/app-settings.js')
     const secrets = await import('../services/app-secrets-store.js')
     const client = await import('../lib/genstudio-client.js')
+    const jq = await import('../services/job-queue.js')
     const { buildOutlineOnly } = await import('../lib/chunked-narration.js')
     await import('../providers/text/genstudio.js')
     await settings.setGenStudioUrl(service.baseUrl)
     await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
     client.clearGenStudioCatalogCache()
+    queue = await pausedFixtureQueue(jq, service)
 
     const params: ChunkedNarrationParams = {
       episode_id: 'EP-OUTLINE-FRESH', title: 'Fresh outline retry', totalChapters: 3, wordsPerChapter: 500,
@@ -127,43 +238,50 @@ void test('a conclusively failed outline retry posts once with a fresh durable k
     ] })
     service.queueScenario('chat', { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_FAILED' })
     service.queueScenario('chat', { states: ['succeeded'], outputText: outline })
-    const original = {
-      job_id: 'outline-original', project_slug: 'outline-project', episode_id: params.episode_id,
-      type: 'outline_only', status: 'running', output_lines: [], params: {}, created_at: new Date().toISOString(),
-    } as any
+    const original = await queue.enqueue({
+      project_slug: 'outline-project', type: 'outline_only', episode_id: params.episode_id,
+      title: params.title, params: { episode_id: params.episode_id, title: params.title },
+    })
     await assert.rejects(buildOutlineOnly(original, params, 'narrative'), /writing model/i)
     const historicKey = service.submissions[0]?.idempotencyKey
     assert.ok(historicKey)
+    await assertOutlineReceipt(jq, original, historicKey)
+    await queue.retire(original)
 
-    const retry = {
-      ...original,
-      job_id: 'outline-retry',
-      genstudio_chat_retry_scope: 'terminal:mock-chat-001:outline-original',
-    }
+    const retry = await queue.enqueue({
+      project_slug: 'outline-project', type: 'outline_only', episode_id: params.episode_id,
+      title: params.title, params: { episode_id: params.episode_id, title: params.title },
+      genstudio_chat_retry_scope: `terminal:mock-chat-001:${original.job_id}`,
+    })
     await buildOutlineOnly(retry, params, 'narrative')
+    await assertOutlineReceipt(jq, retry, service.submissions.at(-1)!.idempotencyKey)
 
     const chatPosts = service.submissions.filter(submission => submission.operation === 'chat')
     assert.equal(chatPosts.length, 2, 'a settled terminal outline retry is allowed exactly one fresh provider POST')
     assert.notEqual(chatPosts[1]?.idempotencyKey, historicKey, 'the fresh retry must mint a different request identity/key')
   } finally {
-    await service.close()
-    await temp.cleanup()
+    await queue?.finish()
+    await service?.close()
+    await temp.retain()
   }
 })
 
 void test('multiple listicle recovery keys match by exact membership, not request order, with zero replacement submissions', async () => {
-  const temp = await useTempDataDir()
-  const service = await startMockGenStudioService()
-  process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
+  const temp = await retainedFixture('listicle-retry')
+  let service: Awaited<ReturnType<typeof startMockGenStudioService>> | undefined
+  let queue: Awaited<ReturnType<typeof pausedFixtureQueue>> | undefined
   try {
+    service = await startMockGenStudioService()
     const settings = await import('../services/app-settings.js')
     const secrets = await import('../services/app-secrets-store.js')
     const client = await import('../lib/genstudio-client.js')
-    const { generateListicleChunked } = await import('../lib/chunked-narration.js')
+    const jq = await import('../services/job-queue.js')
+    const { buildOutlineOnly, expandChapters } = await import('../lib/chunked-narration.js')
     await import('../providers/text/genstudio.js')
     await settings.setGenStudioUrl(service.baseUrl)
     await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
     client.clearGenStudioCatalogCache()
+    queue = await pausedFixtureQueue(jq, service)
 
     const params: ChunkedNarrationParams = {
       episode_id: 'EP-LISTICLE-RECOVERY', title: 'Listicle recovery', totalChapters: 9, wordsPerChapter: 500,
@@ -184,25 +302,34 @@ void test('multiple listicle recovery keys match by exact membership, not reques
     for (let index = 0; index < 6; index++) {
       service.queueScenario('chat', { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' })
     }
-    const original = {
-      job_id: 'listicle-original', project_slug: 'listicle-project', episode_id: params.episode_id,
-      type: 'expand_chapters', status: 'running', output_lines: [], params: {}, created_at: new Date().toISOString(),
-    } as any
-    await generateListicleChunked(original, params)
+    const outlineJob = await queue.enqueue({
+      project_slug: 'listicle-project', type: 'outline_only', episode_id: params.episode_id,
+      title: params.title, params: { episode_id: params.episode_id, title: params.title },
+    })
+    await buildOutlineOnly(outlineJob, params, 'listicle', { auto_approve: true })
+    await assertOutlineReceipt(jq, outlineJob, service.submissions.at(-1)!.idempotencyKey)
+    await queue.retire(outlineJob)
+
+    const original = await queue.enqueue({
+      project_slug: 'listicle-project', type: 'expand_chapters', episode_id: params.episode_id,
+      title: params.title, params: { episode_id: params.episode_id, title: params.title },
+    })
+    await expandChapters(original, params, { auto_approve: true })
     const historicKeys = service.submissions
       .filter(submission => submission.operation === 'chat' && !submission.idempotencyKey.startsWith('story-chat-resend-'))
       .slice(1)
       .map(submission => submission.idempotencyKey)
     assert.ok(historicKeys.length > 1, 'the fixture must create multiple independent listicle batches')
     const submissionsBeforeRetry = service.providerSubmissionCount('chat')
+    await queue.retire(original)
 
-    const retry = {
-      ...original,
-      job_id: 'listicle-retry',
+    const retry = await queue.enqueue({
+      project_slug: 'listicle-project', type: 'expand_chapters', episode_id: params.episode_id,
+      title: params.title, params: { episode_id: params.episode_id, title: params.title },
       genstudio_chat_recovery: true as const,
       genstudio_chat_recovery_keys: [...historicKeys].reverse(),
-    }
-    await generateListicleChunked(retry, params)
+    })
+    await expandChapters(retry, params, { auto_approve: true })
 
     // A re-POST of an already-sent resend key is answered by replay; no new provider work.
     assert.equal(service.providerSubmissionCount('chat'), submissionsBeforeRetry,
@@ -212,16 +339,17 @@ void test('multiple listicle recovery keys match by exact membership, not reques
       .map(request => decodeURIComponent(request.path.slice('/v1/chat/responses/by-idempotency-key/'.length)))
     assert.deepEqual(new Set(recoveredKeys), new Set(historicKeys))
   } finally {
-    await service.close()
-    await temp.cleanup()
+    await queue?.finish()
+    await service?.close()
+    await temp.retain()
   }
 })
 
 void test('a manual narrative repair retry retrieves its recorded result and writes every original slot without POSTing', async () => {
-  const temp = await useTempDataDir()
-  const service = await startMockGenStudioService()
-  process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
+  const temp = await retainedFixture('repair-retry')
+  let service: Awaited<ReturnType<typeof startMockGenStudioService>> | undefined
   try {
+    service = await startMockGenStudioService()
     const settings = await import('../services/app-settings.js')
     const secrets = await import('../services/app-secrets-store.js')
     const client = await import('../lib/genstudio-client.js')
@@ -286,7 +414,7 @@ void test('a manual narrative repair retry retrieves its recorded result and wri
       assert.equal(existsSync(`${scriptDir}/${episodeId}_Chapter_${String(chapter).padStart(2, '0')}.md`), true)
     }
   } finally {
-    await service.close()
-    await temp.cleanup()
+    await service?.close()
+    await temp.retain()
   }
 })

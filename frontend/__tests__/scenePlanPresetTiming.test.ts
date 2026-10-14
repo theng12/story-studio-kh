@@ -14,7 +14,15 @@ const source = readFileSync(new URL('../pages/projects/[slug]/scene-plan.vue', i
 const script = source.split('<script setup lang="ts">')[1]!.split('</script>')[0]!
 const ast = ts.createSourceFile('scene-plan.ts', script, ts.ScriptTarget.Latest, true)
 const declarations = new Set(['visualTimingMotion', 'visualPresetNotice', 'planPresets', 'continuityLoadSequence'])
-const functions = new Set(['snapshotVisualPreset', 'applyPromptPreset', 'applyVisualSettings', 'loadContinuity'])
+const functions = new Set([
+  'snapshotVisualPreset',
+  'snapshotVisualPresetForComparison',
+  'snapshotScenePlanPresetForComparison',
+  'scenePlanPromptDefaults',
+  'applyPromptPreset',
+  'applyVisualSettings',
+  'loadContinuity',
+])
 const selected = ast.statements.filter(node =>
   (ts.isFunctionDeclaration(node) && functions.has(node.name?.text || ''))
   || (ts.isVariableStatement(node) && node.declarationList.declarations.some(d => declarations.has(d.name.getText(ast)))),
@@ -32,7 +40,7 @@ function harness() {
     ref: (value: unknown) => ({ value }), usePresets: (options: unknown) => options,
     continuityPacing, episodeMotionScope, characterSheetStyleBible: { value: '' }, visualSettingsError: { value: '' },
     get: (path: string) => api.get(path),
-    slug: { value: 'project-a' }, form, episodeId, episodeVisualSource,
+    slug: { value: 'project-a' }, form, episodeId, episodeVisualSource, projectConfig: { value: {} },
     creativeDirectionPayload: { value: {} }, CREATIVE_PROFILES: [], CREATIVE_STRATEGIES: [],
     setPromptPackSetting: () => {}, setPromptCharCapSetting: () => {},
     clampOutputAllowance: (value: unknown) => value, normalizePromptTokenSetting: (value: unknown) => value,
@@ -70,7 +78,7 @@ test('remembered preset restore changes prompt settings only and project switche
   assert.equal(h.form.value.model, 'remembered')
   assert.equal(h.form.value.generate_motion_prompts, true)
   assert.equal(h.form.value.motion_level, 4)
-  assert.match(source, /planPresets\.load\(\)\.then\([\s\S]*?if \(preset\) applyPromptPreset\(preset\.data\)/)
+  assert.match(source, /planPresets\.load\(\)\.then\(\(\) => \{[\s\S]*?if \(planPresets\.activeData\.value\) applyPromptPreset\(planPresets\.activeData\.value\)/)
   assert.match(source, /key: route => `scene-plan-\$\{route\.params\.slug\}`/)
 })
 

@@ -164,6 +164,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   'model-meta': [value: LlmModelRow | null]
+  'user-selected': [value: string]
 }>()
 
 const { get } = useApi()
@@ -314,10 +315,15 @@ const selectedDataDisclosure = computed(() => {
 })
 
 function selectModel(value: string): void {
+  applyModel(value, true)
+}
+
+function applyModel(value: string, userSelected = false): void {
   const model = allModels.value.find(entry => entry.id === value)
   if (!model || isDisabled(model)) return
   emit('update:modelValue', value)
   emit('model-meta', model)
+  if (userSelected) emit('user-selected', value)
 }
 
 function syncModelSelection(): void {
@@ -374,7 +380,7 @@ async function fillRetiredLineupChoice(): Promise<void> {
   try {
     const config = await get<{ llm_lineup_migration?: { model?: string } }>(`/projects/${props.projectSlug}/settings/config`)
     const kept = config?.llm_lineup_migration?.model
-    if (kept && !props.modelValue.trim()) selectModel(kept)
+    if (kept && !props.modelValue.trim()) applyModel(kept)
   } catch { /* nothing kept; the page asks for a choice as usual */ }
 }
 

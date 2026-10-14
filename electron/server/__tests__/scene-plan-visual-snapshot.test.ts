@@ -16,6 +16,13 @@ test('Scene Plan freezes explicit pacing and exact Next N motion targets before 
     const { assertQueuedVisualSource } = await import('../services/video-visual-source.js')
     const { scenePlanMotionPromptSnapshot, scenePlanVisualSnapshot } = await import('../routes/scene-plan.js')
     const project = await pm.createProject({ name: 'Scene scope snapshot', episode_prefix: 'EP', episode_digits: 3 })
+    await pm.updateConfig(project.slug, {
+      scene_plan_presets: [{
+        id: 'scene-scope-preset', name: 'Scene scope fixture', type: 'scene-plan',
+        data: { model: 'mock-chat-v1', avoid_legible_text: true },
+      }],
+      'scene_plan_last_preset_scene-plan': 'scene-scope-preset',
+    } as any)
     const [idea] = await im.addIdeas(project.slug, [{ title: 'Scope fixture', logline: '', themes: [], suggested_chapters: 1, suggested_length: 'short', mood: 'calm' }], 'test')
     const accepted = await im.acceptIdea(project.slug, idea!.id, false)
     const code = accepted.episode_code
@@ -45,6 +52,28 @@ test('Scene Plan freezes explicit pacing and exact Next N motion targets before 
       motion_scene_ids: ['b'],
     })
     const jq = await import('../services/job-queue.js')
+    const { app } = await import('../app.js')
+    const presetOperationId = '00000000-0000-4000-8000-000000000010'
+    let presetJob: { job_id: string } | null = null
+    await jq.setQueuePaused(true)
+    try {
+      const response = await request(app)
+        .post(`/api/projects/${project.slug}/scene-plan/${code}/run`)
+        .send({ stage: 'timeline', operation_id: presetOperationId })
+        .expect(201)
+      presetJob = response.body
+      assert.equal(response.body.params.avoid_legible_text, true,
+        'the run route forwards avoid_legible_text from the exact selected preset')
+      assert.equal(response.body.params.resolved_preset?.id, 'scene-scope-preset')
+    } finally {
+      if (presetJob) {
+        await jq.requestJobCancellation(project.slug, presetJob.job_id)
+        jq.removeTerminalJob(project.slug, presetJob.job_id)
+      }
+      await jq.drainJobPersistenceForShutdown(1_000)
+      await jq.setQueuePaused(false)
+      await jq.drainJobPersistenceForShutdown(1_000)
+    }
     const replayOperationId = '00000000-0000-4000-8000-000000000012'
     let replayJob: { job_id: string } | null = null
     await jq.setQueuePaused(true)
@@ -65,7 +94,6 @@ test('Scene Plan freezes explicit pacing and exact Next N motion targets before 
       } as any)
       settings.motion_scope = { mode: 'off' }
       await fs.writeFile(path.join(dirs.episode_dir, 'continuity.json'), JSON.stringify(settings))
-      const { app } = await import('../app.js')
       const replay = await request(app)
         .post(`/api/projects/${project.slug}/scene-plan/${code}/regenerate-motion-prompt`)
         .send({ scene_id: 'b', model: 'genstudio-chat:mock-chat-v1', operation_id: replayOperationId })
@@ -90,7 +118,6 @@ test('Scene Plan freezes explicit pacing and exact Next N motion targets before 
       () => scenePlanMotionPromptSnapshot(project.slug, code, 'b'),
       /outside this episode's saved motion scope/i,
     )
-    const { app } = await import('../app.js')
     const blockedByScope = await request(app)
       .post(`/api/projects/${project.slug}/scene-plan/${code}/regenerate-motion-prompt`)
       .send({ scene_id: 'b', model: 'unused', operation_id: '00000000-0000-4000-8000-000000000011' })

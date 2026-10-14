@@ -19,7 +19,7 @@
   Expansion never runs without approval (the backend gate also enforces it).
 -->
 <template>
-  <div class="outline-panel-host">
+  <div class="outline-panel-host" @input="emit('manual-user-edit')" @change="emit('manual-user-edit')">
     <div v-if="loaded && outline.length" class="outline-panel">
     <div class="op-header">
       <div class="op-title-row">
@@ -160,6 +160,26 @@
             >
               <LoadingSpinner v-if="isRegenerating(entry.n)" size="sm" />
               {{ isRegenerating(entry.n) ? REGENERATING_LABEL : REGENERATE_LABEL }}
+            </button>
+            <select
+              v-if="isChapterDone(entry.n) && chapterManualSources(entry.n).length > 1"
+              v-model="chapterManualSelections[entry.n]"
+              class="input input-sm op-manual-source"
+              aria-label="Stopped request to replace"
+            >
+              <option value="">Choose stopped attempt…</option>
+              <option v-for="source in chapterManualSources(entry.n)" :key="source.source_job_id" :value="source.source_job_id">
+                {{ source.label }}
+              </option>
+            </select>
+            <button
+              v-if="isChapterDone(entry.n) && manualRedoPreferenceEnabled && chapterManualSources(entry.n).length"
+              class="btn btn-sm btn-secondary"
+              :disabled="isRegenerating(entry.n) || !selectedChapterManualSource(entry.n)"
+              title="Start a separate attempt for this stopped chapter request; the current chapter stays recoverable"
+              @click="regenerateOne(entry.n, true)"
+            >
+              Create another version
             </button>
             <!-- Preview button only shows once the chapter is on disk —
                  there's nothing to preview before expansion. Click to
@@ -347,7 +367,7 @@
 import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
 import { resumeExpandNotice } from '~/utils/outline-expand-resume'
 import { useChapterRegenerate, REGENERATE_HINT, REGENERATE_LABEL, REGENERATING_LABEL } from '~/composables/useChapterRegenerate'
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { describeChatRate } from '~/utils/genstudio-credit-cost'
 
 interface OutlineEntry {
@@ -374,6 +394,12 @@ interface GenerationParams {
 }
 
 interface ManualRedoSetting { enabled: boolean }
+interface ScriptManualSource {
+  source_job_id: string
+  item_key: 'outline' | 'introduction' | `chapter:${number}`
+  label: string
+  finished_at: string | null
+}
 
 interface ExpansionSubmission {
   projectSlug: string
@@ -424,6 +450,8 @@ const props = defineProps<{
   styleLabels?: Record<string, string>
   /** The voice description typed on the Scripts page. It lives outside `form`. */
   customStyleText?: string
+  /** Shared page epoch for parent form/model edits and this panel's own edits. */
+  manualUserEpoch: number
 }>()
 
 const emit = defineEmits<{
@@ -448,6 +476,7 @@ const emit = defineEmits<{
     perspective: string | null
     customPerspective: string | null
   }): void
+  (e: 'manual-user-edit'): void
 }>()
 
 const { get, post, put } = useApi()
@@ -480,6 +509,8 @@ const justSaved = ref(false)
 const selectedNs = ref<number[]>([])
 const manualRedoPreferenceEnabled = ref(false)
 const manualRedoChecked = ref(false)
+const scriptManualSources = ref<ScriptManualSource[]>([])
+const chapterManualSelections = reactive<Record<number, string>>({})
 
 // Per-row inline preview state (Phase 4). Mirrors the ChapterListPanel
 // preview pattern: lazy-load the chapter content from the existing
@@ -625,6 +656,35 @@ async function loadManualRedoPreference(): Promise<void> {
   } catch {
     manualRedoPreferenceEnabled.value = false
   }
+}
+
+async function loadScriptManualSources(): Promise<void> {
+  const { projectSlug, episodeId } = props
+  if (!manualRedoPreferenceEnabled.value || !episodeId) {
+    scriptManualSources.value = []
+    return
+  }
+  try {
+    const data = await get<{ sources?: ScriptManualSource[] }>(
+      `/projects/${projectSlug}/scripts/manual-redo-sources?episode_id=${encodeURIComponent(episodeId)}`,
+      { cache: 'no-store' },
+    )
+    if (props.projectSlug === projectSlug && props.episodeId === episodeId) {
+      scriptManualSources.value = Array.isArray(data.sources) ? data.sources : []
+    }
+  } catch {
+    if (props.projectSlug === projectSlug && props.episodeId === episodeId) scriptManualSources.value = []
+  }
+}
+
+function chapterManualSources(n: number): ScriptManualSource[] {
+  return scriptManualSources.value.filter(source => source.item_key === `chapter:${n}`)
+}
+
+function selectedChapterManualSource(n: number): ScriptManualSource | null {
+  const sources = chapterManualSources(n)
+  if (sources.length === 1) return sources[0]!
+  return sources.find(source => source.source_job_id === chapterManualSelections[n]) || null
 }
 
 function isChapterDone(n: number): boolean {
@@ -1181,7 +1241,8 @@ const chapterRegen = useChapterRegenerate()
 function isRegenerating(n: number): boolean {
   return !!props.episodeId && chapterRegen.isRegenerating(props.episodeId, n)
 }
-function regenerateOne(n: number): Promise<void> {
+function regenerateOne(n: number, manual = false): Promise<void> {
+  const source = manual ? selectedChapterManualSource(n) : null
   // Per-row word override on the outline entry wins over the form default.
   return chapterRegen.regenerate({
     projectSlug: props.projectSlug,
@@ -1191,6 +1252,15 @@ function regenerateOne(n: number): Promise<void> {
     chapter: n,
     words: outline.value.find(e => e.n === n)?.words_per_chapter,
     beforeSend: async () => { if (isDirty.value) await saveEdits(/* silent */ true) },
+    ...(source ? {
+      manualRedo: {
+        source: { source_job_id: source.source_job_id, item_key: `chapter:${n}` as const },
+        userEpoch: props.manualUserEpoch,
+        currentUserEpoch: () => props.manualUserEpoch,
+        currentProjectSlug: () => props.projectSlug,
+        currentEpisodeId: () => props.episodeId,
+      },
+    } : {}),
   })
 }
 
@@ -1198,7 +1268,7 @@ function regenerateOne(n: number): Promise<void> {
 
 onMounted(() => {
   void loadOutline()
-  void loadManualRedoPreference()
+  void loadManualRedoPreference().then(loadScriptManualSources)
 })
 
 watch(() => [props.episodeId, manualRedoBlockerId.value], () => {
@@ -1214,12 +1284,16 @@ watch(() => [props.episodeId, props.title, props.refreshKey], (next, prev) => {
   const prevEpisodeId = Array.isArray(prev) ? prev[0] : undefined
   const nextEpisodeId = Array.isArray(next) ? next[0] : undefined
   if (prevEpisodeId !== nextEpisodeId) {
+    emit('manual-user-edit')
+    scriptManualSources.value = []
+    for (const key of Object.keys(chapterManualSelections)) delete chapterManualSelections[Number(key)]
     expandedPreviews.value = new Set()
     selectedNs.value = []
   }
   clearPreviewCache()
   // Pending edits are saved to THEIR episode before anything reloads.
   void reloadOutline()
+  void loadScriptManualSources()
 })
 
 // Auto-refresh when an outline_only or expand_chapters job for THIS
@@ -1277,6 +1351,7 @@ watch(chapterOnlySignal, (next, prev) => {
     clearPreviewCache()
     void loadChapterStats()
   }
+  void loadScriptManualSources()
 })
 
 onUnmounted(() => {
@@ -1297,6 +1372,7 @@ defineExpose({ loaded, reload: reloadOutline })
   padding: 14px 16px;
   margin-top: 16px;
 }
+.op-manual-source { width: min(15rem, 100%); }
 
 .op-header {
   margin-bottom: 12px;

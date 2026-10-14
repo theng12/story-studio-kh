@@ -80,6 +80,10 @@ export interface UsePresetsOptions<T> {
    * and silently overwrites the project's niche on every navigation.
    */
   autoApplyOnLoad?: boolean
+  /** Normalize live-catalogue aliases for equality only. Never persisted. */
+  normalizeForComparison?: (data: T) => unknown
+  /** Nonthrowing, side-effect-free form read for render-time dirty checks. */
+  comparisonSnapshot?: () => T | null
 }
 
 // Per-episode fields that should never live inside a saved preset.
@@ -154,6 +158,8 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   // each instance only sees the slice it owns.
   const allPresets = ref<Preset[]>([])
   const activeId = ref('')
+  const appliedId = ref('')
+  const appliedComparable = ref<unknown>(null)
   const excludeKeys = opts.excludeKeys ?? DEFAULT_EXCLUDE_KEYS
   // A page can mount several preset controllers over one shared config key
   // (Video Assembly is the largest example). Track only the records this
@@ -161,6 +167,7 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   // sibling controller's newer save with its older in-memory array.
   const dirtyPresetIds = new Set<string>()
   const deletedPresetIds = new Set<string>()
+  let selectionRevision = 0
   // Native preset selection and Save can occur in adjacent UI ticks. Keep
   // their read-modify-write cycles ordered so a slower stale response cannot
   // overwrite the user's newer model/settings selection.
@@ -193,6 +200,11 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
     return !!builtInPresets.find(x => x.id === activeId.value)
   })
 
+  const activeData = computed<T | null>(() => {
+    const selected = presets.value.find(preset => preset.id === activeId.value)
+    return selected ? stripKeysDeep(selected.data, excludeKeys) as T : null
+  })
+
   // Wrap the user's snapshot to strip excluded keys — prevents new presets
   // from ever storing episode_id or similar per-episode state.
   function cleanSnapshot(): T {
@@ -204,6 +216,39 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   function cleanApply(data: any): void {
     opts.apply(stripKeysDeep(data, excludeKeys) as T)
   }
+
+  function comparable(value: any): unknown {
+    const clean = stripKeysDeep(value, excludeKeys) as T
+    return opts.normalizeForComparison ? opts.normalizeForComparison(clean) : clean
+  }
+
+  function currentComparable(): unknown | null {
+    try {
+      const snapshot = opts.comparisonSnapshot ? opts.comparisonSnapshot() : opts.snapshot()
+      return snapshot == null ? null : comparable(snapshot)
+    } catch {
+      return null
+    }
+  }
+
+  function rememberApplied(): void {
+    const current = currentComparable()
+    if (current == null) {
+      appliedId.value = ''
+      appliedComparable.value = null
+      return
+    }
+    appliedId.value = activeId.value
+    appliedComparable.value = stablePresetValue(current)
+  }
+
+  const isDirty = computed(() => {
+    const selected = presets.value.find(preset => preset.id === activeId.value)
+    if (!selected) return false
+    if (appliedId.value !== activeId.value || appliedComparable.value == null) return true
+    const current = currentComparable()
+    return current == null || !presetDataMatches(current, appliedComparable.value)
+  })
 
   async function load() {
     try {
@@ -228,6 +273,7 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   }
 
   async function persistNow() {
+    const persistedActiveId = activeId.value
     // Merge against the latest authoritative list before every mutation.
     // updateConfig serializes the final read-modify-write on disk; this
     // client-side merge prevents separately-mounted preset controllers from
@@ -256,7 +302,7 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
     const merged = [...mergedById.values()]
     await put(`/projects/${opts.slug}/settings/config`, {
       [presetsKey]: merged,
-      [activeKey]: activeId.value,
+      [activeKey]: persistedActiveId,
     })
 
     // A successful PUT alone is not proof that a preset survived the full
@@ -267,7 +313,7 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
       ? verifiedConfig[presetsKey].map(normalizePreset)
       : []
     const verifiedById = new Map(verified.map(preset => [preset.id, preset]))
-    if ((verifiedConfig[activeKey] || '') !== activeId.value) {
+    if ((verifiedConfig[activeKey] || '') !== persistedActiveId) {
       throw new Error('Preset save could not be verified: the last-used selection was not retained.')
     }
     for (const id of dirtyPresetIds) {
@@ -306,6 +352,7 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
     const p = presets.value.find(x => x.id === activeId.value)
     if (!p) return null
     cleanApply(p.data)
+    rememberApplied()
     return p
   }
 
@@ -325,11 +372,17 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
     // mounted yet, which manifested as "I just saved but can't apply it".
     allPresets.value = [...allPresets.value, fresh]
     activeId.value = id
+    selectionRevision += 1
+    const savedSelectionRevision = selectionRevision
     dirtyPresetIds.add(id)
     deletedPresetIds.delete(id)
     // Let Vue commit the option list update before we fire the PUT.
     await nextTick()
     await persist()
+    if (activeId.value === id && selectionRevision === savedSelectionRevision) {
+      appliedId.value = id
+      appliedComparable.value = stablePresetValue(comparable(fresh.data))
+    }
     return fresh
   }
 
@@ -337,13 +390,24 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
     if (activePresetIsBuiltIn.value) return null
     const p = allPresets.value.find(x => x.id === activeId.value)
     if (!p) return null
-    p.data = cleanSnapshot()
+    const savedId = p.id
+    const savedData = cleanSnapshot()
+    const savedSelectionRevision = selectionRevision
+    if (appliedId.value === savedId) {
+      appliedId.value = ''
+      appliedComparable.value = null
+    }
+    p.data = savedData
     // If overwriting an untyped legacy preset from a typed instance, also
     // tag it so it stops appearing in other sections.
     if (opts.presetType && !p.type) p.type = opts.presetType
     dirtyPresetIds.add(p.id)
     deletedPresetIds.delete(p.id)
     await persist()
+    if (activeId.value === savedId && selectionRevision === savedSelectionRevision) {
+      appliedId.value = savedId
+      appliedComparable.value = stablePresetValue(comparable(savedData))
+    }
     return p
   }
 
@@ -355,6 +419,11 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
     dirtyPresetIds.delete(p.id)
     deletedPresetIds.add(p.id)
     activeId.value = ''
+    selectionRevision += 1
+    if (appliedId.value === p.id) {
+      appliedId.value = ''
+      appliedComparable.value = null
+    }
     await persist()
     return p
   }
@@ -389,12 +458,13 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   }
 
   async function setActive(id: string) {
+    if (activeId.value !== id) selectionRevision += 1
     activeId.value = id
     await persist()
   }
 
   return {
-    presets, activeId,
+    presets, activeId, activeData, isDirty,
     load, persist,
     applyActive, saveAs, overwrite, remove, rename, setActive,
     activePresetIsBuiltIn,

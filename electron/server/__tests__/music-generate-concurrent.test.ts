@@ -11,6 +11,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { useTempDataDir } from './_helpers.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService, type MockGenStudioService } from './fixtures/mock-genstudio-service.js'
+import { buildGenStudioMusicIdempotencyKey } from '../lib/genstudio-client.js'
 
 let cleanup: () => Promise<void>
 let app: any
@@ -57,6 +58,106 @@ after(async () => { await jq?._waitForJobPersistenceForTesting(); await service.
 beforeEach(() => service.reset())
 
 describe('music top-up runs its tracks concurrently', () => {
+  test('a fallback plan truncated onto trailing whitespace remains readable by ordinary resume', async () => {
+    const boundaryBrief = `${'a'.repeat(499)} b`
+    const briefId = 'brief-fallback-boundary'
+    const first = fakeJob(1)
+    first.params.brief = boundaryBrief
+    first.params.brief_id = briefId
+    await mg.generateMusicLibraryTracks(first)
+
+    const saved = structuredClone(first.params.music_library_items)
+    assert.equal(saved.items[0].plan.prompt.length, 500)
+    assert.equal(saved.items[0].plan.prompt.endsWith(' '), true, 'the real fallback producer retains its truncated space')
+    assert.equal(saved.items[0].request.prompt, 'a'.repeat(499), 'the provider request is canonical and owns the saved key')
+    const savedKey = saved.items[0].idempotency_key
+
+    const resumed = fakeJob(1)
+    resumed.params.brief = boundaryBrief
+    resumed.params.brief_id = briefId
+    resumed.params.music_library_items = saved
+    await mg.generateMusicLibraryTracks(resumed)
+
+    assert.equal(resumed.params.music_library_items.items[0].idempotency_key, savedKey)
+    assert.equal(musicSubmissions(), 1, 'resume adopts the exact saved provider request instead of buying another')
+    assert.equal(resumed.output_lines.some((line: string) => /No planner model was chosen/.test(line)), false,
+      'ordinary resume does not rerun the planner')
+  })
+
+  test('refuses an incongruent saved item receipt before any provider submission', async () => {
+    const job = fakeJob(1)
+    const briefId = 'brief-saved-receipt'
+    const requestIdentity = `${slug}:music:${briefId}:0`
+    const normalizedRequest = {
+      title: 'Rain on Cedar',
+      prompt: 'Warm felt piano, rain, 80bpm',
+      instrumental: true,
+      duration_seconds: 180,
+      model_id: 'mock-music-v1',
+    }
+    job.params.brief_id = briefId
+    job.params.duration_seconds = 180
+    job.params.music_library_items = {
+      version: 1,
+      items: [{
+        item_key: 'track-0',
+        index: 0,
+        plan: {
+          title: normalizedRequest.title,
+          prompt: 'Tampered plan that does not own the saved provider request',
+          tags: ['rain', 'piano'],
+        },
+        request: normalizedRequest,
+        request_identity: requestIdentity,
+        idempotency_key: buildGenStudioMusicIdempotencyKey({
+          title: normalizedRequest.title,
+          prompt: normalizedRequest.prompt,
+          instrumental: normalizedRequest.instrumental,
+          durationSeconds: normalizedRequest.duration_seconds,
+          modelId: normalizedRequest.model_id,
+          requestIdentity,
+        }),
+        state: 'prepared',
+      }],
+    }
+
+    await assert.rejects(
+      mg.generateMusicLibraryTracks(job),
+      /saved Music Library item plan is invalid/i,
+    )
+    assert.equal(musicSubmissions(), 0)
+  })
+
+  test('checkpoints the exact planned item and provider key before submission, then links the accepted task', async () => {
+    service.queueScenario('music', { states: ['accepted', 'succeeded'] })
+    const barrier = service.pauseNextSubmitResponse()
+    const job = fakeJob(1)
+    const run = mg.generateMusicLibraryTracks(job)
+    await barrier.started
+    let item: any
+    try {
+      const checkpoint = job.params.music_library_items
+      assert.equal(checkpoint?.version, 1)
+      assert.equal(checkpoint?.items?.length, 1)
+      item = checkpoint.items[0]
+      assert.equal(item.item_key, 'track-0')
+      assert.equal(item.index, 0)
+      assert.equal(item.plan.title, 'calm night piano 1')
+      assert.equal(item.request.model_id, 'mock-music-v1')
+      assert.equal(item.request_identity, `${slug}:music:brief-${job.job_id.slice(-10)}:0`)
+      assert.match(item.idempotency_key, /^story-music-/)
+      assert.equal(item.accepted_task_id, undefined)
+      assert.equal(service.submissions.filter(s => s.operation === 'music').length, 1)
+      assert.equal(service.submissions.find(s => s.operation === 'music')?.idempotencyKey, item.idempotency_key)
+    } finally {
+      barrier.release()
+      await run.catch(() => undefined)
+    }
+    assert.equal(job.params.music_library_items.items[0].accepted_task_id,
+      service.submissions.find(s => s.operation === 'music')?.jobId)
+    assert.equal(job.params.music_library_items.items[0].state, 'succeeded')
+  })
+
   test('an older Gateway (no capacity reading): six in flight; saved tracks keep plan order although they finish in reverse', async () => {
     // Earlier tracks are slower, so they finish last.
     for (let i = 0; i < 8; i++) service.queueScenario('music', { states: ['accepted', 'succeeded'], submitDelayMs: 900 - i * 100 })

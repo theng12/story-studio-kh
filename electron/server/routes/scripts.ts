@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { createHash } from 'node:crypto'
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import pathMod from 'path'
@@ -10,7 +11,7 @@ import { resolveReadPath, resolveArtifact, matchChapterFile } from '../lib/episo
 import { hasIntroductionScriptSource } from '../lib/narration-assembly.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { resolveSubfolderNames } from '../services/utils.js'
-import { formatMetadataTxt, parseMetadataTxt } from '../services/metadata-format.js'
+import { parseMetadataTxt } from '../services/metadata-format.js'
 import { validateBody } from '../lib/validate.js'
 import { GenerateScriptOnlySchema, GenerateIntroductionOnlySchema, GenerateChapterOnlySchema } from '../schemas/index.js'
 import { metadataFormulaCatalogue } from '../services/metadata-formula-catalogue.js'
@@ -30,24 +31,194 @@ import {
 } from '../lib/fresh-generation-action.js'
 import { inspectChunkedScriptCompletion } from '../lib/chunked-narration.js'
 import type { Job } from '../models/types.js'
+import { writeMetadataPackage } from '../services/metadata-completion.js'
 
 export const router = Router()
+
+type ScriptDocumentItem = 'outline' | 'introduction' | `chapter:${number}`
+
+function isScriptDocumentItem(value: unknown): value is ScriptDocumentItem {
+  return value === 'outline' || value === 'introduction'
+    || (typeof value === 'string' && /^chapter:[1-9]\d*$/.test(value))
+}
+
+function scriptEvidenceKey(entry: any): string | null {
+  const top = typeof entry?.request_key === 'string' ? entry.request_key.trim() : ''
+  const preview = typeof entry?.request?.idempotency_key === 'string' ? entry.request.idempotency_key.trim() : ''
+  if (top && preview && top !== preview) return null
+  return top || preview || null
+}
+
+function scriptEvidenceResolved(entry: any): boolean {
+  const id = typeof entry?.id === 'string' ? entry.id : ''
+  return !!id && !id.startsWith('pending:') && (entry?.state === 'succeeded' || entry?.state === 'failed')
+}
+
+function inspectScriptDocumentSource(source: Readonly<Job>, episodeId: string, item: ScriptDocumentItem) {
+  const expectedType = item === 'outline' ? 'outline_only'
+    : item === 'introduction' ? 'introduction-only' : 'chapter-only'
+  if (source.type !== expectedType || source.episode_id !== episodeId) return null
+  const receipts = source.params?.script_document_requests
+  if (receipts?.version !== 1 || !Array.isArray(receipts.requests)) return null
+  const owners = new Map<string, string>()
+  const itemKeys: string[] = []
+  for (const value of receipts.requests) {
+    const key = typeof value?.request_key === 'string' ? value.request_key.trim() : ''
+    const ownerItem = typeof value?.item === 'string' ? value.item : ''
+    const ownerEpisode = typeof value?.episode_id === 'string' ? value.episode_id : ''
+    if (!key || !ownerItem || ownerEpisode !== episodeId) return null
+    const owner = `${ownerEpisode}:${ownerItem}`
+    if (owners.has(key) && owners.get(key) !== owner) return null
+    owners.set(key, owner)
+    if (ownerItem === item && !itemKeys.includes(key)) itemKeys.push(key)
+  }
+  if (!itemKeys.length) return null
+  const chats = (source.genstudio_jobs || []).filter(entry => entry.operation === 'chat.response')
+  const taskOwners = new Map<string, string>()
+  for (const entry of chats) {
+    const key = scriptEvidenceKey(entry)
+    if (!key) return null
+    const id = typeof entry.id === 'string' ? entry.id : ''
+    if (id && !id.startsWith('pending:')) {
+      if (taskOwners.has(id) && taskOwners.get(id) !== key) return null
+      taskOwners.set(id, key)
+    }
+  }
+  const unresolved = chats.filter(entry => {
+    const key = scriptEvidenceKey(entry)
+    return !!key && itemKeys.includes(key) && !scriptEvidenceResolved(entry)
+  })
+  if (unresolved.length !== 1) return null
+  const requestKey = scriptEvidenceKey(unresolved[0])!
+  if (chats.some(entry => entry !== unresolved[0]
+    && scriptEvidenceKey(entry) === requestKey && !scriptEvidenceResolved(entry))) return null
+  return {
+    requestKey,
+    requestFingerprint: createHash('sha256').update(requestKey).digest('hex'),
+    sourceType: expectedType as 'outline_only' | 'introduction-only' | 'chapter-only',
+  }
+}
+
+async function findScriptDocumentSource(slug: string, sourceJobId: string): Promise<Job | undefined> {
+  return (await jq.findJobs(slug, job => job.job_id === sourceJobId))[0]
+}
+
+function cleanScriptClientBody(body: Record<string, any>): Record<string, any> {
+  const clean = structuredClone(body)
+  delete clean.generation_action
+  delete clean.generation_action_fingerprint
+  delete clean.script_document_requests
+  delete clean.script_document_write
+  delete clean.resolved_introduction
+  return clean
+}
+
+function cleanManualScriptClientBody(body: Record<string, any>): Record<string, any> {
+  const clean = cleanScriptClientBody(body)
+  delete clean.operation_id
+  return clean
+}
+
+async function replayAcceptedScriptManualAction(
+  slug: string,
+  body: Record<string, any>,
+  type: 'outline_only' | 'introduction-only' | 'chapter-only',
+  episodeId: string,
+  item: ScriptDocumentItem,
+) {
+  const intent = readManualGenerationRedoIntent(body)
+  if (!intent) return { intent: null, operationId: null, previous: undefined as Job | undefined, conflict: false }
+  const operationId = readOperationId(body, true)!
+  const client = stampFreshGenerationAction(cleanManualScriptClientBody(body), operationId)
+  const previous = (await jq.findJobs(slug, freshActionMatch(operationId)))[0]
+  if (!previous) return { intent, operationId, previous, conflict: false, clientFingerprint: client.generation_action_fingerprint }
+  const manual = previous.params?.manual_redo
+  const conflict = previous.type !== type || previous.episode_id !== episodeId
+    || manual?.source_job_id !== intent.source_job_id || manual?.source_item_key !== item
+    || manual?.client_request_fingerprint !== client.generation_action_fingerprint
+  return { intent, operationId, previous, conflict, clientFingerprint: client.generation_action_fingerprint }
+}
+
+async function scriptDocumentRevision(file: string): Promise<'missing' | `sha256:${string}`> {
+  try {
+    const bytes = await fs.readFile(file)
+    return `sha256:${createHash('sha256').update(bytes).digest('hex')}`
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') return 'missing'
+    throw error
+  }
+}
+
+async function manualScriptParams(input: {
+  slug: string
+  body: Record<string, any>
+  episodeId: string
+  item: ScriptDocumentItem
+  targetFile: string
+  operationId: string
+  clientFingerprint: string
+  extraParams?: Record<string, any>
+}) {
+  const intent = readManualGenerationRedoIntent(input.body)!
+  const source = await findScriptDocumentSource(input.slug, intent.source_job_id)
+  const proof = source && inspectScriptDocumentSource(source, input.episodeId, input.item)
+  if (!source || !proof || (source.status !== 'error' && source.status !== 'cancelled')) {
+    throw Object.assign(new Error('The stopped source does not prove one unresolved original request for this script item.'), { status: 409 })
+  }
+  const expectedRevision = await scriptDocumentRevision(input.targetFile)
+  const clean = cleanManualScriptClientBody(input.body)
+  const params = stampFreshGenerationAction({
+    ...clean,
+    ...(input.extraParams || {}),
+    manual_redo: {
+      version: 1,
+      intent: 'replace_unresolved',
+      source_job_id: source.job_id,
+      source_item_key: input.item,
+      source_request_fingerprint: proof.requestFingerprint,
+      client_request_fingerprint: input.clientFingerprint,
+      requested_at: new Date().toISOString(),
+    },
+    script_document_write: {
+      version: 1,
+      item: input.item,
+      expected_revision: expectedRevision,
+      owner_action_id: input.operationId,
+    },
+  }, input.operationId)
+  const criteria: jq.ManualGenerationRedoSourceCriteria = {
+    sourceJobId: source.job_id,
+    sourceType: proof.sourceType,
+    operation: 'chat.response',
+    resource: {
+      kind: 'custom',
+      identity: `${input.episodeId}:${input.item}:${proof.requestFingerprint}`,
+      matches: candidate => !!inspectScriptDocumentSource(candidate, input.episodeId, input.item)
+        && inspectScriptDocumentSource(candidate, input.episodeId, input.item)?.requestFingerprint === proof.requestFingerprint,
+    },
+    sourceLabel: `${input.item} script request`,
+    evidenceLabel: 'Gateway chat request',
+    hasCurrentEvidence: candidate => inspectScriptDocumentSource(candidate, input.episodeId, input.item)?.requestFingerprint === proof.requestFingerprint,
+  }
+  return { params, criteria }
+}
 
 async function prepareExplicitScriptAction(
   slug: string,
   body: Record<string, any>,
   mode: 'required' | 'optional',
 ): Promise<{ params: Record<string, any>; previous?: any; conflict: boolean }> {
+  const clean = cleanScriptClientBody(body)
   const operationId = mode === 'required'
-    ? readOperationId(body, true)
-    : readOptionalOperationId(body)
+    ? readOperationId(clean, true)
+    : readOptionalOperationId(clean)
   if (!operationId) {
-    const params = { ...body }
+    const params = { ...clean }
     delete params.operation_id
     delete params.generation_action
     return { params, conflict: false }
   }
-  const params = stampFreshGenerationAction(body, operationId)
+  const params = stampFreshGenerationAction(clean, operationId)
   const previous = (await jq.findJobs(slug, freshActionMatch(operationId)))[0]
   return {
     params,
@@ -80,6 +251,36 @@ async function withExplicitActionReplay(
 // Legacy `POST /generate/script` and `/generate/script-only` are gone. Scripts
 // are written outline-first (`/generate/outline-only` + `/generate/expand-chapters`).
 
+router.get('/projects/:slug/scripts/manual-redo-sources', async (req, res) => {
+  const { slug } = req.params
+  const episodeId = typeof req.query.episode_id === 'string' ? req.query.episode_id.trim() : ''
+  if (!episodeId) return res.status(400).json({ detail: 'episode_id is required.' })
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+  const jobs = await jq.findJobs(slug, job => job.episode_id === episodeId
+    && (job.status === 'error' || job.status === 'cancelled')
+    && ['outline_only', 'introduction-only', 'chapter-only'].includes(job.type))
+  const sources: Array<Record<string, unknown>> = []
+  for (const job of jobs) {
+    const items = [...new Set<ScriptDocumentItem>((job.params?.script_document_requests?.requests || [])
+      .filter((entry: any) => entry?.episode_id === episodeId)
+      .map((entry: any) => entry?.item)
+      .filter(isScriptDocumentItem))]
+    for (const item of items) {
+      if (!inspectScriptDocumentSource(job, episodeId, item)) continue
+      sources.push({
+        source_job_id: job.job_id,
+        item_key: item,
+        job_type: job.type,
+        label: item === 'outline' ? 'Stopped outline attempt'
+          : item === 'introduction' ? 'Stopped introduction attempt'
+            : `Stopped Chapter ${item.slice('chapter:'.length)} attempt`,
+        finished_at: job.finished_at || null,
+      })
+    }
+  }
+  res.json({ sources })
+})
+
 // ── Outline-first chunked flow (v1.0.72+) ────────────────────────────────
 //
 // Step 1: POST /generate/outline-only — builds the outline, persists a
@@ -97,9 +298,51 @@ router.post('/projects/:slug/generate/outline-only', validateBody(GenerateScript
   const project = await pm.getProject(slug)
   if (!project) return res.status(404).json({ detail: 'Project not found' })
 
+  let manualReplay
+  try {
+    manualReplay = await replayAcceptedScriptManualAction(
+      slug, req.body, 'outline_only', req.body.episode_id, 'outline',
+    )
+  } catch (error) {
+    return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid manual redo request.' })
+  }
+  if (manualReplay.conflict) {
+    return res.status(409).json({ detail: 'This operation_id already belongs to a different outline or source request.' })
+  }
+  if (manualReplay.previous) return res.status(200).json({ ...manualReplay.previous, reused: true })
+
   const config = await pm.getConfig(slug)
   if (!(await hasAnyTextProviderKey(config))) {
     return res.status(400).json({ detail: 'No Gateway API Key configured. Add it in Settings → This Mac.' })
+  }
+
+  if (manualReplay.intent) {
+    try {
+      const paths = await resolveEpisodePaths(slug, req.body.episode_id, req.body.title || '')
+      const { sidecarPath } = await import('../lib/chunked-narration.js')
+      const manual = await manualScriptParams({
+        slug,
+        body: req.body,
+        episodeId: req.body.episode_id,
+        item: 'outline',
+        targetFile: sidecarPath(paths.script_dir, req.body.episode_id),
+        operationId: manualReplay.operationId!,
+        clientFingerprint: manualReplay.clientFingerprint!,
+        extraParams: { force: true },
+      })
+      const job = await jq.enqueueManualGenerationRedo({
+        project_slug: slug,
+        type: 'outline_only',
+        episode_id: req.body.episode_id,
+        title: req.body.title,
+        params: manual.params,
+      }, manual.criteria)
+      return res.status(201).json(job)
+    } catch (error: any) {
+      return res.status(error?.status || error?.statusCode || 409).json({
+        detail: error?.message || 'Manual outline redo was refused.',
+      })
+    }
   }
 
   let action
@@ -407,11 +650,11 @@ router.put('/projects/:slug/episodes/:episodeId/outline', async (req, res) => {
       return res.status(400).json({ detail: 'Body must include `outline: OutlineEntry[]`.' })
     }
 
-    // Read existing sidecar so we preserve fields the client doesn't send
-    // (chapters_done, params_hash, mode, total_chapters).
-    const raw = await fs.readFile(sidecarFile, 'utf-8')
-    const existing = JSON.parse(raw)
-    const totalChapters = existing.total_chapters
+    return withLock(sidecarFile, async () => {
+      // Read existing sidecar while holding the same lock as generated promotion.
+      const raw = await fs.readFile(sidecarFile, 'utf-8')
+      const existing = JSON.parse(raw)
+      const totalChapters = existing.total_chapters
 
     // The outline was rebuilt (or imported) after the page loaded it: these
     // edits belong to the old one and must not overwrite — or approve — the
@@ -472,11 +715,12 @@ router.put('/projects/:slug/episodes/:episodeId/outline', async (req, res) => {
       outline_approved_at: approvedAt,
       last_updated: nowIso,
     }
-    await writeJsonAtomic(sidecarFile, updated)
-    res.json({
-      ok: true,
-      outline_edited_at: updated.outline_edited_at,
-      outline_approved_at: updated.outline_approved_at,
+      await writeJsonAtomic(sidecarFile, updated)
+      res.json({
+        ok: true,
+        outline_edited_at: updated.outline_edited_at,
+        outline_approved_at: updated.outline_approved_at,
+      })
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not save outline'))
@@ -590,28 +834,32 @@ router.post('/projects/:slug/episodes/:episodeId/import-script', async (req, res
     // moves each match away. `scene-review.ts` already escapes at its own
     // pattern sites; this block was the copy that did not.
     const codePattern = episodeId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const entries = await fs.readdir(scriptDir).catch(() => [] as string[])
     const projectDir = pm.getProjectDir(slug)!
-    for (const f of entries) {
-      if (
-        new RegExp(`^${codePattern}_Chapter_\\d+\\.(md|docx)$`).test(f) ||
-        new RegExp(`^${codePattern}_Introduction\\.(md|docx)$`).test(f) ||
-        new RegExp(`^${codePattern}_Script_Narration\\.(md|docx)$`).test(f) ||
-        f === `${episodeId}_Script_Narration.intro.json` ||
-        f === `${episodeId}_chunked-progress.json`
-      ) {
-        const file = pathMod.join(scriptDir, f)
-        const rel = pathMod.relative(projectDir, file)
-        moveToTrashSync(file, pathMod.join(trashRootFor(projectDir, projectDir, slug),
-          rel.startsWith('..') || pathMod.isAbsolute(rel) ? pathMod.join(episodeId, f) : rel), 'script')
+    const narrationPath = pathMod.join(scriptDir, `${episodeId}_Script_Narration.md`)
+    const asm = await withLock(narrationPath, async () => {
+      const entries = await fs.readdir(scriptDir).catch(() => [] as string[])
+      for (const f of entries) {
+        if (
+          new RegExp(`^${codePattern}_Chapter_\\d+\\.(md|docx)$`).test(f) ||
+          new RegExp(`^${codePattern}_Introduction\\.(md|docx)$`).test(f) ||
+          new RegExp(`^${codePattern}_Script_Narration\\.(md|docx)$`).test(f) ||
+          f === `${episodeId}_Script_Narration.intro.json` ||
+          f === `${episodeId}_chunked-progress.json`
+        ) {
+          const file = pathMod.join(scriptDir, f)
+          const rel = pathMod.relative(projectDir, file)
+          moveToTrashSync(file, pathMod.join(trashRootFor(projectDir, projectDir, slug),
+            rel.startsWith('..') || pathMod.isAbsolute(rel) ? pathMod.join(episodeId, f) : rel), 'script')
+        }
       }
-    }
 
-    await writeChapterFiles(scriptDir, episodeId, title || episodeId, parts)
-    const asm = await assembleUnifiedNarration(scriptDir, episodeId, title || episodeId)
-    if (asm.introduction_present) {
-      await writeJsonAtomic(pathMod.join(scriptDir, `${episodeId}_Script_Narration.intro.json`), { imported_at: new Date().toISOString() })
-    }
+      await writeChapterFiles(scriptDir, episodeId, title || episodeId, parts)
+      const assembled = await assembleUnifiedNarration(scriptDir, episodeId, title || episodeId)
+      if (assembled.introduction_present) {
+        await writeJsonAtomic(pathMod.join(scriptDir, `${episodeId}_Script_Narration.intro.json`), { imported_at: new Date().toISOString() })
+      }
+      return assembled
+    })
 
     const { episodeStatusCache } = await import('../services/episode-status-cache.js')
     episodeStatusCache.invalidate(slug, episodeId)
@@ -665,9 +913,57 @@ router.post('/projects/:slug/generate/chapter-only', validateBody(GenerateChapte
   const project = await pm.getProject(slug)
   if (!project) return res.status(404).json({ detail: 'Project not found' })
 
+  const requestedChapter = Number(req.body.chapter_number)
+  const item = `chapter:${requestedChapter}` as ScriptDocumentItem
+  let manualReplay
+  try {
+    manualReplay = await replayAcceptedScriptManualAction(
+      slug, req.body, 'chapter-only', req.body.episode_id, item,
+    )
+  } catch (error) {
+    return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid manual redo request.' })
+  }
+  if (manualReplay.conflict) {
+    return res.status(409).json({ detail: 'This operation_id already belongs to a different chapter or source request.' })
+  }
+  if (manualReplay.previous) return res.status(200).json({ ...manualReplay.previous, reused: true })
+
   const config = await pm.getConfig(slug)
   if (!(await hasAnyTextProviderKey(config))) {
     return res.status(400).json({ detail: 'No Gateway API Key configured. Add it in Settings → This Mac.' })
+  }
+
+  const sameChapter = (params: any) => Number(params?.chapter_number) === requestedChapter
+  if (manualReplay.intent) {
+    try {
+      const paths = await resolveEpisodePathsForRead(slug, req.body.episode_id, req.body.title || '')
+      const { chapterFilePath, ensureChapterFilesMigrated } = await import('../lib/narration-assembly.js')
+      const manual = await withLock(paths.narration_docx, async () => {
+        await ensureChapterFilesMigrated(paths.script_dir, req.body.episode_id, req.body.title || req.body.episode_id)
+        return manualScriptParams({
+          slug,
+          body: req.body,
+          episodeId: req.body.episode_id,
+          item,
+          targetFile: chapterFilePath(paths.script_dir, req.body.episode_id, requestedChapter),
+          operationId: manualReplay.operationId!,
+          clientFingerprint: manualReplay.clientFingerprint!,
+        })
+      })
+      const job = await jq.enqueueManualGenerationRedo({
+        project_slug: slug,
+        type: 'chapter-only',
+        episode_id: req.body.episode_id,
+        title: req.body.title,
+        params: manual.params,
+        dedupeParams: sameChapter,
+      }, manual.criteria)
+      return res.status(201).json(job)
+    } catch (error: any) {
+      return res.status(error?.status || error?.statusCode || 409).json({
+        detail: error?.message || 'Manual chapter redo was refused.',
+      })
+    }
   }
 
   let action
@@ -684,8 +980,6 @@ router.post('/projects/:slug/generate/chapter-only', validateBody(GenerateChapte
   // multiple DIFFERENT chapters in a row (they run back-to-back). The
   // narrowed predicate compares params.chapter_number so two clicks on
   // ch.5 dedupe while ch.5 + ch.7 both enqueue.
-  const requestedChapter = Number(req.body.chapter_number)
-  const sameChapter = (params: any) => Number(params?.chapter_number) === requestedChapter
   return withExplicitActionReplay(slug, action.params, res, 'This operation_id already belongs to a different chapter request.', async () => {
     if (jq.isDuplicate(slug, req.body.episode_id, 'expand_chapters')) {
       return res.status(409).json({ detail: `Chapter expansion already queued/running for ${req.body.episode_id}` })
@@ -719,6 +1013,19 @@ router.post('/projects/:slug/generate/introduction-only', validateBody(GenerateI
   const { slug } = req.params
   const project = await pm.getProject(slug)
   if (!project) return res.status(404).json({ detail: 'Project not found' })
+
+  let manualReplay
+  try {
+    manualReplay = await replayAcceptedScriptManualAction(
+      slug, req.body, 'introduction-only', req.body.episode_id, 'introduction',
+    )
+  } catch (error) {
+    return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid manual redo request.' })
+  }
+  if (manualReplay.conflict) {
+    return res.status(409).json({ detail: 'This operation_id already belongs to a different introduction or source request.' })
+  }
+  if (manualReplay.previous) return res.status(200).json({ ...manualReplay.previous, reused: true })
 
   const config = await pm.getConfig(slug)
   if (!(await hasAnyTextProviderKey(config))) {
@@ -774,6 +1081,64 @@ router.post('/projects/:slug/generate/introduction-only', validateBody(GenerateI
           + 'script preset carries one. Either choose a model for the opening on the Introduction page, '
           + 'or open Script Generator, choose a model under Main settings and save the script preset. '
           + 'No model was substituted.',
+      })
+    }
+  }
+
+  if (manualReplay.intent) {
+    try {
+      const paths = await resolveEpisodePathsForRead(slug, req.body.episode_id, title)
+      if (!await hasIntroductionScriptSource(paths.script_dir, req.body.episode_id)) {
+        return res.status(400).json({ detail: 'Generate a script first. This episode has no chapters for an introduction.' })
+      }
+      const format = await getEffectiveFormat(slug, { episodeId: req.body.episode_id })
+      const requestedStyle = req.body.style || format.script.defaultNarratorStyleId
+      const resolvedStyle = requestedStyle === 'auto'
+        ? await (await import('../generators/episode.js')).automaticNarratorStyleForEpisode(
+            format, slug, req.body.episode_id,
+          )
+        : requestedStyle
+      const { getChannelSegments } = await import('../services/channel-segments.js')
+      const { beatLinesForPrompt, INTRODUCTION_SEGMENT_ID } = await import('../lib/episode-segments.js')
+      const recipe = (await getChannelSegments(slug, req.body.episode_id))[INTRODUCTION_SEGMENT_ID].recipe
+      const resolvedIntroduction = {
+        version: 1,
+        title,
+        model,
+        style: resolvedStyle,
+        ...(typeof req.body.custom_style_text === 'string' ? { custom_style_text: req.body.custom_style_text } : {}),
+        recipe: {
+          host_name: req.body.host_name || recipe.host_name || '',
+          word_target: req.body.word_target || recipe.word_target,
+          custom_opening: req.body.custom_opening || recipe.custom_opening_line || '',
+          beats: Array.isArray(req.body.beats) && req.body.beats.length ? [...req.body.beats] : beatLinesForPrompt(recipe),
+        },
+      }
+      const { ensureChapterFilesMigrated, introductionFilePath } = await import('../lib/narration-assembly.js')
+      const manual = await withLock(paths.narration_docx, async () => {
+        await ensureChapterFilesMigrated(paths.script_dir, req.body.episode_id, title || req.body.episode_id)
+        return manualScriptParams({
+          slug,
+          body: req.body,
+          episodeId: req.body.episode_id,
+          item: 'introduction',
+          targetFile: introductionFilePath(paths.script_dir, req.body.episode_id),
+          operationId: manualReplay.operationId!,
+          clientFingerprint: manualReplay.clientFingerprint!,
+          extraParams: { title, model, resolved_introduction: resolvedIntroduction },
+        })
+      })
+      const job = await jq.enqueueManualGenerationRedo({
+        project_slug: slug,
+        type: 'introduction-only',
+        episode_id: req.body.episode_id,
+        title,
+        params: manual.params,
+      }, manual.criteria)
+      return res.status(201).json(job)
+    } catch (error: any) {
+      return res.status(error?.status || error?.statusCode || 409).json({
+        detail: error?.message || 'Manual introduction redo was refused.',
       })
     }
   }
@@ -946,7 +1311,8 @@ router.get('/projects/:slug/episodes/:episodeId/chapter-list', async (req, res) 
 
     const { ensureChapterFilesMigrated } =
       await import('../lib/narration-assembly.js')
-    await ensureChapterFilesMigrated(paths.script_dir, episodeId, titleQuery)
+    await withLock(paths.narration_docx, () =>
+      ensureChapterFilesMigrated(paths.script_dir, episodeId, titleQuery))
 
     let entries: string[] = []
     try { entries = await fs.readdir(paths.script_dir) } catch { /* missing dir */ }
@@ -1322,40 +1688,11 @@ async function getMetadataDir(slug: string, episode_id: string, title: string): 
   return await resolveSubfolder(episodeDir, names.metadata)
 }
 
-function nextVersion(files: string[], code: string): number {
-  let max = 0
-  const re = new RegExp(`^${code}_Metadata(?:_v(\\d+))?\\.json$`)
-  for (const f of files) {
-    const m = f.match(re)
-    if (m) {
-      const v = m[1] ? parseInt(m[1], 10) : 1
-      if (v > max) max = v
-    }
-  }
-  return max + 1
-}
-
-function metadataFilenames(code: string, version: number): { json: string; txt: string } {
-  const suffix = version <= 1 ? '' : `_v${version}`
-  return {
-    json: `${code}_Metadata${suffix}.json`,
-    txt: `${code}_Metadata${suffix}.txt`,
-  }
-}
-
 router.post('/projects/:slug/generate/metadata/save', async (req, res) => {
   const { slug } = req.params
   const { episode_id, title, metadata_title, title_options, description, tags, save_mode, version } = req.body
   try {
     const dir = await getMetadataDir(slug, episode_id, title)
-    const files = await fs.readdir(dir).catch(() => [])
-
-    let writeVersion: number
-    if (save_mode === 'new') {
-      writeVersion = nextVersion(files, episode_id)
-    } else {
-      writeVersion = version || 1
-    }
 
     // Preserve AI-generated title alternatives across saves so a user who
     // overwrites v1 from the metadata page doesn't accidentally wipe the
@@ -1366,37 +1703,29 @@ router.post('/projects/:slug/generate/metadata/save', async (req, res) => {
       ? title_options.filter((t: unknown): t is string => typeof t === 'string' && t.trim() !== '')
       : (metadata_title ? [String(metadata_title)] : [])
 
-    // Manual edits keep the finalizer audit that was recorded by the queued
-    // generator. The managed chapter/source text is already inside
-    // `description`; preserving this sidecar prevents autosave from erasing
-    // the warning/readiness information.
-    const { json } = metadataFilenames(episode_id, writeVersion)
-    const priorPath = pathMod.join(dir, json)
-    let priorFinalization: unknown
-    try {
-      priorFinalization = JSON.parse(await fs.readFile(priorPath, 'utf-8'))?.youtube_finalization
-    } catch { /* first save / new version */ }
-
-    const meta = {
-      title: metadata_title || '',
-      title_options: cleanTitleOptions,
-      description: description || '',
-      tags: Array.isArray(tags) ? tags : [],
-      ...(priorFinalization ? { youtube_finalization: priorFinalization } : {}),
-      savedAt: new Date().toISOString(),
-      version: writeVersion,
-    }
-
-    const { txt } = metadataFilenames(episode_id, writeVersion)
-    const jsonPath = pathMod.join(dir, json)
-    // Lock on the JSON path so concurrent Save clicks (e.g. two browser tabs)
-    // can't interleave and leave the .txt sidecar out of sync with the .json.
-    await withLock(jsonPath, async () => {
-      await writeJsonAtomic(jsonPath, meta)
-      await fs.writeFile(pathMod.join(dir, txt), formatMetadataTxt(meta))
+    const saved = await writeMetadataPackage({
+      dir,
+      code: episode_id,
+      mode: save_mode === 'new' ? 'new' : { overwrite: version || 1 },
+      build: ({ version: writeVersion, previous }) => {
+        // Manual edits keep the finalizer audit that was recorded by the queued
+        // generator. The managed chapter/source text is already inside
+        // `description`; preserving this sidecar prevents autosave from erasing
+        // the warning/readiness information.
+        const priorFinalization = previous?.youtube_finalization
+        return {
+          title: metadata_title || '',
+          title_options: cleanTitleOptions,
+          description: description || '',
+          tags: Array.isArray(tags) ? tags : [],
+          ...(priorFinalization ? { youtube_finalization: priorFinalization } : {}),
+          savedAt: new Date().toISOString(),
+          version: writeVersion,
+        }
+      },
     })
 
-    res.json({ ok: true, version: writeVersion, json, txt })
+    res.json({ ok: true, ...saved })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save metadata'))
   }

@@ -38,6 +38,13 @@ describe('Generate Songs dialog', () => {
     assert.match(dialog, /averageGenerationS/)
     assert.match(dialog, /does not guess it/)
   })
+  test('an unconfirmed ordinary submission keeps one captured body and UUID for Retry', () => {
+    assert.match(dialog, /pendingSongPoolSubmission/)
+    assert.match(dialog, /JSON\.parse\(JSON\.stringify/)
+    assert.match(dialog, /showAction\(UNCONFIRMED_SUBMISSION, 'Retry'/)
+    assert.match(dialog, /submission\.operationId/)
+    assert.match(dialog, /submission\.projectSlug/)
+  })
 })
 
 describe('Song Pool page', () => {
@@ -54,6 +61,18 @@ describe('Song Pool page', () => {
   })
   test('the Episode Builder\'s shortfall link opens the dialog pre-filled', () => {
     assert.match(pool, /route\.query\.generate/)
+  })
+  test('manual redo is default-off, exact-item, separately paid, and retry-safe', () => {
+    assert.match(pool, /useManualGenerationRedoPreference/)
+    assert.match(pool, /song-pool\/manual-redo-sources/)
+    assert.match(pool, /source_item_key/)
+    assert.match(pool, /manual_redo: \{ intent: 'replace_unresolved'/)
+    assert.match(pool, /confirmed_paid_music: paid/)
+    assert.match(pool, /always: true/)
+    assert.match(pool, /JSON\.parse\(JSON\.stringify/)
+    assert.match(pool, /showAction\(UNCONFIRMED_SUBMISSION, 'Retry'/)
+    assert.match(pool, /Published limits:/)
+    assert.match(pool, /publishedRange\('title'/)
   })
 })
 

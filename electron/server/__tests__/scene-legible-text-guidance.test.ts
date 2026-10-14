@@ -160,15 +160,26 @@ describe('scene path — source wiring', () => {
     assert.match(src, /legibleTextGuidanceBlock\(opts\.avoid_legible_text\)/)
   })
 
-  test('routes/scene-plan.ts forwards avoid_legible_text on every scene-prompt entry point', async () => {
+  test('routes/scene-plan.ts forwards preset authority on /run and request overrides on both repair entry points', async () => {
     const src = await fs.readFile(path.join(serverRoot, 'routes/scene-plan.ts'), 'utf-8')
-    const requestValues = src.match(/const avoidLegibleText = typeof body\.avoid_legible_text === 'boolean' \? body\.avoid_legible_text : undefined/g) || []
-    const occurrences = src.match(/avoid_legible_text: avoidLegibleText/g) || []
-    assert.equal(requestValues.length, 3, '/run, /regenerate-prompt, and /regenerate-empty-prompts each accept the per-request override')
-    assert.equal(
-      occurrences.length, 4,
-      '/run and both repair handlers forward the toggle; the accepted single-scene replay also retains it as request identity',
-    )
+    const block = (start: string, end: string) => src.slice(src.indexOf(start), src.indexOf(end))
+    const run = block("router.post('/projects/:slug/scene-plan/:episodeId/run'", "router.post('/projects/:slug/scene-plan/:episodeId/replan-scene'")
+    const regeneratePrompt = block("router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt'", "router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-prompts'")
+    const regenerateEmpty = block("router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-prompts'", "router.post('/projects/:slug/scene-plan/:episodeId/regenerate-motion-prompt'")
+
+    assert.match(run, /const avoidLegibleText = typeof presetData\.avoid_legible_text === 'boolean' \? presetData\.avoid_legible_text : undefined/,
+      '/run must take the reusable setting from the exact resolved preset')
+    assert.match(run, /avoid_legible_text: avoidLegibleText/,
+      '/run must forward the exact preset setting to the queued job')
+
+    for (const [name, route] of [['regenerate-prompt', regeneratePrompt], ['regenerate-empty-prompts', regenerateEmpty]] as const) {
+      assert.match(route, /const avoidLegibleText = typeof body\.avoid_legible_text === 'boolean' \? body\.avoid_legible_text : undefined/,
+        `${name} must accept its explicit repair-request override`)
+      assert.match(route, /avoid_legible_text: avoidLegibleText/,
+        `${name} must forward its explicit repair-request override`)
+    }
+    assert.equal((regeneratePrompt.match(/avoid_legible_text: avoidLegibleText/g) || []).length, 2,
+      'single-scene repair keeps the override in both replay identity and accepted params')
   })
 })
 

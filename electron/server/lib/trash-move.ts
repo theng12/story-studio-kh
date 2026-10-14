@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { appendFileSync, lstatSync, mkdirSync, renameSync, statSync } from 'node:fs'
+import { appendFileSync, constants, copyFileSync, lstatSync, mkdirSync, renameSync, statSync } from 'node:fs'
 import path from 'node:path'
 
 /**
@@ -66,6 +66,24 @@ export function moveToTrashSync(file: string, target: string, kind = 'other'): s
   return candidate
 }
 
+/**
+ * Preserve active bytes in Story's Trash without moving the active file.
+ * Used only when a later atomic promotion must keep the complete prior package
+ * recoverable while every current member remains in place until preservation
+ * has succeeded.
+ */
+export function copyToTrashSync(file: string, target: string, kind = 'other'): string {
+  mkdirSync(path.dirname(target), { recursive: true })
+  const { dir, name, ext } = path.parse(target)
+  let candidate = target
+  for (let n = 0; exists(candidate); n += 1) {
+    candidate = path.join(dir, `${name}.${Date.now()}${n ? `-${n}` : ''}${ext}`)
+  }
+  copyFileSync(file, candidate, constants.COPYFILE_EXCL)
+  recordTrashMove(path.resolve(file), path.resolve(candidate), kind, true)
+  return candidate
+}
+
 /** The `_trash` folder `target` sits in (the last `_trash` segment), or null. */
 export function trashDirOf(target: string): string | null {
   const marker = `${path.sep}${TRASH_DIRNAME}${path.sep}`
@@ -73,12 +91,14 @@ export function trashDirOf(target: string): string | null {
   return at < 0 ? null : target.slice(0, at + marker.length - 1)
 }
 
-function recordTrashMove(from: string, to: string, kind: string): void {
+function recordTrashMove(from: string, to: string, kind: string, strict = false): void {
   const dir = trashDirOf(to)
   if (!dir) return
   const entry: TrashIndexEntry = { id: randomUUID(), from, to, kind, at: new Date().toISOString() }
   // A lost index line only costs Restore for that item; the move itself already happened.
-  try { appendFileSync(path.join(dir, TRASH_INDEX), `${JSON.stringify(entry)}\n`) } catch { /* see above */ }
+  try { appendFileSync(path.join(dir, TRASH_INDEX), `${JSON.stringify(entry)}\n`) } catch (error) {
+    if (strict) throw error
+  }
 }
 
 function exists(p: string): boolean {

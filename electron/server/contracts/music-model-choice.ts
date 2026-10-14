@@ -33,7 +33,8 @@ export interface MusicRequestNeeds {
 
 export function musicModelCanServe(model: MusicModelCapability, needs: MusicRequestNeeds): boolean {
   if (model.requires_lyrics === true && !needs.hasLyrics) return false
-  if (needs.instrumental && !needs.hasLyrics && model.supports_instrumental === false) return false
+  if (needs.instrumental && model.supports_instrumental === false) return false
+  if (!needs.instrumental && model.supports_vocals === false) return false
   return true
 }
 

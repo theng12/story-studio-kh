@@ -23,15 +23,18 @@ import { callAi } from '../lib/ai-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
+import { freshActionFingerprint } from '../lib/fresh-generation-action.js'
 import { resolveOutputFormat } from '../services/generation-compression.js'
 import { getEffectiveNiche } from '../services/niche-loader.js'
 import {
   GenStudioMusicTerminalFailureError,
+  buildGenStudioMusicIdempotencyKey,
   generateMusicWithGenStudio,
   downloadGenStudioMusicTrack,
   isGenStudioInsufficientCredits,
   listMusicModels,
   transcribeWithGenStudio,
+  type GenStudioMusicRequest,
 } from '../lib/genstudio-client.js'
 import { freeMacWaitLine, isFreeMacPlan, waitUnlessStopped } from '../lib/genstudio-fleet-busy.js'
 import { musicDurationPlan } from '../contracts/music-model-choice.js'
@@ -46,7 +49,7 @@ import { siblingGroupForJob } from '../services/music-library.js'
 import type { Job } from '../models/types.js'
 import { safetyGate, safetyMode } from '../services/safety-checks.js'
 
-export type SongPoolMode = 'new' | 'fill-gaps' | 'regenerate'
+export type SongPoolMode = 'new' | 'fill-gaps' | 'regenerate' | 'manual-redo'
 
 export interface SongPoolGenerateParams {
   song_pool: true
@@ -65,9 +68,19 @@ export interface SongPoolGenerateParams {
   /** Regenerate one song with edited fields ("Edit Brief & Regenerate"). */
   brief_edits?: Partial<Pick<Brief, 'title' | 'line' | 'scene_idea' | 'ensemble' | 'mood' | 'tempo_bpm' | 'key' | 'texture' | 'structure' | 'length_s'>>
   batch_id: string
+  manual_song_pool_item?: {
+    version: 1
+    source_job_id: string
+    source_batch_id: string
+    source_item_key: string
+    brief: Brief
+    request: SongPoolMusicAttempt['request']
+  }
 }
 
 export interface BatchItem {
+  /** Stable within this batch. Added when the exact music request is first checkpointed. */
+  item_key?: string
   cell: PlannedCell
   brief?: Brief
   take_of?: string
@@ -77,6 +90,30 @@ export interface BatchItem {
   error?: string
   /** After a settled failure the next request needs a new identity (derived from the dead job). */
   retry_scope?: string
+  /** Every exact paid music request, saved before POST and retained across retries/takes. */
+  music_attempts?: SongPoolMusicAttempt[]
+  /** Server-copied exact source request for one explicit music-stage replacement. */
+  manual_request?: SongPoolMusicAttempt['request']
+}
+
+export interface SongPoolMusicAttempt {
+  version: 1
+  planned_item_fingerprint: string
+  request: {
+    title: string
+    prompt: string
+    lyrics?: string
+    instrumental: boolean
+    duration_seconds?: number
+    model_id: string
+    seed?: number
+    output_format?: 'm4a'
+    priority?: 'background'
+    request_identity: string
+  }
+  idempotency_key: string
+  accepted_task_id?: string
+  state?: string
 }
 
 export interface BatchFile {
@@ -90,6 +127,62 @@ export interface BatchFile {
 export function batchPath(dir: string, batchId: string): string {
   if (!/^[A-Za-z0-9_-]{1,80}$/.test(batchId)) throw new Error(`Invalid batch id: ${batchId}`)
   return path.join(dir, 'batches', `${batchId}.json`)
+}
+
+export async function readSongPoolBatchCheckpoint(dir: string, batchId: string): Promise<BatchFile | null> {
+  try {
+    const value = JSON.parse(await fs.readFile(batchPath(dir, batchId), 'utf8'))
+    if (!value || value.batch_id !== batchId || !Array.isArray(value.items)) return null
+    return value as BatchFile
+  } catch {
+    return null
+  }
+}
+
+export function validSongPoolMusicAttempt(
+  slug: string,
+  batch: BatchFile,
+  item: BatchItem,
+  attempt: SongPoolMusicAttempt,
+): boolean {
+  const request = attempt?.request
+  const escapePattern = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const identity = item.item_key && item.brief
+    ? new RegExp(`^${escapePattern(slug)}:song-pool:${escapePattern(batch.batch_id)}:${escapePattern(item.item_key)}:${item.brief.seed}(?::[0-9a-f]{16})?(?::take[2-9][0-9]*)?$`)
+    : null
+  if (!item.item_key || !item.brief || attempt?.version !== 1 || !request
+    || attempt.planned_item_fingerprint !== freshActionFingerprint({ item_key: item.item_key, brief: item.brief })
+    || request.title !== request.title?.trim() || request.prompt !== request.prompt?.trim()
+    || !request.title || !request.prompt || !request.model_id?.trim() || !request.request_identity?.trim()
+    || request.title !== item.brief.title.trim()
+    || !(request.prompt === item.brief.prompt.trim() || request.prompt.startsWith(`${item.brief.prompt.trim()}, `))
+    || (request.lyrics || '') !== (item.brief.lyrics?.trim() || '')
+    || !identity?.test(request.request_identity)) return false
+  return attempt.idempotency_key === buildGenStudioMusicIdempotencyKey({
+    title: request.title, prompt: request.prompt, lyrics: request.lyrics,
+    instrumental: request.instrumental, durationSeconds: request.duration_seconds,
+    modelId: request.model_id, requestIdentity: request.request_identity,
+    outputFormat: request.output_format, seed: request.seed,
+  })
+}
+
+function unresolvedSavedAttempt(job: Readonly<Job>, slug: string, batch: BatchFile, item: BatchItem): SongPoolMusicAttempt | null {
+  const evidence = job.genstudio_jobs || []
+  const matches = (item.music_attempts || []).filter(attempt => {
+    if (!validSongPoolMusicAttempt(slug, batch, item, attempt)) return false
+    const related = evidence.filter(entry => entry.operation === 'music.generation'
+      && (entry.request_key === attempt.idempotency_key || entry.request?.idempotency_key === attempt.idempotency_key
+        || (!!attempt.accepted_task_id && entry.id === attempt.accepted_task_id)))
+    if (related.length !== 1) return false
+    const entry = related[0]!
+    const keys = [entry.request_key, entry.request?.idempotency_key].filter(Boolean)
+    if (!keys.length || new Set(keys).size !== 1 || keys[0] !== attempt.idempotency_key) return false
+    if (attempt.accepted_task_id ? entry.id !== attempt.accepted_task_id : entry.id !== `pending:${attempt.idempotency_key}`) return false
+    return entry.queue_state !== 'not_created' && entry.queue_state !== 'waiting_credits'
+      && entry.state !== 'succeeded' && entry.state !== 'cancelled'
+      && !(entry.state === 'failed' && entry.recovery_required !== true)
+  })
+  return matches.length === 1 ? matches[0]! : null
 }
 
 /** The formula this project's songs are written from, or a sentence saying what to do. */
@@ -163,11 +256,12 @@ export async function generateSongPool(job: Job): Promise<void> {
 
   // Live catalogue: the model is the one picked in the dialog, never substituted.
   const models = await listMusicModels(apiKey)
-  const got = await songFormulaFor(slug)
-  if ('error' in got && params.mode !== 'regenerate') throw new Error(got.error)
+  const manualItem = params.manual_song_pool_item
+  const got = manualItem ? { error: 'Manual music-stage replacement uses its saved item.' } as const : await songFormulaFor(slug)
+  if ('error' in got && params.mode !== 'regenerate' && !manualItem) throw new Error(got.error)
   // Songs with lyrics (owner 2026-10-12): the channel's switch, off unless its formula turns it on.
   const lyricsCfg = 'error' in got ? undefined : got.formula.lyrics
-  const sung = lyricsCfg?.enabled === true
+  const sung = manualItem ? manualItem.request.instrumental === false : lyricsCfg?.enabled === true
   // The channel's singer(s): a fixed voice phrase + seed on every song (owner-approved same-singer recipe).
   const singers = sung ? lyricsCfg?.singers || [] : []
   const singerFor = (brief: Brief) => singers.length ? singers[brief.seed % singers.length]! : null
@@ -176,11 +270,12 @@ export async function generateSongPool(job: Job): Promise<void> {
   if (sung && !sings) throw new Error(`This channel makes songs with lyrics, and ${model.display_name} does not sing. Pick a model that sings (YuE2).`)
   if (!sung && model.requires_lyrics === true) throw new Error(`${model.display_name} only sings from lyrics, and this channel's songs are instrumental. Pick another song model, or turn on Songs with lyrics in Music Formula.`)
   const checkModel = (params.check_model || '').trim()
-  if (sung && !checkModel) throw new Error('Pick the listen-back model in the Generate dialog. It checks that each song sings its lyrics.')
+  if (sung && !manualItem && !checkModel) throw new Error('Pick the listen-back model in the Generate dialog. It checks that each song sings its lyrics.')
   // 1.4.300 "Sung lyrics listen-back" safety check: the retakes above are the channel's own control;
   // this decides only what a song that still fails does. Block: it stays switched off and the item
   // fails (as before). Off/Warn: the last take is kept switched on and counts as made.
-  const lyricsBlock = !sung || await safetyMode(slug, 'lyrics_listen_back') === 'block'
+  const lyricsSafetyMode = sung ? await safetyMode(slug, 'lyrics_listen_back') : 'off'
+  const lyricsBlock = sung && lyricsSafetyMode === 'block'
   const heardOk = (heard: Heard | null) => !heard || heard.check === 'passed' || !lyricsBlock
   const maxPromptChars = !sung && Number.isInteger(model.max_prompt_without_lyrics_characters) ? model.max_prompt_without_lyrics_characters as number
     : Number.isInteger(model.max_prompt_characters) ? model.max_prompt_characters : undefined
@@ -204,7 +299,9 @@ export async function generateSongPool(job: Job): Promise<void> {
 
   if (!batch) {
     let items: BatchItem[]
-    if (params.mode === 'regenerate') {
+    if (manualItem) {
+      items = [{ item_key: 'song-0', cell: manualItem.brief, brief: manualItem.brief, manual_request: manualItem.request }]
+    } else if (params.mode === 'regenerate') {
       const ids = params.song_ids || []
       items = ids.map((id, i) => {
         const s = pool.songs.find(x => x.id === id)
@@ -232,6 +329,7 @@ export async function generateSongPool(job: Job): Promise<void> {
         else it.dropped = written.dropped.find(d => d.cell === it.cell)?.reason || 'no brief was written'
       }
     }
+    items.forEach((item, index) => { item.item_key ||= `song-${index}` })
     batch = { batch_id: params.batch_id, mode: params.mode, writer_model: writer, created_at: new Date().toISOString(), items }
     await writeJsonAtomic(bpath, batch)
   } else if (params.mode !== 'regenerate' && !('error' in got)) {
@@ -250,6 +348,11 @@ export async function generateSongPool(job: Job): Promise<void> {
     }
   }
   const saveBatch = () => withLock(`song-batch:${bpath}`, () => writeJsonAtomic(bpath, batch))
+  let addedItemKeys = false
+  batch.items.forEach((item, index) => {
+    if (!item.item_key) { item.item_key = `song-${index}`; addedItemKeys = true }
+  })
+  if (addedItemKeys) await saveBatch()
 
   for (const it of batch.items.filter(i => i.dropped)) job.output_lines.push(`✗ Brief dropped: ${it.dropped}`)
   const todo = batch.items.filter(i => i.brief && !i.song_id)
@@ -268,6 +371,10 @@ export async function generateSongPool(job: Job): Promise<void> {
 
   await runRollingWindow(todo, windowNow, async (it) => {
     const brief = it.brief!
+    let savedUnknown = unresolvedSavedAttempt(job, slug, batch!, it)
+    if (savedUnknown && savedUnknown.request.model_id !== model.id) {
+      throw new Error('The unresolved saved music request belongs to another model. Nothing was submitted.')
+    }
     const started = Date.now()
     // Provisional delivery allowance: YuE2 stops with the words; musicDurationPlan clamps to live model limits.
     const length = musicDurationPlan(model, sung
@@ -285,18 +392,80 @@ export async function generateSongPool(job: Job): Promise<void> {
         if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
         try {
           if (sung && !brief.lyrics) throw new Error('this song has no lyrics (it was made before Songs with lyrics was on), so it cannot be sung; Generate makes new sung songs')
-          const result = await generateMusicWithGenStudio(apiKey, {
-            title: brief.title, prompt: singer ? `${brief.prompt}, ${singer.voice}` : brief.prompt,
-            instrumental: !sung, ...(sung ? { lyrics: brief.lyrics } : {}),
-            durationSeconds: length.seconds,
-            // A retake needs a new seed; with a fixed singer that can shift the voice a little (said in the log).
-            modelId: model.id, seed: sing > 1 ? hashSeed(`${brief.seed}:take${sing}`) : (singer ? singer.seed : brief.seed),
-            ...(outputFormat ? { outputFormat } : {}), ...(priority ? { priority } : {}),
-            requestIdentity: `${slug}:song-pool:${params.batch_id}:${brief.combo_key || brief.title}:${brief.seed}${retryScope ? `:${retryScope}` : ''}${sing > 1 ? `:take${sing}` : ''}`,
+          const requestIdentity = savedUnknown?.request.request_identity
+            || `${slug}:song-pool:${params.batch_id}:${it.item_key || brief.combo_key || brief.title}:${brief.seed}${retryScope ? `:${retryScope}` : ''}${sing > 1 ? `:take${sing}` : ''}`
+          const requestSeed = it.manual_request?.seed ?? (sing > 1 ? hashSeed(`${brief.seed}:take${sing}`) : (singer ? singer.seed : brief.seed))
+          const exact = savedUnknown?.request || it.manual_request
+          const request: GenStudioMusicRequest = exact ? {
+            title: exact.title, prompt: exact.prompt, instrumental: exact.instrumental,
+            ...(exact.lyrics !== undefined ? { lyrics: exact.lyrics } : {}),
+            ...(exact.duration_seconds !== undefined ? { durationSeconds: exact.duration_seconds } : {}),
+            modelId: model.id,
+            ...(exact.seed !== undefined ? { seed: exact.seed } : {}),
+            ...(exact.output_format !== undefined ? { outputFormat: exact.output_format } : {}),
+            ...(exact.priority !== undefined ? { priority: exact.priority } : {}),
+            requestIdentity,
             isCancelled: () => jq.isCancelled(job.job_id),
+          } : {
+            title: brief.title,
+            prompt: singer ? `${brief.prompt}, ${singer.voice}` : brief.prompt,
+            instrumental: !sung,
+            ...(sung && brief.lyrics ? { lyrics: brief.lyrics } : {}),
+            durationSeconds: length.seconds,
+            modelId: model.id, seed: requestSeed,
+            ...(outputFormat ? { outputFormat } : {}),
+            ...(priority ? { priority } : {}),
+            requestIdentity,
+            isCancelled: () => jq.isCancelled(job.job_id),
+          }
+          const idempotencyKey = buildGenStudioMusicIdempotencyKey(request)
+          if (savedUnknown && idempotencyKey !== savedUnknown.idempotency_key) {
+            throw new Error('The unresolved saved music request no longer matches its exact provider key. Nothing was submitted.')
+          }
+          const attempts = it.music_attempts ||= []
+          let receipt = attempts.find(candidate => candidate.idempotency_key === idempotencyKey)
+          if (!receipt) {
+            receipt = {
+              version: 1,
+              planned_item_fingerprint: freshActionFingerprint({ item_key: it.item_key, brief }),
+              request: {
+                title: request.title.trim(), prompt: request.prompt.trim(),
+                ...(request.lyrics?.trim() ? { lyrics: request.lyrics.trim() } : {}),
+                instrumental: request.instrumental, duration_seconds: request.durationSeconds,
+                model_id: request.modelId.trim(), seed: request.seed, output_format: request.outputFormat,
+                priority: request.priority, request_identity: requestIdentity,
+              },
+              idempotency_key: idempotencyKey,
+            }
+            attempts.push(receipt)
+            await saveBatch()
+          }
+          const activeReceipt = receipt
+          const result = await generateMusicWithGenStudio(apiKey, {
+            ...request,
+            idempotencyKey,
+            onJobAccepted: async (taskId, key) => {
+              if (key !== activeReceipt.idempotency_key) throw new Error('The accepted music task did not match its saved Song Pool request.')
+              activeReceipt.accepted_task_id = taskId
+              activeReceipt.state = 'accepted'
+              await saveBatch()
+            },
+            onState: async (state, taskId) => {
+              if (activeReceipt.accepted_task_id && activeReceipt.accepted_task_id !== taskId) {
+                throw new Error('The music task state did not match its saved Song Pool request.')
+              }
+              activeReceipt.accepted_task_id ||= taskId
+              activeReceipt.state = state
+              await saveBatch()
+            },
           })
+          // The provider returned an authoritative result. A later retry or sung take is fresh work
+          // under the existing derived identity rules, never another replay of this resolved request.
+          savedUnknown = null
           let retake = false
-          let heard: Heard | null = null
+          let heard: Heard | null = sung && manualItem
+            ? { check: 'unchecked', why: 'this music-only replacement does not run listen-back' }
+            : null
           // Every track the result carries is kept (a lane that returns two takes paid for both).
           const group = result.tracks.length > 1 ? siblingGroupForJob(result.jobId) : undefined
           for (const [take, track] of result.tracks.entries()) {
@@ -310,7 +479,7 @@ export async function generateSongPool(job: Job): Promise<void> {
             if (warning) job.output_lines.push(`⚠ ${filename}: ${warning}`)
             const check = await checkSong(path.join(staging, filename), { trim: variety.trim_silence !== false })
             const flagged = check.gap && check.gap.length > Number(variety.flag_gap_s || 5) ? check.gap : null
-            if (sung) {
+            if (sung && !manualItem) {
               heard = await listenBack(apiKey, path.join(staging, filename), brief.lyrics!, checkModel, lyricsCfg!.min_match,
                 `${slug}:song-check:${params.batch_id}:${brief.seed}:${sing}:${take}`, () => jq.isCancelled(job.job_id))
               if (heard.check === 'failed' && sing < maxTakes) {
@@ -328,9 +497,11 @@ export async function generateSongPool(job: Job): Promise<void> {
                 title: take ? `${brief.title} (take ${take + 1})` : brief.title,
                 ensemble: brief.ensemble, mood: brief.mood, energy: brief.energy, tempo_bpm: brief.tempo_bpm,
                 tempo_band: brief.tempo_band || undefined, key: brief.key, texture: brief.texture, structure: brief.structure,
-                length_s: length.seconds, line: brief.line, prompt: singer ? `${brief.prompt}, ${singer.voice}` : brief.prompt, scene_idea: brief.scene_idea,
+                length_s: activeReceipt.request.duration_seconds ?? length.seconds,
+                line: brief.line, prompt: activeReceipt.request.prompt, scene_idea: brief.scene_idea,
                 theme: brief.theme || undefined, tags: [brief.mood, brief.ensemble].filter(Boolean) as string[],
-                combo_key: brief.combo_key || undefined, seed: brief.seed, writer_model: batch!.writer_model || undefined,
+                combo_key: brief.combo_key || undefined, seed: activeReceipt.request.seed ?? brief.seed,
+                writer_model: batch!.writer_model || undefined,
                 music_model: model.id, batch_id: params.batch_id, gateway_job_id: result.jobId,
                 ...(it.take_of ? { take_of: it.take_of } : {}),
                 ...(group ? { sibling_group: group, sibling_index: take + 1 } : {}),
@@ -341,7 +512,7 @@ export async function generateSongPool(job: Job): Promise<void> {
                 ...(flagged ? { gap_s: Math.round(flagged.length * 10) / 10, gap_at_s: Math.round(flagged.at) } : {}),
                 generation_s: Math.round((Date.now() - started) / 1000),
                 ...(heard ? {
-                  lyrics: brief.lyrics, style: brief.style, lyrics_check: heard.check, ...(singer ? { singer: singer.name } : {}),
+                  lyrics: activeReceipt.request.lyrics, style: brief.style, lyrics_check: heard.check, ...(singer ? { singer: singer.name } : {}),
                   ...(heard.match !== undefined ? { lyrics_match: heard.match } : {}),
                 } : {}),
                 rating: null, episodes: [],
@@ -380,6 +551,7 @@ export async function generateSongPool(job: Job): Promise<void> {
           if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
           const plan = musicFleetBusyRetryPlan(error, attempt)
           const deadJobId = error instanceof GenStudioMusicTerminalFailureError ? error.jobId : ''
+          if (deadJobId) savedUnknown = null
           if (plan && deadJobId && !stopped()) {
             retryScope = siblingGroupForJob(deadJobId)
             job.output_lines.push(isFreeMacPlan(plan) ? freeMacWaitLine(brief.title, error, plan.waitMs)

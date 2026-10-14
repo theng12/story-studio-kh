@@ -249,7 +249,7 @@ describe('run-batch — step skip behaviour', () => {
     assert.match(forced.body.detail, /cannot be combined with force/)
   })
 
-  test('one repair action stamps the whole chain, replays without duplicate jobs, and rejects changed settings', async () => {
+  test('one repair action stamps the whole chain, adopts after settings change, and rejects a changed request', async () => {
     const { slug, episodeId } = await seedProjectWithAcceptedIdea()
     await pm.updateConfig(slug, {
       audio_generator_presets: [{ id: 'audio-1', name: 'repair audio', data: { form: {
@@ -286,9 +286,17 @@ describe('run-batch — step skip behaviour', () => {
           model: 'mock-tts', voice: 'voice-2', generation_mode: 'new_version',
         } } }],
       } as any)
-      const changed = await request(app).post(`/api/projects/${slug}/pipeline/run-batch`).send(body)
+      const adopted = await request(app).post(`/api/projects/${slug}/pipeline/run-batch`).send(body)
+      assert.equal(adopted.status, 201)
+      assert.equal(adopted.body.enqueued, 0)
+      assert.equal(adopted.body.reused, 1)
+      assert.equal((await jq.getJobs(slug)).filter(j => j.params?.pipeline_repair?.action_id === actionId).length, 1)
+
+      const changed = await request(app).post(`/api/projects/${slug}/pipeline/run-batch`).send({
+        ...body, steps: ['audio'],
+      })
       assert.equal(changed.status, 409)
-      assert.match(changed.body.detail, /different episodes, stages, or resolved settings/)
+      assert.match(changed.body.detail, /different Pipeline repair request/)
     } finally {
       await jq.setQueuePaused(true)
     }
@@ -426,7 +434,8 @@ describe('run-batch — step skip behaviour', () => {
     const changed = await request(app)
       .post(`/api/projects/${slug}/pipeline/run-batch`)
       .send({ episode_ids: [episodeId], steps: ['audio'], force: true, operation_id: operationId })
-    assert.equal(changed.status, 400, 'preflight can reject missing prerequisites before action fingerprint comparison')
+    assert.equal(changed.status, 409, 'accepted action identity is checked before mutable prerequisites')
+    assert.match(changed.body.detail, /different Pipeline request/)
   })
 
   test('step with no existing output queues normally', async () => {

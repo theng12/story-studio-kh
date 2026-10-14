@@ -87,7 +87,7 @@ describe('findActivePreset — script-only / introduction-only', () => {
     assert.equal(r.preset?.id, 'b')
   })
 
-  test('type-based fallback when NEITHER pointer resolves (stale active id)', () => {
+  test('a stale pointer never heals to the newest matching preset', () => {
     // Mirrors the user's on-disk state: typed presets saved, but
     // script_last_preset_script is missing and script_last_preset points
     // at an id no longer in the list.
@@ -100,24 +100,28 @@ describe('findActivePreset — script-only / introduction-only', () => {
       script_last_preset: 'preset-deleted-long-ago',
     }
     const r = findActivePreset(config, 'script-only')
-    assert.equal(r.preset?.id, 'p2', 'picks the most recent script-typed preset')
-    assert.equal(r.missingReason, null)
+    assert.equal(r.preset, null)
+    assert.match(r.missingReason || '', /selected.*missing|deleted/i)
   })
 
-  test('introduction-only resolves out of its OWN pool, never the script\u2019s', () => {
+  test('introduction-only requires an exact pointer in its own pool', () => {
     // This resolution is inert in practice: `introduction-only` sits in
     // NO_PRESET_STEPS, so preflight never asks. It is kept correct anyway,
     // because the failure mode if it were ever asked is silent — the old
     // mapping pointed at `script_presets`, so a channel with a Script preset
     // and no Introduction preset would have had a SCRIPT preset's fields
     // handed to its opening and nothing would have said so.
-    const config = {
+    const config: any = {
       script_presets: [{ id: 'p1', name: 'Chapter A', type: 'script' }],
       introduction_presets: [{ id: 'p2', name: 'My intro', type: 'introduction' }],
-      // No active pointers at all — type fallback is the only path.
+      // No active pointer: the presence or ordering of records grants no authority.
     }
     const r = findActivePreset(config, 'introduction-only')
-    assert.equal(r.preset?.id, 'p2')
+    assert.equal(r.preset, null)
+    assert.match(r.missingReason || '', /No active preset/)
+
+    config.introduction_last_preset_introduction = 'p2'
+    assert.equal(findActivePreset(config, 'introduction-only').preset?.id, 'p2')
 
     const scriptOnly = { script_presets: [{ id: 'p1', name: 'Chapter A', type: 'script' }] }
     assert.equal(findActivePreset(scriptOnly, 'introduction-only').preset, null,

@@ -6,7 +6,7 @@
 import fs from 'fs/promises'
 import path from 'path'
 import { callAiWithModelPolicy, callAiWithRetry, type CallAiContext } from '../lib/ai-client.js'
-import { matchChapterFile, introMarkerPath, resolveArtifact } from '../lib/episode-artifacts.js'
+import { matchChapterFile, introMarkerPath, resolveArtifact, resolveReadPath } from '../lib/episode-artifacts.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { getEffectiveFormat, fillPacingArcPlaceholders } from '../services/format-loader.js'
 import { applyRecencyToFormat, recordUsage } from '../services/recency-tracker.js'
@@ -27,6 +27,7 @@ import {
   carryOnWithoutChapters,
   expandChapters,
   inspectChunkedScriptCompletion,
+  checkpointScriptDocumentRequest,
   readSidecar,
   producerNotesBlock,
   type ChunkedNarrationParams,
@@ -41,6 +42,7 @@ import { freshGenerationRequestIdentity } from '../lib/fresh-generation-action.j
 import { pipelinePolicyForJob, pipelinePolicyCheckpointStore } from '../lib/pipeline-model-policy.js'
 import { MAX_NARRATION_SENTENCE_CHARS } from '../lib/tts-text.js'
 import { auditNarrationSection } from '../lib/narration-section-audit.js'
+import { withLock } from '../lib/atomic-store.js'
 
 // v1.0.166 — fuseFormatWithPattern() removed with the Pattern system.
 // Title shaping happens at idea-time via the Ideas page's title_template
@@ -265,7 +267,7 @@ export function selectAutomaticNarratorStyle(format: Format, code: string, profi
   return styles[epNum % styles.length].id
 }
 
-async function automaticNarratorStyleForEpisode(format: Format, slug: string, code: string): Promise<string> {
+export async function automaticNarratorStyleForEpisode(format: Format, slug: string, code: string): Promise<string> {
   const niche = await getEffectiveNiche(slug)
   const dimensions = await resolveFormulaEpisodeDimensions(slug, code)
   const profileDefault = niche
@@ -323,7 +325,8 @@ export async function generateChapterOnly(job: Job): Promise<void> {
     assembleUnifiedNarration,
     chapterFilePath,
   } = await import('../lib/narration-assembly.js')
-  await ensureChapterFilesMigrated(paths.script_dir, episode_id, title)
+  await withLock(paths.narration_docx, () =>
+    ensureChapterFilesMigrated(paths.script_dir, episode_id, title))
 
   // Load prior chapters as context — short summaries so we don't blow
   // the prompt budget on long episodes. Audio reconciler-grade exact
@@ -453,6 +456,7 @@ Output ONLY the ${sectionLowerRegen} heading + body. No commentary, no other ${s
       signal: controller.signal,
       outputBudget: 'long' as const,
       requestIdentity: freshGenerationRequestIdentity(job, `chapter-${chapterNumber}`),
+      onRequestPrepared: requestKey => checkpointScriptDocumentRequest(job, `chapter:${chapterNumber}`, requestKey),
     }
     const chapterText = await callAiWithRetry(req.model, chapterSystemPrompt, chapterPrompt, apiKeys, true, chapterContext)
 
@@ -470,13 +474,29 @@ Output ONLY the ${sectionLowerRegen} heading + body. No commentary, no other ${s
       })
     }
 
-    await writeChapterFiles(paths.script_dir, episode_id, title, {
-      chapters: [{ number: chapterNumber, title: newTitle, text: body }],
-    }, { log: line => job.output_lines.push(line) })
-    job.output_lines.push(`Wrote: ${episode_id}_Chapter_${String(chapterNumber).padStart(2, '0')}.md`)
-
-    await chapterOnce(job, await assembleUnifiedNarration(paths.script_dir, episode_id, title))
-    job.output_lines.push(`Re-assembled: ${path.basename(paths.narration_docx)}`)
+    const manualWrite = req.script_document_write
+    const target = chapterFilePath(paths.script_dir, episode_id, chapterNumber)
+    const promote = async () => {
+      const projectDir = pm.getProjectDir(project_slug)
+      const promotion = manualWrite?.version === 1 && manualWrite.item === `chapter:${chapterNumber}`
+        && manualWrite.owner_action_id === req.generation_action?.id && projectDir
+        ? {
+            expectedRevision: manualWrite.expected_revision,
+            ownerActionId: manualWrite.owner_action_id,
+            projectDir,
+            projectSlug: project_slug,
+            archiveFiles: [target, resolveReadPath(paths.narration_docx)],
+          }
+        : undefined
+      if (manualWrite && !promotion) throw new Error('The accepted chapter write owner is invalid.')
+      await writeChapterFiles(paths.script_dir, episode_id, title, {
+        chapters: [{ number: chapterNumber, title: newTitle, text: body }],
+      }, { log: line => job.output_lines.push(line), ...(promotion ? { manualPromotion: promotion } : {}) })
+      job.output_lines.push(`Wrote: ${episode_id}_Chapter_${String(chapterNumber).padStart(2, '0')}.md`)
+      await chapterOnce(job, await assembleUnifiedNarration(paths.script_dir, episode_id, title))
+      job.output_lines.push(`Re-assembled: ${path.basename(paths.narration_docx)}`)
+    }
+    await withLock(paths.narration_docx, promote)
     const saved = await fs.stat(chapterFilePath(paths.script_dir, episode_id, chapterNumber)).catch(() => null)
     requireJobCompletion(job, {
       label: `Chapter ${chapterNumber}`, expected: 1, completed: saved?.size ? 1 : 0,
@@ -509,16 +529,17 @@ export async function generateIntroductionOnly(job: Job): Promise<void> {
   const standards = await pm.getStandards(project_slug) || ''
   let format = await getEffectiveFormat(project_slug, { episodeId: episode_id })
   format = await applyRecencyToFormat(format, project_slug, episode_id)
-  const title = req.title
+  const resolvedIntroduction = req.resolved_introduction?.version === 1 ? req.resolved_introduction : null
+  const title = resolvedIntroduction?.title || req.title
   const length = req.length || format.script.defaultLengthMinutes
-  const requestedStyle = req.style || format.script.defaultNarratorStyleId
+  const requestedStyle = resolvedIntroduction?.style || req.style || format.script.defaultNarratorStyleId
   const style = requestedStyle === 'auto'
     ? await automaticNarratorStyleForEpisode(format, project_slug, episode_id)
     : requestedStyle
 
   let customStyleText: string | undefined
   if (style && (style.startsWith('style-') || style === 'custom')) {
-    customStyleText = req.custom_style_text
+    customStyleText = resolvedIntroduction?.custom_style_text ?? req.custom_style_text
   }
 
   // v1.0.71+ kept format-aware intro defaults here; a format may still ship
@@ -541,13 +562,20 @@ export async function generateIntroductionOnly(job: Job): Promise<void> {
   const fmtIntro = format.script.introDefaults
   const { getChannelSegments } = await import('../services/channel-segments.js')
   const { beatLinesForPrompt, INTRODUCTION_SEGMENT_ID } = await import('../lib/episode-segments.js')
-  const channelRecipe = (await getChannelSegments(project_slug, episode_id))[INTRODUCTION_SEGMENT_ID].recipe
-  const introSettings: IntroSettings = {
+  const channelRecipe = resolvedIntroduction ? null
+    : (await getChannelSegments(project_slug, episode_id))[INTRODUCTION_SEGMENT_ID].recipe
+  const introSettings: IntroSettings = resolvedIntroduction ? {
     enabled: true,
-    host_name: req.host_name || channelRecipe.host_name || '',
-    word_target: req.word_target || channelRecipe.word_target,
-    custom_opening: req.custom_opening || channelRecipe.custom_opening_line || '',
-    beats: req.beats?.length ? req.beats : beatLinesForPrompt(channelRecipe),
+    host_name: resolvedIntroduction.recipe.host_name,
+    word_target: resolvedIntroduction.recipe.word_target,
+    custom_opening: resolvedIntroduction.recipe.custom_opening,
+    beats: [...resolvedIntroduction.recipe.beats],
+  } : {
+    enabled: true,
+    host_name: req.host_name || channelRecipe!.host_name || '',
+    word_target: req.word_target || channelRecipe!.word_target,
+    custom_opening: req.custom_opening || channelRecipe!.custom_opening_line || '',
+    beats: req.beats?.length ? req.beats : beatLinesForPrompt(channelRecipe!),
   }
 
   const paths = await resolveEpisodePaths(project_slug, episode_id, title)
@@ -612,7 +640,8 @@ Do not add a heading, preface, explanation, divider, or separator.`
   // script step.
   const { ensureChapterFilesMigrated, writeChapterFiles, assembleUnifiedNarration, hasIntroductionScriptSource, introductionFilePath } =
     await import('../lib/narration-assembly.js')
-  await ensureChapterFilesMigrated(paths.script_dir, episode_id, title)
+  await withLock(paths.narration_docx, () =>
+    ensureChapterFilesMigrated(paths.script_dir, episode_id, title))
 
   // Say so when this is about to REPLACE an introduction rather than write a
   // first one. Migration above has just materialised any introduction that
@@ -655,6 +684,7 @@ Do not add a heading, preface, explanation, divider, or separator.`
           pipelinePolicyCheckpoint: pipelinePolicyCheckpointStore(params, () => jq.checkpointJobState(job)),
           pipelinePolicyCheckpointKey: `${project_slug}:${episode_id}:introduction`,
           onModelSelected: selected => { job.output_lines.push(`[pipeline] introduction using Gateway product "${selected}".`) },
+          onRequestPrepared: requestKey => checkpointScriptDocumentRequest(job, 'introduction', requestKey),
         })
       : callAiWithRetry(req.model, sysPrompt, introPrompt, apiKeys, true,
       // Long: a full introduction section of narration.
@@ -666,6 +696,7 @@ Do not add a heading, preface, explanation, divider, or separator.`
         requestIdentity: freshGenerationRequestIdentity(job, 'introduction'),
         pipelinePolicyCheckpoint: pipelinePolicyCheckpointStore(params, () => jq.checkpointJobState(job)),
         pipelinePolicyCheckpointKey: `${project_slug}:${episode_id}:introduction`,
+        onRequestPrepared: requestKey => checkpointScriptDocumentRequest(job, 'introduction', requestKey),
       })
     const introText = await introCall
     const cleanedIntro = cleanGeneratedIntroduction(introText)
@@ -681,31 +712,39 @@ Do not add a heading, preface, explanation, divider, or separator.`
     const wordCount = cleanedIntro.split(/\s+/).length
     job.output_lines.push(`Introduction: ${wordCount.toLocaleString()} words`)
 
-    // Write _Introduction.docx as its own source file (no title-block
-    // branding — it's a slice that gets concatenated into the unified
-    // file by assembleUnifiedNarration).
-    await writeChapterFiles(paths.script_dir, episode_id, title, {
-      chapters: [],
-      intro: { text: cleanedIntro },
-    }, { log: line => job.output_lines.push(line) })
-    job.output_lines.push(`Wrote: ${episode_id}_Introduction.md`)
-
-    // Re-assemble unified narration so downstream sees the intro section.
-    await chapterOnce(job, await assembleUnifiedNarration(paths.script_dir, episode_id, title))
-    job.output_lines.push(`Re-assembled: ${path.basename(paths.narration_docx)}`)
-
-    // Sidecar marker so /projects/:slug/episodes can flip
-    // `episode.status.introduction = true` without re-parsing the narration on
-    // every list call. Also records intro metadata for later display.
     const introMarkerFile = introMarkerPath(paths.narration_docx)
-    await fs.writeFile(introMarkerFile, JSON.stringify({
-      generated_at: new Date().toISOString(),
-      host_name: introSettings.host_name,
-      word_target: introSettings.word_target,
-      word_count: wordCount,
-      custom_opening: introSettings.custom_opening || null,
-      beats: introSettings.beats,
-    }, null, 2))
+    const manualWrite = req.script_document_write
+    const introTarget = introductionFilePath(paths.script_dir, episode_id)
+    const promote = async () => {
+      const projectDir = pm.getProjectDir(project_slug)
+      const promotion = manualWrite?.version === 1 && manualWrite.item === 'introduction'
+        && manualWrite.owner_action_id === req.generation_action?.id && projectDir
+        ? {
+            expectedRevision: manualWrite.expected_revision,
+            ownerActionId: manualWrite.owner_action_id,
+            projectDir,
+            projectSlug: project_slug,
+            archiveFiles: [introTarget, resolveReadPath(paths.narration_docx), introMarkerFile],
+          }
+        : undefined
+      if (manualWrite && !promotion) throw new Error('The accepted introduction write owner is invalid.')
+      await writeChapterFiles(paths.script_dir, episode_id, title, {
+        chapters: [],
+        intro: { text: cleanedIntro },
+      }, { log: line => job.output_lines.push(line), ...(promotion ? { manualPromotion: promotion } : {}) })
+      job.output_lines.push(`Wrote: ${episode_id}_Introduction.md`)
+      await chapterOnce(job, await assembleUnifiedNarration(paths.script_dir, episode_id, title))
+      job.output_lines.push(`Re-assembled: ${path.basename(paths.narration_docx)}`)
+      await fs.writeFile(introMarkerFile, JSON.stringify({
+        generated_at: new Date().toISOString(),
+        host_name: introSettings.host_name,
+        word_target: introSettings.word_target,
+        word_count: wordCount,
+        custom_opening: introSettings.custom_opening || null,
+        beats: introSettings.beats,
+      }, null, 2))
+    }
+    await withLock(paths.narration_docx, promote)
     const saved = await fs.stat(introductionFilePath(paths.script_dir, episode_id)).catch(() => null)
     requireJobCompletion(job, {
       label: 'Introduction', expected: 1, completed: saved?.size ? 1 : 0,
@@ -1043,7 +1082,9 @@ export async function generateExpandChapters(job: Job): Promise<void> {
     // generateChapterOnly's post-write step.
     const { assembleUnifiedNarration } = await import('../lib/narration-assembly.js')
     const paths = await resolveEpisodePaths(job.project_slug, job.episode_id, params.title)
-    await chapterOnce(job, await assembleUnifiedNarration(paths.script_dir, job.episode_id, params.title))
+    await withLock(paths.narration_docx, async () => {
+      await chapterOnce(job, await assembleUnifiedNarration(paths.script_dir, job.episode_id, params.title))
+    })
     job.output_lines.push(`Re-assembled: ${path.basename(paths.narration_docx)}`)
 
     completion = await inspectChunkedScriptCompletion(paths.script_dir, job.episode_id)

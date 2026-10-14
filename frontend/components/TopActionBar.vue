@@ -141,7 +141,7 @@
       <Popover v-if="showGenerate">
         <button
           class="btn btn-primary btn-primary-cta"
-          :disabled="generateDisabled || generateLoading"
+          :disabled="generateDisabled || generateLoading || presetStateBlocksGeneration"
           :aria-label="generateLabel"
           :aria-describedby="showGenerateStatus ? generateStatusId : undefined"
           @click="$emit('generate')"
@@ -246,6 +246,7 @@ const props = withDefaults(defineProps<{
   presets?: {
     presets: { value: Array<{ id: string; name: string; data: any }> }
     activeId: { value: string }
+    isDirty?: { value: boolean }
     setActive: (id: string) => Promise<void>
     applyActive: () => any
     overwrite: () => Promise<any>
@@ -274,9 +275,12 @@ const props = withDefaults(defineProps<{
   generateStatusLink?: { to: string; label: string }
   /** Hide the primary CTA until the page reaches the action-ready stage. */
   showGenerate?: boolean
+  /** Opt in only after a page's complete reusable form is represented by its preset. */
+  requireAppliedPreset?: boolean
 }>(), {
   showEpisode: true,
   showGenerate: true,
+  requireAppliedPreset: false,
 })
 
 const emit = defineEmits<{
@@ -368,6 +372,8 @@ const activePreset = computed(() => {
   if (!id) return null
   return props.presets?.presets.value.find(p => p.id === id) || null
 })
+const presetStateBlocksGeneration = computed(() => props.requireAppliedPreset
+  && (!activePreset.value || props.presets?.isDirty?.value === true))
 
 // Pull a small, human-readable preview of the preset's key field values.
 // We don't know the schema (varies per page) — most pages stash settings
@@ -402,17 +408,24 @@ const presetSummary = computed<Array<{ k: string; v: string }>>(() => {
 // ── Generate-button popover content ─────────────────────────────────────
 const generateActionSentence = computed(() => {
   const target = props.episodeId ? `for ${props.episodeId}` : ''
-  const preset = activePreset.value ? ` using preset '${activePreset.value.name}'` : ''
+  const preset = activePreset.value && props.presets?.isDirty?.value !== true
+    ? ` using preset '${activePreset.value.name}'`
+    : ''
   return `${props.generateLabel} ${target}${preset}.`.replace(/\s+/g, ' ').trim()
 })
 
 const generateStatusSentence = computed(() => {
   if (props.generateLoading) return props.generateStatus || 'Running…'
+  if (presetStateBlocksGeneration.value) {
+    return activePreset.value
+      ? 'Preset settings changed — save them or apply the selected preset before generating.'
+      : 'Select and apply a preset before generating.'
+  }
   if (props.generateDisabled) return props.generateStatus || 'Not ready — fill in the required inputs first.'
   if (props.generateStatus) return props.generateStatus
   return 'Idle — ready when you are.'
 })
-const showGenerateStatus = computed(() => !!props.generateStatus || props.generateLoading || props.generateDisabled)
+const showGenerateStatus = computed(() => !!props.generateStatus || props.generateLoading || props.generateDisabled || presetStateBlocksGeneration.value)
 const generateStatusId = computed(() =>
   `generate-status-${props.projectSlug || 'page'}-${props.filterField || 'primary'}`.replace(/[^a-zA-Z0-9_-]/g, '-'),
 )

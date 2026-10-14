@@ -389,7 +389,8 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
     const params = resolveStepParams('scene_plan', 'EP0042', 'Title', preset, TIMESTAMP_FORMAT)
     assert.equal(params.model, 'chatstudio:test-model')
     assert.equal(params.detail_level, 4)
-    assert.equal(params.style_prompt, 'storybook')
+    assert.equal('style_prompt' in params, false,
+      'legacy free-form style text is outside the exact reusable Scene Plan preset contract')
     assert.equal(params.prompt_max_tokens, 6144)
     assert.equal(params.prompt_pack_size, 10)
     assert.equal('model_cost_tier' in params, false)
@@ -399,7 +400,7 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
     // 10.0s intro, and it won: every scene landed ~10s after its narration.
     for (const obsolete of [
       'target_scene_count', 'window_size', 'planning_mode', 'cross_window_context',
-      'generate_motion_prompts', 'opening_mode', 'opening_reserved_sec',
+      'generate_motion_prompts', 'style_prompt', 'opening_mode', 'opening_reserved_sec',
     ]) {
       assert.equal(obsolete in params, false, `${obsolete} must not leak into the staged planner`)
     }

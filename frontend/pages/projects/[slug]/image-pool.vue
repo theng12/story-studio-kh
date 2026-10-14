@@ -133,17 +133,19 @@
               :project-slug="slug"
               image-mode="text2img"
               default-label="Pick an image model…"
+              :preserve-automatic-selection="pendingManualImagePoolSubmission?.attempted === true"
+              @selected="onManualImagePoolUserEdit"
             />
           </div>
           <label class="ip-inline-label" title="Images to generate per prompt.">
             Variants
-            <input type="number" min="1" max="4" step="1" class="input ip-num" v-model.number="genVariants" />
+            <input type="number" min="1" max="4" step="1" class="input ip-num" v-model.number="genVariants" @change="onManualImagePoolUserEdit" />
           </label>
         </div>
         <div v-if="selectedGenStudioModel" class="ip-genstudio-controls mt-2">
           <label class="ip-inline-label">
             Ratio
-            <select v-model="genAspectRatio" class="select">
+            <select v-model="genAspectRatio" class="select" @change="onManualImagePoolUserEdit">
               <option v-for="ratio in selectedGenStudioModel.aspect_ratios" :key="ratio" :value="ratio">{{ ratio }}</option>
             </select>
           </label>
@@ -151,7 +153,7 @@
                and its image request has no `steps` field. -->
           <label v-if="selectedGenStudioModel.supports_seed !== false" class="ip-inline-label">
             Seed
-            <input v-model.number="genSeed" class="input ip-seed" type="number" min="0" max="2147483647" placeholder="Random" />
+            <input v-model.number="genSeed" class="input ip-seed" type="number" min="0" max="2147483647" placeholder="Random" @change="onManualImagePoolUserEdit" />
           </label>
         </div>
         <!-- Published `(resolution, aspect_ratio)` rows for this model, each
@@ -160,7 +162,9 @@
           v-if="selectedGenStudioModel"
           v-model="genOutputOption"
           :model="selectedGenStudioModel"
+          :preserve-automatic-selection="pendingManualImagePoolSubmission?.attempted === true"
           @switched="onOutputOptionSwitched"
+          @selected="onManualImagePoolUserEdit"
         />
         <p v-if="selectedGenStudioModel" class="ip-cost" :class="`basis-${genBatchCost.basis}`" :title="genBatchCost.title">
           {{ CREDIT_BASIS_LABEL[genBatchCost.basis] }}: {{ genBatchCost.text }} <PriceDetails :cost="genBatchCost" />
@@ -174,6 +178,27 @@
             <NuxtLink :to="`/projects/${slug}/jobs`" class="text-accent">Jobs</NuxtLink> panel, then pick again.
           </span>
         </div>
+        <div v-if="manualRedoPreference.enabled.value && manualRedoSources.length" class="ip-manual-redo mt-3">
+          <strong>Create another version</strong>
+          <p class="text-muted">
+            Choose one unresolved image. A separate confirmed request keeps every existing image and provider record.
+          </p>
+          <div class="ip-row mt-2">
+            <select v-model="selectedManualRedoSource" class="select" aria-label="Unresolved Image Pool item" @change="onManualImagePoolUserEdit">
+              <option value="" disabled>Choose one unresolved image…</option>
+              <option v-for="source in manualRedoSources" :key="`${source.source_job_id}:${source.item_key}`"
+                :value="`${source.source_job_id}\u0000${source.item_key}`">
+                {{ source.label }}
+              </option>
+            </select>
+            <button class="btn btn-secondary" :disabled="!manualImagePoolRedoEligible || manualImagePoolRedoPosting"
+              @click="generateSeparateImagePoolAttempt">
+              {{ manualImagePoolRedoPosting ? 'Queuing…' : 'Create Another Version' }}
+            </button>
+          </div>
+          <p v-if="manualImagePromptLimitNotice" class="text-muted">{{ manualImagePromptLimitNotice }}</p>
+          <p v-if="manualImageReferenceRequirementNotice" class="ip-warn" role="alert">{{ manualImageReferenceRequirementNotice }}</p>
+        </div>
       </template>
     </section>
   </div>
@@ -183,18 +208,41 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { findOutputOption, outputOptionsForRatio, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
 import { CREDIT_BASIS_LABEL, describeImageBatchEstimate } from '../../../utils/genstudio-credit-cost.js'
+import { UNCONFIRMED_SUBMISSION } from '../../../composables/useFreshGenerationAction'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Image Pool')
 
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
-const { post, put } = useApi()
-const { success, error: showError, info: showInfo } = useToast()
+const { get, post, put } = useApi()
+const { success, error: showError, info: showInfo, showAction } = useToast()
 const broll = useBrollPools()
 const { config, refreshConfig } = useProject()
 const { jobs } = useJobs()
 const { ask } = useConfirm()
+const confirmation = useConfirmation()
+const manualRedoPreference = useManualGenerationRedoPreference()
+const freshImagePoolAction = useFreshGenerationAction()
+
+type ManualImagePoolSource = {
+  source_job_id: string
+  item_key: string
+  label: string
+  finished_at?: string
+}
+
+type ManualImagePoolSubmission = {
+  projectSlug: string
+  poolId: string
+  sourceChoice: string
+  userScopeKey: string
+  firstPostScopeKey: string
+  body: Record<string, any>
+  operationId: string
+  scopeEpoch: number
+  attempted: boolean
+}
 
 const initialEpisodeId = typeof route.query.episode_id === 'string'
   ? route.query.episode_id
@@ -223,8 +271,17 @@ const suggestModel = ref('')
 const suggesting = ref(false)
 const promptLines = computed(() => genPrompts.value.split('\n').map(l => l.trim()).filter(Boolean))
 const { models: genStudioModels, refresh: refreshGenStudioModels } = useGenStudioImageModels()
+const manualRedoSources = ref<ManualImagePoolSource[]>([])
+const selectedManualRedoSource = ref('')
+const confirmingManualImagePoolSubmission = ref<ManualImagePoolSubmission | null>(null)
+const pendingManualImagePoolSubmission = ref<ManualImagePoolSubmission | null>(null)
+const manualImagePoolRedoPosting = ref(false)
+let manualRedoSourcesSequence = 0
+let manualPostingOperationId = ''
+let manualImagePoolScopeEpoch = 0
 const selectedGenStudioModel = computed(() => genStudioModels.value.find(model => model.id === genModel.value))
 watch([genModel, () => genStudioModels.value.length], () => {
+  if (pendingManualImagePoolSubmission.value) return
   const model = selectedGenStudioModel.value
   if (!model) return
   if (!model.aspect_ratios.includes(genAspectRatio.value)) genAspectRatio.value = model.default_aspect_ratio
@@ -242,11 +299,13 @@ function onOutputOptionSwitched(notice: string): void { showInfo(notice) }
 // pair GenStudio published. Keeping the ratio select in step means the run
 // submits exactly the combination on screen.
 watch(genOutputOption, (choice) => {
+  if (pendingManualImagePoolSubmission.value) return
   if (choice?.aspect_ratio) genAspectRatio.value = choice.aspect_ratio
 })
 // ...and a ratio picked by hand moves the row with it: same size at the new
 // ratio when published, otherwise no row (so no stale resolution is sent).
 watch(genAspectRatio, (ratio) => {
+  if (pendingManualImagePoolSubmission.value) return
   const current = genOutputOption.value
   if (!current || current.aspect_ratio === ratio) return
   const same = outputOptionsForRatio(selectedGenStudioModel.value, ratio).find(row => row.resolution === current.resolution)
@@ -257,6 +316,236 @@ const genBatchCost = computed(() => describeImageBatchEstimate(
   findOutputOption(selectedGenStudioModel.value, genOutputOption.value),
   promptLines.value.length * genVariants.value,
 ))
+
+const selectedManualSource = computed(() => manualRedoSources.value.find(source =>
+  `${source.source_job_id}\u0000${source.item_key}` === selectedManualRedoSource.value) || null)
+const manualImagePoolRedoEligible = computed(() => manualRedoPreference.enabled.value
+  && !!poolId.value && !!genModel.value && !!selectedManualSource.value && selectedPool.value?.online === true
+  && !(Number.isInteger(selectedGenStudioModel.value?.min_reference_images)
+    && Number(selectedGenStudioModel.value?.min_reference_images) > 0))
+const manualImagePromptLimitNotice = computed(() => {
+  const cap = selectedGenStudioModel.value?.max_prompt_characters
+  return Number.isInteger(cap) && Number(cap) > 0
+    ? `${selectedGenStudioModel.value!.display_name} accepts source prompts up to ${Number(cap).toLocaleString()} characters.`
+    : ''
+})
+const manualImageReferenceRequirementNotice = computed(() => {
+  const minimum = selectedGenStudioModel.value?.min_reference_images
+  if (!Number.isInteger(minimum) || Number(minimum) <= 0) return ''
+  return `${selectedGenStudioModel.value!.display_name} requires at least ${minimum} reference image${Number(minimum) === 1 ? '' : 's'}. `
+    + 'Create another version copies a text prompt without references, so choose a text-to-image model.'
+})
+const manualImageCost = computed(() => describeImageBatchEstimate(
+  selectedGenStudioModel.value,
+  findOutputOption(selectedGenStudioModel.value, genOutputOption.value),
+  genVariants.value,
+))
+
+function manualImagePoolUserScopeKey(): string {
+  return JSON.stringify({
+    project: slug.value,
+    pool: poolId.value,
+    model: genModel.value,
+    ratio: genAspectRatio.value,
+    resolution: genOutputOption.value?.resolution || null,
+    seed: typeof genSeed.value === 'number' ? genSeed.value : null,
+    variants: genVariants.value,
+    source: selectedManualRedoSource.value,
+  })
+}
+
+function manualImagePoolFirstPostScopeKey(): string {
+  const model = selectedGenStudioModel.value
+  const option = findOutputOption(model, genOutputOption.value)
+  return JSON.stringify({
+    user: manualImagePoolUserScopeKey(),
+    modelId: model?.id || '',
+    chargeable: model?.chargeable,
+    modelCredits: model?.credits_per_image,
+    modelPriceVersion: (model as any)?.price_version,
+    outputCredits: option?.credits_per_image,
+    outputPriceVersion: option?.price_version,
+  })
+}
+
+function manualSubmissionMatchesCurrentScope(submission: ManualImagePoolSubmission): boolean {
+  return submission.scopeEpoch === manualImagePoolScopeEpoch
+    && submission.projectSlug === slug.value
+    && submission.poolId === poolId.value
+    && submission.userScopeKey === manualImagePoolUserScopeKey()
+}
+
+function manualImagePoolTargetOwns(operationId: string): boolean {
+  return freshImagePoolAction.pending.value.get('manual-image-pool-redo')?.id === operationId
+}
+
+function retireManualImagePoolTarget(operationId: string): void {
+  if (manualImagePoolTargetOwns(operationId)) freshImagePoolAction.cancel('manual-image-pool-redo')
+}
+
+function onManualImagePoolUserEdit(): void {
+  const confirming = confirmingManualImagePoolSubmission.value
+  const pending = pendingManualImagePoolSubmission.value
+  if (!confirming && !pending) return
+  manualImagePoolScopeEpoch++
+  if (confirming && manualImagePoolTargetOwns(confirming.operationId)) confirmation.cancel()
+  retireManualImagePoolTarget(confirming?.operationId || '')
+  retireManualImagePoolTarget(pending?.operationId || '')
+  confirmingManualImagePoolSubmission.value = null
+  pendingManualImagePoolSubmission.value = null
+  if (manualPostingOperationId === pending?.operationId || manualPostingOperationId === confirming?.operationId) {
+    manualPostingOperationId = ''
+    manualImagePoolRedoPosting.value = false
+  }
+}
+
+async function loadManualRedoSources(): Promise<void> {
+  const project = slug.value
+  const pool = poolId.value
+  const request = ++manualRedoSourcesSequence
+  if (!project || !pool) {
+    manualRedoSources.value = []
+    return
+  }
+  try {
+    const response = await get<{ sources?: ManualImagePoolSource[] }>(
+      `/projects/${project}/image-pool/manual-redo-sources?pool_id=${encodeURIComponent(pool)}`,
+    )
+    if (request !== manualRedoSourcesSequence || project !== slug.value || pool !== poolId.value) return
+    manualRedoSources.value = Array.isArray(response.sources) ? response.sources : []
+    const captured = confirmingManualImagePoolSubmission.value || pendingManualImagePoolSubmission.value
+    if (!captured && !manualRedoSources.value.some(source =>
+      `${source.source_job_id}\u0000${source.item_key}` === selectedManualRedoSource.value)) {
+      selectedManualRedoSource.value = ''
+    }
+  } catch {
+    if (request === manualRedoSourcesSequence && project === slug.value && pool === poolId.value) {
+      manualRedoSources.value = []
+    }
+  }
+}
+
+async function submitManualImagePoolSubmission(submission: ManualImagePoolSubmission): Promise<void> {
+  const pending = pendingManualImagePoolSubmission.value
+  if (!pending || pending.operationId !== submission.operationId || !manualSubmissionMatchesCurrentScope(submission)) {
+    showError('This Retry belongs to another current project, pool, model, output setting, or source item. Review the current choice and start again.')
+    return
+  }
+  if (!submission.attempted && submission.firstPostScopeKey !== manualImagePoolFirstPostScopeKey()) {
+    if (pendingManualImagePoolSubmission.value?.operationId === submission.operationId) {
+      pendingManualImagePoolSubmission.value = null
+      freshImagePoolAction.cancel('manual-image-pool-redo')
+    }
+    showError('The project, pool, model, output setting, source item, or published price changed. Review it and confirm again.')
+    return
+  }
+  submission.attempted = true
+  manualImagePoolRedoPosting.value = true
+  manualPostingOperationId = submission.operationId
+  let ownedAtResponse = false
+  try {
+    await post(`/projects/${submission.projectSlug}/image-pool/generate`, {
+      ...submission.body,
+      operation_id: submission.operationId,
+    })
+    ownedAtResponse = pendingManualImagePoolSubmission.value?.operationId === submission.operationId
+      && manualSubmissionMatchesCurrentScope(submission)
+    if (ownedAtResponse) {
+      freshImagePoolAction.complete(submission.operationId)
+      pendingManualImagePoolSubmission.value = null
+      success('Separate image attempt queued. Existing images, ratings, and recovery evidence remain available.')
+      void loadManualRedoSources()
+    }
+  } catch (error: any) {
+    ownedAtResponse = pendingManualImagePoolSubmission.value?.operationId === submission.operationId
+      && manualSubmissionMatchesCurrentScope(submission)
+    if (!ownedAtResponse) return
+    const detail = error?.data?.detail || error?.response?._data?.detail
+    if (detail) {
+      freshImagePoolAction.complete(submission.operationId)
+      pendingManualImagePoolSubmission.value = null
+      showError(detail)
+    } else {
+      showAction(UNCONFIRMED_SUBMISSION, 'Retry', () => submitManualImagePoolSubmission(submission), 'error')
+    }
+  } finally {
+    if (manualPostingOperationId === submission.operationId
+      && (ownedAtResponse || pendingManualImagePoolSubmission.value?.operationId === submission.operationId)) {
+      manualImagePoolRedoPosting.value = false
+      manualPostingOperationId = ''
+    }
+  }
+}
+
+async function generateSeparateImagePoolAttempt(): Promise<void> {
+  const source = selectedManualSource.value
+  const model = selectedGenStudioModel.value
+  if (!manualImagePoolRedoEligible.value || !source || !model) return
+  const outputOption = findOutputOption(model, genOutputOption.value)
+  const modelPriceVersion = (model as { price_version?: unknown }).price_version
+  if (!outputOption || typeof modelPriceVersion !== 'string' || !modelPriceVersion.trim()
+    || typeof outputOption.price_version !== 'string' || !outputOption.price_version.trim()) {
+    showError('The exact published image price is unavailable. Refresh the model catalogue and try again.')
+    return
+  }
+  const capturedBody = JSON.parse(JSON.stringify({
+    pool_id: poolId.value,
+    model: genModel.value,
+    aspect_ratio: genAspectRatio.value,
+    ...(genOutputOption.value?.resolution ? { resolution: genOutputOption.value.resolution } : {}),
+    ...(model.supports_seed !== false && typeof genSeed.value === 'number' ? { seed: genSeed.value } : {}),
+    variants: genVariants.value,
+    source_item_key: source.item_key,
+    manual_redo: { intent: 'replace_unresolved', source_job_id: source.source_job_id },
+    manual_image_payment: {
+      version: 1,
+      model_id: model.id,
+      model_price_version: modelPriceVersion,
+      output_resolution: outputOption.resolution,
+      output_aspect_ratio: outputOption.aspect_ratio,
+      output_price_version: outputOption.price_version,
+      confirmed_paid_image: true,
+    },
+  }))
+  const operationId = freshImagePoolAction.begin(capturedBody, 'manual-image-pool-redo')
+  const submission: ManualImagePoolSubmission = {
+    projectSlug: slug.value,
+    poolId: poolId.value,
+    sourceChoice: selectedManualRedoSource.value,
+    userScopeKey: manualImagePoolUserScopeKey(),
+    firstPostScopeKey: manualImagePoolFirstPostScopeKey(),
+    body: capturedBody,
+    operationId,
+    scopeEpoch: manualImagePoolScopeEpoch,
+    attempted: false,
+  }
+  confirmingManualImagePoolSubmission.value = submission
+  const confirmed = await confirmation.confirmGeneration(submission.projectSlug, 'image', capturedBody, {
+    action: 'Create a separate image request. The unresolved source request may already have been charged.',
+    details: [
+      { label: 'Model', value: model.display_name },
+      { label: 'Published unit rate', value: manualImageCost.value.text },
+    ],
+    always: true,
+  })
+  if (confirmingManualImagePoolSubmission.value?.operationId === submission.operationId) {
+    confirmingManualImagePoolSubmission.value = null
+  }
+  if (!confirmed) {
+    retireManualImagePoolTarget(submission.operationId)
+    return
+  }
+  if (!manualSubmissionMatchesCurrentScope(submission)
+    || submission.firstPostScopeKey !== manualImagePoolFirstPostScopeKey()) {
+    retireManualImagePoolTarget(submission.operationId)
+    if (submission.scopeEpoch === manualImagePoolScopeEpoch) {
+      showError('The project, pool, model, output setting, source item, or published price changed. Review it and confirm again.')
+    }
+    return
+  }
+  pendingManualImagePoolSubmission.value = submission
+  await submitManualImagePoolSubmission(submission)
+}
 
 const imagePools = computed(() => (broll.pools.value || []).filter((p: any) => p.media === 'image'))
 const selectedPool = computed(() => imagePools.value.find((p: any) => p.id === poolId.value) || null)
@@ -270,6 +559,28 @@ watch(selectedPool, (p) => {
   }
   void loadPoolCount()
 })
+
+watch([slug, poolId], ([project], [previousProject]) => {
+  manualImagePoolScopeEpoch++
+  manualRedoSourcesSequence++
+  const confirming = confirmingManualImagePoolSubmission.value
+  const pending = pendingManualImagePoolSubmission.value
+  if (confirming && manualImagePoolTargetOwns(confirming.operationId)) confirmation.cancel()
+  retireManualImagePoolTarget(confirming?.operationId || '')
+  retireManualImagePoolTarget(pending?.operationId || '')
+  confirmingManualImagePoolSubmission.value = null
+  pendingManualImagePoolSubmission.value = null
+  if (manualPostingOperationId === pending?.operationId || manualPostingOperationId === confirming?.operationId) {
+    manualPostingOperationId = ''
+    manualImagePoolRedoPosting.value = false
+  }
+  manualRedoSources.value = []
+  selectedManualRedoSource.value = ''
+  if (project !== previousProject) {
+    manualRedoPreference.reset()
+    void manualRedoPreference.load(project)
+  }
+}, { flush: 'sync' })
 
 async function loadPoolCount(): Promise<void> {
   const requestedPoolId = poolId.value
@@ -425,12 +736,19 @@ watch([slug, episodeId, poolId], () => {
   imagePoolScopeSequence++
   lastLoad.value = null
   pickingImages.value = false
+  void loadManualRedoSources()
 }, { flush: 'sync' })
+
+watch(() => jobs.value.map(job => [job.job_id, job.status, job.force_abandoned]), () => {
+  void loadManualRedoSources()
+})
 
 onMounted(async () => {
   void refreshGenStudioModels()
+  void manualRedoPreference.load(slug.value)
   await loadPools()
   await loadPoolCount()
+  await loadManualRedoSources()
 })
 </script>
 
@@ -455,4 +773,6 @@ onMounted(async () => {
 .ip-cost.basis-unpublished { color: var(--warning, #d97706); }
 .ip-cost.basis-free { color: var(--success, #16a34a); }
 .ip-seed { width: 150px; }
+.ip-manual-redo { padding: 12px; border: 1px solid rgba(217, 119, 6, .35); border-radius: 6px; background: rgba(217, 119, 6, .06); }
+.ip-manual-redo p { margin: 4px 0 0; font-size: 12px; line-height: 1.45; }
 </style>

@@ -450,13 +450,15 @@
                   {{ auditLoading ? 'Scanning…' : (storage ? 'Scan Again' : 'Scan Episodes') }}
                 </button>
                 <div v-if="storage?.space" class="storage-summary mt-2">
-                  <span><strong>Free on this drive:</strong> {{ storage.space.free_bytes === null ? 'could not be measured' : formatBytes(storage.space.free_bytes) }}</span>
+                  <span><strong>Free on this drive:</strong> {{ formatMeasurement(storage.space.free_bytes) }}</span>
                   <span class="dot">·</span>
                   <span title="Everything Story Studio removed from this channel waits in the Trash until you empty it yourself.">
-                    <strong>This channel in the Trash:</strong> {{ formatBytes(storage.space.project_trash_bytes) }}
+                    <strong>This channel in the Trash:</strong> {{ formatMeasurement(storage.space.project_trash_bytes) }}
                   </span>
                   <span class="dot">·</span>
-                  <span><strong>Whole Trash:</strong> {{ formatBytes(storage.space.library_trash_bytes) }} <NuxtLink to="/trash">Open Trash</NuxtLink></span>
+                  <span><strong>Whole Trash:</strong> {{ formatMeasurement(storage.space.library_trash_bytes) }} <NuxtLink to="/trash">Open Trash</NuxtLink></span>
+                  <span class="dot">·</span>
+                  <span><strong>Old app copies from updates:</strong> {{ formatMeasurement(storage.space.app_trash_bytes) }}</span>
                 </div>
                 <div v-if="storage" class="storage-summary mt-2">
                   <span><strong>Channel total:</strong> {{ formatBytes(storage.project_bytes_total) }}</span>
@@ -2350,8 +2352,8 @@ interface StorageAudit {
   project_bytes_narration_parts?: number
   project_bytes_external_final_video: number
   project_bytes_thumbnail_cache?: number
-  /** Free disk and what waits in `_trash`; free_bytes null = could not be measured. */
-  space?: { free_bytes: number | null; project_trash_bytes: number; library_trash_bytes: number }
+  /** Free disk and what waits in `_trash`; null = could not be measured. */
+  space?: { free_bytes: number | null; project_trash_bytes: number | null; library_trash_bytes: number | null; app_trash_bytes: number | null }
   external_root_configured: boolean
   external_root: string
   episodes: StorageEntry[]
@@ -2461,6 +2463,9 @@ function formatBytes(n: number): string {
   if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} KB`
   if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(1)} MB`
   return `${(n / 1024 ** 3).toFixed(2)} GB`
+}
+function formatMeasurement(bytes: number | null): string {
+  return bytes === null ? 'could not be measured' : formatBytes(bytes)
 }
 
 // Verify the media_root token/path resolves on THIS machine (does not check
@@ -4132,9 +4137,9 @@ async function revealInFinder() {
 // that don't cost money but still deserve a guardrail the user can
 // disable once they've decided they trust it. Both live in the same
 // `confirmation_preferences` map so one Save button covers all rows.
-// v1.4.249 — only keys something actually reads (useConfirmation callers:
-// scripts.vue script + introduction, images.vue thumb_images, audio.vue audio;
-// useConfirmSkip: reveal_folder). Rows for thumb_prompts, scene_plan,
+// Only keys something actually reads from confirmation_preferences. Mandatory
+// per-attempt prompts (`always: true`) intentionally have no preference row.
+// Rows for thumb_prompts, scene_plan,
 // scene_review, description and video switched nothing and are gone; their
 // stored values stay on disk (saveConfirmPrefs merges, never drops keys).
 const confirmGenerators = [

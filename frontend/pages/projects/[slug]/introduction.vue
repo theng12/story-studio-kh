@@ -29,7 +29,7 @@
      what refused entire batches on every channel that had never saved one.
 -->
 <template>
-  <div class="workspace-page introduction-workspace">
+  <div class="workspace-page introduction-workspace" @input="retireIntroductionManualAction" @change="retireIntroductionManualAction">
     <WorkspaceHero
       eyebrow="Story · Optional"
       title="Introduction"
@@ -61,6 +61,7 @@
         :generate-disabled="!canGenerateIntroduction"
         :generate-status="actionStatus"
         @generate="generateForEpisode"
+        @preset-applied="retireIntroductionManualAction"
       />
       <p class="muted mt-1">
         The preset bar above keeps a reusable recipe you can load on any channel. It does not change what
@@ -69,6 +70,19 @@
       <p v-if="scriptReadinessState === 'missing'" class="muted mt-1">
         <NuxtLink :to="`/projects/${slug}/scripts?episode_id=${encodeURIComponent(episodeId)}`">Open Script Generator</NuxtLink>
       </p>
+      <label v-if="manualRedoPreferenceEnabled && introductionManualSources.length" class="intro-manual-redo">
+        <span>
+          <input v-model="manualIntroductionChecked" type="checkbox" />
+          Create another introduction version from a stopped request
+        </span>
+        <select v-if="introductionManualSources.length > 1" v-model="manualIntroductionSourceId" class="input input-sm">
+          <option value="">Choose stopped attempt…</option>
+          <option v-for="source in introductionManualSources" :key="source.source_job_id" :value="source.source_job_id">
+            {{ source.label }}
+          </option>
+        </select>
+        <small>The stopped request remains recoverable; this starts a separate attempt using the saved recipe.</small>
+      </label>
     </div>
 
 
@@ -210,6 +224,7 @@
           v-model="recipe.model"
           :project-slug="slug"
           label="Model for this channel's opening"
+          @user-selected="retireIntroductionManualAction"
         />
       </div>
 
@@ -367,11 +382,29 @@ const freshIntroductionAction = useFreshGenerationAction()
 const { success, error: showError, showAction } = useToast()
 
 const episodeId = ref('')
+type ScriptManualSource = {
+  source_job_id: string
+  item_key: 'outline' | 'introduction' | `chapter:${number}`
+  label: string
+}
+const manualRedoPreferenceEnabled = ref(false)
+const manualIntroductionChecked = ref(false)
+const manualIntroductionSourceId = ref('')
+const scriptManualSources = ref<ScriptManualSource[]>([])
+const introductionManualUserEpoch = ref(0)
+const activeManualIntroductionOperation = ref('')
+let manualIntroductionRequestToken = 0
+const introductionManualSources = computed(() => scriptManualSources.value.filter(source => source.item_key === 'introduction'))
+const selectedManualIntroductionSource = computed(() => {
+  if (introductionManualSources.value.length === 1) return introductionManualSources.value[0]!
+  return introductionManualSources.value.find(source => source.source_job_id === manualIntroductionSourceId.value) || null
+})
 const scriptReadiness = ref<{ projectSlug: string; episodeId: string; state: 'loading' | 'ready' | 'missing' | 'error' } | null>(null)
 const scriptReadinessState = computed(() => scriptReadiness.value?.projectSlug === slug.value
   && scriptReadiness.value?.episodeId === episodeId.value ? scriptReadiness.value.state : 'loading')
 const canGenerateIntroduction = computed(() => segment.enabled && !!episodeId.value && !saving.value
-  && scriptReadinessState.value === 'ready' && !scriptWriting.value && !generating.value && !previewSaving.value && !introductionInFlight.value)
+  && scriptReadinessState.value === 'ready' && !scriptWriting.value && !generating.value && !previewSaving.value && !introductionInFlight.value
+  && (!manualIntroductionChecked.value || !!selectedManualIntroductionSource.value))
 const saving = ref(false)
 const generating = ref(false)
 const previewSaving = ref(false)
@@ -481,9 +514,14 @@ const restorableBeats = computed(() => {
   const present = new Set(segment.recipe.beats.map(b => b.id))
   return beatLibrary.value.filter(b => !present.has(b.id))
 })
+function retireIntroductionManualAction(): void {
+  introductionManualUserEpoch.value++
+  freshIntroductionAction.cancel('manual-introduction')
+}
 function restoreBeat(): void {
   const definition = beatById.value.get(restoreBeatId.value)
   if (!definition) return
+  retireIntroductionManualAction()
   segment.recipe.beats.push({ id: definition.id, label: definition.label, enabled: true })
   restoreBeatId.value = ''
 }
@@ -524,17 +562,44 @@ function toggleExpanded(id: string): void {
 function moveBeat(index: number, direction: number): void {
   const target = index + direction
   if (target < 0 || target >= segment.recipe.beats.length) return
+  retireIntroductionManualAction()
   const beats = segment.recipe.beats
   ;[beats[index], beats[target]] = [beats[target], beats[index]]
 }
 function removeBeat(index: number): void {
+  if (index < 0 || index >= segment.recipe.beats.length) return
+  retireIntroductionManualAction()
   segment.recipe.beats.splice(index, 1)
 }
 function addBeat(): void {
   const label = newBeatLabel.value.trim()
   if (!label) return
+  retireIntroductionManualAction()
   segment.recipe.beats.push({ id: `custom-${Date.now()}`, label, enabled: true })
   newBeatLabel.value = ''
+}
+
+async function loadIntroductionManualRedoState(): Promise<void> {
+  const targetSlug = slug.value
+  const targetEpisode = episodeId.value
+  try {
+    const setting = await get<{ enabled?: boolean }>('/app-settings/manual-generation-redo', { cache: 'no-store' })
+    if (slug.value !== targetSlug) return
+    manualRedoPreferenceEnabled.value = setting?.enabled === true
+    if (!manualRedoPreferenceEnabled.value || !targetEpisode) {
+      scriptManualSources.value = []
+      return
+    }
+    const data = await get<{ sources?: ScriptManualSource[] }>(
+      `/projects/${targetSlug}/scripts/manual-redo-sources?episode_id=${encodeURIComponent(targetEpisode)}`,
+      { cache: 'no-store' },
+    )
+    if (slug.value === targetSlug && episodeId.value === targetEpisode) {
+      scriptManualSources.value = Array.isArray(data.sources) ? data.sources : []
+    }
+  } catch {
+    if (slug.value === targetSlug && episodeId.value === targetEpisode) scriptManualSources.value = []
+  }
 }
 
 async function load(): Promise<void> {
@@ -609,11 +674,77 @@ function onPreviewSavingChange(saving: boolean): void {
   if (!saving) previewRefreshKey.value += 1
 }
 
+type ManualIntroductionCapture = {
+  projectSlug: string
+  episodeId: string
+  userEpoch: number
+  operationId: string
+  body: { episode_id: string; operation_id: string; manual_redo: { intent: 'replace_unresolved'; source_job_id: string } }
+}
+
+function manualIntroductionCaptureIsCurrent(capture: ManualIntroductionCapture): boolean {
+  return capture.projectSlug === slug.value
+    && capture.episodeId === episodeId.value
+    && capture.userEpoch === introductionManualUserEpoch.value
+}
+
+async function submitManualIntroductionCapture(capture: ManualIntroductionCapture): Promise<void> {
+  if (!manualIntroductionCaptureIsCurrent(capture)) {
+    showError('The project, episode, or Introduction settings changed. Start a new request from the current selection.')
+    return
+  }
+  const requestToken = ++manualIntroductionRequestToken
+  activeManualIntroductionOperation.value = capture.operationId
+  generating.value = true
+  try {
+    const job = await post<{ job_id?: string }>(
+      `/projects/${capture.projectSlug}/generate/introduction-only`,
+      structuredClone(capture.body),
+    )
+    freshIntroductionAction.complete(capture.operationId)
+    if (manualIntroductionRequestToken !== requestToken || !manualIntroductionCaptureIsCurrent(capture)) return
+    manualIntroductionChecked.value = false
+    if (job?.job_id) watchedIntroJobs.add(job.job_id)
+    introFailure.value = ''
+    success('Separate introduction attempt queued. The preview updates when it finishes.')
+  } catch (cause: any) {
+    if (manualIntroductionRequestToken === requestToken && manualIntroductionCaptureIsCurrent(capture)) {
+      if (cause?.data?.detail) showError(cause.data.detail)
+      else showAction(UNCONFIRMED_SUBMISSION, 'Retry', () => submitManualIntroductionCapture(capture), 'error')
+    }
+  } finally {
+    if (manualIntroductionRequestToken === requestToken && activeManualIntroductionOperation.value === capture.operationId) {
+      activeManualIntroductionOperation.value = ''
+      generating.value = false
+    }
+  }
+}
+
 async function generateForEpisode(): Promise<void> {
   if (!canGenerateIntroduction.value) return
   // The opening is written from what is SAVED for this channel, so unsaved
   // edits are saved first rather than silently ignored.
   if (dirty.value && !await save()) return
+  if (manualIntroductionChecked.value) {
+    const source = selectedManualIntroductionSource.value
+    if (!source) {
+      showError('Choose the stopped Introduction request to replace.')
+      return
+    }
+    const scope = {
+      episode_id: episodeId.value,
+      manual_redo: { intent: 'replace_unresolved' as const, source_job_id: source.source_job_id },
+    }
+    const operationId = freshIntroductionAction.begin({ scope, userEpoch: introductionManualUserEpoch.value }, 'manual-introduction')
+    const capture: ManualIntroductionCapture = {
+      projectSlug: slug.value,
+      episodeId: episodeId.value,
+      userEpoch: introductionManualUserEpoch.value,
+      operationId,
+      body: structuredClone({ ...scope, operation_id: operationId }),
+    }
+    return submitManualIntroductionCapture(capture)
+  }
   generating.value = true
   const payload = { episode_id: episodeId.value }
   const operationId = freshIntroductionAction.begin(payload)
@@ -686,6 +817,7 @@ const introductionJobSignal = computed(() =>
   introductionJobSignalFor(jobs.value, slug.value, episodeId.value))
 
 watch(introductionJobSignal, () => {
+  void loadIntroductionManualRedoState()
   for (const transition of settleIntroductionJobs(jobs.value, slug.value, episodeId.value, watchedIntroJobs)) {
     introFailure.value = transition.outcome === 'error' ? transition.message || '' : ''
     if (transition.outcome === 'done') previewRefreshKey.value += 1
@@ -695,8 +827,13 @@ watch(introductionJobSignal, () => {
 // A new episode is a clean slate: the previous episode's failure is not this
 // one's, and its preview must be re-read rather than inherited.
 watch(episodeId, () => {
+  retireIntroductionManualAction()
+  manualIntroductionChecked.value = false
+  manualIntroductionSourceId.value = ''
+  scriptManualSources.value = []
   introFailure.value = ''
   previewRefreshKey.value += 1
+  void loadIntroductionManualRedoState()
 })
 
 /**
@@ -742,6 +879,7 @@ const introPresets = usePresets<{ recipe: Recipe }>({
 onMounted(async () => {
   await load()
   await introPresets.load()
+  await loadIntroductionManualRedoState()
 })
 </script>
 
@@ -749,6 +887,19 @@ onMounted(async () => {
 .intro-job-status { margin: 14px 0 0; padding: 9px 12px; border-radius: var(--radius-md); font-size: var(--font-xs); line-height: 1.45; }
 .intro-job-status.running { background: var(--accent-dim); color: var(--text-primary); }
 .intro-job-status.failed { background: color-mix(in srgb, var(--error) 11%, transparent); color: var(--error); }
+.intro-manual-redo {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-sm);
+  background: var(--accent-dim);
+  font-size: 12px;
+}
+.intro-manual-redo > span { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.intro-manual-redo > small { color: var(--text-secondary); }
+.intro-manual-redo select { max-width: 22rem; }
 
 .intro-command,
 .intro-recipe { margin: 1rem 0; padding: 1.25rem 1.5rem; }

@@ -281,7 +281,7 @@
             <div><strong>Generation settings</strong><small>Your last model is restored automatically.</small></div>
           </div>
           <div class="generation-settings-grid">
-            <ModelSelector v-if="modelPreferenceReady" v-model="form.model" :project-slug="slug" writing-step />
+            <ModelSelector v-if="modelPreferenceReady" v-model="form.model" :project-slug="slug" writing-step @model-meta="ideaModelMeta = $event" />
             <div v-else class="form-group"><label>AI Model</label><div class="input text-muted">Restoring your last used model…</div></div>
             <div class="form-group">
               <label>Items or chapters per video <span class="text-muted">(optional)</span></label>
@@ -396,6 +396,34 @@
       <p class="text-muted text-xs control-hint">
         <strong>Randomize</strong> fills the fields under “Refine” for free. <strong>Surprise Me</strong> fills them and queues {{ form.count }} ideas right away.
       </p>
+      <section
+        v-if="manualRedoPreference.enabled.value && manualIdeaCampaignSource"
+        class="idea-manual-redo"
+        aria-labelledby="idea-manual-redo-title"
+      >
+        <div>
+          <strong id="idea-manual-redo-title">Start separate campaign attempt</strong>
+          <p>
+            The earlier campaign stopped before Story Studio received a final result. Its saved ideas stay here.
+          </p>
+          <p class="idea-manual-redo-price">
+            Current model: <strong>{{ currentIdeaModelLabel }}</strong> · Current price: <strong>{{ currentIdeaModelPrice }}</strong>
+          </p>
+          <label class="idea-manual-redo-choice">
+            <input v-model="manualRedoChecked" type="checkbox" @change="onManualRedoChoiceChange" />
+            <span>Keep the earlier ideas and start a separate attempt with the current settings.</span>
+          </label>
+        </div>
+        <button
+          type="button"
+          class="btn btn-secondary"
+          :disabled="!manualRedoChecked || manualRedoPosting || ideaCampaignActive"
+          @click="generateManualIdeaCampaign"
+        >
+          <LoadingSpinner v-if="manualRedoPosting" size="sm" label="Starting separate attempt…" show-label />
+          <template v-else>Start separate attempt</template>
+        </button>
+      </section>
       <div class="generator-actions-secondary">
           <button
             type="button"
@@ -1225,7 +1253,9 @@
 
 <script setup lang="ts">
 import { canonicalFormatId } from '~/composables/useFormats'
+import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
 import { resolveInitialIdeaModel } from '~/utils/idea-model-preference'
+import { describeChatRate } from '~/utils/genstudio-credit-cost'
 import { projectSlug } from '~/utils/project-slug'
 import { scriptDeepLinkQuery } from '~/utils/scriptSizing'
 
@@ -1236,9 +1266,43 @@ const _router = useRouter()
 const slug = computed(() => projectSlug(route.params.slug))
 const { get, post, del, patch } = useApi()
 const freshIdeaCampaignAction = useFreshGenerationAction()
-const { success, error: showError, successUndoable } = useToast()
+const manualRedoPreference = useManualGenerationRedoPreference()
+const { success, error: showError, successUndoable, showAction } = useToast()
 const { jobs: ideaJobs, isJobActiveFor } = useJobs()
 const ideaCampaignActive = computed(() => isJobActiveFor('ideas', ['idea_campaign']))
+const ideaModelMeta = ref<any>(null)
+const manualRedoChecked = ref(false)
+const manualRedoPosting = ref(false)
+
+type ManualIdeaCampaignSubmission = {
+  projectSlug: string
+  model: string
+  sourceJobId: string
+  body: Record<string, unknown>
+  operationId: string
+}
+
+const pendingManualIdeaSubmission = ref<ManualIdeaCampaignSubmission | null>(null)
+
+function findManualIdeaCampaignSource(jobs: readonly any[], projectSlug: string): any | undefined {
+  return jobs
+    .filter((job: any) => {
+      const entries = job.genstudio_jobs || job.genstudio_jobs_active || []
+      const hasUnresolvedChat = entries.some((entry: any) => entry.operation === 'chat.response'
+        && !((entry.state === 'failed' && entry.dispatch_state === 'pre_dispatch' && entry.queue_state === 'waiting_credits')
+          || (typeof entry.id === 'string' && !!entry.id && !entry.id.startsWith('pending:')
+            && (entry.state === 'succeeded' || entry.state === 'failed'))))
+      return job.project_slug === projectSlug
+        && job.type === 'idea_campaign'
+        && job.episode_id === 'ideas'
+        && !job.force_abandoned
+        && (job.status === 'error' || job.status === 'cancelled')
+        && hasUnresolvedChat
+    })
+    .sort((a: any, b: any) => Date.parse(b.finished_at || b.created_at || '') - Date.parse(a.finished_at || a.created_at || ''))[0]
+}
+
+const manualIdeaCampaignSource = computed(() => findManualIdeaCampaignSource(ideaJobs.value, slug.value))
 
 // v1.0.117+ — Page tabs: Workflow (generator) vs Manage (catalog).
 // Same ?tab= sync pattern as image-prompts.vue (v1.0.88). Defaults to
@@ -1393,6 +1457,11 @@ const form = reactive({
   niche_id: '',
   topic_pack_ids: [] as string[],
 })
+
+const currentIdeaModelLabel = computed(() => ideaModelMeta.value?.label || form.model || 'No model selected')
+const currentIdeaModelPrice = computed(() => ideaModelMeta.value
+  ? describeChatRate({ ...ideaModelMeta.value, display_name: ideaModelMeta.value.label }).text
+  : 'Price not published')
 
 // Tracks the project's currently-saved niche so the UI can show
 // "Overriding saved niche '<name>'" when the picker doesn't match.
@@ -1850,6 +1919,8 @@ function queueSaveIdeaPreferences() {
   }, 500)
 }
 onBeforeUnmount(() => {
+  manualRedoPreference.reset()
+  freshIdeaCampaignAction.cancel('manual-idea-campaign')
   if (!savePreferencesTimer) return
   clearTimeout(savePreferencesTimer)
   savePreferencesTimer = null
@@ -1866,6 +1937,27 @@ watch(() => form.theme, queueSaveIdeaPreferences)
 watch(() => form.items_per_listicle, queueSaveIdeaPreferences)
 watch(() => titleConfig.prefix, queueSaveIdeaPreferences)
 watch(() => titleConfig.suffix, queueSaveIdeaPreferences)
+function resetManualIdeaCampaignScope(): void {
+  manualRedoChecked.value = false
+  pendingManualIdeaSubmission.value = null
+  freshIdeaCampaignAction.cancel('manual-idea-campaign')
+}
+
+function handleManualIdeaCampaignSourceChanged(): void {
+  manualRedoChecked.value = false
+}
+
+function onManualRedoChoiceChange(): void {
+  const pending = pendingManualIdeaSubmission.value
+  if (!pending) return
+  const selectedSourceId = manualRedoChecked.value ? manualIdeaCampaignSource.value?.job_id : undefined
+  if (selectedSourceId === pending.sourceJobId) return
+  pendingManualIdeaSubmission.value = null
+  freshIdeaCampaignAction.cancel('manual-idea-campaign')
+}
+
+watch([slug, () => form.model], resetManualIdeaCampaignScope)
+watch(() => manualIdeaCampaignSource.value?.job_id || '', handleManualIdeaCampaignSourceChanged)
 // v1.0.93+ — five separate onMounted() calls used to race each other,
 // and the worst offender was usePresets() auto-applying an active preset
 // AFTER loadPatternPreferences() had populated the project niche →
@@ -1885,6 +1977,7 @@ onMounted(async () => {
     loadFormatNames(),
     loadIdeas(),
     ideasPresets.load(),  // dropdown only; no auto-apply
+    manualRedoPreference.load(slug.value),
   ])
   finishModelPreferenceHydration()
 })
@@ -2773,26 +2866,96 @@ async function loadIdeas() {
 // v1.0.93+ — visible error surface for /ideas endpoint failures.
 const ideasLoadError = ref('')
 
+function ideaCampaignRequestBody(): Record<string, unknown> {
+  const body: any = { ...form, keywords: [...form.keywords] }
+  if (!body.items_per_listicle || body.items_per_listicle <= 0) delete body.items_per_listicle
+  body.niche_id = projectNicheId.value || undefined
+  body.topic_pack_ids = [...projectTopicPackIds.value]
+  body.title_prefix = titleConfig.prefix
+  body.title_suffix = titleConfig.suffix
+  return body
+}
+
+function manualIdeaCampaignSubmissionMatchesCurrentTarget(submission: ManualIdeaCampaignSubmission): boolean {
+  const pending = pendingManualIdeaSubmission.value
+  return submission.projectSlug === slug.value
+    && submission.model === form.model
+    && pending?.operationId === submission.operationId
+    && pending.sourceJobId === submission.sourceJobId
+    && JSON.stringify(pending.body) === JSON.stringify(submission.body)
+}
+
+function retryManualIdeaCampaignSubmission(submission: ManualIdeaCampaignSubmission): void {
+  if (!manualIdeaCampaignSubmissionMatchesCurrentTarget(submission)) {
+    showError('This Retry belongs to another current channel, model, or stopped campaign. Review the current choice and start again.')
+    return
+  }
+  void submitManualIdeaCampaignSubmission(submission)
+}
+
+async function submitManualIdeaCampaignSubmission(submission: ManualIdeaCampaignSubmission): Promise<void> {
+  if (!manualIdeaCampaignSubmissionMatchesCurrentTarget(submission)) {
+    showError('This request belongs to another current channel, model, or stopped campaign. Review the current choice and start again.')
+    return
+  }
+  manualRedoPosting.value = true
+  try {
+    await post(
+      `/projects/${submission.projectSlug}/generate/ideas/campaign`,
+      { ...submission.body, operation_id: submission.operationId },
+    )
+    const stillCurrent = manualIdeaCampaignSubmissionMatchesCurrentTarget(submission)
+    freshIdeaCampaignAction.complete(submission.operationId)
+    pendingManualIdeaSubmission.value = null
+    manualRedoChecked.value = false
+    if (!stillCurrent) return
+    success('Separate Idea Campaign attempt queued. Earlier saved ideas stay in this channel.')
+  } catch (error: any) {
+    const detail = error?.data?.detail || error?.response?._data?.detail
+    if (detail) {
+      freshIdeaCampaignAction.complete(submission.operationId)
+      pendingManualIdeaSubmission.value = null
+      manualRedoChecked.value = false
+      showError(detail)
+    } else {
+      showAction(UNCONFIRMED_SUBMISSION, 'Retry', () => retryManualIdeaCampaignSubmission(submission), 'error')
+    }
+  } finally {
+    manualRedoPosting.value = false
+  }
+}
+
+async function beginManualIdeaCampaignSubmission(source: any, body: Record<string, unknown>): Promise<void> {
+  try {
+    const capturedBody = JSON.parse(JSON.stringify({
+      ...body,
+      manual_redo: { intent: 'replace_unresolved', source_job_id: source.job_id },
+    }))
+    const operationId = freshIdeaCampaignAction.begin(capturedBody, 'manual-idea-campaign')
+    const submission: ManualIdeaCampaignSubmission = {
+      projectSlug: slug.value,
+      model: form.model,
+      sourceJobId: source.job_id,
+      body: capturedBody,
+      operationId,
+    }
+    pendingManualIdeaSubmission.value = submission
+    await submitManualIdeaCampaignSubmission(submission)
+  } catch (error: any) {
+    showError(error?.data?.detail || error?.message || 'Could not prepare the separate Idea Campaign attempt.')
+  }
+}
+
+async function generateManualIdeaCampaign(): Promise<void> {
+  const source = manualIdeaCampaignSource.value
+  if (!source || !manualRedoChecked.value) return
+  await beginManualIdeaCampaignSubmission(source, ideaCampaignRequestBody())
+}
+
 async function generate() {
   generating.value = true
   try {
-    // Drop items_per_listicle when blank so the backend treats it as
-    // unset (LLM picks within format range). Sending 0 / null would
-    // get coerced to NaN by some validators; cleaner to omit.
-    const body: any = { ...form, keywords: form.keywords }
-    if (!body.items_per_listicle || body.items_per_listicle <= 0) {
-      delete body.items_per_listicle
-    }
-    // Formula and Topic Packs are channel identity, not a batch-level
-    // variation. Never let an old Ideas preset silently override them.
-    body.niche_id = projectNicheId.value || undefined
-    body.topic_pack_ids = [...projectTopicPackIds.value]
-    // v1.0.93+ channel title wrap. Always sent (even when empty) so the
-    // backend uses the form's current values rather than the project
-    // config — keeps the live preview honest with what actually gets
-    // generated. Backend treats both empty strings as "no wrapping".
-    body.title_prefix = titleConfig.prefix
-    body.title_suffix = titleConfig.suffix
+    const body = ideaCampaignRequestBody()
     // v1.0.165 — the X-Pattern-Warning header path was removed with the
     // Pattern system. The title template is a plain string that can't
     // "fail to load", so there's nothing to warn about; a normal POST
@@ -3274,6 +3437,22 @@ async function confirmCompact() {
 .generator-title { margin: 0 0 12px; font-size: 18px; }
 /* Visible one-line explanations under controls (not tooltip-only). */
 .control-hint { display: block; margin: 6px 0 0; line-height: 1.4; }
+.idea-manual-redo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--warning, #d97706) 40%, var(--border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--warning, #d97706) 7%, var(--bg-secondary));
+}
+.idea-manual-redo p { margin: 4px 0 0; font-size: 12px; line-height: 1.45; color: var(--text-muted); }
+.idea-manual-redo-price strong { color: var(--text-primary); }
+.idea-manual-redo-choice { display: flex; align-items: flex-start; gap: 8px; margin-top: 9px; font-size: 12px; line-height: 1.4; cursor: pointer; }
+.idea-manual-redo-choice input { margin-top: 2px; }
+.idea-manual-redo .btn { flex: 0 0 auto; }
 .idea-composer {
   padding: 16px;
   border: 1px solid var(--border);
@@ -4364,5 +4543,7 @@ async function confirmCompact() {
   .idea-count-control { justify-content: space-between; }
   .generator-actions-primary { display: grid; grid-template-columns: 1fr; }
   .generator-actions-primary .btn { width: 100%; }
+  .idea-manual-redo { align-items: stretch; flex-direction: column; }
+  .idea-manual-redo .btn { width: 100%; }
 }
 </style>

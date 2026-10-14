@@ -55,6 +55,51 @@
         </template>
       </WorkspaceNotice>
 
+      <section
+        v-if="manualRedoPreference.enabled.value && eligibleManualSources.length"
+        class="card workspace-section mp-card"
+        style="margin-top: 14px"
+        aria-labelledby="song-pool-manual-redo-title"
+      >
+        <h3 id="song-pool-manual-redo-title" style="margin: 0">Start a separate attempt for one unresolved song</h3>
+        <p class="mp-hint">
+          This copies one exact saved music request into a new batch. Existing songs, sibling takes, the old batch and its evidence stay untouched.
+          The prior unresolved request may still have been charged.
+        </p>
+        <div class="mp-row" style="margin-top: 10px">
+          <label class="mp-lbl" style="flex: 1">
+            Unresolved song
+            <select v-model="manualSourceChoice" class="mp-inp" style="width: 100%" @change="cancelPendingManualSong">
+              <option value="">Choose one exact item…</option>
+              <option v-for="source in eligibleManualSources" :key="`${source.source_job_id}:${source.source_item_key}`" :value="`${source.source_job_id}::${source.source_item_key}`">{{ source.label }}</option>
+            </select>
+          </label>
+          <label class="mp-lbl" style="flex: 1">
+            Music model
+            <select v-model="manualMusicModelId" class="mp-inp" style="width: 100%">
+              <option value="">Choose a current model…</option>
+              <option v-for="model in musicModels" :key="model.id" :value="model.id">{{ model.display_name }}</option>
+            </select>
+          </label>
+        </div>
+        <p v-if="manualMusicModel" class="mp-hint" style="margin-top: 8px">
+          <template v-if="manualMusicPriceClass !== 'unknown'">Published unit rate: <b>{{ manualMusicCost.text }}</b> · {{ manualMusicModel.display_name }}</template>
+          <template v-else>This model has no clear published free or paid rate. A separate attempt cannot start.</template>
+        </p>
+        <p v-if="manualMusicLimits" class="mp-hint" style="margin-top: 4px">{{ manualMusicLimits }}</p>
+        <label class="mp-lbl" style="display: flex; gap: 8px; align-items: center; margin-top: 10px">
+          <input v-model="manualRedoChecked" type="checkbox">
+          Keep the earlier batch and evidence, and start one separately identified music request.
+        </label>
+        <button
+          type="button"
+          class="btn btn-secondary"
+          style="margin-top: 10px"
+          :disabled="!manualRedoChecked || !selectedManualSource || !manualMusicModel || manualMusicPriceClass === 'unknown' || manualRedoPosting"
+          @click="beginManualSongRedo"
+        >{{ manualRedoPosting ? 'Starting…' : 'Start separate attempt' }}</button>
+      </section>
+
       <section class="card workspace-section mp-card" style="margin-top: 14px">
         <div class="mp-row" style="justify-content: space-between">
           <div class="mp-row">
@@ -212,15 +257,20 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import GenerateSongsDialog from '~/components/music/GenerateSongsDialog.vue'
 import AddChip from '~/components/music/AddChip.vue'
+import { describeMusicUnitCost, type PricedMusicModel } from '../../../utils/genstudio-credit-cost.js'
+import { UNCONFIRMED_SUBMISSION } from '../../../composables/useFreshGenerationAction'
 
 definePageMeta({ layout: 'dashboard', key: route => String(route.params.slug || '') })
 useAppTitle('Song Pool')
 const route = useRoute()
 const slug = computed(() => String(route.params.slug || ''))
 const { get, post, patch } = useApi()
-const { success, error: showError } = useToast()
+const { success, error: showError, showAction } = useToast()
 const { ask } = useConfirm()
 const fresh = useFreshGenerationAction()
+const manualRedoPreference = useManualGenerationRedoPreference()
+const confirmation = useConfirmation()
+const { jobs } = useJobs()
 
 const data = ref<any>(null)
 const loadError = ref('')
@@ -242,7 +292,82 @@ const genOpen = ref(false)
 const genMode = ref<'new' | 'fill-gaps'>('new')
 const genCount = ref(0)
 const batchBusy = ref(false)
-const musicModels = ref<Array<{ id: string; display_name: string }>>([])
+interface SongPoolMusicModel extends PricedMusicModel {
+  id: string
+  display_name: string
+  price_version: string
+  chargeable?: boolean
+  minimum_credits?: number | null
+  max_title_characters?: number | null
+  min_prompt_characters?: number | null
+  max_prompt_characters?: number | null
+  max_prompt_without_lyrics_characters?: number | null
+  min_lyrics_characters?: number | null
+  max_lyrics_characters?: number | null
+  min_duration_seconds?: number | null
+  max_duration_seconds?: number | null
+}
+interface ManualSongSource { source_job_id: string; source_item_key: string; label: string; eligible: boolean; reason: string }
+interface PendingManualSong {
+  projectSlug: string
+  modelId: string
+  sourceChoice: string
+  body: Record<string, unknown>
+  operationId: string
+  attempted: boolean
+  firstPostKey: string
+}
+const musicModels = ref<SongPoolMusicModel[]>([])
+const manualSources = ref<ManualSongSource[]>([])
+const manualSourceChoice = ref('')
+const manualMusicModelId = ref('')
+const manualRedoChecked = ref(false)
+const manualRedoPosting = ref(false)
+const pendingManualSong = ref<PendingManualSong | null>(null)
+let manualSourcesSequence = 0
+let manualPostingOperationId = ''
+
+const eligibleManualSources = computed(() => manualSources.value.filter(source => source.eligible))
+const selectedManualSource = computed(() => eligibleManualSources.value.find(source =>
+  `${source.source_job_id}::${source.source_item_key}` === manualSourceChoice.value) || null)
+const manualMusicModel = computed(() => musicModels.value.find(model => model.id === manualMusicModelId.value) || null)
+const manualMusicCost = computed(() => describeMusicUnitCost(manualMusicModel.value))
+const publishedRange = (label: string, minimum?: number | null, maximum?: number | null, unit = 'characters') => {
+  if (typeof minimum === 'number' && typeof maximum === 'number') return `${label} ${minimum.toLocaleString()}–${maximum.toLocaleString()} ${unit}`
+  if (typeof maximum === 'number') return `${label} up to ${maximum.toLocaleString()} ${unit}`
+  if (typeof minimum === 'number') return `${label} at least ${minimum.toLocaleString()} ${unit}`
+  return ''
+}
+const manualMusicLimits = computed(() => {
+  const model = manualMusicModel.value
+  if (!model) return ''
+  const ranges = [
+    publishedRange('title', null, model.max_title_characters),
+    publishedRange('prompt', model.min_prompt_characters, model.max_prompt_characters),
+    publishedRange('prompt without lyrics', model.min_prompt_characters, model.max_prompt_without_lyrics_characters),
+    publishedRange('lyrics', model.min_lyrics_characters, model.max_lyrics_characters),
+    publishedRange('duration', model.min_duration_seconds, model.max_duration_seconds, 'seconds'),
+  ].filter(Boolean)
+  return ranges.length ? `Published limits: ${ranges.join(' · ')}.` : ''
+})
+const manualMusicPriceClass = computed<'free' | 'paid' | 'unknown'>(() => {
+  const model = manualMusicModel.value
+  if (!model) return 'unknown'
+  if (model.chargeable === true
+    || (typeof model.credits_per_request === 'number' && model.credits_per_request > 0)
+    || (typeof model.minimum_credits === 'number' && model.minimum_credits > 0)
+    || (typeof model.standard_credits === 'number' && model.standard_credits > 0)
+    || (typeof model.sale_credits === 'number' && model.sale_credits > 0)
+    || Object.values(model.price_usd || {}).some(value => value > 0)
+    || (model.price_variants || []).some(value => typeof value.usd === 'number' && value.usd > 0)) return 'paid'
+  if (model.chargeable === false) return 'free'
+  if (model.price_source === 'local' && model.credits_per_request === 0 && model.minimum_credits === 0
+    && (model.standard_credits === null || model.standard_credits === 0)
+    && (model.sale_credits === null || model.sale_credits === 0)
+    && !Object.values(model.price_usd || {}).some(value => value !== 0)
+    && !(model.price_variants || []).some(value => typeof value.usd !== 'number' || value.usd !== 0)) return 'free'
+  return 'unknown'
+})
 
 const songs = computed<any[]>(() => data.value?.pool?.songs || [])
 const bands = computed<any[]>(() => data.value?.formula?.song_formula?.tempo_bands || [])
@@ -336,6 +461,121 @@ async function load() {
   } catch (e: any) { if (at === slug.value) loadError.value = e?.data?.detail || e?.message || 'Could not load the song pool.' }
   if (poll) { clearInterval(poll); poll = null }
   if (data.value?.active_batch) poll = setInterval(load, 5000)
+}
+
+async function loadManualSources() {
+  const projectSlug = slug.value
+  const request = ++manualSourcesSequence
+  if (!manualRedoPreference.enabled.value) { manualSources.value = []; return }
+  try {
+    const response = await get<{ sources: ManualSongSource[] }>(`/projects/${projectSlug}/song-pool/manual-redo-sources`)
+    if (request === manualSourcesSequence && projectSlug === slug.value) {
+      manualSources.value = Array.isArray(response.sources) ? response.sources : []
+    }
+  } catch {
+    if (request === manualSourcesSequence && projectSlug === slug.value) manualSources.value = []
+  }
+}
+
+function manualTargetKey() {
+  return JSON.stringify({ projectSlug: slug.value, modelId: manualMusicModelId.value, sourceChoice: manualSourceChoice.value })
+}
+
+function manualFirstPostKey() {
+  return JSON.stringify({ target: manualTargetKey(), priceVersion: manualMusicModel.value?.price_version || '', priceClass: manualMusicPriceClass.value })
+}
+
+function manualSubmissionMatches(submission: PendingManualSong): boolean {
+  const pending = pendingManualSong.value
+  return submission.projectSlug === slug.value && submission.modelId === manualMusicModelId.value
+    && submission.sourceChoice === manualSourceChoice.value && pending?.operationId === submission.operationId
+    && JSON.stringify(pending.body) === JSON.stringify(submission.body)
+}
+
+function cancelPendingManualSong() {
+  const pending = pendingManualSong.value
+  if (pending) fresh.complete(pending.operationId)
+  pendingManualSong.value = null
+  manualRedoPosting.value = false
+  manualPostingOperationId = ''
+}
+
+async function submitManualSong(submission: PendingManualSong) {
+  if (!manualSubmissionMatches(submission)) {
+    showError('This Retry belongs to another project, model, or unresolved item. Review the current choice and start again.')
+    return
+  }
+  if (!submission.attempted && submission.firstPostKey !== manualFirstPostKey()) {
+    if (manualSubmissionMatches(submission)) cancelPendingManualSong()
+    showError('The project, item, model, or published price changed. Review the current choice and start again.')
+    return
+  }
+  submission.attempted = true
+  manualRedoPosting.value = true
+  manualPostingOperationId = submission.operationId
+  try {
+    await post(`/projects/${submission.projectSlug}/song-pool/generate`, { ...submission.body, operation_id: submission.operationId })
+    if (manualSubmissionMatches(submission)) {
+      fresh.complete(submission.operationId)
+      pendingManualSong.value = null
+      manualRedoChecked.value = false
+      success('Separate song attempt queued. The old batch, songs, sibling takes, and evidence stay in place.')
+      void loadManualSources()
+    }
+  } catch (error: any) {
+    const detail = error?.data?.detail || error?.response?._data?.detail
+    if (detail && manualSubmissionMatches(submission)) {
+      fresh.complete(submission.operationId)
+      pendingManualSong.value = null
+      manualRedoChecked.value = false
+      showError(detail)
+    } else if (manualSubmissionMatches(submission)) {
+      showAction(UNCONFIRMED_SUBMISSION, 'Retry', () => submitManualSong(submission))
+    }
+  } finally {
+    if (manualPostingOperationId === submission.operationId) {
+      manualRedoPosting.value = false
+      manualPostingOperationId = ''
+    }
+  }
+}
+
+async function beginManualSongRedo() {
+  const source = selectedManualSource.value
+  const model = manualMusicModel.value
+  if (!source || !model || !manualRedoChecked.value || manualMusicPriceClass.value === 'unknown') return
+  const paid = manualMusicPriceClass.value === 'paid'
+  const body = JSON.parse(JSON.stringify({
+    music_model: model.id,
+    source_item_key: source.source_item_key,
+    manual_redo: { intent: 'replace_unresolved', source_job_id: source.source_job_id },
+    manual_music_payment: {
+      version: 1, model_id: model.id, price_version: model.price_version, confirmed_paid_music: paid,
+    },
+  }))
+  const operationId = fresh.begin(body, 'manual-song-pool-redo')
+  const submission: PendingManualSong = {
+    projectSlug: slug.value, modelId: model.id,
+    sourceChoice: `${source.source_job_id}::${source.source_item_key}`,
+    body, operationId, attempted: false, firstPostKey: manualFirstPostKey(),
+  }
+  pendingManualSong.value = submission
+  if (paid) {
+    const confirmed = await confirmation.confirmGeneration(submission.projectSlug, 'music', body, {
+      action: 'Start a separate paid song request. The prior unresolved request may still have been charged.',
+      details: [
+        { label: 'Model', value: model.display_name },
+        { label: 'Published unit rate', value: manualMusicCost.value.text },
+      ],
+      always: true,
+    })
+    if (!confirmed) {
+      if (manualSubmissionMatches(submission)) cancelPendingManualSong()
+      return
+    }
+  }
+  if (!manualSubmissionMatches(submission)) return
+  await submitManualSong(submission)
 }
 
 function openGenerate(mode: 'new' | 'fill-gaps', count = 0) { genMode.value = mode; genCount.value = count; genOpen.value = true }
@@ -438,14 +678,35 @@ function onTime() { const el = audioEl.value; if (el?.duration) { position.value
 function onAudioError() { if (playing.value) showError('That song could not be played. Its file may have been moved.'); playing.value = '' }
 
 async function loadModels() {
-  try { musicModels.value = (await get<{ models: any[] }>('/app-settings/genstudio/music-models')).models || [] } catch { musicModels.value = [] }
+  try {
+    musicModels.value = (await get<{ models: SongPoolMusicModel[] }>('/app-settings/genstudio/music-models')).models || []
+    const missing = !!manualMusicModelId.value && !musicModels.value.some(model => model.id === manualMusicModelId.value)
+    const preservePending = missing && pendingManualSong.value?.attempted === true
+      && pendingManualSong.value.modelId === manualMusicModelId.value
+    if (!manualMusicModelId.value || (missing && !preservePending)) {
+      manualMusicModelId.value = musicModels.value.find(model => model.price_source === 'local')?.id || ''
+    }
+  } catch { musicModels.value = [] }
 }
 
-watch(slug, () => { data.value = null; selected.value = new Set(); void load() })
+watch(slug, () => {
+  manualSourcesSequence++
+  manualRedoPreference.reset()
+  cancelPendingManualSong()
+  manualSourceChoice.value = ''
+  manualSources.value = []
+  data.value = null
+  selected.value = new Set()
+  void load()
+  void manualRedoPreference.load(slug.value).then(() => loadManualSources())
+})
+watch(manualMusicModelId, (current, previous) => { if (previous && current !== previous) cancelPendingManualSong() })
+watch(() => jobs.value.map(job => [job.job_id, job.status, job.force_abandoned]), () => { void loadManualSources() })
 watch(() => route.query.generate, (n) => { const c = Number(n); if (c > 0 && data.value && !data.value.formula?.error) openGenerate('new', Math.round(c)) })
 onMounted(async () => {
   await load()
   void loadModels()
+  void manualRedoPreference.load(slug.value).then(() => loadManualSources())
   const c = Number(route.query.generate)
   if (c > 0 && data.value && !data.value.formula?.error) openGenerate('new', Math.round(c))
 })

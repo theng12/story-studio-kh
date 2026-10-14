@@ -21,11 +21,24 @@ import * as sp from '../services/song-pool.js'
 import { getEffectiveNiche } from '../services/niche-loader.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { callAi } from '../lib/ai-client.js'
+import { withLock } from '../lib/atomic-store.js'
+import { freshActionFingerprint, freshActionMatch, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 import { planCells, coverageGrid } from '../services/song-coverage.js'
 import { BRIEFS_PER_CALL, SUNG_BRIEFS_PER_CALL, writeBriefs } from '../services/song-brief.js'
 import { comboCount, poolNeeds, EpisodeDefaultsSchema, STARTING_EPISODE_DEFAULTS } from '../contracts/song-formula.js'
 import { songFormulaFor } from '../generators/song-pool-generate.js'
-import type { JobType } from '../models/types.js'
+import {
+  readSongPoolBatchCheckpoint,
+  validSongPoolMusicAttempt,
+  type BatchFile,
+  type BatchItem,
+  type SongPoolMusicAttempt,
+} from '../generators/song-pool-generate.js'
+import { getApiKey } from '../services/app-secrets-store.js'
+import { listMusicModels, type GenStudioMusicModel } from '../lib/genstudio-client.js'
+import { musicModelCanServe } from '../contracts/music-model-choice.js'
+import { readManualGenerationRedoIntent } from '../lib/fresh-generation-action.js'
+import type { Job, JobType } from '../models/types.js'
 
 export const router = Router()
 
@@ -118,6 +131,37 @@ router.get('/projects/:slug/song-pool', async (req, res) => {
   } catch (e) { fail(res, e, 'Could not read the song pool') }
 })
 
+router.get('/projects/:slug/song-pool/manual-redo-sources', async (req, res) => {
+  try {
+    const slug = await project(req, res); if (!slug) return
+    const jobs = await jq.findJobs(slug, () => true)
+    const groups = await Promise.all(jobs.map(async job => {
+      if (job.type !== 'music_generate' || job.episode_id !== '' || job.params?.song_pool !== true) return []
+      const batch = await songPoolBatch(job)
+      if (!batch) return []
+      return batch.items.map(item => {
+        let eligible = true
+        let reason = 'Unresolved Gateway music request'
+        if (job.status !== 'error' && job.status !== 'cancelled') {
+          eligible = false; reason = 'The source Song Pool batch has not stopped.'
+        } else if (!item.item_key || item.song_id) {
+          eligible = false; reason = item.song_id ? 'This item already has a saved song.' : 'This older item has no exact request receipt.'
+        } else if (!exactUnknownMusicAttempt(slug, job, batch, item)) {
+          eligible = false; reason = 'No exact unresolved Gateway music evidence remains for this item.'
+        }
+        return {
+          source_job_id: job.job_id,
+          source_item_key: item.item_key || '',
+          label: item.brief?.title || item.item_key || 'Song',
+          eligible,
+          reason,
+        }
+      })
+    }))
+    res.json({ sources: groups.flat() })
+  } catch (e) { fail(res, e, 'Could not read Song Pool replacement sources') }
+})
+
 router.patch('/projects/:slug/song-pool/songs/:id', async (req, res) => {
   try {
     const slug = await project(req, res); if (!slug) return
@@ -167,6 +211,136 @@ function lengths(b: any) {
     ...(Number.isFinite(min) && min > 0 ? { length_min_s: Math.round(min) } : {}),
     ...(Number.isFinite(max) && max > 0 ? { length_max_s: Math.round(max) } : {}),
   }
+}
+
+const BRIEF_EDIT_FIELDS = ['title', 'line', 'scene_idea', 'ensemble', 'mood', 'tempo_bpm', 'key', 'texture', 'structure', 'length_s'] as const
+
+function normalizedSongPoolRequest(b: any) {
+  const mode = ['new', 'fill-gaps', 'regenerate'].includes(b?.mode) ? b.mode as 'new' | 'fill-gaps' | 'regenerate' : 'new'
+  const songIds = Array.isArray(b?.song_ids) ? b.song_ids.map(String) : []
+  const briefEdits = b?.brief_edits && typeof b.brief_edits === 'object' && !Array.isArray(b.brief_edits)
+    ? Object.fromEntries(BRIEF_EDIT_FIELDS.filter(key => b.brief_edits[key] !== undefined).map(key => [key, b.brief_edits[key]]))
+    : undefined
+  return {
+    lane: 'song-pool' as const,
+    mode,
+    count: mode === 'regenerate' ? songIds.length : Math.max(1, Math.min(2000, Math.round(Number(b?.count) || 0))),
+    writer_model: String(b?.writer_model || '').trim(),
+    music_model: String(b?.music_model || '').trim(),
+    check_model: String(b?.check_model || '').trim(),
+    ...lengths(b),
+    in_flight: Math.max(1, Math.min(256, Math.round(Number(b?.in_flight) || 1))),
+    song_ids: songIds,
+    ...(briefEdits ? { brief_edits: briefEdits } : {}),
+  }
+}
+
+function acceptedSongPoolReplay(job: Readonly<Job>, operationId: string, clientFingerprint: string): boolean {
+  const action = job.params?.generation_action
+  const receipt = job.params?.song_pool_action
+  const legacyFingerprint = job.params?.song_pool === true
+    ? freshActionFingerprint(normalizedSongPoolRequest(job.params))
+    : ''
+  return job.type === 'music_generate' && job.episode_id === '' && job.params?.song_pool === true
+    && action?.id === operationId && action?.kind === 'fresh'
+    && ((receipt?.version === 1 && receipt?.lane === 'song-pool'
+      && receipt?.client_request_fingerprint === clientFingerprint)
+      || (!receipt && legacyFingerprint === clientFingerprint))
+}
+
+type MusicEvidence = NonNullable<Job['genstudio_jobs']>[number]
+const musicEvidenceKey = (entry: MusicEvidence): string => {
+  const values = [entry.request_key, entry.request?.idempotency_key]
+    .filter((value): value is string => typeof value === 'string' && !!value)
+  return values.length && new Set(values).size === 1 ? values[0]! : ''
+}
+const unresolvedMusicEvidence = (entry: MusicEvidence): boolean => entry.operation === 'music.generation'
+  && entry.queue_state !== 'not_created' && entry.queue_state !== 'waiting_credits'
+  && entry.state !== 'succeeded' && entry.state !== 'cancelled'
+  && !(entry.state === 'failed' && entry.recovery_required !== true)
+  && (entry.dispatch_state === 'dispatched' || ['running', 'accepted', 'reserved', 'reconciling'].includes(entry.state)
+    || entry.recovery_required === true)
+
+function exactUnknownMusicAttempt(
+  slug: string,
+  job: Readonly<Job>,
+  batch: BatchFile,
+  item: BatchItem,
+  entries: readonly MusicEvidence[] = job.genstudio_jobs || [],
+): SongPoolMusicAttempt | null {
+  const current = (item.music_attempts || []).filter(attempt => {
+    if (!validSongPoolMusicAttempt(slug, batch, item, attempt)) return false
+    const related = entries.filter(entry => entry.operation === 'music.generation'
+      && (musicEvidenceKey(entry) === attempt.idempotency_key
+        || (!!attempt.accepted_task_id && entry.id === attempt.accepted_task_id)))
+    if (related.length !== 1 || musicEvidenceKey(related[0]!) !== attempt.idempotency_key
+      || !unresolvedMusicEvidence(related[0]!)) return false
+    return attempt.accepted_task_id
+      ? related[0]!.id === attempt.accepted_task_id
+      : related[0]!.id === `pending:${attempt.idempotency_key}`
+  })
+  return current.length === 1 ? current[0]! : null
+}
+
+async function songPoolBatch(job: Readonly<Job>): Promise<BatchFile | null> {
+  const dir = sp.poolDir(job.project_slug)
+  const batchId = typeof job.params?.batch_id === 'string' ? job.params.batch_id : ''
+  return dir && job.params?.song_pool === true && batchId ? readSongPoolBatchCheckpoint(dir, batchId) : null
+}
+
+function musicPriceClass(model: GenStudioMusicModel): 'free' | 'paid' | 'unknown' {
+  if (model.chargeable === true || model.credits_per_request > 0 || model.minimum_credits > 0
+    || (typeof model.standard_credits === 'number' && model.standard_credits > 0)
+    || (typeof model.sale_credits === 'number' && model.sale_credits > 0)
+    || Object.values(model.price_usd || {}).some(value => value > 0)
+    || (model.price_variants || []).some(value => typeof value.usd === 'number' && value.usd > 0)) return 'paid'
+  if (model.chargeable === false) return 'free'
+  if (model.price_source === 'local' && model.credits_per_request === 0 && model.minimum_credits === 0
+    && (model.standard_credits === null || model.standard_credits === 0)
+    && (model.sale_credits === null || model.sale_credits === 0)
+    && !Object.values(model.price_usd || {}).some(value => value !== 0)
+    && !(model.price_variants || []).some(value => typeof value.usd !== 'number' || value.usd !== 0)) return 'free'
+  return 'unknown'
+}
+
+function musicRequestLimitError(model: GenStudioMusicModel, request: SongPoolMusicAttempt['request']): string | null {
+  const lyricsLength = request.lyrics?.length || 0
+  const promptMaximum = !lyricsLength && Number.isInteger(model.max_prompt_without_lyrics_characters)
+    ? model.max_prompt_without_lyrics_characters as number : model.max_prompt_characters
+  const minPrompt = Number.isInteger(model.min_prompt_characters) && model.min_prompt_characters! >= 0 ? model.min_prompt_characters : null
+  const minLyrics = Number.isInteger(model.min_lyrics_characters) && model.min_lyrics_characters! >= 0 ? model.min_lyrics_characters : null
+  const tooLong = (field: string, actual: number, limit: number) => `${model.display_name} accepts up to ${limit.toLocaleString()} ${field} characters; this saved item has ${actual.toLocaleString()}. Nothing was queued.`
+  const tooShort = (field: string, actual: number, limit: number) => `${model.display_name} requires at least ${limit.toLocaleString()} ${field} characters; this saved item has ${actual.toLocaleString()}. Nothing was queued.`
+  if (request.title.length > model.max_title_characters) return tooLong('title', request.title.length, model.max_title_characters)
+  if (minPrompt !== null && request.prompt.length < minPrompt) return tooShort('prompt', request.prompt.length, minPrompt)
+  if (request.prompt.length > promptMaximum) return tooLong('prompt', request.prompt.length, promptMaximum)
+  if (lyricsLength && minLyrics !== null && lyricsLength < minLyrics) return tooShort('lyrics', lyricsLength, minLyrics)
+  if (lyricsLength > model.max_lyrics_characters) return tooLong('lyrics', lyricsLength, model.max_lyrics_characters)
+  const seconds = request.duration_seconds
+  if (seconds && model.min_duration_seconds && seconds < model.min_duration_seconds) return `${model.display_name} makes tracks at least ${model.min_duration_seconds} seconds long; this saved item asks for ${seconds}. Nothing was queued.`
+  if (seconds && model.max_duration_seconds && seconds > model.max_duration_seconds) return `${model.display_name} makes tracks up to ${model.max_duration_seconds} seconds long; this saved item asks for ${seconds}. Nothing was queued.`
+  return null
+}
+
+function manualSongPoolClientFingerprint(body: any, sourceJobId: string, sourceItemKey: string): string {
+  return freshActionFingerprint({
+    lane: 'song-pool-manual', model: String(body?.music_model || '').trim(), source_item_key: sourceItemKey,
+    manual_redo: { intent: 'replace_unresolved', source_job_id: sourceJobId },
+    manual_music_payment: structuredClone(body?.manual_music_payment),
+  })
+}
+
+function acceptedManualSongPoolReplay(
+  job: Readonly<Job>, operationId: string, clientFingerprint: string,
+  sourceJobId: string, sourceItemKey: string, modelId: string,
+): boolean {
+  const redo = job.params?.manual_redo
+  const action = job.params?.generation_action
+  return job.type === 'music_generate' && job.episode_id === '' && job.params?.song_pool === true
+    && action?.id === operationId && action?.kind === 'fresh'
+    && redo?.version === 1 && redo?.lane === 'song-pool' && redo?.intent === 'replace_unresolved'
+    && redo?.source_job_id === sourceJobId && redo?.source_item_key === sourceItemKey
+    && redo?.selected_model_id === modelId && redo?.client_request_fingerprint === clientFingerprint
 }
 
 router.post('/projects/:slug/song-pool/plan', async (req, res) => {
@@ -221,40 +395,163 @@ router.post('/projects/:slug/song-pool/generate', async (req, res) => {
     const b = req.body || {}
     const operationId = typeof b.operation_id === 'string' ? b.operation_id.trim() : ''
     if (!OPERATION_ID.test(operationId)) return res.status(400).json({ detail: 'operation_id must be a UUID.' })
-    const mode = ['new', 'fill-gaps', 'regenerate'].includes(b.mode) ? b.mode : 'new'
-    const songIds: string[] = Array.isArray(b.song_ids) ? b.song_ids.map(String) : []
-    if (mode === 'regenerate' && !songIds.length) return res.status(400).json({ detail: 'Pick the songs to regenerate first.' })
-    const count = mode === 'regenerate' ? songIds.length : Math.max(1, Math.min(2000, Math.round(Number(b.count) || 0)))
-    const writer = String(b.writer_model || '').trim()
-    if (mode !== 'regenerate' && !writer) return res.status(400).json({ detail: 'Pick the writing model. It writes the titles and lines; it does not make the audio.' })
-    // Never a default: the first published music row can be a paid cloud model.
-    if (!String(b.music_model || '').trim()) return res.status(400).json({ detail: 'Pick the song model (for example Stable Audio 3 on your fleet).' })
-    if (mode !== 'regenerate') {
-      const got = await songFormulaFor(slug)
-      if ('error' in got) return res.status(409).json({ detail: got.error })
+    let manualRedo
+    try {
+      manualRedo = readManualGenerationRedoIntent(b)
+    } catch (error) {
+      return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid manual replacement.' })
     }
-    const existing = (await jq.findJobs(slug, j => j.type === 'music_generate' && (j.params as any)?.generation_action?.id === operationId))[0]
-    if (existing) return res.status(201).json({ ...existing, reused: true })
-    const live = await activeBatch(slug)
-    if (live) return res.status(409).json({ detail: 'Songs are already being made for this pool. Wait for that batch, or open it on the Jobs page.' })
-    const job = await jq.enqueue({
-      project_slug: slug,
-      type: 'music_generate' as JobType,
-      episode_id: '',
-      title: mode === 'regenerate' ? `Regenerate ${count} song${count === 1 ? '' : 's'}` : `Make ${count} song${count === 1 ? '' : 's'}${mode === 'fill-gaps' ? ' (fill gaps)' : ''}`,
-      params: {
+    if (manualRedo) {
+      const sourceItemKey = typeof b.source_item_key === 'string' ? b.source_item_key.trim() : ''
+      const modelId = typeof b.music_model === 'string' ? b.music_model.trim() : ''
+      if (!sourceItemKey || !modelId) return res.status(400).json({ detail: 'Choose one unresolved Song Pool item and one music model.' })
+      const payment = b.manual_music_payment
+      if (!payment || typeof payment !== 'object' || Array.isArray(payment)
+        || Object.keys(payment).some(key => !['version', 'model_id', 'price_version', 'confirmed_paid_music'].includes(key))
+        || payment.version !== 1 || payment.model_id !== modelId
+        || typeof payment.price_version !== 'string' || typeof payment.confirmed_paid_music !== 'boolean') {
+        return res.status(409).json({ detail: 'Confirm the current published music price for this exact model.' })
+      }
+      const clientFingerprint = manualSongPoolClientFingerprint(b, manualRedo.source_job_id, sourceItemKey)
+      return withLock(`fresh-song-pool:${slug}:${operationId}`, async () => {
+        const previous = (await jq.findJobs(slug, freshActionMatch(operationId)))[0]
+        if (previous) {
+          if (!acceptedManualSongPoolReplay(previous, operationId, clientFingerprint,
+            manualRedo.source_job_id, sourceItemKey, modelId)) {
+            return res.status(409).json({ detail: 'This operation_id already belongs to a different Song Pool action.' })
+          }
+          return res.status(200).json({ ...previous, reused: true })
+        }
+        const source = (await jq.findJobs(slug, job => job.job_id === manualRedo.source_job_id))[0]
+        const batch = source && await songPoolBatch(source)
+        const item = batch?.items.find(candidate => candidate.item_key === sourceItemKey)
+        const attempt = source && batch && item ? exactUnknownMusicAttempt(slug, source, batch, item) : null
+        if (!source || !batch || !item || !attempt || item.song_id) {
+          return res.status(409).json({ detail: 'The selected item is not a durable unresolved Song Pool music request.' })
+        }
+        const apiKey = await getApiKey('genstudio').catch(() => '')
+        const catalog = apiKey ? await listMusicModels(apiKey) : []
+        const model = catalog.find(candidate => candidate.id === modelId)
+        if (!model || model.coming_soon || model.locked) {
+          return res.status(409).json({ detail: 'The selected music model is not currently available.' })
+        }
+        if (!musicModelCanServe(model, {
+          instrumental: attempt.request.instrumental,
+          hasLyrics: !!attempt.request.lyrics,
+        })) {
+          return res.status(409).json({ detail: 'The selected music model cannot make this saved item in its original instrumental or vocal mode.' })
+        }
+        const limitError = musicRequestLimitError(model, attempt.request)
+        if (limitError) return res.status(409).json({ detail: limitError })
+        if (!model.price_version || payment.price_version !== model.price_version) {
+          return res.status(409).json({ detail: 'The published music price changed. Review it and confirm again.' })
+        }
+        const charge = musicPriceClass(model)
+        if (charge === 'unknown') return res.status(409).json({ detail: 'This model has no clear published free or paid price. No music was queued.' })
+        if (charge === 'paid' && payment.confirmed_paid_music !== true) {
+          return res.status(409).json({ detail: 'Confirm this separate paid music request before it is queued.' })
+        }
+        const resourceIdentity = `song-pool:${batch.batch_id}:${sourceItemKey}:music`
+        const params = stampFreshGenerationAction({
+          song_pool: true,
+          mode: 'manual-redo' as const,
+          count: 1,
+          writer_model: '',
+          music_model: modelId,
+          in_flight: 1,
+          batch_id: `b_${operationId.replace(/-/g, '').slice(0, 16)}`,
+          manual_song_pool_item: {
+            version: 1 as const,
+            source_job_id: source.job_id,
+            source_batch_id: batch.batch_id,
+            source_item_key: sourceItemKey,
+            brief: structuredClone(item.brief!),
+            request: structuredClone(attempt.request),
+          },
+          song_pool_action: { version: 1 as const, lane: 'song-pool-manual' as const, client_request_fingerprint: clientFingerprint },
+          manual_redo: {
+            version: 1 as const,
+            intent: manualRedo.intent,
+            lane: 'song-pool' as const,
+            source_job_id: source.job_id,
+            source_batch_id: batch.batch_id,
+            source_item_key: sourceItemKey,
+            selected_model_id: modelId,
+            client_request_fingerprint: clientFingerprint,
+            resource_identity: resourceIdentity,
+            requested_at: new Date().toISOString(),
+            payment: {
+              version: 1 as const, model_id: modelId, price_version: model.price_version,
+              charge_class: charge, credits_per_request: model.credits_per_request,
+              minimum_credits: model.minimum_credits,
+            },
+          },
+        }, operationId)
+        try {
+          const job = await jq.enqueueManualGenerationRedo({
+            project_slug: slug,
+            type: 'music_generate',
+            episode_id: '',
+            title: `Song Pool separate attempt — ${item.brief!.title}`,
+            params,
+          }, {
+            sourceJobId: source.job_id,
+            sourceType: 'music_generate',
+            sourceLabel: 'Song Pool music batch',
+            operation: 'music.generation',
+            evidenceLabel: 'Song Pool music request',
+            resource: {
+              kind: 'custom', identity: resourceIdentity,
+              matches: candidate => candidate.params?.song_pool === true && candidate.params?.batch_id === batch.batch_id,
+            },
+            hasCurrentEvidence: (candidate, entries) => exactUnknownMusicAttempt(slug, candidate, batch, item, entries) !== null,
+          })
+          return res.status(201).json(job)
+        } catch (error: any) {
+          return res.status(error?.status || error?.statusCode || 409).json({ detail: error?.message || 'Could not start the separate Song Pool attempt.' })
+        }
+      })
+    }
+    const normalized = normalizedSongPoolRequest(b)
+    const clientFingerprint = freshActionFingerprint(normalized)
+    const mode = normalized.mode
+    const songIds = normalized.song_ids
+    if (mode === 'regenerate' && !songIds.length) return res.status(400).json({ detail: 'Pick the songs to regenerate first.' })
+    return withLock(`fresh-song-pool:${slug}:${operationId}`, async () => {
+      const existing = (await jq.findJobs(slug, freshActionMatch(operationId)))[0]
+      if (existing) {
+        if (!acceptedSongPoolReplay(existing, operationId, clientFingerprint)) {
+          return res.status(409).json({ detail: 'This operation_id already belongs to a different Song Pool action.' })
+        }
+        return res.status(200).json({ ...existing, reused: true })
+      }
+      const writer = normalized.writer_model
+      if (mode !== 'regenerate' && !writer) return res.status(400).json({ detail: 'Pick the writing model. It writes the titles and lines; it does not make the audio.' })
+      if (!normalized.music_model) return res.status(400).json({ detail: 'Pick the song model (for example Stable Audio 3 on your fleet).' })
+      if (mode !== 'regenerate') {
+        const got = await songFormulaFor(slug)
+        if ('error' in got) return res.status(409).json({ detail: got.error })
+      }
+      const live = await activeBatch(slug)
+      if (live) return res.status(409).json({ detail: 'Songs are already being made for this pool. Wait for that batch, or open it on the Jobs page.' })
+      const count = normalized.count
+      const params = stampFreshGenerationAction({
         song_pool: true, mode, count, writer_model: writer,
-        music_model: String(b.music_model).trim(),
-        ...(String(b.check_model || '').trim() ? { check_model: String(b.check_model).trim() } : {}),
-        ...lengths(b),
-        in_flight: Math.max(1, Math.min(256, Math.round(Number(b.in_flight) || 1))),
+        music_model: normalized.music_model,
+        ...(normalized.check_model ? { check_model: normalized.check_model } : {}),
+        ...lengths(normalized), in_flight: normalized.in_flight,
         ...(songIds.length ? { song_ids: songIds } : {}),
-        ...(mode === 'regenerate' && songIds.length === 1 && b.brief_edits && typeof b.brief_edits === 'object' ? { brief_edits: b.brief_edits } : {}),
+        ...(mode === 'regenerate' && songIds.length === 1 && normalized.brief_edits ? { brief_edits: normalized.brief_edits } : {}),
         batch_id: `b_${operationId.replace(/-/g, '').slice(0, 16)}`,
-        generation_action: { id: operationId, kind: 'fresh' },
-      },
+        song_pool_action: { version: 1 as const, lane: 'song-pool' as const, client_request_fingerprint: clientFingerprint },
+      }, operationId)
+      const job = await jq.enqueue({
+        project_slug: slug, type: 'music_generate' as JobType, episode_id: '',
+        title: mode === 'regenerate' ? `Regenerate ${count} song${count === 1 ? '' : 's'}` : `Make ${count} song${count === 1 ? '' : 's'}${mode === 'fill-gaps' ? ' (fill gaps)' : ''}`,
+        params,
+      })
+      res.status(201).json(job)
     })
-    res.status(201).json(job)
   } catch (e: any) {
     if (e instanceof jq.DuplicateJobError) return res.status(409).json({ detail: 'A music job is already queued or running for this project.' })
     fail(res, e, 'Could not start making songs')

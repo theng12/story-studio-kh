@@ -21,11 +21,13 @@
 import path from 'path'
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
+import { createHash } from 'node:crypto'
 import { buildNarrationDocx } from './docx-builder.js'
 import { narrationDocxToMarkdown } from './docx-parser.js'
 import { matchChapterFile, resolveArtifact, resolveReadPath, readArtifactRawText } from './episode-artifacts.js'
 import { describeLongSentences, normalizeSpokenNumbers, splitLongSentences } from './tts-text.js'
 import { withLock } from './atomic-store.js'
+import { copyToTrashSync, trashRootFor } from './trash-move.js'
 
 export interface NarrationParts {
   intro?: { text: string }
@@ -47,6 +49,45 @@ export interface WriteChapterFilesOptions {
   preserveExisting?: boolean
   /** Current outline timestamp; older chapter files remain replaceable. */
   preserveExistingSince?: string
+  /** Manual replacement CAS + copy-first recoverable package preservation. */
+  manualPromotion?: {
+    expectedRevision: 'missing' | `sha256:${string}`
+    ownerActionId: string
+    projectDir: string
+    projectSlug: string
+    archiveFiles: string[]
+  }
+}
+
+async function currentRevision(file: string): Promise<'missing' | `sha256:${string}`> {
+  try {
+    return `sha256:${createHash('sha256').update(await fs.readFile(file)).digest('hex')}`
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') return 'missing'
+    throw error
+  }
+}
+
+async function preserveManualPackage(target: string, options: WriteChapterFilesOptions): Promise<void> {
+  const promotion = options.manualPromotion
+  if (!promotion) return
+  const revision = await currentRevision(target)
+  if (revision !== promotion.expectedRevision) {
+    throw new Error('The script item changed after this replacement was accepted. The generated candidate was not promoted.')
+  }
+  const root = trashRootFor(promotion.projectDir, promotion.projectDir, promotion.projectSlug)
+  const unique = [...new Set(promotion.archiveFiles.filter(file => existsSync(file)))]
+  for (const file of unique) {
+    const rel = path.relative(promotion.projectDir, file)
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+      throw new Error('A script preservation member is outside its project.')
+    }
+    copyToTrashSync(
+      file,
+      path.join(root, 'script-versions', promotion.ownerActionId, rel),
+      'script-version',
+    )
+  }
 }
 
 /** Saved narration prose: spoken numbers, and no sentence longer than the voice can take whole. */
@@ -213,6 +254,7 @@ export async function writeChapterFiles(
         if (existing?.isFile() && existing.size > 0
           && (!Number.isFinite(since) || existing.mtimeMs >= since)) return
       }
+      await preserveManualPackage(target, options)
       const spokenText = spokenProse(ch.text, `Chapter ${ch.number}`, options)
       const md = `## Chapter ${ch.number.toString().padStart(2, '0')}: ${ch.title}\n\n${spokenText}\n`
       await buildNarrationDocx(md, code, episodeTitle, target, { includeTitleBlock: false })
@@ -220,12 +262,13 @@ export async function writeChapterFiles(
   }
 
   if (parts.intro) {
-    const spokenText = spokenProse(parts.intro.text, 'Introduction', options)
-    const md = `# Introduction\n\n${spokenText}\n`
-    await buildNarrationDocx(
-      md, code, episodeTitle, introductionFilePath(scriptDir, code),
-      { includeTitleBlock: false },
-    )
+    const target = introductionFilePath(scriptDir, code)
+    await withLock(target, async () => {
+      await preserveManualPackage(target, options)
+      const spokenText = spokenProse(parts.intro!.text, 'Introduction', options)
+      const md = `# Introduction\n\n${spokenText}\n`
+      await buildNarrationDocx(md, code, episodeTitle, target, { includeTitleBlock: false })
+    })
   }
 }
 

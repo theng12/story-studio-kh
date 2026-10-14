@@ -56,7 +56,8 @@ import { stripGenStudioModelPrefix } from '../services/genstudio-model-migration
 import { outlineOutputContract } from './story-output-contracts.js'
 import { getOutlineHeadroom } from '../services/app-settings.js'
 import type { TextOutputContract } from './json-output-contract.js'
-import { writeJsonAtomic } from './atomic-store.js'
+import { writeJsonAtomic, withLock } from './atomic-store.js'
+import { copyToTrashSync, trashRootFor } from './trash-move.js'
 import { resolveResearchPaths } from './research-paths.js'
 import {
   splitNarrationIntoChapters,
@@ -66,10 +67,45 @@ import {
 } from './narration-assembly.js'
 import { matchChapterFile, resolveReadPath } from './episode-artifacts.js'
 import * as jq from '../services/job-queue.js'
+import * as pm from '../services/project-manager.js'
 import { safetyGate, safetyMode } from '../services/safety-checks.js'
 import type { Job, Format, Character } from '../models/types.js'
 import type { GenStudioRequestPreview } from './genstudio-request-preview.js'
 import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
+
+export type ScriptDocumentItem = 'outline' | 'introduction' | `chapter:${number}`
+
+/** Persist the exact logical document owner before the provider POST. */
+export async function checkpointScriptDocumentRequest(
+  job: Job,
+  item: ScriptDocumentItem,
+  requestKey: string,
+): Promise<void> {
+  const key = requestKey.trim()
+  if (!key) throw new Error('Script document request key is missing.')
+  const expectedType = item === 'outline' ? 'outline_only'
+    : item === 'introduction' ? 'introduction-only' : 'chapter-only'
+  const authoritative = await jq.mutateAuthoritativeJob(job.project_slug, job.job_id, current => {
+    const paramsEpisode = typeof current.params?.episode_id === 'string' ? current.params.episode_id : current.episode_id
+    const chapter = item.startsWith('chapter:') ? Number(item.slice('chapter:'.length)) : null
+    if (current.type !== expectedType || current.episode_id !== job.episode_id || paramsEpisode !== job.episode_id
+      || (chapter !== null && Number(current.params?.chapter_number) !== chapter)) {
+      throw new Error('The authoritative script job no longer owns the prepared episode and logical item.')
+    }
+    const existing = current.params?.script_document_requests
+    const requests = existing?.version === 1 && Array.isArray(existing.requests)
+      ? structuredClone(existing.requests) : []
+    const owner = requests.find((entry: any) => entry?.request_key === key)
+    if (owner && (owner.episode_id !== job.episode_id || owner.item !== item)) {
+      throw new Error('This script request key is already bound to another logical item.')
+    }
+    if (!owner) requests.push({ episode_id: job.episode_id, item, request_key: key })
+    current.params.script_document_requests = { version: 1, requests }
+    return current
+  })
+  if (!authoritative) throw new Error('The authoritative script job disappeared before provider submission.')
+  job.params.script_document_requests = structuredClone(authoritative.params.script_document_requests)
+}
 
 // ── Tunables ───────────────────────────────────────────────────────────────
 
@@ -868,7 +904,7 @@ export async function buildOutlineOnly(
     params_hash: paramsHash,
     last_updated: nowIso,
   }
-  await writeSidecar(params.scriptDir, sidecar)
+  await writeSidecar(params.scriptDir, sidecar, job)
   job.output_lines.push(
     `[chunked] Outline ready: ${outline.length} chapter slots` +
     `${opts.auto_approve ? ' (auto-approved)' : ' — awaiting user review'}.`,
@@ -1119,6 +1155,15 @@ function pipelineAttemptContext<T extends Record<string, any>>(
   checkpointAccepted?: (idempotencyKey: string) => Promise<void>,
   checkpointPrepared?: (idempotencyKey: string) => Promise<void>,
 ): T & Record<string, any> {
+  const callerPrepared = typeof context.onRequestPrepared === 'function'
+    ? context.onRequestPrepared as (key: string) => void | Promise<void>
+    : undefined
+  const prepared = checkpointPrepared || callerPrepared
+    ? async (key: string) => {
+        await checkpointPrepared?.(key)
+        await callerPrepared?.(key)
+      }
+    : undefined
   return {
     ...context,
     ...(recovery ? {
@@ -1129,7 +1174,7 @@ function pipelineAttemptContext<T extends Record<string, any>>(
     ...(checkpointAccepted ? {
       onJobAccepted: async (_jobId: string, idempotencyKey: string) => checkpointAccepted(idempotencyKey),
     } : {}),
-    ...(checkpointPrepared ? { onRequestPrepared: checkpointPrepared } : {}),
+    ...(prepared ? { onRequestPrepared: prepared } : {}),
   }
 }
 
@@ -1239,6 +1284,7 @@ async function buildOutline(
     requestIdentity: freshGenerationRequestIdentity(job, 'outline') ?? (job.genstudio_chat_retry_scope
       ? `${job.project_slug}:manual-retry:${job.genstudio_chat_retry_scope}`
       : undefined),
+    onRequestPrepared: (requestKey: string) => checkpointScriptDocumentRequest(job, 'outline', requestKey),
   }
   // v1.4.36 — the target is a FLOOR, not a cap. See `outlineOutputContract` and
   // the owner's ruling recorded on `OUTLINE_HEADROOM_KEY`: an outline that
@@ -1987,11 +2033,18 @@ async function parseAndWriteBatch(
   }
   if (filtered.chapters.length === 0) return []
   const sidecar = await readSidecar(params.scriptDir, params.episode_id)
-  await writeChapterFiles(params.scriptDir, params.episode_id, params.title, filtered, {
-    log: params.log,
-    preserveExisting: true,
-    preserveExistingSince: sidecar?.outline_completed_at,
-  })
+  const narrationPath = path.join(params.scriptDir, `${params.episode_id}_Script_Narration.md`)
+  await withLock(narrationPath, () => writeChapterFiles(
+    params.scriptDir,
+    params.episode_id,
+    params.title,
+    filtered,
+    {
+      log: params.log,
+      preserveExisting: true,
+      preserveExistingSince: sidecar?.outline_completed_at,
+    },
+  ))
   return filtered.chapters.map(c => c.number).sort((a, b) => a - b)
 }
 
@@ -2099,16 +2152,39 @@ export async function getOutlineEntryForChapter(
 // configuration).
 const sidecarWriteChains = new Map<string, Promise<void>>()
 
-async function writeSidecar(scriptDir: string, sidecar: ChunkedSidecar): Promise<void> {
+async function writeSidecar(scriptDir: string, sidecar: ChunkedSidecar, ownerJob?: Job): Promise<void> {
   const target = sidecarPath(scriptDir, sidecar.episode_id)
   const previous = sidecarWriteChains.get(target) || Promise.resolve()
   // Capture the snapshot AT QUEUE TIME so two interleaved callers can't
   // both serialise the same older state through the chain.
   const snapshot = { ...sidecar, chapters_done: [...sidecar.chapters_done] }
-  const next = previous.then(
-    () => writeJsonAtomic(target, snapshot),
-    () => writeJsonAtomic(target, snapshot),  // proceed even if previous rejected
-  )
+  const write = () => withLock(target, async () => {
+    const manual = ownerJob?.params?.script_document_write
+    if (manual) {
+      if (manual.version !== 1 || manual.item !== 'outline'
+        || manual.owner_action_id !== ownerJob?.params?.generation_action?.id) {
+        throw new Error('The accepted outline write owner is invalid.')
+      }
+      let revision: string
+      try { revision = `sha256:${createHash('sha256').update(await fs.readFile(target)).digest('hex')}` }
+      catch (error: any) { if (error?.code === 'ENOENT') revision = 'missing'; else throw error }
+      if (revision !== manual.expected_revision) {
+        throw new Error('The outline changed after this replacement was accepted. The generated candidate was not promoted.')
+      }
+      if (existsSync(target)) {
+        const projectDir = pm.getProjectDir(ownerJob.project_slug)
+        if (!projectDir) throw new Error('Project disappeared before outline preservation.')
+        const rel = path.relative(projectDir, target)
+        if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) throw new Error('Outline is outside its project.')
+        copyToTrashSync(target, path.join(
+          trashRootFor(projectDir, projectDir, ownerJob.project_slug),
+          'script-versions', manual.owner_action_id, rel,
+        ), 'script-version')
+      }
+    }
+    await writeJsonAtomic(target, snapshot)
+  })
+  const next = previous.then(write, write)
   sidecarWriteChains.set(target, next)
   await next
   // Only clear the chain if it's still ours — another caller may have

@@ -35,6 +35,7 @@
         v-model:episode-id="episodeId"
         filter-field="scene_plan"
         :presets="planPresets"
+        :require-applied-preset="true"
         :generate-label="headerPrimaryLabel"
         :generate-loading-label="headerPrimaryLoadingLabel"
         :generate-loading="planning || planJobActive"
@@ -42,8 +43,17 @@
         :generate-status="headerPrimaryStatus"
         :generate-status-link="headerPrimaryStatus === subtitleTimelineBlocker ? subtitleTimelineBlockerLink : undefined"
         @generate="runHeaderPrimaryAction"
+        @preset-applied="retireScenePlanUserIntent"
+        @preset-saved="retireScenePlanUserIntent"
       >
         <template #actions>
+          <button
+            v-if="pendingScenePlanSubmission"
+            type="button"
+            class="btn btn-secondary"
+            :disabled="planning"
+            @click="retryScenePlanSubmission"
+          >Retry last request</button>
           <button
             v-if="plan?.scenes?.length"
             class="btn btn-secondary"
@@ -201,7 +211,7 @@
     >
       <div class="scene-workflow-grid mt-2">
         <div class="scene-setting-card scene-setting-model">
-          <ModelSelector ref="modelSelector" v-model="form.model" :project-slug="slug" writing-step label="Visual & motion prompt model" @model-meta="selectedModelMeta = $event" />
+          <ModelSelector ref="modelSelector" v-model="form.model" :project-slug="slug" writing-step label="Visual & motion prompt model" @model-meta="selectedModelMeta = $event" @user-selected="retireScenePlanUserIntent" />
           <!-- Published live per model. An estimate for transparency: token
                budgets are never converted into a character limit, because
                characters per token differ by language (Khmer especially). -->
@@ -1167,6 +1177,7 @@ import { readRememberedImageModelId } from '../../../utils/project-image-model.j
 import { composeScenePlanGuidance } from '../../../utils/scene-plan-guidance.js'
 import { customerSafeJobText } from '../../../utils/job-presentation.js'
 import { DEFAULT_EXCLUDE_KEYS } from '~/composables/usePresets'
+import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
 import { useVisualStyleCatalog } from '~/composables/useVisualStyleCatalog'
 import { pacingBandAt, type ScenePacing } from '@shared/pacing'
 import { describeSubtitleGaps, renarrateLink, subtitleChapterLabel } from '@shared/subtitle-gaps'
@@ -1181,7 +1192,8 @@ const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put, del } = useApi()
 const freshScenePromptAction = useFreshGenerationAction()
-const { success, error: showError } = useToast()
+const freshScenePlanRunAction = useFreshGenerationAction()
+const { success, error: showError, showAction } = useToast()
 const { ask } = useConfirm()
 const { revalidate: revalidateEpisodes } = useEpisodes(slug)
 // Project-level prompt defaults; timing and motion remain per episode.
@@ -1716,6 +1728,72 @@ function refusedChapterMessage(chapter: NonNullable<NonNullable<ScenePlanStatus[
 // auto-memory: per-episode-inflight-gating.md.)
 const planningEpisode = ref<string | null>(null)
 const planning = computed(() => planningEpisode.value === episodeId.value)
+type ScenePlanRunStage = 'timeline' | 'visual' | 'motion'
+interface ScenePlanSubmission {
+  targetSlug: string
+  episodeId: string
+  operationId: string
+  stage: ScenePlanRunStage
+  body: Record<string, unknown>
+  previousGeneratedAt?: string | null
+  outcomeUnknown?: boolean
+}
+const pendingScenePlanSubmission = shallowRef<ScenePlanSubmission | null>(null)
+let scenePlanUserEpoch = 0
+let scenePlanSubmitOwner = 0
+
+function retireScenePlanUserIntent(): void {
+  scenePlanUserEpoch += 1
+  freshScenePlanRunAction.cancel()
+}
+
+function provesNewAdmissionRejected(error: any, wasAlreadyUnknown: boolean): boolean {
+  if (wasAlreadyUnknown) return false
+  const status = Number(error?.statusCode ?? error?.status ?? error?.response?.status)
+  return [400, 404, 409, 410, 422].includes(status)
+}
+
+async function submitScenePlanSubmission(capture: ScenePlanSubmission): Promise<void> {
+  const owner = ++scenePlanSubmitOwner
+  pendingScenePlanSubmission.value = structuredClone(capture)
+  planningEpisode.value = capture.episodeId
+  planningStage.value = capture.stage
+  try {
+    const job = await post<{ job_id?: string }>(
+      `/projects/${capture.targetSlug}/scene-plan/${capture.episodeId}/run`,
+      structuredClone(capture.body),
+    )
+    if (owner !== scenePlanSubmitOwner || slug.value !== capture.targetSlug || episodeId.value !== capture.episodeId) return
+    freshScenePlanRunAction.complete(capture.operationId)
+    pendingScenePlanSubmission.value = null
+    success(capture.stage === 'timeline'
+      ? 'Timeline build started — no AI is needed for this step.'
+      : `${capture.stage === 'visual' ? 'Picture' : 'Motion'} prompts started — progress is on the Jobs page.`)
+    await pollUntilPlanLanded(capture.episodeId, {
+      previousGeneratedAt: capture.previousGeneratedAt,
+      timeoutMs: capture.stage === 'timeline' ? undefined : 3_600_000,
+      trackJobId: job?.job_id || null,
+    })
+  } catch (error: any) {
+    if (owner !== scenePlanSubmitOwner || slug.value !== capture.targetSlug || episodeId.value !== capture.episodeId) return
+    if (provesNewAdmissionRejected(error, capture.outcomeUnknown === true)) {
+      freshScenePlanRunAction.complete(capture.operationId)
+      pendingScenePlanSubmission.value = null
+      showError(error?.data?.detail || error?.message || 'Scene Plan did not accept this request.')
+      return
+    }
+    pendingScenePlanSubmission.value = { ...capture, outcomeUnknown: true, body: structuredClone(capture.body) }
+    showAction(UNCONFIRMED_SUBMISSION, 'Retry', () => retryScenePlanSubmission(), 'error')
+  } finally {
+    if (owner === scenePlanSubmitOwner && planningEpisode.value === capture.episodeId) planningEpisode.value = null
+  }
+}
+
+function retryScenePlanSubmission(): void {
+  const capture = pendingScenePlanSubmission.value
+  if (!capture || planning.value) return
+  void submitScenePlanSubmission({ ...capture, body: structuredClone(capture.body) })
+}
 // v1.0.307 — also reflect a scene_plan_run already queued/running for this
 // episode, so the button stays greyed even after a page reload (the local
 // `planning` ref doesn't survive one). See useJobs.isJobActiveFor.
@@ -2139,7 +2217,11 @@ function pacingSummary(pacing: ScenePacing): string {
 // and is handed to the writer as a limit, not as a length to fill. Nothing is
 // ever truncated: an over-ceiling prompt is counted, flagged amber, and left
 // exactly as written.
-const { models: genStudioImageModels, refresh: refreshGenStudioImageModels } = useGenStudioImageModels()
+const {
+  models: genStudioImageModels,
+  refresh: refreshGenStudioImageModels,
+  find: findGenStudioImageModel,
+} = useGenStudioImageModels()
 /** Only models this account can actually submit to are worth writing for. */
 const usableImageModels = computed(() =>
   genStudioImageModels.value.filter(model => model.available !== false && model.qualification_only !== true),
@@ -2472,6 +2554,15 @@ function retryStatus(): void {
 
 async function planScenes(): Promise<void> {
   if (!canPlan.value) return
+  if (!planPresets.activeId.value || planPresets.isDirty.value) {
+    showError('Apply the selected Scene Plan preset, or save these reusable settings, before generating.')
+    return
+  }
+  const intentEpoch = ++scenePlanUserEpoch
+  freshScenePlanRunAction.cancel()
+  const targetSlug = slug.value
+  const ep = episodeId.value
+  const presetId = planPresets.activeId.value
   if (plan.value?.scenes?.length) {
     const ok = await ask({
       title: 'Start every scene over?',
@@ -2481,21 +2572,18 @@ async function planScenes(): Promise<void> {
       danger: true,
     })
     if (!ok) return
+    if (intentEpoch !== scenePlanUserEpoch || slug.value !== targetSlug || episodeId.value !== ep
+      || planPresets.activeId.value !== presetId) return
   }
-  const ep = episodeId.value
-  planningEpisode.value = ep
-  planningStage.value = 'timeline'
-  try {
-    // No opening fields travel with the request any more — the backend probes
-    // the project's real opening clips instead. See `refreshMeasuredOpening`.
-    const job = await post<{ job_id?: string }>(`/projects/${slug.value}/scene-plan/${ep}/run`, { stage: 'timeline' })
-    success('Timeline build started — no AI is needed for this step.')
-    await pollUntilPlanLanded(ep, { trackJobId: job?.job_id || null })
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to start planner')
-  } finally {
-    if (planningEpisode.value === ep) planningEpisode.value = null
+  const payload = {
+    stage: 'timeline',
+    preset_id: presetId,
   }
+  const operationId = freshScenePlanRunAction.begin(payload, `timeline:${ep}`)
+  await submitScenePlanSubmission({
+    targetSlug, episodeId: ep, operationId, stage: 'timeline',
+    body: { ...payload, operation_id: operationId },
+  })
 }
 
 async function runPromptStage(stage: 'visual' | 'motion', promptLimit?: number): Promise<void> {
@@ -2505,36 +2593,30 @@ async function runPromptStage(stage: 'visual' | 'motion', promptLimit?: number):
     return
   }
   if (!form.value.model || !plan.value) return
+  if (!planPresets.activeId.value || planPresets.isDirty.value) {
+    showError('Apply the selected Scene Plan preset, or save these reusable settings, before generating.')
+    return
+  }
+  const intentEpoch = ++scenePlanUserEpoch
+  freshScenePlanRunAction.cancel()
+  const targetSlug = slug.value
   const ep = episodeId.value
-  planningEpisode.value = ep
-  planningStage.value = stage
+  const presetId = planPresets.activeId.value
   const previousGeneratedAt = plan.value.generated_at || null
-  try {
-    const job = await post<{ job_id?: string }>(`/projects/${slug.value}/scene-plan/${ep}/run`, {
-      model: form.value.model,
+  const payload = {
       stage,
       prompt_limit: promptLimit,
-      prompt_pack_size: form.value.prompt_pack_size,
-      use_research: form.value.use_research,
-      prompt_max_tokens: stage === 'visual' ? form.value.prompt_max_tokens : undefined,
-      // The RESOLVED ceiling: the workspace is the only place that knows which
-      // image model these prompts are for. 0 → undefined → no limit is sent.
-      prompt_char_cap: stage === 'visual' ? (effectivePromptCharCap.value || undefined) : undefined,
-      detail_level: 4,
-      motion_level: form.value.motion_level,
-      creative_direction: creativeDirectionPayload.value,
-      // X-06 — the episode box plus the preset-carried reusable text, composed
-      // into the one guidance input the backend accepts.
-      custom_instructions: composeScenePlanGuidance(form.value.custom_instructions, form.value.reusable_guidance),
-      avoid_legible_text: form.value.avoid_legible_text,
-    })
-    success(`${stage === 'visual' ? 'Picture' : 'Motion'} prompts started — progress is on the Jobs page.`)
-    await pollUntilPlanLanded(ep, { previousGeneratedAt, timeoutMs: 3_600_000, trackJobId: job?.job_id || null })
-  } catch (e: any) {
-    await reportGenerationError(e, `Failed to start ${stage} prompt stage`)
-  } finally {
-    if (planningEpisode.value === ep) planningEpisode.value = null
+      preset_id: presetId,
+      custom_instructions: form.value.custom_instructions,
   }
+  if (intentEpoch !== scenePlanUserEpoch || slug.value !== targetSlug || episodeId.value !== ep
+    || planPresets.activeId.value !== presetId) return
+  const operationId = freshScenePlanRunAction.begin(payload, `${stage}:${ep}`)
+  await submitScenePlanSubmission({
+    targetSlug, episodeId: ep, operationId, stage,
+    body: { ...payload, operation_id: operationId },
+    previousGeneratedAt,
+  })
 }
 
 /** Returns the tracked job's final status ('done' | 'error' | 'cancelled'), or null when untracked/abandoned. */
@@ -3188,6 +3270,7 @@ function removeScene(i: number): void {
 
 const visualTimingMotion = ref<{
   snapshotPreset: () => Record<string, unknown>
+  snapshotPresetForComparison: () => Record<string, unknown> | null
   applyPreset: (data: any) => void
 } | null>(null)
 const visualPresetNotice = ref('')
@@ -3203,8 +3286,54 @@ function snapshotVisualPreset(): Record<string, unknown> {
   return {}
 }
 
+function snapshotVisualPresetForComparison(): Record<string, unknown> | null {
+  if (visualTimingMotion.value) return visualTimingMotion.value.snapshotPresetForComparison()
+  if (episodeId.value && episodeVisualSource.value !== 'image_pool') return null
+  return {}
+}
+
+function snapshotScenePlanPresetForComparison(): Record<string, unknown> | null {
+  const visual = snapshotVisualPresetForComparison()
+  if (visual == null) return null
+  return {
+    model: form.value.model,
+    use_research: form.value.use_research,
+    prompt_pack_size: form.value.prompt_pack_size,
+    prompt_max_tokens: form.value.prompt_max_tokens,
+    intended_image_model: form.value.intended_image_model,
+    prompt_char_cap: form.value.prompt_char_cap,
+    creative_direction: creativeDirectionPayload.value,
+    detail_level: 4,
+    custom_instructions: form.value.custom_instructions,
+    reusable_guidance: form.value.reusable_guidance,
+    avoid_legible_text: form.value.avoid_legible_text,
+    ...visual,
+  }
+}
+
 // Restoring remembered prompt settings on mount must not apply a rhythm to
 // an episode. Only the explicit preset Apply action reaches the timing panel.
+function scenePlanPromptDefaults() {
+  return {
+    model: '',
+    use_research: true,
+    prompt_pack_size: 'auto' as PromptPackSetting,
+    prompt_max_tokens: 'auto' as PromptTokenSetting,
+    intended_image_model: '',
+    // The server treats an absent legacy cap as no ceiling. `auto` is a
+    // distinct current choice that follows a selected image model's live cap.
+    prompt_char_cap: 'none' as PromptCharCapSetting,
+    avoid_legible_text: ((projectConfig.value as any)?.avoid_legible_text_in_scenes) !== false,
+    creative_profile: 'narrative' as CreativeProfile,
+    creative_intensity: 2,
+    creative_strategies: ['literal-narrative', 'editorial-metaphor', 'symbolic', 'poetic-environment'] as CreativeStrategy[],
+    creative_motifs: '',
+    creative_avoid_cliches: '',
+    creative_custom_direction: '',
+    reusable_guidance: '',
+  }
+}
+
 function applyPromptPreset(data: any): void {
   // Retired presets may contain a per-plan style. Ignore it so Character
   // Sheet remains the single authoritative style source.
@@ -3223,7 +3352,21 @@ function applyPromptPreset(data: any): void {
   delete activeData.opening_reserved_sec
   const savedCreative = activeData.creative_direction as Partial<CreativeDirection> | undefined
   delete activeData.creative_direction
-  Object.assign(form.value, activeData)
+  const defaults = scenePlanPromptDefaults()
+  form.value.model = typeof activeData.model === 'string' ? activeData.model : defaults.model
+  form.value.use_research = activeData.use_research === false ? false : defaults.use_research
+  form.value.intended_image_model = typeof activeData.intended_image_model === 'string'
+    ? activeData.intended_image_model : defaults.intended_image_model
+  form.value.avoid_legible_text = typeof activeData.avoid_legible_text === 'boolean'
+    ? activeData.avoid_legible_text : defaults.avoid_legible_text
+  form.value.reusable_guidance = typeof activeData.reusable_guidance === 'string'
+    ? activeData.reusable_guidance : defaults.reusable_guidance
+  form.value.creative_profile = defaults.creative_profile
+  form.value.creative_intensity = defaults.creative_intensity
+  form.value.creative_strategies = [...defaults.creative_strategies]
+  form.value.creative_motifs = defaults.creative_motifs
+  form.value.creative_avoid_cliches = defaults.creative_avoid_cliches
+  form.value.creative_custom_direction = defaults.creative_custom_direction
   if (savedCreative) {
     if (CREATIVE_PROFILES.some(profile => profile.id === savedCreative.profile)) {
       form.value.creative_profile = savedCreative.profile as CreativeProfile
@@ -3237,15 +3380,15 @@ function applyPromptPreset(data: any): void {
     form.value.creative_avoid_cliches = savedCreative.avoid_cliches || ''
     form.value.creative_custom_direction = savedCreative.custom_direction || ''
   }
-  setPromptPackSetting(form.value.prompt_pack_size)
+  setPromptPackSetting(activeData.prompt_pack_size ?? defaults.prompt_pack_size)
   // Restores the SELECTION only. A custom ceiling is NOT raised to the
   // model's published cap — a smaller one is a deliberate cost control — and
   // an unknown intended model simply resolves to "no limit".
-  setPromptCharCapSetting(form.value.prompt_char_cap)
+  setPromptCharCapSetting(activeData.prompt_char_cap ?? defaults.prompt_char_cap)
   // A preset stores the SELECTION, never a copied catalogue limit. Clamp the
   // restored allowance against what the model publishes right now.
   form.value.prompt_max_tokens = clampOutputAllowance(
-    normalizePromptTokenSetting(form.value.prompt_max_tokens),
+    normalizePromptTokenSetting(activeData.prompt_max_tokens ?? defaults.prompt_max_tokens),
     publishedMaxOutput.value,
   )
 }
@@ -3273,6 +3416,11 @@ const planPresets = usePresets<any>({
   // exclusion list, excluding it here would silently discard it on the way back
   // in as well (AGENTS.md §5's two-way trap).
   excludeKeys: [...DEFAULT_EXCLUDE_KEYS, 'custom_instructions'],
+  normalizeForComparison: (data) => ({
+    ...data,
+    intended_image_model: findGenStudioImageModel(data.intended_image_model)?.id || data.intended_image_model,
+  }),
+  comparisonSnapshot: snapshotScenePlanPresetForComparison,
   snapshot: () => ({
     model: form.value.model,
     use_research: form.value.use_research,
@@ -3309,6 +3457,9 @@ const planPresets = usePresets<any>({
 })
 
 watch([slug, episodeId], () => {
+  retireScenePlanUserIntent()
+  scenePlanSubmitOwner += 1
+  planningEpisode.value = null
   visualPresetNotice.value = ''
   // X-06 (owner decision 2026-09-22) — the box above is labelled "this episode
   // only", so written guidance must not follow the customer to the next one and
@@ -3345,8 +3496,7 @@ watch(() => [route.query.episode_id, route.query.episode], ([episodeFromId, epis
 })
 onMounted(() => {
   void planPresets.load().then(() => {
-    const preset = planPresets.presets.value.find(p => p.id === planPresets.activeId.value)
-    if (preset) applyPromptPreset(preset.data)
+    if (planPresets.activeData.value) applyPromptPreset(planPresets.activeData.value)
   })
   // The character ceiling is only as honest as the catalogue behind it.
   void refreshGenStudioImageModels().catch(() => {})

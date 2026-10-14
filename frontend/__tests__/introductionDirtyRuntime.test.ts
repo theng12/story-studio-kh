@@ -44,7 +44,7 @@ async function loadPage(): Promise<Component> {
     const usePresets = () => ({ load: async () => undefined })
     const useJobs = () => ({ jobs: F().jobs })
     const useUnsavedGuard = (dirty) => { F().dirty = dirty }
-    const useFreshGenerationAction = () => ({ begin: () => 'op-1', complete: () => undefined })
+    const useFreshGenerationAction = () => ({ begin: () => 'op-1', complete: () => undefined, cancel: () => undefined })
     const introductionInFlightFor = (...a) => F().watch.introductionInFlight(...a)
     const introductionJobSignalFor = (...a) => F().watch.introductionJobSignal(...a)
     const settleIntroductionJobs = (...a) => F().watch.settleIntroductionJobs(...a)

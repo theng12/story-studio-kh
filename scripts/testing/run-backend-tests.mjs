@@ -92,8 +92,8 @@ async function snapshotTree(root) {
  * `--only image-episode` finds `image-episode-concurrency.test.ts` without
  * anyone having to think about globs or regex escaping.
  */
-function parseOnly(argv) {
-  const needles = []
+export function parseBackendTestArgs(argv) {
+  const options = { onlyNeedles: [], probe: false, failAfterSetup: false, help: false }
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     if (arg === '--only') {
@@ -104,15 +104,27 @@ function parseOnly(argv) {
       if (!value || value.startsWith('--')) {
         throw new Error('--only needs a value, e.g. --only image-episode')
       }
-      needles.push(value)
+      options.onlyNeedles.push(value)
       i += 1
     } else if (arg.startsWith('--only=')) {
       const value = arg.slice('--only='.length)
       if (!value) throw new Error('--only needs a value, e.g. --only=image-episode')
-      needles.push(value)
+      options.onlyNeedles.push(value)
+    } else if (arg === '--probe') {
+      options.probe = true
+    } else if (arg === '--fail-after-setup') {
+      options.failAfterSetup = true
+    } else if (arg === '--help') {
+      options.help = true
+    } else {
+      throw new Error(`Unsupported backend test runner option: ${arg}`)
     }
   }
-  return needles
+  return options
+}
+
+export function parseOnly(argv) {
+  return parseBackendTestArgs(argv).onlyNeedles
 }
 
 export function selectOnly(files, needles) {
@@ -157,7 +169,16 @@ function trustedTempDir() {
   }
 }
 
-async function run() {
+export async function retainSandbox(sandbox, fixtures = path.join(ROOT, '_trash', 'test-fixtures')) {
+  await fs.mkdir(fixtures, { recursive: true })
+  const container = await fs.mkdtemp(path.join(fixtures, 'backend-test-harness-'))
+  const retained = path.join(container, path.basename(sandbox))
+  await fs.rename(sandbox, retained)
+  console.log(`[test-harness] retained sandbox: ${retained}`)
+  return retained
+}
+
+async function run(options) {
   let sandbox
   try {
     sandbox = await fs.mkdtemp(path.join(trustedTempDir(), 'story-studio-backend-tests-'))
@@ -177,7 +198,7 @@ async function run() {
       writeJson(path.join(fakeAppData, 'Story Studio KH', 'app-settings.json'), settings),
       writeJson(path.join(fakeXdgConfig, 'Story Studio KH', 'app-settings.json'), settings),
     ])
-    if (process.argv.includes('--fail-after-setup')) {
+    if (options.failAfterSetup) {
       console.log(`[test-harness] sandbox: ${sandbox}`)
       throw new Error('intentional backend test harness setup failure')
     }
@@ -185,13 +206,13 @@ async function run() {
 
     const require = createRequire(import.meta.url)
     const tsxCli = require.resolve('tsx/cli')
-    const onlyNeedles = parseOnly(process.argv)
+    const onlyNeedles = options.onlyNeedles
     // Real paths on both sides: Node's reporter names files by their resolved
     // path, and on macOS a discovered path can differ only by a symlink
     // (/var -> /private/var). Comparing the two unresolved would report every
     // file as missing — a coverage floor that cries wolf gets switched off.
     const allTests = await Promise.all(
-      (process.argv.includes('--probe') ? [PROBE_PATH] : await backendTestFiles())
+      (options.probe ? [PROBE_PATH] : await backendTestFiles())
         .map(file => fs.realpath(file)),
     )
     const tests = selectOnly(allTests, onlyNeedles)
@@ -297,7 +318,7 @@ async function run() {
     }
     process.exitCode = exitCode
   } finally {
-    if (sandbox) await fs.rm(sandbox, { recursive: true, force: true })
+    if (sandbox) await retainSandbox(sandbox)
   }
 }
 
@@ -472,9 +493,26 @@ export function assertEverySuiteCompleted(discoveredFiles, records) {
   return result
 }
 
+const USAGE = `Usage: node scripts/testing/run-backend-tests.mjs [options]
+
+Options:
+  --only <substring>   Run backend test files whose names contain the substring (repeatable)
+  --only=<substring>   Equivalent inline form
+  --probe              Run the single hermetic harness probe
+  --fail-after-setup   Stop after sandbox setup (harness self-test)
+  --help               Show this help without creating a sandbox or running tests`
+
 // Importing this module (a test reaching for `assertSummaryAgrees`,
 // `assertEverySuiteCompleted` or `selectOnly`) must NOT launch the backend
 // suite as a side effect.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  await run()
+  try {
+    const options = parseBackendTestArgs(process.argv.slice(2))
+    if (options.help) console.log(USAGE)
+    else await run(options)
+  } catch (error) {
+    console.error(`[test-harness] ${error instanceof Error ? error.message : String(error)}`)
+    console.error(USAGE)
+    process.exitCode = 2
+  }
 }
