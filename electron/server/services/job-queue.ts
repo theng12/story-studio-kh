@@ -5257,7 +5257,8 @@ type ChapterWriterAdmissionReservation = { owner: symbol; scope: ChapterWriterAd
 const chapterWriterAdmissionReservations = new Map<string, ChapterWriterAdmissionReservation>()
 
 function isChapterWriterScope(scope: Pick<EnqueueOptions, 'type'>): boolean {
-  return scope.type === 'expand_chapters' || scope.type === 'chapter-only'
+  return scope.type === 'outline_only' || scope.type === 'introduction-only'
+    || scope.type === 'expand_chapters' || scope.type === 'chapter-only'
 }
 
 function chapterWriterReservationConflicts(
@@ -5265,11 +5266,15 @@ function chapterWriterReservationConflicts(
   reserved: ChapterWriterAdmissionScope,
 ): boolean {
   if (requested.type === 'expand_chapters') return isChapterWriterScope(reserved)
+  if (requested.type === 'outline_only') {
+    return reserved.type === 'outline_only' || reserved.type === 'expand_chapters' || reserved.type === 'chapter-only'
+  }
+  if (requested.type === 'introduction-only') {
+    return reserved.type === 'introduction-only' || reserved.type === 'expand_chapters' || reserved.type === 'chapter-only'
+  }
   if (requested.type !== 'chapter-only') return false
-  if (reserved.type === 'expand_chapters') return true
-  if (reserved.type !== 'chapter-only') return false
-  if (requested.dedupeParams) return requested.dedupeParams(reserved.params || {})
-  return true
+  if (reserved.type === 'expand_chapters' || reserved.type === 'outline_only' || reserved.type === 'introduction-only') return true
+  return reserved.type === 'chapter-only' && (!requested.dedupeParams || requested.dedupeParams(reserved.params || {}))
 }
 
 function reserveChapterWriterAdmission(scope: ChapterWriterAdmissionScope): symbol | null {
@@ -5305,13 +5310,7 @@ function assertChapterWriterAdmission(
     const occupiesEpisode = job.status === 'queued' || job.status === 'running' || job.status === 'paused'
       || activeRunJobIds.has(job.job_id)
     if (!occupiesEpisode) continue
-    const sameTargetedChapterStillUnwinding = opts.type === 'chapter-only'
-      && job.type === 'chapter-only'
-      && activeRunJobIds.has(job.job_id)
-      && (!opts.dedupeParams || opts.dedupeParams(job.params || {}))
-    const conflicts = opts.type === 'expand_chapters'
-      ? job.type === 'expand_chapters' || job.type === 'chapter-only'
-      : job.type === 'expand_chapters' || sameTargetedChapterStillUnwinding
+    const conflicts = chapterWriterReservationConflicts(opts, job)
     if (conflicts) throw new DuplicateJobError(opts.type, opts.episode_id)
   }
 }

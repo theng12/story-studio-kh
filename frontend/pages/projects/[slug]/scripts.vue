@@ -1,5 +1,5 @@
 <template>
-  <div class="workspace-page creation-workspace scripts-workspace">
+  <div class="workspace-page creation-workspace scripts-workspace" @input="retireOutlineManualAction" @change="retireOutlineManualAction">
     <WorkspaceHero
       eyebrow="Create · Write"
       title="Script Generator"
@@ -25,10 +25,24 @@
       :generate-status="scriptJobActiveForEpisode ? `Building outline for ${form.episode_id}…` : submitDisabledReason"
       @generate="submitOutline"
       @episode-selected="onEpisodeSelected"
+      @preset-applied="retireOutlineManualAction"
       />
       <p class="workspace-command-copy">
         Create an outline, approve and expand it in <strong>Script</strong>. Your Formula controls the narrator, opening policy, and writing rules.
       </p>
+      <label v-if="manualRedoPreferenceEnabled && outlineManualSources.length" class="script-manual-redo">
+        <span>
+          <input v-model="manualOutlineChecked" type="checkbox" />
+          Create another outline version from a stopped request
+        </span>
+        <select v-if="outlineManualSources.length > 1" v-model="manualOutlineSourceId" class="input input-sm">
+          <option value="">Choose stopped attempt…</option>
+          <option v-for="source in outlineManualSources" :key="source.source_job_id" :value="source.source_job_id">
+            {{ source.label }}
+          </option>
+        </select>
+        <small>The earlier request may still finish. Its evidence and the current outline stay recoverable.</small>
+      </label>
     </div>
 
 
@@ -124,9 +138,10 @@
         </span>
         <div v-if="useCharacters" class="mt-2">
           <CharacterPicker
-            v-model="form.character_ids"
+            :model-value="form.character_ids"
             :project-slug="slug"
             :episode-code="form.episode_id"
+            @update:model-value="onCharacterSelection"
           />
         </div>
       </div>
@@ -150,7 +165,7 @@
            mandatory decision on every run. -->
       <div class="grid-2 mt-2">
         <div class="form-group">
-          <ModelSelector v-model="form.model" :project-slug="slug" writing-step @model-meta="onScriptModelMeta" />
+          <ModelSelector v-model="form.model" :project-slug="slug" writing-step @model-meta="onScriptModelMeta" @user-selected="retireOutlineManualAction" />
           <!-- Published rate for the SELECTED product, never a total: script
                length in tokens is unknown until the model has written it. -->
           <p v-if="selectedChatModel" class="script-rate" :class="`basis-${chatRateNote.basis}`" :title="chatRateNote.title">
@@ -473,7 +488,7 @@
           <button
             type="button"
             class="btn btn-secondary btn-sm"
-            @click="form.chapters = titleCountMismatch.titleNumber"
+            @click="useTitleChapterCount"
             :title="`Use ${titleCountMismatch.titleNumber} chapters to match the title`"
           >
             Use {{ titleCountMismatch.titleNumber }} chapters
@@ -570,8 +585,10 @@
       :refresh-key="outlineRefreshKey"
       :style-labels="narratorStyleLabels"
       :custom-style-text="customStyleText"
+      :manual-user-epoch="outlineManualUserEpoch"
       @expansion-queued="onExpansionQueued"
       @outline-loaded="onOutlineLoaded"
+      @manual-user-edit="retireOutlineManualAction"
     />
 
     </div><!-- /Outline tab -->
@@ -668,7 +685,7 @@ watch(scriptsTab, (v) => {
 const panelsReady = ref(false)
 const { post, patch } = useApi()
 const freshScriptAction = useFreshGenerationAction()
-const { success, info: showInfo, error: showError } = useToast()
+const { success, info: showInfo, error: showError, showAction } = useToast()
 // v1.0.72+: with chunked-always, every script flows through outline +
 // expansion regardless of size. This threshold no longer gates which
 // pipeline runs — it only gates the cost-preview confirmation dialog,
@@ -688,6 +705,46 @@ const previewRefreshKey = ref(0)
 // watcher also reloads on terminal status, this is a manual nudge for
 // non-job triggers like episode switch).
 const outlineRefreshKey = ref(0)
+type ScriptManualSource = {
+  source_job_id: string
+  item_key: 'outline' | 'introduction' | `chapter:${number}`
+  label: string
+}
+const manualRedoPreferenceEnabled = ref(false)
+const manualOutlineChecked = ref(false)
+const manualOutlineSourceId = ref('')
+const scriptManualSources = ref<ScriptManualSource[]>([])
+const outlineManualUserEpoch = ref(0)
+const activeManualOutlineOperation = ref('')
+let outlineSubmitOwner = 0
+const outlineManualSources = computed(() => scriptManualSources.value.filter(source => source.item_key === 'outline'))
+const selectedManualOutlineSource = computed(() => {
+  if (outlineManualSources.value.length === 1) return outlineManualSources.value[0]!
+  return outlineManualSources.value.find(source => source.source_job_id === manualOutlineSourceId.value) || null
+})
+
+async function loadScriptManualRedoState(): Promise<void> {
+  const targetSlug = slug.value
+  const targetEpisode = form.episode_id
+  try {
+    const setting = await get<{ enabled?: boolean }>('/app-settings/manual-generation-redo', { cache: 'no-store' })
+    if (slug.value !== targetSlug) return
+    manualRedoPreferenceEnabled.value = setting?.enabled === true
+    if (!manualRedoPreferenceEnabled.value || !targetEpisode) {
+      scriptManualSources.value = []
+      return
+    }
+    const data = await get<{ sources?: ScriptManualSource[] }>(
+      `/projects/${targetSlug}/scripts/manual-redo-sources?episode_id=${encodeURIComponent(targetEpisode)}`,
+      { cache: 'no-store' },
+    )
+    if (slug.value === targetSlug && form.episode_id === targetEpisode) {
+      scriptManualSources.value = Array.isArray(data.sources) ? data.sources : []
+    }
+  } catch {
+    if (slug.value === targetSlug && form.episode_id === targetEpisode) scriptManualSources.value = []
+  }
+}
 
 // v1.0.269 — Bring-your-own content import (full script or outline).
 const byoOpen = ref(false)
@@ -1088,6 +1145,7 @@ const outlineFormatMismatch = computed(() => {
 function setChaptersToNicheDefault() {
   const target = nicheContext.value?.scriptStructure?.defaultChapterCount
   if (!target || target <= 0) return
+  retireOutlineManualAction()
   form.chapters = target
   // Recompute the dependent fields so the word-summary stays consistent
   // — same logic onChaptersChange runs when the user types.
@@ -1099,6 +1157,7 @@ function setChaptersToNicheDefault() {
 function setChaptersToFormatDefault() {
   const target = formatContext.value?.defaultChapterCount
   if (!target || target <= 0) return
+  retireOutlineManualAction()
   form.chapters = target
   if (form.words_per_chapter > 0) {
     form.total_words = form.chapters * form.words_per_chapter
@@ -1392,6 +1451,7 @@ onMounted(async () => {
   void refreshGenStudioChatModels()
   await applyScriptFormatDefaultsIfNoPreset()
   await scriptPresets.load()
+  await loadScriptManualRedoState()
   // v1.0.106+ — load the recency state for the avoidance strip. After
   // generation completes the executor appends to the log; we refresh
   // here so the strip + count reflect what's on disk.
@@ -1459,6 +1519,25 @@ const watchedScriptTypes = new Set<string>([
   'introduction-only', 'outline_only', 'expand_chapters', 'chapter-only',
 ])
 
+function claimOutlineSubmit(): number {
+  const owner = ++outlineSubmitOwner
+  submitting.value = true
+  scriptGenerating.value = true
+  return owner
+}
+
+function ownsOutlineSubmit(owner: number): boolean {
+  return outlineSubmitOwner === owner
+}
+
+function retireOutlineSubmitView(): void {
+  outlineSubmitOwner++
+  submitting.value = false
+  const hasKnownWriter = jobs.value.some(job => (job.type === 'script' || watchedScriptTypes.has(job.type))
+    && (job.status === 'queued' || job.status === 'running'))
+  if (!hasKnownWriter) scriptGenerating.value = false
+}
+
 // v1.0.115+ — per-episode "is a script-related job in flight" computed.
 // The global `scriptGenerating` (from useGenerating) stays true as long
 // as ANY script job is queued/running, so its status text leaked into
@@ -1479,7 +1558,11 @@ const scriptJobActiveForEpisode = computed(() => {
 // typed for. The new episode's own direction arrives with its outline.
 watch(() => form.episode_id, (newEp, oldEp) => {
   if (newEp === oldEp) return
-  submitting.value = false
+  retireOutlineManualAction()
+  retireOutlineSubmitView()
+  manualOutlineChecked.value = false
+  manualOutlineSourceId.value = ''
+  scriptManualSources.value = []
   const dropped = [
     form.manual_guidance.trim() && 'Episode direction',
     form.force && 'Force regenerate',
@@ -1493,6 +1576,7 @@ watch(() => form.episode_id, (newEp, oldEp) => {
   outlineChaptersDone.value = 0
   autoIntroForEpisode.value = ''
   if (oldEp && newEp && dropped.length) showInfo(`${dropped.join(', ')} from ${oldEp} not carried over to ${newEp}.`)
+  void loadScriptManualRedoState()
 })
 
 const scriptJobsSignal = computed(() =>
@@ -1503,6 +1587,7 @@ const scriptJobsSignal = computed(() =>
     .join('|'),
 )
 watch(scriptJobsSignal, () => {
+  void loadScriptManualRedoState()
   // Walk the current jobs once and act on terminal transitions we
   // haven't already responded to. The signal only changes when a
   // job transitions, so this is bounded.
@@ -1712,6 +1797,22 @@ function parseLeadingCount(title: string): { value: number; start: number; end: 
   return { value, start, end: start + m[1]!.length }
 }
 
+function onCharacterSelection(value: string[]): void {
+  form.character_ids = value
+  retireOutlineManualAction()
+}
+
+function retireOutlineManualAction(): void {
+  outlineManualUserEpoch.value++
+  freshScriptAction.cancel('manual-outline')
+}
+
+function useTitleChapterCount(): void {
+  if (!titleCountMismatch.value) return
+  form.chapters = titleCountMismatch.value.titleNumber
+  retireOutlineManualAction()
+}
+
 const titleCountMismatch = computed<{ titleNumber: number } | null>(() => {
   const m = parseLeadingCount(form.title)
   if (!m) return null
@@ -1730,6 +1831,7 @@ const titleCountMismatch = computed<{ titleNumber: number } | null>(() => {
 async function syncTitleToChapters() {
   const m = parseLeadingCount(form.title)
   if (!m) return
+  retireOutlineManualAction()
   const newTitle = form.title.slice(0, m.start) + String(form.chapters) + form.title.slice(m.end)
   form.title = newTitle
   // Persist back to the idea record so it sticks across reloads. The
@@ -1782,6 +1884,55 @@ async function onEpisodeSelected(ep: any) {
   form.title = ep.title
 }
 
+type ManualOutlineCapture = {
+  projectSlug: string
+  episodeId: string
+  userEpoch: number
+  operationId: string
+  body: Record<string, any>
+}
+
+function manualOutlineCaptureIsCurrent(capture: ManualOutlineCapture): boolean {
+  return capture.projectSlug === slug.value
+    && capture.episodeId === form.episode_id
+    && capture.userEpoch === outlineManualUserEpoch.value
+}
+
+async function submitManualOutlineCapture(capture: ManualOutlineCapture): Promise<boolean> {
+  if (!manualOutlineCaptureIsCurrent(capture)) {
+    showError('The project, episode, or outline settings changed. Start a new request from the current selection.')
+    return false
+  }
+  const submitOwner = claimOutlineSubmit()
+  activeManualOutlineOperation.value = capture.operationId
+  try {
+    const job = await post<{ job_id: string }>(
+      `/projects/${capture.projectSlug}/generate/outline-only`,
+      structuredClone(capture.body),
+    )
+    freshScriptAction.complete(capture.operationId)
+    if (!ownsOutlineSubmit(submitOwner) || !manualOutlineCaptureIsCurrent(capture)) return false
+    manualOutlineChecked.value = false
+    success('Separate outline attempt queued — review it when it finishes.')
+    const ok = await waitForJob(job.job_id)
+    if (!ownsOutlineSubmit(submitOwner) || !manualOutlineCaptureIsCurrent(capture)) return false
+    if (ok) outlineRefreshKey.value++
+    return ok
+  } catch (cause: any) {
+    if (ownsOutlineSubmit(submitOwner) && manualOutlineCaptureIsCurrent(capture)) {
+      if (cause?.data?.detail) showError(cause.data.detail)
+      else showAction(UNCONFIRMED_SUBMISSION, 'Retry', async () => { await submitManualOutlineCapture(capture) }, 'error')
+    }
+    return false
+  } finally {
+    if (ownsOutlineSubmit(submitOwner) && activeManualOutlineOperation.value === capture.operationId) {
+      activeManualOutlineOperation.value = ''
+      submitting.value = false
+      scriptGenerating.value = false
+    }
+  }
+}
+
 async function submitOutline(): Promise<boolean> {
   // Generate the OUTLINE only — Phase 3 of the outline-first refactor.
   // Replaces the legacy submitScript (which POSTed /generate/script-only,
@@ -1805,6 +1956,42 @@ async function submitOutline(): Promise<boolean> {
     creative_direction: '',
   }
   const targetEpisode = form.episode_id
+  const captureSlug = slug.value
+  if (manualOutlineChecked.value) {
+    const source = selectedManualOutlineSource.value
+    if (!source) {
+      showError('Choose the stopped outline request to replace.')
+      return false
+    }
+    const userEpoch = outlineManualUserEpoch.value
+    const manualScope = {
+      ...params,
+      manual_redo: { intent: 'replace_unresolved' as const, source_job_id: source.source_job_id },
+    }
+    const operationId = freshScriptAction.begin({ scope: manualScope, userEpoch }, 'manual-outline')
+    const capture: ManualOutlineCapture = {
+      projectSlug: slug.value,
+      episodeId: targetEpisode,
+      userEpoch,
+      operationId,
+      body: structuredClone({ ...manualScope, operation_id: operationId }),
+    }
+    const confirmed = await ask({
+      title: `Create another outline version for ${targetEpisode}?`,
+      message: 'This starts a separate attempt for the selected stopped Gateway request. Its retained evidence and the current outline remain recoverable.',
+      confirmLabel: 'Create another version',
+    })
+    if (!confirmed) {
+      freshScriptAction.cancel('manual-outline')
+      return false
+    }
+    if (!manualOutlineCaptureIsCurrent(capture)) {
+      freshScriptAction.cancel('manual-outline')
+      showError('The project, episode, or outline settings changed before this request could be sent.')
+      return false
+    }
+    return submitManualOutlineCapture(capture)
+  }
   // An outline already exists for this episode: building again can replace it
   // (and the hand edits in it). Ask first, naming the episode.
   if (outlineTotalChapters.value > 0) {
@@ -1856,14 +2043,15 @@ async function submitOutline(): Promise<boolean> {
 
   // The long-script dialog above already asked; a second "Start Script Generator?" is noise.
   if (!longScriptConfirmed && !await confirmGeneration(slug.value, 'script', params)) return false
+  if (slug.value !== captureSlug || form.episode_id !== targetEpisode) return false
   const operationId = freshScriptAction.begin(params)
   params.operation_id = operationId
 
-  submitting.value = true
-  scriptGenerating.value = true
+  const submitOwner = claimOutlineSubmit()
   try {
-    const job = await post<{ job_id: string }>(`/projects/${slug.value}/generate/outline-only`, params)
+    const job = await post<{ job_id: string }>(`/projects/${captureSlug}/generate/outline-only`, params)
     freshScriptAction.complete(operationId)
+    if (!ownsOutlineSubmit(submitOwner) || slug.value !== captureSlug || form.episode_id !== targetEpisode) return false
     // Force is per-run: it never stays armed for the next click.
     form.force = false
     // When enabled, the channel opening is generated only after THIS episode's
@@ -1872,9 +2060,11 @@ async function submitOutline(): Promise<boolean> {
     autoIntroForEpisode.value = channelIntroEnabled.value ? targetEpisode : ''
     success('Outline build queued — review when it finishes!')
     const ok = await waitForJob(job.job_id)
+    if (!ownsOutlineSubmit(submitOwner) || slug.value !== captureSlug || form.episode_id !== targetEpisode) return false
     if (ok) outlineRefreshKey.value++
     return ok
   } catch (e: any) {
+    if (!ownsOutlineSubmit(submitOwner) || slug.value !== captureSlug || form.episode_id !== targetEpisode) return false
     console.error('[scripts] queue outline generation failed:', e)
     const detail = e.data?.detail
     const fallback = e?.status === 0 || e?.message?.includes('fetch')
@@ -1884,7 +2074,7 @@ async function submitOutline(): Promise<boolean> {
     scriptGenerating.value = false
     return false
   } finally {
-    submitting.value = false
+    if (ownsOutlineSubmit(submitOwner)) submitting.value = false
   }
 }
 
@@ -2569,6 +2759,19 @@ onMounted(() => { setTimeout(() => { pageReadyForAutoIntro.value = true }, 1500)
 }
 .script-regeneration-copy .checkbox-label { color: var(--text-primary); white-space: nowrap; }
 .script-maintenance-action { justify-content: flex-end; }
+.script-manual-redo {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-sm);
+  background: var(--accent-dim);
+  font-size: 12px;
+}
+.script-manual-redo > span { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.script-manual-redo > small { color: var(--text-secondary); }
+.script-manual-redo select { max-width: 22rem; }
 @media (max-width: 760px) {
   .script-regeneration-controls,
   .script-regeneration-copy,
