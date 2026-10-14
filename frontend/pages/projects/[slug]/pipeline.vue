@@ -46,6 +46,13 @@
       >
         <template #actions>
           <button
+            v-if="pendingPipelineSubmission"
+            type="button"
+            class="btn btn-sm btn-secondary"
+            :disabled="submitting"
+            @click="retryPipelineSubmission"
+          >Retry last request</button>
+          <button
             type="button"
             class="btn btn-sm btn-secondary"
             :disabled="!canRun"
@@ -814,7 +821,7 @@
 
       <div class="flex gap-2 mt-3 justify-end">
         <button class="btn btn-secondary" :disabled="submitting" @click="closeConfirm()">Cancel</button>
-        <button class="btn btn-primary" :disabled="submitting || preflighting || preflightEligibleCount === 0" @click="submit">
+        <button class="btn btn-primary" :disabled="submitting || preflighting || preflightEligibleCount === 0" @click="submit()">
           <LoadingSpinner v-if="submitting" size="sm" />
           {{ preflighting ? 'Checking…' : (submitting ? 'Queuing…' : (repairMode ? 'Start Repair · May Use Credits' : (forceRerun ? 'Start Batch (Force)' : 'Start Batch'))) }}
         </button>
@@ -837,6 +844,7 @@ import type { AudioQualityMode, AudioQualityPlan } from '~/types/audio-quality'
 import { ESTIMATE_STEPS, estimateBatchUsd, formatUsd, stepQuantity, type EstimateStep } from '~/utils/genstudio-price-usd'
 import { episodesFromQuery } from '~/utils/board-selection'
 import { readQueryState, sameQuery, writeQueryState } from '~/utils/route-query-state'
+import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Pipeline')
@@ -848,7 +856,7 @@ const slug = computed(() => route.params.slug as string)
 const PLACE = { search: '', sort: 'code-asc', show: 'all', rows: 10, page: 1 }
 const place = readQueryState(route.query, PLACE)
 const { get, post, patch: patchApi } = useApi()
-const { success, error: showError, info: showInfo } = useToast()
+const { success, error: showError, info: showInfo, showAction } = useToast()
 const { ask } = useConfirm()
 const { config, refreshConfig } = useProject()
 const pipelineQualityAction = useFreshGenerationAction()
@@ -1375,12 +1383,8 @@ const LEGACY_ACTIVE_KEY: Partial<Record<StepId, string>> = {
   character_sheet: 'continuity_page_last_preset',
 }
 
-// Type tag for the type-based last-resort fallback. When neither the typed
-// nor legacy active pointer resolves to an existing preset, pick the most
-// recently saved preset carrying this `type`. Unblocks the common state
-// where the user saved typed presets but the active pointer is stale /
-// missing (happens when the active-pointer key is dropped on older saves
-// or when the user removed the active preset without re-selecting one).
+// Type tag used only to filter each step's visible current collection.
+// It never chooses a replacement when the configured pointer is stale.
 const TYPE_FOR_STEP: Partial<Record<StepId, string>> = {
   research: 'research',
   'script-only': 'script',
@@ -1406,10 +1410,7 @@ function presetNameFor(stepId: StepMeta['id']): string {
   return listForStep(meta).find(x => x.id === id)?.name || ''
 }
 
-/** Resolve the preset id the backend will use for this step. Mirrors the
- *  fallback chain in /electron/server/routes/pipeline.ts so the inline picker
- *  shows whichever preset will actually run, not just whichever pointer is set.
- *  Returns '' when nothing resolves. */
+/** Resolve only the configured selection the backend will use for this step. */
 function activePresetIdFor(stepId: StepMeta['id']): string {
   const meta = stepsMeta.find(s => s.id === stepId)!
   const cfg = config.value as any
@@ -1417,26 +1418,25 @@ function activePresetIdFor(stepId: StepMeta['id']): string {
 
   // 1. Active pointer — the step's `*_last_preset` key.
   const activeId: string = cfg?.[meta.presetActive] || ''
-  if (activeId && list.some(x => x.id === activeId)) return activeId
+  if (activeId) return list.some(x => x.id === activeId) ? activeId : ''
 
   // 2. Legacy untyped active pointer (script-only falls back to
   //    `script_last_preset` for pre-typing saves).
   const legacyKey = LEGACY_ACTIVE_KEY[stepId]
   if (legacyKey) {
     const legacy: string = cfg?.[legacyKey] || ''
-    if (legacy && list.some(x => x.id === legacy)) return legacy
-  }
-
-  // 3. Type-based auto-resolve (last-resort). Save-order in usePresets is
-  //    chronological, so the LAST matching entry is the newest.
-  const wantedType = TYPE_FOR_STEP[stepId]
-  if (wantedType) {
-    for (let i = list.length - 1; i >= 0; i--) {
-      if (list[i]?.type === wantedType) return list[i].id
-    }
+    if (legacy) return list.some(x => x.id === legacy) ? legacy : ''
   }
 
   return ''
+}
+
+function presetIdsForRun(): Record<string, string> {
+  return Object.fromEntries(
+    checkedStepsOrdered.value
+      .map(step => [step.id, activePresetIdFor(step.id)] as const)
+      .filter(([, id]) => Boolean(id)),
+  )
 }
 
 /** Filter the step's preset pool to options that make sense for this step.
@@ -1451,18 +1451,13 @@ function presetsForStep(stepId: StepMeta['id']): Array<{ id: string; name: strin
   return list.filter(p => !p?.type || p.type === wantedType)
 }
 
-/** Tooltip shown on the inline select. Calls out the silent-shift gotcha
- *  when the user is currently relying on the type-based fallback so they
- *  know to pin an explicit choice. */
+/** Tooltip shown on the inline select. */
 function presetSelectTooltip(stepId: StepMeta['id']): string {
   const meta = stepsMeta.find(s => s.id === stepId)!
   const cfg = config.value as any
   const pinned = typeof cfg?.[meta.presetActive] === 'string' && !!cfg[meta.presetActive]
   const legacy: string = LEGACY_ACTIVE_KEY[stepId] ? cfg?.[LEGACY_ACTIVE_KEY[stepId]!] || '' : ''
   if (pinned || legacy) return 'Pick which saved preset this step runs with. Selection is sticky across sessions.'
-  if (activePresetIdFor(stepId)) {
-    return 'No preset is pinned — Pipeline is auto-using the most recently saved preset of this type. Pick one explicitly to lock it.'
-  }
   return 'No preset selected. Pick one to enable this step in the Pipeline run.'
 }
 
@@ -2387,6 +2382,14 @@ const showConfirm = ref(false)
 const repairMode = ref(false)
 const repairActionId = ref('')
 const runActionId = ref('')
+interface PipelineSubmission {
+  captureId: number
+  targetSlug: string
+  body: Record<string, any>
+  outcomeUnknown?: boolean
+}
+const pendingPipelineSubmission = shallowRef<PipelineSubmission | null>(null)
+let pipelineCaptureId = 0
 const preflightSummary = ref('')
 interface BlockedEpisode {
   episode_id: string
@@ -2560,6 +2563,7 @@ async function openConfirm(repair: boolean) {
     const body = {
       episode_ids: [...selectedEpisodes],
       steps: checkedStepsOrdered.value.map(s => s.id),
+      preset_ids: presetIdsForRun(),
       ...(Object.keys(modelPoliciesForRun()).length ? { model_policies: modelPoliciesForRun() } : {}),
       force: repair ? false : forceRerun.value,
       ...(repair ? { repair_missing: true, action_id: repairActionId.value } : {}),
@@ -2594,26 +2598,63 @@ async function openConfirm(repair: boolean) {
   }
 }
 
-async function submit() {
-  if (!canRun.value) return
+function retryPipelineSubmission(): void {
+  const pending = pendingPipelineSubmission.value
+  if (!pending || submitting.value) return
+  void submit({ ...pending, body: structuredClone(pending.body) })
+}
+
+function provesPipelineAdmissionRejected(error: any, wasAlreadyUnknown: boolean): boolean {
+  if (wasAlreadyUnknown) return false
+  const status = Number(error?.statusCode ?? error?.status ?? error?.response?.status)
+  return [400, 404, 409, 410, 422].includes(status)
+}
+
+async function submit(retry?: PipelineSubmission) {
+  if (!retry && !canRun.value) return
   const requestId = ++submitRequestId
-  const targetSlug = slug.value
-  const submittedRepair = repairMode.value
+  const targetSlug = retry?.targetSlug ?? slug.value
+  const submittedRepair = retry ? retry.body.repair_missing === true : repairMode.value
   submitting.value = true
+  let body: Record<string, any>
+  let submittedEpisodeIds: string[]
+  let submittedCapture: PipelineSubmission | null = retry ?? null
   try {
-    if (!submittedRepair && forceRerun.value && !runActionId.value) runActionId.value = crypto.randomUUID()
-    const submittedEpisodeIds = [...selectedEpisodes]
-    const body = {
-      episode_ids: submittedEpisodeIds,
-      steps: checkedStepsOrdered.value.map(s => s.id),
-      ...(Object.keys(modelPoliciesForRun()).length ? { model_policies: modelPoliciesForRun() } : {}),
-      force: submittedRepair ? false : forceRerun.value,
-      ...(submittedRepair ? { repair_missing: true, action_id: repairActionId.value } : {}),
-      ...(!submittedRepair && forceRerun.value ? { operation_id: runActionId.value } : {}),
+    if (retry) body = structuredClone(retry.body)
+    else {
+      if (!submittedRepair && forceRerun.value && !runActionId.value) runActionId.value = crypto.randomUUID()
+      submittedEpisodeIds = [...selectedEpisodes]
+      body = {
+        episode_ids: submittedEpisodeIds,
+        steps: checkedStepsOrdered.value.map(s => s.id),
+        preset_ids: presetIdsForRun(),
+        ...(Object.keys(modelPoliciesForRun()).length ? { model_policies: modelPoliciesForRun() } : {}),
+        force: submittedRepair ? false : forceRerun.value,
+        ...(submittedRepair ? { repair_missing: true, action_id: repairActionId.value } : {}),
+        ...(!submittedRepair && forceRerun.value ? { operation_id: runActionId.value } : {}),
+      }
+    }
+    submittedEpisodeIds = Array.isArray(body.episode_ids) ? [...body.episode_ids] : []
+    if (body.operation_id || body.action_id) {
+      // Starting another force/repair request is the explicit user intent that
+      // replaces an older captured action. Ordinary runs have no stable UUID,
+      // so they neither replace nor borrow this detached retry receipt.
+      submittedCapture = retry ?? {
+        captureId: ++pipelineCaptureId,
+        targetSlug,
+        body: structuredClone(body),
+      }
+      pendingPipelineSubmission.value = {
+        ...submittedCapture,
+        body: structuredClone(submittedCapture.body),
+      }
     }
     const r = await post<any>(`/projects/${targetSlug}/pipeline/run-batch`, body)
     if (requestId !== submitRequestId || slug.value !== targetSlug) return
     const completedRepair = submittedRepair
+    if (submittedCapture && submittedCapture.captureId === pendingPipelineSubmission.value?.captureId) {
+      pendingPipelineSubmission.value = null
+    }
     closeConfirm(true)
     const {
       enqueued,
@@ -2662,6 +2703,20 @@ async function submit() {
     }
   } catch (e: any) {
     if (requestId !== submitRequestId || slug.value !== targetSlug) return
+    if (submittedCapture
+      && submittedCapture.captureId === pendingPipelineSubmission.value?.captureId
+      && !provesPipelineAdmissionRejected(e, submittedCapture.outcomeUnknown === true)) {
+      pendingPipelineSubmission.value = {
+        ...submittedCapture,
+        outcomeUnknown: true,
+        body: structuredClone(submittedCapture.body),
+      }
+      showAction(UNCONFIRMED_SUBMISSION, 'Retry', () => retryPipelineSubmission(), 'error')
+      return
+    }
+    if (submittedCapture && submittedCapture.captureId === pendingPipelineSubmission.value?.captureId) {
+      pendingPipelineSubmission.value = null
+    }
     const blocked = blockedEpisodes(e?.data?.blocked)
     if (blocked.length && !hasGlobalPreflightIssue(e?.data?.issues)) {
       batchBlocked.value = blocked
@@ -2674,7 +2729,7 @@ async function submit() {
     if (Array.isArray(missing) && missing.length) {
       showError(missing.map((m: any) => m.reason).join(' '))
     } else {
-      showError(e?.data?.detail || 'Batch failed to start')
+      showError(e?.data?.detail || e?.message || 'Batch failed to start')
     }
   } finally {
     if (requestId === submitRequestId && slug.value === targetSlug) submitting.value = false

@@ -55,12 +55,14 @@ import {
 } from '../lib/disk.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
-import { listChatModels, listTranscriptionModels, publishedVideoControls } from '../lib/genstudio-client.js'
+import { listChatModels, listImageModels, listTranscriptionModels, publishedVideoControls } from '../lib/genstudio-client.js'
 import { resolveTranscriptionLanguage } from '../generators/subtitles.js'
 import { requireSceneClipGenStudioModel } from '../generators/scene-clip.js'
 import { isRetiredVideoModelId } from '../contracts/retired-video-models.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage, unavailableTranscriptionModelMessage } from '../services/genstudio-model-migration.js'
 import { withLock } from '../lib/atomic-store.js'
+import { stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
+import { resolveExactPreset, resolveScenePlanPromptCharCap, scenePlanPresetReceipt } from '../services/preset-authority.js'
 import { pipelineStepLabel } from '../lib/pipeline-continuation.js'
 import { SAFETY_CHECKS, safetyMode, safetyModeFromConfig } from '../services/safety-checks.js'
 import { isDecodableImage } from '../lib/image-validation.js'
@@ -635,6 +637,7 @@ async function preflightBatch(
   requestedSteps: BatchStep[],
   force: boolean,
   repairMissing = false,
+  presetIds: Partial<Record<BatchStep, string>> = {},
 ): Promise<BatchPreflight> {
   const issues: PreflightIssue[] = []
   const warnings: string[] = []
@@ -757,7 +760,7 @@ async function preflightBatch(
    */
   const admitStep = (step: BatchStep, ticked: boolean): string | null => {
     if (NO_PRESET_STEPS.has(step) || presetByStep[step]) return null
-    const result = findActivePreset(config, step)
+    const result = findActivePreset(config, step, presetIds[step])
     // A music episode renders with its own Episode Builder settings; a Video Assembly preset only
     // adds the owner's look (logo, grade…) on top, so it is optional there.
     if (!result.preset && musicChannel && step === 'video_assembly') return null
@@ -1009,25 +1012,6 @@ export function resolveScriptSideChatModel(config: Record<string, unknown>): str
 }
 
 /**
- * Per-step type tag used by usePresets({ presetType }) on the scripts page.
- * When the active-key lookup fails (either missing or pointing at an id no
- * longer in the list — a stale ghost from a deleted preset), we fall back
- * to the most recently saved preset in the list whose `type` matches this
- * map. Keeps pipeline.vue and this resolver in lock-step.
- */
-const TYPE_FALLBACK: Partial<Record<BatchStep, string>> = {
-  research: 'research',
-  'script-only': 'script',
-  'introduction-only': 'introduction',
-  // v1.0.363 — typed presets on the audio-paced format pages.
-  scene_plan: 'scene-plan',
-  contextual_cues: 'contextual-cues',
-  scene_review: 'scene-review',
-  motion_review: 'motion-review',
-  character_sheet: 'continuity-page',
-}
-
-/**
  * Is this step's output already on disk? Used by `run-batch` to skip
  * chain links that would otherwise regenerate existing assets — the
  * default "skip-when-done" behaviour keeps batches cheap.
@@ -1099,39 +1083,13 @@ export async function autoCompleteResearchReviewForPipeline(slug: string, episod
 }
 
 export function findActivePreset(
-  config: any, step: BatchStep,
+  config: any, step: BatchStep, explicitPresetId?: string, explicitProvided = explicitPresetId !== undefined,
 ): { preset: StoredPreset | null; missingReason: string | null } {
   const keys = PRESET_KEYS[step]
-  // Some legacy steps can resolve across more than one preset pool. Thumbnail
-  // prompts intentionally use only their own preset pool; scene visual
-  // planning belongs to Scene Plan.
-  const listKeys = Array.isArray(keys.list) ? keys.list : [keys.list]
-  const list: StoredPreset[] = listKeys.flatMap(k => (Array.isArray(config?.[k]) ? config[k] : []))
-  // Walk activeKeys in order; the first key that points at an existing preset
-  // wins. Keep the first non-empty id for the final error message, but don't
-  // stop on a stale pointer because split steps can have a stale primary key
-  // and a valid fallback key.
-  let firstActiveId = ''
-  for (const k of keys.activeKeys) {
-    const v = typeof config?.[k] === 'string' ? config[k] : ''
-    if (!v) continue
-    if (!firstActiveId) firstActiveId = v
-    const pointedTo = list.find(p => p.id === v)
-    if (pointedTo) return { preset: pointedTo, missingReason: null }
+  return resolveExactPreset(config, keys.list, keys.activeKeys, explicitPresetId, pipelineStepLabel(step), explicitProvided) as {
+    preset: StoredPreset | null
+    missingReason: string | null
   }
-
-  // Type-based fallback — heals stale/missing active pointers by using the
-  // most recently saved preset of the matching type. usePresets appends on
-  // save, so the last matching entry is newest.
-  const wantedType = TYPE_FALLBACK[step]
-  if (wantedType) {
-    for (let i = list.length - 1; i >= 0; i--) {
-      if (list[i]?.type === wantedType) return { preset: list[i], missingReason: null }
-    }
-  }
-
-  if (!firstActiveId) return { preset: null, missingReason: `No active preset for ${pipelineStepLabel(step)}. Open the ${pipelineStepLabel(step)} page, apply a preset, then retry.` }
-  return { preset: null, missingReason: `The preset chosen for ${pipelineStepLabel(step)} was deleted. Pick another one on the Pipeline or the ${pipelineStepLabel(step)} page.` }
 }
 
 /**
@@ -1448,11 +1406,12 @@ export function resolveStepParams(
   if (step === 'scene_plan') {
     // Pipeline runs deterministic timing followed by required visual packs.
     // Legacy window-size / pass-mode fields are intentionally not forwarded.
+    const reusable = scenePlanPresetReceipt(preset || { id: '', data }).data
     return {
       episode_id: episodeId,
       title: title || '',
-      model: data.model,
-      use_research: data.use_research !== false,
+      model: reusable.model,
+      use_research: reusable.use_research !== false,
       detail_level: 4,
       // v1.3.1 — `opening_mode` / `opening_reserved_sec` are no longer taken
       // from the Scene Plan preset. A preset is a reusable creative choice;
@@ -1462,12 +1421,19 @@ export function resolveStepParams(
       // so every scene landed ~10s after its narration). The timeline stage
       // probes the real clips instead — see services/opening-assets.ts.
       // Stored presets keep the two keys; they are simply never read.
-      prompt_pack_size: parseScenePromptPackSetting(data.prompt_pack_size),
-      prompt_max_tokens: parseScenePromptTokenSetting(data.prompt_max_tokens),
-      creative_direction: data.creative_direction && typeof data.creative_direction === 'object'
-        ? data.creative_direction : undefined,
-      style_prompt: (typeof data.style_prompt === 'string' && data.style_prompt.trim()) ? data.style_prompt.trim() : undefined,
-      custom_instructions: (typeof data.custom_instructions === 'string' && data.custom_instructions.trim()) ? data.custom_instructions.trim() : undefined,
+      prompt_pack_size: parseScenePromptPackSetting(reusable.prompt_pack_size),
+      prompt_max_tokens: parseScenePromptTokenSetting(reusable.prompt_max_tokens),
+      intended_image_model: reusable.intended_image_model,
+      prompt_char_cap: reusable.prompt_char_cap,
+      creative_direction: reusable.creative_direction && typeof reusable.creative_direction === 'object'
+        ? reusable.creative_direction : undefined,
+      custom_instructions: typeof reusable.reusable_guidance === 'string' && reusable.reusable_guidance.trim()
+        ? reusable.reusable_guidance.trim() : undefined,
+      avoid_legible_text: typeof reusable.avoid_legible_text === 'boolean' ? reusable.avoid_legible_text : undefined,
+      pacing: reusable.pacing,
+      motion_scope: reusable.motion_scope,
+      motion_level: reusable.motion_level,
+      resolved_preset: preset ? scenePlanPresetReceipt(preset) : undefined,
     }
   }
   if (step === 'contextual_cues') {
@@ -2059,11 +2025,25 @@ const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 
 export function parseBatchRequest(body: any): {
   episodeIds: string[]; steps: BatchStep[]; force: boolean; repairMissing: boolean;
-  actionId: string; operationId: string; modelPolicies: PipelineModelPolicies; modelPolicyError: string | null
+  actionId: string; operationId: string; presetIds: Partial<Record<BatchStep, string>>;
+  presetIdError: string | null; modelPolicies: PipelineModelPolicies; modelPolicyError: string | null
 } {
   const episodeIds = Array.isArray(body?.episode_ids) ? body.episode_ids.filter((x: any) => typeof x === 'string' && x) : []
   const stepsRaw: any[] = Array.isArray(body?.steps) ? body.steps : []
   const steps = stepsRaw.filter((s): s is BatchStep => VALID_STEPS.includes(s))
+  let presetIdError: string | null = null
+  let presetIds: Partial<Record<BatchStep, string>> = {}
+  if (body && Object.prototype.hasOwnProperty.call(body, 'preset_ids')) {
+    if (!body.preset_ids || typeof body.preset_ids !== 'object' || Array.isArray(body.preset_ids)) {
+      presetIdError = 'preset_ids must be an object mapping Pipeline steps to non-empty preset ids'
+    } else {
+      const entries = Object.entries(body.preset_ids)
+      const invalid = entries.find(([step, id]) => !VALID_STEPS.includes(step as BatchStep)
+        || typeof id !== 'string' || !id.trim())
+      if (invalid) presetIdError = `preset_ids.${invalid[0]} must name a valid Pipeline step and non-empty preset id`
+      else presetIds = Object.fromEntries(entries.map(([step, id]) => [step, (id as string).trim()])) as Partial<Record<BatchStep, string>>
+    }
+  }
   let modelPolicies: PipelineModelPolicies = {}
   let modelPolicyError: string | null = null
   try {
@@ -2078,12 +2058,15 @@ export function parseBatchRequest(body: any): {
     repairMissing: body?.repair_missing === true,
     actionId: typeof body?.action_id === 'string' ? body.action_id.trim() : '',
     operationId: typeof body?.operation_id === 'string' ? body.operation_id.trim() : '',
+    presetIds,
+    presetIdError,
     modelPolicies,
     modelPolicyError,
   }
 }
 
 function repairRequestError(request: ReturnType<typeof parseBatchRequest>): string | null {
+  if (request.presetIdError) return request.presetIdError
   if (request.modelPolicyError) return request.modelPolicyError
   if (request.repairMissing) {
     if (request.operationId) return 'operation_id cannot be combined with repair_missing'
@@ -2148,13 +2131,14 @@ export function pipelineRepairFingerprint(value: Record<string, unknown>): strin
 }
 
 export function applyPipelineRepairParams(
-  params: Record<string, unknown>, actionId: string, fingerprint: string,
+  params: Record<string, unknown>, actionId: string, fingerprint: string, rawFingerprint?: string,
 ): Record<string, unknown> {
   const repaired = {
     ...params,
     force: false,
     pipeline_repair: { action_id: actionId },
     pipeline_repair_request_fingerprint: fingerprint,
+    ...(rawFingerprint ? { pipeline_repair_raw_request_fingerprint: rawFingerprint } : {}),
   }
   if ('no_overwrite' in repaired) repaired.no_overwrite = false
   return repaired
@@ -2238,7 +2222,7 @@ router.post('/projects/:slug/pipeline/preflight', async (req, res) => {
   if (!requestedSteps.length) return res.status(400).json({ detail: 'steps must include at least one valid pipeline step' })
   const steps = await applyChannelSegmentIntent(slug, requestedSteps)
   try {
-    const result = await preflightBatch(slug, episodeIds, steps, force, parsed.repairMissing)
+    const result = await preflightBatch(slug, episodeIds, steps, force, parsed.repairMissing, parsed.presetIds)
     const { globalIssues, blocked } = splitPreflightIssues(result.issues)
     const eligible_episode_ids = eligibleEpisodeIds(episodeIds, blocked)
     const canSubmit = globalIssues.length === 0 && eligible_episode_ids.length > 0
@@ -2262,14 +2246,87 @@ router.post('/projects/:slug/pipeline/preflight', async (req, res) => {
   }
 })
 
+function acceptedPipelineReplay(
+  res: Response,
+  batchId: string,
+  requestedEpisodeIds: string[],
+  requestedSteps: BatchStep[],
+  jobs: Awaited<ReturnType<typeof jq.findJobs>>,
+  force: boolean,
+) {
+  const byEpisode = new Map(jobs.filter(job => job.episode_id).map(job => [job.episode_id!, job]))
+  const reused_jobs = [...byEpisode.values()].map(job => ({ episode_id: job.episode_id!, job_id: job.job_id, type: job.type }))
+  const incomplete_episode_ids = [...new Set(requestedEpisodeIds)].filter(episodeId => !byEpisode.has(episodeId))
+  const blocked = incomplete_episode_ids.map(episode_id => ({
+    episode_id,
+    reason: 'This accepted batch has no saved job for this episode. Its outcome is incomplete or unknown; Retry did not start new work.',
+    issues: [{ code: 'accepted_batch_incomplete', episode_id, message: 'No immutable accepted job exists for this episode.' }],
+  }))
+  return res.status(201).json({
+    batch_id: batchId,
+    enqueued: 0,
+    reused: reused_jobs.length,
+    total_jobs_planned: 0,
+    character_sheets_applied: 0,
+    skipped: [],
+    blocked,
+    incomplete_episode_ids,
+    issues: blocked.flatMap(item => item.issues),
+    steps_skipped_as_done: [],
+    steps_skipped_as_inapplicable: [],
+    jobs: [],
+    reused_jobs,
+    steps: requestedSteps,
+    steps_left_out: [],
+    steps_added: [],
+    warnings: incomplete_episode_ids.length
+      ? ['This replay adopted only episodes with immutable accepted jobs; incomplete episodes remain selected for review.']
+      : [],
+    force,
+    video_effects: null,
+  })
+}
+
 async function runBatch(req: Request<{ slug: string }>, res: Response) {
   const { slug } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
-
   const parsed = parseBatchRequest(req.body)
-  const { episodeIds: episode_ids, steps: requestedSteps, force, repairMissing, actionId, operationId, modelPolicies } = parsed
+  const { episodeIds: episode_ids, steps: requestedSteps, force, repairMissing, actionId, operationId, modelPolicies, presetIds } = parsed
+  let existingActionJobs: Awaited<ReturnType<typeof jq.findJobs>> = []
+  if (force && UUID_V4.test(operationId)) {
+    const rawFingerprint = stampFreshGenerationAction(req.body || {}, operationId).generation_action_fingerprint
+    existingActionJobs = await jq.findJobs(slug, job => job.params?.generation_action?.id === operationId)
+    if (existingActionJobs.some(job => job.params?.pipeline_batch_id !== operationId)) {
+      return res.status(409).json({ detail: 'This operation_id is not owned by this Pipeline batch route.' })
+    }
+    if (existingActionJobs.some(job => job.params?.generation_action_fingerprint !== rawFingerprint)) {
+      return res.status(409).json({ detail: 'This operation_id already belongs to a different Pipeline request.' })
+    }
+    if (existingActionJobs.length) {
+      return acceptedPipelineReplay(res, operationId, episode_ids, requestedSteps, existingActionJobs, true)
+    }
+  } else if (repairMissing && UUID_V4.test(actionId)) {
+    const rawFingerprint = pipelineRepairFingerprint(req.body || {})
+    existingActionJobs = await jq.findJobs(slug, job => job.params?.pipeline_repair?.action_id === actionId)
+    if (existingActionJobs.some(job => job.params?.pipeline_batch_id !== actionId)) {
+      return res.status(409).json({ detail: 'This action_id is not owned by this Pipeline repair route.' })
+    }
+    if (existingActionJobs.length && existingActionJobs.some(job => !job.params?.pipeline_repair_raw_request_fingerprint)) {
+      return res.status(409).json({
+        code: 'accepted_repair_unverifiable',
+        detail: 'This accepted repair predates immutable raw request receipts. Its saved jobs are preserved, but Retry cannot prove this body and did not start new work.',
+        saved_jobs: existingActionJobs.map(job => ({ episode_id: job.episode_id!, job_id: job.job_id, type: job.type })),
+      })
+    }
+    if (existingActionJobs.some(job => job.params?.pipeline_repair_raw_request_fingerprint !== rawFingerprint)) {
+      return res.status(409).json({ detail: 'This action_id already belongs to a different Pipeline repair request.' })
+    }
+    if (existingActionJobs.length) {
+      return acceptedPipelineReplay(res, actionId, episode_ids, requestedSteps, existingActionJobs, false)
+    }
+  }
   const requestError = repairRequestError(parsed)
   if (requestError) return res.status(400).json({ detail: requestError })
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   const policyError = await validatePipelinePoliciesAgainstCatalogue(modelPolicies)
   if (policyError) return res.status(422).json({ detail: policyError })
   // `force: true` disables per-step idempotency skipping — every selected
@@ -2279,7 +2336,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
   if (!requestedSteps.length) return res.status(400).json({ detail: 'steps must include at least one of ' + VALID_STEPS.join(', ') })
   const steps = await applyChannelSegmentIntent(slug, requestedSteps)
 
-  const preflight = await preflightBatch(slug, episode_ids, steps, force, repairMissing)
+  const preflight = await preflightBatch(slug, episode_ids, steps, force, repairMissing, presetIds)
   const { globalIssues, blocked } = splitPreflightIssues(preflight.issues)
   let currentIssues = preflight.issues
   let currentBlocked = blocked
@@ -2332,7 +2389,25 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     }
   }
 
-  const actionFingerprint = repairMissing || force ? pipelineRepairFingerprint({
+  let pipelineScenePlanPromptCap: number | undefined
+  if (presetByStep.scene_plan) {
+    const sceneData = scenePlanPresetReceipt(presetByStep.scene_plan).data
+    if (sceneData.intended_image_model) {
+      const apiKey = await getApiKey('genstudio').catch(() => '')
+      if (!apiKey) {
+        return res.status(400).json({ detail: 'Add the Gateway API Key in Settings before Pipeline generates Scene Plan visual prompts. Nothing was started.' })
+      }
+      try {
+        pipelineScenePlanPromptCap = resolveScenePlanPromptCharCap(sceneData, await listImageModels(apiKey))
+      } catch (error: any) {
+        return res.status(400).json({ detail: `${error.message} Nothing was started.` })
+      }
+    }
+  }
+
+  const actionFingerprint = force
+    ? stampFreshGenerationAction(req.body || {}, operationId).generation_action_fingerprint
+    : repairMissing ? pipelineRepairFingerprint({
     slug,
     episode_ids: [...new Set(episode_ids)].sort(),
     steps,
@@ -2349,11 +2424,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     ),
   }) : ''
   const batch_id = repairMissing ? actionId : force ? operationId : randomUUID()
-  const existingActionJobs = repairMissing || force
-    ? await jq.findJobs(slug, job => repairMissing
-      ? job.params?.pipeline_repair?.action_id === actionId
-      : job.params?.generation_action?.id === operationId)
-    : []
+  const repairRawFingerprint = repairMissing ? pipelineRepairFingerprint(req.body || {}) : ''
   if (existingActionJobs.some(job => repairMissing
     ? job.params?.pipeline_repair_request_fingerprint !== actionFingerprint
     : job.params?.generation_action_fingerprint !== actionFingerprint)) {
@@ -2554,6 +2625,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       let params: Record<string, any>
       try {
         params = resolveStepParams(step, episodeId, idea.title || '', presetByStep[step], effectiveFormat)
+        if (step === 'scene_plan') params.prompt_char_cap = pipelineScenePlanPromptCap
         // 1.4.282 — readable on the job: exactly what this render bakes in. Never read by the render.
         if (step === 'video_assembly') params = { ...params, effect_stack: describeEffectStack(params) }
       } catch (error: any) {
@@ -2665,12 +2737,20 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     // edits cannot retarget a queued chain or widen its motion work.
     // Each link gets its own copy: shared objects across links were what the
     // pre-1.4.266 redactor saved as '[CIRCULAR]'.
-    for (const link of chain) link.params = { ...link.params, ...structuredClone(visualSettings) }
+    for (const link of chain) {
+      const episodeVisualSettings = structuredClone(visualSettings) as Record<string, any>
+      if (link.type === 'scene_plan_run') {
+        delete episodeVisualSettings.pacing
+        delete episodeVisualSettings.motion_scope
+        delete episodeVisualSettings.motion_level
+      }
+      link.params = { ...link.params, ...episodeVisualSettings }
+    }
     stampPipelineStepFacts(chain, visualSettings.visual_source, preflight.musicChannel)
 
     if (repairMissing) {
       for (const link of chain) {
-        link.params = applyPipelineRepairParams(link.params, actionId, actionFingerprint)
+        link.params = applyPipelineRepairParams(link.params, actionId, actionFingerprint, repairRawFingerprint)
       }
     } else if (force) {
       for (const link of chain) {
@@ -2806,8 +2886,6 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
 
 router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
   const parsed = parseBatchRequest(req.body)
-  const requestError = repairRequestError(parsed)
-  if (requestError) return res.status(400).json({ detail: requestError })
   if (parsed.repairMissing) return withLock(`pipeline-repair:${req.params.slug}:${parsed.actionId}`, () => runBatch(req, res))
   if (parsed.force) return withLock(`pipeline-force:${req.params.slug}:${parsed.operationId}`, () => runBatch(req, res))
   return runBatch(req, res)

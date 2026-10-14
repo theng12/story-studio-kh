@@ -142,6 +142,7 @@ const { get, put } = useApi()
 const { success, error: showError } = useToast()
 
 const draft = ref<ContinuityConfig>(continuityDefaults())
+const savedEpisodeConfig = ref<ContinuityConfig>(continuityDefaults())
 const loading = ref(false)
 const saving = ref(false)
 const loadError = ref('')
@@ -343,25 +344,37 @@ function snapshotPreset(): { pacing: ScenePacing; motion_scope?: MotionScope; mo
   return { ...snapshot, motion_scope }
 }
 
+function snapshotPresetForComparison(): { pacing: ScenePacing; motion_scope?: MotionScope; motion_level: number } | null {
+  if (loading.value || saving.value || loadError.value || validationError.value) return null
+  try {
+    const pacing = parseScenePacing(draft.value.pacing)
+    const motion_scope = normalizeMotionScope(draft.value.motion_scope)
+    const snapshot = { pacing, motion_level: draft.value.motion_level }
+    return motion_scope.mode === 'selected' ? snapshot : { ...snapshot, motion_scope }
+  } catch {
+    return null
+  }
+}
+
 function applyPreset(data: any): void {
   assertPresetReady('apply')
   const source = data && typeof data === 'object' && !Array.isArray(data) ? data as Record<string, unknown> : {}
-  const currentPacing = parseScenePacing(draft.value.pacing)
-  const currentScope = normalizeMotionScope(draft.value.motion_scope)
+  const savedPacing = parseScenePacing(savedEpisodeConfig.value.pacing)
+  const savedScope = normalizeMotionScope(savedEpisodeConfig.value.motion_scope)
   const storedPacing = storedPresetPacing(source as Partial<ContinuityConfig>)
-  const pacing = storedPacing ? parseScenePacing(storedPacing) : currentPacing
+  const pacing = storedPacing ? parseScenePacing(storedPacing) : savedPacing
   const hasScope = source.motion_scope != null
   const presetScope = hasScope ? normalizeMotionScope(source.motion_scope) : null
-  const motion_scope = presetScope?.mode === 'selected' ? currentScope : presetScope ?? currentScope
+  const motion_scope = presetScope?.mode === 'selected' ? savedScope : presetScope ?? savedScope
   const hasMotionLevel = source.motion_level !== undefined
   if (hasMotionLevel && !isMotionLevel(source.motion_level)) {
     throw new Error('Cannot apply timing and motion: preset motion intensity is invalid.')
   }
-  const motion_level = hasMotionLevel ? source.motion_level as number : draft.value.motion_level
+  const motion_level = hasMotionLevel ? source.motion_level as number : savedEpisodeConfig.value.motion_level
 
   draft.value = { ...draft.value, pacing, motion_scope, motion_level }
   const timingMessage = storedPacing ? 'timing updated' : 'no saved timing; kept this episode’s timing'
-  const scopeMessage = presetScope?.mode === 'selected' || (!hasScope && currentScope.mode === 'selected')
+  const scopeMessage = presetScope?.mode === 'selected' || (!hasScope && savedScope.mode === 'selected')
     ? 'Selected-scene motion stays with this episode'
     : hasScope ? 'motion scope updated' : 'no saved motion scope; kept this episode’s scope'
   const intensityMessage = hasMotionLevel ? 'motion intensity updated' : 'no saved motion intensity; kept this episode’s intensity'
@@ -373,7 +386,8 @@ async function load(): Promise<void> {
   const key = identity()
   const current = () => scope === requestSequence && key === identity()
   if (!props.episodeId) {
-    draft.value = continuityDefaults()
+    savedEpisodeConfig.value = continuityDefaults()
+    draft.value = normalizeContinuityConfig(savedEpisodeConfig.value)
     loadError.value = ''
     saveError.value = ''
     clearPresetNotice()
@@ -389,7 +403,8 @@ async function load(): Promise<void> {
   try {
     const result = await get<{ exists: boolean; config: ContinuityConfig }>(`/projects/${slug.value}/continuity/${props.episodeId}`)
     if (!current()) return
-    draft.value = result.exists ? normalizeContinuityConfig(result.config) : continuityDefaults()
+    savedEpisodeConfig.value = result.exists ? normalizeContinuityConfig(result.config) : continuityDefaults()
+    draft.value = normalizeContinuityConfig(savedEpisodeConfig.value)
   } catch (error: any) {
     if (!current()) return
     loadError.value = error?.data?.detail || 'Could not load visual timing and motion.'
@@ -415,7 +430,8 @@ async function save(): Promise<void> {
     saving.value = true
     const saved = await put<{ ok: true; config: ContinuityConfig }>(`/projects/${slug.value}/continuity/${props.episodeId}`, snapshot)
     if (!current()) return
-    draft.value = normalizeContinuityConfig(saved.config)
+    savedEpisodeConfig.value = normalizeContinuityConfig(saved.config)
+    draft.value = normalizeContinuityConfig(savedEpisodeConfig.value)
     emit('saved', draft.value)
     success('Visual timing and motion saved')
   } catch (error: any) {
@@ -430,7 +446,7 @@ async function save(): Promise<void> {
 
 watch(() => [slug.value, props.episodeId], () => { void load() }, { immediate: true })
 
-defineExpose({ snapshotPreset, applyPreset })
+defineExpose({ snapshotPreset, snapshotPresetForComparison, applyPreset })
 </script>
 
 <style scoped>

@@ -9,6 +9,7 @@
  */
 
 import { Router } from 'express'
+import { randomUUID } from 'node:crypto'
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
@@ -25,6 +26,7 @@ import { readSubtitleTimelineIntegrity } from '../services/scene-timeline-integr
 import { parseSavedScenePlanPacing, parseScenePacing } from '../contracts/pacing.js'
 import { readEpisodeMotionScope, resolveEpisodeMotionSceneIds } from '../services/episode-motion-scope.js'
 import { motionPromptSceneIds } from '../services/scene-motion-prompt-scope.js'
+import { normalizeMotionScope } from '../contracts/motion-scope.js'
 import { readVideoVisualSource } from '../services/video-visual-source.js'
 import { allowedSubtitleCueGapSec, resolveScenePlanRepairPacing } from '../services/scene-plan-pacing.js'
 import { safetyMode } from '../services/safety-checks.js'
@@ -41,7 +43,15 @@ import {
   type ScenePromptPackSetting,
 } from '../services/scene-prompt-batching.js'
 import { parsePromptCharCap } from '../services/prompt-char-cap.js'
-import { freshActionMatch, freshActionFingerprint, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
+import { freshActionMatch, freshActionFingerprint, readOperationId, readOptionalOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
+import {
+  composeScenePlanGuidance,
+  resolveExactPreset,
+  resolveScenePlanPromptCharCap,
+  scenePlanPresetReceipt,
+} from '../services/preset-authority.js'
+import { getApiKey } from '../services/app-secrets-store.js'
+import { listImageModels } from '../lib/genstudio-client.js'
 import { normalizeCreativeDirection } from '../services/scene-creative-direction.js'
 import { clearLegacyPlannerFallbackReasons } from '../services/scene-prompt-integrity.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
@@ -81,11 +91,20 @@ async function assertScenePlanVisualSource(slug: string, episodeId: string) {
 }
 
 /** Freeze the episode decision before enqueue; Retry never re-reads a wider scope. */
-export async function scenePlanVisualSnapshot(slug: string, episodeId: string, stage: string, limit?: number) {
+export async function scenePlanVisualSnapshot(
+  slug: string,
+  episodeId: string,
+  stage: string,
+  limit?: number,
+  portableMotionScope?: unknown,
+) {
   const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
   const visual_source = await assertScenePlanVisualSource(slug, episodeId)
   if (stage === 'visual') return { visual_source, motion_scope: { mode: 'off' } as const, motion_level: 2, motion_scene_ids: undefined, pacing: undefined }
   const motion = await readEpisodeMotionScope(slug, episodeId, paths.episode_dir)
+  const motion_scope = portableMotionScope === undefined
+    ? motion.motion_scope
+    : normalizeMotionScope(portableMotionScope)
   let pacing
   if (stage === 'timeline') {
     let saved: unknown
@@ -97,9 +116,9 @@ export async function scenePlanVisualSnapshot(slug: string, episodeId: string, s
   if (stage === 'motion') {
     const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
     const plan = JSON.parse(await fs.readFile(planPath, 'utf8')) as ScenePlan
-    motion_scene_ids = motionPromptSceneIds(plan.scenes, motion.motion_scope, undefined, limit)
+    motion_scene_ids = motionPromptSceneIds(plan.scenes, motion_scope, undefined, limit)
   }
-  return { visual_source, ...motion, ...(pacing ? { pacing } : {}),
+  return { visual_source, ...motion, motion_scope, ...(pacing ? { pacing } : {}),
     ...(motion_scene_ids === undefined ? {} : { motion_scene_ids }) }
 }
 
@@ -212,11 +231,40 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
   const { slug, episodeId } = req.params
 
   const body = req.body || {}
+  let operationId: string | null
+  try { operationId = readOptionalOperationId(body) || randomUUID() }
+  catch (error: any) { return res.status(400).json({ detail: error.message }) }
+  return withLock(`fresh-scene-plan:${slug}:${operationId}`, async () => {
+    const acceptedFingerprint = stampFreshGenerationAction(body, operationId!).generation_action_fingerprint
+    const accepted = (await jq.findJobs(slug, freshActionMatch(operationId!)))[0]
+    if (accepted) {
+      if (accepted.type !== 'scene_plan_run' || accepted.episode_id !== episodeId) {
+        return res.status(409).json({ detail: 'This operation_id already belongs to a different Scene Plan episode or route.' })
+      }
+      if (accepted.params?.generation_action_fingerprint !== acceptedFingerprint) {
+        return res.status(409).json({ detail: 'This operation_id already belongs to a different Scene Plan request.' })
+      }
+      return res.status(200).json({ ...accepted, reused: true })
+    }
+
+    const config = await pm.getConfig(slug)
+  if (!config) return res.status(404).json({ detail: 'Project not found' })
+  const resolved = resolveExactPreset(
+    config,
+    'scene_plan_presets',
+    ['scene_plan_last_preset_scene-plan', 'scene_plan_last_preset'],
+    body.preset_id,
+    'Scene Plan',
+    Object.prototype.hasOwnProperty.call(body, 'preset_id'),
+  )
+  if (!resolved.preset) return res.status(409).json({ detail: resolved.missingReason })
+  const resolvedPreset = scenePlanPresetReceipt(resolved.preset)
+  const presetData = resolvedPreset.data
   const stage: 'timeline' | 'visual' | 'motion' =
     body.stage === 'visual' || body.stage === 'motion' ? body.stage : 'timeline'
   try { await assertScenePlanVisualSource(slug, episodeId) }
   catch (error: any) { return res.status(409).json({ detail: error.message }) }
-  let model = typeof body.model === 'string' ? body.model.trim() : ''
+  let model = typeof presetData.model === 'string' ? presetData.model.trim() : ''
   if (!model && stage !== 'timeline') return res.status(400).json({ detail: 'model is required' })
   if (stage !== 'timeline') {
     try {
@@ -227,14 +275,13 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
   }
 
   const targetSceneCount = typeof body.target_scene_count === 'number' ? body.target_scene_count : undefined
-  const useResearch = body.use_research === false ? false : true  // default true
+  const useResearch = presetData.use_research === false ? false : true  // default true
   const title = typeof body.title === 'string' ? body.title : ''
   // v1.0.242 — visual-prompt detail level (1–4) + global style + custom text.
   const detailLevel = typeof body.detail_level === 'number'
     ? Math.min(4, Math.max(1, Math.round(body.detail_level)))
     : 4
-  const stylePrompt = typeof body.style_prompt === 'string' ? body.style_prompt.trim() : ''
-  const customInstructions = typeof body.custom_instructions === 'string' ? body.custom_instructions.trim() : ''
+  const customInstructions = composeScenePlanGuidance(body.custom_instructions, presetData.reusable_guidance)
   const generateMotionPrompts = typeof body.generate_motion_prompts === 'boolean'
     ? body.generate_motion_prompts
     : undefined
@@ -267,36 +314,37 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
   // back to 'auto' — the old behaviour turned "200" into 50 in silence.
   let promptPackSize: ScenePromptPackSetting
   try {
-    promptPackSize = parseScenePromptPackSetting(body.prompt_pack_size)
+    promptPackSize = parseScenePromptPackSetting(presetData.prompt_pack_size)
   } catch (error: any) {
     return res.status(400).json({ detail: error?.message || 'Invalid prompt_pack_size' })
   }
-  const promptMaxTokens = parseScenePromptTokenSetting(body.prompt_max_tokens)
+  const promptMaxTokens = parseScenePromptTokenSetting(presetData.prompt_max_tokens)
   // Resolved by the workspace from the SELECTED image model's published
   // `max_prompt_characters`. Absent = nothing published = no target.
-  const promptCharCap = parsePromptCharCap(body.prompt_char_cap)
-  const creativeDirection = parseCreativeDirection(body.creative_direction)
+  let promptCharCap = parsePromptCharCap(presetData.prompt_char_cap)
+  if (stage === 'visual' && presetData.intended_image_model) {
+    const apiKey = await getApiKey('genstudio').catch(() => '')
+    if (!apiKey) return res.status(409).json({ detail: 'Add the Gateway API Key in Settings before generating visual prompts.' })
+    try { promptCharCap = resolveScenePlanPromptCharCap(presetData, await listImageModels(apiKey)) }
+    catch (error: any) { return res.status(409).json({ detail: error.message }) }
+  }
+  const creativeDirection = parseCreativeDirection(presetData.creative_direction)
   // v1.0.794 — SCENE prompts only; the frontend sends the current state of
   // the Scene Plan page's toggle. Omitted → the generator falls back to the
   // project default. Never read by the (separate) Thumbnail Prompts path.
-  const avoidLegibleText = typeof body.avoid_legible_text === 'boolean' ? body.avoid_legible_text : undefined
+  const avoidLegibleText = typeof presetData.avoid_legible_text === 'boolean' ? presetData.avoid_legible_text : undefined
 
   if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
     return res.status(409).json({ detail: `Scene plan already running for ${episodeId}` })
   }
 
   let visualSnapshot
-  try { visualSnapshot = await scenePlanVisualSnapshot(slug, episodeId, stage, promptLimit) }
+  try { visualSnapshot = await scenePlanVisualSnapshot(slug, episodeId, stage, promptLimit, presetData.motion_scope) }
   catch (error: any) { return res.status(409).json({ detail: error.message }) }
   if (stage === 'motion' && !visualSnapshot.motion_scene_ids?.length) {
     return res.status(409).json({ detail: 'No missing motion prompts in this episode’s saved scope. Choose motion scenes in Visual timing & motion.' })
   }
-  const job = await jq.enqueue({
-    project_slug: slug,
-    type: 'scene_plan_run' as JobType,
-    episode_id: episodeId,
-    title: `${stage === 'timeline' ? 'Build scene timeline' : stage === 'visual' ? 'Generate visual prompts' : 'Generate motion prompts'} — ${episodeId}`,
-    params: {
+  const params = stampFreshGenerationAction({
       ...visualSnapshot,
       episode_id: episodeId,
       title,
@@ -304,10 +352,10 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
       target_scene_count: targetSceneCount,
       use_research: useResearch,
       detail_level: detailLevel,
-      motion_level: visualSnapshot.motion_level,
+      motion_level: presetData.motion_level ?? visualSnapshot.motion_level,
       generate_motion_prompts: generateMotionPrompts,
-      style_prompt: stylePrompt || undefined,
-      custom_instructions: customInstructions || undefined,
+      style_prompt: undefined,
+      custom_instructions: customInstructions,
       window_size: windowSize,
       cross_window_context: crossWindowContext,
       planning_mode: planningMode,
@@ -320,9 +368,23 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
       prompt_char_cap: promptCharCap,
       creative_direction: creativeDirection,
       avoid_legible_text: avoidLegibleText,
-    },
+      intended_image_model: presetData.intended_image_model,
+      pacing: presetData.pacing ?? visualSnapshot.pacing,
+      motion_scope: presetData.motion_scope ?? visualSnapshot.motion_scope,
+      resolved_preset: resolvedPreset,
+  }, operationId!)
+  // Replay identity belongs to the exact client body. Resolved preset and
+  // catalogue values are an immutable receipt, not inputs to retry matching.
+  params.generation_action_fingerprint = acceptedFingerprint
+  const job = await jq.enqueue({
+    project_slug: slug,
+    type: 'scene_plan_run' as JobType,
+    episode_id: episodeId,
+    title: `${stage === 'timeline' ? 'Build scene timeline' : stage === 'visual' ? 'Generate visual prompts' : 'Generate motion prompts'} — ${episodeId}`,
+    params,
   })
   res.status(201).json(job)
+  })
 })
 
 // Kept as a clear compatibility response for older installed clients. Scene
