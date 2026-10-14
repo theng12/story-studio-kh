@@ -402,6 +402,9 @@ test('manual Idea Campaign admission loss leaves its source and evidence unchang
       sourceJobId = source.job_id
       await waitFor(() => jq.getJob(sourceJobId)?.status === 'error', { label: 'collision source to stop' })
       await waitFor(() => !jq._isJobWorkerActiveForTesting(sourceJobId), { label: 'collision source to finish stopping' })
+      await waitFor(() => jq.getJob(sourceJobId)?.genstudio_jobs?.[0]?.state === 'not_created', {
+        label: 'collision source evidence to finish ordinary provider reconciliation',
+      })
     } finally {
       restore()
     }

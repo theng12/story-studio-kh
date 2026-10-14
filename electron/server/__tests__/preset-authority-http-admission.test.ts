@@ -219,6 +219,57 @@ test('manual Scene Plan omission uses only the configured pointer and rejects wr
   assert.match(stale.body.detail || '', /preset|selected|missing/i)
 })
 
+test('manual and Pipeline accept the same numeric preset cap without an intended image model', async () => {
+  const project = await pm.createProject({ name: 'Numeric Scene Plan cap parity' })
+  await pm.updateConfig(project.slug, {
+    scene_plan_presets: [{
+      id: 'numeric-cap', name: 'Numeric cap', type: 'scene-plan',
+      data: { model: 'mock-chat-v1', prompt_char_cap: 3_210, motion_scope: { mode: 'all' } },
+    }],
+    'scene_plan_last_preset_scene-plan': 'numeric-cap',
+  } as any)
+  const rows = await ideas.addIdeas(project.slug, ['Manual numeric cap', 'Pipeline numeric cap'].map(title => ({
+    title, logline: '', themes: [], suggested_chapters: 1, suggested_length: 'short', mood: 'calm',
+  })), 'mock-chat-v1')
+  const manualEpisode = await ideas.acceptIdea(project.slug, rows[0]!.id, false)
+  const pipelineEpisode = await ideas.acceptIdea(project.slug, rows[1]!.id, false)
+  for (const episodeId of [manualEpisode.episode_code, pipelineEpisode.episode_code]) {
+    const paths = await resolveEpisodePathsByCode(project.slug, episodeId)
+    await fs.mkdir(paths.episode_dir, { recursive: true })
+    await fs.writeFile(path.join(paths.episode_dir, 'continuity.json'), JSON.stringify({
+      pacing: { mode: 'uniform', min_sec: 6, max_sec: 9 },
+      motion_scope: { mode: 'off' },
+      motion_level: 2,
+    }))
+  }
+  await ideas.setEpisodeStatusOverrides(project.slug, pipelineEpisode.episode_code, {
+    script: true, merged_audio: true, subtitles: true,
+  })
+
+  const manual = await request(app)
+    .post(`/api/projects/${project.slug}/scene-plan/${manualEpisode.episode_code}/run`)
+    .send({
+      stage: 'timeline', title: 'Manual numeric cap', preset_id: 'numeric-cap',
+      operation_id: '81210000-0000-4000-8000-000000000021',
+    })
+  assert.equal(manual.status, 201, JSON.stringify(manual.body))
+  assert.equal(manual.body.params.prompt_char_cap, 3_210)
+
+  const pipeline = await request(app)
+    .post(`/api/projects/${project.slug}/pipeline/run-batch`)
+    .send({
+      episode_ids: [pipelineEpisode.episode_code], steps: ['scene_plan'], force: true,
+      operation_id: '81220000-0000-4000-8000-000000000022',
+      preset_ids: { scene_plan: 'numeric-cap' },
+    })
+  assert.equal(pipeline.status, 201, JSON.stringify(pipeline.body))
+  const accepted = jq.getJob(pipeline.body.jobs[0].job_id)!
+  assert.equal(accepted.params.prompt_char_cap, manual.body.params.prompt_char_cap,
+    'Pipeline and manual admission use the same exact preset value')
+  assert.deepEqual(accepted.params.motion_scope, { mode: 'all' },
+    'the exact portable preset scope wins over the captured episode-owned selection')
+})
+
 test('NEW admissions reject present malformed preset identities while accepted replay still wins first', async () => {
   await setCurrentPresets()
   const malformedManual = await request(app)

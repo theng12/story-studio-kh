@@ -2402,6 +2402,8 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       } catch (error: any) {
         return res.status(400).json({ detail: `${error.message} Nothing was started.` })
       }
+    } else {
+      pipelineScenePlanPromptCap = resolveScenePlanPromptCharCap(sceneData, [])
     }
   }
 
@@ -2740,9 +2742,9 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     for (const link of chain) {
       const episodeVisualSettings = structuredClone(visualSettings) as Record<string, any>
       if (link.type === 'scene_plan_run') {
-        delete episodeVisualSettings.pacing
-        delete episodeVisualSettings.motion_scope
-        delete episodeVisualSettings.motion_level
+        for (const key of ['pacing', 'motion_scope', 'motion_level'] as const) {
+          if (link.params[key] !== undefined) delete episodeVisualSettings[key]
+        }
       }
       link.params = { ...link.params, ...episodeVisualSettings }
     }

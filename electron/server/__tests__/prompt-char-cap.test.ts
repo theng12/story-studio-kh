@@ -154,9 +154,12 @@ describe('scene plan wiring', () => {
     assert.doesNotMatch(scenePlanner, /\.slice\(0, *opts\.prompt_char_cap/)
   })
 
-  test('every scene-prompt endpoint accepts the resolved ceiling', () => {
+  test('every scene-prompt endpoint accepts the ceiling from its request authority', () => {
     assert.match(scenePlanRoutes, /import \{ parsePromptCharCap \} from '\.\.\/services\/prompt-char-cap\.js'/)
-    assert.equal(scenePlanRoutes.match(/parsePromptCharCap\(body\.prompt_char_cap\)/g)?.length, 3)
+    assert.equal(scenePlanRoutes.match(/parsePromptCharCap\(body\.prompt_char_cap\)/g)?.length, 2,
+      'prompt repair endpoints use their immutable submitted body')
+    assert.equal(scenePlanRoutes.match(/parsePromptCharCap\(presetData\.prompt_char_cap\)/g)?.length, 1,
+      'new full Scene Plan admission uses the exact selected preset')
     assert.equal(
       scenePlanRoutes.match(/prompt_char_cap: promptCharCap,/g)?.length,
       4,

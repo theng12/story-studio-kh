@@ -313,6 +313,97 @@ describe('Pipeline episode visual source', () => {
     assert.deepEqual(job.params.motion_scope, { mode: 'selected', scene_ids: ['scene-a'] })
     const saved = JSON.parse(await fs.readFile(path.join(episode.dir, 'continuity.json'), 'utf8'))
     assert.deepEqual(saved.pacing, { min_sec: 8, max_sec: 12 })
+
+    await fs.writeFile(path.join(episode.dir, 'continuity.json'), JSON.stringify({
+      ...saved,
+      pacing: { min_sec: 20, max_sec: 30 },
+      motion_scope: { mode: 'off' },
+      motion_level: 1,
+    }))
+    assert.deepEqual(job.params.pacing, { min_sec: 8, max_sec: 12 },
+      'accepted work keeps the baseline captured before a later sidecar edit')
+    assert.deepEqual(job.params.motion_scope, { mode: 'selected', scene_ids: ['scene-a'] })
+    assert.equal(job.params.motion_level, 4)
+  })
+
+  test('Scene Plan admission mixes exact preset fields with independent captured chain baselines', async () => {
+    const project = await pm.createProject({ name: 'Pipeline Scene Plan mixed snapshot' })
+    await pm.updateConfig(project.slug, {
+      ...presets(),
+      scene_plan_presets: [{
+        id: 'plan', name: 'Plan', type: 'scene-plan',
+        data: { model: 'saved-chat-model', pacing: { min_sec: 9, max_sec: 13 }, motion_level: 2 },
+      }],
+      'scene_plan_last_preset_scene-plan': 'plan',
+      scene_review_genstudio_presets: [{
+        id: 'review', name: 'Review', type: 'scene-review', data: { model: 'saved-chat-model' },
+      }],
+      'scene_review_genstudio_last_preset_scene-review': 'review',
+    } as any)
+    const episode = await addEpisode(project.slug, 'Mixed snapshot')
+    await setReadyForLateStages(project.slug, episode.code)
+    await fs.writeFile(path.join(episode.dir, 'continuity.json'), JSON.stringify({
+      schema_version: 1,
+      pacing: { min_sec: 1, max_sec: 3 },
+      motion_scope: { mode: 'selected', scene_ids: ['scene-a'] },
+      motion_level: 4,
+    }))
+
+    const body = {
+      episode_ids: [episode.code], steps: ['scene_plan', 'scene_review'], force: true,
+      operation_id: '77cad852-434d-4fa8-b5c5-bb6920592686',
+    }
+    const response = await request(app)
+      .post(`/api/projects/${project.slug}/pipeline/run-batch`)
+      .send(body)
+
+    assert.equal(response.status, 201, JSON.stringify(response.body))
+    rememberJobs(project.slug, response.body.jobs)
+    const job = jq.getJob(response.body.jobs[0].job_id)!
+    const review = job.params.pipeline_chain[0].params
+    assert.deepEqual(job.params.pacing, { min_sec: 9, max_sec: 13 }, 'exact preset pacing wins')
+    assert.equal(job.params.motion_level, 2, 'exact preset motion level wins')
+    assert.deepEqual(job.params.motion_scope, { mode: 'selected', scene_ids: ['scene-a'] },
+      'an omitted preset field keeps the captured episode-owned selection')
+    assert.deepEqual(review.pacing, { min_sec: 1, max_sec: 3 })
+    assert.deepEqual(review.motion_scope, { mode: 'selected', scene_ids: ['scene-a'] })
+    assert.equal(review.motion_level, 4)
+    assert.notStrictEqual(job.params.motion_scope, review.motion_scope,
+      'each accepted chain link owns its captured settings object')
+    const acceptedParams = structuredClone(job.params)
+
+    await fs.writeFile(path.join(episode.dir, 'continuity.json'), JSON.stringify({
+      schema_version: 1,
+      pacing: { min_sec: 30, max_sec: 40 },
+      motion_scope: { mode: 'off' },
+      motion_level: 1,
+    }))
+    await pm.updateConfig(project.slug, {
+      ...presets(),
+      scene_plan_presets: [{
+        id: 'plan', name: 'Plan changed after acceptance', type: 'scene-plan',
+        data: { model: 'changed-model', pacing: { min_sec: 30, max_sec: 40 }, motion_scope: { mode: 'off' } },
+      }],
+      'scene_plan_last_preset_scene-plan': 'plan',
+      scene_review_genstudio_presets: [{
+        id: 'review', name: 'Review changed after acceptance', type: 'scene-review', data: { model: 'changed-model' },
+      }],
+      'scene_review_genstudio_last_preset_scene-review': 'review',
+    } as any)
+
+    const replay = await request(app)
+      .post(`/api/projects/${project.slug}/pipeline/run-batch`)
+      .send(body)
+    assert.equal(replay.status, 201, JSON.stringify(replay.body))
+    assert.equal(replay.body.enqueued, 0)
+    assert.deepEqual(replay.body.reused_jobs, [{
+      episode_id: episode.code, job_id: job.job_id, type: 'scene_plan_run',
+    }])
+    assert.deepEqual(jq.getJob(job.job_id)?.params, acceptedParams,
+      'same-body replay adopts the accepted snapshot before mutable sidecar and preset resolution')
+    assert.equal((await jq.getJobs(project.slug)).filter(candidate => (
+      candidate.params?.pipeline_batch_id === body.operation_id
+    )).length, 1, 'same-body replay cannot enqueue another batch owner')
   })
 
   test('a missing Scene Plan preset blocks only the row whose selected branch needs it', async () => {

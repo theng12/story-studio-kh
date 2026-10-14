@@ -8,6 +8,7 @@ What's new in each release. Newest first.
 
 - You can choose a new attempt for unresolved work in Idea Campaign, Voice, Music Library, Image Pool, Song Pool, and Script/Document generation while keeping earlier completed work.
 - Scene Plan presets can save and apply the selected pacing, model, and guidance, with clear feedback when Save or Apply cannot complete.
+- Queued Scene Plans keep the captured episode timing and motion for settings omitted by the selected preset, and Pipeline retains its saved numeric prompt limit.
 - Retries reuse the captured request, and incomplete Pipeline submissions show their existing jobs so a lost response does not cause duplicate work.
 - Free Up Space reports measured storage values, identifies unavailable metrics, and avoids duplicate scans while a slow measurement is pending.
 

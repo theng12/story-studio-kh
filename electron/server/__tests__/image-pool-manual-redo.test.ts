@@ -6,6 +6,7 @@ import path from 'node:path'
 import test from 'node:test'
 import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 import { MOCK_GENSTUDIO_FULL_KEY } from './fixtures/mock-genstudio-service.js'
 
 void test('Image Pool replaces one exact unresolved item in a fresh server-owned namespace', async t => {
@@ -421,21 +422,19 @@ void test('Image Pool replaces one exact unresolved item in a fresh server-owned
 
     await t.test('a contradictory task/key row arriving during catalog validation blocks admission', async () => {
       const operationId = '77777777-7777-4777-8777-777777777777'
-      let enteredCatalog!: () => void
+      let catalogEntered = false
       let releaseCatalog!: () => void
-      const entered = new Promise<void>(resolve => { enteredCatalog = resolve })
       const wait = new Promise<void>(resolve => { releaseCatalog = resolve })
-      catalogBarrier = { entered: enteredCatalog, wait }
+      catalogBarrier = { entered: () => { catalogEntered = true }, wait }
       client.clearGenStudioCatalogCache()
       const posting = request(app)
         .post(`/api/projects/${project.slug}/image-pool/generate`)
         .send(manualBody(operationId))
         .then(response => response)
       try {
-        let timeout: ReturnType<typeof setTimeout> | undefined
-        await Promise.race([entered, new Promise<never>((_resolve, reject) => {
-          timeout = setTimeout(() => reject(new Error('manual Image Pool catalog barrier was not reached')), 2_000)
-        })]).finally(() => { if (timeout) clearTimeout(timeout) })
+        await waitFor(() => catalogEntered, {
+          label: 'manual Image Pool catalog barrier', timeoutMs: 2_000,
+        })
         await jq.mutateAuthoritativeJob(project.slug, source.job_id, current => {
           current.genstudio_jobs = [...(current.genstudio_jobs || []), {
             id: 'contradictory-task-for-same-key',

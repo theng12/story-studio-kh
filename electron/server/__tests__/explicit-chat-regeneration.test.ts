@@ -54,7 +54,10 @@ test('server-owned fresh action reaches chat identity and forced Pipeline childr
     source('electron/server/routes/pipeline.ts'),
   ])
 
-  assert.match(scriptsRoute, /stampFreshGenerationAction\(body, operationId\)/)
+  assert.match(scriptsRoute, /stampFreshGenerationAction\(cleanManualScriptClientBody\(body\), operationId\)/)
+  assert.match(scriptsRoute, /stampFreshGenerationAction\(clean, operationId\)/)
+  assert.doesNotMatch(scriptsRoute, /stampFreshGenerationAction\(body, operationId\)/,
+    'script actions fingerprint the normalized client body, never private receipt fields')
   assert.match(episode, /freshGenerationRequestIdentity/)
   assert.match(chunked, /freshGenerationRequestIdentity/)
   assert.match(promptRoute, /requestIdentity:\s*`[^`]*\$\{operationId\}/)
