@@ -53,7 +53,7 @@ async function loadScenePlan(): Promise<Component> {
   // scenePlanLoading.test.ts. Only the three the Style Bible save touches
   // (useToast, useApi, useGenStudioImageModels) are wired to the test.
   const support = `
-    import { computed, defineComponent as _defineComponent, h, nextTick, onMounted, onUnmounted, ref, unref, watch } from ${JSON.stringify(vueUrl)}
+    import { computed, defineComponent as _defineComponent, h, nextTick, onMounted, onUnmounted, ref, shallowRef, unref, watch } from ${JSON.stringify(vueUrl)}
     import { normalizePromptCharCapSetting, promptCharCapAboveModel, promptCharCapOptions, promptLengthLabel, promptLengthState, promptLengthTone, publishedPromptCharCap, resolvePromptCharCap } from ${JSON.stringify(capUrl)}
     const availableInputTokens = () => 0
     const batchTimeoutWarning = () => ''
@@ -70,14 +70,14 @@ async function loadScenePlan(): Promise<Component> {
     const useAppTitle = () => undefined
     const useRoute = () => globalThis.__scenePlanRoute
     const useApi = () => globalThis.__scenePlanApi
-    const useFreshGenerationAction = () => ({ begin: () => 'operation', complete: () => undefined })
+    const useFreshGenerationAction = () => ({ begin: () => 'operation', complete: () => undefined, cancel: () => undefined })
     const useToast = () => globalThis.__scenePlanToast
     const useConfirm = () => ({ ask: async () => false })
     const useUnsavedGuard = () => undefined
     const useEpisodes = () => ({ episodes: globalThis.__scenePlanEpisodes, revalidate: async () => undefined })
     const useProject = () => ({ config: ref({}) })
     const useRememberedForm = () => undefined
-    const usePresets = () => ({ load: async () => undefined, presets: ref([]), activeId: ref('') })
+    const usePresets = () => ({ load: async () => undefined, presets: ref([]), activeId: ref(''), activeData: ref(null), isDirty: ref(false) })
     const DEFAULT_EXCLUDE_KEYS = ${JSON.stringify(DEFAULT_EXCLUDE_KEYS)}
     const useGenStudioImageModels = () => ({ models: globalThis.__scenePlanImageModels, refresh: async () => undefined })
     const useJobs = () => ({ isJobActiveFor: () => false })

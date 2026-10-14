@@ -213,7 +213,11 @@ describe('Scene Plan workspace control', () => {
   })
 
   test('the resolved ceiling travels with every prompt request', () => {
-    assert.match(scenePlan, /prompt_char_cap: stage === 'visual' \? \(effectivePromptCharCap\.value \|\| undefined\) : undefined,/)
+    const promptStage = scenePlan.slice(scenePlan.indexOf('async function runPromptStage'), scenePlan.indexOf('/** Returns the tracked job'))
+    assert.match(promptStage, /preset_id: presetId/,
+      'the visual stage sends the exact applied preset that owns its character-cap selection')
+    assert.doesNotMatch(promptStage, /prompt_char_cap:/,
+      'the stage must not overlay mutable page state on that accepted preset')
     assert.match(scenePlan, /prompt_char_cap: effectivePromptCharCap\.value \|\| undefined,/)
   })
 

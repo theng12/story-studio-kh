@@ -56,6 +56,7 @@ function makeRuntime(putImpl: (url: string, body: unknown) => Promise<unknown>, 
     const success = message => successCalls.push(message)
     const showError = message => errorCalls.push(message)
     const scanAssets = async () => { scans++ }
+    const loadManualRedoSources = async () => undefined
     function isCurrentVisualSourceScope(project, episode, scope = videoEpisodeSequence) {
       return scope === videoEpisodeSequence && project === slug.value && episode === episodeId.value
     }
@@ -135,6 +136,7 @@ test('switching image pools clears the previous completed pick immediately', () 
     let imagePoolScopeSequence = 4
     const lastLoad = { value: { count: 3 } }
     const pickingImages = { value: false }
+    const loadManualRedoSources = async () => undefined
     ${body}
     return { run: () => { ${body} }, lastLoad, pickingImages }
   `))()

@@ -43,7 +43,9 @@ test('an empty writing page gets the model kept from the retired lineup, and onl
   const fill = selector.slice(selector.indexOf('async function fillRetiredLineupChoice'), selector.indexOf('async function identifyEmptyCatalog'))
   assert.match(fill, /if \(!props\.writingStep \|\| props\.modelValue\.trim\(\)\) return/)
   assert.match(fill, /llm_lineup_migration\?\.model/)
-  assert.match(fill, /selectModel\(kept\)/, 'the kept model still has to be usable in the live catalogue')
+  assert.match(fill, /applyModel\(kept\)/, 'the kept model still has to be usable in the live catalogue')
+  assert.match(selector, /function applyModel\(value: string, userSelected = false\): void \{\s*const model = allModels\.value\.find/)
+  assert.match(selector, /if \(!model \|\| isDisabled\(model\)\) return/)
   for (const page of ['ideas', 'research', 'scripts', 'metadata', 'image-prompts', 'scene-plan', 'contextual-cues']) {
     const source = read(`../pages/projects/[slug]/${page}.vue`)
     assert.doesNotMatch(source, /InheritedLlmLineupNotice|llm_lineup\b|lineup-model-readonly/, `${page} has no lineup left`)

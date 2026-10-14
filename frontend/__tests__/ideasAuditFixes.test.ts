@@ -68,7 +68,8 @@ test('pagination clamps and empty states are not chained to it', () => {
 })
 
 test('the Ideas model picker is always the real picker (the LLM lineup is retired)', () => {
-  assert.match(ideas, /<ModelSelector v-if="modelPreferenceReady" v-model="form\.model" :project-slug="slug" writing-step \/>/)
+  assert.match(ideas, /<ModelSelector v-if="modelPreferenceReady" v-model="form\.model" :project-slug="slug" writing-step[^>]*\/>/)
+  assert.match(ideas, /@model-meta="ideaModelMeta = \$event"/)
   assert.doesNotMatch(ideas, /lineup/i)
 })
 

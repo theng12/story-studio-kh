@@ -86,8 +86,24 @@ describe('Script Generator workspace', () => {
     assert.match(submit, /if \(outlineTotalChapters\.value > 0\)[\s\S]*?await ask\(/)
     assert.match(submit, /Create a new outline for \$\{targetEpisode\}\?/)
     assert.match(submit, /chapter\$\{written === 1 \? '' : 's'\} written/)
-    assert.ok(submit.indexOf('await ask(') < submit.indexOf('freshScriptAction.begin('), 'asks before the paid request')
-    assert.match(submit, /freshScriptAction\.complete\(operationId\)\s*\/\/[^\n]*\n\s*form\.force = false/)
+    const ordinaryMarker = submit.indexOf('// An outline already exists for this episode')
+    assert.ok(ordinaryMarker >= 0, 'ordinary outline submission block exists')
+    const ordinarySubmit = submit.slice(ordinaryMarker)
+    const positions = {
+      ask: ordinarySubmit.indexOf('await ask('),
+      confirm: ordinarySubmit.indexOf('confirmGeneration('),
+      begin: ordinarySubmit.indexOf('freshScriptAction.begin(params)'),
+      complete: ordinarySubmit.indexOf('freshScriptAction.complete(operationId)'),
+      owner: ordinarySubmit.indexOf('ownsOutlineSubmit(submitOwner)'),
+      clearForce: ordinarySubmit.indexOf('form.force = false'),
+    }
+    for (const [name, position] of Object.entries(positions)) {
+      assert.ok(position >= 0, `${name} marker exists in ordinary outline submission`)
+    }
+    assert.ok(positions.ask < positions.begin, 'asks before the paid request')
+    assert.ok(positions.confirm < positions.begin, 'confirms the model request before admission')
+    assert.ok(positions.complete < positions.clearForce, 'the accepted request clears Force for the next action')
+    assert.ok(positions.owner < positions.clearForce, 'a late response cannot clear the current episode’s Force choice')
   })
 
   test('the automatic opening is keyed to the episode whose outline run armed it', () => {

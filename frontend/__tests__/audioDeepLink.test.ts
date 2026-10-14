@@ -52,7 +52,7 @@ async function loadAudioPage(): Promise<Component> {
     const useRouter = () => globalThis.__audioDeepLinkRouter
     const useApi = () => globalThis.__audioDeepLinkApi
     const useConfirm = () => ({ ask: async () => true })
-    const useFreshGenerationAction = () => ({ hasPending: ref(false), begin: () => 'operation', complete: () => undefined, fail: () => undefined })
+    const useFreshGenerationAction = () => ({ hasPending: ref(false), begin: () => 'operation', complete: () => undefined, fail: () => undefined, cancel: () => undefined })
     const useProject = () => ({ project: ref(null), config: ref({ audio_quality: {} }), refreshConfig: async () => undefined })
     const useGenStudioVoices = () => ({ models: ref([]), modelsLoading: ref(false), modelsError: ref(''), modelsStale: ref(false), modelsLoadedAt: ref(null), loadModels: async () => undefined, quoteNarration: async () => ({}) })
     const useGenStudioTranscriptionModels = () => ({ models: ref([]), error: ref(''), isStale: ref(false), isUsable: ref(true), sourceFreshness: ref(null), load: async () => undefined })
@@ -71,7 +71,13 @@ async function loadAudioPage(): Promise<Component> {
     const resolveTtsControlValues = (_controls, values) => values || {}
     const useToast = () => ({ success: () => undefined, info: () => undefined, error: () => undefined })
     const useGenerating = () => ({ audioGenerating: ref(false) })
-    const useConfirmation = () => ({ confirmGeneration: async () => true })
+    const useConfirmation = () => ({
+      state: reactive({ visible: false, type: '' }),
+      confirmGeneration: async () => true,
+      cancel: () => undefined,
+    })
+    const useManualGenerationRedoPreference = () => ({ enabled: ref(false), load: async () => false, reset: () => undefined })
+    const useJobDetails = () => ({ ensure: () => undefined, withDetail: job => job, stop: () => undefined })
     const useJobs = () => ({ jobs: ref([]) })
     const useRememberedForm = () => undefined
     const useEpisodeStatus = () => ({ selectedEpisode: ref(null), scriptReady: ref(true), statusKnown: ref(true), refetch: async () => undefined })

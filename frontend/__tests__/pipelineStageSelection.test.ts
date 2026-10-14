@@ -178,8 +178,9 @@ describe('Pipeline stage selection', () => {
   test('detaches an old project batch response without cancelling its already-authorized server request', () => {
     const submit = extractFunction('submit')
     assert.match(submit, /const requestId = \+\+submitRequestId/)
-    assert.match(submit, /const targetSlug = slug\.value/)
-    assert.match(submit, /const submittedRepair = repairMode\.value/)
+    assert.match(submit, /const targetSlug = retry\?\.targetSlug \?\? slug\.value/)
+    assert.match(submit, /const submittedRepair = retry \? retry\.body\.repair_missing === true : repairMode\.value/)
+    assert.match(submit, /if \(retry\) body = structuredClone\(retry\.body\)/)
     assert.match(submit, /\/projects\/\$\{targetSlug\}\/pipeline\/run-batch/)
     assert.match(submit, /requestId !== submitRequestId \|\| slug\.value !== targetSlug/)
     assert.match(pipeline, /submitRequestId \+= 1[\s\S]*submitting\.value = false[\s\S]*closeConfirm\(true\)/)

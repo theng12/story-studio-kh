@@ -237,7 +237,8 @@ describe('the components cannot reintroduce the fallback', () => {
     // `selectModel` still refuses a model the loaded catalogue calls unusable,
     // and still refuses one that is not in the loaded catalogue at all. A
     // remembered NAME never becomes permission to submit.
-    assert.match(modelSelector, /function selectModel\(value: string\): void \{\s*\n\s*const model = allModels\.value\.find/)
+    assert.match(modelSelector, /function selectModel\(value: string\): void \{\s*applyModel\(value, true\)/)
+    assert.match(modelSelector, /function applyModel\(value: string, userSelected = false\): void \{\s*const model = allModels\.value\.find/)
     assert.match(modelSelector, /if \(!model \|\| isDisabled\(model\)\) return/)
   })
 })

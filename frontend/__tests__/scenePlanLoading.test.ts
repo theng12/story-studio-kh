@@ -55,7 +55,7 @@ async function loadScenePlan(): Promise<Component> {
   // catalogue itself be stubbed (no models are supplied).
   const capUrl = await import.meta.resolve('../utils/prompt-char-cap.js')
   const support = `
-    import { computed, defineComponent as _defineComponent, h, nextTick, onMounted, onUnmounted, ref, unref, watch } from ${JSON.stringify(vueUrl)}
+    import { computed, defineComponent as _defineComponent, h, nextTick, onMounted, onUnmounted, ref, shallowRef, unref, watch } from ${JSON.stringify(vueUrl)}
     import { normalizePromptCharCapSetting, promptCharCapAboveModel, promptCharCapOptions, promptLengthLabel, promptLengthState, promptLengthTone, publishedPromptCharCap, resolvePromptCharCap } from ${JSON.stringify(capUrl)}
     const availableInputTokens = () => 0
     const batchTimeoutWarning = () => ''
@@ -72,14 +72,14 @@ async function loadScenePlan(): Promise<Component> {
     const useAppTitle = () => undefined
     const useRoute = () => globalThis.__scenePlanRoute
     const useApi = () => globalThis.__scenePlanApi
-    const useFreshGenerationAction = () => ({ begin: () => 'operation', complete: () => undefined })
-    const useToast = () => ({ success: () => undefined, error: message => globalThis.__scenePlanErrors.push(message) })
+    const useFreshGenerationAction = () => ({ begin: () => 'operation', complete: () => undefined, cancel: () => undefined })
+    const useToast = () => ({ success: () => undefined, error: message => globalThis.__scenePlanErrors.push(message), showAction: () => undefined })
     const useConfirm = () => ({ ask: async () => false })
     const useUnsavedGuard = () => undefined
     const useEpisodes = () => ({ episodes: globalThis.__scenePlanEpisodes, revalidate: async () => undefined })
     const useProject = () => ({ config: ref({}) })
     const useRememberedForm = () => undefined
-    const usePresets = () => ({ load: async () => undefined, presets: ref([]), activeId: ref('') })
+    const usePresets = () => ({ load: async () => undefined, presets: ref([]), activeId: ref(''), activeData: ref(null), isDirty: ref(false) })
     const DEFAULT_EXCLUDE_KEYS = ${JSON.stringify(DEFAULT_EXCLUDE_KEYS)}
     const useGenStudioImageModels = () => ({ models: ref([]), refresh: async () => undefined })
     const useJobs = () => ({ isJobActiveFor: () => false })
