@@ -26,6 +26,15 @@ async function runHarness(args = ['--probe'], env = process.env) {
   return { exitCode, stdout, stderr }
 }
 
+async function runnerFixtureEntries() {
+  const active = (await fs.readdir(ROOT)).filter(name => name.startsWith('.story-studio-backend-tests-'))
+  const retained = await fs.readdir(path.join(ROOT, '_trash', 'test-fixtures')).catch(error => {
+    if (error?.code === 'ENOENT') return []
+    throw error
+  })
+  return [...active, ...retained.filter(name => name.startsWith('backend-test-harness-'))].sort()
+}
+
 /**
  * Env for a `node --test` spawned from INSIDE a test file. Node refuses to
  * recurse ("skipping running files") when it sees its own marker, and the
@@ -38,6 +47,71 @@ function nestedRunnerEnv() {
   return env
 }
 
+test('backend runner parser rejects unknown options instead of widening the run', async () => {
+  const { parseBackendTestArgs, parseOnly } = await import(
+    pathToFileURL(path.join(ROOT, 'scripts', 'testing', 'run-backend-tests.mjs')).href
+  )
+  assert.deepEqual(parseOnly(['--probe', '--only', 'alpha', '--only=beta']), ['alpha', 'beta'])
+  assert.deepEqual(parseBackendTestArgs([]), {
+    onlyNeedles: [], probe: false, failAfterSetup: false, help: false,
+  })
+  assert.deepEqual(parseBackendTestArgs([
+    '--probe', '--fail-after-setup', '--only', 'alpha', '--only=beta', '--help',
+  ]), {
+    onlyNeedles: ['alpha', 'beta'], probe: true, failAfterSetup: true, help: true,
+  })
+  assert.throws(
+    () => parseOnly(['--probe', '--only', 'alpha', '--typo']),
+    /unsupported.*--typo/i,
+  )
+})
+
+test('--help and unknown options exit before sandbox setup or test execution', async () => {
+  const before = await runnerFixtureEntries()
+  const help = await runHarness(['--help'])
+  assert.equal(help.exitCode, 0, help.stderr || help.stdout)
+  assert.match(help.stdout, /^Usage: node scripts\/testing\/run-backend-tests\.mjs/m)
+  assert.doesNotMatch(help.stdout + help.stderr, /sandbox:|suite coverage:|PARTIAL RUN|configured projects root/)
+  assert.deepEqual(await runnerFixtureEntries(), before, '--help must not create or retain a sandbox')
+
+  const invalid = await runHarness(['--only', 'image-episode-concurrency', '--typo'])
+  assert.notEqual(invalid.exitCode, 0)
+  assert.match(invalid.stderr + invalid.stdout, /unsupported.*--typo/i)
+  assert.doesNotMatch(invalid.stdout + invalid.stderr, /sandbox:|suite coverage:|PARTIAL RUN|configured projects root/)
+  assert.deepEqual(await runnerFixtureEntries(), before, 'invalid input must fail before sandbox setup')
+})
+
+test('sandbox retention reserves a fresh container without touching a prior colliding artifact', async () => {
+  const fixtures = path.join(ROOT, '_trash', 'test-fixtures')
+  await fs.mkdir(fixtures, { recursive: true })
+  const retentionRoot = await fs.mkdtemp(path.join(fixtures, 'backend-retention-collision-proof-'))
+  const source = await fs.mkdtemp(path.join(ROOT, '.backend-retention-collision-source-'))
+  const sourceName = path.basename(source)
+  const collision = path.join(retentionRoot, `backend-test-harness-${sourceName}`)
+  const marker = path.join(collision, 'owner-marker.txt')
+  await fs.mkdir(collision, { recursive: true })
+  await fs.writeFile(marker, 'prior retained artifact\n')
+  await fs.writeFile(path.join(source, 'runner-payload.txt'), 'new generated sandbox\n')
+
+  try {
+    const { retainSandbox } = await import(
+      pathToFileURL(path.join(ROOT, 'scripts', 'testing', 'run-backend-tests.mjs')).href
+    )
+    const retained = await retainSandbox(source, retentionRoot)
+    assert.notEqual(retained, collision, 'a fresh archive must never reuse the old basename-derived target')
+    assert.equal(await fs.readFile(marker, 'utf8'), 'prior retained artifact\n')
+    assert.equal(await fs.readFile(path.join(retained, 'runner-payload.txt'), 'utf8'), 'new generated sandbox\n')
+    await assert.rejects(fs.access(source), error => error?.code === 'ENOENT')
+  } finally {
+    try {
+      await fs.access(source)
+      await fs.rename(source, path.join(retentionRoot, `retained-red-source-${sourceName}`))
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error
+    }
+  }
+})
+
 test('backend test runner is hermetic without an operator-provided environment wrapper', async () => {
   const { exitCode, stdout, stderr } = await runHarness()
 
@@ -47,29 +121,29 @@ test('backend test runner is hermetic without an operator-provided environment w
 
 test('backend test runner ignores inherited temp-directory escape routes', async () => {
   const missingUntrustedTemp = path.join(ROOT, `.untrusted-test-temp-${process.pid}-${Date.now()}`)
-  try {
-    await assert.rejects(fs.access(missingUntrustedTemp), error => error?.code === 'ENOENT')
-    const { exitCode, stdout, stderr } = await runHarness(['--probe'], {
-      ...process.env,
-      TMPDIR: missingUntrustedTemp,
-      TMP: missingUntrustedTemp,
-      TEMP: missingUntrustedTemp,
-    })
+  await assert.rejects(fs.access(missingUntrustedTemp), error => error?.code === 'ENOENT')
+  const { exitCode, stdout, stderr } = await runHarness(['--probe'], {
+    ...process.env,
+    TMPDIR: missingUntrustedTemp,
+    TMP: missingUntrustedTemp,
+    TEMP: missingUntrustedTemp,
+  })
 
-    assert.equal(exitCode, 0, stderr || stdout)
-    await assert.rejects(fs.access(missingUntrustedTemp), error => error?.code === 'ENOENT')
-  } finally {
-    await fs.rm(missingUntrustedTemp, { recursive: true, force: true })
-  }
+  assert.equal(exitCode, 0, stderr || stdout)
+  await assert.rejects(fs.access(missingUntrustedTemp), error => error?.code === 'ENOENT')
 })
 
-test('backend test runner removes its sandbox when setup fails', async () => {
+test('backend test runner retains its sandbox recoverably when setup fails', async () => {
   const { exitCode, stdout } = await runHarness(['--probe', '--fail-after-setup'])
   assert.notEqual(exitCode, 0)
 
   const sandbox = stdout.match(/\[test-harness\] sandbox: (.+)/)?.[1]?.trim()
   assert.ok(sandbox, 'the failing setup probe must report its sandbox')
+  const retained = stdout.match(/\[test-harness\] retained sandbox: (.+)/)?.[1]?.trim()
+  assert.ok(retained, 'the failing setup probe must report its retained sandbox')
   await assert.rejects(fs.access(sandbox), error => error?.code === 'ENOENT')
+  assert.equal((await fs.stat(retained)).isDirectory(), true)
+  assert.match(retained, /\/_trash\/test-fixtures\/backend-test-harness-/)
 })
 
 /**

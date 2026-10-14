@@ -8,27 +8,36 @@ import { after, before, beforeEach, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
+import { fileURLToPath } from 'url'
 import request from 'supertest'
-import { useTempDataDir } from './_helpers.js'
-import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService, type MockGenStudioService } from './fixtures/mock-genstudio-service.js'
+import './_helpers.js'
+import { setTestSafeStorageAvailable } from './safe-storage-test-double.js'
+import type { Job } from '../models/types.js'
+import {
+  MOCK_GENSTUDIO_FULL_KEY,
+  startMockGenStudioService,
+  type MockGenStudioService,
+  type MockGenStudioSubmission,
+} from './fixtures/mock-genstudio-service.js'
 
 const EPISODE_ID = 'EP001'
 const TITLE = 'Producer Guidance Regression'
 const SAVED_GUIDANCE = 'Do not reintroduce the rejected banking-timing claim.'
 
-let cleanup: () => Promise<void>
+const previousDataDir = process.env.STORY_STUDIO_DATA_DIR
+const previousDisableListen = process.env.STORY_STUDIO_DISABLE_LISTEN
+let fixtureRoot: string
 let app: any
 let slug: string
 let scriptDir: string
 let sidecarFile: string
 let service: MockGenStudioService
+let jq: typeof import('../services/job-queue.js')
 
-function chapterOnlyJob(params: Record<string, unknown> = {}): any {
+function chapterOnlyOptions(params: Record<string, unknown> = {}) {
   return {
-    job_id: 'chapter-only-producer-guidance',
     project_slug: slug,
-    type: 'chapter-only',
-    status: 'running',
+    type: 'chapter-only' as const,
     episode_id: EPISODE_ID,
     title: TITLE,
     params: {
@@ -42,18 +51,66 @@ function chapterOnlyJob(params: Record<string, unknown> = {}): any {
       words_per_chapter: 5,
       ...params,
     },
-    created_at: new Date().toISOString(),
-    output_lines: [],
+  }
+}
+
+async function generateQueuedChapter(params: Record<string, unknown> = {}): Promise<MockGenStudioSubmission> {
+  await jq.initializeQueuePauseState()
+  const wasPaused = jq.isQueuePaused()
+  if (!wasPaused) await jq.setQueuePaused(true)
+  let queued: Job | null = null
+  try {
+    queued = jq.enqueuePreparedForTest(chapterOnlyOptions(params)) as Job
+    await jq._waitForJobPersistenceForTesting()
+    assert.equal(jq.getJob(queued.job_id)?.status, 'queued')
+    assert.equal(jq._isJobWorkerActiveForTesting(queued.job_id), false,
+      'the paused queue must not start the fixture executor')
+    assert.equal(service.submissions.length, 0,
+      'queue admission alone must not submit a Gateway request')
+
+    const { generateChapterOnly } = await import('../generators/episode.js')
+    await generateChapterOnly(queued)
+
+    const submissions = service.submissions.filter(item => item.operation === 'chat' && !item.replay)
+    assert.equal(submissions.length, 1, 'chapter-only regeneration must submit exactly one fake Gateway chat request')
+    const submission = submissions[0]!
+    const authoritative = await jq.loadAuthoritativeJob(slug, queued.job_id)
+    assert.deepEqual(authoritative?.params?.script_document_requests, {
+      version: 1,
+      requests: [{
+        episode_id: EPISODE_ID,
+        item: 'chapter:1',
+        request_key: submission.idempotencyKey,
+      }],
+    }, 'the exact logical document owner must be durable before the mock provider accepts the request')
+    return submission
+  } finally {
+    if (queued) {
+      const current = jq.getJob(queued.job_id)
+      if (current && !['done', 'error', 'cancelled'].includes(current.status)) {
+        await jq.requestJobCancellation(slug, queued.job_id)
+      }
+      await jq._waitForJobPersistenceForTesting()
+      const terminal = jq.getJob(queued.job_id)
+      if (terminal && ['done', 'error', 'cancelled'].includes(terminal.status)) {
+        assert.equal(jq.removeTerminalJob(slug, queued.job_id), true)
+        await jq._waitForJobPersistenceForTesting()
+      }
+    }
+    if (jq.isQueuePaused() !== wasPaused) await jq.setQueuePaused(wasPaused)
   }
 }
 
 before(async () => {
-  const temp = await useTempDataDir()
-  cleanup = temp.cleanup
-  await fs.mkdir(path.join(temp.dir, 'projects'), { recursive: true })
+  const projectRoot = fileURLToPath(new URL('../../../', import.meta.url))
+  fixtureRoot = await fs.mkdtemp(path.join(projectRoot, '.chapter-only-producer-guidance-'))
+  process.env.STORY_STUDIO_DATA_DIR = fixtureRoot
+  setTestSafeStorageAvailable(true)
+  await fs.mkdir(path.join(fixtureRoot, 'projects'), { recursive: true })
   process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
 
   app = (await import('../app.js')).app
+  jq = await import('../services/job-queue.js')
   const project = await request(app).post('/api/projects').send({
     name: 'Producer Guidance Regression',
     episode_prefix: 'EP',
@@ -73,13 +130,31 @@ before(async () => {
 })
 
 after(async () => {
-  await service.close()
-  await cleanup()
+  try {
+    await service.close()
+    const projectRoot = fileURLToPath(new URL('../../../', import.meta.url))
+    const trashFixtures = path.join(projectRoot, '_trash', 'test-fixtures')
+    await fs.mkdir(trashFixtures, { recursive: true })
+    await fs.rename(fixtureRoot, path.join(trashFixtures, `chapter-only-producer-guidance-${path.basename(fixtureRoot)}`))
+  } finally {
+    if (previousDataDir === undefined) delete process.env.STORY_STUDIO_DATA_DIR
+    else process.env.STORY_STUDIO_DATA_DIR = previousDataDir
+    if (previousDisableListen === undefined) delete process.env.STORY_STUDIO_DISABLE_LISTEN
+    else process.env.STORY_STUDIO_DISABLE_LISTEN = previousDisableListen
+    setTestSafeStorageAvailable(true)
+  }
 })
 
 beforeEach(async () => {
   service.reset()
-  await fs.rm(sidecarFile, { force: true })
+  try {
+    await fs.access(sidecarFile)
+    const retainedSidecars = path.join(fixtureRoot, '_trash', 'test-fixtures', 'prior-sidecars')
+    await fs.mkdir(retainedSidecars, { recursive: true })
+    await fs.rename(sidecarFile, path.join(retainedSidecars, `${Date.now()}-${path.basename(sidecarFile)}`))
+  } catch (error: any) {
+    if (error?.code !== 'ENOENT') throw error
+  }
   await fs.mkdir(scriptDir, { recursive: true })
   await fs.writeFile(sidecarFile, JSON.stringify({
     schema_version: 3,
@@ -105,12 +180,7 @@ test('chapter-only regeneration sends saved producer guidance when its request o
   service.queueScenario('chat', {
     outputText: '## Chapter 1: The actual topic\n\nA grounded replacement chapter.',
   })
-  const { generateChapterOnly } = await import('../generators/episode.js')
-
-  await generateChapterOnly(chapterOnlyJob())
-
-  const submission = service.submissions.find(item => item.operation === 'chat' && !item.replay)
-  assert.ok(submission, 'chapter-only regeneration must submit exactly one fake Gateway chat request')
+  const submission = await generateQueuedChapter()
   const prompt = JSON.stringify(submission.parsedBody)
   assert.match(prompt, /PRODUCER NOTES \(binding — follow these over any generic default/i)
   assert.match(prompt, /Do not reintroduce the rejected banking-timing claim\./)
@@ -121,12 +191,7 @@ test('chapter-only regeneration prioritizes saved producer guidance over a confl
   service.queueScenario('chat', {
     outputText: '## Chapter 1: The actual topic\n\nA grounded replacement chapter.',
   })
-  const { generateChapterOnly } = await import('../generators/episode.js')
-
-  await generateChapterOnly(chapterOnlyJob({ manual_guidance: conflictingRequestGuidance }))
-
-  const submission = service.submissions.find(item => item.operation === 'chat' && !item.replay)
-  assert.ok(submission, 'chapter-only regeneration must submit exactly one fake Gateway chat request')
+  const submission = await generateQueuedChapter({ manual_guidance: conflictingRequestGuidance })
   const prompt = JSON.stringify(submission.parsedBody)
   assert.match(prompt, /Do not reintroduce the rejected banking-timing claim\./)
   assert.doesNotMatch(prompt, /Replace the saved direction with this request value\./)
@@ -140,11 +205,6 @@ test('chapter-only regeneration falls back to request producer guidance for side
   service.queueScenario('chat', {
     outputText: '## Chapter 1: The actual topic\n\nA grounded replacement chapter.',
   })
-  const { generateChapterOnly } = await import('../generators/episode.js')
-
-  await generateChapterOnly(chapterOnlyJob({ manual_guidance: requestGuidance }))
-
-  const submission = service.submissions.find(item => item.operation === 'chat' && !item.replay)
-  assert.ok(submission, 'chapter-only regeneration must submit exactly one fake Gateway chat request')
+  const submission = await generateQueuedChapter({ manual_guidance: requestGuidance })
   assert.match(JSON.stringify(submission.parsedBody), /Keep the constitutional crisis distinct from the later wars\./)
 })
