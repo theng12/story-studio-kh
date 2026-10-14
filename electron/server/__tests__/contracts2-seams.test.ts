@@ -7,6 +7,7 @@ import { describe, test } from 'node:test'
 import {
   DEFAULT_INSTRUMENTAL_TRACK_SECONDS,
   lyricSectionCount,
+  musicModelCanServe,
   musicDurationPlan,
   pickDefaultMusicModel,
 } from '../contracts/music-model-choice.js'
@@ -62,6 +63,12 @@ describe('music length', () => {
   test('a request for vocals prefers the model that sings; an instrumental one never lands on it', () => {
     assert.equal(pickDefaultMusicModel([stable, yue], { instrumental: false, hasLyrics: true })?.id, 'y')
     assert.equal(pickDefaultMusicModel([yue, stable], { instrumental: true, hasLyrics: false })?.id, 's')
+  })
+  test('explicit false mode capabilities refuse that mode while unknown capabilities remain eligible', () => {
+    assert.equal(musicModelCanServe({ supports_instrumental: false }, { instrumental: true, hasLyrics: true }), false)
+    assert.equal(musicModelCanServe({ supports_vocals: false }, { instrumental: false, hasLyrics: true }), false)
+    assert.equal(musicModelCanServe({ supports_instrumental: null }, { instrumental: true, hasLyrics: true }), true)
+    assert.equal(musicModelCanServe({ supports_vocals: null }, { instrumental: false, hasLyrics: true }), true)
   })
   test('with no model named, a free fleet model wins over a paid row listed first (Dreamlands E2E)', () => {
     const suno = { id: 'kie-ai-images::V6', price_source: 'provider_page' }

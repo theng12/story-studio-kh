@@ -1705,6 +1705,8 @@ export interface GenStudioMusicModel extends GenStudioCatalogLock, GenStudioPric
   credits_per_request: number
   minimum_credits: number
   price_version: string
+  /** Explicit published billing truth. Absent means the catalog did not publish it. */
+  chargeable?: boolean
   cost_tier?: GenStudioCostTier
   standard_credits: number | null
   sale_credits: number | null
@@ -4969,6 +4971,7 @@ export async function listMusicModelsSnapshot(
         || typeof value?.price_version !== 'string'
         || !isNullableInteger(value?.standard_credits) || !isNullableInteger(value?.sale_credits)
         || !isNullableText(value?.sale_ends_at) || !isNullableText(value?.sale_disclaimer)
+        || !isNullableFlag(value?.chargeable)
         || !isNullableFlag(value?.supports_instrumental) || !isNullableFlag(value?.supports_vocals)
         || !isNullableFlag(value?.requires_lyrics)
         || !Number.isInteger(value?.max_prompt_characters)
@@ -4991,6 +4994,7 @@ export async function listMusicModelsSnapshot(
         credits_per_request: value.credits_per_request,
         minimum_credits: value.minimum_credits,
         price_version: value.price_version.trim(),
+        ...(publishedFlag(value?.chargeable) === undefined ? {} : { chargeable: publishedFlag(value?.chargeable) }),
         ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
         standard_credits: publishedOrNull(value.standard_credits),
         sale_credits: publishedOrNull(value.sale_credits),

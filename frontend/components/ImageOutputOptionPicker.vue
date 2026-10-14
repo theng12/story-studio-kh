@@ -60,12 +60,15 @@ const props = withDefaults(defineProps<{
   modelValue: OutputOptionChoice | null
   /** True when references are attached, so the published effective rate is shown. */
   referenceGuided?: boolean
-}>(), { referenceGuided: false })
+  /** Keep an attempted request's raw row while the live catalog keeps changing. */
+  preserveAutomaticSelection?: boolean
+}>(), { referenceGuided: false, preserveAutomaticSelection: false })
 
 const emit = defineEmits<{
   'update:modelValue': [choice: OutputOptionChoice | null]
   /** Fired with a sentence whenever a model switch moved the customer's pick. */
   'switched': [notice: string]
+  selected: [choice: OutputOptionChoice]
 }>()
 
 const notice = ref('')
@@ -85,7 +88,9 @@ function costFor(option: PublishedOutputOption): CreditDisplay {
 
 function choose(option: PublishedOutputOption): void {
   notice.value = ''
-  emit('update:modelValue', { resolution: option.resolution, aspect_ratio: option.aspect_ratio })
+  const choice = { resolution: option.resolution, aspect_ratio: option.aspect_ratio }
+  emit('update:modelValue', choice)
+  emit('selected', choice)
 }
 
 /**
@@ -97,18 +102,23 @@ function choose(option: PublishedOutputOption): void {
  */
 function reconcile(): void {
   const result = reconcileOutputOption(props.modelValue, props.model)
-  notice.value = result.notice
-  if (result.notice) emit('switched', result.notice)
   const next = result.option
     ? { resolution: result.option.resolution, aspect_ratio: result.option.aspect_ratio }
     : null
   const current = props.modelValue
   const same = (!next && !current)
     || (!!next && !!current && next.resolution === current.resolution && next.aspect_ratio === current.aspect_ratio)
+  if (!same && props.preserveAutomaticSelection && current) {
+    notice.value = `The live catalog no longer publishes ${current.resolution} at ${current.aspect_ratio}. `
+      + 'Retry keeps the original output; choose a live size to start a different request.'
+    return
+  }
+  notice.value = result.notice
+  if (result.notice) emit('switched', result.notice)
   if (!same) emit('update:modelValue', next)
 }
 
-watch(() => props.model, reconcile, { immediate: true, deep: true })
+watch([() => props.model, () => props.preserveAutomaticSelection], reconcile, { immediate: true, deep: true })
 </script>
 
 <style scoped>

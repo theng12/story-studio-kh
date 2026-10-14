@@ -65,6 +65,33 @@ describe('the page tells you what costs money', () => {
   })
 })
 
+describe('explicit unresolved Music Library replacement', () => {
+  test('stays default-off and names the exact source item, model, rate, and prior-charge risk', () => {
+    assert.match(page, /useManualGenerationRedoPreference\(\)/)
+    assert.match(page, /music-library\/manual-redo-sources/)
+    assert.match(page, /manualRedoPreference\.enabled\.value/)
+    assert.match(page, /source_item_key/)
+    assert.match(page, /manual_music_payment/)
+    assert.match(page, /confirmed_paid_music/)
+    assert.match(page, /prior unresolved request may still have been charged/i)
+    assert.match(page, /Published unit rate/)
+    assert.match(page, /Published limits:/)
+    assert.match(page, /manualMusicLimits/)
+    assert.match(page, /min_prompt_characters/)
+    assert.match(page, /min_lyrics_characters/)
+    assert.match(page, /always: true/)
+  })
+
+  test('captures one immutable transport action and keeps ordinary top-up separate', () => {
+    assert.match(page, /JSON\.parse\(JSON\.stringify\(/)
+    assert.match(page, /freshMusicAction\.begin\([^)]*manual-music-library-redo/)
+    assert.match(page, /showAction\(UNCONFIRMED_SUBMISSION, 'Retry'/)
+    assert.match(page, /pendingManualMusicSubmission/)
+    assert.match(page, /manual_redo: \{ intent: 'replace_unresolved'/)
+    assert.match(page, /async function topUp\(\)/)
+  })
+})
+
 describe('the page surfaces the things that quietly break a mix', () => {
   test('a failed library load stays visible with a retry', () => {
     assert.match(page, /const libraryLoadError = ref\(''\)/)

@@ -36,6 +36,7 @@ import { getApiKey } from '../services/app-secrets-store.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import {
   GenStudioMusicTerminalFailureError,
+  buildGenStudioMusicIdempotencyKey,
   generateMusicWithGenStudio,
   downloadGenStudioMusicTrack,
   isGenStudioInsufficientCredits,
@@ -93,6 +94,15 @@ export interface MusicGenerateParams {
   planner_model?: string
   /** Groups everything one top-up produced, for filtering the library later. */
   brief_id?: string
+  /** Durable exact provider receipts for planned Library items. */
+  music_library_items?: MusicLibraryItemsCheckpoint
+  /** Server-copied source plan for one explicit unresolved-item replacement. */
+  music_library_manual_item?: {
+    version: 1
+    source_job_id: string
+    source_item_key: string
+    plan: PlannedTrack
+  }
 }
 
 /** One planned track: a distinct prompt and the title it will carry. */
@@ -102,6 +112,84 @@ export interface PlannedTrack {
   tags: string[]
   /** A lyric sheet with [Verse]/[Chorus] markers, written only for a model that sings from lyrics. */
   lyrics?: string
+}
+
+export interface MusicLibraryItemRequest {
+  title: string
+  prompt: string
+  lyrics?: string
+  instrumental: boolean
+  duration_seconds?: number
+  model_id: string
+  output_format?: 'm4a'
+}
+
+export interface MusicLibraryItemReceipt {
+  item_key: string
+  index: number
+  plan: PlannedTrack
+  request: MusicLibraryItemRequest
+  request_identity: string
+  idempotency_key: string
+  accepted_task_id?: string
+  state?: string
+}
+
+export interface MusicLibraryItemsCheckpoint {
+  version: 1
+  items: MusicLibraryItemReceipt[]
+}
+
+export function readMusicLibraryItemsCheckpoint(
+  job: Pick<Job, 'job_id' | 'project_slug' | 'params'>,
+  value: unknown = job.params?.music_library_items,
+  briefId = String(job.params?.brief_id || `brief-${job.job_id.slice(-10)}`),
+): MusicLibraryItemsCheckpoint | null {
+  if (value === undefined) return null
+  const checkpoint = value as MusicLibraryItemsCheckpoint
+  if (checkpoint?.version !== 1 || !Array.isArray(checkpoint.items) || !checkpoint.items.length) {
+    throw new Error('The saved Music Library item plan is invalid; it was not replaced with a new plan.')
+  }
+  for (const [index, item] of checkpoint.items.entries()) {
+    const request = item?.request
+    const planLyrics = item?.plan?.lyrics?.trim() || undefined
+    const requestLyrics = request?.lyrics?.trim() || undefined
+    const requestIdentity = `${job.project_slug}:music:${briefId}:${index}`
+    const identityMatches = item?.request_identity === requestIdentity
+      || new RegExp(`^${requestIdentity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:[0-9a-f]{16}$`).test(item?.request_identity || '')
+    const rebuiltKey = request && identityMatches
+      ? buildGenStudioMusicIdempotencyKey({
+          title: request.title,
+          prompt: request.prompt,
+          lyrics: requestLyrics,
+          instrumental: request.instrumental,
+          durationSeconds: request.duration_seconds,
+          modelId: request.model_id,
+          requestIdentity: item.request_identity,
+          outputFormat: request.output_format,
+        })
+      : ''
+    if (!item || item.index !== index || item.item_key !== `track-${index}`
+      || !item.plan?.title?.trim() || !item.plan?.prompt?.trim()
+      || !Array.isArray(item.plan.tags) || item.plan.tags.some(tag => typeof tag !== 'string')
+      || !request?.title?.trim() || !request?.prompt?.trim()
+      || !request?.model_id?.trim() || typeof request.instrumental !== 'boolean'
+      || (request.duration_seconds !== undefined
+        && (!Number.isInteger(request.duration_seconds) || request.duration_seconds <= 0))
+      || (request.output_format !== undefined && request.output_format !== 'm4a')
+      || request.title !== request.title.trim() || request.prompt !== request.prompt.trim()
+      || request.model_id !== request.model_id.trim()
+      || (request.lyrics !== undefined && request.lyrics !== requestLyrics)
+      || !identityMatches || item.idempotency_key !== rebuiltKey
+      || item.plan.title.trim() !== request.title.trim()
+      || item.plan.prompt.trim() !== request.prompt.trim()
+      || planLyrics !== requestLyrics
+      || (item.accepted_task_id !== undefined
+        && (typeof item.accepted_task_id !== 'string' || !item.accepted_task_id.trim()))) {
+      throw new Error('The saved Music Library item plan is invalid; it was not replaced with a new plan.')
+    }
+  }
+  return checkpoint
 }
 
 /**
@@ -322,16 +410,64 @@ export async function generateMusicLibraryTracks(job: Job): Promise<void> {
   const model = resolveMusicModel(models, params.model, { instrumental, hasLyrics: !instrumental })
   const sings = model.requires_lyrics === true
 
-  // "Smaller files" for music (Settings, per-project override). On = ask for AAC at the source;
-  // off = field omitted = WAV, which saveMusicTrack still encodes to AAC itself.
-  const outputFormat = await resolveOutputFormat(job.project_slug, 'music')
-
   const apiKeys = { genstudio: apiKey }
-  const planned = await planMusicTracks(
-    job, { ...params, brief, count: wanted }, apiKeys, (params.planner_model || '').trim(),
-    { lyrics: sings },
-  )
   const briefId = params.brief_id || `brief-${job.job_id.slice(-10)}`
+  const savedCheckpoint = readMusicLibraryItemsCheckpoint(job, params.music_library_items, briefId)
+  const planned = savedCheckpoint
+    ? savedCheckpoint.items.map(item => structuredClone(item.plan))
+    : params.music_library_manual_item?.version === 1
+      ? [structuredClone(params.music_library_manual_item.plan)]
+      : await planMusicTracks(
+          job, { ...params, brief, count: wanted }, apiKeys, (params.planner_model || '').trim(),
+          { lyrics: sings },
+        )
+  // "Smaller files" for music (Settings, per-project override). On = ask for AAC at the source;
+  // off = field omitted = WAV, which saveMusicTrack still encodes to AAC itself. A saved item keeps
+  // the output choice it checkpointed before its first POST.
+  const outputFormat = savedCheckpoint ? undefined : await resolveOutputFormat(job.project_slug, 'music')
+  const checkpoint: MusicLibraryItemsCheckpoint = savedCheckpoint || {
+    version: 1,
+    items: planned.map((plan, index): MusicLibraryItemReceipt => {
+      const lengthApplies = sings || typeof model.max_duration_seconds === 'number'
+      const length = lengthApplies
+        ? musicDurationPlan(model, { lyrics: plan.lyrics, requestedSeconds: params.duration_seconds })
+        : undefined
+      const requestIdentity = `${job.project_slug}:music:${briefId}:${index}`
+      const normalizedRequest: MusicLibraryItemRequest = {
+        title: plan.title.trim(),
+        prompt: plan.prompt.trim(),
+        ...(plan.lyrics?.trim() ? { lyrics: plan.lyrics.trim() } : {}),
+        instrumental,
+        ...(length ? { duration_seconds: length.seconds } : {}),
+        model_id: model.id,
+        ...(outputFormat ? { output_format: outputFormat } : {}),
+      }
+      return {
+        item_key: `track-${index}`,
+        index,
+        plan: structuredClone(plan),
+        request: normalizedRequest,
+        request_identity: requestIdentity,
+        idempotency_key: buildGenStudioMusicIdempotencyKey({
+          title: normalizedRequest.title,
+          prompt: normalizedRequest.prompt,
+          lyrics: normalizedRequest.lyrics,
+          instrumental: normalizedRequest.instrumental,
+          durationSeconds: normalizedRequest.duration_seconds,
+          modelId: normalizedRequest.model_id,
+          requestIdentity,
+          outputFormat: normalizedRequest.output_format,
+        }),
+      }
+    }),
+  }
+  if (checkpoint.items.length !== planned.length
+    || checkpoint.items.some(item => item.request.model_id !== model.id
+      || item.request.instrumental !== instrumental)) {
+    throw new Error('The saved Music Library item plan no longer matches this job model and mode.')
+  }
+  params.music_library_items = checkpoint
+  await jq.checkpointJobState(job)
   // 1.4.270 — a rolling window sized to the fleet (lib/music-window.ts) instead of one request at a
   // time. Saved files and failures are reported in plan order.
   job.item_progress = { total: planned.length, completed: 0, failed: 0, concurrency: 1, active: [] }
@@ -353,10 +489,10 @@ export async function generateMusicLibraryTracks(job: Job): Promise<void> {
   // ones in flight stop at their next check, and the run waits for them before it ends.
   let stop: unknown = null
   const runOne = async (plan: (typeof planned)[number], index: number): Promise<void> => {
+    const item = checkpoint.items[index]!
     if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
     jq.throwIfPauseRequested(job.job_id)
     let attemptNum = 1
-    let retryScope = ''
     if (sings && !plan.lyrics) {
       // A singing model refuses a request without lyrics. Say what to do instead of paying the Hub
       // to refuse it.
@@ -366,27 +502,37 @@ export async function generateMusicLibraryTracks(job: Job): Promise<void> {
       job.output_lines.push(`✗ ${plan.title} skipped: ${reason}`)
       return
     }
-    // How long a track to ask for: the owner's length (default four minutes) for an instrumental
-    // model, what the lyrics need for one that sings; only for a model that publishes a length.
-    const lengthApplies = sings || typeof model.max_duration_seconds === 'number'
-    const length = lengthApplies
-      ? musicDurationPlan(model, { lyrics: plan.lyrics, requestedSeconds: params.duration_seconds })
-      : undefined
-    if (length?.note) job.output_lines.push(`${plan.title}: ${length.note}`)
     for (;;) {
       if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
       try {
         const result = await generateMusicWithGenStudio(apiKey, {
-          title: plan.title,
-          prompt: plan.prompt,
-          instrumental,
-          ...(plan.lyrics ? { lyrics: plan.lyrics } : {}),
-          ...(length ? { durationSeconds: length.seconds } : {}),
-          modelId: model.id,
-          ...(outputFormat ? { outputFormat } : {}),
+          title: item.request.title,
+          prompt: item.request.prompt,
+          instrumental: item.request.instrumental,
+          ...(item.request.lyrics ? { lyrics: item.request.lyrics } : {}),
+          ...(item.request.duration_seconds ? { durationSeconds: item.request.duration_seconds } : {}),
+          modelId: item.request.model_id,
+          ...(item.request.output_format ? { outputFormat: item.request.output_format } : {}),
           ...(priority ? { priority } : {}),
-          requestIdentity: `${job.project_slug}:music:${briefId}:${index}${retryScope ? `:${retryScope}` : ''}`,
+          requestIdentity: item.request_identity,
+          idempotencyKey: item.idempotency_key,
           isCancelled: () => jq.isCancelled(job.job_id),
+          onJobAccepted: async (taskId, idempotencyKey) => {
+            if (idempotencyKey !== item.idempotency_key) {
+              throw new Error(`Music item ${item.item_key} was accepted under an unexpected request key.`)
+            }
+            item.accepted_task_id = taskId
+            item.state = 'accepted'
+            await jq.checkpointJobState(job)
+          },
+          onState: async (state, taskId) => {
+            if (item.accepted_task_id && item.accepted_task_id !== taskId) {
+              throw new Error(`Music item ${item.item_key} changed provider task identity.`)
+            }
+            item.accepted_task_id ||= taskId
+            item.state = state
+            await jq.checkpointJobState(job)
+          },
         })
         // EVERY track, not result.tracks[0]. Both are paid for.
         const group = siblingGroupForJob(result.jobId)
@@ -444,7 +590,21 @@ export async function generateMusicLibraryTracks(job: Job): Promise<void> {
         if (plan2 && deadJobId && !jq.isCancelled(job.job_id) && !jq.isPauseRequested(job.job_id)) {
           // A settled-failed job can never be reopened, so the next attempt
           // needs a new identity — derived from the dead job id, never a clock.
-          retryScope = siblingGroupForJob(deadJobId)
+          const retryScope = siblingGroupForJob(deadJobId)
+          item.request_identity = `${job.project_slug}:music:${briefId}:${index}:${retryScope}`
+          item.idempotency_key = buildGenStudioMusicIdempotencyKey({
+            title: item.request.title,
+            prompt: item.request.prompt,
+            lyrics: item.request.lyrics,
+            instrumental: item.request.instrumental,
+            durationSeconds: item.request.duration_seconds,
+            modelId: item.request.model_id,
+            requestIdentity: item.request_identity,
+            outputFormat: item.request.output_format,
+          })
+          delete item.accepted_task_id
+          item.state = 'prepared'
+          await jq.checkpointJobState(job)
           job.output_lines.push(isFreeMacPlan(plan2) ? freeMacWaitLine(plan.title, error, plan2.waitMs) :
             `${plan.title}: ${plan2.reason.toLowerCase()} — nothing was charged and the credits came back whole. `
             + `Waiting ${Math.round(plan2.waitMs / 1000)}s and asking again `

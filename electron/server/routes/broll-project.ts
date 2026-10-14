@@ -12,6 +12,7 @@
  */
 import { Router } from 'express'
 import { existsSync } from 'fs'
+import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as bp from '../services/broll-pool-manager.js'
 import * as im from '../services/idea-manager.js'
@@ -24,7 +25,28 @@ import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { resolveAuthoritativeBrollNarration } from '../services/video-visual-source.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { imagePoolPromptsOutputContract } from '../lib/story-output-contracts.js'
-import type { JobType, BrollUsageEntry } from '../models/types.js'
+import { withLock } from '../lib/atomic-store.js'
+import {
+  freshActionFingerprint,
+  freshActionMatch,
+  readManualGenerationRedoIntent,
+  readOperationId,
+  stampFreshGenerationAction,
+} from '../lib/fresh-generation-action.js'
+import { readManifestStrict } from '../services/task-manifest.js'
+import { isUnsettledProviderEntry } from '../lib/provider-task-state.js'
+import { getApiKey } from '../services/app-secrets-store.js'
+import { listImageModelsForceLive } from '../lib/genstudio-client.js'
+import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
+import {
+  publishedAvailabilityProblem,
+  resolvePublishedAspectRatio,
+  resolvePublishedOutputOption,
+} from '../services/image-model-resolver.js'
+import type { Job, JobType, BrollUsageEntry } from '../models/types.js'
+import { buildImagePoolPreparedReceipt, type ImagePoolPreparedReceipt } from '../generators/image-pool-generate.js'
+import { readPaidImageOriginalRequest } from '../services/image-paid-replacement.js'
+import { parsePromptCharCap, promptCharacterCount } from '../services/prompt-char-cap.js'
 
 export const router = Router()
 
@@ -46,6 +68,219 @@ async function readNarrationDurationSec(slug: string, episodeCode: string, title
   const narrationPath = await resolveAuthoritativeBrollNarration(paths, episodeCode)
   if (!narrationPath) return 0
   return await getAudioDuration(narrationPath) || 0
+}
+
+type ImagePoolRedoItem = {
+  itemKey: string
+  prompt: string
+  taskId: string
+  requestKey: string
+  inputHash: string
+  evidenceFingerprint: string
+  sourceBodyFingerprint: string
+  receiptFingerprint: string
+  label: string
+}
+
+type ManualImagePaymentReceipt = {
+  version: 1
+  model_id: string
+  model_price_version: string
+  output_resolution: string
+  output_aspect_ratio: string
+  output_price_version: string
+  confirmed_paid_image: true
+}
+
+function readManualImagePaymentReceipt(value: unknown): ManualImagePaymentReceipt | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const receipt = value as Record<string, unknown>
+  const expected = [
+    'confirmed_paid_image', 'model_id', 'model_price_version', 'output_aspect_ratio',
+    'output_price_version', 'output_resolution', 'version',
+  ]
+  if (Object.keys(receipt).sort().join('\0') !== expected.join('\0')
+    || receipt.version !== 1 || receipt.confirmed_paid_image !== true) return null
+  for (const key of ['model_id', 'model_price_version', 'output_resolution', 'output_aspect_ratio', 'output_price_version']) {
+    if (typeof receipt[key] !== 'string' || !(receipt[key] as string).trim()) return null
+  }
+  return receipt as ManualImagePaymentReceipt
+}
+
+function imageEvidenceRequestKey(entry: NonNullable<Job['genstudio_jobs']>[number]): string | null {
+  const values = [entry.request_key, entry.request?.idempotency_key]
+    .filter((value): value is string => typeof value === 'string' && !!value.trim())
+  return values.length && new Set(values).size === 1 ? values[0]! : null
+}
+
+function imagePoolSourcePackage(job: Readonly<Job>, poolId: string): {
+  runId: string
+  prompts: string[]
+  variants: number
+  model: string
+  aspectRatio: string
+  resolution?: string
+  seed?: number
+} | null {
+  const params = job.params || {}
+  const runId = typeof params.run_id === 'string' ? params.run_id.trim() : ''
+  const prompts = Array.isArray(params.prompts)
+    ? params.prompts.map((prompt: unknown) => typeof prompt === 'string' ? prompt.trim() : '').filter(Boolean)
+    : []
+  const model = typeof params.model === 'string' ? params.model.trim() : ''
+  const aspectRatio = typeof params.aspect_ratio === 'string' ? params.aspect_ratio.trim() : ''
+  const variants = Math.max(1, Math.min(4, Math.floor(Number(params.variants) || 1)))
+  if (job.type !== 'image_pool_generate' || job.episode_id !== poolId
+    || params.pool_id !== poolId || !runId || path.basename(runId) !== runId
+    || !prompts.length || !model || !aspectRatio) return null
+  return {
+    runId, prompts, variants, model, aspectRatio,
+    ...(typeof params.resolution === 'string' && params.resolution.trim() ? { resolution: params.resolution.trim() } : {}),
+    ...(Number.isInteger(params.seed) ? { seed: params.seed } : {}),
+  }
+}
+
+async function currentImagePoolRedoItems(job: Readonly<Job>, pool: { id: string; folder_path: string }): Promise<ImagePoolRedoItem[]> {
+  const source = imagePoolSourcePackage(job, pool.id)
+  if (!source) return []
+  const manifest = await readManifestStrict(pool.folder_path)
+  const recovery = job.params?.genstudio_recovery?.assets
+  if (!recovery || typeof recovery !== 'object' || Array.isArray(recovery)) return []
+  const preparedReceipts = job.params?.image_pool_generation_receipts
+  if (preparedReceipts?.version !== 1 || !preparedReceipts.items
+    || typeof preparedReceipts.items !== 'object' || Array.isArray(preparedReceipts.items)) return []
+  const sourceBodyFingerprint = freshActionFingerprint({
+    pool_id: pool.id,
+    prompts: source.prompts,
+    model: source.model,
+    aspect_ratio: source.aspectRatio,
+    ...(source.resolution ? { resolution: source.resolution } : {}),
+    ...(source.seed !== undefined ? { seed: source.seed } : {}),
+    variants: source.variants,
+    run_id: source.runId,
+  })
+  const items: ImagePoolRedoItem[] = []
+  for (let promptIndex = 0; promptIndex < source.prompts.length; promptIndex += 1) {
+    for (let variantIndex = 0; variantIndex < source.variants; variantIndex += 1) {
+      const index = promptIndex * source.variants + variantIndex
+      const itemKey = `gen-${source.runId}-${String(index + 1).padStart(4, '0')}.png`
+      if (path.basename(itemKey) !== itemKey) continue
+      const entry = manifest.tasks[itemKey]
+      const checkpoint = (recovery as Record<string, any>)[itemKey]
+      const receipt = preparedReceipts.items[itemKey] as ImagePoolPreparedReceipt | undefined
+      const expectedPath = path.resolve(pool.folder_path, itemKey)
+      if (!entry || entry.operation !== 'image' || !entry.task_id?.trim()
+        || !entry.idempotency_key?.trim() || !entry.input_hash?.trim()
+        || !checkpoint || checkpoint.operation !== 'image'
+        || checkpoint.job_id !== entry.task_id
+        || checkpoint.idempotency_key !== entry.idempotency_key
+        || checkpoint.input_hash !== entry.input_hash
+        || path.resolve(String(checkpoint.output_path || '')) !== expectedPath
+        || !isUnsettledProviderEntry({ state: checkpoint.state })) continue
+      if (!receipt || receipt.version !== 1 || receipt.item_key !== itemKey
+        || receipt.prompt_index !== promptIndex || receipt.variant_index !== variantIndex
+        || receipt.run_id !== source.runId || receipt.variants !== source.variants
+        || receipt.model !== source.model || receipt.aspect_ratio !== source.aspectRatio
+        || (receipt.requested_resolution || undefined) !== (source.resolution || undefined)
+        || receipt.seed !== source.seed || typeof receipt.provider_model_id !== 'string'
+        || receipt.provider_model_id !== receipt.provider_model_id.trim()
+        || !receipt.provider_model_id || typeof receipt.request_scope !== 'string'
+        || (receipt.output_format !== undefined && receipt.output_format !== 'jpeg')) continue
+      const selectorMarker = receipt.request_scope.indexOf(':selector:')
+      if (selectorMarker < 1) continue
+      let expectedReceipt: ImagePoolPreparedReceipt
+      try {
+        const original = readPaidImageOriginalRequest(entry, pool.folder_path, {
+          prompt: source.prompts[promptIndex]!,
+          baseScope: receipt.request_scope.slice(0, selectorMarker),
+        })
+        if (original.selector.aspect_ratio !== receipt.aspect_ratio
+          || original.selector.resolution !== receipt.resolution) continue
+        expectedReceipt = buildImagePoolPreparedReceipt({
+          itemKey,
+          promptIndex,
+          variantIndex,
+          runId: source.runId,
+          variants: source.variants,
+          model: source.model,
+          providerModelId: receipt.provider_model_id,
+          prompt: source.prompts[promptIndex]!,
+          aspectRatio: source.aspectRatio,
+          ...(source.resolution ? { requestedResolution: source.resolution } : {}),
+          ...(receipt.resolution ? { resolution: receipt.resolution } : {}),
+          ...(source.seed !== undefined ? { seed: source.seed } : {}),
+          ...(receipt.output_format ? { outputFormat: receipt.output_format } : {}),
+          selector: original.selector,
+          baseScope: receipt.request_scope.slice(0, selectorMarker),
+          generationIdentity: `image-pool:${pool.id}:${source.runId}`,
+        })
+      } catch { continue }
+      const receiptFingerprint = freshActionFingerprint(receipt)
+      if (freshActionFingerprint(expectedReceipt) !== receiptFingerprint
+        || receipt.input_hash !== entry.input_hash
+        || receipt.idempotency_key !== entry.idempotency_key) continue
+      const evidence = (job.genstudio_jobs || []).filter(candidate => candidate.operation === 'image.generation'
+        && (candidate.id === entry.task_id || imageEvidenceRequestKey(candidate) === entry.idempotency_key))
+      if (evidence.length !== 1 || evidence[0]!.id !== entry.task_id
+        || imageEvidenceRequestKey(evidence[0]!) !== entry.idempotency_key
+        || !isUnsettledProviderEntry(evidence[0]!)) continue
+      const evidenceFingerprint = freshActionFingerprint({
+        source_job_id: job.job_id,
+        item_key: itemKey,
+        task_id: entry.task_id,
+        idempotency_key: entry.idempotency_key,
+        input_hash: entry.input_hash,
+        source_body_fingerprint: sourceBodyFingerprint,
+      })
+      items.push({
+        itemKey,
+        prompt: source.prompts[promptIndex]!,
+        taskId: entry.task_id,
+        requestKey: entry.idempotency_key,
+        inputHash: entry.input_hash,
+        evidenceFingerprint,
+        sourceBodyFingerprint,
+        receiptFingerprint,
+        label: `Prompt ${promptIndex + 1} · variant ${variantIndex + 1}`,
+      })
+    }
+  }
+  return items
+}
+
+function imagePoolManualClientFingerprint(
+  body: Record<string, unknown>, sourceJobId: string, sourceItemKey: string,
+  payment: ManualImagePaymentReceipt,
+): string {
+  return freshActionFingerprint({
+    pool_id: typeof body.pool_id === 'string' ? body.pool_id : '',
+    model: typeof body.model === 'string' ? body.model.trim() : '',
+    aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio.trim() : '',
+    ...(typeof body.resolution === 'string' && body.resolution.trim() ? { resolution: body.resolution.trim() } : {}),
+    ...(Number.isInteger(body.seed) ? { seed: body.seed } : {}),
+    variants: Math.max(1, Math.min(4, Math.floor(Number(body.variants) || 1))),
+    source_item_key: sourceItemKey,
+    manual_redo: { intent: 'replace_unresolved', source_job_id: sourceJobId },
+    manual_image_payment: payment,
+  })
+}
+
+function acceptedImagePoolManualReplay(
+  job: Readonly<Job>, operationId: string, clientFingerprint: string,
+  poolId: string, sourceJobId: string, sourceItemKey: string,
+): boolean {
+  const redo = job.params?.manual_redo
+  const action = job.params?.generation_action
+  const binding = action?.manual_redo_binding
+  return job.type === 'image_pool_generate' && job.episode_id === poolId
+    && action?.id === operationId && action?.kind === 'fresh'
+    && redo?.version === 1 && redo?.intent === 'replace_unresolved' && redo?.lane === 'image-pool'
+    && redo?.source_job_id === sourceJobId && redo?.source_item_key === sourceItemKey
+    && redo?.client_request_fingerprint === clientFingerprint
+    && binding?.version === 1 && binding?.source_type === 'image_pool_generate'
+    && binding?.operation === 'image.generation' && binding?.resource_kind === 'custom'
+    && binding?.resource_identity === redo?.resource_identity
+    && binding?.destination_type === 'image_pool_generate' && binding?.destination_episode_id === poolId
 }
 
 // ── POST /broll/pick ───────────────────────────────────────────────────
@@ -333,6 +568,34 @@ router.post('/projects/:slug/image-pool/pick', async (req, res) => {
   }
 })
 
+router.get('/projects/:slug/image-pool/manual-redo-sources', async (req, res) => {
+  const { slug } = req.params
+  try {
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const poolId = typeof req.query.pool_id === 'string' ? req.query.pool_id : ''
+    const pool = poolId ? await bp.getPool(poolId) : null
+    if (!pool || bp.poolMedia(pool) !== 'image') return res.status(404).json({ detail: 'Image pool not found' })
+    const sources: Array<{ source_job_id: string; item_key: string; label: string; finished_at?: string }> = []
+    const jobs = await jq.findJobs(slug, job => job.type === 'image_pool_generate' && job.episode_id === poolId)
+    for (const job of jobs) {
+      if (job.status !== 'error' && job.status !== 'cancelled') continue
+      let items: ImagePoolRedoItem[] = []
+      try { items = await currentImagePoolRedoItems(job, pool) } catch { continue }
+      for (const item of items) {
+        sources.push({
+          source_job_id: job.job_id,
+          item_key: item.itemKey,
+          label: item.label,
+          ...(job.finished_at ? { finished_at: job.finished_at } : {}),
+        })
+      }
+    }
+    res.json({ sources })
+  } catch (e: any) {
+    res.status(e?.status || e?.statusCode || 500).json(humanizeBackendError(e, 'Could not read Image Pool replacement sources'))
+  }
+})
+
 // ── POST /image-pool/generate ──────────────────────────────────────────
 // v1.0.410 — grow an Image Pool by generating new stills from prompts and
 // dropping them into the pool folder (then indexing them). Runs in this
@@ -341,9 +604,188 @@ router.post('/projects/:slug/image-pool/generate', async (req, res) => {
   const { slug } = req.params
   try {
     if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
-    const body = req.body || {}
+    const body = (req.body && typeof req.body === 'object' && !Array.isArray(req.body))
+      ? req.body as Record<string, unknown>
+      : {}
+    let manualRedo
+    try {
+      manualRedo = readManualGenerationRedoIntent(body)
+    } catch (error) {
+      return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid manual replacement.' })
+    }
     const poolId = typeof body.pool_id === 'string' ? body.pool_id : ''
     const model = typeof body.model === 'string' ? body.model.trim() : ''
+    if (manualRedo) {
+      let operationId: string
+      try {
+        operationId = readOperationId(body, true)!
+      } catch (error) {
+        return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
+      }
+      const sourceItemKey = typeof body.source_item_key === 'string' ? body.source_item_key.trim() : ''
+      if (!poolId || !model) return res.status(400).json({ detail: 'pool_id and model are required' })
+      if (!sourceItemKey) return res.status(409).json({ detail: 'Choose exactly one unresolved Image Pool item.' })
+      if (Object.prototype.hasOwnProperty.call(body, 'prompts')) {
+        return res.status(400).json({ detail: 'Manual replacement prompts are derived from the selected source item.' })
+      }
+      const payment = readManualImagePaymentReceipt(body.manual_image_payment)
+      if (!payment) return res.status(409).json({ detail: 'Confirm the exact current published image price before creating another version.' })
+      const clientFingerprint = imagePoolManualClientFingerprint(body, manualRedo.source_job_id, sourceItemKey, payment)
+      return withLock(`fresh-image-pool:${slug}:${operationId}`, async () => {
+        const previous = (await jq.findJobs(slug, freshActionMatch(operationId)))[0]
+        if (previous) {
+          if (!acceptedImagePoolManualReplay(previous, operationId, clientFingerprint,
+            poolId, manualRedo.source_job_id, sourceItemKey)) {
+            return res.status(409).json({ detail: 'This operation_id already belongs to a different Image Pool action.' })
+          }
+          return res.status(200).json({ job_id: previous.job_id, status: previous.status, reused: true })
+        }
+
+        const pool = await bp.getPool(poolId)
+        if (!pool) return res.status(404).json({ detail: `Pool '${poolId}' not found` })
+        if (bp.poolMedia(pool) !== 'image') return res.status(400).json({ detail: `Pool '${poolId}' is not an image pool` })
+        if (!existsSync(pool.folder_path)) {
+          return res.status(409).json({ detail: `Pool folder offline — connect ${pool.folder_path} first.` })
+        }
+        const source = (await jq.findJobs(slug, job => job.job_id === manualRedo.source_job_id))[0]
+        let sourceItems: ImagePoolRedoItem[] = []
+        try { if (source) sourceItems = await currentImagePoolRedoItems(source, pool) } catch {
+          return res.status(409).json({ detail: 'The selected Image Pool source manifest is unavailable or invalid.' })
+        }
+        const item = sourceItems.find(candidate => candidate.itemKey === sourceItemKey)
+        if (!source || !item) {
+          return res.status(409).json({ detail: 'The selected item has no exact unresolved Image Pool evidence.' })
+        }
+
+        const apiKey = await getApiKey('genstudio').catch(() => '')
+        if (!apiKey) return res.status(409).json({ detail: 'The current published image catalogue is unavailable.' })
+        const catalogSnapshot = await listImageModelsForceLive(apiKey)
+        if (catalogSnapshot.freshness !== 'live' || catalogSnapshot.stale) {
+          return res.status(409).json({ detail: 'The current published image catalogue could not be verified live.' })
+        }
+        const catalog = catalogSnapshot.value
+        const selectedModel = findGenStudioProduct(catalog, model)
+        if (!selectedModel) return res.status(409).json({ detail: 'The selected image model is not currently published.' })
+        const availability = publishedAvailabilityProblem(selectedModel)
+        if (availability) return res.status(409).json({ detail: availability })
+        let aspectRatio: string
+        let outputOption
+        try {
+          aspectRatio = resolvePublishedAspectRatio(selectedModel,
+            typeof body.aspect_ratio === 'string' ? body.aspect_ratio : undefined)
+          outputOption = resolvePublishedOutputOption(selectedModel, aspectRatio,
+            typeof body.resolution === 'string' ? body.resolution : undefined)
+        } catch (error) {
+          return res.status(409).json({ detail: error instanceof Error ? error.message : 'The published output option changed.' })
+        }
+        if (!outputOption || payment.model_id !== model || payment.model_id !== selectedModel.id
+          || payment.model_price_version !== selectedModel.price_version
+          || payment.output_resolution !== outputOption.resolution
+          || payment.output_aspect_ratio !== outputOption.aspect_ratio
+          || payment.output_price_version !== outputOption.price_version) {
+          return res.status(409).json({ detail: 'The published image price or output option changed. Review it and confirm again.' })
+        }
+        const promptCap = parsePromptCharCap(selectedModel.max_prompt_characters)
+        const promptCharacters = promptCharacterCount(item.prompt)
+        if (promptCap && promptCharacters > promptCap) {
+          return res.status(409).json({
+            detail: `${selectedModel.display_name} accepts up to ${promptCap.toLocaleString()} prompt characters; `
+              + `the selected source prompt is ${promptCharacters.toLocaleString()}. Choose another model.`,
+          })
+        }
+        const minReferences = Number.isInteger(selectedModel.min_reference_images)
+          ? Math.max(0, Number(selectedModel.min_reference_images))
+          : 0
+        if (minReferences > 0) {
+          return res.status(409).json({
+            detail: `${selectedModel.display_name} requires at least ${minReferences} reference image${minReferences === 1 ? '' : 's'}; `
+              + 'this Image Pool action copies a text prompt without reference images. Choose a text-to-image model.',
+          })
+        }
+        const variants = Math.max(1, Math.min(4, Math.floor(Number(body.variants) || 1)))
+        const resourceIdentity = `image-pool:${poolId}:${item.itemKey}:${item.evidenceFingerprint}`
+        const params = stampFreshGenerationAction({
+          pool_id: poolId,
+          prompts: [item.prompt],
+          model,
+          aspect_ratio: aspectRatio,
+          ...(outputOption ? { resolution: outputOption.resolution } : {}),
+          ...(selectedModel.supports_seed !== false && Number.isInteger(body.seed) ? { seed: body.seed } : {}),
+          variants,
+          run_id: `manual-${operationId}`,
+          manual_redo: {
+            version: 1 as const,
+            intent: manualRedo.intent,
+            source_job_id: source.job_id,
+            source_item_key: item.itemKey,
+            lane: 'image-pool',
+            source_body_fingerprint: item.sourceBodyFingerprint,
+            evidence_fingerprint: item.evidenceFingerprint,
+            client_request_fingerprint: clientFingerprint,
+            resource_identity: resourceIdentity,
+            requested_at: new Date().toISOString(),
+            published_price: {
+              model_id: selectedModel.id,
+              model_price_version: selectedModel.price_version,
+              model_credits_per_image: selectedModel.credits_per_image,
+              output_price_version: outputOption?.price_version,
+              output_credits_per_image: outputOption?.credits_per_image,
+            },
+          },
+        }, operationId)
+        try {
+          const job = await jq.enqueueManualGenerationRedo({
+            project_slug: slug,
+            type: 'image_pool_generate' as JobType,
+            episode_id: poolId,
+            title: `Image Pool separate attempt — ${item.label}`,
+            params,
+          }, {
+            sourceJobId: source.job_id,
+            sourceType: 'image_pool_generate' as JobType,
+            operation: 'image.generation',
+            resource: {
+              kind: 'custom',
+              identity: resourceIdentity,
+              matches: candidate => {
+                const current = imagePoolSourcePackage(candidate, poolId)
+                return !!current && freshActionFingerprint({
+                  pool_id: poolId,
+                  prompts: current.prompts,
+                  model: current.model,
+                  aspect_ratio: current.aspectRatio,
+                  ...(current.resolution ? { resolution: current.resolution } : {}),
+                  ...(current.seed !== undefined ? { seed: current.seed } : {}),
+                  variants: current.variants,
+                  run_id: current.runId,
+                }) === item.sourceBodyFingerprint
+              },
+            },
+            sourceLabel: 'Image Pool generation item',
+            evidenceLabel: 'Gateway image request',
+            hasCurrentEvidence: (candidate, entries) => {
+              const checkpoint = candidate.params?.genstudio_recovery?.assets?.[item.itemKey]
+              const currentReceipt = candidate.params?.image_pool_generation_receipts?.items?.[item.itemKey]
+              const matches = entries.filter(entry => entry.id === item.taskId
+                || imageEvidenceRequestKey(entry) === item.requestKey)
+              return checkpoint?.operation === 'image'
+                && checkpoint.job_id === item.taskId
+                && checkpoint.idempotency_key === item.requestKey
+                && checkpoint.input_hash === item.inputHash
+                && freshActionFingerprint(currentReceipt) === item.receiptFingerprint
+                && matches.length === 1 && matches[0]!.id === item.taskId
+                && imageEvidenceRequestKey(matches[0]!) === item.requestKey
+                && isUnsettledProviderEntry(matches[0]!)
+            },
+          })
+          return res.status(201).json({ job_id: job.job_id, status: job.status })
+        } catch (error: any) {
+          return res.status(error?.status || error?.statusCode || 409).json({
+            detail: error?.message || 'The separate Image Pool attempt was refused.',
+          })
+        }
+      })
+    }
     const prompts = Array.isArray(body.prompts)
       ? body.prompts.map((p: any) => String(p || '').trim()).filter(Boolean)
       : []

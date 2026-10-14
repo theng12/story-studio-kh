@@ -46,12 +46,17 @@ const props = withDefaults(defineProps<{
   projectSlug: string
   imageMode?: 'text2img' | 'img2img'
   defaultLabel?: string
+  preserveAutomaticSelection?: boolean
 }>(), {
   imageMode: 'text2img',
   defaultLabel: 'Pick an image model…',
+  preserveAutomaticSelection: false,
 })
 
-const emit = defineEmits<{ 'update:modelValue': [modelId: string] }>()
+const emit = defineEmits<{
+  'update:modelValue': [modelId: string]
+  selected: [modelId: string]
+}>()
 const { models, loading, error, isStale, isUsable, lastFetchedAt, refresh } = useGenStudioImageModels()
 const catalogStaleNote = computed(() => genstudioStaleNote(isStale.value, lastFetchedAt.value))
 
@@ -161,6 +166,7 @@ function select(modelId: string): void {
   const selected = models.value.find(model => model.id === modelId)
   if (!selected?.available || (props.imageMode === 'img2img' && (!selected.supports_reference_images || selected.max_reference_images < 1))) return
   emit('update:modelValue', modelId)
+  emit('selected', modelId)
 }
 
 function syncLiveSelection(): void {
@@ -172,6 +178,11 @@ function syncLiveSelection(): void {
   if (selected && selected.id !== props.modelValue) {
     if (props.modelValue) {
       const previous = models.value.find(model => model.id === props.modelValue)?.display_name || props.modelValue
+      if (props.preserveAutomaticSelection) {
+        switchNotice.value = `${previous} now maps to ${selected.display_name} in the live catalog. `
+          + 'Retry keeps the original model; choose a model to start a different request.'
+        return
+      }
       switchNotice.value = props.imageMode === 'img2img'
         ? `${previous} can't be used with a reference image right now, so ${selected.display_name} was picked instead.`
         : `${previous} isn't available right now, so ${selected.display_name} was picked instead.`
@@ -180,7 +191,7 @@ function syncLiveSelection(): void {
   }
 }
 
-watch([models, () => props.modelValue, () => props.imageMode], syncLiveSelection, { deep: true, immediate: true })
+watch([models, () => props.modelValue, () => props.imageMode, () => props.preserveAutomaticSelection], syncLiveSelection, { deep: true, immediate: true })
 
 onMounted(() => {
   void refresh(true)

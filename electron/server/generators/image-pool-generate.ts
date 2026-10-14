@@ -137,6 +137,84 @@ interface ImagePoolGenerateParams {
   variants?: number
   /** Durable identity retained by manual/local retries. */
   run_id?: string
+  /** Exact prepared provider requests, keyed by their additive output filename. */
+  image_pool_generation_receipts?: {
+    version: 1
+    items: Record<string, ImagePoolPreparedReceipt>
+  }
+}
+
+export interface ImagePoolPreparedReceipt {
+  version: 1
+  item_key: string
+  prompt_index: number
+  variant_index: number
+  run_id: string
+  variants: number
+  model: string
+  provider_model_id: string
+  aspect_ratio: string
+  requested_resolution?: string
+  resolution?: string
+  seed?: number
+  output_format?: 'jpeg'
+  request_scope: string
+  input_hash: string
+  idempotency_key: string
+}
+
+/** Build the exact non-secret request receipt persisted before provider submit. */
+export function buildImagePoolPreparedReceipt(input: {
+  itemKey: string
+  promptIndex: number
+  variantIndex: number
+  runId: string
+  variants: number
+  model: string
+  providerModelId: string
+  prompt: string
+  aspectRatio: string
+  requestedResolution?: string
+  resolution?: string
+  seed?: number
+  outputFormat?: 'jpeg'
+  selector: PaidImageOutputSelector
+  baseScope: string
+  generationIdentity: string
+}): ImagePoolPreparedReceipt {
+  const identity = buildPaidImageOriginalIdentity({
+    prompt: input.prompt,
+    selector: input.selector,
+    references: [],
+    baseScope: input.baseScope,
+  })
+  const idempotencyKey = buildGenStudioImageIdempotencyKey({
+    prompt: input.prompt,
+    modelId: input.providerModelId,
+    aspectRatio: input.aspectRatio,
+    ...(input.resolution ? { resolution: input.resolution } : {}),
+    seed: input.seed,
+    requestIdentity: `${input.generationIdentity}:${input.itemKey}:${identity.requestScope}`,
+    ...(input.outputFormat ? { outputFormat: input.outputFormat } : {}),
+  })
+  return {
+    version: 1,
+    item_key: input.itemKey,
+    prompt_index: input.promptIndex,
+    variant_index: input.variantIndex,
+    run_id: input.runId,
+    variants: input.variants,
+    model: input.model,
+    provider_model_id: input.providerModelId,
+    aspect_ratio: input.aspectRatio,
+    ...(input.requestedResolution ? { requested_resolution: input.requestedResolution } : {}),
+    ...(input.resolution ? { resolution: input.resolution } : {}),
+    ...(input.seed !== undefined ? { seed: input.seed } : {}),
+    ...(input.outputFormat ? { output_format: input.outputFormat } : {}),
+    request_scope: identity.requestScope,
+    input_hash: identity.inputHash,
+    idempotency_key: idempotencyKey,
+  }
 }
 
 export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorResult> {
@@ -504,12 +582,43 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
           ...(outputFormat ? { outputFormat } : {}),
         })
         if (!replacementScope) {
+          if (originalSelector) {
+            const promptIndex = Math.floor(item.index / variants)
+            const variantIndex = item.index % variants
+            const receipt = buildImagePoolPreparedReceipt({
+              itemKey: item.filename,
+              promptIndex,
+              variantIndex,
+              runId,
+              variants,
+              model,
+              providerModelId: modelConfig.api_model || model,
+              prompt: item.prompt,
+              aspectRatio,
+              ...(params.resolution ? { requestedResolution: params.resolution } : {}),
+              ...(outputOption ? { resolution: outputOption.resolution } : {}),
+              ...(params.seed !== undefined ? { seed: params.seed } : {}),
+              ...(outputFormat ? { outputFormat } : {}),
+              selector: originalSelector,
+              baseScope: logicalScope,
+              generationIdentity,
+            })
+            if (receipt.input_hash !== inputHash || receipt.request_scope !== scope
+              || receipt.idempotency_key !== preparedKey) {
+              throw new Error('Image Pool prepared receipt does not match the provider request.')
+            }
+            const receipts = params.image_pool_generation_receipts?.version === 1
+              ? params.image_pool_generation_receipts
+              : { version: 1 as const, items: {} }
+            receipts.items[item.filename] = receipt
+            params.image_pool_generation_receipts = receipts
+          }
           await recordState(item.filename, {
             taskId: '', submittedAt, inputHash, scope, idempotencyKey: preparedKey, original: attemptOriginal,
           }, 'prepared', true)
           await checkpointGenStudioAsset(job, item.filename, {
             operation: 'image', idempotency_key: preparedKey, state: 'prepared',
-            output_path: path.join(pool.folder_path, item.filename),
+            output_path: path.join(pool.folder_path, item.filename), input_hash: inputHash,
           })
         }
         if (replacementScope) {
@@ -569,7 +678,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
             }, 'accepted', true)
             await checkpointGenStudioAsset(job, item.filename, {
               operation: 'image', idempotency_key: idempotencyKey, job_id: taskId,
-              state: 'accepted', output_path: path.join(pool.folder_path, item.filename),
+              state: 'accepted', output_path: path.join(pool.folder_path, item.filename), input_hash: inputHash,
             })
           },
         })
@@ -601,7 +710,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
           }, 'succeeded')
           await checkpointGenStudioAsset(job, item.filename, {
             operation: 'image', idempotency_key: acceptedKey || preparedKey, job_id: result.taskId,
-            state: 'succeeded', output_path: path.join(pool.folder_path, item.filename),
+            state: 'succeeded', output_path: path.join(pool.folder_path, item.filename), input_hash: inputHash,
           })
         }
         made++
