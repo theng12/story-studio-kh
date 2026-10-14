@@ -248,6 +248,26 @@ test('shows free disk and _trash sizes, why uploads are not offered, and checks 
   } finally { ui.close() }
 })
 
+test('shows every unavailable space measurement honestly without dispatching cleanup', async () => {
+  const posts: string[] = []
+  const ui = await mount({
+    get: async (url: string) => url.endsWith('/episodes')
+      ? { episodes: [], blocked_reasons: [] }
+      : { free_bytes: null, project_trash_bytes: null, library_trash_bytes: null, app_trash_bytes: null },
+    post: async (url: string) => { posts.push(url); return {} },
+  })
+  try {
+    const summary = ui.host.querySelector('.cleanup-space')
+    assert.ok(summary, 'the informational summary stays visible when every measurement is unavailable')
+    const text = summary.textContent || ''
+    for (const label of ['Free on this drive', 'This channel in the Trash', 'Whole Trash', 'Old app copies from updates']) {
+      assert.match(text, new RegExp(`${label}: could not be measured`))
+    }
+    assert.equal((text.match(/could not be measured/g) || []).length, 4)
+    assert.deepEqual(posts, [], 'rendering unknown measurements must not start cleanup')
+  } finally { ui.close() }
+})
+
 test('Convert PNG scenes to JPEG works per episode and for the whole channel, and runs only as a conversion', async () => {
   const calls: any[] = []
   const asked: string[] = []

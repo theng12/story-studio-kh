@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.305 — 2026-10-14
+
+- You can choose a new attempt for unresolved work in Idea Campaign, Voice, Music Library, Image Pool, Song Pool, and Script/Document generation while keeping earlier completed work.
+- Scene Plan presets can save and apply the selected pacing, model, and guidance, with clear feedback when Save or Apply cannot complete.
+- Retries reuse the captured request, and incomplete Pipeline submissions show their existing jobs so a lost response does not cause duplicate work.
+- Free Up Space reports measured storage values, identifies unavailable metrics, and avoids duplicate scans while a slow measurement is pending.
+
 ## v1.4.304 — 2026-10-14
 
 - Saved legacy pacing can now be recovered only from the original run that owns it, preventing another run's pacing from being applied.

@@ -8,14 +8,17 @@ import { existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { after, before, describe, test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import { useTempDataDir } from './_helpers.js'
+import { setTestSafeStorageAvailable } from './safe-storage-test-double.js'
 
 let tmp: { dir: string; cleanup: () => Promise<void> }
 let pm: typeof import('../services/project-manager.js')
 let im: typeof import('../services/idea-manager.js')
 let utils: typeof import('../services/utils.js')
 const savedTmp = process.env.TMPDIR
+const savedDataDir = process.env.STORY_STUDIO_DATA_DIR
 
 before(async () => {
   tmp = await useTempDataDir()
@@ -26,9 +29,18 @@ before(async () => {
   utils = await import('../services/utils.js')
 })
 after(async () => {
-  if (savedTmp === undefined) delete process.env.TMPDIR
-  else process.env.TMPDIR = savedTmp
-  await tmp.cleanup()
+  try {
+    const projectRoot = fileURLToPath(new URL('../../../', import.meta.url))
+    const trashFixtures = path.join(projectRoot, '_trash', 'test-fixtures')
+    await fs.mkdir(trashFixtures, { recursive: true })
+    await fs.rename(tmp.dir, path.join(trashFixtures, `storage-leftovers-${path.basename(tmp.dir)}`))
+  } finally {
+    if (savedTmp === undefined) delete process.env.TMPDIR
+    else process.env.TMPDIR = savedTmp
+    if (savedDataDir === undefined) delete process.env.STORY_STUDIO_DATA_DIR
+    else process.env.STORY_STUDIO_DATA_DIR = savedDataDir
+    setTestSafeStorageAvailable(true)
+  }
 })
 
 async function project(name: string) {
@@ -118,7 +130,8 @@ describe('what is using space', () => {
     const space = await storageSpaceSummary(p.slug)
     assert.ok(typeof space.free_bytes === 'number' && space.free_bytes > 0, 'a real measurement, never 0 for unknown')
     assert.equal(space.project_trash_bytes, 700)
-    assert.ok(space.library_trash_bytes >= 1600, String(space.library_trash_bytes))
+    assert.equal(typeof space.library_trash_bytes, 'number', 'the fixture Library Trash is measurable')
+    assert.ok(space.library_trash_bytes !== null && space.library_trash_bytes >= 1600, String(space.library_trash_bytes))
     assert.equal(space.app_trash_bytes, 300, 'the self-emptying Trash Folder is its own figure')
     assert.deepEqual(audit.space.project_trash_bytes, 700)
   })

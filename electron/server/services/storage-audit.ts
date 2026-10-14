@@ -24,7 +24,7 @@
 
 import { isFinalVideoFilename } from '../lib/final-video-name.js'
 import fs from 'fs/promises'
-import { constants, existsSync } from 'fs'
+import { constants, existsSync, type Dirent } from 'fs'
 import path from 'path'
 import * as pm from './project-manager.js'
 import { thumbCacheBytes } from '../lib/thumbnail-cache.js'
@@ -116,20 +116,22 @@ export interface StorageAuditResult {
 export interface StorageSpaceSummary {
   /** Free space on the drive holding the project folder; null when it could not be measured (never 0 for "unknown"). */
   free_bytes: number | null
-  /** This channel's part of Story's Trash (Library, media drive, exports folder). */
-  project_trash_bytes: number
-  /** Everything in Story's Trash (Story → Trash). */
-  library_trash_bytes: number
-  /** Old app copies in the self-emptying Trash Folder (deleted after 15 days, see app-update.ts). */
-  app_trash_bytes: number
+  /** This channel's part of Story's Trash (Library, media drive, exports folder); null when measurement is unavailable. */
+  project_trash_bytes: number | null
+  /** Everything in Story's Trash (Story → Trash); null when measurement is unavailable. */
+  library_trash_bytes: number | null
+  /** Old app copies in the self-emptying Trash Folder; null when measurement is unavailable. */
+  app_trash_bytes: number | null
+}
+
+async function readFreeBytes(dir: string): Promise<number> {
+  const stat = await fs.statfs(dir)
+  return Number(stat.bsize) * Number(stat.bavail)
 }
 
 /** Free bytes on the drive holding `dir`, or null when the drive cannot be asked. */
 export async function measureFreeBytes(dir: string): Promise<number | null> {
-  try {
-    const stat = await fs.statfs(dir)
-    return Number(stat.bsize) * Number(stat.bavail)
-  } catch { return null }
+  try { return await readFreeBytes(dir) } catch { return null }
 }
 
 /** This channel's part of Story's Trash: `<Library>/_trash/<slug>`, its folder on a media drive or the exports folder, and an old `<channel>/_trash` not moved yet. */
@@ -150,18 +152,91 @@ async function projectTrashDirs(slug: string): Promise<string[]> {
   return [...new Set(dirs.map(dir => path.resolve(dir)))]
 }
 
+type SpacePhase = 'free' | 'project_trash' | 'library_trash' | 'app_trash'
+interface SpaceMeasurement { raw: Promise<number | null>; bounded: Promise<number | null> }
+const spaceMeasurements = new Map<string, SpaceMeasurement>()
+
+function spaceSummaryTimeoutMs(): number {
+  const configured = Number(process.env.STORY_STORAGE_SUMMARY_TIMEOUT_MS)
+  return Number.isFinite(configured) && configured > 0 ? configured : 30_000
+}
+
+function spaceDiagnostic(phase: SpacePhase, started: number, status: 'timeout' | 'error' | 'settled_after_timeout'): void {
+  console.warn('[storage-space-summary]', { phase, elapsed_ms: Date.now() - started, status })
+}
+
+function boundedSpaceMeasurement(key: string, phase: SpacePhase, read: () => Promise<number>): Promise<number | null> {
+  const existing = spaceMeasurements.get(key)
+  if (existing) return existing.bounded
+
+  const started = Date.now()
+  let timedOut = false
+  const raw = Promise.resolve().then(read).catch(() => {
+    spaceDiagnostic(phase, started, 'error')
+    return null
+  })
+  const bounded = withTimeout(raw, spaceSummaryTimeoutMs(), `${phase} measurement timed out`).catch((error: any) => {
+    if (error?.code === 'ETIMEDOUT') {
+      timedOut = true
+      spaceDiagnostic(phase, started, 'timeout')
+    } else {
+      spaceDiagnostic(phase, started, 'error')
+    }
+    return null
+  })
+  const entry = { raw, bounded }
+  spaceMeasurements.set(key, entry)
+  void raw.finally(() => {
+    if (spaceMeasurements.get(key) === entry) spaceMeasurements.delete(key)
+    if (timedOut) spaceDiagnostic(phase, started, 'settled_after_timeout')
+  })
+  return bounded
+}
+
+async function strictDirSize(dir: string): Promise<number> {
+  let entries: Dirent[]
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true })
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') return 0
+    throw error
+  }
+  let total = 0
+  for (const entry of entries) {
+    const file = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      total += await strictDirSize(file)
+    } else if (entry.isFile()) {
+      try { total += (await fs.stat(file)).size } catch (error: any) {
+        if (error?.code !== 'ENOENT') throw error
+      }
+    }
+  }
+  return total
+}
+
+async function strictSizeOf(dirs: string[]): Promise<number> {
+  const results = await Promise.allSettled(dirs.map(strictDirSize))
+  const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+  if (failed) throw failed.reason
+  return results.reduce((total, result) => total + (result as PromiseFulfilledResult<number>).value, 0)
+}
+
 /** Free disk and `_trash` sizes for Settings → Free up space and "What's using space". */
 export async function storageSpaceSummary(slug: string): Promise<StorageSpaceSummary> {
   const projectDir = pm.getProjectDir(slug)
   if (!projectDir) throw new Error('Project not found')
-  const sizeOf = async (dirs: string[]) => (await Promise.all(dirs.map(dirSize))).reduce((a, b) => a + b, 0)
-  const { trashRoots } = await import('./trash.js')
-  return {
-    free_bytes: await measureFreeBytes(projectDir),
-    project_trash_bytes: await sizeOf(await projectTrashDirs(slug)),
-    library_trash_bytes: await sizeOf((await trashRoots()).map(root => root.dir)),
-    app_trash_bytes: await dirSize(trashFolder()),
-  }
+  const projectIdentity = path.resolve(projectDir)
+  const [free_bytes, project_trash_bytes, library_trash_bytes, app_trash_bytes] = await Promise.all([
+    boundedSpaceMeasurement(`free:${projectIdentity}`, 'free', () => readFreeBytes(projectDir)),
+    boundedSpaceMeasurement(`project-trash:${projectIdentity}`, 'project_trash', async () => strictSizeOf(await projectTrashDirs(slug))),
+    boundedSpaceMeasurement('library-trash', 'library_trash', async () => {
+      const { trashRoots } = await import('./trash.js')
+      return strictSizeOf((await trashRoots()).map(root => root.dir))
+    }),
+    boundedSpaceMeasurement('app-trash', 'app_trash', () => strictDirSize(trashFolder())),
+  ])
+  return { free_bytes, project_trash_bytes, library_trash_bytes, app_trash_bytes }
 }
 
 const VIDEO_EXTS = new Set(['.mp4', '.mov', '.webm', '.mkv', '.m4v'])

@@ -8,11 +8,11 @@
       </div>
     </div>
     <p v-if="space" class="cleanup-space">
-      Free on this drive: <strong>{{ space.free_bytes === null ? 'could not be measured' : formatBytes(space.free_bytes) }}</strong>
-      · This channel in the Trash: <strong>{{ formatBytes(space.project_trash_bytes) }}</strong>
-      · Whole Trash: <strong>{{ formatBytes(space.library_trash_bytes) }}</strong>
+      Free on this drive: <strong>{{ formatMeasurement(space.free_bytes) }}</strong>
+      · This channel in the Trash: <strong>{{ formatMeasurement(space.project_trash_bytes) }}</strong>
+      · Whole Trash: <strong>{{ formatMeasurement(space.library_trash_bytes) }}</strong>
       <small>(space comes back when you empty it on <NuxtLink to="/trash">Story → Trash</NuxtLink>)</small>
-      · Old app copies from updates: <strong>{{ formatBytes(space.app_trash_bytes ?? 0) }}</strong> <small>(empties itself after 15 days)</small>
+      · Old app copies from updates: <strong>{{ formatMeasurement(space.app_trash_bytes) }}</strong> <small>(empties itself after 15 days)</small>
     </p>
     <p v-if="checkResult" class="cleanup-hint" role="status">{{ checkResult }}</p>
     <p v-if="error" class="cleanup-error" role="alert">{{ error }} <button v-if="operation" class="btn btn-sm" :disabled="polling" @click="pollOperation">Check Progress Again</button></p>
@@ -113,7 +113,7 @@ interface ReviewedFile { path: string; relative_path: string; bytes: number; cat
 interface Estimate { compress_files: number; compress_bytes_before: number; compress_bytes_after: number; already_jpeg_files: number; trash_files: number; trash_bytes: number }
 interface Preview { preview_id: string; project_slug: string; total_bytes: number; preset?: 'archive_episode' | 'convert_png'; trash_roots?: string[]; estimate?: Estimate; files: ReviewedFile[]; blocked_reasons: string[]; episodes: { episode_code: string; files: ReviewedFile[]; excluded?: { path: string; reason: string }[]; blocked_reasons: string[] }[] }
 interface Operation { id: string; project_slug: string; kind: 'preview' | 'run'; status: string; stage: string | null; done: number; total: number; bytes_done?: number; bytes_total?: number; current: string; detail?: string; error?: string; preview?: Preview; result?: { items?: Array<{ path?: string; source_path?: string; file?: string; status?: string; outcome?: string; reason?: string }>; bytes_reclaimed?: number; bytes_freed?: number; bytes_moved?: number; bytes_trashed?: number; bytes_after?: number } }
-interface Space { free_bytes: number | null; project_trash_bytes: number; library_trash_bytes: number; app_trash_bytes?: number }
+interface Space { free_bytes: number | null; project_trash_bytes: number | null; library_trash_bytes: number | null; app_trash_bytes: number | null }
 interface Leftover { kind: 'audio_quality_copy' | 'render_scratch'; episode_code: string; path: string; bytes: number }
 const props = defineProps<{ slug: string }>()
 const { get, post } = useApi()
@@ -183,6 +183,11 @@ const resultSummary = computed(() => {
   return `${changed} files changed; ${items.length - changed - pending} skipped or could not finish.${pending ? ` ${pending} need review after interruption.` : ''} ${formatBytes(result?.bytes_reclaimed ?? result?.bytes_freed ?? 0)} reclaimed on the source drive.${result?.bytes_moved ? ` ${formatBytes(result.bytes_moved)} archived.` : ''}${trashed}`
 })
 function formatBytes(bytes: number) { return bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(2)} GB` : bytes >= 1024 ** 2 ? `${(bytes / 1024 ** 2).toFixed(1)} MB` : `${Math.ceil(bytes / 1024)} KB` }
+function formatMeasurement(bytes: number | null) { return bytes === null ? 'could not be measured' : formatBytes(bytes) }
+function isSpace(value: any): value is Space {
+  return value && ['free_bytes', 'project_trash_bytes', 'library_trash_bytes', 'app_trash_bytes']
+    .every(key => value[key] === null || typeof value[key] === 'number')
+}
 function localStatus(state?: string) { return state === 'archived' ? 'Uploaded · space freed' : state === 'removed' ? 'Uploaded · local sources removed' : state === 'partially_removed' ? 'Uploaded · some local media removed' : 'Uploaded' }
 function message(e: any) { return e?.data?.detail || e?.message || 'Storage request failed. Check again.' }
 function current(version: number) { return !disposed && version === generation }
@@ -208,7 +213,7 @@ async function loadSpace() {
   const version = generation, slug = props.slug
   try {
     const result = await get<Space>(`/projects/${slug}/media-cleanup/space`)
-    if (current(version) && result && typeof result.project_trash_bytes === 'number') space.value = result
+    if (current(version) && isSpace(result)) space.value = result
   } catch { /* the figures are a convenience, not a gate */ }
 }
 async function checkAllUploads() {

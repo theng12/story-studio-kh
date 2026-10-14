@@ -1,5 +1,13 @@
 # HANDOFF — Story Studio KH
 
+## Candidate preparation — 2026-10-14 (1.4.305; not released)
+
+The candidate version metadata is set to 1.4.305 in `package.json` and `package-lock.json`. Version allocation was checked read-only against this worktree's primary/main refs and `origin`; the candidate version has no local or remote tag collision. Installed Story 304 remains authoritative. This branch is feature-only and is not main, released, or installed.
+
+The reviewed scope is the shared source-bound manual admission/replay foundation and the Idea Campaign, Voice, Music Library, Image Pool, Song Pool, and Script/Document lanes, plus the first Scene Plan preset adapter and Pipeline replay/partial-repair behavior. This is not all-types completion or proof of live generation outcomes. Other preset adapters, Introduction, Music Build, mixed Music planning, listen-back, and eleven remaining user lanes remain open. Do not claim new defaults, preset migration, or changed cost/permission policy.
+
+Free Up Space has a clean bounded independent review, retained real async-barrier RED/GREEN, six backend checks, focused frontend/Settings checks and compiler receipts. It remains a source candidate until the full release and installed checks pass. Its 30-second async deadline does not preempt synchronous filesystem calls, and inherited discovery may omit inaccessible roots; exact production stalled syscall remains unknown. The complete Story 305 release gates, final independent review, main integration/push, primary-main DMG, install, and production output proof remain pending. Research test preparations remain unrun and excluded from tracked source.
+
 ## Source verified, packaging pending — 2026-10-14 (1.4.304)
 
 Saved legacy pacing recovery now accepts only the original owning run. Unknown chapter-submit responses preserve the captured body, target and operation identity for Retry, with usable error detail and secure HTTP-browser UUID support. A separate default-off machine preference exposes explicit source-bound replacement for unresolved missing chapters and Scene Review Replace Anyway; existing chapters and provider evidence remain. Active/paused/unwinding writer guards, same-action replay and changed-body conflict remain. This release covers those two lanes only; the remaining all-types manual-redo work is not shipped.
