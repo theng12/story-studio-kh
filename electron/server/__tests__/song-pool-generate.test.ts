@@ -11,6 +11,8 @@ import path from 'node:path'
 import { useTempDataDir } from './_helpers.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService, type MockGenStudioService } from './fixtures/mock-genstudio-service.js'
 import { STARTING_SONG_FORMULA, STARTING_EPISODE_DEFAULTS } from '../contracts/song-formula.js'
+import { buildGenStudioMusicIdempotencyKey } from '../lib/genstudio-client.js'
+import { freshActionFingerprint } from '../lib/fresh-generation-action.js'
 
 let cleanup: () => Promise<void>
 let app: any
@@ -35,6 +37,7 @@ function fakeJob(params: Record<string, unknown>): any {
 }
 
 const poolFile = async () => JSON.parse(await fs.readFile(path.join((await import('../services/song-pool.js')).poolDir(slug)!, 'library.json'), 'utf8'))
+const batchFile = async (batchId: string) => JSON.parse(await fs.readFile(path.join((await import('../services/song-pool.js')).poolDir(slug)!, 'batches', `${batchId}.json`), 'utf8'))
 
 before(async () => {
   const t = await useTempDataDir()
@@ -108,6 +111,217 @@ describe('Music Formula save', () => {
 })
 
 describe('generating songs', () => {
+  test('an exact music receipt belongs to one stable item and only its supported retry/take identities', async () => {
+    const { validSongPoolMusicAttempt } = await import('../generators/song-pool-generate.js')
+    const item: any = { item_key: 'song-0', cell: {}, brief: {
+      ...STARTING_SONG_FORMULA,
+      title: 'Exact Cedar', prompt: 'Exact cello prompt', lyrics: undefined, seed: 41,
+    } }
+    const batch: any = { batch_id: 'b_binding', mode: 'new', writer_model: 'mock-chat-v1', created_at: '', items: [item] }
+    const make = (identity: string, prompt = item.brief.prompt) => {
+      const request = { title: item.brief.title, prompt, instrumental: true, duration_seconds: 60,
+        model_id: 'mock-music-v1', seed: 41, request_identity: identity }
+      return {
+        version: 1 as const, planned_item_fingerprint: freshActionFingerprint({ item_key: item.item_key, brief: item.brief }), request,
+        idempotency_key: buildGenStudioMusicIdempotencyKey({
+          title: request.title, prompt: request.prompt, instrumental: true, durationSeconds: 60,
+          modelId: request.model_id, seed: 41, requestIdentity: identity,
+        }),
+      }
+    }
+    assert.equal(validSongPoolMusicAttempt(slug, batch, item, make(`${slug}:song-pool:b_binding:song-0:41`)), true)
+    assert.equal(validSongPoolMusicAttempt(slug, batch, item, make(`${slug}:song-pool:b_binding:song-0:41:0123456789abcdef`)), true)
+    assert.equal(validSongPoolMusicAttempt(slug, batch, item, make(`${slug}:song-pool:b_binding:song-0:41:0123456789abcdef:take2`)), true)
+    assert.equal(validSongPoolMusicAttempt(slug, batch, item, make(`${slug}:song-pool:b_binding:song-1:41`)), false)
+    assert.equal(validSongPoolMusicAttempt(slug, batch, item, make(`${slug}:song-pool:b_binding:song-0:41`, 'Another item prompt')), false)
+  })
+
+  test('an unresolved saved request resumes with its original body and key after current defaults change', async () => {
+    const { generateSongPool } = await import('../generators/song-pool-generate.js')
+    const sp = await import('../services/song-pool.js')
+    const batchId = 'b_unknown_resume'
+    const itemBrief: any = {
+      ensemble: 'Cello quartet', mood: 'calm', tempo_band: 'slow', tempo_bpm: 72, key: 'D minor',
+      structure: 'AABA', texture: 'warm', theme: 'Rain', length_s: 60, energy: 2,
+      combo_key: 'unknown-resume', seed: 41, title: 'Saved Unknown', line: 'Rain on cedar',
+      scene_idea: 'Window', prompt: 'Exact saved prompt',
+    }
+    const requestIdentity = `${slug}:song-pool:${batchId}:song-0:41`
+    const savedRequest = {
+      title: itemBrief.title, prompt: itemBrief.prompt, instrumental: true,
+      model_id: 'mock-music-v1', request_identity: requestIdentity,
+    }
+    const savedKey = buildGenStudioMusicIdempotencyKey({
+      title: savedRequest.title, prompt: savedRequest.prompt, instrumental: true,
+      modelId: savedRequest.model_id, requestIdentity,
+    })
+    await fs.mkdir(path.join(sp.poolDir(slug)!, 'batches'), { recursive: true })
+    await fs.writeFile(path.join(sp.poolDir(slug)!, 'batches', `${batchId}.json`), `${JSON.stringify({
+      batch_id: batchId, mode: 'new', writer_model: 'mock-chat-v1', created_at: new Date().toISOString(),
+      items: [{ item_key: 'song-0', cell: itemBrief, brief: itemBrief, music_attempts: [{
+        version: 1, planned_item_fingerprint: freshActionFingerprint({ item_key: 'song-0', brief: itemBrief }),
+        request: savedRequest, idempotency_key: savedKey,
+      }] }],
+    }, null, 2)}\n`)
+    const job = fakeJob({ mode: 'new', count: 1, writer_model: 'mock-chat-v1', music_model: 'mock-music-v1', in_flight: 1, batch_id: batchId })
+    job.genstudio_jobs = [{
+      id: `pending:${savedKey}`, operation: 'music.generation', state: 'submitting', dispatch_state: 'dispatched',
+      recovery_required: true, request_key: savedKey, request: { idempotency_key: savedKey }, updated_at: new Date().toISOString(),
+    }]
+    await generateSongPool(job)
+    const submitted = service.submissions.find(entry => entry.operation === 'music')!
+    assert.equal(submitted.idempotencyKey, savedKey)
+    for (const field of ['lyrics', 'duration_seconds', 'seed', 'output_format', 'priority']) {
+      assert.equal(field in submitted.parsedBody!, false, `${field} must remain absent on exact replay`)
+    }
+    assert.equal(submitted.parsedBody?.prompt, 'Exact saved prompt')
+    const resumed = await batchFile(batchId)
+    assert.equal(resumed.items[0].music_attempts.length, 1, 'an unresolved request never gains a new paid identity')
+  })
+
+  test('manual music-stage generation consumes one copied item without planning or listen-back', async () => {
+    const { generateSongPool } = await import('../generators/song-pool-generate.js')
+    const batchId = 'b_manual_exact_item'
+    const itemBrief: any = {
+      ensemble: 'Cello quartet', mood: 'calm', tempo_band: 'slow', tempo_bpm: 72, key: 'D minor',
+      structure: 'AABA', texture: 'warm', theme: 'Rain', length_s: 60, energy: 2,
+      combo_key: 'manual-exact', seed: 917, title: 'Retained Cedar', line: 'Rain on cedar',
+      scene_idea: 'Window', prompt: 'Retained exact cello request',
+    }
+    const before = await poolFile()
+    const job = fakeJob({
+      mode: 'manual-redo', count: 1, writer_model: '', music_model: 'mock-music-v1', in_flight: 1, batch_id: batchId,
+      manual_song_pool_item: {
+        version: 1, source_job_id: 'old-stopped-job', source_batch_id: 'old-batch', source_item_key: 'song-4',
+        brief: itemBrief,
+        request: {
+          title: itemBrief.title, prompt: itemBrief.prompt, instrumental: true, duration_seconds: 47,
+          model_id: 'mock-music-v1', seed: 917, output_format: 'm4a', priority: 'background',
+          request_identity: `${slug}:song-pool:old-batch:song-4:917`,
+        },
+      },
+    })
+    await generateSongPool(job)
+    assert.equal(job.result.complete, true, job.output_lines.join('\n'))
+    assert.equal(service.providerSubmissionCount('chat'), 0)
+    assert.equal(service.providerSubmissionCount('transcription'), 0)
+    assert.equal(service.providerSubmissionCount('music'), 1)
+    const body = service.submissions.find(entry => entry.operation === 'music')!.parsedBody!
+    assert.equal(body.title, itemBrief.title)
+    assert.equal(body.prompt, itemBrief.prompt)
+    assert.equal(body.duration_seconds, 47)
+    const checkpoint = await batchFile(batchId)
+    assert.equal(checkpoint.items.length, 1)
+    assert.equal(checkpoint.items[0].music_attempts.length, 1)
+    assert.ok(checkpoint.items[0].music_attempts[0].accepted_task_id)
+    assert.match(checkpoint.items[0].music_attempts[0].request.request_identity, new RegExp(`^${slug}:song-pool:${batchId}:song-0:917$`))
+    const after = await poolFile()
+    assert.equal(after.songs.length, before.songs.length + 1)
+    assert.ok(before.songs.every((song: any) => after.songs.some((candidate: any) => candidate.id === song.id
+      && candidate.enabled === song.enabled && candidate.file === song.file)), 'all existing songs and take states are retained')
+  })
+
+  test('manual vocal music keeps copied provenance and applies Off, Warn, and Block without transcription', async () => {
+    const { generateSongPool } = await import('../generators/song-pool-generate.js')
+    const pm = await import('../services/project-manager.js')
+    for (const mode of ['off', 'warn', 'block'] as const) {
+      service.reset()
+      await pm.updateConfig(slug, { safety_checks: { lyrics_listen_back: mode } } as any)
+      const batchId = `b_manual_vocal_${mode}`
+      const itemBrief: any = {
+        ensemble: 'Cello quartet', mood: 'calm', tempo_band: 'slow', tempo_bpm: 72, key: 'D minor',
+        structure: 'AABA', texture: 'warm', theme: 'Rain', length_s: 60, energy: 2,
+        combo_key: `manual-vocal-${mode}`, seed: 918, title: `Retained Vocal ${mode}`,
+        line: 'Rain on cedar', scene_idea: 'Window', prompt: 'Plain brief prompt',
+        lyrics: '[Verse]\nRain rests on cedar\n[Chorus]\nStay awhile', style: 'smoky alto, close microphone',
+      }
+      const copied = {
+        title: itemBrief.title, prompt: 'Plain brief prompt, exact copied singer phrase', lyrics: itemBrief.lyrics,
+        instrumental: false, duration_seconds: 47, model_id: 'mock-music-v1', seed: 991,
+        request_identity: `${slug}:song-pool:old-vocal:song-2:918`,
+      }
+      const job = fakeJob({
+        mode: 'manual-redo', count: 1, writer_model: '', music_model: 'mock-music-v1', in_flight: 1, batch_id: batchId,
+        manual_song_pool_item: {
+          version: 1, source_job_id: 'old-vocal-job', source_batch_id: 'old-vocal', source_item_key: 'song-2',
+          brief: itemBrief, request: copied,
+        },
+      })
+      if (mode === 'block') await assert.rejects(generateSongPool(job), /Song generation/)
+      else await generateSongPool(job)
+      assert.equal(service.providerSubmissionCount('chat'), 0)
+      assert.equal(service.providerSubmissionCount('transcription'), 0)
+      assert.equal(service.providerSubmissionCount('music'), 1)
+      const made = (await poolFile()).songs.filter((song: any) => song.batch_id === batchId)
+      assert.equal(made.length, 1)
+      assert.equal(made[0].lyrics, copied.lyrics)
+      assert.equal(made[0].style, itemBrief.style)
+      assert.equal(made[0].lyrics_check, 'unchecked')
+      assert.equal(made[0].prompt, copied.prompt)
+      assert.equal(made[0].length_s, copied.duration_seconds)
+      assert.equal(made[0].seed, copied.seed)
+      assert.equal(made[0].enabled, mode !== 'block')
+      assert.equal(mode === 'warn' ? job.result.safety_warnings?.[0]?.check : undefined,
+        mode === 'warn' ? 'lyrics_listen_back' : undefined)
+      const checkpoint = await batchFile(batchId)
+      assert.equal(Boolean(checkpoint.items[0].song_id), mode !== 'block')
+    }
+  })
+
+  test('a recovered unknown that settles is retired before the supported next retry identity', async () => {
+    service.reset()
+    const { generateSongPool } = await import('../generators/song-pool-generate.js')
+    const pm = await import('../services/project-manager.js')
+    const sp = await import('../services/song-pool.js')
+    await pm.updateConfig(slug, { safety_checks: { lyrics_listen_back: 'block' } } as any)
+    const batchId = 'b_recovered_then_retry'
+    const brief: any = {
+      ensemble: 'Cello quartet', mood: 'calm', tempo_band: 'slow', tempo_bpm: 72, key: 'D minor',
+      structure: 'AABA', texture: 'warm', theme: 'Rain', length_s: 60, energy: 2,
+      combo_key: 'recovered-retry', seed: 919, title: 'Recovered Vocal', line: 'Rain on cedar',
+      scene_idea: 'Window', prompt: 'Recovered vocal prompt', lyrics: '[Verse]\nRain rests on cedar', style: 'alto',
+    }
+    const originalRequest = {
+      title: brief.title, prompt: brief.prompt, lyrics: brief.lyrics, instrumental: false,
+      duration_seconds: 47, model_id: 'mock-music-v1', seed: 919,
+      request_identity: `${slug}:song-pool:${batchId}:song-0:919`,
+    }
+    const originalKey = buildGenStudioMusicIdempotencyKey({
+      title: originalRequest.title, prompt: originalRequest.prompt, lyrics: originalRequest.lyrics,
+      instrumental: false, durationSeconds: 47, modelId: originalRequest.model_id,
+      seed: 919, requestIdentity: originalRequest.request_identity,
+    })
+    await fs.mkdir(path.join(sp.poolDir(slug)!, 'batches'), { recursive: true })
+    await fs.writeFile(path.join(sp.poolDir(slug)!, 'batches', `${batchId}.json`), `${JSON.stringify({
+      batch_id: batchId, mode: 'manual-redo', writer_model: '', created_at: new Date().toISOString(),
+      items: [{ item_key: 'song-0', cell: brief, brief, manual_request: originalRequest, music_attempts: [{
+        version: 1, planned_item_fingerprint: freshActionFingerprint({ item_key: 'song-0', brief }),
+        request: originalRequest, idempotency_key: originalKey,
+      }] }],
+    }, null, 2)}\n`)
+    const params = {
+      mode: 'manual-redo', count: 1, writer_model: '', music_model: 'mock-music-v1', in_flight: 1, batch_id: batchId,
+      manual_song_pool_item: {
+        version: 1, source_job_id: 'old-job', source_batch_id: 'old-batch', source_item_key: 'song-0', brief,
+        request: originalRequest,
+      },
+    }
+    const evidence = [{
+      id: `pending:${originalKey}`, operation: 'music.generation', state: 'submitting', dispatch_state: 'dispatched',
+      recovery_required: true, request_key: originalKey, request: { idempotency_key: originalKey }, updated_at: new Date().toISOString(),
+    }]
+    const first = fakeJob(params); first.genstudio_jobs = structuredClone(evidence)
+    await assert.rejects(generateSongPool(first), /Song generation/)
+    const afterFirst = await batchFile(batchId)
+    assert.equal(afterFirst.items[0].music_attempts[0].state, 'succeeded')
+    const second = fakeJob(params); second.genstudio_jobs = structuredClone(evidence)
+    await assert.rejects(generateSongPool(second), /Song generation/)
+    const afterSecond = await batchFile(batchId)
+    assert.equal(afterSecond.items[0].music_attempts.length, 2)
+    assert.equal(afterSecond.items[0].music_attempts[0].idempotency_key, originalKey)
+    assert.notEqual(afterSecond.items[0].music_attempts[1].idempotency_key, originalKey)
+  })
+
   test('the writing model is required and never assigned for you', async () => {
     const r = await request(app).post(`/api/projects/${slug}/song-pool/generate`).send({ operation_id: crypto.randomUUID(), count: 2 })
     assert.equal(r.status, 400)
@@ -115,6 +329,67 @@ describe('generating songs', () => {
     const m = await request(app).post(`/api/projects/${slug}/song-pool/generate`).send({ operation_id: crypto.randomUUID(), count: 2, writer_model: 'mock-chat-v1' })
     assert.equal(m.status, 400, 'the song model is never defaulted either (the first published row can be paid)')
     assert.match(m.body.detail, /song model/)
+  })
+
+  test('one ordinary UUID binds the complete Song Pool request and never aliases another music lane', async () => {
+    const jq = await import('../services/job-queue.js')
+    const wasPaused = jq.isQueuePaused()
+    const operationId = '71000000-0000-4000-8000-000000000071'
+    const body = {
+      operation_id: operationId,
+      mode: 'new', count: 2,
+      writer_model: 'mock-chat-v1', music_model: 'mock-music-v1', check_model: 'mock-stt-v1',
+      length_min_s: 60, length_max_s: 61, in_flight: 2,
+      song_ids: ['source-song-a'], brief_edits: { title: 'Remember this exact edit' },
+    }
+    let jobId = ''
+    try {
+      await jq.setQueuePaused(true)
+      const [left, right] = await Promise.all([
+        request(app).post(`/api/projects/${slug}/song-pool/generate`).send(body),
+        request(app).post(`/api/projects/${slug}/song-pool/generate`).send(body),
+      ])
+      jobId = left.body?.job_id || right.body?.job_id || ''
+      assert.deepEqual([left.status, right.status].sort(), [200, 201], `${JSON.stringify(left.body)}\n${JSON.stringify(right.body)}`)
+      assert.equal(left.body.job_id, right.body.job_id)
+      const exact = await request(app).post(`/api/projects/${slug}/song-pool/generate`).send(body)
+      assert.equal(exact.status, 200, JSON.stringify(exact.body))
+      assert.equal(exact.body.job_id, jobId)
+
+      const changes: Array<[string, Record<string, unknown>]> = [
+        ['mode', { mode: 'fill-gaps' }],
+        ['count', { count: 3 }],
+        ['writer model', { writer_model: 'mock-chat-v2' }],
+        ['music model', { music_model: 'mock-music-v2' }],
+        ['check model', { check_model: 'mock-stt-v2' }],
+        ['minimum length', { length_min_s: 59 }],
+        ['maximum length', { length_max_s: 62 }],
+        ['in-flight count', { in_flight: 3 }],
+        ['song ids', { song_ids: ['source-song-b'] }],
+        ['brief edits', { brief_edits: { title: 'A different edit' } }],
+      ]
+      for (const [name, change] of changes) {
+        const conflict = await request(app).post(`/api/projects/${slug}/song-pool/generate`).send({ ...body, ...change })
+        assert.equal(conflict.status, 409, `${name}: ${JSON.stringify(conflict.body)}`)
+      }
+      const actionJobs = await jq.findJobs(slug, job => job.params?.generation_action?.id === operationId)
+      assert.equal(actionJobs.length, 1)
+
+      const aliasProject = await request(app).post('/api/projects').send({ name: 'Song Pool UUID Alias', episode_prefix: 'SA', episode_digits: 4 })
+      assert.equal(aliasProject.status, 201)
+      const aliasSlug = aliasProject.body.slug
+      const aliasId = '72000000-0000-4000-8000-000000000072'
+      const library = jq.enqueuePreparedForTest({
+        project_slug: aliasSlug, type: 'music_generate', episode_id: '', title: 'Library action',
+        params: { song_pool: false, generation_action: { id: aliasId, kind: 'fresh' } },
+      })
+      const alias = await request(app).post(`/api/projects/${aliasSlug}/song-pool/generate`).send({ ...body, operation_id: aliasId })
+      assert.equal(alias.status, 409, JSON.stringify(alias.body))
+      await jq.requestJobCancellation(aliasSlug, library.job_id)
+    } finally {
+      if (jobId) await jq.requestJobCancellation(slug, jobId)
+      await jq.setQueuePaused(wasPaused)
+    }
   })
 
   test('plan is free and shows what the songs will cover', async () => {
@@ -135,6 +410,21 @@ describe('generating songs', () => {
     const bodies = service.submissions.filter(s => s.operation === 'music').map(s => s.parsedBody!)
     assert.ok(bodies.every(b => Number.isInteger(b.seed) && b.instrumental === true && [60, 61].includes(Number(b.duration_seconds))))
     assert.ok(bodies.every(b => /^Solo cello|^Cello/.test(String(b.prompt))), 'prompt assembled by code from the fields')
+    const checkpoint = await batchFile('b_complete')
+    assert.equal(checkpoint.items.length, 3)
+    for (const [index, item] of checkpoint.items.entries()) {
+      assert.equal(item.item_key, `song-${index}`)
+      assert.equal(item.music_attempts.length, 1)
+      const attempt = item.music_attempts[0]
+      assert.ok(attempt.accepted_task_id)
+      assert.equal(attempt.state, 'succeeded')
+      assert.equal(attempt.idempotency_key, buildGenStudioMusicIdempotencyKey({
+        title: attempt.request.title, prompt: attempt.request.prompt, lyrics: attempt.request.lyrics,
+        instrumental: attempt.request.instrumental, durationSeconds: attempt.request.duration_seconds,
+        modelId: attempt.request.model_id, requestIdentity: attempt.request.request_identity,
+        outputFormat: attempt.request.output_format, seed: attempt.request.seed,
+      }))
+    }
     const pool = await poolFile()
     const songs = pool.songs.filter((s: any) => s.batch_id === 'b_complete')
     assert.equal(songs.length, 3)
@@ -221,6 +511,11 @@ describe('generating songs', () => {
     assert.equal(service.providerSubmissionCount('chat'), chatBefore, 'no brief is rewritten')
     assert.equal(service.providerSubmissionCount('music') - musicBefore, 1, 'only the missing song is asked for')
     assert.equal((await poolFile()).songs.filter((s: any) => s.batch_id === 'b_partial').length, 2)
+    const checkpoint = await batchFile('b_partial')
+    const retried = checkpoint.items.find((item: any) => item.music_attempts?.length > 1)
+    assert.ok(retried, 'the settled retry keeps both exact request identities')
+    assert.notEqual(retried.music_attempts[0].idempotency_key, retried.music_attempts[1].idempotency_key)
+    assert.ok(retried.music_attempts.every((attempt: any) => attempt.accepted_task_id))
   })
 
   test('regenerate: same brief, new seed, old take kept but disabled', async () => {

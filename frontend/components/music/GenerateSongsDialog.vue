@@ -29,26 +29,26 @@
         <div>
           <label class="mp-lbl" for="mp-count">How many songs</label>
           <div class="mp-row">
-            <input id="mp-count" v-model.number="count" type="number" min="1" max="2000" class="mp-inp" style="width: 110px">
-            <button type="button" class="mp-chip" :class="{ on: count === 50 }" @click="count = 50">50</button>
-            <button v-if="missing" type="button" class="mp-chip" :class="{ on: count === missing }" @click="count = missing">{{ missing }} · to reach {{ needed }}</button>
-            <button type="button" class="mp-chip" :class="{ on: count === 500 }" @click="count = 500">500</button>
+            <input id="mp-count" v-model.number="count" type="number" min="1" max="2000" class="mp-inp" style="width: 110px" @change="cancelPendingSongPoolSubmission">
+            <button type="button" class="mp-chip" :class="{ on: count === 50 }" @click="cancelPendingSongPoolSubmission(); count = 50">50</button>
+            <button v-if="missing" type="button" class="mp-chip" :class="{ on: count === missing }" @click="cancelPendingSongPoolSubmission(); count = missing">{{ missing }} · to reach {{ needed }}</button>
+            <button type="button" class="mp-chip" :class="{ on: count === 500 }" @click="cancelPendingSongPoolSubmission(); count = 500">500</button>
           </div>
           <p class="mp-hint">Briefs are written {{ perCall }} at a time — {{ calls }} call{{ calls === 1 ? '' : 's' }} to the writing model for {{ count || 0 }} songs.</p>
         </div>
         <div>
           <span class="mp-lbl">Song length</span>
           <div class="mp-row">
-            <input v-model="minText" class="mp-inp narrow" aria-label="Shortest song (m:ss)">
+            <input v-model="minText" class="mp-inp narrow" aria-label="Shortest song (m:ss)" @change="cancelPendingSongPoolSubmission">
             <span>to</span>
-            <input v-model="maxText" class="mp-inp narrow" aria-label="Longest song (m:ss)">
+            <input v-model="maxText" class="mp-inp narrow" aria-label="Longest song (m:ss)" @change="cancelPendingSongPoolSubmission">
           </div>
           <p class="mp-hint">From the formula. Random within the range<span v-if="musicModel?.max_duration_seconds">; up to {{ clock(musicModel.max_duration_seconds) }} is possible with {{ musicModel.display_name }}</span>.</p>
           <p v-if="lengthError" class="mp-hint mp-warn">{{ lengthError }}</p>
         </div>
 
         <div>
-          <ModelSelector v-model="writerModel" :project-slug="slug" label="Writing model" writing-step />
+          <ModelSelector v-model="writerModel" :project-slug="slug" label="Writing model" writing-step @update:model-value="cancelPendingSongPoolSubmission" />
           <p class="mp-hint">
             <span class="ds-chip" data-tone="info">you choose</span>
             Story Studio doesn't pick one for you. This model only writes titles, one descriptive line and a scene idea
@@ -57,21 +57,21 @@
         </div>
         <div>
           <label class="mp-lbl" for="mp-song-model">Song model</label>
-          <select id="mp-song-model" v-model="musicModelId" class="mp-inp" style="width: 100%">
+          <select id="mp-song-model" v-model="musicModelId" class="mp-inp" style="width: 100%" @change="cancelPendingSongPoolSubmission">
             <option value="" disabled>Pick the model that makes the audio…</option>
             <option v-for="m in songModels" :key="m.id" :value="m.id">{{ m.display_name }} — {{ describeMusicUnitCost(m).text }}</option>
           </select>
           <p class="mp-hint">One song per Mac at a time; free Macs take the next song. Saved as AAC (m4a), about {{ mbPerSong }} MB a song.</p>
           <template v-if="sung">
             <label class="mp-lbl" for="mp-check-model" style="margin-top: 10px">Listen-back model</label>
-            <select id="mp-check-model" v-model="checkModelId" class="mp-inp" style="width: 100%">
+            <select id="mp-check-model" v-model="checkModelId" class="mp-inp" style="width: 100%" @change="cancelPendingSongPoolSubmission">
               <option value="" disabled>Pick the model that listens back…</option>
               <option v-for="m in checkModels" :key="m.id" :value="m.id">{{ m.display_name }}</option>
             </select>
             <p class="mp-hint">Transcribes each finished song and compares the words with its lyrics. Only free fleet models are listed.</p>
           </template>
           <label class="mp-lbl" for="mp-inflight" style="margin-top: 10px">Songs on the fleet at once</label>
-          <input id="mp-inflight" v-model.number="inFlight" type="number" min="1" :max="maxInFlight" class="mp-inp narrow">
+          <input id="mp-inflight" v-model.number="inFlight" type="number" min="1" :max="maxInFlight" class="mp-inp narrow" @change="cancelPendingSongPoolSubmission">
           <p class="mp-hint">Sent to the Gateway together; any it can't start yet waits in its queue for the next free Mac (queue limit {{ maxInFlight }}).</p>
 
           <span class="mp-lbl" style="margin-top: 10px">Formula</span>
@@ -160,6 +160,14 @@ const props = defineProps<{
 const emit = defineEmits<{ close: []; started: [job: any] }>()
 const { get, post } = useApi()
 const fresh = useFreshGenerationAction()
+const { showAction } = useToast()
+
+interface PendingSongPoolSubmission {
+  projectSlug: string
+  body: Record<string, unknown>
+  operationId: string
+  attempted: boolean
+}
 
 const storeKey = (what: string) => `story-studio:song-pool:${what}:${props.slug}`
 const recall = (what: string) => { try { return localStorage.getItem(storeKey(what)) || '' } catch { return '' } }
@@ -182,6 +190,8 @@ const previewDropped = ref<any[]>([])
 const previewing = ref(false)
 const starting = ref(false)
 const startError = ref('')
+const pendingSongPoolSubmission = ref<PendingSongPoolSubmission | null>(null)
+let postingOperationId = ''
 
 const missing = computed(() => Math.max(0, props.missing || 0))
 const needed = computed(() => props.needed || 0)
@@ -283,28 +293,83 @@ async function previewBriefs() {
   finally { previewing.value = false }
 }
 
-async function start() {
-  starting.value = true
-  startError.value = ''
-  const payload = {
+function cancelPendingSongPoolSubmission() {
+  const pending = pendingSongPoolSubmission.value
+  if (pending) fresh.complete(pending.operationId)
+  pendingSongPoolSubmission.value = null
+  if (pending && postingOperationId === pending.operationId) {
+    postingOperationId = ''
+    starting.value = false
+  }
+}
+
+function currentStartBody() {
+  return {
     mode: props.mode, count: count.value, writer_model: writerModel.value, music_model: musicModelId.value,
     length_min_s: minS.value, length_max_s: maxS.value, in_flight: inFlight.value,
     ...(sung.value ? { check_model: checkModelId.value } : {}),
   }
-  const operationId = fresh.begin(payload)
+}
+
+function submissionIsCurrent(submission: PendingSongPoolSubmission) {
+  return pendingSongPoolSubmission.value?.operationId === submission.operationId
+    && pendingSongPoolSubmission.value.projectSlug === submission.projectSlug
+    && props.visible && props.slug === submission.projectSlug
+    && props.mode === submission.body.mode
+}
+
+async function submitStart(submission: PendingSongPoolSubmission) {
+  if (!submissionIsCurrent(submission)) return
+  if (!submission.attempted && (submission.projectSlug !== props.slug
+    || JSON.stringify(submission.body) !== JSON.stringify(currentStartBody()))) {
+    cancelPendingSongPoolSubmission()
+    startError.value = 'The project or generation choices changed. Review them and start again.'
+    return
+  }
+  starting.value = true
+  postingOperationId = submission.operationId
+  startError.value = ''
+  submission.attempted = true
   try {
-    const job = await post(`/projects/${props.slug}/song-pool/generate`, { ...payload, operation_id: operationId })
-    fresh.complete(operationId)
-    remember('writer-model', writerModel.value); remember('music-model', musicModelId.value); remember('in-flight', String(inFlight.value))
-    if (sung.value) remember('check-model', checkModelId.value)
-    emit('started', job)
+    const job = await post(`/projects/${submission.projectSlug}/song-pool/generate`, { ...submission.body, operation_id: submission.operationId })
+    if (submissionIsCurrent(submission)) {
+      fresh.complete(submission.operationId)
+      pendingSongPoolSubmission.value = null
+      remember('writer-model', String(submission.body.writer_model || ''))
+      remember('music-model', String(submission.body.music_model || ''))
+      remember('in-flight', String(submission.body.in_flight || ''))
+      if (submission.body.check_model) remember('check-model', String(submission.body.check_model))
+      emit('started', job)
+    }
   } catch (e: any) {
-    startError.value = e?.data?.detail || e?.message || UNCONFIRMED_SUBMISSION
-  } finally { starting.value = false }
+    if (!submissionIsCurrent(submission)) return
+    const detail = e?.data?.detail || e?.response?._data?.detail
+    if (detail) {
+      fresh.complete(submission.operationId)
+      pendingSongPoolSubmission.value = null
+      startError.value = detail
+    } else {
+      startError.value = UNCONFIRMED_SUBMISSION
+      showAction(UNCONFIRMED_SUBMISSION, 'Retry', () => submitStart(submission))
+    }
+  } finally {
+    if (postingOperationId === submission.operationId) {
+      postingOperationId = ''
+      starting.value = false
+    }
+  }
+}
+
+async function start() {
+  const body = JSON.parse(JSON.stringify(currentStartBody())) as Record<string, unknown>
+  const operationId = fresh.begin(body, 'song-pool-generation')
+  const submission: PendingSongPoolSubmission = { projectSlug: props.slug, body, operationId, attempted: false }
+  pendingSongPoolSubmission.value = submission
+  await submitStart(submission)
 }
 
 watch(() => props.visible, (open) => {
-  if (!open) return
+  if (!open) { cancelPendingSongPoolSubmission(); return }
   const f = props.songFormula
   if (f?.length_s) { minText.value = clock(f.length_s.min); maxText.value = clock(f.length_s.max) }
   count.value = props.initialCount && props.initialCount > 0 ? props.initialCount : (props.mode === 'fill-gaps' && missing.value ? missing.value : 50)
@@ -314,6 +379,7 @@ watch(() => props.visible, (open) => {
   void loadModels()
   replan()
 }, { immediate: true })
+watch(() => [props.slug, props.mode] as const, () => cancelPendingSongPoolSubmission())
 watch([count, minText, maxText], replan)
 </script>
 
