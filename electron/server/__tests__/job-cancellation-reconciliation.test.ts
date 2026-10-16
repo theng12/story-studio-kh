@@ -1549,3 +1549,11 @@ test('pending-cancellation classification and the merge agree on what a failed r
     proven.restore()
   }
 })
+
+test('only a music unknown-outcome hold stays unsettled; a held chat row settles so Retry is not blocked forever', async () => {
+  const { isUnsettledProviderEntry } = await import('../lib/provider-task-state.js')
+  const held = { state: 'failed', recovery_required: true, recovery_state: 'unknown_outcome', cancelled: false }
+  assert.equal(isUnsettledProviderEntry({ ...held, operation: 'music.generation' }), true, 'music has recover-existing-task')
+  assert.equal(isUnsettledProviderEntry({ ...held, operation: 'chat.response' }), false, 'EP0113: a held writing row must settle')
+  assert.equal(isUnsettledProviderEntry({ ...held, operation: 'voice.tts' }), false)
+})
