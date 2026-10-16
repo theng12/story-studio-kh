@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.306 — 2026-10-16
+
+- Pipeline runs now keep the channel's custom narration guidance in outlines and their expansions, as manual runs already did. Existing episodes are unchanged.
+
 ## v1.4.305 — 2026-10-14
 
 - You can choose a new attempt for unresolved work in Idea Campaign, Voice, Music Library, Image Pool, Song Pool, and Script/Document generation while keeping earlier completed work.
