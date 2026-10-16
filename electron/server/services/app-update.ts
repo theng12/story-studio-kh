@@ -91,7 +91,11 @@ export interface UpdateState {
   we_paused?: boolean
   drain_started_at?: number | null
   install_requested?: boolean
-  /** The owner pressed "Install now (don't wait)": install as soon as staged, without draining. */
+  /**
+   * The owner pressed "Install now (don't wait)": install as soon as staged, without draining.
+   * Standing intent like `install_requested`: a request recorded while one release downloads
+   * installs the next offered release immediately, without a second confirmation.
+   */
   immediate?: boolean
   /** Gateway manual command acknowledged only once its verified attempt actually starts. */
   gateway_update_request_id?: string | null
@@ -424,6 +428,14 @@ let checking: Promise<UpdateState> | null = null
 let drainTimer: NodeJS.Timeout | null = null
 let idleTimer: NodeJS.Timeout | null = null
 let quittingForUpdate = false
+/**
+ * The one in-flight install hand-off, set synchronously by `install()` before its first await.
+ * Two callers race here — a drain tick suspended in `wouldNotResume`/`inFlightSubmits` and an
+ * "Install now (don't wait)" press (or two presses) — and only the winner may spawn the helper or
+ * patch the state, so the loser can neither start a second helper nor write `draining` over the
+ * `installing` the winner committed.
+ */
+let installing: Promise<boolean> | null = null
 
 /** main.ts's quit path asks this so a "jobs are running, quit?" question never blocks an update. */
 export function isQuittingForUpdate(): boolean { return quittingForUpdate }
@@ -738,22 +750,34 @@ export async function maybeInstall(): Promise<void> {
   const o = opts!
   const state = readState()
   if (state.phase !== 'ready' && state.phase !== 'draining') return
-  if (state.phase === 'ready') {
-    if (!state.install_requested) {
+  const before = readState()
+  let claimed = before.phase === 'draining'
+  if (before.phase === 'ready') {
+    if (!before.install_requested) {
       const settings = await o.getSettings()
-      if (!settings.auto_install || state.held) return
-      if (o.queue.loaded?.() === false || (o.queue.isPaused() && !state.we_paused)) return watchIdle()
+      if (!settings.auto_install || before.held) return
+      if (o.queue.loaded?.() === false || (o.queue.isPaused() && !before.we_paused)) return watchIdle()
     }
-    let wePaused = !!state.we_paused
+    let wePaused = !!before.we_paused
     if (!o.queue.isPaused()) {
       await o.queue.setPaused(true)
       wePaused = true
     }
+    // Anything the call above suspended through may have moved this release on (a second press, a
+    // drain tick, an install): only the caller that still sees the same state may claim the drain.
+    const now = readState()
+    if (now.phase !== 'ready' || now.drain_started_at !== before.drain_started_at) return
     patchState({ phase: 'draining', drain_started_at: o.now?.() ?? Date.now(), we_paused: wePaused })
+    claimed = true
   }
-  // Install now (don't wait): intake is paused above, running jobs are left to the boot scan.
-  if (readState().immediate) return void await install().catch(e => markFailed(e))
-  watchDrain()
+  // Install now (don't wait): intake is paused above, running jobs are left to the boot scan. The
+  // promise is claimed before this function yields again, so an overlapping press, or the drain
+  // tick below, cannot start a second helper or write `draining` over the `installing` it commits.
+  if (readState().immediate && !installing) {
+    installing = install().catch(e => { installing = null; markFailed(e); return false })
+  }
+  if (installing) return
+  if (claimed) watchDrain()
 }
 
 function watchIdle(): void {
@@ -779,6 +803,10 @@ function watchDrain(): void {
     const submitsSettled = left.submits === 0 || waited > SUBMIT_SETTLE_MS
     const ownerOverride = !!state.install_requested && waited > DRAIN_TIMEOUT_MS
     if ((submitsSettled && left.jobs.length === 0) || ownerOverride) {
+      // Re-read after the awaits above: an "Install now (don't wait)" press (or another tick) may
+      // have moved this release to `installing` or `failed` while this tick was asking the queue,
+      // and a hand-off from here would be a second helper and a `draining` write over it.
+      if (readState().phase !== 'draining') return
       await install().catch(e => markFailed(e))
       return
     }
@@ -887,6 +915,7 @@ export function _resetForTesting(): void {
   if (timer) clearInterval(timer)
   timer = null
   quittingForUpdate = false
+  installing = null
 }
 export function _configureForTesting(options: UpdaterOptions): void { opts = options }
 
