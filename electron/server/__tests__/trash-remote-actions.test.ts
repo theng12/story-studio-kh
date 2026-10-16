@@ -210,15 +210,23 @@ describe('one at a time', () => {
     mkdirSync(macTrash, { recursive: true })
     let open!: () => void
     const gate = new Promise<void>(resolve => { open = resolve })
-    const moving = trash.moveToMacTrash([item.id], { count: 1, bytes: 4 }, async (p) => { await gate; renameSync(p, path.join(macTrash, path.basename(p))) })
-    let restoreSettled = false
-    const restoring = trash.restoreTrashItem(item.id).finally(() => { restoreSettled = true })
+    // Both facts are sampled at the moment they are decided rather than after a fixed sleep: the move
+    // holds the one serial chain, so a Restore queued behind it must not put the item back — and must
+    // not settle — before the move finishes. A slow machine cannot make either pass by accident.
+    let sourceStayedEmpty = true
+    let moveSettled = false
+    const moving = trash.moveToMacTrash([item.id], { count: 1, bytes: 4 }, async (p) => {
+      sourceStayedEmpty = !existsSync(from)
+      await gate
+      renameSync(p, path.join(macTrash, path.basename(p)))
+    }).then(result => { moveSettled = true; return result })
+    let restoreSettledBeforeMove = false
+    const restoring = trash.restoreTrashItem(item.id).finally(() => { restoreSettledBeforeMove = !moveSettled })
     restoring.catch(() => {})
-    await new Promise(resolve => setTimeout(resolve, 100))
-    assert.equal(restoreSettled, false, 'Restore waits for the move')
-    assert.equal(existsSync(from), false)
     open()
     assert.equal((await moving).moved, 1)
+    assert.equal(sourceStayedEmpty, true, 'nothing was put back while the move held the chain')
+    assert.equal(restoreSettledBeforeMove, false, 'Restore waits for the move')
     await assert.rejects(restoring, /not found/)
     assert.equal(existsSync(from), false)
   })

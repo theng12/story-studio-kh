@@ -15,6 +15,7 @@ import express from 'express'
 import request from 'supertest'
 
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 import { FakeYouTube } from './fixtures/fake-youtube.js'
 
@@ -439,7 +440,7 @@ describe('freshness is honest', () => {
     const goneAt = (await cacheView(s.slug)).videos[0].checked_at
     assert.ok(goneAt)
 
-    await new Promise(resolve => setTimeout(resolve, 5))
+    await waitFor(() => Date.now() > Date.parse(goneAt!), { label: 'the clock to pass the not_found answer' })
     await s.legacy(code!, 'legacy-live')
     fake = new FakeYouTube()
     fake.respondMatching({ method: 'GET', match: VIDEOS, body: { items: [scheduled('legacy-live', '2026-11-25T15:00:00Z')] } })
