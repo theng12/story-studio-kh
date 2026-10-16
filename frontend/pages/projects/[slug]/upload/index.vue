@@ -33,7 +33,7 @@
         </div>
         <div class="channel-state">
           <span :class="['badge', overview.assigned_channel?.status]">{{ healthLabel }}</span>
-          <span :class="['hint', freshness.stale ? 'stale' : '']">{{ syncCopy }}</span>
+          <span :class="['hint', freshness.stale || uncheckedVideos ? 'stale' : '']">{{ syncCopy }}</span>
           <button class="btn btn-sm" type="button" :disabled="syncing || !canSync" @click="syncNow">
             {{ syncing ? 'Checking with YouTube…' : 'Check All Uploads' }}
           </button>
@@ -127,6 +127,8 @@ interface Overview {
   attention: { processing: number; failed: number; rejected: number; status_unavailable: number; drift: number }
   operation_count: number
   last_remote_sync_at: string | null
+  /** How much of the channel the sync time covers. Absent from older backends. */
+  publication_coverage?: { unchecked_videos: number } | null
   last_sync_attempt: { attempted_at: string; outcome: 'ok' | 'partial' | 'failed'; checked: number; error_code?: string } | null
 }
 
@@ -239,12 +241,18 @@ const freshness = computed(() => {
   return { known: true, stale: Date.now() - parsed > STALE_AFTER_MS }
 })
 
+/** Known videos YouTube was never asked about (legacy uploads, until Check All). */
+const uncheckedVideos = computed(() => overview.value?.publication_coverage?.unchecked_videos ?? 0)
+
 const syncCopy = computed(() => {
   const at = overview.value?.last_remote_sync_at
   if (!at) return 'Not checked with YouTube yet'
-  return freshness.value.stale
+  const checked = freshness.value.stale
     ? `Showing what YouTube said on ${formatWhen(at)} — this may be out of date`
     : `Last checked with YouTube ${formatWhen(at)}`
+  // "Checked" must not read as "all checked" while some videos never were.
+  const n = uncheckedVideos.value
+  return n ? `${checked} · ${n} ${n === 1 ? 'video' : 'videos'} not checked yet — run Check All Uploads` : checked
 })
 
 /**
