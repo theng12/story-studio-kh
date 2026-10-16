@@ -497,6 +497,9 @@ const cancellationReconcileTimers = new Map<string, NodeJS.Timeout>()
 const cancelled = new Set<string>()
 // Terminal history can be removed while its worker is still unwinding.
 const activeRunJobIds = new Set<string>()
+// Parents whose executor already finished and that are only queueing their next Pipeline link.
+// They are not writing, so chapter-writer admission must not count them against that link.
+const chainHandoffJobIds = new Set<string>()
 const pauseRequested = new Set<string>()
 const queuePauseReleaseCheckpoints = new Set<string>()
 const pausedTransitionClaims = new Set<string>()
@@ -3855,6 +3858,7 @@ async function continuePipelineAfterFailure(job: Job): Promise<void> {
 }
 
 async function dispatchChainLink(job: Job, nextStep: any, rest: unknown[]): Promise<void> {
+  chainHandoffJobIds.add(job.job_id)
   try {
     const batchId = job.params.pipeline_batch_id
     const nextParams = {
@@ -3891,6 +3895,8 @@ async function dispatchChainLink(job: Job, nextStep: any, rest: unknown[]): Prom
     if (error instanceof DuplicateJobError && await joinDuplicateChainLink(job, nextStep, rest)) return
     const failed = await recordChainHandoffFailure(job, nextStep, rest, error)
     job.output_lines.push(`Chain-next failed: ${error instanceof Error ? error.message : String(error)} (recorded as failed job ${failed.job_id})`)
+  } finally {
+    chainHandoffJobIds.delete(job.job_id)
   }
 }
 
@@ -5417,7 +5423,7 @@ function assertChapterWriterAdmission(
     if (job.project_slug !== opts.project_slug || job.episode_id !== opts.episode_id) continue
     const occupiesEpisode = job.status === 'queued' || job.status === 'running' || job.status === 'paused'
       || activeRunJobIds.has(job.job_id)
-    if (!occupiesEpisode) continue
+    if (!occupiesEpisode || chainHandoffJobIds.has(job.job_id)) continue
     const conflicts = chapterWriterReservationConflicts(opts, job)
     if (conflicts) throw new DuplicateJobError(opts.type, opts.episode_id)
   }
