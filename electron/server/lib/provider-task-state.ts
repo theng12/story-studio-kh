@@ -86,7 +86,15 @@ const SETTLED_PROVIDER_STATES: ReadonlySet<string> = new Set([
   'succeeded', 'failed', 'cancelled', GENSTUDIO_TASK_NOT_CREATED_STATE,
 ])
 
-type ProviderEntryState = { state?: unknown; cancelled?: boolean | null; recovery_required?: unknown; recovery_state?: unknown }
+type ProviderEntryState = {
+  operation?: unknown; state?: unknown; cancelled?: boolean | null; recovery_required?: unknown; recovery_state?: unknown
+}
+
+// Only music has a path out of an unknown-outcome hold (recover-existing-task), so only there does a
+// hold keep the row unsettled. Elsewhere a held `failed` row settles as before, or a held writing job
+// could never be retried (EP0113).
+const HOLD_AWARE_OPERATIONS: ReadonlySet<string> = new Set(['music.generation'])
+const holdAware = (entry: ProviderEntryState): boolean => HOLD_AWARE_OPERATIONS.has(String(entry.operation))
 
 /**
  * True when a fresh `failed` read may NOT replace stored evidence. The Gateway (cc5bcb70 store.py)
@@ -107,7 +115,7 @@ export function isUnprovenFailedRead(prior: ProviderEntryState, fresh: ProviderE
 export function isSettledProviderEntry(entry: ProviderEntryState): boolean {
   if (shouldRecheckStoredTranscriptionAbsence(entry)) return false
   if (entry.cancelled === true) return true
-  return !holdsUnknownProviderOutcome(entry) && SETTLED_PROVIDER_STATES.has(String(entry.state))
+  return !(holdAware(entry) && holdsUnknownProviderOutcome(entry)) && SETTLED_PROVIDER_STATES.has(String(entry.state))
 }
 
 /** True when this recorded provider task's outcome can still change. */
